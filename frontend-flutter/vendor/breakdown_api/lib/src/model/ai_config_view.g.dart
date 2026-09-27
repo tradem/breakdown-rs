@@ -22,6 +22,8 @@ class _$AiConfigView extends AiConfigView {
   @override
   final bool revoked;
   @override
+  final BuiltList<DocumentKind>? storedPromptKinds;
+  @override
   final String userId;
   @override
   final String vaultKeyId;
@@ -39,6 +41,7 @@ class _$AiConfigView extends AiConfigView {
       required this.prompts,
       required this.provider,
       required this.revoked,
+      this.storedPromptKinds,
       required this.userId,
       required this.vaultKeyId,
       required this.version})
@@ -61,6 +64,7 @@ class _$AiConfigView extends AiConfigView {
         prompts == other.prompts &&
         provider == other.provider &&
         revoked == other.revoked &&
+        storedPromptKinds == other.storedPromptKinds &&
         userId == other.userId &&
         vaultKeyId == other.vaultKeyId &&
         version == other.version;
@@ -76,6 +80,7 @@ class _$AiConfigView extends AiConfigView {
     _$hash = $jc(_$hash, prompts.hashCode);
     _$hash = $jc(_$hash, provider.hashCode);
     _$hash = $jc(_$hash, revoked.hashCode);
+    _$hash = $jc(_$hash, storedPromptKinds.hashCode);
     _$hash = $jc(_$hash, userId.hashCode);
     _$hash = $jc(_$hash, vaultKeyId.hashCode);
     _$hash = $jc(_$hash, version.hashCode);
@@ -93,6 +98,7 @@ class _$AiConfigView extends AiConfigView {
           ..add('prompts', prompts)
           ..add('provider', provider)
           ..add('revoked', revoked)
+          ..add('storedPromptKinds', storedPromptKinds)
           ..add('userId', userId)
           ..add('vaultKeyId', vaultKeyId)
           ..add('version', version))
@@ -136,6 +142,12 @@ class AiConfigViewBuilder
   bool? get revoked => _$this._revoked;
   set revoked(bool? revoked) => _$this._revoked = revoked;
 
+  ListBuilder<DocumentKind>? _storedPromptKinds;
+  ListBuilder<DocumentKind> get storedPromptKinds =>
+      _$this._storedPromptKinds ??= ListBuilder<DocumentKind>();
+  set storedPromptKinds(ListBuilder<DocumentKind>? storedPromptKinds) =>
+      _$this._storedPromptKinds = storedPromptKinds;
+
   String? _userId;
   String? get userId => _$this._userId;
   set userId(String? userId) => _$this._userId = userId;
@@ -162,6 +174,7 @@ class AiConfigViewBuilder
       _prompts = $v.prompts.toBuilder();
       _provider = $v.provider;
       _revoked = $v.revoked;
+      _storedPromptKinds = $v.storedPromptKinds?.toBuilder();
       _userId = $v.userId;
       _vaultKeyId = $v.vaultKeyId;
       _version = $v.version;
@@ -199,6 +212,7 @@ class AiConfigViewBuilder
                 provider, r'AiConfigView', 'provider'),
             revoked: BuiltValueNullFieldError.checkNotNull(
                 revoked, r'AiConfigView', 'revoked'),
+            storedPromptKinds: _storedPromptKinds?.build(),
             userId: BuiltValueNullFieldError.checkNotNull(
                 userId, r'AiConfigView', 'userId'),
             vaultKeyId: BuiltValueNullFieldError.checkNotNull(
@@ -213,6 +227,9 @@ class AiConfigViewBuilder
         promptKinds.build();
         _$failedField = 'prompts';
         prompts.build();
+
+        _$failedField = 'storedPromptKinds';
+        _storedPromptKinds?.build();
       } catch (e) {
         throw BuiltValueNestedFieldError(
             r'AiConfigView', _$failedField, e.toString());

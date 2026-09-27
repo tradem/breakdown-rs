@@ -23,6 +23,7 @@ part 'ai_config_view.g.dart';
 /// * [prompts] - Stored prompt texts by document kind (`script`/`schedule`). Mirrors the create/update request `prompts` payload so an edit can round-trip the persisted texts. Prompts are user-authored extraction seeds, not secrets — the vault reference is the only opaque material.
 /// * [provider]
 /// * [revoked]
+/// * [storedPromptKinds] - Kinds whose extraction is driven by a **stored** prompt (design D6).  A stored prompt is a snapshot taken when the configuration was written: it wins over the deployment default and therefore does **not** follow updates to `config/default_ai_prompts.toml`. That was observed live — a configuration kept the previous three-line prompt and silently ignored a hardened default, invalidating a whole test round. The surface must say so, and offer a reset (write the current text from `GET /v1/ai-import/defaults`). A kind absent here has no stored prompt and follows the deployment default on every run.  Additive with `serde(default)` so an older client reading a newer view still deserialises.
 /// * [userId] - Opaque identifier for a user, wrapping the OIDC `sub` claim.  `UserId` references the authenticated principal without ever decoding, storing, or dereferencing identity attributes in `core`. The backend only trusts the IdP-issued `sub`; account lifecycle lives exclusively in the OIDC provider (ADR-010). Unlike the hierarchy ids, `UserId` is *not* a UUIDv7 — it is the raw string subject the IdP assigns.
 /// * [vaultKeyId]
 /// * [version] - Aggregate version for optimistic locking.  The canonical version contract is **1-based**: `AggregateVersion::INITIAL = 1`, and every mutation increments the version by one.  The SierraDB stream version (0-based) is an infrastructure-internal detail. The translation rule is: `domain_version = stream_version + 1` (and inversely `stream_version = domain_version - 1`) which is performed exclusively inside `crates::infra` at the `*Commands` adapter boundary. `core` does not reference `stream_version`, `ExpectedVersion`, or `CurrentVersion`.
@@ -51,6 +52,10 @@ abstract class AiConfigView
 
   @BuiltValueField(wireName: r'revoked')
   bool get revoked;
+
+  /// Kinds whose extraction is driven by a **stored** prompt (design D6).  A stored prompt is a snapshot taken when the configuration was written: it wins over the deployment default and therefore does **not** follow updates to `config/default_ai_prompts.toml`. That was observed live — a configuration kept the previous three-line prompt and silently ignored a hardened default, invalidating a whole test round. The surface must say so, and offer a reset (write the current text from `GET /v1/ai-import/defaults`). A kind absent here has no stored prompt and follows the deployment default on every run.  Additive with `serde(default)` so an older client reading a newer view still deserialises.
+  @BuiltValueField(wireName: r'stored_prompt_kinds')
+  BuiltList<DocumentKind>? get storedPromptKinds;
 
   /// Opaque identifier for a user, wrapping the OIDC `sub` claim.  `UserId` references the authenticated principal without ever decoding, storing, or dereferencing identity attributes in `core`. The backend only trusts the IdP-issued `sub`; account lifecycle lives exclusively in the OIDC provider (ADR-010). Unlike the hierarchy ids, `UserId` is *not* a UUIDv7 — it is the raw string subject the IdP assigns.
   @BuiltValueField(wireName: r'user_id')
@@ -124,6 +129,13 @@ class _$AiConfigViewSerializer implements PrimitiveSerializer<AiConfigView> {
       object.revoked,
       specifiedType: const FullType(bool),
     );
+    if (object.storedPromptKinds != null) {
+      yield r'stored_prompt_kinds';
+      yield serializers.serialize(
+        object.storedPromptKinds,
+        specifiedType: const FullType(BuiltList, [FullType(DocumentKind)]),
+      );
+    }
     yield r'user_id';
     yield serializers.serialize(
       object.userId,
@@ -214,6 +226,15 @@ class _$AiConfigViewSerializer implements PrimitiveSerializer<AiConfigView> {
             specifiedType: const FullType(bool),
           ) as bool;
           result.revoked = valueDes;
+          break;
+        case r'stored_prompt_kinds':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType:
+                const FullType.nullable(BuiltList, [FullType(DocumentKind)]),
+          ) as BuiltList<DocumentKind>?;
+          if (valueDes == null) continue;
+          result.storedPromptKinds.replace(valueDes);
           break;
         case r'user_id':
           final valueDes = serializers.deserialize(

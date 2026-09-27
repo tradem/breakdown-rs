@@ -6,6 +6,8 @@
 
 // ignore_for_file: unused_element
 import 'package:breakdown_api/src/model/apply_mapping_decision.dart';
+import 'package:built_collection/built_collection.dart';
+import 'package:breakdown_api/src/model/costume_decision.dart';
 import 'package:built_value/built_value.dart';
 import 'package:built_value/serializer.dart';
 
@@ -14,11 +16,16 @@ part 'apply_mapping.g.dart';
 /// User decision for one draft row. A create decision leaves the aggregate id absent; an update decision carries the existing id and optimistic version.
 ///
 /// Properties:
+/// * [costumeDecisions] - Per-costume-row decisions of this draft row. Absent ordinals default to accepted, so a request written before this field existed (or one where the reviewer touched nothing) still applies everything that was extracted.
 /// * [decision]
 /// * [draftRef]
 @BuiltValue()
 abstract class ApplyMapping
     implements Built<ApplyMapping, ApplyMappingBuilder> {
+  /// Per-costume-row decisions of this draft row. Absent ordinals default to accepted, so a request written before this field existed (or one where the reviewer touched nothing) still applies everything that was extracted.
+  @BuiltValueField(wireName: r'costume_decisions')
+  BuiltList<CostumeDecision>? get costumeDecisions;
+
   @BuiltValueField(wireName: r'decision')
   ApplyMappingDecision get decision;
 
@@ -48,6 +55,13 @@ class _$ApplyMappingSerializer implements PrimitiveSerializer<ApplyMapping> {
     ApplyMapping object, {
     FullType specifiedType = FullType.unspecified,
   }) sync* {
+    if (object.costumeDecisions != null) {
+      yield r'costume_decisions';
+      yield serializers.serialize(
+        object.costumeDecisions,
+        specifiedType: const FullType(BuiltList, [FullType(CostumeDecision)]),
+      );
+    }
     yield r'decision';
     yield serializers.serialize(
       object.decision,
@@ -83,6 +97,15 @@ class _$ApplyMappingSerializer implements PrimitiveSerializer<ApplyMapping> {
       final key = serializedList[i] as String;
       final value = serializedList[i + 1];
       switch (key) {
+        case r'costume_decisions':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType:
+                const FullType.nullable(BuiltList, [FullType(CostumeDecision)]),
+          ) as BuiltList<CostumeDecision>?;
+          if (valueDes == null) continue;
+          result.costumeDecisions.replace(valueDes);
+          break;
         case r'decision':
           final valueDes = serializers.deserialize(
             value,

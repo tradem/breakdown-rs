@@ -44,6 +44,7 @@ import 'package:breakdown_api/src/model/character_view.dart';
 import 'package:breakdown_api/src/model/checkpoint_progress.dart';
 import 'package:breakdown_api/src/model/contact_info.dart';
 import 'package:breakdown_api/src/model/costume_category_view.dart';
+import 'package:breakdown_api/src/model/costume_decision.dart';
 import 'package:breakdown_api/src/model/costume_detail.dart';
 import 'package:breakdown_api/src/model/costume_detail_view.dart';
 import 'package:breakdown_api/src/model/costume_photo_view.dart';
@@ -62,6 +63,7 @@ import 'package:breakdown_api/src/model/credential_binding_state.dart';
 import 'package:breakdown_api/src/model/dead_letter_entry.dart';
 import 'package:breakdown_api/src/model/dispo_row.dart';
 import 'package:breakdown_api/src/model/document_kind.dart';
+import 'package:breakdown_api/src/model/draft_costume.dart';
 import 'package:breakdown_api/src/model/draft_scene.dart';
 import 'package:breakdown_api/src/model/episode_view.dart';
 import 'package:breakdown_api/src/model/finish_scene_shoot_request.dart';
@@ -121,7 +123,10 @@ import 'package:breakdown_api/src/model/soll_ist_diff_row.dart';
 import 'package:breakdown_api/src/model/soll_ist_report.dart';
 import 'package:breakdown_api/src/model/source_format.dart';
 import 'package:breakdown_api/src/model/start_scene_shoot_request.dart';
+import 'package:breakdown_api/src/model/unapplied_costume.dart';
+import 'package:breakdown_api/src/model/unapplied_costume_reason.dart';
 import 'package:breakdown_api/src/model/uncertainty.dart';
+import 'package:breakdown_api/src/model/uncertainty_kind.dart';
 import 'package:breakdown_api/src/model/update_ai_config_request.dart';
 import 'package:breakdown_api/src/model/update_block_time_span_request.dart';
 import 'package:breakdown_api/src/model/update_contact_info_request.dart';
@@ -166,6 +171,7 @@ part 'serializers.g.dart';
   CheckpointProgress,
   ContactInfo,
   CostumeCategoryView,
+  CostumeDecision,
   CostumeDetail,
   CostumeDetailView,
   CostumePhotoView,
@@ -184,6 +190,7 @@ part 'serializers.g.dart';
   DeadLetterEntry,
   DispoRow,
   DocumentKind,
+  DraftCostume,
   DraftScene,
   EpisodeView,
   FinishSceneShootRequest,
@@ -244,7 +251,10 @@ part 'serializers.g.dart';
   SollIstReport,
   SourceFormat,
   StartSceneShootRequest,
+  UnappliedCostume,
+  UnappliedCostumeReason,
   Uncertainty,
+  UncertaintyKind,
   UpdateAiConfigRequest,
   UpdateBlockTimeSpanRequest,
   UpdateContactInfoRequest,
@@ -312,6 +322,10 @@ Serializers serializers = (_$serializers.toBuilder()
         () => ListBuilder<AiProviderInfo>(),
       )
       ..addBuilderFactory(
+        const FullType(BuiltList, [FullType(CostumeDecision)]),
+        () => ListBuilder<CostumeDecision>(),
+      )
+      ..addBuilderFactory(
         const FullType(BuiltList, [FullType(SollIstDiffRow)]),
         () => ListBuilder<SollIstDiffRow>(),
       )
@@ -330,6 +344,10 @@ Serializers serializers = (_$serializers.toBuilder()
       ..addBuilderFactory(
         const FullType(BuiltList, [FullType(MembershipView)]),
         () => ListBuilder<MembershipView>(),
+      )
+      ..addBuilderFactory(
+        const FullType(BuiltList, [FullType(DraftCostume)]),
+        () => ListBuilder<DraftCostume>(),
       )
       ..addBuilderFactory(
         const FullType(BuiltList, [FullType(CostumeCategoryView)]),
@@ -383,6 +401,10 @@ Serializers serializers = (_$serializers.toBuilder()
       ..addBuilderFactory(
         const FullType(BuiltList, [FullType(CostumeView)]),
         () => ListBuilder<CostumeView>(),
+      )
+      ..addBuilderFactory(
+        const FullType(BuiltList, [FullType(UnappliedCostume)]),
+        () => ListBuilder<UnappliedCostume>(),
       )
       ..addBuilderFactory(
         const FullType(BuiltList, [FullType(BlockView)]),

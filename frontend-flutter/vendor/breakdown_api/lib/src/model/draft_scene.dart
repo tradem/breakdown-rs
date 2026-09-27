@@ -6,6 +6,7 @@
 
 // ignore_for_file: unused_element
 import 'package:built_collection/built_collection.dart';
+import 'package:breakdown_api/src/model/draft_costume.dart';
 import 'package:built_value/built_value.dart';
 import 'package:built_value/serializer.dart';
 
@@ -15,6 +16,7 @@ part 'draft_scene.g.dart';
 ///
 /// Properties:
 /// * [characters]
+/// * [costumes] - Costumes worn by this scene's characters. Additive on the wire with a default so previews stored before this field existed still load; a preview written by this version loses the field when read by an older binary (breaking, see the change proposal).
 /// * [draftRef]
 /// * [location]
 /// * [mood]
@@ -25,6 +27,10 @@ part 'draft_scene.g.dart';
 abstract class DraftScene implements Built<DraftScene, DraftSceneBuilder> {
   @BuiltValueField(wireName: r'characters')
   BuiltList<String> get characters;
+
+  /// Costumes worn by this scene's characters. Additive on the wire with a default so previews stored before this field existed still load; a preview written by this version loses the field when read by an older binary (breaking, see the change proposal).
+  @BuiltValueField(wireName: r'costumes')
+  BuiltList<DraftCostume>? get costumes;
 
   @BuiltValueField(wireName: r'draft_ref')
   String get draftRef;
@@ -72,6 +78,13 @@ class _$DraftSceneSerializer implements PrimitiveSerializer<DraftScene> {
       object.characters,
       specifiedType: const FullType(BuiltList, [FullType(String)]),
     );
+    if (object.costumes != null) {
+      yield r'costumes';
+      yield serializers.serialize(
+        object.costumes,
+        specifiedType: const FullType(BuiltList, [FullType(DraftCostume)]),
+      );
+    }
     yield r'draft_ref';
     yield serializers.serialize(
       object.draftRef,
@@ -143,6 +156,15 @@ class _$DraftSceneSerializer implements PrimitiveSerializer<DraftScene> {
             specifiedType: const FullType(BuiltList, [FullType(String)]),
           ) as BuiltList<String>;
           result.characters.replace(valueDes);
+          break;
+        case r'costumes':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType:
+                const FullType.nullable(BuiltList, [FullType(DraftCostume)]),
+          ) as BuiltList<DraftCostume>?;
+          if (valueDes == null) continue;
+          result.costumes.replace(valueDes);
           break;
         case r'draft_ref':
           final valueDes = serializers.deserialize(

@@ -39,6 +39,7 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..add(CheckpointProgress.serializer)
       ..add(ContactInfo.serializer)
       ..add(CostumeCategoryView.serializer)
+      ..add(CostumeDecision.serializer)
       ..add(CostumeDetail.serializer)
       ..add(CostumeDetailView.serializer)
       ..add(CostumePhotoView.serializer)
@@ -57,6 +58,7 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..add(DeadLetterEntry.serializer)
       ..add(DispoRow.serializer)
       ..add(DocumentKind.serializer)
+      ..add(DraftCostume.serializer)
       ..add(DraftScene.serializer)
       ..add(EpisodeView.serializer)
       ..add(FinishSceneShootRequest.serializer)
@@ -115,7 +117,10 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..add(SollIstReport.serializer)
       ..add(SourceFormat.serializer)
       ..add(StartSceneShootRequest.serializer)
+      ..add(UnappliedCostume.serializer)
+      ..add(UnappliedCostumeReason.serializer)
       ..add(Uncertainty.serializer)
+      ..add(UncertaintyKind.serializer)
       ..add(UpdateAiConfigRequest.serializer)
       ..add(UpdateBlockTimeSpanRequest.serializer)
       ..add(UpdateContactInfoRequest.serializer)
@@ -138,6 +143,9 @@ Serializers _$serializers = (Serializers().toBuilder()
           const FullType(BuiltList, const [const FullType(DeadLetterEntry)]),
           () => ListBuilder<DeadLetterEntry>())
       ..addBuilderFactory(
+          const FullType(BuiltList, const [const FullType(CostumeDecision)]),
+          () => ListBuilder<CostumeDecision>())
+      ..addBuilderFactory(
           const FullType(BuiltList, const [const FullType(CostumeDetailView)]),
           () => ListBuilder<CostumeDetailView>())
       ..addBuilderFactory(
@@ -150,6 +158,9 @@ Serializers _$serializers = (Serializers().toBuilder()
           const FullType(
               BuiltMap, const [const FullType(String), const FullType(String)]),
           () => MapBuilder<String, String>())
+      ..addBuilderFactory(
+          const FullType(BuiltList, const [const FullType(DocumentKind)]),
+          () => ListBuilder<DocumentKind>())
       ..addBuilderFactory(
           const FullType(BuiltList, const [const FullType(DraftScene)]),
           () => ListBuilder<DraftScene>())
@@ -194,11 +205,8 @@ Serializers _$serializers = (Serializers().toBuilder()
           const FullType(BuiltList, const [const FullType(String)]),
           () => ListBuilder<String>())
       ..addBuilderFactory(
-          const FullType(BuiltList, const [const FullType(String)]),
-          () => ListBuilder<String>())
-      ..addBuilderFactory(
-          const FullType(BuiltList, const [const FullType(SerializedNote)]),
-          () => ListBuilder<SerializedNote>())
+          const FullType(BuiltList, const [const FullType(DraftCostume)]),
+          () => ListBuilder<DraftCostume>())
       ..addBuilderFactory(
           const FullType(BuiltList, const [const FullType(String)]),
           () => ListBuilder<String>())
@@ -209,8 +217,17 @@ Serializers _$serializers = (Serializers().toBuilder()
           const FullType(BuiltList, const [const FullType(String)]),
           () => ListBuilder<String>())
       ..addBuilderFactory(
+          const FullType(BuiltList, const [const FullType(SerializedNote)]),
+          () => ListBuilder<SerializedNote>())
+      ..addBuilderFactory(
           const FullType(BuiltList, const [const FullType(String)]),
           () => ListBuilder<String>())
+      ..addBuilderFactory(
+          const FullType(BuiltList, const [const FullType(String)]),
+          () => ListBuilder<String>())
+      ..addBuilderFactory(
+          const FullType(BuiltList, const [const FullType(UnappliedCostume)]),
+          () => ListBuilder<UnappliedCostume>())
       ..addBuilderFactory(
           const FullType(
               BuiltMap, const [const FullType(String), const FullType(String)]),
