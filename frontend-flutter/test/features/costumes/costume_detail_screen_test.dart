@@ -39,6 +39,7 @@ import 'package:flutter/services.dart';
 import 'package:dio/dio.dart';
 import 'package:image/image.dart' as img;
 import 'package:image_picker/image_picker.dart';
+import 'package:frontend_flutter/data/cache/clock.dart';
 import 'package:frontend_flutter/features/costumes/costume_detail_screen.dart';
 import 'package:frontend_flutter/features/costumes/costumes_controller.dart';
 import 'package:frontend_flutter/features/costumes/costumes_state.dart';
@@ -62,6 +63,30 @@ CostumeView _costume(
     ..photos.replace(BuiltList<CostumePhotoView>())
     ..updatedAt = DateTime.utc(2026, 1, 1)
     ..version = version,
+);
+
+/// A photo whose thumb variant is READY, so the gallery renders the tile itself
+/// instead of a pending spinner. READY needs no byte fetch to lay out, which
+/// keeps the test free of any network seam.
+CostumePhotoView _readyPhoto(String id) => CostumePhotoView(
+  (b) => b
+    ..id = id
+    ..contentType = 'image/jpeg'
+    ..sizeBytes = 10
+    ..variants.replace([
+      PhotoVariantView(
+        (v) => v
+          ..kind = serializers.deserializeWith(
+            PhotoVariant.serializer,
+            'Thumb',
+          )!
+          ..status = serializers.deserializeWith(
+            VariantStatus.serializer,
+            'Ready',
+          )!
+          ..sizeBytes = 5,
+      ),
+    ]),
 );
 
 /// A genuine optimistic-concurrency defeat (server equality guard):
@@ -214,6 +239,35 @@ class _FakeCostumeRepository extends CostumeRepository {
     final scripted = nextWrite;
     if (scripted != null) return Future.value(scripted);
     return Future.value(const Right(2));
+  }
+
+  /// Scripted row for `GET /v1/costumes/{id}` (`getAndCache`), plus a call
+  /// counter. The screen fetches the ENRICHED row on open: the list route maps
+  /// the raw projection row and leaves `photos`/`details` empty, so the gallery
+  /// could never show a photo from cached list rows alone. Defaulting to the
+  /// photo-less list shape keeps every pre-existing test on its old rendering;
+  /// without the override at all the fake would fall through to the real Dio
+  /// client and leave an unsettled request behind.
+  Result<CostumeView>? enrichedDetail;
+  int detailFetchCalls = 0;
+
+  @override
+  Future<Result<CostumeView>> getAndCache(
+    String seasonId,
+    String id, {
+    Clock clock = Clock.system,
+  }) {
+    detailFetchCalls++;
+    return Future.value(
+      // UNSCRIPTED = the read failed: the screen then keeps rendering the list
+      // row it was handed, exactly what the old (real-Dio, never-settling) path
+      // produced. Defaulting to a photo-less enriched row would instead REPLACE
+      // a list row that has photos and silently empty the gallery.
+      enrichedDetail ??
+          const Left(
+            ProblemError(code: 'costume.detail-not-scripted', status: 500),
+          ),
+    );
   }
 }
 
@@ -423,6 +477,53 @@ void main() {
       expect(find.byKey(const Key('costume-notes-c-1')), findsOneWidget);
       expect(find.byKey(const Key('photo-gallery-empty-c-1')), findsOneWidget);
     });
+
+    // The photo gallery reads from the ENRICHED single-costume row, not from the
+    // cached list row (the list route leaves `photos` empty, so the gallery was
+    // structurally unreachable no matter how often the user refreshed).
+    testWidgets('opening fetches the enriched detail ONCE and the gallery '
+        'renders its photos', (tester) async {
+      await setupContainer(costume: _costume('c-1'));
+      repo.enrichedDetail = Right<ProblemError, CostumeView>(
+        _costume('c-1').rebuild((b) => b..photos.replace([_readyPhoto('p-1')])),
+      );
+      await pumpDetail(tester, 'c-1');
+
+      expect(
+        repo.detailFetchCalls,
+        1,
+        reason: 'one fetch per open — never a retry loop',
+      );
+      expect(find.byKey(const Key('photo-tile-p-1')), findsOneWidget);
+      expect(
+        find.byKey(const Key('photo-gallery-empty-c-1')),
+        findsNothing,
+        reason:
+            'an empty affordance would be a lie: the fetched row has a photo',
+      );
+    });
+
+    testWidgets(
+      'a FAILED detail fetch keeps the list row rendering — no crash, '
+      'and no invented gallery',
+      (tester) async {
+        await setupContainer(costume: _costume('c-1'));
+        repo.enrichedDetail = const Left(
+          ProblemError(code: 'costume.detail-unavailable', status: 503),
+        );
+        await pumpDetail(tester, 'c-1');
+
+        expect(repo.detailFetchCalls, 1);
+        // The rest of the screen is untouched by the failed read.
+        expect(find.byKey(const Key('costume-detail-c-1')), findsOneWidget);
+        expect(
+          find.byKey(const Key('photo-gallery-empty-c-1')),
+          findsOneWidget,
+          reason:
+              'with no enriched row the honest state is still "no photos seen"',
+        );
+      },
+    );
 
     testWidgets('assign: picker submit carries picked id + version echo', (
       tester,

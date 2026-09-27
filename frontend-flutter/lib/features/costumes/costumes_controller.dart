@@ -845,9 +845,8 @@ class CostumesController extends _$CostumesController {
   /// Writing the enriched detail over the cached list row repairs both
   /// surfaces at once: the cache row now carries the photos, and every
   /// reader of `cachedRows` (detail editor, gallery) sees them.
-  Future<Result<CostumeView>> loadDetail(String costumeId) => ref
-      .read(costumeRepositoryProvider)
-      .getAndCache(seasonId, costumeId);
+  Future<Result<CostumeView>> loadDetail(String costumeId) =>
+      ref.read(costumeRepositoryProvider).getAndCache(seasonId, costumeId);
 
   void dismissCommandError() =>
       ref.read(costumesCommandErrorProvider(seasonId).notifier).clear();

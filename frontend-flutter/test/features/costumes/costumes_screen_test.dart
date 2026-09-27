@@ -25,6 +25,7 @@ import 'package:frontend_flutter/core/problem_error.dart';
 import 'package:frontend_flutter/core/result.dart';
 import 'package:frontend_flutter/l10n/generated/app_localizations_en.dart';
 import 'package:frontend_flutter/data/cache/cache_database.dart';
+import 'package:frontend_flutter/data/cache/clock.dart';
 import 'package:frontend_flutter/data/cache/costume_domains_cache_dao.dart';
 import 'package:frontend_flutter/data/cache/seasons_cache_providers.dart';
 import 'package:frontend_flutter/data/character_repository.dart';
@@ -139,6 +140,34 @@ class _FakeCostumeRepository extends CostumeRepository {
   int? lastAssignVersion;
   int? lastNotesVersion;
   AddCostumeDetailRequest? lastAddDetailRequest;
+
+  /// Scripted single-costume DETAIL for `getAndCache`, and how often the screen
+  /// asked for it. The detail screen fetches the enriched row on open, because
+  /// the LIST route leaves `photos`/`details` empty (the server enriches only
+  /// `GET /v1/costumes/{id}`). Without this override the fake falls through to
+  /// the REAL Dio client: the request never settles under `testWidgets`, and the
+  /// socket timer is still pending at teardown — the exact reason
+  /// `selecting a tile opens the editor on the first screen` failed.
+  Result<CostumeView>? detailResult;
+  int detailCalls = 0;
+
+  @override
+  Future<Result<CostumeView>> getAndCache(
+    String seasonId,
+    String id, {
+    Clock clock = Clock.system,
+  }) {
+    detailCalls++;
+    return Future.value(
+      // UNSCRIPTED = the read failed, so the screen keeps the list row it was
+      // handed (the documented fallback). Returning a photo-less enriched row
+      // would REPLACE a list row that carries photos and empty the gallery.
+      detailResult ??
+          const Left(
+            ProblemError(code: 'costume.detail-not-scripted', status: 500),
+          ),
+    );
+  }
 
   @override
   Future<Result<IdVersionResponse>> create(String? seasonId) {
@@ -341,6 +370,42 @@ void main() {
       expect(find.byKey(const Key('costume-editor-c-1')), findsOneWidget);
       expect(find.byKey(const Key('costume-detail-add-c-1')), findsOneWidget);
       expect(find.byType(Scaffold), findsOneWidget);
+    });
+
+    // The detail screen fetches the enriched single-costume row on open (the
+    // list route leaves `photos` empty, so relying on the cache row alone made
+    // every gallery unconditionally empty). Contract: one fetch per open, the
+    // gallery renders from the FETCHED row, and a failed fetch keeps the list
+    // row instead of crashing or faking an empty gallery.
+    testWidgets('opening a costume fetches the enriched detail ONCE', (
+      tester,
+    ) async {
+      await setupContainer(initialRows: [_costume('c-1')]);
+      await pumpScreen(tester);
+      expect(repo.detailCalls, 0, reason: 'no fetch before the screen opens');
+
+      await tester.tap(find.byKey(const Key('costume-tile-c-1')));
+      await tester.pump();
+      await tester.pump();
+
+      expect(repo.detailCalls, 1);
+    });
+
+    testWidgets('a FAILED detail fetch degrades to the list row — never a '
+        'crash, never a claim of data we do not have', (tester) async {
+      await setupContainer(initialRows: [_costume('c-1')]);
+      repo.detailResult = const Left(
+        ProblemError(code: 'costume.detail-unavailable', status: 503),
+      );
+      await pumpScreen(tester);
+
+      await tester.tap(find.byKey(const Key('costume-tile-c-1')));
+      await tester.pump();
+      await tester.pump();
+
+      // The editor is intact and the gallery keeps the list row's (empty) state.
+      expect(find.byKey(const Key('costume-editor-c-1')), findsOneWidget);
+      expect(repo.detailCalls, 1, reason: 'the attempt is not retried blindly');
     });
 
     testWidgets('empty: honest empty state with create affordance', (

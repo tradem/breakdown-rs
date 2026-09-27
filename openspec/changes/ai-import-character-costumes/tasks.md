@@ -161,16 +161,33 @@ a manual run. Prerequisites, in order:
 - [ ] 8.5 An English-convention script (INT./EXT.) still imports unchanged —
       the German heading support must not regress it
 
-## 9. Follow-ups found while implementing (NOT part of this change)
+## 9. Follow-ups found while implementing
 
-- [ ] 9.1 Pre-existing Flutter test failure on `main`, unrelated to this change
-      (`test/features/costumes/costumes_screen_test.dart` — "selecting a tile
-      opens the editor on the first screen" leaves a pending Timer). Reproduced
-      at `a53ee332`, before either commit of this change; needs its own fix.
-- [ ] 9.2 The AI-import screens predate the per-screen design-spec convention
+- [x] 9.1 REGRESSION FROM THIS BRANCH, now fixed: `511baaa9` (photo pipeline)
+      made the costume detail screen fetch the enriched single-costume row on
+      open, but its widget-test fakes do not override `CostumeRepository
+      .getAndCache` — so the fetch fell through to the REAL Dio client.
+      `selecting a tile opens the editor on the first screen` died with
+      "A Timer is still pending even after the widget tree was disposed";
+      reproduced after `511baaa9`, green at its parent commit. (My first
+      reading — "pre-existing on main, unrelated" — was wrong: I had compared
+      against `a53ee332`, which already CONTAINS that commit.)
+      Fixed by scripting the detail read in both costume test fakes. Default for
+      an UNSCRIPTED read is a failed read (list row keeps rendering), not a
+      photo-less enriched row: the latter would silently replace a list row that
+      carries photos and empty the gallery — which is how the first version of
+      this fix broke two other tests.
+- [x] 9.2 The behaviour `511baaa9` shipped was itself untested. Now covered:
+      one fetch per open; the gallery renders the photos of the FETCHED row and
+      drops the empty affordance; a failed fetch keeps the list row (no crash, no
+      invented gallery, no blind retry).
+- [x] 9.3 `costumes_controller.dart` was unformatted at `511baaa9` (the repo's
+      `dart format --set-exit-if-changed` gate fails on it); fixed.
+- [ ] 9.4 The AI-import screens predate the per-screen design-spec convention
       (`docs/design/screens/`): there is no wireframe spec for the import /
-      preview / apply screens. The costume review surface is documented in the
+      preview / apply screens, so the costume review surface is documented in the
       glossary only. Authoring the missing specs is a separate change.
-- [ ] 9.3 `lib/features/costumes/costumes_controller.dart` is unformatted at
-      `main` (the repo's `dart format --set-exit-if-changed` gate fails on it
-      independent of this change).
+- [ ] 9.5 The script-preview branch of `AiPreviewScreen` has no golden (only the
+      merged-preview shape does). The costume rows are covered by semantic widget
+      tests, matching how the rest of that branch is covered; a golden needs a
+      fixture with costumes and a CI-verified regeneration.
