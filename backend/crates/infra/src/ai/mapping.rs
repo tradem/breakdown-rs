@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: gpt-5.6-luna (opencode-go)
-// Co-authored-by: longcat-2.0-free (opencode)
+// Co-authored-by: qwen3.8-flash (opencode-go)
 
-use breakdown_core::ai::{AiImportJobId, AiImportMapping, AiImportMappingRepository};
+use breakdown_core::ai::{
+    AiImportJobId, AiImportMapping, AiImportMappingRepository, PRIMARY_ORDINAL,
+};
 use breakdown_core::error::DomainError;
 use sqlx::{PgPool, Row};
 use uuid::Uuid;
@@ -25,16 +27,21 @@ impl AiImportMappingRepository for PgAiImportMappingRepository {
         &self,
         preview_id: AiImportJobId,
         draft_ref: &str,
+        aggregate_kind: &str,
+        ordinal: i32,
     ) -> Result<Option<AiImportMapping>, DomainError> {
         let row = sqlx::query(
             r#"
-            SELECT preview_id, draft_ref, aggregate_kind, aggregate_id, aggregate_version
+            SELECT preview_id, draft_ref, aggregate_kind, ordinal, aggregate_id, aggregate_version
             FROM ai_import.projection_ai_import_mapping
             WHERE preview_id = $1 AND draft_ref = $2
+              AND aggregate_kind = $3 AND ordinal = $4
             "#,
         )
         .bind(preview_id.as_uuid())
         .bind(draft_ref)
+        .bind(aggregate_kind)
+        .bind(ordinal)
         .fetch_optional(&self.pool)
         .await
         .map_err(map_sqlx_error)?;
@@ -42,39 +49,42 @@ impl AiImportMappingRepository for PgAiImportMappingRepository {
     }
 
     async fn reserve(&self, mapping: AiImportMapping) -> Result<AiImportMapping, DomainError> {
-        // Insert-if-absent + RETURNING the winning row in one statement.
-        // The degenerate `DO UPDATE SET aggregate_kind = <itself>` (rather
-        // than `DO NOTHING`) is deliberate: only an actually-updated row is
-        // visible to RETURNING, so `DO NOTHING` would return nothing on
-        // conflict and force a second round trip that races with a concurrent
-        // confirm. Self-assignment changes no value while still yielding the
-        // durable row — ours, or the one a previous attempt
-        // reserved/confirmed (issue #179).
+        // Insert-if-absent on the full row key. A competing apply (or a retry
+        // after a crashed confirm) gets the *winning* row back unchanged, so
+        // both attempts drive the same aggregate id — `ON CONFLICT DO UPDATE`
+        // with a no-op set is how the winning row is returned by the same
+        // statement (a bare `DO NOTHING` would return no row at all).
         let row = sqlx::query(
             r#"
             INSERT INTO ai_import.projection_ai_import_mapping
-                (preview_id, draft_ref, aggregate_kind, aggregate_id, aggregate_version)
-            VALUES ($1, $2, $3, $4, $5)
-            ON CONFLICT (preview_id, draft_ref) DO UPDATE
+                (preview_id, draft_ref, aggregate_kind, ordinal, aggregate_id, aggregate_version)
+            VALUES ($1, $2, $3, $4, $5, $6)
+            ON CONFLICT (preview_id, draft_ref, aggregate_kind, ordinal) DO UPDATE
                 SET aggregate_kind = ai_import.projection_ai_import_mapping.aggregate_kind
-            RETURNING preview_id, draft_ref, aggregate_kind, aggregate_id, aggregate_version
+            RETURNING preview_id, draft_ref, aggregate_kind, ordinal, aggregate_id, aggregate_version
             "#,
         )
-        .bind(mapping.preview_id.as_uuid())
-        .bind(&mapping.draft_ref)
-        .bind(&mapping.aggregate_kind)
-        .bind(mapping.aggregate_id)
-        .bind(version_to_db(mapping.aggregate_version)?)
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(map_sqlx_error)?;
+            .bind(mapping.preview_id.as_uuid())
+            .bind(&mapping.draft_ref)
+            .bind(&mapping.aggregate_kind)
+            .bind(mapping.ordinal)
+            .bind(mapping.aggregate_id)
+            .bind(version_to_db(mapping.aggregate_version)?)
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(map_sqlx_error)?;
         match row {
             Some(row) => map_mapping(row),
-            // Defensive: the statement above always returns a row. Fall back
-            // to an explicit read rather than assuming it (no unwrap/expect in
-            // production paths, AGENTS.md §3).
+            // The row vanished between conflict and return (a concurrent
+            // delete). Re-read rather than invent: the caller must drive the
+            // winner's id, never the id it proposed.
             None => self
-                .find(mapping.preview_id, &mapping.draft_ref)
+                .find(
+                    mapping.preview_id,
+                    &mapping.draft_ref,
+                    &mapping.aggregate_kind,
+                    mapping.ordinal,
+                )
                 .await?
                 .ok_or_else(|| {
                     DomainError::service_unavailable(
@@ -85,12 +95,16 @@ impl AiImportMappingRepository for PgAiImportMappingRepository {
     }
 
     async fn insert(&self, mapping: AiImportMapping) -> Result<(), DomainError> {
+        // Monotonic advance only: a late duplicate (or a stale retry that still
+        // holds a reservation's version 0) must never roll a confirmed row
+        // back. The `WHERE` belongs to the `DO UPDATE`, not the statement, so a
+        // non-advancing write simply affects zero rows.
         sqlx::query(
             r#"
             INSERT INTO ai_import.projection_ai_import_mapping
-                (preview_id, draft_ref, aggregate_kind, aggregate_id, aggregate_version)
-            VALUES ($1, $2, $3, $4, $5)
-            ON CONFLICT (preview_id, draft_ref) DO UPDATE
+                (preview_id, draft_ref, aggregate_kind, ordinal, aggregate_id, aggregate_version)
+            VALUES ($1, $2, $3, $4, $5, $6)
+            ON CONFLICT (preview_id, draft_ref, aggregate_kind, ordinal) DO UPDATE
             SET aggregate_kind = EXCLUDED.aggregate_kind,
                 aggregate_id = EXCLUDED.aggregate_id,
                 aggregate_version = EXCLUDED.aggregate_version,
@@ -102,6 +116,7 @@ impl AiImportMappingRepository for PgAiImportMappingRepository {
         .bind(mapping.preview_id.as_uuid())
         .bind(&mapping.draft_ref)
         .bind(&mapping.aggregate_kind)
+        .bind(mapping.ordinal)
         .bind(mapping.aggregate_id)
         .bind(version_to_db(mapping.aggregate_version)?)
         .execute(&self.pool)
@@ -114,12 +129,15 @@ impl AiImportMappingRepository for PgAiImportMappingRepository {
         &self,
         preview_id: AiImportJobId,
     ) -> Result<Vec<AiImportMapping>, DomainError> {
+        // Every kind is returned — scene, character and costume rows included —
+        // in a stable order, so a re-import of an updated document can re-suggest
+        // the prior mapping for each of them (task 4.3).
         let rows = sqlx::query(
             r#"
-            SELECT preview_id, draft_ref, aggregate_kind, aggregate_id, aggregate_version
+            SELECT preview_id, draft_ref, aggregate_kind, ordinal, aggregate_id, aggregate_version
             FROM ai_import.projection_ai_import_mapping
             WHERE preview_id = $1
-            ORDER BY draft_ref
+            ORDER BY draft_ref, aggregate_kind, ordinal
             "#,
         )
         .bind(preview_id.as_uuid())
@@ -149,18 +167,27 @@ fn map_mapping(row: sqlx::postgres::PgRow) -> Result<AiImportMapping, DomainErro
             "AI mapping aggregate version cannot be negative",
         ));
     }
+    let ordinal: i32 = row.try_get("ordinal").map_err(map_sqlx_error)?;
+    if ordinal < PRIMARY_ORDINAL {
+        // A negative ordinal would be unreadable by every `find` the apply
+        // performs, so surface the corruption instead of carrying it.
+        return Err(DomainError::validation(
+            "AI mapping ordinal cannot be negative",
+        ));
+    }
     Ok(AiImportMapping {
         preview_id: AiImportJobId::from_uuid(preview_id),
         draft_ref: row.try_get("draft_ref").map_err(map_sqlx_error)?,
         aggregate_kind: row.try_get("aggregate_kind").map_err(map_sqlx_error)?,
+        ordinal,
         aggregate_id: row.try_get("aggregate_id").map_err(map_sqlx_error)?,
         aggregate_version: breakdown_core::shared::AggregateVersion(aggregate_version as u64),
     })
 }
 
 fn map_sqlx_error(error: sqlx::Error) -> DomainError {
-    // Log the raw error (with bound values) internally; the HTTP-facing message
-    // must not leak SQL details or bound values (CWE-209).
+    // The mapping table is operational state, not business truth; a database
+    // failure is always retryable from the caller's point of view.
     tracing::error!(%error, "AI mapping database error");
     DomainError::service_unavailable("AI mapping database error")
 }

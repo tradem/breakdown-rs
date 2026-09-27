@@ -17,6 +17,13 @@
 # explicitly, forbid invention, and pin the one field the model cannot get
 # right on its own (draft_ref — the server overwrites it anyway, see
 # `stable_draft_ref` in crates/core/src/ai/preview.rs).
+#
+# Costuming was first captured as an interim carrier inside `summary`, because
+# `DraftScene` had no costume field to put it in. That workaround is gone: the
+# `costumes` array is now the contract, `summary` must not carry clothing, and
+# the server verifies every returned `source_quote` against the block it was
+# drawn from (`verify_draft_costumes`) — a prompt forbids invention, only the
+# check makes an invented costume unable to reach the reviewer.
 
 [script]
 text = """
@@ -30,13 +37,13 @@ text = """
 
 <characters>List every character who appears in this block. Evidence, in this order: (1) a name in CAPS on its own line, (2) a dialogue cue such as "ANNA:" or "MAX (35):", (3) an age/role parenthetical such as "ANNA (30, Pflegerin)". Use the name as written. Do NOT list a character who is only mentioned in passing without acting.</characters>
 
-<costume-evidence>Costuming is NOT a separate field in your output, so do not drop the information: whenever a character's clothing is described, record it VERBATIM in that scene's `summary` — e.g. "ANNA trägt einen ölverschmierten Mechaniker-Overall" or "Kostümbild: BEN inMarineblau, Schmuck: Silberkette". Costume evidence in a screenplay appears (a) in a character parenthetical ("ANNA (30, Lederjacke)"), (b) in a "Kostümbild"/"Kostüme" note, or (c) attached to a person in the action ("der ölverschmierte MechanikerOverall"). Accessories (Schmuck, Hut, Brille, Tasche) count as costume. Do not invent clothing that the text does not mention.</costume-evidence>
+<costumes>Costuming is its own output field, `costumes` — one entry per garment or accessory. Treat it as entity recognition over these evidence sources, in order: (1) a character parenthetical that names clothing ("ANNA (30, Lederjacke)"), (2) a "Kostümbild"/"Kostüme" note ("Kostümbild: BEN in Marineblau, Schmuck: Silberkette"), (3) clothing attached to a person in the action line ("deren leicht ölverschmierter Mechaniker-Overall ihre elegante Erscheinung nicht verbergen kann"). Accessories (Schmuck, Hut, Brille, Tasche) ARE costume: give each its own entry, never discard one as set dressing. Per entry: `character_name` spelled as this scene's `characters` list spells it; `description` the clothing in the script's own wording — keep the words the block uses, do not paraphrase, translate or generalise ("Arbeitskleidung" is wrong, "ölverschmierter Mechaniker-Overall" is right); `source_quote` a VERBATIM fragment of the block the entry came from. The server checks that `source_quote` occurs in the text and drops the entry when it does not, so a quote you assembled or reworded destroys a real costume. A costume belongs to a character the same scene lists — never add a character just to hang a costume on it. When the block states no clothing, answer with an empty `costumes` list: that is a correct answer, not a failure.</costumes>
 
 <props>Record named, story-relevant objects (Requisiten) in the `summary` as well, in the same verbatim way — e.g. "Requisiten: Stethoskop, Blutbeutel". Ignore set dressing that carries no story function.</props>
 
 <location>Take `location` from the heading (the place), not from the body. `scene_number` only if the heading actually carries one. `script_day` for a fictional day such as "Tag 1" or "1. Spieltag". `mood` only when the text states it.</location>
 
-<summary>One factual sentence describing what happens in the block. Include the costume and prop evidence verbatim as described above; do not interpret, do not speculate, do not summarise the plot beyond what is written.</summary>
+<summary>One factual sentence describing what happens in the block. Costuming does NOT belong here — it goes in `costumes`; props are recorded here as described above. Do not interpret, do not speculate, do not summarise the plot beyond what is written.</summary>
 
 <grounding>Extract only what the text states. Never infer a name, costume, location or prop that is not written. An outline-style block that contains only a heading and a day marker has no characters, no costumes and no props — return empty lists for it and say so in `summary`. That is a correct answer, not a failure.</grounding>
 

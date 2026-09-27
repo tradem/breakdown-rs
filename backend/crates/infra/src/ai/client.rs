@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: gpt-5.6-luna (opencode-go)
 // Co-authored-by: deepseek-v4-flash (opencode-go)
+// Co-authored-by: qwen3.8-flash (opencode-go)
 
 use std::time::Duration;
 
@@ -290,6 +291,27 @@ struct DraftSceneSchema {
     summary: Option<String>,
     script_day: Option<String>,
     characters: Vec<String>,
+    /// Costumes worn by characters of THIS scene. Empty when the block states no
+    /// clothing at all — never omit the field, and never invent an entry to fill
+    /// it. `strict` schema mode requires the property, so a scene without
+    /// costuming answers with `[]`.
+    costumes: Vec<DraftCostumeSchema>,
+}
+
+/// Provider-facing mirror of [`breakdown_core::ai::DraftCostume`]. One entry per
+/// garment or accessory the text states for one named character.
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+struct DraftCostumeSchema {
+    /// The character this costume belongs to. MUST be spelled as in this scene's
+    /// `characters`; an entry naming anyone else is dropped by the server.
+    character_name: String,
+    /// The garment/accessory description in the script's own wording. Do not
+    /// paraphrase, translate, or summarise it, and do not move it into `summary`.
+    description: String,
+    /// A verbatim fragment of the supplied text this entry came from. The server
+    /// checks that the fragment occurs in the block and drops the entry when it
+    /// does not, so a paraphrase fails and the costume is lost.
+    source_quote: String,
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
@@ -408,6 +430,51 @@ mod tests {
         assert_eq!(
             next_truncation_budget(Some("length"), u32::MAX, 1),
             Some(u32::MAX)
+        );
+    }
+
+    /// The mirror the provider is handed must carry the costume list, or the model
+    /// has nowhere to put a costume it recognised and `serde` drops it silently —
+    /// the exact failure that produced 0 costumes from a script that names them.
+    /// schemars 1.x emits `$defs` (draft 2020-12); older releases emitted
+    /// `definitions`. Resolve either so the assertions below test the contract
+    /// and not the generator's dialect.
+    fn defs(value: &serde_json::Value) -> &serde_json::Value {
+        value
+            .get("$defs")
+            .or_else(|| value.get("definitions"))
+            .unwrap_or_else(|| panic!("no type definitions in the emitted schema: {value}"))
+    }
+
+    #[test]
+    fn provider_schema_mirrors_the_costume_fields() {
+        let schema = schemars::schema_for!(ScriptContextSchema);
+        let value = serde_json::to_value(&schema).unwrap();
+        let scene = &defs(&value)["DraftSceneSchema"]["properties"];
+        assert!(
+            scene["costumes"].is_object(),
+            "the schema sent to the provider must carry `costumes`, got {scene:?}"
+        );
+        let costume = &defs(&value)["DraftCostumeSchema"]["properties"];
+        for field in ["character_name", "description", "source_quote"] {
+            assert!(
+                costume[field].is_object(),
+                "DraftCostumeSchema must expose `{field}`: {costume:?}"
+            );
+            assert!(
+                costume[field]["description"].is_string(),
+                "`{field}` needs a description, the schema is the model's contract"
+            );
+        }
+        let required = defs(&value)["DraftSceneSchema"]["required"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_str().unwrap())
+            .collect::<Vec<_>>();
+        assert!(
+            required.contains(&"costumes"),
+            "`strict` schema mode requires every property: {required:?}"
         );
     }
 }

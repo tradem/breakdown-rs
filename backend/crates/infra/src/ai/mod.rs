@@ -12,6 +12,7 @@
 
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: qwen3.8-flash (opencode-go)
 // Co-authored-by: mimo-v2.5 (opencode-go)
 
 pub mod catalog;
@@ -78,8 +79,8 @@ pub use worker_loop::{
     WorkerDeps, shutdown_signal, spawn_schedule_import_worker, spawn_script_import_worker,
 };
 pub use workers::{
-    ApplyScriptRequest, ApplyWorker, MergeWorker, ScheduleImportWorker, ScriptImportWorker,
-    UuidVersion, validate_chunk_count,
+    ApplyScriptRequest, ApplyWorker, MergeWorker, ScheduleImportWorker, ScriptApplyResult,
+    ScriptImportWorker, UuidVersion, validate_chunk_count,
 };
 
 use breakdown_core::ai::{AiImportBounds, CuratedLlmProvider, LlmProvider};

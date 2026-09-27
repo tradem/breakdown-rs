@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: mimo-v2.5 (opencode-go)
+// Co-authored-by: qwen3.8-flash (opencode-go)
 
 #![allow(
     clippy::unwrap_used,
@@ -26,13 +27,13 @@ use breakdown_core::ai::{
 use breakdown_core::error::DomainError;
 use breakdown_core::scene::ports::SceneRepository as _;
 use breakdown_core::scene::views::SceneView;
-use breakdown_core::shared::{EpisodeId, UserId};
+use breakdown_core::shared::{EpisodeId, SeasonId, UserId};
 use fixtures::{GarageCredentials, spawn_garage};
 use infra::ai::{
     AiDocumentStore, AiPreviewStore, ApplyScriptRequest, ApplyWorker, OpenDalAiPayloadStorage,
     PgAiImportMappingRepository, PgAiImportQueue, ScheduleImportWorker,
 };
-use infra::event_store::SceneCommandsImpl;
+use infra::event_store::{CharacterCommandsImpl, CostumeCommandsImpl, SceneCommandsImpl};
 use infra::queries::SceneRepositoryImpl;
 use kameo_es::command_service::CommandService;
 use uuid::Uuid;
@@ -382,6 +383,12 @@ async fn ai_payload_apply_round_trips_through_projection() -> Result<()> {
     // Production write chain: CommandService → SceneCommandsImpl → SierraDB.
     let cmd_service = CommandService::new(conn);
     let scene_commands = SceneCommandsImpl::new(cmd_service.clone());
+    // The apply worker drives figures and costumes through their own ports. The
+    // fixture's draft row names no character, so nothing is dispatched on them —
+    // but the production write chain must be wired, or the test would prove less
+    // than the handler does.
+    let character_commands = CharacterCommandsImpl::new(cmd_service.clone());
+    let costume_commands = CostumeCommandsImpl::new(cmd_service.clone());
     let scene_repo = SceneRepositoryImpl::new(pool.clone());
     let _scene_ref = infra::projectors::spawn_scene_projector(
         pool.clone(),
@@ -468,6 +475,8 @@ async fn ai_payload_apply_round_trips_through_projection() -> Result<()> {
     // --- Apply through the production ApplyWorker interface ----------------
     let worker = ApplyWorker {
         scene_commands: Arc::new(scene_commands),
+        character_commands: Arc::new(character_commands),
+        costume_commands: Arc::new(costume_commands),
         mappings: Arc::new(mappings_b),
         queue: Arc::new(queue_b),
     };
@@ -479,8 +488,12 @@ async fn ai_payload_apply_round_trips_through_projection() -> Result<()> {
             decisions: &[ApplyMapping {
                 draft_ref: "scene-1".to_owned(),
                 decision: ApplyMappingDecision::Create,
+                costume_decisions: Vec::new(),
             }],
             episode_id: EpisodeId::new(),
+            // The row names no figure, so no season-scoped aggregate is created
+            // and this seam is never consulted.
+            season_id: SeasonId::new(),
             series_id: None,
             telemetry: Some(Telemetry {
                 doc_kind: Some(DocumentKind::Script),
@@ -489,11 +502,11 @@ async fn ai_payload_apply_round_trips_through_projection() -> Result<()> {
             }),
         })
         .await?;
-    assert_eq!(applied.len(), 1, "one scene must be applied");
+    assert_eq!(applied.applied.len(), 1, "one scene must be applied");
 
     // --- command → event → event-store → projector → projection ------------
     // Bounded eventual-consistency retries for the projector to catch up.
-    let view = await_scene_projection(&scene_repo, applied[0].aggregate_id).await?;
+    let view = await_scene_projection(&scene_repo, applied.applied[0].aggregate_id).await?;
     assert_eq!(view.scene_number, Some(1));
     assert_eq!(view.location.as_deref(), Some("Berlin"));
     assert_eq!(view.mood.as_deref(), Some("dark"));

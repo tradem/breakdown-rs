@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: longcat-2.0-free (opencode)
+// Co-authored-by: qwen3.8-flash (opencode-go)
 
 //! Database-backed contract for the AI import mapping **reservation** protocol
 //! (issue #179).
@@ -39,7 +40,8 @@ fn reservation(preview_id: AiImportJobId, draft_ref: &str) -> AiImportMapping {
     AiImportMapping::reservation(
         preview_id,
         draft_ref.to_owned(),
-        "scene_shoot".to_owned(),
+        breakdown_core::ai::mapping_kind::SCENE_SHOOT.to_owned(),
+        breakdown_core::ai::PRIMARY_ORDINAL,
         Uuid::now_v7(),
     )
 }
@@ -132,7 +134,12 @@ async fn insert_never_rolls_a_confirmed_version_back() -> Result<()> {
     repo.insert(reserved.clone()).await?;
 
     let stored = repo
-        .find(preview_id, "scene-shoot:e:f")
+        .find(
+            preview_id,
+            "scene-shoot:e:f",
+            breakdown_core::ai::mapping_kind::SCENE_SHOOT,
+            breakdown_core::ai::PRIMARY_ORDINAL,
+        )
         .await?
         .expect("the mapping must still exist");
     assert_eq!(

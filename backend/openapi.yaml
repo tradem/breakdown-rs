@@ -79,6 +79,24 @@ components:
           $ref: '#/components/schemas/LlmProvider'
         revoked:
           type: boolean
+        stored_prompt_kinds:
+          description: |-
+            Kinds whose extraction is driven by a **stored** prompt (design D6).
+
+            A stored prompt is a snapshot taken when the configuration was written:
+            it wins over the deployment default and therefore does **not** follow
+            updates to `config/default_ai_prompts.toml`. That was observed live — a
+            configuration kept the previous three-line prompt and silently ignored a
+            hardened default, invalidating a whole test round. The surface must say
+            so, and offer a reset (write the current text from
+            `GET /v1/ai-import/defaults`). A kind absent here has no stored prompt
+            and follows the deployment default on every run.
+
+            Additive with `serde(default)` so an older client reading a newer view
+            still deserialises.
+          items:
+            $ref: '#/components/schemas/DocumentKind'
+          type: array
         user_id:
           $ref: '#/components/schemas/UserId'
         vault_key_id:
@@ -295,6 +313,19 @@ components:
           format: int32
           minimum: 0
           type: integer
+        created_characters:
+          description: |-
+            Figures the script apply created. A figure named by several draft rows is
+            created once, so this is not `applied_count`-related. `0` for a schedule
+            apply, which has no figures.
+          format: int32
+          minimum: 0
+          type: integer
+        created_costumes:
+          description: Costumes the script apply created (unassigned, then bound).
+          format: int32
+          minimum: 0
+          type: integer
         created_days:
           format: int32
           minimum: 0
@@ -303,16 +334,36 @@ components:
           format: int32
           minimum: 0
           type: integer
+        unapplied_costumes:
+          description: |-
+            Costume rows that did **not** become a `Costume`, each with the reason.
+            An apply that created a costume but could not bind it reports the row
+            here while `created_costumes` still counts it — a partially applied row
+            must never look like a fully applied one.
+          items:
+            $ref: '#/components/schemas/UnappliedCostume'
+          type: array
       required:
       - applied_count
       - created_days
       - planned_scene_shoots
+      - created_characters
+      - created_costumes
+      - unapplied_costumes
       type: object
     ApplyMapping:
       description: |-
         User decision for one draft row. A create decision leaves the aggregate id
         absent; an update decision carries the existing id and optimistic version.
       properties:
+        costume_decisions:
+          description: |-
+            Per-costume-row decisions of this draft row. Absent ordinals default to
+            accepted, so a request written before this field existed (or one where
+            the reviewer touched nothing) still applies everything that was extracted.
+          items:
+            $ref: '#/components/schemas/CostumeDecision'
+          type: array
         decision:
           $ref: '#/components/schemas/ApplyMappingDecision'
         draft_ref:
@@ -609,6 +660,25 @@ components:
       - archived
       - version
       - updated_at
+      type: object
+    CostumeDecision:
+      description: |-
+        Reviewer decision for one costume row of a draft row. A costume is accepted
+        or rejected *independently of its scene* (spec `ai-import`: the preview
+        exposes each costume row for its own decision).
+      properties:
+        accepted:
+          description: |-
+            `false` rejects the costume: no `Costume` is created and the scene row is
+            unaffected.
+          type: boolean
+        ordinal:
+          description: Index into the draft row's `costumes` list.
+          minimum: 0
+          type: integer
+      required:
+      - ordinal
+      - accepted
       type: object
     CostumeDetail:
       properties:
@@ -1005,11 +1075,44 @@ components:
       - script
       - schedule
       type: string
+    DraftCostume:
+      description: |-
+        One costume extracted for a character of a draft scene.
+
+        Flat by design: the LLM has no domain ids, and the write side must not
+        resolve ids from a read-model projection (CQRS boundary). `character_name`
+        is matched against the same draft scene's `characters`; `source_quote` is the
+        fragment the extraction claims to be based on, which the server verifies
+        against the supplied chunk text before the row may reach the reviewer.
+      properties:
+        character_name:
+          description: Character the costume belongs to, as written in the script.
+          type: string
+        description:
+          description: The garment/accessory description, in the script's own wording.
+          type: string
+        source_quote:
+          description: Quoted fragment of the chunk this entry was extracted from.
+          type: string
+      required:
+      - character_name
+      - description
+      - source_quote
+      type: object
     DraftScene:
       properties:
         characters:
           items:
             type: string
+          type: array
+        costumes:
+          description: |-
+            Costumes worn by this scene's characters. Additive on the wire with a
+            default so previews stored before this field existed still load; a
+            preview written by this version loses the field when read by an older
+            binary (breaking, see the change proposal).
+          items:
+            $ref: '#/components/schemas/DraftCostume'
           type: array
         draft_ref:
           type: string
@@ -2281,10 +2384,53 @@ components:
       required:
       - version
       type: object
+    UnappliedCostume:
+      description: |-
+        Why a costume row did not become a `Costume`. Shown to the reviewer as
+        *missing with a reason* instead of as a successful apply.
+      properties:
+        character_name:
+          type: string
+        description:
+          type: string
+        detail:
+          description: |-
+            Short diagnostic (e.g. the rejection the aggregate returned). The UI
+            branches on [`Self::reason`], never on this text.
+          type:
+          - string
+          - 'null'
+        draft_ref:
+          type: string
+        ordinal:
+          minimum: 0
+          type: integer
+        reason:
+          $ref: '#/components/schemas/UnappliedCostumeReason'
+      required:
+      - draft_ref
+      - ordinal
+      - character_name
+      - description
+      - reason
+      type: object
+    UnappliedCostumeReason:
+      enum:
+      - character_not_planned
+      - character_unavailable
+      - create_rejected
+      - notes_rejected
+      - binding_rejected
+      type: string
     Uncertainty:
       properties:
         field:
           type: string
+        kind:
+          $ref: '#/components/schemas/UncertaintyKind'
+          description: |-
+            `serde(default)` so a preview stored before this field existed keeps
+            blocking exactly as it did: an absent kind is a `FieldAmbiguity`.
         note:
           type: string
         scene_index:
@@ -2299,6 +2445,20 @@ components:
       - field
       - note
       type: object
+    UncertaintyKind:
+      description: |-
+        Why the reviewer is shown an uncertainty.
+
+        The distinction is what the apply gate turns on. It did not exist before the
+        costume work: the gate blocked a whole preview on *any* uncertainty, which is
+        right for a field the model could not read, but would have made a single
+        rejected costume row unappliable for an entire 85-chunk import — with a paid
+        re-import as the only remedy, since a stored preview is immutable and a
+        reviewer has no way to dismiss an entry.
+      enum:
+      - field_ambiguity
+      - dropped_row
+      type: string
     UpdateAiConfigRequest:
       properties:
         assistant_model:

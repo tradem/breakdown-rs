@@ -10,6 +10,7 @@
 // Co-authored-by: glm-5.2 (neuralwatt)
 // Co-authored-by: longcat-2.0-free (opencode)
 // Co-authored-by: hy4-preview (opencode-go)
+// Co-authored-by: qwen3.8-flash (opencode-go)
 
 //! Axum-Handler (Request → Command / Query)
 
@@ -4892,6 +4893,17 @@ pub struct ApplyAiImportResponse {
     pub applied_count: u32,
     pub created_days: u32,
     pub planned_scene_shoots: u32,
+    /// Figures the script apply created. A figure named by several draft rows is
+    /// created once, so this is not `applied_count`-related. `0` for a schedule
+    /// apply, which has no figures.
+    pub created_characters: u32,
+    /// Costumes the script apply created (unassigned, then bound).
+    pub created_costumes: u32,
+    /// Costume rows that did **not** become a `Costume`, each with the reason.
+    /// An apply that created a costume but could not bind it reports the row
+    /// here while `created_costumes` still counts it — a partially applied row
+    /// must never look like a fully applied one.
+    pub unapplied_costumes: Vec<breakdown_core::ai::UnappliedCostume>,
 }
 
 #[utoipa::path(
@@ -4963,6 +4975,17 @@ pub async fn apply_ai_import<P: Ports>(
             // The episode is the authoritative source for the series seam;
             // resolving it here keeps the write side free of read-model lookups.
             let series_id = Some(episode.series_id);
+            // A `Character` is scoped to a Season and the costume's repertoire
+            // binding names one too, but a draft row only knows its episode. The
+            // season is therefore resolved here — the handler is the only
+            // legitimate read-model consumer (CQRS boundary, AGENTS.md §1) — and
+            // travels in the request, never looked up by the worker.
+            let block = state
+                .ports
+                .block_repo()
+                .find_by_id(episode.block_id.0)
+                .await?;
+            let season_id = block.season_id;
 
             let preview: ScriptContext = serde_json::from_slice(&payload).map_err(|error| {
                 tracing::error!(error = %error, "invalid ScriptContext preview");
@@ -5000,8 +5023,29 @@ pub async fn apply_ai_import<P: Ports>(
                     "apply carries more mappings than the preview contains scenes",
                 ));
             }
+            // Per-row costume decisions are resolved by a linear scan of that
+            // row's list, so an unbounded decision list would turn one apply into
+            // request-body-paid quadratic work. Bound it to what the preview
+            // actually carries.
+            let costume_decisions: usize = request
+                .mappings
+                .iter()
+                .map(|mapping| mapping.costume_decisions.len())
+                .sum();
+            let preview_costumes: usize = preview
+                .scenes
+                .iter()
+                .map(|scene| scene.costumes.len())
+                .sum();
+            if costume_decisions > preview_costumes {
+                return Err(ApiError::Validation(
+                    "apply carries more costume decisions than the preview contains costumes",
+                ));
+            }
             let worker = ApplyWorker {
                 scene_commands: Arc::new(state.ports.scene_commands().clone()),
+                character_commands: Arc::new(state.ports.character_commands().clone()),
+                costume_commands: Arc::new(state.ports.costume_commands().clone()),
                 mappings: Arc::new(state.ports.ai_import_mapping().clone()),
                 queue: Arc::new(state.ports.ai_import_queue().clone()),
             };
@@ -5012,6 +5056,7 @@ pub async fn apply_ai_import<P: Ports>(
                     preview: &preview,
                     decisions: &request.mappings,
                     episode_id: request.episode_id,
+                    season_id,
                     series_id,
                     telemetry: Some(telemetry),
                 })
@@ -5019,9 +5064,12 @@ pub async fn apply_ai_import<P: Ports>(
             Ok((
                 StatusCode::OK,
                 Json(ApplyAiImportResponse {
-                    applied_count: applied.len() as u32,
+                    applied_count: applied.applied.len() as u32,
                     created_days: 0,
                     planned_scene_shoots: 0,
+                    created_characters: applied.created_characters,
+                    created_costumes: applied.created_costumes,
+                    unapplied_costumes: applied.unapplied_costumes,
                 }),
             ))
         }
@@ -5064,6 +5112,10 @@ pub async fn apply_ai_import<P: Ports>(
                     applied_count: 0,
                     created_days: result.created_days,
                     planned_scene_shoots: result.planned_scene_shoots,
+                    // A schedule apply touches no figures and no costumes.
+                    created_characters: 0,
+                    created_costumes: 0,
+                    unapplied_costumes: Vec::new(),
                 }),
             ))
         }

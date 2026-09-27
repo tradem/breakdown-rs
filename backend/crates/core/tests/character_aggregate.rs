@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: mimo-v2.5 (opencode-go)
 // Co-authored-by: deepseek-v4-flash (opencode-go)
+// Co-authored-by: qwen3.8-flash (opencode-go)
 
 #![allow(
     clippy::unwrap_used,
@@ -297,4 +298,92 @@ fn test_update_contact_info_idempotency_uses_not_equal() {
         result.is_err(),
         "identical contact info should be rejected (idempotency check)"
     );
+}
+
+// ===========================================================================
+// AI import apply: the draft's name form must survive untouched
+// (openspec: ai-import-character-costumes)
+// ===========================================================================
+
+/// The script-import apply hands `CreateCharacter` the name exactly as the
+/// reviewed draft row states it, and the model is inconsistent about casing: a
+/// live 93-page import produced figures partly in CAPS (`RENEE SANDERS`, `BEN`)
+/// and partly mixed (`Renee Sanders`). Nothing in the apply path may "tidy" that
+/// up — the case folding that deduplicates a figure across scenes lives in
+/// `ai::character_identity` and is a *matching* key only, never the persisted
+/// name.
+#[test]
+fn test_create_character_accepts_the_scripts_name_form_verbatim() {
+    for draft_name in [
+        "RENEE SANDERS",
+        "Renee Sanders",
+        " renee sanders ",
+        "BEN",
+        "Ben",
+        "Anna Maria Krüger",
+        "Dr. Leta Amadi",
+        "KOMPARSE 2",
+    ] {
+        let result = CharacterAggregate::default().handle(
+            CreateCharacter {
+                id: Uuid::now_v7(),
+                season_id: SeasonId::new(),
+                series_id: Some(series_id()),
+                name: draft_name.to_string(),
+                category: CharacterCategory::MainCast,
+            },
+            make_ctx(),
+        );
+        assert!(result.is_ok(), "{draft_name:?} must be accepted");
+        match result.unwrap().into_iter().next().unwrap() {
+            CharacterEvent::CharacterCreated { name, .. } => {
+                assert_eq!(
+                    name, draft_name,
+                    "the event must carry the draft's own wording"
+                );
+            }
+            _ => panic!("Expected CharacterCreated"),
+        }
+        // And the replayed aggregate state carries it unchanged.
+        let agg = create_character(draft_name, CharacterCategory::MainCast);
+        assert_eq!(agg.name, draft_name);
+    }
+}
+
+#[test]
+fn test_create_character_rejects_only_the_empty_string() {
+    // Measured against the real command: the aggregate's only name rule is
+    // `cmd.name.is_empty()`, so a whitespace-only name is **accepted** and would
+    // persist a figure that renders as blank in every list. That gap is
+    // pre-existing and out of this change's scope, but the AI apply must not rely
+    // on the aggregate for it — `plan_scene_apply` therefore drops every name
+    // whose `character_identity` is empty before a command is planned (see
+    // `planner_plans_no_figures_for_an_outline_row`).
+    for blank in ["   ", "\t "] {
+        let result = CharacterAggregate::default().handle(
+            CreateCharacter {
+                id: Uuid::now_v7(),
+                season_id: SeasonId::new(),
+                series_id: Some(series_id()),
+                name: blank.to_string(),
+                category: CharacterCategory::MainCast,
+            },
+            make_ctx(),
+        );
+        assert!(
+            result.is_ok(),
+            "documented gap: {blank:?} slips through the aggregate"
+        );
+    }
+    let result = CharacterAggregate::default().handle(
+        CreateCharacter {
+            id: Uuid::now_v7(),
+            season_id: SeasonId::new(),
+            series_id: Some(series_id()),
+            name: String::new(),
+            category: CharacterCategory::MainCast,
+        },
+        make_ctx(),
+    );
+    assert!(result.is_err(), "the empty name must stay refused");
 }

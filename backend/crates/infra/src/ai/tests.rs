@@ -4,6 +4,7 @@
 // Co-authored-by: deepseek-v4-flash (opencode-go)
 // Co-authored-by: longcat-2.0-free (opencode)
 // Co-authored-by: glm-5.3-flash (opencode-go)
+// Co-authored-by: qwen3.8-flash (opencode-go)
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -13,9 +14,11 @@ use anyhow::anyhow;
 use async_trait::async_trait;
 use breakdown_core::ai::{
     AiImportBounds, AiImportEnqueueRequest, AiImportEnqueueResult, AiImportJob, AiImportJobId,
-    AiImportMapping, AiImportMappingRepository, AiImportQueue, ApplyMapping, DocumentKind,
-    DraftScene, JobStatus, LlmChatRequest, LlmClient, LlmProvider, ScriptContext, ShootingSchedule,
-    ShootingScheduleRow, SourceFormat, Telemetry, TelemetryApplyState, merge_schedule_to_scenes,
+    AiImportMapping, AiImportMappingRepository, AiImportQueue, ApplyMapping, CostumeDecision,
+    DocumentKind, DraftScene, JobStatus, LlmChatRequest, LlmClient, LlmProvider, PRIMARY_ORDINAL,
+    ScriptContext, ShootingSchedule, ShootingScheduleRow, SourceFormat, Telemetry,
+    TelemetryApplyState, UnappliedCostumeReason, UncertaintyKind, character_identity,
+    character_mapping_ref, mapping_kind, merge_schedule_to_scenes,
 };
 use breakdown_core::error::DomainError;
 use breakdown_core::scene::events::SceneSource;
@@ -890,7 +893,7 @@ impl breakdown_core::scene::ports::SceneCommands for FakeSceneCommands {
         // duplicate the scene (issue #338).
         if created.contains(&command.id) {
             return Err(DomainError::VersionConflict {
-                expected: breakdown_core::shared::AggregateVersion(0),
+                expected: version(0),
                 current: breakdown_core::shared::AggregateVersion::INITIAL,
             });
         }
@@ -954,7 +957,7 @@ impl breakdown_core::scene::ports::SceneCommands for FakeSceneCommands {
 
 #[derive(Clone, Default)]
 struct FakeMappings {
-    values: Arc<Mutex<HashMap<(AiImportJobId, String), AiImportMapping>>>,
+    values: Arc<Mutex<HashMap<MappingKey, AiImportMapping>>>,
     /// 1-based ordinal of an `insert` call that must fail once — simulating a
     /// crash between a successful command and the mapping write (issue #179).
     fail_insert_at: Arc<Mutex<Option<usize>>>,
@@ -973,15 +976,26 @@ impl FakeMappings {
         self.reserved.lock().unwrap().clone()
     }
 
-    /// Remove the mapping for `(preview_id, draft_ref)` — simulating a lost
-    /// reservation row (e.g. a rollback that dropped the reservation but the
-    /// command had already appended). The core crash window of issue #182.
+    /// Remove every mapping of `draft_ref` — simulating a lost reservation row
+    /// (e.g. a rollback that dropped the reservation but the command had already
+    /// appended). The core crash window of issue #182. All kinds and ordinals of
+    /// the reference are dropped, which is what a rolled-back transaction does.
     fn remove(&self, preview_id: AiImportJobId, draft_ref: &str) {
-        self.values
-            .lock()
-            .unwrap()
-            .remove(&(preview_id, draft_ref.to_owned()));
+        let mut values = self.values.lock().unwrap();
+        values.retain(|key, _| !(key.0 == preview_id && key.1 == draft_ref));
     }
+}
+
+/// Full mapping row key, as the production table addresses it.
+type MappingKey = (AiImportJobId, String, String, i32);
+
+fn key_of(mapping: &AiImportMapping) -> MappingKey {
+    (
+        mapping.preview_id,
+        mapping.draft_ref.clone(),
+        mapping.aggregate_kind.clone(),
+        mapping.ordinal,
+    )
 }
 
 #[async_trait]
@@ -990,12 +1004,19 @@ impl AiImportMappingRepository for FakeMappings {
         &self,
         preview_id: AiImportJobId,
         draft_ref: &str,
+        aggregate_kind: &str,
+        ordinal: i32,
     ) -> Result<Option<AiImportMapping>, DomainError> {
         Ok(self
             .values
             .lock()
             .unwrap()
-            .get(&(preview_id, draft_ref.to_owned()))
+            .get(&(
+                preview_id,
+                draft_ref.to_owned(),
+                aggregate_kind.to_owned(),
+                ordinal,
+            ))
             .cloned())
     }
 
@@ -1007,7 +1028,7 @@ impl AiImportMappingRepository for FakeMappings {
             .values
             .lock()
             .unwrap()
-            .entry((mapping.preview_id, mapping.draft_ref.clone()))
+            .entry(key_of(&mapping))
             .or_insert(mapping)
             .clone())
     }
@@ -1025,7 +1046,7 @@ impl AiImportMappingRepository for FakeMappings {
         }
         let mut values = self.values.lock().unwrap();
         let entry = values
-            .entry((mapping.preview_id, mapping.draft_ref.clone()))
+            .entry(key_of(&mapping))
             .or_insert_with(|| mapping.clone());
         // Mirrors the production upsert's monotonic version guard.
         if entry.aggregate_version < mapping.aggregate_version {
@@ -1072,7 +1093,7 @@ impl breakdown_core::shooting_day::ports::ShootingDayCommands for FakeShootingDa
         // written) stream cannot append and reports the current version.
         if created.contains(&command.id) {
             return Err(DomainError::VersionConflict {
-                expected: breakdown_core::shared::AggregateVersion(0),
+                expected: version(0),
                 current: breakdown_core::shared::AggregateVersion::INITIAL,
             });
         }
@@ -1152,7 +1173,7 @@ impl breakdown_core::scene_shoot::ports::SceneShootCommands for FakeSceneShootCo
     > {
         if *self.zero_version_conflict.lock().unwrap() {
             return Err(DomainError::VersionConflict {
-                expected: breakdown_core::shared::AggregateVersion(0),
+                expected: version(0),
                 current: breakdown_core::shared::AggregateVersion(0),
             });
         }
@@ -1162,7 +1183,7 @@ impl breakdown_core::scene_shoot::ports::SceneShootCommands for FakeSceneShootCo
         // rather than appending a duplicate `SceneShootPlanned`.
         if planned.contains(&command.id) {
             return Err(DomainError::VersionConflict {
-                expected: breakdown_core::shared::AggregateVersion(0),
+                expected: version(0),
                 current: breakdown_core::shared::AggregateVersion::INITIAL,
             });
         }
@@ -1326,9 +1347,9 @@ impl ScheduleApplyFixture {
         format!("scene-shoot:{}:{}", self.scene_id, day.0)
     }
 
-    async fn mapping(&self, draft_ref: &str) -> Option<AiImportMapping> {
+    async fn mapping(&self, draft_ref: &str, aggregate_kind: &str) -> Option<AiImportMapping> {
         self.mappings
-            .find(self.preview_id, draft_ref)
+            .find(self.preview_id, draft_ref, aggregate_kind, PRIMARY_ORDINAL)
             .await
             .unwrap()
     }
@@ -1364,7 +1385,7 @@ async fn schedule_apply_retry_after_a_scene_shoot_mapping_failure_plans_once() {
     assert_eq!(fixture.scene_shoots.planned.lock().unwrap().len(), 1);
     let pair_key = fixture.scene_shoot_pair_key();
     let reserved = fixture
-        .mapping(&pair_key)
+        .mapping(&pair_key, mapping_kind::SCENE_SHOOT)
         .await
         .expect("the reservation must survive the failed confirm");
     assert!(
@@ -1386,7 +1407,10 @@ async fn schedule_apply_retry_after_a_scene_shoot_mapping_failure_plans_once() {
         1,
         "the retry must not create a second shooting day"
     );
-    let confirmed = fixture.mapping(&pair_key).await.expect("mapping exists");
+    let confirmed = fixture
+        .mapping(&pair_key, mapping_kind::SCENE_SHOOT)
+        .await
+        .expect("mapping exists");
     assert!(
         !confirmed.is_reserved(),
         "the retry must confirm the mapping"
@@ -1418,7 +1442,10 @@ async fn schedule_apply_retry_after_a_day_mapping_failure_creates_one_day() {
     let created = fixture.shooting_days.created.lock().unwrap().clone();
     assert_eq!(created.len(), 1, "the day command DID append");
     let day_key = fixture.mappings.reservations()[0].draft_ref.clone();
-    let reserved = fixture.mapping(&day_key).await.expect("reservation exists");
+    let reserved = fixture
+        .mapping(&day_key, mapping_kind::SHOOTING_DAY)
+        .await
+        .expect("reservation exists");
     assert!(reserved.is_reserved());
     assert_eq!(reserved.aggregate_id, created[0].0);
 
@@ -1430,7 +1457,10 @@ async fn schedule_apply_retry_after_a_day_mapping_failure_creates_one_day() {
         "the retry must not create a second shooting day"
     );
     assert_eq!(fixture.scene_shoots.planned.lock().unwrap().len(), 1);
-    let confirmed = fixture.mapping(&day_key).await.expect("mapping exists");
+    let confirmed = fixture
+        .mapping(&day_key, mapping_kind::SHOOTING_DAY)
+        .await
+        .expect("mapping exists");
     assert!(!confirmed.is_reserved());
     assert_eq!(confirmed.aggregate_id, created[0].0);
 }
@@ -1474,7 +1504,7 @@ async fn schedule_apply_does_not_recover_a_zero_version_conflict() {
     assert!(matches!(error, DomainError::VersionConflict { .. }));
     let pair_key = fixture.scene_shoot_pair_key();
     let mapping = fixture
-        .mapping(&pair_key)
+        .mapping(&pair_key, mapping_kind::SCENE_SHOOT)
         .await
         .expect("reservation exists");
     assert!(
@@ -1509,7 +1539,10 @@ async fn schedule_apply_retry_after_day_command_success_creates_one_day() {
     // the day. A random-id retry would create a duplicate here.
     fixture.mappings.remove(fixture.preview_id, &day_key);
     assert!(
-        fixture.mapping(&day_key).await.is_none(),
+        fixture
+            .mapping(&day_key, mapping_kind::SHOOTING_DAY)
+            .await
+            .is_none(),
         "reservation must be gone"
     );
 
@@ -1526,7 +1559,10 @@ async fn schedule_apply_retry_after_day_command_success_creates_one_day() {
         day_id,
         "the retry must converge on the SAME ShootingDayId (AC #3)"
     );
-    let confirmed = fixture.mapping(&day_key).await.expect("mapping exists");
+    let confirmed = fixture
+        .mapping(&day_key, mapping_kind::SHOOTING_DAY)
+        .await
+        .expect("mapping exists");
     assert!(
         !confirmed.is_reserved(),
         "the retry must confirm the mapping"
@@ -1552,11 +1588,20 @@ async fn schedule_apply_retry_after_scene_shoot_command_success_plans_once() {
 
     assert_eq!(fixture.scene_shoots.planned.lock().unwrap().len(), 1);
     let pair_key = fixture.scene_shoot_pair_key();
-    let reserved_id = fixture.mapping(&pair_key).await.unwrap().aggregate_id;
+    let reserved_id = fixture
+        .mapping(&pair_key, mapping_kind::SCENE_SHOOT)
+        .await
+        .unwrap()
+        .aggregate_id;
 
     // Lose the scene-shoot reservation row.
     fixture.mappings.remove(fixture.preview_id, &pair_key);
-    assert!(fixture.mapping(&pair_key).await.is_none());
+    assert!(
+        fixture
+            .mapping(&pair_key, mapping_kind::SCENE_SHOOT)
+            .await
+            .is_none()
+    );
 
     // Retry: deterministic id → aggregate rejects duplicate → one scene shoot.
     fixture.apply().await.expect("the retry must converge");
@@ -1571,7 +1616,10 @@ async fn schedule_apply_retry_after_scene_shoot_command_success_plans_once() {
         reserved_id,
         "the retry must converge on the SAME SceneShootId (AC #3)"
     );
-    let confirmed = fixture.mapping(&pair_key).await.expect("mapping exists");
+    let confirmed = fixture
+        .mapping(&pair_key, mapping_kind::SCENE_SHOOT)
+        .await
+        .expect("mapping exists");
     assert!(
         !confirmed.is_reserved(),
         "the retry must confirm the mapping"
@@ -1596,8 +1644,16 @@ async fn schedule_apply_ids_are_deterministic_and_distinct() {
     let day_key = fixture.mappings.reservations()[0].draft_ref.clone();
     let pair_key = fixture.scene_shoot_pair_key();
 
-    let day_id_first = fixture.mapping(&day_key).await.unwrap().aggregate_id;
-    let shoot_id_first = fixture.mapping(&pair_key).await.unwrap().aggregate_id;
+    let day_id_first = fixture
+        .mapping(&day_key, mapping_kind::SHOOTING_DAY)
+        .await
+        .unwrap()
+        .aggregate_id;
+    let shoot_id_first = fixture
+        .mapping(&pair_key, mapping_kind::SCENE_SHOOT)
+        .await
+        .unwrap()
+        .aggregate_id;
 
     // The two ids (different draft_refs) must differ.
     assert_ne!(
@@ -1612,12 +1668,20 @@ async fn schedule_apply_ids_are_deterministic_and_distinct() {
     // Second apply must re-derive the SAME ids without the projection.
     fixture.apply().await.unwrap();
     assert_eq!(
-        fixture.mapping(&day_key).await.unwrap().aggregate_id,
+        fixture
+            .mapping(&day_key, mapping_kind::SHOOTING_DAY)
+            .await
+            .unwrap()
+            .aggregate_id,
         day_id_first,
         "ShootingDayId must be stable across applies without the projection"
     );
     assert_eq!(
-        fixture.mapping(&pair_key).await.unwrap().aggregate_id,
+        fixture
+            .mapping(&pair_key, mapping_kind::SCENE_SHOOT)
+            .await
+            .unwrap()
+            .aggregate_id,
         shoot_id_first,
         "SceneShootId must be stable across applies without the projection"
     );
@@ -1641,15 +1705,16 @@ async fn apply_retry_is_a_noop_for_confirmed_mappings() {
         .unwrap();
     let payload = previews.get(&handle).await.unwrap().unwrap();
     let preview: ScriptContext = serde_json::from_slice(&payload).unwrap();
-    let worker = ApplyWorker {
-        scene_commands: Arc::clone(&commands),
-        mappings: Arc::clone(&mappings),
-        queue: Arc::clone(&queue),
-    };
-    let decision = ApplyMapping {
-        draft_ref: "fixture-scene".to_owned(),
-        decision: breakdown_core::ai::ApplyMappingDecision::Create,
-    };
+    let worker = script_apply_worker(
+        Arc::clone(&commands),
+        Arc::clone(&mappings),
+        Arc::clone(&queue),
+    );
+    // Not the fake client's "fixture-scene": `process_text` overwrites every
+    // row's reference with the server-owned `stable_draft_ref`, and the apply
+    // resolves decisions by that reference.
+    let row_ref = preview.scenes[0].draft_ref.clone();
+    let decision = create_decision(&row_ref);
     let first = worker
         .apply_script(ApplyScriptRequest {
             actor: UserId::from_sub("ai-test-user"),
@@ -1657,6 +1722,7 @@ async fn apply_retry_is_a_noop_for_confirmed_mappings() {
             preview: &preview,
             decisions: &[decision],
             episode_id: breakdown_core::shared::EpisodeId::new(),
+            season_id: breakdown_core::shared::SeasonId::new(),
             series_id: None,
             telemetry: Some(Telemetry {
                 doc_kind: Some(DocumentKind::Script),
@@ -1678,12 +1744,20 @@ async fn apply_retry_is_a_noop_for_confirmed_mappings() {
             preview: &preview,
             decisions: &[],
             episode_id: breakdown_core::shared::EpisodeId::new(),
+            season_id: breakdown_core::shared::SeasonId::new(),
             series_id: None,
             telemetry: None,
         })
         .await
         .unwrap();
-    assert_eq!(first, second, "the retry must return the stored id/version");
+    assert_eq!(
+        first.applied, second.applied,
+        "the retry must return the stored id/version"
+    );
+    assert_eq!(
+        second.created_characters, 0,
+        "a retry must not report a second figure creation"
+    );
     assert_eq!(commands.created.lock().unwrap().len(), 1);
     assert!(
         commands.updated.lock().unwrap().is_empty(),
@@ -1727,24 +1801,18 @@ async fn apply_script_concurrent_applies_create_one_scene_per_draft() {
     };
     let preview_id = AiImportJobId::new();
     let decisions = vec![
-        ApplyMapping {
-            draft_ref: "concurrent-a".to_owned(),
-            decision: breakdown_core::ai::ApplyMappingDecision::Create,
-        },
-        ApplyMapping {
-            draft_ref: "concurrent-b".to_owned(),
-            decision: breakdown_core::ai::ApplyMappingDecision::Create,
-        },
+        create_decision("concurrent-a"),
+        create_decision("concurrent-b"),
     ];
     let episode_id = breakdown_core::shared::EpisodeId::new();
     let barrier = Arc::new(Barrier::new(2));
     let mut handles = Vec::new();
     for _ in 0..2 {
-        let worker = ApplyWorker {
-            scene_commands: Arc::clone(&commands),
-            mappings: Arc::clone(&mappings),
-            queue: Arc::clone(&queue),
-        };
+        let worker = script_apply_worker(
+            Arc::clone(&commands),
+            Arc::clone(&mappings),
+            Arc::clone(&queue),
+        );
         let barrier = Arc::clone(&barrier);
         let preview = preview.clone();
         let decisions = decisions.clone();
@@ -1757,6 +1825,7 @@ async fn apply_script_concurrent_applies_create_one_scene_per_draft() {
                     preview: &preview,
                     decisions: &decisions,
                     episode_id,
+                    season_id: breakdown_core::shared::SeasonId::new(),
                     series_id: None,
                     telemetry: None,
                 })
@@ -1773,7 +1842,11 @@ async fn apply_script_concurrent_applies_create_one_scene_per_draft() {
         );
     }
     assert_eq!(results[0], results[1], "both applies must converge");
-    assert_eq!(results[0].len(), 2, "stable applied_count per draft");
+    assert_eq!(
+        results[0].applied.len(),
+        2,
+        "stable applied_count per draft"
+    );
     let created = commands.created.lock().unwrap().clone();
     let mut unique: Vec<Uuid> = created.clone();
     unique.sort();
@@ -1786,7 +1859,7 @@ async fn apply_script_concurrent_applies_create_one_scene_per_draft() {
     );
     for draft_ref in ["concurrent-a", "concurrent-b"] {
         let mapping = mappings
-            .find(preview_id, draft_ref)
+            .find(preview_id, draft_ref, mapping_kind::SCENE, PRIMARY_ORDINAL)
             .await
             .expect("mappings readable")
             .expect("mapping exists");
@@ -1886,15 +1959,8 @@ async fn script_pdf_round_trip_reaches_scene_apply() {
 
     let commands = Arc::new(FakeSceneCommands::default());
     let mappings = Arc::new(FakeMappings::default());
-    let apply_worker = ApplyWorker {
-        scene_commands: Arc::clone(&commands),
-        mappings,
-        queue,
-    };
-    let decision = ApplyMapping {
-        draft_ref: preview.scenes[0].draft_ref.clone(),
-        decision: breakdown_core::ai::ApplyMappingDecision::Create,
-    };
+    let apply_worker = script_apply_worker(Arc::clone(&commands), Arc::clone(&mappings), queue);
+    let decision = create_decision(&preview.scenes[0].draft_ref);
     apply_worker
         .apply_script(ApplyScriptRequest {
             actor: UserId::from_sub("script-round-trip"),
@@ -1902,10 +1968,816 @@ async fn script_pdf_round_trip_reaches_scene_apply() {
             preview: &preview,
             decisions: &[decision],
             episode_id: breakdown_core::shared::EpisodeId::new(),
+            season_id: breakdown_core::shared::SeasonId::new(),
             series_id: None,
             telemetry: None,
         })
         .await
         .unwrap();
     assert_eq!(commands.created.lock().unwrap().len(), 1);
+}
+
+// ===========================================================================
+// Script apply: figures and costumes of a draft row
+// (openspec: ai-import-character-costumes, groups 3 + 4)
+// ===========================================================================
+
+/// `ApplyMapping::decision` is not re-exported by name here; this keeps the
+/// test literals below short.
+fn create_decision(draft_ref: &str) -> ApplyMapping {
+    ApplyMapping {
+        draft_ref: draft_ref.to_owned(),
+        decision: breakdown_core::ai::ApplyMappingDecision::Create,
+        costume_decisions: Vec::new(),
+    }
+}
+
+/// Script-apply worker for the tests that do not inspect figures or costumes.
+/// The previews those tests use carry none, so the two extra ports only have to
+/// exist.
+fn script_apply_worker(
+    scene_commands: Arc<FakeSceneCommands>,
+    mappings: Arc<FakeMappings>,
+    queue: Arc<FakeQueue>,
+) -> ApplyWorker<
+    FakeSceneCommands,
+    FakeCharacterCommands,
+    FakeCostumeCommands,
+    FakeMappings,
+    FakeQueue,
+> {
+    ApplyWorker {
+        scene_commands,
+        character_commands: Arc::new(FakeCharacterCommands::default()),
+        costume_commands: Arc::new(FakeCostumeCommands::default()),
+        mappings,
+        queue,
+    }
+}
+
+/// A port the AI apply must never call. Failing loudly beats returning a value
+/// a dispatch bug could silently consume.
+fn unexpected_command(name: &str) -> Result<Version, DomainError> {
+    Err(DomainError::validation(format!(
+        "unexpected AI apply command: {name}"
+    )))
+}
+
+/// `CreateCharacter` faithful to the real aggregate's optimistic-locking
+/// contract, plus an ordered journal of what the apply dispatched.
+#[derive(Clone, Default)]
+struct FakeCharacterCommands {
+    created: Arc<Mutex<Vec<breakdown_core::character::commands::CreateCharacter>>>,
+    /// `Some` refuses the next create with a domain error (task 3.6).
+    fail_with: Arc<Mutex<Option<DomainError>>>,
+    journal: Arc<Mutex<Vec<String>>>,
+}
+
+impl breakdown_core::character::ports::CharacterCommands for FakeCharacterCommands {
+    async fn create(
+        &self,
+        _actor: UserId,
+        command: breakdown_core::character::commands::CreateCharacter,
+    ) -> Result<(Uuid, breakdown_core::shared::AggregateVersion), DomainError> {
+        if let Some(error) = self.fail_with.lock().unwrap().take() {
+            return Err(error);
+        }
+        let id = command.id;
+        // `CharacterCommandsImpl` dispatches a create with
+        // `ExpectedVersion::Empty`: re-driving onto a stream that already
+        // appended reports the current version instead of duplicating.
+        if self.created.lock().unwrap().iter().any(|c| c.id == id) {
+            return Err(DomainError::VersionConflict {
+                expected: version(0),
+                current: breakdown_core::shared::AggregateVersion::INITIAL,
+            });
+        }
+        let name = command.name.clone();
+        self.created.lock().unwrap().push(command);
+        self.journal
+            .lock()
+            .unwrap()
+            .push(format!("character:{name}"));
+        Ok((id, breakdown_core::shared::AggregateVersion::INITIAL))
+    }
+
+    async fn update_measurements(
+        &self,
+        _actor: UserId,
+        _command: breakdown_core::character::commands::UpdateMeasurements,
+    ) -> Result<breakdown_core::shared::AggregateVersion, DomainError> {
+        unexpected_command("update_measurements")
+    }
+
+    async fn update_contact_info(
+        &self,
+        _actor: UserId,
+        _command: breakdown_core::character::commands::UpdateContactInfo,
+    ) -> Result<breakdown_core::shared::AggregateVersion, DomainError> {
+        unexpected_command("update_contact_info")
+    }
+}
+
+/// `CostumeCommands` faithful to the aggregate's version chain: every accepted
+/// command appends exactly one event, so the version the apply stores is the
+/// phase record a retry re-drives from.
+#[derive(Clone, Default)]
+struct FakeCostumeCommands {
+    created: Arc<Mutex<Vec<Uuid>>>,
+    notes: Arc<Mutex<Vec<(Uuid, String)>>>,
+    assigned: Arc<Mutex<Vec<(Uuid, Uuid)>>>,
+    /// Version each costume carries, i.e. how many events it has appended.
+    versions: Arc<Mutex<HashMap<Uuid, breakdown_core::shared::AggregateVersion>>>,
+    fail_assign_with: Arc<Mutex<Option<DomainError>>>,
+    journal: Arc<Mutex<Vec<String>>>,
+}
+
+type Version = breakdown_core::shared::AggregateVersion;
+
+/// A pinned aggregate version (the alias above cannot construct the tuple).
+fn version(n: u64) -> Version {
+    breakdown_core::shared::AggregateVersion(n)
+}
+
+impl FakeCostumeCommands {
+    fn version_of(&self, id: &Uuid) -> Option<Version> {
+        self.versions.lock().unwrap().get(id).copied()
+    }
+
+    /// Mimic the aggregate's `check_version`: a stale expected version is a
+    /// typed `VersionConflict` carrying the current one.
+    fn check(&self, id: Uuid, expected: Version) -> Result<Version, DomainError> {
+        match self.version_of(&id) {
+            Some(current) if current == expected => Ok(current.next()),
+            Some(current) => Err(DomainError::VersionConflict { expected, current }),
+            None => Err(DomainError::validation("costume stream is missing")),
+        }
+    }
+}
+
+impl breakdown_core::costume::ports::CostumeCommands for FakeCostumeCommands {
+    async fn create(
+        &self,
+        _actor: UserId,
+        command: breakdown_core::costume::commands::CreateCostume,
+    ) -> Result<(Uuid, Version), DomainError> {
+        let id = command.id;
+        if self.created.lock().unwrap().contains(&id) {
+            return Err(DomainError::VersionConflict {
+                expected: version(0),
+                current: self.version_of(&id).unwrap_or(Version::INITIAL),
+            });
+        }
+        self.created.lock().unwrap().push(id);
+        self.versions.lock().unwrap().insert(id, Version::INITIAL);
+        self.journal
+            .lock()
+            .unwrap()
+            .push(format!("costume:create:{id}"));
+        Ok((id, Version::INITIAL))
+    }
+
+    async fn update_notes(
+        &self,
+        _actor: UserId,
+        command: breakdown_core::costume::commands::UpdateCostumeNotes,
+    ) -> Result<Version, DomainError> {
+        let next = self.check(command.id, command.version)?;
+        self.versions.lock().unwrap().insert(command.id, next);
+        self.notes
+            .lock()
+            .unwrap()
+            .push((command.id, command.notes.clone()));
+        self.journal
+            .lock()
+            .unwrap()
+            .push(format!("costume:notes:{}", command.id));
+        Ok(next)
+    }
+
+    async fn assign_to_character(
+        &self,
+        _actor: UserId,
+        command: breakdown_core::costume::commands::AssignCostumeToCharacter,
+    ) -> Result<Version, DomainError> {
+        if let Some(error) = self.fail_assign_with.lock().unwrap().take() {
+            return Err(error);
+        }
+        let next = self.check(command.id, command.version)?;
+        self.versions.lock().unwrap().insert(command.id, next);
+        self.assigned
+            .lock()
+            .unwrap()
+            .push((command.id, command.character_id));
+        self.journal
+            .lock()
+            .unwrap()
+            .push(format!("costume:bind:{}", command.id));
+        Ok(next)
+    }
+
+    async fn unassign(
+        &self,
+        _actor: UserId,
+        _command: breakdown_core::costume::commands::UnassignCostume,
+    ) -> Result<Version, DomainError> {
+        unexpected_command("unassign")
+    }
+
+    async fn add_detail(
+        &self,
+        _actor: UserId,
+        _command: breakdown_core::costume::commands::AddDetail,
+    ) -> Result<Version, DomainError> {
+        unexpected_command("add_detail")
+    }
+
+    async fn remove_detail(
+        &self,
+        _actor: UserId,
+        _command: breakdown_core::costume::commands::RemoveDetail,
+    ) -> Result<Version, DomainError> {
+        unexpected_command("remove_detail")
+    }
+
+    async fn link_photo(
+        &self,
+        _actor: UserId,
+        _command: breakdown_core::costume::commands::LinkPhoto,
+    ) -> Result<Version, DomainError> {
+        unexpected_command("link_photo")
+    }
+
+    async fn unlink_photo(
+        &self,
+        _actor: UserId,
+        _command: breakdown_core::costume::commands::UnlinkPhoto,
+    ) -> Result<Version, DomainError> {
+        unexpected_command("unlink_photo")
+    }
+}
+
+/// End-to-end script apply with all five ports and a shared dispatch journal.
+struct ScriptApplyFixture {
+    queue: Arc<FakeQueue>,
+    mappings: Arc<FakeMappings>,
+    scenes: Arc<FakeSceneCommands>,
+    characters: Arc<FakeCharacterCommands>,
+    costumes: Arc<FakeCostumeCommands>,
+    journal: Arc<Mutex<Vec<String>>>,
+    preview_id: AiImportJobId,
+    episode_id: breakdown_core::shared::EpisodeId,
+    season_id: breakdown_core::shared::SeasonId,
+}
+
+impl ScriptApplyFixture {
+    fn new() -> Self {
+        let journal = Arc::new(Mutex::new(Vec::new()));
+        Self {
+            queue: Arc::new(FakeQueue::default()),
+            mappings: Arc::new(FakeMappings::default()),
+            scenes: Arc::new(FakeSceneCommands::default()),
+            characters: Arc::new(FakeCharacterCommands {
+                journal: Arc::clone(&journal),
+                ..Default::default()
+            }),
+            costumes: Arc::new(FakeCostumeCommands {
+                journal: Arc::clone(&journal),
+                ..Default::default()
+            }),
+            journal,
+            preview_id: AiImportJobId::new(),
+            episode_id: breakdown_core::shared::EpisodeId::new(),
+            season_id: breakdown_core::shared::SeasonId::new(),
+        }
+    }
+
+    fn worker(
+        &self,
+    ) -> ApplyWorker<
+        FakeSceneCommands,
+        FakeCharacterCommands,
+        FakeCostumeCommands,
+        FakeMappings,
+        FakeQueue,
+    > {
+        ApplyWorker {
+            scene_commands: Arc::clone(&self.scenes),
+            character_commands: Arc::clone(&self.characters),
+            costume_commands: Arc::clone(&self.costumes),
+            mappings: Arc::clone(&self.mappings),
+            queue: Arc::clone(&self.queue),
+        }
+    }
+
+    async fn apply(
+        &self,
+        preview: &ScriptContext,
+        decisions: &[ApplyMapping],
+    ) -> Result<super::ScriptApplyResult, DomainError> {
+        self.worker()
+            .apply_script(ApplyScriptRequest {
+                actor: UserId::from_sub("apply-test-user"),
+                preview_id: self.preview_id,
+                preview,
+                decisions,
+                episode_id: self.episode_id,
+                season_id: self.season_id,
+                series_id: None,
+                telemetry: None,
+            })
+            .await
+    }
+
+    fn steps(&self) -> Vec<String> {
+        self.journal.lock().unwrap().clone()
+    }
+}
+
+/// A row with one figure and one costume, as extraction would produce it.
+fn row_with_costume(draft_ref: &str, characters: &[&str], costumes: &[(&str, &str)]) -> DraftScene {
+    DraftScene {
+        draft_ref: draft_ref.to_owned(),
+        scene_number: Some(1),
+        characters: characters.iter().map(|name| (*name).to_owned()).collect(),
+        costumes: costumes
+            .iter()
+            .map(
+                |(character, description)| breakdown_core::ai::DraftCostume {
+                    character_name: (*character).to_owned(),
+                    description: (*description).to_owned(),
+                    source_quote: (*description).to_owned(),
+                },
+            )
+            .collect(),
+        ..Default::default()
+    }
+}
+
+/// Task 3.4: the figure must exist before its costume binds to it.
+#[tokio::test]
+async fn script_apply_dispatches_the_character_before_the_costume_binding() {
+    let fixture = ScriptApplyFixture::new();
+    let preview = ScriptContext {
+        scenes: vec![row_with_costume(
+            "1. INT. OP",
+            &["BEN"],
+            &[("Ben", "ölverschmierter Mechaniker-Overall")],
+        )],
+        ..Default::default()
+    };
+    fixture
+        .apply(&preview, &[create_decision("1. INT. OP")])
+        .await
+        .unwrap();
+
+    let steps = fixture.steps();
+    let character = steps
+        .iter()
+        .position(|step| step == "character:BEN")
+        .unwrap_or_else(|| panic!("no CreateCharacter was dispatched: {steps:?}"));
+    let bind = steps
+        .iter()
+        .position(|step| step.starts_with("costume:bind:"))
+        .unwrap_or_else(|| panic!("no AssignCostumeToCharacter was dispatched: {steps:?}"));
+    assert!(
+        character < bind,
+        "the figure must be created before its costume binds to it: {steps:?}"
+    );
+    // And the costume that bound is the one this apply created.
+    let created_costumes = fixture.costumes.created.lock().unwrap().clone();
+    let assigned = fixture.costumes.assigned.lock().unwrap().clone();
+    assert_eq!(assigned.len(), 1);
+    assert_eq!(assigned[0].0, created_costumes[0]);
+    assert_eq!(
+        assigned[0].1,
+        fixture.characters.created.lock().unwrap()[0].id,
+        "the costume must bind to the figure created from the same row"
+    );
+}
+
+/// Tasks 3.2 + 3.5: one figure per name across the whole preview, and a second
+/// apply of the same preview creates neither a duplicate figure nor a duplicate
+/// costume.
+#[tokio::test]
+async fn script_apply_creates_one_figure_per_name_and_re_applies_without_duplicates() {
+    let fixture = ScriptApplyFixture::new();
+    // The same figure named by two different draft rows, in three different
+    // spellings — the case that made a per-row key useless (the live import
+    // produced 268 character mentions over 131 scenes).
+    let preview = ScriptContext {
+        scenes: vec![
+            row_with_costume(
+                "1. INT. OP",
+                &["RENEE SANDERS"],
+                &[("Renee Sanders", "Ölverschmierter Overall")],
+            ),
+            row_with_costume(
+                "2. A/T - VOR KLINIK",
+                &[" renee sanders "],
+                &[("RENEE SANDERS", "Kasack")],
+            ),
+        ],
+        ..Default::default()
+    };
+    let decisions = [
+        create_decision("1. INT. OP"),
+        create_decision("2. A/T - VOR KLINIK"),
+    ];
+
+    let first = fixture.apply(&preview, &decisions).await.unwrap();
+    assert_eq!(first.created_characters, 1, "one figure for two mentions");
+    assert_eq!(first.created_costumes, 2, "both costumes applied");
+    assert_eq!(fixture.characters.created.lock().unwrap().len(), 1);
+    assert_eq!(fixture.costumes.created.lock().unwrap().len(), 2);
+    // Both costumes point at the *same* figure.
+    let bound: Vec<Uuid> = fixture
+        .costumes
+        .assigned
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|(_, character)| *character)
+        .collect();
+    assert_eq!(bound[0], bound[1], "one figure, not one per scene");
+
+    // Re-apply: every row is already mapped, so nothing dispatches again.
+    let again = fixture.apply(&preview, &decisions).await.unwrap();
+    assert_eq!(again.applied.len(), 2, "the rows are still reported");
+    assert_eq!(again.created_characters, 0);
+    assert_eq!(again.created_costumes, 0);
+    assert!(again.unapplied_costumes.is_empty());
+    assert_eq!(
+        fixture.characters.created.lock().unwrap().len(),
+        1,
+        "no duplicate figure"
+    );
+    assert_eq!(
+        fixture.costumes.created.lock().unwrap().len(),
+        2,
+        "no duplicate costume"
+    );
+    assert_eq!(
+        fixture.scenes.created.lock().unwrap().len(),
+        2,
+        "no duplicate scene either"
+    );
+}
+
+/// Task 3.6: a figure that cannot be created must not leave an unbindable
+/// costume behind — the costumes report why they are missing.
+#[tokio::test]
+async fn script_apply_reports_costumes_whose_figure_could_not_be_created() {
+    let fixture = ScriptApplyFixture::new();
+    fixture
+        .characters
+        .fail_with
+        .lock()
+        .unwrap()
+        .replace(DomainError::validation("simulated character rejection"));
+    let preview = ScriptContext {
+        scenes: vec![row_with_costume(
+            "1. INT. OP",
+            &["BEN"],
+            &[("Ben", "Marineblau"), ("Ben", "Silberkette")],
+        )],
+        ..Default::default()
+    };
+    let result = fixture
+        .apply(&preview, &[create_decision("1. INT. OP")])
+        .await
+        .unwrap();
+
+    assert!(
+        fixture.costumes.created.lock().unwrap().is_empty(),
+        "a costume with no figure must never be created"
+    );
+    assert_eq!(result.unapplied_costumes.len(), 2);
+    assert!(result.unapplied_costumes.iter().all(|costume| {
+        costume.reason == UnappliedCostumeReason::CharacterUnavailable
+            && costume.detail.as_deref() == Some("validation failed: simulated character rejection")
+    }));
+    // The scene of that row still applied — one bad figure is not a failed row.
+    assert_eq!(result.applied.len(), 1);
+    // And the refusal is not retried once per costume.
+    assert_eq!(fixture.characters.created.lock().unwrap().len(), 0);
+}
+
+/// Spec `costume-character-binding`, "Binding fails after the costume was
+/// created": the costume stays created and unassigned, the row is reported as
+/// partially applied with the reason, and the retry **reuses the same costume
+/// id** instead of appending a second one.
+#[tokio::test]
+async fn script_apply_reuses_the_costume_id_when_only_the_binding_failed() {
+    let fixture = ScriptApplyFixture::new();
+    fixture
+        .costumes
+        .fail_assign_with
+        .lock()
+        .unwrap()
+        .replace(DomainError::validation("simulated binding rejection"));
+    let preview = ScriptContext {
+        scenes: vec![row_with_costume(
+            "1. INT. OP",
+            &["BEN"],
+            &[("Ben", "Marineblau")],
+        )],
+        ..Default::default()
+    };
+    let decisions = [create_decision("1. INT. OP")];
+    let first = fixture.apply(&preview, &decisions).await.unwrap();
+
+    assert_eq!(first.created_costumes, 1, "the costume exists");
+    assert!(fixture.costumes.assigned.lock().unwrap().is_empty());
+    assert_eq!(first.unapplied_costumes.len(), 1);
+    assert_eq!(
+        first.unapplied_costumes[0].reason,
+        UnappliedCostumeReason::BindingRejected
+    );
+    let created_id = fixture.costumes.created.lock().unwrap()[0];
+    // The mapping advanced only as far as the create, i.e. the version records
+    // exactly which phase is missing.
+    let mapping = fixture
+        .mappings
+        .find(fixture.preview_id, "1. INT. OP", mapping_kind::COSTUME, 0)
+        .await
+        .unwrap()
+        .expect("costume mapping row");
+    assert_eq!(mapping.aggregate_id, created_id);
+    assert_eq!(
+        mapping.aggregate_version,
+        version(2),
+        "create + notes appended, the binding did not"
+    );
+
+    // Retry with the binding allowed again: same id, now bound, no second
+    // costume.
+    let second = fixture.apply(&preview, &decisions).await.unwrap();
+    assert!(
+        second.unapplied_costumes.is_empty(),
+        "{:?}",
+        second.unapplied_costumes
+    );
+    assert_eq!(
+        second.created_costumes, 0,
+        "the retry must not create again"
+    );
+    assert_eq!(fixture.costumes.created.lock().unwrap().len(), 1);
+    let assigned = fixture.costumes.assigned.lock().unwrap().clone();
+    assert_eq!(assigned.len(), 1);
+    assert_eq!(assigned[0].0, created_id, "the reserved id was reused");
+    assert_eq!(
+        fixture
+            .mappings
+            .find(fixture.preview_id, "1. INT. OP", mapping_kind::COSTUME, 0)
+            .await
+            .unwrap()
+            .unwrap()
+            .aggregate_version,
+        version(3),
+        "create + notes + bind"
+    );
+}
+
+/// Design D7: the extracted garment description is what the import exists to
+/// capture, so it must survive into the domain — and the binding must carry the
+/// version the notes step left behind, not the one create returned.
+#[tokio::test]
+async fn script_apply_writes_the_description_as_notes_and_binds_at_that_version() {
+    let fixture = ScriptApplyFixture::new();
+    let preview = ScriptContext {
+        scenes: vec![row_with_costume(
+            "1. INT. OP",
+            &[" BEN "],
+            &[("ben", "  ölverschmierter Mechaniker-Overall  ")],
+        )],
+        ..Default::default()
+    };
+    let result = fixture
+        .apply(&preview, &[create_decision("1. INT. OP")])
+        .await
+        .unwrap();
+    assert!(result.unapplied_costumes.is_empty());
+
+    // Verbatim name form, untouched by the case-insensitive identity match.
+    let created = fixture.characters.created.lock().unwrap().clone();
+    assert_eq!(created.len(), 1);
+    assert_eq!(created[0].name, " BEN ");
+    assert_eq!(created[0].season_id, fixture.season_id);
+
+    let notes = fixture.costumes.notes.lock().unwrap().clone();
+    assert_eq!(notes.len(), 1);
+    assert_eq!(notes[0].1, "  ölverschmierter Mechaniker-Overall  ");
+
+    // The costume aggregate is a three-event stream: create, notes, bind.
+    let id = fixture.costumes.created.lock().unwrap()[0];
+    assert_eq!(fixture.costumes.version_of(&id), Some(version(3)));
+    assert_eq!(
+        fixture
+            .mappings
+            .find(fixture.preview_id, "1. INT. OP", mapping_kind::COSTUME, 0)
+            .await
+            .unwrap()
+            .unwrap()
+            .aggregate_version,
+        version(3)
+    );
+    // Group 4: the figure's row is keyed by its identity, not by the scene row.
+    let figure = fixture
+        .mappings
+        .find(
+            fixture.preview_id,
+            &character_mapping_ref(&character_identity(" BEN ")),
+            mapping_kind::CHARACTER,
+            PRIMARY_ORDINAL,
+        )
+        .await
+        .unwrap()
+        .expect("figure mapping row keyed by identity");
+    assert_eq!(figure.aggregate_id, created[0].id);
+}
+
+/// A rejected costume row is not applied, and its scene and figures still are
+/// (spec: the reviewer decides each costume row independently).
+#[tokio::test]
+async fn script_apply_skips_a_rejected_costume_row_without_failing_the_scene() {
+    let fixture = ScriptApplyFixture::new();
+    let preview = ScriptContext {
+        scenes: vec![row_with_costume(
+            "1. INT. OP",
+            &["BEN"],
+            &[("Ben", "Marineblau"), ("Ben", "Silberkette")],
+        )],
+        ..Default::default()
+    };
+    let mut decision = create_decision("1. INT. OP");
+    decision.costume_decisions = vec![CostumeDecision {
+        ordinal: 0,
+        accepted: false,
+    }];
+    let result = fixture.apply(&preview, &[decision]).await.unwrap();
+
+    assert_eq!(result.applied.len(), 1, "the scene applied");
+    assert_eq!(result.created_characters, 1, "the figure applied");
+    assert_eq!(result.created_costumes, 1, "only the accepted costume");
+    assert_eq!(fixture.costumes.notes.lock().unwrap().len(), 1);
+    // The rejected row is not recorded as an unapplied failure — the reviewer
+    // chose it.
+    assert!(result.unapplied_costumes.is_empty());
+    // The rejected costume's mapping row was never written, so a later apply that
+    // accepts it can still create it.
+    assert!(
+        fixture
+            .mappings
+            .find(fixture.preview_id, "1. INT. OP", mapping_kind::COSTUME, 0)
+            .await
+            .unwrap()
+            .is_none()
+    );
+}
+
+/// An outage is not a per-row outcome: it must fail the whole apply so the job
+/// is retried instead of silently leaving rows unwritten.
+#[tokio::test]
+async fn script_apply_propagates_an_infra_outage_instead_of_reporting_a_row() {
+    let fixture = ScriptApplyFixture::new();
+    fixture
+        .characters
+        .fail_with
+        .lock()
+        .unwrap()
+        .replace(DomainError::service_unavailable("event store down"));
+    let preview = ScriptContext {
+        scenes: vec![row_with_costume("1. INT. OP", &["BEN"], &[])],
+        ..Default::default()
+    };
+    let error = fixture
+        .apply(&preview, &[create_decision("1. INT. OP")])
+        .await
+        .expect_err("an outage must fail the apply");
+    assert!(
+        matches!(error, DomainError::ServiceUnavailable { .. }),
+        "got {error:?}"
+    );
+    // The reservation survives, so the retry drives the same figure id.
+    let figure = fixture
+        .mappings
+        .find(
+            fixture.preview_id,
+            &character_mapping_ref("ben"),
+            mapping_kind::CHARACTER,
+            PRIMARY_ORDINAL,
+        )
+        .await
+        .unwrap()
+        .expect("reservation persisted");
+    assert!(figure.is_reserved(), "the row must stay a reservation");
+    let id = figure.aggregate_id;
+    let result = fixture
+        .apply(&preview, &[create_decision("1. INT. OP")])
+        .await
+        .unwrap();
+    assert_eq!(result.created_characters, 1);
+    assert_eq!(
+        fixture.characters.created.lock().unwrap()[0].id,
+        id,
+        "the retry must land on the reserved id"
+    );
+}
+
+// ===========================================================================
+// Provider contract: the grounding check runs in the extraction worker
+// (openspec: ai-import-character-costumes, group 5)
+// ===========================================================================
+
+/// A client that answers with costumes of the reviewer's own choosing, so the
+/// worker's server-side grounding check can be tested against a *returned*
+/// entry rather than only against the pure helper.
+#[derive(Clone)]
+struct CostumeClient {
+    costumes: Vec<breakdown_core::ai::DraftCostume>,
+}
+
+#[async_trait]
+impl LlmClient for CostumeClient {
+    async fn chat_constrained(
+        &self,
+        _request: LlmChatRequest,
+    ) -> Result<ScriptContext, DomainError> {
+        Ok(ScriptContext {
+            title: Some("fixture".to_owned()),
+            scenes: vec![DraftScene {
+                draft_ref: String::new(),
+                scene_number: Some(1),
+                characters: vec!["RENEE".to_owned()],
+                costumes: self.costumes.clone(),
+                ..Default::default()
+            }],
+            uncertainties: Vec::new(),
+        })
+    }
+}
+
+/// Task 5.2/5.3: a costume the model was not told about never reaches the
+/// reviewer, and the row it came from is recorded as an uncertainty.
+#[tokio::test]
+async fn extraction_drops_an_ungrounded_costume_and_records_an_uncertainty() {
+    let queue = Arc::new(FakeQueue::default());
+    let previews = Arc::new(MemoryAiPreviewStore::default());
+    let worker: ScriptImportWorker<FakeQueue, CostumeClient> = ScriptImportWorker {
+        queue: Arc::clone(&queue),
+        client: Arc::new(CostumeClient {
+            costumes: vec![
+                // Quoted from the block: survives.
+                breakdown_core::ai::DraftCostume {
+                    character_name: "renee".to_owned(),
+                    description: "Ölverschmierter Overall".to_owned(),
+                    source_quote: "ölverschmierten Mechaniker-Overall".to_owned(),
+                },
+                // Nowhere in the block: the prompt forbade it, the server checks.
+                breakdown_core::ai::DraftCostume {
+                    character_name: "renee".to_owned(),
+                    description: "Seidenkleid".to_owned(),
+                    source_quote: "in einem langen Seidenkleid aus Seide".to_owned(),
+                },
+            ],
+        }),
+        previews: Arc::clone(&previews) as Arc<dyn AiPreviewStore>,
+        extractor: super::PdfTextExtractor::new(1024 * 1024, std::time::Duration::from_secs(5)),
+        provider: LlmProvider::Ollama,
+        model: "fixture".to_owned(),
+        prompt: "fixture".to_owned(),
+        bounds: AiImportBounds::default(),
+    };
+    let job = script_job(AiImportJobId::new());
+    let handle = worker
+        .process_text(&job, "test-worker", "I/T - OP RAUM 2\nRENEE (39) steigt aus dem Auto, trägt einen leicht ölverschmierten Mechaniker-Overall.")
+        .await
+        .unwrap();
+    let payload = previews.get(&handle).await.unwrap().unwrap();
+    let preview: ScriptContext = serde_json::from_slice(&payload).unwrap();
+
+    assert_eq!(preview.scenes.len(), 1);
+    assert_eq!(
+        preview.scenes[0].costumes.len(),
+        1,
+        "only the grounded costume may survive: {:?}",
+        preview.scenes[0].costumes
+    );
+    assert_eq!(
+        preview.scenes[0].costumes[0].description,
+        "Ölverschmierter Overall"
+    );
+    // The dropped one is visible as missing, and does NOT block the apply.
+    assert_eq!(preview.uncertainties.len(), 1);
+    let uncertainty = &preview.uncertainties[0];
+    assert_eq!(uncertainty.field, "costumes");
+    assert_eq!(uncertainty.kind, UncertaintyKind::DroppedRow);
+    assert_eq!(uncertainty.suggested_value.as_deref(), Some("Seidenkleid"));
+    assert!(
+        uncertainty.note.contains("ungrounded_quote"),
+        "the note must carry the stable reason slug: {}",
+        uncertainty.note
+    );
+    assert!(breakdown_core::ai::ensure_script_applyable(&preview).is_ok());
 }

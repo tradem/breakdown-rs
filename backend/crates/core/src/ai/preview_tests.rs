@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: gpt-5.6-luna (opencode-go)
+// Co-authored-by: qwen3.8-flash (opencode-go)
 
 use chrono::{TimeZone, Utc};
 use uuid::Uuid;
@@ -85,14 +86,16 @@ fn planner_uses_update_for_a_previously_mapped_row() {
                 aggregate_id: existing_id,
                 version: AggregateVersion::INITIAL,
             },
+            costume_decisions: Vec::new(),
         }],
         EpisodeId::new(),
         None,
         AiImportJobId(Uuid::now_v7()),
     )
     .unwrap();
+    assert_eq!(plan.scenes.len(), 1);
     assert!(
-        matches!(plan.as_slice(), [SceneApplyCommand::Update(command)] if command.id == existing_id)
+        matches!(&plan.scenes[0].scene, SceneApplyCommand::Update(command) if command.id == existing_id)
     );
 }
 
@@ -104,6 +107,7 @@ fn open_uncertainties_and_unmatched_rows_block_apply() {
             field: "location".into(),
             note: "illegible".into(),
             suggested_value: Some("Kitchen".into()),
+            kind: UncertaintyKind::FieldAmbiguity,
         }],
         ..Default::default()
     };
@@ -146,6 +150,251 @@ fn open_uncertainties_and_unmatched_rows_block_apply() {
         ),
         Err(ApplyGateError::MissingMapping(_))
     ));
+}
+
+// ===========================================================================
+// plan_scene_apply — figures and costumes of a draft row (group 2)
+// ===========================================================================
+
+fn plan_of(preview: &ScriptContext, decisions: &[ApplyMapping]) -> ScriptApplyPlan {
+    plan_scene_apply(
+        preview,
+        decisions,
+        EpisodeId::new(),
+        None,
+        AiImportJobId(Uuid::now_v7()),
+    )
+    .expect("plan")
+}
+
+/// A `Create` decision for every row named `draft_refs`.
+fn create_decisions(draft_refs: &[&str]) -> Vec<ApplyMapping> {
+    draft_refs
+        .iter()
+        .map(|draft_ref| ApplyMapping {
+            draft_ref: (*draft_ref).to_owned(),
+            decision: ApplyMappingDecision::Create,
+            costume_decisions: Vec::new(),
+        })
+        .collect()
+}
+
+#[test]
+fn planner_plans_the_figures_a_row_names() {
+    let preview = ScriptContext {
+        scenes: vec![DraftScene {
+            draft_ref: "1. INT. OP".into(),
+            characters: vec!["BEN".into(), "Leyla".into()],
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    let plan = plan_of(&preview, &create_decisions(&["1. INT. OP"]));
+    assert_eq!(
+        plan.scenes[0].characters,
+        vec![
+            CharacterApplyPlan {
+                ordinal: 0,
+                name: "BEN".into(),
+                identity: "ben".into(),
+            },
+            CharacterApplyPlan {
+                ordinal: 1,
+                name: "Leyla".into(),
+                identity: "leyla".into(),
+            },
+        ]
+    );
+}
+
+#[test]
+fn planner_plans_no_figures_for_an_outline_row() {
+    // The "Block 100 / Tag 1" case: a heading with characters named nowhere must
+    // not invent a figure, and must not fail the apply either.
+    let preview = ScriptContext {
+        scenes: vec![DraftScene {
+            draft_ref: "1. A/T - VOR KLINIK".into(),
+            characters: vec!["   ".into()],
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    let plan = plan_of(&preview, &create_decisions(&["1. A/T - VOR KLINIK"]));
+    assert!(
+        plan.scenes[0].characters.is_empty(),
+        "whitespace is not a figure: {:#?}",
+        plan.scenes[0].characters
+    );
+    assert!(plan.scenes[0].costumes.is_empty());
+}
+
+#[test]
+fn planner_plans_one_figure_per_name_even_when_a_row_names_it_twice() {
+    let preview = ScriptContext {
+        scenes: vec![DraftScene {
+            draft_ref: "1. INT. OP".into(),
+            characters: vec!["BEN".into(), "Ben ".into()],
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    let plan = plan_of(&preview, &create_decisions(&["1. INT. OP"]));
+    assert_eq!(plan.scenes[0].characters.len(), 1);
+    assert_eq!(
+        plan.scenes[0].characters[0].name, "BEN",
+        "the first mention keeps the draft's own wording"
+    );
+}
+
+#[test]
+fn planner_keeps_the_drafts_name_form_verbatim_while_matching_case_insensitively() {
+    // The two things the previous session could not verify: figures arrived from
+    // the model partly in CAPS, partly mixed-case. The identity is only a
+    // matching key; the name handed to `CreateCharacter` is the draft's own
+    // text, untouched — the aggregate stores what the script wrote.
+    let preview = ScriptContext {
+        scenes: vec![DraftScene {
+            draft_ref: "1. INT. OP".into(),
+            characters: vec![" RENEE SANDERS ".into()],
+            costumes: vec![costume(
+                "renee sanders",
+                "ölverschmierter Mechaniker-Overall",
+                "ölverschmierten Mechaniker-Overall",
+            )],
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    let plan = plan_of(&preview, &create_decisions(&["1. INT. OP"]));
+    assert_eq!(plan.scenes[0].characters[0].name, " RENEE SANDERS ");
+    assert_eq!(plan.scenes[0].characters[0].identity, "renee sanders");
+    // The differently-cased costume name resolved to the CAPS figure.
+    assert_eq!(
+        plan.scenes[0].costumes[0].character_identity,
+        "renee sanders"
+    );
+}
+
+#[test]
+fn planner_plans_a_costume_bound_to_the_figure_of_the_same_row() {
+    let preview = ScriptContext {
+        scenes: vec![DraftScene {
+            draft_ref: "1. INT. OP".into(),
+            characters: vec!["BEN".into()],
+            costumes: vec![costume("Ben", "Marineblau", "BEN in Marineblau")],
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    let plan = plan_of(&preview, &create_decisions(&["1. INT. OP"]));
+    assert_eq!(
+        plan.scenes[0].costumes,
+        vec![CostumeApplyPlan {
+            ordinal: 0,
+            character_identity: "ben".into(),
+            character_name: "BEN".into(),
+            description: "Marineblau".into(),
+            source_quote: "BEN in Marineblau".into(),
+        }]
+    );
+}
+
+#[test]
+fn two_costumes_of_one_figure_in_one_row_keep_distinct_ordinals() {
+    // Design D4: without the ordinal both rows would resolve to one mapping row
+    // and the second costume would silently never be created.
+    let preview = ScriptContext {
+        scenes: vec![DraftScene {
+            draft_ref: "1. INT. OP".into(),
+            characters: vec!["BEN".into()],
+            costumes: vec![
+                costume("Ben", "Marineblau", "BEN in Marineblau"),
+                costume("Ben", "Silberkette", "Schmuck: Silberkette"),
+            ],
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    let plan = plan_of(&preview, &create_decisions(&["1. INT. OP"]));
+    let ordinals: Vec<usize> = plan.scenes[0].costumes.iter().map(|c| c.ordinal).collect();
+    assert_eq!(ordinals, vec![0, 1]);
+}
+
+#[test]
+fn planner_reports_a_costume_whose_figure_the_row_does_not_plan() {
+    // `verify_draft_costumes` normally rejects this at extraction; a preview that
+    // skipped that step must still not produce an ownerless costume.
+    let preview = ScriptContext {
+        scenes: vec![DraftScene {
+            draft_ref: "1. INT. OP".into(),
+            characters: vec!["BEN".into()],
+            costumes: vec![costume("Anna", "Mantel", "im Mantel")],
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    let plan = plan_of(&preview, &create_decisions(&["1. INT. OP"]));
+    assert!(plan.scenes[0].costumes.is_empty());
+    assert_eq!(plan.unapplied_costumes.len(), 1);
+    assert_eq!(
+        plan.unapplied_costumes[0].reason,
+        UnappliedCostumeReason::CharacterNotPlanned
+    );
+    assert_eq!(plan.unapplied_costumes[0].description, "Mantel");
+}
+
+#[test]
+fn planner_skips_only_the_costume_rows_the_reviewer_rejected() {
+    let preview = ScriptContext {
+        scenes: vec![DraftScene {
+            draft_ref: "1. INT. OP".into(),
+            characters: vec!["BEN".into()],
+            costumes: vec![
+                costume("Ben", "Marineblau", "BEN in Marineblau"),
+                costume("Ben", "Silberkette", "Schmuck: Silberkette"),
+            ],
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    let mut decisions = create_decisions(&["1. INT. OP"]);
+    decisions[0].costume_decisions = vec![CostumeDecision {
+        ordinal: 1,
+        accepted: false,
+    }];
+    let plan = plan_of(&preview, &decisions);
+    assert_eq!(plan.scenes[0].costumes.len(), 1);
+    assert_eq!(plan.scenes[0].costumes[0].ordinal, 0);
+    // Rejecting one costume is not a failure, so nothing is reported as
+    // unapplied — the reviewer chose that outcome.
+    assert!(plan.unapplied_costumes.is_empty());
+}
+
+#[test]
+fn figure_mapping_refs_are_unique_per_identity_and_cannot_collide_with_a_scene_row() {
+    // The identity key carries the prefix that keeps it out of the scene key
+    // space, and two spellings of one figure collapse onto one row.
+    assert_eq!(
+        character_mapping_ref(&character_identity("BEN")),
+        character_mapping_ref(&character_identity(" Ben "))
+    );
+    assert_eq!(
+        character_mapping_ref("ben"),
+        format!("{CHARACTER_REF_PREFIX}ben")
+    );
+    // A scene reference starts with its ordinal, never with the prefix.
+    assert!(!stable_draft_ref(1, "BEN", 0).starts_with(CHARACTER_REF_PREFIX));
+}
+
+#[test]
+fn character_identity_folds_case_and_inner_whitespace_only() {
+    assert_eq!(character_identity("  ANNA\tMARIA "), "anna maria");
+    assert_eq!(character_identity("Renée"), "renée");
+    // Deliberately NOT a fuzzy match: one letter apart stays two figures.
+    assert_ne!(
+        character_identity("Ann Maria"),
+        character_identity("Anna Maria")
+    );
 }
 
 #[test]
@@ -295,6 +544,77 @@ fn character_matching_ignores_case_and_surrounding_space() {
     assert!(rejected.is_empty(), "casing must not reject a costume");
     assert_eq!(scene.costumes.len(), 1);
     assert_eq!(scene.costumes[0].character_name, " ben ");
+}
+
+#[test]
+fn a_quote_that_only_differs_in_line_wrapping_is_still_grounded() {
+    // A screenplay wraps action over lines; the model quotes it reflowed. The
+    // words are the document's, so this is grounded — and treating it as a
+    // hallucination would reject legitimate costumes on every typeset script.
+    let wrapped = "Renee steigt aus.\n  einem\n\nAuto, trägt einen leicht ölverschmierten\nMechaniker-Overall.";
+    let mut scene = DraftScene {
+        characters: vec!["Renee".into()],
+        costumes: vec![costume(
+            "RENEE",
+            "Overall",
+            "trägt einen  leicht ölverschmierten Mechaniker-Overall",
+        )],
+        ..Default::default()
+    };
+    let rejected = verify_draft_costumes(&mut scene, wrapped);
+    assert!(
+        rejected.is_empty(),
+        "line breaks must not make a real quote ungrounded: {rejected:?}"
+    );
+    // A word the text does not contain is still rejected.
+    scene.costumes = vec![costume("RENEE", "Kleid", "trägt ein langes Seidenkleid")];
+    assert_eq!(
+        verify_draft_costumes(&mut scene, wrapped).len(),
+        1,
+        "grounding must not become fuzzy matching"
+    );
+}
+
+#[test]
+fn only_a_field_ambiguity_blocks_the_apply() {
+    // Design D8: a server-dropped row is reported, but must not make the whole
+    // preview unappliable — one unverifiable costume may not cost the reviewer a
+    // paid re-import of an 85-chunk document.
+    let dropped = ScriptContext {
+        uncertainties: vec![Uncertainty {
+            scene_index: 3,
+            field: "costumes".into(),
+            note: "ungrounded quote".into(),
+            suggested_value: None,
+            kind: UncertaintyKind::DroppedRow,
+        }],
+        ..Default::default()
+    };
+    assert!(ensure_script_applyable(&dropped).is_ok());
+
+    let mut blocking = dropped.clone();
+    blocking.uncertainties.push(Uncertainty {
+        scene_index: 1,
+        field: "location".into(),
+        note: "illegible".into(),
+        suggested_value: None,
+        kind: UncertaintyKind::FieldAmbiguity,
+    });
+    assert!(matches!(
+        ensure_script_applyable(&blocking),
+        Err(ApplyGateError::OpenUncertainties(1))
+    ));
+}
+
+#[test]
+fn an_old_uncertainty_still_blocks_the_apply() {
+    // Wire compatibility decides this: a preview stored before `kind` existed
+    // deserialises to the blocking kind, so no import becomes newly appliable by
+    // re-reading an old blob.
+    let json = r#"{"scene_index":1,"field":"mood","note":"unclear","suggested_value":null}"#;
+    let uncertainty: Uncertainty = serde_json::from_str(json).expect("old uncertainty parses");
+    assert_eq!(uncertainty.kind, UncertaintyKind::FieldAmbiguity);
+    assert!(uncertainty.kind.blocks_apply());
 }
 
 #[test]

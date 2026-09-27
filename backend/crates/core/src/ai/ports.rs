@@ -4,6 +4,7 @@
 // Co-authored-by: gpt-5.6-luna (opencode-go)
 // Co-authored-by: longcat-2.0-free (opencode)
 // Co-authored-by: deepseek-v4-flash (opencode-go)
+// Co-authored-by: qwen3.8-flash (opencode-go)
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
@@ -391,8 +392,22 @@ pub trait AiImportQueue: Send + Sync {
     ) -> Result<(), DomainError>;
 }
 
-/// Idempotency mapping from a reviewed preview row (`draft_ref`) to the
-/// aggregate it was applied to.
+/// Idempotency mapping from a reviewed preview row to the aggregate it was
+/// applied to.
+///
+/// One preview produces **several kinds of row**: the scene a draft row
+/// describes, the figures that row names, and each of its costumes. They share
+/// the row's `draft_ref`, so a mapping is addressed by the full key
+/// `(preview_id, draft_ref, aggregate_kind, ordinal)` — without the kind and the
+/// ordinal, the first costume of a scene would resolve to the scene's own
+/// aggregate (design D4).
+///
+/// A figure is the exception, and deliberately so: a `Character` is a *season*
+/// concept, not a scene concept, so its `draft_ref` is the preview-wide
+/// [`crate::ai::character_mapping_ref`] of its normalised name rather than the
+/// scene row that mentioned it. Keying it per scene row would create one
+/// aggregate per mention (measured live: 268 mentions over 131 scenes) and
+/// destroy the costume continuity the domain exists to manage.
 ///
 /// A mapping exists in two states, discriminated by [`Self::is_reserved`]:
 ///
@@ -412,9 +427,29 @@ pub struct AiImportMapping {
     pub preview_id: AiImportJobId,
     pub draft_ref: String,
     pub aggregate_kind: String,
+    /// Disambiguates rows that share `draft_ref` *and* `aggregate_kind` — the
+    /// costumes of one figure in one scene. Every other kind carries
+    /// [`PRIMARY_ORDINAL`].
+    pub ordinal: i32,
     pub aggregate_id: Uuid,
     pub aggregate_version: AggregateVersion,
 }
+
+/// `aggregate_kind` discriminators of `projection_ai_import_mapping`. A new kind
+/// is additive: the column is free text, the discriminator is what keeps the
+/// per-row ordinals of one kind from colliding with another kind's.
+pub mod mapping_kind {
+    pub const SCENE: &str = "scene";
+    pub const CHARACTER: &str = "character";
+    pub const COSTUME: &str = "costume";
+    pub const SHOOTING_DAY: &str = "shooting_day";
+    pub const SCENE_SHOOT: &str = "scene_shoot";
+}
+
+/// Ordinal of a mapping kind that has exactly one row per `draft_ref` — scenes,
+/// figures and schedule rows. Only `costume` numbers its rows, because one scene
+/// can carry several costumes of the same figure.
+pub const PRIMARY_ORDINAL: i32 = 0;
 
 impl AiImportMapping {
     /// Version sentinel marking a mapping whose aggregate id is durable but
@@ -427,12 +462,14 @@ impl AiImportMapping {
         preview_id: AiImportJobId,
         draft_ref: String,
         aggregate_kind: String,
+        ordinal: i32,
         aggregate_id: Uuid,
     ) -> Self {
         Self {
             preview_id,
             draft_ref,
             aggregate_kind,
+            ordinal,
             aggregate_id,
             aggregate_version: Self::RESERVED_VERSION,
         }
@@ -447,14 +484,19 @@ impl AiImportMapping {
 
 #[async_trait]
 pub trait AiImportMappingRepository: Send + Sync {
+    /// Look one mapping row up by its full key. A draft scene and its first
+    /// costume share a `draft_ref`; only `(kind, ordinal)` tells them apart.
     async fn find(
         &self,
         preview_id: AiImportJobId,
         draft_ref: &str,
+        aggregate_kind: &str,
+        ordinal: i32,
     ) -> Result<Option<AiImportMapping>, DomainError>;
 
-    /// Durably reserve `mapping.aggregate_id` for `(preview_id, draft_ref)`
-    /// and return the **winning** row.
+    /// Durably reserve `mapping.aggregate_id` for
+    /// `(preview_id, draft_ref, aggregate_kind, ordinal)` and return the
+    /// **winning** row.
     ///
     /// Implementations SHALL be insert-if-absent: when a row already exists
     /// (a previous attempt reserved or confirmed it) that existing row is

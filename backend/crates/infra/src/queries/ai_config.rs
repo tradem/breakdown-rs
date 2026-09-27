@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: gpt-5.6-luna (opencode-go)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
+// Co-authored-by: qwen3.8-flash (opencode-go)
 
 use breakdown_core::ai::{AiConfigRepository, AiConfigView, DocumentKind, LlmProvider};
 use breakdown_core::error::DomainError;
@@ -151,6 +152,16 @@ fn map_config_row(row: &PgRow) -> Result<AiConfigView, DomainError> {
         })?;
     let mut prompt_kinds: Vec<_> = prompts.keys().copied().collect();
     prompt_kinds.sort_by_key(|kind| kind.as_str());
+    // A kind is "stored" only when the text actually has content: a blank
+    // value round-trips through JSONB as an empty string, and the worker
+    // resolution below treats blank and absent identically (deployment
+    // default), so the view must not claim a snapshot is in effect for it.
+    let mut stored_prompt_kinds: Vec<_> = prompts
+        .iter()
+        .filter(|(_, prompt)| !prompt.trim().is_empty())
+        .map(|(kind, _)| *kind)
+        .collect();
+    stored_prompt_kinds.sort_by_key(|kind| kind.as_str());
     Ok(AiConfigView {
         id: row.try_get("id").map_err(map_sqlx_error)?,
         user_id: UserId::from_sub(
@@ -162,6 +173,7 @@ fn map_config_row(row: &PgRow) -> Result<AiConfigView, DomainError> {
         image_model: row.try_get("image_model").map_err(map_sqlx_error)?,
         prompts,
         prompt_kinds,
+        stored_prompt_kinds,
         vault_key_id: row.try_get("vault_key_id").map_err(map_sqlx_error)?,
         version: {
             let raw: i64 = row.try_get("version").map_err(map_sqlx_error)?;
@@ -197,6 +209,29 @@ fn parse_provider(value: String) -> Result<LlmProvider, DomainError> {
 /// Shared by `find_by_id` (which only needs the deserialized map) and
 /// `find_worker_config` (which extracts one prompt), so the parsing logic and
 /// its error messages stay in one place.
+/// Resolve the prompt an import of `kind` runs with (design D6).
+///
+/// A stored, non-blank prompt wins — it is the operator's own text and a
+/// deployment must not overwrite it behind their back. A blank or absent one
+/// falls back to the deployment default instead of failing the job: an AI job
+/// that died with "no prompt configured" over an empty field was never the
+/// intent, and the default exists precisely to be the fallback. The stored
+/// prompt's precedence is what the configuration surface has to disclose
+/// (`AiConfigView::stored_prompt_kinds`), because it means the configuration
+/// keeps a snapshot and does not follow later default updates.
+pub(crate) fn resolve_prompt(
+    stored: Option<&String>,
+    kind: &DocumentKind,
+) -> Result<String, DomainError> {
+    match stored
+        .map(|prompt| prompt.as_str())
+        .filter(|prompt| !prompt.trim().is_empty())
+    {
+        Some(prompt) => Ok(prompt.to_owned()),
+        None => crate::ai::prompts::default_prompt(*kind),
+    }
+}
+
 fn parse_prompt_for_kind(row: &PgRow, kind: &DocumentKind) -> Result<String, DomainError> {
     let prompts: HashMap<DocumentKind, String> = row
         .try_get::<serde_json::Value, _>("prompts")
@@ -206,12 +241,46 @@ fn parse_prompt_for_kind(row: &PgRow, kind: &DocumentKind) -> Result<String, Dom
                 DomainError::validation(format!("invalid AI prompt projection: {error}"))
             })
         })?;
-    prompts
-        .get(kind)
-        .cloned()
-        .ok_or_else(|| DomainError::validation(format!("no prompt configured for {kind:?}")))
+    resolve_prompt(prompts.get(kind), kind)
 }
 
 fn map_sqlx_error(error: sqlx::Error) -> DomainError {
     DomainError::service_unavailable(format!("AI config database error: {error}"))
+}
+
+#[cfg(test)]
+mod prompt_resolution_tests {
+    use super::resolve_prompt;
+    use crate::ai::default_prompt;
+    use breakdown_core::ai::DocumentKind;
+
+    /// Design D6's precedence, in both directions.
+    #[test]
+    fn a_stored_prompt_wins_over_the_deployment_default() {
+        let stored = "my own extraction spec".to_owned();
+        let resolved = resolve_prompt(Some(&stored), &DocumentKind::Script).unwrap();
+        assert_eq!(resolved, stored);
+        assert_ne!(
+            resolved,
+            default_prompt(DocumentKind::Script).unwrap(),
+            "the test would pass even if the default were returned"
+        );
+    }
+
+    /// The scenario the spec names "an empty stored prompt", plus the legacy
+    /// shape that motivated it: a kind the configuration never carried. Both
+    /// must import with the deployment default rather than fail the job.
+    #[test]
+    fn blank_or_absent_falls_back_to_the_deployment_default() {
+        for kind in [DocumentKind::Script, DocumentKind::Schedule] {
+            let expected = default_prompt(kind).unwrap();
+            for stored in [None, Some(String::new()), Some("   \n ".to_owned())] {
+                assert_eq!(
+                    resolve_prompt(stored.as_ref(), &kind).unwrap(),
+                    expected,
+                    "kind {kind:?} with stored {stored:?} must follow the default"
+                );
+            }
+        }
+    }
 }

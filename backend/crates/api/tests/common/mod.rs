@@ -9,6 +9,7 @@
 // Co-authored-by: hy4-preview (opencode-go)
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
+// Co-authored-by: qwen3.8-flash (opencode-go)
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -2069,19 +2070,38 @@ pub struct FakeAiImportMappingRepo {
     pub mappings: Arc<Mutex<Vec<AiImportMapping>>>,
 }
 
+/// The full mapping row key. A draft scene and its first costume share a
+/// `draft_ref`, so matching on the reference alone would hand one row's
+/// aggregate id to a different row — the fake must address rows the way the
+/// production primary key does.
+#[allow(dead_code)] // shared helper: not every test binary wires the mapping repo
+fn same_mapping_key(existing: &AiImportMapping, wanted: &AiImportMapping) -> bool {
+    existing.preview_id == wanted.preview_id
+        && existing.draft_ref == wanted.draft_ref
+        && existing.aggregate_kind == wanted.aggregate_kind
+        && existing.ordinal == wanted.ordinal
+}
+
 #[async_trait]
 impl AiImportMappingRepository for FakeAiImportMappingRepo {
     async fn find(
         &self,
         preview_id: AiImportJobId,
         draft_ref: &str,
+        aggregate_kind: &str,
+        ordinal: i32,
     ) -> Result<Option<AiImportMapping>, DomainError> {
         Ok(self
             .mappings
             .lock()
             .await
             .iter()
-            .find(|m| m.preview_id == preview_id && m.draft_ref == draft_ref)
+            .find(|m| {
+                m.preview_id == preview_id
+                    && m.draft_ref == draft_ref
+                    && m.aggregate_kind == aggregate_kind
+                    && m.ordinal == ordinal
+            })
             .cloned())
     }
 
@@ -2089,10 +2109,7 @@ impl AiImportMappingRepository for FakeAiImportMappingRepo {
         // Mirrors the production insert-if-absent: an existing row (reserved or
         // already confirmed) wins so retries converge on one aggregate id.
         let mut guard = self.mappings.lock().await;
-        match guard
-            .iter()
-            .find(|m| m.preview_id == mapping.preview_id && m.draft_ref == mapping.draft_ref)
-        {
+        match guard.iter().find(|m| same_mapping_key(m, &mapping)) {
             Some(existing) => Ok(existing.clone()),
             None => {
                 guard.push(mapping.clone());
@@ -2103,10 +2120,7 @@ impl AiImportMappingRepository for FakeAiImportMappingRepo {
 
     async fn insert(&self, mapping: AiImportMapping) -> Result<(), DomainError> {
         let mut guard = self.mappings.lock().await;
-        if let Some(existing) = guard
-            .iter_mut()
-            .find(|m| m.preview_id == mapping.preview_id && m.draft_ref == mapping.draft_ref)
-        {
+        if let Some(existing) = guard.iter_mut().find(|m| same_mapping_key(m, &mapping)) {
             // Mirror the production upsert's monotonic version guard.
             if existing.aggregate_version.0 < mapping.aggregate_version.0 {
                 *existing = mapping;

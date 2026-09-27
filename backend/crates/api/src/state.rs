@@ -12,6 +12,7 @@
 
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: qwen3.8-flash (opencode-go)
 // Co-authored-by: mimo-v2.5 (opencode-go)
 
 use std::sync::Arc;
@@ -72,9 +73,11 @@ pub trait Ports: Clone + Send + Sync + 'static {
     type SceneRepo: SceneRepository;
     type ShootingDayCommands: ShootingDayCommands + Clone;
     type ShootingDayRepo: ShootingDayRepository;
-    type CharacterCommands: CharacterCommands;
+    // `+ Clone` because the AI script-apply worker takes ownership of the port
+    // behind an `Arc`, exactly like `SceneCommands`/`ShootingDayCommands`.
+    type CharacterCommands: CharacterCommands + Clone;
     type CharacterRepo: CharacterRepository;
-    type CostumeCommands: CostumeCommands;
+    type CostumeCommands: CostumeCommands + Clone;
     type CostumeRepo: CostumeRepository;
     type CostumeCategoryCommands: CostumeCategoryCommands;
     type CostumeCategoryRepo: CostumeCategoryRepository;
