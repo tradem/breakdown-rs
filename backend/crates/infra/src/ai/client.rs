@@ -212,7 +212,8 @@ impl OpenAiCompatibleChatClient {
                                 " (response truncated at the output-token budget \
                                  after bounded retries)"
                             } else {
-                                ""
+                                " (after bounded retries with a grown output-token \
+                                 budget)"
                             };
                             return Err(DomainError::validation(format!(
                                 "LLM JSON did not match ScriptContext: {error}{suffix}"
@@ -336,7 +337,20 @@ fn next_truncation_budget(
     budget: u32,
     truncation_retries_left: u32,
 ) -> Option<u32> {
-    if finish_reason == Some("length") && truncation_retries_left > 0 {
+    // Any malformed response may be retryable, not only a provider-confirmed
+    // `finish_reason: "length"`. Gateways and routers routinely cut a body
+    // short while reporting `stop` (or omitting the field entirely), and a
+    // strict `== Some("length")` then classified a truncated answer as
+    // permanent and dead-lettered the job after ONE attempt — observed live
+    // against eurouter: "LLM JSON did not match ScriptContext: EOF while
+    // parsing a string at line 1 column 1437" with no
+    // "after bounded retries" suffix, i.e. the growth path was never taken.
+    //
+    // The bound is unchanged (MAX_TRUNCATION_RETRIES attempts, budget x2), so
+    // a genuinely malformed response still fails after a fixed, bounded number
+    // of paid retries instead of retrying forever.
+    let _ = finish_reason;
+    if truncation_retries_left > 0 {
         Some(budget.saturating_mul(TRUNCATION_RETRY_BUDGET_GROWTH))
     } else {
         None
@@ -359,15 +373,33 @@ mod tests {
     }
 
     #[test]
-    fn non_truncated_malformed_response_is_not_retried() {
-        // A `stop` or missing `finish_reason` means the JSON is genuinely
-        // malformed — retrying would re-pay a paid call for the same input.
-        assert_eq!(next_truncation_budget(Some("stop"), 2048, 2), None);
+    fn unconfirmed_truncation_is_still_retried_within_the_bound() {
+        // Gateways/routers report a cut-off body as `stop` (or omit the field)
+        // instead of `length`. Live case against eurouter: "EOF while parsing a
+        // string at line 1 column 1437" dead-lettered after ONE attempt because
+        // the strict `== Some("length")` guard never grew the budget. The
+        // response may be truncated regardless of what the provider claims, so
+        // the bound — not the reported reason — decides retryability.
+        assert_eq!(next_truncation_budget(Some("stop"), 2048, 2), Some(4096));
+        assert_eq!(next_truncation_budget(None, 2048, 2), Some(4096));
         assert_eq!(
-            next_truncation_budget(Some("content_filter"), 2048, 2),
-            None
+            next_truncation_budget(Some("content_filter"), 2048, 1),
+            Some(4096)
         );
-        assert_eq!(next_truncation_budget(None, 2048, 2), None);
+    }
+
+    #[test]
+    fn a_genuinely_malformed_response_still_stops_at_the_bound() {
+        // The retry growth is bounded: a permanently malformed answer (e.g. a
+        // content-filtered one) must fail after the fixed attempt count rather
+        // than re-paying the call forever.
+        for reason in [Some("stop"), None, Some("content_filter"), Some("length")] {
+            assert_eq!(
+                next_truncation_budget(reason, 8192, 0),
+                None,
+                "exhausted budget must fail for {reason:?}"
+            );
+        }
     }
 
     #[test]

@@ -40,6 +40,23 @@ pub struct ScriptContext {
     pub uncertainties: Vec<Uncertainty>,
 }
 
+/// One costume extracted for a character of a draft scene.
+///
+/// Flat by design: the LLM has no domain ids, and the write side must not
+/// resolve ids from a read-model projection (CQRS boundary). `character_name`
+/// is matched against the same draft scene's `characters`; `source_quote` is the
+/// fragment the extraction claims to be based on, which the server verifies
+/// against the supplied chunk text before the row may reach the reviewer.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct DraftCostume {
+    /// Character the costume belongs to, as written in the script.
+    pub character_name: String,
+    /// The garment/accessory description, in the script's own wording.
+    pub description: String,
+    /// Quoted fragment of the chunk this entry was extracted from.
+    pub source_quote: String,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct DraftScene {
     pub draft_ref: String,
@@ -49,6 +66,73 @@ pub struct DraftScene {
     pub summary: Option<String>,
     pub script_day: Option<String>,
     pub characters: Vec<String>,
+    /// Costumes worn by this scene's characters. Additive on the wire with a
+    /// default so previews stored before this field existed still load; a
+    /// preview written by this version loses the field when read by an older
+    /// binary (breaking, see the change proposal).
+    #[serde(default)]
+    pub costumes: Vec<DraftCostume>,
+}
+
+/// A dropped costume and why it was dropped, surfaced as an `Uncertainty` so
+/// the reviewer sees a missing entry instead of silently missing data.
+#[derive(Debug, Clone, PartialEq)]
+pub struct RejectedCostume {
+    pub reason: RejectedCostumeReason,
+    pub character_name: String,
+    pub description: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum RejectedCostumeReason {
+    /// `source_quote` does not occur in the chunk the model was given.
+    UngroundedQuote,
+    /// The costume names a character the same scene does not list.
+    UnlistedCharacter,
+}
+
+/// Keep only costumes that are (a) traceable to the supplied chunk text and
+/// (b) attributable to a character of this scene; return the rejects so the
+/// caller can record them as uncertainties.
+///
+/// Both checks are server-side on purpose: the prompt forbids invention, but a
+/// prompt is an instruction, not a guarantee. Verified live that a hardened
+/// prompt makes the model return the description ("trägt einen leicht
+/// ölverschmierten Mechaniker-Overall"); this is what makes a hallucinated
+/// entry unable to reach the reviewer.
+pub fn verify_draft_costumes(scene: &mut DraftScene, chunk_text: &str) -> Vec<RejectedCostume> {
+    let mut rejected = Vec::new();
+    let characters: Vec<String> = scene
+        .characters
+        .iter()
+        .map(|name| name.trim().to_lowercase())
+        .collect();
+    let haystack = chunk_text.to_lowercase();
+
+    let mut kept: Vec<DraftCostume> = Vec::with_capacity(scene.costumes.len());
+    for costume in std::mem::take(&mut scene.costumes) {
+        let quote = costume.source_quote.trim();
+        if quote.is_empty() || !haystack.contains(&quote.to_lowercase()) {
+            rejected.push(RejectedCostume {
+                reason: RejectedCostumeReason::UngroundedQuote,
+                character_name: costume.character_name,
+                description: costume.description,
+            });
+            continue;
+        }
+        let name = costume.character_name.trim().to_lowercase();
+        if !characters.iter().any(|known| known == &name) {
+            rejected.push(RejectedCostume {
+                reason: RejectedCostumeReason::UnlistedCharacter,
+                character_name: costume.character_name,
+                description: costume.description,
+            });
+            continue;
+        }
+        kept.push(costume);
+    }
+    scene.costumes = kept;
+    rejected
 }
 
 impl DraftScene {
@@ -259,6 +343,35 @@ pub fn plan_scene_apply(
     Ok(ordered)
 }
 
+/// Deterministic, unique and document-traceable reference for a preview row.
+///
+/// The model's own `draft_ref` is deliberately **not** trusted. Observed live
+/// on a 93-page German production script: 55 of 131 preview rows carried an
+/// invented placeholder (`scene_1`, `scene_2`, …), and those placeholders are
+/// reused across chunks. The apply step resolves a row against its mapping with
+/// `mappings.find(|m| m.draft_ref == draft_ref)`, so a repeated reference makes
+/// several preview rows resolve to the SAME decision — a silent correctness
+/// bug, not a cosmetic one.
+///
+/// The reference is therefore built from facts the server already owns: the
+/// chunk's real heading (which `extract_scenes` read out of the document) and a
+/// globally unique scene ordinal. The first scene of a chunk carries the bare
+/// heading; further scenes split out of the same chunk are numbered, so
+/// multi-scene chunks stay distinguishable without inventing a syntax the
+/// model has to guess.
+pub fn stable_draft_ref(
+    scene_ordinal: usize,
+    chunk_heading: &str,
+    index_in_chunk: usize,
+) -> String {
+    let base = format!("{scene_ordinal}. {}", chunk_heading.trim());
+    if index_in_chunk == 0 {
+        base
+    } else {
+        format!("{base} ({})", index_in_chunk + 1)
+    }
+}
+
 /// Deterministically split a script at fuzzy INT./EXT. heading lines.
 pub fn extract_scenes(document: &str) -> Vec<SceneChunk> {
     let mut chunks: Vec<SceneChunk> = Vec::new();
@@ -285,13 +398,83 @@ pub fn extract_scenes(document: &str) -> Vec<SceneChunk> {
     chunks
 }
 
+/// Scene-heading prefixes in the English / Hollywood convention.
+const ENGLISH_HEADING_PREFIXES: [&str; 5] = ["INT.", "EXT.", "INT/EXT.", "INT./EXT.", "I/E."];
+
+/// Scene-heading prefixes in the German (DFF / TV production) convention.
+///
+/// German production scripts do not use `INT.` / `EXT.`; they use the
+/// short form `I`/`A` (innen/außen) plus a time token, or the spelled-out
+/// `INNENAUFNAHME` / `AUSSENAUFNAHME`. Without these a perfectly valid German
+/// screenplay extracts to zero scenes and the whole import dies with
+/// "script did not contain an INT./EXT. scene heading" — a format gap, not a
+/// document defect.
+const GERMAN_HEADING_PREFIXES: [&str; 6] = [
+    "INNENAUFNAHME",
+    "AUSSENAUFNAHME",
+    "INNEN.",
+    "AUSSEN.",
+    "INNEN ",
+    "AUSSEN ",
+];
+
 fn is_scene_heading(line: &str) -> bool {
     let normalized = line
         .trim_start_matches(|c: char| c.is_ascii_digit() || c == '.' || c == '-' || c == ' ')
         .to_ascii_uppercase();
-    ["INT.", "EXT.", "INT/EXT.", "INT./EXT.", "I/E."]
+    ENGLISH_HEADING_PREFIXES
         .iter()
         .any(|prefix| normalized.starts_with(prefix))
+        || is_german_scene_heading(&normalized)
+}
+
+/// German short form: `I`/`A`, a `/`, a time token (`T`, `N`, `AB`, `D`, …),
+/// then a separator or end of line.
+///
+/// The separator requirement is what keeps this from matching prose: a
+/// time-token length cap of two rejects words that merely start with the
+/// letters (`I/TAXI`), and the required trailing delimiter rejects a word
+/// glued to the token.
+fn is_german_scene_heading(normalized: &str) -> bool {
+    if GERMAN_HEADING_PREFIXES
+        .iter()
+        .any(|prefix| normalized.starts_with(prefix))
+    {
+        return true;
+    }
+    let mut chars = normalized.chars();
+    match chars.next() {
+        Some('I') | Some('A') => {}
+        _ => return false,
+    }
+    if chars.next() != Some('/') {
+        return false;
+    }
+    let mut time_token = String::new();
+    // The terminator must be captured INSIDE the loop: a `for` over the
+    // iterator already consumed the non-alphabetic character when the body
+    // breaks, so a following `chars.next()` would read the character AFTER
+    // the separator ("I/T-WOHNUNG" would test 'W' and be rejected).
+    let mut terminator: Option<char> = None;
+    for c in chars.by_ref() {
+        if c.is_ascii_alphabetic() {
+            time_token.push(c);
+            if time_token.len() > 2 {
+                return false;
+            }
+        } else {
+            terminator = Some(c);
+            break;
+        }
+    }
+    if time_token.is_empty() {
+        return false;
+    }
+    match terminator {
+        None => true,
+        Some(c) if c == ' ' || c == '-' || c == '.' || c == '/' => true,
+        Some(_) => false,
+    }
 }
 
 fn leading_scene_number(line: &str) -> Option<u32> {

@@ -426,6 +426,10 @@ async fn ai_payload_apply_round_trips_through_projection() -> Result<()> {
             summary: None,
             script_day: None,
             characters: vec![],
+            // The costume field is additive; a scene without costuming is a
+            // normal outcome (outline blocks, English scripts without a
+            // costume note), so the fixture states the empty case explicitly.
+            costumes: vec![],
         }],
         uncertainties: vec![],
     };

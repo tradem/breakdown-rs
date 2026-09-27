@@ -859,6 +859,81 @@ void main() {
       },
     );
 
+    // Regression (device bug): the backend answers the upload routes with
+    // `Json(id)` — wire body `"<uuid>"`, a JSON *string* literal. Djos
+    // default transformer hands that raw literal through for a
+    // `post<String>` call (verified against dio 5.11), so the repository
+    // must decode the quotes itself. A quoted id is interpolated into the
+    // next path segment as `%22<uuid>%22` and the backend's
+    // `Path<AiImportJobId>` rejects it with `400 http.bad-path-param`,
+    // which made every follow-up poll/preview/apply fail on device.
+    test(
+      'uploadSchedule 202 — a JSON-string ack body is decoded to a bare '
+      'job id (quoted-id regression)',
+      () async {
+        const uuid = '01a0ddc3-4870-70dc-a0d8-c7ffe669bfbb';
+        final api = _api(
+          _ScriptInterceptor(status: 202, respond: (_) => '"$uuid"'),
+        );
+        final res = await AiImportRepository(
+          api,
+          _dao(),
+        ).uploadSchedule(body: 'day,scene\n1,12', source: AiScheduleSource.csv);
+        final ack = res.getRight().toNullable()!;
+        // Bare id: the quotes must not survive into the id.
+        expect(ack.jobId, uuid);
+        expect(ack.jobId.contains('"'), isFalse);
+      },
+    );
+
+    test(
+      'uploadScript 202 — a JSON-string ack body is decoded to a bare '
+      'job id (quoted-id regression)',
+      () async {
+        const uuid = '01a0ddc4-05ac-73bd-901d-bcab8c5e21d7';
+        final api = _api(
+          _ScriptInterceptor(status: 202, respond: (_) => '"$uuid"'),
+        );
+        final res = await AiImportRepository(
+          api,
+          _dao(),
+        ).uploadScript(body: '%PDF-1.4');
+        final ack = res.getRight().toNullable()!;
+        expect(ack.jobId, uuid);
+      },
+    );
+
+    test(
+      'upload — an already-bare id body passes through unchanged',
+      () async {
+        final api = _api(
+          _ScriptInterceptor(status: 202, respond: (_) => 'job-bare'),
+        );
+        final res = await AiImportRepository(
+          api,
+          _dao(),
+        ).uploadSchedule(body: 'x', source: AiScheduleSource.csv);
+        expect(res.getRight().toNullable()!.jobId, 'job-bare');
+      },
+    );
+
+    test(
+      'upload — a malformed quoted ack body reports dto_invalid (Err branch)',
+      () async {
+        // Opening quote without a closing one: unparseable as JSON, so the
+        // repository must surface the stable code instead of sending a
+        // malformed id into the next path segment.
+        final api = _api(
+          _ScriptInterceptor(status: 202, respond: (_) => '"not-a-uuid'),
+        );
+        final res = await AiImportRepository(
+          api,
+          _dao(),
+        ).uploadSchedule(body: 'x', source: AiScheduleSource.csv);
+        expect(res.getLeft().toNullable()!.code, 'ai_import.dto_invalid');
+      },
+    );
+
     test(
       'uploadSchedule 413/415/403/404 surface keyed on the problem code',
       () async {

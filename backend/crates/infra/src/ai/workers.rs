@@ -13,6 +13,7 @@ use breakdown_core::ai::{
     AiImportQueue, ApplyMapping, ApplyMappingDecision, DocumentKind, LlmChatRequest, LlmClient,
     MergedPreview, ScriptContext, ShootingSchedule, SourceFormat, Telemetry, TelemetryApplyState,
     ensure_merge_applyable, ensure_script_applyable, extract_scenes, merge_schedule_to_scenes,
+    stable_draft_ref,
 };
 use breakdown_core::error::DomainError;
 use breakdown_core::scene::commands::{CreateScene, UpdateSceneDetails};
@@ -330,6 +331,10 @@ where
         }
 
         let mut context = ScriptContext::default();
+        // Globally unique scene counter across all chunks — the tail of
+        // `stable_draft_ref`, which needs a stable identity per preview row
+        // that survives the model's own (hallucinated) `draft_ref`.
+        let mut scene_ordinal = 0usize;
         for chunk in chunks {
             let request = LlmChatRequest {
                 provider: self.provider,
@@ -354,7 +359,17 @@ where
                     if context.title.is_none() {
                         context.title = partial.title;
                     }
-                    context.scenes.extend(partial.scenes);
+                    for (index_in_chunk, mut scene) in partial.scenes.into_iter().enumerate() {
+                        scene_ordinal += 1;
+                        // Server-side truth beats the model's draft_ref: the
+                        // heading comes from the document (extract_scenes) and
+                        // the ordinal guarantees uniqueness, so the apply
+                        // mapping can no longer resolve several preview rows
+                        // to one decision via a repeated placeholder.
+                        scene.draft_ref =
+                            stable_draft_ref(scene_ordinal, &chunk.heading, index_in_chunk);
+                        context.scenes.push(scene);
+                    }
                     context.uncertainties.extend(partial.uncertainties);
                 }
                 Err(error) => {
