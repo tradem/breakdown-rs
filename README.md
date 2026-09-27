@@ -54,7 +54,7 @@ This adds a self-hosted Logto IdP (`http://localhost:3301`) for local OIDC testi
 ```bash
 DATABASE_URL=postgres://postgres:postgres@localhost:5432/breakdown \
 SIERRADB_URL=redis://127.0.0.1:9090/?protocol=resp3 \
-cargo run -p api
+cargo run --bin api
 ```
 
 `main.rs` applies the Postgres projection migrations at boot, opens a RESP3

@@ -8,7 +8,7 @@
 //! lives behind `#[cfg(feature = "test-support")]` at the `pub mod` site in
 //! `lib.rs` — a release binary (`cargo build` without `--features
 //! test-support`) does not contain this code at all. The E2E/Gherkin backend
-//! must be booted with `cargo run -p api --features api/test-support`
+//! must be booted with `cargo run --bin api --features api/test-support`
 //! (dev only). This satisfies the AGENTS.md §3 `test-helper-gate` checklist
 //! item by compile-time absence, not by naming convention.
 //!

@@ -18,6 +18,9 @@ releases are cut as `flutter-vX.Y.Z` tags.
 
 ### Added
 
+- **Version bump:** `0.3.0-alpha.26+36 → 0.3.0-alpha.27+37` (pre-release
+  increment per merged-PR practice on the alpha line; `+N` stays strictly
+  monotonic for the Play `versionCode`).
 - **AI-import usability:** Script is now the default import kind and schedules
   are file-only (CSV/PDF); configured AI-imports can change assistant and
   image-model selections while the configured provider remains available for
@@ -235,6 +238,21 @@ releases are cut as `flutter-vX.Y.Z` tags.
 
 ### Fixed
 
+- **AI import unusable on device — quoted job id broke every follow-up
+  call:** the upload acknowledgement (`POST /v1/ai-import/{scripts,schedules}`)
+  is a JSON *string* literal, wire body `"<uuid>"`, and dio's default
+  transformer hands that raw literal through for a `post<String>` call — the
+  generic type is a static cast only and never drives the decode. The quotes
+  therefore survived into the next path segment
+  (`/v1/ai-import/jobs/%22<uuid>%22`), the backend's `Path<AiImportJobId>`
+  extractor rejected it, and every status poll, preview and apply failed with
+  `400 http.bad-path-param` — the import could be submitted but never
+  advanced. `AiImportRepository._upload` now decodes the JSON literal
+  explicitly (fail-closed: a body that starts a JSON string but does not parse
+  as one reports `ai_import.dto_invalid` instead of sending a malformed id).
+  The unit harness previously injected an *unquoted* id and thereby encoded
+  the wrong assumption, which is why this survived the suite; the regression
+  tests now use the real wire format for both upload routes.
 - AI import / settings credential-role denials carry scoped wire codes
   (issue #470): the backend now emits `ai-config.forbidden` (AI-config
   management + provider/model discovery), `settings.forbidden` (settings

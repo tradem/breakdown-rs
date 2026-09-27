@@ -113,6 +113,6 @@ never appear in `backend/openapi.yaml` (the `openapi_drift` test fails if a
 mounted route leaks into the documented contract — a structural guard, not a
 review promise).
 
-Boot rule: `cargo run -p api --features api/test-support` is for local dev /
+Boot rule: `cargo run --bin api --features api/test-support` is for local dev /
 E2E acceptance runs only. Production boot scripts must never enable the
 feature.

@@ -186,7 +186,7 @@ echo "AI import is enabled for the host-run dev API ($vault_status)."
 echo "Photo upload (costume-photos bucket) uses the same dev Garage (S3_*)."
 echo ""
 echo "Start the API with:"
-echo "  set -a; . ./$ENV_FILE; set +a; cargo run -p api"
+echo "  set -a; . ./$ENV_FILE; set +a; cargo run --bin api"
 echo "(or re-run this script with --run to start the API and bootstrap the"
 echo " dev credential role for DEV_AUTH_SUB automatically)"
 
@@ -206,13 +206,21 @@ if [ "${1:-}" = "--run" ]; then
     API_URL="${API_URL:-http://127.0.0.1:3000}"
 
     echo "==> Starting the API in the background, then bootstrapping the dev credential role"
-    cargo run -p api &
+    # `--bin api` is mandatory, not cosmetic: the `api` package ships two
+    # binaries (`api`, `migrate_gdrive_credentials`), so a bare `cargo run -p
+    # api` fails with "could not determine which binary to run".
+    cargo run --bin api &
     API_PID=$!
     trap 'kill "$API_PID" 2>/dev/null || true' EXIT
 
     up=0
+    # Readiness probe: the OpenAPI document lives under the *nested* swagger
+    # mount (`nest_service("/swagger-ui", SwaggerUi::new("/swagger-ui"))` in
+    # crates/api/src/routes/mod.rs), i.e. /swagger-ui/api-docs/openapi.json.
+    # A bare /api-docs/openapi.json answers 404 and would make this probe time
+    # out after 180s on a perfectly healthy API.
     for _ in $(seq 1 180); do
-        if curl -fsS "$API_URL/api-docs/openapi.json" -o /dev/null 2>/dev/null; then
+        if curl -fsS "$API_URL/swagger-ui/api-docs/openapi.json" -o /dev/null 2>/dev/null; then
             up=1
             break
         fi

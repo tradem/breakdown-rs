@@ -11,7 +11,7 @@
 # Runs Caddy with TLS from its internal CA (`tls internal`, see Caddyfile.dev)
 # so the production edge behaviour (HTTPS-only, HSTS, request-body limit) can
 # be exercised locally against the API started on the host:
-#   cargo run -p api          # binds 0.0.0.0:3000
+#   cargo run --bin api          # binds 0.0.0.0:3000
 #   open https://localhost    # accept the self-signed certificate warning
 #
 # `network_mode: host` lets Caddy reach 127.0.0.1:3000 directly (Linux; this

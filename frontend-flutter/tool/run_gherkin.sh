@@ -19,7 +19,7 @@
 #
 # Issue #443: the partial-failure scenario arms a server-side fault latch,
 # which only exists in test-support builds — boot the dev backend with
-#   cargo run -p api --features api/test-support
+#   cargo run --bin api --features api/test-support
 # before running this suite. Without it the arming step fails fast with an
 # actionable message (404).
 #

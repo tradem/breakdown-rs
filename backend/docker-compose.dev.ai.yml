@@ -6,7 +6,7 @@
 #
 # The base dev compose (`docker-compose.dev.yml`) keeps Garage internal-only:
 # no host port mapping, and the API binary inside the compose network is the
-# only client. A host-run `cargo run -p api` with `AI_IMPORT_ENABLED=1`
+# only client. A host-run `cargo run --bin api` with `AI_IMPORT_ENABLED=1`
 # therefore fails closed (#181) until durable payload storage is reachable
 # from the host.
 #
@@ -21,7 +21,7 @@
 #   set -a; . ./.env.dev-ai.local; set +a      # load the generated env
 #   DATABASE_URL=postgres://postgres:postgres@localhost:5432/breakdown \
 #   SIERRADB_URL=redis://127.0.0.1:9090/?protocol=resp3 \
-#   cargo run -p api
+#   cargo run --bin api
 
 services:
   garage:
