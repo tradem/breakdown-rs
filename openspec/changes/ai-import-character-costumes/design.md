@@ -94,20 +94,78 @@ silently ignored a hardened default, which invalidated a whole test round.
 The deployment default remains the fallback; the configuration UI must
 indicate that a stored prompt is in effect and offer a reset to the default.
 
+**D7 — A figure is deduplicated across the WHOLE preview by normalised name
+identity, not per draft row.** The task text originally said "characters planned
+per row". Measured against a live 93-page German import, that is wrong: 268
+figure mentions over 131 scenes, most of them the same ~40 people repeated, and
+the script writes a name partly in CAPS (slug lines) and partly mixed-case.
+Per-row planning would have created hundreds of duplicate `Character`
+aggregates and destroyed costume continuity (ADR-019) — a costume bound to
+"renee sanders #7" is useless to the wardrobe department. The planner therefore
+keys figures on `character_identity(name)` (trim + lowercase + collapse internal
+whitespace) over the entire preview and addresses the mapping row as
+`@character/<identity>`; the `@` prefix makes figure refs disjoint from scene
+draft refs (which always start with a digit) by construction. Costume ordinals
+stay PER ROW (`(preview_id, draft_ref, 'costume', ordinal)`), because two
+garments of one figure in one scene are genuinely two review items. Alternative:
+per-row characters with a server-side merge pass — rejected, the merge would
+have to happen after the reviewer edited the preview, i.e. it cannot be
+expressed in the mapping table at all.
+
+**D8 — The costume apply chain is three commands and the stored aggregate
+version is its phase record.** `CreateCostume` (unassigned) →
+`UpdateCostumeNotes` (carries the extracted description — `CreateCostume` has no
+description field) → `AssignCostumeToCharacter`. A crash between steps leaves
+the mapping row's version at 1, 2 or 3, and a retry re-drives ONLY the steps
+above the stored version: no duplicate costume, no second assignment, no
+re-written notes. The optimistic-locking semantics were verified explicitly
+(they were an open question before implementation): binding a freshly created
+costume uses the version `CreateCostume` returned, and a replayed bind is
+refused as a version mismatch rather than performing a second assignment. A
+whitespace-only description skips the notes step (`CostumePhases.has_notes`) so
+the chain does not issue a command the aggregate would reject.
+
+**D9 — `UncertaintyKind` splits blocking ambiguities from non-blocking drop
+reports.** A field ambiguity must block the apply (the reviewer has not resolved
+it). A costume the grounding check DROPPED must not: previews are immutable and
+there is no dismiss mechanism, so blocking on every dropped row would make one
+bad costume reject an entire 85-chunk paid import that the reviewer has already
+accepted. `UncertaintyKind::{FieldAmbiguity, DroppedRow}` encodes that; the
+client renders `DroppedRow` as information and keeps the apply dispatchable.
+`#[serde(default)]` maps an old blob (no `kind`) to `FieldAmbiguity`, so stored
+previews block exactly as they did before this change.
+
+**D10 — A row the apply could not finish is reported with a typed reason.** The
+200 response carries `created_characters`, `created_costumes` and
+`unapplied_costumes[]` with a `reason` enum
+(`character_not_planned` / `character_unavailable` / `create_rejected` /
+`notes_rejected` / `binding_rejected`). The client localizes on that enum and
+never on prose, so a partially applied row cannot read as a fully applied one.
+
 ## Risks / Trade-offs
 
-[Costumes silently dropped by a model that ignores the prompt] → the
-`summary` interim carrier keeps the text observable in the preview, and D5
-drops anything not grounded, so a failure shows up as *missing* rather than as
-wrong data. Verified: the hardened prompt already produces the description.
+[Costumes silently dropped by a model that ignores the prompt] → D5 drops
+anything not grounded and D9 records the drop as a visible `DroppedRow`
+uncertainty, so a failure shows up as *missing* (with its reason) rather than as
+wrong data. The interim `summary`-overflow carrier was REMOVED with the
+hardened prompt (task 6.1): keeping it would have re-introduced unstructured
+costume text the reviewer cannot decide on.
 
-[Duplicate costumes on re-apply] → D4's mapping row per costume ordinal;
-covered by a re-apply scenario in the spec and a task-level test.
+[Duplicate costumes on re-apply] → D4's mapping row per costume ordinal plus
+D7's preview-wide figure identity; covered by re-apply tests in the spec and at
+task level (3.5).
 
 [Apply partially applied: costume created, binding rejected] → the costume
-stays unassigned (visible, correctable) and the apply reports the row as
-partially applied; the retry reuses the mapping id rather than creating a
-second costume.
+stays unassigned (visible, correctable), the stored version records the phase
+(D8), the retry resumes above it, and the 200 names the row with a typed reason
+(D10).
+
+[Figure identity over-collapses two genuinely different characters] → the
+normalisation is deliberately narrow (case + whitespace only; no fuzzy match, no
+surname stripping), and the reviewer still sees every row. Two figures that
+differ by more than case/spacing stay separate aggregates — the conservative
+direction, since a wrong MERGE is invisible to the wardrobe department while a
+duplicate is.
 
 [Prompt growth raises input-token cost per chunk] → the script prompt grows by
 ~2.9 kB. Accepted: input tokens are far cheaper than a second pass, and the

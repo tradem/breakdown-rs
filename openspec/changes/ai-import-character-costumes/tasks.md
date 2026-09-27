@@ -6,7 +6,7 @@
       `#[serde(default)]` so stored previews from before this change still
       deserialise (BREAKING per proposal: newer previews lose the field on an
       older binary)
-- [x] 1.3 Grounding helper `verify_draft_costumes(quote, chunk_text)`: drops a
+- [x] 1.3 Grounding helper `verify_draft_costumes(scene, chunk_text)`: drops a
       costume whose `source_quote` is absent from the supplied chunk and
       returns it as a `RejectedCostume` instead of letting it reach the reviewer
 - [x] 1.4 A costume whose `character_name` is not in the same draft scene's
@@ -18,71 +18,112 @@
 
 ## 2. Core — apply plan
 
-- [ ] 2.1 Add a `CharacterApplyPlan` (name, per draft row) and a
-      `CostumeApplyPlan` (character reference, description, source_quote,
-      ordinal) next to the existing `SceneApplyCommand`
-- [ ] 2.2 Extend `plan_scene_apply` to plan the row's characters and, for each
-      accepted costume, its binding to the character planned in the SAME row
-- [ ] 2.3 Tests: characters planned for a row with characters; no characters
-      planned for an outline row; costume planned only when its character is
-      planned in the same row
+> **Amended before implementation (design D6).** Characters are NOT planned
+> per draft row. A figure is deduplicated across the WHOLE preview by a
+> normalised name identity (`character_identity` = trim + lowercase + collapse
+> internal whitespace), because a live 93-page import named 268 figure mentions
+> over 131 scenes: keying per row would have created hundreds of duplicate
+> `Character` aggregates and destroyed costume continuity (ADR-019). Costume
+> ordinals stay per row, so two costumes of one figure in one scene remain
+> distinct mapping rows.
 
-## 3. Infra — character creation in the apply worker
+- [x] 2.1 Add `CharacterApplyPlan { ordinal, name, identity }` and
+      `CostumeApplyPlan { ordinal, character_identity, character_name,
+      description, source_quote }` next to the existing `SceneApplyCommand`
+- [x] 2.2 Extend `plan_scene_apply` into a `ScriptApplyPlan` that plans each
+      row's scene command, the row's figures against the preview-wide identity
+      map, and — for every ACCEPTED costume — its binding to that identity
+- [x] 2.3 Tests: figures planned once per identity across rows; no figures for
+      an outline row; a costume planned only when its character is planned; a
+      reviewer-rejected costume is not planned; identity normalisation
+      (case/whitespace) collapses the CAPS-and-mixed forms a script uses
+- [x] 2.4 `ApplyMapping` carries `costume_decisions: Vec<CostumeDecision>`
+      (`#[serde(default)]`, additive) so a pre-costume client still deserialises;
+      an absent ordinal means accepted
 
-- [ ] 3.1 Extend the apply worker with `character_commands` and
+## 3. Infra — character and costume creation in the apply worker
+
+- [x] 3.1 Extend the apply worker with `character_commands` and
       `costume_commands` ports (today it only has scene/shooting-day/scene-shoot)
-- [ ] 3.2 Dispatch `CreateCharacter` per planned character BEFORE the costumes of
-      the same row, and persist the character id in the mapping so a costume can
-      bind to it
-- [ ] 3.3 Dispatch `CreateCostume` (unassigned) + `AssignCostumeToCharacter` per
-      planned costume, using the character id created in 3.2
-- [ ] 3.4 Order test: the character command is dispatched before the costume
+- [x] 3.2 Dispatch `CreateCharacter` once per figure identity BEFORE the costumes
+      that bind to it, and persist the character id in the mapping row so a
+      retry and a re-apply reuse it instead of creating a duplicate
+- [x] 3.3 Dispatch the costume chain per planned costume: `CreateCostume`
+      (unassigned, season resolved from the request) → `UpdateCostumeNotes`
+      (the extracted description; `CreateCostume` has no description field) →
+      `AssignCostumeToCharacter`. The stored aggregate version is the PHASE
+      RECORD of a crashed apply (1 created, 2 +notes, 3 bound), so a retry
+      re-drives only the steps above it — no duplicate costume, no double bind
+      (design D7)
+- [x] 3.4 Order test: the character command is dispatched before the costume
       binding for the same row
-- [ ] 3.5 Re-apply test: a second apply creates no duplicate character and no
+- [x] 3.5 Re-apply test: a second apply creates no duplicate character and no
       duplicate costume for the same preview
-- [ ] 3.6 A costume whose character could not be created SHALL be reported as not
-      applied (with the reason) and SHALL NOT create an unbindable costume
+- [x] 3.6 A costume whose character could not be created is reported as NOT
+      applied with a typed reason and does not create an unbindable costume
+- [x] 3.7 A domain refusal of one row is reported and the apply CONTINUES; only
+      an infrastructure outage fails the apply so it can be retried
+      (`is_infra_outage`)
 
 ## 4. Persistence — mapping rows
 
-- [ ] 4.1 Migration adding the character/costume discriminator + ordinal to
-      `projection_ai_import_mapping` (additive; existing rows default to their
-      current kind and ordinal 0)
-- [ ] 4.2 Persist and read character + costume mapping rows keyed
-      `(preview_id, draft_ref, ordinal)` with `aggregate_kind` in
-      `{character, costume}`
-- [ ] 4.3 Re-import suggestion reads both new kinds back so an updated document
-      can re-suggest the prior mapping
+- [x] 4.1 Migration `20260927000001_ai_import_mapping_key` adds
+      `ordinal INTEGER NOT NULL DEFAULT 0` and widens the primary key to
+      `(preview_id, draft_ref, aggregate_kind, ordinal)` (additive; existing
+      rows default to ordinal 0)
+- [x] 4.2 Persist and read character + costume mapping rows keyed by that full
+      tuple; `find()` takes the ordinal and `derive_id()` hashes the whole key
+- [x] 4.3 Re-import suggestion reads every kind back, so an updated document can
+      re-suggest the prior mapping (figure rows are addressed by the
+      `@character/<identity>` ref — the `@` prefix keeps them disjoint from
+      numeric scene draft refs by construction)
 
 ## 5. Infra — provider contract
 
-- [ ] 5.1 Extend `DraftSceneSchema` in `crates/infra/src/ai/client.rs` with the
-      costume list so the schema sent to the provider carries it
-- [ ] 5.2 Run the grounding check in `workers.rs` for every returned costume
-      before it is pushed into the preview context
-- [ ] 5.3 Test: a model response with an ungrounded costume yields a scene
+- [x] 5.1 Extend `DraftSceneSchema` in `crates/infra/src/ai/client.rs` with the
+      costume list (per-field descriptions) so the schema sent to the provider
+      carries it
+- [x] 5.2 Run the grounding check in `workers.rs` for every returned costume
+      before it is pushed into the preview context, against the EXACT
+      `source_text` bytes handed to the model
+- [x] 5.3 Test: a model response with an ungrounded costume yields a scene
       without that costume plus an uncertainty
+- [x] 5.4 Grounding folds whitespace runs and case before comparing (a quote
+      taken across a line wrap has a space where the document has a newline);
+      a quote that is genuinely absent still fails
 
 ## 6. Prompt + configuration
 
-- [ ] 6.1 Ship the hardened script prompt (done this session) as the deployment
-      default and REMOVE the interim `summary`-overflow instruction for costumes,
-      replacing it with the `costumes` field instruction
+- [x] 6.1 Ship the hardened script prompt as the deployment default and REMOVE
+      the interim `summary`-overflow instruction for costumes, replacing it with
+      the `<costumes>` extraction-field instruction
 - [ ] 6.2 Verify via a small live run that a costume lands in `costumes` (not in
       `summary`) using a script block that states one
-- [ ] 6.3 Configuration surface: indicate that a stored prompt overrides the
-      deployment default, and offer a reset-to-default action
+- [x] 6.3 Configuration surface: `AiConfigView.stored_prompt_kinds` reports the
+      kinds whose stored prompt OVERRIDES the deployment default (blank stored
+      text counts as no override — `resolve_prompt` treats blank and absent
+      identically), the Flutter config screen says so per kind, and offers a
+      reset that writes the fetched `GET /v1/ai-import/defaults` text into the
+      editor (saving persists it; a reset never dispatches behind the user's
+      back, and is disabled when the defaults could not be fetched)
 
 ## 7. API + client
 
-- [ ] 7.1 Add the costume fields to the apply request/response DTOs and to
-      `AiConfigView`-adjacent prompt payloads
-- [ ] 7.2 `UPDATE_OPENAPI=1 cargo test -p api --test openapi_drift` and commit
+- [x] 7.1 Add the costume fields to the apply request/response DTOs
+      (`CostumeDecision`, `UnappliedCostume` + reason enum, `created_characters`,
+      `created_costumes`) and `stored_prompt_kinds` to `AiConfigView`; resolve
+      `season_id` at the API edge (episode → block → season) and bound the
+      decision list against the preview's costume count (DoS guard)
+- [x] 7.2 `UPDATE_OPENAPI=1 cargo test -p api --test openapi_drift` and commit
       the regenerated `backend/openapi.yaml`
-- [ ] 7.3 `bash scripts/regen-client.sh` to regenerate `vendor/breakdown_api`
+- [x] 7.3 `bash scripts/regen-client.sh` to regenerate `vendor/breakdown_api`
       and commit the diff
-- [ ] 7.4 Review UI: costume decision per row, showing the quoted source
-      fragment next to the extracted description
+- [x] 7.4 Review UI: a costume checkbox per extracted costume, showing the
+      quoted source fragment next to the extracted description, decided
+      INDEPENDENTLY of its scene row; a server-dropped costume stays visible as
+      an uncertainty note and does not gate the apply (design D8); the apply
+      outcome names un-applied costumes with a reason localized from the typed
+      wire enum
 
 ## 8. Verification
 
@@ -94,3 +135,17 @@
       empty costume list (the "Block 100 / Tag 1" outline case)
 - [ ] 8.5 An English-convention script (INT./EXT.) still imports unchanged —
       the German heading support must not regress it
+
+## 9. Follow-ups found while implementing (NOT part of this change)
+
+- [ ] 9.1 Pre-existing Flutter test failure on `main`, unrelated to this change
+      (`test/features/costumes/costumes_screen_test.dart` — "selecting a tile
+      opens the editor on the first screen" leaves a pending Timer). Reproduced
+      at `a53ee332`, before either commit of this change; needs its own fix.
+- [ ] 9.2 The AI-import screens predate the per-screen design-spec convention
+      (`docs/design/screens/`): there is no wireframe spec for the import /
+      preview / apply screens. The costume review surface is documented in the
+      glossary only. Authoring the missing specs is a separate change.
+- [ ] 9.3 `lib/features/costumes/costumes_controller.dart` is unformatted at
+      `main` (the repo's `dart format --set-exit-if-changed` gate fails on it
+      independent of this change).

@@ -16,14 +16,23 @@ matching state SHALL live on Scene/Character/ShootingDay/SceneShoot/Costume
 aggregates.
 
 A draft row that carries costumes SHALL additionally apply each accepted
-costume as a `Costume` bound to the character resolved for that same row, by
-dispatching the existing `CreateCostume` followed by
-`AssignCostumeToCharacter`. Costume rows SHALL be keyed for the mapping by
+costume as a `Costume` bound to the `Character` identified by that costume's
+character name, by dispatching the existing `CreateCostume`, then
+`UpdateCostumeNotes` (which carries the extracted description —
+`CreateCostume` has no description field), then `AssignCostumeToCharacter`.
+
+A figure SHALL be deduplicated across the WHOLE preview by a normalised name
+identity (trimmed, case-folded, internal whitespace collapsed), not per draft
+row, and SHALL be keyed in the mapping as an `aggregate_kind = 'character'` row
+addressed by that identity. Keying characters per row was rejected: a live
+93-page import named 268 figure mentions over 131 scenes, so per-row creation
+would have produced hundreds of duplicate `Character` aggregates and destroyed
+costume continuity. Costume rows SHALL stay keyed PER ROW by
 `(preview_id, draft_ref, costume_ordinal)` with `aggregate_kind = 'costume'`, so
-that two costumes of the same character in one scene remain distinct rows and
-re-apply remains idempotent. A costume row SHALL NOT be created when its
-character was skipped or could not be resolved; that case SHALL be surfaced to
-the reviewer instead of creating an unbindable costume.
+that two costumes of one figure in one scene remain distinct rows and re-apply
+remains idempotent. A costume row SHALL NOT be created when its character was
+skipped or could not be resolved; that case SHALL be surfaced to the reviewer
+instead of creating an unbindable costume.
 
 #### Scenario: Crash mid-apply is safely retried
 - **WHEN** an apply crashes after creating scenes 1–5 and is retried
@@ -39,13 +48,43 @@ the reviewer instead of creating an unbindable costume.
   lookup; CQRS boundary respected)
 
 #### Scenario: Applying a row that carries costumes
-- **WHEN** a draft row is accepted and carries two costumes for characters that
-  were also created from the same row
-- **THEN** each costume SHALL be dispatched as `CreateCostume` followed by
-  `AssignCostumeToCharacter` to the character created or resolved for that row
+- **WHEN** a draft row is accepted and carries two costumes for figures the
+  preview also created
+- **THEN** each costume SHALL be dispatched as `CreateCostume`, then
+  `UpdateCostumeNotes`, then `AssignCostumeToCharacter` to that figure's
+  `Character`
 - **AND** each costume row SHALL be persisted in the mapping with
   `aggregate_kind = 'costume'` and its own ordinal
 - **AND** re-applying the same preview SHALL skip both costumes (no duplicates)
+
+#### Scenario: One figure mentioned in many rows becomes one aggregate
+- **WHEN** a preview names the same figure, in differing case or spacing, across
+  several draft rows
+- **THEN** exactly one `Character` SHALL be created for that identity
+- **AND** the costumes of every row SHALL bind to that single `Character`
+- **AND** a second apply of the same preview SHALL create no additional
+  `Character`
+
+#### Scenario: A crash between costume steps resumes above the stored version
+- **WHEN** an apply crashes after `CreateCostume` but before
+  `AssignCostumeToCharacter`
+- **THEN** the mapping row SHALL carry the version the costume reached
+- **AND** the retry SHALL re-drive only the steps above that version
+- **AND** the costume SHALL NOT be created a second time, NOR assigned twice
+
+#### Scenario: A reviewer rejects one costume but keeps its scene
+- **WHEN** the reviewer marks a single extracted costume as not accepted while
+  accepting the draft row's scene
+- **THEN** the scene SHALL still be applied
+- **AND** no `Costume` SHALL be created for the rejected row
+- **AND** the request SHALL carry the rejection by costume ordinal only
+
+#### Scenario: A dropped costume does not block the apply
+- **WHEN** a preview carries a costume the server dropped during grounding
+- **THEN** the uncertainty SHALL be visible to the reviewer
+- **AND** it SHALL NOT block applying the preview, because a stored preview is
+  immutable and offers no way to dismiss it; blocking on it would make one bad
+  costume reject an entire paid import
 
 #### Scenario: Costume whose character was skipped
 - **WHEN** a draft row is accepted for its scene but the character the costume

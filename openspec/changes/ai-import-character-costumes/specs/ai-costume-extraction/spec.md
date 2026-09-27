@@ -41,6 +41,14 @@ paid pass.
   supplied scene block
 - **THEN** the costume SHALL be dropped from the draft and recorded as an
   uncertainty instead of being presented to the reviewer as extracted data
+- **AND** the uncertainty SHALL carry the reason as a stable machine-readable
+  value, not prose only
+
+#### Scenario: A quote taken across a line wrap still grounds
+- **WHEN** a returned `source_quote` differs from the document only by whitespace
+  runs or letter case, because the model quoted across a line break
+- **THEN** the costume SHALL be kept: the check compares folded text, so a
+  genuinely quoted fragment is never dropped for a formatting difference
 
 ### Requirement: A draft costume names its character
 Each extracted costume SHALL be attributable to exactly one character of the
@@ -53,3 +61,4 @@ costume without its figure has no meaning in the costume-continuity domain
 - **WHEN** a returned costume names a character that the same draft scene does not list
 - **THEN** the costume SHALL NOT become a draft costume row
 - **AND** an uncertainty SHALL be recorded naming the unmatched character
+- **AND** that uncertainty SHALL NOT block applying the rest of the preview

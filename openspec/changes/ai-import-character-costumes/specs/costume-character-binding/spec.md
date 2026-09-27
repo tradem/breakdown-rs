@@ -2,19 +2,29 @@
 
 ### Requirement: An AI-created costume is created unassigned and then bound
 A `Costume` created by an AI script import SHALL be created **without** a
-`character_id` and SHALL be bound in a second step via the existing
-`AssignCostumeToCharacter` command, against the character created or resolved
-for the same draft row. The creation order mirrors the write path that already
-applies to photos on an unassigned costume, and it keeps a costume that cannot
-be bound from silently existing without an owner.
+`character_id` and SHALL be bound via the existing `AssignCostumeToCharacter`
+command against the `Character` identified by the costume's character name,
+deduplicated across the preview by normalised name identity (see `ai-import`).
+Its extracted description SHALL be carried by `UpdateCostumeNotes`, because
+`CreateCostume` accepts no description. The creation order mirrors the write path
+that already applies to photos on an unassigned costume, and it keeps a costume
+that cannot be bound from silently existing without an owner.
 
 #### Scenario: Import creates a costume for a scene character
-- **WHEN** a draft row is applied and carries a costume for a character created
-  in the same row
+- **WHEN** a draft row is applied and carries a costume for a figure the preview
+  created
 - **THEN** `CreateCostume` SHALL be dispatched with no `character_id`
-- **AND** `AssignCostumeToCharacter` SHALL bind it to that character
+- **AND** `UpdateCostumeNotes` SHALL carry the extracted description
+- **AND** `AssignCostumeToCharacter` SHALL bind it to that figure's `Character`
 - **AND** the resulting `Costume` SHALL carry only `character_id` as its scope
   link, unchanged from the manual creation path
+
+#### Scenario: Binding a freshly created costume uses the created version
+- **WHEN** the apply binds a costume it has just created
+- **THEN** `AssignCostumeToCharacter` SHALL carry the version `CreateCostume`
+  returned
+- **AND** a replayed bind SHALL be refused as a version mismatch rather than
+  performing a second assignment
 
 #### Scenario: Binding fails after the costume was created
 - **WHEN** `AssignCostumeToCharacter` is rejected for a freshly created costume
