@@ -183,6 +183,15 @@ a manual run. Prerequisites, in order:
       invented gallery, no blind retry).
 - [x] 9.3 `costumes_controller.dart` was unformatted at `511baaa9` (the repo's
       `dart format --set-exit-if-changed` gate fails on it); fixed.
+- [ ] 9.6 OBSERVED while fixing 9.1 (photo bounded context, not this change):
+      when variant generation FAILS, the thumbnail saga's failure path marks
+      `Thumb`/`Medium` as `Failed` but leaves the `Original` variant `Pending`
+      forever — measured in `photo_round_trip` (`Medium:Failed, Original:Pending,
+      Thumb:Failed`). A photo whose original cannot be normalized therefore
+      reports a variant that is neither ready nor failed. Whether `Pending` is the
+      right terminal state there (vs. `Failed`, or leaving the row absent) is a
+      photo-context decision; the round-trip test now waits only on the two
+      variants the saga actually owns, so it does not depend on the answer.
 - [ ] 9.4 The AI-import screens predate the per-screen design-spec convention
       (`docs/design/screens/`): there is no wireframe spec for the import /
       preview / apply screens, so the costume review surface is documented in the
