@@ -1,7 +1,6 @@
 -- SPDX-License-Identifier: AGPL-3.0
 -- Copyright (C) 2024-2026 Breakdown RS Contributors
 -- Co-authored-by: qwen3.8-flash (opencode-go)
--- Co-authored-by: qwen3.8-flash (opencode-go)
 
 -- Reverses the key extension. Restoring the old primary key fails while
 -- character/costume rows exist (several rows then share (preview_id,

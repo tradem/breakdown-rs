@@ -127,8 +127,33 @@
 
 ## 8. Verification
 
-- [ ] 8.1 `cargo test -p breakdown_core -p infra -p api` green
-- [ ] 8.2 `cargo clippy -p breakdown_core -p infra -p api --all-targets` clean
+- [x] 8.1 `cargo test -p breakdown_core -p infra -p api` green (all targets ok,
+      incl. the Postgres contract tests against the dev stack). A preceding
+      `cargo test --workspace` showed 2 failures in
+      `integration-tests/command_adapter_tests` with `redis error: timed out`
+      under 90-binary parallel load; both pass in isolation (16/16) — an
+      environment flake, not a code defect. `cargo fmt --check` and
+      `cargo clippy --all-targets --all-features -- -D warnings` (the
+      pre-commit gate, workspace-wide) are clean.
+- [x] 8.2 `cargo clippy --all-targets --all-features -- -D warnings` clean
+8.3–8.5 and 6.2 require a live run against a real provider, which spends real
+money (a 93-page script is ~85 paid chunk calls). They are deliberately left for
+a manual run. Prerequisites, in order:
+
+1. Start the API against the dev stack so the mapping migration applies:
+   `DATABASE_URL=postgres://postgres:postgres@localhost:5432/breakdown \
+   SIERRADB_URL=redis://127.0.0.1:9090/?protocol=resp3 cargo run --bin api`.
+   Then verify `\d ai_import.projection_ai_import_mapping` shows `ordinal` and
+   `PRIMARY KEY (preview_id, draft_ref, aggregate_kind, ordinal)`. The dev DB is
+   at `20260926000001`, so this migration has NOT run anywhere yet.
+2. Configure a provider through `scripts/enable-dev-ai-import.sh` (the key goes
+   to the vault; never into the repo).
+3. Import the German script → review the preview → apply → re-apply. Check the
+   six things the change exists for: costumes present with their quotes; one
+   `Character` per figure identity across the whole preview; each costume bound
+   to the right one; the description present as costume notes; re-apply creating
+   nothing; a rejected costume row never becoming a `Costume`.
+
 - [ ] 8.3 Live re-import of the German production script: costumes present in
       the preview, `draft_ref` unique, re-apply creates no duplicates
 - [ ] 8.4 A script without any costuming still imports successfully with an
