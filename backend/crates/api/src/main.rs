@@ -363,6 +363,20 @@ async fn main() -> Result<()> {
         infra::projectors::ProjectorFlushConfig::default(),
     )
     .await?;
+    // The photo read model (`projection_photo` + `projection_photo_variant`)
+    // is written ONLY by this projector. Without it the upload path still
+    // returns 201 and the thumbnail saga still generates variants, but the
+    // read side stays empty forever — `GET /costumes/{id}/photos` lists
+    // nothing and the client renders no thumbnail. The integration tests
+    // call `spawn_photo_projector` explicitly, which is why the omission
+    // was invisible to CI; the four photo sagas below are NOT a substitute
+    // (they dispatch commands, they do not project the read model).
+    let _photo_projector = infra::projectors::spawn_photo_projector(
+        pool.clone(),
+        Arc::clone(&redis_client),
+        infra::projectors::ProjectorFlushConfig::default(),
+    )
+    .await?;
     // Event-reactor saga: seeds default costume categories on SeasonCreated.
     infra::sagas::spawn_season_seeding_saga(
         pool.clone(),

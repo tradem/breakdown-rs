@@ -5604,6 +5604,20 @@ pub fn routes() -> Router<AppState<ProductionPorts>> {
     let ai_document_limit = infra::ai::AiImportFeature::from_env()
         .bounds
         .max_document_bytes as usize;
+    // The photo upload route must be able to accept what its own handler
+    // accepts. `upload_costume_photo` enforces `PHOTO_MAX_SIZE_MB` (default
+    // 20 MB) on the buffered body, but without a matching extractor limit
+    // Axum's 2 MB `DefaultBodyLimit` rejects first, so the documented 20 MB
+    // contract (and the dev edge's `request_body max_size`) was silently
+    // capped at 2 MB with a 413 before the handler ever ran. Both limits
+    // are derived from the same env var; the handler-side check stays the
+    // authoritative one (it produces the RFC 9457 problem code).
+    let photo_body_limit = std::env::var("PHOTO_MAX_SIZE_MB")
+        .ok()
+        .and_then(|v| v.trim().parse::<usize>().ok())
+        .filter(|mb| *mb > 0)
+        .unwrap_or(20)
+        .saturating_mul(1024 * 1024);
     Router::new()
         .route(
             "/ops/projector-health",
@@ -5838,6 +5852,10 @@ pub fn routes() -> Router<AppState<ProductionPorts>> {
             "/costumes/{costume_id}/photos",
             routing::post(upload_costume_photo::<ProductionPorts>),
         )
+        // Extractor limit aligned with the handler's `PHOTO_MAX_SIZE_MB`
+        // check (see `photo_body_limit` above); the 2 MB Axum default would
+        // otherwise 413 every photo larger than that.
+        .route_layer(DefaultBodyLimit::max(photo_body_limit))
         .route(
             "/costumes/{costume_id}/photos/{photo_id}/bytes",
             routing::get(get_costume_photo_bytes::<ProductionPorts>),
