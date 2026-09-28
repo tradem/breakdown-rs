@@ -11,7 +11,7 @@ import 'package:built_value/serializer.dart';
 
 part 'settings_view.g.dart';
 
-/// Reference view of an external credential binding. It contains no secret material or ciphertext.  `owner` is the identity that bound the credential, recovered by the projector from `EventMetadata.actor` (issue #552). `None` for legacy rows projected before the column existed — the AI-config API edge treats an unknown owner as \"not owned by the caller\" (fail closed).
+/// Reference view of an external credential binding. It contains no secret material or ciphertext.  `owner` is the identity that bound the credential, recovered by the projector from `EventMetadata.actor` (issue #552). `None` for legacy rows projected before the column existed — the AI-config API edge treats an unknown owner as \"not owned by the caller\" (fail closed). Recovery is re-projection only (runbook §10); rotation deliberately does not backfill.
 ///
 /// Properties:
 /// * [bindingState]
