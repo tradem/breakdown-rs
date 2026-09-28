@@ -189,10 +189,7 @@ class CacheDatabase extends _$CacheDatabase {
             'costume_cache_rows',
             'category_name',
           ))) {
-            await m.addColumn(
-              costumeCacheRows,
-              costumeCacheRows.categoryName,
-            );
+            await m.addColumn(costumeCacheRows, costumeCacheRows.categoryName);
           }
         }
       }

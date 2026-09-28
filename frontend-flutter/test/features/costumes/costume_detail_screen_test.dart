@@ -728,28 +728,29 @@ void main() {
       );
     });
 
-    testWidgets('add-detail: pure-description form (no category field, issue #543)', (
-      tester,
-    ) async {
-      await setupContainer(
-        costume: _costume('c-1'),
-        categories: [_category('cat-1')],
-      );
-      await pumpDetail(tester, 'c-1');
-      await tester.pump(const Duration(milliseconds: 100));
-      await tester.tap(find.byKey(const Key('costume-detail-add-c-1')));
-      await tester.pumpAndSettle();
-      await tester.enterText(
-        find.byKey(const Key('add-detail-text')),
-        'Silk lining',
-      );
-      // The category dropdown is GONE from the form; the category is set on
-      // the costume via the identity section (picker in the follow-up PR).
-      expect(find.byKey(const Key('add-detail-category')), findsNothing);
-      await tester.tap(find.byKey(const Key('add-detail-submit')));
-      await _pumpFrames(tester);
-      expect(repo.detailCalls, 1);
-    });
+    testWidgets(
+      'add-detail: pure-description form (no category field, issue #543)',
+      (tester) async {
+        await setupContainer(
+          costume: _costume('c-1'),
+          categories: [_category('cat-1')],
+        );
+        await pumpDetail(tester, 'c-1');
+        await tester.pump(const Duration(milliseconds: 100));
+        await tester.tap(find.byKey(const Key('costume-detail-add-c-1')));
+        await tester.pumpAndSettle();
+        await tester.enterText(
+          find.byKey(const Key('add-detail-text')),
+          'Silk lining',
+        );
+        // The category dropdown is GONE from the form; the category is set on
+        // the costume via the identity section (picker in the follow-up PR).
+        expect(find.byKey(const Key('add-detail-category')), findsNothing);
+        await tester.tap(find.byKey(const Key('add-detail-submit')));
+        await _pumpFrames(tester);
+        expect(repo.detailCalls, 1);
+      },
+    );
 
     testWidgets('delete photo: confirm-first, then dispatch', (tester) async {
       final photo = CostumePhotoView(
