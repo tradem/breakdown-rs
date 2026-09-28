@@ -702,11 +702,22 @@ async fn ai_config_lifecycle_runs_through_the_config_ports() {
         .await;
     let commands = ports.ai_config_commands.clone();
     let repo = ports.ai_config_repo.clone();
+    // The config's key is an active Neuralwatt credential owned by the caller
+    // (issue #552) — the API-edge ownership pre-check resolves it before
+    // dispatching the create.
+    ports
+        .settings_repo
+        .bind_vault_key("vault-key", LlmProvider::Neuralwatt.as_str(), TEST_SUB)
+        .await;
     // The replacement key is an active Ollama credential (issue #528) — the
     // API-edge pre-check resolves it before dispatching the update.
     ports
         .settings_repo
-        .bind_vault_key("replacement-vault-key", LlmProvider::Ollama.as_str())
+        .bind_vault_key(
+            "replacement-vault-key",
+            LlmProvider::Ollama.as_str(),
+            TEST_SUB,
+        )
         .await;
     let state = state(ports);
 
@@ -849,7 +860,7 @@ async fn ai_config_update_rejects_vault_key_from_another_provider() {
     // Ollama provider the request pairs it with.
     ports
         .settings_repo
-        .bind_vault_key("openai-vault-key", LlmProvider::OpenAI.as_str())
+        .bind_vault_key("openai-vault-key", LlmProvider::OpenAI.as_str(), TEST_SUB)
         .await;
     let id = Uuid::now_v7();
     ports.ai_config_repo.views.lock().await.insert(
@@ -902,7 +913,10 @@ async fn ai_config_update_rejects_unknown_vault_key() {
         .await;
     let commands = ports.ai_config_commands.clone();
     // No credential is registered for this key (never created, purged, or a
-    // projection miss) — same stable code as a foreign provider.
+    // projection miss) — the ownership pre-check fails closed into the same
+    // 403 the create path emits, so the update route cannot be used as a
+    // key-existence oracle (unknown vs. foreign must be indistinguishable,
+    // issue #552 review).
     let id = Uuid::now_v7();
     ports.ai_config_repo.views.lock().await.insert(
         id,
@@ -939,8 +953,8 @@ async fn ai_config_update_rejects_unknown_vault_key() {
     .expect_err("an unknown vault key must not be persisted")
     .into_problem();
 
-    assert_eq!(problem.status, StatusCode::CONFLICT.as_u16());
-    assert_eq!(problem.code, "ai-config.provider-mismatch");
+    assert_eq!(problem.status, StatusCode::FORBIDDEN.as_u16());
+    assert_eq!(problem.code, "ai-config.vault-key-forbidden");
     assert!(commands.updated.lock().await.is_empty());
 }
 
@@ -1496,4 +1510,137 @@ async fn list_ai_configs_is_denied_without_the_credential_role() {
     assert_eq!(problem.status, StatusCode::FORBIDDEN.as_u16());
     assert_eq!(problem.code, "ai-config.forbidden");
     assert!(!problem.detail.is_empty());
+}
+
+#[tokio::test]
+async fn ai_config_create_rejects_a_foreign_vault_key() {
+    let ports = FakePorts::default();
+    ports
+        .membership_repo
+        .seed_credential_designer(BlockId::new(), UserId::from_sub(TEST_SUB))
+        .await;
+    let commands = ports.ai_config_commands.clone();
+    // The key IS a real, active credential of the requested provider — but it
+    // belongs to another user. Owning it, not provider pairing, is what the
+    // create path checks (issue #552).
+    ports
+        .settings_repo
+        .bind_vault_key(
+            "foreign-vault-key",
+            LlmProvider::Neuralwatt.as_str(),
+            "someone-else",
+        )
+        .await;
+    let state = state(ports);
+
+    let problem = create_ai_config::<FakePorts>(
+        State(state),
+        user(),
+        Json(CreateAiConfigRequest {
+            provider: LlmProvider::Neuralwatt,
+            assistant_model: "assistant".to_owned(),
+            image_model: None,
+            prompts: HashMap::new(),
+            vault_key_id: "foreign-vault-key".to_owned(),
+        }),
+    )
+    .await
+    .expect_err("a foreign credential binding must not be usable by another user")
+    .into_problem();
+
+    assert_eq!(problem.status, StatusCode::FORBIDDEN.as_u16());
+    assert_eq!(problem.code, "ai-config.vault-key-forbidden");
+    // The command was never dispatched — no write-side event.
+    assert!(commands.created.lock().await.is_empty());
+}
+
+#[tokio::test]
+async fn ai_config_create_rejects_an_unknown_vault_key_fail_closed() {
+    let ports = FakePorts::default();
+    ports
+        .membership_repo
+        .seed_credential_designer(BlockId::new(), UserId::from_sub(TEST_SUB))
+        .await;
+    let commands = ports.ai_config_commands.clone();
+    // No binding exists for this key (unknown owner ⇒ unknown binding) — the
+    // ownership pre-check fails closed; the worker never sees the config.
+    let state = state(ports);
+
+    let problem = create_ai_config::<FakePorts>(
+        State(state),
+        user(),
+        Json(CreateAiConfigRequest {
+            provider: LlmProvider::Neuralwatt,
+            assistant_model: "assistant".to_owned(),
+            image_model: None,
+            prompts: HashMap::new(),
+            vault_key_id: "never-vaulted-key".to_owned(),
+        }),
+    )
+    .await
+    .expect_err("an unknown vault key must be rejected at the edge")
+    .into_problem();
+
+    assert_eq!(problem.status, StatusCode::FORBIDDEN.as_u16());
+    assert_eq!(problem.code, "ai-config.vault-key-forbidden");
+    assert!(commands.created.lock().await.is_empty());
+}
+
+#[tokio::test]
+async fn ai_config_update_rejects_a_foreign_replacement_vault_key() {
+    let ports = FakePorts::default();
+    ports
+        .membership_repo
+        .seed_credential_designer(BlockId::new(), UserId::from_sub(TEST_SUB))
+        .await;
+    let commands = ports.ai_config_commands.clone();
+    // Real, active, RIGHT-provider credential — owned by someone else. The
+    // ownership check must fire before the provider check (issue #552).
+    ports
+        .settings_repo
+        .bind_vault_key(
+            "foreign-vault-key",
+            LlmProvider::Ollama.as_str(),
+            "someone-else",
+        )
+        .await;
+    let id = Uuid::now_v7();
+    ports.ai_config_repo.views.lock().await.insert(
+        id,
+        AiConfigView {
+            id,
+            user_id: UserId::from_sub(TEST_SUB),
+            provider: LlmProvider::Neuralwatt,
+            assistant_model: "assistant".to_owned(),
+            image_model: None,
+            prompts: HashMap::new(),
+            prompt_kinds: vec![],
+            stored_prompt_kinds: vec![],
+            vault_key_id: "vault-key".to_owned(),
+            version: AggregateVersion(2),
+            revoked: false,
+        },
+    );
+    let state = state(ports);
+
+    let problem = update_ai_config::<FakePorts>(
+        State(state),
+        user(),
+        Path(id),
+        Json(UpdateAiConfigRequest {
+            provider: LlmProvider::Ollama,
+            assistant_model: "assistant-v2".to_owned(),
+            image_model: None,
+            prompts: HashMap::new(),
+            vault_key_id: "foreign-vault-key".to_owned(),
+            version: AggregateVersion(2),
+        }),
+    )
+    .await
+    .expect_err("a foreign credential binding must not become this config's key")
+    .into_problem();
+
+    assert_eq!(problem.status, StatusCode::FORBIDDEN.as_u16());
+    assert_eq!(problem.code, "ai-config.vault-key-forbidden");
+    assert!(commands.updated.lock().await.is_empty());
 }

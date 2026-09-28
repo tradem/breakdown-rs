@@ -14,6 +14,17 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
+## [0.14.0] - Unreleased
+
+### Added — credential-binding ownership in the settings view (issue #552)
+
+- `SettingsView` gains an additive `owner: Option<UserId>` field: the
+  authenticated principal (`OIDC sub`) that created the credential binding,
+  recovered by the projector from `EventMetadata.actor`. `None` only for
+  legacy rows awaiting re-projection or rotation backfill — the AI-config
+  API edge fails closed on an unknown owner.
+- **MINOR bump (ADR-020 D2):** new public view field — **0.13.0 → 0.14.0**.
+
 ## [0.13.0] - Unreleased
 
 ### Added — `SceneSource` provenance discriminator (issue #517, EU AI Act Art. 50)

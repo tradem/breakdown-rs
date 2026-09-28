@@ -33,6 +33,9 @@ problem-ai-config-provider-mismatch =
 problem-ai-config-forbidden =
     Managing AI configuration requires an administrator role.
 
+problem-ai-config-vault-key-forbidden =
+    The referenced credential does not belong to you.
+
 problem-ai-import-disabled =
     AI import is not enabled on this instance.
 

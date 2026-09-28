@@ -5,7 +5,7 @@ use serde::Serialize;
 use utoipa::ToSchema;
 use uuid::Uuid;
 
-use crate::shared::AggregateVersion;
+use crate::shared::{AggregateVersion, UserId};
 
 /// Public binding state. It contains no secret material or ciphertext.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, ToSchema)]
@@ -17,6 +17,14 @@ pub enum CredentialBindingState {
     Unreachable,
 }
 
+/// Reference view of an external credential binding. It contains no secret
+/// material or ciphertext.
+///
+/// `owner` is the identity that bound the credential, recovered by the
+/// projector from `EventMetadata.actor` (issue #552). `None` for legacy rows
+/// projected before the column existed — the AI-config API edge treats an
+/// unknown owner as "not owned by the caller" (fail closed). Recovery is
+/// re-projection only (runbook §10); rotation deliberately does not backfill.
 #[derive(Debug, Clone, Serialize, ToSchema)]
 pub struct SettingsView {
     pub id: Uuid,
@@ -25,4 +33,7 @@ pub struct SettingsView {
     pub vault_version: u64,
     pub binding_state: CredentialBindingState,
     pub version: AggregateVersion,
+    /// Authenticated principal (`OIDC sub`) that created/owns the binding.
+    /// `None` only for legacy rows awaiting re-projection or rotation backfill.
+    pub owner: Option<UserId>,
 }

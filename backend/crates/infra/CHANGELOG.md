@@ -14,6 +14,22 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
+## [0.19.0] - Unreleased
+
+### Added — credential-binding owner projection (issue #552)
+
+- Migration `20261001000001_projection_settings_owner`: `projection_settings`
+  gains a nullable `owner TEXT` column + `idx_projection_settings_owner`
+  (down drops both). The settings projector populates it from the persisted
+  `EventMetadata.actor` on `CredentialBound`; `SettingsRepositoryImpl` reads
+  it into `SettingsView.owner`. Rotation deliberately does not touch the
+  owner (the settings rotate/revoke handlers do not verify the rotating
+  actor against the binding owner — a rotation backfill would let any
+  credential-role member claim a legacy NULL-owner binding).
+- **MINOR bump (ADR-020 D2):** additive projection column + projector
+  behavior and re-pin `breakdown_core` 0.14.0 (`SettingsView.owner`):
+  **0.18.0 → 0.19.0**.
+
 ## [0.18.0] - Unreleased
 
 ### Added — Scene AI provenance projection + honest day confidence (issue #517, EU AI Act Art. 50)

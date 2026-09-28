@@ -15,6 +15,28 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
+## [0.12.1] - Unreleased
+
+### Fixed — AI config rejects a vault key the caller does not own (issue #552)
+
+- `POST /ai-import/config` and `PATCH /ai-import/config/{id}` (introduced key
+  only) now resolve the submitted `vault_key_id` at the API edge (the only
+  legitimate read-model consumer, CQRS boundary) and require the binding to
+  be owned by the authenticated caller. A foreign-but-valid binding, an
+  unknown key, and a legacy binding with an unknown owner all surface the
+  new scoped problem code **403 `ai-config.vault-key-forbidden`**
+  (registered in `problem_codes!`, Fluent texts en/de) — one code on both
+  paths, so the update route cannot distinguish "foreign" from "unknown"
+  (no key-existence oracle). Revoked bindings and a key bound to another
+  provider keep the #528 collapse into `ai-config.provider-mismatch` 409.
+- The AI import worker keeps trusting the stored, edge-vetted
+  `config.vault_key_id`; the fail-closed shape validation in
+  `AiCredentialResolver` is unchanged.
+- `openapi.yaml` regenerated (`SettingsView.owner`, new problem code).
+- **PATCH bump (ADR-020 D2):** consumption only — re-pinned
+  `breakdown_core` 0.14.0 / `infra` 0.19.0, no new public API: **0.12.0 →
+  0.12.1**.
+
 ## [0.12.0] - Unreleased
 
 ### Added — Scene provenance in the wire contract (issue #517, EU AI Act Art. 50)

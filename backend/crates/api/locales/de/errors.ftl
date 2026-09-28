@@ -33,6 +33,9 @@ problem-ai-config-provider-mismatch =
 problem-ai-config-forbidden =
     Für die Verwaltung der KI-Konfiguration ist eine Administratorrolle erforderlich.
 
+problem-ai-config-vault-key-forbidden =
+    Die referenzierte Berechtigung gehört nicht zu Ihnen.
+
 problem-ai-import-disabled =
     Der KI-Import ist auf dieser Instanz nicht aktiviert.
 

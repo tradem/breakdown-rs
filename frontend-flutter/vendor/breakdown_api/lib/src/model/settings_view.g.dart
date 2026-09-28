@@ -12,6 +12,8 @@ class _$SettingsView extends SettingsView {
   @override
   final String id;
   @override
+  final String? owner;
+  @override
   final String provider;
   @override
   final String vaultKeyId;
@@ -26,6 +28,7 @@ class _$SettingsView extends SettingsView {
   _$SettingsView._(
       {required this.bindingState,
       required this.id,
+      this.owner,
       required this.provider,
       required this.vaultKeyId,
       required this.vaultVersion,
@@ -44,6 +47,7 @@ class _$SettingsView extends SettingsView {
     return other is SettingsView &&
         bindingState == other.bindingState &&
         id == other.id &&
+        owner == other.owner &&
         provider == other.provider &&
         vaultKeyId == other.vaultKeyId &&
         vaultVersion == other.vaultVersion &&
@@ -55,6 +59,7 @@ class _$SettingsView extends SettingsView {
     var _$hash = 0;
     _$hash = $jc(_$hash, bindingState.hashCode);
     _$hash = $jc(_$hash, id.hashCode);
+    _$hash = $jc(_$hash, owner.hashCode);
     _$hash = $jc(_$hash, provider.hashCode);
     _$hash = $jc(_$hash, vaultKeyId.hashCode);
     _$hash = $jc(_$hash, vaultVersion.hashCode);
@@ -68,6 +73,7 @@ class _$SettingsView extends SettingsView {
     return (newBuiltValueToStringHelper(r'SettingsView')
           ..add('bindingState', bindingState)
           ..add('id', id)
+          ..add('owner', owner)
           ..add('provider', provider)
           ..add('vaultKeyId', vaultKeyId)
           ..add('vaultVersion', vaultVersion)
@@ -88,6 +94,10 @@ class SettingsViewBuilder
   String? _id;
   String? get id => _$this._id;
   set id(String? id) => _$this._id = id;
+
+  String? _owner;
+  String? get owner => _$this._owner;
+  set owner(String? owner) => _$this._owner = owner;
 
   String? _provider;
   String? get provider => _$this._provider;
@@ -114,6 +124,7 @@ class SettingsViewBuilder
     if ($v != null) {
       _bindingState = $v.bindingState;
       _id = $v.id;
+      _owner = $v.owner;
       _provider = $v.provider;
       _vaultKeyId = $v.vaultKeyId;
       _vaultVersion = $v.vaultVersion;
@@ -142,6 +153,7 @@ class SettingsViewBuilder
           bindingState: BuiltValueNullFieldError.checkNotNull(
               bindingState, r'SettingsView', 'bindingState'),
           id: BuiltValueNullFieldError.checkNotNull(id, r'SettingsView', 'id'),
+          owner: owner,
           provider: BuiltValueNullFieldError.checkNotNull(
               provider, r'SettingsView', 'provider'),
           vaultKeyId: BuiltValueNullFieldError.checkNotNull(

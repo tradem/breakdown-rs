@@ -620,3 +620,58 @@ Caveats:
 - In production, the client becomes subject to Google verification and
   Workspace controls; an unverified, published client keeps working for
   consenting users with the already-granted Drive scope.
+
+---
+
+## 10. Credential-binding owner backfill (issue #552)
+
+`projection_settings` carries an `owner` column (the principal that bound the
+credential). The AI-config create/update pre-check **fails closed** on an
+unknown owner, so bindings projected before this column existed deny until
+their owner is backfilled. Recovery is **re-projection only** — rotation
+deliberately does not backfill (the settings rotate/revoke handlers gate on
+the credential role only and do not verify the rotating actor against the
+binding owner, so a rotation backfill would let any credential-role member
+claim a legacy NULL-owner binding; issue #552 review).
+
+### Re-projection procedure
+
+The projector guards every write with a version condition
+(`WHERE version < $N`), so replayed events **at or below a row's current
+version are rejected** — the bind event has version 1 and can never
+overwrite an existing row. A checkpoint reset alone therefore does NOT
+backfill owners of any binding that was ever rotated (the bind event is not
+the last event of its stream). Clear the rows first, then replay:
+
+```sql
+-- 0. STOP the API (no projector may write while the table is cleared).
+
+-- 1. back up the current checkpoint value, then reset it:
+SELECT * FROM sierradb_event_checkpoints WHERE projector = 'settings';
+-- 2. clear the materialized rows (owner is re-derived from event metadata):
+TRUNCATE projection_settings;
+
+-- 3. restart the API; the settings projector replays the settings streams
+--    from the beginning and re-materializes every row, recovering `owner`
+--    from each bind event's actor metadata (all settings events have carried
+--    actor metadata since ADR-027).
+```
+
+**Verification** (after the replay has caught up):
+
+```sql
+-- every legacy owner must now be filled:
+SELECT count(*) FROM projection_settings WHERE owner IS NULL;  -- expect 0
+-- row counts must match the pre-truncate state (bind events are authoritative):
+SELECT binding_state, count(*) FROM projection_settings GROUP BY binding_state;
+```
+
+**Detection:** a user reporting `403 ai-config.vault-key-forbidden` on a key
+that used to work is the symptom of a stale NULL owner. Check with:
+
+```sql
+SELECT id, provider, vault_key_id, binding_state, owner
+FROM projection_settings
+WHERE owner IS NULL
+ORDER BY updated_at DESC;
+```

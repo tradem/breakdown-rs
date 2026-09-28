@@ -1,0 +1,7 @@
+{
+  "code": "ai-config.vault-key-forbidden",
+  "detail": "Die referenzierte Berechtigung gehört nicht zu Ihnen.",
+  "status": 403,
+  "title": "Vault credential not owned by caller",
+  "type": "https://docs.breakdown.example/problems/ai-config.vault-key-forbidden"
+}
