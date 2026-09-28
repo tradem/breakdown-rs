@@ -845,7 +845,11 @@ async fn revoke_settings_allows_the_owner() {
     .expect("the owner may revoke their own binding");
 
     assert_eq!(status, 200);
-    assert_eq!(commands.revokes.lock().await.len(), 1);
+    let revokes = commands.revokes.lock().await;
+    assert_eq!(revokes.len(), 1);
+    // The command must carry the *requested* binding id — a count-only
+    // assertion would pass for a revoke of some other binding.
+    assert_eq!(revokes[0].id, id);
 }
 
 #[tokio::test]

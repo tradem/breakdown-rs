@@ -636,7 +636,7 @@ claim a legacy NULL-owner binding (issue #552 review). Affected denials:
 | Surface | Denial on a NULL-owner row |
 |---|---|
 | `POST`/`PATCH /ai-import/config` (key) | 403 `ai-config.vault-key-forbidden` (issue #552) |
-| `GET`/`PATCH`/`DELETE /settings/{id}` | 403 `settings.binding-forbidden` (issue #555) |
+| `GET`/`DELETE /settings/{id}`; `PATCH /settings/{id}/gdrive` | 403 `settings.binding-forbidden` (issue #555) |
 
 ### Re-projection procedure
 
