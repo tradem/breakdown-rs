@@ -887,6 +887,11 @@ class _PhotosSectionState extends ConsumerState<_PhotosSection> {
               contentType: contentType,
             );
         uploadResult.match<void>((_) {}, (_) {});
+        // A successful upload must re-read the enriched row: the gallery renders
+        // `_detail`, which was fetched once on open and knows nothing about the
+        // photo just created (the list rows `refresh()` updates carry no photos).
+        // Only on success — a failed command must not rewrite what is shown.
+        if (uploadResult.isRight()) await _loadDetail();
       case PrepareFailure(:final code):
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -917,6 +922,10 @@ class _PhotosSectionState extends ConsumerState<_PhotosSection> {
                   .read(costumesControllerProvider(widget.season.id).notifier)
                   .deletePhoto(costumeId: widget.costume.id, photoId: photoId);
               deleteResult.match<void>((_) {}, (_) {});
+              // Same reason as the upload path: without this the DELETED photo
+              // stays visible in the gallery until the section is rebuilt,
+              // because `_detail` still holds the pre-delete row.
+              if (deleteResult.isRight()) await _loadDetail();
               if (dialogContext.mounted) Navigator.of(dialogContext).pop();
             },
             child: Text(l10nOf(dialogContext).commonDelete),

@@ -18,7 +18,7 @@
 
 ## 2. Core — apply plan
 
-> **Amended before implementation (design D6).** Characters are NOT planned
+> **Amended before implementation (design D7).** Characters are NOT planned
 > per draft row. A figure is deduplicated across the WHOLE preview by a
 > normalised name identity (`character_identity` = trim + lowercase + collapse
 > internal whitespace), because a live 93-page import named 268 figure mentions
@@ -54,7 +54,7 @@
       `AssignCostumeToCharacter`. The stored aggregate version is the PHASE
       RECORD of a crashed apply (1 created, 2 +notes, 3 bound), so a retry
       re-drives only the steps above it — no duplicate costume, no double bind
-      (design D7)
+      (design D8)
 - [x] 3.4 Order test: the character command is dispatched before the costume
       binding for the same row
 - [x] 3.5 Re-apply test: a second apply creates no duplicate character and no
@@ -121,7 +121,7 @@
 - [x] 7.4 Review UI: a costume checkbox per extracted costume, showing the
       quoted source fragment next to the extracted description, decided
       INDEPENDENTLY of its scene row; a server-dropped costume stays visible as
-      an uncertainty note and does not gate the apply (design D8); the apply
+      an uncertainty note and does not gate the apply (design D9); the apply
       outcome names un-applied costumes with a reason localized from the typed
       wire enum
 

@@ -191,7 +191,7 @@ class AiImportRepository extends BaseRepository {
   /// Normalizes the upload acknowledgement body into a bare job id.
   ///
   /// The backend answers `POST /v1/ai-import/{scripts,schedules}` with
-  /// `Json(id)` — a JSON *string* literal, wire body `"<uuid>"`. Djos
+  /// `Json(id)` — a JSON *string* literal, wire body `"<uuid>"`. Dio’s
   /// default transformer does NOT strip the quotes for a `post<String>`
   /// call: verified against dio 5.11, `response.data` still arrives as
   /// `"01a0…"` (38 characters for a 36-character UUID), because the

@@ -2467,6 +2467,83 @@ async fn script_apply_reports_costumes_whose_figure_could_not_be_created() {
 /// created": the costume stays created and unassigned, the row is reported as
 /// partially applied with the reason, and the retry **reuses the same costume
 /// id** instead of appending a second one.
+/// Design D8's crash window for the NOTES step: a crash between the successful
+/// `UpdateCostumeNotes` append and its mapping confirm leaves the costume stream
+/// at version 2 while the mapping still records version 1. The retry therefore
+/// re-dispatches the notes command with a stale version, and the aggregate
+/// refuses it with `VersionConflict`. Without folding that conflict through
+/// `recover_version` (as the create and bind steps already do) the row ended as
+/// `notes_rejected` on EVERY retry and the costume was never bound — a costume
+/// created by the apply but permanently stuck one step short.
+#[tokio::test]
+async fn script_apply_recovers_when_only_the_notes_confirm_crashed() {
+    let fixture = ScriptApplyFixture::new();
+    // Insert order for one scene + one figure + one costume: #1 scene confirm,
+    // #2 figure confirm, #3 costume-create confirm, #4 NOTES confirm. Failing #4
+    // is precisely the window: the notes command has already appended.
+    fixture.mappings.fail_nth_insert(4);
+
+    let preview = ScriptContext {
+        scenes: vec![row_with_costume(
+            "1. INT. OP",
+            &["BEN"],
+            &[("Ben", "Marineblau")],
+        )],
+        ..Default::default()
+    };
+    let decisions = [create_decision("1. INT. OP")];
+    let error = fixture
+        .apply(&preview, &decisions)
+        .await
+        .expect_err("the notes confirm must fail");
+    assert!(matches!(error, DomainError::ServiceUnavailable { .. }));
+
+    // The notes DID reach the aggregate, but the mapping never recorded it.
+    assert_eq!(fixture.costumes.notes.lock().unwrap().len(), 1);
+    let costume_mapping = fixture
+        .mappings
+        .find(fixture.preview_id, "1. INT. OP", mapping_kind::COSTUME, 0)
+        .await
+        .unwrap()
+        .expect("costume mapping row");
+    assert_eq!(
+        costume_mapping.aggregate_version,
+        version(1),
+        "the failed confirm must leave the phase record at create"
+    );
+
+    // Retry: the stale notes dispatch is refused, that refusal proves our own
+    // earlier append, so the chain must continue to the binding instead of
+    // reporting the row as unapplied.
+    let second = fixture.apply(&preview, &decisions).await.unwrap();
+    assert!(
+        second.unapplied_costumes.is_empty(),
+        "the retry must finish the chain, got {:?}",
+        second.unapplied_costumes
+    );
+    assert_eq!(
+        fixture.costumes.created.lock().unwrap().len(),
+        1,
+        "the retry must not create a second costume"
+    );
+    assert_eq!(
+        fixture.costumes.assigned.lock().unwrap().len(),
+        1,
+        "the costume must be bound on the retry"
+    );
+    assert_eq!(
+        fixture
+            .mappings
+            .find(fixture.preview_id, "1. INT. OP", mapping_kind::COSTUME, 0)
+            .await
+            .unwrap()
+            .expect("costume mapping row")
+            .aggregate_version,
+        version(3),
+        "create + notes + bind, exactly one version per phase"
+    );
+}
+
 #[tokio::test]
 async fn script_apply_reuses_the_costume_id_when_only_the_binding_failed() {
     let fixture = ScriptApplyFixture::new();
@@ -2773,6 +2850,10 @@ async fn extraction_drops_an_ungrounded_costume_and_records_an_uncertainty() {
     let uncertainty = &preview.uncertainties[0];
     assert_eq!(uncertainty.field, "costumes");
     assert_eq!(uncertainty.kind, UncertaintyKind::DroppedRow);
+    // The drop belongs to the ONLY scene in this preview, and `scene_index` is a
+    // 0-based index into `scenes` — a 1-based value here would address a row that
+    // does not exist and show the missing costume on the wrong scene.
+    assert_eq!(uncertainty.scene_index, 0);
     assert_eq!(uncertainty.suggested_value.as_deref(), Some("Seidenkleid"));
     assert!(
         uncertainty.note.contains("ungrounded_quote"),

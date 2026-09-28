@@ -5902,12 +5902,20 @@ pub fn routes() -> Router<AppState<ProductionPorts>> {
         // --- Photo endpoints ---
         .route(
             "/costumes/{costume_id}/photos",
-            routing::post(upload_costume_photo::<ProductionPorts>),
+            // The limit is scoped to THIS MethodRouter on purpose. A
+            // `Router::route_layer` here would wrap every route registered
+            // above it — ~70 JSON endpoints including `apply_ai_import`,
+            // `create_season` and `update_costume_notes` would have lost the
+            // 2 MiB default and accepted 20 MiB bodies, silently widening the
+            // request-size DoS surface for every one of them.
+            //
+            // Extractor limit aligned with the handler's `PHOTO_MAX_SIZE_MB`
+            // check (see `photo_body_limit` above); the 2 MiB Axum default would
+            // otherwise 413 every photo larger than that. The handler-side check
+            // stays authoritative (it produces the RFC 9457 problem code).
+            routing::post(upload_costume_photo::<ProductionPorts>)
+                .layer(DefaultBodyLimit::max(photo_body_limit)),
         )
-        // Extractor limit aligned with the handler's `PHOTO_MAX_SIZE_MB`
-        // check (see `photo_body_limit` above); the 2 MB Axum default would
-        // otherwise 413 every photo larger than that.
-        .route_layer(DefaultBodyLimit::max(photo_body_limit))
         .route(
             "/costumes/{costume_id}/photos/{photo_id}/bytes",
             routing::get(get_costume_photo_bytes::<ProductionPorts>),

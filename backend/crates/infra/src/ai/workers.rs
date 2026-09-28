@@ -392,10 +392,16 @@ where
                         // is recorded as a non-blocking `DroppedRow` uncertainty,
                         // so a hallucinated costume cannot reach the reviewer and
                         // a missing one is still visible as missing — without
-                        // making the whole preview unappliable (design D8).
+                        // making the whole preview unappliable (design D9).
                         for rejected in verify_draft_costumes(&mut scene, &source_text) {
                             context.uncertainties.push(Uncertainty {
-                                scene_index: scene_ordinal,
+                                // 0-based index of the row pushed just below.
+                                // `scene_ordinal` is a 1-based GLOBAL counter, so
+                                // using it here attached every drop to the NEXT
+                                // preview row — and pointed past the end of the
+                                // list for the last scene, so the reviewer would
+                                // see the missing costume on the wrong scene.
+                                scene_index: context.scenes.len(),
                                 field: "costumes".to_owned(),
                                 note: format!(
                                     "{}: costume of {:?} ({:?}) was dropped; row {}",
@@ -788,7 +794,7 @@ fn is_infra_outage(error: &DomainError) -> bool {
 #[derive(Debug, Clone, Copy)]
 struct CostumePhases {
     /// The extracted description carries the row's actual data, so it is written
-    /// as the costume's notes (design D7) — but an empty description must not
+    /// as the costume's notes (design D8) — but an empty description must not
     /// dispatch a command the aggregate would reject as "notes unchanged".
     has_notes: bool,
 }
@@ -1258,7 +1264,7 @@ where
     }
 
     /// Drive one costume through `CreateCostume` (unassigned, design D3) +
-    /// `UpdateCostumeNotes` (the extracted description, design D7) +
+    /// `UpdateCostumeNotes` (the extracted description, design D8) +
     /// `AssignCostumeToCharacter`, confirming the mapping after every step.
     ///
     /// `Err` is reserved for an unavailable dependency, which must fail the whole
@@ -1357,7 +1363,17 @@ where
                     },
                 )
                 .await;
-            version = match notes {
+            // A crash between the notes append and its `confirm` leaves the
+            // mapping at version 1 while the stream is already at 2. The retry
+            // then re-dispatches `UpdateCostumeNotes { version: 1 }` and is
+            // refused with `VersionConflict` — which without recovery ends the
+            // row as `NotesRejected` on EVERY retry, so the costume is never
+            // bound (a plain violation of design D8: the retry must re-drive only
+            // the steps ABOVE the stored version). The id came from this apply's
+            // reservation, so that conflict proves our own earlier append;
+            // `recover_version` folds it into the version the stream reached,
+            // exactly as the bind step already does.
+            version = match recover_version(notes) {
                 Ok(version) => version,
                 Err(error) if is_infra_outage(&error) => return Err(error),
                 Err(error) => refused!(UnappliedCostumeReason::NotesRejected, error),

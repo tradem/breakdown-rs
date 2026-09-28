@@ -735,12 +735,62 @@ fn german_detection_does_not_swallow_ordinary_prose() {
         "I/TAXI FAHRT",
         "EIN TAG SPAETER",
         "Abend zu Hause",
+        // The spelled-out form separated by a SPACE is the dangerous one: the
+        // line is upper-cased before the prefixes are compared, so without the
+        // place-name-caps requirement a sentence folds onto `INNEN ` / `AUSSEN `
+        // and the document is split in the middle of prose.
+        "Innen brennt noch Licht.",
+        "Aussen am Gang wartet Renke.",
+        "innen wohnung",
     ] {
         assert!(
             !is_scene_heading(line),
             "must NOT treat {line:?} as a scene heading"
         );
     }
+}
+
+#[test]
+fn german_space_form_headings_are_still_detected() {
+    // The other half of the same rule: a production script writes the slug line
+    // with the place name in caps, and that must keep splitting.
+    for line in [
+        "INNEN WOHNUNG - TAG",
+        "AUSSEN HOF - NACHT",
+        "3 INNEN KUECHE - TAG",
+    ] {
+        assert!(
+            is_scene_heading(line),
+            "expected {line:?} to be recognised as a German scene heading"
+        );
+    }
+}
+
+#[test]
+fn prose_that_starts_like_a_german_heading_does_not_split_the_document() {
+    // Regression for the cost of a false split: one chunk boundary in the wrong
+    // place means one extra PAID LLM call and shifts every later
+    // `stable_draft_ref` ordinal.
+    let document = "\
+AUSSEN HOF - TAG
+Tag 1
+Innen brennt noch Licht.
+ELIAS tritt ein.
+AUSSEN STRASSE - NACHT
+Tag 2
+Aussen schläft die Stadt.
+";
+    let chunks = extract_scenes(document);
+    assert_eq!(
+        chunks.len(),
+        2,
+        "only the two capitalised slug lines are headings, got {chunks:#?}"
+    );
+    assert_eq!(chunks[0].heading, "AUSSEN HOF - TAG");
+    assert_eq!(chunks[1].heading, "AUSSEN STRASSE - NACHT");
+    // The prose lines stay inside their chunk.
+    assert!(chunks[0].text.contains("Innen brennt noch Licht."));
+    assert!(chunks[1].text.contains("Aussen schläft die Stadt."));
 }
 
 #[test]

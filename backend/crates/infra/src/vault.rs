@@ -690,7 +690,16 @@ pub fn settings_id_from_binding_key(key_id: &str) -> Option<Uuid> {
     // introduced by another hyphen.
     const UUID_TEXT_LEN: usize = 36;
     let (owner_text, suffix) = rest.split_at_checked(UUID_TEXT_LEN)?;
-    if !suffix.is_empty() && !suffix.starts_with('-') {
+    // A suffix must be a rotation marker `-<uuid>`, not arbitrary text. Without
+    // parsing it here, `settings-<owner>-garbage` returned an owner and only
+    // `validate_binding_key` rejected it later — so the worker got a
+    // Vault-unavailable error for a reference that is PERMANENTLY malformed and
+    // retried it to death instead of failing closed with a validation error.
+    if !suffix.is_empty()
+        && !suffix
+            .strip_prefix('-')
+            .is_some_and(|rotation| Uuid::parse_str(rotation).is_ok())
+    {
         return None;
     }
     Uuid::parse_str(owner_text).ok()

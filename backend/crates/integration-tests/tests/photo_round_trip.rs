@@ -133,7 +133,8 @@ async fn await_photo_settled(
                         .map(|v| format!("{:?}:{:?}", v.kind, v.status))
                         .collect();
                     anyhow::bail!(
-                        "Timed out waiting for the photo variants to settle; last seen                          version={:?} variants=[{}]",
+                        "Timed out waiting for the photo variants to settle; last \
+                         seen version={:?} variants=[{}]",
                         view.version,
                         seen.join(", ")
                     );
@@ -244,7 +245,9 @@ async fn photo_upload_then_delete_round_trip() -> Result<()> {
     let settled = await_photo_settled(&photo_repo, photo_id, deadline).await?;
     assert!(
         settled.version.0 > version.0,
-        "the thumbnail saga must have advanced the aggregate beyond the upload ack          (upload {}, settled {}) — otherwise this test is not echoing the version a          client would actually have",
+        "the thumbnail saga must have advanced the aggregate beyond the upload \
+         ack (upload {}, settled {}) — otherwise this test is not echoing the \
+         version a client would actually have",
         version.0,
         settled.version.0
     );

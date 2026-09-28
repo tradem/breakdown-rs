@@ -249,6 +249,11 @@ class _FakeCostumeRepository extends CostumeRepository {
   /// without the override at all the fake would fall through to the real Dio
   /// client and leave an unsettled request behind.
   Result<CostumeView>? enrichedDetail;
+
+  /// Successive results for `getAndCache`, consumed in order. The reload-after-
+  /// command tests need this: the row the screen re-reads after a photo command
+  /// DIFFERS from the one it read on open, which one scripted value cannot say.
+  final List<Result<CostumeView>> detailQueue = [];
   int detailFetchCalls = 0;
 
   @override
@@ -258,6 +263,7 @@ class _FakeCostumeRepository extends CostumeRepository {
     Clock clock = Clock.system,
   }) {
     detailFetchCalls++;
+    if (detailQueue.isNotEmpty) return Future.value(detailQueue.removeAt(0));
     return Future.value(
       // UNSCRIPTED = the read failed: the screen then keeps rendering the list
       // row it was handed, exactly what the old (real-Dio, never-settling) path
@@ -500,6 +506,72 @@ void main() {
         findsNothing,
         reason:
             'an empty affordance would be a lie: the fetched row has a photo',
+      );
+    });
+
+    // The gallery renders the re-read row, so a photo command must trigger a
+    // fresh detail read: otherwise a deleted photo stays on screen and a newly
+    // uploaded one never appears, because the list rows `refresh()` updates
+    // carry no photos at all.
+    testWidgets('a deleted photo disappears from the gallery: the detail is '
+        're-read after the command succeeds', (tester) async {
+      final withPhoto = _costume(
+        'c-1',
+        characterId: 'ch-1',
+      ).rebuild((b) => b..photos.replace([_readyPhoto('p-1')]));
+      await setupContainer(costume: withPhoto);
+      // Open: the enriched row still has the photo. After the delete: it is gone.
+      repo.detailQueue.addAll([
+        Right<ProblemError, CostumeView>(withPhoto),
+        Right<ProblemError, CostumeView>(_costume('c-1', characterId: 'ch-1')),
+      ]);
+      await pumpDetail(tester, 'c-1');
+      expect(find.byKey(const Key('photo-tile-p-1')), findsOneWidget);
+      expect(repo.detailFetchCalls, 1);
+
+      await tester.tap(find.byKey(const Key('photo-delete-p-1')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('photo-delete-confirm-p-1')));
+      await _pumpFrames(tester);
+
+      expect(photos.deleteCalls, 1);
+      expect(
+        repo.detailFetchCalls,
+        2,
+        reason: 'the successful delete must re-read the enriched row',
+      );
+      expect(find.byKey(const Key('photo-tile-p-1')), findsNothing);
+    });
+
+    testWidgets('a FAILED photo command does NOT re-read or rewrite the '
+        'gallery — the shown row stays honest', (tester) async {
+      final withPhoto = _costume(
+        'c-1',
+        characterId: 'ch-1',
+      ).rebuild((b) => b..photos.replace([_readyPhoto('p-1')]));
+      await setupContainer(costume: withPhoto);
+      repo.detailQueue.add(Right<ProblemError, CostumeView>(withPhoto));
+      await pumpDetail(tester, 'c-1');
+      expect(repo.detailFetchCalls, 1);
+
+      photos.deleteError = const ProblemError(
+        code: 'photo.forbidden',
+        status: 403,
+      );
+      await tester.tap(find.byKey(const Key('photo-delete-p-1')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('photo-delete-confirm-p-1')));
+      await _pumpFrames(tester);
+
+      expect(
+        repo.detailFetchCalls,
+        1,
+        reason: 'a rejected command must not trigger a re-read',
+      );
+      expect(
+        find.byKey(const Key('photo-tile-p-1')),
+        findsOneWidget,
+        reason: 'the photo still exists server-side, so it stays visible',
       );
     });
 

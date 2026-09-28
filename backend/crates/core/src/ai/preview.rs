@@ -439,7 +439,7 @@ pub struct CostumeApplyPlan {
     /// The figure's name as the draft wrote it (reporting only).
     pub character_name: String,
     /// Garment description in the script's own wording; carried into the domain
-    /// as the costume's notes (design D7).
+    /// as the costume's notes (design D8).
     pub description: String,
     /// Quoted fragment the extraction was based on.
     pub source_quote: String,
@@ -727,23 +727,40 @@ const ENGLISH_HEADING_PREFIXES: [&str; 5] = ["INT.", "EXT.", "INT/EXT.", "INT./E
 /// screenplay extracts to zero scenes and the whole import dies with
 /// "script did not contain an INT./EXT. scene heading" — a format gap, not a
 /// document defect.
-const GERMAN_HEADING_PREFIXES: [&str; 6] = [
-    "INNENAUFNAHME",
-    "AUSSENAUFNAHME",
-    "INNEN.",
-    "AUSSEN.",
-    "INNEN ",
-    "AUSSEN ",
-];
+const GERMAN_HEADING_PREFIXES: [&str; 4] = ["INNENAUFNAHME", "AUSSENAUFNAHME", "INNEN.", "AUSSEN."];
+
+/// The spelled-out form with the place name separated by a SPACE rather than a
+/// period (`INNEN WOHNUNG - TAG`). These need one more piece of evidence, see
+/// [`space_form_is_heading`]: `is_scene_heading` folds case before comparing, so
+/// on the folded text alone the prose line "Innen brennt noch Licht." is
+/// indistinguishable from a slug line — and a false split costs a scene
+/// boundary in the wrong place, one extra paid LLM call, and shifts every later
+/// `stable_draft_ref` ordinal.
+const GERMAN_SPACE_HEADING_PREFIXES: [&str; 2] = ["INNEN ", "AUSSEN "];
 
 fn is_scene_heading(line: &str) -> bool {
-    let normalized = line
-        .trim_start_matches(|c: char| c.is_ascii_digit() || c == '.' || c == '-' || c == ' ')
-        .to_ascii_uppercase();
+    let trimmed =
+        line.trim_start_matches(|c: char| c.is_ascii_digit() || c == '.' || c == '-' || c == ' ');
+    let normalized = trimmed.to_ascii_uppercase();
     ENGLISH_HEADING_PREFIXES
         .iter()
         .any(|prefix| normalized.starts_with(prefix))
-        || is_german_scene_heading(&normalized)
+        || is_german_scene_heading(&normalized, trimmed)
+}
+
+/// The discriminator for the space-separated German forms: a production script
+/// writes the place name in caps (`INNEN WOHNUNG - TAG`), prose does not
+/// (`Innen brennt noch Licht.`). Checked against the ORIGINAL line because
+/// `normalized` has already lost exactly that information.
+///
+/// Byte-slicing is safe here: `to_ascii_uppercase` neither changes byte length
+/// nor touches non-ASCII bytes, so an ASCII prefix matched in `normalized` sits
+/// at the same byte offsets in `original`.
+fn space_form_is_heading(normalized: &str, original: &str) -> bool {
+    GERMAN_SPACE_HEADING_PREFIXES
+        .iter()
+        .find(|prefix| normalized.starts_with(**prefix))
+        .is_some_and(|prefix| original[prefix.len()..].chars().all(|c| !c.is_lowercase()))
 }
 
 /// German short form: `I`/`A`, a `/`, a time token (`T`, `N`, `AB`, `D`, …),
@@ -753,11 +770,14 @@ fn is_scene_heading(line: &str) -> bool {
 /// time-token length cap of two rejects words that merely start with the
 /// letters (`I/TAXI`), and the required trailing delimiter rejects a word
 /// glued to the token.
-fn is_german_scene_heading(normalized: &str) -> bool {
+fn is_german_scene_heading(normalized: &str, original: &str) -> bool {
     if GERMAN_HEADING_PREFIXES
         .iter()
         .any(|prefix| normalized.starts_with(prefix))
     {
+        return true;
+    }
+    if space_form_is_heading(normalized, original) {
         return true;
     }
     let mut chars = normalized.chars();
