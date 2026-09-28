@@ -65,6 +65,8 @@ class CostumeCacheDao {
     id: view.id,
     seasonId: seasonId,
     characterId: Value(view.characterId),
+    categoryId: Value(view.categoryId),
+    categoryName: Value(view.categoryName),
     notes: view.notes,
     detailsJson: jsonEncode(
       _encodeBuiltList(view.details, CostumeDetailView.serializer),
@@ -82,6 +84,8 @@ class CostumeCacheDao {
     b
       ..id = row.id
       ..characterId = row.characterId
+      ..categoryId = row.categoryId
+      ..categoryName = row.categoryName
       ..notes = row.notes
       ..details.replace(
         _decodeBuiltList(row.detailsJson, CostumeDetailView.serializer),

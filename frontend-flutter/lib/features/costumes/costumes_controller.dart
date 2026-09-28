@@ -639,13 +639,12 @@ class CostumesController extends _$CostumesController {
     );
   }
 
-  /// Adds a detail (category id from the season's costume-category read
-  /// DTOs). Optimistic-after-2xx on the costume row.
+  /// Adds a detail (pure description — issue #543; the category lives on
+  /// the costume). Optimistic-after-2xx on the costume row.
   Future<Result<int>> addDetail({
     required CostumeView costume,
     required String text,
     String? subject,
-    String? categoryId,
   }) async {
     if (await _resolveSession() == null) {
       const error = ProblemError(code: 'auth.session_required', status: 403);
@@ -665,7 +664,6 @@ class CostumesController extends _$CostumesController {
           ..detail.id = generateUuidV7()
           ..detail.text = text
           ..detail.subject = subject
-          ..detail.categoryId = categoryId
           ..version = _resolveVersion(costume.id, costume.version),
       ),
     );
@@ -682,7 +680,6 @@ class CostumesController extends _$CostumesController {
           pendingId: 'pending-detail-$version',
           subject: subject,
           text: text,
-          categoryId: categoryId,
         );
         ref
             .read(costumesOverlaysProvider(seasonId).notifier)

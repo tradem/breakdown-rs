@@ -18,7 +18,6 @@ import '../../core/problem_error.dart';
 import '../../data/photo_repository.dart';
 import '../../l10n/app_localizations_provider.dart';
 import '../characters/characters_controller.dart';
-import '../costume_categories/costume_categories_controller.dart';
 import '../photos/capture.dart';
 import '../photos/prepare.dart';
 import '../photos/widgets/photo_gallery.dart';
@@ -459,18 +458,11 @@ class _DetailsSection extends ConsumerWidget {
               key: Key('costume-detail-${d.id}'),
               child: ListTile(
                 title: Text(d.subject ?? d.text),
-                subtitle: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    if (d.subject != null && d.subject!.isNotEmpty)
-                      Text(d.text),
-                    if (d.categoryName != null)
-                      Text(
-                        d.categoryName!,
-                        style: Theme.of(context).textTheme.labelSmall,
-                      ),
-                  ],
-                ),
+                // Issue #543: details are pure description (subject + text);
+                // the category lives on the costume itself.
+                subtitle: d.subject != null && d.subject!.isNotEmpty
+                    ? Text(d.text)
+                    : null,
               ),
             ),
         const SizedBox(height: 8),
@@ -510,7 +502,6 @@ class _AddDetailFormState extends ConsumerState<_AddDetailForm> {
   late final TextEditingController _subject;
   late final TextEditingController _text;
   late final GlobalKey<FormState> _formKey;
-  String? _categoryId;
 
   @override
   void initState() {
@@ -529,9 +520,8 @@ class _AddDetailFormState extends ConsumerState<_AddDetailForm> {
 
   @override
   Widget build(BuildContext context) {
-    final categories = ref
-        .watch(costumeCategoriesViewProvider(widget.season.id))
-        .rows;
+    // Issue #543: no category field here — the category is set on the
+    // costume (identity section), not per detail.
     return AlertDialog(
       title: Text(l10nOf(context).costumeDetailAddDetail),
       content: Form(
@@ -556,17 +546,6 @@ class _AddDetailFormState extends ConsumerState<_AddDetailForm> {
                   ? l10nOf(context).costumeDetailTextRequired
                   : null,
             ),
-            DropdownButtonFormField<String>(
-              key: const Key('add-detail-category'),
-              decoration: InputDecoration(
-                labelText: l10nOf(context).costumeDetailCategory,
-              ),
-              items: [
-                for (final c in categories)
-                  DropdownMenuItem(value: c.id, child: Text(c.name)),
-              ],
-              onChanged: (v) => setState(() => _categoryId = v),
-            ),
           ],
         ),
       ),
@@ -588,7 +567,6 @@ class _AddDetailFormState extends ConsumerState<_AddDetailForm> {
                   subject: _subject.text.trim().isEmpty
                       ? null
                       : _subject.text.trim(),
-                  categoryId: _categoryId,
                 );
             final saved = detailResult.match((_) => false, (_) => true);
             if (saved && context.mounted) {

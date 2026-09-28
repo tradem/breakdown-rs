@@ -225,7 +225,7 @@ class FakeCostumeCategoryRepository extends CostumeCategoryRepository {
 
 void main() {
   group('hierarchy cache schema (2.1)', () {
-    test('schema version is 9 with all projection tables', () async {
+    test('schema version is 10 with all projection tables', () async {
       final db = CacheDatabase(NativeDatabase.memory());
       addTearDown(db.close);
       // `flutter-costume-domains` 1.1 adds the costumes/characters/
@@ -239,8 +239,9 @@ void main() {
       // `redesign-app-shell-navigation` 2.2 adds the shell-state key-value
       // table (migration v7 → v8, persisted active-season reference);
       // issue #538 adds the scene provenance column (migration v8 → v9,
-      // guarded ADD COLUMN).
-      expect(db.schemaVersion, 9);
+      // guarded ADD COLUMN); issue #543 adds the costume-level category
+      // columns (migration v9 → v10, guarded ADD COLUMN).
+      expect(db.schemaVersion, 10);
       // Every table round-trips (migration created them).
       await BlockCacheDao(db).applySnapshotForSeason('s', [
         _block('b', seasonId: 's'),

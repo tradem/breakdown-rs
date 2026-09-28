@@ -97,14 +97,12 @@ const _versionMismatch = ProblemError(
   status: 409,
 );
 
-CostumeDetailView _detail(String id, {String? categoryName}) =>
-    CostumeDetailView(
-      (b) => b
-        ..id = id
-        ..subject = 'Jacket'
-        ..text = 'Red leather jacket'
-        ..categoryName = categoryName,
-    );
+CostumeDetailView _detail(String id) => CostumeDetailView(
+  (b) => b
+    ..id = id
+    ..subject = 'Jacket'
+    ..text = 'Red leather jacket',
+);
 
 CharacterView _character(String id, {String name = 'Ada'}) => CharacterView(
   (b) => b
@@ -472,13 +470,15 @@ void main() {
         costume: _costume(
           'c-1',
           characterId: 'ch-1',
-          details: [_detail('d-1', categoryName: 'Outerwear')],
+          details: [_detail('d-1')],
         ),
         characters: [_character('ch-1')],
       );
       await pumpDetail(tester, 'c-1');
       expect(find.text('Red leather jacket'), findsOneWidget);
-      expect(find.text('Outerwear'), findsOneWidget);
+      // Issue #543: no per-detail category line any more — the category
+      // lives on the costume (identity section of the editor, later PR).
+      expect(find.text('Outerwear'), findsNothing);
       expect(find.text('Ada'), findsOneWidget);
       expect(find.byKey(const Key('costume-notes-c-1')), findsOneWidget);
       expect(find.byKey(const Key('photo-gallery-empty-c-1')), findsOneWidget);
@@ -728,7 +728,7 @@ void main() {
       );
     });
 
-    testWidgets('add-detail: form carries category id from read DTOs', (
+    testWidgets('add-detail: pure-description form (no category field, issue #543)', (
       tester,
     ) async {
       await setupContainer(
@@ -743,10 +743,9 @@ void main() {
         find.byKey(const Key('add-detail-text')),
         'Silk lining',
       );
-      await tester.tap(find.byKey(const Key('add-detail-category')));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Outerwear').last);
-      await tester.pumpAndSettle();
+      // The category dropdown is GONE from the form; the category is set on
+      // the costume via the identity section (picker in the follow-up PR).
+      expect(find.byKey(const Key('add-detail-category')), findsNothing);
       await tester.tap(find.byKey(const Key('add-detail-submit')));
       await _pumpFrames(tester);
       expect(repo.detailCalls, 1);
