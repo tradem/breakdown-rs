@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
+// Co-authored-by: qwen3.8-flash (opencode-go)
 
 import 'package:breakdown_api/breakdown_api.dart';
 
@@ -179,7 +180,10 @@ class _SceneCharactersSection extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final characters = ref.watch(charactersViewProvider(seasonId));
     final names = {for (final c in characters.rows) c.id: c.name};
-    final assigned = scene.assignedCharacters.toList();
+    // Defensive dedup (issue #550): the read-model fan-out is fixed backend-
+    // side, but a future regression must not render a contradictory screen —
+    // count, row keys, and the picker filter all share one distinct list.
+    final assigned = scene.assignedCharacters.toSet().toList();
     // Eligible picker candidates (mirrors `_pickCharacter`): the action
     // disables when everybody is already assigned.
     final assignable = assigned.toSet();
@@ -367,7 +371,10 @@ class _SceneShootingDaysSection extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final days = ref.watch(shootingDaysViewProvider(episodeId));
     final byId = {for (final d in days.rows) d.id: d};
-    final scheduled = scene.shootingDayIds.toList();
+    // Defensive dedup (issue #550): a duplicated id would inflate the header
+    // count and render the day twice while the set-based picker filter saw no
+    // candidate — count, list, and picker share one distinct list.
+    final scheduled = scene.shootingDayIds.toSet().toList();
     final candidates = [
       for (final d in days.rows)
         if (!d.archived && !scheduled.contains(d.id)) d,

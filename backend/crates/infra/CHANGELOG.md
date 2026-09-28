@@ -32,6 +32,27 @@ commits (ADR-020 D5).
   and re-pin `breakdown_core` 0.13.0 (`SceneSource`, `Option<f32>` confidence):
   **0.17.0 → 0.18.0**.
 
+### Fixed — scene/shooting-day read queries fan out over joined one-to-many pivots (issue #550)
+
+- `SceneRepositoryImpl::{find_by_id, list_by_episode, scenes_by_character}` and
+  `ShootingDayRepositoryImpl::scenes_by_shooting_day` joined
+  `projection_scene_character` × `projection_scene_shooting_day` side-by-side
+  and aggregated each list with a bare `array_agg`, so the independent joins
+  multiplied (`c·d` rows; `c·c·d` in `scenes_by_character`, which joined the
+  character pivot twice) and `assigned_characters` / `shooting_day_ids` came
+  back with one duplicated element per multiplied row. The pivots themselves
+  were correct (composite PKs rule out duplicate rows) — only the SELECT was
+  wrong.
+- Both lists now read through correlated scalar subqueries scoped to a single
+  pivot per scene (fan-out-free by construction, no `array_agg(DISTINCT …)`
+  mask, no `GROUP BY`), with deterministic element order (sorted by id; the
+  previous order was join-order-dependent and unspecified). The filter-only
+  joins (`scenes_by_character`'s duplicate-join smell,
+  `scenes_by_shooting_day`'s `link` join) became `WHERE EXISTS`.
+- Read-only fix: no migration, no projector change, no wire-format change.
+  Regression coverage (fan-out-triggering 2×2 fixture + aggregate-vs-query
+  cross-check): `crates/integration-tests/tests/scene_query_fanout_regression.rs`.
+
 ## [0.17.0] - Unreleased
 
 ### Fixed — photo thumbnail saga crash-loop on aggregate version conflict (issue #515)

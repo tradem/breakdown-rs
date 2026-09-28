@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
+// Co-authored-by: qwen3.8-flash (opencode-go)
 
 // Tier-2 widget tests for `SceneDetailScreen` (Tasks 5.2, 6.2): assigned
 // characters (read-DTO join) + assign/unassign with scene version echo,
@@ -404,6 +405,61 @@ void main() {
         find.text('Changed elsewhere — refresh and try again.'),
         findsOneWidget,
       );
+    });
+  });
+
+  // Issue #550 — defensive client-side dedup. The read-model fan-out is fixed
+  // backend-side; these tests pin that the screen degrades gracefully if a
+  // future regression ever ships duplicated ids again: the header count and
+  // the picker must never contradict each other (the reported symptom was
+  // "Drehtage (2)" while the schedule button stayed permanently disabled).
+  group('SceneDetailScreen duplicated read-model ids (issue #550)', () {
+    testWidgets('duplicated shooting day ids render one row and one count', (
+      tester,
+    ) async {
+      await setupContainer(
+        scene: _scene(days: ['d-1', 'd-1']),
+        dayRows: [
+          _day('d-1', label: '1. Tag'),
+          _day('d-2', label: '2. Tag'),
+        ],
+      );
+      await pumpDetail(tester);
+
+      // Count reflects the distinct days, not the fan-out length.
+      expect(find.text('Shooting days (1)'), findsOneWidget);
+      // The day renders exactly once — no duplicated row, no duplicated
+      // day-board entry key.
+      expect(find.byKey(const Key('scene-shooting-day-d-1')), findsOneWidget);
+      expect(find.byKey(const Key('open-day-board-d-1')), findsOneWidget);
+      // ...and the picker still offers the unscheduled day: count and
+      // availability cannot contradict each other.
+      await tester.tap(
+        find.byKey(const Key('scene-shooting-day-schedule-scene-1')),
+      );
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('schedule-day-d-2')), findsOneWidget);
+    });
+
+    testWidgets('duplicated character ids render one row and one count', (
+      tester,
+    ) async {
+      await setupContainer(
+        scene: _scene(characters: ['c-1', 'c-1']),
+        characterRows: [
+          _character('c-1', name: 'Ada'),
+          _character('c-2', name: 'Bob'),
+        ],
+      );
+      await pumpDetail(tester);
+
+      expect(find.text('Characters (1)'), findsOneWidget);
+      expect(find.byKey(const Key('scene-character-c-1')), findsOneWidget);
+      expect(find.text('Ada'), findsOneWidget);
+      // The assign button stays enabled for the not-yet-assigned character.
+      await tester.tap(find.byKey(const Key('scene-character-assign-scene-1')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('assign-character-c-2')), findsOneWidget);
     });
   });
 }

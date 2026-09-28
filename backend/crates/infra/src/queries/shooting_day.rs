@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: qwen3.8-flash (opencode-go)
 
 //! `sqlx`-backed implementation of the `ShootingDayRepository` port.
 
@@ -69,6 +70,11 @@ impl ShootingDayRepository for ShootingDayRepositoryImpl {
         &self,
         shooting_day_id: ShootingDayId,
     ) -> Result<Vec<SceneView>, DomainError> {
+        // Issue #550: the `link` join was previously fanned out against the
+        // character and shooting-day pivots with plain `array_agg`, so every
+        // scene reported one duplicate element per joined row. The list reads
+        // now go through correlated scalar subqueries (no join multiplication,
+        // no GROUP BY) and the day filter is a fan-out-free EXISTS.
         let rows = sqlx::query(
             r#"
             SELECT
@@ -83,13 +89,21 @@ impl ShootingDayRepository for ShootingDayRepositoryImpl {
                 s.source,
                 s.version,
                 s.updated_at,
-                COALESCE(array_agg(sc.character_id) FILTER (WHERE sc.character_id IS NOT NULL), ARRAY[]::uuid[]) AS assigned_characters,
-                COALESCE(array_agg(ssd.shooting_day_id) FILTER (WHERE ssd.shooting_day_id IS NOT NULL), ARRAY[]::uuid[]) AS shooting_day_ids
+                COALESCE((
+                    SELECT array_agg(psc.character_id ORDER BY psc.character_id)
+                    FROM projection_scene_character psc
+                    WHERE psc.scene_id = s.id
+                ), ARRAY[]::uuid[]) AS assigned_characters,
+                COALESCE((
+                    SELECT array_agg(pssd.shooting_day_id ORDER BY pssd.shooting_day_id)
+                    FROM projection_scene_shooting_day pssd
+                    WHERE pssd.scene_id = s.id
+                ), ARRAY[]::uuid[]) AS shooting_day_ids
             FROM projection_scene s
-            JOIN projection_scene_shooting_day link ON link.scene_id = s.id AND link.shooting_day_id = $1
-            LEFT JOIN projection_scene_character sc ON sc.scene_id = s.id
-            LEFT JOIN projection_scene_shooting_day ssd ON ssd.scene_id = s.id
-            GROUP BY s.id
+            WHERE EXISTS (
+                SELECT 1 FROM projection_scene_shooting_day link
+                WHERE link.scene_id = s.id AND link.shooting_day_id = $1
+            )
             ORDER BY s.scene_number, s.updated_at DESC
             "#,
         )
