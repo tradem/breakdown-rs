@@ -68,3 +68,25 @@ masquerading as "no providers exist".
   (backend PR #360).
 - **THEN** the pickers render the route-supplied models with honest
   degradation — no hardcoded model ids exist client-side.
+
+### Requirement: Admin AI-literacy helper text
+
+The AI-config screen SHALL render a persistent helper card above the
+first-run and configured forms addressed to the person operating the
+configuration: what this configuration controls (the deployment's AI import
+provider and models, the extraction prompts), that the configured provider
+processes user-provided schedule/script documents, and the operator's duty
+to configure the feature honestly (curated provider + models; no secret
+material). The copy SHALL be localized ARB catalog copy and the card SHALL
+be visible in both the first-run and configured states (EU AI Act Art. 4
+AI-literacy support, (EU) 2024/1689).
+
+#### Scenario: Helper text precedes both forms
+- **WHEN** the config screen renders the first-run form or the configured
+  form.
+- **THEN** the literacy helper card renders above it in the scroll order.
+
+#### Scenario: Helper copy stays catalog-sourced
+- **WHEN** the static inline-copy gate (`tool/check_inline_copy.sh`) runs.
+- **THEN** the helper card surfaces no user-facing string literal outside
+  the ARB catalogs.
