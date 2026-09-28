@@ -14,6 +14,32 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
+## [0.16.0] - Unreleased
+
+### Added — one costume = one category (issue #543)
+
+- `category_id` moves from the detail to the costume: the `CostumeAggregate`
+  gains `category_id: Option<CostumeCategoryId>` as real state; the new
+  command `SetCostumeCategory { id, category_id, version, series_id }`
+  (`None` clears) emits `CostumeCategorySet { id, category_id, version }`.
+  Re-dispatching the value the costume already carries is a **state-based
+  no-op** (no event, `Ok` — issue #515 precedent), not a version conflict.
+- **Replay-derivation rule (first-wins):** legacy events
+  (`CostumeCreated`/`DetailAdded` with `detail.category_id != None`, no
+  `CostumeCategorySet`) derive the costume category — the first detail
+  category in event order (within one event: `detail_id` ASC) wins while the
+  costume has none; a later categorized detail never overwrites; an explicit
+  `CostumeCategorySet` always wins. `CostumeDetail` keeps `category_id` as a
+  `#[serde(default)]` legacy event field only.
+- `CostumeView` gains `category_id`/`category_name`; `CostumeDetailView`
+  loses both (details are pure description).
+- New `DomainError::CategorySeasonMismatch { category_id }` (409,
+  `costume-category.season-mismatch`, S0 extension `category_id`) for the
+  API-edge pre-check of the cross-aggregate season invariant; new registry
+  entry `COSTUME_CATEGORY_SEASON_MISMATCH`.
+- **MINOR bump (ADR-020 D2):** new public command/event/DomainError variant
+  and registry constant — **0.15.0 → 0.16.0**.
+
 ## [0.15.0] - Unreleased
 
 ### Added — settings binding-ownership problem code (issue #555)

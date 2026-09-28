@@ -14,7 +14,7 @@ applyTo:
 
 The domain models a four-level production hierarchy:
 `Series` (opaque `SeriesId` only — no aggregate yet) → `Season` → `Block` → `Episode` → `Scene`.
-`Character` and `Costume` are scoped to a `Season` (`Character.season_id`) / scope-free (`Costume` is bound only to a `Character`).
+`Character` and `Costume` are scoped to a `Season` (`Character.season_id`) / scope-free (`Costume` is bound only via cross-aggregate references: `character_id` and, since #543, the optional `category_id` — both season-scoped aggregates, resolved by join in the read model).
 Core modules: `season`, `block`, `episode`, `scene`, `scene_shoot`, `shooting_day`, `character`, `costume`, `costume_category`, `shared`.
 The `calculation` context was removed; do not reintroduce it.
 `shooting_day` is an Episode-scoped `Drehtag` aggregate. It carries a `label`, a `LexicalSortKey`
@@ -37,13 +37,19 @@ and Soll-Ist (diff with moved/missing/skipped/reshot flags + `final` from `wrapp
 The projector uses version guards (`WHERE version < $N`) to ensure event-redelivery idempotency.
 `SeriesId` is an opaque UUIDv7 seam for a future additive `Series` aggregate — hierarchy entities reference it but no `Series` aggregate exists yet.
 `costume_category` is a **season-scoped vocabulary** aggregate (`CostumeCategory`, category `"costume_category"`)
-that classifies costume parts (e.g. Oberteil/Unterteil/Schuhe). It carries `season_id`, `name`, a
+that classifies **costumes** (n:1 per costume, optional — issue #543; e.g. Oberteil/Unterteil/Schuhe). It carries `season_id`, `name`, a
 `LexicalSortKey` order_key, an `archived` flag, and a version. Seeding is a projector-driven **saga**:
 on every `SeasonCreated` the `SeasonSeedingSaga` dispatches `CreateCostumeCategory` for the season's
 default categories (config `config/default_costume_categories.toml`), guarded by
-`CostumeCategoryRepository::count_for_season` so replays never double-seed. `CostumeDetail` is
-enriched with optional `subject` and `category_id`; the costume projector resolves `category_name`
-from `projection_costume_category` at read time. The command API lives at
-`POST/GET /seasons/{season_id}/costume-categories` (and `PATCH`/`POST .../archive` by id);
-`POST /costumes/{id}/details` now accepts the enriched `CostumeDetail`.
+`CostumeCategoryRepository::count_for_season` so replays never double-seed. The costume's category is set
+cleared via `SetCostumeCategory` (`CostumeCategorySet`; `None` clears) — the season invariant
+(`category.season_id ∈ repertoire ∪ season(character)`) is pre-checked at the API edge (409
+`costume-category.season-mismatch`). Legacy `CostumeDetail.category_id` values derive the costume category
+on replay via the first-wins rule (first detail category in event order, within one event `detail_id` ASC),
+executed identically by `CostumeAggregate::apply` and the costume projector; details are pure description
+(`subject` + `text`) on the wire. The costume projector resolves `category_name` best-effort at write time;
+rename propagation targets `projection_costume.category_name`. The command API lives at
+`POST/GET /seasons/{season_id}/costume-categories` (and `PATCH`/`POST .../archive` by id) plus
+`POST /costumes/{id}/category` (issue #543); `POST /costumes/{id}/details` accepts a pure-description
+`CostumeDetailRequest`.
 

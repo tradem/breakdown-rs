@@ -131,6 +131,16 @@ pub enum DomainError {
     /// `shooting_day_id` is S0 (client-supplied in the request path).
     #[error("shooting day {shooting_day_id} is wrapped; execution is frozen")]
     ShootingDayWrapped { shooting_day_id: Uuid },
+
+    /// Costume category from a foreign season (409,
+    /// `costume-category.season-mismatch`, issue #543). The costume's
+    /// permitted season set is `repertoire_seasons ∪ season(character)`;
+    /// the API edge pre-checks it before dispatch. `category_id` is S0
+    /// (client-supplied in the request body).
+    #[error(
+        "costume category {category_id} belongs to a season outside the costume's repertoire and character season"
+    )]
+    CategorySeasonMismatch { category_id: Uuid },
 }
 
 impl From<AiConfigError> for DomainError {

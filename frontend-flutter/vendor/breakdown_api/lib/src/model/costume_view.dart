@@ -16,6 +16,8 @@ part 'costume_view.g.dart';
 /// Complete costume read model, optionally populated with child details/photos.  `updated_at` is sourced from the timestamp of the last applied `CostumeEvent`.
 ///
 /// Properties:
+/// * [categoryId] - The costume's single category (issue #543): reference into the season-scoped vocabulary. `None` = uncategorised. A cross-aggregate reference like `character_id` — no scope column, resolved by join in the read model.
+/// * [categoryName] - Denormalised category name, resolved by the projector at write time; `None` on a projection miss (dangling reference, best-effort).
 /// * [characterId]
 /// * [details]
 /// * [id]
@@ -25,6 +27,14 @@ part 'costume_view.g.dart';
 /// * [version] - Aggregate version for optimistic-locking round-trips.
 @BuiltValue()
 abstract class CostumeView implements Built<CostumeView, CostumeViewBuilder> {
+  /// The costume's single category (issue #543): reference into the season-scoped vocabulary. `None` = uncategorised. A cross-aggregate reference like `character_id` — no scope column, resolved by join in the read model.
+  @BuiltValueField(wireName: r'category_id')
+  String? get categoryId;
+
+  /// Denormalised category name, resolved by the projector at write time; `None` on a projection miss (dangling reference, best-effort).
+  @BuiltValueField(wireName: r'category_name')
+  String? get categoryName;
+
   @BuiltValueField(wireName: r'character_id')
   String? get characterId;
 
@@ -70,6 +80,20 @@ class _$CostumeViewSerializer implements PrimitiveSerializer<CostumeView> {
     CostumeView object, {
     FullType specifiedType = FullType.unspecified,
   }) sync* {
+    if (object.categoryId != null) {
+      yield r'category_id';
+      yield serializers.serialize(
+        object.categoryId,
+        specifiedType: const FullType.nullable(String),
+      );
+    }
+    if (object.categoryName != null) {
+      yield r'category_name';
+      yield serializers.serialize(
+        object.categoryName,
+        specifiedType: const FullType.nullable(String),
+      );
+    }
     if (object.characterId != null) {
       yield r'character_id';
       yield serializers.serialize(
@@ -132,6 +156,22 @@ class _$CostumeViewSerializer implements PrimitiveSerializer<CostumeView> {
       final key = serializedList[i] as String;
       final value = serializedList[i + 1];
       switch (key) {
+        case r'category_id':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType.nullable(String),
+          ) as String?;
+          if (valueDes == null) continue;
+          result.categoryId = valueDes;
+          break;
+        case r'category_name':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType.nullable(String),
+          ) as String?;
+          if (valueDes == null) continue;
+          result.categoryName = valueDes;
+          break;
         case r'character_id':
           final valueDes = serializers.deserialize(
             value,

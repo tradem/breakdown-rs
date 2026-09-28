@@ -46,6 +46,7 @@ import 'package:breakdown_api/src/model/contact_info.dart';
 import 'package:breakdown_api/src/model/costume_category_view.dart';
 import 'package:breakdown_api/src/model/costume_decision.dart';
 import 'package:breakdown_api/src/model/costume_detail.dart';
+import 'package:breakdown_api/src/model/costume_detail_request.dart';
 import 'package:breakdown_api/src/model/costume_detail_view.dart';
 import 'package:breakdown_api/src/model/costume_photo_view.dart';
 import 'package:breakdown_api/src/model/costume_view.dart';
@@ -112,6 +113,7 @@ import 'package:breakdown_api/src/model/season_membership_dto.dart';
 import 'package:breakdown_api/src/model/season_view.dart';
 import 'package:breakdown_api/src/model/serialized_note.dart';
 import 'package:breakdown_api/src/model/set_actual_order_request.dart';
+import 'package:breakdown_api/src/model/set_costume_category_request.dart';
 import 'package:breakdown_api/src/model/settings_view.dart';
 import 'package:breakdown_api/src/model/shoot_day_row.dart';
 import 'package:breakdown_api/src/model/shooting_day_source.dart';
@@ -173,6 +175,7 @@ part 'serializers.g.dart';
   CostumeCategoryView,
   CostumeDecision,
   CostumeDetail,
+  CostumeDetailRequest,
   CostumeDetailView,
   CostumePhotoView,
   CostumeView,
@@ -240,6 +243,7 @@ part 'serializers.g.dart';
   SeasonView,
   SerializedNote,
   SetActualOrderRequest,
+  SetCostumeCategoryRequest,
   SettingsView,
   ShootDayRow,
   ShootingDaySource,

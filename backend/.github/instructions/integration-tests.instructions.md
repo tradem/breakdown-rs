@@ -140,7 +140,7 @@ instead of through the command pipeline, keep these pitfalls in mind:
    projected. Use `await_costume_with_details` or equivalent polling helpers
    that check the full expected state, not just existence.
 
-3. **`await_costume_detail_category_name` must retry on `NotFound`.** When the
+3. **`await_costume_category_name` must retry on `NotFound`.** When the
    costume-category projector hasn't caught up yet, `find_by_id` returns
    `NotFound`. Propagating this as an immediate failure causes flaky tests.
    Always retry on `NotFound` within the deadline, matching the pattern used by

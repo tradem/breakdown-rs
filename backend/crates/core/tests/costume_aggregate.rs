@@ -618,19 +618,32 @@ fn test_add_detail_accepts_enriched_detail() {
 }
 
 #[test]
-fn test_costume_detail_view_serialises_new_slots() {
-    let view = CostumeDetailView {
+fn test_costume_view_serialises_category_and_detail_is_pure_description() {
+    // Issue #543: the category lives on the CostumeView; the detail view is
+    // pure description (subject + text).
+    let view = CostumeView {
         id: Uuid::now_v7(),
-        subject: Some("Rote Lederjacke".into()),
+        character_id: None,
         category_id: Some(CostumeCategoryId::new()),
         category_name: Some("Jacke".into()),
-        text: "Knöpfe vorne".into(),
+        notes: String::new(),
+        details: vec![CostumeDetailView {
+            id: Uuid::now_v7(),
+            subject: Some("Rote Lederjacke".into()),
+            text: "Knöpfe vorne".into(),
+        }],
+        photos: vec![],
+        version: AggregateVersion(1),
+        updated_at: chrono::Utc::now(),
     };
-    let value = serde_json::to_value(&view).expect("CostumeDetailView serializes");
-    assert_eq!(value["subject"], "Rote Lederjacke");
+    let value = serde_json::to_value(&view).expect("CostumeView serializes");
     assert!(value["category_id"].is_string());
     assert_eq!(value["category_name"], "Jacke");
-    assert_eq!(value["text"], "Knöpfe vorne");
+    let detail = &value["details"][0];
+    assert_eq!(detail["subject"], "Rote Lederjacke");
+    assert_eq!(detail["text"], "Knöpfe vorne");
+    assert!(detail.get("category_id").is_none());
+    assert!(detail.get("category_name").is_none());
 }
 
 #[test]
@@ -813,4 +826,381 @@ fn test_ai_created_costume_carries_only_the_character_binding() {
             "the Costume aggregate must not gain a {forbidden} scope field, got {fields}"
         );
     }
+}
+
+// ===========================================================================
+// Issue #543 — one costume = one category: `SetCostumeCategory` and the
+// replay-derivation rule (first detail category wins while the costume has
+// none; within one event: `detail_id` ASC).
+// ===========================================================================
+
+fn detail_with(id: Uuid, category: Option<CostumeCategoryId>) -> CostumeDetail {
+    CostumeDetail {
+        id,
+        subject: None,
+        category_id: category,
+        text: "Beschreibung".into(),
+    }
+}
+
+#[test]
+fn test_set_costume_category_sets_and_bumps_version() {
+    let agg = make_costume();
+    let cat_id = CostumeCategoryId::new();
+    let events = agg
+        .handle(
+            SetCostumeCategory {
+                id: agg.id,
+                category_id: Some(cat_id),
+                series_id: Some(series_id()),
+                version: agg.version,
+            },
+            make_ctx(),
+        )
+        .unwrap();
+    assert_eq!(events.len(), 1, "a real change emits exactly one event");
+    match &events[0] {
+        CostumeEvent::CostumeCategorySet {
+            id,
+            category_id,
+            version,
+        } => {
+            assert_eq!(id, &agg.id);
+            assert_eq!(category_id, &Some(cat_id));
+            assert_eq!(version, &agg.version.next());
+        }
+        other => panic!("expected CostumeCategorySet, got {other:?}"),
+    }
+    let mut applied = CostumeAggregate::default();
+    test_support::replay_events(&mut applied, events);
+    assert_eq!(applied.category_id, Some(cat_id));
+    assert_eq!(applied.version, agg.version.next());
+}
+
+#[test]
+fn test_set_costume_category_none_clears() {
+    let cat_id = CostumeCategoryId::new();
+    // Build an aggregate that already carries the category.
+    let created = CostumeEvent::CostumeCreated {
+        id: Uuid::now_v7(),
+        character_id: None,
+        season_id: None,
+        notes: String::new(),
+        details: vec![],
+        photos: vec![],
+        version: AggregateVersion::INITIAL,
+    };
+    let set = CostumeEvent::CostumeCategorySet {
+        id: created_id(&created),
+        category_id: Some(cat_id),
+        version: AggregateVersion(1),
+    };
+    let mut agg = CostumeAggregate::default();
+    agg.apply(created, kameo_es::Metadata::default());
+    agg.apply(set, kameo_es::Metadata::default());
+    assert_eq!(agg.category_id, Some(cat_id));
+
+    let events = agg
+        .handle(
+            SetCostumeCategory {
+                id: agg.id,
+                category_id: None,
+                series_id: Some(series_id()),
+                version: agg.version,
+            },
+            make_ctx(),
+        )
+        .unwrap();
+    assert_eq!(events.len(), 1);
+    match &events[0] {
+        CostumeEvent::CostumeCategorySet {
+            category_id,
+            version,
+            ..
+        } => {
+            assert_eq!(category_id, &None);
+            assert_eq!(version, &agg.version.next());
+        }
+        other => panic!("expected CostumeCategorySet, got {other:?}"),
+    }
+}
+
+fn created_id(event: &CostumeEvent) -> Uuid {
+    match event {
+        CostumeEvent::CostumeCreated { id, .. } => *id,
+        other => panic!("expected CostumeCreated, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_set_costume_category_same_value_is_a_state_based_noop() {
+    // Issue #515 precedent (issue #543 decision): re-setting the category the
+    // costume already carries (or clearing an empty one) emits NO event and is
+    // an Ok — redelivery-safe, not a version conflict or 422.
+    let cat_id = CostumeCategoryId::new();
+    let id = Uuid::now_v7();
+    let mut agg = CostumeAggregate::default();
+    agg.apply(
+        CostumeEvent::CostumeCreated {
+            id,
+            character_id: None,
+            season_id: None,
+            notes: String::new(),
+            details: vec![],
+            photos: vec![],
+            version: AggregateVersion::INITIAL,
+        },
+        kameo_es::Metadata::default(),
+    );
+    agg.apply(
+        CostumeEvent::CostumeCategorySet {
+            id,
+            category_id: Some(cat_id),
+            version: AggregateVersion(1),
+        },
+        kameo_es::Metadata::default(),
+    );
+    let events = agg
+        .handle(
+            SetCostumeCategory {
+                id,
+                category_id: Some(cat_id),
+                series_id: Some(series_id()),
+                version: agg.version,
+            },
+            make_ctx(),
+        )
+        .unwrap();
+    assert!(
+        events.is_empty(),
+        "re-setting the same category must be a no-op, got {events:?}"
+    );
+    // Clearing an already-empty category is also a no-op.
+    let mut empty = CostumeAggregate::default();
+    empty.apply(
+        CostumeEvent::CostumeCreated {
+            id,
+            character_id: None,
+            season_id: None,
+            notes: String::new(),
+            details: vec![],
+            photos: vec![],
+            version: AggregateVersion::INITIAL,
+        },
+        kameo_es::Metadata::default(),
+    );
+    let events = empty
+        .handle(
+            SetCostumeCategory {
+                id,
+                category_id: None,
+                series_id: Some(series_id()),
+                version: empty.version,
+            },
+            make_ctx(),
+        )
+        .unwrap();
+    assert!(
+        events.is_empty(),
+        "clearing an empty category must be a no-op, got {events:?}"
+    );
+}
+
+#[test]
+fn test_set_costume_category_version_mismatch() {
+    let agg = make_costume();
+    let result = agg.handle(
+        SetCostumeCategory {
+            id: agg.id,
+            category_id: Some(CostumeCategoryId::new()),
+            series_id: Some(series_id()),
+            version: agg.version.next(),
+        },
+        make_ctx(),
+    );
+    assert!(
+        matches!(result, Err(CostumeError::VersionMismatch { .. })),
+        "stale version must be refused, got {result:?}"
+    );
+}
+
+#[test]
+fn test_legacy_created_with_categorized_detail_derives_category() {
+    // Legacy stream (issue #543 replay rule): only `CostumeCreated` with a
+    // categorized detail, no `CostumeCategorySet` — the aggregate derives the
+    // costume category from the detail.
+    let cat_id = CostumeCategoryId::new();
+    let detail_id = Uuid::now_v7();
+    let mut agg = CostumeAggregate::default();
+    agg.apply(
+        CostumeEvent::CostumeCreated {
+            id: Uuid::now_v7(),
+            character_id: None,
+            season_id: None,
+            notes: String::new(),
+            details: vec![detail_with(detail_id, Some(cat_id))],
+            photos: vec![],
+            version: AggregateVersion::INITIAL,
+        },
+        kameo_es::Metadata::default(),
+    );
+    assert_eq!(
+        agg.category_id,
+        Some(cat_id),
+        "the aggregate must derive the costume category from the legacy detail"
+    );
+}
+
+#[test]
+fn test_legacy_created_with_uncategorized_detail_stays_uncategorised() {
+    let mut agg = CostumeAggregate::default();
+    agg.apply(
+        CostumeEvent::CostumeCreated {
+            id: Uuid::now_v7(),
+            character_id: None,
+            season_id: None,
+            notes: String::new(),
+            details: vec![detail_with(Uuid::now_v7(), None)],
+            photos: vec![],
+            version: AggregateVersion::INITIAL,
+        },
+        kameo_es::Metadata::default(),
+    );
+    assert!(agg.category_id.is_none());
+}
+
+#[test]
+fn test_derivation_contradictory_details_first_detail_id_wins() {
+    // Within one event: `detail_id` ASC — the detail with the lowest id wins.
+    let first = CostumeCategoryId::new();
+    let second = CostumeCategoryId::new();
+    let low_detail = Uuid::now_v7();
+    let high_detail = Uuid::now_v7();
+    assert!(low_detail < high_detail, "UUIDv7 ordering precondition");
+    // Deliberately out of order in the event payload.
+    let details = vec![
+        detail_with(high_detail, Some(second)),
+        detail_with(low_detail, Some(first)),
+    ];
+    let mut agg = CostumeAggregate::default();
+    agg.apply(
+        CostumeEvent::CostumeCreated {
+            id: Uuid::now_v7(),
+            character_id: None,
+            season_id: None,
+            notes: String::new(),
+            details,
+            photos: vec![],
+            version: AggregateVersion::INITIAL,
+        },
+        kameo_es::Metadata::default(),
+    );
+    assert_eq!(
+        agg.category_id,
+        Some(first),
+        "the lowest detail_id's category must win within one event"
+    );
+}
+
+#[test]
+fn test_detail_added_adopts_category_while_empty_and_never_overwrites() {
+    let adopted = CostumeCategoryId::new();
+    let later = CostumeCategoryId::new();
+    let id = Uuid::now_v7();
+    let mut agg = CostumeAggregate::default();
+    agg.apply(
+        CostumeEvent::CostumeCreated {
+            id,
+            character_id: None,
+            season_id: None,
+            notes: String::new(),
+            details: vec![],
+            photos: vec![],
+            version: AggregateVersion::INITIAL,
+        },
+        kameo_es::Metadata::default(),
+    );
+    // First categorized detail is adopted.
+    agg.apply(
+        CostumeEvent::DetailAdded {
+            id,
+            detail: detail_with(Uuid::now_v7(), Some(adopted)),
+            version: AggregateVersion(1),
+        },
+        kameo_es::Metadata::default(),
+    );
+    assert_eq!(agg.category_id, Some(adopted));
+    // A later categorized detail never overwrites the adopted category.
+    agg.apply(
+        CostumeEvent::DetailAdded {
+            id,
+            detail: detail_with(Uuid::now_v7(), Some(later)),
+            version: AggregateVersion(2),
+        },
+        kameo_es::Metadata::default(),
+    );
+    assert_eq!(
+        agg.category_id,
+        Some(adopted),
+        "first-wins: a later categorized detail must not overwrite"
+    );
+    // An explicit CostumeCategorySet always wins over the derivation.
+    let explicit = CostumeCategoryId::new();
+    agg.apply(
+        CostumeEvent::CostumeCategorySet {
+            id,
+            category_id: Some(explicit),
+            version: AggregateVersion(3),
+        },
+        kameo_es::Metadata::default(),
+    );
+    assert_eq!(agg.category_id, Some(explicit));
+}
+
+/// Mutation-guard for the `CostumeCategorySet` apply arm (issue #543): if the
+/// arm is deleted or replaced with `()`, the aggregate silently keeps its old
+/// category (and version) — both must change exactly as the event says.
+#[test]
+fn test_apply_costume_category_set_mutates_state() {
+    use kameo_es::Metadata;
+    let mut agg = CostumeAggregate::default();
+    let id = Uuid::now_v7();
+    agg.apply(
+        CostumeEvent::CostumeCreated {
+            id,
+            character_id: None,
+            season_id: None,
+            notes: String::new(),
+            details: vec![],
+            photos: vec![],
+            version: AggregateVersion::INITIAL,
+        },
+        Metadata::default(),
+    );
+    let cat_id = CostumeCategoryId::new();
+    agg.apply(
+        CostumeEvent::CostumeCategorySet {
+            id,
+            category_id: Some(cat_id),
+            version: AggregateVersion(1),
+        },
+        Metadata::default(),
+    );
+    assert_eq!(
+        agg.category_id,
+        Some(cat_id),
+        "apply() must set the costume category"
+    );
+    assert_eq!(agg.version, AggregateVersion(1));
+    // Clearing via the event arm too.
+    agg.apply(
+        CostumeEvent::CostumeCategorySet {
+            id,
+            category_id: None,
+            version: AggregateVersion(2),
+        },
+        Metadata::default(),
+    );
+    assert!(agg.category_id.is_none(), "apply(None) must clear");
+    assert_eq!(agg.version, AggregateVersion(2));
 }

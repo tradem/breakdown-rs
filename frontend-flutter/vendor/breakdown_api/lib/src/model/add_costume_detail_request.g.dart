@@ -8,7 +8,7 @@ part of 'add_costume_detail_request.dart';
 
 class _$AddCostumeDetailRequest extends AddCostumeDetailRequest {
   @override
-  final CostumeDetail detail;
+  final CostumeDetailRequest detail;
   @override
   final int version;
 
@@ -58,9 +58,10 @@ class AddCostumeDetailRequestBuilder
         Builder<AddCostumeDetailRequest, AddCostumeDetailRequestBuilder> {
   _$AddCostumeDetailRequest? _$v;
 
-  CostumeDetailBuilder? _detail;
-  CostumeDetailBuilder get detail => _$this._detail ??= CostumeDetailBuilder();
-  set detail(CostumeDetailBuilder? detail) => _$this._detail = detail;
+  CostumeDetailRequestBuilder? _detail;
+  CostumeDetailRequestBuilder get detail =>
+      _$this._detail ??= CostumeDetailRequestBuilder();
+  set detail(CostumeDetailRequestBuilder? detail) => _$this._detail = detail;
 
   int? _version;
   int? get version => _$this._version;

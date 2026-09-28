@@ -22,8 +22,8 @@ use breakdown_core::character::commands::{CreateCharacter, UpdateContactInfo, Up
 use breakdown_core::character::ports::{CharacterCommands, CharacterRepository};
 use breakdown_core::character::views::CharacterView;
 use breakdown_core::costume::commands::{
-    AddDetail, AssignCostumeToCharacter, CreateCostume, LinkPhoto, RemoveDetail, UnassignCostume,
-    UnlinkPhoto, UpdateCostumeNotes,
+    AddDetail, AssignCostumeToCharacter, CreateCostume, LinkPhoto, RemoveDetail,
+    SetCostumeCategory, UnassignCostume, UnlinkPhoto, UpdateCostumeNotes,
 };
 use breakdown_core::costume::ports::{CostumeCommands, CostumeRepository};
 use breakdown_core::costume::views::CostumeView;
@@ -225,6 +225,13 @@ impl CostumeCommands for FakeCostumeCommands {
         &self,
         _actor: UserId,
         _cmd: RemoveDetail,
+    ) -> Result<AggregateVersion, DomainError> {
+        Ok(AggregateVersion::INITIAL.next())
+    }
+    async fn set_category(
+        &self,
+        _actor: UserId,
+        _cmd: SetCostumeCategory,
     ) -> Result<AggregateVersion, DomainError> {
         Ok(AggregateVersion::INITIAL.next())
     }
@@ -817,7 +824,11 @@ impl CostumeRepository for FakeCostumeRepo {
             .await
             .get(&id)
             .cloned()
-            .ok_or(DomainError::not_found("costume"))
+            .ok_or(DomainError::NotFound {
+                code: &breakdown_core::error_registry::COSTUME_NOT_FOUND,
+                resource: "costume",
+                id,
+            })
     }
     async fn list_by_season(
         &self,
@@ -849,7 +860,12 @@ impl CostumeRepository for FakeCostumeRepo {
 
 #[derive(Clone, Default)]
 #[allow(dead_code)]
-pub struct FakeCostumeCategoryRepo;
+pub struct FakeCostumeCategoryRepo {
+    /// Seedable `projection_costume_category` rows (issue #543): the
+    /// set-category handler pre-checks existence, `archived`, and the
+    /// category's season against the costume's scopes.
+    pub categories: Arc<Mutex<HashMap<Uuid, CostumeCategoryView>>>,
+}
 
 impl CostumeCategoryRepository for FakeCostumeCategoryRepo {
     async fn list_by_season(
@@ -861,8 +877,17 @@ impl CostumeCategoryRepository for FakeCostumeCategoryRepo {
     async fn count_for_season(&self, _season_id: SeasonId) -> Result<i64, DomainError> {
         Ok(0)
     }
-    async fn find_by_id(&self, _id: Uuid) -> Result<CostumeCategoryView, DomainError> {
-        Err(DomainError::not_found("costume-category"))
+    async fn find_by_id(&self, id: Uuid) -> Result<CostumeCategoryView, DomainError> {
+        self.categories
+            .lock()
+            .await
+            .get(&id)
+            .cloned()
+            .ok_or(DomainError::NotFound {
+                code: &breakdown_core::error_registry::COSTUME_CATEGORY_NOT_FOUND,
+                resource: "costume-category",
+                id,
+            })
     }
 }
 

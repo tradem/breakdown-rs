@@ -724,6 +724,10 @@ async fn replay_captured_chain_through_projectors_round_trips() -> Result<()> {
         json!({
             "id": costume_fx.aggregate_id,
             "character_id": character_fx.aggregate_id,
+            // Issue #543: the costume-level category columns (NULL for an
+            // uncategorised costume until `CostumeCategorySet`).
+            "category_id": null,
+            "category_name": null,
             "notes": "Rote Lederjacke",
             "version": 1,
             "projector_version": PROJECTOR_VERSION,

@@ -8,65 +8,55 @@
 import 'package:built_value/built_value.dart';
 import 'package:built_value/serializer.dart';
 
-part 'costume_detail.g.dart';
+part 'costume_detail_request.g.dart';
 
-/// CostumeDetail
+/// Wire payload for a costume detail (issue #543): pure description — `subject` + `text`. The category is no longer part of the detail wire contract; it is set on the costume via `POST /costumes/{id}/category`. New details deserialize with `category_id: None` in the domain event.
 ///
 /// Properties:
-/// * [categoryId] - **Legacy field (issue #543).** The category moved to the costume aggregate (`CostumeCategorySet`); details are pure description now. The field stays on the event payload with `serde(default)` so old events replay: the aggregate and the projector derive the costume's category from it (first-wins rule). Newly added details carry `None`.
 /// * [id]
-/// * [subject] - Free-form per-detail micro-title (e.g. \"Rote Lederjacke\"). Optional.
-/// * [text] - The description (unchanged meaning — never reinterpreted from `subject`).
+/// * [subject]
+/// * [text]
 @BuiltValue()
-abstract class CostumeDetail
-    implements Built<CostumeDetail, CostumeDetailBuilder> {
-  /// **Legacy field (issue #543).** The category moved to the costume aggregate (`CostumeCategorySet`); details are pure description now. The field stays on the event payload with `serde(default)` so old events replay: the aggregate and the projector derive the costume's category from it (first-wins rule). Newly added details carry `None`.
-  @BuiltValueField(wireName: r'category_id')
-  String? get categoryId;
-
+abstract class CostumeDetailRequest
+    implements Built<CostumeDetailRequest, CostumeDetailRequestBuilder> {
   @BuiltValueField(wireName: r'id')
   String get id;
 
-  /// Free-form per-detail micro-title (e.g. \"Rote Lederjacke\"). Optional.
   @BuiltValueField(wireName: r'subject')
   String? get subject;
 
-  /// The description (unchanged meaning — never reinterpreted from `subject`).
   @BuiltValueField(wireName: r'text')
   String get text;
 
-  CostumeDetail._();
+  CostumeDetailRequest._();
 
-  factory CostumeDetail([void updates(CostumeDetailBuilder b)]) =
-      _$CostumeDetail;
+  factory CostumeDetailRequest([void updates(CostumeDetailRequestBuilder b)]) =
+      _$CostumeDetailRequest;
 
   @BuiltValueHook(initializeBuilder: true)
-  static void _defaults(CostumeDetailBuilder b) => b;
+  static void _defaults(CostumeDetailRequestBuilder b) => b;
 
   @BuiltValueSerializer(custom: true)
-  static Serializer<CostumeDetail> get serializer =>
-      _$CostumeDetailSerializer();
+  static Serializer<CostumeDetailRequest> get serializer =>
+      _$CostumeDetailRequestSerializer();
 }
 
-class _$CostumeDetailSerializer implements PrimitiveSerializer<CostumeDetail> {
+class _$CostumeDetailRequestSerializer
+    implements PrimitiveSerializer<CostumeDetailRequest> {
   @override
-  final Iterable<Type> types = const [CostumeDetail, _$CostumeDetail];
+  final Iterable<Type> types = const [
+    CostumeDetailRequest,
+    _$CostumeDetailRequest
+  ];
 
   @override
-  final String wireName = r'CostumeDetail';
+  final String wireName = r'CostumeDetailRequest';
 
   Iterable<Object?> _serializeProperties(
     Serializers serializers,
-    CostumeDetail object, {
+    CostumeDetailRequest object, {
     FullType specifiedType = FullType.unspecified,
   }) sync* {
-    if (object.categoryId != null) {
-      yield r'category_id';
-      yield serializers.serialize(
-        object.categoryId,
-        specifiedType: const FullType.nullable(String),
-      );
-    }
     yield r'id';
     yield serializers.serialize(
       object.id,
@@ -89,7 +79,7 @@ class _$CostumeDetailSerializer implements PrimitiveSerializer<CostumeDetail> {
   @override
   Object serialize(
     Serializers serializers,
-    CostumeDetail object, {
+    CostumeDetailRequest object, {
     FullType specifiedType = FullType.unspecified,
   }) {
     return _serializeProperties(serializers, object,
@@ -102,21 +92,13 @@ class _$CostumeDetailSerializer implements PrimitiveSerializer<CostumeDetail> {
     Object serialized, {
     FullType specifiedType = FullType.unspecified,
     required List<Object?> serializedList,
-    required CostumeDetailBuilder result,
+    required CostumeDetailRequestBuilder result,
     required List<Object?> unhandled,
   }) {
     for (var i = 0; i < serializedList.length; i += 2) {
       final key = serializedList[i] as String;
       final value = serializedList[i + 1];
       switch (key) {
-        case r'category_id':
-          final valueDes = serializers.deserialize(
-            value,
-            specifiedType: const FullType.nullable(String),
-          ) as String?;
-          if (valueDes == null) continue;
-          result.categoryId = valueDes;
-          break;
         case r'id':
           final valueDes = serializers.deserialize(
             value,
@@ -148,12 +130,12 @@ class _$CostumeDetailSerializer implements PrimitiveSerializer<CostumeDetail> {
   }
 
   @override
-  CostumeDetail deserialize(
+  CostumeDetailRequest deserialize(
     Serializers serializers,
     Object serialized, {
     FullType specifiedType = FullType.unspecified,
   }) {
-    final result = CostumeDetailBuilder();
+    final result = CostumeDetailRequestBuilder();
     final serializedList = (serialized as Iterable<Object?>).toList();
     final unhandled = <Object?>[];
     _deserializeProperties(

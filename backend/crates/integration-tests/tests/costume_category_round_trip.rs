@@ -336,11 +336,13 @@ async fn season_created_seeds_exactly_five_categories_and_is_idempotent() -> Res
 }
 
 // ---------------------------------------------------------------------------
-// 8.3 — Detail enrichment: subject + category_id + resolved category_name
+// 8.3 — Costume category derivation: a categorized legacy detail fills the
+// costume's category (first-wins); details are pure description on the view
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
-async fn costume_detail_carries_subject_category_id_and_resolved_name() -> Result<()> {
+async fn costume_category_derives_from_categorized_detail_and_view_is_pure_description()
+-> Result<()> {
     let (pool, _pg) = crate::fixtures::spawn_postgres().await?;
     let (redis_client, _sierra_conn, _sierra) = crate::fixtures::spawn_sierradb().await?;
 
@@ -424,11 +426,12 @@ async fn costume_detail_carries_subject_category_id_and_resolved_name() -> Resul
         1,
         "costume should have exactly one detail"
     );
+    // Issue #543: the derived category lives on the COSTUME, not the detail.
+    assert_eq!(view.category_id, Some(cat_id));
+    assert_eq!(view.category_name.as_deref(), Some("Oberteil"));
     let detail = &view.details[0];
     assert_eq!(detail.id, detail_id);
     assert_eq!(detail.subject.as_deref(), Some("Kopf"));
-    assert_eq!(detail.category_id, Some(cat_id));
-    assert_eq!(detail.category_name.as_deref(), Some("Oberteil"));
     assert_eq!(detail.text, "Helm mit Visier");
 
     Ok(())
@@ -496,22 +499,19 @@ async fn costume_category_projector_is_idempotent_under_redelivery() -> Result<(
 }
 
 // ---------------------------------------------------------------------------
-// 8.2 — Rename propagation: renaming a category refreshes detail category_name
+// 8.2 — Rename propagation: renaming a category refreshes the costume category_name
 // ---------------------------------------------------------------------------
 
-async fn await_costume_detail_category_name(
+async fn await_costume_category_name(
     repo: &CostumeRepositoryImpl,
     costume_id: Uuid,
-    detail_id: Uuid,
     expected: &str,
 ) -> Result<()> {
     let deadline = Instant::now() + PROJECTION_DEADLINE;
     loop {
         match repo.find_by_id(costume_id).await {
             Ok(view) => {
-                if let Some(detail) = view.details.iter().find(|d| d.id == detail_id)
-                    && detail.category_name.as_deref() == Some(expected)
-                {
+                if view.category_name.as_deref() == Some(expected) {
                     return Ok(());
                 }
             }
@@ -531,14 +531,14 @@ async fn await_costume_detail_category_name(
             tokio::time::sleep(POLL_INTERVAL).await;
         } else {
             bail!(
-                "projection lag: costume detail category_name did not become {expected:?} within {PROJECTION_DEADLINE:?}"
+                "projection lag: costume category_name did not become {expected:?} within {PROJECTION_DEADLINE:?}"
             );
         }
     }
 }
 
 #[tokio::test]
-async fn rename_category_refreshes_referencing_detail_category_name() -> Result<()> {
+async fn rename_category_refreshes_costume_category_name() -> Result<()> {
     let (pool, _pg) = crate::fixtures::spawn_postgres().await?;
     let (redis_client, _sierra_conn, _sierra) = crate::fixtures::spawn_sierradb().await?;
 
@@ -614,10 +614,11 @@ async fn rename_category_refreshes_referencing_detail_category_name() -> Result<
     )
     .await?;
 
-    await_costume_detail_category_name(&costume_repo, costume_id, detail_id, "Oberteil").await?;
+    await_costume_category_name(&costume_repo, costume_id, "Oberteil").await?;
 
     // Rename the category; the costume_category projector must propagate the
-    // new name into projection_costume_detail.
+    // new name into projection_costume.category_name (issue #543: the
+    // category lives on the costume now).
     eappend(
         &redis_client,
         &cat_stream,
@@ -631,18 +632,17 @@ async fn rename_category_refreshes_referencing_detail_category_name() -> Result<
     )
     .await?;
 
-    await_costume_detail_category_name(&costume_repo, costume_id, detail_id, "Kopfbedeckung")
-        .await?;
+    await_costume_category_name(&costume_repo, costume_id, "Kopfbedeckung").await?;
 
     Ok(())
 }
 
 // ---------------------------------------------------------------------------
-// 8.3 — Archive preserves history: detail keeps name, picker hides category
+// 8.3 — Archive preserves history: costume keeps name, picker hides category
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
-async fn archive_category_preserves_detail_name_and_hides_from_picker() -> Result<()> {
+async fn archive_category_preserves_costume_name_and_hides_from_picker() -> Result<()> {
     let (pool, _pg) = crate::fixtures::spawn_postgres().await?;
     let (redis_client, _sierra_conn, _sierra) = crate::fixtures::spawn_sierradb().await?;
 
@@ -717,9 +717,9 @@ async fn archive_category_preserves_detail_name_and_hides_from_picker() -> Resul
         })?,
     )
     .await?;
-    await_costume_detail_category_name(&costume_repo, costume_id, detail_id, "Oberteil").await?;
+    await_costume_category_name(&costume_repo, costume_id, "Oberteil").await?;
 
-    // Archive the (referenced) category. It must NOT null the detail's name.
+    // Archive the (referenced) category. It must NOT null the costume's name.
     eappend(
         &redis_client,
         &cat_stream,
@@ -735,17 +735,12 @@ async fn archive_category_preserves_detail_name_and_hides_from_picker() -> Resul
     // Wait for the archive event to be projected (replaces static sleep)
     await_category_excluded_from_list(&cat_repo, season_id, cat_id.0).await?;
 
-    // The costume detail still resolves the (now historical) category name.
+    // The costume still resolves the (now historical) category name.
     let view = costume_repo.find_by_id(costume_id).await?;
-    let detail = view
-        .details
-        .iter()
-        .find(|d| d.id == detail_id)
-        .expect("detail present");
     assert_eq!(
-        detail.category_name.as_deref(),
+        view.category_name.as_deref(),
         Some("Oberteil"),
-        "archiving a category must not drop referencing detail names"
+        "archiving a category must not drop costume category names"
     );
 
     Ok(())
@@ -879,9 +874,257 @@ async fn end_to_end_costume_categorisation_with_character() -> Result<()> {
 
     let view = await_costume_with_details(&costume_repo, costume_id, 1).await?;
     assert_eq!(view.character_id, Some(char_id));
-    let detail = &view.details[0];
-    assert_eq!(detail.category_id, Some(cat_id));
-    assert_eq!(detail.category_name.as_deref(), Some("Schuhe"));
+    // Issue #543: the category is costume-level.
+    assert_eq!(view.category_id, Some(cat_id));
+    assert_eq!(view.category_name.as_deref(), Some("Schuhe"));
+
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Issue #543 — mandatory legacy-replay parity: a legacy event stream (only
+// `CostumeCreated` with a categorized detail, no `CostumeCategorySet`) must
+// yield the SAME category in the aggregate (in-memory apply) and in the
+// projector's `projection_costume`. Divergence is a failure.
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn legacy_stream_replay_parity_aggregate_vs_projector() -> Result<()> {
+    use breakdown_core::costume::aggregate::CostumeAggregate;
+    use kameo_es::Apply;
+
+    let (pool, _pg) = crate::fixtures::spawn_postgres().await?;
+    let (redis_client, _sierra_conn, _sierra) = crate::fixtures::spawn_sierradb().await?;
+
+    let _cat_ref = infra::projectors::spawn_costume_category_projector(
+        pool.clone(),
+        Arc::clone(&redis_client),
+        infra::projectors::ProjectorFlushConfig::test_profile(),
+    )
+    .await?;
+    let _costume_ref = infra::projectors::spawn_costume_projector(
+        pool.clone(),
+        Arc::clone(&redis_client),
+        infra::projectors::ProjectorFlushConfig::test_profile(),
+    )
+    .await?;
+
+    let cat_repo = CostumeCategoryRepositoryImpl::new(pool.clone());
+    let costume_repo = CostumeRepositoryImpl::new(pool.clone());
+
+    let cat_id = CostumeCategoryId(Uuid::now_v7());
+    let season_id = SeasonId::new();
+    let cat_stream = format!("costume_category-{cat_id}");
+    eappend(
+        &redis_client,
+        &cat_stream,
+        "CostumeCategoryCreated",
+        "EMPTY",
+        &encode_event(&CostumeCategoryEvent::CostumeCategoryCreated {
+            id: cat_id.0,
+            season_id,
+            name: "Oberteil".into(),
+            order_key: LexicalSortKey("a".into()),
+            version: AggregateVersion::INITIAL,
+        })?,
+    )
+    .await?;
+    await_category_found(&cat_repo, cat_id).await?;
+
+    // The legacy event: a `CostumeCreated` whose detail already carries a
+    // category — and NO `CostumeCategorySet` event anywhere in the stream.
+    let costume_id = Uuid::now_v7();
+    let legacy = CostumeEvent::CostumeCreated {
+        id: costume_id,
+        character_id: None,
+        season_id: None,
+        notes: String::new(),
+        details: vec![CostumeDetail {
+            id: Uuid::now_v7(),
+            subject: Some("Kopf".into()),
+            category_id: Some(cat_id),
+            text: "Helm".into(),
+        }],
+        photos: vec![],
+        version: AggregateVersion::INITIAL,
+    };
+    let payload = encode_event(&legacy)?;
+    eappend(
+        &redis_client,
+        &format!("costume-{costume_id}"),
+        "CostumeCreated",
+        "EMPTY",
+        &payload,
+    )
+    .await?;
+
+    // 1. Aggregate side: replay the identical event bytes through `apply`.
+    let mut aggregate = CostumeAggregate::default();
+    aggregate.apply(legacy, kameo_es::Metadata::default());
+    let aggregate_category = aggregate.category_id;
+
+    // 2. Projector side: wait for the projection, then compare.
+    let deadline = Instant::now() + PROJECTION_DEADLINE;
+    let projection_category = loop {
+        match costume_repo.find_by_id(costume_id).await {
+            Ok(view) => break (view.category_id, view.category_name),
+            Err(breakdown_core::error::DomainError::NotFound { .. })
+                if Instant::now() < deadline =>
+            {
+                tokio::time::sleep(POLL_INTERVAL).await;
+            }
+            Err(other) => return Err(anyhow!(other.to_string())),
+        }
+        if Instant::now() >= deadline {
+            bail!("projection lag: costume not projected within {PROJECTION_DEADLINE:?}");
+        }
+    };
+    let (projection_category_id, projection_category_name) = projection_category;
+
+    assert_eq!(
+        aggregate_category, projection_category_id,
+        "DIVERGENCE: aggregate and projector derived different categories from \
+         the same legacy stream"
+    );
+    assert_eq!(
+        projection_category_name.as_deref(),
+        Some("Oberteil"),
+        "the projector must resolve the derived category's name"
+    );
+
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Issue #543 — the `CostumeCategorySet` branch: an explicit set event updates
+// `projection_costume.category_id/category_name`; clearing nulls both.
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn costume_category_set_event_round_trips_and_clears() -> Result<()> {
+    let (pool, _pg) = crate::fixtures::spawn_postgres().await?;
+    let (redis_client, _sierra_conn, _sierra) = crate::fixtures::spawn_sierradb().await?;
+
+    let _cat_ref = infra::projectors::spawn_costume_category_projector(
+        pool.clone(),
+        Arc::clone(&redis_client),
+        infra::projectors::ProjectorFlushConfig::test_profile(),
+    )
+    .await?;
+    let _costume_ref = infra::projectors::spawn_costume_projector(
+        pool.clone(),
+        Arc::clone(&redis_client),
+        infra::projectors::ProjectorFlushConfig::test_profile(),
+    )
+    .await?;
+
+    let cat_repo = CostumeCategoryRepositoryImpl::new(pool.clone());
+    let costume_repo = CostumeRepositoryImpl::new(pool.clone());
+
+    let cat_id = CostumeCategoryId(Uuid::now_v7());
+    let season_id = SeasonId::new();
+    eappend(
+        &redis_client,
+        &format!("costume_category-{cat_id}"),
+        "CostumeCategoryCreated",
+        "EMPTY",
+        &encode_event(&CostumeCategoryEvent::CostumeCategoryCreated {
+            id: cat_id.0,
+            season_id,
+            name: "Oberteil".into(),
+            order_key: LexicalSortKey("a".into()),
+            version: AggregateVersion::INITIAL,
+        })?,
+    )
+    .await?;
+    await_category_found(&cat_repo, cat_id).await?;
+
+    let costume_id = Uuid::now_v7();
+    let costume_stream = format!("costume-{costume_id}");
+    eappend(
+        &redis_client,
+        &costume_stream,
+        "CostumeCreated",
+        "EMPTY",
+        &encode_event(&CostumeEvent::CostumeCreated {
+            id: costume_id,
+            character_id: None,
+            season_id: None,
+            notes: String::new(),
+            details: vec![],
+            photos: vec![],
+            version: AggregateVersion::INITIAL,
+        })?,
+    )
+    .await?;
+
+    // Set the category explicitly.
+    eappend(
+        &redis_client,
+        &costume_stream,
+        "CostumeCategorySet",
+        "0",
+        &encode_event(&CostumeEvent::CostumeCategorySet {
+            id: costume_id,
+            category_id: Some(cat_id),
+            version: AggregateVersion(1),
+        })?,
+    )
+    .await?;
+
+    let deadline = Instant::now() + PROJECTION_DEADLINE;
+    loop {
+        match costume_repo.find_by_id(costume_id).await {
+            Ok(view) if view.category_id == Some(cat_id) => break,
+            Ok(_) if Instant::now() < deadline => tokio::time::sleep(POLL_INTERVAL).await,
+            Ok(_) => {
+                bail!(
+                    "projection lag: CostumeCategorySet not applied within {PROJECTION_DEADLINE:?}"
+                )
+            }
+            Err(breakdown_core::error::DomainError::NotFound { .. })
+                if Instant::now() < deadline =>
+            {
+                tokio::time::sleep(POLL_INTERVAL).await;
+            }
+            Err(other) => return Err(anyhow!(other.to_string())),
+        }
+    }
+    let view = costume_repo.find_by_id(costume_id).await?;
+    assert_eq!(view.category_name.as_deref(), Some("Oberteil"));
+
+    // Clearing (`None`) nulls both columns.
+    eappend(
+        &redis_client,
+        &costume_stream,
+        "CostumeCategorySet",
+        "1",
+        &encode_event(&CostumeEvent::CostumeCategorySet {
+            id: costume_id,
+            category_id: None,
+            version: AggregateVersion(2),
+        })?,
+    )
+    .await?;
+
+    let deadline = Instant::now() + PROJECTION_DEADLINE;
+    loop {
+        match costume_repo.find_by_id(costume_id).await {
+            Ok(view) if view.category_id.is_none() && view.category_name.is_none() => break,
+            Ok(_) if Instant::now() < deadline => tokio::time::sleep(POLL_INTERVAL).await,
+            Ok(view) => bail!(
+                "projection lag: clearing not applied; category_id={:?} name={:?}",
+                view.category_id,
+                view.category_name
+            ),
+            Err(breakdown_core::error::DomainError::NotFound { .. })
+                if Instant::now() < deadline =>
+            {
+                tokio::time::sleep(POLL_INTERVAL).await;
+            }
+            Err(other) => return Err(anyhow!(other.to_string())),
+        }
+    }
 
     Ok(())
 }

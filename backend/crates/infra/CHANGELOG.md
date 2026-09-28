@@ -14,6 +14,31 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
+## [0.20.0] - Unreleased
+
+### Added — costume-level category projection (issue #543)
+
+- Migration `20261002000001_projection_costume_category`: `projection_costume`
+  gains nullable `category_id UUID` / `category_name TEXT` (down drops both).
+  `projection_costume_detail.category_id/category_name` deliberately stay for
+  legacy replay; a later migration cleans them up.
+- The costume projector: a `CostumeCategorySet` branch (best-effort
+  `category_name` resolution — a dangling reference stays `NULL`, audit
+  metadata never blocks) and the **first-wins derivation rule** in the
+  `CostumeCreated`/`DetailAdded` branches, identical to the aggregate's
+  `apply` so a replayed legacy stream yields the same category in aggregate
+  and projection (parity test mandatory).
+- The costume_category projector retargets rename propagation **from**
+  `projection_costume_detail.category_name` **to**
+  `projection_costume.category_name`.
+- The costume query adapter reads `CostumeView.category_id/category_name`
+  from `projection_costume`; the detail enrichment no longer resolves the
+  detail category.
+- `CostumeCommands` adapter gains `set_category` (version fence, audit
+  metadata from the command field).
+- **MINOR bump (ADR-020 D2):** migration + projector behavior + additive
+  port method, re-pin `breakdown_core` 0.16.0 — **0.19.0 → 0.20.0**.
+
 ## [0.19.0] - Unreleased
 
 ### Added — credential-binding owner projection (issue #552)

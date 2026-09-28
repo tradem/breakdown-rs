@@ -1,12 +1,12 @@
 // GENERATED CODE - DO NOT MODIFY BY HAND
 
-part of 'costume_detail_view.dart';
+part of 'costume_detail_request.dart';
 
 // **************************************************************************
 // BuiltValueGenerator
 // **************************************************************************
 
-class _$CostumeDetailView extends CostumeDetailView {
+class _$CostumeDetailRequest extends CostumeDetailRequest {
   @override
   final String id;
   @override
@@ -14,24 +14,25 @@ class _$CostumeDetailView extends CostumeDetailView {
   @override
   final String text;
 
-  factory _$CostumeDetailView(
-          [void Function(CostumeDetailViewBuilder)? updates]) =>
-      (CostumeDetailViewBuilder()..update(updates))._build();
+  factory _$CostumeDetailRequest(
+          [void Function(CostumeDetailRequestBuilder)? updates]) =>
+      (CostumeDetailRequestBuilder()..update(updates))._build();
 
-  _$CostumeDetailView._({required this.id, this.subject, required this.text})
+  _$CostumeDetailRequest._({required this.id, this.subject, required this.text})
       : super._();
   @override
-  CostumeDetailView rebuild(void Function(CostumeDetailViewBuilder) updates) =>
+  CostumeDetailRequest rebuild(
+          void Function(CostumeDetailRequestBuilder) updates) =>
       (toBuilder()..update(updates)).build();
 
   @override
-  CostumeDetailViewBuilder toBuilder() =>
-      CostumeDetailViewBuilder()..replace(this);
+  CostumeDetailRequestBuilder toBuilder() =>
+      CostumeDetailRequestBuilder()..replace(this);
 
   @override
   bool operator ==(Object other) {
     if (identical(other, this)) return true;
-    return other is CostumeDetailView &&
+    return other is CostumeDetailRequest &&
         id == other.id &&
         subject == other.subject &&
         text == other.text;
@@ -49,7 +50,7 @@ class _$CostumeDetailView extends CostumeDetailView {
 
   @override
   String toString() {
-    return (newBuiltValueToStringHelper(r'CostumeDetailView')
+    return (newBuiltValueToStringHelper(r'CostumeDetailRequest')
           ..add('id', id)
           ..add('subject', subject)
           ..add('text', text))
@@ -57,9 +58,9 @@ class _$CostumeDetailView extends CostumeDetailView {
   }
 }
 
-class CostumeDetailViewBuilder
-    implements Builder<CostumeDetailView, CostumeDetailViewBuilder> {
-  _$CostumeDetailView? _$v;
+class CostumeDetailRequestBuilder
+    implements Builder<CostumeDetailRequest, CostumeDetailRequestBuilder> {
+  _$CostumeDetailRequest? _$v;
 
   String? _id;
   String? get id => _$this._id;
@@ -73,11 +74,11 @@ class CostumeDetailViewBuilder
   String? get text => _$this._text;
   set text(String? text) => _$this._text = text;
 
-  CostumeDetailViewBuilder() {
-    CostumeDetailView._defaults(this);
+  CostumeDetailRequestBuilder() {
+    CostumeDetailRequest._defaults(this);
   }
 
-  CostumeDetailViewBuilder get _$this {
+  CostumeDetailRequestBuilder get _$this {
     final $v = _$v;
     if ($v != null) {
       _id = $v.id;
@@ -89,26 +90,26 @@ class CostumeDetailViewBuilder
   }
 
   @override
-  void replace(CostumeDetailView other) {
-    _$v = other as _$CostumeDetailView;
+  void replace(CostumeDetailRequest other) {
+    _$v = other as _$CostumeDetailRequest;
   }
 
   @override
-  void update(void Function(CostumeDetailViewBuilder)? updates) {
+  void update(void Function(CostumeDetailRequestBuilder)? updates) {
     if (updates != null) updates(this);
   }
 
   @override
-  CostumeDetailView build() => _build();
+  CostumeDetailRequest build() => _build();
 
-  _$CostumeDetailView _build() {
+  _$CostumeDetailRequest _build() {
     final _$result = _$v ??
-        _$CostumeDetailView._(
+        _$CostumeDetailRequest._(
           id: BuiltValueNullFieldError.checkNotNull(
-              id, r'CostumeDetailView', 'id'),
+              id, r'CostumeDetailRequest', 'id'),
           subject: subject,
           text: BuiltValueNullFieldError.checkNotNull(
-              text, r'CostumeDetailView', 'text'),
+              text, r'CostumeDetailRequest', 'text'),
         );
     replace(_$result);
     return _$result;

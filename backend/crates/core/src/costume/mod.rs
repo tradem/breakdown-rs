@@ -12,8 +12,8 @@ pub mod views;
 
 pub use aggregate::CostumeAggregate;
 pub use commands::{
-    AddDetail, AssignCostumeToCharacter, CreateCostume, LinkPhoto, RemoveDetail, UnassignCostume,
-    UnlinkPhoto, UpdateCostumeNotes,
+    AddDetail, AssignCostumeToCharacter, CreateCostume, LinkPhoto, RemoveDetail,
+    SetCostumeCategory, UnassignCostume, UnlinkPhoto, UpdateCostumeNotes,
 };
 pub use error::CostumeError;
 pub use events::{CostumeDetail, CostumeEvent};

@@ -10,8 +10,8 @@ use crate::error::DomainError;
 use crate::shared::{AggregateVersion, SeasonId, UserId};
 
 use super::commands::{
-    AddDetail, AssignCostumeToCharacter, CreateCostume, LinkPhoto, RemoveDetail, UnassignCostume,
-    UnlinkPhoto, UpdateCostumeNotes,
+    AddDetail, AssignCostumeToCharacter, CreateCostume, LinkPhoto, RemoveDetail,
+    SetCostumeCategory, UnassignCostume, UnlinkPhoto, UpdateCostumeNotes,
 };
 use super::views::CostumeView;
 
@@ -47,6 +47,14 @@ pub trait CostumeCommands: Send + Sync {
         &self,
         actor: UserId,
         cmd: RemoveDetail,
+    ) -> Result<AggregateVersion, DomainError>;
+    /// Set (or clear, `None`) the costume's single category (issue #543).
+    /// The season-scope invariant is pre-checked at the API edge; the
+    /// adapter dispatches the command with the version fence.
+    async fn set_category(
+        &self,
+        actor: UserId,
+        cmd: SetCostumeCategory,
     ) -> Result<AggregateVersion, DomainError>;
     async fn link_photo(
         &self,

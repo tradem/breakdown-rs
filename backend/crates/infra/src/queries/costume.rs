@@ -33,7 +33,7 @@ impl CostumeRepositoryImpl {
     async fn costumefind_by_id_with_children(&self, id: Uuid) -> Result<CostumeView, DomainError> {
         let row = sqlx::query(
             r#"
-            SELECT id, character_id, notes, version, updated_at
+            SELECT id, character_id, category_id, category_name, notes, version, updated_at
             FROM projection_costume
             WHERE id = $1
             "#,
@@ -54,7 +54,7 @@ impl CostumeRepositoryImpl {
     async fn enrich(&self, view: CostumeView) -> Result<CostumeView, DomainError> {
         let details = sqlx::query(
             r#"
-            SELECT detail_id, subject, category_id, category_name, text
+            SELECT detail_id, subject, text
             FROM projection_costume_detail
             WHERE costume_id = $1
             ORDER BY detail_id
@@ -87,11 +87,6 @@ impl CostumeRepositoryImpl {
                 Ok(CostumeDetailView {
                     id: row.try_get("detail_id").map_err(map_err)?,
                     subject: row.try_get("subject").map_err(map_err)?,
-                    category_id: row
-                        .try_get::<Option<Uuid>, _>("category_id")
-                        .map_err(map_err)?
-                        .map(CostumeCategoryId),
-                    category_name: row.try_get("category_name").map_err(map_err)?,
                     text: row.try_get("text").map_err(map_err)?,
                 })
             })
@@ -144,6 +139,8 @@ impl CostumeRepositoryImpl {
         Ok(CostumeView {
             id: view.id,
             character_id: view.character_id,
+            category_id: view.category_id,
+            category_name: view.category_name,
             notes: view.notes,
             details,
             photos: enriched_photos,
@@ -166,7 +163,7 @@ impl CostumeRepositoryImpl {
 
         let detail_rows = sqlx::query(
             r#"
-            SELECT costume_id, detail_id, subject, category_id, category_name, text
+            SELECT costume_id, detail_id, subject, text
             FROM projection_costume_detail
             WHERE costume_id = ANY($1)
             ORDER BY costume_id, detail_id
@@ -183,11 +180,6 @@ impl CostumeRepositoryImpl {
             let detail = CostumeDetailView {
                 id: row.try_get("detail_id").map_err(map_err)?,
                 subject: row.try_get("subject").map_err(map_err)?,
-                category_id: row
-                    .try_get::<Option<Uuid>, _>("category_id")
-                    .map_err(map_err)?
-                    .map(CostumeCategoryId),
-                category_name: row.try_get("category_name").map_err(map_err)?,
                 text: row.try_get("text").map_err(map_err)?,
             };
             details_by_costume
@@ -296,7 +288,7 @@ impl CostumeRepository for CostumeRepositoryImpl {
     ) -> Result<Vec<CostumeView>, DomainError> {
         let rows = sqlx::query(
             r#"
-            SELECT c.id, c.character_id, c.notes, c.version, c.updated_at
+            SELECT c.id, c.character_id, c.category_id, c.category_name, c.notes, c.version, c.updated_at
             FROM projection_costume c
             LEFT JOIN projection_character ch ON ch.id = c.character_id
             WHERE ch.season_id = $1
@@ -340,7 +332,7 @@ impl CostumeRepository for CostumeRepositoryImpl {
     ) -> Result<Vec<CostumeView>, DomainError> {
         let rows = sqlx::query(
             r#"
-            SELECT id, character_id, notes, version, updated_at
+            SELECT id, character_id, category_id, category_name, notes, version, updated_at
             FROM projection_costume
             WHERE character_id = $1
             ORDER BY updated_at DESC
@@ -385,6 +377,11 @@ fn map_costume_row(row: sqlx::postgres::PgRow) -> Result<CostumeView, DomainErro
     Ok(CostumeView {
         id: row.try_get("id").map_err(map_err)?,
         character_id: row.try_get("character_id").map_err(map_err)?,
+        category_id: row
+            .try_get::<Option<Uuid>, _>("category_id")
+            .map_err(map_err)?
+            .map(CostumeCategoryId),
+        category_name: row.try_get("category_name").map_err(map_err)?,
         notes: row.try_get("notes").map_err(map_err)?,
         details: Vec::new(),
         photos: Vec::new(),

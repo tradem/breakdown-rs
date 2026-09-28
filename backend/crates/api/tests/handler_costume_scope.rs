@@ -165,6 +165,8 @@ async fn seed_repertoire_costume(ports: &FakePorts, repertoire: &[SeasonId]) -> 
         CostumeView {
             id: costume_id,
             character_id: None,
+            category_id: None,
+            category_name: None,
             notes: String::new(),
             details: vec![],
             photos: vec![],
@@ -214,6 +216,8 @@ async fn seed_scoped_costume(
         CostumeView {
             id: costume_id,
             character_id: Some(character_id),
+            category_id: None,
+            category_name: None,
             notes: String::new(),
             details: vec![],
             photos: vec![],

@@ -160,6 +160,8 @@ async fn seed_costume_chain(ports: &FakePorts) -> (uuid::Uuid, SeasonId) {
         CostumeView {
             id: costume_id,
             character_id: Some(char_id),
+            category_id: None,
+            category_name: None,
             notes: String::new(),
             details: vec![],
             photos: vec![],

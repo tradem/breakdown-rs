@@ -10,25 +10,15 @@ import 'package:built_value/serializer.dart';
 
 part 'costume_detail_view.g.dart';
 
-/// Detailed costume element (e.g. belt, hat, shoes).
+/// Detailed costume element (e.g. belt, hat, shoes).  Pure description since issue #543: the category lives on the costume (`CostumeView.category_id`), not on the detail. `subject` + `text` remain.
 ///
 /// Properties:
-/// * [categoryId] - Reference to the categorising `CostumeCategory`, if any.
-/// * [categoryName] - Denormalised category name, resolved by join at projection time.
 /// * [id]
 /// * [subject] - Free-form per-detail micro-title (e.g. \"Rote Lederjacke\").
 /// * [text] - The description (unchanged meaning).
 @BuiltValue()
 abstract class CostumeDetailView
     implements Built<CostumeDetailView, CostumeDetailViewBuilder> {
-  /// Reference to the categorising `CostumeCategory`, if any.
-  @BuiltValueField(wireName: r'category_id')
-  String? get categoryId;
-
-  /// Denormalised category name, resolved by join at projection time.
-  @BuiltValueField(wireName: r'category_name')
-  String? get categoryName;
-
   @BuiltValueField(wireName: r'id')
   String get id;
 
@@ -66,20 +56,6 @@ class _$CostumeDetailViewSerializer
     CostumeDetailView object, {
     FullType specifiedType = FullType.unspecified,
   }) sync* {
-    if (object.categoryId != null) {
-      yield r'category_id';
-      yield serializers.serialize(
-        object.categoryId,
-        specifiedType: const FullType.nullable(String),
-      );
-    }
-    if (object.categoryName != null) {
-      yield r'category_name';
-      yield serializers.serialize(
-        object.categoryName,
-        specifiedType: const FullType.nullable(String),
-      );
-    }
     yield r'id';
     yield serializers.serialize(
       object.id,
@@ -122,22 +98,6 @@ class _$CostumeDetailViewSerializer
       final key = serializedList[i] as String;
       final value = serializedList[i + 1];
       switch (key) {
-        case r'category_id':
-          final valueDes = serializers.deserialize(
-            value,
-            specifiedType: const FullType.nullable(String),
-          ) as String?;
-          if (valueDes == null) continue;
-          result.categoryId = valueDes;
-          break;
-        case r'category_name':
-          final valueDes = serializers.deserialize(
-            value,
-            specifiedType: const FullType.nullable(String),
-          ) as String?;
-          if (valueDes == null) continue;
-          result.categoryName = valueDes;
-          break;
         case r'id':
           final valueDes = serializers.deserialize(
             value,

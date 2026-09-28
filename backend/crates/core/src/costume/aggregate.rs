@@ -9,7 +9,7 @@
 use kameo_es::{Apply, Command, Context, Entity, Metadata};
 use uuid::Uuid;
 
-use crate::shared::{AggregateVersion, EventMetadata};
+use crate::shared::{AggregateVersion, CostumeCategoryId, EventMetadata};
 
 use super::commands::*;
 use super::error::CostumeError;
@@ -20,10 +20,28 @@ use super::events::*;
 pub struct CostumeAggregate {
     pub id: Uuid,
     pub character_id: Option<Uuid>,
+    /// The costume's single category (issue #543): n:1 into the season-scoped
+    /// `CostumeCategory` vocabulary. `None` = uncategorised. Legacy events
+    /// (`CostumeCreated`/`DetailAdded` with categorized details) derive this
+    /// state via the first-wins replay rule.
+    pub category_id: Option<CostumeCategoryId>,
     pub notes: String,
     pub details: Vec<CostumeDetail>,
     pub photos: Vec<Uuid>,
     pub version: AggregateVersion,
+}
+
+/// Replay-derivation rule (issue #543): the first detail category in event
+/// order (within one event: `detail_id` ASC) becomes the costume's category
+/// while it has none. Deterministic: for contradictory detail categories the
+/// one with the lowest `detail_id` wins. The projector executes the identical
+/// rule so projection and aggregate never diverge on a replayed stream.
+fn derive_category_id(details: &[CostumeDetail]) -> Option<CostumeCategoryId> {
+    details
+        .iter()
+        .filter(|d| d.category_id.is_some())
+        .min_by_key(|d| d.id)
+        .and_then(|d| d.category_id)
 }
 
 impl Entity for CostumeAggregate {
@@ -52,6 +70,7 @@ impl Apply for CostumeAggregate {
             } => {
                 self.id = id;
                 self.character_id = character_id;
+                self.category_id = derive_category_id(&details);
                 self.notes = notes;
                 self.details = details;
                 self.photos = photos;
@@ -76,6 +95,12 @@ impl Apply for CostumeAggregate {
             CostumeEvent::DetailAdded {
                 detail, version, ..
             } => {
+                // Replay-derivation (issue #543): adopt the detail's category
+                // while the costume still has none (first-wins). Later
+                // categorized details never overwrite an adopted category.
+                if self.category_id.is_none() {
+                    self.category_id = detail.category_id;
+                }
                 self.details.push(detail);
                 self.version = version;
             }
@@ -97,6 +122,14 @@ impl Apply for CostumeAggregate {
                 photo_id, version, ..
             } => {
                 self.photos.retain(|&id| id != photo_id);
+                self.version = version;
+            }
+            CostumeEvent::CostumeCategorySet {
+                category_id,
+                version,
+                ..
+            } => {
+                self.category_id = category_id;
                 self.version = version;
             }
         }
@@ -290,6 +323,37 @@ impl Command<UnlinkPhoto> for CostumeAggregate {
         Ok(vec![CostumeEvent::PhotoUnlinked {
             id: self.id,
             photo_id: cmd.photo_id,
+            version: self.version.next(),
+        }])
+    }
+}
+
+impl Command<SetCostumeCategory> for CostumeAggregate {
+    type Error = CostumeError;
+    fn handle(
+        &self,
+        cmd: SetCostumeCategory,
+        _ctx: Context<'_, Self>,
+    ) -> Result<Vec<Self::Event>, Self::Error> {
+        if cmd.version != self.version {
+            return Err(CostumeError::VersionMismatch {
+                expected: cmd.version,
+                actual: self.version,
+            });
+        }
+        // State-based no-op (issue #515 precedent): setting the category the
+        // costume already carries (or clearing an already-empty one) emits no
+        // event — re-dispatched commands are idempotent successes, and the
+        // caller's version fence still matches. The season-scope invariant
+        // (category season ∈ repertoire ∪ season(character)) is validated at
+        // the API edge (409 costume-category.season-mismatch); the
+        // scope-free aggregate cannot check it.
+        if self.category_id == cmd.category_id {
+            return Ok(vec![]);
+        }
+        Ok(vec![CostumeEvent::CostumeCategorySet {
+            id: self.id,
+            category_id: cmd.category_id,
             version: self.version.next(),
         }])
     }
