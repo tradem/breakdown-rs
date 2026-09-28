@@ -8,6 +8,10 @@ part of 'costume_view.dart';
 
 class _$CostumeView extends CostumeView {
   @override
+  final String? categoryId;
+  @override
+  final String? categoryName;
+  @override
   final String? characterId;
   @override
   final BuiltList<CostumeDetailView> details;
@@ -26,7 +30,9 @@ class _$CostumeView extends CostumeView {
       (CostumeViewBuilder()..update(updates))._build();
 
   _$CostumeView._(
-      {this.characterId,
+      {this.categoryId,
+      this.categoryName,
+      this.characterId,
       required this.details,
       required this.id,
       required this.notes,
@@ -45,6 +51,8 @@ class _$CostumeView extends CostumeView {
   bool operator ==(Object other) {
     if (identical(other, this)) return true;
     return other is CostumeView &&
+        categoryId == other.categoryId &&
+        categoryName == other.categoryName &&
         characterId == other.characterId &&
         details == other.details &&
         id == other.id &&
@@ -57,6 +65,8 @@ class _$CostumeView extends CostumeView {
   @override
   int get hashCode {
     var _$hash = 0;
+    _$hash = $jc(_$hash, categoryId.hashCode);
+    _$hash = $jc(_$hash, categoryName.hashCode);
     _$hash = $jc(_$hash, characterId.hashCode);
     _$hash = $jc(_$hash, details.hashCode);
     _$hash = $jc(_$hash, id.hashCode);
@@ -71,6 +81,8 @@ class _$CostumeView extends CostumeView {
   @override
   String toString() {
     return (newBuiltValueToStringHelper(r'CostumeView')
+          ..add('categoryId', categoryId)
+          ..add('categoryName', categoryName)
           ..add('characterId', characterId)
           ..add('details', details)
           ..add('id', id)
@@ -84,6 +96,14 @@ class _$CostumeView extends CostumeView {
 
 class CostumeViewBuilder implements Builder<CostumeView, CostumeViewBuilder> {
   _$CostumeView? _$v;
+
+  String? _categoryId;
+  String? get categoryId => _$this._categoryId;
+  set categoryId(String? categoryId) => _$this._categoryId = categoryId;
+
+  String? _categoryName;
+  String? get categoryName => _$this._categoryName;
+  set categoryName(String? categoryName) => _$this._categoryName = categoryName;
 
   String? _characterId;
   String? get characterId => _$this._characterId;
@@ -123,6 +143,8 @@ class CostumeViewBuilder implements Builder<CostumeView, CostumeViewBuilder> {
   CostumeViewBuilder get _$this {
     final $v = _$v;
     if ($v != null) {
+      _categoryId = $v.categoryId;
+      _categoryName = $v.categoryName;
       _characterId = $v.characterId;
       _details = $v.details.toBuilder();
       _id = $v.id;
@@ -153,6 +175,8 @@ class CostumeViewBuilder implements Builder<CostumeView, CostumeViewBuilder> {
     try {
       _$result = _$v ??
           _$CostumeView._(
+            categoryId: categoryId,
+            categoryName: categoryName,
             characterId: characterId,
             details: details.build(),
             id: BuiltValueNullFieldError.checkNotNull(id, r'CostumeView', 'id'),

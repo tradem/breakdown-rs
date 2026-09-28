@@ -87,6 +87,9 @@ problem-costume-category-archived =
 problem-costume-category-not-found =
     Costume category not found.
 
+problem-costume-category-season-mismatch =
+    The costume category belongs to a season outside this costume's repertoire and character season.
+
 problem-costume-category-validation =
     The costume category request is not valid.
 

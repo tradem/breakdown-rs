@@ -4,7 +4,11 @@
 // Co-authored-by: deepseek-v4-flash (opencode-go)
 
 //! CostumeCategory projection handler: `CostumeCategoryEvent` -> `projection_costume_category`
-//! (+ denormalised `category_name` refresh on `projection_costume_detail`).
+//! (+ denormalised `category_name` refresh on `projection_costume`).
+//!
+//! Issue #543: the category lives on the costume, so rename propagation
+//! targets `projection_costume.category_name` (one row per costume) instead
+//! of the legacy `projection_costume_detail.category_name`.
 
 use super::PROJECTOR_VERSION;
 use breakdown_core::costume_category::aggregate::CostumeCategoryAggregate;
@@ -83,10 +87,14 @@ impl<'a> EntityEventHandler<CostumeCategoryAggregate, Transaction<'a, Postgres>>
                 .execute(&mut **ctx)
                 .await?;
 
-                // Refresh the denormalised name on every referencing detail.
+                // Refresh the denormalised name on every costume holding the
+                // category (issue #543: the category moved from the detail to
+                // the costume; the legacy `projection_costume_detail.category_name`
+                // columns are frozen at their last replayed value and cleaned
+                // up by a later migration).
                 sqlx::query(
                     r#"
-                    UPDATE projection_costume_detail
+                    UPDATE projection_costume
                     SET category_name = $1
                     WHERE category_id = $2
                     "#,
@@ -130,8 +138,10 @@ impl<'a> EntityEventHandler<CostumeCategoryAggregate, Transaction<'a, Postgres>>
                 .bind(updated_at)
                 .execute(&mut **ctx)
                 .await?;
-                // Historical detail references keep their last-known
+                // Historical costume references keep their last-known
                 // `category_name`; we deliberately do NOT null them out.
+                // (Legacy `projection_costume_detail.category_name` rows are
+                // likewise frozen — issue #543.)
             }
         }
 

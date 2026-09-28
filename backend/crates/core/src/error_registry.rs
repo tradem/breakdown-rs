@@ -36,7 +36,7 @@ pub const PROBLEM_DOCS_BASE: &str = "https://docs.breakdown.example";
 /// Kept in sync with the `problem_codes!` invocation below by a compile-time
 /// assertion — adding or removing a code without deliberately updating this
 /// count fails the build (issue #232).
-const PROBLEM_CODE_COUNT: usize = 86;
+const PROBLEM_CODE_COUNT: usize = 87;
 
 /// One registered problem code (ADR-031 D2/D4).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -508,6 +508,17 @@ problem_codes! {
         status: 409,
         title: "Costume category is archived",
         extensions: &["id"],
+    },
+
+    /// Conflict: the category belongs to a season outside the costume's
+    /// repertoire ∪ character season (issue #543 invariant, pre-checked at
+    /// the API edge before dispatch). `category_id` is S0 — client-supplied
+    /// in the request body.
+    COSTUME_CATEGORY_SEASON_MISMATCH {
+        code: "costume-category.season-mismatch",
+        status: 409,
+        title: "Costume category from a foreign season",
+        extensions: &["category_id"],
     },
 
     COSTUME_CATEGORY_VALIDATION {

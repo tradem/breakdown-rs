@@ -416,7 +416,16 @@ class $$ProbeRowsV2TableTableManager
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0
-              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .map(
+                (e) => (
+                  e.readTable<$ProbeRowsV2Table, ProbeRowsV2Data>(table),
+                  BaseReferences<
+                    _$ProbeDatabaseV2,
+                    $ProbeRowsV2Table,
+                    ProbeRowsV2Data
+                  >(db, table, e),
+                ),
+              )
               .toList(),
           prefetchHooksCallback: null,
         ),

@@ -87,6 +87,9 @@ problem-costume-category-archived =
 problem-costume-category-not-found =
     Kostümkategorie nicht gefunden.
 
+problem-costume-category-season-mismatch =
+    Die Kostümkategorie gehört zu einer Staffel außerhalb des Repertoires und der Charakter-Staffel dieses Kostüms.
+
 problem-costume-category-validation =
     Die Kostümkategorie-Anfrage ist nicht gültig.
 

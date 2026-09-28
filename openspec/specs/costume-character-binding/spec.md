@@ -4,18 +4,18 @@
 TBD - created by archiving change introduce-season-block-episode-hierarchy. Update Purpose after archive.
 ## Requirements
 ### Requirement: Costume is scope-free
-A `Costume` SHALL NOT reference any production-level scope (`ProjectId`, `SeasonId`, `BlockId`, or `EpisodeId`). A Costume SHALL carry only `character_id: Option<Uuid>` as its binding to the domain. The prior `project_id: ProjectId` SHALL be removed entirely from the Costume context.
+A `Costume` SHALL NOT reference any production-level scope (`ProjectId`, `SeasonId`, `BlockId`, or `EpisodeId`). A Costume SHALL carry `character_id: Option<Uuid>` and `category_id: Option<CostumeCategoryId>` as its bindings to the domain (issue #543: the n:1 category reference is structurally identical to `character_id` — both are season-scoped aggregates referenced from the scope-free costume, both resolved by join in the read model). The prior `project_id: ProjectId` SHALL be removed entirely from the Costume context.
 
 #### Scenario: Creating a scope-free costume
 - **WHEN** a `CreateCostume` command is dispatched to a new Costume stream
 - **THEN** the aggregate SHALL emit `CostumeCreated { id, character_id, notes, details, photos, version }` and SHALL NOT carry any `project_id` field
 
-### Requirement: Costume binding lives only on character_id
-Assignment of a Costume SHALL be expressed solely via the `character_id` link (the existing `CostumeAssignedToCharacter` / `CostumeUnassigned` events, unchanged in shape). Filtering Costumes by production level SHALL be performed in the read model by joining `Costume.character_id → Character.season_id` (or further to Episode via appearances), not by any scope field on the Costume itself. This holds for AI-created costumes as well: the import path SHALL NOT introduce a season, episode or scene scope on the Costume, and an AI-created costume SHALL be reachable through exactly the same queries as a manually created one.
+### Requirement: Costume binding lives on character_id and category_id
+Assignment of a Costume SHALL be expressed via the `character_id` link (the existing `CostumeAssignedToCharacter` / `CostumeUnassigned` events, unchanged in shape); its single vocabulary category via the `category_id` link (`SetCostumeCategory` / `CostumeCategorySet`, issue #543). Neither field is a scope column: filtering Costumes by production level SHALL be performed in the read model by joining `Costume.character_id → Character.season_id` (or further to Episode via appearances), and which season's category vocabulary applies SHALL be derived from the same join — never by any scope field on the Costume itself. This holds for AI-created costumes as well: the import path SHALL NOT introduce a season, episode or scene scope on the Costume, and an AI-created costume SHALL be reachable through exactly the same queries as a manually created one. An imported costume is deliberately left **uncategorised** (the import chain never dispatches `SetCostumeCategory`) — users categorise it later through the costume category picker.
 
 #### Scenario: Filtering costumes by season
 - **WHEN** a query requests all Costumes for a given Season
-- **THEN** the read model SHALL resolve them by joining `costumes.character_id` to `characters.season_id`; the Costume aggregate and Costumes events SHALL carry no Season reference
+- **THEN** the read model SHALL resolve them by joining `costumes.character_id` to `characters.season_id` (and/or the repertoire rows); the Costume aggregate and Costumes events SHALL carry no Season reference
 
 #### Scenario: Assigning a costume to a character
 - **WHEN** an `AssignCostumeToCharacter { id, character_id, version }` command targets an unassigned Costume
@@ -43,7 +43,8 @@ that cannot be bound from silently existing without an owner.
 - **AND** `UpdateCostumeNotes` SHALL carry the extracted description
 - **AND** `AssignCostumeToCharacter` SHALL bind it to that figure's `Character`
 - **AND** the resulting `Costume` SHALL carry only `character_id` as its scope
-  link, unchanged from the manual creation path
+  link (`category_id` stays unset — the import is deliberately
+  category-less), unchanged from the manual creation path
 
 #### Scenario: Binding a freshly created costume uses the created version
 - **WHEN** the apply binds a costume it has just created
@@ -60,9 +61,9 @@ that cannot be bound from silently existing without an owner.
   creating a second one
 
 ### Requirement: Costume read model omits project_id
-The costume projection SHALL store `character_id` and SHALL NOT store any `project_id`, `season_id`, `block_id`, or `episode_id` column. Existing queries by `project_id` SHALL be removed.
+The costume projection SHALL store `character_id` and the costume-level category (`category_id`, `category_name` — issue #543) and SHALL NOT store any `project_id`, `season_id`, `block_id`, or `episode_id` column. Existing queries by `project_id` SHALL be removed.
 
 #### Scenario: Projection schema
 - **WHEN** the costume projection schema is inspected
-- **THEN** it SHALL contain `id`, `character_id`, `notes`, `details`, `photos`, `version` and SHALL NOT contain any production-scope identifier
+- **THEN** it SHALL contain `id`, `character_id`, `category_id`, `category_name`, `notes`, `details`, `photos`, `version` and SHALL NOT contain any production-scope identifier
 

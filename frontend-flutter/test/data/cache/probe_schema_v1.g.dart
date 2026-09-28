@@ -332,7 +332,16 @@ class $$ProbeRowsV1TableTableManager
             Value<int> rowid = const Value.absent(),
           }) => ProbeRowsV1Companion.insert(id: id, name: name, rowid: rowid),
           withReferenceMapper: (p0) => p0
-              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .map(
+                (e) => (
+                  e.readTable<$ProbeRowsV1Table, ProbeRowsV1Data>(table),
+                  BaseReferences<
+                    _$ProbeDatabaseV1,
+                    $ProbeRowsV1Table,
+                    ProbeRowsV1Data
+                  >(db, table, e),
+                ),
+              )
               .toList(),
           prefetchHooksCallback: null,
         ),

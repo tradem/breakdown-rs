@@ -37,6 +37,14 @@ class CostumeCacheRows extends Table {
   /// Mirrors `CostumeView.characterId` (nullable assignment).
   TextColumn get characterId => text().nullable()();
 
+  /// Mirrors `CostumeView.categoryId` (issue #543: the costume's single
+  /// category — n:1 into the season vocabulary; nullable = uncategorised).
+  TextColumn get categoryId => text().nullable()();
+
+  /// Mirrors `CostumeView.categoryName` (denormalised by the backend
+  /// projector; nullable on a projection miss).
+  TextColumn get categoryName => text().nullable()();
+
   /// Mirrors `CostumeView.notes`.
   TextColumn get notes => text()();
 

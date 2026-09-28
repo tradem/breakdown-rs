@@ -5,6 +5,14 @@
 // Co-authored-by: deepseek-v4-flash (opencode-go)
 
 //! Costume projection handler: `CostumeEvent` -> `projection_costume` + details + photos.
+//!
+//! Issue #543: the costume carries ONE category (`projection_costume.category_id`).
+//! Legacy events with categorized details derive it via the same first-wins rule
+//! the aggregate applies in `CostumeAggregate::apply` — the projection stays a
+//! pure function of the events (first detail category in event order, within one
+//! event: `detail_id` ASC), so aggregate and projection never diverge on a replay.
+//! Legacy detail columns (`projection_costume_detail.category_id/category_name`)
+//! keep being written for replay compatibility; cleanup is a later migration.
 
 use super::PROJECTOR_VERSION;
 use breakdown_core::costume::aggregate::CostumeAggregate;
@@ -43,13 +51,35 @@ impl<'a> EntityEventHandler<CostumeAggregate, Transaction<'a, Postgres>> for Cos
                 version,
             } => {
                 let version = version.0 as i64;
+                // Replay-derivation rule (issue #543): the first detail
+                // category (lowest `detail_id`) becomes the costume's
+                // category while it has none. Identical to
+                // `derive_category_id` in the aggregate so a replayed legacy
+                // stream yields the same value in aggregate and projection.
+                let derived_category = details
+                    .iter()
+                    .filter(|d| d.category_id.is_some())
+                    .min_by_key(|d| d.id)
+                    .and_then(|d| d.category_id);
+                let derived_category_name =
+                    Self::resolve_category_name(ctx, derived_category.map(|c| c.0)).await?;
+                if let Some(category_id) = derived_category {
+                    tracing::info!(
+                        costume_id = %id,
+                        category_id = %category_id.0,
+                        "derived costume category from legacy detail event (issue #543 first-wins rule)"
+                    );
+                }
                 sqlx::query(
                     r#"
                     INSERT INTO projection_costume
-                        (id, character_id, notes, version, projector_version, updated_at)
-                    VALUES ($1, $2, $3, $4, $5, $6)
+                        (id, character_id, category_id, category_name, notes, version,
+                         projector_version, updated_at)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
                     ON CONFLICT (id) DO UPDATE SET
                         character_id = EXCLUDED.character_id,
+                        category_id = EXCLUDED.category_id,
+                        category_name = EXCLUDED.category_name,
                         notes = EXCLUDED.notes,
                         version = EXCLUDED.version,
                         projector_version = EXCLUDED.projector_version,
@@ -58,6 +88,8 @@ impl<'a> EntityEventHandler<CostumeAggregate, Transaction<'a, Postgres>> for Cos
                 )
                 .bind(id)
                 .bind(character_id)
+                .bind(derived_category.map(|c| c.0))
+                .bind(derived_category_name)
                 .bind(notes)
                 .bind(version)
                 .bind(PROJECTOR_VERSION)
@@ -201,6 +233,34 @@ impl<'a> EntityEventHandler<CostumeAggregate, Transaction<'a, Postgres>> for Cos
                 .execute(&mut **ctx)
                 .await?;
 
+                // Replay-derivation rule (issue #543): a categorized detail
+                // fills the costume's still-empty category (first-wins —
+                // `WHERE category_id IS NULL` makes the SQL deterministic in
+                // event order, exactly like the aggregate's `apply`).
+                if let Some(category_id) = detail.category_id {
+                    let costume_category_name =
+                        Self::resolve_category_name(ctx, Some(category_id.0)).await?;
+                    if costume_category_name.is_none() {
+                        tracing::info!(
+                            costume_id = %id,
+                            category_id = %category_id.0,
+                            "derived costume category from a categorized detail; category not projected yet (dangling reference stays nameless)"
+                        );
+                    }
+                    sqlx::query(
+                        r#"
+                        UPDATE projection_costume
+                        SET category_id = $2, category_name = $3
+                        WHERE id = $1 AND category_id IS NULL
+                        "#,
+                    )
+                    .bind(id)
+                    .bind(category_id.0)
+                    .bind(costume_category_name)
+                    .execute(&mut **ctx)
+                    .await?;
+                }
+
                 Self::touch_parent(ctx, id, version, updated_at).await?;
             }
             CostumeEvent::DetailRemoved {
@@ -260,6 +320,31 @@ impl<'a> EntityEventHandler<CostumeAggregate, Transaction<'a, Postgres>> for Cos
                 .await?;
 
                 Self::touch_parent(ctx, id, version, updated_at).await?;
+            }
+            CostumeEvent::CostumeCategorySet {
+                id,
+                category_id,
+                version,
+            } => {
+                let version = version.0 as i64;
+                // Best-effort name resolution (audit metadata never blocks):
+                // a dangling reference stays `category_name = NULL`.
+                let category_name =
+                    Self::resolve_category_name(ctx, category_id.map(|c| c.0)).await?;
+                sqlx::query(
+                    r#"
+                    UPDATE projection_costume
+                    SET category_id = $2, category_name = $3, version = $4, updated_at = $5
+                    WHERE id = $1
+                    "#,
+                )
+                .bind(id)
+                .bind(category_id.map(|c| c.0))
+                .bind(category_name)
+                .bind(version)
+                .bind(updated_at)
+                .execute(&mut **ctx)
+                .await?;
             }
         }
 

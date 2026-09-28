@@ -128,6 +128,11 @@ String _$aiImportRepositoryHash() =>
 /// wire values only (never the vault reference, never prompt texts). `null`
 /// when no configuration exists or discovery fails: the disclosure screen
 /// renders its honest "unconfigured" state and NEVER invents a name.
+///
+/// The list contract only guarantees NEWEST-FIRST ordering, so a revoked
+/// configuration can head the list while an active one follows. Revoked
+/// entries are filtered before the first pick — otherwise the disclosure
+/// could name a configuration the caller can no longer use.
 
 @ProviderFor(configuredAiNaming)
 final configuredAiNamingProvider = ConfiguredAiNamingProvider._();
@@ -137,6 +142,11 @@ final configuredAiNamingProvider = ConfiguredAiNamingProvider._();
 /// wire values only (never the vault reference, never prompt texts). `null`
 /// when no configuration exists or discovery fails: the disclosure screen
 /// renders its honest "unconfigured" state and NEVER invents a name.
+///
+/// The list contract only guarantees NEWEST-FIRST ordering, so a revoked
+/// configuration can head the list while an active one follows. Revoked
+/// entries are filtered before the first pick — otherwise the disclosure
+/// could name a configuration the caller can no longer use.
 
 final class ConfiguredAiNamingProvider
     extends
@@ -151,6 +161,11 @@ final class ConfiguredAiNamingProvider
   /// wire values only (never the vault reference, never prompt texts). `null`
   /// when no configuration exists or discovery fails: the disclosure screen
   /// renders its honest "unconfigured" state and NEVER invents a name.
+  ///
+  /// The list contract only guarantees NEWEST-FIRST ordering, so a revoked
+  /// configuration can head the list while an active one follows. Revoked
+  /// entries are filtered before the first pick — otherwise the disclosure
+  /// could name a configuration the caller can no longer use.
   ConfiguredAiNamingProvider._()
     : super(
         from: null,
@@ -178,4 +193,4 @@ final class ConfiguredAiNamingProvider
 }
 
 String _$configuredAiNamingHash() =>
-    r'bff5d1984b6df8638c56b0249a75445dd73386ed';
+    r'24b9281d35b1453eab89501a3d0c638ac85dc30d';

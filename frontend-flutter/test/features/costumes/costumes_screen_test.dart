@@ -57,6 +57,7 @@ CostumeView _costume(
   String? characterId,
   int version = 1,
   String notes = '',
+  String? categoryName,
   List<CostumeDetailView> details = const [],
   List<CostumePhotoView> photos = const [],
 }) => CostumeView(
@@ -64,6 +65,8 @@ CostumeView _costume(
     ..id = id
     ..characterId = characterId
     ..notes = notes.isEmpty ? 'Costume $id' : notes
+    // Issue #543: the category is a COSTUME-level field.
+    ..categoryName = categoryName
     ..details.replace(BuiltList<CostumeDetailView>(details))
     ..photos.replace(BuiltList<CostumePhotoView>(photos))
     ..updatedAt = DateTime.utc(2026, 1, 1)
@@ -336,13 +339,15 @@ void main() {
         initialRows: [
           _costume(
             'c-1',
+            // Issue #543: the tile's category comes from the costume, not
+            // from `details.first`.
+            categoryName: 'Jacke',
             details: [
               CostumeDetailView(
                 (b) => b
                   ..id = 'detail-1'
                   ..subject = 'Rote Lederjacke'
-                  ..text = 'Aus roter Lederware'
-                  ..categoryName = 'Jacke',
+                  ..text = 'Aus roter Lederware',
               ),
             ],
           ),

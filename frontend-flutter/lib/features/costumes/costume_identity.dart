@@ -39,7 +39,10 @@ CostumeTileIdentity costumeTileIdentity(CostumeView costume) {
   return CostumeTileIdentity(
     subject: detail?.subject,
     text: detail?.text ?? '',
-    categoryName: detail?.categoryName,
+    // Issue #543: the category belongs to the COSTUME now — the grid tile
+    // reads it from the view itself, never from `details.first` (which was
+    // the one-deep model defect this issue fixes).
+    categoryName: costume.categoryName,
     photo: thumbnail,
   );
 }

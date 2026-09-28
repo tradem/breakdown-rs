@@ -176,14 +176,14 @@ void main() {
         (b) => b
           ..id = 'c-1'
           ..notes = 'n'
+          ..categoryName = 'Outerwear'
           ..details.replace(
             BuiltList<CostumeDetailView>([
               CostumeDetailView(
                 (d) => d
                   ..id = 'd-1'
                   ..subject = 'Jacket'
-                  ..text = 'Red leather'
-                  ..categoryName = 'Outerwear',
+                  ..text = 'Red leather',
               ),
             ]),
           )
@@ -219,7 +219,8 @@ void main() {
       await dao.applySnapshotForSeason('s-1', [view], DateTime.utc(2026));
       final read = await dao.readBySeason('s-1');
       expect(read.single.details.single.text, 'Red leather');
-      expect(read.single.details.single.categoryName, 'Outerwear');
+      // Issue #543: the category round-trips at COSTUME level.
+      expect(read.single.categoryName, 'Outerwear');
       expect(read.single.photos.single.contentType, 'image/jpeg');
       expect(read.single.photos.single.variants.single.sizeBytes, 5);
       await db.close();
@@ -306,20 +307,15 @@ void main() {
         pendingId: 'pending-detail-2',
         subject: 'Jacket',
         text: 'Red leather',
-        categoryId: 'cat-1',
-        categoryName: 'Outerwear',
       );
       final second = optimisticDetailPlaceholder(
         pendingId: 'pending-detail-3',
         subject: 'Jacket',
         text: 'Red leather',
-        categoryId: 'cat-1',
-        categoryName: 'Outerwear',
       );
       // Detail cards key on the id: distinct ids never collide.
       expect(first.id, isNot(second.id));
       expect(first.text, second.text);
-      expect(first.categoryName, 'Outerwear');
     });
   });
 

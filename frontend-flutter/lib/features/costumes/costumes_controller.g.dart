@@ -879,7 +879,7 @@ final class CostumesControllerProvider
 }
 
 String _$costumesControllerHash() =>
-    r'7f25a3892f358f7d63c565a0e67332f75bf3004d';
+    r'b52bd24b73ec83ab731c2ce68ace730f884dc3b9';
 
 /// `CostumesController(seasonId)` on the shared reconciliation runner.
 

@@ -39,8 +39,8 @@ use breakdown_core::character::commands::{CreateCharacter, UpdateContactInfo, Up
 use breakdown_core::character::ports::CharacterCommands;
 use breakdown_core::costume::aggregate::CostumeAggregate;
 use breakdown_core::costume::commands::{
-    AddDetail, AssignCostumeToCharacter, CreateCostume, LinkPhoto, RemoveDetail, UnassignCostume,
-    UnlinkPhoto, UpdateCostumeNotes,
+    AddDetail, AssignCostumeToCharacter, CreateCostume, LinkPhoto, RemoveDetail,
+    SetCostumeCategory, UnassignCostume, UnlinkPhoto, UpdateCostumeNotes,
 };
 use breakdown_core::costume::ports::CostumeCommands;
 use breakdown_core::costume_category::aggregate::CostumeCategoryAggregate;
@@ -653,6 +653,37 @@ impl CostumeCommands for CostumeCommandsImpl {
             })
             .await;
         map_version_only(result)
+    }
+
+    async fn set_category(
+        &self,
+        actor: UserId,
+        cmd: SetCostumeCategory,
+    ) -> Result<AggregateVersion, DomainError> {
+        let id = cmd.id;
+        let version = cmd.version;
+        check_nonzero_version(version)?;
+        let series_id = cmd.series_id;
+        let result = CostumeAggregate::execute(&self.cmd_service, id, cmd)
+            .expected_version(ExpectedVersion::Exact(domain_to_stream_checked(version)?))
+            .metadata(EventMetadata {
+                actor: Some(actor),
+                provenance: Provenance::Human,
+                series_id,
+            })
+            .await;
+        // Issue #543 state-based no-op: the aggregate emits NO event when the
+        // target category equals the current one (re-dispatch, or clearing an
+        // already-empty costume). kameo_es reports that as
+        // `ExecuteResult::Executed(vec![])` — NOT as `Idempotent` — which
+        // `map_version_only` would turn into a 409 "command produced no
+        // events". The version fence matched, so the aggregate is exactly at
+        // the caller's version: this is a success and the version is
+        // unchanged (CodeRabbit review).
+        match result {
+            Ok(ExecuteResult::Executed(events)) if events.is_empty() => Ok(version),
+            other => map_version_only(other),
+        }
     }
 
     async fn link_photo(

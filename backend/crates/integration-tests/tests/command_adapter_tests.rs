@@ -28,7 +28,9 @@ use breakdown_core::character::category::CharacterCategory;
 use breakdown_core::character::commands::{CreateCharacter, UpdateContactInfo, UpdateMeasurements};
 use breakdown_core::character::events::{CharacterMeasurements, ContactInfo};
 use breakdown_core::character::ports::{CharacterCommands, CharacterRepository};
-use breakdown_core::costume::commands::{AssignCostumeToCharacter, CreateCostume};
+use breakdown_core::costume::commands::{
+    AssignCostumeToCharacter, CreateCostume, SetCostumeCategory,
+};
 use breakdown_core::costume::events::CostumeDetail;
 use breakdown_core::costume::ports::{CostumeCommands, CostumeRepository};
 use breakdown_core::episode::commands::CreateEpisode;
@@ -42,7 +44,8 @@ use breakdown_core::scene_shoot::ports::SceneShootCommands;
 use breakdown_core::season::commands::CreateSeason;
 use breakdown_core::season::ports::{SeasonCommands, SeasonRepository};
 use breakdown_core::shared::{
-    BlockId, EpisodeId, LexicalSortKey, SceneShootId, SeasonId, SeriesId, ShootingDayId,
+    BlockId, CostumeCategoryId, EpisodeId, LexicalSortKey, SceneShootId, SeasonId, SeriesId,
+    ShootingDayId,
 };
 use breakdown_core::shooting_day::commands::{CreateShootingDay, WrapShootingDay};
 use breakdown_core::shooting_day::events::ShootingDaySource;
@@ -590,6 +593,106 @@ async fn costume_notes() -> Result<()> {
         costume_repo.find_by_id(costume_id).await?.notes,
         "Blue dress"
     );
+    Ok(())
+}
+
+#[tokio::test]
+async fn costume_set_category_noop_redelivery_succeeds() -> Result<()> {
+    // Issue #543 state-based no-op, through the PRODUCTION adapter
+    // (CodeRabbit review): re-setting the category the costume already
+    // carries emits no event; the adapter must return Ok with the unchanged
+    // version, never a 409 "command produced no events".
+    let (pool, cmd_svc, _pg, _sierra) = init().await?;
+    let costume_cmd = infra::event_store::CostumeCommandsImpl::new(cmd_svc);
+    let costume_repo = infra::queries::CostumeRepositoryImpl::new(pool.clone());
+
+    let costume_id = Uuid::now_v7();
+    let category_id = CostumeCategoryId::new();
+    let (_id, ver) = costume_cmd
+        .create(
+            test_user(),
+            CreateCostume {
+                id: costume_id,
+                season_id: None,
+                series_id: None,
+            },
+        )
+        .await?;
+
+    let ver2 = costume_cmd
+        .set_category(
+            test_user(),
+            SetCostumeCategory {
+                id: costume_id,
+                category_id: Some(category_id),
+                series_id: None,
+                version: ver,
+            },
+        )
+        .await?;
+    assert_eq!(ver2, ver.next());
+
+    // Re-set the SAME category with the fence the previous ack returned —
+    // the aggregate is a no-op; the adapter must surface a success.
+    let ver3 = costume_cmd
+        .set_category(
+            test_user(),
+            SetCostumeCategory {
+                id: costume_id,
+                category_id: Some(category_id),
+                series_id: None,
+                version: ver2,
+            },
+        )
+        .await?;
+    assert_eq!(ver3, ver2, "no-op returns the unchanged version");
+
+    // The projection still carries the category, unchanged.
+    await_proj_version(&pool, "projection_costume", costume_id, ver2.0 as u64).await;
+    let view = costume_repo.find_by_id(costume_id).await?;
+    assert_eq!(view.category_id, Some(category_id));
+    Ok(())
+}
+
+#[tokio::test]
+async fn costume_set_category_clear_empty_succeeds() -> Result<()> {
+    // Issue #543: clearing an already-uncategorised costume is likewise a
+    // state-based no-op and must succeed through the production adapter.
+    let (pool, cmd_svc, _pg, _sierra) = init().await?;
+    let costume_cmd = infra::event_store::CostumeCommandsImpl::new(cmd_svc);
+    let costume_repo = infra::queries::CostumeRepositoryImpl::new(pool.clone());
+
+    let costume_id = Uuid::now_v7();
+    let (_id, ver) = costume_cmd
+        .create(
+            test_user(),
+            CreateCostume {
+                id: costume_id,
+                season_id: None,
+                series_id: None,
+            },
+        )
+        .await?;
+
+    let ver2 = costume_cmd
+        .set_category(
+            test_user(),
+            SetCostumeCategory {
+                id: costume_id,
+                category_id: None,
+                series_id: None,
+                version: ver,
+            },
+        )
+        .await?;
+    assert_eq!(
+        ver2, ver,
+        "clearing an empty category is an unchanged no-op"
+    );
+
+    await_proj_version(&pool, "projection_costume", costume_id, ver.0).await;
+    let view = costume_repo.find_by_id(costume_id).await?;
+    assert_eq!(view.category_id, None);
     Ok(())
 }
 

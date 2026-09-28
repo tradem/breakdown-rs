@@ -1,0 +1,10 @@
+{
+  "code": "costume-category.season-mismatch",
+  "detail": "Die Kostümkategorie gehört zu einer Staffel außerhalb des Repertoires und der Charakter-Staffel dieses Kostüms.",
+  "extensions": {
+    "category_id": "00000000-0000-0000-0000-000000000001"
+  },
+  "status": 409,
+  "title": "Costume category from a foreign season",
+  "type": "https://docs.breakdown.example/problems/costume-category.season-mismatch"
+}

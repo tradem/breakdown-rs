@@ -3014,6 +3014,28 @@ class $CostumeCacheRowsTable extends CostumeCacheRows
     type: DriftSqlType.string,
     requiredDuringInsert: false,
   );
+  static const VerificationMeta _categoryIdMeta = const VerificationMeta(
+    'categoryId',
+  );
+  @override
+  late final GeneratedColumn<String> categoryId = GeneratedColumn<String>(
+    'category_id',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _categoryNameMeta = const VerificationMeta(
+    'categoryName',
+  );
+  @override
+  late final GeneratedColumn<String> categoryName = GeneratedColumn<String>(
+    'category_name',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
   static const VerificationMeta _notesMeta = const VerificationMeta('notes');
   @override
   late final GeneratedColumn<String> notes = GeneratedColumn<String>(
@@ -3094,6 +3116,8 @@ class $CostumeCacheRowsTable extends CostumeCacheRows
     id,
     seasonId,
     characterId,
+    categoryId,
+    categoryName,
     notes,
     detailsJson,
     photosJson,
@@ -3133,6 +3157,21 @@ class $CostumeCacheRowsTable extends CostumeCacheRows
         characterId.isAcceptableOrUnknown(
           data['character_id']!,
           _characterIdMeta,
+        ),
+      );
+    }
+    if (data.containsKey('category_id')) {
+      context.handle(
+        _categoryIdMeta,
+        categoryId.isAcceptableOrUnknown(data['category_id']!, _categoryIdMeta),
+      );
+    }
+    if (data.containsKey('category_name')) {
+      context.handle(
+        _categoryNameMeta,
+        categoryName.isAcceptableOrUnknown(
+          data['category_name']!,
+          _categoryNameMeta,
         ),
       );
     }
@@ -3219,6 +3258,14 @@ class $CostumeCacheRowsTable extends CostumeCacheRows
         DriftSqlType.string,
         data['${effectivePrefix}character_id'],
       ),
+      categoryId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}category_id'],
+      ),
+      categoryName: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}category_name'],
+      ),
       notes: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
         data['${effectivePrefix}notes'],
@@ -3266,6 +3313,14 @@ class CostumeCacheRow extends DataClass implements Insertable<CostumeCacheRow> {
   /// Mirrors `CostumeView.characterId` (nullable assignment).
   final String? characterId;
 
+  /// Mirrors `CostumeView.categoryId` (issue #543: the costume's single
+  /// category — n:1 into the season vocabulary; nullable = uncategorised).
+  final String? categoryId;
+
+  /// Mirrors `CostumeView.categoryName` (denormalised by the backend
+  /// projector; nullable on a projection miss).
+  final String? categoryName;
+
   /// Mirrors `CostumeView.notes`.
   final String notes;
 
@@ -3296,6 +3351,8 @@ class CostumeCacheRow extends DataClass implements Insertable<CostumeCacheRow> {
     required this.id,
     required this.seasonId,
     this.characterId,
+    this.categoryId,
+    this.categoryName,
     required this.notes,
     required this.detailsJson,
     required this.photosJson,
@@ -3311,6 +3368,12 @@ class CostumeCacheRow extends DataClass implements Insertable<CostumeCacheRow> {
     map['season_id'] = Variable<String>(seasonId);
     if (!nullToAbsent || characterId != null) {
       map['character_id'] = Variable<String>(characterId);
+    }
+    if (!nullToAbsent || categoryId != null) {
+      map['category_id'] = Variable<String>(categoryId);
+    }
+    if (!nullToAbsent || categoryName != null) {
+      map['category_name'] = Variable<String>(categoryName);
     }
     map['notes'] = Variable<String>(notes);
     map['details_json'] = Variable<String>(detailsJson);
@@ -3329,6 +3392,12 @@ class CostumeCacheRow extends DataClass implements Insertable<CostumeCacheRow> {
       characterId: characterId == null && nullToAbsent
           ? const Value.absent()
           : Value(characterId),
+      categoryId: categoryId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(categoryId),
+      categoryName: categoryName == null && nullToAbsent
+          ? const Value.absent()
+          : Value(categoryName),
       notes: Value(notes),
       detailsJson: Value(detailsJson),
       photosJson: Value(photosJson),
@@ -3348,6 +3417,8 @@ class CostumeCacheRow extends DataClass implements Insertable<CostumeCacheRow> {
       id: serializer.fromJson<String>(json['id']),
       seasonId: serializer.fromJson<String>(json['seasonId']),
       characterId: serializer.fromJson<String?>(json['characterId']),
+      categoryId: serializer.fromJson<String?>(json['categoryId']),
+      categoryName: serializer.fromJson<String?>(json['categoryName']),
       notes: serializer.fromJson<String>(json['notes']),
       detailsJson: serializer.fromJson<String>(json['detailsJson']),
       photosJson: serializer.fromJson<String>(json['photosJson']),
@@ -3364,6 +3435,8 @@ class CostumeCacheRow extends DataClass implements Insertable<CostumeCacheRow> {
       'id': serializer.toJson<String>(id),
       'seasonId': serializer.toJson<String>(seasonId),
       'characterId': serializer.toJson<String?>(characterId),
+      'categoryId': serializer.toJson<String?>(categoryId),
+      'categoryName': serializer.toJson<String?>(categoryName),
       'notes': serializer.toJson<String>(notes),
       'detailsJson': serializer.toJson<String>(detailsJson),
       'photosJson': serializer.toJson<String>(photosJson),
@@ -3378,6 +3451,8 @@ class CostumeCacheRow extends DataClass implements Insertable<CostumeCacheRow> {
     String? id,
     String? seasonId,
     Value<String?> characterId = const Value.absent(),
+    Value<String?> categoryId = const Value.absent(),
+    Value<String?> categoryName = const Value.absent(),
     String? notes,
     String? detailsJson,
     String? photosJson,
@@ -3389,6 +3464,8 @@ class CostumeCacheRow extends DataClass implements Insertable<CostumeCacheRow> {
     id: id ?? this.id,
     seasonId: seasonId ?? this.seasonId,
     characterId: characterId.present ? characterId.value : this.characterId,
+    categoryId: categoryId.present ? categoryId.value : this.categoryId,
+    categoryName: categoryName.present ? categoryName.value : this.categoryName,
     notes: notes ?? this.notes,
     detailsJson: detailsJson ?? this.detailsJson,
     photosJson: photosJson ?? this.photosJson,
@@ -3404,6 +3481,12 @@ class CostumeCacheRow extends DataClass implements Insertable<CostumeCacheRow> {
       characterId: data.characterId.present
           ? data.characterId.value
           : this.characterId,
+      categoryId: data.categoryId.present
+          ? data.categoryId.value
+          : this.categoryId,
+      categoryName: data.categoryName.present
+          ? data.categoryName.value
+          : this.categoryName,
       notes: data.notes.present ? data.notes.value : this.notes,
       detailsJson: data.detailsJson.present
           ? data.detailsJson.value
@@ -3426,6 +3509,8 @@ class CostumeCacheRow extends DataClass implements Insertable<CostumeCacheRow> {
           ..write('id: $id, ')
           ..write('seasonId: $seasonId, ')
           ..write('characterId: $characterId, ')
+          ..write('categoryId: $categoryId, ')
+          ..write('categoryName: $categoryName, ')
           ..write('notes: $notes, ')
           ..write('detailsJson: $detailsJson, ')
           ..write('photosJson: $photosJson, ')
@@ -3442,6 +3527,8 @@ class CostumeCacheRow extends DataClass implements Insertable<CostumeCacheRow> {
     id,
     seasonId,
     characterId,
+    categoryId,
+    categoryName,
     notes,
     detailsJson,
     photosJson,
@@ -3457,6 +3544,8 @@ class CostumeCacheRow extends DataClass implements Insertable<CostumeCacheRow> {
           other.id == this.id &&
           other.seasonId == this.seasonId &&
           other.characterId == this.characterId &&
+          other.categoryId == this.categoryId &&
+          other.categoryName == this.categoryName &&
           other.notes == this.notes &&
           other.detailsJson == this.detailsJson &&
           other.photosJson == this.photosJson &&
@@ -3470,6 +3559,8 @@ class CostumeCacheRowsCompanion extends UpdateCompanion<CostumeCacheRow> {
   final Value<String> id;
   final Value<String> seasonId;
   final Value<String?> characterId;
+  final Value<String?> categoryId;
+  final Value<String?> categoryName;
   final Value<String> notes;
   final Value<String> detailsJson;
   final Value<String> photosJson;
@@ -3482,6 +3573,8 @@ class CostumeCacheRowsCompanion extends UpdateCompanion<CostumeCacheRow> {
     this.id = const Value.absent(),
     this.seasonId = const Value.absent(),
     this.characterId = const Value.absent(),
+    this.categoryId = const Value.absent(),
+    this.categoryName = const Value.absent(),
     this.notes = const Value.absent(),
     this.detailsJson = const Value.absent(),
     this.photosJson = const Value.absent(),
@@ -3495,6 +3588,8 @@ class CostumeCacheRowsCompanion extends UpdateCompanion<CostumeCacheRow> {
     required String id,
     required String seasonId,
     this.characterId = const Value.absent(),
+    this.categoryId = const Value.absent(),
+    this.categoryName = const Value.absent(),
     required String notes,
     required String detailsJson,
     required String photosJson,
@@ -3516,6 +3611,8 @@ class CostumeCacheRowsCompanion extends UpdateCompanion<CostumeCacheRow> {
     Expression<String>? id,
     Expression<String>? seasonId,
     Expression<String>? characterId,
+    Expression<String>? categoryId,
+    Expression<String>? categoryName,
     Expression<String>? notes,
     Expression<String>? detailsJson,
     Expression<String>? photosJson,
@@ -3529,6 +3626,8 @@ class CostumeCacheRowsCompanion extends UpdateCompanion<CostumeCacheRow> {
       if (id != null) 'id': id,
       if (seasonId != null) 'season_id': seasonId,
       if (characterId != null) 'character_id': characterId,
+      if (categoryId != null) 'category_id': categoryId,
+      if (categoryName != null) 'category_name': categoryName,
       if (notes != null) 'notes': notes,
       if (detailsJson != null) 'details_json': detailsJson,
       if (photosJson != null) 'photos_json': photosJson,
@@ -3544,6 +3643,8 @@ class CostumeCacheRowsCompanion extends UpdateCompanion<CostumeCacheRow> {
     Value<String>? id,
     Value<String>? seasonId,
     Value<String?>? characterId,
+    Value<String?>? categoryId,
+    Value<String?>? categoryName,
     Value<String>? notes,
     Value<String>? detailsJson,
     Value<String>? photosJson,
@@ -3557,6 +3658,8 @@ class CostumeCacheRowsCompanion extends UpdateCompanion<CostumeCacheRow> {
       id: id ?? this.id,
       seasonId: seasonId ?? this.seasonId,
       characterId: characterId ?? this.characterId,
+      categoryId: categoryId ?? this.categoryId,
+      categoryName: categoryName ?? this.categoryName,
       notes: notes ?? this.notes,
       detailsJson: detailsJson ?? this.detailsJson,
       photosJson: photosJson ?? this.photosJson,
@@ -3579,6 +3682,12 @@ class CostumeCacheRowsCompanion extends UpdateCompanion<CostumeCacheRow> {
     }
     if (characterId.present) {
       map['character_id'] = Variable<String>(characterId.value);
+    }
+    if (categoryId.present) {
+      map['category_id'] = Variable<String>(categoryId.value);
+    }
+    if (categoryName.present) {
+      map['category_name'] = Variable<String>(categoryName.value);
     }
     if (notes.present) {
       map['notes'] = Variable<String>(notes.value);
@@ -3613,6 +3722,8 @@ class CostumeCacheRowsCompanion extends UpdateCompanion<CostumeCacheRow> {
           ..write('id: $id, ')
           ..write('seasonId: $seasonId, ')
           ..write('characterId: $characterId, ')
+          ..write('categoryId: $categoryId, ')
+          ..write('categoryName: $categoryName, ')
           ..write('notes: $notes, ')
           ..write('detailsJson: $detailsJson, ')
           ..write('photosJson: $photosJson, ')
@@ -8944,6 +9055,8 @@ typedef $$CostumeCacheRowsTableCreateCompanionBuilder =
       required String id,
       required String seasonId,
       Value<String?> characterId,
+      Value<String?> categoryId,
+      Value<String?> categoryName,
       required String notes,
       required String detailsJson,
       required String photosJson,
@@ -8958,6 +9071,8 @@ typedef $$CostumeCacheRowsTableUpdateCompanionBuilder =
       Value<String> id,
       Value<String> seasonId,
       Value<String?> characterId,
+      Value<String?> categoryId,
+      Value<String?> categoryName,
       Value<String> notes,
       Value<String> detailsJson,
       Value<String> photosJson,
@@ -8989,6 +9104,16 @@ class $$CostumeCacheRowsTableFilterComposer
 
   ColumnFilters<String> get characterId => $composableBuilder(
     column: $table.characterId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get categoryId => $composableBuilder(
+    column: $table.categoryId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get categoryName => $composableBuilder(
+    column: $table.categoryName,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -9052,6 +9177,16 @@ class $$CostumeCacheRowsTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<String> get categoryId => $composableBuilder(
+    column: $table.categoryId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get categoryName => $composableBuilder(
+    column: $table.categoryName,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<String> get notes => $composableBuilder(
     column: $table.notes,
     builder: (column) => ColumnOrderings(column),
@@ -9105,6 +9240,16 @@ class $$CostumeCacheRowsTableAnnotationComposer
 
   GeneratedColumn<String> get characterId => $composableBuilder(
     column: $table.characterId,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get categoryId => $composableBuilder(
+    column: $table.categoryId,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get categoryName => $composableBuilder(
+    column: $table.categoryName,
     builder: (column) => column,
   );
 
@@ -9176,6 +9321,8 @@ class $$CostumeCacheRowsTableTableManager
                 Value<String> id = const Value.absent(),
                 Value<String> seasonId = const Value.absent(),
                 Value<String?> characterId = const Value.absent(),
+                Value<String?> categoryId = const Value.absent(),
+                Value<String?> categoryName = const Value.absent(),
                 Value<String> notes = const Value.absent(),
                 Value<String> detailsJson = const Value.absent(),
                 Value<String> photosJson = const Value.absent(),
@@ -9188,6 +9335,8 @@ class $$CostumeCacheRowsTableTableManager
                 id: id,
                 seasonId: seasonId,
                 characterId: characterId,
+                categoryId: categoryId,
+                categoryName: categoryName,
                 notes: notes,
                 detailsJson: detailsJson,
                 photosJson: photosJson,
@@ -9202,6 +9351,8 @@ class $$CostumeCacheRowsTableTableManager
                 required String id,
                 required String seasonId,
                 Value<String?> characterId = const Value.absent(),
+                Value<String?> categoryId = const Value.absent(),
+                Value<String?> categoryName = const Value.absent(),
                 required String notes,
                 required String detailsJson,
                 required String photosJson,
@@ -9214,6 +9365,8 @@ class $$CostumeCacheRowsTableTableManager
                 id: id,
                 seasonId: seasonId,
                 characterId: characterId,
+                categoryId: categoryId,
+                categoryName: categoryName,
                 notes: notes,
                 detailsJson: detailsJson,
                 photosJson: photosJson,

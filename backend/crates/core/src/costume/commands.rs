@@ -8,7 +8,7 @@
 use uuid::Uuid;
 
 use super::events::CostumeDetail;
-use crate::shared::{AggregateVersion, SeasonId, SeriesId};
+use crate::shared::{AggregateVersion, CostumeCategoryId, SeasonId, SeriesId};
 
 /// Create a costume.
 ///
@@ -87,6 +87,24 @@ pub struct RemoveDetail {
     pub series_id: Option<SeriesId>,
     pub version: AggregateVersion,
 }
+/// Set (or clear) the costume's single category (issue #543).
+///
+/// A costume belongs to exactly one season vocabulary `CostumeCategory` (n:1);
+/// `None` clears the binding. `series_id` is carried for the `EventMetadata`
+/// audit trail (the audit projector keys on `series_id`); it is resolved at
+/// the API edge from the **category's** season projection (or, when clearing,
+/// from the costume projection), never queried again by the command adapter.
+/// The season-scope invariant (`category.season_id ∈ repertoire ∪
+/// season(character)`) is enforced as an API-edge pre-check (409
+/// `costume-category.season-mismatch`) — the scope-free aggregate cannot and
+/// must not validate it.
+#[derive(Debug, Clone, serde::Deserialize, utoipa::ToSchema)]
+pub struct SetCostumeCategory {
+    pub id: Uuid,
+    pub category_id: Option<CostumeCategoryId>,
+    pub series_id: Option<SeriesId>,
+    pub version: AggregateVersion,
+}
 /// Link a photo to the costume.
 ///
 /// `series_id` is carried for the `EventMetadata` audit trail (the audit
@@ -140,6 +158,11 @@ impl kameo_es::CommandName for AddDetail {
 impl kameo_es::CommandName for RemoveDetail {
     fn command_name() -> &'static str {
         "RemoveDetail"
+    }
+}
+impl kameo_es::CommandName for SetCostumeCategory {
+    fn command_name() -> &'static str {
+        "SetCostumeCategory"
     }
 }
 impl kameo_es::CommandName for LinkPhoto {

@@ -15,6 +15,30 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
+## [0.14.0] - Unreleased
+
+### Added — one costume = one category: `POST /costumes/{id}/category` (issue #543)
+
+- New route **`POST /v1/costumes/{id}/category`** (`SetCostumeCategoryRequest
+  { category_id: Option<Uuid>, version }`): sets or clears the costume's
+  single category. The handler performs the API-edge pre-check of the
+  cross-aggregate season invariant **before dispatch** — category exists
+  (404 `costume-category.not-found`), not archived (409
+  `costume-category.archived`), season in the costume's permitted set
+  (repertoire ∪ character season; otherwise 409 **new**
+  `costume-category.season-mismatch`, extension `category_id`) — plus the
+  handler-internal `// AUTHZ-GATE:` (costume role in ANY season scope of the
+  costume, reusing the #532 seam, now `authorize_costume_scoped`).
+- New registry entry **409 `costume-category.season-mismatch`**
+  (`COSTUME_CATEGORY_SEASON_MISMATCH`), Fluent texts en/de, golden file.
+- **Wire break (0.3.x clean cut):** `AddCostumeDetailRequest.detail` becomes
+  the new pure-description `CostumeDetailRequest { id, subject, text }` (no
+  `categoryId`); `CostumeView` gains `category_id`/`category_name`;
+  `CostumeDetailView` loses both. `openapi.yaml` regenerated; the vendored
+  Dart client re-generated from it.
+- **MINOR bump (ADR-020 D2):** new public route + wire change, re-pin
+  `breakdown_core` 0.16.0 / `infra` 0.20.0 — **0.13.0 → 0.14.0**.
+
 ## [0.13.0] - Unreleased
 
 ### Fixed — settings credential rotate/revoke no longer trust the role alone (issue #555)

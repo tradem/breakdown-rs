@@ -2200,6 +2200,14 @@ impl breakdown_core::costume::ports::CostumeCommands for FakeCostumeCommands {
         unexpected_command("remove_detail")
     }
 
+    async fn set_category(
+        &self,
+        _actor: UserId,
+        _command: breakdown_core::costume::commands::SetCostumeCategory,
+    ) -> Result<Version, DomainError> {
+        unexpected_command("set_category")
+    }
+
     async fn link_photo(
         &self,
         _actor: UserId,

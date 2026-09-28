@@ -549,7 +549,8 @@ impl<'a> EntityEventHandler<CostumeAggregate, Transaction<'a, Postgres>> for Cos
             | CostumeEvent::DetailAdded { id, .. }
             | CostumeEvent::DetailRemoved { id, .. }
             | CostumeEvent::PhotoLinked { id, .. }
-            | CostumeEvent::PhotoUnlinked { id, .. } => id.to_string(),
+            | CostumeEvent::PhotoUnlinked { id, .. }
+            | CostumeEvent::CostumeCategorySet { id, .. } => id.to_string(),
         };
         let event_type = event.data.event_type().to_string();
         let (actor, provenance, series_id) = extract_metadata(&event);

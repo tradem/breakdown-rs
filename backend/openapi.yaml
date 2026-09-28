@@ -3,7 +3,7 @@ components:
     AddCostumeDetailRequest:
       properties:
         detail:
-          $ref: '#/components/schemas/CostumeDetail'
+          $ref: '#/components/schemas/CostumeDetailRequest'
         version:
           $ref: '#/components/schemas/AggregateVersion'
       required:
@@ -687,8 +687,11 @@ components:
           - type: 'null'
           - $ref: '#/components/schemas/CostumeCategoryId'
             description: |-
-              Reference to a `CostumeCategory` (season-scoped vocabulary). Optional;
-              `None` until the owning Costume is bound to a Season's character.
+              **Legacy field (issue #543).** The category moved to the costume
+              aggregate (`CostumeCategorySet`); details are pure description now.
+              The field stays on the event payload with `serde(default)` so old
+              events replay: the aggregate and the projector derive the costume's
+              category from it (first-wins rule). Newly added details carry `None`.
         id:
           format: uuid
           type: string
@@ -704,19 +707,33 @@ components:
       - id
       - text
       type: object
-    CostumeDetailView:
-      description: Detailed costume element (e.g. belt, hat, shoes).
+    CostumeDetailRequest:
+      description: |-
+        Wire payload for a costume detail (issue #543): pure description —
+        `subject` + `text`. The category is no longer part of the detail wire
+        contract; it is set on the costume via `POST /costumes/{id}/category`.
+        New details deserialize with `category_id: None` in the domain event.
       properties:
-        category_id:
-          oneOf:
-          - type: 'null'
-          - $ref: '#/components/schemas/CostumeCategoryId'
-            description: Reference to the categorising `CostumeCategory`, if any.
-        category_name:
-          description: Denormalised category name, resolved by join at projection time.
+        id:
+          format: uuid
+          type: string
+        subject:
           type:
           - string
           - 'null'
+        text:
+          type: string
+      required:
+      - id
+      - text
+      type: object
+    CostumeDetailView:
+      description: |-
+        Detailed costume element (e.g. belt, hat, shoes).
+
+        Pure description since issue #543: the category lives on the costume
+        (`CostumeView.category_id`), not on the detail. `subject` + `text` remain.
+      properties:
         id:
           format: uuid
           type: string
@@ -763,6 +780,22 @@ components:
 
         `updated_at` is sourced from the timestamp of the last applied `CostumeEvent`.
       properties:
+        category_id:
+          oneOf:
+          - type: 'null'
+          - $ref: '#/components/schemas/CostumeCategoryId'
+            description: |-
+              The costume's single category (issue #543): reference into the
+              season-scoped vocabulary. `None` = uncategorised. A cross-aggregate
+              reference like `character_id` — no scope column, resolved by join in
+              the read model.
+        category_name:
+          description: |-
+            Denormalised category name, resolved by the projector at write time;
+            `None` on a projection miss (dangling reference, best-effort).
+          type:
+          - string
+          - 'null'
         character_id:
           format: uuid
           type:
@@ -2072,6 +2105,21 @@ components:
           $ref: '#/components/schemas/AggregateVersion'
       required:
       - actual_order
+      - version
+      type: object
+    SetCostumeCategoryRequest:
+      description: |-
+        Set (or clear) the costume's single category (issue #543). `category_id:
+        None` clears the binding.
+      properties:
+        category_id:
+          format: uuid
+          type:
+          - string
+          - 'null'
+        version:
+          $ref: '#/components/schemas/AggregateVersion'
+      required:
       - version
       type: object
     SettingsView:
@@ -4362,6 +4410,56 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: ''
+      tags:
+      - handlers
+  /v1/costumes/{id}/category:
+    post:
+      description: |-
+        API-edge pre-check for the cross-aggregate season invariant (doctrine,
+        AGENTS.md §1): `category.season_id ∈ (repertoire_seasons(costume) ∪
+        season(character))`. The command is dispatched only after the pre-check;
+        the projector resolves `category_name` best-effort and cannot fail.
+      operationId: set_costume_category
+      parameters:
+      - description: Costume id
+        in: path
+        name: id
+        required: true
+        schema:
+          format: uuid
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SetCostumeCategoryRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AggregateVersion'
+          description: ''
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Caller holds no costume role in any season scope of the costume
+        '404':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Costume or category not found
+        '409':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Archived category or category from a foreign season
+      summary: 'Set (or clear) the costume''s single category (issue #543).'
       tags:
       - handlers
   /v1/costumes/{id}/details:
@@ -6800,6 +6898,12 @@ x-code-registry:
   status: 409
   title: Costume category is archived
   type: https://docs.breakdown.example/problems/costume-category.archived
+- code: costume-category.season-mismatch
+  extensions:
+  - category_id
+  status: 409
+  title: Costume category from a foreign season
+  type: https://docs.breakdown.example/problems/costume-category.season-mismatch
 - code: costume-category.validation
   extensions: []
   status: 422

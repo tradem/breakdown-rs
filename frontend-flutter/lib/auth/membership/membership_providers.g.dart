@@ -85,7 +85,7 @@ final class MembershipFetchProvider
   }
 }
 
-String _$membershipFetchHash() => r'c93023bf9e26e18a2ac706d30f64904c6156569c';
+String _$membershipFetchHash() => r'4e82cef44c968e8f1b4fc812ca6a17254b937018';
 
 /// Fetches the season-scoped membership projection (D2 — single endpoint,
 /// single source of truth). Returns the `Result` unthrown so the controller

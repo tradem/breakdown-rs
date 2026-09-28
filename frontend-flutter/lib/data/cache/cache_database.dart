@@ -48,7 +48,7 @@ class CacheDatabase extends _$CacheDatabase {
   CacheDatabase.connect(super.executor);
 
   @override
-  int get schemaVersion => 9;
+  int get schemaVersion => 10;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -167,6 +167,31 @@ class CacheDatabase extends _$CacheDatabase {
         // TTL-stamped seasons cache on every boot (TTL-compliant by
         // construction).
         await m.createTable(shellStateRows);
+      }
+      if (from < 10) {
+        // Issue #543 (v10): the costume's single category moved from the
+        // detail to the costume — `CostumeView` gains nullable
+        // `category_id`/`category_name`. Plain ADD COLUMN on NULLABLE
+        // columns (same shape as the v9 `source_json` case): existing rows
+        // read NULL = uncategorised; the next TTL snapshot-replace fills
+        // them. Guarded by table AND column presence (an upgrade landing
+        // on a fresh create path already carries the columns).
+        if (await _tableExists(m.database, 'costume_cache_rows')) {
+          if (!(await _columnExists(
+            m.database,
+            'costume_cache_rows',
+            'category_id',
+          ))) {
+            await m.addColumn(costumeCacheRows, costumeCacheRows.categoryId);
+          }
+          if (!(await _columnExists(
+            m.database,
+            'costume_cache_rows',
+            'category_name',
+          ))) {
+            await m.addColumn(costumeCacheRows, costumeCacheRows.categoryName);
+          }
+        }
       }
     },
   );

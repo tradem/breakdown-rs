@@ -241,15 +241,11 @@ CostumeDetailView optimisticDetailPlaceholder({
   required String pendingId,
   required String? subject,
   required String text,
-  String? categoryId,
-  String? categoryName,
 }) => CostumeDetailView(
   (b) => b
     ..id = pendingId
     ..subject = subject
-    ..text = text
-    ..categoryId = categoryId
-    ..categoryName = categoryName,
+    ..text = text,
 );
 
 /// Extracts the projected ids for the shared reconciliation coordinator.

@@ -12,15 +12,14 @@ use crate::photo::views::PhotoVariantView;
 use crate::shared::{AggregateVersion, CostumeCategoryId};
 
 /// Detailed costume element (e.g. belt, hat, shoes).
+///
+/// Pure description since issue #543: the category lives on the costume
+/// (`CostumeView.category_id`), not on the detail. `subject` + `text` remain.
 #[derive(Debug, Clone, Serialize, ToSchema)]
 pub struct CostumeDetailView {
     pub id: Uuid,
     /// Free-form per-detail micro-title (e.g. "Rote Lederjacke").
     pub subject: Option<String>,
-    /// Reference to the categorising `CostumeCategory`, if any.
-    pub category_id: Option<CostumeCategoryId>,
-    /// Denormalised category name, resolved by join at projection time.
-    pub category_name: Option<String>,
     /// The description (unchanged meaning).
     pub text: String,
 }
@@ -44,6 +43,14 @@ pub struct CostumePhotoView {
 pub struct CostumeView {
     pub id: Uuid,
     pub character_id: Option<Uuid>,
+    /// The costume's single category (issue #543): reference into the
+    /// season-scoped vocabulary. `None` = uncategorised. A cross-aggregate
+    /// reference like `character_id` — no scope column, resolved by join in
+    /// the read model.
+    pub category_id: Option<CostumeCategoryId>,
+    /// Denormalised category name, resolved by the projector at write time;
+    /// `None` on a projection miss (dangling reference, best-effort).
+    pub category_name: Option<String>,
     pub notes: String,
     pub details: Vec<CostumeDetailView>,
     pub photos: Vec<CostumePhotoView>,

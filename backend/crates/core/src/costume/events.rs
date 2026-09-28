@@ -16,8 +16,11 @@ pub struct CostumeDetail {
     /// Free-form per-detail micro-title (e.g. "Rote Lederjacke"). Optional.
     #[serde(default)]
     pub subject: Option<String>,
-    /// Reference to a `CostumeCategory` (season-scoped vocabulary). Optional;
-    /// `None` until the owning Costume is bound to a Season's character.
+    /// **Legacy field (issue #543).** The category moved to the costume
+    /// aggregate (`CostumeCategorySet`); details are pure description now.
+    /// The field stays on the event payload with `serde(default)` so old
+    /// events replay: the aggregate and the projector derive the costume's
+    /// category from it (first-wins rule). Newly added details carry `None`.
     #[serde(default)]
     pub category_id: Option<CostumeCategoryId>,
     /// The description (unchanged meaning — never reinterpreted from `subject`).
@@ -63,6 +66,13 @@ pub enum CostumeEvent {
         detail_id: Uuid,
         version: AggregateVersion,
     },
+    /// The costume's single category was set or cleared (issue #543).
+    /// `category_id: None` clears the binding.
+    CostumeCategorySet {
+        id: Uuid,
+        category_id: Option<CostumeCategoryId>,
+        version: AggregateVersion,
+    },
     PhotoLinked {
         id: Uuid,
         photo_id: Uuid,
@@ -84,6 +94,7 @@ impl kameo_es::EventType for CostumeEvent {
             Self::CostumeUnassigned { .. } => "CostumeUnassigned",
             Self::DetailAdded { .. } => "DetailAdded",
             Self::DetailRemoved { .. } => "DetailRemoved",
+            Self::CostumeCategorySet { .. } => "CostumeCategorySet",
             Self::PhotoLinked { .. } => "PhotoLinked",
             Self::PhotoUnlinked { .. } => "PhotoUnlinked",
         }

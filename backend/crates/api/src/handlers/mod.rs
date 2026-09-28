@@ -45,8 +45,8 @@ use breakdown_core::character::events::{CharacterMeasurements, ContactInfo};
 use breakdown_core::character::ports::{CharacterCommands, CharacterRepository};
 use breakdown_core::character::views::CharacterView;
 use breakdown_core::costume::commands::{
-    AddDetail, AssignCostumeToCharacter, CreateCostume, LinkPhoto, UnassignCostume, UnlinkPhoto,
-    UpdateCostumeNotes,
+    AddDetail, AssignCostumeToCharacter, CreateCostume, LinkPhoto, SetCostumeCategory,
+    UnassignCostume, UnlinkPhoto, UpdateCostumeNotes,
 };
 use breakdown_core::costume::events::CostumeDetail;
 use breakdown_core::costume::ports::{CostumeCommands, CostumeRepository};
@@ -61,8 +61,9 @@ use breakdown_core::episode::ports::{EpisodeCommands, EpisodeRepository};
 use breakdown_core::episode::views::EpisodeView;
 use breakdown_core::error::DomainError;
 use breakdown_core::error_registry::{
-    BLOCK_NUMBER_ALREADY_EXISTS, EPISODE_NUMBER_ALREADY_EXISTS, MEMBERSHIP_NOT_FOUND,
-    SCENE_SHOOT_PAIR_ALREADY_EXISTS, SEASON_NOT_FOUND, SEASON_NUMBER_ALREADY_EXISTS,
+    BLOCK_NUMBER_ALREADY_EXISTS, COSTUME_CATEGORY_ARCHIVED, EPISODE_NUMBER_ALREADY_EXISTS,
+    MEMBERSHIP_NOT_FOUND, SCENE_SHOOT_PAIR_ALREADY_EXISTS, SEASON_NOT_FOUND,
+    SEASON_NUMBER_ALREADY_EXISTS,
 };
 use breakdown_core::membership::policy::{Action, PolicyDecision, SeasonAuthContext};
 use breakdown_core::membership::views::MembershipView;
@@ -109,8 +110,8 @@ use breakdown_core::settings::ports::{
 };
 use breakdown_core::settings::views::{CredentialBindingState, SettingsView};
 use breakdown_core::shared::{
-    AggregateVersion, BlockId, EpisodeId, LexicalSortKey, PhotoId, PhotoVariant, SceneShootId,
-    SeasonId, SeriesId, ShootingDayId, UserId, VariantStatus,
+    AggregateVersion, BlockId, CostumeCategoryId, EpisodeId, LexicalSortKey, PhotoId, PhotoVariant,
+    SceneShootId, SeasonId, SeriesId, ShootingDayId, UserId, VariantStatus,
 };
 use breakdown_core::shooting_day::commands::{
     ArchiveShootingDay, CreateShootingDay, RenameShootingDay, ReorderShootingDay,
@@ -215,9 +216,28 @@ pub struct UpdateCostumeCategoryRequest {
     pub order_key: Option<LexicalSortKey>,
 }
 
+/// Wire payload for a costume detail (issue #543): pure description —
+/// `subject` + `text`. The category is no longer part of the detail wire
+/// contract; it is set on the costume via `POST /costumes/{id}/category`.
+/// New details deserialize with `category_id: None` in the domain event.
+#[derive(Debug, Clone, Deserialize, ToSchema)]
+pub struct CostumeDetailRequest {
+    pub id: Uuid,
+    pub subject: Option<String>,
+    pub text: String,
+}
+
 #[derive(Debug, Clone, Deserialize, ToSchema)]
 pub struct AddCostumeDetailRequest {
-    pub detail: CostumeDetail,
+    pub detail: CostumeDetailRequest,
+    pub version: AggregateVersion,
+}
+
+/// Set (or clear) the costume's single category (issue #543). `category_id:
+/// None` clears the binding.
+#[derive(Debug, Clone, Deserialize, ToSchema)]
+pub struct SetCostumeCategoryRequest {
+    pub category_id: Option<Uuid>,
     pub version: AggregateVersion,
 }
 
@@ -659,9 +679,12 @@ async fn costume_season_scopes<P: Ports>(
     scopes
 }
 
-/// AUTHZ-GATE seam for the costume-photo handlers (issue #532): authorize the
-/// caller against **any** season scope the costume belongs to, and return that
-/// season.
+/// AUTHZ-GATE seam for costume handlers performing privileged, season-scoped
+/// actions on a costume the middleware alone cannot scope (issue #543; before
+/// that, the three photo handlers `upload_costume_photo`,
+/// `get_costume_photo_bytes`, `delete_costume_photo` — issue #532). Authorize
+/// the caller against **any** season scope the costume belongs to, and return
+/// that season.
 ///
 /// All three photo handlers (`upload_costume_photo`,
 /// `get_costume_photo_bytes`, `delete_costume_photo`) route their
@@ -692,7 +715,7 @@ async fn costume_season_scopes<P: Ports>(
 /// only the reported reason becomes honest. Follow-up: hoist this into one
 /// shared membership-gate helper for all handler-internal AUTHZ-GATEs
 /// (issue #537).
-async fn authorize_costume_photo<P: Ports>(
+async fn authorize_costume_scoped<P: Ports>(
     state: &AppState<P>,
     costume: &CostumeView,
     user_id: UserId,
@@ -2085,7 +2108,6 @@ pub async fn unassign_costume<P: Ports>(
 // ---------------------------------------------------------------------------
 // Costume detail handlers
 // ---------------------------------------------------------------------------
-
 #[utoipa::path(
     post,
     path = "/costumes/{id}/details",
@@ -2111,8 +2133,122 @@ pub async fn add_costume_detail<P: Ports>(
             current_user.sub.clone(),
             AddDetail {
                 id,
-                detail: req.detail,
+                // Issue #543: details are pure description — the wire request
+                // carries no category; the domain detail deserializes with
+                // `category_id: None` (the legacy field stays for old events).
+                detail: CostumeDetail {
+                    id: req.detail.id,
+                    subject: req.detail.subject,
+                    category_id: None,
+                    text: req.detail.text,
+                },
                 series_id: series_id_for_costume(&state, id).await?,
+                version: req.version,
+            },
+        )
+        .await?;
+    Ok((StatusCode::OK, Json(version)))
+}
+
+#[utoipa::path(
+    post,
+    path = "/costumes/{id}/category",
+    params(("id" = Uuid, Path, description = "Costume id")),
+    request_body = SetCostumeCategoryRequest,
+    responses(
+        (status = 200, body = AggregateVersion),
+        (status = 404, body = ProblemDetails, description = "Costume or category not found"),
+        (status = 409, body = ProblemDetails, description = "Archived category or category from a foreign season"),
+        (status = 403, body = ProblemDetails, description = "Caller holds no costume role in any season scope of the costume"),
+    ),
+)]
+/// Set (or clear) the costume's single category (issue #543).
+///
+/// API-edge pre-check for the cross-aggregate season invariant (doctrine,
+/// AGENTS.md §1): `category.season_id ∈ (repertoire_seasons(costume) ∪
+/// season(character))`. The command is dispatched only after the pre-check;
+/// the projector resolves `category_name` best-effort and cannot fail.
+pub async fn set_costume_category<P: Ports>(
+    State(state): State<AppState<P>>,
+    current_user: CurrentUser,
+    Path(id): Path<Uuid>,
+    Json(req): Json<SetCostumeCategoryRequest>,
+) -> ApiResult<AggregateVersion> {
+    let costume = state.ports.costume_repo().find_by_id(id).await?;
+
+    // AUTHZ-GATE: the route is classified `BlockMember` (middleware), but the
+    // costume write acts on season-scoped data, so the caller must hold the
+    // costume role in at least ONE season scope of the costume (character
+    // season ∪ repertoire, ANY semantics as for the photo handlers, #532).
+    // Issue #543; same seam as `authorize_costume_scoped`.
+    authorize_costume_scoped(
+        &state,
+        &costume,
+        current_user.sub.clone(),
+        "costume category write requires a costume role in a season scope of the costume",
+    )
+    .await?;
+
+    let category_id = req.category_id.map(CostumeCategoryId);
+    if let Some(category_id) = category_id {
+        // Pre-check 1: category exists (archived or not — 404 on a miss).
+        let category = state
+            .ports
+            .costume_category_repo()
+            .find_by_id(category_id.0)
+            .await?;
+        // Pre-check 2: not archived (409 costume-category.archived).
+        if category.archived {
+            return Err(ApiError::Domain(DomainError::Conflict {
+                code: &COSTUME_CATEGORY_ARCHIVED,
+                reason: format!("costume category {category_id} is archived"),
+            }));
+        }
+        // Pre-check 3: the category's season must be in the costume's
+        // permitted set (409 costume-category.season-mismatch).
+        let scopes = costume_season_scopes(&state, &costume).await;
+        if !scopes.contains(&category.season_id) {
+            return Err(ApiError::Domain(DomainError::CategorySeasonMismatch {
+                category_id: category_id.0,
+            }));
+        }
+        // Audit metadata from the category's season projection.
+        let series_id = Some(
+            state
+                .ports
+                .season_repo()
+                .find_by_id(category.season_id.0)
+                .await?
+                .series_id,
+        );
+        let version = state
+            .ports
+            .costume_commands()
+            .set_category(
+                current_user.sub.clone(),
+                SetCostumeCategory {
+                    id,
+                    category_id: Some(category_id),
+                    series_id,
+                    version: req.version,
+                },
+            )
+            .await?;
+        return Ok((StatusCode::OK, Json(version)));
+    }
+
+    // Clearing (`category_id: None`): audit metadata from the costume
+    // projection (best-effort, never blocks).
+    let series_id = series_id_for_costume(&state, id).await?;
+    let version = state
+        .ports
+        .costume_commands()
+        .set_category(
+            current_user.sub.clone(),
+            SetCostumeCategory {
+                id,
+                category_id: None,
+                series_id,
                 version: req.version,
             },
         )
@@ -2646,7 +2782,7 @@ pub async fn upload_costume_photo<P: Ports>(
     // against ANY scope of the costume (character season ∪ repertoire seasons,
     // issue #532). An unassigned costume in the season's repertoire is allowed;
     // only a costume with no scope at all stays a 422.
-    let _season_id = authorize_costume_photo(
+    let _season_id = authorize_costume_scoped(
         &state,
         &costume,
         current_user.sub.clone(),
@@ -2810,7 +2946,7 @@ pub async fn get_costume_photo_bytes<P: Ports>(
 
     // AUTHZ-GATE: authorize_season — handler-internal auth gate (see AGENTS.md),
     // against ANY scope of the costume (issue #532 — same seam as upload/delete).
-    let _season_id = authorize_costume_photo(
+    let _season_id = authorize_costume_scoped(
         &state,
         &costume,
         current_user.sub.clone(),
@@ -2896,7 +3032,7 @@ pub async fn delete_costume_photo<P: Ports>(
 
     // AUTHZ-GATE: authorize_season — handler-internal auth gate (see AGENTS.md),
     // against ANY scope of the costume (issue #532 — same seam as upload/bytes).
-    let _season_id = authorize_costume_photo(
+    let _season_id = authorize_costume_scoped(
         &state,
         &costume,
         current_user.sub.clone(),
@@ -5992,6 +6128,10 @@ pub fn routes() -> Router<AppState<ProductionPorts>> {
         .route(
             "/costumes/{id}/details",
             routing::post(add_costume_detail::<ProductionPorts>),
+        )
+        .route(
+            "/costumes/{id}/category",
+            routing::post(set_costume_category::<ProductionPorts>),
         )
         .route(
             "/costumes/{id}/unassign",
