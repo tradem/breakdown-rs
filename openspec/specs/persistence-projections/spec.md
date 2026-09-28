@@ -70,6 +70,32 @@ Projection update SHALL be an `infra`-internal concern. `crates/core` SHALL NOT 
 - **WHEN** `crates/core` is built
 - **THEN** no `Projector`, `ProjectionSink`, or `EventHandler` trait is exported from `core`
 
+### Requirement: Scene provenance projection (AI transparency)
+The `projection_scene` table SHALL store the scene's provenance discriminator
+`source` as JSONB covering both the `Manual` and the
+`AiExtracted { document_id, external_ref, confidence }` shapes (migration
+`20260926000001` with a `{"Manual":null}` default). The scene projector SHALL
+write the `SceneCreated` event's discriminator on insert and redelivery update;
+the scene and shooting-day query adapters SHALL deserialize it into
+`SceneView.source`.
+
+#### Scenario: Projection defaults legacy rows to Manual
+- **WHEN** the migration runs against rows created before #517
+- **THEN** each `projection_scene.source` equals the `{"Manual":null}` default
+
+#### Scenario: Replay of a legacy event projects Manual
+- **WHEN** the scene projector processes a `SceneCreated` event whose payload
+  predates the `source` field (serde default `Manual`)
+- **THEN** the projection row's `source` is `Manual`
+
+#### Scenario: AI-created scenes are distinguishable in the read model
+- **WHEN** the scene projector processes a `SceneCreated` event stamped
+  `SceneSource::AiExtracted { document_id, external_ref, confidence: None }`
+  (AI script apply)
+- **THEN** the projection row's `source` carries the `AiExtracted` object shape
+- **AND** `SceneView.source` exposes it unchanged to the wire (additive field,
+  ADR-021 D3 MINOR)
+
 ### Requirement: Actor/scheduling context is out of scope
 The projectors SHALL NOT model actor availability, sickness windows, or schedule time ranges. The scene scheduling fields projected (`scene_number`, `is_schedule_set`, `location`, `mood`) SHALL be treated as placeholders for a future scheduling bounded context, projected as plain columns without time-range or availability semantics.
 

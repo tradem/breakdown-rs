@@ -167,6 +167,7 @@ before a schedule is created).
 ### Requirement: Idempotent upsert apply via user-driven mapping
 Applying a preview SHALL dispatch existing commands
 (`CreateScene`/`UpdateSceneDetails`, `CreateCharacter`/`Assign…`,
+`CreateCostume`/`AssignCostumeToCharacter`,
 `CreateShootingDay`, `ScheduleSceneOnShootingDay`, `PlanSceneShoot` with
 `source: AiExtracted`). Each draft row SHALL require an explicit user decision
 (new vs update-existing-`#id`) — there SHALL be no automatic fuzzy matching in
@@ -175,7 +176,27 @@ aggregate_kind, aggregate_id)` SHALL make re-applying the same preview
 idempotent: mapped rows dispatch `Update…` (no-op if unchanged); unmapped rows
 dispatch `Create…` + a mapping write. Re-import of an updated document SHALL
 re-suggest mappings from the prior projection for the user to confirm. No
-matching state SHALL live on Scene/Character/ShootingDay/SceneShoot aggregates.
+matching state SHALL live on Scene/Character/ShootingDay/SceneShoot/Costume
+aggregates.
+
+A draft row that carries costumes SHALL additionally apply each accepted
+costume as a `Costume` bound to the `Character` identified by that costume's
+character name, by dispatching the existing `CreateCostume`, then
+`UpdateCostumeNotes` (which carries the extracted description —
+`CreateCostume` has no description field), then `AssignCostumeToCharacter`.
+
+A figure SHALL be deduplicated across the WHOLE preview by a normalised name
+identity (trimmed, case-folded, internal whitespace collapsed), not per draft
+row, and SHALL be keyed in the mapping as an `aggregate_kind = 'character'` row
+addressed by that identity. Keying characters per row was rejected: a live
+93-page import named 268 figure mentions over 131 scenes, so per-row creation
+would have produced hundreds of duplicate `Character` aggregates and destroyed
+costume continuity. Costume rows SHALL stay keyed PER ROW by
+`(preview_id, draft_ref, costume_ordinal)` with `aggregate_kind = 'costume'`, so
+that two costumes of one figure in one scene remain distinct rows and re-apply
+remains idempotent. A costume row SHALL NOT be created when its character was
+skipped or could not be resolved; that case SHALL be surfaced to the reviewer
+instead of creating an unbindable costume.
 
 #### Scenario: Crash mid-apply is safely retried
 - **WHEN** an apply crashes after creating scenes 1–5 and is retried
@@ -189,6 +210,84 @@ matching state SHALL live on Scene/Character/ShootingDay/SceneShoot aggregates.
   Scene aggregate validation and optimistic-concurrency check
 - **AND** `series_id` is resolved at the API edge (no write-side projection
   lookup; CQRS boundary respected)
+
+#### Scenario: Applying a row that carries costumes
+- **WHEN** a draft row is accepted and carries two costumes for figures the
+  preview also created
+- **THEN** each costume SHALL be dispatched as `CreateCostume`, then
+  `UpdateCostumeNotes`, then `AssignCostumeToCharacter` to that figure's
+  `Character`
+- **AND** each costume row SHALL be persisted in the mapping with
+  `aggregate_kind = 'costume'` and its own ordinal
+- **AND** re-applying the same preview SHALL skip both costumes (no duplicates)
+
+#### Scenario: One figure mentioned in many rows becomes one aggregate
+- **WHEN** a preview names the same figure, in differing case or spacing, across
+  several draft rows
+- **THEN** exactly one `Character` SHALL be created for that identity
+- **AND** the costumes of every row SHALL bind to that single `Character`
+- **AND** a second apply of the same preview SHALL create no additional
+  `Character`
+
+#### Scenario: A crash between costume steps resumes above the stored version
+- **WHEN** an apply crashes after `CreateCostume` but before
+  `AssignCostumeToCharacter`
+- **THEN** the mapping row SHALL carry the version the costume reached
+- **AND** the retry SHALL re-drive only the steps above that version
+- **AND** the costume SHALL NOT be created a second time, NOR assigned twice
+
+#### Scenario: A reviewer rejects one costume but keeps its scene
+- **WHEN** the reviewer marks a single extracted costume as not accepted while
+  accepting the draft row's scene
+- **THEN** the scene SHALL still be applied
+- **AND** no `Costume` SHALL be created for the rejected row
+- **AND** the request SHALL carry the rejection by costume ordinal only
+
+#### Scenario: A dropped costume does not block the apply
+- **WHEN** a preview carries a costume the server dropped during grounding
+- **THEN** the uncertainty SHALL be visible to the reviewer
+- **AND** it SHALL NOT block applying the preview, because a stored preview is
+  immutable and offers no way to dismiss it; blocking on it would make one bad
+  costume reject an entire paid import
+
+#### Scenario: Costume whose character was skipped
+- **WHEN** a draft row is accepted for its scene but the character the costume
+  belongs to was skipped by the user
+- **THEN** no `Costume` SHALL be created for that costume
+- **AND** the apply result SHALL report the costume as not applied, with the
+  reason, instead of failing the whole row
+
+### Requirement: The preview exposes extracted costumes for review
+The script preview SHALL expose, per draft scene, the extracted costumes with
+their character name, description and quoted source text, and SHALL allow the
+reviewer to accept, reject or map each costume row independently of the scene
+row. The reviewer interface SHALL show the quoted source fragment next to the
+extracted description, so that a reviewer can verify the extraction against the
+script without opening the document.
+
+#### Scenario: Reviewing an extraction against its source
+- **WHEN** a draft row shows a costume "ölverschmierter Mechaniker-Overall"
+- **THEN** the quoted fragment the extraction was based on SHALL be visible next
+  to the description
+- **AND** the reviewer can reject that costume without rejecting the scene
+
+### Requirement: A stored configuration prompt takes precedence over the deployment default
+A per-configuration prompt that is stored (non-empty) SHALL override the
+deployment default prompt, and the configuration surface SHALL indicate that a
+stored prompt is in effect and that it therefore does not follow deployment
+default updates. A configuration whose stored prompt is empty SHALL use the
+deployment default, as before.
+
+#### Scenario: Deployment hardens the default prompt
+- **WHEN** the deployment default script prompt is updated and an existing
+  configuration still stores the previous prompt
+- **THEN** the import SHALL keep using the configuration's stored prompt
+- **AND** the configuration surface SHALL show that a stored prompt is in effect
+- **AND** the reviewer can reset the stored prompt to follow the default again
+
+#### Scenario: Extracting an empty stored prompt
+- **WHEN** a configuration's stored script prompt is empty
+- **THEN** the import SHALL use the deployment default prompt
 
 ### Requirement: Schedule-side apply reserves aggregate ids before dispatch
 The schedule-side apply SHALL make the create-style commands
@@ -297,3 +396,39 @@ zero LLM cost; the pre-apply merge preview SHALL be a transient staged blob. No
 - **THEN** it is re-derived from the Scene/Character/ShootingDay/SceneShoot
   event streams and projections
 - **AND** no LLM call is made during the rebuild
+
+### Requirement: AI-created scenes carry a provenance discriminator
+The AI script apply SHALL stamp every scene it creates with
+`SceneSource::AiExtracted { document_id, external_ref, confidence }`, where
+`document_id` is the AI import job id, `external_ref` is the draft ref, and
+`confidence` is `None` (the pipeline measures no per-row model confidence). The
+REST scene-creation path and every client request SHALL record `Manual`; clients
+SHALL NOT be able to set provenance on `CreateSceneRequest`. The `SceneView`
+read model SHALL expose the discriminator as an optional additive field
+(`source: Option<SceneSource>`, ADR-021 D3/MINOR): `Some(AiExtracted)` marks
+AI-imported scenes, `Some(Manual)` the user-created path and `None` only
+legacy clients that predate the field.
+
+#### Scenario: Script apply marks the scene as AI-extracted
+- **WHEN** the AI script apply dispatches `CreateScene` for a mapped draft row
+- **THEN** the emitted `SceneCreated` event carries
+  `SceneSource::AiExtracted { document_id: <job id>, external_ref: <draft_ref>, confidence: None }`
+- **AND** the `SceneView` read model exposes the same discriminator as `source`
+
+#### Scenario: Manual creation stays indistinguishable from legacy data
+- **WHEN** a scene is created via the REST handler
+- **THEN** the emitted `SceneCreated` event carries `SceneSource::Manual`
+- **AND** a historic `SceneCreated` event persisted before the `source` field
+  existed replays as `SceneSource::Manual` (serde default, no migration)
+
+### Requirement: Recorded extraction confidence is honest
+The schedule-side apply SHALL record `ShootingDaySource::AiExtracted.confidence`
+as `None` while the import pipeline measures no real per-row model confidence.
+It SHALL NOT hard-code a placeholder confidence value.
+
+#### Scenario: Pre-change events read losslessly
+- **WHEN** a persisted `ShootingDaySource::AiExtracted` event carries a plain
+  numeric `confidence` (pre-#517 hard-coded `1.0`)
+- **THEN** it deserializes losslessly as `Some(...)`
+- **WHEN** the current apply creates a shooting day
+- **THEN** the persisted provenance carries `confidence: null`
