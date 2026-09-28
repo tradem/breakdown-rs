@@ -5167,36 +5167,87 @@ fn forbidden_ai_config() -> ApiError {
     ApiError::AiConfigForbidden("not authorized to manage AI configuration")
 }
 
-/// Resolve an opaque `vault_key_id` to its credential reference and require
-/// that it is an ACTIVE binding of [provider] (issue #528).
+/// Resolve an opaque `vault_key_id` and require that the AUTHENTICATED CALLER
+/// owns it, it is an ACTIVE binding of [provider], and it is not already the
+/// current key of another config (issue #552 ownership + issue #528 provider).
 ///
-/// An unknown key, a revoked binding, and a key bound to another provider all
+/// Unknown key, revoked binding, and a key bound to another provider all
 /// surface as the same scoped `ai-config.provider-mismatch` 409 the aggregate
 /// emits for the mirrored case (new provider + current key), so the client
 /// branches on one stable code and never learns whether a foreign key exists.
+/// A key that names a REAL binding owned by someone else surfaces as the
+/// scoped `ai-config.vault-key-forbidden` 403 (issue #552): the caller
+/// supplied the key themselves, so the denial does not widen the existence
+/// oracle. A legacy binding whose owner is unknown (`owner IS NULL`) fails
+/// closed into the same 403 until re-projection or rotation backfills it.
 async fn validate_replacement_vault_key<P: Ports>(
     state: &AppState<P>,
     vault_key_id: &str,
     provider: LlmProvider,
+    caller: &UserId,
 ) -> Result<(), ApiError> {
     let binding = state
         .ports
         .settings_repo()
         .find_by_vault_key(vault_key_id)
         .await?;
-    let matches = match binding {
+    // Ownership first (issue #552): a real but foreign binding must not be
+    // reusable, independent of its provider or binding state. `None` owner
+    // (legacy row) fails closed here as well. Unknown keys stay collapsed
+    // into the #528 provider-mismatch 409, which does not reveal whether the
+    // key ever existed.
+    let owned_active = match binding.as_ref() {
+        Some(view) if view.owner.as_ref() != Some(caller) => {
+            return Err(forbidden_vault_key());
+        }
         Some(view) => {
             view.provider == provider.as_str()
                 && view.binding_state == CredentialBindingState::Active
         }
         None => false,
     };
-    if matches {
+    if owned_active {
         return Ok(());
     }
     Err(ApiError::AiConfigProviderMismatch(
         "the submitted vault key is not an active credential of the requested provider",
     ))
+}
+
+/// Ownership denial on an AI-config vault key reference (issue #552) →
+/// 403 `ai-config.vault-key-forbidden`. Distinct from `forbidden_ai_config()`
+/// (credential-role denial) and from the #528 provider-mismatch 409 so the
+/// client can render "this credential is not yours" instead of a generic
+/// authorization failure.
+fn forbidden_vault_key() -> ApiError {
+    ApiError::AiConfigVaultKeyForbidden(
+        "the submitted vault key is not owned by the authenticated caller",
+    )
+}
+
+/// API-edge ownership pre-check for an AI-config vault key reference (issue
+/// #552): the referenced binding must exist AND be owned by the authenticated
+/// caller, otherwise the worker would later read and use a foreign credential
+/// (confused deputy). The read-model lookup lives here because the handler is
+/// the only legitimate projection consumer (CQRS boundary). Unknown keys and
+/// legacy unknown-owner rows fail closed into `ai-config.vault-key-forbidden`.
+async fn require_owned_vault_key<P: Ports>(
+    state: &AppState<P>,
+    vault_key_id: &str,
+    caller: &UserId,
+) -> Result<(), ApiError> {
+    let binding = state
+        .ports
+        .settings_repo()
+        .find_by_vault_key(vault_key_id)
+        .await?;
+    if binding
+        .as_ref()
+        .is_some_and(|view| view.owner.as_ref() == Some(caller))
+    {
+        return Ok(());
+    }
+    Err(forbidden_vault_key())
 }
 
 /// Season-role/ownership denial on an AI import job (upload block-scope,
@@ -5234,6 +5285,11 @@ pub async fn create_ai_config<P: Ports>(
     if !credential_role_gate(&state, &current_user).await? {
         return Err(forbidden_ai_config());
     }
+    // Vault-key ownership pre-check (issue #552): the referenced credential
+    // binding must exist and belong to the caller, otherwise the AI worker
+    // would later read and use a foreign credential (confused deputy). The
+    // read-model lookup stays at the API edge (CQRS boundary).
+    require_owned_vault_key(&state, &request.vault_key_id, &current_user.sub).await?;
     let id = Uuid::now_v7();
     let (id, version) = state
         .ports
@@ -5339,14 +5395,23 @@ pub async fn update_ai_config<P: Ports>(
     // key; this edge check closes the other half — a NEW key must actually be
     // an active credential of the requested provider, otherwise the worker
     // would later pick the client from `provider` and authenticate with a
-    // foreign key. The read-model lookup lives here because the handler is
-    // the only legitimate projection consumer (CQRS boundary); the aggregate
-    // only ever sees the opaque key and cannot resolve its provider. Skipped
-    // for an unchanged key: the stored binding was validated when it was
-    // introduced, and a spurious rejection on projector lag must not block a
-    // prompt/model-only edit.
+    // foreign key. Since issue #552 it additionally requires the binding to
+    // be owned by the authenticated caller (403
+    // `ai-config.vault-key-forbidden`). The read-model lookup lives here
+    // because the handler is the only legitimate projection consumer (CQRS
+    // boundary); the aggregate only ever sees the opaque key and cannot
+    // resolve its provider. Skipped for an unchanged key: the stored binding
+    // was validated (owned + active provider) when it was introduced, and a
+    // spurious rejection on projector lag must not block a prompt/model-only
+    // edit.
     if request.vault_key_id != view.vault_key_id {
-        validate_replacement_vault_key(&state, &request.vault_key_id, request.provider).await?;
+        validate_replacement_vault_key(
+            &state,
+            &request.vault_key_id,
+            request.provider,
+            &current_user.sub,
+        )
+        .await?;
     }
     // Optimistic lock: the request echoes the fetched config's `version`; a
     // stale version surfaces as the scoped `ai-config.version-mismatch` (409,

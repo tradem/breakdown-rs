@@ -34,6 +34,23 @@ future PRs that touch these areas must keep this page in sync.
   trusts identity attributes from any other channel; `core` only sees an
   opaque `UserId` derived from the `sub` claim.
 
+### Vault credential ownership (ADR-027, issue #552)
+
+- Every `projection_settings` credential binding carries an `owner` (the
+  authenticated principal that dispatched the bind, recovered by the
+  projector from the persisted `EventMetadata.actor`). The AI-config API
+  edge (`POST /ai-import/config`, `PATCH` when introducing a key) requires
+  the resolved binding's owner to match the caller; a foreign-but-valid
+  `vault_key_id` surfaces **403 `ai-config.vault-key-forbidden`** — without
+  this check a credential-role member could point their own AI jobs at
+  another user's live credential (confused deputy / quota + billing abuse).
+  Fail closed: a legacy row with unknown owner denies until re-projection or
+  rotation backfills it.
+- The AI import worker deliberately trusts the stored `config.vault_key_id`
+  (it is edge-vetted at write time) but keeps the fail-closed shape check —
+  a malformed stored reference can never address an arbitrary Vault path
+  (`settings_id_from_binding_key` → `None` → validation error).
+
 ### Trust boundaries
 
 ```

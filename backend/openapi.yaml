@@ -2075,12 +2075,27 @@ components:
       - version
       type: object
     SettingsView:
+      description: |-
+        Reference view of an external credential binding. It contains no secret
+        material or ciphertext.
+
+        `owner` is the identity that bound the credential, recovered by the
+        projector from `EventMetadata.actor` (issue #552). `None` for legacy rows
+        projected before the column existed — the AI-config API edge treats an
+        unknown owner as "not owned by the caller" (fail closed).
       properties:
         binding_state:
           $ref: '#/components/schemas/CredentialBindingState'
         id:
           format: uuid
           type: string
+        owner:
+          oneOf:
+          - type: 'null'
+          - $ref: '#/components/schemas/UserId'
+            description: |-
+              Authenticated principal (`OIDC sub`) that created/owns the binding.
+              `None` only for legacy rows awaiting re-projection or rotation backfill.
         provider:
           type: string
         vault_key_id:
@@ -6958,6 +6973,11 @@ x-code-registry:
   status: 409
   title: AI configuration already revoked
   type: https://docs.breakdown.example/problems/ai-config.already-revoked
+- code: ai-config.vault-key-forbidden
+  extensions: []
+  status: 403
+  title: Vault credential not owned by caller
+  type: https://docs.breakdown.example/problems/ai-config.vault-key-forbidden
 - code: ai-config.forbidden
   extensions: []
   status: 403

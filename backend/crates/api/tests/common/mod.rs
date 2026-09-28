@@ -73,7 +73,7 @@ use breakdown_core::settings::ports::{
 use breakdown_core::settings::views::{CredentialBindingState, SettingsView};
 use breakdown_core::shared::{
     AggregateVersion, BlockId, EpisodeId, PhotoId, PhotoVariant, SceneShootId, SeasonId, SeriesId,
-    ShootingDayId,
+    ShootingDayId, UserId,
 };
 use breakdown_core::shooting_day::commands::WrapShootingDay;
 use breakdown_core::shooting_day::commands::{
@@ -92,7 +92,6 @@ use breakdown_core::membership::commands::{
 };
 use breakdown_core::membership::ports::{MembershipCommands, MembershipRepository};
 use breakdown_core::membership::{MembershipStateKind, MembershipView, Role};
-use breakdown_core::shared::UserId;
 use chrono::{DateTime, Utc};
 use std::collections::HashSet;
 
@@ -1711,8 +1710,11 @@ impl Default for FakeSettingsRepo {
 // annotated.
 #[allow(dead_code)]
 impl FakeSettingsRepo {
-    /// Register an active credential reference for `vault_key_id`.
-    pub async fn bind_vault_key(&self, vault_key_id: &str, provider: &str) {
+    /// Register an active credential reference for `vault_key_id`, owned by
+    /// `owner` (issue #552: the AI-config ownership pre-check resolves the
+    /// binding's owner; pass another user's id to exercise the foreign-key
+    /// denial).
+    pub async fn bind_vault_key(&self, vault_key_id: &str, provider: &str, owner: &str) {
         self.by_vault_key.lock().await.insert(
             vault_key_id.to_owned(),
             SettingsView {
@@ -1722,6 +1724,7 @@ impl FakeSettingsRepo {
                 vault_version: 1,
                 binding_state: CredentialBindingState::Active,
                 version: AggregateVersion::INITIAL,
+                owner: Some(UserId::from_sub(owner)),
             },
         );
     }

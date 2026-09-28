@@ -620,3 +620,44 @@ Caveats:
 - In production, the client becomes subject to Google verification and
   Workspace controls; an unverified, published client keeps working for
   consenting users with the already-granted Drive scope.
+
+---
+
+## 10. Credential-binding owner backfill (issue #552)
+
+`projection_settings` carries an `owner` column (the principal that bound the
+credential). The AI-config create/update pre-check **fails closed** on an
+unknown owner, so bindings projected before this column existed deny until
+their owner is backfilled. Two recovery paths, in order of preference:
+
+1. **Re-projection (all rows at once).** Stop the API, reset the settings
+   projector checkpoint, restart — the projector replays the settings streams
+   from the event store and recovers the owner from each event's actor
+   metadata:
+
+   ```sql
+   -- 1. find the settings checkpoint row (table: sierradb_event_checkpoints)
+   SELECT * FROM sierradb_event_checkpoints WHERE projector = 'settings';
+   -- 2. with the API stopped, delete that row (back up the value first)
+   -- 3. restart the API; the settings projector replays from the beginning
+   -- 4. verify no NULL owners remain:
+   SELECT count(*) FROM projection_settings WHERE owner IS NULL;  -- expect 0
+   ```
+
+   Rows re-materialize only for events whose version is >= the stored row's
+   version; a plain replay rewrites every row (bind events carry the highest
+   version), so NULL owners are filled from the event metadata.
+2. **Self-heal via rotation.** Each user rotating their own credential
+   (`PATCH /settings/{id}/gdrive`, `/settings/credentials`) backfills the
+   owner of that one binding from the rotating actor — the AI-config vault-key
+   check unlocks for that binding immediately after the rotation is projected.
+
+**Detection:** a user reporting `403 ai-config.vault-key-forbidden` on a key
+that used to work is the symptom of a stale NULL owner. Check with:
+
+```sql
+SELECT id, provider, vault_key_id, binding_state, owner
+FROM projection_settings
+WHERE owner IS NULL
+ORDER BY updated_at DESC;
+```

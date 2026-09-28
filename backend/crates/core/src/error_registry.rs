@@ -36,7 +36,7 @@ pub const PROBLEM_DOCS_BASE: &str = "https://docs.breakdown.example";
 /// Kept in sync with the `problem_codes!` invocation below by a compile-time
 /// assertion — adding or removing a code without deliberately updating this
 /// count fails the build (issue #232).
-const PROBLEM_CODE_COUNT: usize = 84;
+const PROBLEM_CODE_COUNT: usize = 85;
 
 /// One registered problem code (ADR-031 D2/D4).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -792,6 +792,19 @@ problem_codes! {
         code: "ai-config.already-revoked",
         status: 409,
         title: "AI configuration already revoked",
+        extensions: &[],
+    },
+
+    /// 403 — the submitted `vault_key_id` names a real credential binding,
+    /// but not one owned by the authenticated caller (API-edge ownership
+    /// pre-check on AI-config create/update, issue #552). An unknown key and
+    /// a foreign key collapse into the same code, so the client never learns
+    /// whether a foreign binding exists. Legacy bindings with an unknown
+    /// owner (pre-replay projection) fail closed into this code as well.
+    AI_CONFIG_VAULT_KEY_FORBIDDEN {
+        code: "ai-config.vault-key-forbidden",
+        status: 403,
+        title: "Vault credential not owned by caller",
         extensions: &[],
     },
 

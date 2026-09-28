@@ -44,6 +44,13 @@ where
                 "AI vault key reference must not be empty",
             ));
         }
+        // Worker-side posture (issue #552): the worker deliberately trusts the
+        // stored `config.vault_key_id` — every stored value has passed the
+        // API-edge ownership pre-check (create/update) since #552, so a stored
+        // reference is already vetted. What is NOT trusted is the key *shape*:
+        // `settings_id_from_binding_key` fails closed on a malformed
+        // reference, so a corrupted or hand-crafted stored value can never
+        // address an arbitrary Vault path.
         // The binding key names the SETTINGS credential that owns the secret
         // (the provider key is stored there, ADR-027) — not the AI config that
         // merely references it. Passing the AI-config id made

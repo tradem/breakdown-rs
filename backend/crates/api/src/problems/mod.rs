@@ -23,14 +23,15 @@ use axum::http::{StatusCode, header, request::Parts};
 use axum::response::{IntoResponse, Response};
 use breakdown_core::error::DomainError;
 use breakdown_core::error_registry::{
-    AI_CONFIG_FORBIDDEN, AI_CONFIG_PROVIDER_MISMATCH, AI_CONFIG_VERSION_MISMATCH,
-    AI_IMPORT_DISABLED, AI_IMPORT_FORBIDDEN, AI_IMPORT_NOT_FOUND, AI_IMPORT_UNSUPPORTED_MEDIA_TYPE,
-    CONCURRENCY_VERSION_MISMATCH, COSTUME_ALREADY_ASSIGNED, DOMAIN_CONFLICT, DOMAIN_FORBIDDEN,
-    DOMAIN_NOT_FOUND, DOMAIN_SERVICE_UNAVAILABLE, DOMAIN_VALIDATION, HTTP_BAD_JSON_BODY,
-    HTTP_BAD_PATH_PARAM, HTTP_BAD_QUERY_PARAM, HTTP_BAD_REQUEST, HTTP_INTERNAL_ERROR,
-    HTTP_PAYLOAD_TOO_LARGE, HTTP_REQUEST_TIMEOUT, HTTP_ROUTE_NOT_FOUND,
-    HTTP_UNSUPPORTED_MEDIA_TYPE, ProblemCode, SCENE_ALREADY_SCHEDULED, SCENE_NOT_SCHEDULED,
-    SCENE_SHOOT_ALREADY_LINKED, SCENE_SHOOT_SHOOTING_DAY_WRAPPED, SETTINGS_FORBIDDEN,
+    AI_CONFIG_FORBIDDEN, AI_CONFIG_PROVIDER_MISMATCH, AI_CONFIG_VAULT_KEY_FORBIDDEN,
+    AI_CONFIG_VERSION_MISMATCH, AI_IMPORT_DISABLED, AI_IMPORT_FORBIDDEN, AI_IMPORT_NOT_FOUND,
+    AI_IMPORT_UNSUPPORTED_MEDIA_TYPE, CONCURRENCY_VERSION_MISMATCH, COSTUME_ALREADY_ASSIGNED,
+    DOMAIN_CONFLICT, DOMAIN_FORBIDDEN, DOMAIN_NOT_FOUND, DOMAIN_SERVICE_UNAVAILABLE,
+    DOMAIN_VALIDATION, HTTP_BAD_JSON_BODY, HTTP_BAD_PATH_PARAM, HTTP_BAD_QUERY_PARAM,
+    HTTP_BAD_REQUEST, HTTP_INTERNAL_ERROR, HTTP_PAYLOAD_TOO_LARGE, HTTP_REQUEST_TIMEOUT,
+    HTTP_ROUTE_NOT_FOUND, HTTP_UNSUPPORTED_MEDIA_TYPE, ProblemCode, SCENE_ALREADY_SCHEDULED,
+    SCENE_NOT_SCHEDULED, SCENE_SHOOT_ALREADY_LINKED, SCENE_SHOOT_SHOOTING_DAY_WRAPPED,
+    SETTINGS_FORBIDDEN,
 };
 use serde::Serialize;
 
@@ -344,6 +345,12 @@ pub enum ApiError {
     /// the aggregate emits when a provider change reuses the current key, so
     /// the client branches on one code for "these two do not belong together".
     AiConfigProviderMismatch(&'static str),
+    /// 403 `ai-config.vault-key-forbidden` — the submitted vault key names a
+    /// real credential binding that is not owned by the authenticated caller
+    /// (API-edge ownership pre-check, issue #552). Unknown and foreign keys
+    /// collapse into this code; legacy unknown-owner bindings fail closed
+    /// into it as well.
+    AiConfigVaultKeyForbidden(&'static str),
     /// 500 `http.internal-error` — `detail` is always static text; the real
     /// error must be logged by the caller (internal text never leaves the
     /// server, ADR-031 decision 6).
@@ -452,6 +459,13 @@ impl ApiError {
                     "rendering ai-config provider mismatch problem"
                 );
                 problem(AI_CONFIG_PROVIDER_MISMATCH).build()
+            }
+            ApiError::AiConfigVaultKeyForbidden(msg) => {
+                tracing::debug!(
+                    reason = msg,
+                    "rendering ai-config vault-key ownership denial problem"
+                );
+                problem(AI_CONFIG_VAULT_KEY_FORBIDDEN).build()
             }
             ApiError::Internal => problem(HTTP_INTERNAL_ERROR).build(),
             ApiError::ReportRender(err) => report_render_problem(err),

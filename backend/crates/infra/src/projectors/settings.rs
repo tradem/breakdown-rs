@@ -26,6 +26,17 @@ impl<'a> EntityEventHandler<SettingsAggregate, Transaction<'a, Postgres>> for Se
         event: Event<SettingsEvent, EventMetadata>,
     ) -> Result<(), Self::Error> {
         let updated_at = event.timestamp;
+        // The binding owner is the authenticated principal that dispatched the
+        // credential command, carried in the persisted event metadata — never
+        // in the event data itself (issue #552). `None` only for legacy events
+        // written before actor metadata existed; the AI-config API edge fails
+        // closed on an unknown owner.
+        let owner = event
+            .metadata
+            .data
+            .as_ref()
+            .and_then(|m| m.actor.as_ref())
+            .map(|user| user.as_str().to_owned());
         match event.data {
             SettingsEvent::CredentialBound {
                 id,
@@ -37,8 +48,8 @@ impl<'a> EntityEventHandler<SettingsAggregate, Transaction<'a, Postgres>> for Se
                 sqlx::query(
                     r#"
                     INSERT INTO projection_settings
-                        (id, provider, vault_key_id, vault_version, binding_state, version, projector_version, updated_at)
-                    VALUES ($1, $2, $3, $4, 'active', $5, $6, $7)
+                        (id, provider, vault_key_id, vault_version, binding_state, version, projector_version, owner, updated_at)
+                    VALUES ($1, $2, $3, $4, 'active', $5, $6, $7, $8)
                     ON CONFLICT (id) DO UPDATE SET
                         provider = EXCLUDED.provider,
                         vault_key_id = EXCLUDED.vault_key_id,
@@ -46,6 +57,7 @@ impl<'a> EntityEventHandler<SettingsAggregate, Transaction<'a, Postgres>> for Se
                         binding_state = EXCLUDED.binding_state,
                         version = EXCLUDED.version,
                         projector_version = EXCLUDED.projector_version,
+                        owner = EXCLUDED.owner,
                         updated_at = EXCLUDED.updated_at
                     WHERE projection_settings.version < EXCLUDED.version
                     "#,
@@ -56,6 +68,7 @@ impl<'a> EntityEventHandler<SettingsAggregate, Transaction<'a, Postgres>> for Se
                 .bind(vault_version as i64)
                 .bind(version.0 as i64)
                 .bind(PROJECTOR_VERSION)
+                .bind(owner.clone())
                 .bind(updated_at)
                 .execute(&mut **ctx)
                 .await?;
@@ -67,6 +80,10 @@ impl<'a> EntityEventHandler<SettingsAggregate, Transaction<'a, Postgres>> for Se
                 vault_version,
                 version,
             } => {
+                // The owner of a binding is immutable; rotation only refreshes
+                // the key. COALESCE keeps the recorded owner and doubles as a
+                // best-effort backfill for legacy rows whose owner is still
+                // NULL (issue #552): the rotating actor must be the owner.
                 sqlx::query(
                     r#"
                     UPDATE projection_settings
@@ -75,7 +92,8 @@ impl<'a> EntityEventHandler<SettingsAggregate, Transaction<'a, Postgres>> for Se
                         vault_version = $4,
                         binding_state = 'active',
                         version = $5,
-                        updated_at = $6
+                        owner = COALESCE(owner, $6),
+                        updated_at = $7
                     WHERE id = $1 AND version < $5
                     "#,
                 )
@@ -84,6 +102,7 @@ impl<'a> EntityEventHandler<SettingsAggregate, Transaction<'a, Postgres>> for Se
                 .bind(vault_key_id)
                 .bind(vault_version as i64)
                 .bind(version.0 as i64)
+                .bind(owner)
                 .bind(updated_at)
                 .execute(&mut **ctx)
                 .await?;

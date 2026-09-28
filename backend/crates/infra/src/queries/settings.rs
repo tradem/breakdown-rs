@@ -8,6 +8,7 @@ use breakdown_core::error_registry::SETTINGS_NOT_FOUND;
 use breakdown_core::settings::ports::SettingsRepository;
 use breakdown_core::settings::views::{CredentialBindingState, SettingsView};
 use breakdown_core::shared::AggregateVersion;
+use breakdown_core::shared::UserId;
 use sqlx::{PgPool, Row};
 use uuid::Uuid;
 
@@ -27,7 +28,7 @@ impl SettingsRepository for SettingsRepositoryImpl {
     async fn find_by_id(&self, id: Uuid) -> Result<SettingsView, DomainError> {
         let row = sqlx::query(
             r#"
-            SELECT id, provider, vault_key_id, vault_version, binding_state, version
+            SELECT id, provider, vault_key_id, vault_version, binding_state, version, owner
             FROM projection_settings
             WHERE id = $1
             "#,
@@ -54,7 +55,7 @@ impl SettingsRepository for SettingsRepositoryImpl {
     ) -> Result<Option<SettingsView>, DomainError> {
         let row = sqlx::query(
             r#"
-            SELECT id, provider, vault_key_id, vault_version, binding_state, version
+            SELECT id, provider, vault_key_id, vault_version, binding_state, version, owner
             FROM projection_settings
             WHERE vault_key_id = $1
             ORDER BY version DESC
@@ -92,6 +93,10 @@ fn map_settings_row(row: &sqlx::postgres::PgRow) -> Result<SettingsView, DomainE
         vault_version: row.try_get::<i64, _>("vault_version").map_err(map_error)? as u64,
         binding_state,
         version: AggregateVersion(row.try_get::<i64, _>("version").map_err(map_error)? as u64),
+        owner: row
+            .try_get::<Option<String>, _>("owner")
+            .map_err(map_error)?
+            .map(UserId::from_sub),
     })
 }
 
