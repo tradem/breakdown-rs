@@ -1,0 +1,7 @@
+{
+  "code": "settings.binding-forbidden",
+  "detail": "Diese Anmeldedaten gehören nicht zu Ihnen.",
+  "status": 403,
+  "title": "Credential binding not owned by caller",
+  "type": "https://docs.breakdown.example/problems/settings.binding-forbidden"
+}

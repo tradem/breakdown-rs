@@ -31,7 +31,7 @@ use breakdown_core::error_registry::{
     HTTP_BAD_REQUEST, HTTP_INTERNAL_ERROR, HTTP_PAYLOAD_TOO_LARGE, HTTP_REQUEST_TIMEOUT,
     HTTP_ROUTE_NOT_FOUND, HTTP_UNSUPPORTED_MEDIA_TYPE, ProblemCode, SCENE_ALREADY_SCHEDULED,
     SCENE_NOT_SCHEDULED, SCENE_SHOOT_ALREADY_LINKED, SCENE_SHOOT_SHOOTING_DAY_WRAPPED,
-    SETTINGS_FORBIDDEN,
+    SETTINGS_BINDING_FORBIDDEN, SETTINGS_FORBIDDEN,
 };
 use serde::Serialize;
 
@@ -297,6 +297,11 @@ pub enum ApiError {
     /// credential handler → 403 `settings.forbidden` (ADR-031 Tranche 2
     /// scoped code, issue #470).
     SettingsForbidden(&'static str),
+    /// Ownership denial on a settings credential binding the caller does not
+    /// own → 403 `settings.binding-forbidden` (ADR-031 Tranche 2 scoped
+    /// code, issue #555). Distinct from the credential-role denial above so
+    /// the client can render "this credential is not yours".
+    SettingsBindingForbidden(&'static str),
     /// Malformed request (path/body mismatch, bad headers) → 400 `http.bad-request`.
     BadRequest(&'static str),
     /// Malformed JSON body → 400 `http.bad-json-body`.
@@ -391,6 +396,10 @@ impl ApiError {
             ApiError::SettingsForbidden(msg) => {
                 tracing::debug!(reason = msg, "rendering settings forbidden problem");
                 problem(SETTINGS_FORBIDDEN).build()
+            }
+            ApiError::SettingsBindingForbidden(msg) => {
+                tracing::debug!(reason = msg, "rendering settings binding forbidden problem");
+                problem(SETTINGS_BINDING_FORBIDDEN).build()
             }
             ApiError::BadRequest(msg) => {
                 tracing::debug!(reason = msg, "rendering bad-request problem");

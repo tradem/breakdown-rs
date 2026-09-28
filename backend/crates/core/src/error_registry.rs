@@ -36,7 +36,7 @@ pub const PROBLEM_DOCS_BASE: &str = "https://docs.breakdown.example";
 /// Kept in sync with the `problem_codes!` invocation below by a compile-time
 /// assertion — adding or removing a code without deliberately updating this
 /// count fails the build (issue #232).
-const PROBLEM_CODE_COUNT: usize = 85;
+const PROBLEM_CODE_COUNT: usize = 86;
 
 /// One registered problem code (ADR-031 D2/D4).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -741,6 +741,21 @@ problem_codes! {
         code: "settings.forbidden",
         status: 403,
         title: "Settings forbidden",
+        extensions: &[],
+    },
+
+    /// 403 — the addressed credential binding exists but is not owned by the
+    /// authenticated caller (API-edge ownership pre-check on the settings
+    /// credential handlers `GET`/`PATCH`/`DELETE /settings/{id}`, issue
+    /// #555). Scoped separately from `settings.forbidden` (credential-role
+    /// denial) so the client can render "this credential is not yours"
+    /// instead of a generic authorization failure. Fail closed: a legacy row
+    /// with an unknown owner denies exactly like a foreign row (same posture
+    /// as `ai-config.vault-key-forbidden`, issue #552).
+    SETTINGS_BINDING_FORBIDDEN {
+        code: "settings.binding-forbidden",
+        status: 403,
+        title: "Credential binding not owned by caller",
         extensions: &[],
     },
 

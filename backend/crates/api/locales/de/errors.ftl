@@ -252,6 +252,9 @@ problem-settings-provider-mismatch =
 problem-settings-forbidden =
     Für die Verwaltung der Einstellungs-Anmeldedaten ist eine Administratorrolle erforderlich.
 
+problem-settings-binding-forbidden =
+    Diese Anmeldedaten gehören nicht zu Ihnen.
+
 problem-shooting-day-archived =
     Der Drehtag ist archiviert und kann nicht mehr geändert werden.
 

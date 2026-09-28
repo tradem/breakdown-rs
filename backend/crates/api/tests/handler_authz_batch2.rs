@@ -41,7 +41,7 @@ use breakdown_core::costume::CostumeView;
 use breakdown_core::episode::EpisodeView;
 use breakdown_core::shared::{
     AggregateVersion, BlockId, EpisodeId, PhotoId, PhotoVariant, SceneShootId, SeasonId, SeriesId,
-    ShootingDayId, VariantStatus,
+    ShootingDayId, UserId, VariantStatus,
 };
 use breakdown_core::shooting_day::ShootingDayView;
 use common::FakePorts;
@@ -637,6 +637,236 @@ async fn revoke_settings_denies_non_member() {
     assert_eq!(problem.status, 403);
     assert_eq!(problem.code, "settings.forbidden");
     assert!(!problem.detail.is_empty());
+}
+
+// ---------------------------------------------------------------------------
+// Issue #555 — settings credential binding ownership
+//
+// The credential *role* alone must not authorize touching a binding: the
+// caller has to own it (`projection_settings.owner`, recorded once from the
+// bind event's `EventMetadata.actor`, issue #552). Without this check any
+// credential-role member could read, rotate — and thereby destroy — another
+// user's Vault secret. Legacy rows with `owner IS NULL` fail closed exactly
+// like foreign rows, so rotation can never be used to claim one.
+// ---------------------------------------------------------------------------
+
+/// Seed the caller as an active credential-role member, so the *ownership*
+/// check — not the role gate — is what decides the settings handlers.
+async fn seed_credential_role(ports: &FakePorts) {
+    ports
+        .membership_repo
+        .seed_credential_designer(BlockId::new(), UserId::from_sub(USER))
+        .await;
+}
+
+/// Body of `PATCH /settings/{id}/gdrive`.
+fn gdrive_rotation_request() -> api::handlers::GDriveCredentialUpdateRequest {
+    api::handlers::GDriveCredentialUpdateRequest {
+        bundle: api::handlers::GDriveCredentialRequest {
+            client_id: "id".into(),
+            client_secret: "secret".into(),
+            refresh_token: "token".into(),
+            root_folder_id: None,
+        },
+        version: AggregateVersion(1),
+    }
+}
+
+#[tokio::test]
+async fn get_settings_denies_a_foreign_owner() {
+    let ports = FakePorts::default();
+    let id = Uuid::now_v7();
+    // Active credential-role member, but the binding belongs to somebody else.
+    seed_credential_role(&ports).await;
+    ports
+        .settings_repo
+        .seed_gdrive_view(id, Some("someone-else"))
+        .await;
+    let state = app_state(ports);
+
+    let problem = api::handlers::get_settings::<FakePorts>(State(state), dummy_user(), Path(id))
+        .await
+        .expect_err("a foreign binding must not be readable")
+        .into_problem();
+
+    assert_eq!(problem.status, 403);
+    assert_eq!(problem.code, "settings.binding-forbidden");
+    assert!(!problem.detail.is_empty());
+}
+
+#[tokio::test]
+async fn get_settings_allows_the_owner() {
+    let ports = FakePorts::default();
+    let id = Uuid::now_v7();
+    seed_credential_role(&ports).await;
+    ports.settings_repo.seed_gdrive_view(id, Some(USER)).await;
+    let state = app_state(ports);
+
+    let (status, _view) =
+        api::handlers::get_settings::<FakePorts>(State(state), dummy_user(), Path(id))
+            .await
+            .expect("the owner may read their own binding");
+    assert_eq!(status, 200);
+}
+
+#[tokio::test]
+async fn rotate_gdrive_credential_denies_a_foreign_owner() {
+    let ports = FakePorts::default();
+    let id = Uuid::now_v7();
+    seed_credential_role(&ports).await;
+    ports
+        .settings_repo
+        .seed_gdrive_view(id, Some("someone-else"))
+        .await;
+    let commands = ports.settings_commands.clone();
+    let state = app_state(ports);
+
+    let problem = api::handlers::rotate_gdrive_credential::<FakePorts>(
+        State(state),
+        dummy_user(),
+        Path(id),
+        Json(gdrive_rotation_request()),
+    )
+    .await
+    .expect_err("a foreign binding must not be rotated")
+    .into_problem();
+
+    assert_eq!(problem.status, 403);
+    assert_eq!(problem.code, "settings.binding-forbidden");
+    // The denial happens before any Vault write and before the command port:
+    // the fake vault is unavailable, so a passing gate would have surfaced
+    // `503` instead of `403`.
+    assert!(commands.last_rotate.lock().await.is_none());
+}
+
+#[tokio::test]
+async fn rotate_gdrive_credential_denies_a_legacy_unknown_owner() {
+    let ports = FakePorts::default();
+    let id = Uuid::now_v7();
+    // `owner IS NULL` — a binding that predates the owner column. Fail closed:
+    // otherwise rotation would let any credential-role member claim it.
+    seed_credential_role(&ports).await;
+    ports.settings_repo.seed_gdrive_view(id, None).await;
+    let commands = ports.settings_commands.clone();
+    let state = app_state(ports);
+
+    let problem = api::handlers::rotate_gdrive_credential::<FakePorts>(
+        State(state),
+        dummy_user(),
+        Path(id),
+        Json(gdrive_rotation_request()),
+    )
+    .await
+    .expect_err("a legacy unknown-owner binding must not be rotatable")
+    .into_problem();
+
+    assert_eq!(problem.status, 403);
+    assert_eq!(problem.code, "settings.binding-forbidden");
+    assert!(commands.last_rotate.lock().await.is_none());
+}
+
+#[tokio::test]
+async fn revoke_settings_denies_a_foreign_owner() {
+    let ports = FakePorts::default();
+    let id = Uuid::now_v7();
+    seed_credential_role(&ports).await;
+    ports
+        .settings_repo
+        .seed_gdrive_view(id, Some("someone-else"))
+        .await;
+    let commands = ports.settings_commands.clone();
+    let state = app_state(ports);
+
+    let problem = api::handlers::revoke_settings::<FakePorts>(
+        State(state),
+        dummy_user(),
+        Path(id),
+        Json(VersionRequest {
+            version: AggregateVersion(1),
+        }),
+    )
+    .await
+    .expect_err("a foreign binding must not be revoked")
+    .into_problem();
+
+    assert_eq!(problem.status, 403);
+    assert_eq!(problem.code, "settings.binding-forbidden");
+    assert!(
+        commands.revokes.lock().await.is_empty(),
+        "the revoke command must never be dispatched for a foreign binding"
+    );
+}
+
+#[tokio::test]
+async fn revoke_settings_denies_a_legacy_unknown_owner() {
+    let ports = FakePorts::default();
+    let id = Uuid::now_v7();
+    seed_credential_role(&ports).await;
+    ports.settings_repo.seed_gdrive_view(id, None).await;
+    let commands = ports.settings_commands.clone();
+    let state = app_state(ports);
+
+    let problem = api::handlers::revoke_settings::<FakePorts>(
+        State(state),
+        dummy_user(),
+        Path(id),
+        Json(VersionRequest {
+            version: AggregateVersion(1),
+        }),
+    )
+    .await
+    .expect_err("a legacy unknown-owner binding must not be revocable")
+    .into_problem();
+
+    assert_eq!(problem.status, 403);
+    assert_eq!(problem.code, "settings.binding-forbidden");
+    assert!(commands.revokes.lock().await.is_empty());
+}
+
+#[tokio::test]
+async fn revoke_settings_allows_the_owner() {
+    let ports = FakePorts::default();
+    let id = Uuid::now_v7();
+    seed_credential_role(&ports).await;
+    ports.settings_repo.seed_gdrive_view(id, Some(USER)).await;
+    *ports.settings_commands.revoke_result.lock().await = Some(Ok(AggregateVersion(2)));
+    let commands = ports.settings_commands.clone();
+    let state = app_state(ports);
+
+    let (status, _version) = api::handlers::revoke_settings::<FakePorts>(
+        State(state),
+        dummy_user(),
+        Path(id),
+        Json(VersionRequest {
+            version: AggregateVersion(1),
+        }),
+    )
+    .await
+    .expect("the owner may revoke their own binding");
+
+    assert_eq!(status, 200);
+    let revokes = commands.revokes.lock().await;
+    assert_eq!(revokes.len(), 1);
+    // The command must carry the *requested* binding id — a count-only
+    // assertion would pass for a revoke of some other binding.
+    assert_eq!(revokes[0].id, id);
+}
+
+#[tokio::test]
+async fn get_settings_denies_a_legacy_unknown_owner() {
+    let ports = FakePorts::default();
+    let id = Uuid::now_v7();
+    seed_credential_role(&ports).await;
+    ports.settings_repo.seed_gdrive_view(id, None).await;
+    let state = app_state(ports);
+
+    let problem = api::handlers::get_settings::<FakePorts>(State(state), dummy_user(), Path(id))
+        .await
+        .expect_err("a legacy unknown-owner binding must not be readable")
+        .into_problem();
+
+    assert_eq!(problem.status, 403);
+    assert_eq!(problem.code, "settings.binding-forbidden");
 }
 
 // ---------------------------------------------------------------------------
