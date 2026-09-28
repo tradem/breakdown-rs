@@ -5382,6 +5382,18 @@ paths:
               schema:
                 $ref: '#/components/schemas/AggregateVersion'
           description: ''
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Credential forbidden — not the binding owner
+        '404':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: ''
         '503':
           content:
             application/problem+json:
@@ -5407,6 +5419,12 @@ paths:
               schema:
                 $ref: '#/components/schemas/SettingsView'
           description: ''
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Credential forbidden — not the binding owner
         '404':
           content:
             application/problem+json:
@@ -5450,7 +5468,7 @@ paths:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
-          description: Credential management forbidden
+          description: Credential management forbidden (role gate) or binding not owned by caller
         '404':
           content:
             application/problem+json:
@@ -6939,6 +6957,11 @@ x-code-registry:
   status: 403
   title: Settings forbidden
   type: https://docs.breakdown.example/problems/settings.forbidden
+- code: settings.binding-forbidden
+  extensions: []
+  status: 403
+  title: Credential binding not owned by caller
+  type: https://docs.breakdown.example/problems/settings.binding-forbidden
 - code: ai-config.not-found
   extensions: []
   status: 404

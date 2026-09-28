@@ -252,6 +252,9 @@ problem-settings-provider-mismatch =
 problem-settings-forbidden =
     Managing settings credentials requires an administrator role.
 
+problem-settings-binding-forbidden =
+    This credential does not belong to you.
+
 problem-shooting-day-archived =
     The shooting day is archived and can no longer be modified.
 

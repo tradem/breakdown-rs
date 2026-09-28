@@ -15,6 +15,33 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
+## [0.13.0] - Unreleased
+
+### Fixed — settings credential rotate/revoke no longer trust the role alone (issue #555)
+
+- `GET /settings/{id}`, `PATCH /settings/{id}/gdrive` and
+  `DELETE /settings/{id}` now enforce **per-binding ownership** at the API
+  edge (the only legitimate read-model consumer, CQRS boundary): the
+  binding's `projection_settings.owner` (recorded once from the bind
+  event's `EventMetadata.actor`, issue #552) must match the authenticated
+  caller. A foreign binding — and a legacy row with an unknown owner, which
+  fails closed exactly like one — surfaces the new scoped problem code
+  **403 `settings.binding-forbidden`** (registered in `problem_codes!`,
+  Fluent texts en/de), distinct from the credential-role denial
+  `settings.forbidden` so the client can render "this credential is not
+  yours".
+- The pre-check runs **before** any Vault write and before the command
+  dispatch, so a non-owner can neither rotate (replacing and destroying the
+  superseded secret) nor revoke (destroying the secret) another user's
+  credential, and cannot read its `vault_key_id`.
+- Wire tests cover the foreign-owner and legacy-NULL-owner denial on all
+  three handlers plus the owner-allowed path.
+- `openapi.yaml` regenerated (403 responses on the three settings routes,
+  new registry entry). The generated Dart client is unchanged — verified by
+  regenerating from the pre- and post-change spec (byte-identical).
+- **MINOR bump (ADR-020 D2):** new public `ApiError::SettingsBindingForbidden`
+  variant; re-pinned `breakdown_core` 0.15.0 — **0.12.1 → 0.13.0**.
+
 ## [0.12.1] - Unreleased
 
 ### Fixed — AI config rejects a vault key the caller does not own (issue #552)

@@ -34,7 +34,7 @@ future PRs that touch these areas must keep this page in sync.
   trusts identity attributes from any other channel; `core` only sees an
   opaque `UserId` derived from the `sub` claim.
 
-### Vault credential ownership (ADR-027, issue #552)
+### Vault credential ownership (ADR-027, issues #552 / #555)
 
 - Every `projection_settings` credential binding carries an `owner` (the
   authenticated principal that dispatched the bind, recovered by the
@@ -46,6 +46,25 @@ future PRs that touch these areas must keep this page in sync.
   another user's live credential (confused deputy / quota + billing abuse).
   Fail closed: a legacy row with unknown owner denies until the operator
   re-projects (rotation deliberately does not backfill — runbook §10).
+- The settings credential handlers are owner-scoped as well (issue #555).
+  The credential role (`has_active_credential_role`, ADR-028) is a
+  *necessary* but not sufficient gate: `GET`, `PATCH /settings/{id}/gdrive`
+  and `DELETE /settings/{id}` additionally require
+  `projection_settings.owner == caller`, else **403
+  `settings.binding-forbidden`** (scoped code, ADR-031, distinct from the
+  role denial `settings.forbidden` so the client can render "this credential
+  is not yours"). The pre-check runs in the handler — the only legitimate
+  read-model consumer (CQRS boundary) — and *before* any Vault write or
+  command dispatch, so a foreign `rotate`/`revoke` can neither replace a
+  secret nor destroy the superseded/revoked one. Reading the binding
+  metadata (including its `vault_key_id`) is owner-scoped for the same
+  reason. A legacy `owner IS NULL` row fails closed into the identical 403.
+- *Accepted trade-off:* a foreign binding answers `403` where an unknown id
+  answers `404`, so a caller holding a binding id can confirm it exists. The
+  id is a client-held UUIDv7 (unguessable), and the same path already split
+  `404` (unknown) from `409` (revoked / wrong provider) before this change —
+  the extra bit is accepted rather than trading a usable denial narrative for
+  a hidden `404`.
 - The AI import worker deliberately trusts the stored `config.vault_key_id`
   (it is edge-vetted at write time) but keeps the fail-closed shape check —
   a malformed stored reference can never address an arbitrary Vault path
@@ -109,6 +128,7 @@ block-scoped, never open.
 |---|---|---|
 | `/swagger-ui`, `/api-docs` | public | Docs only. Implemented as a **path-check inside the middleware**, *not* by omitting the layer — the middleware still runs on every request. (`authorization.rs::authorize_middleware`, `auth/mod.rs::auth_middleware`) |
 | `/seasons`, `/settings`, `/blocks` (create/list) | `Authenticated` | No existing block membership can be required: creating a block bootstraps its owner; listing by season needs no block scope. |
+| `/settings/{id}` (`GET`/`DELETE`), `/settings/{id}/gdrive` (`PATCH`) (issue #555) | `Authenticated` + handler gates | Integration-level credentials, not season-scoped (ADR-028), so the middleware cannot gate them. Every handler enforces the credential role (`has_active_credential_role`) *and* per-binding ownership (`projection_settings.owner == caller`) with `// AUTHZ-GATE:` comments — 403 `settings.forbidden` for the role denial, 403 `settings.binding-forbidden` for a foreign or legacy unknown-owner binding. Ownership is checked before any Vault write or command dispatch, so a non-owner can neither read the `vault_key_id` nor rotate/destroy another user's secret. |
 | `/costumes/{id}/photos*` | `Authenticated` + handler gate | Handler internally calls `SeasonPhotoAccessPolicy::authorize_season` (costume-dept role in an active block of the season) and returns `403` on denial. Marked with `// AUTHZ-GATE:` comments — reviewers grep for them. |
 | `/blocks/{id}/members/accept` | `Authenticated` | The invitee is *not yet* a member (that is the point). The domain command `AcceptInvitation` binds `user_id` to the authenticated `sub`, so a caller can only accept their own invitation. |
 | `/ai-import*`, `/report/*.pdf`, `/report/archive` | `Authenticated` + handler gates | Each handler performs season-scoped internal authorization (costume-dept membership / credential role) with `// AUTHZ-GATE:` comments. |

@@ -1631,6 +1631,9 @@ pub struct FakeSettingsCommands {
     pub rotate_result: SettingsRotateResult,
     pub last_rotate: Arc<Mutex<Option<RotateCredentialBinding>>>,
     pub revoke_result: SettingsRevokeResult,
+    /// Every dispatched revoke — lets a test assert that an ownership denial
+    /// (issue #555) never reached the command port.
+    pub revokes: Arc<Mutex<Vec<RevokeCredential>>>,
 }
 
 impl Default for FakeSettingsCommands {
@@ -1640,6 +1643,7 @@ impl Default for FakeSettingsCommands {
             rotate_result: Arc::new(Mutex::new(None)),
             last_rotate: Arc::new(Mutex::new(None)),
             revoke_result: Arc::new(Mutex::new(None)),
+            revokes: Arc::new(Mutex::new(Vec::new())),
         }
     }
 }
@@ -1675,8 +1679,9 @@ impl SettingsCommands for FakeSettingsCommands {
     async fn revoke(
         &self,
         _actor: UserId,
-        _cmd: RevokeCredential,
+        cmd: RevokeCredential,
     ) -> Result<AggregateVersion, DomainError> {
+        self.revokes.lock().await.push(cmd);
         self.revoke_result
             .lock()
             .await
@@ -1727,6 +1732,30 @@ impl FakeSettingsRepo {
                 owner: Some(UserId::from_sub(owner)),
             },
         );
+    }
+
+    /// Seed the `find_by_id` read model with one binding row (issue #555:
+    /// the settings handlers owner-scope `GET`/`PATCH`/`DELETE /settings/{id}`).
+    /// `owner` mirrors the projected `projection_settings.owner` — pass another
+    /// user's id for the foreign-binding denial, `None` for a legacy row that
+    /// predates the owner column (must fail closed).
+    pub async fn seed_view(&self, view: SettingsView) {
+        *self.view.lock().await = Some(view);
+    }
+
+    /// Convenience wrapper around [`Self::seed_view`] for an active GDrive
+    /// binding owned by `owner` (`None` = legacy unknown owner).
+    pub async fn seed_gdrive_view(&self, id: Uuid, owner: Option<&str>) {
+        self.seed_view(SettingsView {
+            id,
+            provider: "gdrive".to_owned(),
+            vault_key_id: "settings/vault/key".to_owned(),
+            vault_version: 1,
+            binding_state: CredentialBindingState::Active,
+            version: AggregateVersion(1),
+            owner: owner.map(UserId::from_sub),
+        })
+        .await;
     }
 }
 

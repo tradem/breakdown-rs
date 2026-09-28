@@ -14,6 +14,21 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
+## [0.15.0] - Unreleased
+
+### Added — settings binding-ownership problem code (issue #555)
+
+- New registry entry **403 `settings.binding-forbidden`**
+  (`SETTINGS_BINDING_FORBIDDEN`) in the `problem_codes!` macro: the
+  settings credential handlers (`GET`/`PATCH`/`DELETE /settings/{id}`)
+  now require the addressed binding to be owned by the authenticated
+  caller, not merely that the caller holds the credential role. A foreign
+  binding and a legacy row with an unknown owner (`owner IS NULL`) fail
+  closed into this code; the credential-role denial keeps its own
+  `settings.forbidden`.
+- **MINOR bump (ADR-020 D2):** new public registry constant —
+  **0.14.0 → 0.15.0**.
+
 ## [0.14.0] - Unreleased
 
 ### Added — credential-binding ownership in the settings view (issue #552)

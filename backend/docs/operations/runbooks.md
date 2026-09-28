@@ -623,16 +623,20 @@ Caveats:
 
 ---
 
-## 10. Credential-binding owner backfill (issue #552)
+## 10. Credential-binding owner backfill (issue #552, extended by #555)
 
 `projection_settings` carries an `owner` column (the principal that bound the
-credential). The AI-config create/update pre-check **fails closed** on an
-unknown owner, so bindings projected before this column existed deny until
-their owner is backfilled. Recovery is **re-projection only** — rotation
-deliberately does not backfill (the settings rotate/revoke handlers gate on
-the credential role only and do not verify the rotating actor against the
-binding owner, so a rotation backfill would let any credential-role member
-claim a legacy NULL-owner binding; issue #552 review).
+credential). Every owner pre-check **fails closed** on an unknown owner, so
+bindings projected before this column existed deny until their owner is
+backfilled. Recovery is **re-projection only** — rotation deliberately does
+not backfill: rotation itself is an owner-scoped operation (issue #555), so
+a `COALESCE` backfill on rotate would still let any credential-role member
+claim a legacy NULL-owner binding (issue #552 review). Affected denials:
+
+| Surface | Denial on a NULL-owner row |
+|---|---|
+| `POST`/`PATCH /ai-import/config` (key) | 403 `ai-config.vault-key-forbidden` (issue #552) |
+| `GET`/`PATCH`/`DELETE /settings/{id}` | 403 `settings.binding-forbidden` (issue #555) |
 
 ### Re-projection procedure
 
@@ -667,7 +671,9 @@ SELECT binding_state, count(*) FROM projection_settings GROUP BY binding_state;
 ```
 
 **Detection:** a user reporting `403 ai-config.vault-key-forbidden` on a key
-that used to work is the symptom of a stale NULL owner. Check with:
+that used to work, or `403 settings.binding-forbidden` on a credential they
+used to be able to read/rotate/revoke, is the symptom of a stale NULL owner.
+Check with:
 
 ```sql
 SELECT id, provider, vault_key_id, binding_state, owner

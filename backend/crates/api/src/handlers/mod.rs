@@ -4200,7 +4200,7 @@ pub async fn create_gdrive_credential<P: Ports>(
     responses(
         (status = 200, description = "GDrive credential reference rotated", body = IdVersionResponse),
         (status = 400, description = "Invalid GDrive credential bundle", body = ProblemDetails),
-        (status = 403, description = "Credential management forbidden", body = ProblemDetails),
+        (status = 403, description = "Credential management forbidden (role gate) or binding not owned by caller", body = ProblemDetails),
         (status = 404, body = ProblemDetails),
         (status = 409, description = "GDrive binding cannot be rotated", body = ProblemDetails),
         (status = 503, description = "Vault unavailable", body = ProblemDetails)
@@ -4226,6 +4226,10 @@ pub async fn rotate_gdrive_credential<P: Ports>(
         ));
     }
     let view = state.ports.settings_repo().find_by_id(id).await?;
+    // AUTHZ-GATE (ownership, issue #555): the binding must belong to the
+    // caller. Checked before any Vault write, so a foreign rotate can neither
+    // create a new secret nor destroy the superseded one.
+    require_owned_settings_binding(&view, &current_user.sub)?;
     if view.provider != "gdrive"
         || view.binding_state == breakdown_core::settings::views::CredentialBindingState::Revoked
     {
@@ -4399,7 +4403,11 @@ pub async fn create_credential<P: Ports>(
     get,
     path = "/settings/{id}",
     params(("id" = Uuid, Path, description = "Settings id")),
-    responses((status = 200, body = SettingsView), (status = 404, body = ProblemDetails))
+    responses(
+        (status = 200, body = SettingsView),
+        (status = 403, description = "Credential forbidden — not the binding owner", body = ProblemDetails),
+        (status = 404, body = ProblemDetails)
+    )
 )]
 pub async fn get_settings<P: Ports>(
     State(state): State<AppState<P>>,
@@ -4420,6 +4428,10 @@ pub async fn get_settings<P: Ports>(
         ));
     }
     let mut view = state.ports.settings_repo().find_by_id(id).await?;
+    // AUTHZ-GATE (ownership, issue #555): reading a binding's metadata —
+    // including its opaque `vault_key_id` — is owner-scoped, mirroring the
+    // owner-scoped AI-config discovery.
+    require_owned_settings_binding(&view, &_current_user.sub)?;
     if view.binding_state == breakdown_core::settings::views::CredentialBindingState::Active
         && state.ports.credential_vault().check().await.is_err()
     {
@@ -4433,7 +4445,12 @@ pub async fn get_settings<P: Ports>(
     path = "/settings/{id}",
     params(("id" = Uuid, Path, description = "Settings id")),
     request_body = VersionRequest,
-    responses((status = 200, body = AggregateVersion), (status = 503, body = ProblemDetails))
+    responses(
+        (status = 200, body = AggregateVersion),
+        (status = 403, description = "Credential forbidden — not the binding owner", body = ProblemDetails),
+        (status = 404, body = ProblemDetails),
+        (status = 503, body = ProblemDetails)
+    )
 )]
 pub async fn revoke_settings<P: Ports>(
     State(state): State<AppState<P>>,
@@ -4455,6 +4472,10 @@ pub async fn revoke_settings<P: Ports>(
         ));
     }
     let view = state.ports.settings_repo().find_by_id(id).await?;
+    // AUTHZ-GATE (ownership, issue #555): revoking destroys the Vault secret,
+    // so the binding must belong to the caller. Checked before the command
+    // dispatch so a foreign revoke never reaches the aggregate.
+    require_owned_settings_binding(&view, &current_user.sub)?;
     let version = state
         .ports
         .settings_commands()
@@ -5218,6 +5239,36 @@ fn forbidden_vault_key() -> ApiError {
     ApiError::AiConfigVaultKeyForbidden(
         "the submitted vault key is not owned by the authenticated caller",
     )
+}
+
+/// Ownership denial on a settings credential binding (issue #555) → 403
+/// `settings.binding-forbidden`. Distinct from `ApiError::SettingsForbidden`
+/// (credential-role denial): the caller *is* allowed to manage credentials,
+/// this particular binding simply is not theirs.
+fn forbidden_settings_binding() -> ApiError {
+    ApiError::SettingsBindingForbidden(
+        "the credential binding is not owned by the authenticated caller",
+    )
+}
+
+/// API-edge ownership pre-check for a settings credential binding (issue
+/// #555): `GET`/`PATCH`/`DELETE /settings/{id}` may only touch a binding the
+/// authenticated caller owns. The credential role alone is not enough — the
+/// binding's `owner` (recorded once, from the bind event's
+/// `EventMetadata.actor`, issue #552) must match the caller, or any
+/// credential-role member could read, rotate and thereby destroy another
+/// user's Vault secret. The read-model lookup lives in the handlers, the only
+/// legitimate projection consumer (CQRS boundary).
+///
+/// Fails closed, mirroring `require_owned_vault_key` (issue #552): a legacy
+/// row with an unknown owner (`owner IS NULL` before re-projection) denies
+/// exactly like a foreign row, so rotate can never be used to claim a
+/// NULL-owner binding.
+fn require_owned_settings_binding(view: &SettingsView, caller: &UserId) -> Result<(), ApiError> {
+    if view.owner.as_ref() == Some(caller) {
+        return Ok(());
+    }
+    Err(forbidden_settings_binding())
 }
 
 /// API-edge ownership pre-check for an AI-config vault key reference (issue
