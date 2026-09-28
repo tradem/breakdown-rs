@@ -681,3 +681,66 @@ FROM projection_settings
 WHERE owner IS NULL
 ORDER BY updated_at DESC;
 ```
+
+## 11. Costume-category backfill (issue #543)
+
+`projection_costume` carries the costume's single category
+(`category_id`/`category_name`, nullable). The columns are populated by the
+costume projector from event data — a `CostumeCategorySet` event explicitly,
+or the first-wins derivation rule from legacy `CostumeCreated`/`DetailAdded`
+events that carry a categorized detail. **There is no SQL backfill and none
+is possible**: the costume events live in SierraDB, so a Postgres migration
+cannot fold a stream in event order, and a detail-row-only backfill would
+violate the category contract twice (detail-ID ordering instead of event
+order; re-adopting categories from detail rows that survive an explicit
+`CostumeCategorySet(category_id = NULL)` clear).
+
+Affected state after deploying migration `20261002000001`: every
+`projection_costume` row that existed before the migration reads
+`category_id = NULL` — the costume shows as "uncategorised" until a user sets
+a category or the deployment replays. This is a benign cosmetic state (no
+wrong category is ever shown), so the replay is optional per deployment.
+
+### Replay procedure (fills the derived categories for legacy costumes)
+
+```sql
+-- 0. STOP the API (no projector may write while the table is truncated).
+
+-- 1. back up the current checkpoint value, then reset it:
+SELECT * FROM sierradb_event_checkpoints WHERE projector = 'costume';
+
+-- 2. truncate the costume materialization (children first — FK CASCADE
+--    also works, but the explicit order documents intent):
+TRUNCATE projection_costume_detail;
+TRUNCATE projection_costume_photo;
+TRUNCATE projection_costume_season;
+TRUNCATE projection_costume;
+-- NOTE: projection_costume_category is NOT truncated — the vocabulary rows
+-- are authoritative for the category-name resolution during the replay, and
+-- their own projector checkpoint stays untouched.
+
+-- 3. restart the API; the costume projector replays every costume stream
+--    from the beginning and folds each stream in event order:
+--    `CostumeCreated` writes the derived category (lowest detail_id within
+--    the event), later `DetailAdded` events adopt while the category is
+--    still empty, and every `CostumeCategorySet` applies its explicit
+--    Some/None value — exactly the aggregate's `apply` rule, so aggregate
+--    and projection stay in parity (issue #543 obstacle 2).
+```
+
+**Verification** (after the replay has caught up):
+
+```sql
+-- rows whose LEGACY stream carried a categorized detail must be filled:
+-- (spot-check a costume you know has a categorized legacy detail)
+SELECT id, category_id, category_name FROM projection_costume
+WHERE character_id IS NOT NULL
+ORDER BY updated_at DESC
+LIMIT 20;
+-- an explicitly cleared costume must read NULL even if its details carry
+-- category_id (the event stream is authoritative, not the detail rows).
+```
+
+**Detection:** legacy costumes showing "uncategorised" although their details
+carried categories is the symptom of a not-yet-replayed deployment; run the
+procedure above (or leave the state if uncategorised tiles are acceptable).

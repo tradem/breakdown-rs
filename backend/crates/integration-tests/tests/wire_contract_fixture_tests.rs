@@ -89,22 +89,51 @@ const ADDITIVE_ALLOWLIST: &[(&str, &str)] = &[
 /// serialized value changed in, a response fixture. Each entry must carry a
 /// justification; the removal itself is never silent. Pre-1.0 the API ships
 /// clean cuts instead of `/v{n+1}` path versions when the only client is our
-/// own (ADR-021 D5, 0.3.x policy).
+/// own (ADR-021 D5, 0.3.x policy). Paths use `[]` as the array-element
+/// wildcard (normalized from the concrete `[0]`, `[1]`, … indices before
+/// matching), so an entry can never silently cover unrelated siblings.
 const MAJOR_BREAK_ALLOWLIST: &[(&str, &str, &str)] = &[
-    // #543: the category moved from the detail to the costume — the detail
-    // fields are gone from `CostumeView.details[]` and the costume carries
-    // `category_id`/`category_name` itself (see ADDITIVE_ALLOWLIST).
+    // #543: the category moved from the detail to the costume — ONLY the two
+    // removed detail category fields are allowlisted; `id`, `subject` and
+    // `text` of a detail element stay fully gated (CodeRabbit review).
     (
         "costume_view",
-        "costume_view.details",
+        "costume_view.details[].category_id",
+        "category moved from detail to costume (issue #543 clean cut, 0.3.x pre-1.0)",
+    ),
+    (
+        "costume_view",
+        "costume_view.details[].category_name",
         "category moved from detail to costume (issue #543 clean cut, 0.3.x pre-1.0)",
     ),
 ];
 
+/// Normalize a diff path so array-element indices collapse to `[]`
+/// ("costume_view.details[2].category_id" → "costume_view.details[].category_id"),
+/// letting the allowlist carry index-independent field paths.
+fn normalize_array_path(path: &str) -> String {
+    let mut out = String::with_capacity(path.len());
+    let mut chars = path.chars();
+    while let Some(c) = chars.next() {
+        if c == '[' {
+            for n in chars.by_ref() {
+                if n == ']' {
+                    break;
+                }
+            }
+            out.push_str("[]");
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
 fn major_break_allowlisted(dto: &str, key_path: &str) -> bool {
+    let normalized = normalize_array_path(key_path);
     MAJOR_BREAK_ALLOWLIST
         .iter()
-        .any(|(d, k, _)| *d == dto && key_path.starts_with(k))
+        .any(|(d, k, _)| *d == dto && normalized == *k)
 }
 
 /// Deterministic UUIDv7 fixture identifier (same scheme as the event
@@ -358,6 +387,18 @@ fn diff_against_fixture(dto: &str, fixture: &Value, current: &Value, path: &str)
                          /v{{n+1}} for anything else (MAJOR)"
                     );
                 }
+            }
+            Ok(())
+        }
+        // Arrays recurse element-wise so a changed element forms a precise
+        // path (`costume_view.details[0].category_id`) instead of treating
+        // the whole array as one opaque value — the narrowed MAJOR-break
+        // allowlist only matches the two removed detail category fields
+        // (CodeRabbit review). Equal lengths are the fixture norm; a length
+        // change falls through to the opaque-value MAJOR bail.
+        (Value::Array(old), Value::Array(new)) if old.len() == new.len() => {
+            for (i, (o, n)) in old.iter().zip(new.iter()).enumerate() {
+                diff_against_fixture(dto, o, n, &format!("{path}[{i}]"))?;
             }
             Ok(())
         }

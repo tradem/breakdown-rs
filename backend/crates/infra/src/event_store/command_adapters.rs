@@ -672,7 +672,18 @@ impl CostumeCommands for CostumeCommandsImpl {
                 series_id,
             })
             .await;
-        map_version_only(result)
+        // Issue #543 state-based no-op: the aggregate emits NO event when the
+        // target category equals the current one (re-dispatch, or clearing an
+        // already-empty costume). kameo_es reports that as
+        // `ExecuteResult::Executed(vec![])` — NOT as `Idempotent` — which
+        // `map_version_only` would turn into a 409 "command produced no
+        // events". The version fence matched, so the aggregate is exactly at
+        // the caller's version: this is a success and the version is
+        // unchanged (CodeRabbit review).
+        match result {
+            Ok(ExecuteResult::Executed(events)) if events.is_empty() => Ok(version),
+            other => map_version_only(other),
+        }
     }
 
     async fn link_photo(
