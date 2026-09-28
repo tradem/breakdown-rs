@@ -3,6 +3,7 @@
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
 // Co-authored-by: space-bunny-free (opencode-go)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
+// Co-authored-by: qwen3.8-flash (opencode-go)
 
 import 'package:flutter/material.dart';
 
@@ -66,8 +67,14 @@ class SceneTile extends StatelessWidget {
               if (scene.location case final location?) l10n.sceneLoc(location),
               if (scene.scriptDay case final day?) l10n.sceneDay(day),
               scene.isScheduleSet ? l10n.sceneScheduled : l10n.sceneUnscheduled,
-              l10n.sceneCharacterCount('${scene.assignedCharacters.length}'),
-              l10n.sceneShootingDayCount('${scene.shootingDayIds.length}'),
+              // Defensive dedup (issue #550): the tile counts must survive a
+              // read-model fan-out regression without inflating.
+              l10n.sceneCharacterCount(
+                '${scene.assignedCharacters.toSet().length}',
+              ),
+              l10n.sceneShootingDayCount(
+                '${scene.shootingDayIds.toSet().length}',
+              ),
             ].join(' · '),
           ),
         ),

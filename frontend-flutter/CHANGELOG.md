@@ -4,6 +4,7 @@
 <!-- Co-authored-by: omen-alpha (opencode-go) -->
 <!-- Co-authored-by: deepseek-v4-flash (neuralwatt) -->
 <!-- Co-authored-by: space-bunny-free (opencode-go) -->
+<!-- Co-authored-by: qwen3.8-flash (opencode-go) -->
 
 # Changelog
 
@@ -18,6 +19,9 @@ releases are cut as `flutter-vX.Y.Z` tags.
 
 ### Added
 
+- **Version bump:** `0.3.0-alpha.27+37 → 0.3.0-alpha.28+38` (pre-release
+  increment per merged-PR practice on the alpha line; `+N` stays strictly
+  monotonic for the Play `versionCode`).
 - **Version bump:** `0.3.0-alpha.26+36 → 0.3.0-alpha.27+37` (pre-release
   increment per merged-PR practice on the alpha line; `+N` stays strictly
   monotonic for the Play `versionCode`).
@@ -238,6 +242,17 @@ releases are cut as `flutter-vX.Y.Z` tags.
 
 ### Fixed
 
+- **Scene detail could contradict itself on duplicated read-model ids
+  (issue #550, defensive):** the backend scene queries fanned out over the
+  character × shooting-day pivots, so `assignedCharacters` /
+  `shootingDayIds` arrived with one duplicate element per multiplied row —
+  the header counted “Drehtage (2)” for one day while the set-based picker
+  filter found no candidate and kept the schedule button permanently
+  disabled. The origin is fixed backend-side (correlated subqueries, PR
+  #553); the client now additionally dedups both id lists where counts and
+  rows render (scene detail sections + scene tile counts), so a future
+  read-model regression degrades gracefully instead of producing a
+  self-contradictory screen. Widget tests pin the invariant.
 - **AI import unusable on device — quoted job id broke every follow-up
   call:** the upload acknowledgement (`POST /v1/ai-import/{scripts,schedules}`)
   is a JSON *string* literal, wire body `"<uuid>"`, and dio's default

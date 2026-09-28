@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: qwen3.8-flash (opencode-go)
 
 //! `sqlx`-backed implementation of the `SceneRepository` port.
 
@@ -34,6 +35,16 @@ impl SceneRepositoryImpl {
     }
 }
 
+/// Issue #550: the scene queries used to join `projection_scene_character`
+/// and `projection_scene_shooting_day` side-by-side and aggregate each list
+/// with a bare `array_agg`. Two independent one-to-many joins multiply
+/// (`c·d` rows; `c·c·d` in `scenes_by_character`), so every element was
+/// repeated once per multiplied row and `assigned_characters` /
+/// `shooting_day_ids` came back duplicated. Both pivots have composite
+/// primary keys that already rule out duplicate rows, so the queries below
+/// read the lists through correlated scalar subqueries instead: fan-out-free
+/// by construction, with no `array_agg(DISTINCT …)` band-aid over a broken
+/// join, and no `GROUP BY`.
 impl SceneRepository for SceneRepositoryImpl {
     async fn find_by_id(&self, id: Uuid) -> Result<SceneView, DomainError> {
         let row = sqlx::query(
@@ -50,20 +61,29 @@ impl SceneRepository for SceneRepositoryImpl {
                 s.source,
                 s.version,
                 s.updated_at,
-                COALESCE(array_agg(sc.character_id) FILTER (WHERE sc.character_id IS NOT NULL), ARRAY[]::uuid[]) AS assigned_characters,
-                COALESCE(array_agg(ssd.shooting_day_id) FILTER (WHERE ssd.shooting_day_id IS NOT NULL), ARRAY[]::uuid[]) AS shooting_day_ids
+                COALESCE((
+                    SELECT array_agg(psc.character_id ORDER BY psc.character_id)
+                    FROM projection_scene_character psc
+                    WHERE psc.scene_id = s.id
+                ), ARRAY[]::uuid[]) AS assigned_characters,
+                COALESCE((
+                    SELECT array_agg(pssd.shooting_day_id ORDER BY pssd.shooting_day_id)
+                    FROM projection_scene_shooting_day pssd
+                    WHERE pssd.scene_id = s.id
+                ), ARRAY[]::uuid[]) AS shooting_day_ids
             FROM projection_scene s
-            LEFT JOIN projection_scene_character sc ON sc.scene_id = s.id
-            LEFT JOIN projection_scene_shooting_day ssd ON ssd.scene_id = s.id
             WHERE s.id = $1
-            GROUP BY s.id
             "#,
         )
         .bind(id)
         .fetch_optional(&self.pool)
         .await
         .map_err(|e| DomainError::conflict(e.to_string()))?
-        .ok_or(DomainError::NotFound { code: &SCENE_NOT_FOUND, resource: "scene", id })?;
+        .ok_or(DomainError::NotFound {
+            code: &SCENE_NOT_FOUND,
+            resource: "scene",
+            id,
+        })?;
 
         map_scene_row(row)
     }
@@ -88,13 +108,18 @@ impl SceneRepository for SceneRepositoryImpl {
                 s.source,
                 s.version,
                 s.updated_at,
-                COALESCE(array_agg(sc.character_id) FILTER (WHERE sc.character_id IS NOT NULL), ARRAY[]::uuid[]) AS assigned_characters,
-                COALESCE(array_agg(ssd.shooting_day_id) FILTER (WHERE ssd.shooting_day_id IS NOT NULL), ARRAY[]::uuid[]) AS shooting_day_ids
+                COALESCE((
+                    SELECT array_agg(psc.character_id ORDER BY psc.character_id)
+                    FROM projection_scene_character psc
+                    WHERE psc.scene_id = s.id
+                ), ARRAY[]::uuid[]) AS assigned_characters,
+                COALESCE((
+                    SELECT array_agg(pssd.shooting_day_id ORDER BY pssd.shooting_day_id)
+                    FROM projection_scene_shooting_day pssd
+                    WHERE pssd.scene_id = s.id
+                ), ARRAY[]::uuid[]) AS shooting_day_ids
             FROM projection_scene s
-            LEFT JOIN projection_scene_character sc ON sc.scene_id = s.id
-            LEFT JOIN projection_scene_shooting_day ssd ON ssd.scene_id = s.id
             WHERE s.episode_id = $1
-            GROUP BY s.id
             ORDER BY s.scene_number, s.updated_at DESC
             LIMIT $2 OFFSET $3
             "#,
@@ -124,13 +149,21 @@ impl SceneRepository for SceneRepositoryImpl {
                 s.source,
                 s.version,
                 s.updated_at,
-                COALESCE(array_agg(sc2.character_id) FILTER (WHERE sc2.character_id IS NOT NULL), ARRAY[]::uuid[]) AS assigned_characters,
-                COALESCE(array_agg(ssd.shooting_day_id) FILTER (WHERE ssd.shooting_day_id IS NOT NULL), ARRAY[]::uuid[]) AS shooting_day_ids
+                COALESCE((
+                    SELECT array_agg(psc.character_id ORDER BY psc.character_id)
+                    FROM projection_scene_character psc
+                    WHERE psc.scene_id = s.id
+                ), ARRAY[]::uuid[]) AS assigned_characters,
+                COALESCE((
+                    SELECT array_agg(pssd.shooting_day_id ORDER BY pssd.shooting_day_id)
+                    FROM projection_scene_shooting_day pssd
+                    WHERE pssd.scene_id = s.id
+                ), ARRAY[]::uuid[]) AS shooting_day_ids
             FROM projection_scene s
-            JOIN projection_scene_character sc ON sc.scene_id = s.id AND sc.character_id = $1
-            LEFT JOIN projection_scene_character sc2 ON sc2.scene_id = s.id
-            LEFT JOIN projection_scene_shooting_day ssd ON ssd.scene_id = s.id
-            GROUP BY s.id
+            WHERE EXISTS (
+                SELECT 1 FROM projection_scene_character psc
+                WHERE psc.scene_id = s.id AND psc.character_id = $1
+            )
             ORDER BY s.scene_number, s.updated_at DESC
             "#,
         )
