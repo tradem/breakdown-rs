@@ -227,6 +227,12 @@ String costumeErrorCopy(AppLocalizations l10n, ProblemError error) =>
       'costume.forbidden' || 'authz.denied' => l10n.costumeErrorForbidden,
       'membership.pending' => l10n.costumeErrorMembership,
       'auth.session_required' => l10n.blocksCreateErrorSignIn,
+      // Issue #543: the category picked from a foreign season vocabulary
+      // (or a category no longer in the costume's permitted set) is
+      // rejected at the API edge before any event is written — a distinct
+      // narrative so the user re-picks from this season's categories.
+      'costume-category.season-mismatch' => l10n.costumeErrorCategorySeason,
+      'costume-category.archived' => l10n.costumeErrorCategoryArchived,
       _ when error.code.startsWith('transport.') =>
         l10n.costumeCategoryErrorNetwork,
       _ => l10n.costumeErrorGeneric(error.code),
@@ -689,6 +695,83 @@ class CostumesController extends _$CostumesController {
                 overlay: applyAddDetailOptimistic(
                   costume,
                   detail,
+                ).rebuild((b) => b..version = version),
+                acknowledgedVersion: version,
+                status: OverlayStatus.acknowledged,
+              ),
+            );
+        _reconcile.ackReceived();
+        unawaited(reconcile());
+        return Right<ProblemError, int>(version);
+      },
+    );
+  }
+
+  /// Sets (or clears) the costume's single category (issue #543).
+  ///
+  /// `categoryId == null` clears; setting the category that is already set
+  /// (or clearing an un-categorised costume) is an idempotent client-side
+  /// no-op — the backend treats the identical value as a state-based no-op
+  /// (#515 precedent), so the version never advances and no network call is
+  /// needed. The optimistic overlay swaps the category into the acted-on
+  /// row (the picker's visible (id, name) pair) after the 2xx ack; bounded
+  /// reconcile swaps in the projected row once it reaches the ack version
+  /// (same fence as assign/addDetail).
+  ///
+  /// Error surfaces: 409 `costume-category.season-mismatch` (foreign-
+  /// season vocabulary, blocked at the API edge BEFORE dispatch), 409
+  /// `costume-category.archived`, 404 `costume-category.not-found` —
+  /// plus the classic version-conflict 409. All render via the command-
+  /// error banner keyed on the stable problem `code` (never backend
+  /// `detail`) — no silent discard (AGENTS.md §4).
+  ///
+  /// // AUTHZ-GATE: `assign_costumes` capability checked before any network
+  /// call. The backend handler authorizes the same predicate
+  /// (`authorize_costume_scoped` — costume role in ANY season scope of the
+  /// costume), so the client mirrors exactly that seam.
+  Future<Result<int>> setCategory({
+    required CostumeView costume,
+    required String? categoryId,
+    String? categoryName,
+  }) async {
+    // Idempotent no-op: the requested category state already holds. The
+    // server-side no-op returns the UNCHANGED version — echoing the
+    // acted-on row's version is exactly that ack. Authorization-neutral:
+    // this path dispatches no mutating request (same rationale as
+    // [assign]'s same-character shortcut).
+    if (costume.categoryId == categoryId) {
+      return Right<ProblemError, int>(costume.version);
+    }
+    // AUTHZ-GATE: capability check before any network call.
+    final gate = await _assignGate();
+    if (_deny(CostumeCommandSurface.costume, gate) != null) {
+      return Left(ProblemError(code: (gate as GateDeny).code, status: 403));
+    }
+    final repo = ref.read(costumeRepositoryProvider);
+    final res = await repo.setCategory(
+      costume.id,
+      SetCostumeCategoryRequest(
+        (b) => b
+          ..categoryId = categoryId
+          ..version = _resolveVersion(costume.id, costume.version),
+      ),
+    );
+    return res.match(
+      (err) {
+        _setCommandError(CostumeCommandSurface.costume, err);
+        return Left<ProblemError, int>(err);
+      },
+      (version) {
+        ref.read(costumesCommandErrorProvider(seasonId).notifier).clear();
+        ref
+            .read(costumesOverlaysProvider(seasonId).notifier)
+            .add(
+              CostumeRowOverlay(
+                id: costume.id,
+                overlay: applyCategoryOptimistic(
+                  costume,
+                  categoryId,
+                  categoryName,
                 ).rebuild((b) => b..version = version),
                 acknowledgedVersion: version,
                 status: OverlayStatus.acknowledged,

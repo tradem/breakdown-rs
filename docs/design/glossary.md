@@ -111,8 +111,9 @@ establishing change).
 | `edit_calendar_outlined` | **Planen** | Navigation shell destination 2 of 4 — hierarchy Season→Block→Episode→Scene | `nav.planen` |
 | `checkroom` | **Kleidung** | Navigation shell destination 3 of 4 — costume domains (Kostüme, Figuren) scoped to the active season; costume navigation source shared with costume category fallback | `nav.costumes` |
 | `add` (FAB) | **Kostüm erstellen** | Costumes FAB; selecting the action reveals the inline editor | `costumes.create` |
-| `style_outlined` | **Ohne Kategorie / Kategorie** | Costume tile uses the resolved category icon; unknown categories use this deterministic fallback; category text stays visible | `categories.icon` |
+| `style_outlined` | **Ohne Kategorie / Kategorie** | Costume tile uses the resolved category icon; unknown categories use this deterministic fallback; category text stays visible. **Every category display shows the icon next to the visible text** (issue #543): grid tile, editor category row, and the picker options — the same name-based resolution (`forCostumeCategory`), never icon-only | `categories.icon` |
 | `subject` / detail text | **Bezeichnung / Beschreibung** | Costume identity overlay; first detail subject is the de-facto costume name, followed by notes fallback, never the UUID | `costumes.tile.name` |
+| *(resolved per category)* | **Kategorie wählen** | Costume editor identity section: bottom-sheet picker, one icon + visible text row per non-archived season category, plus the „Ohne Kategorie" clear row (issue #543) | `costumeDetail.pickCategory` |
 | — *(no icon)* | **Kostümdaten gespeichert** | Visible confirmation after a successful detail or notes save | `costumeDetail.saved` |
 | `—` *(no icon)* | **Foto löschen?** | Photo delete confirmation (costume detail / continuity strip) | `photos.delete` |
 | `—` *(no icon)* | **Kategorie/Foto-Fehler** | Code-keyed command-error narratives for costume and photo surfaces (never backend `detail`) | `costumes.photos.errors` |

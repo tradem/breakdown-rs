@@ -19,6 +19,29 @@ releases are cut as `flutter-vX.Y.Z` tags.
 
 ### Added
 
+- **Costume category picker (issue #543):** one costume = one category on
+  the client — the costume editor's identity section shows the costume's
+  category (icon + always-visible text, "Ohne Kategorie" fallback); the
+  bottom-sheet picker lists the season's non-archived projected vocabulary
+  with an icon per option plus the deliberate "Ohne Kategorie" clear row.
+  New `CostumesController.setCategory` dispatches the costume-level
+  `POST /v1/costumes/{id}/category` command behind the `assign_costumes`
+  AUTHZ-GATE (membership check before any network call, provable
+  request-counter denial), echoes the freshest aggregate version
+  (freshness fence), applies the optimistic-after-2xx overlay on the row,
+  and reconciles bounded. New problem narratives for 409
+  `costume-category.season-mismatch` and `costume-category.archived`
+  (never backend `detail` text). Design docs carried along:
+  `docs/design/screens/costumes.md` (category row + picker in the editor
+  Salt layout, components, interactions, validation) and the glossary's
+  `categories.icon` "every category display shows the icon next to the
+  text" rule extended to the picker. Six new widget tests (set with
+  version echo, archived hidden + clear row, authz denial with zero
+  requests, cross-command version freshness, season-mismatch narrative,
+  idempotent clear no-op); the 4 screen goldens re-verified unchanged.
+- **Version bump:** `0.3.0-alpha.28+38 → 0.3.0-alpha.29+39` (pre-release
+  increment per merged-PR practice on the alpha line; `+N` stays strictly
+  monotonic for the Play `versionCode`).
 - **Version bump:** `0.3.0-alpha.27+37 → 0.3.0-alpha.28+38` (pre-release
   increment per merged-PR practice on the alpha line; `+N` stays strictly
   monotonic for the Play `versionCode`).

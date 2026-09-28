@@ -130,17 +130,20 @@ CharacterView _character(String id, {String name = 'Ada'}) => CharacterView(
     ..version = 1,
 );
 
-CostumeCategoryView _category(String id, {String name = 'Outerwear'}) =>
-    CostumeCategoryView(
-      (b) => b
-        ..id = id
-        ..seasonId = 'season-1'
-        ..name = name
-        ..orderKey = '!'
-        ..archived = false
-        ..updatedAt = DateTime.utc(2026, 1, 1)
-        ..version = 1,
-    );
+CostumeCategoryView _category(
+  String id, {
+  String name = 'Outerwear',
+  bool archived = false,
+}) => CostumeCategoryView(
+  (b) => b
+    ..id = id
+    ..seasonId = 'season-1'
+    ..name = name
+    ..orderKey = '!'
+    ..archived = archived
+    ..updatedAt = DateTime.utc(2026, 1, 1)
+    ..version = 1,
+);
 
 SeasonView _season() => SeasonView(
   (b) => b
@@ -234,6 +237,23 @@ class _FakeCostumeRepository extends CostumeRepository {
   Future<Result<int>> addDetail(String id, AddCostumeDetailRequest request) {
     detailCalls++;
     lastDetailVersion = request.version;
+    final scripted = nextWrite;
+    if (scripted != null) return Future.value(scripted);
+    return Future.value(const Right(2));
+  }
+
+  /// Issue #543: the costume-level category command capture.
+  int setCategoryCalls = 0;
+  String? lastSetCategoryId;
+  int? lastSetCategoryVersion;
+
+  @override
+  Future<Result<int>> setCategory(
+    String id,
+    SetCostumeCategoryRequest request,
+  ) {
+    setCategoryCalls++;
+    lastSetCategoryVersion = request.version;
     final scripted = nextWrite;
     if (scripted != null) return Future.value(scripted);
     return Future.value(const Right(2));
@@ -1223,6 +1243,166 @@ void main() {
         expect(find.byKey(const Key('costume-detail-error')), findsNothing);
       },
     );
+  });
+
+  group('CostumeDetailScreen category section (issue #543)', () {
+    testWidgets('the identity section shows the costume category with icon', (
+      tester,
+    ) async {
+      await setupContainer(
+        costume: _costume('c-1'),
+        categories: [_category('cat-1')],
+      );
+      await pumpDetail(tester, 'c-1');
+      // The section is present with an un-categorised default.
+      expect(find.byKey(const Key('costume-category-section')), findsOneWidget);
+      expect(
+        find.byKey(const Key('costume-category-current-c-1')),
+        findsOneWidget,
+      );
+      expect(find.text('Uncategorized'), findsOneWidget);
+      // The picker opens with the projected vocabulary (icon + text).
+      await tester.tap(find.byKey(const Key('costume-category-pick-c-1')));
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const Key('costume-category-picker-title')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const Key('costume-category-option-cat-1')),
+        findsOneWidget,
+      );
+      expect(find.text('Outerwear'), findsOneWidget);
+      // Picking dispatches the category command (version echo from the
+      // acted-on row).
+      await tester.tap(find.byKey(const Key('costume-category-option-cat-1')));
+      await _pumpFrames(tester);
+      expect(repo.setCategoryCalls, 1);
+      expect(repo.lastSetCategoryVersion, 1);
+      // The optimistic overlay key while the fence holds.
+      expect(
+        find.byKey(const Key('overlay-category-c-1-cat-1')),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('picker hides archived categories, clear row always present', (
+      tester,
+    ) async {
+      await setupContainer(
+        costume: _costume('c-1'),
+        categories: [
+          _category('cat-1'),
+          _category('cat-archived', name: 'Archived row', archived: true),
+        ],
+      );
+      await pumpDetail(tester, 'c-1');
+      await tester.tap(find.byKey(const Key('costume-category-pick-c-1')));
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const Key('costume-category-option-cat-1')),
+        findsOneWidget,
+      );
+      // Archived vocabulary is never an option (no new categorisation).
+      expect(
+        find.byKey(const Key('costume-category-option-cat-archived')),
+        findsNothing,
+      );
+      expect(
+        find.byKey(const Key('costume-category-option-none')),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('category denial: 403 narrative, zero calls', (tester) async {
+      await setupContainer(
+        costume: _costume('c-1'),
+        categories: [_category('cat-1')],
+        capabilities: const [],
+      );
+      await pumpDetail(tester, 'c-1');
+      await tester.tap(find.byKey(const Key('costume-category-pick-c-1')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('costume-category-option-cat-1')));
+      await _pumpFrames(tester);
+      // Request-counter proof: the gate short-circuits before the network.
+      expect(repo.setCategoryCalls, 0);
+      await _pumpFrames(tester);
+      expect(
+        find.text('You need an active costume role in this season.'),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('category command echoes the acked version and reconciles', (
+      tester,
+    ) async {
+      // Version-freshness cross-command variant (issue #473): save notes
+      // first (v1 → ack v2), then set the category — the echoed version is
+      // v2, never the stale v1 that would 422 as `domain.validation`.
+      await setupContainer(costume: _costume('c-1'));
+      await pumpDetail(tester, 'c-1');
+      await tester.enterText(
+        find.byKey(const Key('costume-notes-c-1')),
+        'Wool coat',
+      );
+      await tester.tap(find.byKey(const Key('costume-notes-save-c-1')));
+      await _pumpFrames(tester);
+      expect(repo.notesCalls, 1);
+      final result = await container
+          .read(costumesControllerProvider('season-1').notifier)
+          .setCategory(
+            costume: _costume('c-1'),
+            categoryId: 'cat-1',
+            categoryName: 'Outerwear',
+          );
+      expect(result.isRight(), isTrue);
+      expect(repo.setCategoryCalls, 1);
+      expect(repo.lastSetCategoryVersion, 2);
+    });
+
+    testWidgets(
+      '409 costume-category.season-mismatch renders its distinct narrative',
+      (tester) async {
+        await setupContainer(
+          costume: _costume('c-1'),
+          categories: [_category('cat-1')],
+        );
+        await pumpDetail(tester, 'c-1');
+        repo.nextWrite = const Left(
+          ProblemError(code: 'costume-category.season-mismatch', status: 409),
+        );
+        final result = await container
+            .read(costumesControllerProvider('season-1').notifier)
+            .setCategory(
+              costume: _costume('c-1'),
+              categoryId: 'cat-foreign',
+              categoryName: 'Foreign',
+            );
+        expect(result.isLeft(), isTrue);
+        await _pumpFrames(tester);
+        expect(
+          find.text(
+            'That category belongs to a different season — pick a category '
+            'from this season.',
+          ),
+          findsOneWidget,
+        );
+      },
+    );
+
+    testWidgets('clearing an un-categorised costume is a no-op (zero calls)', (
+      tester,
+    ) async {
+      await setupContainer(costume: _costume('c-1'));
+      await pumpDetail(tester, 'c-1');
+      final result = await container
+          .read(costumesControllerProvider('season-1').notifier)
+          .setCategory(costume: _costume('c-1'), categoryId: null);
+      expect(result.isRight(), isTrue);
+      // Idempotent no-op: no network call, no command errors.
+      expect(repo.setCategoryCalls, 0);
+    });
   });
 
   group('command-error copy routing (issue #513)', () {

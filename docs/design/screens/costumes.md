@@ -32,7 +32,8 @@ Reached from the **Kleidung** navigation destination after selecting a season an
   --
   {^ "Kostümdaten"
      "Figur" [Auswahl]
-     "Bezeichnung / Kategorie / Beschreibung" [Bearbeiten]
+     "Kategorie (Kategorie-Icon + Name)" [Kategorie wählen]
+     "Bezeichnung / Beschreibung" [Bearbeiten]
      "Notizen" [Bearbeiten]
      "Fotos" [Hinzufügen]}
   --
@@ -53,6 +54,8 @@ Compact layouts use two columns; medium and expanded layouts use three columns. 
 | Category icon | Icon | Visual category cue; category text remains visible | `categories.icon` |
 | Placeholder | Card surface | No ready photo; announces the same designation and category | `costumes.placeholder` |
 | Editor heading | Section heading | Identity editing context | `costumeDetail.title` |
+| Category row | Icon + text row | The costume's single category (issue #543); icon next to always-visible text; "Ohne Kategorie" when uncategorised | `costumeDetail.category` |
+| Category picker | Bottom sheet + rows | Season vocabulary (non-archived), one icon + visible text per option, plus the "Ohne Kategorie" clear row; picking dispatches the costume `set_category` command | `costumeDetail.pickCategory` |
 | Notes section | Secondary section | Secondary notes, never the primary identity | `costumeDetail.notes` |
 | Create action | Extended FAB | Creates a costume shell and reveals its editor | `costumes.create` |
 
@@ -62,11 +65,11 @@ Loading: the grid shows a progress indicator. Data: adaptive tile grid with iden
 
 ## Interactions
 
-Tapping a tile reveals the editor below the grid. The existing detail command saves subject, category, and text; a success confirmation is shown before the dialog closes. Notes remain available in the secondary section. Assignment and photo capture/delete continue to use the existing capability gates and reconciliation. Pull-to-refresh reconciles the season projection. The create action creates a shell and selects its editor without opening a separate detail route.
+Tapping a tile reveals the editor below the grid. The existing detail command saves subject and text; a success confirmation is shown before the dialog closes (details are pure description — the category lives on the costume, issue #543). The category picker dispatches the costume-level `set_category` command after the assignment membership gate; a foreign-season or archived category is rejected by the API edge with its distinct problem code and narrative ("belongs to a different season" / "archived"), and clearing is the deliberate "Ohne Kategorie" row. Notes remain available in the secondary section. Assignment and photo capture/delete continue to use the existing capability gates and reconciliation. Pull-to-refresh reconciles the season projection. The create action creates a shell and selects its editor without opening a separate detail route.
 
 ## Input & Validation
 
-Detail editing requires non-empty text; optional subject becomes the first detail designation and optional category is selected from the season category projection. Notes accept free text. Server Problem-Details codes, not localized backend detail text, drive error copy. The add-detail command sends the generated wire UUID and uses the optimistic-after-2xx projection overlay.
+Detail editing requires non-empty text; the optional subject becomes the first detail designation — no detail category exists any more (issue #543). Category picking is costume-level: one category per costume from the season's non-archived vocabulary (the picker joins the projected category read DTO), with the "Ohne Kategorie" row clearing the category. A category from a foreign season is rejected at the API edge with 409 `costume-category.season-mismatch`, rendered as its own localized narrative. Notes accept free text. Server Problem-Details codes, not localized backend detail text, drive error copy. The add-detail command sends the generated wire UUID and uses the optimistic-after-2xx projection overlay; the category command follows the same optimistic + version-fence reconciliation.
 
 ## Accessibility & i18n
 
@@ -74,4 +77,4 @@ Every tile exposes designation and category through semantics and visible text. 
 
 ## Tests
 
-Widget tests: tile subject/category/text, deterministic category icon, placeholder surface, no-UUID fallback, inline editor selection, and detail-save confirmation. Golden tests: `costumes_screen_light_android`, `costumes_screen_dark_android`, `costumes_screen_light_macos`, and `costumes_screen_dark_macos` with photo-less placeholder tiles. Existing costume assignment and detail-command tests remain in the widget tier. The costume assignment/photo flows remain designated Gherkin flows.
+Widget tests: tile subject/category/text, deterministic category icon, placeholder surface, no-UUID fallback, inline editor selection, detail-save confirmation, and the category section (current category with icon, picker with icon + text per option, archived rows never offered, clear row, denial narrative with request-counter proof, season-mismatch narrative). Golden tests: `costumes_screen_light_android`, `costumes_screen_dark_android`, `costumes_screen_light_macos`, and `costumes_screen_dark_macos` with photo-less placeholder tiles. Existing costume assignment and detail-command tests remain in the widget tier. The costume assignment/photo flows remain designated Gherkin flows.

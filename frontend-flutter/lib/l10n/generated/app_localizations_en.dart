@@ -240,6 +240,23 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String get costumeErrorCategorySeason =>
+      'That category belongs to a different season — pick a category from this season.';
+
+  @override
+  String get costumeErrorCategoryArchived =>
+      'That category is archived — pick an active category.';
+
+  @override
+  String get costumeDetailCategoryTitle => 'Category';
+
+  @override
+  String get costumeDetailPickCategory => 'Pick a category';
+
+  @override
+  String get costumeDetailCategorySaved => 'Category saved.';
+
+  @override
   String get photoErrorRequiresCharacter =>
       'Assign the costume to a character before managing photos.';
 
