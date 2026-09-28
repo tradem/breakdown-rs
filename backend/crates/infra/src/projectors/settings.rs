@@ -80,29 +80,31 @@ impl<'a> EntityEventHandler<SettingsAggregate, Transaction<'a, Postgres>> for Se
                 vault_version,
                 version,
             } => {
-                // The owner of a binding is immutable; rotation only refreshes
-                // the key. COALESCE keeps the recorded owner and doubles as a
-                // best-effort backfill for legacy rows whose owner is still
-                // NULL (issue #552): the rotating actor must be the owner.
+                // The owner of a binding is immutable: it is recorded exactly once,
+                // from the bind event's actor metadata (issue #552). Rotation only
+                // refreshes the key. Deliberately NO backfill here — the rotating
+                // actor is not verified against the binding owner by the settings
+                // rotate/revoke handlers (credential-role gate only), so a COALESCE
+                // backfill would let ANY credential-role member claim a legacy
+                // NULL-owner binding by rotating it. Legacy owners recover via
+                // re-projection only (runbook §10, issue #552 review).
                 sqlx::query(
                     r#"
-                    UPDATE projection_settings
-                    SET provider = $2,
-                        vault_key_id = $3,
-                        vault_version = $4,
-                        binding_state = 'active',
-                        version = $5,
-                        owner = COALESCE(owner, $6),
-                        updated_at = $7
-                    WHERE id = $1 AND version < $5
-                    "#,
+            UPDATE projection_settings
+            SET provider = $2,
+                vault_key_id = $3,
+                vault_version = $4,
+                binding_state = 'active',
+                version = $5,
+                updated_at = $6
+            WHERE id = $1 AND version < $5
+            "#,
                 )
                 .bind(id)
                 .bind(provider)
                 .bind(vault_key_id)
                 .bind(vault_version as i64)
                 .bind(version.0 as i64)
-                .bind(owner)
                 .bind(updated_at)
                 .execute(&mut **ctx)
                 .await?;

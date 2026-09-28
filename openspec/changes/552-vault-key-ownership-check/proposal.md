@@ -19,8 +19,9 @@ API-edge comparison was previously impossible.
 1. **Read model:** `projection_settings` gains an `owner TEXT` column (nullable —
    legacy rows), populated by the settings projector from `EventMetadata.actor`
    (already persisted with every settings event; no event-schema change).
-   `CredentialBound` sets it, `CredentialRotated` COALESCE-backfills it
-   (self-heal on rotation), indexed.
+   `CredentialBound` sets it; `CredentialRotated` never mutates it (rotation
+   backfill would let any credential-role member claim a legacy binding —
+   settings rotate/revoke handlers do not verify the rotating actor), indexed.
 2. **API edge (only legitimate read-model consumer — CQRS boundary):**
    - `create_ai_config` resolves the binding and requires `owner == caller`;
      unknown or foreign keys surface `403 ai-config.vault-key-forbidden`.
@@ -28,13 +29,14 @@ API-edge comparison was previously impossible.
      resolves ownership first (same 403 code), then keeps the #528
      active-provider check (`ai-config.provider-mismatch` 409 unchanged).
    - **Fail closed (user decision):** legacy bindings with `owner IS NULL` are
-     denied until re-projection or rotation backfills the owner.
+     denied until re-projection (runbook §10; recovery is re-projection only).
 3. **Worker posture (documentation):** the worker continues to trust the stored
    `config.vault_key_id` — every stored value is now edge-vetted at create/update
    time. The fail-closed shape validation in `AiCredentialResolver` stays.
-4. **Tests:** wire tests reject a foreign-but-valid binding on create and update;
-   integration contract test asserts the projector populates the owner from event
-   metadata (and the rotation backfill for legacy rows).
+4. **Tests:** wire tests reject a foreign-but-valid binding on create and update
+   (unknown keys fail closed into the same 403 — no key-existence oracle);
+   integration contract test asserts the projector populates the owner from
+   event metadata and that rotation never mutates it (legacy NULL stays NULL).
 
 ## Impact
 

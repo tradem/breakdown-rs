@@ -19,8 +19,11 @@
 //! Postgres pipeline and assert:
 //!
 //! 1. `CredentialBound` records the dispatching actor as `owner`.
-//! 2. Rotation keeps the recorded owner and COALESCE-backfills a legacy row
-//!    whose bind event carried no actor metadata.
+//! 2. Rotation never mutates the owner — in particular it does NOT backfill
+//!    a legacy row whose bind event carried no actor metadata (the rotating
+//!    actor is not verified against the binding owner, so a backfill would
+//!    let any credential-role member claim a legacy binding; issue #552
+//!    review).
 
 mod fixtures;
 
@@ -197,7 +200,7 @@ async fn settings_projector_records_the_binding_owner() -> Result<()> {
 }
 
 #[tokio::test]
-async fn rotation_backfills_the_owner_of_a_legacy_binding() -> Result<()> {
+async fn rotation_keeps_a_legacy_null_owner() -> Result<()> {
     let (pool, _pg) = fixtures::spawn_postgres().await?;
     let (redis_client, _sierra_conn, _sierra) = fixtures::spawn_sierradb().await?;
 
@@ -250,9 +253,11 @@ async fn rotation_backfills_the_owner_of_a_legacy_binding() -> Result<()> {
         tokio::time::sleep(POLL_INTERVAL).await;
     }
 
-    // The owner rotates their key — the rotate event carries the actor and
-    // COALESCE-backfills the previously unknown owner (issue #552 upgrade
-    // path; a re-projection backfills the same way).
+    // The owner rotates their key — rotation refreshes the key but must NOT
+    // touch the owner: the settings rotate handlers do not verify the
+    // rotating actor against the binding owner, so a backfill would let any
+    // credential-role member claim a legacy binding (issue #552 review).
+    // Legacy owners recover via re-projection only (runbook §10).
     let rotate = SettingsEvent::CredentialRotated {
         id: settings_id,
         provider: "gdrive".into(),
@@ -271,17 +276,18 @@ async fn rotation_backfills_the_owner_of_a_legacy_binding() -> Result<()> {
     .await?;
     let deadline = std::time::Instant::now() + PROJECTION_DEADLINE;
     loop {
-        let owner: Option<Option<String>> =
-            sqlx::query_scalar("SELECT owner FROM projection_settings WHERE id = $1")
+        let row: Option<(i64, Option<String>)> =
+            sqlx::query_as("SELECT version, owner FROM projection_settings WHERE id = $1")
                 .bind(settings_id)
                 .fetch_optional(&pool)
                 .await
-                .map_err(|e| anyhow!("owner read failed: {e}"))?;
-        if let Some(Some(backfilled)) = owner {
+                .map_err(|e| anyhow!("row read failed: {e}"))?;
+        if let Some((version, owner)) = row
+            && version >= 2
+        {
             assert_eq!(
-                backfilled.as_str(),
-                OWNER_SUB,
-                "rotation must backfill the legacy NULL owner from the rotating actor"
+                owner, None,
+                "rotation must not backfill a legacy NULL owner"
             );
             break;
         }

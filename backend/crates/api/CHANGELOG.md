@@ -22,11 +22,13 @@ commits (ADR-020 D5).
 - `POST /ai-import/config` and `PATCH /ai-import/config/{id}` (introduced key
   only) now resolve the submitted `vault_key_id` at the API edge (the only
   legitimate read-model consumer, CQRS boundary) and require the binding to
-  be owned by the authenticated caller. A foreign-but-valid binding surfaces
-  the new scoped problem code **403 `ai-config.vault-key-forbidden`**
-  (registered in `problem_codes!`, Fluent texts en/de); unknown keys keep
-  the #528 collapse into `ai-config.provider-mismatch` 409. Legacy bindings
-  with an unknown owner fail closed into the same 403.
+  be owned by the authenticated caller. A foreign-but-valid binding, an
+  unknown key, and a legacy binding with an unknown owner all surface the
+  new scoped problem code **403 `ai-config.vault-key-forbidden`**
+  (registered in `problem_codes!`, Fluent texts en/de) — one code on both
+  paths, so the update route cannot distinguish "foreign" from "unknown"
+  (no key-existence oracle). Revoked bindings and a key bound to another
+  provider keep the #528 collapse into `ai-config.provider-mismatch` 409.
 - The AI import worker keeps trusting the stored, edge-vetted
   `config.vault_key_id`; the fail-closed shape validation in
   `AiCredentialResolver` is unchanged.

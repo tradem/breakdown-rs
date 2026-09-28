@@ -44,8 +44,8 @@ future PRs that touch these areas must keep this page in sync.
   `vault_key_id` surfaces **403 `ai-config.vault-key-forbidden`** — without
   this check a credential-role member could point their own AI jobs at
   another user's live credential (confused deputy / quota + billing abuse).
-  Fail closed: a legacy row with unknown owner denies until re-projection or
-  rotation backfills it.
+  Fail closed: a legacy row with unknown owner denies until the operator
+  re-projects (rotation deliberately does not backfill — runbook §10).
 - The AI import worker deliberately trusts the stored `config.vault_key_id`
   (it is edge-vetted at write time) but keeps the fail-closed shape check —
   a malformed stored reference can never address an arbitrary Vault path

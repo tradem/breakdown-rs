@@ -5168,18 +5168,17 @@ fn forbidden_ai_config() -> ApiError {
 }
 
 /// Resolve an opaque `vault_key_id` and require that the AUTHENTICATED CALLER
-/// owns it, it is an ACTIVE binding of [provider], and it is not already the
-/// current key of another config (issue #552 ownership + issue #528 provider).
+/// owns it, it is an ACTIVE binding of [provider] (issue #552 ownership +
+/// issue #528 provider).
 ///
-/// Unknown key, revoked binding, and a key bound to another provider all
-/// surface as the same scoped `ai-config.provider-mismatch` 409 the aggregate
-/// emits for the mirrored case (new provider + current key), so the client
-/// branches on one stable code and never learns whether a foreign key exists.
-/// A key that names a REAL binding owned by someone else surfaces as the
-/// scoped `ai-config.vault-key-forbidden` 403 (issue #552): the caller
-/// supplied the key themselves, so the denial does not widen the existence
-/// oracle. A legacy binding whose owner is unknown (`owner IS NULL`) fails
-/// closed into the same 403 until re-projection or rotation backfills it.
+/// Unknown key, foreign binding, and a legacy unknown-owner row all surface
+/// as the scoped `ai-config.vault-key-forbidden` 403 — identical to the
+/// create path, so the update path does not become an existence oracle that
+/// distinguishes "key exists but is foreign" (403) from "key unknown"
+/// (would-be 409). Revoked bindings and a key bound to another provider
+/// keep the #528 `ai-config.provider-mismatch` 409 the aggregate emits for
+/// the mirrored case (new provider + current key), so the client branches
+/// on one stable code for provider pairing.
 async fn validate_replacement_vault_key<P: Ports>(
     state: &AppState<P>,
     vault_key_id: &str,
@@ -5191,21 +5190,17 @@ async fn validate_replacement_vault_key<P: Ports>(
         .settings_repo()
         .find_by_vault_key(vault_key_id)
         .await?;
-    // Ownership first (issue #552): a real but foreign binding must not be
-    // reusable, independent of its provider or binding state. `None` owner
-    // (legacy row) fails closed here as well. Unknown keys stay collapsed
-    // into the #528 provider-mismatch 409, which does not reveal whether the
-    // key ever existed.
-    let owned_active = match binding.as_ref() {
-        Some(view) if view.owner.as_ref() != Some(caller) => {
-            return Err(forbidden_vault_key());
-        }
-        Some(view) => {
-            view.provider == provider.as_str()
-                && view.binding_state == CredentialBindingState::Active
-        }
-        None => false,
-    };
+    // Ownership first (issue #552): a foreign binding must not be reusable,
+    // independent of its provider or binding state. Unknown keys and legacy
+    // rows with an unknown owner fail closed into the same 403 as the create
+    // path — one code, so the caller cannot distinguish "foreign" from
+    // "unknown" (issue #552 review: no key-existence oracle).
+    if binding.as_ref().and_then(|v| v.owner.as_ref()) != Some(caller) {
+        return Err(forbidden_vault_key());
+    }
+    let owned_active = binding.as_ref().is_some_and(|view| {
+        view.provider == provider.as_str() && view.binding_state == CredentialBindingState::Active
+    });
     if owned_active {
         return Ok(());
     }

@@ -23,7 +23,8 @@ pub enum CredentialBindingState {
 /// `owner` is the identity that bound the credential, recovered by the
 /// projector from `EventMetadata.actor` (issue #552). `None` for legacy rows
 /// projected before the column existed — the AI-config API edge treats an
-/// unknown owner as "not owned by the caller" (fail closed).
+/// unknown owner as "not owned by the caller" (fail closed). Recovery is
+/// re-projection only (runbook §10); rotation deliberately does not backfill.
 #[derive(Debug, Clone, Serialize, ToSchema)]
 pub struct SettingsView {
     pub id: Uuid,

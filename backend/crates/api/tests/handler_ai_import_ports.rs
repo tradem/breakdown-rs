@@ -913,7 +913,10 @@ async fn ai_config_update_rejects_unknown_vault_key() {
         .await;
     let commands = ports.ai_config_commands.clone();
     // No credential is registered for this key (never created, purged, or a
-    // projection miss) — same stable code as a foreign provider.
+    // projection miss) — the ownership pre-check fails closed into the same
+    // 403 the create path emits, so the update route cannot be used as a
+    // key-existence oracle (unknown vs. foreign must be indistinguishable,
+    // issue #552 review).
     let id = Uuid::now_v7();
     ports.ai_config_repo.views.lock().await.insert(
         id,
@@ -950,8 +953,8 @@ async fn ai_config_update_rejects_unknown_vault_key() {
     .expect_err("an unknown vault key must not be persisted")
     .into_problem();
 
-    assert_eq!(problem.status, StatusCode::CONFLICT.as_u16());
-    assert_eq!(problem.code, "ai-config.provider-mismatch");
+    assert_eq!(problem.status, StatusCode::FORBIDDEN.as_u16());
+    assert_eq!(problem.code, "ai-config.vault-key-forbidden");
     assert!(commands.updated.lock().await.is_empty());
 }
 

@@ -628,29 +628,43 @@ Caveats:
 `projection_settings` carries an `owner` column (the principal that bound the
 credential). The AI-config create/update pre-check **fails closed** on an
 unknown owner, so bindings projected before this column existed deny until
-their owner is backfilled. Two recovery paths, in order of preference:
+their owner is backfilled. Recovery is **re-projection only** — rotation
+deliberately does not backfill (the settings rotate/revoke handlers gate on
+the credential role only and do not verify the rotating actor against the
+binding owner, so a rotation backfill would let any credential-role member
+claim a legacy NULL-owner binding; issue #552 review).
 
-1. **Re-projection (all rows at once).** Stop the API, reset the settings
-   projector checkpoint, restart — the projector replays the settings streams
-   from the event store and recovers the owner from each event's actor
-   metadata:
+### Re-projection procedure
 
-   ```sql
-   -- 1. find the settings checkpoint row (table: sierradb_event_checkpoints)
-   SELECT * FROM sierradb_event_checkpoints WHERE projector = 'settings';
-   -- 2. with the API stopped, delete that row (back up the value first)
-   -- 3. restart the API; the settings projector replays from the beginning
-   -- 4. verify no NULL owners remain:
-   SELECT count(*) FROM projection_settings WHERE owner IS NULL;  -- expect 0
-   ```
+The projector guards every write with a version condition
+(`WHERE version < $N`), so replayed events **at or below a row's current
+version are rejected** — the bind event has version 1 and can never
+overwrite an existing row. A checkpoint reset alone therefore does NOT
+backfill owners of any binding that was ever rotated (the bind event is not
+the last event of its stream). Clear the rows first, then replay:
 
-   Rows re-materialize only for events whose version is >= the stored row's
-   version; a plain replay rewrites every row (bind events carry the highest
-   version), so NULL owners are filled from the event metadata.
-2. **Self-heal via rotation.** Each user rotating their own credential
-   (`PATCH /settings/{id}/gdrive`, `/settings/credentials`) backfills the
-   owner of that one binding from the rotating actor — the AI-config vault-key
-   check unlocks for that binding immediately after the rotation is projected.
+```sql
+-- 0. STOP the API (no projector may write while the table is cleared).
+
+-- 1. back up the current checkpoint value, then reset it:
+SELECT * FROM sierradb_event_checkpoints WHERE projector = 'settings';
+-- 2. clear the materialized rows (owner is re-derived from event metadata):
+TRUNCATE projection_settings;
+
+-- 3. restart the API; the settings projector replays the settings streams
+--    from the beginning and re-materializes every row, recovering `owner`
+--    from each bind event's actor metadata (all settings events have carried
+--    actor metadata since ADR-027).
+```
+
+**Verification** (after the replay has caught up):
+
+```sql
+-- every legacy owner must now be filled:
+SELECT count(*) FROM projection_settings WHERE owner IS NULL;  -- expect 0
+-- row counts must match the pre-truncate state (bind events are authoritative):
+SELECT binding_state, count(*) FROM projection_settings GROUP BY binding_state;
+```
 
 **Detection:** a user reporting `403 ai-config.vault-key-forbidden` on a key
 that used to work is the symptom of a stale NULL owner. Check with:

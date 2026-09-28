@@ -21,9 +21,11 @@ commits (ADR-020 D5).
 - Migration `20261001000001_projection_settings_owner`: `projection_settings`
   gains a nullable `owner TEXT` column + `idx_projection_settings_owner`
   (down drops both). The settings projector populates it from the persisted
-  `EventMetadata.actor` on `CredentialBound` and COALESCE-backfills legacy
-  NULL owners on `CredentialRotated`; `SettingsRepositoryImpl` reads it into
-  `SettingsView.owner`.
+  `EventMetadata.actor` on `CredentialBound`; `SettingsRepositoryImpl` reads
+  it into `SettingsView.owner`. Rotation deliberately does not touch the
+  owner (the settings rotate/revoke handlers do not verify the rotating
+  actor against the binding owner — a rotation backfill would let any
+  credential-role member claim a legacy NULL-owner binding).
 - **MINOR bump (ADR-020 D2):** additive projection column + projector
   behavior and re-pin `breakdown_core` 0.14.0 (`SettingsView.owner`):
   **0.18.0 → 0.19.0**.
