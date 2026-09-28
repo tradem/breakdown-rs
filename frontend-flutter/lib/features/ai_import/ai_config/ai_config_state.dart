@@ -86,6 +86,20 @@ class AiConfigScreenState {
   /// purely informational.
   final AsyncValue<AiImportDefaults>? promptDefaults;
 
+  /// The deployment default prompt text for [kind] from
+  /// `GET /v1/ai-import/defaults`, or null when the defaults fetch failed or
+  /// has not resolved yet — the reset affordance is disabled rather than
+  /// writing an invented value (spec `ai-import`: no silent discard).
+  String? promptDefaultFor(DocumentKind kind) {
+    // The controller already unwraps the `Result` into this AsyncValue, so the
+    // data payload is the DTO itself.
+    return switch (promptDefaults) {
+      AsyncData(:final value) =>
+        kind == DocumentKind.script ? value.script : value.schedule,
+      _ => null,
+    };
+  }
+
   bool get isFirstRun => config == null && discoveryError == null;
 
   AiConfigScreenState copyWith({

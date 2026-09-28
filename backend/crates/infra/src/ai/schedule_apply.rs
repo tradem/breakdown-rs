@@ -2,13 +2,14 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: gpt-5.6-luna (opencode-go)
 // Co-authored-by: longcat-2.0-free (opencode)
+// Co-authored-by: qwen3.8-flash (opencode-go)
 
 use std::collections::HashMap;
 use std::sync::Arc;
 
 use breakdown_core::ai::{
-    AiImportJobId, AiImportMapping, AiImportMappingRepository, MergedPreview,
-    ensure_merge_applyable,
+    AiImportJobId, AiImportMapping, AiImportMappingRepository, MergedPreview, PRIMARY_ORDINAL,
+    ensure_merge_applyable, mapping_kind,
 };
 use breakdown_core::error::DomainError;
 use breakdown_core::scene::commands::ScheduleSceneOnShootingDay;
@@ -124,7 +125,12 @@ where
                 // second scene shoot (issue #179).
                 if self
                     .mappings
-                    .find(request.preview_id, &pair_key) // ast-grep-ignore: cqrs-boundary
+                    .find(
+                        request.preview_id,
+                        &pair_key,
+                        mapping_kind::SCENE_SHOOT,
+                        PRIMARY_ORDINAL,
+                    ) // ast-grep-ignore: cqrs-boundary
                     .await?
                     .is_some_and(|mapping| !mapping.is_reserved())
                 {
@@ -159,14 +165,19 @@ where
                 // The id is derived deterministically from (preview_id, pair_key)
                 // so a retry after a mapping-write failure re-derives the SAME
                 // id — letting the aggregate reject the duplicate (issue #182).
-                let scene_shoot_id =
-                    SceneShootId::from_uuid(derive_id(request.preview_id, &pair_key));
+                let scene_shoot_id = SceneShootId::from_uuid(derive_id(
+                    request.preview_id,
+                    &pair_key,
+                    mapping_kind::SCENE_SHOOT,
+                    PRIMARY_ORDINAL,
+                ));
                 let reservation = self
                     .mappings
                     .reserve(AiImportMapping::reservation(
                         request.preview_id,
                         pair_key,
-                        "scene_shoot".to_owned(),
+                        mapping_kind::SCENE_SHOOT.to_owned(),
+                        PRIMARY_ORDINAL,
                         scene_shoot_id.0,
                     ))
                     .await?;
@@ -219,6 +230,10 @@ where
                         preview_id: reservation.preview_id,
                         draft_ref: reservation.draft_ref,
                         aggregate_kind: reservation.aggregate_kind,
+                        // The winning row's own key parts: `reserve` is
+                        // insert-if-absent on the full key, so these echo what was
+                        // asked for and can never drift from it.
+                        ordinal: reservation.ordinal,
                         aggregate_id: scene_shoot_id.0,
                         aggregate_version: version,
                     })
@@ -273,7 +288,12 @@ where
         // onto the reserved id (issue #179).
         if let Some(mapping) = self
             .mappings
-            .find(draft.preview_id, &draft.draft_ref) // ast-grep-ignore: cqrs-boundary
+            .find(
+                draft.preview_id,
+                &draft.draft_ref,
+                mapping_kind::SHOOTING_DAY,
+                PRIMARY_ORDINAL,
+            ) // ast-grep-ignore: cqrs-boundary
             .await?
             .filter(|mapping| !mapping.is_reserved())
         {
@@ -287,7 +307,12 @@ where
         // reservation so a retry after a mapping-write failure re-derives the
         // SAME id — letting the aggregate itself reject the duplicate (issue
         // #182). See derive_id for why this is the one UUIDv7-rule exception.
-        let id = ShootingDayId::from_uuid(derive_id(draft.preview_id, &draft.draft_ref));
+        let id = ShootingDayId::from_uuid(derive_id(
+            draft.preview_id,
+            &draft.draft_ref,
+            mapping_kind::SHOOTING_DAY,
+            PRIMARY_ORDINAL,
+        ));
         let order_key = LexicalSortKey::new(format!("day-{id}"))
             .map_err(|error| DomainError::validation(error.to_string()))?;
 
@@ -298,7 +323,8 @@ where
             .reserve(AiImportMapping::reservation(
                 draft.preview_id,
                 draft.draft_ref.clone(),
-                "shooting_day".to_owned(),
+                mapping_kind::SHOOTING_DAY.to_owned(),
+                PRIMARY_ORDINAL,
                 id.0,
             ))
             .await?;
@@ -338,6 +364,7 @@ where
                 preview_id: reservation.preview_id,
                 draft_ref: reservation.draft_ref,
                 aggregate_kind: reservation.aggregate_kind,
+                ordinal: reservation.ordinal,
                 aggregate_id: id.0,
                 aggregate_version: version,
             })
@@ -350,7 +377,13 @@ where
     }
 }
 
-/// Derive a deterministic, UUIDv7-shaped aggregate id from `(preview_id, draft_ref)`.
+/// Derive a deterministic, UUIDv7-shaped aggregate id from the **full** mapping
+/// row key `(preview_id, draft_ref, aggregate_kind, ordinal)`.
+///
+/// The kind and the ordinal must be hashed in and not just the `draft_ref`: one
+/// reviewed draft row produces a scene, its figures and its costumes, all of
+/// which share that reference. Deriving from the reference alone would hand the
+/// scene and its first costume the *same* aggregate id (design D4).
 ///
 /// Apply ids MUST be stable across retries: a retry after a
 /// mapping-write failure must re-derive the *same* id so the aggregate's
@@ -367,10 +400,20 @@ where
 /// compatible with every other id in the system. Collision probability is
 /// bounded by the birthday paradox at 2^-64, negligible for the cardinality
 /// of schedule-apply operations.
-pub(crate) fn derive_id(preview_id: AiImportJobId, draft_ref: &str) -> Uuid {
+pub(crate) fn derive_id(
+    preview_id: AiImportJobId,
+    draft_ref: &str,
+    aggregate_kind: &str,
+    ordinal: i32,
+) -> Uuid {
     let mut hasher = Sha256::new();
     hasher.update(preview_id.as_uuid().as_bytes());
     hasher.update(draft_ref.as_bytes());
+    // Length-prefix each part so `(ref="a", kind="bc")` cannot produce the same
+    // digest as `(ref="abc", kind="")`.
+    hasher.update((aggregate_kind.len() as u32).to_le_bytes());
+    hasher.update(aggregate_kind.as_bytes());
+    hasher.update(ordinal.to_le_bytes());
     let hash = hasher.finalize();
     let mut bytes = [0u8; 16];
     bytes.copy_from_slice(&hash[..16]);

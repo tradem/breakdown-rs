@@ -10,9 +10,15 @@ class _$ApplyAiImportResponse extends ApplyAiImportResponse {
   @override
   final int appliedCount;
   @override
+  final int createdCharacters;
+  @override
+  final int createdCostumes;
+  @override
   final int createdDays;
   @override
   final int plannedSceneShoots;
+  @override
+  final BuiltList<UnappliedCostume> unappliedCostumes;
 
   factory _$ApplyAiImportResponse(
           [void Function(ApplyAiImportResponseBuilder)? updates]) =>
@@ -20,8 +26,11 @@ class _$ApplyAiImportResponse extends ApplyAiImportResponse {
 
   _$ApplyAiImportResponse._(
       {required this.appliedCount,
+      required this.createdCharacters,
+      required this.createdCostumes,
       required this.createdDays,
-      required this.plannedSceneShoots})
+      required this.plannedSceneShoots,
+      required this.unappliedCostumes})
       : super._();
   @override
   ApplyAiImportResponse rebuild(
@@ -37,16 +46,22 @@ class _$ApplyAiImportResponse extends ApplyAiImportResponse {
     if (identical(other, this)) return true;
     return other is ApplyAiImportResponse &&
         appliedCount == other.appliedCount &&
+        createdCharacters == other.createdCharacters &&
+        createdCostumes == other.createdCostumes &&
         createdDays == other.createdDays &&
-        plannedSceneShoots == other.plannedSceneShoots;
+        plannedSceneShoots == other.plannedSceneShoots &&
+        unappliedCostumes == other.unappliedCostumes;
   }
 
   @override
   int get hashCode {
     var _$hash = 0;
     _$hash = $jc(_$hash, appliedCount.hashCode);
+    _$hash = $jc(_$hash, createdCharacters.hashCode);
+    _$hash = $jc(_$hash, createdCostumes.hashCode);
     _$hash = $jc(_$hash, createdDays.hashCode);
     _$hash = $jc(_$hash, plannedSceneShoots.hashCode);
+    _$hash = $jc(_$hash, unappliedCostumes.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
   }
@@ -55,8 +70,11 @@ class _$ApplyAiImportResponse extends ApplyAiImportResponse {
   String toString() {
     return (newBuiltValueToStringHelper(r'ApplyAiImportResponse')
           ..add('appliedCount', appliedCount)
+          ..add('createdCharacters', createdCharacters)
+          ..add('createdCostumes', createdCostumes)
           ..add('createdDays', createdDays)
-          ..add('plannedSceneShoots', plannedSceneShoots))
+          ..add('plannedSceneShoots', plannedSceneShoots)
+          ..add('unappliedCostumes', unappliedCostumes))
         .toString();
   }
 }
@@ -69,6 +87,16 @@ class ApplyAiImportResponseBuilder
   int? get appliedCount => _$this._appliedCount;
   set appliedCount(int? appliedCount) => _$this._appliedCount = appliedCount;
 
+  int? _createdCharacters;
+  int? get createdCharacters => _$this._createdCharacters;
+  set createdCharacters(int? createdCharacters) =>
+      _$this._createdCharacters = createdCharacters;
+
+  int? _createdCostumes;
+  int? get createdCostumes => _$this._createdCostumes;
+  set createdCostumes(int? createdCostumes) =>
+      _$this._createdCostumes = createdCostumes;
+
   int? _createdDays;
   int? get createdDays => _$this._createdDays;
   set createdDays(int? createdDays) => _$this._createdDays = createdDays;
@@ -78,6 +106,12 @@ class ApplyAiImportResponseBuilder
   set plannedSceneShoots(int? plannedSceneShoots) =>
       _$this._plannedSceneShoots = plannedSceneShoots;
 
+  ListBuilder<UnappliedCostume>? _unappliedCostumes;
+  ListBuilder<UnappliedCostume> get unappliedCostumes =>
+      _$this._unappliedCostumes ??= ListBuilder<UnappliedCostume>();
+  set unappliedCostumes(ListBuilder<UnappliedCostume>? unappliedCostumes) =>
+      _$this._unappliedCostumes = unappliedCostumes;
+
   ApplyAiImportResponseBuilder() {
     ApplyAiImportResponse._defaults(this);
   }
@@ -86,8 +120,11 @@ class ApplyAiImportResponseBuilder
     final $v = _$v;
     if ($v != null) {
       _appliedCount = $v.appliedCount;
+      _createdCharacters = $v.createdCharacters;
+      _createdCostumes = $v.createdCostumes;
       _createdDays = $v.createdDays;
       _plannedSceneShoots = $v.plannedSceneShoots;
+      _unappliedCostumes = $v.unappliedCostumes.toBuilder();
       _$v = null;
     }
     return this;
@@ -107,17 +144,37 @@ class ApplyAiImportResponseBuilder
   ApplyAiImportResponse build() => _build();
 
   _$ApplyAiImportResponse _build() {
-    final _$result = _$v ??
-        _$ApplyAiImportResponse._(
-          appliedCount: BuiltValueNullFieldError.checkNotNull(
-              appliedCount, r'ApplyAiImportResponse', 'appliedCount'),
-          createdDays: BuiltValueNullFieldError.checkNotNull(
-              createdDays, r'ApplyAiImportResponse', 'createdDays'),
-          plannedSceneShoots: BuiltValueNullFieldError.checkNotNull(
-              plannedSceneShoots,
-              r'ApplyAiImportResponse',
-              'plannedSceneShoots'),
-        );
+    _$ApplyAiImportResponse _$result;
+    try {
+      _$result = _$v ??
+          _$ApplyAiImportResponse._(
+            appliedCount: BuiltValueNullFieldError.checkNotNull(
+                appliedCount, r'ApplyAiImportResponse', 'appliedCount'),
+            createdCharacters: BuiltValueNullFieldError.checkNotNull(
+                createdCharacters,
+                r'ApplyAiImportResponse',
+                'createdCharacters'),
+            createdCostumes: BuiltValueNullFieldError.checkNotNull(
+                createdCostumes, r'ApplyAiImportResponse', 'createdCostumes'),
+            createdDays: BuiltValueNullFieldError.checkNotNull(
+                createdDays, r'ApplyAiImportResponse', 'createdDays'),
+            plannedSceneShoots: BuiltValueNullFieldError.checkNotNull(
+                plannedSceneShoots,
+                r'ApplyAiImportResponse',
+                'plannedSceneShoots'),
+            unappliedCostumes: unappliedCostumes.build(),
+          );
+    } catch (_) {
+      late String _$failedField;
+      try {
+        _$failedField = 'unappliedCostumes';
+        unappliedCostumes.build();
+      } catch (e) {
+        throw BuiltValueNestedFieldError(
+            r'ApplyAiImportResponse', _$failedField, e.toString());
+      }
+      rethrow;
+    }
     replace(_$result);
     return _$result;
   }

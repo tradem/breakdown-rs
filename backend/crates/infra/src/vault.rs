@@ -666,6 +666,45 @@ pub fn validate_binding_key(settings_id: Uuid, key_id: &str) -> Result<(), Domai
     }
 }
 
+/// Extract the owning settings-credential id from a binding key reference.
+///
+/// A binding key is `settings-<settings-uuid>` (the initial binding) or
+/// `settings-<settings-uuid>-<rotation-uuid>` (a rotation binding). Both
+/// forms embed the id of the settings credential that OWNS the secret, which
+/// is NOT necessarily the id of the aggregate that stores the reference: an
+/// AI-import configuration stores the settings credential's opaque key id
+/// (the provider key lives in the settings credential, ADR-027) while its own
+/// aggregate id is unrelated. Callers that hold only the key reference use
+/// this to recover the owner id that `validate_binding_key` and
+/// `record_id_for` expect — without it, every read of a stored provider key
+/// fails with "invalid credential Vault key reference" because the two ids
+/// differ.
+///
+/// Returns `None` for a malformed reference; callers must fail closed rather
+/// than fall back to a guessed owner.
+pub fn settings_id_from_binding_key(key_id: &str) -> Option<Uuid> {
+    let rest = key_id.strip_prefix("settings-")?;
+    // A UUID itself contains hyphens, so the owner id is the leading
+    // 36 characters — NOT the first hyphen-delimited segment. Whatever
+    // follows must be either nothing (initial binding) or a rotation suffix
+    // introduced by another hyphen.
+    const UUID_TEXT_LEN: usize = 36;
+    let (owner_text, suffix) = rest.split_at_checked(UUID_TEXT_LEN)?;
+    // A suffix must be a rotation marker `-<uuid>`, not arbitrary text. Without
+    // parsing it here, `settings-<owner>-garbage` returned an owner and only
+    // `validate_binding_key` rejected it later — so the worker got a
+    // Vault-unavailable error for a reference that is PERMANENTLY malformed and
+    // retried it to death instead of failing closed with a validation error.
+    if !suffix.is_empty()
+        && !suffix
+            .strip_prefix('-')
+            .is_some_and(|rotation| Uuid::parse_str(rotation).is_ok())
+    {
+        return None;
+    }
+    Uuid::parse_str(owner_text).ok()
+}
+
 /// Encrypt a plaintext into a nonce-prefixed AES-256-GCM envelope.
 ///
 /// Used by the settings `CredentialVault` adapter to store secrets at rest in

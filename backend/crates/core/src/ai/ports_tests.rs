@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: mimo-v2.5 (opencode-go)
+// Co-authored-by: qwen3.8-flash (opencode-go)
 
 use uuid::Uuid;
 
@@ -86,6 +87,7 @@ fn mapping_is_reserved_when_version_is_zero() {
         preview_id: super::AiImportJobId::new(),
         draft_ref: "scene-1".into(),
         aggregate_kind: "scene".into(),
+        ordinal: super::PRIMARY_ORDINAL,
         aggregate_id: Uuid::now_v7(),
         aggregate_version: AggregateVersion(0),
     };
@@ -101,6 +103,7 @@ fn mapping_is_not_reserved_after_confirmation() {
         preview_id: super::AiImportJobId::new(),
         draft_ref: "scene-1".into(),
         aggregate_kind: "scene".into(),
+        ordinal: super::PRIMARY_ORDINAL,
         aggregate_id: Uuid::now_v7(),
         aggregate_version: AggregateVersion::INITIAL,
     };
@@ -116,6 +119,7 @@ fn mapping_is_not_reserved_for_high_version() {
         preview_id: super::AiImportJobId::new(),
         draft_ref: "scene-1".into(),
         aggregate_kind: "scene".into(),
+        ordinal: super::PRIMARY_ORDINAL,
         aggregate_id: Uuid::now_v7(),
         aggregate_version: AggregateVersion(999),
     };
@@ -126,11 +130,33 @@ fn mapping_is_not_reserved_for_high_version() {
 fn mapping_reservation_creates_reserved_mapping() {
     let preview_id = super::AiImportJobId::new();
     let aggregate_id = Uuid::now_v7();
-    let mapping =
-        AiImportMapping::reservation(preview_id, "scene-1".into(), "scene".into(), aggregate_id);
+    let mapping = AiImportMapping::reservation(
+        preview_id,
+        "scene-1".into(),
+        super::mapping_kind::SCENE.into(),
+        super::PRIMARY_ORDINAL,
+        aggregate_id,
+    );
     assert!(mapping.is_reserved());
     assert_eq!(mapping.aggregate_id, aggregate_id);
+    assert_eq!(mapping.ordinal, super::PRIMARY_ORDINAL);
     assert_eq!(mapping.aggregate_version, AggregateVersion(0));
+}
+
+#[test]
+fn mapping_kinds_are_the_discriminators_of_one_rows_mapping_key() {
+    // One draft row produces a scene row, figure rows and costume rows that all
+    // share its `draft_ref`; only (kind, ordinal) tells them apart, so the
+    // constants must stay distinct strings.
+    let kinds = [
+        super::mapping_kind::SCENE,
+        super::mapping_kind::CHARACTER,
+        super::mapping_kind::COSTUME,
+        super::mapping_kind::SHOOTING_DAY,
+        super::mapping_kind::SCENE_SHOOT,
+    ];
+    let unique: std::collections::HashSet<&str> = kinds.iter().copied().collect();
+    assert_eq!(unique.len(), kinds.len(), "kinds must not collide");
 }
 
 // --- CURATED_PROVIDERS constant -------------------------------------------

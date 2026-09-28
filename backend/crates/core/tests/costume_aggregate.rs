@@ -3,6 +3,7 @@
 // Co-authored-by: deepseek-v4-flash (opencode-go)
 // Co-authored-by: mimo-v2.5 (opencode-go)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
+// Co-authored-by: qwen3.8-flash (opencode-go)
 
 #![allow(
     clippy::unwrap_used,
@@ -13,7 +14,7 @@
     clippy::dbg_macro
 )]
 use breakdown_core::costume::*;
-use breakdown_core::shared::{AggregateVersion, CostumeCategoryId, SeriesId};
+use breakdown_core::shared::{AggregateVersion, CostumeCategoryId, SeasonId, SeriesId};
 use kameo_es::{Apply, Command};
 use test_support::make_ctx;
 use uuid::Uuid;
@@ -640,4 +641,176 @@ fn test_legacy_detail_event_deserialises_with_defaults() {
     assert_eq!(detail.subject, None);
     assert_eq!(detail.category_id, None);
     assert_eq!(detail.text, "old text");
+}
+
+// ===========================================================================
+// AI import apply: the create -> notes -> bind chain and its version semantics
+// (openspec: ai-import-character-costumes, spec `costume-character-binding`)
+// ===========================================================================
+
+fn notes(agg: &CostumeAggregate, text: &str) -> Vec<CostumeEvent> {
+    agg.handle(
+        UpdateCostumeNotes {
+            id: agg.id,
+            notes: text.to_string(),
+            series_id: Some(series_id()),
+            version: agg.version,
+        },
+        make_ctx(),
+    )
+    .expect("notes accepted")
+}
+
+fn bind(agg: &CostumeAggregate, character_id: Uuid) -> Vec<CostumeEvent> {
+    agg.handle(
+        AssignCostumeToCharacter {
+            id: agg.id,
+            character_id,
+            series_id: Some(series_id()),
+            version: agg.version,
+        },
+        make_ctx(),
+    )
+    .expect("bind accepted")
+}
+
+/// The apply worker drives one costume through three commands and records the
+/// aggregate version after each step in `projection_ai_import_mapping`. That
+/// makes the **version the phase record** of a crashed apply: a retry reads the
+/// stored version and re-drives only the steps that have not appended yet. This
+/// test fixes the arithmetic the worker depends on — if any step ever appended
+/// two events, or none, the recovery would skip or repeat a command.
+#[test]
+fn test_ai_apply_chain_advances_exactly_one_version_per_step() {
+    let character_id = Uuid::now_v7();
+    let mut agg = CostumeAggregate::default();
+    let events = agg
+        .handle(
+            CreateCostume {
+                id: Uuid::now_v7(),
+                // The AI apply passes the season it resolved at the API edge so
+                // a costume that cannot be bound stays visible as unassigned.
+                season_id: Some(SeasonId::new()),
+                series_id: Some(series_id()),
+            },
+            make_ctx(),
+        )
+        .expect("create accepted");
+    test_support::replay_events(&mut agg, events);
+    assert_eq!(
+        agg.version,
+        AggregateVersion::INITIAL,
+        "step 1 (create) must land on the initial version"
+    );
+    assert!(
+        agg.character_id.is_none(),
+        "an AI costume must be created **unassigned** (D3)"
+    );
+
+    let notes_events = notes(&agg, "ölverschmierter Mechaniker-Overall");
+    test_support::replay_events(&mut agg, notes_events);
+    assert_eq!(agg.version, AggregateVersion(2), "step 2 (notes) = +1");
+    assert_eq!(agg.notes, "ölverschmierter Mechaniker-Overall");
+
+    let bind_events = bind(&agg, character_id);
+    test_support::replay_events(&mut agg, bind_events);
+    assert_eq!(agg.version, AggregateVersion(3), "step 3 (bind) = +1");
+    assert_eq!(agg.character_id, Some(character_id));
+}
+
+/// Binding a costume that was created moments earlier — the normal AI-apply
+/// path — must not need any version other than the one `CreateCostume` returned,
+/// and a stale version must be refused as a typed `VersionMismatch` (409
+/// `concurrency.version-mismatch`), never as a generic validation error.
+#[test]
+fn test_bind_to_a_freshly_created_costume_uses_the_created_version() {
+    let character_id = Uuid::now_v7();
+
+    // Straight after create: the created version is the only correct one.
+    let mut agg = make_costume();
+    assert_eq!(agg.version, AggregateVersion::INITIAL);
+    let bind_events = bind(&agg, character_id);
+    test_support::replay_events(&mut agg, bind_events);
+    assert_eq!(agg.character_id, Some(character_id));
+
+    // A version from before the create (0) or after a later append (2) is a
+    // mismatch on the version-1 stream the apply would have been holding.
+    let stale = make_costume();
+    for wrong in [
+        AggregateVersion(0),
+        AggregateVersion(2),
+        AggregateVersion(99),
+    ] {
+        let result = stale.handle(
+            AssignCostumeToCharacter {
+                id: stale.id,
+                character_id,
+                series_id: Some(series_id()),
+                version: wrong,
+            },
+            make_ctx(),
+        );
+        assert!(
+            matches!(
+                result,
+                Err(CostumeError::VersionMismatch { actual, .. })
+                    if actual == AggregateVersion::INITIAL
+            ),
+            "version {wrong:?} must be a typed VersionMismatch, got {result:?}"
+        );
+    }
+}
+
+/// A retried apply must never bind twice. The second dispatch carries the
+/// post-bind version, so it fails as a mismatch rather than appending a second
+/// `CostumeAssignedToCharacter` — the worker treats the mismatch's `current`
+/// version as "already applied" and does not create a second costume.
+#[test]
+fn test_replayed_bind_is_refused_as_a_version_mismatch_not_a_second_assignment() {
+    let character_id = Uuid::now_v7();
+    let mut agg = make_costume();
+    let bind_events = bind(&agg, character_id);
+    test_support::replay_events(&mut agg, bind_events);
+    let result = agg.handle(
+        AssignCostumeToCharacter {
+            id: agg.id,
+            character_id,
+            series_id: Some(series_id()),
+            // The version the worker would still be holding if the confirm
+            // mapping write had crashed after the append.
+            version: AggregateVersion::INITIAL,
+        },
+        make_ctx(),
+    );
+    assert!(
+        matches!(
+            result,
+            Err(CostumeError::VersionMismatch {
+                expected: AggregateVersion::INITIAL,
+                actual: AggregateVersion(2),
+            })
+        ),
+        "a replayed bind must surface as VersionMismatch, got {result:?}"
+    );
+}
+
+/// The binding stays exactly what the manual path is: `character_id`, and
+/// nothing else. A repertoire `season_id` on create is the pre-existing
+/// issue-#453 binding (a costume may stand in several seasons) and does not make
+/// the aggregate season-scoped, so an AI costume is reachable through the same
+/// queries as a hand-written one.
+#[test]
+fn test_ai_created_costume_carries_only_the_character_binding() {
+    let agg = make_costume();
+    assert!(agg.character_id.is_none());
+    assert!(agg.details.is_empty());
+    assert!(agg.photos.is_empty());
+    // No season/episode/scene field exists on the aggregate to carry one.
+    let fields = format!("{agg:?}");
+    for forbidden in ["season_id", "episode_id", "scene_id", "draft_ref"] {
+        assert!(
+            !fields.contains(forbidden),
+            "the Costume aggregate must not gain a {forbidden} scope field, got {fields}"
+        );
+    }
 }

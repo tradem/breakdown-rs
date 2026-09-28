@@ -17,7 +17,8 @@ use std::thread;
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use breakdown_core::error::DomainError;
 use infra::vault::{
-    PHOTO_SSE_C_KEY_ID, VaultClient, decrypt_envelope, encrypt_envelope, validate_binding_key,
+    PHOTO_SSE_C_KEY_ID, VaultClient, decrypt_envelope, encrypt_envelope,
+    settings_id_from_binding_key, validate_binding_key,
 };
 
 fn response(status: &str, body: &str) -> String {
@@ -173,6 +174,55 @@ fn binding_key_from_another_settings_id_is_rejected() {
             .to_string()
             .contains("invalid credential Vault key reference")
     );
+}
+
+/// The owner id is recoverable from both binding-key forms — this is what lets
+/// the AI-import read path validate a settings-owned key against the OWNING
+/// settings id instead of the unrelated AI-config id (the bug that made every
+/// configured AI import fail with "invalid credential Vault key reference").
+#[test]
+fn settings_id_is_recovered_from_both_binding_key_forms() {
+    let owner = uuid::Uuid::now_v7();
+
+    // Initial binding: settings-<owner>
+    let initial = format!("settings-{owner}");
+    assert_eq!(
+        settings_id_from_binding_key(&initial),
+        Some(owner),
+        "initial binding must resolve to its owner"
+    );
+    // The recovered owner must satisfy the existing validation.
+    assert!(validate_binding_key(owner, &initial).is_ok());
+
+    // Rotation binding: settings-<owner>-<rotation>
+    let rotation = uuid::Uuid::now_v7();
+    let rotated = format!("settings-{owner}-{rotation}");
+    assert_eq!(
+        settings_id_from_binding_key(&rotated),
+        Some(owner),
+        "rotation binding must resolve to the same owner, not the rotation id"
+    );
+    assert!(validate_binding_key(owner, &rotated).is_ok());
+}
+
+#[test]
+fn malformed_binding_key_has_no_recoverable_owner() {
+    // Fail closed: a caller holding only a malformed reference must not guess
+    // an owner id (that would read the wrong Vault record).
+    for key in [
+        "",
+        "not-a-key",
+        "settings-",
+        "settings-not-a-uuid",
+        // A bare settings uuid (the LEGACY record-id form) is not a binding key.
+        &uuid::Uuid::now_v7().to_string(),
+    ] {
+        assert_eq!(
+            settings_id_from_binding_key(key),
+            None,
+            "expected no owner for {key:?}"
+        );
+    }
 }
 
 #[test]

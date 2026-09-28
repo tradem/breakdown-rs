@@ -8,6 +8,8 @@ part of 'apply_mapping.dart';
 
 class _$ApplyMapping extends ApplyMapping {
   @override
+  final BuiltList<CostumeDecision>? costumeDecisions;
+  @override
   final ApplyMappingDecision decision;
   @override
   final String draftRef;
@@ -15,7 +17,8 @@ class _$ApplyMapping extends ApplyMapping {
   factory _$ApplyMapping([void Function(ApplyMappingBuilder)? updates]) =>
       (ApplyMappingBuilder()..update(updates))._build();
 
-  _$ApplyMapping._({required this.decision, required this.draftRef})
+  _$ApplyMapping._(
+      {this.costumeDecisions, required this.decision, required this.draftRef})
       : super._();
   @override
   ApplyMapping rebuild(void Function(ApplyMappingBuilder) updates) =>
@@ -28,6 +31,7 @@ class _$ApplyMapping extends ApplyMapping {
   bool operator ==(Object other) {
     if (identical(other, this)) return true;
     return other is ApplyMapping &&
+        costumeDecisions == other.costumeDecisions &&
         decision == other.decision &&
         draftRef == other.draftRef;
   }
@@ -35,6 +39,7 @@ class _$ApplyMapping extends ApplyMapping {
   @override
   int get hashCode {
     var _$hash = 0;
+    _$hash = $jc(_$hash, costumeDecisions.hashCode);
     _$hash = $jc(_$hash, decision.hashCode);
     _$hash = $jc(_$hash, draftRef.hashCode);
     _$hash = $jf(_$hash);
@@ -44,6 +49,7 @@ class _$ApplyMapping extends ApplyMapping {
   @override
   String toString() {
     return (newBuiltValueToStringHelper(r'ApplyMapping')
+          ..add('costumeDecisions', costumeDecisions)
           ..add('decision', decision)
           ..add('draftRef', draftRef))
         .toString();
@@ -53,6 +59,12 @@ class _$ApplyMapping extends ApplyMapping {
 class ApplyMappingBuilder
     implements Builder<ApplyMapping, ApplyMappingBuilder> {
   _$ApplyMapping? _$v;
+
+  ListBuilder<CostumeDecision>? _costumeDecisions;
+  ListBuilder<CostumeDecision> get costumeDecisions =>
+      _$this._costumeDecisions ??= ListBuilder<CostumeDecision>();
+  set costumeDecisions(ListBuilder<CostumeDecision>? costumeDecisions) =>
+      _$this._costumeDecisions = costumeDecisions;
 
   ApplyMappingDecisionBuilder? _decision;
   ApplyMappingDecisionBuilder get decision =>
@@ -71,6 +83,7 @@ class ApplyMappingBuilder
   ApplyMappingBuilder get _$this {
     final $v = _$v;
     if ($v != null) {
+      _costumeDecisions = $v.costumeDecisions?.toBuilder();
       _decision = $v.decision.toBuilder();
       _draftRef = $v.draftRef;
       _$v = null;
@@ -96,6 +109,7 @@ class ApplyMappingBuilder
     try {
       _$result = _$v ??
           _$ApplyMapping._(
+            costumeDecisions: _costumeDecisions?.build(),
             decision: decision.build(),
             draftRef: BuiltValueNullFieldError.checkNotNull(
                 draftRef, r'ApplyMapping', 'draftRef'),
@@ -103,6 +117,8 @@ class ApplyMappingBuilder
     } catch (_) {
       late String _$failedField;
       try {
+        _$failedField = 'costumeDecisions';
+        _costumeDecisions?.build();
         _$failedField = 'decision';
         decision.build();
       } catch (e) {

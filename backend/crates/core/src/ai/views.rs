@@ -3,6 +3,7 @@
 // Co-authored-by: gpt-5.6-luna (opencode-go)
 // Co-authored-by: deepseek-v4-flash (opencode-go)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
+// Co-authored-by: qwen3.8-flash (opencode-go)
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -167,6 +168,21 @@ pub struct AiConfigView {
     /// secrets — the vault reference is the only opaque material.
     pub prompts: HashMap<DocumentKind, String>,
     pub prompt_kinds: Vec<DocumentKind>,
+    /// Kinds whose extraction is driven by a **stored** prompt (design D6).
+    ///
+    /// A stored prompt is a snapshot taken when the configuration was written:
+    /// it wins over the deployment default and therefore does **not** follow
+    /// updates to `config/default_ai_prompts.toml`. That was observed live — a
+    /// configuration kept the previous three-line prompt and silently ignored a
+    /// hardened default, invalidating a whole test round. The surface must say
+    /// so, and offer a reset (write the current text from
+    /// `GET /v1/ai-import/defaults`). A kind absent here has no stored prompt
+    /// and follows the deployment default on every run.
+    ///
+    /// Additive with `serde(default)` so an older client reading a newer view
+    /// still deserialises.
+    #[serde(default)]
+    pub stored_prompt_kinds: Vec<DocumentKind>,
     pub vault_key_id: String,
     pub version: AggregateVersion,
     pub revoked: bool,

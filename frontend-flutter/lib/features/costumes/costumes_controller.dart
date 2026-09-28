@@ -830,6 +830,24 @@ class CostumesController extends _$CostumesController {
     await reconcile();
   }
 
+  /// Fetches the single costume DETAIL and upserts it into the Drift cache.
+  ///
+  /// The list route (`GET /v1/costumes?season_id=…`) returns costume rows
+  /// WITHOUT their child collections — the server's list query maps the raw
+  /// projection row (`map_costume_row`) and therefore leaves `details` and
+  /// `photos` empty. Only `GET /v1/costumes/{id}` runs the enrichment. The
+  /// detail screen renders from the cached LIST rows, so photos (and costume
+  /// details) were structurally unreachable from the editor: every gallery
+  /// showed the empty placeholder, no matter how often the user refreshed,
+  /// pulled to refresh, cleared the cache or force-stopped the app — the
+  /// refetched list simply carried no photos again.
+  ///
+  /// Writing the enriched detail over the cached list row repairs both
+  /// surfaces at once: the cache row now carries the photos, and every
+  /// reader of `cachedRows` (detail editor, gallery) sees them.
+  Future<Result<CostumeView>> loadDetail(String costumeId) =>
+      ref.read(costumeRepositoryProvider).getAndCache(seasonId, costumeId);
+
   void dismissCommandError() =>
       ref.read(costumesCommandErrorProvider(seasonId).notifier).clear();
 

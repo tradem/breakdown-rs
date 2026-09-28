@@ -52,6 +52,44 @@ class SkipDecision extends RowDecision {
   const SkipDecision();
 }
 
+/// One extracted costume of a draft row, with the reviewer's decision.
+///
+/// A costume is decided *independently of its scene* (spec `ai-import`): the
+/// reviewer can reject one garment without rejecting the scene it came from.
+/// The default is accepted, and only rejections travel on the wire — the backend
+/// treats an absent ordinal as accepted, so an untouched row keeps sending
+/// nothing and stays a genuine `accept_as_is`.
+class PreviewCostume {
+  const PreviewCostume({
+    required this.ordinal,
+    required this.characterName,
+    required this.description,
+    required this.sourceQuote,
+    this.accepted = true,
+  });
+
+  /// Index into the draft row's `costumes` list — the mapping key the backend
+  /// addresses this row by, alongside the row's `draft_ref`.
+  final int ordinal;
+  final String characterName;
+  final String description;
+
+  /// The quoted script fragment the extraction claims to be based on. Shown next
+  /// to [description] so the reviewer can verify the extraction WITHOUT opening
+  /// the document (spec `ai-import`).
+  final String sourceQuote;
+
+  final bool accepted;
+
+  PreviewCostume withAccepted(bool accepted) => PreviewCostume(
+    ordinal: ordinal,
+    characterName: characterName,
+    description: description,
+    sourceQuote: sourceQuote,
+    accepted: accepted,
+  );
+}
+
 /// One preview row with its current decision (controller state;
 /// immutable — decisions are replaced, never mutated in place).
 class PreviewRow {
@@ -59,6 +97,7 @@ class PreviewRow {
     required this.draftRef,
     required this.label,
     this.decision = const CreateDecision(),
+    this.costumes = const <PreviewCostume>[],
   });
 
   final String draftRef;
@@ -68,8 +107,32 @@ class PreviewRow {
 
   final RowDecision decision;
 
-  PreviewRow withDecision(RowDecision decision) =>
-      PreviewRow(draftRef: draftRef, label: label, decision: decision);
+  /// The row's extracted costumes with their per-row decisions. Empty for a
+  /// preview stored before the field existed, and for a row the script gave no
+  /// costuming to — both are correct, not failures.
+  final List<PreviewCostume> costumes;
+
+  PreviewRow withDecision(RowDecision decision) => PreviewRow(
+    draftRef: draftRef,
+    label: label,
+    decision: decision,
+    costumes: costumes,
+  );
+
+  /// Replaces one costume row's decision by [ordinal]; an unknown ordinal is
+  /// ignored rather than fabricating a row the payload does not carry.
+  PreviewRow withCostumeDecision(int ordinal, bool accepted) => PreviewRow(
+    draftRef: draftRef,
+    label: label,
+    decision: decision,
+    costumes: [
+      for (final costume in costumes)
+        if (costume.ordinal == ordinal)
+          costume.withAccepted(accepted)
+        else
+          costume,
+    ],
+  );
 }
 
 /// The apply selection state (task 4.2): rows, the persisted episode
@@ -108,9 +171,17 @@ class AiApplyState {
   bool get acceptAsIs => editDistance == 0;
 
   /// The real selection-state edit distance: the number of rows whose
-  /// decision the user changed away from the default (Create).
+  /// decision the user changed away from the default (Create), PLUS the number
+  /// of costume rows rejected away from their default (accepted). A toggled
+  /// costume is an edit: reporting `accept_as_is` over one would be a false
+  /// statement about the review, and the backend rejects the combination.
   int get editDistance =>
-      rows.where((r) => r.decision is! CreateDecision).length;
+      rows.where((r) => r.decision is! CreateDecision).length +
+      rows.fold(
+        0,
+        (sum, row) =>
+            sum + row.costumes.where((costume) => !costume.accepted).length,
+      );
 
   /// Builds the request's mappings: verbatim `draft_ref`s, Create /
   /// Update-from-picked-DTO / skip (skipped rows are EXCLUDED).
@@ -150,7 +221,27 @@ class AiApplyState {
         ),
         SkipDecision() => null,
       };
-      if (mapping != null) mappings.add(mapping);
+      if (mapping == null) continue;
+      // Only rejections go on the wire: an absent ordinal means accepted
+      // server-side, so an untouched row sends no costume payload at all and the
+      // request stays byte-identical to a pre-costume client's.
+      final rejected = row.costumes
+          .where((costume) => !costume.accepted)
+          .map(
+            (costume) => CostumeDecision(
+              (b) => b
+                ..ordinal = costume.ordinal
+                ..accepted = false,
+            ),
+          )
+          .toList();
+      // `rebuild` RETURNS the replaced value — a built_value is immutable, so
+      // calling it for its side effect would silently drop every rejection.
+      mappings.add(
+        rejected.isEmpty
+            ? mapping
+            : mapping.rebuild((m) => m.costumeDecisions.replace(rejected)),
+      );
     }
     return mappings;
   }
@@ -187,6 +278,24 @@ class AiApplyController extends _$AiApplyController {
       rows: [
         for (final row in state.rows)
           if (row.draftRef == draftRef) row.withDecision(decision) else row,
+      ],
+      context: state.context,
+      outcome: state.outcome,
+      commandError: state.commandError,
+    );
+  }
+
+  /// Accept or reject ONE costume row of a draft row, leaving the scene row's
+  /// own decision untouched (spec `ai-import`: costume rows are decided
+  /// independently).
+  void decideCostume(String draftRef, int ordinal, bool accepted) {
+    state = AiApplyState(
+      rows: [
+        for (final row in state.rows)
+          if (row.draftRef == draftRef)
+            row.withCostumeDecision(ordinal, accepted)
+          else
+            row,
       ],
       context: state.context,
       outcome: state.outcome,

@@ -10,6 +10,8 @@ class _$Uncertainty extends Uncertainty {
   @override
   final String field;
   @override
+  final UncertaintyKind? kind;
+  @override
   final String note;
   @override
   final int sceneIndex;
@@ -21,6 +23,7 @@ class _$Uncertainty extends Uncertainty {
 
   _$Uncertainty._(
       {required this.field,
+      this.kind,
       required this.note,
       required this.sceneIndex,
       this.suggestedValue})
@@ -37,6 +40,7 @@ class _$Uncertainty extends Uncertainty {
     if (identical(other, this)) return true;
     return other is Uncertainty &&
         field == other.field &&
+        kind == other.kind &&
         note == other.note &&
         sceneIndex == other.sceneIndex &&
         suggestedValue == other.suggestedValue;
@@ -46,6 +50,7 @@ class _$Uncertainty extends Uncertainty {
   int get hashCode {
     var _$hash = 0;
     _$hash = $jc(_$hash, field.hashCode);
+    _$hash = $jc(_$hash, kind.hashCode);
     _$hash = $jc(_$hash, note.hashCode);
     _$hash = $jc(_$hash, sceneIndex.hashCode);
     _$hash = $jc(_$hash, suggestedValue.hashCode);
@@ -57,6 +62,7 @@ class _$Uncertainty extends Uncertainty {
   String toString() {
     return (newBuiltValueToStringHelper(r'Uncertainty')
           ..add('field', field)
+          ..add('kind', kind)
           ..add('note', note)
           ..add('sceneIndex', sceneIndex)
           ..add('suggestedValue', suggestedValue))
@@ -70,6 +76,10 @@ class UncertaintyBuilder implements Builder<Uncertainty, UncertaintyBuilder> {
   String? _field;
   String? get field => _$this._field;
   set field(String? field) => _$this._field = field;
+
+  UncertaintyKind? _kind;
+  UncertaintyKind? get kind => _$this._kind;
+  set kind(UncertaintyKind? kind) => _$this._kind = kind;
 
   String? _note;
   String? get note => _$this._note;
@@ -92,6 +102,7 @@ class UncertaintyBuilder implements Builder<Uncertainty, UncertaintyBuilder> {
     final $v = _$v;
     if ($v != null) {
       _field = $v.field;
+      _kind = $v.kind;
       _note = $v.note;
       _sceneIndex = $v.sceneIndex;
       _suggestedValue = $v.suggestedValue;
@@ -118,6 +129,7 @@ class UncertaintyBuilder implements Builder<Uncertainty, UncertaintyBuilder> {
         _$Uncertainty._(
           field: BuiltValueNullFieldError.checkNotNull(
               field, r'Uncertainty', 'field'),
+          kind: kind,
           note: BuiltValueNullFieldError.checkNotNull(
               note, r'Uncertainty', 'note'),
           sceneIndex: BuiltValueNullFieldError.checkNotNull(

@@ -268,6 +268,17 @@ class _TypedPreviewBodyState extends ConsumerState<_TypedPreviewBody> {
           ),
         ),
       for (final uncertainty in payload.data.uncertainties)
+        // A costume the server dropped is reported here rather than vanishing:
+        // the reviewer sees a MISSING entry with its reason slug
+        // (`ungrounded_quote` / `unlisted_character`) instead of concluding the
+        // script named no costuming. Its `kind` is `droppedRow`, which — unlike a
+        // field ambiguity — does not block the apply (design D8), so it renders as
+        // information, not as a gate error.
+        //
+        // The note is rendered verbatim, exactly like every other uncertainty:
+        // it is server/model prose the client does not parse. The places where the
+        // wire carries a typed reason (`UnappliedCostume.reason` on the apply
+        // result) are where localized copy is keyed instead.
         _InfoRowCard(
           label: l10nOf(context)
               .aiPreviewUncertainty(uncertainty.field, uncertainty.note),
@@ -313,28 +324,40 @@ class _TypedPreviewBodyState extends ConsumerState<_TypedPreviewBody> {
 
   /// The actionable rows (never the info cards): script scenes carry
   /// their `draft_ref`s; merged previews act on the merged scene ids.
-  List<PreviewRow> _actionableRows(BuildContext context, Object payload) =>
-      switch (payload) {
-        AiPreviewPayloadOneOf() => [
-          for (final scene in payload.data.scenes)
-            PreviewRow(
-              draftRef: scene.draftRef,
-              label: l10nOf(context)
-                  .sceneTileLabel('${scene.sceneNumber ?? '?'}'),
-            ),
-        ],
-        AiPreviewPayloadOneOf2() => [
-          for (final merged in payload.data.scenes)
-            PreviewRow(
-              draftRef: merged.scene.id,
-              label: l10nOf(context).sceneTileLabel(
-                '${merged.scene.sceneNumber ?? merged.scene.id}',
+  List<PreviewRow> _actionableRows(
+    BuildContext context,
+    Object payload,
+  ) => switch (payload) {
+    AiPreviewPayloadOneOf() => [
+      for (final scene in payload.data.scenes)
+        PreviewRow(
+          draftRef: scene.draftRef,
+          label: l10nOf(context).sceneTileLabel('${scene.sceneNumber ?? '?'}'),
+          // `costumes` is null on a preview stored before the field existed:
+          // not a failure, just a row with nothing to decide.
+          costumes: [
+            for (final (index, costume)
+                in (scene.costumes ?? <DraftCostume>[]).indexed)
+              PreviewCostume(
+                ordinal: index,
+                characterName: costume.characterName,
+                description: costume.description,
+                sourceQuote: costume.sourceQuote,
               ),
-            ),
-        ],
-        // Pre-merge schedule previews expose no actionable drafts yet.
-        _ => const <PreviewRow>[],
-      };
+          ],
+        ),
+    ],
+    AiPreviewPayloadOneOf2() => [
+      for (final merged in payload.data.scenes)
+        PreviewRow(
+          draftRef: merged.scene.id,
+          label: l10nOf(context)
+              .sceneTileLabel('${merged.scene.sceneNumber ?? merged.scene.id}'),
+        ),
+    ],
+    // Pre-merge schedule previews expose no actionable drafts yet.
+    _ => const <PreviewRow>[],
+  };
 }
 
 /// One actionable preview row: the verbatim `draft_ref` with its decision
@@ -429,10 +452,92 @@ class _PreviewRowCard extends ConsumerWidget {
                 ),
                 style: Theme.of(context).textTheme.bodySmall,
               ),
+            ..._costumeRows(context, state, controller),
           ],
         ),
       ),
     );
+  }
+
+  /// The row's extracted costumes, each individually acceptable/rejectable.
+  ///
+  /// The quoted source fragment is shown NEXT TO the description on purpose:
+  /// the reviewer must be able to verify the extraction against the script
+  /// without opening the document (spec `ai-import`), and the server's grounding
+  /// check only proves the quote exists — whether it is the right garment is a
+  /// human call.
+  List<Widget> _costumeRows(
+    BuildContext context,
+    AiApplyState state,
+    AiApplyController controller,
+  ) {
+    PreviewRow? matched;
+    for (final candidate in state.rows) {
+      if (candidate.draftRef == draftRef) {
+        matched = candidate;
+        break;
+      }
+    }
+    final costumes = matched?.costumes ?? const <PreviewCostume>[];
+    if (costumes.isEmpty) return const [];
+    return [
+      const SizedBox(height: 8),
+      Text(
+        key: Key('ai-preview-costume-heading-$draftRef'),
+        l10nOf(context).aiPreviewCostumeHeading('${costumes.length}'),
+        style: Theme.of(context).textTheme.labelLarge,
+      ),
+      for (final costume in costumes)
+        Column(
+          key: Key('ai-preview-costume-$draftRef-${costume.ordinal}'),
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Tooltip(
+              message: l10nOf(context).aiPreviewCostumeToggleTooltip,
+              child: CheckboxListTile(
+                key: Key(
+                  'ai-preview-costume-toggle-$draftRef-${costume.ordinal}',
+                ),
+                controlAffinity: ListTileControlAffinity.leading,
+                dense: true,
+                contentPadding: EdgeInsets.zero,
+                value: costume.accepted,
+                onChanged: (value) => controller.decideCostume(
+                  draftRef,
+                  costume.ordinal,
+                  value ?? true,
+                ),
+                title: Text(
+                  l10nOf(context).aiPreviewCostumeFor(
+                    costume.characterName,
+                    costume.description,
+                  ),
+                ),
+                subtitle: Text(
+                  // The quote is read-only evidence, never an editable value: it
+                  // is what the server's grounding check verified against the
+                  // chunk. Showing it NEXT TO the description is what lets the
+                  // reviewer verify the extraction without opening the document
+                  // (spec `ai-import`).
+                  l10nOf(context).aiPreviewCostumeQuote(costume.sourceQuote),
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ),
+            ),
+            if (!costume.accepted)
+              Text(
+                key: Key(
+                  'ai-preview-costume-rejected-$draftRef-${costume.ordinal}',
+                ),
+                l10nOf(context).aiPreviewCostumeRejectedStatus,
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.error,
+                  fontSize: 12,
+                ),
+              ),
+          ],
+        ),
+    ];
   }
 }
 

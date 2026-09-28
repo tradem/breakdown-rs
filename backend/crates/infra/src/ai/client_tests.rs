@@ -210,14 +210,21 @@ fn truncation_budget_returns_none_without_retries() {
     assert_eq!(next_truncation_budget(Some("length"), 1000, 0), None);
 }
 
+// CHANGED (was: `assert_eq!(..., None)` for `stop` / `None`).
+//
+// The old expectation encoded "only a provider-confirmed `length` may be
+// retried", which is what made the live eurouter failure unrecoverable: that
+// gateway returns a body cut off mid-JSON while reporting `stop`, so the job
+// was dead-lettered after a single paid call. Retryability is now bounded by
+// the attempt budget alone, so a possibly-truncated response is retried with a
+// doubled budget — and still fails hard once the budget is spent.
 #[test]
-fn truncation_budget_returns_none_for_stop() {
-    assert_eq!(next_truncation_budget(Some("stop"), 1000, 2), None);
-}
-
-#[test]
-fn truncation_budget_returns_none_for_none() {
-    assert_eq!(next_truncation_budget(None, 1000, 2), None);
+fn truncation_budget_grows_even_when_the_provider_reports_stop() {
+    assert_eq!(next_truncation_budget(Some("stop"), 1000, 2), Some(2000));
+    assert_eq!(next_truncation_budget(None, 1000, 2), Some(2000));
+    // ...but never past the bound.
+    assert_eq!(next_truncation_budget(Some("stop"), 1000, 0), None);
+    assert_eq!(next_truncation_budget(None, 1000, 0), None);
 }
 
 // ===========================================================================

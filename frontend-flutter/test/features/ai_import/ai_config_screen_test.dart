@@ -70,26 +70,35 @@ ModelInfo _model(String id, {bool recommended = false}) => ModelInfo(
     ..recommended = recommended,
 );
 
+/// An active config view. [storedPromptKinds] is left ABSENT when null, which
+/// models a server that predates the field (the client must then claim nothing
+/// about overrides rather than asserting "none exist").
 AiConfigView _config({
   int version = 1,
   String assistantModel = 'gpt-5.6-luna',
   String? imageModel,
   Map<String, String> prompts = const {},
-}) => AiConfigView(
-  (b) => b
-    ..id = 'config-1'
-    ..userId = 'dev-user'
-    ..assistantModel = assistantModel
-    ..provider = LlmProvider.openai
-    ..vaultKeyId = 'vk-1'
-    ..imageModel = imageModel
-    ..prompts.replace(prompts)
-    ..promptKinds.replace(
-      BuiltList(const [DocumentKind.script, DocumentKind.schedule]),
-    )
-    ..revoked = false
-    ..version = version,
-);
+  List<DocumentKind>? storedPromptKinds,
+}) {
+  final base = AiConfigView(
+    (b) => b
+      ..id = 'config-1'
+      ..userId = 'dev-user'
+      ..assistantModel = assistantModel
+      ..provider = LlmProvider.openai
+      ..vaultKeyId = 'vk-1'
+      ..imageModel = imageModel
+      ..prompts.replace(prompts)
+      ..promptKinds.replace(
+        BuiltList(const [DocumentKind.script, DocumentKind.schedule]),
+      )
+      ..revoked = false
+      ..version = version,
+  );
+  return storedPromptKinds == null
+      ? base
+      : base.rebuild((b) => b..storedPromptKinds.replace(storedPromptKinds));
+}
 
 /// Repository fake: every config/credential route is scriptable with call
 /// counters (denial short-circuit + no-automatic-re-dispatch proofs).
@@ -1035,6 +1044,91 @@ void main() {
     expect(sent.prompts.containsKey('script'), isFalse);
     // The untouched stored schedule prompt survives.
     expect(sent.prompts['schedule'], 'Stored Schedule');
+  });
+
+  // Task 6.3 (`ai-import` — the configuration surface must say when a stored
+  // prompt overrides the deployment default, and offer a reset).
+  testWidgets('a stored override is NAMED per kind and the reset writes the '
+      'deployment default into the editor', (tester) async {
+    await setupContainer(
+      discoveryValue: Right([
+        _config(
+          prompts: const {'script': 'STORED'},
+          storedPromptKinds: const [DocumentKind.script],
+        ),
+      ]),
+      defaultsValue: Right(
+        _defaults(
+          script: 'deployment script default',
+          schedule: 'sched default',
+        ),
+      ),
+    );
+    await pumpScreen(tester);
+
+    // Script: an override is in effect -> say so, and offer the way out.
+    expect(find.textContaining('A stored prompt is in effect'), findsOneWidget);
+    expect(find.byKey(const Key('ai-prompt-reset-script')), findsOneWidget);
+    // Schedule: no override -> the deployment default governs every run.
+    expect(
+      find.textContaining('No stored prompt — the deployment default is in'),
+      findsOneWidget,
+    );
+    expect(find.byKey(const Key('ai-prompt-reset-schedule')), findsNothing);
+
+    await tester.tap(find.byKey(const Key('ai-prompt-reset-script')));
+    await tester.pumpAndSettle();
+    // The editor now holds the deployment text; saving is what persists it
+    // (a reset never dispatches a command behind the user's back).
+    expect(
+      _codeField(tester, 'ai-edit-script-prompt').controller.fullText,
+      'deployment script default',
+    );
+    expect(
+      container.read(aiConfigControllerProvider).scriptPrompt,
+      'deployment script default',
+    );
+    expect(repo.updateCalls, 0, reason: 'reset is a draft edit, not a command');
+  });
+
+  testWidgets('reset is DISABLED when the deployment defaults could not be '
+      'fetched — there is nothing honest to reset to', (tester) async {
+    await setupContainer(
+      discoveryValue: Right([
+        _config(
+          prompts: const {'script': 'stored'},
+          storedPromptKinds: const [DocumentKind.script],
+        ),
+      ]),
+      defaultsValue: const Left(ProblemError(code: 'ai.defaults-missing')),
+    );
+    await pumpScreen(tester);
+
+    expect(
+      tester
+          .widget<TextButton>(find.byKey(const Key('ai-prompt-reset-script')))
+          .onPressed,
+      isNull,
+    );
+  });
+
+  testWidgets('a server that does not report stored kinds claims NOTHING about '
+      'overrides — absence is not "no override" (honest degradation)', (
+    tester,
+  ) async {
+    await setupContainer(
+      discoveryValue: Right([
+        _config(prompts: const {'script': 'stored'}),
+      ]),
+    );
+    await pumpScreen(tester);
+
+    expect(find.textContaining('A stored prompt is in effect'), findsNothing);
+    expect(
+      find.textContaining('No stored prompt — the deployment default'),
+      findsNothing,
+    );
+    expect(find.byKey(const Key('ai-prompt-reset-script')), findsNothing);
   });
 
   testWidgets('the AI-literacy helper card precedes the first-run and the '

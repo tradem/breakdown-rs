@@ -1304,6 +1304,104 @@ abstract class AppLocalizations {
   /// **'Szene {id}{summary}'**
   String aiPreviewSceneWithSummary(Object id, Object summary);
 
+  /// No description provided for @aiPreviewCostumeHeading.
+  ///
+  /// In de, this message translates to:
+  /// **'Kostüme ({count})'**
+  String aiPreviewCostumeHeading(Object count);
+
+  /// No description provided for @aiPreviewCostumeFor.
+  ///
+  /// In de, this message translates to:
+  /// **'{character}: {description}'**
+  String aiPreviewCostumeFor(Object character, Object description);
+
+  /// No description provided for @aiPreviewCostumeQuote.
+  ///
+  /// In de, this message translates to:
+  /// **'Beleg: {quote}'**
+  String aiPreviewCostumeQuote(Object quote);
+
+  /// No description provided for @aiPreviewCostumeRejectedStatus.
+  ///
+  /// In de, this message translates to:
+  /// **'verworfen'**
+  String get aiPreviewCostumeRejectedStatus;
+
+  /// No description provided for @aiPreviewCostumeToggleTooltip.
+  ///
+  /// In de, this message translates to:
+  /// **'Dieses Kostüm unabhängig von der Szene übernehmen oder verwerfen'**
+  String get aiPreviewCostumeToggleTooltip;
+
+  /// No description provided for @aiApplyOutcomeScript.
+  ///
+  /// In de, this message translates to:
+  /// **'Angewendet: {applied} Szene(n), {characters} Figur(en), {costumes} Kostüm(e).'**
+  String aiApplyOutcomeScript(
+    Object applied,
+    Object characters,
+    Object costumes,
+  );
+
+  /// No description provided for @aiApplyUnappliedCostume.
+  ///
+  /// In de, this message translates to:
+  /// **'Nicht angewendet: {character} – {description} ({reason})'**
+  String aiApplyUnappliedCostume(
+    Object character,
+    Object description,
+    Object reason,
+  );
+
+  /// No description provided for @aiApplyUnappliedReasonCharacterNotPlanned.
+  ///
+  /// In de, this message translates to:
+  /// **'Figur fehlt in dieser Zeile'**
+  String get aiApplyUnappliedReasonCharacterNotPlanned;
+
+  /// No description provided for @aiApplyUnappliedReasonCharacterUnavailable.
+  ///
+  /// In de, this message translates to:
+  /// **'Figur konnte nicht angelegt werden'**
+  String get aiApplyUnappliedReasonCharacterUnavailable;
+
+  /// No description provided for @aiApplyUnappliedReasonCreateRejected.
+  ///
+  /// In de, this message translates to:
+  /// **'Kostüm konnte nicht angelegt werden'**
+  String get aiApplyUnappliedReasonCreateRejected;
+
+  /// No description provided for @aiApplyUnappliedReasonNotesRejected.
+  ///
+  /// In de, this message translates to:
+  /// **'Kostüm angelegt, Beschreibung abgelehnt'**
+  String get aiApplyUnappliedReasonNotesRejected;
+
+  /// No description provided for @aiApplyUnappliedReasonBindingRejected.
+  ///
+  /// In de, this message translates to:
+  /// **'Kostüm angelegt, Bindung abgelehnt (unzugeordnet)'**
+  String get aiApplyUnappliedReasonBindingRejected;
+
+  /// No description provided for @aiConfigStoredPromptNote.
+  ///
+  /// In de, this message translates to:
+  /// **'Gespeicherter Prompt aktiv – folgt nicht den Deployment-Voreinstellungen.'**
+  String get aiConfigStoredPromptNote;
+
+  /// No description provided for @aiConfigResetPrompt.
+  ///
+  /// In de, this message translates to:
+  /// **'Auf Voreinstellung zurücksetzen'**
+  String get aiConfigResetPrompt;
+
+  /// No description provided for @aiConfigDefaultPromptNote.
+  ///
+  /// In de, this message translates to:
+  /// **'Kein gespeicherter Prompt – die Deployment-Voreinstellung gilt.'**
+  String get aiConfigDefaultPromptNote;
+
   /// No description provided for @aiApplyErrorNotSucceeded.
   ///
   /// In de, this message translates to:

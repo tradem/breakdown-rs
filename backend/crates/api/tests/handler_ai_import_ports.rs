@@ -7,6 +7,7 @@
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
 // Co-authored-by: omen-alpha (opencode-go)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
+// Co-authored-by: qwen3.8-flash (opencode-go)
 
 //! Handler tests proving the AI import dependencies are reachable through the
 //! generic `Ports` seam (issue #176).
@@ -536,10 +537,12 @@ async fn apply_ai_import_drives_the_script_worker_through_the_ports_seam() {
                 ApplyMapping {
                     draft_ref: "scene-0".to_owned(),
                     decision: ApplyMappingDecision::Create,
+                    costume_decisions: Vec::new(),
                 },
                 ApplyMapping {
                     draft_ref: "scene-1".to_owned(),
                     decision: ApplyMappingDecision::Create,
+                    costume_decisions: Vec::new(),
                 },
             ],
             accept_as_is: true,
@@ -607,6 +610,7 @@ async fn apply_ai_import_rejects_an_episode_from_another_block() {
             mappings: vec![ApplyMapping {
                 draft_ref: "scene-0".to_owned(),
                 decision: ApplyMappingDecision::Create,
+                costume_decisions: Vec::new(),
             }],
             accept_as_is: true,
             edit_distance: 0,
@@ -657,6 +661,7 @@ async fn apply_ai_import_rejects_accept_as_is_with_a_nonzero_edit_distance() {
             mappings: vec![ApplyMapping {
                 draft_ref: "scene-0".to_owned(),
                 decision: ApplyMappingDecision::Create,
+                costume_decisions: Vec::new(),
             }],
             // Contradictory: "no edits" alongside a nonzero edit count.
             accept_as_is: true,
@@ -738,6 +743,10 @@ async fn ai_config_lifecycle_runs_through_the_config_ports() {
                 (DocumentKind::Schedule, "schedule-prompt".to_owned()),
             ]),
             prompt_kinds: vec![DocumentKind::Script, DocumentKind::Schedule],
+            // Both stored texts are non-blank, so both are pinned to a snapshot
+            // rather than following the deployment default (design D6). Seeded in
+            // the order the production view emits (sorted by `kind.as_str()`).
+            stored_prompt_kinds: vec![DocumentKind::Schedule, DocumentKind::Script],
             vault_key_id: "vault-key".to_owned(),
             version: created.version,
             revoked: false,
@@ -761,6 +770,35 @@ async fn ai_config_lifecycle_runs_through_the_config_ports() {
             .get(&DocumentKind::Schedule)
             .map(String::as_str),
         Some("schedule-prompt")
+    );
+    // Design D6: both texts are stored, so both are pinned to a snapshot rather
+    // than following the deployment default — the surface has to say so, or an
+    // operator hardening `default_ai_prompts.toml` believes their imports picked
+    // it up. Observed live: a config kept the previous three-line prompt and
+    // silently ignored a hardened one, costing a whole test round.
+    assert!(
+        view.stored_prompt_kinds.contains(&DocumentKind::Script)
+            && view.stored_prompt_kinds.contains(&DocumentKind::Schedule),
+        "a non-blank stored prompt must be reported as in effect: {:?}",
+        view.stored_prompt_kinds
+    );
+    // Design D6: the read view must also say that these are *stored* snapshots,
+    // i.e. that this configuration will not follow a later hardening of the
+    // deployment default. Without the flag the override is invisible — the exact
+    // live failure where a stale three-line prompt silently beat a hardened
+    // default for a whole test round.
+    let stored: Vec<&str> = view
+        .stored_prompt_kinds
+        .iter()
+        .map(|kind| kind.as_str())
+        .collect();
+    assert_eq!(
+        stored,
+        vec![
+            DocumentKind::Schedule.as_str(),
+            DocumentKind::Script.as_str()
+        ],
+        "both kinds are pinned to a stored prompt and must be reported as such"
     );
 
     let (status, Json(_)) = update_ai_config::<FakePorts>(
@@ -824,6 +862,7 @@ async fn ai_config_update_rejects_vault_key_from_another_provider() {
             image_model: None,
             prompts: HashMap::new(),
             prompt_kinds: vec![],
+            stored_prompt_kinds: vec![],
             vault_key_id: "vault-key".to_owned(),
             version: AggregateVersion(2),
             revoked: false,
@@ -875,6 +914,7 @@ async fn ai_config_update_rejects_unknown_vault_key() {
             image_model: None,
             prompts: HashMap::new(),
             prompt_kinds: vec![],
+            stored_prompt_kinds: vec![],
             vault_key_id: "vault-key".to_owned(),
             version: AggregateVersion(2),
             revoked: false,
@@ -927,6 +967,7 @@ async fn ai_config_update_keeps_unchanged_vault_key_without_binding_lookup() {
             image_model: None,
             prompts: HashMap::new(),
             prompt_kinds: vec![],
+            stored_prompt_kinds: vec![],
             vault_key_id: "vault-key".to_owned(),
             version: AggregateVersion(2),
             revoked: false,
@@ -975,6 +1016,7 @@ async fn ai_config_version_conflict_is_scoped_409() {
             image_model: None,
             prompts: HashMap::new(),
             prompt_kinds: vec![],
+            stored_prompt_kinds: vec![],
             vault_key_id: "vault-key".to_owned(),
             version: AggregateVersion(2),
             revoked: false,
@@ -1029,6 +1071,7 @@ async fn get_ai_config_denies_a_foreign_owner() {
             image_model: None,
             prompts: HashMap::new(),
             prompt_kinds: vec![],
+            stored_prompt_kinds: vec![],
             vault_key_id: "vault-key".to_owned(),
             version: AggregateVersion::INITIAL,
             revoked: false,
@@ -1396,6 +1439,7 @@ fn config_view(user_sub: &str) -> AiConfigView {
         image_model: None,
         prompts: HashMap::new(),
         prompt_kinds: vec![],
+        stored_prompt_kinds: vec![],
         vault_key_id: "vault-key".to_owned(),
         version: AggregateVersion::INITIAL,
         revoked: false,

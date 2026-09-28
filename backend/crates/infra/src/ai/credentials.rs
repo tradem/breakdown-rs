@@ -9,6 +9,8 @@ use breakdown_core::error::DomainError;
 use breakdown_core::settings::{CredentialVault, SecretValue, VaultBinding};
 use uuid::Uuid;
 
+use crate::vault::settings_id_from_binding_key;
+
 /// AI-specific binding facade over the shared CredentialVault port. The
 /// aggregate stores only the returned opaque `vault_key_id`; secret material
 /// remains inside this edge adapter and the vault implementation.
@@ -34,7 +36,7 @@ where
 
     pub async fn fetch_key(
         &self,
-        ai_config_id: Uuid,
+        _ai_config_id: Uuid,
         vault_key_id: &str,
     ) -> Result<SecretValue, DomainError> {
         if vault_key_id.trim().is_empty() {
@@ -42,15 +44,29 @@ where
                 "AI vault key reference must not be empty",
             ));
         }
-        self.vault.fetch(ai_config_id, vault_key_id).await
+        // The binding key names the SETTINGS credential that owns the secret
+        // (the provider key is stored there, ADR-027) — not the AI config that
+        // merely references it. Passing the AI-config id made
+        // `validate_binding_key` compare `settings-<ai-config-id>` against
+        // `settings-<settings-id>`, so every read of a stored provider key
+        // failed with "invalid credential Vault key reference" and each AI
+        // import job died retrying on it. The owner id is recovered from the
+        // key reference itself; a malformed reference fails closed.
+        let owner = settings_id_from_binding_key(vault_key_id).ok_or_else(|| {
+            DomainError::validation("AI vault key reference does not name a settings credential")
+        })?;
+        self.vault.fetch(owner, vault_key_id).await
     }
 
     pub async fn destroy_key(
         &self,
-        ai_config_id: Uuid,
+        _ai_config_id: Uuid,
         vault_key_id: &str,
     ) -> Result<(), DomainError> {
-        self.vault.destroy(ai_config_id, vault_key_id).await
+        let owner = settings_id_from_binding_key(vault_key_id).ok_or_else(|| {
+            DomainError::validation("AI vault key reference does not name a settings credential")
+        })?;
+        self.vault.destroy(owner, vault_key_id).await
     }
 }
 

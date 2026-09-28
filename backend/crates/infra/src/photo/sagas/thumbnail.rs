@@ -11,7 +11,7 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use breakdown_core::photo::aggregate::PhotoAggregate;
-use breakdown_core::photo::commands::{GenerateVariant, NormalizeOriginal};
+use breakdown_core::photo::commands::{GenerateVariant, MarkVariantFailed, NormalizeOriginal};
 use breakdown_core::photo::events::PhotoEvent;
 use breakdown_core::photo::ports::PhotoStorage;
 use breakdown_core::shared::{
@@ -29,6 +29,7 @@ use redis::Client as RedisClient;
 use sierradb_client::AsyncCommands;
 use sierradb_client::ExpectedVersion;
 use sierradb_client::SierraAsyncClientExt;
+use tracing::warn;
 
 use crate::photo::sagas::retry_transient;
 use crate::photo::storage::OpenDalPhotoStorage;
@@ -129,6 +130,63 @@ impl PhotoThumbnailSaga {
         Ok(state)
     }
 
+    /// Marks the derived variants of an unprocessable photo as terminal
+    /// `Failed`, so the client can render a definite error state instead of an
+    /// endless spinner.
+    ///
+    /// `Original` is deliberately left untouched: the uploaded bytes ARE in
+    /// storage and remain downloadable; only the derived variants (Thumb,
+    /// Medium) are unobtainable. A failure to record even that is logged and
+    /// swallowed — the caller already decided this photo is a dead end, and
+    /// re-raising here would re-break the stream this method exists to protect.
+    ///
+    /// `version` is the aggregate version the caller observed. Unlike
+    /// `NormalizeOriginal` / `GenerateVariant`, `MarkVariantFailed` DOES run
+    /// `check_version`, so the two dispatches must carry consecutive versions
+    /// (`version`, then `version.next()`) — passing `AggregateVersion::INITIAL`
+    /// for both rejects the second one with `VersionMismatch`.
+    async fn mark_variants_failed(
+        &self,
+        id: PhotoId,
+        series_id: Option<SeriesId>,
+        version: AggregateVersion,
+        error: &str,
+    ) {
+        let mut expected = version;
+        for variant in [PhotoVariant::Thumb, PhotoVariant::Medium] {
+            let fail_id = id;
+            let result = PhotoAggregate::execute(
+                &self.cmd_service,
+                fail_id,
+                MarkVariantFailed {
+                    id,
+                    variant,
+                    error: error.to_owned(),
+                    series_id,
+                    version: expected,
+                },
+            )
+            .expected_version(ExpectedVersion::Any)
+            .metadata(EventMetadata {
+                actor: None,
+                provenance: Provenance::Saga("PhotoThumbnailSaga".to_string()),
+                series_id,
+            })
+            .await;
+            match result {
+                Ok(_) => expected = expected.next(),
+                Err(failure) => {
+                    warn!(
+                        photo_id = %id,
+                        variant = ?variant,
+                        error = %failure,
+                        "could not record the failed variant; the photo stays pending"
+                    );
+                }
+            }
+        }
+    }
+
     async fn process_upload(&self, id: PhotoId, series_id: Option<SeriesId>) -> Result<()> {
         // Redelivery guard (issue #515): read the aggregate's current state
         // from the event store (the write-side source of truth — never a
@@ -148,6 +206,16 @@ impl PhotoThumbnailSaga {
         if complete {
             return Ok(());
         }
+        // A photo whose DERIVED variants are both `Failed` is terminal too. This
+        // is the decode-failure path above: `Original` keeps its `Pending` status
+        // (the raw upload is still what it is), so the `complete` check above can
+        // never short-circuit it. Without this guard every redelivery re-fetched
+        // the bytes, failed to decode again and dispatched `MarkVariantFailed`
+        // AGAIN — appending new events to the stream on every at-least-once
+        // delivery, i.e. unbounded growth from a permanently broken upload.
+        if derived_variants_failed(&state) {
+            return Ok(());
+        }
         let original_ready = variant_ready(&state, PhotoVariant::Original);
         let thumb_ready = variant_ready(&state, PhotoVariant::Thumb);
         let medium_ready = variant_ready(&state, PhotoVariant::Medium);
@@ -156,8 +224,38 @@ impl PhotoThumbnailSaga {
         let photo_bytes = self.storage.fetch(id, PhotoVariant::Original).await?;
 
         // Decode the image, read EXIF orientation, and re-encode.
+        //
+        // A byte payload the image crate cannot decode (truncated upload, a
+        // non-image file sent with an image/* content type, an unsupported
+        // format) is a PER-PHOTO failure, never a stream failure. Propagating
+        // it with `?` made the supervisor restart the whole subscription, burn
+        // its bounded retry budget and STOP the saga permanently — after which
+        // no further photo of ANY costume got a thumbnail, and the offending
+        // photo's variants stayed `Pending` forever instead of reaching the
+        // terminal `Failed` state the client renders. Mark the variants
+        // failed, acknowledge the event, and let the stream continue (same
+        // doctrine as the projector dead-letter path: a permanent error must
+        // never kill the worker).
         let (re_encoded, rotated, thumb_bytes, medium_bytes) =
-            Self::process_image(&photo_bytes.bytes)?;
+            match Self::process_image(&photo_bytes.bytes) {
+                Ok(processed) => processed,
+                Err(decode_error) => {
+                    warn!(
+                        photo_id = %id,
+                        error = %decode_error,
+                        "photo bytes are not decodable; marking Thumb/Medium \
+                         variants failed instead of failing the stream"
+                    );
+                    self.mark_variants_failed(
+                        id,
+                        series_id,
+                        state.version,
+                        &decode_error.to_string(),
+                    )
+                    .await;
+                    return Ok(());
+                }
+            };
         // Variant byte sizes are passed through to `GenerateVariant` so the
         // read model reports real sizes.
         let thumb_size = thumb_bytes.len() as u64;
@@ -413,6 +511,21 @@ fn variant_ready(state: &PhotoAggregate, kind: PhotoVariant) -> bool {
         .any(|v| v.kind == kind && v.status == VariantStatus::Ready)
 }
 
+/// Whether BOTH derived variants (`Thumb` and `Medium`) are `Failed` — the
+/// terminal decode-failure state a redelivering saga must never re-work (see
+/// the guard in `process_upload`). A missing variant entry or any other status
+/// (`Pending`, `Ready`) keeps the saga going.
+fn derived_variants_failed(state: &PhotoAggregate) -> bool {
+    [PhotoVariant::Thumb, PhotoVariant::Medium]
+        .iter()
+        .all(|kind| {
+            state
+                .variants
+                .iter()
+                .any(|v| v.kind == *kind && v.status == VariantStatus::Failed)
+        })
+}
+
 /// Apply EXIF orientation to an image, returning the (possibly rotated) image
 /// and a boolean indicating whether rotation was applied.
 fn apply_orientation(img: image::DynamicImage, orientation: u32) -> (image::DynamicImage, bool) {
@@ -510,5 +623,64 @@ mod tests {
         image::load_from_memory(&re_encoded).expect("re_encoded decodes");
         image::load_from_memory(&thumb_bytes).expect("thumb decodes");
         image::load_from_memory(&medium_bytes).expect("medium decodes");
+    }
+
+    /// A photo whose Thumb AND Medium variants are both `Failed` is terminal
+    /// for the redelivering saga — even though `Original` stays `Pending` on
+    /// the decode-failure path, so the `complete` check can never match.
+    #[test]
+    fn derived_variants_failed_is_true_when_both_derived_variants_failed() {
+        let state = PhotoAggregate {
+            variants: vec![
+                record(PhotoVariant::Original, VariantStatus::Pending),
+                record(PhotoVariant::Thumb, VariantStatus::Failed),
+                record(PhotoVariant::Medium, VariantStatus::Failed),
+            ],
+            ..PhotoAggregate::default()
+        };
+        assert!(derived_variants_failed(&state));
+    }
+
+    #[test]
+    fn derived_variants_failed_is_false_while_any_derived_variant_is_not_failed() {
+        let not_failed = [
+            // Still generating: the saga must keep working on it.
+            record(PhotoVariant::Thumb, VariantStatus::Failed),
+            record(PhotoVariant::Medium, VariantStatus::Pending),
+        ];
+        let state = not_failed_state(&not_failed);
+        assert!(!derived_variants_failed(&state));
+
+        // Fully processed: terminal via the `complete` check, not this one.
+        let ready = [
+            record(PhotoVariant::Thumb, VariantStatus::Ready),
+            record(PhotoVariant::Medium, VariantStatus::Ready),
+        ];
+        let state = not_failed_state(&ready);
+        assert!(!derived_variants_failed(&state));
+
+        // Fresh upload: no variant entries at all yet.
+        let state = PhotoAggregate::default();
+        assert!(!derived_variants_failed(&state));
+    }
+
+    fn record(
+        kind: PhotoVariant,
+        status: VariantStatus,
+    ) -> breakdown_core::photo::aggregate::PhotoVariantRecord {
+        breakdown_core::photo::aggregate::PhotoVariantRecord {
+            kind,
+            status,
+            size_bytes: 0,
+        }
+    }
+
+    fn not_failed_state(
+        variants: &[breakdown_core::photo::aggregate::PhotoVariantRecord],
+    ) -> PhotoAggregate {
+        PhotoAggregate {
+            variants: variants.to_vec(),
+            ..PhotoAggregate::default()
+        }
     }
 }

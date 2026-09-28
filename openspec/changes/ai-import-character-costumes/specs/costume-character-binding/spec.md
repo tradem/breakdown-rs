@@ -1,0 +1,66 @@
+## ADDED Requirements
+
+### Requirement: An AI-created costume is created unassigned and then bound
+A `Costume` created by an AI script import SHALL be created **without** a
+`character_id` and SHALL be bound via the existing `AssignCostumeToCharacter`
+command against the `Character` identified by the costume's character name,
+deduplicated across the preview by normalised name identity (see `ai-import`).
+Its extracted description SHALL be carried by `UpdateCostumeNotes`, because
+`CreateCostume` accepts no description. The creation order mirrors the write path
+that already applies to photos on an unassigned costume, and it keeps a costume
+that cannot be bound from silently existing without an owner.
+
+#### Scenario: Import creates a costume for a scene character
+- **WHEN** a draft row is applied and carries a costume for a figure the preview
+  created
+- **THEN** `CreateCostume` SHALL be dispatched with no `character_id`
+- **AND** `UpdateCostumeNotes` SHALL carry the extracted description
+- **AND** `AssignCostumeToCharacter` SHALL bind it to that figure's `Character`
+- **AND** the resulting `Costume` SHALL carry only `character_id` as its scope
+  link, unchanged from the manual creation path
+
+#### Scenario: Binding a freshly created costume uses the created version
+- **WHEN** the apply binds a costume it has just created
+- **THEN** `AssignCostumeToCharacter` SHALL carry the version `CreateCostume`
+  returned
+- **AND** a replayed bind SHALL be refused as a version mismatch rather than
+  performing a second assignment
+
+#### Scenario: Binding fails after the costume was created
+- **WHEN** `AssignCostumeToCharacter` is rejected for a freshly created costume
+- **THEN** the costume SHALL remain unassigned and visible as unassigned
+- **AND** the apply SHALL report the row as partially applied with the reason
+- **AND** the retry SHALL reuse the same costume id (mapping row) instead of
+  creating a second one
+
+## MODIFIED Requirements
+
+### Requirement: Costume binding lives only on character_id
+Assignment of a Costume SHALL be expressed solely via the `character_id` link
+(the existing `CostumeAssignedToCharacter` / `CostumeUnassigned` events,
+unchanged in shape). Filtering Costumes by production level SHALL be performed
+in the read model by joining `Costume.character_id → Character.season_id` (or
+further to Episode via appearances), not by any scope field on the Costume
+itself. This holds for AI-created costumes as well: the import path SHALL NOT
+introduce a season, episode or scene scope on the Costume, and an
+AI-created costume SHALL be reachable through exactly the same queries as a
+manually created one.
+
+#### Scenario: Filtering costumes by season
+- **WHEN** a query requests all Costumes for a given Season
+- **THEN** the read model SHALL resolve them by joining `costumes.character_id`
+  to `characters.season_id`; the Costume aggregate and Costumes events SHALL
+  carry no Season reference
+
+#### Scenario: Assigning a costume to a character
+- **WHEN** an `AssignCostumeToCharacter { id, character_id, version }` command
+  targets an unassigned Costume
+- **THEN** the aggregate SHALL emit
+  `CostumeAssignedToCharacter { id, character_id, version }`, unchanged in shape
+  from the pre-change design
+
+#### Scenario: An AI-imported costume is listed like a manual one
+- **WHEN** a costume created by an AI import has been bound to a character
+- **THEN** it SHALL appear in the same season-scoped costume query as a
+  manually created costume
+- **AND** it SHALL carry no additional scope field identifying its import origin

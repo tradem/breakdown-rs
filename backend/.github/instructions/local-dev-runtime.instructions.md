@@ -42,7 +42,7 @@ This starts:
 ```bash
 DATABASE_URL=postgres://postgres:postgres@localhost:5432/breakdown \
 SIERRADB_URL=redis://127.0.0.1:9090/?protocol=resp3 \
-cargo run -p api
+cargo run --bin api
 ```
 
 `main.rs` uses a **two-pool Postgres architecture**:
@@ -56,13 +56,13 @@ cargo run -p api
 ```bash
 DATABASE_URL=postgres://postgres:postgres@localhost:5432/breakdown \
 SIERRADB_URL=redis://127.0.0.1:9090/?protocol=resp3 \
-cargo run -p api
+cargo run --bin api
 ```
 
 > **E2E/Gherkin fault injection (issue #443):** the on-device Gherkin suite
 > (`frontend-flutter tool/run_gherkin.sh`) arms a server-side one-shot fault
 > via `POST /v1/__faults/block-conflict`. This route exists ONLY when the API
-> is booted with `cargo run -p api --features api/test-support`; without the
+> is booted with `cargo run --bin api --features api/test-support`; without the
 > feature the route is compile-time absent (arming returns 404). Never enable
 > the feature in production boot scripts.
 
@@ -140,7 +140,7 @@ After seeding, the `.env.idp` file contains:
 
 ### Optional: Dev Vault overlay (issue #468)
 
-ADR-027 (Vault) is prod-only; without a Vault, a host-run `cargo run -p api`
+ADR-027 (Vault) is prod-only; without a Vault, a host-run `cargo run --bin api`
 cannot reach the transit + KV-v2 engines the `/settings` credential and
 AI-config `vault_key_id` flows need, so those endpoints return `503`. One
 command provisions a local Vault for the host-run API:
@@ -201,7 +201,7 @@ stack also bootstraps the role.
 
 ### Optional: AI import for the host-run dev API (issue #428/#468)
 
-`AI_IMPORT_ENABLED=1` for a **host-run** `cargo run -p api` fails closed (#181)
+`AI_IMPORT_ENABLED=1` for a **host-run** `cargo run --bin api` fails closed (#181)
 until durable payload storage is configured, and the base dev Garage is
 internal-only (no host ports). One command sets up the **whole** stack —
 Garage payload storage, the Vault the settings/AI-config credential
@@ -241,7 +241,7 @@ from `.env.local`). Source `.env.local` **first** so the generated
 order the `--run` branch uses:
 
 ```bash
-set -a; . ./.env.local; . ./.env.dev-ai.local; set +a; cargo run -p api
+set -a; . ./.env.local; . ./.env.dev-ai.local; set +a; cargo run --bin api
 ```
 
 With `--run`, the script starts the API in the background, waits for it, and

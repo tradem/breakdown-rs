@@ -5,7 +5,7 @@
 # Vault overlay for the host-run dev API (issue #468).
 #
 # The base dev compose runs no Vault (ADR-027 is prod-only). A host-run
-# `cargo run -p api` therefore cannot reach the transit + KV-v2 engines the
+# `cargo run --bin api` therefore cannot reach the transit + KV-v2 engines the
 # `/settings` credential and AI-config `vault_key_id` flows need, so those
 # endpoints 503. This overlay provides a local Vault for dev, mirroring the
 # IdP overlay pattern (`docker-compose.idp.yml`): a compose overlay + a

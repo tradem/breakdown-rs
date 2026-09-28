@@ -5,6 +5,7 @@
 // Co-authored-by: space-bunny-free (opencode-go)
 
 import 'package:breakdown_api/breakdown_api.dart';
+import 'package:built_collection/built_collection.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -437,6 +438,14 @@ class _ModelPickers extends ConsumerWidget {
 /// Per-document-kind prompt drafts (script/schedule), backed by the
 /// controller's draft store. The editor source text is the same value sent
 /// to create/update — syntax spans are presentation-only.
+///
+/// Each field also reports whether the SERVER has a stored override for that
+/// kind, because a stored prompt does NOT follow the deployment default (the
+/// observed failure mode was a config silently ignoring a hardened default).
+/// The reset writes the current deployment text from
+/// `GET /v1/ai-import/defaults` into the draft; saving it stores that text
+/// explicitly. Clearing the field instead removes the override entirely, and
+/// the server then falls back to its default on every run.
 class _PromptFields extends ConsumerWidget {
   const _PromptFields({required this.scriptKey, required this.scheduleKey});
 
@@ -447,6 +456,11 @@ class _PromptFields extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final state = ref.watch(aiConfigControllerProvider);
     final controller = ref.read(aiConfigControllerProvider.notifier);
+    // `null` = a server that predates the field: no indication is claimed
+    // rather than asserting "no override" from missing information.
+    final stored = state.config?.storedPromptKinds;
+    final scriptDefault = state.promptDefaultFor(DocumentKind.script);
+    final scheduleDefault = state.promptDefaultFor(DocumentKind.schedule);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -456,12 +470,74 @@ class _PromptFields extends ConsumerWidget {
           label: l10nOf(context).aiConfigScriptPromptLabel,
           onChanged: controller.setScriptPrompt,
         ),
+        _PromptOverrideRow(
+          kind: DocumentKind.script,
+          storedKinds: stored,
+          hasDefault: scriptDefault != null,
+          onReset: () => controller.setScriptPrompt(scriptDefault ?? ''),
+        ),
         const SizedBox(height: AppSpacing.space12),
         XmlPromptEditor(
           key: Key(scheduleKey),
           text: state.schedulePrompt,
           label: l10nOf(context).aiConfigSchedulePromptLabel,
           onChanged: controller.setSchedulePrompt,
+        ),
+        _PromptOverrideRow(
+          kind: DocumentKind.schedule,
+          storedKinds: stored,
+          hasDefault: scheduleDefault != null,
+          onReset: () => controller.setSchedulePrompt(scheduleDefault ?? ''),
+        ),
+      ],
+    );
+  }
+}
+
+/// The stored-override indication + reset for one prompt kind.
+class _PromptOverrideRow extends StatelessWidget {
+  const _PromptOverrideRow({
+    required this.kind,
+    required this.storedKinds,
+    required this.hasDefault,
+    required this.onReset,
+  });
+
+  final DocumentKind kind;
+
+  /// The server's stored-override kinds, or null when the server does not
+  /// report them (an older binary).
+  final BuiltList<DocumentKind>? storedKinds;
+  final bool hasDefault;
+  final VoidCallback onReset;
+
+  @override
+  Widget build(BuildContext context) {
+    if (storedKinds == null) return const SizedBox.shrink();
+    final l10n = l10nOf(context);
+    if (!storedKinds!.contains(kind)) {
+      // No override: the deployment default is what every run uses.
+      return Text(
+        key: Key('ai-prompt-default-in-effect-${kind.name}'),
+        l10n.aiConfigDefaultPromptNote,
+        style: Theme.of(context).textTheme.bodySmall,
+      );
+    }
+    return Row(
+      children: [
+        Expanded(
+          child: Text(
+            key: Key('ai-prompt-stored-note-${kind.name}'),
+            l10n.aiConfigStoredPromptNote,
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+        ),
+        TextButton(
+          // Without the fetched default there is nothing honest to reset TO,
+          // so the action is disabled rather than writing an empty prompt.
+          key: Key('ai-prompt-reset-${kind.name}'),
+          onPressed: hasDefault ? onReset : null,
+          child: Text(l10n.aiConfigResetPrompt),
         ),
       ],
     );

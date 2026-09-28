@@ -2,7 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: deepseek-v4-flash (opencode-go)
 // Co-authored-by: glm-5.2 (neuralwatt)
-// Co-authored-by: deepseek-v4-flash (opencode-go)
+// Co-authored-by: qwen3.8-flash (opencode-go)
 
 #![allow(
     clippy::unwrap_used,
@@ -29,8 +29,9 @@ use uuid::Uuid;
 
 use anyhow::Result;
 use breakdown_core::photo::commands::UploadPhoto;
-use breakdown_core::photo::ports::{PhotoCommands, PhotoStorage};
-use breakdown_core::shared::{PhotoId, PhotoVariant};
+use breakdown_core::photo::ports::{PhotoCommands, PhotoRepository, PhotoStorage};
+use breakdown_core::photo::views::PhotoView;
+use breakdown_core::shared::{PhotoId, PhotoVariant, VariantStatus};
 use fixtures::{await_photo, build_storage, spawn_garage, spawn_postgres, spawn_sierradb};
 
 use infra::photo::repository::PhotoRepositoryImpl;
@@ -77,6 +78,77 @@ async fn seed_costume(pool: &sqlx::PgPool, character_id: Uuid) -> Result<Uuid> {
     .execute(pool)
     .await?;
     Ok(costume_id)
+}
+
+/// True when `kind` has reached a terminal status (`Ready` or `Failed`) in the
+/// projected view — i.e. the thumbnail saga is done working on that variant.
+fn variant_terminal(view: &PhotoView, kind: PhotoVariant) -> bool {
+    view.variants
+        .iter()
+        .any(|v| v.kind == kind && matches!(v.status, VariantStatus::Ready | VariantStatus::Failed))
+}
+
+/// Poll until the projection reports BOTH variants the thumbnail saga owns
+/// (`Thumb` and `Medium`) as terminal, and return that settled view.
+///
+/// The settled view exists for one reason: its `version`. Since `511baaa9` the
+/// thumbnail saga actually runs (before that it was never wired into production,
+/// and this round-trip test only passed because of that), and every variant it
+/// finishes appends an event to the Photo stream. The version `UploadPhoto`
+/// returns is therefore already stale by the time the projection row appears, so
+/// a delete that echoes it is a legitimate optimistic-concurrency defeat —
+/// `version conflict: expected AggregateVersion(0), current AggregateVersion(3)`.
+///
+/// A real client never sees this, because it reads the photo view (which carries
+/// the projected version) before issuing the delete; this waits for the same
+/// settled state, so the delete echoes the version a client would echo. Waiting
+/// on STATE rather than on a fixed version number keeps the test honest about how
+/// many events the saga happens to emit. Retries on `NotFound`: the projector may
+/// not have reached the row yet.
+///
+/// `Original` is deliberately NOT part of the wait. This fixture's bytes are a
+/// truncated JPEG header, so normalization fails and the saga's failure path
+/// marks only `Thumb`/`Medium` `Failed`, leaving the untouched `Original` row
+/// `Pending`. Observed while fixing this test; whether a permanently `Pending`
+/// `Original` is the right terminal state belongs to the photo bounded context
+/// and is tracked separately, not answered here.
+async fn await_photo_settled(
+    repo: &PhotoRepositoryImpl,
+    photo_id: PhotoId,
+    deadline: tokio::time::Instant,
+) -> Result<PhotoView> {
+    loop {
+        match repo.find_by_id(photo_id).await {
+            Ok(view)
+                if variant_terminal(&view, PhotoVariant::Thumb)
+                    && variant_terminal(&view, PhotoVariant::Medium) =>
+            {
+                return Ok(view);
+            }
+            Ok(view) => {
+                if tokio::time::Instant::now() > deadline {
+                    let seen: Vec<String> = view
+                        .variants
+                        .iter()
+                        .map(|v| format!("{:?}:{:?}", v.kind, v.status))
+                        .collect();
+                    anyhow::bail!(
+                        "Timed out waiting for the photo variants to settle; last \
+                         seen version={:?} variants=[{}]",
+                        view.version,
+                        seen.join(", ")
+                    );
+                }
+                tokio::time::sleep(Duration::from_millis(200)).await;
+            }
+            Err(error) => {
+                if tokio::time::Instant::now() > deadline {
+                    anyhow::bail!("Timed out waiting for the photo projection: {error:?}");
+                }
+                tokio::time::sleep(Duration::from_millis(200)).await;
+            }
+        }
+    }
 }
 
 #[tokio::test]
@@ -167,14 +239,25 @@ async fn photo_upload_then_delete_round_trip() -> Result<()> {
     let fetched = storage.fetch(photo_id, PhotoVariant::Original).await?;
     assert_eq!(fetched.bytes, image_bytes);
 
-    // 4. Dispatch DeletePhoto.
+    // 4. Dispatch DeletePhoto with the SETTLED version. `version` from the upload
+    //    ack is already behind the aggregate: the saga appended its variant events
+    //    in the meantime (see `await_photo_settled`).
+    let settled = await_photo_settled(&photo_repo, photo_id, deadline).await?;
+    assert!(
+        settled.version.0 > version.0,
+        "the thumbnail saga must have advanced the aggregate beyond the upload \
+         ack (upload {}, settled {}) — otherwise this test is not echoing the \
+         version a client would actually have",
+        version.0,
+        settled.version.0
+    );
     photo_commands
         .delete(
             test_user(),
             breakdown_core::photo::commands::DeletePhoto {
                 id: photo_id,
                 series_id: None,
-                version,
+                version: settled.version,
             },
         )
         .await?;

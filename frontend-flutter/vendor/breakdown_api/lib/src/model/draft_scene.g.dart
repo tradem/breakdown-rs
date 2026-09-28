@@ -10,6 +10,8 @@ class _$DraftScene extends DraftScene {
   @override
   final BuiltList<String> characters;
   @override
+  final BuiltList<DraftCostume>? costumes;
+  @override
   final String draftRef;
   @override
   final String? location;
@@ -27,6 +29,7 @@ class _$DraftScene extends DraftScene {
 
   _$DraftScene._(
       {required this.characters,
+      this.costumes,
       required this.draftRef,
       this.location,
       this.mood,
@@ -46,6 +49,7 @@ class _$DraftScene extends DraftScene {
     if (identical(other, this)) return true;
     return other is DraftScene &&
         characters == other.characters &&
+        costumes == other.costumes &&
         draftRef == other.draftRef &&
         location == other.location &&
         mood == other.mood &&
@@ -58,6 +62,7 @@ class _$DraftScene extends DraftScene {
   int get hashCode {
     var _$hash = 0;
     _$hash = $jc(_$hash, characters.hashCode);
+    _$hash = $jc(_$hash, costumes.hashCode);
     _$hash = $jc(_$hash, draftRef.hashCode);
     _$hash = $jc(_$hash, location.hashCode);
     _$hash = $jc(_$hash, mood.hashCode);
@@ -72,6 +77,7 @@ class _$DraftScene extends DraftScene {
   String toString() {
     return (newBuiltValueToStringHelper(r'DraftScene')
           ..add('characters', characters)
+          ..add('costumes', costumes)
           ..add('draftRef', draftRef)
           ..add('location', location)
           ..add('mood', mood)
@@ -90,6 +96,12 @@ class DraftSceneBuilder implements Builder<DraftScene, DraftSceneBuilder> {
       _$this._characters ??= ListBuilder<String>();
   set characters(ListBuilder<String>? characters) =>
       _$this._characters = characters;
+
+  ListBuilder<DraftCostume>? _costumes;
+  ListBuilder<DraftCostume> get costumes =>
+      _$this._costumes ??= ListBuilder<DraftCostume>();
+  set costumes(ListBuilder<DraftCostume>? costumes) =>
+      _$this._costumes = costumes;
 
   String? _draftRef;
   String? get draftRef => _$this._draftRef;
@@ -123,6 +135,7 @@ class DraftSceneBuilder implements Builder<DraftScene, DraftSceneBuilder> {
     final $v = _$v;
     if ($v != null) {
       _characters = $v.characters.toBuilder();
+      _costumes = $v.costumes?.toBuilder();
       _draftRef = $v.draftRef;
       _location = $v.location;
       _mood = $v.mood;
@@ -153,6 +166,7 @@ class DraftSceneBuilder implements Builder<DraftScene, DraftSceneBuilder> {
       _$result = _$v ??
           _$DraftScene._(
             characters: characters.build(),
+            costumes: _costumes?.build(),
             draftRef: BuiltValueNullFieldError.checkNotNull(
                 draftRef, r'DraftScene', 'draftRef'),
             location: location,
@@ -166,6 +180,8 @@ class DraftSceneBuilder implements Builder<DraftScene, DraftSceneBuilder> {
       try {
         _$failedField = 'characters';
         characters.build();
+        _$failedField = 'costumes';
+        _costumes?.build();
       } catch (e) {
         throw BuiltValueNestedFieldError(
             r'DraftScene', _$failedField, e.toString());

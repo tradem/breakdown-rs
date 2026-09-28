@@ -238,7 +238,7 @@ the **dev flavor** against your backend dev compose:
 cd backend && docker compose -f docker-compose.dev.yml up -d
 DATABASE_URL=postgres://postgres:postgres@localhost:5432/breakdown \
 SIERRADB_URL=redis://127.0.0.1:9090/?protocol=resp3 \
-cargo run -p api
+cargo run --bin api
 
 # Client (physical device on the same LAN):
 cd frontend-flutter

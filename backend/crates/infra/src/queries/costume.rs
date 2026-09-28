@@ -16,6 +16,7 @@ use breakdown_core::shared::{
 };
 use chrono::{DateTime, Utc};
 use sqlx::{PgPool, Row};
+use std::collections::HashMap;
 use uuid::Uuid;
 
 /// PostgreSQL read adapter for costume projections.
@@ -150,6 +151,136 @@ impl CostumeRepositoryImpl {
             updated_at: view.updated_at,
         })
     }
+    /// Batched counterpart of [`Self::enrich`] for a whole page of costumes.
+    ///
+    /// Three queries for the entire page — details, photos, and the variants
+    /// of every referenced photo — instead of one round trip per costume plus
+    /// one per photo (`enrich` does 1 + 2N for an N-costume page). The rows
+    /// keep their input order and any costume without children simply gets
+    /// empty vectors.
+    async fn enrich_many(&self, views: Vec<CostumeView>) -> Result<Vec<CostumeView>, DomainError> {
+        if views.is_empty() {
+            return Ok(views);
+        }
+        let costume_ids: Vec<Uuid> = views.iter().map(|v| v.id).collect();
+
+        let detail_rows = sqlx::query(
+            r#"
+            SELECT costume_id, detail_id, subject, category_id, category_name, text
+            FROM projection_costume_detail
+            WHERE costume_id = ANY($1)
+            ORDER BY costume_id, detail_id
+            "#,
+        )
+        .bind(&costume_ids)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| DomainError::internal(e.to_string()))?;
+
+        let mut details_by_costume: HashMap<Uuid, Vec<CostumeDetailView>> = HashMap::new();
+        for row in detail_rows {
+            let costume_id: Uuid = row.try_get("costume_id").map_err(map_err)?;
+            let detail = CostumeDetailView {
+                id: row.try_get("detail_id").map_err(map_err)?,
+                subject: row.try_get("subject").map_err(map_err)?,
+                category_id: row
+                    .try_get::<Option<Uuid>, _>("category_id")
+                    .map_err(map_err)?
+                    .map(CostumeCategoryId),
+                category_name: row.try_get("category_name").map_err(map_err)?,
+                text: row.try_get("text").map_err(map_err)?,
+            };
+            details_by_costume
+                .entry(costume_id)
+                .or_default()
+                .push(detail);
+        }
+
+        let photo_rows = sqlx::query(
+            r#"
+            SELECT cp.costume_id, cp.photo_id,
+                   p.content_type,
+                   p.size_bytes
+            FROM projection_costume_photo cp
+            LEFT JOIN projection_photo p ON p.photo_id = cp.photo_id
+            WHERE cp.costume_id = ANY($1)
+            ORDER BY cp.costume_id, cp.photo_id
+            "#,
+        )
+        .bind(&costume_ids)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| DomainError::internal(e.to_string()))?;
+
+        let mut costume_of_photo: HashMap<Uuid, Uuid> = HashMap::new();
+        let mut photo_ids: Vec<Uuid> = Vec::with_capacity(photo_rows.len());
+        for row in &photo_rows {
+            let costume_id: Uuid = row.try_get("costume_id").map_err(map_err)?;
+            let photo_id: Uuid = row.try_get("photo_id").map_err(map_err)?;
+            costume_of_photo.insert(photo_id, costume_id);
+            photo_ids.push(photo_id);
+        }
+
+        let mut variants_by_photo: HashMap<Uuid, Vec<PhotoVariantView>> = HashMap::new();
+        if !photo_ids.is_empty() {
+            let variant_rows = sqlx::query(
+                r#"
+                SELECT photo_id, variant, status, size_bytes
+                FROM projection_photo_variant
+                WHERE photo_id = ANY($1)
+                ORDER BY photo_id, variant
+                "#,
+            )
+            .bind(&photo_ids)
+            .fetch_all(&self.pool)
+            .await
+            .map_err(|e| DomainError::internal(e.to_string()))?;
+
+            for row in variant_rows {
+                let photo_id: Uuid = row.try_get("photo_id").map_err(map_err)?;
+                let variant_str: String = row.try_get("variant").map_err(map_err)?;
+                let status_str: String = row.try_get("status").map_err(map_err)?;
+                let size_bytes: i64 = row.try_get("size_bytes").map_err(map_err)?;
+                variants_by_photo
+                    .entry(photo_id)
+                    .or_default()
+                    .push(PhotoVariantView {
+                        kind: parse_variant(&variant_str)?,
+                        status: parse_status(&status_str)?,
+                        size_bytes: size_bytes as u64,
+                    });
+            }
+        }
+
+        let mut photos_by_costume: HashMap<Uuid, Vec<CostumePhotoView>> = HashMap::new();
+        for row in photo_rows {
+            let photo_id: Uuid = row.try_get("photo_id").map_err(map_err)?;
+            let costume_id = costume_of_photo
+                .get(&photo_id)
+                .copied()
+                .ok_or_else(|| DomainError::internal("photo without costume binding"))?;
+            let content_type: Option<String> = row.try_get("content_type").map_err(map_err)?;
+            let size_bytes: Option<i64> = row.try_get("size_bytes").map_err(map_err)?;
+            photos_by_costume
+                .entry(costume_id)
+                .or_default()
+                .push(CostumePhotoView {
+                    id: photo_id,
+                    content_type: content_type.unwrap_or_default(),
+                    size_bytes: size_bytes.unwrap_or(0) as u64,
+                    variants: variants_by_photo.remove(&photo_id).unwrap_or_default(),
+                });
+        }
+
+        Ok(views
+            .into_iter()
+            .map(|view| CostumeView {
+                details: details_by_costume.remove(&view.id).unwrap_or_default(),
+                photos: photos_by_costume.remove(&view.id).unwrap_or_default(),
+                ..view
+            })
+            .collect())
+    }
 }
 
 impl CostumeRepository for CostumeRepositoryImpl {
@@ -184,9 +315,23 @@ impl CostumeRepository for CostumeRepositoryImpl {
         .await
         .map_err(|e| DomainError::internal(e.to_string()))?;
 
-        rows.into_iter()
+        // The list route MUST carry the same child collections as the detail
+        // route. `map_costume_row` leaves `details`/`photos` empty, and every
+        // list-backed surface renders them: the wardrobe tile picks its
+        // thumbnail from `CostumeView.photos`, the editor renders `details`.
+        // Without enrichment here those surfaces could never show a photo or a
+        // costume detail — the placeholder was the only reachable state, no
+        // matter how often the client refetched (the list route has no cache
+        // or projector-lag excuse: it simply carried no data).
+        //
+        // Batched on purpose: THREE queries for the whole page (details,
+        // photos, variants) instead of `enrich`'s per-costume + per-photo
+        // round trips, which would be 1 + 2N queries for an N-row page.
+        let views = rows
+            .into_iter()
             .map(map_costume_row)
-            .collect::<Result<Vec<_>, _>>()
+            .collect::<Result<Vec<_>, _>>()?;
+        self.enrich_many(views).await
     }
 
     async fn costumes_by_character(

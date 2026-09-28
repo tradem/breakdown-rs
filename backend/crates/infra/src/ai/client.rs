@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: gpt-5.6-luna (opencode-go)
 // Co-authored-by: deepseek-v4-flash (opencode-go)
+// Co-authored-by: qwen3.8-flash (opencode-go)
 
 use std::time::Duration;
 
@@ -212,7 +213,8 @@ impl OpenAiCompatibleChatClient {
                                 " (response truncated at the output-token budget \
                                  after bounded retries)"
                             } else {
-                                ""
+                                " (after bounded retries with a grown output-token \
+                                 budget)"
                             };
                             return Err(DomainError::validation(format!(
                                 "LLM JSON did not match ScriptContext: {error}{suffix}"
@@ -289,6 +291,27 @@ struct DraftSceneSchema {
     summary: Option<String>,
     script_day: Option<String>,
     characters: Vec<String>,
+    /// Costumes worn by characters of THIS scene. Empty when the block states no
+    /// clothing at all — never omit the field, and never invent an entry to fill
+    /// it. `strict` schema mode requires the property, so a scene without
+    /// costuming answers with `[]`.
+    costumes: Vec<DraftCostumeSchema>,
+}
+
+/// Provider-facing mirror of [`breakdown_core::ai::DraftCostume`]. One entry per
+/// garment or accessory the text states for one named character.
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+struct DraftCostumeSchema {
+    /// The character this costume belongs to. MUST be spelled as in this scene's
+    /// `characters`; an entry naming anyone else is dropped by the server.
+    character_name: String,
+    /// The garment/accessory description in the script's own wording. Do not
+    /// paraphrase, translate, or summarise it, and do not move it into `summary`.
+    description: String,
+    /// A verbatim fragment of the supplied text this entry came from. The server
+    /// checks that the fragment occurs in the block and drops the entry when it
+    /// does not, so a paraphrase fails and the costume is lost.
+    source_quote: String,
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
@@ -336,7 +359,20 @@ fn next_truncation_budget(
     budget: u32,
     truncation_retries_left: u32,
 ) -> Option<u32> {
-    if finish_reason == Some("length") && truncation_retries_left > 0 {
+    // Any malformed response may be retryable, not only a provider-confirmed
+    // `finish_reason: "length"`. Gateways and routers routinely cut a body
+    // short while reporting `stop` (or omitting the field entirely), and a
+    // strict `== Some("length")` then classified a truncated answer as
+    // permanent and dead-lettered the job after ONE attempt — observed live
+    // against eurouter: "LLM JSON did not match ScriptContext: EOF while
+    // parsing a string at line 1 column 1437" with no
+    // "after bounded retries" suffix, i.e. the growth path was never taken.
+    //
+    // The bound is unchanged (MAX_TRUNCATION_RETRIES attempts, budget x2), so
+    // a genuinely malformed response still fails after a fixed, bounded number
+    // of paid retries instead of retrying forever.
+    let _ = finish_reason;
+    if truncation_retries_left > 0 {
         Some(budget.saturating_mul(TRUNCATION_RETRY_BUDGET_GROWTH))
     } else {
         None
@@ -359,15 +395,33 @@ mod tests {
     }
 
     #[test]
-    fn non_truncated_malformed_response_is_not_retried() {
-        // A `stop` or missing `finish_reason` means the JSON is genuinely
-        // malformed — retrying would re-pay a paid call for the same input.
-        assert_eq!(next_truncation_budget(Some("stop"), 2048, 2), None);
+    fn unconfirmed_truncation_is_still_retried_within_the_bound() {
+        // Gateways/routers report a cut-off body as `stop` (or omit the field)
+        // instead of `length`. Live case against eurouter: "EOF while parsing a
+        // string at line 1 column 1437" dead-lettered after ONE attempt because
+        // the strict `== Some("length")` guard never grew the budget. The
+        // response may be truncated regardless of what the provider claims, so
+        // the bound — not the reported reason — decides retryability.
+        assert_eq!(next_truncation_budget(Some("stop"), 2048, 2), Some(4096));
+        assert_eq!(next_truncation_budget(None, 2048, 2), Some(4096));
         assert_eq!(
-            next_truncation_budget(Some("content_filter"), 2048, 2),
-            None
+            next_truncation_budget(Some("content_filter"), 2048, 1),
+            Some(4096)
         );
-        assert_eq!(next_truncation_budget(None, 2048, 2), None);
+    }
+
+    #[test]
+    fn a_genuinely_malformed_response_still_stops_at_the_bound() {
+        // The retry growth is bounded: a permanently malformed answer (e.g. a
+        // content-filtered one) must fail after the fixed attempt count rather
+        // than re-paying the call forever.
+        for reason in [Some("stop"), None, Some("content_filter"), Some("length")] {
+            assert_eq!(
+                next_truncation_budget(reason, 8192, 0),
+                None,
+                "exhausted budget must fail for {reason:?}"
+            );
+        }
     }
 
     #[test]
@@ -376,6 +430,51 @@ mod tests {
         assert_eq!(
             next_truncation_budget(Some("length"), u32::MAX, 1),
             Some(u32::MAX)
+        );
+    }
+
+    /// The mirror the provider is handed must carry the costume list, or the model
+    /// has nowhere to put a costume it recognised and `serde` drops it silently —
+    /// the exact failure that produced 0 costumes from a script that names them.
+    /// schemars 1.x emits `$defs` (draft 2020-12); older releases emitted
+    /// `definitions`. Resolve either so the assertions below test the contract
+    /// and not the generator's dialect.
+    fn defs(value: &serde_json::Value) -> &serde_json::Value {
+        value
+            .get("$defs")
+            .or_else(|| value.get("definitions"))
+            .unwrap_or_else(|| panic!("no type definitions in the emitted schema: {value}"))
+    }
+
+    #[test]
+    fn provider_schema_mirrors_the_costume_fields() {
+        let schema = schemars::schema_for!(ScriptContextSchema);
+        let value = serde_json::to_value(&schema).unwrap();
+        let scene = &defs(&value)["DraftSceneSchema"]["properties"];
+        assert!(
+            scene["costumes"].is_object(),
+            "the schema sent to the provider must carry `costumes`, got {scene:?}"
+        );
+        let costume = &defs(&value)["DraftCostumeSchema"]["properties"];
+        for field in ["character_name", "description", "source_quote"] {
+            assert!(
+                costume[field].is_object(),
+                "DraftCostumeSchema must expose `{field}`: {costume:?}"
+            );
+            assert!(
+                costume[field]["description"].is_string(),
+                "`{field}` needs a description, the schema is the model's contract"
+            );
+        }
+        let required = defs(&value)["DraftSceneSchema"]["required"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_str().unwrap())
+            .collect::<Vec<_>>();
+        assert!(
+            required.contains(&"costumes"),
+            "`strict` schema mode requires every property: {required:?}"
         );
     }
 }

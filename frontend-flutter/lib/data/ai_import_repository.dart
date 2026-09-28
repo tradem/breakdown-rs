@@ -2,6 +2,8 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: omen-alpha (opencode-go)
 
+import 'dart:convert';
+
 import 'package:breakdown_api/breakdown_api.dart';
 import 'package:dio/dio.dart';
 import 'package:fpdart/fpdart.dart';
@@ -168,16 +170,13 @@ class AiImportRepository extends BaseRepository {
         data: body,
         options: Options(
           contentType: contentType,
-          // Default JSON response type: the backend returns the job id as a
-          // JSON string (`"<uuid>"`), which the transformer decodes to the
-          // plain String the generated `Response<String>` surfaces.
           // Both 200 (duplicate) and 202 (enqueued) are acknowledged —
           // the branch happens on the status code below.
           validateStatus: (status) => status == 200 || status == 202,
         ),
         onSendProgress: onSendProgress,
       );
-      final jobId = response.data?.trim() ?? '';
+      final jobId = _decodeJobId(response.data);
       if (jobId.isEmpty) {
         return const Left(ProblemError(code: 'ai_import.dto_invalid'));
       }
@@ -187,6 +186,40 @@ class AiImportRepository extends BaseRepository {
     } on DioException catch (e) {
       return Left(problemErrorFromDio(e));
     }
+  }
+
+  /// Normalizes the upload acknowledgement body into a bare job id.
+  ///
+  /// The backend answers `POST /v1/ai-import/{scripts,schedules}` with
+  /// `Json(id)` — a JSON *string* literal, wire body `"<uuid>"`. Dio’s
+  /// default transformer does NOT strip the quotes for a `post<String>`
+  /// call: verified against dio 5.11, `response.data` still arrives as
+  /// `"01a0…"` (38 characters for a 36-character UUID), because the
+  /// generic type is a static cast only and never drives the decode.
+  ///
+  /// A quoted id is then interpolated into the next path segment
+  /// (`/v1/ai-import/jobs/%22<uuid>%22`), the backend's
+  /// `Path<AiImportJobId>` extractor rejects it, and every follow-up
+  /// poll/preview/apply fails with `400 http.bad-path-param` (issue: AI
+  /// import unusable on device). So the JSON literal is decoded here,
+  /// explicitly, instead of trusting the transformer.
+  ///
+  /// A body that is already a bare id (no surrounding quotes) is passed
+  /// through unchanged. A body that *starts* a JSON string but does not
+  /// parse as one is fail-closed: it yields the empty string so the caller
+  /// reports `ai_import.dto_invalid` rather than sending a malformed id
+  /// over the wire.
+  static String _decodeJobId(String? raw) {
+    final trimmed = raw?.trim() ?? '';
+    if (trimmed.isEmpty) return '';
+    if (!trimmed.startsWith('"')) return trimmed;
+    try {
+      final decoded = jsonDecode(trimmed);
+      if (decoded is String) return decoded.trim();
+    } on FormatException {
+      return '';
+    }
+    return '';
   }
 
   // --- Job status ------------------------------------------------------------

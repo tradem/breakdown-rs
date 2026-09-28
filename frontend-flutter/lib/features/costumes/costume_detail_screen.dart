@@ -629,6 +629,38 @@ class _PhotosSection extends ConsumerStatefulWidget {
 class _PhotosSectionState extends ConsumerState<_PhotosSection> {
   bool _busy = false;
 
+  /// The single-costume DETAIL, fetched on open.
+  ///
+  /// The gallery renders `CostumeView.photos`, but the view handed to this
+  /// screen comes from the costume LIST cache, whose rows carry no child
+  /// collections (the server enriches only the single-costume route, the list
+  /// query leaves `details`/`photos` empty). Relying on the cache write alone
+  /// to propagate is not enough — the view provider is not re-read on that
+  /// write — so the fetched detail is held here and used for rendering. Falls
+  /// back to the list view while loading and on failure (a photo-less costume
+  /// then simply shows the empty-gallery affordance as before).
+  CostumeView? _detail;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _loadDetail());
+  }
+
+  Future<void> _loadDetail() async {
+    if (!mounted) return;
+    final res = await ref
+        .read(costumesControllerProvider(widget.season.id).notifier)
+        .loadDetail(widget.costume.id);
+    if (!mounted) return;
+    // Only a successful detail may replace the rendered view: an Err leaves
+    // the list view in place (and its command-error surface owns the message).
+    res.match<void>((_) {}, (view) {
+      if (!mounted) return;
+      setState(() => _detail = view);
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final membership = ref.watch(currentMembershipProvider(widget.season.id));
@@ -682,7 +714,7 @@ class _PhotosSectionState extends ConsumerState<_PhotosSection> {
           ),
         if (repo != null)
           PhotoGallery(
-            costume: widget.costume,
+            costume: _detail ?? widget.costume,
             repository: repo,
             lru: lru,
             canCapture: canManagePhotos,
@@ -855,6 +887,11 @@ class _PhotosSectionState extends ConsumerState<_PhotosSection> {
               contentType: contentType,
             );
         uploadResult.match<void>((_) {}, (_) {});
+        // A successful upload must re-read the enriched row: the gallery renders
+        // `_detail`, which was fetched once on open and knows nothing about the
+        // photo just created (the list rows `refresh()` updates carry no photos).
+        // Only on success — a failed command must not rewrite what is shown.
+        if (uploadResult.isRight()) await _loadDetail();
       case PrepareFailure(:final code):
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -885,7 +922,17 @@ class _PhotosSectionState extends ConsumerState<_PhotosSection> {
                   .read(costumesControllerProvider(widget.season.id).notifier)
                   .deletePhoto(costumeId: widget.costume.id, photoId: photoId);
               deleteResult.match<void>((_) {}, (_) {});
+              // Close the dialog BEFORE the reload: _loadDetail awaits a network
+              // read, and while the dialog stays open the (still enabled) delete
+              // button could dispatch the same delete again — a failed second
+              // request would surface a command error although the first delete
+              // already succeeded. `_loadDetail` guards on the State's own
+              // `mounted`, so popping first is safe.
               if (dialogContext.mounted) Navigator.of(dialogContext).pop();
+              // Same reason as the upload path: without this the DELETED photo
+              // stays visible in the gallery until the section is rebuilt,
+              // because `_detail` still holds the pre-delete row.
+              if (deleteResult.isRight()) await _loadDetail();
             },
             child: Text(l10nOf(dialogContext).commonDelete),
           ),

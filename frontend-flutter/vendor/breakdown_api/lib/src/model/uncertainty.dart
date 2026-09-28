@@ -5,6 +5,7 @@
 //
 
 // ignore_for_file: unused_element
+import 'package:breakdown_api/src/model/uncertainty_kind.dart';
 import 'package:built_value/built_value.dart';
 import 'package:built_value/serializer.dart';
 
@@ -14,6 +15,7 @@ part 'uncertainty.g.dart';
 ///
 /// Properties:
 /// * [field]
+/// * [kind] - `serde(default)` so a preview stored before this field existed keeps blocking exactly as it did: an absent kind is a `FieldAmbiguity`.
 /// * [note]
 /// * [sceneIndex]
 /// * [suggestedValue]
@@ -21,6 +23,11 @@ part 'uncertainty.g.dart';
 abstract class Uncertainty implements Built<Uncertainty, UncertaintyBuilder> {
   @BuiltValueField(wireName: r'field')
   String get field;
+
+  /// `serde(default)` so a preview stored before this field existed keeps blocking exactly as it did: an absent kind is a `FieldAmbiguity`.
+  @BuiltValueField(wireName: r'kind')
+  UncertaintyKind? get kind;
+  // enum kindEnum {  field_ambiguity,  dropped_row,  };
 
   @BuiltValueField(wireName: r'note')
   String get note;
@@ -59,6 +66,13 @@ class _$UncertaintySerializer implements PrimitiveSerializer<Uncertainty> {
       object.field,
       specifiedType: const FullType(String),
     );
+    if (object.kind != null) {
+      yield r'kind';
+      yield serializers.serialize(
+        object.kind,
+        specifiedType: const FullType(UncertaintyKind),
+      );
+    }
     yield r'note';
     yield serializers.serialize(
       object.note,
@@ -107,6 +121,14 @@ class _$UncertaintySerializer implements PrimitiveSerializer<Uncertainty> {
             specifiedType: const FullType(String),
           ) as String;
           result.field = valueDes;
+          break;
+        case r'kind':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType.nullable(UncertaintyKind),
+          ) as UncertaintyKind?;
+          if (valueDes == null) continue;
+          result.kind = valueDes;
           break;
         case r'note':
           final valueDes = serializers.deserialize(

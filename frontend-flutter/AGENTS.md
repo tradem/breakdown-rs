@@ -324,7 +324,7 @@ CI runs:
   cd backend && docker compose -f docker-compose.dev.yml up -d
   DATABASE_URL=postgres://postgres:postgres@localhost:5432/breakdown \
   SIERRADB_URL=redis://127.0.0.1:9090/?protocol=resp3 \
-  cargo run -p api
+  cargo run --bin api
   ```
   The API serves Swagger UI at `http://localhost:3000/swagger-ui`.
 - **Flutter run (dev flavor):**

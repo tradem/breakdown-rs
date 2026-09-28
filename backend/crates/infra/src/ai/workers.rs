@@ -3,22 +3,35 @@
 // Co-authored-by: gpt-5.6-luna (opencode-go)
 // Co-authored-by: deepseek-v4-flash (opencode-go)
 // Co-authored-by: longcat-2.0-free (opencode)
+// Co-authored-by: qwen3.8-flash (opencode-go)
 
 use std::sync::Arc;
 use std::time::Instant;
 
 use anyhow::Error as AnyhowError;
+use std::collections::HashMap;
+
 use breakdown_core::ai::{
     AiImportBounds, AiImportJob, AiImportJobId, AiImportMapping, AiImportMappingRepository,
-    AiImportQueue, ApplyMapping, ApplyMappingDecision, DocumentKind, LlmChatRequest, LlmClient,
-    MergedPreview, ScriptContext, ShootingSchedule, SourceFormat, Telemetry, TelemetryApplyState,
-    ensure_merge_applyable, ensure_script_applyable, extract_scenes, merge_schedule_to_scenes,
+    AiImportQueue, ApplyMapping, ApplyMappingDecision, CharacterApplyPlan, CostumeApplyPlan,
+    DocumentKind, LlmChatRequest, LlmClient, MergedPreview, PRIMARY_ORDINAL, SceneApplyCommand,
+    SceneApplyPlan, ScriptContext, ShootingSchedule, SourceFormat, Telemetry, TelemetryApplyState,
+    UnappliedCostume, UnappliedCostumeReason, Uncertainty, UncertaintyKind, character_mapping_ref,
+    draft_row_ref, ensure_merge_applyable, extract_scenes, mapping_kind, merge_schedule_to_scenes,
+    plan_scene_apply, stable_draft_ref, verify_draft_costumes,
 };
+use breakdown_core::character::category::CharacterCategory;
+use breakdown_core::character::commands::CreateCharacter;
+use breakdown_core::character::ports::CharacterCommands;
+use breakdown_core::costume::commands::{
+    AssignCostumeToCharacter, CreateCostume, UpdateCostumeNotes,
+};
+use breakdown_core::costume::ports::CostumeCommands;
 use breakdown_core::error::DomainError;
-use breakdown_core::scene::commands::{CreateScene, UpdateSceneDetails};
+use breakdown_core::scene::commands::CreateScene;
 use breakdown_core::scene::events::{SceneDetails, SceneSource};
 use breakdown_core::scene::ports::SceneCommands;
-use breakdown_core::shared::{AggregateVersion, EpisodeId, SeriesId, UserId};
+use breakdown_core::shared::{AggregateVersion, EpisodeId, SeasonId, SeriesId, UserId};
 
 #[cfg(test)]
 #[path = "worker_mutation_tests.rs"]
@@ -31,6 +44,7 @@ use super::pdf::PdfTextExtractor;
 use super::pg_concurrency::{PgAiConcurrencyLimiter, PgAiConcurrencyPermit};
 use super::preview_store::{AiDocumentSource, AiPreviewStore};
 use super::runtime::run_with_renewal;
+use super::schedule_apply::{derive_id, recover_version};
 use crate::photo::sagas::is_transient;
 use crate::projectors::supervisor;
 
@@ -330,12 +344,21 @@ where
         }
 
         let mut context = ScriptContext::default();
+        // Globally unique scene counter across all chunks — the tail of
+        // `stable_draft_ref`, which needs a stable identity per preview row
+        // that survives the model's own (hallucinated) `draft_ref`.
+        let mut scene_ordinal = 0usize;
         for chunk in chunks {
+            // Hoisted because the grounding check below must verify a quote
+            // against *exactly* the bytes the model was given. Grounding against
+            // a differently assembled string would drop real quotes and pass
+            // invented ones near a boundary.
+            let source_text = format!("{}\n{}", chunk.heading, chunk.text);
             let request = LlmChatRequest {
                 provider: self.provider,
                 model: self.model.clone(),
                 prompt: self.prompt.clone(),
-                source_text: format!("{}\n{}", chunk.heading, chunk.text),
+                source_text: source_text.clone(),
                 max_tokens: self.bounds.max_tokens_per_req,
                 response_schema: None,
             };
@@ -354,7 +377,45 @@ where
                     if context.title.is_none() {
                         context.title = partial.title;
                     }
-                    context.scenes.extend(partial.scenes);
+                    for (index_in_chunk, mut scene) in partial.scenes.into_iter().enumerate() {
+                        scene_ordinal += 1;
+                        // Server-side truth beats the model's draft_ref: the
+                        // heading comes from the document (extract_scenes) and
+                        // the ordinal guarantees uniqueness, so the apply
+                        // mapping can no longer resolve several preview rows
+                        // to one decision via a repeated placeholder.
+                        scene.draft_ref =
+                            stable_draft_ref(scene_ordinal, &chunk.heading, index_in_chunk);
+                        // Server-side truth beats the prompt too (design D5): a
+                        // prompt forbids inventing a costume, but a prompt is an
+                        // instruction, not a guarantee. Everything the check drops
+                        // is recorded as a non-blocking `DroppedRow` uncertainty,
+                        // so a hallucinated costume cannot reach the reviewer and
+                        // a missing one is still visible as missing — without
+                        // making the whole preview unappliable (design D9).
+                        for rejected in verify_draft_costumes(&mut scene, &source_text) {
+                            context.uncertainties.push(Uncertainty {
+                                // 0-based index of the row pushed just below.
+                                // `scene_ordinal` is a 1-based GLOBAL counter, so
+                                // using it here attached every drop to the NEXT
+                                // preview row — and pointed past the end of the
+                                // list for the last scene, so the reviewer would
+                                // see the missing costume on the wrong scene.
+                                scene_index: context.scenes.len(),
+                                field: "costumes".to_owned(),
+                                note: format!(
+                                    "{}: costume of {:?} ({:?}) was dropped; row {}",
+                                    rejected.reason,
+                                    rejected.character_name,
+                                    rejected.description,
+                                    scene.draft_ref,
+                                ),
+                                suggested_value: Some(rejected.description),
+                                kind: UncertaintyKind::DroppedRow,
+                            });
+                        }
+                        context.scenes.push(scene);
+                    }
                     context.uncertainties.extend(partial.uncertainties);
                 }
                 Err(error) => {
@@ -645,10 +706,17 @@ impl MergeWorker {
     }
 }
 
-/// Apply worker for reviewed script rows. Each row checks the persisted mapping
-/// before dispatching, so a crash/retry cannot create a duplicate Scene.
-pub struct ApplyWorker<C, M, Q> {
+/// Apply worker for reviewed script rows.
+///
+/// One accepted draft row applies as up to three kinds of aggregate: its
+/// **scene**, the **figures** it names, and the **costumes** of those figures.
+/// Every kind is checked against the persisted mapping before it dispatches, so
+/// a crash or a concurrent duplicate cannot create a second Scene, Character or
+/// Costume.
+pub struct ApplyWorker<C, CH, CO, M, Q> {
     pub scene_commands: Arc<C>,
+    pub character_commands: Arc<CH>,
+    pub costume_commands: Arc<CO>,
     pub mappings: Arc<M>,
     pub queue: Arc<Q>,
 }
@@ -665,140 +733,707 @@ struct ReservedSceneDraft {
     details: SceneDetails,
 }
 
-impl<C, M, Q> ApplyWorker<C, M, Q>
+/// What one script apply produced.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ScriptApplyResult {
+    /// Scene aggregates, one per applied draft row — the historical
+    /// `applied_count` of the endpoint.
+    pub applied: Vec<UuidVersion>,
+    /// Figures this apply appended. A figure an earlier row of the same preview
+    /// already created is not counted again: that dedup is the whole point of
+    /// keying a figure's mapping row by its name identity.
+    pub created_characters: u32,
+    pub created_costumes: u32,
+    /// Costumes that did not become a `Costume`, each with its reason. Reported,
+    /// never dropped: a silently missing costume is the failure mode this change
+    /// exists to remove (design D5).
+    pub unapplied_costumes: Vec<UnappliedCostume>,
+}
+
+/// A figure as far as this apply is concerned.
+#[derive(Debug, Clone)]
+enum Figure {
+    Resolved(UuidVersion),
+    /// `CreateCharacter` was refused; the detail is what the reviewer sees
+    /// alongside the costumes that could therefore not be bound.
+    Unavailable(String),
+}
+
+/// What one costume row produced — including when it stopped half way.
+///
+/// A row can create the costume and then fail to bind it. Collapsing that into a
+/// plain error would report a `Costume` that exists as never having been
+/// created, which is exactly the silent-divergence class this change removes.
+struct CostumeAttempt {
+    /// This call appended a `CostumeCreated`.
+    created: bool,
+    /// `Some` when the row did not reach a bound costume, with the reason the
+    /// reviewer sees.
+    failure: Option<(UnappliedCostumeReason, String)>,
+}
+
+/// Split "the domain refused this row" from "a dependency is down".
+///
+/// A refusal is a per-row outcome the reviewer can act on; an outage is not, and
+/// must fail the whole apply so the retry re-drives the unfinished rows from
+/// their reservations instead of leaving them silently unwritten.
+fn is_infra_outage(error: &DomainError) -> bool {
+    matches!(
+        error,
+        DomainError::ServiceUnavailable { .. } | DomainError::Internal { .. }
+    )
+}
+
+/// The version chain one AI costume leaves behind.
+///
+/// `projection_ai_import_mapping` stores the aggregate version after every step,
+/// which makes the **version the phase record** of a crashed apply: a retry
+/// re-drives only the steps above the stored version and can never append the
+/// same event twice. The arithmetic is pinned by
+/// `test_ai_apply_chain_advances_exactly_one_version_per_step`.
+#[derive(Debug, Clone, Copy)]
+struct CostumePhases {
+    /// The extracted description carries the row's actual data, so it is written
+    /// as the costume's notes (design D8) — but an empty description must not
+    /// dispatch a command the aggregate would reject as "notes unchanged".
+    has_notes: bool,
+}
+
+impl CostumePhases {
+    /// Version reached after `UpdateCostumeNotes` appended.
+    const NOTED: AggregateVersion = AggregateVersion(2);
+    /// `CreateCostume` appends exactly one event, landing on `INITIAL`.
+    const CREATED: AggregateVersion = AggregateVersion::INITIAL;
+
+    /// Version reached once the costume is bound to its figure.
+    fn bound(&self) -> AggregateVersion {
+        if self.has_notes {
+            AggregateVersion(3)
+        } else {
+            Self::NOTED
+        }
+    }
+}
+
+/// Outcome of a create-style dispatch against a reserved aggregate id.
+struct CreateOutcome {
+    version: AggregateVersion,
+    /// `false` when the stream already carried the event — a retry landing on its
+    /// own reservation (issue #179), which must not be counted as a second
+    /// creation in the apply report.
+    appended: bool,
+}
+
+/// [`recover_version`] plus whether the append happened now. Same reasoning: the id came from *this* apply's reservation, so a
+/// version conflict on that stream proves our own earlier append and not a
+/// foreign writer.
+fn created_now(
+    result: Result<(Uuid, AggregateVersion), DomainError>,
+) -> Result<CreateOutcome, DomainError> {
+    match result {
+        Ok((_, version)) => Ok(CreateOutcome {
+            version,
+            appended: true,
+        }),
+        Err(DomainError::VersionConflict { current, .. }) if current != AggregateVersion(0) => {
+            tracing::info!(
+                current = current.0,
+                "recovered an AI apply aggregate from its own reserved stream"
+            );
+            Ok(CreateOutcome {
+                version: current,
+                appended: false,
+            })
+        }
+        Err(error) => Err(error),
+    }
+}
+
+/// The scene details as the planner resolved them — the same payload whichever
+/// command the row was decided as.
+fn planned_details(command: &SceneApplyCommand) -> SceneDetails {
+    match command {
+        SceneApplyCommand::Create(command) => command.details.clone(),
+        SceneApplyCommand::Update(command) => command.details.clone(),
+    }
+}
+
+/// A draft-row position as a mapping ordinal. i32 bounds are far above any
+/// preview's row count, but a `as` cast would silently wrap; fail loudly.
+fn ordinal_of(index: usize) -> Result<i32, DomainError> {
+    i32::try_from(index).map_err(|_| {
+        DomainError::validation("AI apply row index exceeds the mapping ordinal range")
+    })
+}
+
+/// Reviewed script apply request. `episode_id`, `season_id` and `series_id` are
+/// resolved by the API edge from the target episode and are never looked up by
+/// this write-side worker (CQRS boundary, AGENTS.md §1). Figures and costumes are
+/// season-scoped aggregates, so the season cannot be derived here.
+pub struct ApplyScriptRequest<'a> {
+    pub actor: UserId,
+    pub preview_id: AiImportJobId,
+    pub preview: &'a ScriptContext,
+    pub decisions: &'a [ApplyMapping],
+    pub episode_id: EpisodeId,
+    pub season_id: SeasonId,
+    pub series_id: Option<SeriesId>,
+    pub telemetry: Option<Telemetry>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct UuidVersion {
+    pub aggregate_id: uuid::Uuid,
+    pub version: breakdown_core::shared::AggregateVersion,
+}
+
+impl<C, CH, CO, M, Q> ApplyWorker<C, CH, CO, M, Q>
 where
     C: SceneCommands + 'static,
+    CH: CharacterCommands + 'static,
+    CO: CostumeCommands + 'static,
     M: AiImportMappingRepository + 'static,
     Q: AiImportQueue + 'static,
 {
     pub async fn apply_script(
         &self,
         request: ApplyScriptRequest<'_>,
-    ) -> Result<Vec<UuidVersion>, DomainError> {
+    ) -> Result<ScriptApplyResult, DomainError> {
         let ApplyScriptRequest {
             actor,
             preview_id,
             preview,
             decisions,
             episode_id,
+            season_id,
             series_id,
             telemetry,
         } = request;
-        ensure_script_applyable(preview)
+        // The planner is the single source of what an apply dispatches; the
+        // worker never re-derives the reviewer's decisions itself, so plan and
+        // dispatch cannot drift apart.
+        let decisions = self
+            .resolved_decisions(preview_id, preview, decisions)
+            .await?;
+        let plan = plan_scene_apply(preview, &decisions, episode_id, series_id, preview_id)
             .map_err(|error| DomainError::conflict(error.to_string()))?;
-        let mut applied = Vec::with_capacity(preview.scenes.len());
-        for (index, draft) in preview.scenes.iter().enumerate() {
-            let draft_ref = if draft.draft_ref.is_empty() {
-                format!("scene-{index}")
-            } else {
-                draft.draft_ref.clone()
-            };
-            let stored = self
-                .mappings
-                .find(preview_id, &draft_ref) // ast-grep-ignore: cqrs-boundary
+        let mut result = ScriptApplyResult {
+            applied: Vec::with_capacity(plan.scenes.len()),
+            unapplied_costumes: plan.unapplied_costumes,
+            ..ScriptApplyResult::default()
+        };
+        // Figures named by several draft rows are created once. This is a cache
+        // of what *this* request resolved, not a projection read: everything that
+        // crosses a request boundary goes through the mapping (CQRS boundary).
+        let mut figures: HashMap<String, Figure> = HashMap::new();
+
+        for row in &plan.scenes {
+            let scene = self
+                .apply_scene_row(actor.clone(), preview_id, episode_id, series_id, row)
                 .await?;
-            // A confirmed mapping means this row already applied: a retry —
-            // or a concurrent duplicate that confirmed first — is a no-op
-            // returning the stored id/version instead of re-dispatching
-            // (issue #338). Re-dispatching an `Update` here would also fail
-            // in production: identical details are rejected as unchanged.
-            if let Some(confirmed) = stored.as_ref().filter(|mapping| !mapping.is_reserved()) {
-                applied.push(UuidVersion {
-                    aggregate_id: confirmed.aggregate_id,
-                    version: confirmed.aggregate_version,
-                });
-                continue;
-            }
-            // A reservation means a previous attempt already claimed an
-            // aggregate id for this draft. The reservation wins over the
-            // client-supplied decision: the reserved stream may already hold
-            // our append (crash after create, before confirm), so switching
-            // targets would orphan it. Reusing the reserved id also converges
-            // concurrent duplicates onto one stream, whose
-            // `ExpectedVersion::Empty` guard turns the loser into a
-            // `recover_version` success — mirroring the schedule apply path.
-            let reserved_id = stored
-                .filter(|mapping| mapping.is_reserved())
-                .map(|mapping| mapping.aggregate_id);
-            let details = draft.scene_details();
-            let (aggregate_id, version) = if let Some(candidate_id) = reserved_id {
-                self.create_scene_reserved(
-                    actor.clone(),
-                    ReservedSceneDraft {
+            result.applied.push(scene);
+
+            for character in &row.characters {
+                if self
+                    .resolve_figure(
+                        actor.clone(),
                         preview_id,
-                        draft_ref,
-                        candidate_id,
-                        episode_id,
+                        season_id,
                         series_id,
-                        details,
-                    },
-                )
-                .await?
-            } else {
-                let decision = decisions
-                    .iter()
-                    .find(|decision| decision.draft_ref == draft_ref)
-                    .map(|decision| decision.decision.clone())
-                    .ok_or_else(|| {
-                        DomainError::validation(format!("missing mapping for {draft_ref}"))
-                    })?;
-                match decision {
-                    ApplyMappingDecision::Create => {
-                        let candidate_id = super::schedule_apply::derive_id(preview_id, &draft_ref);
-                        self.create_scene_reserved(
-                            actor.clone(),
-                            ReservedSceneDraft {
-                                preview_id,
-                                draft_ref,
-                                candidate_id,
-                                episode_id,
-                                series_id,
-                                details,
-                            },
-                        )
-                        .await?
-                    }
-                    ApplyMappingDecision::Update {
-                        aggregate_id,
-                        version,
-                    } => {
-                        let new_version = self
-                            .scene_commands
-                            .update_details(
-                                actor.clone(),
-                                UpdateSceneDetails {
-                                    id: aggregate_id,
-                                    details,
-                                    series_id,
-                                    version,
-                                },
-                            )
-                            .await?;
-                        self.mappings
-                            .insert(AiImportMapping {
-                                preview_id,
-                                draft_ref,
-                                aggregate_kind: "scene".to_owned(),
-                                aggregate_id,
-                                aggregate_version: new_version,
-                            })
-                            .await?;
-                        (aggregate_id, new_version)
-                    }
+                        character,
+                        &mut figures,
+                    )
+                    .await?
+                {
+                    result.created_characters += 1;
                 }
-            };
-            applied.push(UuidVersion {
-                aggregate_id,
-                version,
-            });
+            }
+
+            for costume in &row.costumes {
+                let key = character_mapping_ref(&costume.character_identity);
+                let character_id = match figures.get(&key) {
+                    Some(Figure::Resolved(resolved)) => resolved.aggregate_id,
+                    Some(Figure::Unavailable(detail)) => {
+                        result.unapplied_costumes.push(unapplied(
+                            row,
+                            costume,
+                            UnappliedCostumeReason::CharacterUnavailable,
+                            Some(detail.clone()),
+                        ));
+                        continue;
+                    }
+                    None => {
+                        // Unreachable through the planner, which only pairs a
+                        // costume with a figure of the same row; reported rather
+                        // than assumed, because an ownerless costume is exactly
+                        // what must never be created.
+                        result.unapplied_costumes.push(unapplied(
+                            row,
+                            costume,
+                            UnappliedCostumeReason::CharacterNotPlanned,
+                            None,
+                        ));
+                        continue;
+                    }
+                };
+                let CostumeAttempt { created, failure } = self
+                    .apply_costume(
+                        actor.clone(),
+                        CostumeDispatch {
+                            preview_id,
+                            season_id,
+                            series_id,
+                            row,
+                            costume,
+                            character_id,
+                        },
+                    )
+                    .await?;
+                if created {
+                    result.created_costumes += 1;
+                }
+                if let Some((reason, detail)) = failure {
+                    tracing::warn!(
+                        draft_ref = %row.draft_ref,
+                        costume_ordinal = costume.ordinal,
+                        reason = ?reason,
+                        error = %detail,
+                        "AI apply could not finish one costume row"
+                    );
+                    result
+                        .unapplied_costumes
+                        .push(unapplied(row, costume, reason, Some(detail)));
+                }
+            }
         }
         if let Some(telemetry) = telemetry {
             self.queue.record_telemetry(preview_id, telemetry).await?;
         }
-        Ok(applied)
+        Ok(result)
     }
 
-    /// Reserve `candidate_id` for `(preview_id, draft_ref)` *before*
+    /// Fill in the decisions the reviewer did not send because their rows are
+    /// already applied.
+    ///
+    /// A retried apply legitimately carries no decisions at all: every row it
+    /// completed is resolved by its confirmed mapping, which the dispatch below
+    /// short-circuits on. The planner still needs a decision per row to plan that
+    /// row's figures and costumes — the ones a first attempt may have crashed
+    /// before reaching — so each already-mapped row gets a decision pointing at
+    /// its own aggregate. It is never dispatched (a confirmed scene mapping is a
+    /// no-op), and its costume rows default to accepted, which is the documented
+    /// default for a row the reviewer did not touch.
+    async fn resolved_decisions(
+        &self,
+        preview_id: AiImportJobId,
+        preview: &ScriptContext,
+        decisions: &[ApplyMapping],
+    ) -> Result<Vec<ApplyMapping>, DomainError> {
+        // Read the idempotency projection (non-audit): this is what lets a
+        // retried apply skip the rows it already finished. Derived audit context
+        // (`series_id`, `season_id`) comes from the API-edge request, never here.
+        let confirmed: HashMap<String, AiImportMapping> = self
+            .mappings
+            .list_by_preview(preview_id) // ast-grep-ignore: cqrs-boundary
+            .await?
+            .into_iter()
+            .filter(|mapping| {
+                !mapping.is_reserved() && mapping.aggregate_kind == mapping_kind::SCENE
+            })
+            .map(|mapping| (mapping.draft_ref.clone(), mapping))
+            .collect();
+        let mut resolved: Vec<ApplyMapping> = decisions.to_vec();
+        for (index, draft) in preview.scenes.iter().enumerate() {
+            let reference = draft_row_ref(draft, index);
+            if resolved
+                .iter()
+                .any(|decision| decision.draft_ref == reference)
+            {
+                continue;
+            }
+            if let Some(mapping) = confirmed.get(&reference) {
+                resolved.push(ApplyMapping {
+                    draft_ref: reference,
+                    decision: ApplyMappingDecision::Update {
+                        aggregate_id: mapping.aggregate_id,
+                        version: mapping.aggregate_version,
+                    },
+                    costume_decisions: Vec::new(),
+                });
+            }
+        }
+        Ok(resolved)
+    }
+
+    /// Apply one draft row's scene, returning the aggregate it now points at.
+    ///
+    /// A confirmed mapping is a no-op: the row's figures and costumes are still
+    /// driven below, so a crash between the scene create and a costume create is
+    /// finished by the retry instead of losing the costume.
+    async fn apply_scene_row(
+        &self,
+        actor: UserId,
+        preview_id: AiImportJobId,
+        episode_id: EpisodeId,
+        series_id: Option<SeriesId>,
+        row: &SceneApplyPlan,
+    ) -> Result<UuidVersion, DomainError> {
+        let draft_ref = row.draft_ref.clone();
+        let stored = self
+            .mappings
+            .find(preview_id, &draft_ref, mapping_kind::SCENE, PRIMARY_ORDINAL) // ast-grep-ignore: cqrs-boundary
+            .await?;
+        // A confirmed mapping means this row already applied: a retry — or a
+        // concurrent duplicate that confirmed first — is a no-op returning the
+        // stored id/version instead of re-dispatching (issue #338).
+        // Re-dispatching an `Update` here would also fail in production:
+        // identical details are rejected as unchanged.
+        if let Some(confirmed) = stored.as_ref().filter(|mapping| !mapping.is_reserved()) {
+            return Ok(UuidVersion {
+                aggregate_id: confirmed.aggregate_id,
+                version: confirmed.aggregate_version,
+            });
+        }
+        // A reservation means a previous attempt already claimed an aggregate id
+        // for this draft. The reservation wins over the client-supplied decision:
+        // the reserved stream may already hold our append (crash after create,
+        // before confirm), so switching targets would orphan it. Reusing the
+        // reserved id also converges concurrent duplicates onto one stream, whose
+        // `ExpectedVersion::Empty` guard turns the loser into a `recover_version`
+        // success — mirroring the schedule apply path.
+        let details = planned_details(&row.scene);
+        let reserved_id = stored
+            .filter(|mapping| mapping.is_reserved())
+            .map(|mapping| mapping.aggregate_id);
+        let (aggregate_id, version) = if let Some(candidate_id) = reserved_id {
+            self.create_scene_reserved(
+                actor,
+                ReservedSceneDraft {
+                    preview_id,
+                    draft_ref,
+                    candidate_id,
+                    episode_id,
+                    series_id,
+                    details,
+                },
+            )
+            .await?
+        } else {
+            match &row.scene {
+                SceneApplyCommand::Create(_) => {
+                    self.create_scene_reserved(
+                        actor,
+                        ReservedSceneDraft {
+                            preview_id,
+                            draft_ref: draft_ref.clone(),
+                            // Derived, never the planner's fresh id: an apply id
+                            // must be re-derivable after a crash so the
+                            // aggregate's `ExpectedVersion::Empty` guard rejects
+                            // the duplicate instead of creating a second scene
+                            // (issue #182). The planner's id is not used.
+                            candidate_id: derive_id(
+                                preview_id,
+                                &draft_ref,
+                                mapping_kind::SCENE,
+                                PRIMARY_ORDINAL,
+                            ),
+                            episode_id,
+                            series_id,
+                            details,
+                        },
+                    )
+                    .await?
+                }
+                SceneApplyCommand::Update(command) => {
+                    let command = command.clone();
+                    let new_version = self
+                        .scene_commands
+                        .update_details(actor, command.clone())
+                        .await?;
+                    self.mappings
+                        .insert(AiImportMapping {
+                            preview_id,
+                            draft_ref,
+                            aggregate_kind: mapping_kind::SCENE.to_owned(),
+                            ordinal: PRIMARY_ORDINAL,
+                            aggregate_id: command.id,
+                            aggregate_version: new_version,
+                        })
+                        .await?;
+                    (command.id, new_version)
+                }
+            }
+        };
+        Ok(UuidVersion {
+            aggregate_id,
+            version,
+        })
+    }
+
+    /// Resolve the figure one draft row names to an aggregate id, creating it on
+    /// first sight. Returns whether this call appended a `CharacterCreated`.
+    ///
+    /// The lookup key is the figure's *identity* rather than the draft row that
+    /// mentioned it, so the same name across a whole preview becomes one
+    /// Character — which is what makes its costumes continuous across scenes.
+    async fn resolve_figure(
+        &self,
+        actor: UserId,
+        preview_id: AiImportJobId,
+        season_id: SeasonId,
+        series_id: Option<SeriesId>,
+        character: &CharacterApplyPlan,
+        figures: &mut HashMap<String, Figure>,
+    ) -> Result<bool, DomainError> {
+        let key = character_mapping_ref(&character.identity);
+        if figures.contains_key(&key) {
+            return Ok(false);
+        }
+        let stored = self
+            .mappings
+            .find(preview_id, &key, mapping_kind::CHARACTER, PRIMARY_ORDINAL) // ast-grep-ignore: cqrs-boundary
+            .await?;
+        if let Some(confirmed) = stored.as_ref().filter(|mapping| !mapping.is_reserved()) {
+            figures.insert(
+                key,
+                Figure::Resolved(UuidVersion {
+                    aggregate_id: confirmed.aggregate_id,
+                    version: confirmed.aggregate_version,
+                }),
+            );
+            return Ok(false);
+        }
+        let row = match stored {
+            // A reservation from a crashed attempt: re-drive onto that id.
+            Some(reserved) => reserved,
+            None => {
+                self.mappings
+                    .reserve(AiImportMapping::reservation(
+                        preview_id,
+                        key.clone(),
+                        mapping_kind::CHARACTER.to_owned(),
+                        PRIMARY_ORDINAL,
+                        derive_id(preview_id, &key, mapping_kind::CHARACTER, PRIMARY_ORDINAL),
+                    ))
+                    .await?
+            }
+        };
+        let attempt = self
+            .character_commands
+            .create(
+                actor,
+                CreateCharacter {
+                    id: row.aggregate_id,
+                    season_id,
+                    series_id,
+                    // Verbatim: the script's own wording is the figure's name.
+                    // `character_identity` is a matching key, never a value.
+                    name: character.name.clone(),
+                    // The extraction carries no role type, so the figure enters
+                    // as the category default and the reviewer refines it. An
+                    // invented guess at Main/Guest/Extra would be data the script
+                    // never stated.
+                    category: CharacterCategory::MainCast,
+                },
+            )
+            .await;
+        let outcome = match created_now(attempt) {
+            Ok(outcome) => outcome,
+            Err(error) => {
+                if is_infra_outage(&error) {
+                    return Err(error);
+                }
+                tracing::warn!(
+                    name = %character.name,
+                    error = %error,
+                    "AI apply could not create a figure; its costumes are reported unapplied"
+                );
+                figures.insert(key, Figure::Unavailable(error.to_string()));
+                return Ok(false);
+            }
+        };
+        self.confirm(&row, outcome.version).await?;
+        figures.insert(
+            key,
+            Figure::Resolved(UuidVersion {
+                aggregate_id: row.aggregate_id,
+                version: outcome.version,
+            }),
+        );
+        Ok(outcome.appended)
+    }
+
+    /// Drive one costume through `CreateCostume` (unassigned, design D3) +
+    /// `UpdateCostumeNotes` (the extracted description, design D8) +
+    /// `AssignCostumeToCharacter`, confirming the mapping after every step.
+    ///
+    /// `Err` is reserved for an unavailable dependency, which must fail the whole
+    /// apply; a row the domain refused is reported through
+    /// [`CostumeAttempt::failure`] so the other rows still apply.
+    async fn apply_costume(
+        &self,
+        actor: UserId,
+        dispatch: CostumeDispatch<'_>,
+    ) -> Result<CostumeAttempt, DomainError> {
+        let CostumeDispatch {
+            preview_id,
+            season_id,
+            series_id,
+            row,
+            costume,
+            character_id,
+        } = dispatch;
+        let ordinal = ordinal_of(costume.ordinal)?;
+        let phases = CostumePhases {
+            has_notes: !costume.description.trim().is_empty(),
+        };
+        let stored = self
+            .mappings
+            .find(preview_id, &row.draft_ref, mapping_kind::COSTUME, ordinal) // ast-grep-ignore: cqrs-boundary
+            .await?;
+        let mapping = match stored {
+            Some(row) => row,
+            None => {
+                self.mappings
+                    .reserve(AiImportMapping::reservation(
+                        preview_id,
+                        row.draft_ref.clone(),
+                        mapping_kind::COSTUME.to_owned(),
+                        ordinal,
+                        derive_id(preview_id, &row.draft_ref, mapping_kind::COSTUME, ordinal),
+                    ))
+                    .await?
+            }
+        };
+        let id = mapping.aggregate_id;
+        let mut version = mapping.aggregate_version;
+        let mut created = false;
+        // A step the domain refused ends this row, but never hides a creation
+        // that already happened: `created` travels with the failure.
+        macro_rules! refused {
+            ($reason:expr, $error:expr) => {{
+                return Ok(CostumeAttempt {
+                    created,
+                    failure: Some(($reason, $error.to_string())),
+                });
+            }};
+        }
+
+        // Step 1: create the costume **without** a character. A version below
+        // `INITIAL` is the reservation sentinel, i.e. no step has appended yet.
+        if version < CostumePhases::CREATED {
+            let attempt = self
+                .costume_commands
+                .create(
+                    actor.clone(),
+                    CreateCostume {
+                        id,
+                        // The repertoire season the API edge resolved for this
+                        // import. Without it a costume whose binding failed would
+                        // be invisible in every list, and "visible as unassigned"
+                        // (spec `costume-character-binding`) requires it to appear
+                        // in the season's wardrobe overview.
+                        season_id: Some(season_id),
+                        series_id,
+                    },
+                )
+                .await;
+            let outcome = match created_now(attempt) {
+                Ok(outcome) => outcome,
+                Err(error) if is_infra_outage(&error) => return Err(error),
+                Err(error) => refused!(UnappliedCostumeReason::CreateRejected, error),
+            };
+            version = outcome.version;
+            created = outcome.appended;
+            self.confirm(&mapping, version).await?;
+        }
+
+        // Step 2: the extracted description, so the garment the script named
+        // survives the apply instead of dying in the reviewer's preview.
+        if phases.has_notes && version < CostumePhases::NOTED {
+            let notes = self
+                .costume_commands
+                .update_notes(
+                    actor.clone(),
+                    UpdateCostumeNotes {
+                        id,
+                        notes: costume.description.clone(),
+                        series_id,
+                        version,
+                    },
+                )
+                .await;
+            // A crash between the notes append and its `confirm` leaves the
+            // mapping at version 1 while the stream is already at 2. The retry
+            // then re-dispatches `UpdateCostumeNotes { version: 1 }` and is
+            // refused with `VersionConflict` — which without recovery ends the
+            // row as `NotesRejected` on EVERY retry, so the costume is never
+            // bound (a plain violation of design D8: the retry must re-drive only
+            // the steps ABOVE the stored version). The id came from this apply's
+            // reservation, so that conflict proves our own earlier append;
+            // `recover_version` folds it into the version the stream reached,
+            // exactly as the bind step already does.
+            version = match recover_version(notes) {
+                Ok(version) => version,
+                Err(error) if is_infra_outage(&error) => return Err(error),
+                Err(error) => refused!(UnappliedCostumeReason::NotesRejected, error),
+            };
+            self.confirm(&mapping, version).await?;
+        }
+
+        // Step 3: bind it to the figure of this row. A refusal leaves the costume
+        // created and unassigned — visible and correctable — and the retry reuses
+        // this mapping row instead of creating a second costume (spec
+        // `costume-character-binding`). `recover_version` folds a replayed bind
+        // into the version the stream already reached.
+        if version < phases.bound() {
+            let bound = recover_version(
+                self.costume_commands
+                    .assign_to_character(
+                        actor,
+                        AssignCostumeToCharacter {
+                            id,
+                            character_id,
+                            series_id,
+                            version,
+                        },
+                    )
+                    .await,
+            );
+            version = match bound {
+                Ok(version) => version,
+                Err(error) if is_infra_outage(&error) => return Err(error),
+                Err(error) => refused!(UnappliedCostumeReason::BindingRejected, error),
+            };
+            self.confirm(&mapping, version).await?;
+        }
+        Ok(CostumeAttempt {
+            created,
+            failure: None,
+        })
+    }
+
+    /// Advance a mapping row to the version the aggregate just reached. The
+    /// repository only moves forward, so a late duplicate can never roll a
+    /// confirmed phase back onto a reservation.
+    async fn confirm(
+        &self,
+        mapping: &AiImportMapping,
+        version: AggregateVersion,
+    ) -> Result<(), DomainError> {
+        self.mappings
+            .insert(AiImportMapping {
+                preview_id: mapping.preview_id,
+                draft_ref: mapping.draft_ref.clone(),
+                aggregate_kind: mapping.aggregate_kind.clone(),
+                ordinal: mapping.ordinal,
+                aggregate_id: mapping.aggregate_id,
+                aggregate_version: version,
+            })
+            .await
+    }
+
+    /// Reserve `candidate_id` for `(preview_id, draft_ref, 'scene', 0)` *before*
     /// dispatching `CreateScene`, then confirm the mapping — mirroring the
     /// schedule apply path (issue #338).
     ///
@@ -825,12 +1460,13 @@ where
             .reserve(AiImportMapping::reservation(
                 preview_id,
                 draft_ref,
-                "scene".to_owned(),
+                mapping_kind::SCENE.to_owned(),
+                PRIMARY_ORDINAL,
                 candidate_id,
             ))
             .await?;
         let id = reservation.aggregate_id;
-        let version = super::schedule_apply::recover_version(
+        let version = recover_version(
             self.scene_commands
                 .create(
                     actor,
@@ -859,6 +1495,7 @@ where
                 preview_id: reservation.preview_id,
                 draft_ref: reservation.draft_ref,
                 aggregate_kind: reservation.aggregate_kind,
+                ordinal: reservation.ordinal,
                 aggregate_id: id,
                 aggregate_version: version,
             })
@@ -867,20 +1504,36 @@ where
     }
 }
 
-pub struct ApplyScriptRequest<'a> {
-    pub actor: UserId,
-    pub preview_id: AiImportJobId,
-    pub preview: &'a ScriptContext,
-    pub decisions: &'a [ApplyMapping],
-    pub episode_id: EpisodeId,
-    pub series_id: Option<SeriesId>,
-    pub telemetry: Option<Telemetry>,
+/// Where one costume row's commands point. Bundled so `apply_costume` stays
+/// under the `too_many_arguments` lint (an `#[allow]` would violate AGENTS.md §3,
+/// cf. `ReservedSceneDraft`).
+struct CostumeDispatch<'a> {
+    preview_id: AiImportJobId,
+    /// Resolved by the API edge; the write side never looks a season up (CQRS
+    /// boundary) and a `Costume` carries no scope of its own.
+    season_id: SeasonId,
+    series_id: Option<SeriesId>,
+    row: &'a SceneApplyPlan,
+    costume: &'a CostumeApplyPlan,
+    /// The figure this row's costume binds to, created or resolved above.
+    character_id: Uuid,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct UuidVersion {
-    pub aggregate_id: uuid::Uuid,
-    pub version: breakdown_core::shared::AggregateVersion,
+/// A costume row that did not become a `Costume`, shaped for the reviewer.
+fn unapplied(
+    row: &SceneApplyPlan,
+    costume: &CostumeApplyPlan,
+    reason: UnappliedCostumeReason,
+    detail: Option<String>,
+) -> UnappliedCostume {
+    UnappliedCostume {
+        draft_ref: row.draft_ref.clone(),
+        ordinal: costume.ordinal,
+        character_name: costume.character_name.clone(),
+        description: costume.description.clone(),
+        reason,
+        detail,
+    }
 }
 
 pub fn validate_chunk_count(chunk_count: usize, max_chunks: u32) -> Result<(), DomainError> {

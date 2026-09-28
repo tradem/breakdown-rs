@@ -3,6 +3,7 @@
 // Co-authored-by: gpt-5.6-luna (opencode-go)
 // Co-authored-by: deepseek-v4-flash (opencode-go)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
+// Co-authored-by: qwen3.8-flash (opencode-go)
 
 use breakdown_core::ai::{
     ApplyGateError, ApplyMapping, ApplyMappingDecision, DocumentKind, DraftScene, ScriptContext,
@@ -123,6 +124,7 @@ fn apply_gate_rejects_open_uncertainties() {
             field: "location".to_owned(),
             note: "unclear".to_owned(),
             suggested_value: None,
+            kind: breakdown_core::ai::UncertaintyKind::FieldAmbiguity,
         }],
         ..ScriptContext::default()
     };
@@ -150,6 +152,7 @@ fn crash_retry_mapping_plans_update_instead_of_duplicate_create() {
                 aggregate_id,
                 version: AggregateVersion::INITIAL,
             },
+            costume_decisions: Vec::new(),
         }],
         EpisodeId::new(),
         None,
@@ -157,8 +160,10 @@ fn crash_retry_mapping_plans_update_instead_of_duplicate_create() {
     )
     .expect("mapped retry is valid in test");
     assert!(matches!(
-        plan.as_slice(),
-        [breakdown_core::ai::SceneApplyCommand::Update(command)]
-            if command.id == aggregate_id
+        plan.scenes.as_slice(),
+        [breakdown_core::ai::SceneApplyPlan {
+            scene: breakdown_core::ai::SceneApplyCommand::Update(command),
+            ..
+        }] if command.id == aggregate_id
     ));
 }

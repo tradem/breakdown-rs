@@ -38,6 +38,8 @@ use breakdown_core::settings::CredentialVault;
 use tokio::sync::watch;
 use tracing::{info, warn};
 
+use crate::vault::settings_id_from_binding_key;
+
 use super::client::OpenAiCompatibleChatClient;
 use super::ollama::OllamaChatClient;
 use super::pdf::PdfTextExtractor;
@@ -192,9 +194,18 @@ async fn fetch_api_key(
     credentials: &dyn CredentialVault,
     config: &AiWorkerConfig,
 ) -> Result<String, DomainError> {
-    let secret = credentials
-        .fetch(config.config_id, &config.vault_key_id)
-        .await?;
+    // The binding key names the SETTINGS credential that owns the secret (the
+    // provider key is stored there, ADR-027) — `config.config_id` is the AI
+    // configuration aggregate, an unrelated id. Passing the config id made
+    // `validate_binding_key` compare `settings-<ai-config-id>` against the
+    // stored `settings-<settings-id>`, so EVERY configured job died with
+    // "invalid credential Vault key reference" (and the failure is
+    // `ServiceUnavailable`, i.e. retryable, so it burned the whole retry
+    // budget before dead-lettering). Recover the owner from the key itself; a
+    // malformed reference fails closed rather than guessing an owner.
+    let owner = settings_id_from_binding_key(&config.vault_key_id)
+        .ok_or_else(|| DomainError::validation("AI config vault key reference is malformed"))?;
+    let secret = credentials.fetch(owner, &config.vault_key_id).await?;
     Ok(secret.as_str().to_owned())
 }
 
