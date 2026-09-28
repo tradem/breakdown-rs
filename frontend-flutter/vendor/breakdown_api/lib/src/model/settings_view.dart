@@ -11,11 +11,12 @@ import 'package:built_value/serializer.dart';
 
 part 'settings_view.g.dart';
 
-/// SettingsView
+/// Reference view of an external credential binding. It contains no secret material or ciphertext.  `owner` is the identity that bound the credential, recovered by the projector from `EventMetadata.actor` (issue #552). `None` for legacy rows projected before the column existed — the AI-config API edge treats an unknown owner as \"not owned by the caller\" (fail closed).
 ///
 /// Properties:
 /// * [bindingState]
 /// * [id]
+/// * [owner] - Authenticated principal (`OIDC sub`) that created/owns the binding. `None` only for legacy rows awaiting re-projection or rotation backfill.
 /// * [provider]
 /// * [vaultKeyId]
 /// * [vaultVersion]
@@ -29,6 +30,10 @@ abstract class SettingsView
 
   @BuiltValueField(wireName: r'id')
   String get id;
+
+  /// Authenticated principal (`OIDC sub`) that created/owns the binding. `None` only for legacy rows awaiting re-projection or rotation backfill.
+  @BuiltValueField(wireName: r'owner')
+  String? get owner;
 
   @BuiltValueField(wireName: r'provider')
   String get provider;
@@ -76,6 +81,13 @@ class _$SettingsViewSerializer implements PrimitiveSerializer<SettingsView> {
       object.id,
       specifiedType: const FullType(String),
     );
+    if (object.owner != null) {
+      yield r'owner';
+      yield serializers.serialize(
+        object.owner,
+        specifiedType: const FullType.nullable(String),
+      );
+    }
     yield r'provider';
     yield serializers.serialize(
       object.provider,
@@ -134,6 +146,14 @@ class _$SettingsViewSerializer implements PrimitiveSerializer<SettingsView> {
             specifiedType: const FullType(String),
           ) as String;
           result.id = valueDes;
+          break;
+        case r'owner':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType.nullable(String),
+          ) as String?;
+          if (valueDes == null) continue;
+          result.owner = valueDes;
           break;
         case r'provider':
           final valueDes = serializers.deserialize(
