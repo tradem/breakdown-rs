@@ -148,7 +148,33 @@ no crate was bumped (the table then states `none` explicitly):
 Keep the table in the implementation notes and reuse it verbatim in the PR
 body (Step 9) and the final report (Step 11).
 
-### Step 7: Create Issues for Follow-ups
+### Step 7: Weigh Up Deferred Work (issue creation is NOT automatic)
+
+Before deferring anything, walk the gate below. **Creating a follow-up issue
+is a decision, not a workflow step** — it requires a *yes* on every question
+below **and** the user's explicit go-ahead (ask with `ask_user`). A "no" is the
+default outcome and needs no justification.
+
+1. **Is it real work, or an observation?** A finding that is already fully
+   captured in code, docs, a commit body or the PR body needs **no** issue —
+   that is where it belongs. Upstream/environment noise (a dependency release,
+   a flaky upstream, a CI config quirk someone else owns) is documented in the
+   PR body, not ticketed. Issue only work someone must *do*.
+2. **Is it inside the issue's own scope?** If it is, it is not a follow-up at
+   all — do it now (see the size gate below). Scope creep must not be laundered
+   into a follow-up issue to keep the current PR tidy.
+3. **Size gate (the reason deferral exists):** would doing it now push the
+   current PR past a reviewable size — a second behavioural change, a second
+   subsystem, or a second contract/registry change in one diff? If yes,
+   deferral is legitimate. If the work is small (a doc line, one assertion, one
+   `git mv`), do it in the PR; a "too big" PR is a reason to *ask the user
+   about splitting the work*, not to silently open a ticket.
+4. **Would the issue be actionable by someone else?** Needs a repro, a "why",
+   and acceptance criteria. A finding only you can act on is a note in the PR.
+5. **Does a ticket exist already?** Search first — never duplicate an issue
+   that already covers the ground.
+
+**If the gate says yes:** ask the user, then file:
 
 ```bash
 gh issue create --title "[type]: [description]" --body "## Summary
@@ -164,6 +190,10 @@ gh issue create --title "[type]: [description]" --body "## Summary
 ## Depends On
 - Issue #{prerequisite}"
 ```
+
+**If the gate says no:** do not create anything. Record the decision in one
+line of the PR body ("Follow-up considered: X — not ticketed, because Y") so a
+reviewer sees the deliberation instead of a silently dropped finding.
 
 ### Step 8: Commit
 
@@ -227,7 +257,7 @@ Example PR body sections:
 # Close issue when PR merges
 gh issue close {issue} --comment "Closed by PR #{pr}"
 
-# Mark follow-up issues
+# Mark follow-up issues — ONLY those the user approved in Step 7
 gh issue comment {followup} --body "Follow-up to issue #{issue} (PR #{pr})."
 ```
 
@@ -266,7 +296,15 @@ was made deliberately, not skipped.
 - **Ask user** for architectural decisions
 - **Test frequently** during implementation
 - **Use conventional commits**
-- **Create follow-up issues** for deferred work
+- **Never create a follow-up issue by reflex** — Step 7 is a weighed
+  decision gated on *and* the user's go-ahead. The default outcome is "no
+  issue": the finding lives in the code, docs, commit body or PR body, and
+  the PR body gets a one-line note of the deliberation
+- **Prefer doing the work in the PR** when it is small (doc line, one
+  assertion, one rename) or when it belongs to the issue's own scope; use a
+  follow-up issue only when the work is genuinely separate *and* would grow
+  the current PR past a reviewable size — and ask the user before filing
+
 - **Use language-appropriate SPDX headers**
 - **Never skip the version-bump table** in Step 6, the PR body (Step 9), and
   the final report (Step 11) — an explicit `none` beats an omission
