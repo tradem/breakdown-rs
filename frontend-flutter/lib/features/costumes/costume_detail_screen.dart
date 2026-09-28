@@ -922,11 +922,17 @@ class _PhotosSectionState extends ConsumerState<_PhotosSection> {
                   .read(costumesControllerProvider(widget.season.id).notifier)
                   .deletePhoto(costumeId: widget.costume.id, photoId: photoId);
               deleteResult.match<void>((_) {}, (_) {});
+              // Close the dialog BEFORE the reload: _loadDetail awaits a network
+              // read, and while the dialog stays open the (still enabled) delete
+              // button could dispatch the same delete again — a failed second
+              // request would surface a command error although the first delete
+              // already succeeded. `_loadDetail` guards on the State's own
+              // `mounted`, so popping first is safe.
+              if (dialogContext.mounted) Navigator.of(dialogContext).pop();
               // Same reason as the upload path: without this the DELETED photo
               // stays visible in the gallery until the section is rebuilt,
               // because `_detail` still holds the pre-delete row.
               if (deleteResult.isRight()) await _loadDetail();
-              if (dialogContext.mounted) Navigator.of(dialogContext).pop();
             },
             child: Text(l10nOf(dialogContext).commonDelete),
           ),
