@@ -131,6 +131,7 @@ export 'package:breakdown_api/src/model/update_ai_config_request.dart';
 export 'package:breakdown_api/src/model/update_block_time_span_request.dart';
 export 'package:breakdown_api/src/model/update_contact_info_request.dart';
 export 'package:breakdown_api/src/model/update_costume_category_request.dart';
+export 'package:breakdown_api/src/model/update_costume_detail_request.dart';
 export 'package:breakdown_api/src/model/update_costume_notes_request.dart';
 export 'package:breakdown_api/src/model/update_measurements_request.dart';
 export 'package:breakdown_api/src/model/update_note_request.dart';

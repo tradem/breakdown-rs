@@ -143,6 +143,14 @@ class _FakeCostumeRepository extends CostumeRepository {
   int? lastAssignVersion;
   int? lastNotesVersion;
   AddCostumeDetailRequest? lastAddDetailRequest;
+  // Issue #544: the detail edit/delete seam. The call counters back the
+  // AUTHZ-GATE assertion (a denied caller must issue ZERO requests).
+  UpdateCostumeDetailRequest? lastUpdateDetailRequest;
+  String? lastUpdateDetailId;
+  String? lastRemoveDetailId;
+  VersionRequest? lastRemoveDetailRequest;
+  int updateDetailCalls = 0;
+  int removeDetailCalls = 0;
 
   /// Scripted single-costume DETAIL for `getAndCache`, and how often the screen
   /// asked for it. The detail screen fetches the enriched row on open, because
@@ -220,6 +228,34 @@ class _FakeCostumeRepository extends CostumeRepository {
   @override
   Future<Result<int>> addDetail(String id, AddCostumeDetailRequest request) {
     lastAddDetailRequest = request;
+    final scripted = nextWrite;
+    if (scripted != null) return Future.value(scripted);
+    return Future.value(const Right<ProblemError, int>(2));
+  }
+
+  @override
+  Future<Result<int>> updateDetail(
+    String id,
+    String detailId,
+    UpdateCostumeDetailRequest request,
+  ) {
+    updateDetailCalls++;
+    lastUpdateDetailId = detailId;
+    lastUpdateDetailRequest = request;
+    final scripted = nextWrite;
+    if (scripted != null) return Future.value(scripted);
+    return Future.value(const Right<ProblemError, int>(2));
+  }
+
+  @override
+  Future<Result<int>> removeDetail(
+    String id,
+    String detailId,
+    VersionRequest request,
+  ) {
+    removeDetailCalls++;
+    lastRemoveDetailId = detailId;
+    lastRemoveDetailRequest = request;
     final scripted = nextWrite;
     if (scripted != null) return Future.value(scripted);
     return Future.value(const Right<ProblemError, int>(2));
@@ -805,6 +841,218 @@ void main() {
         isNot(contains('Network problem')),
       );
     });
+
+  // Issue #544: costume detail edit + delete (the data layer #545's row
+  // actions sit on). Every `Result` path is exercised in BOTH branches.
+  group('Costume detail edit + delete (issue #544)', () {
+    CostumeDetailView detailView(String id, {String? subject, String text = ''}) =>
+        CostumeDetailView(
+          (b) => b
+            ..id = id
+            ..subject = subject
+            ..text = text,
+        );
+
+    testWidgets('updateDetail sends the existing id and swaps the row in place', (
+      tester,
+    ) async {
+      final row = _costume(
+        'c-7',
+        details: [
+          detailView('d-1', subject: 'Jacke', text: 'seide'),
+          detailView('d-2', text: 'second'),
+        ],
+      );
+      await setupContainer(initialRows: [row]);
+      await pumpScreen(tester);
+      final controller = container.read(
+        costumesControllerProvider('season-1').notifier,
+      );
+
+      final res = await controller.updateDetail(
+        costume: row,
+        detailId: 'd-1',
+        subject: 'Rote Lederjacke',
+        text: 'leder',
+      );
+      expect(res.isRight(), isTrue);
+
+      // The wire id is the EXISTING detail id — the server rejects a body id
+      // that disagrees with the path, and unlike `addDetail` there is no
+      // placeholder involved (issue #472 cannot recur here).
+      expect(repo.lastUpdateDetailId, 'd-1');
+      expect(repo.lastUpdateDetailRequest!.detail.id, 'd-1');
+      expect(repo.lastUpdateDetailRequest!.detail.subject, 'Rote Lederjacke');
+      expect(repo.lastUpdateDetailRequest!.detail.text, 'leder');
+
+      // The overlay keeps the entry's POSITION (a re-append would flicker
+      // the card down the list) and the version advances to the ack.
+      final overlay = container
+          .read(costumesControllerProvider('season-1'))
+          .overlays
+          .single
+          .overlay;
+      expect(overlay.details.map((d) => d.id), ['d-1', 'd-2']);
+      expect(overlay.details.first.subject, 'Rote Lederjacke');
+      expect(overlay.details.first.text, 'leder');
+      expect(overlay.version, 2);
+    });
+
+    testWidgets('updateDetail without the capability issues no network call', (
+      tester,
+    ) async {
+      final row = _costume(
+        'c-7',
+        details: [detailView('d-1', text: 'seide')],
+      );
+      await setupContainer(initialRows: [row], capabilities: const []);
+      await pumpScreen(tester);
+      final controller = container.read(
+        costumesControllerProvider('season-1').notifier,
+      );
+
+      final res = await controller.updateDetail(
+        costume: row,
+        detailId: 'd-1',
+        text: 'leder',
+      );
+      expect(res.isLeft(), isTrue);
+      expect(
+        repo.updateDetailCalls,
+        0,
+        reason: 'the client-side AUTHZ-GATE must precede the request',
+      );
+      final error = container
+          .read(costumesControllerProvider('season-1'))
+          .commandError;
+      expect(error, isNotNull);
+      expect(error!.error.status, 403);
+    });
+
+    testWidgets('updateDetail 404 costume-detail.not-found uses its own copy', (
+      tester,
+    ) async {
+      final row = _costume(
+        'c-7',
+        details: [detailView('d-1', text: 'seide')],
+      );
+      await setupContainer(initialRows: [row]);
+      await pumpScreen(tester);
+      repo.nextWrite = const Left(
+        ProblemError(code: 'costume-detail.not-found', status: 404),
+      );
+      final controller = container.read(
+        costumesControllerProvider('season-1').notifier,
+      );
+
+      expect(
+        (await controller.updateDetail(
+          costume: row,
+          detailId: 'd-1',
+          text: 'leder',
+        )).isLeft(),
+        isTrue,
+      );
+      expect(repo.updateDetailCalls, 1);
+      final error = container
+          .read(costumesControllerProvider('season-1'))
+          .commandError;
+      expect(error, isNotNull);
+      expect(error!.error.code, 'costume-detail.not-found');
+      // The narrative is keyed on the STABLE code — never the backend
+      // `detail` — and must not fall through to the generic costume copy.
+      final copy = costumeErrorCopy(AppLocalizationsEn(), error.error);
+      expect(copy, contains('no longer exists'));
+      expect(copy, isNot(contains('costume-detail.not-found')));
+    });
+
+    testWidgets('removeDetail drops the row and echoes the costume version', (
+      tester,
+    ) async {
+      final row = _costume(
+        'c-7',
+        details: [detailView('d-1'), detailView('d-2')],
+      );
+      await setupContainer(initialRows: [row]);
+      await pumpScreen(tester);
+      final controller = container.read(
+        costumesControllerProvider('season-1').notifier,
+      );
+
+      final res = await controller.removeDetail(
+        costume: row,
+        detailId: 'd-1',
+      );
+      expect(res.isRight(), isTrue);
+      expect(repo.lastRemoveDetailId, 'd-1');
+      expect(
+        repo.lastRemoveDetailRequest!.version,
+        row.version,
+        reason: 'the DELETE body is the COSTUME aggregate version echo',
+      );
+
+      final overlay = container
+          .read(costumesControllerProvider('season-1'))
+          .overlays
+          .single
+          .overlay;
+      expect(overlay.details.map((d) => d.id), ['d-2']);
+      expect(overlay.version, 2);
+    });
+
+    testWidgets('removeDetail without the capability issues no network call', (
+      tester,
+    ) async {
+      final row = _costume('c-7', details: [detailView('d-1')]);
+      await setupContainer(initialRows: [row], capabilities: const []);
+      await pumpScreen(tester);
+      final controller = container.read(
+        costumesControllerProvider('season-1').notifier,
+      );
+
+      expect((await controller.removeDetail(costume: row, detailId: 'd-1')).isLeft(), isTrue);
+      expect(
+        repo.removeDetailCalls,
+        0,
+        reason: 'the client-side AUTHZ-GATE must precede the request',
+      );
+      final error = container
+          .read(costumesControllerProvider('season-1'))
+          .commandError;
+      expect(error, isNotNull);
+      expect(error!.error.status, 403);
+    });
+
+    testWidgets('removeDetail surfaces a version conflict in the banner', (
+      tester,
+    ) async {
+      final row = _costume('c-7', details: [detailView('d-1')]);
+      await setupContainer(initialRows: [row]);
+      await pumpScreen(tester);
+      repo.nextWrite = const Left(_conflict);
+      final controller = container.read(
+        costumesControllerProvider('season-1').notifier,
+      );
+
+      expect(
+        (await controller.removeDetail(costume: row, detailId: 'd-1')).isLeft(),
+        isTrue,
+      );
+      expect(repo.removeDetailCalls, 1);
+      final error = container
+          .read(costumesControllerProvider('season-1'))
+          .commandError;
+      expect(error, isNotNull);
+      expect(error!.error.code, 'concurrency.version-mismatch');
+      // No optimistic mutation on a failed command.
+      expect(
+        container
+            .read(costumesControllerProvider('season-1'))
+            .overlays,
+        isEmpty,
+      );
+    });
+  });
 
     testWidgets('list resolves assigned names via characters join', (
       tester,

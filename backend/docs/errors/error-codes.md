@@ -2,6 +2,7 @@
 
 <!-- SPDX-License-Identifier: AGPL-3.0 -->
 <!-- Copyright (C) 2024-2026 Breakdown RS Contributors -->
+<!-- Co-authored-by: space-bunny-free (opencode-go) -->
 <!-- Co-authored-by: kimi-k3 (neuralwatt) -->
 
 Stable machine codes for every failure the API can return. Each code is the
@@ -358,6 +359,25 @@ semantics, the S0/S1/S2 privacy policy, and the deprecation rule.
 - **Title**: Costume validation failed
 - **Extensions**: none
 - **`type` anchor**: `https://docs.breakdown.example/problems/costume.validation`
+
+## costume-detail
+
+<a id="costume-detail.not-found"></a>
+
+### costume-detail.not-found
+
+- **Status**: `404`
+- **Title**: Costume detail not found
+- **Extensions**: `id` (S0)
+- **`type` anchor**: `https://docs.breakdown.example/problems/costume-detail.not-found`
+
+Emitted by the costume detail edit/delete routes (`PATCH`/`DELETE
+`/v1/costumes/{id}/details/{detail_id}`, issue #544) when the costume exists
+but the addressed detail does not. A dedicated 404 rather than
+`costume.validation` (422) so a client can tell "the detail is gone" apart
+from a real validation failure and reconcile by refetching. The aggregate
+rejects the command before any event is appended, so this never leaves a
+partially-applied write behind.
 
 ## costume-category
 

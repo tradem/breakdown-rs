@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024 Breakdown RS Contributors
+// Co-authored-by: space-bunny-free (opencode-go)
 // Co-authored-by: glm-5.3-flash (neuralwatt)
 // Co-authored-by: deepseek-v4-flash (opencode-go)
 
@@ -70,6 +71,25 @@ pub struct UnassignCostume {
 /// costume projection, never queried again by the command adapter.
 #[derive(Debug, Clone, serde::Deserialize, utoipa::ToSchema)]
 pub struct AddDetail {
+    pub id: Uuid,
+    pub detail: CostumeDetail,
+    pub series_id: Option<SeriesId>,
+    pub version: AggregateVersion,
+}
+/// Update an existing detail entry in place (issue #544).
+///
+/// The command carries the **full** detail, not a patch: a patch-merge would
+/// leave the field merging to the client and make an emptied `subject`
+/// ambiguous (cleared on purpose vs. lost). The `detail.id` must match a
+/// detail already in the aggregate state — otherwise the command fails with
+/// `CostumeError::DetailNotFound` **without** emitting an event, which is the
+/// validation the event store models correctly.
+///
+/// `series_id` is carried for the `EventMetadata` audit trail; it is resolved
+/// at the API edge from the costume projection, never queried again by the
+/// command adapter.
+#[derive(Debug, Clone, serde::Deserialize, utoipa::ToSchema)]
+pub struct UpdateCostumeDetail {
     pub id: Uuid,
     pub detail: CostumeDetail,
     pub series_id: Option<SeriesId>,
@@ -153,6 +173,11 @@ impl kameo_es::CommandName for UnassignCostume {
 impl kameo_es::CommandName for AddDetail {
     fn command_name() -> &'static str {
         "AddDetail"
+    }
+}
+impl kameo_es::CommandName for UpdateCostumeDetail {
+    fn command_name() -> &'static str {
+        "UpdateCostumeDetail"
     }
 }
 impl kameo_es::CommandName for RemoveDetail {

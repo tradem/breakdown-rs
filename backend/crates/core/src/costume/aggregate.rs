@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: space-bunny-free (opencode-go)
 // Co-authored-by: glm-5.3-flash (neuralwatt)
 // Co-authored-by: mimo-v2.5 (opencode-go)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
@@ -102,6 +103,20 @@ impl Apply for CostumeAggregate {
                     self.category_id = detail.category_id;
                 }
                 self.details.push(detail);
+                self.version = version;
+            }
+            CostumeEvent::DetailUpdated {
+                detail, version, ..
+            } => {
+                // In-place `Update`: the `details` vec has no ordering key,
+                // so the entry keeps its position and only its fields change.
+                // The aggregate validates existence on the command side, so
+                // a replayed `DetailUpdated` for a known detail always hits.
+                if let Some(existing) = self.details.iter_mut().find(|d| d.id == detail.id) {
+                    *existing = detail;
+                } else {
+                    self.details.push(detail);
+                }
                 self.version = version;
             }
             CostumeEvent::DetailRemoved {
@@ -270,11 +285,38 @@ impl Command<RemoveDetail> for CostumeAggregate {
             });
         }
         if !self.details.iter().any(|d| d.id == cmd.detail_id) {
-            return Err(CostumeError::ValidationError("Detail not found".into()));
+            return Err(CostumeError::DetailNotFound { id: cmd.detail_id });
         }
         Ok(vec![CostumeEvent::DetailRemoved {
             id: self.id,
             detail_id: cmd.detail_id,
+            version: self.version.next(),
+        }])
+    }
+}
+
+impl Command<UpdateCostumeDetail> for CostumeAggregate {
+    type Error = CostumeError;
+    fn handle(
+        &self,
+        cmd: UpdateCostumeDetail,
+        _ctx: Context<'_, Self>,
+    ) -> Result<Vec<Self::Event>, Self::Error> {
+        if cmd.version != self.version {
+            return Err(CostumeError::VersionMismatch {
+                expected: cmd.version,
+                actual: self.version,
+            });
+        }
+        // The real validation, and the reason a partial-update design was
+        // rejected: an unknown `detail_id` errors **without** an event, so a
+        // typo cannot silently create a second detail.
+        if !self.details.iter().any(|d| d.id == cmd.detail.id) {
+            return Err(CostumeError::DetailNotFound { id: cmd.detail.id });
+        }
+        Ok(vec![CostumeEvent::DetailUpdated {
+            id: self.id,
+            detail: cmd.detail,
             version: self.version.next(),
         }])
     }

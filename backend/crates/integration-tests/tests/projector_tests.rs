@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: space-bunny-free (opencode-go)
 // Co-authored-by: glm-5.3-flash (neuralwatt)
 // Co-authored-by: glm-5.2 (neuralwatt)
 
@@ -860,21 +861,51 @@ async fn costume_detail_add_remove() -> Result<()> {
     assert_eq!(v.details.len(), 1);
     assert_eq!(v.details[0].text, "Red lining");
 
-    // DetailRemoved
+    // DetailUpdated (issue #544): the projector reuses the `DetailAdded`
+    // upsert on `(costume_id, detail_id)`, so the row is overwritten IN PLACE
+    // — no migration, and no second row. A cleared `subject` must land as
+    // NULL, not survive from the previous value.
     eappend_event(
         Arc::clone(&redis_client),
         &stream_id,
-        "DetailRemoved",
+        "DetailUpdated",
         "1",
-        &breakdown_core::costume::events::CostumeEvent::DetailRemoved {
+        &breakdown_core::costume::events::CostumeEvent::DetailUpdated {
             id: costume_id,
-            detail_id,
+            detail: breakdown_core::costume::events::CostumeDetail {
+                id: detail_id,
+                subject: Some("Rote Lederjacke".into()),
+                category_id: None,
+                text: "Leder, rot gefüttert".into(),
+            },
             version: AggregateVersion(3),
         },
     )
     .await?;
 
     await_proj_version(&pool, "projection_costume", costume_id, 3).await?;
+
+    let v = costume_repo.costume_with_details_photos(costume_id).await?;
+    assert_eq!(v.details.len(), 1, "an edit must not insert a second row");
+    assert_eq!(v.details[0].id, detail_id, "the row must be the same one");
+    assert_eq!(v.details[0].text, "Leder, rot gefüttert");
+    assert_eq!(v.details[0].subject.as_deref(), Some("Rote Lederjacke"));
+
+    // DetailRemoved
+    eappend_event(
+        Arc::clone(&redis_client),
+        &stream_id,
+        "DetailRemoved",
+        "2",
+        &breakdown_core::costume::events::CostumeEvent::DetailRemoved {
+            id: costume_id,
+            detail_id,
+            version: AggregateVersion(4),
+        },
+    )
+    .await?;
+
+    await_proj_version(&pool, "projection_costume", costume_id, 4).await?;
 
     let v = costume_repo.costume_with_details_photos(costume_id).await?;
     assert!(v.details.is_empty());

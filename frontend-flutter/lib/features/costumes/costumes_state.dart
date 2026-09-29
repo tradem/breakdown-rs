@@ -16,6 +16,8 @@ export '../../data/costume_repository.dart'
         applyUnassignOptimistic,
         applyNotesOptimistic,
         applyAddDetailOptimistic,
+        applyUpdateDetailOptimistic,
+        applyRemoveDetailOptimistic,
         applyCategoryOptimistic,
         shouldClearCostumeOverlay,
         mergeCostumeOverlays;

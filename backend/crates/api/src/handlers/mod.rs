@@ -45,8 +45,8 @@ use breakdown_core::character::events::{CharacterMeasurements, ContactInfo};
 use breakdown_core::character::ports::{CharacterCommands, CharacterRepository};
 use breakdown_core::character::views::CharacterView;
 use breakdown_core::costume::commands::{
-    AddDetail, AssignCostumeToCharacter, CreateCostume, LinkPhoto, SetCostumeCategory,
-    UnassignCostume, UnlinkPhoto, UpdateCostumeNotes,
+    AddDetail, AssignCostumeToCharacter, CreateCostume, LinkPhoto, RemoveDetail,
+    SetCostumeCategory, UnassignCostume, UnlinkPhoto, UpdateCostumeDetail, UpdateCostumeNotes,
 };
 use breakdown_core::costume::events::CostumeDetail;
 use breakdown_core::costume::ports::{CostumeCommands, CostumeRepository};
@@ -229,6 +229,20 @@ pub struct CostumeDetailRequest {
 
 #[derive(Debug, Clone, Deserialize, ToSchema)]
 pub struct AddCostumeDetailRequest {
+    pub detail: CostumeDetailRequest,
+    pub version: AggregateVersion,
+}
+
+/// Replace an existing costume detail in full (issue #544).
+///
+/// The body carries the **whole** detail, not a patch: a patch-merge would
+/// leave the field merging to the client and make an emptied `subject`
+/// ambiguous (cleared on purpose vs. lost). `detail.id` must equal the
+/// `detail_id` path parameter — the aggregate validates the id against its
+/// state and answers 404 `costume-detail.not-found` without emitting an
+/// event when the detail is unknown.
+#[derive(Debug, Clone, Deserialize, ToSchema)]
+pub struct UpdateCostumeDetailRequest {
     pub detail: CostumeDetailRequest,
     pub version: AggregateVersion,
 }
@@ -2142,6 +2156,143 @@ pub async fn add_costume_detail<P: Ports>(
                     category_id: None,
                     text: req.detail.text,
                 },
+                series_id: series_id_for_costume(&state, id).await?,
+                version: req.version,
+            },
+        )
+        .await?;
+    Ok((StatusCode::OK, Json(version)))
+}
+
+/// Replace an existing costume detail in place (issue #544).
+///
+/// The command carries the full detail, so the event is a snapshot: replay
+/// needs no field-merge logic and the projector reuses its `DetailAdded`
+/// upsert unchanged (no migration). An unknown `detail_id` is rejected by the
+/// aggregate **before** any event is appended, so a typo can never create a
+/// second detail.
+#[utoipa::path(
+    patch,
+    path = "/costumes/{id}/details/{detail_id}",
+    params(
+        ("id" = Uuid, Path, description = "Costume id"),
+        ("detail_id" = Uuid, Path, description = "Costume detail id")
+    ),
+    request_body = UpdateCostumeDetailRequest,
+    responses(
+        (status = 200, body = AggregateVersion),
+        (status = 403, body = ProblemDetails, description = "Caller holds no costume role in any season scope of the costume"),
+        (status = 404, body = ProblemDetails, description = "Costume or detail not found"),
+        (status = 409, body = ProblemDetails, description = "Version conflict"),
+        (status = 422, body = ProblemDetails, description = "Validation error"),
+    ),
+)]
+pub async fn update_costume_detail<P: Ports>(
+    State(state): State<AppState<P>>,
+    current_user: CurrentUser,
+    Path((id, detail_id)): Path<(Uuid, Uuid)>,
+    Json(req): Json<UpdateCostumeDetailRequest>,
+) -> ApiResult<AggregateVersion> {
+    let costume = state.ports.costume_repo().find_by_id(id).await?;
+
+    // AUTHZ-GATE: the route is classified by the middleware, but a costume
+    // detail is season-scoped data — the caller must hold the costume role in
+    // at least ONE season scope of the costume (character season ∪ repertoire,
+    // ANY semantics). Issue #544; same seam as `set_costume_category` (#543).
+    let _season_id = authorize_costume_scoped(
+        &state,
+        &costume,
+        current_user.sub.clone(),
+        "costume detail update requires a costume role in a season scope of the costume",
+    )
+    .await?;
+
+    // The path parameter is the addressed detail; a body id that disagrees is
+    // a client bug, not a second detail (the aggregate would otherwise create
+    // or rewrite the wrong row).
+    if req.detail.id != detail_id {
+        return Err(ApiError::Validation(
+            "detail.id in the body must match the detail_id path parameter",
+        ));
+    }
+
+    let version = state
+        .ports
+        .costume_commands()
+        .update_detail(
+            current_user.sub.clone(),
+            UpdateCostumeDetail {
+                id,
+                // Issue #543: details are pure description — no category on
+                // the wire; the legacy `category_id` field stays on the event
+                // payload only so old streams replay.
+                detail: CostumeDetail {
+                    id: detail_id,
+                    subject: req.detail.subject,
+                    category_id: None,
+                    text: req.detail.text,
+                },
+                // Audit metadata, resolved here at the edge (the only
+                // legitimate read-model consumer — CQRS boundary).
+                series_id: series_id_for_costume(&state, id).await?,
+                version: req.version,
+            },
+        )
+        .await?;
+    Ok((StatusCode::OK, Json(version)))
+}
+
+/// Remove a costume detail (issue #544).
+///
+/// `RemoveDetail` was fully implemented but unreachable before this route
+/// existed; a detail was permanent once added. The body is a `VersionRequest`
+/// — the echo of the **costume** aggregate's version, the same fence every
+/// other costume write uses.
+#[utoipa::path(
+    delete,
+    path = "/costumes/{id}/details/{detail_id}",
+    params(
+        ("id" = Uuid, Path, description = "Costume id"),
+        ("detail_id" = Uuid, Path, description = "Costume detail id")
+    ),
+    request_body = VersionRequest,
+    responses(
+        (status = 200, body = AggregateVersion),
+        (status = 403, body = ProblemDetails, description = "Caller holds no costume role in any season scope of the costume"),
+        (status = 404, body = ProblemDetails, description = "Costume or detail not found"),
+        (status = 409, body = ProblemDetails, description = "Version conflict"),
+        (status = 422, body = ProblemDetails, description = "Validation error"),
+    ),
+)]
+pub async fn remove_costume_detail<P: Ports>(
+    State(state): State<AppState<P>>,
+    current_user: CurrentUser,
+    Path((id, detail_id)): Path<(Uuid, Uuid)>,
+    Json(req): Json<VersionRequest>,
+) -> ApiResult<AggregateVersion> {
+    let costume = state.ports.costume_repo().find_by_id(id).await?;
+
+    // AUTHZ-GATE: identical seam to `update_costume_detail` — a detail delete
+    // is a privileged, season-scoped write that the middleware's membership
+    // check cannot scope. Issue #544.
+    let _season_id = authorize_costume_scoped(
+        &state,
+        &costume,
+        current_user.sub.clone(),
+        "costume detail delete requires a costume role in a season scope of the costume",
+    )
+    .await?;
+
+    let version = state
+        .ports
+        .costume_commands()
+        .remove_detail(
+            current_user.sub.clone(),
+            RemoveDetail {
+                id,
+                detail_id,
+                // Audit metadata resolved at the edge, never re-queried by the
+                // adapter (CQRS boundary).
                 series_id: series_id_for_costume(&state, id).await?,
                 version: req.version,
             },
@@ -6128,6 +6279,11 @@ pub fn routes() -> Router<AppState<ProductionPorts>> {
         .route(
             "/costumes/{id}/details",
             routing::post(add_costume_detail::<ProductionPorts>),
+        )
+        .route(
+            "/costumes/{id}/details/{detail_id}",
+            routing::patch(update_costume_detail::<ProductionPorts>)
+                .delete(remove_costume_detail::<ProductionPorts>),
         )
         .route(
             "/costumes/{id}/category",

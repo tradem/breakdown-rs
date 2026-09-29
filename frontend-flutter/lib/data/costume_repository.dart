@@ -172,6 +172,40 @@ class CostumeRepository extends BaseRepository {
     ),
   );
 
+  /// Edits an existing detail (issue #544,
+  /// `PATCH /v1/costumes/{id}/details/{detail_id}`). The request carries the
+  /// FULL detail, not a patch — the backend rejects a body id that disagrees
+  /// with [detailId] (422) and answers 404 `costume-detail.not-found` for an
+  /// unknown detail. The response is the command acknowledgement (the new
+  /// `AggregateVersion`); the projected row update is eventual (optimistic
+  /// overlay + bounded reconcile).
+  Future<Result<int>> updateDetail(
+    String id,
+    String detailId,
+    UpdateCostumeDetailRequest request,
+  ) => run(
+    () => api.getHandlersApi().updateCostumeDetail(
+      id: id,
+      detailId: detailId,
+      updateCostumeDetailRequest: request,
+    ),
+  );
+
+  /// Removes a detail (issue #544,
+  /// `DELETE /v1/costumes/{id}/details/{detail_id}`, body = the costume
+  /// aggregate's `VersionRequest` echo). Returns the new aggregate version.
+  Future<Result<int>> removeDetail(
+    String id,
+    String detailId,
+    VersionRequest request,
+  ) => run(
+    () => api.getHandlersApi().removeCostumeDetail(
+      id: id,
+      detailId: detailId,
+      versionRequest: request,
+    ),
+  );
+
   /// Empties the season's costume rows (sign-out / backend-switch resets).
   Future<Result<void>> clearCache(String seasonId) async {
     try {
@@ -203,6 +237,50 @@ CostumeView applyAddDetailOptimistic(
   CostumeView row,
   CostumeDetailView detail,
 ) => row.rebuild((b) => b..details.add(detail));
+
+/// Optimistic overlay edit for a detail edit (issue #544): replaces the
+/// entry with the matching [detailId] in place.
+///
+/// The entry keeps its POSITION — the aggregate updates the existing
+/// `CostumeDetail` in its `details` vec and the projector overwrites the row
+/// on `(costume_id, detail_id)`, so re-appending would flicker the card down
+/// the list. An unknown [detailId] is left untouched rather than appended:
+/// the server would have answered 404, so the row cannot be missing from a
+/// state this command was allowed to run against.
+CostumeView applyUpdateDetailOptimistic(
+  CostumeView row,
+  String detailId, {
+  String? subject,
+  required String text,
+}) {
+  // The detail list is read off the VALUE, not off the builder: inside a
+  // built_value builder `b.details` is the `ListBuilder` accessor, not a
+  // getter for the current list.
+  final updated = row.details
+      .map(
+        (d) => d.id == detailId
+            ? d.rebuild(
+                (db) => db
+                  ..subject = subject
+                  ..text = text,
+              )
+            : d,
+      )
+      .toList();
+  return row.rebuild((b) => b.details
+    ..clear()
+    ..addAll(updated));
+}
+
+/// Optimistic overlay edit for a detail delete (issue #544): the row leaves
+/// the overlay immediately after the 2xx ack and the projection confirms it
+/// on the next refetch.
+CostumeView applyRemoveDetailOptimistic(CostumeView row, String detailId) {
+  final remaining = row.details.where((d) => d.id != detailId);
+  return row.rebuild((b) => b.details
+    ..clear()
+    ..addAll(remaining));
+}
 
 /// Optimistic overlay edit for the costume-level category (issue #543):
 /// the wire acknowledgement already froze the aggregate version; the

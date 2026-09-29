@@ -1,5 +1,6 @@
 <!-- SPDX-License-Identifier: AGPL-3.0 -->
 <!-- Copyright (C) 2024-2026 Breakdown RS Contributors -->
+<!-- Co-authored-by: space-bunny-free (opencode-go) -->
 <!-- Co-authored-by: deepseek-v4-flash (opencode-go) -->
 <!-- Co-authored-by: deepseek-v4-flash (neuralwatt) -->
 <!-- Co-authored-by: longcat-2.0-free (opencode) -->
@@ -15,6 +16,33 @@ crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
 ## [0.16.0] - Unreleased
+
+### Added — costume details are editable and deletable (issue #544)
+
+- New event `CostumeEvent::DetailUpdated { id, detail, version }` carrying
+  the **full** detail, not a patch: a patch-merge would leave the field
+  merging to the client and turn an emptied `subject` into an ambiguity
+  (cleared on purpose vs. lost). The projector reuses the existing
+  `projection_costume_detail` upsert — no migration.
+- New command `UpdateCostumeDetail { id, detail, series_id, version }`,
+  validated in the aggregate: version fence first, then
+  `DetailNotFound` when the `detail_id` is absent, so an unknown detail
+  errors **without** emitting an event and a typo can never create a
+  second row. `Apply` replaces the entry **in place** (the `details` vec
+  has no ordering key, so the position must survive an edit).
+- New `CostumeCommands::update_detail` port method (a required trait
+  method — implementors must add it; absorbed by this already-unreleased
+  MINOR window).
+- `RemoveDetail` was fully implemented but unreachable; it now reports a
+  real not-found instead of a `ValidationError` string (see below).
+- New `CostumeError::DetailNotFound { id }` → `DomainError::NotFound` with
+  the new registry entry `COSTUME_DETAIL_NOT_FOUND` (404
+  `costume-detail.not-found`, extension `id`). A dedicated 404 rather than
+  the existing `costume.validation` (422) so a client can tell "the detail
+  is gone" apart from a real validation failure and reconcile by refetch.
+- **No version bump:** this lands inside the already-open, still-unreleased
+  0.16.0 window that issue #543's additive API opened — a second bump would
+  imply a release boundary that does not exist.
 
 ### Added — one costume = one category (issue #543)
 

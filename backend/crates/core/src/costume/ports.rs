@@ -11,7 +11,7 @@ use crate::shared::{AggregateVersion, SeasonId, UserId};
 
 use super::commands::{
     AddDetail, AssignCostumeToCharacter, CreateCostume, LinkPhoto, RemoveDetail,
-    SetCostumeCategory, UnassignCostume, UnlinkPhoto, UpdateCostumeNotes,
+    SetCostumeCategory, UnassignCostume, UnlinkPhoto, UpdateCostumeDetail, UpdateCostumeNotes,
 };
 use super::views::CostumeView;
 
@@ -42,6 +42,11 @@ pub trait CostumeCommands: Send + Sync {
         &self,
         actor: UserId,
         cmd: AddDetail,
+    ) -> Result<AggregateVersion, DomainError>;
+    async fn update_detail(
+        &self,
+        actor: UserId,
+        cmd: UpdateCostumeDetail,
     ) -> Result<AggregateVersion, DomainError>;
     async fn remove_detail(
         &self,

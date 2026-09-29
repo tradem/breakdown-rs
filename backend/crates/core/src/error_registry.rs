@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: space-bunny-free (opencode-go)
 // Co-authored-by: omen-alpha (opencode-go)
 // Co-authored-by: kimi-k3 (neuralwatt)
 // Co-authored-by: deepseek-v4-flash (opencode-go)
@@ -36,7 +37,7 @@ pub const PROBLEM_DOCS_BASE: &str = "https://docs.breakdown.example";
 /// Kept in sync with the `problem_codes!` invocation below by a compile-time
 /// assertion — adding or removing a code without deliberately updating this
 /// count fails the build (issue #232).
-const PROBLEM_CODE_COUNT: usize = 87;
+const PROBLEM_CODE_COUNT: usize = 88;
 
 /// One registered problem code (ADR-031 D2/D4).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -492,6 +493,18 @@ problem_codes! {
         status: 422,
         title: "Costume validation failed",
         extensions: &[],
+    },
+
+    /// The costume exists, the addressed **detail** does not (issue #544).
+    /// A distinct 404 rather than `costume.validation` (422) so the client
+    /// can tell "the detail is gone" apart from a real validation failure
+    /// and reconcile by refetching. `id` is S0 — the caller passed the
+    /// `detail_id` path parameter.
+    COSTUME_DETAIL_NOT_FOUND {
+        code: "costume-detail.not-found",
+        status: 404,
+        title: "Costume detail not found",
+        extensions: &["id"],
     },
 
 

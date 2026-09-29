@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024 Breakdown RS Contributors
+// Co-authored-by: space-bunny-free (opencode-go)
 // Co-authored-by: gpt-5.6-luna (opencode-go)
 // Co-authored-by: qwen3.6-35b (neuralwatt)
 // Co-authored-by: deepseek-v4-flash (opencode-go)
@@ -547,6 +548,7 @@ impl<'a> EntityEventHandler<CostumeAggregate, Transaction<'a, Postgres>> for Cos
             | CostumeEvent::CostumeAssignedToCharacter { id, .. }
             | CostumeEvent::CostumeUnassigned { id, .. }
             | CostumeEvent::DetailAdded { id, .. }
+            | CostumeEvent::DetailUpdated { id, .. }
             | CostumeEvent::DetailRemoved { id, .. }
             | CostumeEvent::PhotoLinked { id, .. }
             | CostumeEvent::PhotoUnlinked { id, .. }
