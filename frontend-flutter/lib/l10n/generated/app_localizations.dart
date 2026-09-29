@@ -494,6 +494,36 @@ abstract class AppLocalizations {
   /// **'Das Kostüm konnte nicht gespeichert werden ({code}).'**
   String costumeErrorGeneric(Object code);
 
+  /// No description provided for @costumeErrorCategorySeason.
+  ///
+  /// In de, this message translates to:
+  /// **'Diese Kategorie gehört zu einer anderen Staffel – wähle eine Kategorie dieser Staffel.'**
+  String get costumeErrorCategorySeason;
+
+  /// No description provided for @costumeErrorCategoryArchived.
+  ///
+  /// In de, this message translates to:
+  /// **'Diese Kategorie ist archiviert – wähle eine aktive Kategorie.'**
+  String get costumeErrorCategoryArchived;
+
+  /// No description provided for @costumeDetailCategoryTitle.
+  ///
+  /// In de, this message translates to:
+  /// **'Kategorie'**
+  String get costumeDetailCategoryTitle;
+
+  /// No description provided for @costumeDetailPickCategory.
+  ///
+  /// In de, this message translates to:
+  /// **'Kategorie wählen'**
+  String get costumeDetailPickCategory;
+
+  /// No description provided for @costumeDetailCategorySaved.
+  ///
+  /// In de, this message translates to:
+  /// **'Kategorie gespeichert.'**
+  String get costumeDetailCategorySaved;
+
   /// No description provided for @photoErrorRequiresCharacter.
   ///
   /// In de, this message translates to:

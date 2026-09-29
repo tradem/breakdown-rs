@@ -157,6 +157,21 @@ class CostumeRepository extends BaseRepository {
     () => api.getHandlersApi().unassignCostume(id: id, versionRequest: request),
   );
 
+  /// Sets (or clears) the costume's single category (issue #543,
+  /// `POST /v1/costumes/{id}/category`). The backend response is the
+  /// command acknowledgement (the new `AggregateVersion`); the projected
+  /// row update is eventual (optimistic overlay + bounded reconcile).
+  /// `request.categoryId == null` clears the costume's category.
+  Future<Result<int>> setCategory(
+    String id,
+    SetCostumeCategoryRequest request,
+  ) => run(
+    () => api.getHandlersApi().setCostumeCategory(
+      id: id,
+      setCostumeCategoryRequest: request,
+    ),
+  );
+
   /// Empties the season's costume rows (sign-out / backend-switch resets).
   Future<Result<void>> clearCache(String seasonId) async {
     try {
@@ -188,6 +203,24 @@ CostumeView applyAddDetailOptimistic(
   CostumeView row,
   CostumeDetailView detail,
 ) => row.rebuild((b) => b..details.add(detail));
+
+/// Optimistic overlay edit for the costume-level category (issue #543):
+/// the wire acknowledgement already froze the aggregate version; the
+/// category id + denormalised name are swapped in on the row copy.
+///
+/// The name is denormalised at the UI boundary — the projector resolves
+/// `category_name` best-effort at read time, and the picker always holds
+/// the acted-on list row, so the overlay never invents state: it carries
+/// exactly the (id, name) pair the visible option had.
+CostumeView applyCategoryOptimistic(
+  CostumeView row,
+  String? categoryId,
+  String? categoryName,
+) => row.rebuild(
+  (b) => b
+    ..categoryId = categoryId
+    ..categoryName = categoryName,
+);
 
 /// Version-fence clear condition (spec flutter-costumes-screen):
 /// the overlay is dropped ONLY when the refetched projection row satisfies

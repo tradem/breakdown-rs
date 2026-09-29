@@ -16,8 +16,10 @@ import '../../auth/membership/capability.dart';
 import '../../auth/membership/membership_providers.dart';
 import '../../core/problem_error.dart';
 import '../../data/photo_repository.dart';
+import '../../design/material_icons.dart';
 import '../../l10n/app_localizations_provider.dart';
 import '../characters/characters_controller.dart';
+import '../costume_categories/costume_categories_controller.dart';
 import '../photos/capture.dart';
 import '../photos/prepare.dart';
 import '../photos/widgets/photo_gallery.dart';
@@ -140,6 +142,10 @@ class CostumeDetailPanel extends ConsumerWidget {
               onDismiss: controller.dismissCommandError,
             ),
         _AssignmentSection(season: season, costume: costume),
+        const Divider(height: 32),
+        // Issue #543: the costume's single category sits in the identity
+        // section ABOVE the details (details are pure description now).
+        CostumeCategorySection(season: season, costume: costume),
         const Divider(height: 32),
         // Identity is primary; notes are deliberately secondary.
         _DetailsSection(season: season, costume: costume),
@@ -429,6 +435,206 @@ class _NotesSectionState extends ConsumerState<_NotesSection> {
       ),
     ],
   );
+}
+
+/// Category section (issue #543): the costume's single category in the
+/// identity section — always visible with its icon next to the text (the
+/// `categories.icon` glossary rule: icons are redundant reinforcement,
+/// never the sole carrier of meaning).
+///
+/// The picker section Inlinelists the season's projected, NON-ARCHIVED
+/// vocabulary (read-DTO join via `costumeCategoriesViewProvider`, no extra
+/// network dependency) plus the deliberate "no category" row, which
+/// dispatches `setCategory(categoryId: null)` (clearing must be
+/// possible). The set/clear command runs in the controller with the
+/// AUTHZ-GATE capability check BEFORE any network call; denial renders
+/// the localized 403 narrative via the command-error banner.
+///
+/// // AUTHZ-GATE: `assign_costumes` capability checked in the controller
+/// before any network call; denial renders the 403 narrative and never
+/// issues the request.
+class CostumeCategorySection extends ConsumerWidget {
+  const CostumeCategorySection({
+    super.key,
+    required this.season,
+    required this.costume,
+  });
+
+  final SeasonView season;
+  final CostumeView costume;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final l10n = l10nOf(context);
+    // Fence-held overlays render the optimistic key (Gherkin contract);
+    // reconciled rows render the authoritative key.
+    final controllerState = ref.watch(costumesControllerProvider(season.id));
+    final fenceHeld = controllerState.overlays.any((o) => o.id == costume.id);
+    final effective = fenceHeld
+        ? controllerState.overlays.firstWhere((o) => o.id == costume.id).overlay
+        : costume;
+    // "Ohne Kategorie" is reserved for a null category ID (CodeRabbit
+    // #4126529938): the projected name is best-effort — a set category
+    // whose name is not (yet) resolved is NOT uncategorised. The label is
+    // keyed on the ID, never on the denormalised name.
+    final currentName = switch (effective.categoryId) {
+      null => l10n.costumeCategoryUncategorized,
+      _ => effective.categoryName ?? effective.categoryId!,
+    };
+    return Column(
+      key: const Key('costume-category-section'),
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          l10n.costumeDetailCategoryTitle,
+          style: Theme.of(context).textTheme.titleMedium,
+        ),
+        const SizedBox(height: 8),
+        ListTile(
+          // Gherkin contract keys: optimistic vs projected category (same
+          // pattern as the assignment tile above).
+          key: Key(
+            fenceHeld
+                ? 'overlay-category-${costume.id}-${effective.categoryId ?? "none"}'
+                : 'costume-category-${costume.id}-${effective.categoryId ?? "none"}',
+          ),
+          contentPadding: EdgeInsets.zero,
+          leading: Icon(
+            BreakdownMaterialIcons.forCostumeCategory(effective.categoryName),
+            key: Key('costume-category-icon-${costume.id}'),
+            size: 20,
+          ),
+          title: Text(
+            currentName,
+            key: Key('costume-category-current-${costume.id}'),
+          ),
+        ),
+        const SizedBox(height: 0),
+        FilledButton.tonal(
+          key: Key('costume-category-pick-${costume.id}'),
+          onPressed: () => _showPicker(context, ref),
+          child: Text(l10n.costumeDetailPickCategory),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _showPicker(BuildContext context, WidgetRef ref) {
+    return showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) => Consumer(
+        builder: (context, sheetRef, _) {
+          final l10n = l10nOf(context);
+          final view = sheetRef.watch(costumeCategoriesViewProvider(season.id));
+          return SafeArea(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+                  child: Text(
+                    l10n.costumeDetailPickCategory,
+                    key: const Key('costume-category-picker-title'),
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                ),
+                Flexible(
+                  child: ListView(
+                    key: const Key('costume-category-picker-list'),
+                    shrinkWrap: true,
+                    children: [
+                      // The deliberate "no category" row (None clears the
+                      // costume's category — visible text, never hidden).
+                      ListTile(
+                        key: const Key('costume-category-option-none'),
+                        leading: Icon(
+                          BreakdownMaterialIcons.forCostumeCategory(null),
+                        ),
+                        title: Text(l10n.costumeCategoryUncategorized),
+                        selected: costume.categoryId == null,
+                        onTap: () => _pick(context, ref, null, null),
+                      ),
+                      for (final option in costumeCategoryOptions(view.rows))
+                        ListTile(
+                          key: Key(
+                            'costume-category-option-${option.category.id}',
+                          ),
+                          leading: Icon(
+                            BreakdownMaterialIcons.forCostumeCategory(
+                              option.category.name,
+                            ),
+                          ),
+                          title: Text(option.category.name),
+                          selected: costume.categoryId == option.category.id,
+                          onTap: () => _pick(
+                            context,
+                            ref,
+                            option.category.id,
+                            option.category.name,
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Future<void> _pick(
+    BuildContext context,
+    WidgetRef ref,
+    String? categoryId,
+    String? categoryName,
+  ) async {
+    // CodeRabbit #4126529948: the bottom sheet is a route — after it is
+    // popped its context must not be used across the asynchronous command
+    // gap. The picker builder context IS the screen context here (the
+    // sheet builder receives the section's own context), so resolve the
+    // messenger + localized copy BEFORE popping; the command runs on the
+    // same section instance whose later builds never depend on this
+    // per-dispatch closure context.
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    final savedCopy = l10nOf(context).costumeDetailCategorySaved;
+    Navigator.of(context).pop();
+    final result = await ref
+        .read(costumesControllerProvider(season.id).notifier)
+        .setCategory(
+          costume: costume,
+          categoryId: categoryId,
+          categoryName: categoryName,
+        );
+    final saved = result.match((_) => false, (_) => true);
+    if (saved && messenger != null) {
+      messenger.showSnackBar(
+        SnackBar(
+          key: const Key('costume-category-saved-confirmation'),
+          content: Text(savedCopy),
+        ),
+      );
+    }
+  }
+}
+
+/// Visible, non-archived picker options in server order. Deliberately
+/// public and pure for the unit tier: archived vocabulary must never be a
+/// new categorisation option (the backend list query serves the same
+/// predicate).
+List<CostumeCategoryOption> costumeCategoryOptions(
+  List<CostumeCategoryView> rows,
+) => [
+  for (final c in rows)
+    if (!c.archived) CostumeCategoryOption(category: c),
+];
+
+class CostumeCategoryOption {
+  const CostumeCategoryOption({required this.category});
+
+  final CostumeCategoryView category;
 }
 
 class _DetailsSection extends ConsumerWidget {

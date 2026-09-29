@@ -244,6 +244,23 @@ class AppLocalizationsDe extends AppLocalizations {
   }
 
   @override
+  String get costumeErrorCategorySeason =>
+      'Diese Kategorie gehört zu einer anderen Staffel – wähle eine Kategorie dieser Staffel.';
+
+  @override
+  String get costumeErrorCategoryArchived =>
+      'Diese Kategorie ist archiviert – wähle eine aktive Kategorie.';
+
+  @override
+  String get costumeDetailCategoryTitle => 'Kategorie';
+
+  @override
+  String get costumeDetailPickCategory => 'Kategorie wählen';
+
+  @override
+  String get costumeDetailCategorySaved => 'Kategorie gespeichert.';
+
+  @override
   String get photoErrorRequiresCharacter =>
       'Ordne das Kostüm einer Figur zu, bevor du Fotos verwaltest.';
 
