@@ -52,13 +52,19 @@ import '../seasons/seasons_test_fakes.dart';
 CostumeView _costume(
   String id, {
   String? characterId,
+  String? categoryId,
+  String? categoryName,
   int version = 1,
+  String notes = 'Linen suit',
   List<CostumeDetailView> details = const [],
 }) => CostumeView(
   (b) => b
     ..id = id
     ..characterId = characterId
-    ..notes = 'Linen suit'
+    // Issue #543: costume-level category on the row for picker/no-op tests.
+    ..categoryId = categoryId
+    ..categoryName = categoryName
+    ..notes = notes
     ..details.replace(BuiltList<CostumeDetailView>(details))
     ..photos.replace(BuiltList<CostumePhotoView>())
     ..updatedAt = DateTime.utc(2026, 1, 1)
@@ -253,6 +259,7 @@ class _FakeCostumeRepository extends CostumeRepository {
     SetCostumeCategoryRequest request,
   ) {
     setCategoryCalls++;
+    lastSetCategoryId = request.categoryId;
     lastSetCategoryVersion = request.version;
     final scripted = nextWrite;
     if (scripted != null) return Future.value(scripted);
@@ -1359,7 +1366,57 @@ void main() {
       expect(result.isRight(), isTrue);
       expect(repo.setCategoryCalls, 1);
       expect(repo.lastSetCategoryVersion, 2);
+      expect(repo.lastSetCategoryId, 'cat-1');
+      // CodeRabbit #4126529973: the ack must UPDATE the overlay, not just
+      // echo a version — script the ack to v3 and assert the reconciling
+      // overlay row carries the requested category at the ack version.
+      final state = container.read(costumesControllerProvider('season-1'));
+      final overlay = state.overlays.firstWhere((o) => o.id == 'c-1');
+      expect(overlay.acknowledgedVersion, 2);
+      expect(overlay.status, OverlayStatus.acknowledged);
+      expect(overlay.overlay.categoryId, 'cat-1');
+      expect(overlay.overlay.categoryName, 'Outerwear');
+      // The notes value the user just saved is NOT clobbered by the
+      // category overlay merge onto the freshest row.
+      expect(overlay.overlay.notes, 'Wool coat');
     });
+
+    testWidgets(
+      'category ack advances the overlay via a scripted v3 acknowledgement',
+      (tester) async {
+        // CodeRabbit #4126529973: the fake's default ack (v2) equals the
+        // echoed version, so it cannot prove the overlay advanced. Script
+        // v3 and assert the overlay carries the requested category at v3.
+        await setupContainer(
+          costume: _costume('c-1'),
+          categories: [_category('cat-1')],
+        );
+        await pumpDetail(tester, 'c-1');
+        repo.nextWrite = const Right(3);
+        final result = await container
+            .read(costumesControllerProvider('season-1').notifier)
+            .setCategory(
+              costume: _costume('c-1'),
+              categoryId: 'cat-1',
+              categoryName: 'Outerwear',
+            );
+        expect(result.isRight(), isTrue);
+        expect(repo.setCategoryCalls, 1);
+        final state = container.read(costumesControllerProvider('season-1'));
+        final overlay = state.overlays.firstWhere((o) => o.id == 'c-1');
+        expect(overlay.acknowledgedVersion, 3);
+        expect(overlay.overlay.version, 3);
+        expect(overlay.overlay.categoryId, 'cat-1');
+        expect(overlay.overlay.categoryName, 'Outerwear');
+        // The fence holds (projection still at v1 below the ack): the
+        // editor renders the optimistic category key.
+        await _pumpFrames(tester);
+        expect(
+          find.byKey(const Key('overlay-category-c-1-cat-1')),
+          findsOneWidget,
+        );
+      },
+    );
 
     testWidgets(
       '409 costume-category.season-mismatch renders its distinct narrative',
@@ -1402,6 +1459,47 @@ void main() {
       expect(result.isRight(), isTrue);
       // Idempotent no-op: no network call, no command errors.
       expect(repo.setCategoryCalls, 0);
+    });
+
+    testWidgets('clearing a categorized costume via the picker', (
+      tester,
+    ) async {
+      // CodeRabbit #4126529985: the no-op test above only covers clear-
+      // when-empty. Here the costume STARTS categorized; the "Ohne
+      // Kategorie" row must dispatch a REAL clear request (null id,
+      // acted-on version) and the cleared overlay holds until the fence.
+      await setupContainer(
+        costume: _costume(
+          'c-1',
+          categoryId: 'cat-1',
+          categoryName: 'Outerwear',
+        ),
+        categories: [_category('cat-1')],
+      );
+      await pumpDetail(tester, 'c-1');
+      expect(
+        find.byKey(const Key('costume-category-c-1-cat-1')),
+        findsOneWidget,
+      );
+      await tester.tap(find.byKey(const Key('costume-category-pick-c-1')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('costume-category-option-none')));
+      await _pumpFrames(tester);
+      expect(repo.setCategoryCalls, 1);
+      expect(repo.lastSetCategoryId, null);
+      expect(repo.lastSetCategoryVersion, 1);
+      final overlay = container
+          .read(costumesControllerProvider('season-1'))
+          .overlays
+          .firstWhere((o) => o.id == 'c-1');
+      expect(overlay.overlay.categoryId, isNull);
+      expect(overlay.overlay.version, 2);
+      await _pumpFrames(tester);
+      // Optimistic key while the fence holds (projection still at v1).
+      expect(
+        find.byKey(const Key('overlay-category-c-1-none')),
+        findsOneWidget,
+      );
     });
   });
 

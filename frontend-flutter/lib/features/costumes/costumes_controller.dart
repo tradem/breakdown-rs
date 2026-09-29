@@ -713,10 +713,10 @@ class CostumesController extends _$CostumesController {
   /// (or clearing an un-categorised costume) is an idempotent client-side
   /// no-op — the backend treats the identical value as a state-based no-op
   /// (#515 precedent), so the version never advances and no network call is
-  /// needed. The optimistic overlay swaps the category into the acted-on
-  /// row (the picker's visible (id, name) pair) after the 2xx ack; bounded
-  /// reconcile swaps in the projected row once it reaches the ack version
-  /// (same fence as assign/addDetail).
+  /// needed. The optimistic overlay swaps the category into the freshest
+  /// effective row after the 2xx ack; bounded reconcile swaps in the
+  /// projected row once it reaches the ack version (same fence as
+  /// assign/addDetail).
   ///
   /// Error surfaces: 409 `costume-category.season-mismatch` (foreign-
   /// season vocabulary, blocked at the API edge BEFORE dispatch), 409
@@ -733,14 +733,83 @@ class CostumesController extends _$CostumesController {
     required CostumeView costume,
     required String? categoryId,
     String? categoryName,
+  }) {
+    // Serialize category commands per costume (CodeRabbit #4126529962):
+    // while a selection is pending, a newer one awaits its completion so
+    // it no-op-detects and version-echoes against the FRESHEST effective
+    // state (the older op's ack overlay), never against a racing snapshot.
+    // The chained future is pre-caught: the prior op's error must not
+    // reject the newer op's await — it lives in the command-error banner
+    // (and was returned to the prior caller).
+    final prior = _categoryOps.remove(costume.id);
+    final op = _setCategoryEffective(
+      prior: prior,
+      costume: costume,
+      categoryId: categoryId,
+      categoryName: categoryName,
+    );
+    _categoryOps[costume.id] = op
+        .then((_) {}, onError: (_) {})
+        .whenComplete(() {});
+    return op;
+  }
+
+  /// In-flight category command per costume id (serialization chain).
+  final Map<String, Future<void>> _categoryOps = {};
+
+  /// Serialized body of [setCategory]: swallows the prior op's outcome (its
+  /// error also lives in the command-error banner — no silent discard),
+  /// then dispatches against the freshest effective row.
+  Future<Result<int>> _setCategoryEffective({
+    required Future<void>? prior,
+    required CostumeView costume,
+    required String? categoryId,
+    String? categoryName,
   }) async {
-    // Idempotent no-op: the requested category state already holds. The
-    // server-side no-op returns the UNCHANGED version — echoing the
-    // acted-on row's version is exactly that ack. Authorization-neutral:
-    // this path dispatches no mutating request (same rationale as
-    // [assign]'s same-character shortcut).
-    if (costume.categoryId == categoryId) {
-      return Right<ProblemError, int>(costume.version);
+    if (prior != null) {
+      try {
+        await prior;
+      } on Object {
+        // The prior op already surfaced its failure via the command-error
+        // provider (or returned it to its own caller); never a throw.
+      }
+    }
+    return _setCategoryFresh(
+      costume: costume,
+      categoryId: categoryId,
+      categoryName: categoryName,
+    );
+  }
+
+  /// Category dispatch against the freshest effective row (CodeRabbit
+  /// #4126529962): held overlay first (this client's latest ack), then the
+  /// projection, then the screen-passed snapshot — never an older snapshot
+  /// behind a newer ack. The overlay merges the category onto that row, so
+  /// an acknowledged notes value (or any other field edit) survives in the
+  /// optimistic window.
+  Future<Result<int>> _setCategoryFresh({
+    required CostumeView costume,
+    required String? categoryId,
+    String? categoryName,
+  }) async {
+    var effective = costume;
+    for (final o in ref.read(costumesOverlaysProvider(seasonId))) {
+      if (o.id == costume.id && o.overlay.version >= effective.version) {
+        effective = o.overlay;
+      }
+    }
+    for (final row in ref.read(costumesViewProvider(seasonId)).rows) {
+      if (row.id == costume.id && row.version > effective.version) {
+        effective = row;
+      }
+    }
+    // Idempotent no-op against the FRESHEST state: the requested category
+    // already holds. The server-side no-op returns the UNCHANGED version —
+    // echoing the effective row's version is exactly that ack.
+    // Authorization-neutral: this path dispatches no mutating request
+    // (same rationale as [assign]'s same-character shortcut).
+    if (effective.categoryId == categoryId) {
+      return Right<ProblemError, int>(effective.version);
     }
     // AUTHZ-GATE: capability check before any network call.
     final gate = await _assignGate();
@@ -753,7 +822,7 @@ class CostumesController extends _$CostumesController {
       SetCostumeCategoryRequest(
         (b) => b
           ..categoryId = categoryId
-          ..version = _resolveVersion(costume.id, costume.version),
+          ..version = _resolveVersion(costume.id, effective.version),
       ),
     );
     return res.match(
@@ -769,7 +838,7 @@ class CostumesController extends _$CostumesController {
               CostumeRowOverlay(
                 id: costume.id,
                 overlay: applyCategoryOptimistic(
-                  costume,
+                  effective,
                   categoryId,
                   categoryName,
                 ).rebuild((b) => b..version = version),

@@ -473,8 +473,14 @@ class CostumeCategorySection extends ConsumerWidget {
     final effective = fenceHeld
         ? controllerState.overlays.firstWhere((o) => o.id == costume.id).overlay
         : costume;
-    final currentName =
-        effective.categoryName ?? l10n.costumeCategoryUncategorized;
+    // "Ohne Kategorie" is reserved for a null category ID (CodeRabbit
+    // #4126529938): the projected name is best-effort — a set category
+    // whose name is not (yet) resolved is NOT uncategorised. The label is
+    // keyed on the ID, never on the denormalised name.
+    final currentName = switch (effective.categoryId) {
+      null => l10n.costumeCategoryUncategorized,
+      _ => effective.categoryName ?? effective.categoryId!,
+    };
     return Column(
       key: const Key('costume-category-section'),
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -585,6 +591,15 @@ class CostumeCategorySection extends ConsumerWidget {
     String? categoryId,
     String? categoryName,
   ) async {
+    // CodeRabbit #4126529948: the bottom sheet is a route — after it is
+    // popped its context must not be used across the asynchronous command
+    // gap. The picker builder context IS the screen context here (the
+    // sheet builder receives the section's own context), so resolve the
+    // messenger + localized copy BEFORE popping; the command runs on the
+    // same section instance whose later builds never depend on this
+    // per-dispatch closure context.
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    final savedCopy = l10nOf(context).costumeDetailCategorySaved;
     Navigator.of(context).pop();
     final result = await ref
         .read(costumesControllerProvider(season.id).notifier)
@@ -594,11 +609,11 @@ class CostumeCategorySection extends ConsumerWidget {
           categoryName: categoryName,
         );
     final saved = result.match((_) => false, (_) => true);
-    if (saved && context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
+    if (saved && messenger != null) {
+      messenger.showSnackBar(
         SnackBar(
           key: const Key('costume-category-saved-confirmation'),
-          content: Text(l10nOf(context).costumeDetailCategorySaved),
+          content: Text(savedCopy),
         ),
       );
     }
