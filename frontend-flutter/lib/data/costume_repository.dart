@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: space-bunny-free (opencode-go)
 // Co-authored-by: hy3 (opencode-go)
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
 // Co-authored-by: longcat-2.0 (opencode-go)
@@ -267,9 +268,11 @@ CostumeView applyUpdateDetailOptimistic(
             : d,
       )
       .toList();
-  return row.rebuild((b) => b.details
-    ..clear()
-    ..addAll(updated));
+  return row.rebuild(
+    (b) => b.details
+      ..clear()
+      ..addAll(updated),
+  );
 }
 
 /// Optimistic overlay edit for a detail delete (issue #544): the row leaves
@@ -277,9 +280,11 @@ CostumeView applyUpdateDetailOptimistic(
 /// on the next refetch.
 CostumeView applyRemoveDetailOptimistic(CostumeView row, String detailId) {
   final remaining = row.details.where((d) => d.id != detailId);
-  return row.rebuild((b) => b.details
-    ..clear()
-    ..addAll(remaining));
+  return row.rebuild(
+    (b) => b.details
+      ..clear()
+      ..addAll(remaining),
+  );
 }
 
 /// Optimistic overlay edit for the costume-level category (issue #543):

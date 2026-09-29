@@ -19,6 +19,22 @@ releases are cut as `flutter-vX.Y.Z` tags.
 
 ### Added
 
+- **Costume detail edit + delete (issue #544):** a costume detail can finally
+  be changed and removed — until now it was add-only, so a typo in the
+  `Betreff` was permanent. New `CostumesController.updateDetail` /
+  `removeDetail` (plus the matching `CostumeRepository` methods) dispatch
+  `PATCH` / `DELETE /v1/costumes/{id}/details/{detail_id}`. Both check the
+  `assign_costumes` capability BEFORE any network call (403, localized,
+  zero requests — provable by the request counters), then echo the freshest
+  aggregate version, swap the entry into the acknowledged overlay, and let
+  the bounded reconcile confirm it against the projection. `updateDetail`
+  sends the FULL detail so a cleared `subject` reaches the server as an
+  explicit `null` rather than silently keeping the old value, and reuses
+  the existing wire id — issue #472's `'pending'` placeholder has no path
+  here. A 404 `costume-detail.not-found` (the detail was already gone
+  server-side) gets its own localized narrative keyed on the stable problem
+  code instead of the generic "costume could not be saved" fallback. The
+  row actions and inline editor that drive these methods land in issue #545.
 - **Costume category picker (issue #543):** one costume = one category on
   the client — the costume editor's identity section shows the costume's
   category (icon + always-visible text, "Ohne Kategorie" fallback); the
