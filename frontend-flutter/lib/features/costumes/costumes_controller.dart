@@ -748,10 +748,24 @@ class CostumesController extends _$CostumesController {
       categoryId: categoryId,
       categoryName: categoryName,
     );
-    _categoryOps[costume.id] = op
-        .then((_) {}, onError: (_) {})
-        .whenComplete(() {});
+    final tracked = op.then<void>(
+      (_) {},
+      // Pre-caught: the prior op's error must not reject the newer op's
+      // await — it lives in the command-error banner (and was returned to
+      // the prior caller).
+      onError: (_) {},
+    );
+    _trackCategoryOp(costume.id, tracked);
     return op;
+  }
+
+  /// Retains the serialized category op as the next op's per-costume
+  /// predecessor. `addEntries` (void) statt einer Map-Zuweisung: eine
+  /// Zuweisungs-Anweisung trägt den RHS-Typ (`Future<void>`) und die
+  /// discard_result-Regel flaggt korrekt jedes Future-typed Statement —
+  /// dieses Retain ist kein Discard, sondern die Serialisierungs-Kette.
+  void _trackCategoryOp(String id, Future<void> tracked) {
+    _categoryOps.addEntries([MapEntry(id, tracked)]);
   }
 
   /// In-flight category command per costume id (serialization chain).
