@@ -35,6 +35,10 @@ releases are cut as `flutter-vX.Y.Z` tags.
   server-side) gets its own localized narrative keyed on the stable problem
   code instead of the generic "costume could not be saved" fallback. The
   row actions and inline editor that drive these methods land in issue #545.
+  A `costume-detail.not-found` 404 additionally triggers a bounded
+  reconcile, so the "the list was refreshed" narrative in the banner is
+  backed by an actual refetch; every other error is left alone so a 409
+  or a transport failure still surfaces the real cause.
 - **Costume category picker (issue #543):** one costume = one category on
   the client — the costume editor's identity section shows the costume's
   category (icon + always-visible text, "Ohne Kategorie" fallback); the

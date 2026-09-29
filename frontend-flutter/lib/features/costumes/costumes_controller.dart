@@ -750,6 +750,7 @@ class CostumesController extends _$CostumesController {
     return res.match(
       (err) {
         _setCommandError(CostumeCommandSurface.costume, err);
+        _reconcileStaleDetail(err);
         return Left<ProblemError, int>(err);
       },
       (version) {
@@ -809,6 +810,7 @@ class CostumesController extends _$CostumesController {
     return res.match(
       (err) {
         _setCommandError(CostumeCommandSurface.costume, err);
+        _reconcileStaleDetail(err);
         return Left<ProblemError, int>(err);
       },
       (version) {
@@ -1113,6 +1115,24 @@ class CostumesController extends _$CostumesController {
   }
 
   Future<void> reconcile() => _reconcile.reconcile();
+
+  /// Resyncs the list after a detail command failed with
+  /// `costume-detail.not-found` (issue #544).
+  ///
+  /// That 404 means the server no longer holds the addressed detail, so the
+  /// row on screen is stale whatever the client intended. The
+  /// `costumeErrorDetailNotFound` copy tells the user "the list was
+  /// refreshed" — so this has to actually happen, or the banner promises
+  /// something the client never does and a second tap on the same row
+  /// returns the identical 404 (CodeRabbit review on PR #561).
+  ///
+  /// Every OTHER error is left alone: a 409 version conflict or a transport
+  /// failure says nothing about the detail's existence, and refetching on
+  /// those would fight the user's retry.
+  void _reconcileStaleDetail(ProblemError err) {
+    if (err.code != 'costume-detail.not-found') return;
+    unawaited(reconcile());
+  }
 
   Future<void> refresh() async {
     ref.read(costumesCommandErrorProvider(seasonId).notifier).clear();

@@ -278,6 +278,7 @@ void main() {
   late ValueNotifier<Result<SeasonMembershipDto>> membershipHolder;
   late ManualReconciliationScheduler scheduler;
   late ProviderContainer container;
+  int listFetchCalls = 0;
 
   Future<void> setupContainer({
     List<CostumeView> initialRows = const [],
@@ -287,6 +288,7 @@ void main() {
   }) async {
     db = CacheDatabase(NativeDatabase.memory());
     addTearDown(db.close);
+    listFetchCalls = 0;
     repo = _FakeCostumeRepository(BreakdownApi(), CostumeCacheDao(db));
     holder = ValueNotifier<Result<List<CostumeView>>>(
       initialFetch ?? Right(initialRows),
@@ -321,6 +323,9 @@ void main() {
         charactersListFetchProvider('season-1')
             .overrideWith((ref) async => Right(characters)),
         costumesListFetchProvider('season-1').overrideWith((ref) async {
+          // Issue #544: a reconcile is only observable through this seam, so
+          // count it — a 404 `costume-detail.not-found` must resync the list.
+          listFetchCalls++;
           final dao = CostumeCacheDao(ref.watch(cacheDatabaseProvider));
           return holder.value.match(
             (err) => Left<ProblemError, List<CostumeView>>(err),
@@ -1009,6 +1014,74 @@ void main() {
         expect(overlay.details.map((d) => d.id), ['d-2']);
         expect(overlay.version, 2);
       });
+
+      testWidgets(
+        'a costume-detail.not-found resyncs the list (CodeRabbit PR #561)',
+        (tester) async {
+          // The banner copy promises "the list was refreshed" — the error
+          // branch must therefore actually reconcile, or the promise is a lie
+          // and a second tap on the same row returns the identical 404.
+          final row = _costume(
+            'c-7',
+            details: [detailView('d-1', text: 'seide')],
+          );
+          await setupContainer(initialRows: [row]);
+          await pumpScreen(tester);
+          final before = listFetchCalls;
+          repo.nextWrite = const Left(
+            ProblemError(code: 'costume-detail.not-found', status: 404),
+          );
+          final controller = container.read(
+            costumesControllerProvider('season-1').notifier,
+          );
+
+          expect(
+            (await controller.updateDetail(
+              costume: row,
+              detailId: 'd-1',
+              text: 'leder',
+            )).isLeft(),
+            isTrue,
+          );
+          await tester.pumpAndSettle();
+          expect(
+            listFetchCalls,
+            greaterThan(before),
+            reason: 'a stale detail must trigger a bounded reconcile',
+          );
+        },
+      );
+
+      testWidgets(
+        'a 409 does NOT resync — the client must not fight the retry',
+        (tester) async {
+          // Guard on the other side of the new branch: a version conflict says
+          // nothing about the detail's existence, so refetching there would
+          // discard the user's intent and mask the real cause.
+          final row = _costume(
+            'c-7',
+            version: 3,
+            details: [detailView('d-1', text: 'seide')],
+          );
+          await setupContainer(initialRows: [row]);
+          await pumpScreen(tester);
+          repo.nextWrite = const Left(_conflict);
+          final controller = container.read(
+            costumesControllerProvider('season-1').notifier,
+          );
+          final before = listFetchCalls;
+
+          expect(
+            (await controller.removeDetail(
+              costume: row,
+              detailId: 'd-1',
+            )).isLeft(),
+            isTrue,
+          );
+          await tester.pumpAndSettle();
+          expect(listFetchCalls, before);
+        },
+      );
 
       testWidgets(
         'removeDetail without the capability issues no network call',
