@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0
 # Copyright (C) 2024-2026 Breakdown RS Contributors
 # Co-authored-by: gpt-5.6-luna (opencode-go)
+# Co-authored-by: glm-5.3-flash (opencode-go)
 
 name: Integration Tests
 
@@ -154,7 +155,13 @@ jobs:
           echo "GDRIVE lengths: client_id=${#GDRIVE_CLIENT_ID} secret=${#GDRIVE_CLIENT_SECRET} refresh=${#GDRIVE_REFRESH_TOKEN} root=${#GDRIVE_ROOT}"
           cargo test -p integration-tests --test ai_gdrive_fixture_test -- --nocapture
 
+      # Step-level guard: a wedged container would otherwise burn the whole
+      # 30-minute job budget (2026-09-30: audit_cross_cutting_tests stalled
+      # 24 min in an unbounded Redis multiplexed connect and the job timeout
+      # killed the run with zero results recorded). Each step fails cleanly
+      # early instead, keeping headroom for the remaining steps.
       - name: Postgres-only integration tests (parallel)
+        timeout-minutes: 8
         env:
           RUST_LOG: info
         run: |
@@ -180,6 +187,7 @@ jobs:
             --nocapture
 
       - name: SierraDB round-trip integration tests (sequential)
+        timeout-minutes: 18
         env:
           RUST_LOG: info,sierradb=debug,kameo_es=debug
         run: |

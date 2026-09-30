@@ -75,6 +75,20 @@ const PROJECTION_DEADLINE: Duration = Duration::from_secs(45);
 /// consistency). Generous enough for CI containers where startup takes longer.
 const POLL_INTERVAL: Duration = Duration::from_millis(150);
 
+/// Per-attempt ceiling on one SierraDB RESP round trip (connect + `EAPPEND`).
+///
+/// redis-rs's multiplexed connection has NO default timeout: once the server
+/// accepts the TCP handshake but freezes (wedged container, resource
+/// starvation on the runner), `get_multiplexed_async_connection().await`
+/// never returns and the `eappend_event` retry loop — which only retries on
+/// `Err` — never advances. That is exactly the CI symptom of an integration
+/// run burning its whole 30-minute job budget inside `--test-threads=1`
+/// (2026-09-30: `audit_cross_cutting_tests` stalled for 24 minutes inside
+/// an EAPPEND connect). 10 s per attempt keeps a wedged container bounded:
+/// the retry loop treats the timeout like any other transient error, so the
+/// worst case per command is 13 × 10 s ≈ 2 min — surfaced, not hung.
+const RESP_ATTEMPT_TIMEOUT: Duration = Duration::from_secs(10);
+
 // ---------------------------------------------------------------------------
 // Shared container setup (background thread)
 // ---------------------------------------------------------------------------
@@ -270,21 +284,33 @@ async fn eappend_event(
             let now_ms = Utc::now().timestamp_millis().try_into().unwrap_or(0u64);
             let ts_string = now_ms.to_string();
             let ts_bytes = ts_string.as_bytes();
-            let mut conn = client.get_multiplexed_async_connection().await?;
-            redis::cmd("EAPPEND")
-                .arg(stream_id)
-                .arg(event_name)
-                .arg("EXPECTED_VERSION")
-                .arg(expected_version)
-                .arg("PAYLOAD")
-                .arg(payload)
-                .arg("METADATA")
-                .arg(metadata)
-                .arg("TIMESTAMP")
-                .arg(ts_bytes)
-                .query_async::<Value>(&mut conn)
+            // One attempt = connect + command, bounded by RESP_ATTEMPT_TIMEOUT
+            // so a wedged SierraDB cannot hang the multiplexed connect forever
+            // (redis-rs has no default connect timeout; see const docs).
+            let attempt = async {
+                let mut conn = client.get_multiplexed_async_connection().await?;
+                redis::cmd("EAPPEND")
+                    .arg(stream_id)
+                    .arg(event_name)
+                    .arg("EXPECTED_VERSION")
+                    .arg(expected_version)
+                    .arg("PAYLOAD")
+                    .arg(payload)
+                    .arg("METADATA")
+                    .arg(metadata)
+                    .arg("TIMESTAMP")
+                    .arg(ts_bytes)
+                    .query_async::<Value>(&mut conn)
+                    .await
+                    .map_err(|e| anyhow!("EAPPEND {event_name} failed: {e}"))
+            };
+            tokio::time::timeout(RESP_ATTEMPT_TIMEOUT, attempt)
                 .await
-                .map_err(|e| anyhow!("EAPPEND {event_name} failed: {e}"))
+                .map_err(|_| {
+                    anyhow!(
+                        "EAPPEND {event_name} exceeded {RESP_ATTEMPT_TIMEOUT:?} — SierraDB unresponsive"
+                    )
+                })?
         },
         12, // 12 retries × 1s = 12s max wait; SierraDB in CI can need 5-10s after ESVER passes
     )
@@ -696,12 +722,21 @@ async fn saga_dispatched_costume_category_shows_saga_provenance() -> Result<()> 
 
     // Spawn the costume category read-model projector on the projector pool so
     // its workers don't compete with test queries for connection slots.
-    infra::projectors::spawn_costume_category_projector(
-        containers.pg_pool.clone(),
-        Arc::clone(&containers.redis_client),
-        infra::projectors::ProjectorFlushConfig::test_profile(),
+    // Bounded like RESP_ATTEMPT_TIMEOUT above: the spawn opens its own
+    // multiplexed Redis connection (no redis-rs default timeout) and a wedged
+    // container must surface as an error instead of stalling the run.
+    tokio::time::timeout(
+        Duration::from_secs(30),
+        infra::projectors::spawn_costume_category_projector(
+            containers.pg_pool.clone(),
+            Arc::clone(&containers.redis_client),
+            infra::projectors::ProjectorFlushConfig::test_profile(),
+        ),
     )
-    .await?;
+    .await
+    .map_err(|_| {
+        anyhow!("spawn_costume_category_projector exceeded 30s — SierraDB unresponsive")
+    })??;
 
     // Let subscriptions settle.
     tokio::time::sleep(Duration::from_millis(500)).await;
