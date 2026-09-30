@@ -1720,6 +1720,36 @@ abstract class AppLocalizations {
   /// **'Text ist erforderlich'**
   String get costumeDetailTextRequired;
 
+  /// No description provided for @costumeDetailTextRequiredHint.
+  ///
+  /// In de, this message translates to:
+  /// **'Pflichtfeld – markiert mit *'**
+  String get costumeDetailTextRequiredHint;
+
+  /// No description provided for @costumeDetailSubjectOptional.
+  ///
+  /// In de, this message translates to:
+  /// **'optional'**
+  String get costumeDetailSubjectOptional;
+
+  /// No description provided for @costumeDetailEditDetail.
+  ///
+  /// In de, this message translates to:
+  /// **'Detail bearbeiten'**
+  String get costumeDetailEditDetail;
+
+  /// No description provided for @costumeDetailDeleteTitle.
+  ///
+  /// In de, this message translates to:
+  /// **'Detail löschen?'**
+  String get costumeDetailDeleteTitle;
+
+  /// No description provided for @costumeDetailDeleteMessage.
+  ///
+  /// In de, this message translates to:
+  /// **'„{detail}“ wird entfernt. Das kann nicht rückgängig gemacht werden.'**
+  String costumeDetailDeleteMessage(Object detail);
+
   /// No description provided for @costumeDetailUnassigned.
   ///
   /// In de, this message translates to:

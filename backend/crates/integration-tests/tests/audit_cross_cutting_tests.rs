@@ -3,6 +3,7 @@
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
 // Co-authored-by: glm-5.2 (neuralwatt)
 // Co-authored-by: gpt-5.6-luna (opencode-go)
+// Co-authored-by: glm-5.3-flash (opencode-go)
 
 #![allow(
     clippy::unwrap_used,
@@ -61,6 +62,7 @@ use kameo_es::Metadata;
 use redis::Client as RedisClient;
 use redis::Value;
 use serde::Serialize;
+use sierradb_client as _;
 use sqlx::PgPool;
 use testcontainers::ContainerAsync;
 use uuid::Uuid;
@@ -74,6 +76,20 @@ const PROJECTION_DEADLINE: Duration = Duration::from_secs(45);
 /// Bounded-retry window for the audit projector to catch up (ADR-015 eventual
 /// consistency). Generous enough for CI containers where startup takes longer.
 const POLL_INTERVAL: Duration = Duration::from_millis(150);
+
+/// Per-attempt ceiling on one SierraDB RESP round trip (connect + `EAPPEND`).
+///
+/// redis-rs's multiplexed connection has NO default timeout: once the server
+/// accepts the TCP handshake but freezes (wedged container, resource
+/// starvation on the runner), `get_multiplexed_async_connection().await`
+/// never returns and the `eappend_event` retry loop — which only retries on
+/// `Err` — never advances. That is exactly the CI symptom of an integration
+/// run burning its whole 30-minute job budget inside `--test-threads=1`
+/// (2026-09-30: `audit_cross_cutting_tests` stalled for 24 minutes inside
+/// an EAPPEND connect). 10 s per attempt keeps a wedged container bounded:
+/// the retry loop treats the timeout like any other transient error, so the
+/// worst case per command is 13 × 10 s ≈ 2 min — surfaced, not hung.
+const RESP_ATTEMPT_TIMEOUT: Duration = Duration::from_secs(10);
 
 // ---------------------------------------------------------------------------
 // Shared container setup (background thread)
@@ -230,33 +246,12 @@ fn encode_event<E: Serialize>(event: &E) -> Result<Vec<u8>> {
     Ok(buf)
 }
 
-/// Retry an async operation with up to `max_retries` retries (1s delay between attempts).
-async fn retry_with_backoff<F, Fut, T>(func: F, max_retries: u32) -> Result<T>
-where
-    F: Fn() -> Fut,
-    Fut: std::future::Future<Output = Result<T, anyhow::Error>>,
-{
-    let mut last_err = None;
-    for attempt in 0..=max_retries {
-        match func().await {
-            Ok(value) => return Ok(value),
-            Err(e) if attempt < max_retries => {
-                last_err = Some(e);
-                tokio::time::sleep(Duration::from_secs(1)).await;
-            }
-            Err(e) => return Err(e),
-        }
-    }
-    Err(anyhow!(
-        "operation failed after {max_retries} retries: {}",
-        last_err.unwrap()
-    ))
-}
-
 /// EAPPEND a single event to a SierraDB stream using direct RESP3 commands.
 ///
-/// Uses **3 retries with exponential backoff** to handle transient CI resource
-/// exhaustion (Docker container startup delays, port conflicts).
+/// Bounded everywhere: each attempt (multiplexed connect + command) is capped
+/// by [RESP_ATTEMPT_TIMEOUT] so a wedged container cannot hang the run, and
+/// the 12 retry rounds sleep 1 s between attempts (`/^12 retries × 1s/` —
+/// SierraDB in CI can need 5-10 s after ESVER passes).
 async fn eappend_event(
     client: &Arc<RedisClient>,
     stream_id: &str,
@@ -265,11 +260,35 @@ async fn eappend_event(
     payload: &[u8],
     metadata: &[u8],
 ) -> Result<()> {
-    retry_with_backoff(
-        || async {
-            let now_ms = Utc::now().timestamp_millis().try_into().unwrap_or(0u64);
-            let ts_string = now_ms.to_string();
-            let ts_bytes = ts_string.as_bytes();
+    let mut last_err: Option<anyhow::Error> = None;
+    for attempt_no in 0..=12u32 {
+        if attempt_no > 0 {
+            tokio::time::sleep(Duration::from_secs(1)).await;
+            // Reconcile BEFORE re-appending. Redis 1.7 does NOT cancel a
+            // command that was already sent when the request future is
+            // dropped (timeout path below); SierraDB 0.3.1 generates a FRESH
+            // event id per EAPPEND (we send no `EVENT_ID`), so a blind retry
+            // with a stale EXPECTED_VERSION is guaranteed to fail after the
+            // earlier attempt persisted. Read back and match (event_name,
+            // payload) first: a match means success, absence means a retry is
+            // safe (CodeRabbit #4143046189).
+            let persisted = tokio::time::timeout(
+                RESP_ATTEMPT_TIMEOUT,
+                eappend_persisted(client, stream_id, event_name, payload),
+            )
+            .await
+            .map_err(|_| anyhow!("reconcile ESCAN exceeded {RESP_ATTEMPT_TIMEOUT:?}"))??;
+            if persisted {
+                return Ok(());
+            }
+        }
+        let now_ms = Utc::now().timestamp_millis().try_into().unwrap_or(0u64);
+        let ts_string = now_ms.to_string();
+        let ts_bytes = ts_string.as_bytes();
+        // One attempt = connect + command, bounded by RESP_ATTEMPT_TIMEOUT
+        // so a wedged SierraDB cannot hang the multiplexed connect forever
+        // (redis-rs has no default connect timeout; see const docs).
+        let attempt = async {
             let mut conn = client.get_multiplexed_async_connection().await?;
             redis::cmd("EAPPEND")
                 .arg(stream_id)
@@ -285,11 +304,51 @@ async fn eappend_event(
                 .query_async::<Value>(&mut conn)
                 .await
                 .map_err(|e| anyhow!("EAPPEND {event_name} failed: {e}"))
-        },
-        12, // 12 retries × 1s = 12s max wait; SierraDB in CI can need 5-10s after ESVER passes
-    )
-    .await?;
-    Ok(())
+        };
+        match tokio::time::timeout(RESP_ATTEMPT_TIMEOUT, attempt).await {
+            Ok(Ok(_)) => return Ok(()),
+            Ok(Err(e)) => last_err = Some(e),
+            Err(_) => {
+                last_err = Some(anyhow!(
+                    "EAPPEND {event_name} exceeded {RESP_ATTEMPT_TIMEOUT:?} — SierraDB unresponsive"
+                ))
+            }
+        }
+    }
+    Err(anyhow!(
+        "operation failed after 12 retries: {}",
+        last_err.unwrap_or_else(|| anyhow!("no attempt recorded"))
+    ))
+}
+
+/// Whether the desired event (by `event_name` + exact `payload`) is already
+/// persisted on the stream — the read-back reconciliation for the timeout
+/// path. Running on the SAME per-test stream, the (name, payload) pair is a
+/// sufficient identity: no other writer appends concurrently, and a
+/// mid-flight duplicate would carry a different generated event id but the
+/// same bytes.
+async fn eappend_persisted(
+    client: &Arc<RedisClient>,
+    stream_id: &str,
+    event_name: &str,
+    payload: &[u8],
+) -> Result<bool> {
+    use sierradb_client::AsyncCommands;
+    let read = async {
+        let mut conn = client.get_multiplexed_async_connection().await?;
+        let batch: sierradb_client::EventBatch = conn
+            .escan(stream_id, 0, None, Some(50))
+            .await
+            .map_err(|e| anyhow!("reconcile ESCAN {stream_id} failed: {e}"))?;
+        Ok::<_, anyhow::Error>(batch)
+    };
+    let batch = tokio::time::timeout(RESP_ATTEMPT_TIMEOUT, read)
+        .await
+        .map_err(|_| anyhow!("reconcile ESCAN exceeded {RESP_ATTEMPT_TIMEOUT:?}"))??;
+    Ok(batch
+        .events
+        .iter()
+        .any(|e| e.event_name == event_name && e.payload == payload))
 }
 
 /// Create CBOR-encoded saga metadata.
@@ -696,12 +755,21 @@ async fn saga_dispatched_costume_category_shows_saga_provenance() -> Result<()> 
 
     // Spawn the costume category read-model projector on the projector pool so
     // its workers don't compete with test queries for connection slots.
-    infra::projectors::spawn_costume_category_projector(
-        containers.pg_pool.clone(),
-        Arc::clone(&containers.redis_client),
-        infra::projectors::ProjectorFlushConfig::test_profile(),
+    // Bounded like RESP_ATTEMPT_TIMEOUT above: the spawn opens its own
+    // multiplexed Redis connection (no redis-rs default timeout) and a wedged
+    // container must surface as an error instead of stalling the run.
+    tokio::time::timeout(
+        Duration::from_secs(30),
+        infra::projectors::spawn_costume_category_projector(
+            containers.pg_pool.clone(),
+            Arc::clone(&containers.redis_client),
+            infra::projectors::ProjectorFlushConfig::test_profile(),
+        ),
     )
-    .await?;
+    .await
+    .map_err(|_| {
+        anyhow!("spawn_costume_category_projector exceeded 30s — SierraDB unresponsive")
+    })??;
 
     // Let subscriptions settle.
     tokio::time::sleep(Duration::from_millis(500)).await;

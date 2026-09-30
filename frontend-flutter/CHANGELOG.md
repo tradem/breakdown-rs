@@ -5,6 +5,7 @@
 <!-- Co-authored-by: deepseek-v4-flash (neuralwatt) -->
 <!-- Co-authored-by: space-bunny-free (opencode-go) -->
 <!-- Co-authored-by: qwen3.8-flash (opencode-go) -->
+<!-- Co-authored-by: glm-5.3-flash (opencode-go) -->
 
 # Changelog
 
@@ -18,6 +19,32 @@ releases are cut as `flutter-vX.Y.Z` tags.
 ## [Unreleased]
 
 ### Added
+- **Costume detail inline editor (issue #545):** the `＋ Detail
+  hinzufügen` row and a per-row edit action open the SAME inline editor
+  (`_DetailEditor`) expanded in the row — no `showDialog` form any more, so
+  the keyboard cannot collide with a modal and the scroll context survives.
+  One widget serves create and edit mode (`initial: CostumeDetailView?`);
+  edit dispatches the #544 `updateDetail` with the existing detail id (no
+  placeholder path, issue #472 cannot recur), and a per-row delete action
+  asks through a confirmation dialog before dispatching `removeDetail`
+  (destructive glossary rule `common.delete`: always with confirm dialog).
+  Required-field affordances: `text` is marked with a `*` label suffix and
+  a required-mark helper, `subject` carries the symmetric `(optional)`
+  helper, validation runs on first user interaction
+  (`AutovalidateMode.onUserInteraction`), and the save button stays
+  disabled while `text.trim()` is empty (no submit-only error). Failed
+  commands surface via the command-error banner (no silent discard);
+  version fences come from the shared `_resolveVersion` ack chain. A new
+  open-editor golden (`costume_detail_editor_open`) locks the layout;
+  the 4 collapsed-state screen goldens render unchanged. The stale
+  `_PhotosSection._detail` doc comment (list rows "carry no child
+  collections") is corrected to the real contract: the batch-enriched
+  list route carries details/photos since the #543/#544 backend tranche;
+  the single-costume fetch exists to refresh the possibly-optimistic
+  rendered row.
+- **Version bump:** `0.3.0-alpha.31+41 → 0.3.0-alpha.32+42` (pre-release
+  increment per merged-PR practice on the alpha line; `+N` stays strictly
+  monotonic for the Play `versionCode`).
 
 - **Costume detail edit + delete (issue #544):** a costume detail can finally
   be changed and removed — until now it was add-only, so a typo in the

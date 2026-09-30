@@ -3,6 +3,7 @@
 // Co-authored-by: space-bunny-free (opencode-go)
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
+// Co-authored-by: glm-5.3-flash (opencode-go)
 
 // Tier-2 widget + controller tests for `CostumesScreen` (Task 4.3):
 // data/empty/error/stale/overlay states (semantic finders, never `byType`
@@ -154,9 +155,10 @@ class _FakeCostumeRepository extends CostumeRepository {
   int removeDetailCalls = 0;
 
   /// Scripted single-costume DETAIL for `getAndCache`, and how often the screen
-  /// asked for it. The detail screen fetches the enriched row on open, because
-  /// the LIST route leaves `photos`/`details` empty (the server enriches only
-  /// `GET /v1/costumes/{id}`). Without this override the fake falls through to
+  /// asked for it. The detail screen fetches the enriched single row on open
+  /// and after gallery-affecting commands, because the rendered row may be an
+  /// optimistic overlay the last snapshot cannot reflect. Without this
+  /// override the fake falls through to
   /// the REAL Dio client: the request never settles under `testWidgets`, and the
   /// socket timer is still pending at teardown — the exact reason
   /// `selecting a tile opens the editor on the first screen` failed.
@@ -419,9 +421,9 @@ void main() {
       expect(find.byType(Scaffold), findsOneWidget);
     });
 
-    // The detail screen fetches the enriched single-costume row on open (the
-    // list route leaves `photos` empty, so relying on the cache row alone made
-    // every gallery unconditionally empty). Contract: one fetch per open, the
+    // The detail screen fetches the enriched single-costume row on open (an
+    // optimistic overlay row is not enough to render variant state — see the
+    // stale-comment fix in issue #545). Contract: one fetch per open, the
     // gallery renders from the FETCHED row, and a failed fetch keeps the list
     // row instead of crashing or faking an empty gallery.
     testWidgets('opening a costume fetches the enriched detail ONCE', (

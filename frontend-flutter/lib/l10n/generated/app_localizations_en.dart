@@ -1003,6 +1003,23 @@ class AppLocalizationsEn extends AppLocalizations {
   String get costumeDetailTextRequired => 'Text is required';
 
   @override
+  String get costumeDetailTextRequiredHint => 'Required – marked with *';
+
+  @override
+  String get costumeDetailSubjectOptional => 'optional';
+
+  @override
+  String get costumeDetailEditDetail => 'Edit detail';
+
+  @override
+  String get costumeDetailDeleteTitle => 'Delete detail?';
+
+  @override
+  String costumeDetailDeleteMessage(Object detail) {
+    return '“$detail” will be removed. This cannot be undone.';
+  }
+
+  @override
   String get costumeDetailUnassigned => 'Unassigned';
 
   @override

@@ -1019,6 +1019,23 @@ class AppLocalizationsDe extends AppLocalizations {
   String get costumeDetailTextRequired => 'Text ist erforderlich';
 
   @override
+  String get costumeDetailTextRequiredHint => 'Pflichtfeld – markiert mit *';
+
+  @override
+  String get costumeDetailSubjectOptional => 'optional';
+
+  @override
+  String get costumeDetailEditDetail => 'Detail bearbeiten';
+
+  @override
+  String get costumeDetailDeleteTitle => 'Detail löschen?';
+
+  @override
+  String costumeDetailDeleteMessage(Object detail) {
+    return '„$detail“ wird entfernt. Das kann nicht rückgängig gemacht werden.';
+  }
+
+  @override
   String get costumeDetailUnassigned => 'Nicht zugeordnet';
 
   @override

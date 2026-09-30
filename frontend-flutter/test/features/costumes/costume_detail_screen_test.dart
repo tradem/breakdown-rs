@@ -3,12 +3,15 @@
 // Co-authored-by: space-bunny-free (opencode-go)
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
+// Co-authored-by: glm-5.3-flash (opencode-go)
 
 // Tier-2 widget tests for `CostumeDetailScreen` (Task 4.3): detail elements
 // (+ denormalized category names), notes editor, assign/unassign (version
 // echo, optimistic overlay keys, 409 copy, role-denial with zero network
 // calls), add-detail form (category picker), photo empty state + delete
 // confirm flow + photo denial narrative.
+
+import 'dart:async';
 
 import 'package:breakdown_api/breakdown_api.dart';
 import 'package:one_of/one_of.dart';
@@ -239,10 +242,56 @@ class _FakeCostumeRepository extends CostumeRepository {
     return Future.value(const Right(2));
   }
 
+  /// While set, the add-detail ack stays unresolved until the test
+  /// completes the gate — simulates the in-flight window the double-tap
+  /// guard (CodeRabbit #563) protects.
+  Completer<void>? detailGate;
+
   @override
   Future<Result<int>> addDetail(String id, AddCostumeDetailRequest request) {
     detailCalls++;
     lastDetailVersion = request.version;
+    final scripted = nextWrite;
+    if (scripted != null) return Future.value(scripted);
+    final gate = detailGate;
+    if (gate != null) {
+      return gate.future.then<Right<ProblemError, int>>((_) => const Right(2));
+    }
+    return Future.value(const Right(2));
+  }
+
+  /// Issue #545: the inline editor dispatches these via the #544 controller
+  /// seam; counters + captured echoes make edit and delete provable.
+  int updateDetailCalls = 0;
+  int removeDetailCalls = 0;
+  String? lastUpdateDetailId;
+  String? lastRemoveDetailId;
+  UpdateCostumeDetailRequest? lastUpdateDetailRequest;
+  VersionRequest? lastRemoveDetailRequest;
+
+  @override
+  Future<Result<int>> updateDetail(
+    String id,
+    String detailId,
+    UpdateCostumeDetailRequest request,
+  ) {
+    updateDetailCalls++;
+    lastUpdateDetailId = detailId;
+    lastUpdateDetailRequest = request;
+    final scripted = nextWrite;
+    if (scripted != null) return Future.value(scripted);
+    return Future.value(const Right(2));
+  }
+
+  @override
+  Future<Result<int>> removeDetail(
+    String id,
+    String detailId,
+    VersionRequest request,
+  ) {
+    removeDetailCalls++;
+    lastRemoveDetailId = detailId;
+    lastRemoveDetailRequest = request;
     final scripted = nextWrite;
     if (scripted != null) return Future.value(scripted);
     return Future.value(const Right(2));
@@ -267,10 +316,12 @@ class _FakeCostumeRepository extends CostumeRepository {
   }
 
   /// Scripted row for `GET /v1/costumes/{id}` (`getAndCache`), plus a call
-  /// counter. The screen fetches the ENRICHED row on open: the list route maps
-  /// the raw projection row and leaves `photos`/`details` empty, so the gallery
-  /// could never show a photo from cached list rows alone. Defaulting to the
-  /// photo-less list shape keeps every pre-existing test on its old rendering;
+  /// counter. The screen fetches the enriched single row on open and after
+  /// gallery-affecting commands, because the rendered row may be the
+  /// OPTIMISTIC overlay whose photos the last snapshot does not know about
+  /// (the list route itself is batch-enriched since the #543/#544 tranche).
+  /// Defaulting to the unscripted-error shape keeps every pre-existing test on
+  /// its old rendering;
   /// without the override at all the fake would fall through to the real Dio
   /// client and leave an unsettled request behind.
   Result<CostumeView>? enrichedDetail;
@@ -511,9 +562,9 @@ void main() {
       expect(find.byKey(const Key('photo-gallery-empty-c-1')), findsOneWidget);
     });
 
-    // The photo gallery reads from the ENRICHED single-costume row, not from the
-    // cached list row (the list route leaves `photos` empty, so the gallery was
-    // structurally unreachable no matter how often the user refreshed).
+    // The photo gallery renders the ENRICHED single-costume row fetched on
+    // open, not the possibly-optimistic rendered row (see `_detail` and the
+    // fake's `enrichedDetail` doc).
     testWidgets('opening fetches the enriched detail ONCE and the gallery '
         'renders its photos', (tester) async {
       await setupContainer(costume: _costume('c-1'));
@@ -706,7 +757,8 @@ void main() {
     testWidgets('add detail after save echoes the ack version', (tester) async {
       // Cross-command variant of the version-freshness contract (issue
       // #473): save notes (v1 → ack v2), then add a detail — the detail
-      // command must carry v2, not the initial snapshot's 1.
+      // command must carry v2, not the initial snapshot's 1. The inline
+      // editor (issue #545) opens via the `＋` row and submits in place.
       await setupContainer(costume: _costume('c-1')); // v1
       await pumpDetail(tester, 'c-1');
       await tester.enterText(
@@ -717,14 +769,17 @@ void main() {
       await _pumpFrames(tester);
       expect(repo.notesCalls, 1);
       expect(repo.lastNotesVersion, 1);
+      // Open the create editor inline: editor mounts, no dialog route.
       await tester.tap(find.byKey(const Key('costume-detail-add-c-1')));
-      await tester.pumpAndSettle();
+      await _pumpFrames(tester);
+      expect(find.byKey(const Key('add-detail-editor')), findsOneWidget);
       await tester.enterText(
         find.byKey(const Key('add-detail-text')),
         'Silk lining',
       );
-      await tester.tap(find.byKey(const Key('add-detail-submit')));
       await _pumpFrames(tester);
+      await tester.tap(find.byKey(const Key('add-detail-submit')));
+      await _pumpFrames(tester, n: 12);
       expect(repo.detailCalls, 1);
       expect(repo.lastDetailVersion, 2);
       expect(
@@ -756,7 +811,7 @@ void main() {
     });
 
     testWidgets(
-      'add-detail: pure-description form (no category field, issue #543)',
+      'add-detail: pure-description INLINE editor (no category field, #543)',
       (tester) async {
         await setupContainer(
           costume: _costume('c-1'),
@@ -765,16 +820,17 @@ void main() {
         await pumpDetail(tester, 'c-1');
         await tester.pump(const Duration(milliseconds: 100));
         await tester.tap(find.byKey(const Key('costume-detail-add-c-1')));
-        await tester.pumpAndSettle();
+        await _pumpFrames(tester);
         await tester.enterText(
           find.byKey(const Key('add-detail-text')),
           'Silk lining',
         );
-        // The category dropdown is GONE from the form; the category is set on
-        // the costume via the identity section (picker in the follow-up PR).
+        await _pumpFrames(tester);
+        // The category dropdown is GONE from the editor; the category is set
+        // on the costume via the identity section (issue #543).
         expect(find.byKey(const Key('add-detail-category')), findsNothing);
         await tester.tap(find.byKey(const Key('add-detail-submit')));
-        await _pumpFrames(tester);
+        await _pumpFrames(tester, n: 12);
         expect(repo.detailCalls, 1);
       },
     );
@@ -825,6 +881,256 @@ void main() {
       await tester.tap(find.byKey(const Key('photo-delete-confirm-p-1')));
       await _pumpFrames(tester);
       expect(photos.deleteCalls, 1);
+    });
+  });
+
+  group('CostumeDetailScreen inline detail editor (issue #545)', () {
+    CostumeDetailView detailView(
+      String id, {
+      String? subject,
+      String text = '',
+    }) => CostumeDetailView(
+      (b) => b
+        ..id = id
+        ..subject = subject
+        ..text = text,
+    );
+
+    testWidgets('edit opens the SAME editor widget inline, prefilled '
+        '(no dialog route)', (tester) async {
+      await setupContainer(
+        costume: _costume(
+          'c-1',
+          details: [
+            detailView('d-1', subject: 'Jacke', text: 'rote Lederjacke'),
+          ],
+        ),
+      );
+      await pumpDetail(tester, 'c-1');
+      await tester.tap(find.byKey(const Key('costume-detail-edit-d-1')));
+      await _pumpFrames(tester);
+      // The editor expands IN the row — the same widget as create mode.
+      expect(
+        find.byKey(const Key('detail-editor-d-1')),
+        findsOneWidget,
+        reason: 'one shared editor widget, edit mode seeded from the row',
+      );
+      // The prefilled fields hold the row's content (the row tile renders
+      // the same strings, so find.text matches the editor AND the tile).
+      expect(find.text('Jacke'), findsNWidgets(2));
+      expect(find.text('rote Lederjacke'), findsNWidgets(2));
+    });
+
+    testWidgets('create opens the editor inline via the + row (empty)', (
+      tester,
+    ) async {
+      await setupContainer(costume: _costume('c-1'));
+      await pumpDetail(tester, 'c-1');
+      await tester.tap(find.byKey(const Key('costume-detail-add-c-1')));
+      await _pumpFrames(tester);
+      expect(find.byKey(const Key('add-detail-editor')), findsOneWidget);
+      expect(find.byKey(const Key('add-detail-text')), findsOneWidget);
+      // One widget, both modes: no edit-mode editor mounted while drafting.
+      expect(find.byKey(const Key('detail-editor-d-1')), findsNothing);
+    });
+
+    testWidgets('save stays DISABLED while the required text is empty', (
+      tester,
+    ) async {
+      await setupContainer(costume: _costume('c-1'));
+      await pumpDetail(tester, 'c-1');
+      await tester.tap(find.byKey(const Key('costume-detail-add-c-1')));
+      await _pumpFrames(tester);
+      final disabled = tester.widget<FilledButton>(
+        find.byKey(const Key('add-detail-submit')),
+      );
+      expect(disabled.onPressed, isNull);
+      // Whitespace-only must not count as content either.
+      await tester.enterText(find.byKey(const Key('add-detail-text')), '   ');
+      await _pumpFrames(tester);
+      final stillDisabled = tester.widget<FilledButton>(
+        find.byKey(const Key('add-detail-submit')),
+      );
+      expect(stillDisabled.onPressed, isNull);
+      expect(repo.detailCalls, 0);
+    });
+
+    testWidgets('valid text ENABLES save and dispatches (subject optional)', (
+      tester,
+    ) async {
+      await setupContainer(costume: _costume('c-1'));
+      await pumpDetail(tester, 'c-1');
+      await tester.tap(find.byKey(const Key('costume-detail-add-c-1')));
+      await _pumpFrames(tester);
+      await tester.enterText(
+        find.byKey(const Key('add-detail-text')),
+        'echtes Leder, vintage',
+      );
+      await _pumpFrames(tester);
+      final enabled = tester.widget<FilledButton>(
+        find.byKey(const Key('add-detail-submit')),
+      );
+      expect(enabled.onPressed, isNotNull);
+      await tester.tap(find.byKey(const Key('add-detail-submit')));
+      await _pumpFrames(tester, n: 12);
+      expect(repo.detailCalls, 1);
+    });
+
+    testWidgets('a same-frame double tap dispatches only once while '
+        'the first command is in flight', (tester) async {
+      // CodeRabbit #563: version fencing rejects a STALE second request,
+      // but two in-flight adds would carry two different UUIDv7s — the
+      // affordance itself must serialize them (the _submitting guard runs
+      // synchronously before the first await).
+      await setupContainer(costume: _costume('c-1'));
+      await pumpDetail(tester, 'c-1');
+      repo.detailGate = Completer<void>();
+      await tester.tap(find.byKey(const Key('costume-detail-add-c-1')));
+      await _pumpFrames(tester);
+      await tester.enterText(
+        find.byKey(const Key('add-detail-text')),
+        'echtes Leder',
+      );
+      await _pumpFrames(tester);
+      await tester.tap(find.byKey(const Key('add-detail-submit')));
+      // Second tap in the SAME frame — no pump between the two dispatches.
+      await tester.tap(find.byKey(const Key('add-detail-submit')));
+      repo.detailGate!.complete();
+      await _pumpFrames(tester, n: 12);
+      expect(
+        repo.detailCalls,
+        1,
+        reason: 'the in-flight guard swallowed the duplicate dispatch',
+      );
+    });
+
+    testWidgets('edit seed dispatches updateDetail with the existing id', (
+      tester,
+    ) async {
+      await setupContainer(
+        costume: _costume(
+          'c-1',
+          details: [detailView('d-1', subject: 'Jacke', text: 'leder')],
+        ),
+      );
+      await pumpDetail(tester, 'c-1');
+      await tester.tap(find.byKey(const Key('costume-detail-edit-d-1')));
+      await _pumpFrames(tester);
+      await tester.enterText(
+        find.byKey(const Key('add-detail-text')),
+        'echtes Leder, vintage',
+      );
+      await _pumpFrames(tester);
+      await tester.tap(find.byKey(const Key('add-detail-submit')));
+      await _pumpFrames(tester, n: 12);
+      expect(repo.updateDetailCalls, 1);
+      // The existing detail id — unlike addDetail, no placeholder (issue #472).
+      expect(repo.lastUpdateDetailId, 'd-1');
+      expect(repo.lastUpdateDetailRequest!.detail.id, 'd-1');
+      expect(
+        repo.lastUpdateDetailRequest!.detail.text,
+        'echtes Leder, vintage',
+      );
+    });
+
+    testWidgets('delete asks for confirmation FIRST, then dispatches', (
+      tester,
+    ) async {
+      await setupContainer(
+        costume: _costume('c-1', details: [detailView('d-1', text: 'x')]),
+      );
+      await pumpDetail(tester, 'c-1');
+      await tester.tap(find.byKey(const Key('costume-detail-delete-d-1')));
+      await _pumpFrames(tester);
+      expect(repo.removeDetailCalls, 0);
+      await tester.tap(
+        find.byKey(const Key('costume-detail-delete-confirm-d-1')),
+      );
+      await _pumpFrames(tester, n: 12);
+      expect(
+        repo.removeDetailCalls,
+        1,
+        reason: 'destructive action routes through the confirm dialog',
+      );
+      expect(repo.lastRemoveDetailId, 'd-1');
+    });
+
+    testWidgets('cancel closes the editor and dispatches nothing', (
+      tester,
+    ) async {
+      await setupContainer(
+        costume: _costume('c-1', details: [detailView('d-1', text: 'x')]),
+      );
+      await pumpDetail(tester, 'c-1');
+      await tester.tap(find.byKey(const Key('costume-detail-edit-d-1')));
+      await _pumpFrames(tester);
+      await tester.enterText(
+        find.byKey(const Key('add-detail-text')),
+        'changed',
+      );
+      await _pumpFrames(tester);
+      await tester.tap(find.byKey(const Key('add-detail-cancel')));
+      await _pumpFrames(tester);
+      expect(find.byKey(const Key('detail-editor-d-1')), findsNothing);
+      expect(repo.updateDetailCalls, 0);
+      expect(repo.detailCalls, 0);
+    });
+
+    testWidgets(
+      'Err branch: failed command surfaces the command-error banner',
+      (tester) async {
+        await setupContainer(
+          costume: _costume('c-1', details: [detailView('d-1', text: 'x')]),
+        );
+        await pumpDetail(tester, 'c-1');
+        repo.nextWrite = const Left(
+          ProblemError(code: 'transport.generic', status: 502),
+        );
+        await tester.tap(find.byKey(const Key('costume-detail-delete-d-1')));
+        await _pumpFrames(tester);
+        await tester.tap(
+          find.byKey(const Key('costume-detail-delete-confirm-d-1')),
+        );
+        await _pumpFrames(tester, n: 10);
+        expect(
+          find.byKey(const Key('costume-detail-error')),
+          findsOneWidget,
+          reason:
+              'the Result Err branch is visible, never swallowed (AGENTS.md '
+              '§4 no-discard)',
+        );
+      },
+    );
+
+    testWidgets('golden: the open inline editor state', (tester) async {
+      await setupContainer(
+        costume: _costume(
+          'c-1',
+          details: [
+            detailView('d-1', subject: 'Jacke', text: 'rote Lederjacke'),
+          ],
+        ),
+      );
+      await pumpDetail(tester, 'c-1');
+      await tester.tap(find.byKey(const Key('costume-detail-edit-d-1')));
+      await _pumpFrames(tester);
+      await expectLater(
+        find.byType(CostumeDetailScreen),
+        matchesGoldenFile('goldens/costume_detail_editor_open.png'),
+      );
+    });
+
+    testWidgets('category stays GONE from the editor (issue #543 contract)', (
+      tester,
+    ) async {
+      await setupContainer(
+        costume: _costume('c-1'),
+        categories: [_category('cat-1')],
+      );
+      await pumpDetail(tester, 'c-1');
+      await tester.tap(find.byKey(const Key('costume-detail-add-c-1')));
+      await _pumpFrames(tester);
+      expect(find.byKey(const Key('add-detail-category')), findsNothing);
     });
   });
 
