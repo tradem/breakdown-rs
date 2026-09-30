@@ -3,6 +3,9 @@
 // Co-authored-by: space-bunny-free (opencode-go)
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
+// Co-authored-by: glm-5.3-flash (opencode-go)
+
+import 'dart:async';
 
 import 'package:breakdown_api/breakdown_api.dart';
 import 'package:flutter/foundation.dart';
@@ -637,74 +640,241 @@ class CostumeCategoryOption {
   final CostumeCategoryView category;
 }
 
-class _DetailsSection extends ConsumerWidget {
+class _DetailsSection extends ConsumerStatefulWidget {
   const _DetailsSection({required this.season, required this.costume});
 
   final SeasonView season;
   final CostumeView costume;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_DetailsSection> createState() => _DetailsSectionState();
+}
+
+/// Issue #545: the inline detail editor — the row list itself owns which
+/// detail is being edited (`_editingDetailId`) and whether the create draft
+/// is open (`_draftOpen`). No modal: the editor expands where the detail
+/// sits, so the keyboard cannot clip it and the scroll context survives.
+class _DetailsSectionState extends ConsumerState<_DetailsSection> {
+  String? _editingDetailId;
+  bool _draftOpen = false;
+
+  void _openEdit(String detailId) {
+    setState(() {
+      _editingDetailId = detailId;
+      _draftOpen = false;
+    });
+  }
+
+  void _openDraft() {
+    setState(() {
+      _editingDetailId = null;
+      _draftOpen = true;
+    });
+  }
+
+  void _close() {
+    setState(() {
+      _editingDetailId = null;
+      _draftOpen = false;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = l10nOf(context);
+    final details = widget.costume.details;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          l10nOf(context).costumeDetailDetails,
+          l10n.costumeDetailDetails,
           style: Theme.of(context).textTheme.titleMedium,
         ),
         const SizedBox(height: 8),
-        if (costume.details.isEmpty)
+        if (details.isEmpty && _editingDetailId == null && !_draftOpen)
           Text(
-            l10nOf(context).costumeDetailNoDetails,
+            l10n.costumeDetailNoDetails,
             key: const Key('costume-details-empty'),
-          )
-        else
-          for (final d in costume.details)
-            Card(
-              key: Key('costume-detail-${d.id}'),
-              child: ListTile(
-                title: Text(d.subject ?? d.text),
-                // Issue #543: details are pure description (subject + text);
-                // the category lives on the costume itself.
-                subtitle: d.subject != null && d.subject!.isNotEmpty
-                    ? Text(d.text)
-                    : null,
-              ),
+          ),
+        for (final d in details)
+          _DetailRow(
+            key: Key('detail-row-${d.id}'),
+            season: widget.season,
+            costume: widget.costume,
+            detail: d,
+            editing: _editingDetailId == d.id,
+            onEdit: () => _openEdit(d.id),
+            onClose: _close,
+          ),
+        if (!_draftOpen)
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton.icon(
+              key: Key('costume-detail-add-${widget.costume.id}'),
+              icon: const Icon(Icons.add),
+              label: Text(l10n.costumeDetailAddDetail),
+              onPressed: _openDraft,
             ),
-        const SizedBox(height: 8),
-        FilledButton.tonal(
-          key: Key('costume-detail-add-${costume.id}'),
-          onPressed: () => _showAddDetail(context, ref),
-          child: Text(l10nOf(context).costumeDetailAddDetail),
-        ),
+          ),
+        if (_draftOpen)
+          _DetailEditor(
+            key: const Key('detail-draft'),
+            season: widget.season,
+            costume: widget.costume,
+            initial: null,
+            onClose: _close,
+          ),
       ],
-    );
-  }
-
-  Future<void> _showAddDetail(BuildContext context, WidgetRef ref) {
-    return showDialog<void>(
-      context: context,
-      builder: (dialogContext) =>
-          _AddDetailForm(season: season, costume: costume),
     );
   }
 }
 
-/// Add-detail dialog content: owns its `TextEditingController`s in widget
-/// state so they dispose exactly when the dialog route unmounts (after the
-/// exit transition) — never while the exit animation still rebuilds, which a
-/// `whenComplete` on the dialog future cannot guarantee.
-class _AddDetailForm extends ConsumerStatefulWidget {
-  const _AddDetailForm({required this.season, required this.costume});
+/// One detail row: title/subtitle composition + trailing edit/delete
+/// affordances, with the inline editor expanding below the row while it is
+/// the open one (issue #545).
+///
+/// // AUTHZ-GATE: the edit/delete affordances dispatch through the
+/// controller's `assign_costumes` capability check BEFORE any network call;
+/// denial renders the localized 403 narrative and never issues the request.
+class _DetailRow extends ConsumerWidget {
+  const _DetailRow({
+    super.key,
+    required this.season,
+    required this.costume,
+    required this.detail,
+    required this.editing,
+    required this.onEdit,
+    required this.onClose,
+  });
+
+  final SeasonView season;
+  final CostumeView costume;
+  final CostumeDetailView detail;
+  final bool editing;
+  final VoidCallback onEdit;
+  final VoidCallback onClose;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final subject = detail.subject != null && detail.subject!.isNotEmpty
+        ? detail.subject
+        : null;
+    return Card(
+      key: Key('costume-detail-${detail.id}'),
+      child: Column(
+        children: [
+          ListTile(
+            key: Key('detail-row-${detail.id}'),
+            // Issue #543: details are pure description (subject + text);
+            // the category lives on the costume itself.
+            title: Text(subject ?? detail.text),
+            subtitle: subject == null ? null : Text(detail.text),
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                IconButton(
+                  key: Key('costume-detail-edit-${detail.id}'),
+                  icon: const Icon(Icons.edit_outlined),
+                  tooltip: l10nOf(context).commonEdit,
+                  // Scroll the row into view first so the editor that
+                  // expands below it is actually on screen (issue #545 —
+                  // analog of `_CostumesScreenState._selectCostume`).
+                  onPressed: () {
+                    // Fire-and-forget scroll affordance — the editor's
+                    // mount does not depend on the animation completing.
+                    unawaited(Scrollable.ensureVisible(context));
+                    onEdit();
+                  },
+                ),
+                IconButton(
+                  key: Key('costume-detail-delete-${detail.id}'),
+                  icon: const Icon(Icons.delete_outline),
+                  tooltip: l10nOf(context).commonDelete,
+                  onPressed: () => _confirmDelete(context, ref),
+                ),
+              ],
+            ),
+          ),
+          if (editing)
+            _DetailEditor(
+              key: Key('detail-editor-${detail.id}'),
+              season: season,
+              costume: costume,
+              initial: detail,
+              onClose: onClose,
+            ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _confirmDelete(BuildContext context, WidgetRef ref) {
+    final l10n = l10nOf(context);
+    return showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        key: const Key('costume-detail-delete-dialog'),
+        title: Text(l10n.costumeDetailDeleteTitle),
+        content: Text(
+          l10n.costumeDetailDeleteMessage(
+            detail.subject != null && detail.subject!.isNotEmpty
+                ? detail.subject!
+                : detail.text,
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: Text(l10n.commonCancel),
+          ),
+          FilledButton(
+            key: Key('costume-detail-delete-confirm-${detail.id}'),
+            onPressed: () async {
+              Navigator.of(dialogContext).pop();
+              // Handled: failures surface via the command-error provider.
+              final deleteResult = await ref
+                  .read(costumesControllerProvider(season.id).notifier)
+                  .removeDetail(costume: costume, detailId: detail.id);
+              deleteResult.match<void>((_) {}, (_) {});
+            },
+            child: Text(l10n.commonDelete),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// The inline detail editor (issue #545) — `initial == null` means create
+/// mode; a non-null [initial] prefills the edit mode. ONE widget drives
+/// both paths: the create row and every row's edit affordance open the same
+/// form in place, so a detail author never loses scroll or focus context
+/// and the keyboard cannot collide with a modal.
+///
+/// The controllers live in widget state and dispose when the editor
+/// unmounts — since there is no dialog route around it, the old comment
+/// workaround's reasoning still applies, just rendered inside the row.
+class _DetailEditor extends ConsumerStatefulWidget {
+  const _DetailEditor({
+    super.key,
+    required this.season,
+    required this.costume,
+    required this.initial,
+    required this.onClose,
+  });
 
   final SeasonView season;
   final CostumeView costume;
 
+  /// The detail being edited, or `null` in create mode.
+  final CostumeDetailView? initial;
+  final VoidCallback onClose;
+
   @override
-  ConsumerState<_AddDetailForm> createState() => _AddDetailFormState();
+  ConsumerState<_DetailEditor> createState() => _DetailEditorState();
 }
 
-class _AddDetailFormState extends ConsumerState<_AddDetailForm> {
+class _DetailEditorState extends ConsumerState<_DetailEditor> {
   late final TextEditingController _subject;
   late final TextEditingController _text;
   late final GlobalKey<FormState> _formKey;
@@ -712,8 +882,9 @@ class _AddDetailFormState extends ConsumerState<_AddDetailForm> {
   @override
   void initState() {
     super.initState();
-    _subject = TextEditingController();
-    _text = TextEditingController();
+    final initial = widget.initial;
+    _subject = TextEditingController(text: initial?.subject ?? '');
+    _text = TextEditingController(text: initial?.text ?? '');
     _formKey = GlobalKey<FormState>();
   }
 
@@ -724,14 +895,19 @@ class _AddDetailFormState extends ConsumerState<_AddDetailForm> {
     super.dispose();
   }
 
+  bool get _textValid => _text.text.trim().isNotEmpty;
+
   @override
   Widget build(BuildContext context) {
+    final l10n = l10nOf(context);
     // Issue #543: no category field here — the category is set on the
     // costume (identity section), not per detail.
-    return AlertDialog(
-      title: Text(l10nOf(context).costumeDetailAddDetail),
-      content: Form(
+    return Padding(
+      key: widget.initial == null ? const Key('add-detail-editor') : null,
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+      child: Form(
         key: _formKey,
+        autovalidateMode: AutovalidateMode.onUserInteraction,
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -739,58 +915,96 @@ class _AddDetailFormState extends ConsumerState<_AddDetailForm> {
               key: const Key('add-detail-subject'),
               controller: _subject,
               decoration: InputDecoration(
-                labelText: l10nOf(context).costumeDetailSubject,
+                labelText: l10n.costumeDetailSubject,
+                helperText: l10n.costumeDetailSubjectOptional,
               ),
             ),
+            const SizedBox(height: 8),
             TextFormField(
               key: const Key('add-detail-text'),
               controller: _text,
+              autovalidateMode: AutovalidateMode.onUserInteraction,
               decoration: InputDecoration(
-                labelText: l10nOf(context).costumeDetailText,
+                // `text` is the ONLY required field; the asterisk marks it,
+                // and the helper text makes the optionality contrast with
+                // the subject field explicit.
+                label: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(l10n.costumeDetailText),
+                    const SizedBox(width: 2),
+                    const Text('*'),
+                  ],
+                ),
+                helperText: l10n.costumeDetailTextRequiredHint,
               ),
+              onChanged: (_) => setState(() {}),
               validator: (v) => (v == null || v.trim().isEmpty)
-                  ? l10nOf(context).costumeDetailTextRequired
+                  ? l10n.costumeDetailTextRequired
                   : null,
+            ),
+            const SizedBox(height: 12),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                TextButton(
+                  key: const Key('add-detail-cancel'),
+                  onPressed: widget.onClose,
+                  child: Text(l10nOf(context).commonCancel),
+                ),
+                const SizedBox(width: 8),
+                FilledButton(
+                  key: const Key('add-detail-submit'),
+                  // The affordance itself validates: no submit-only error.
+                  onPressed: !_textValid
+                      ? null
+                      : () async {
+                          if (!(_formKey.currentState?.validate() ?? false)) {
+                            return;
+                          }
+                          await _submit(context);
+                        },
+                  child: Text(l10nOf(context).commonSave),
+                ),
+              ],
             ),
           ],
         ),
       ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: Text(l10nOf(context).commonCancel),
-        ),
-        FilledButton(
-          key: const Key('add-detail-submit'),
-          onPressed: () async {
-            if (!(_formKey.currentState?.validate() ?? false)) return;
-            // Handled: failures surface via the command-error provider.
-            final detailResult = await ref
-                .read(costumesControllerProvider(widget.season.id).notifier)
-                .addDetail(
-                  costume: widget.costume,
-                  text: _text.text.trim(),
-                  subject: _subject.text.trim().isEmpty
-                      ? null
-                      : _subject.text.trim(),
-                );
-            final saved = detailResult.match((_) => false, (_) => true);
-            if (saved && context.mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  key: const Key('costume-saved-confirmation'),
-                  content: Text(l10nOf(context).costumeDetailSaved),
-                ),
-              );
-            }
-            if (context.mounted) {
-              Navigator.of(context).pop();
-            }
-          },
-          child: Text(l10nOf(context).commonAdd),
-        ),
-      ],
     );
+  }
+
+  Future<void> _submit(BuildContext context) async {
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    final savedCopy = l10nOf(context).costumeDetailSaved;
+    final text = _text.text.trim();
+    final subject = _subject.text.trim().isEmpty ? null : _subject.text.trim();
+    final notifier = ref.read(
+      costumesControllerProvider(widget.season.id).notifier,
+    );
+    // Handled: failures surface via the command-error provider.
+    final detailResult = widget.initial == null
+        ? await notifier.addDetail(
+            costume: widget.costume,
+            text: text,
+            subject: subject,
+          )
+        : await notifier.updateDetail(
+            costume: widget.costume,
+            detailId: widget.initial!.id,
+            text: text,
+            subject: subject,
+          );
+    final saved = detailResult.match((_) => false, (_) => true);
+    if (saved && mounted) widget.onClose();
+    if (saved && messenger != null) {
+      messenger.showSnackBar(
+        SnackBar(
+          key: const Key('costume-saved-confirmation'),
+          content: Text(savedCopy),
+        ),
+      );
+    }
   }
 }
 
@@ -815,14 +1029,18 @@ class _PhotosSectionState extends ConsumerState<_PhotosSection> {
 
   /// The single-costume DETAIL, fetched on open.
   ///
-  /// The gallery renders `CostumeView.photos`, but the view handed to this
-  /// screen comes from the costume LIST cache, whose rows carry no child
-  /// collections (the server enriches only the single-costume route, the list
-  /// query leaves `details`/`photos` empty). Relying on the cache write alone
-  /// to propagate is not enough — the view provider is not re-read on that
-  /// write — so the fetched detail is held here and used for rendering. Falls
-  /// back to the list view while loading and on failure (a photo-less costume
-  /// then simply shows the empty-gallery affordance as before).
+  /// The gallery renders `CostumeView.photos` from this row. The costume
+  /// handed in via the widget tree is the costume LIST row, which the server
+  /// enriches in batch — `list_by_season` runs `enrich_many` (3 queries per
+  /// page, details + photos + variants included since the #543/#544
+  /// tranche), so list rows DO carry child collections. The fetch is kept
+  /// anyway because the rendered row can be an OPTIMISTIC OVERLAY, not the
+  /// projected row: an upload/delete just acknowledged by a command does not
+  /// exist in the last fetched list snapshot, so the enriched single-costume
+  /// read refreshes this row on gallery-affecting commands (`_loadDetail`
+  /// after upload/delete). Falls back to the list view while loading and on
+  /// failure (a photo-less costume then simply shows the empty-gallery
+  /// affordance as before).
   CostumeView? _detail;
 
   @override
@@ -1072,8 +1290,8 @@ class _PhotosSectionState extends ConsumerState<_PhotosSection> {
             );
         uploadResult.match<void>((_) {}, (_) {});
         // A successful upload must re-read the enriched row: the gallery renders
-        // `_detail`, which was fetched once on open and knows nothing about the
-        // photo just created (the list rows `refresh()` updates carry no photos).
+        // `_detail`, which still holds the pre-command snapshot (the overlay
+        // row is optimistic and the list refetch is bounded, not immediate).
         // Only on success — a failed command must not rewrite what is shown.
         if (uploadResult.isRight()) await _loadDetail();
       case PrepareFailure(:final code):
@@ -1115,7 +1333,8 @@ class _PhotosSectionState extends ConsumerState<_PhotosSection> {
               if (dialogContext.mounted) Navigator.of(dialogContext).pop();
               // Same reason as the upload path: without this the DELETED photo
               // stays visible in the gallery until the section is rebuilt,
-              // because `_detail` still holds the pre-delete row.
+              // because `_detail` still holds the pre-delete row. The comment
+              // on `_detail` explains why a list snapshot cannot help here.
               if (deleteResult.isRight()) await _loadDetail();
             },
             child: Text(l10nOf(dialogContext).commonDelete),
