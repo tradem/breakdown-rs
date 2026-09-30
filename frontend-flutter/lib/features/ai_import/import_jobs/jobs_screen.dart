@@ -156,7 +156,9 @@ class _JobRow extends StatelessWidget {
       key: Key('ai-jobs-row-${job.id}'),
       leading: Icon(jobStatusIcon(job.status), color: statusColor),
       title: Text(
-        l10n.aiJobsRowSubtitle(kind, formatMediumDate(context, job.createdAt)),
+        // gen-l10n orders parameters alphabetically: (date, kind) — the
+        // template renders "kind · date" (screen spec order).
+        l10n.aiJobsRowSubtitle(formatMediumDate(context, job.createdAt), kind),
         key: Key('ai-jobs-row-title-${job.id}'),
       ),
       subtitle: Column(

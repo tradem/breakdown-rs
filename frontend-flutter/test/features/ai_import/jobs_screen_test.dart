@@ -519,7 +519,15 @@ void main() {
       await pumpScreen(tester);
 
       expect(find.byKey(const Key('ai-jobs-list')), findsOneWidget);
-      expect(find.textContaining('Schedule'), findsNWidgets(3));
+      // Exact per-row titles: kind + date in the spec's order (regression
+      // guard for the gen-l10n parameter order — the generated getter is
+      // (date, kind) while the template renders "kind · date").
+      for (final id in ['job-r', 'job-d', 'job-s']) {
+        final title = tester.widget<Text>(
+          find.byKey(Key('ai-jobs-row-title-$id')),
+        );
+        expect(title.data, 'Schedule · Jan 1, 2026', reason: id);
+      }
       expect(find.textContaining('gave up'), findsOneWidget);
       expect(find.textContaining('retry is scheduled'), findsOneWidget);
       expect(find.textContaining('Retry 2 of 5'), findsOneWidget);

@@ -16,6 +16,7 @@ import '../../data/ai_import_providers.dart';
 import '../../features/ai_import/ai_config/ai_config_controller.dart'
     show aiImportHandoffProvider;
 import '../../features/ai_import/import_jobs/job_status_controller.dart';
+import '../../features/ai_import/import_jobs/jobs_controller.dart';
 import '../../data/cache/ai_import_jobs_cache_dao.dart';
 import '../../data/cache/cache_generation.dart';
 import '../../data/cache/seasons_cache_providers.dart';
@@ -118,6 +119,15 @@ class SessionReset extends Notifier<void> {
     }
     ref.invalidate(aiJobStatusControllerProvider);
     ref.invalidate(aiImportHandoffProvider);
+    // Issue #547: the retained jobs snapshot is keepAlive controller
+    // state — it must NOT survive the identity change (an empty cache
+    // seed preserves nonempty state, so without this invalidation the
+    // next session could see the previous user's rows while its own
+    // fetch is loading or has failed). The snapshot store itself is
+    // invalidated inside `_invalidateSessionScope` (every `*PrevRows`
+    // resets there).
+    ref.invalidate(aiImportJobsViewControllerProvider);
+    ref.invalidate(aiImportJobsFetchProvider);
     _invalidateSessionScope();
   }
 
@@ -213,6 +223,13 @@ class SessionReset extends Notifier<void> {
       return Left(problem);
     }
     ref.invalidate(aiImportHandoffProvider);
+    // Issue #547: the job rows are backend-scoped and were wiped above —
+    // the retained keepAlive snapshot (and the controller's fetch state)
+    // must drop with them, otherwise the jobs screen renders the OLD
+    // backend's rows whose ids can only 404 against the new base.
+    ref.invalidate(aiImportJobsViewControllerProvider);
+    ref.invalidate(aiImportJobsFetchProvider);
+    ref.invalidate(aiImportJobsPrevRowsProvider);
     ref.read(runtimeApiBaseProvider.notifier).set(base);
     final emptied = await ref.read(seasonRepositoryProvider).clearCache();
     final emptyError = emptied.getLeft().toNullable();
@@ -293,6 +310,10 @@ class SessionReset extends Notifier<void> {
       // Session-scoped photo rationale: the next user must see the
       // pre-permission rationale instead of inheriting `seen`.
       ..invalidate(photoRationaleSeenProvider)
+      // Issue #547: the AI-import jobs snapshot rows were wiped above
+      // (Drift + hand-off) and are backend-scoped — the retained
+      // keepAlive snapshot must not outlive them.
+      ..invalidate(aiImportJobsPrevRowsProvider)
       // Active-block scope (issue #378): identity-scoped — the next
       // session must never inherit the previous user's block, so reset
       // to the unset (`null`) scope rather than merely clearing rows.

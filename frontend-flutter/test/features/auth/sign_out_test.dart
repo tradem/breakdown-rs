@@ -16,6 +16,8 @@ import 'package:frontend_flutter/auth/active_block_store.dart';
 import 'package:frontend_flutter/auth/auth_providers.dart';
 import 'package:frontend_flutter/auth/token_store.dart';
 import 'package:frontend_flutter/core/problem_error.dart';
+import 'package:frontend_flutter/data/ai_import_providers.dart';
+import 'package:frontend_flutter/data/cache/ai_import_jobs_cache_dao.dart';
 import 'package:frontend_flutter/data/cache/cache_database.dart';
 import 'package:frontend_flutter/data/cache/cache_generation.dart';
 import 'package:frontend_flutter/data/cache/season_cache_dao.dart';
@@ -23,11 +25,13 @@ import 'package:frontend_flutter/data/cache/seasons_cache_providers.dart';
 import 'package:frontend_flutter/data/settings/api_base_override_store.dart';
 import 'package:frontend_flutter/features/auth/login_screen.dart';
 import 'package:frontend_flutter/features/auth/sign_out.dart';
+import 'package:frontend_flutter/features/ai_import/import_jobs/jobs_controller.dart';
 import 'package:frontend_flutter/features/seasons/seasons_controller.dart';
 import 'package:frontend_flutter/features/seasons/seasons_state.dart';
 import 'package:frontend_flutter/src/network/api_client.dart';
 
 import '../../auth/oidc_test_fakes.dart';
+import '../ai_import/jobs_screen_test.dart' show FakeJobsRepository;
 import '../seasons/seasons_test_fakes.dart';
 
 AuthTokens _signedInTokens() => AuthTokens(
@@ -65,6 +69,14 @@ void main() {
         tokenStoreProvider.overrideWithValue(tokens),
         cacheDatabaseProvider.overrideWithValue(db),
         seasonRepositoryProvider.overrideWithValue(repo),
+        // The AI-import jobs snapshot assertions (issue #547) read the
+        // jobs view; stub its repository + fetch seam (no client here).
+        aiImportRepositoryProvider.overrideWithValue(
+          FakeJobsRepository(BreakdownApi(), AiImportJobsCacheDao(db)),
+        ),
+        aiImportJobsFetchProvider.overrideWith(
+          (ref) async => Right(<AiImportJob>[]),
+        ),
       ],
     );
     addTearDown(container.dispose);
@@ -153,6 +165,32 @@ void main() {
       expect(container.read(seasonsPrevRowsProvider), isEmpty);
       expect(container.read(seasonsControllerProvider).overlays, isEmpty);
       expect(container.read(signInErrorProvider), isNull);
+    });
+
+    test('the AI-import jobs snapshot does not survive sign-out (issue '
+        '#547): the keepAlive retained rows are never served to the next '
+        'identity', () async {
+      setupContainer();
+      expect(await session(), isNotNull);
+      // A previous user's retained rows (keepAlive controller state).
+      container.read(aiImportJobsPrevRowsProvider.notifier).set([
+        AiImportJobRowView(
+          id: 'job-9',
+          statusName: 'running',
+          createdAt: DateTime.utc(2026, 1, 1),
+          updatedAt: DateTime.utc(2026, 1, 1),
+          retries: 0,
+          maxRetries: 3,
+        ),
+      ]);
+      expect(container.read(aiImportJobsView).rows, isNotEmpty);
+
+      await container.read(sessionResetProvider.notifier).signOut();
+
+      // An empty cache seed preserves nonempty state — only the explicit
+      // invalidation clears the snapshot (CodeRabbit #564).
+      expect(container.read(aiImportJobsPrevRowsProvider), isEmpty);
+      expect(container.read(aiImportJobsView).rows, isEmpty);
     });
 
     test(
