@@ -9,6 +9,7 @@ import 'package:fpdart/fpdart.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../../../auth/active_block.dart';
+import '../../../auth/auth_providers.dart';
 import '../../../auth/membership_gate.dart';
 import '../../../auth/membership/membership_providers.dart';
 import '../../../core/problem_error.dart';
@@ -154,7 +155,8 @@ class AiImportSubmitController extends _$AiImportSubmitController {
       }
       // Persist the episode context with the job record (design §2.3):
       // fetch the job (success-only cache write) and stamp the
-      // client-local episode/series columns, then remember the job id.
+      // client-local episode/series columns, then remember the job id
+      // (issue #547: the hand-off fast path gets its production writer).
       final contextStamped = await _stampEpisodeContext(uploaded.jobId);
       final stampError = contextStamped.getLeft().toNullable();
       // The job EXISTS server-side (the ack carried its id) — a context
@@ -166,8 +168,33 @@ class AiImportSubmitController extends _$AiImportSubmitController {
       if (stampError != null) {
         ref.read(aiStampWarningProvider.notifier).set(stampError);
       }
+      // Remember the job id for the jobs-view fast path (issue #547):
+      // same non-fatal discipline — a hand-off write fault must never
+      // hide a created job behind a local storage fault.
+      await _rememberJobId(uploaded.jobId);
       return Right(uploaded);
     });
+  }
+
+  /// Remembers the acked job id in the per-sub hand-off store (issue
+  /// #547 fast path). Best-effort: a storage fault never fails the
+  /// acknowledgement — the job exists server-side and the list route is
+  /// authoritative for discovery.
+  Future<void> _rememberJobId(String jobId) async {
+    String sub;
+    try {
+      final session = await ref.read(authSessionControllerProvider.future);
+      sub = session?.sub ?? '';
+    } on Object {
+      return;
+    }
+    if (sub.isEmpty) return;
+    final res = await ref
+        .read(aiImportHandoffStoreProvider)
+        .rememberJob(sub, jobId);
+    // Best-effort: consume the error value explicitly (never a silent
+    // discard of the Result — AGENTS.md §5).
+    res.getLeft().toNullable();
   }
 
   /// Fetches the fresh job (caching the row) and stamps the persisted

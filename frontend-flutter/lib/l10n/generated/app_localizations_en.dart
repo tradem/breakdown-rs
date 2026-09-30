@@ -663,6 +663,30 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String get aiJobsTitle => 'AI import jobs';
+
+  @override
+  String get aiJobsEmpty => 'No AI import started yet.';
+
+  @override
+  String get aiJobsEmptyCta => 'Start an AI import';
+
+  @override
+  String aiJobsActiveBadge(Object count) {
+    return 'Active jobs: $count';
+  }
+
+  @override
+  String aiJobsRowSubtitle(Object date, Object kind) {
+    return '$kind · $date';
+  }
+
+  @override
+  String aiJobsLoadError(Object code) {
+    return 'The job list could not be loaded ($code).';
+  }
+
+  @override
   String get aiJobReviewPreview => 'Review preview';
 
   @override
@@ -2042,6 +2066,9 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get planningImportSubtitle => 'AI assistant: import a schedule';
+
+  @override
+  String get planningActiveJobRow => 'AI import in progress — check status';
 
   @override
   String get authSignIn => 'Sign in';

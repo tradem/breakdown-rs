@@ -1190,6 +1190,42 @@ abstract class AppLocalizations {
   /// **'Versuch {retries} von {maxRetries}'**
   String aiJobRetryBudget(Object maxRetries, Object retries);
 
+  /// No description provided for @aiJobsTitle.
+  ///
+  /// In de, this message translates to:
+  /// **'KI-Import-Aufträge'**
+  String get aiJobsTitle;
+
+  /// No description provided for @aiJobsEmpty.
+  ///
+  /// In de, this message translates to:
+  /// **'Noch kein KI-Import gestartet.'**
+  String get aiJobsEmpty;
+
+  /// No description provided for @aiJobsEmptyCta.
+  ///
+  /// In de, this message translates to:
+  /// **'KI-Import starten'**
+  String get aiJobsEmptyCta;
+
+  /// No description provided for @aiJobsActiveBadge.
+  ///
+  /// In de, this message translates to:
+  /// **'Aktive Aufträge: {count}'**
+  String aiJobsActiveBadge(Object count);
+
+  /// No description provided for @aiJobsRowSubtitle.
+  ///
+  /// In de, this message translates to:
+  /// **'{kind} · {date}'**
+  String aiJobsRowSubtitle(Object date, Object kind);
+
+  /// No description provided for @aiJobsLoadError.
+  ///
+  /// In de, this message translates to:
+  /// **'Die Auftragsliste konnte nicht geladen werden ({code}).'**
+  String aiJobsLoadError(Object code);
+
   /// No description provided for @aiJobReviewPreview.
   ///
   /// In de, this message translates to:
@@ -3459,6 +3495,12 @@ abstract class AppLocalizations {
   /// In de, this message translates to:
   /// **'KI-Assistent: Spielplan importieren'**
   String get planningImportSubtitle;
+
+  /// No description provided for @planningActiveJobRow.
+  ///
+  /// In de, this message translates to:
+  /// **'KI-Import läuft – Status prüfen'**
+  String get planningActiveJobRow;
 
   /// No description provided for @authSignIn.
   ///

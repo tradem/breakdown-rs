@@ -13,6 +13,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../data/cache/seasons_cache_providers.dart';
 import '../../l10n/app_localizations_provider.dart';
 import '../ai_import/import_jobs/import_submit_screen.dart';
+import '../ai_import/import_jobs/jobs_controller.dart';
+import '../ai_import/import_jobs/jobs_screen.dart';
 import '../blocks/blocks_screen.dart';
 import 'shell_controller.dart';
 
@@ -50,12 +52,14 @@ class PlanningTabScreen extends ConsumerWidget {
         child: Builder(
           builder: (context) {
             final importEntry = _aiImportEntry(context);
+            final jobsRow = _activeJobsRow(context, ref);
             if (rows.isEmpty) {
               return ListView(
                 key: const Key('planen-list'),
                 physics: const AlwaysScrollableScrollPhysics(),
                 children: [
                   const SizedBox(height: 80),
+                  jobsRow,
                   importEntry,
                   const SizedBox(height: 120),
                   Center(
@@ -69,11 +73,14 @@ class PlanningTabScreen extends ConsumerWidget {
             return ListView.builder(
               key: const Key('planen-list'),
               physics: const AlwaysScrollableScrollPhysics(),
-              // Index 0 is the AI-import entry; 1..n are the season rows.
-              itemCount: rows.length + 1,
+              // Index 0 is the active-jobs summary row (only while a job
+              // needs attention); 1 is the AI-import entry; 2..n are the
+              // season rows.
+              itemCount: rows.length + 2,
               itemBuilder: (context, i) {
-                if (i == 0) return importEntry;
-                final season = rows[i - 1];
+                if (i == 0) return jobsRow;
+                if (i == 1) return importEntry;
+                final season = rows[i - 2];
                 return ListTile(
                   key: Key('planen-season-${season.id}'),
                   title: Text(
@@ -86,6 +93,39 @@ class PlanningTabScreen extends ConsumerWidget {
               },
             );
           },
+        ),
+      ),
+    );
+  }
+
+  /// The active-jobs summary row (issue #547): visible while at least one
+  /// known AI-import job needs attention (any non-`succeeded` status — a
+  /// silent `dead_letter` keeps summoning the row until it is replaced).
+  /// It READS the `aiImportJobsView` cached state and pushes the jobs
+  /// screen; it arms NO watch (D5 — the single foreground watch stays
+  /// owned by `AiJobStatusScreen`) and dispatches nothing.
+  ///
+  /// // AUTHZ-GATE: this row is a navigation target only — the jobs list
+  /// route is ownership-scoped server-side and its fetch seam resolves
+  /// the session before the call (see `aiImportJobsFetch`); the
+  /// block-scope gate of the AI-import submit entry below is unchanged.
+  Widget _activeJobsRow(BuildContext context, WidgetRef ref) {
+    final jobs = ref.watch(aiImportJobsView);
+    final attention = jobs.rows.where((job) => job.needsAttention).length;
+    if (attention == 0) return const SizedBox.shrink();
+    return ListTile(
+      key: const Key('planen-active-jobs'),
+      leading: Icon(
+        Icons.hourglass_top,
+        color: Theme.of(context).colorScheme.primary,
+      ),
+      title: Text(l10nOf(context).planningActiveJobRow),
+      subtitle: Text(l10nOf(context).aiJobsActiveBadge(attention)),
+      trailing: const Icon(Icons.chevron_right),
+      // Fire-and-forget navigation (no result consumed).
+      onTap: () => unawaited(
+        Navigator.of(context).push(
+          MaterialPageRoute<void>(builder: (_) => const AiImportJobsScreen()),
         ),
       ),
     );

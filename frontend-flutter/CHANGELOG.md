@@ -19,6 +19,34 @@ releases are cut as `flutter-vX.Y.Z` tags.
 ## [Unreleased]
 
 ### Added
+- **AI-import jobs view (issue #547):** a started import job is no longer
+  lost once the status screen is left — the previously-unused
+  `GET /v1/ai-import/jobs` wiring finally gets its production call site.
+  New `AiImportJobsViewController` + `aiImportJobsView` selector (the
+  seasons/blocks seam shape: identity-scoped cache-first paint, then
+  server-authoritative revalidation via `listJobsAndCache()`, retained
+  snapshot on error, `Result`-typed, code-keyed copy — and NO watch: the
+  single foreground job watch stays owned by `AiJobStatusScreen`, pinned
+  by a watch-counter test). The new `AiImportJobsScreen` renders
+  newest-first rows (kind + date + one of the six honest status copies
+  including `dead_letter`/`payload_unavailable` — previously unreachable
+  after leaving the status screen — plus the `failed` retry budget and a
+  `last_error` presence indicator); tapping a row pushes the status
+  screen; pull-to-refresh re-runs exactly the list route. The Planen tab
+  gains an active-jobs summary row (visible while any known job needs
+  attention) that opens the list without arming a watch. The #547 `jobIds`
+  fast path is wired (user-approved decision): the submit controller
+  remembers the acked job id via `rememberJob`, and the jobs controller
+  prunes remembered ids the authoritative list no longer returns via
+  `forgetJob` — both previously zero-caller seams, now with tests.
+  New ARB keys (`aiJobs*`, `planningActiveJobRow`, de/en parity), screen
+  spec `docs/design/screens/ai-import-jobs.md` + glossary rows, four new
+  goldens ({light,dark}×{android,macos}), and the tier-1/tier-2 test set
+  (cache-then-revalidate ordering, no-watch D5 assertion, seed merge,
+  reconciliation, status matrix, navigation, empty/error/stale states).
+- **Version bump:** `0.3.0-alpha.32+42 → 0.3.0-alpha.33+43` (pre-release
+  increment per merged-PR practice on the alpha line; `+N` stays strictly
+  monotonic for the Play `versionCode`).
 - **Costume detail inline editor (issue #545):** the `＋ Detail
   hinzufügen` row and a per-row edit action open the SAME inline editor
   (`_DetailEditor`) expanded in the row — no `showDialog` form any more, so

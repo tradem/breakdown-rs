@@ -26,7 +26,10 @@ import 'package:frontend_flutter/data/cache/hierarchy_cache_dao.dart';
 import 'package:frontend_flutter/data/cache/season_cache_dao.dart';
 import 'package:frontend_flutter/data/cache/seasons_cache_providers.dart';
 import 'package:frontend_flutter/data/block_repository.dart';
+import 'package:frontend_flutter/data/cache/ai_import_jobs_cache_dao.dart';
+import 'package:frontend_flutter/data/ai_import_providers.dart';
 import 'package:frontend_flutter/design/theme.dart';
+import 'package:frontend_flutter/features/ai_import/import_jobs/jobs_controller.dart';
 
 import 'package:frontend_flutter/domain/reconciliation/reconciliation_scheduler.dart';
 import 'package:frontend_flutter/features/blocks/blocks_screen.dart';
@@ -42,6 +45,7 @@ import 'package:frontend_flutter/auth/membership/membership_providers.dart';
 import 'package:frontend_flutter/core/problem_error.dart';
 
 import '../seasons/seasons_test_fakes.dart';
+import '../ai_import/jobs_screen_test.dart' show FakeJobsRepository;
 
 /// Pumps a bounded number of frames (never `pumpAndSettle` while an
 /// indeterminate spinner may be on screen — that would hang the settle
@@ -84,6 +88,16 @@ void main() {
           final r = ref.watch(seasonRepositoryProvider);
           return r.fetchAndCacheList(() async => holder.value);
         }),
+        // The Planen-tab active-jobs summary row (issue #547) reads the
+        // AI-import jobs view; stub its repository + fetch seam so no
+        // network client is needed (the shell test asserts NAVIGATION
+        // state, not job data).
+        aiImportRepositoryProvider.overrideWithValue(
+          FakeJobsRepository(BreakdownApi(), AiImportJobsCacheDao(db)),
+        ),
+        aiImportJobsFetchProvider.overrideWith(
+          (ref) async => Right(<AiImportJob>[]),
+        ),
         // The Planen drilldown pushes BlocksScreen for the seeded season;
         // stub its fetch seams so no network/client is needed (the shell
         // test asserts NAVIGATION state, not block data).

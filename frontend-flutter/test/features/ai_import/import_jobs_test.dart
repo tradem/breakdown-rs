@@ -306,6 +306,41 @@ void main() {
       container.dispose();
     });
 
+    test(
+      'accepted upload remembers the job id in the hand-off fast path '
+      '(issue #547) — and a hand-off write fault never hides the ack',
+      () async {
+        await setupContainer();
+        final controller = container.read(
+          aiImportSubmitControllerProvider.notifier,
+        )..selectKind(AiImportKind.schedule);
+        final res = await controller.submit(AiImportDocument.csv('x'));
+        expect(res.getRight().toNullable()!.jobId, 'job-1');
+        final handoff = await container
+            .read(aiImportHandoffStoreProvider)
+            .read('dev-user');
+        expect(handoff.getRight().toNullable()!.jobIds, ['job-1']);
+        container.dispose();
+      },
+    );
+
+    test('a hand-off write failure is NON-FATAL: the ack survives and the '
+        'job id is simply not remembered (the list route stays '
+        'authoritative)', () async {
+      await setupContainer();
+      // Break secure storage AFTER the session restored — only the
+      // rememberJob write path faults.
+      (FlutterSecureStoragePlatform.instance as FakeSecureStoragePlatform)
+              .failAll =
+          true;
+      final controller = container.read(
+        aiImportSubmitControllerProvider.notifier,
+      )..selectKind(AiImportKind.schedule);
+      final res = await controller.submit(AiImportDocument.csv('x'));
+      expect(res.getRight().toNullable()!.jobId, 'job-1');
+      container.dispose();
+    });
+
     test('a context-stamp failure keeps the acknowledgement AND surfaces '
         'the non-fatal warning (review: a created job is never hidden '
         'behind a local storage fault)', () async {
