@@ -11,6 +11,8 @@
 // calls), add-detail form (category picker), photo empty state + delete
 // confirm flow + photo denial narrative.
 
+import 'dart:async';
+
 import 'package:breakdown_api/breakdown_api.dart';
 import 'package:one_of/one_of.dart';
 import 'package:built_collection/built_collection.dart';
@@ -240,12 +242,21 @@ class _FakeCostumeRepository extends CostumeRepository {
     return Future.value(const Right(2));
   }
 
+  /// While set, the add-detail ack stays unresolved until the test
+  /// completes the gate — simulates the in-flight window the double-tap
+  /// guard (CodeRabbit #563) protects.
+  Completer<void>? detailGate;
+
   @override
   Future<Result<int>> addDetail(String id, AddCostumeDetailRequest request) {
     detailCalls++;
     lastDetailVersion = request.version;
     final scripted = nextWrite;
     if (scripted != null) return Future.value(scripted);
+    final gate = detailGate;
+    if (gate != null) {
+      return gate.future.then<Right<ProblemError, int>>((_) => const Right(2));
+    }
     return Future.value(const Right(2));
   }
 
@@ -963,6 +974,34 @@ void main() {
       await tester.tap(find.byKey(const Key('add-detail-submit')));
       await _pumpFrames(tester, n: 12);
       expect(repo.detailCalls, 1);
+    });
+
+    testWidgets('a same-frame double tap dispatches only once while '
+        'the first command is in flight', (tester) async {
+      // CodeRabbit #563: version fencing rejects a STALE second request,
+      // but two in-flight adds would carry two different UUIDv7s — the
+      // affordance itself must serialize them (the _submitting guard runs
+      // synchronously before the first await).
+      await setupContainer(costume: _costume('c-1'));
+      await pumpDetail(tester, 'c-1');
+      repo.detailGate = Completer<void>();
+      await tester.tap(find.byKey(const Key('costume-detail-add-c-1')));
+      await _pumpFrames(tester);
+      await tester.enterText(
+        find.byKey(const Key('add-detail-text')),
+        'echtes Leder',
+      );
+      await _pumpFrames(tester);
+      await tester.tap(find.byKey(const Key('add-detail-submit')));
+      // Second tap in the SAME frame — no pump between the two dispatches.
+      await tester.tap(find.byKey(const Key('add-detail-submit')));
+      repo.detailGate!.complete();
+      await _pumpFrames(tester, n: 12);
+      expect(
+        repo.detailCalls,
+        1,
+        reason: 'the in-flight guard swallowed the duplicate dispatch',
+      );
     });
 
     testWidgets('edit seed dispatches updateDetail with the existing id', (

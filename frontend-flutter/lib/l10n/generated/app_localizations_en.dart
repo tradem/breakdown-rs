@@ -1016,7 +1016,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String costumeDetailDeleteMessage(Object detail) {
-    return '„$detail“ will be removed. This cannot be undone.';
+    return '“$detail” will be removed. This cannot be undone.';
   }
 
   @override

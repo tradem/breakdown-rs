@@ -810,6 +810,12 @@ class _DetailRow extends ConsumerWidget {
 
   Future<void> _confirmDelete(BuildContext context, WidgetRef ref) {
     final l10n = l10nOf(context);
+    // Captured BEFORE the dialog opens (CodeRabbit #563): a bounded
+    // reconcile can replace the projection and unmount this row while the
+    // dialog route is still open — the confirmation callback must never
+    // touch the possibly-disposed WidgetRef (same seam as `_pick
+    // `.messenger` capture above).
+    final notifier = ref.read(costumesControllerProvider(season.id).notifier);
     return showDialog<void>(
       context: context,
       builder: (dialogContext) => AlertDialog(
@@ -832,9 +838,10 @@ class _DetailRow extends ConsumerWidget {
             onPressed: () async {
               Navigator.of(dialogContext).pop();
               // Handled: failures surface via the command-error provider.
-              final deleteResult = await ref
-                  .read(costumesControllerProvider(season.id).notifier)
-                  .removeDetail(costume: costume, detailId: detail.id);
+              final deleteResult = await notifier.removeDetail(
+                costume: costume,
+                detailId: detail.id,
+              );
               deleteResult.match<void>((_) {}, (_) {});
             },
             child: Text(l10n.commonDelete),
@@ -878,6 +885,14 @@ class _DetailEditorState extends ConsumerState<_DetailEditor> {
   late final TextEditingController _subject;
   late final TextEditingController _text;
   late final GlobalKey<FormState> _formKey;
+
+  /// In-flight gate (CodeRabbit #563): the save button must not dispatch a
+  /// second command while the first is unresolved — version fencing rejects
+  /// the stale second request, but two in-flight creates would carry two
+  /// different UUIDv7s. The guard runs SYNCHRONOUSLY before the first
+  /// await, so even a same-frame double tap (no rebuild between taps) is
+  /// covered, not just the visually-disabled state.
+  bool _submitting = false;
 
   @override
   void initState() {
@@ -956,13 +971,21 @@ class _DetailEditorState extends ConsumerState<_DetailEditor> {
                 FilledButton(
                   key: const Key('add-detail-submit'),
                   // The affordance itself validates: no submit-only error.
-                  onPressed: !_textValid
+                  onPressed: !_textValid || _submitting
                       ? null
                       : () async {
+                          if (_submitting) return;
                           if (!(_formKey.currentState?.validate() ?? false)) {
                             return;
                           }
-                          await _submit(context);
+                          setState(() => _submitting = true);
+                          try {
+                            await _submit(context);
+                          } finally {
+                            if (mounted) {
+                              setState(() => _submitting = false);
+                            }
+                          }
                         },
                   child: Text(l10nOf(context).commonSave),
                 ),
