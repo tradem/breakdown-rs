@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: AGPL-3.0
 # Copyright (C) 2024-2026 Breakdown RS Contributors
+# Co-authored-by: space-bunny-free (opencode-go)
 # Co-authored-by: kimi-k3 (neuralwatt)
 # Co-authored-by: omen-alpha (opencode-go)
 # Co-authored-by: deepseek-v4-flash (neuralwatt)
@@ -95,6 +96,9 @@ problem-costume-category-validation =
 
 problem-costume-already-assigned =
     The costume is already assigned to a character (character { $assigned_character_id }).
+
+problem-costume-detail-not-found =
+    Costume detail not found.
 
 problem-costume-not-found =
     Costume not found.

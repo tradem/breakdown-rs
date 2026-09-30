@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: space-bunny-free (opencode-go)
 // Co-authored-by: glm-5.3-flash (neuralwatt)
 // Co-authored-by: qwen3.6-35b (neuralwatt)
 // Co-authored-by: deepseek-v4-flash (opencode-go)
@@ -260,6 +261,49 @@ impl<'a> EntityEventHandler<CostumeAggregate, Transaction<'a, Postgres>> for Cos
                     .execute(&mut **ctx)
                     .await?;
                 }
+
+                Self::touch_parent(ctx, id, version, updated_at).await?;
+            }
+            // Issue #544: an edit reuses the `DetailAdded` upsert verbatim —
+            // `(costume_id, detail_id)` is the conflict target, so the row is
+            // overwritten in place. No migration: the table and its unique key
+            // already exist.
+            //
+            // Two deliberate differences from `DetailAdded`:
+            // 1. no `category_name` resolution — a `DetailUpdated` can only be
+            //    produced by the new PATCH route, whose wire request carries no
+            //    category (issue #543 made details pure description), so
+            //    `category_id` is always `None` and the detail row's vestigial
+            //    category columns are nulled.
+            // 2. no costume-category derivation — an edit must never change the
+            //    costume's own category; only `CostumeCategorySet` and the
+            //    legacy replay rule do that.
+            CostumeEvent::DetailUpdated {
+                id,
+                detail,
+                version,
+            } => {
+                let version = version.0 as i64;
+                sqlx::query(
+                    r#"
+                    INSERT INTO projection_costume_detail
+                        (costume_id, detail_id, subject, category_id, category_name, text)
+                    VALUES ($1, $2, $3, $4, $5, $6)
+                    ON CONFLICT (costume_id, detail_id) DO UPDATE SET
+                        subject = EXCLUDED.subject,
+                        category_id = EXCLUDED.category_id,
+                        category_name = EXCLUDED.category_name,
+                        text = EXCLUDED.text
+                    "#,
+                )
+                .bind(id)
+                .bind(detail.id)
+                .bind(&detail.subject)
+                .bind(detail.category_id.map(|c| c.0))
+                .bind(None::<String>)
+                .bind(detail.text)
+                .execute(&mut **ctx)
+                .await?;
 
                 Self::touch_parent(ctx, id, version, updated_at).await?;
             }

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: space-bunny-free (opencode-go)
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
 
 import 'package:breakdown_api/breakdown_api.dart';
@@ -16,6 +17,8 @@ export '../../data/costume_repository.dart'
         applyUnassignOptimistic,
         applyNotesOptimistic,
         applyAddDetailOptimistic,
+        applyUpdateDetailOptimistic,
+        applyRemoveDetailOptimistic,
         applyCategoryOptimistic,
         shouldClearCostumeOverlay,
         mergeCostumeOverlays;

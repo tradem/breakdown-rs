@@ -248,6 +248,10 @@ class AppLocalizationsEn extends AppLocalizations {
       'That category is archived — pick an active category.';
 
   @override
+  String get costumeErrorDetailNotFound =>
+      'That costume detail no longer exists — the list was refreshed.';
+
+  @override
   String get costumeDetailCategoryTitle => 'Category';
 
   @override

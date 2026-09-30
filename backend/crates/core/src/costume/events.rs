@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024 Breakdown RS Contributors
+// Co-authored-by: space-bunny-free (opencode-go)
 // Co-authored-by: glm-5.3-flash (neuralwatt)
 
 //! Costume events.
@@ -61,6 +62,16 @@ pub enum CostumeEvent {
         detail: CostumeDetail,
         version: AggregateVersion,
     },
+    DetailUpdated {
+        id: Uuid,
+        /// The **full** detail after the change, not a patch (issue #544).
+        /// A patch would leave the field merging to the client and turn an
+        /// emptied `subject` into an ambiguity (intent or accident); the
+        /// full detail is unambiguous and the projector already upserts on
+        /// `(costume_id, detail_id)`.
+        detail: CostumeDetail,
+        version: AggregateVersion,
+    },
     DetailRemoved {
         id: Uuid,
         detail_id: Uuid,
@@ -93,6 +104,7 @@ impl kameo_es::EventType for CostumeEvent {
             Self::CostumeAssignedToCharacter { .. } => "CostumeAssignedToCharacter",
             Self::CostumeUnassigned { .. } => "CostumeUnassigned",
             Self::DetailAdded { .. } => "DetailAdded",
+            Self::DetailUpdated { .. } => "DetailUpdated",
             Self::DetailRemoved { .. } => "DetailRemoved",
             Self::CostumeCategorySet { .. } => "CostumeCategorySet",
             Self::PhotoLinked { .. } => "PhotoLinked",

@@ -133,6 +133,7 @@ import 'package:breakdown_api/src/model/update_ai_config_request.dart';
 import 'package:breakdown_api/src/model/update_block_time_span_request.dart';
 import 'package:breakdown_api/src/model/update_contact_info_request.dart';
 import 'package:breakdown_api/src/model/update_costume_category_request.dart';
+import 'package:breakdown_api/src/model/update_costume_detail_request.dart';
 import 'package:breakdown_api/src/model/update_costume_notes_request.dart';
 import 'package:breakdown_api/src/model/update_measurements_request.dart';
 import 'package:breakdown_api/src/model/update_note_request.dart';
@@ -263,6 +264,7 @@ part 'serializers.g.dart';
   UpdateBlockTimeSpanRequest,
   UpdateContactInfoRequest,
   UpdateCostumeCategoryRequest,
+  UpdateCostumeDetailRequest,
   UpdateCostumeNotesRequest,
   UpdateMeasurementsRequest,
   UpdateNoteRequest,

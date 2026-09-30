@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: space-bunny-free (opencode-go)
 // Co-authored-by: gpt-5.6-luna (opencode-go)
 // Co-authored-by: deepseek-v4-flash (opencode-go)
 // Co-authored-by: longcat-2.0-free (opencode)
@@ -2190,6 +2191,14 @@ impl breakdown_core::costume::ports::CostumeCommands for FakeCostumeCommands {
         _command: breakdown_core::costume::commands::AddDetail,
     ) -> Result<Version, DomainError> {
         unexpected_command("add_detail")
+    }
+
+    async fn update_detail(
+        &self,
+        _actor: UserId,
+        _command: breakdown_core::costume::commands::UpdateCostumeDetail,
+    ) -> Result<Version, DomainError> {
+        unexpected_command("update_detail")
     }
 
     async fn remove_detail(

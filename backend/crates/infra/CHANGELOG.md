@@ -1,5 +1,6 @@
 <!-- SPDX-License-Identifier: AGPL-3.0 -->
 <!-- Copyright (C) 2024-2026 Breakdown RS Contributors -->
+<!-- Co-authored-by: space-bunny-free (opencode-go) -->
 <!-- Co-authored-by: deepseek-v4-flash (neuralwatt) -->
 <!-- Co-authored-by: deepseek-v4-flash (opencode-go) -->
 <!-- Co-authored-by: longcat-2.0-free (opencode) -->
@@ -15,6 +16,21 @@ crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
 ## [0.20.0] - Unreleased
+
+### Added — costume detail edit/delete adapters and projection (issue #544)
+
+- `update_detail` command adapter (same version-fence + `EventMetadata`
+  shape as `add_detail`); `series_id` is audit metadata resolved at the API
+  edge and is never re-queried here (CQRS boundary).
+- The costume projector gains a `DetailUpdated` arm onto the **existing**
+  `projection_costume_detail` upsert plus `touch_parent` — no migration, no
+  new query. It deliberately skips the `DetailAdded` category-derivation
+  block: an edit can only be produced by the PATCH route, whose wire request
+  carries no category (issue #543 made details pure description), and an
+  edit must never change the costume's own category.
+- `CostumeAuditProjector` learns the new event variant (entity-id match).
+- **No version bump:** the pending, still-unreleased 0.20.0 window already
+  carries the MINOR bump for issue #543's additive API.
 
 ### Added — costume-level category projection (issue #543)
 

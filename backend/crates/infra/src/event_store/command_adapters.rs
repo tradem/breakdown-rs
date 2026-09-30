@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: space-bunny-free (opencode-go)
 // Co-authored-by: glm-5.3-flash (neuralwatt)
 // Co-authored-by: omen-alpha (opencode-go)
 // Co-authored-by: gpt-5.6-luna (opencode-go)
@@ -40,7 +41,7 @@ use breakdown_core::character::ports::CharacterCommands;
 use breakdown_core::costume::aggregate::CostumeAggregate;
 use breakdown_core::costume::commands::{
     AddDetail, AssignCostumeToCharacter, CreateCostume, LinkPhoto, RemoveDetail,
-    SetCostumeCategory, UnassignCostume, UnlinkPhoto, UpdateCostumeNotes,
+    SetCostumeCategory, UnassignCostume, UnlinkPhoto, UpdateCostumeDetail, UpdateCostumeNotes,
 };
 use breakdown_core::costume::ports::CostumeCommands;
 use breakdown_core::costume_category::aggregate::CostumeCategoryAggregate;
@@ -623,6 +624,29 @@ impl CostumeCommands for CostumeCommandsImpl {
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
+        let series_id = cmd.series_id;
+        let result = CostumeAggregate::execute(&self.cmd_service, id, cmd)
+            .expected_version(ExpectedVersion::Exact(domain_to_stream_checked(version)?))
+            .metadata(EventMetadata {
+                actor: Some(actor),
+                provenance: Provenance::Human,
+                series_id,
+            })
+            .await;
+        map_version_only(result)
+    }
+
+    async fn update_detail(
+        &self,
+        actor: UserId,
+        cmd: UpdateCostumeDetail,
+    ) -> Result<AggregateVersion, DomainError> {
+        let id = cmd.id;
+        let version = cmd.version;
+        check_nonzero_version(version)?;
+        // `series_id` is audit metadata resolved at the API edge (CQRS
+        // boundary: no read-model lookup here) and is never allowed to
+        // block the command.
         let series_id = cmd.series_id;
         let result = CostumeAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Exact(domain_to_stream_checked(version)?))

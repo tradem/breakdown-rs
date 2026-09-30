@@ -1,5 +1,6 @@
 <!-- SPDX-License-Identifier: AGPL-3.0 -->
 <!-- Copyright (C) 2024-2026 Breakdown RS Contributors -->
+<!-- Co-authored-by: space-bunny-free (opencode-go) -->
 <!-- Co-authored-by: deepseek-v4-flash (opencode-go) -->
 <!-- Co-authored-by: deepseek-v4-flash (neuralwatt) -->
 <!-- Co-authored-by: longcat-2.0-free (opencode) -->
@@ -16,6 +17,28 @@ crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
 ## [0.14.0] - Unreleased
+
+### Added — costume detail edit + delete routes (issue #544)
+
+- `PATCH /v1/costumes/{id}/details/{detail_id}` and
+  `DELETE /v1/costumes/{id}/details/{detail_id}` (body `VersionRequest` =
+  the costume aggregate's version echo). Both are new public endpoints and
+  the new public `UpdateCostumeDetailRequest`.
+- Both handlers carry an `// AUTHZ-GATE:` comment and call
+  `authorize_costume_scoped` **inside** the handler body — the same seam as
+  `set_costume_category` (#543), since the route hangs off
+  `Authenticated`/`BlockMember` and the middleware cannot scope a costume to
+  a season. The gate runs before dispatch, so a denied caller never reaches
+  the command port.
+- `PATCH` rejects a body `detail.id` that disagrees with the `detail_id` path
+  parameter (422) — forwarding the body's id would let a typo rewrite the
+  wrong row.
+- `series_id` for the audit trail is resolved at the API edge
+  (`series_id_for_costume`); the adapter only forwards the field.
+- New problem code `costume-detail.not-found` (404) in the `problem_codes!`
+  registry, with Fluent text in `de` and `en` and a golden snapshot.
+- **No version bump:** the pending, still-unreleased 0.14.0 window already
+  carries the MINOR bump for issue #543's additive API.
 
 ### Added — one costume = one category: `POST /costumes/{id}/category` (issue #543)
 

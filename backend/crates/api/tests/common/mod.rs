@@ -23,7 +23,7 @@ use breakdown_core::character::ports::{CharacterCommands, CharacterRepository};
 use breakdown_core::character::views::CharacterView;
 use breakdown_core::costume::commands::{
     AddDetail, AssignCostumeToCharacter, CreateCostume, LinkPhoto, RemoveDetail,
-    SetCostumeCategory, UnassignCostume, UnlinkPhoto, UpdateCostumeNotes,
+    SetCostumeCategory, UnassignCostume, UnlinkPhoto, UpdateCostumeDetail, UpdateCostumeNotes,
 };
 use breakdown_core::costume::ports::{CostumeCommands, CostumeRepository};
 use breakdown_core::costume::views::CostumeView;
@@ -181,9 +181,55 @@ impl CharacterCommands for FakeCharacterCommands {
     }
 }
 
+/// A `Detail` command outcome, keyed by [`DetailCommandKind`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[allow(dead_code)] // see the note on `impl FakeCostumeCommands` below
+pub enum DetailCommandKind {
+    Update,
+    Remove,
+}
+
 #[derive(Clone, Default)]
 #[allow(dead_code)]
-pub struct FakeCostumeCommands;
+pub struct FakeCostumeCommands {
+    /// Issue #544: programmable outcome for the detail edit/delete commands so
+    /// a handler test can exercise the 404 `costume-detail.not-found` and the
+    /// 409 version fence without a live event store. Absent = the default
+    /// success (one version bump).
+    pub detail_result: Arc<Mutex<HashMap<DetailCommandKind, DomainError>>>,
+    /// Issue #544: the `detail_id`s the handler actually dispatched, so a test
+    /// can assert the body/path id agreement and that a denied caller sends
+    /// nothing at all.
+    pub detail_calls: Arc<Mutex<Vec<(DetailCommandKind, Uuid)>>>,
+}
+
+// This `mod common` is compiled into EVERY api test binary, but the #544
+// helpers are only used by `handler_costume_detail` — the same reason the
+// struct itself carries `#[allow(dead_code)]`.
+#[allow(dead_code)]
+impl FakeCostumeCommands {
+    /// Force the next outcome of a detail command (e.g. a 404 or a 409).
+    pub async fn fail_detail(&self, kind: DetailCommandKind, err: DomainError) {
+        self.detail_result.lock().await.insert(kind, err);
+    }
+
+    /// The `detail_id`s dispatched so far, in order.
+    pub async fn detail_ids(&self) -> Vec<(DetailCommandKind, Uuid)> {
+        self.detail_calls.lock().await.clone()
+    }
+
+    async fn record_detail(
+        &self,
+        kind: DetailCommandKind,
+        detail_id: Uuid,
+    ) -> Result<AggregateVersion, DomainError> {
+        self.detail_calls.lock().await.push((kind, detail_id));
+        match self.detail_result.lock().await.get(&kind) {
+            Some(err) => Err(err.clone()),
+            None => Ok(AggregateVersion::INITIAL.next()),
+        }
+    }
+}
 
 impl CostumeCommands for FakeCostumeCommands {
     async fn create(
@@ -221,12 +267,21 @@ impl CostumeCommands for FakeCostumeCommands {
     ) -> Result<AggregateVersion, DomainError> {
         Ok(AggregateVersion::INITIAL.next())
     }
+    async fn update_detail(
+        &self,
+        _actor: UserId,
+        cmd: UpdateCostumeDetail,
+    ) -> Result<AggregateVersion, DomainError> {
+        self.record_detail(DetailCommandKind::Update, cmd.detail.id)
+            .await
+    }
     async fn remove_detail(
         &self,
         _actor: UserId,
-        _cmd: RemoveDetail,
+        cmd: RemoveDetail,
     ) -> Result<AggregateVersion, DomainError> {
-        Ok(AggregateVersion::INITIAL.next())
+        self.record_detail(DetailCommandKind::Remove, cmd.detail_id)
+            .await
     }
     async fn set_category(
         &self,

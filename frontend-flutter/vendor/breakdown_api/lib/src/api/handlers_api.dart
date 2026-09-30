@@ -74,6 +74,7 @@ import 'package:breakdown_api/src/model/update_ai_config_request.dart';
 import 'package:breakdown_api/src/model/update_block_time_span_request.dart';
 import 'package:breakdown_api/src/model/update_contact_info_request.dart';
 import 'package:breakdown_api/src/model/update_costume_category_request.dart';
+import 'package:breakdown_api/src/model/update_costume_detail_request.dart';
 import 'package:breakdown_api/src/model/update_costume_notes_request.dart';
 import 'package:breakdown_api/src/model/update_measurements_request.dart';
 import 'package:breakdown_api/src/model/update_note_request.dart';
@@ -5727,6 +5728,108 @@ class HandlersApi {
     return _response;
   }
 
+  /// Remove a costume detail (issue #544).
+  /// &#x60;RemoveDetail&#x60; was fully implemented but unreachable before this route existed; a detail was permanent once added. The body is a &#x60;VersionRequest&#x60; — the echo of the **costume** aggregate&#39;s version, the same fence every other costume write uses.
+  ///
+  /// Parameters:
+  /// * [id] - Costume id
+  /// * [detailId] - Costume detail id
+  /// * [versionRequest]
+  /// * [cancelToken] - A [CancelToken] that can be used to cancel the operation
+  /// * [headers] - Can be used to add additional headers to the request
+  /// * [extras] - Can be used to add flags to the request
+  /// * [validateStatus] - A [ValidateStatus] callback that can be used to determine request success based on the HTTP status of the response
+  /// * [onSendProgress] - A [ProgressCallback] that can be used to get the send progress
+  /// * [onReceiveProgress] - A [ProgressCallback] that can be used to get the receive progress
+  ///
+  /// Returns a [Future] containing a [Response] with a [int] as data
+  /// Throws [DioException] if API call or serialization fails
+  Future<Response<int>> removeCostumeDetail({
+    required String id,
+    required String detailId,
+    required VersionRequest versionRequest,
+    CancelToken? cancelToken,
+    Map<String, dynamic>? headers,
+    Map<String, dynamic>? extra,
+    ValidateStatus? validateStatus,
+    ProgressCallback? onSendProgress,
+    ProgressCallback? onReceiveProgress,
+  }) async {
+    final _path = r'/v1/costumes/{id}/details/{detail_id}'
+        .replaceAll(
+            '{' r'id' '}',
+            encodeQueryParameter(_serializers, id, const FullType(String))
+                .toString())
+        .replaceAll(
+            '{' r'detail_id' '}',
+            encodeQueryParameter(_serializers, detailId, const FullType(String))
+                .toString());
+    final _options = Options(
+      method: r'DELETE',
+      headers: <String, dynamic>{
+        ...?headers,
+      },
+      extra: <String, dynamic>{
+        'secure': <Map<String, String>>[],
+        ...?extra,
+      },
+      contentType: 'application/json',
+      validateStatus: validateStatus,
+    );
+
+    dynamic _bodyData;
+
+    try {
+      const _type = FullType(VersionRequest);
+      _bodyData = _serializers.serialize(versionRequest, specifiedType: _type);
+    } catch (error, stackTrace) {
+      throw DioException(
+        requestOptions: _options.compose(
+          _dio.options,
+          _path,
+        ),
+        type: DioExceptionType.unknown,
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+
+    final _response = await _dio.request<Object>(
+      _path,
+      data: _bodyData,
+      options: _options,
+      cancelToken: cancelToken,
+      onSendProgress: onSendProgress,
+      onReceiveProgress: onReceiveProgress,
+    );
+
+    int? _responseData;
+
+    try {
+      final rawResponse = _response.data;
+      _responseData = rawResponse == null ? null : rawResponse as int;
+    } catch (error, stackTrace) {
+      throw DioException(
+        requestOptions: _response.requestOptions,
+        response: _response,
+        type: DioExceptionType.unknown,
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+
+    return Response<int>(
+      data: _responseData,
+      headers: _response.headers,
+      isRedirect: _response.isRedirect,
+      requestOptions: _response.requestOptions,
+      redirects: _response.redirects,
+      statusCode: _response.statusCode,
+      statusMessage: _response.statusMessage,
+      extra: _response.extra,
+    );
+  }
+
   /// Remove an active member from the block.
   /// Gated &#x60;BlockMember&#x60;: the caller must be an active member. The targeted &#x60;user_id&#x60; is taken from the path.
   ///
@@ -7955,6 +8058,109 @@ class HandlersApi {
     try {
       const _type = FullType(UpdateCostumeCategoryRequest);
       _bodyData = _serializers.serialize(updateCostumeCategoryRequest,
+          specifiedType: _type);
+    } catch (error, stackTrace) {
+      throw DioException(
+        requestOptions: _options.compose(
+          _dio.options,
+          _path,
+        ),
+        type: DioExceptionType.unknown,
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+
+    final _response = await _dio.request<Object>(
+      _path,
+      data: _bodyData,
+      options: _options,
+      cancelToken: cancelToken,
+      onSendProgress: onSendProgress,
+      onReceiveProgress: onReceiveProgress,
+    );
+
+    int? _responseData;
+
+    try {
+      final rawResponse = _response.data;
+      _responseData = rawResponse == null ? null : rawResponse as int;
+    } catch (error, stackTrace) {
+      throw DioException(
+        requestOptions: _response.requestOptions,
+        response: _response,
+        type: DioExceptionType.unknown,
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+
+    return Response<int>(
+      data: _responseData,
+      headers: _response.headers,
+      isRedirect: _response.isRedirect,
+      requestOptions: _response.requestOptions,
+      redirects: _response.redirects,
+      statusCode: _response.statusCode,
+      statusMessage: _response.statusMessage,
+      extra: _response.extra,
+    );
+  }
+
+  /// Replace an existing costume detail in place (issue #544).
+  /// The command carries the full detail, so the event is a snapshot: replay needs no field-merge logic and the projector reuses its &#x60;DetailAdded&#x60; upsert unchanged (no migration). An unknown &#x60;detail_id&#x60; is rejected by the aggregate **before** any event is appended, so a typo can never create a second detail.
+  ///
+  /// Parameters:
+  /// * [id] - Costume id
+  /// * [detailId] - Costume detail id
+  /// * [updateCostumeDetailRequest]
+  /// * [cancelToken] - A [CancelToken] that can be used to cancel the operation
+  /// * [headers] - Can be used to add additional headers to the request
+  /// * [extras] - Can be used to add flags to the request
+  /// * [validateStatus] - A [ValidateStatus] callback that can be used to determine request success based on the HTTP status of the response
+  /// * [onSendProgress] - A [ProgressCallback] that can be used to get the send progress
+  /// * [onReceiveProgress] - A [ProgressCallback] that can be used to get the receive progress
+  ///
+  /// Returns a [Future] containing a [Response] with a [int] as data
+  /// Throws [DioException] if API call or serialization fails
+  Future<Response<int>> updateCostumeDetail({
+    required String id,
+    required String detailId,
+    required UpdateCostumeDetailRequest updateCostumeDetailRequest,
+    CancelToken? cancelToken,
+    Map<String, dynamic>? headers,
+    Map<String, dynamic>? extra,
+    ValidateStatus? validateStatus,
+    ProgressCallback? onSendProgress,
+    ProgressCallback? onReceiveProgress,
+  }) async {
+    final _path = r'/v1/costumes/{id}/details/{detail_id}'
+        .replaceAll(
+            '{' r'id' '}',
+            encodeQueryParameter(_serializers, id, const FullType(String))
+                .toString())
+        .replaceAll(
+            '{' r'detail_id' '}',
+            encodeQueryParameter(_serializers, detailId, const FullType(String))
+                .toString());
+    final _options = Options(
+      method: r'PATCH',
+      headers: <String, dynamic>{
+        ...?headers,
+      },
+      extra: <String, dynamic>{
+        'secure': <Map<String, String>>[],
+        ...?extra,
+      },
+      contentType: 'application/json',
+      validateStatus: validateStatus,
+    );
+
+    dynamic _bodyData;
+
+    try {
+      const _type = FullType(UpdateCostumeDetailRequest);
+      _bodyData = _serializers.serialize(updateCostumeDetailRequest,
           specifiedType: _type);
     } catch (error, stackTrace) {
       throw DioException(

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: space-bunny-free (opencode-go)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
 // Co-authored-by: gpt-5.6-luna (opencode-go)
 // Co-authored-by: deepseek-v4-flash (opencode-go)
@@ -90,6 +91,8 @@ use utoipa::OpenApi;
         handlers::assign_costume,
         handlers::unassign_costume,
         handlers::add_costume_detail,
+        handlers::update_costume_detail,
+        handlers::remove_costume_detail,
         handlers::set_costume_category,
         handlers::create_costume_category,
         handlers::list_costume_categories,
@@ -182,6 +185,7 @@ use utoipa::OpenApi;
         handlers::CreateCostumeCategoryRequest,
         handlers::UpdateCostumeCategoryRequest,
         handlers::AddCostumeDetailRequest,
+        handlers::UpdateCostumeDetailRequest,
         handlers::CostumeDetailRequest,
         handlers::SetCostumeCategoryRequest,
         handlers::CreateShootingDayRequest,

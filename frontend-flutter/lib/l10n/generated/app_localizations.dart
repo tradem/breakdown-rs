@@ -506,6 +506,12 @@ abstract class AppLocalizations {
   /// **'Diese Kategorie ist archiviert – wähle eine aktive Kategorie.'**
   String get costumeErrorCategoryArchived;
 
+  /// No description provided for @costumeErrorDetailNotFound.
+  ///
+  /// In de, this message translates to:
+  /// **'Dieses Kostümdetail existiert nicht mehr – die Liste wurde aktualisiert.'**
+  String get costumeErrorDetailNotFound;
+
   /// No description provided for @costumeDetailCategoryTitle.
   ///
   /// In de, this message translates to:

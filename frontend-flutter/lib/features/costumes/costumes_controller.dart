@@ -233,6 +233,12 @@ String costumeErrorCopy(AppLocalizations l10n, ProblemError error) =>
       // narrative so the user re-picks from this season's categories.
       'costume-category.season-mismatch' => l10n.costumeErrorCategorySeason,
       'costume-category.archived' => l10n.costumeErrorCategoryArchived,
+      // Issue #544: the detail edit/delete routes answer a dedicated 404
+      // (not `costume.validation` 422) so a stale row can be told apart from
+      // a real validation failure. The narrative tells the user the row is
+      // gone and that the list was refreshed — the bounded reconcile swaps
+      // the projection in behind it.
+      'costume-detail.not-found' => l10n.costumeErrorDetailNotFound,
       _ when error.code.startsWith('transport.') =>
         l10n.costumeCategoryErrorNetwork,
       _ => l10n.costumeErrorGeneric(error.code),
@@ -707,6 +713,128 @@ class CostumesController extends _$CostumesController {
     );
   }
 
+  /// Edits an existing detail (issue #544, PATCH).
+  ///
+  /// Sends the FULL detail (subject + text), never a patch: a cleared
+  /// `subject` must reach the server as an explicit `null` rather than as an
+  /// omitted field, or the previous value would silently survive. The wire
+  /// `detail.id` is the EXISTING id (the server rejects a body id that
+  /// disagrees with the path parameter) — unlike [addDetail], no placeholder
+  /// is involved, so issue #472's `'pending'` trap has no path here.
+  ///
+  /// // AUTHZ-GATE: `assign_costumes` capability checked before any network
+  /// call — the backend handlers gate on the same predicate
+  /// (`authorize_costume_scoped`, ANY season scope of the costume).
+  Future<Result<int>> updateDetail({
+    required CostumeView costume,
+    required String detailId,
+    required String text,
+    String? subject,
+  }) async {
+    final gate = await _assignGate();
+    if (_deny(CostumeCommandSurface.costume, gate) != null) {
+      return Left(ProblemError(code: (gate as GateDeny).code, status: 403));
+    }
+    final repo = ref.read(costumeRepositoryProvider);
+    final res = await repo.updateDetail(
+      costume.id,
+      detailId,
+      UpdateCostumeDetailRequest(
+        (b) => b
+          ..detail.id = detailId
+          ..detail.subject = subject
+          ..detail.text = text
+          ..version = _resolveVersion(costume.id, costume.version),
+      ),
+    );
+    return res.match(
+      (err) {
+        _setCommandError(CostumeCommandSurface.costume, err);
+        _reconcileStaleDetail(err);
+        return Left<ProblemError, int>(err);
+      },
+      (version) {
+        ref.read(costumesCommandErrorProvider(seasonId).notifier).clear();
+        // Optimistic-after-2xx: the entry is swapped in place on the row copy
+        // and the overlay version advances to the ack (same fence as
+        // addDetail/assign).
+        ref
+            .read(costumesOverlaysProvider(seasonId).notifier)
+            .add(
+              CostumeRowOverlay(
+                id: costume.id,
+                overlay: applyUpdateDetailOptimistic(
+                  costume,
+                  detailId,
+                  subject: subject,
+                  text: text,
+                ).rebuild((b) => b..version = version),
+                acknowledgedVersion: version,
+                status: OverlayStatus.acknowledged,
+              ),
+            );
+        _reconcile.ackReceived();
+        unawaited(reconcile());
+        return Right<ProblemError, int>(version);
+      },
+    );
+  }
+
+  /// Removes a detail (issue #544, DELETE).
+  ///
+  /// The row leaves the overlay immediately after the 2xx ack; the
+  /// projection confirms it on the next refetch. A 404
+  /// `costume-detail.not-found` (the row was already gone server-side)
+  /// surfaces in the command-error banner and the bounded reconcile resyncs
+  /// the list — no silent discard.
+  ///
+  /// // AUTHZ-GATE: `assign_costumes` capability checked before any network
+  /// call — the backend handler gates on the same predicate
+  /// (`authorize_costume_scoped`, ANY season scope of the costume).
+  Future<Result<int>> removeDetail({
+    required CostumeView costume,
+    required String detailId,
+  }) async {
+    final gate = await _assignGate();
+    if (_deny(CostumeCommandSurface.costume, gate) != null) {
+      return Left(ProblemError(code: (gate as GateDeny).code, status: 403));
+    }
+    final repo = ref.read(costumeRepositoryProvider);
+    final res = await repo.removeDetail(
+      costume.id,
+      detailId,
+      VersionRequest(
+        (b) => b..version = _resolveVersion(costume.id, costume.version),
+      ),
+    );
+    return res.match(
+      (err) {
+        _setCommandError(CostumeCommandSurface.costume, err);
+        _reconcileStaleDetail(err);
+        return Left<ProblemError, int>(err);
+      },
+      (version) {
+        ref.read(costumesCommandErrorProvider(seasonId).notifier).clear();
+        ref
+            .read(costumesOverlaysProvider(seasonId).notifier)
+            .add(
+              CostumeRowOverlay(
+                id: costume.id,
+                overlay: applyRemoveDetailOptimistic(
+                  costume,
+                  detailId,
+                ).rebuild((b) => b..version = version),
+                acknowledgedVersion: version,
+                status: OverlayStatus.acknowledged,
+              ),
+            );
+        _reconcile.ackReceived();
+        unawaited(reconcile());
+        return Right<ProblemError, int>(version);
+      },
+    );
+  }
+
   /// Sets (or clears) the costume's single category (issue #543).
   ///
   /// `categoryId == null` clears; setting the category that is already set
@@ -987,6 +1115,24 @@ class CostumesController extends _$CostumesController {
   }
 
   Future<void> reconcile() => _reconcile.reconcile();
+
+  /// Resyncs the list after a detail command failed with
+  /// `costume-detail.not-found` (issue #544).
+  ///
+  /// That 404 means the server no longer holds the addressed detail, so the
+  /// row on screen is stale whatever the client intended. The
+  /// `costumeErrorDetailNotFound` copy tells the user "the list was
+  /// refreshed" — so this has to actually happen, or the banner promises
+  /// something the client never does and a second tap on the same row
+  /// returns the identical 404 (CodeRabbit review on PR #561).
+  ///
+  /// Every OTHER error is left alone: a 409 version conflict or a transport
+  /// failure says nothing about the detail's existence, and refetching on
+  /// those would fight the user's retry.
+  void _reconcileStaleDetail(ProblemError err) {
+    if (err.code != 'costume-detail.not-found') return;
+    unawaited(reconcile());
+  }
 
   Future<void> refresh() async {
     ref.read(costumesCommandErrorProvider(seasonId).notifier).clear();

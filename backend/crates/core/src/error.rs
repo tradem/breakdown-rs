@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: space-bunny-free (opencode-go)
 // Co-authored-by: omen-alpha (opencode-go)
 // Co-authored-by: kimi-k3 (neuralwatt)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
@@ -17,9 +18,9 @@ use crate::error_registry::{
     AI_CONFIG_ALREADY_REVOKED, AI_CONFIG_EMPTY_MODEL, AI_CONFIG_EMPTY_PROMPT,
     AI_CONFIG_EMPTY_PROVIDER, AI_CONFIG_EMPTY_VAULT_KEY, AI_CONFIG_NOT_FOUND,
     AI_CONFIG_PROVIDER_MISMATCH, BLOCK_NOT_FOUND, CHARACTER_NOT_FOUND, CHARACTER_VALIDATION,
-    COSTUME_CATEGORY_ARCHIVED, COSTUME_CATEGORY_VALIDATION, COSTUME_NOT_FOUND, COSTUME_VALIDATION,
-    DOMAIN_CONFLICT, DOMAIN_FORBIDDEN, DOMAIN_NOT_FOUND, DOMAIN_SERVICE_UNAVAILABLE,
-    DOMAIN_VALIDATION, EPISODE_NOT_FOUND, MEMBERSHIP_ALREADY_INVITED,
+    COSTUME_CATEGORY_ARCHIVED, COSTUME_CATEGORY_VALIDATION, COSTUME_DETAIL_NOT_FOUND,
+    COSTUME_NOT_FOUND, COSTUME_VALIDATION, DOMAIN_CONFLICT, DOMAIN_FORBIDDEN, DOMAIN_NOT_FOUND,
+    DOMAIN_SERVICE_UNAVAILABLE, DOMAIN_VALIDATION, EPISODE_NOT_FOUND, MEMBERSHIP_ALREADY_INVITED,
     MEMBERSHIP_BOOTSTRAP_NOT_ALLOWED, MEMBERSHIP_MISSING_ACTOR, MEMBERSHIP_NO_PENDING_INVITATION,
     MEMBERSHIP_NOT_ACTIVE_MEMBER, MEMBERSHIP_NOT_FOUND, PHOTO_ALREADY_DELETED, PHOTO_NOT_FOUND,
     PHOTO_VALIDATION, ProblemCode, SCENE_CHARACTER_ALREADY_ASSIGNED, SCENE_CHARACTER_NOT_FOUND,
@@ -248,6 +249,14 @@ impl From<CostumeError> for DomainError {
             CostumeError::NotFound { id } => DomainError::NotFound {
                 code: &COSTUME_NOT_FOUND,
                 resource: "costume",
+                id,
+            },
+            // Issue #544: the costume exists, the addressed detail does not.
+            // A distinct 404 code (not `costume.validation` 422) so the
+            // client can tell the two apart and reconcile by refetching.
+            CostumeError::DetailNotFound { id } => DomainError::NotFound {
+                code: &COSTUME_DETAIL_NOT_FOUND,
+                resource: "costume-detail",
                 id,
             },
             CostumeError::AlreadyAssigned { assigned_to } => DomainError::AlreadyAssigned {

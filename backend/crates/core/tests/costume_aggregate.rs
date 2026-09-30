@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: space-bunny-free (opencode-go)
 // Co-authored-by: deepseek-v4-flash (opencode-go)
 // Co-authored-by: mimo-v2.5 (opencode-go)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
@@ -415,10 +416,197 @@ fn test_remove_detail_not_found() {
         make_ctx(),
     );
     assert!(result.is_err());
+    // Issue #544: a dedicated variant, not a `ValidationError` string, so the
+    // HTTP edge can answer 404 `costume-detail.not-found` instead of a 422.
     assert!(matches!(
         result.unwrap_err(),
-        CostumeError::ValidationError(ref m) if m.contains("not found")
+        CostumeError::DetailNotFound { .. }
     ));
+}
+
+// ---------------------------------------------------------------------------
+// Issue #544: detail edit (`UpdateCostumeDetail`).
+// ---------------------------------------------------------------------------
+
+/// Build a costume with one detail, replayed through the aggregate.
+fn costume_with_detail(text: &str) -> (CostumeAggregate, Uuid) {
+    let mut agg = make_costume();
+    let detail_id = Uuid::now_v7();
+    let events = agg
+        .handle(
+            AddDetail {
+                id: agg.id,
+                detail: CostumeDetail {
+                    id: detail_id,
+                    subject: Some("Jacke".to_string()),
+                    category_id: None,
+                    text: text.to_string(),
+                },
+                series_id: Some(series_id()),
+                version: agg.version,
+            },
+            make_ctx(),
+        )
+        .unwrap();
+    test_support::replay_events(&mut agg, events);
+    (agg, detail_id)
+}
+
+#[test]
+fn test_update_detail_success() {
+    let (mut agg, detail_id) = costume_with_detail("seide");
+    let version_before = agg.version;
+    let events = agg
+        .handle(
+            UpdateCostumeDetail {
+                id: agg.id,
+                detail: CostumeDetail {
+                    id: detail_id,
+                    subject: Some("Rote Lederjacke".to_string()),
+                    category_id: None,
+                    text: "leder".to_string(),
+                },
+                series_id: Some(series_id()),
+                version: version_before,
+            },
+            make_ctx(),
+        )
+        .unwrap();
+    // Exactly ONE event — the acceptance criterion for issue #544.
+    assert_eq!(events.len(), 1);
+    assert!(matches!(events[0], CostumeEvent::DetailUpdated { .. }));
+    test_support::replay_events(&mut agg, events);
+    assert_eq!(agg.details.len(), 1, "an edit must not add a second detail");
+    assert_eq!(agg.details[0].text, "leder");
+    assert_eq!(agg.details[0].subject.as_deref(), Some("Rote Lederjacke"));
+    assert_eq!(agg.version, version_before.next());
+}
+
+#[test]
+fn test_update_detail_keeps_position_in_details() {
+    // The `details` vec has no ordering key, so an update must replace the
+    // entry in place rather than remove-and-append.
+    let (mut agg, detail_id) = costume_with_detail("seide");
+    let second = Uuid::now_v7();
+    let events = agg
+        .handle(
+            AddDetail {
+                id: agg.id,
+                detail: CostumeDetail {
+                    id: second,
+                    subject: None,
+                    category_id: None,
+                    text: "second".to_string(),
+                },
+                series_id: Some(series_id()),
+                version: agg.version,
+            },
+            make_ctx(),
+        )
+        .unwrap();
+    test_support::replay_events(&mut agg, events);
+
+    let events = agg
+        .handle(
+            UpdateCostumeDetail {
+                id: agg.id,
+                detail: CostumeDetail {
+                    id: detail_id,
+                    subject: None,
+                    category_id: None,
+                    text: "seide, geändert".to_string(),
+                },
+                series_id: Some(series_id()),
+                version: agg.version,
+            },
+            make_ctx(),
+        )
+        .unwrap();
+    test_support::replay_events(&mut agg, events);
+
+    assert_eq!(agg.details.len(), 2);
+    assert_eq!(agg.details[0].id, detail_id, "position must be preserved");
+    assert_eq!(agg.details[0].text, "seide, geändert");
+    assert_eq!(agg.details[1].id, second);
+}
+
+#[test]
+fn test_update_detail_not_found_emits_no_event() {
+    let (agg, _) = costume_with_detail("seide");
+    let missing = Uuid::now_v7();
+    let result = agg.handle(
+        UpdateCostumeDetail {
+            id: agg.id,
+            detail: CostumeDetail {
+                id: missing,
+                subject: None,
+                category_id: None,
+                text: "typo".to_string(),
+            },
+            series_id: Some(series_id()),
+            version: agg.version,
+        },
+        make_ctx(),
+    );
+    // The real validation the issue asks for: an unknown `detail_id` errors
+    // and the aggregate never grows a second row.
+    assert!(matches!(
+        result.unwrap_err(),
+        CostumeError::DetailNotFound { id } if id == missing
+    ));
+    assert_eq!(agg.details.len(), 1);
+    assert_eq!(agg.version, agg.version);
+}
+
+#[test]
+fn test_update_detail_version_chain() {
+    // Two consecutive updates each fence on the previous ack — the same chain
+    // `addDetail` relies on for the client's version reconciliation.
+    let (mut agg, detail_id) = costume_with_detail("v0");
+    let mut version = agg.version;
+    for text in ["v1", "v2"] {
+        let events = agg
+            .handle(
+                UpdateCostumeDetail {
+                    id: agg.id,
+                    detail: CostumeDetail {
+                        id: detail_id,
+                        subject: None,
+                        category_id: None,
+                        text: text.to_string(),
+                    },
+                    series_id: Some(series_id()),
+                    version,
+                },
+                make_ctx(),
+            )
+            .unwrap();
+        test_support::replay_events(&mut agg, events);
+        version = agg.version;
+    }
+    assert_eq!(agg.details[0].text, "v2");
+
+    // A stale version is rejected before the detail is even looked at.
+    let stale = version;
+    let result = agg.handle(
+        UpdateCostumeDetail {
+            id: agg.id,
+            detail: CostumeDetail {
+                id: detail_id,
+                subject: None,
+                category_id: None,
+                text: "v3".to_string(),
+            },
+            series_id: Some(series_id()),
+            version: AggregateVersion::INITIAL,
+        },
+        make_ctx(),
+    );
+    assert!(matches!(
+        result.unwrap_err(),
+        CostumeError::VersionMismatch { .. }
+    ));
+    assert_ne!(stale, AggregateVersion::INITIAL);
 }
 
 #[test]

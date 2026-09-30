@@ -9,6 +9,7 @@ applyTo:
 <!-- SPDX-License-Identifier: AGPL-3.0 -->
 <!-- Copyright (C) 2024-2026 Breakdown RS Contributors -->
 <!-- Co-authored-by: glm-5.3 (neuralwatt) -->
+<!-- Co-authored-by: space-bunny-free (opencode-go) -->
 
 # Production hierarchy (ADR: introduce-season-block-episode-hierarchy)
 
@@ -51,5 +52,10 @@ executed identically by `CostumeAggregate::apply` and the costume projector; det
 rename propagation targets `projection_costume.category_name`. The command API lives at
 `POST/GET /seasons/{season_id}/costume-categories` (and `PATCH`/`POST .../archive` by id) plus
 `POST /costumes/{id}/category` (issue #543); `POST /costumes/{id}/details` accepts a pure-description
-`CostumeDetailRequest`.
+`CostumeDetailRequest`, and `PATCH`/`DELETE /costumes/{id}/details/{detail_id}` edit and remove a detail
+(issue #544, body = the costume aggregate's `VersionRequest` echo; an unknown `detail_id` answers 404
+`costume-detail.not-found`, a distinct code from `costume.validation` so a client can tell a stale row
+apart from a validation failure). `DetailUpdated` carries the **full** detail, not a patch, and the
+projector reuses the `DetailAdded` upsert (no migration). Both detail routes are handler-internal
+`AUTHZ-GATE`s over `authorize_costume_scoped`, like the photo handlers and `POST /costumes/{id}/category`.
 

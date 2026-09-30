@@ -2596,6 +2596,25 @@ components:
       required:
       - version
       type: object
+    UpdateCostumeDetailRequest:
+      description: |-
+        Replace an existing costume detail in full (issue #544).
+
+        The body carries the **whole** detail, not a patch: a patch-merge would
+        leave the field merging to the client and make an emptied `subject`
+        ambiguous (cleared on purpose vs. lost). `detail.id` must equal the
+        `detail_id` path parameter — the aggregate validates the id against its
+        state and answers 404 `costume-detail.not-found` without emitting an
+        event when the detail is unknown.
+      properties:
+        detail:
+          $ref: '#/components/schemas/CostumeDetailRequest'
+        version:
+          $ref: '#/components/schemas/AggregateVersion'
+      required:
+      - detail
+      - version
+      type: object
     UpdateCostumeNotesRequest:
       properties:
         notes:
@@ -4504,6 +4523,132 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Validation error
+      tags:
+      - handlers
+  /v1/costumes/{id}/details/{detail_id}:
+    delete:
+      description: |-
+        `RemoveDetail` was fully implemented but unreachable before this route
+        existed; a detail was permanent once added. The body is a `VersionRequest`
+        — the echo of the **costume** aggregate's version, the same fence every
+        other costume write uses.
+      operationId: remove_costume_detail
+      parameters:
+      - description: Costume id
+        in: path
+        name: id
+        required: true
+        schema:
+          format: uuid
+          type: string
+      - description: Costume detail id
+        in: path
+        name: detail_id
+        required: true
+        schema:
+          format: uuid
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VersionRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AggregateVersion'
+          description: ''
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Caller holds no costume role in any season scope of the costume
+        '404':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Costume or detail not found
+        '409':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Version conflict
+        '422':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Validation error
+      summary: 'Remove a costume detail (issue #544).'
+      tags:
+      - handlers
+    patch:
+      description: |-
+        The command carries the full detail, so the event is a snapshot: replay
+        needs no field-merge logic and the projector reuses its `DetailAdded`
+        upsert unchanged (no migration). An unknown `detail_id` is rejected by the
+        aggregate **before** any event is appended, so a typo can never create a
+        second detail.
+      operationId: update_costume_detail
+      parameters:
+      - description: Costume id
+        in: path
+        name: id
+        required: true
+        schema:
+          format: uuid
+          type: string
+      - description: Costume detail id
+        in: path
+        name: detail_id
+        required: true
+        schema:
+          format: uuid
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateCostumeDetailRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AggregateVersion'
+          description: ''
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Caller holds no costume role in any season scope of the costume
+        '404':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Costume or detail not found
+        '409':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Version conflict
+        '422':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Validation error
+      summary: 'Replace an existing costume detail in place (issue #544).'
       tags:
       - handlers
   /v1/costumes/{id}/notes:
@@ -6886,6 +7031,12 @@ x-code-registry:
   status: 422
   title: Costume validation failed
   type: https://docs.breakdown.example/problems/costume.validation
+- code: costume-detail.not-found
+  extensions:
+  - id
+  status: 404
+  title: Costume detail not found
+  type: https://docs.breakdown.example/problems/costume-detail.not-found
 - code: costume-category.not-found
   extensions:
   - id
