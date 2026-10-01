@@ -98,8 +98,13 @@ class _ActiveScopeChipState extends ConsumerState<ActiveScopeChip> {
 
     // Degradation path (issue #548): a label-less scope re-resolves its
     // number ONCE, cache-only, and writes it back — then renders the real
-    // label on the next build.
-    if (!foreign && scope.blockNumber == null && _backfilled == null) {
+    // label on the next build. The guard compares against the CURRENT
+    // (season, block) pair, so a later DIFFERENT label-less scope (sign-out
+    // + legacy restore, etc.) gets its own attempt; the same failed pair is
+    // never retried (no busy loop).
+    if (!foreign &&
+        scope.blockNumber == null &&
+        _backfilled != (scope.seasonId, scope.blockId)) {
       _backfilled = (scope.seasonId, scope.blockId);
       unawaited(_backfill(scope));
     }

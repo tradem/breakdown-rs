@@ -166,6 +166,50 @@ void main() {
       expect(find.text('Filter: Block 5'), findsOneWidget);
     });
 
+    testWidgets('a second, DIFFERENT label-less scope backfills too '
+        '(guard resets per scope pair)', (tester) async {
+      // Regression for the CodeRabbit finding on #565: the backfill guard
+      // must compare against the current (season, block) pair, not only
+      // "was attempted once ever" — otherwise a later label-less scope B
+      // would show "unknown" forever.
+      final dao = BlockCacheDao(db);
+      await dao.applySnapshotForSeason('season-1', [
+        _block('b-1', number: 5),
+        _block('b-2', number: 7),
+      ], DateTime.utc(2026, 1, 1));
+      final container = ProviderContainer(
+        overrides: [
+          blockRepositoryProvider.overrideWithValue(
+            BlockRepository(BreakdownApi(), dao),
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+      await pumpChip(tester, container: container);
+
+      // Scope A (label-less) → backfilled from the cache.
+      container
+          .read(activeBlockProvider.notifier)
+          .set(seasonId: 'season-1', blockId: 'b-1');
+      await settle(tester);
+      await tester.pump();
+      await settle(tester);
+      await tester.pump();
+      expect(container.read(activeBlockProvider)?.blockNumber, 5);
+      expect(find.text('Filter: Block 5'), findsOneWidget);
+
+      // Scope B (also label-less, different pair) → its OWN attempt.
+      container
+          .read(activeBlockProvider.notifier)
+          .set(seasonId: 'season-1', blockId: 'b-2');
+      await settle(tester);
+      await tester.pump();
+      await settle(tester);
+      await tester.pump();
+      expect(container.read(activeBlockProvider)?.blockNumber, 7);
+      expect(find.text('Filter: Block 7'), findsOneWidget);
+    });
+
     testWidgets('label-less scope with an empty cache stays "unknown"', (
       tester,
     ) async {
