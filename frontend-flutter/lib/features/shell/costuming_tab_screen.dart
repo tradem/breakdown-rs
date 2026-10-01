@@ -12,6 +12,7 @@ import '../../l10n/app_localizations_provider.dart';
 
 import '../characters/characters_screen.dart';
 import '../costumes/costumes_screen.dart';
+import 'planning_location.dart';
 import 'shell_controller.dart';
 
 /// The Garderobe tab root (label renamed from Kleidung; keys kept) (task 4.2): the costume department's tab, scoped
@@ -74,9 +75,14 @@ class CostumingTabScreen extends ConsumerWidget {
                   ),
                   trailing: const Icon(Icons.chevron_right),
                   // Fire-and-forget navigation (no result consumed).
+                  // Issue #548: season-direct entries take the SEASON level
+                  // only — never a fabricated block context.
                   onTap: () => unawaited(
                     Navigator.of(context).push(
                       MaterialPageRoute<void>(
+                        settings: RouteSettings(
+                          arguments: PlanningLocation.season(season),
+                        ),
                         builder: (_) => CostumesScreen(season: season),
                       ),
                     ),
@@ -92,9 +98,13 @@ class CostumingTabScreen extends ConsumerWidget {
                   ),
                   trailing: const Icon(Icons.chevron_right),
                   // Fire-and-forget navigation (no result consumed).
+                  // Issue #548: season level only.
                   onTap: () => unawaited(
                     Navigator.of(context).push(
                       MaterialPageRoute<void>(
+                        settings: RouteSettings(
+                          arguments: PlanningLocation.season(season),
+                        ),
                         builder: (_) => CharactersScreen(season: season),
                       ),
                     ),

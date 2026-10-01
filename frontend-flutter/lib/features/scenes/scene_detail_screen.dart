@@ -19,6 +19,7 @@ import '../../l10n/app_localizations_provider.dart';
 import '../characters/characters_controller.dart';
 import '../costumes/widgets/costumes_widgets.dart';
 import '../scene_shoots/scene_shoots_screen.dart';
+import '../shell/planning_location.dart';
 import '../shooting_days/shooting_days_controller.dart';
 import 'scenes_controller.dart';
 import 'scenes_state.dart';
@@ -462,9 +463,18 @@ class _SceneShootingDaysSection extends ConsumerWidget {
 
   void _openBoard(BuildContext context, ShootingDayView day) {
     // Fire-and-forget navigation (route push has no consumable result).
+    // Issue #548: the day board rides on the SAME scene-level location
+    // chain (from the route arguments) — display context only, the screen
+    // keeps resolving its scene from the acted-on ids.
+    final location = locationFromArguments(
+      ModalRoute.of(context)?.settings.arguments,
+    );
     unawaited(
       Navigator.of(context).push(
         MaterialPageRoute<void>(
+          settings: RouteSettings(
+            arguments: location is SceneLocation ? location : null,
+          ),
           builder: (_) =>
               SceneShootsScreen(day: day, scene: scene, seasonId: seasonId),
         ),

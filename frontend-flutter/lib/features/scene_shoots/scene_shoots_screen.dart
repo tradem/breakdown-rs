@@ -14,6 +14,7 @@ import '../../design/components/ai_provenance_badge.dart';
 import '../../domain/ai_provenance.dart';
 import '../../l10n/app_localizations_provider.dart';
 import '../reports/reports_screen.dart';
+import '../shell/planning_location.dart';
 import '../shooting_days/shooting_days_controller.dart';
 import 'scene_shoots_controller.dart';
 import 'scene_shoots_state.dart';
@@ -103,6 +104,13 @@ class SceneShootsScreen extends ConsumerWidget {
             tooltip: l10nOf(context).sceneShootsReportsTooltip,
             onPressed: () => Navigator.of(context).push(
               MaterialPageRoute(
+                // Issue #548: the reports entry rides on the same
+                // scene-level location chain (from the route arguments).
+                settings: RouteSettings(
+                  arguments: locationFromArguments(
+                    ModalRoute.of(context)?.settings.arguments,
+                  ),
+                ),
                 builder: (context) =>
                     ReportsScreen(day: dayNow, seasonId: seasonId),
               ),

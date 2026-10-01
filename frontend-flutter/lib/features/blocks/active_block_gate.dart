@@ -112,10 +112,16 @@ AsyncValue<BlockScopeResolution> blockScopeResolution(
           _ => null,
         };
         if (remembered != null) {
-          if (rows.any((b) => b.id == remembered)) {
+          if (rows.any((b) => b.id == remembered.blockId)) {
+            // The block number for the scope chip's visible label comes
+            // from the fetched rows (fresher than the persisted number).
+            final number = rows
+                .firstWhere((b) => b.id == remembered.blockId)
+                .number;
             final restored = ActiveScope(
               seasonId: seasonId,
-              blockId: remembered,
+              blockId: remembered.blockId,
+              blockNumber: number,
             );
             if (ref.read(activeBlockProvider) != restored) {
               // Same deferred-set pattern as the single-block path below.
@@ -125,7 +131,11 @@ AsyncValue<BlockScopeResolution> blockScopeResolution(
                   if (ref.read(activeBlockProvider) != restored) {
                     ref
                         .read(activeBlockProvider.notifier)
-                        .set(seasonId: seasonId, blockId: remembered);
+                        .set(
+                          seasonId: seasonId,
+                          blockId: remembered.blockId,
+                          blockNumber: number,
+                        );
                   }
                 }),
               );
@@ -139,7 +149,10 @@ AsyncValue<BlockScopeResolution> blockScopeResolution(
           unawaited(
             ref
                 .read(activeBlockStoreProvider)
-                .removeScopeIfMatch(seasonId: seasonId, blockId: remembered)
+                .removeScopeIfMatch(
+                  seasonId: seasonId,
+                  blockId: remembered.blockId,
+                )
                 .then((r) {
                   r.fold((_) {}, (_) {});
                   if (!ref.mounted) return;
@@ -151,6 +164,7 @@ AsyncValue<BlockScopeResolution> blockScopeResolution(
           final picked = ActiveScope(
             seasonId: seasonId,
             blockId: rows.single.id,
+            blockNumber: rows.single.number,
           );
           if (ref.read(activeBlockProvider) != picked) {
             // Deferred: setting the scope synchronously here would modify
@@ -165,7 +179,11 @@ AsyncValue<BlockScopeResolution> blockScopeResolution(
                 if (ref.read(activeBlockProvider) != picked) {
                   ref
                       .read(activeBlockProvider.notifier)
-                      .set(seasonId: seasonId, blockId: rows.single.id);
+                      .set(
+                        seasonId: seasonId,
+                        blockId: rows.single.id,
+                        blockNumber: rows.single.number,
+                      );
                 }
               }),
             );
@@ -255,17 +273,23 @@ class NoBlocksHintScaffold extends StatelessWidget {
 /// One-tap remembered block picker for multi-block seasons without a
 /// matching sticky scope. The choice sets the sticky scope, so subsequent
 /// entries reuse it silently (zero taps from then on).
+///
+/// [onPicked] (issue #548): optional post-pick callback — the scope chip's
+/// picker pops back to the caller; the season-direct gate scaffold stays
+/// put (the pick reveals the content in place).
 class BlockScopePickerScaffold extends ConsumerWidget {
   const BlockScopePickerScaffold({
     super.key,
     required this.title,
     required this.seasonId,
     required this.candidates,
+    this.onPicked,
   });
 
   final String title;
   final String seasonId;
   final List<BlockView> candidates;
+  final void Function()? onPicked;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) => Scaffold(
@@ -278,9 +302,16 @@ class BlockScopePickerScaffold extends ConsumerWidget {
         return ListTile(
           key: Key('block-scope-pick-${block.id}'),
           title: Text(l10nOf(context).blockTileLabel('${block.number}')),
-          onTap: () => ref
-              .read(activeBlockProvider.notifier)
-              .set(seasonId: seasonId, blockId: block.id),
+          onTap: () {
+            ref
+                .read(activeBlockProvider.notifier)
+                .set(
+                  seasonId: seasonId,
+                  blockId: block.id,
+                  blockNumber: block.number,
+                );
+            onPicked?.call();
+          },
         );
       },
     ),

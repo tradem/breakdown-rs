@@ -15,6 +15,7 @@ import '../app_info/info_dialog.dart';
 import '../app_info/settings_dialog.dart';
 import '../auth/sign_out.dart';
 import '../costume_categories/costume_categories_screen.dart';
+import 'planning_location.dart';
 import 'shell_controller.dart';
 
 /// The Mehr tab root (task 4.3): secondary destinations as labeled list
@@ -85,6 +86,10 @@ class MoreTabScreen extends ConsumerWidget {
                 : () => unawaited(
                     Navigator.of(context).push(
                       MaterialPageRoute<void>(
+                        // Issue #548: season level only (season-direct).
+                        settings: RouteSettings(
+                          arguments: PlanningLocation.season(season),
+                        ),
                         builder: (_) => CostumeCategoriesScreen(season: season),
                       ),
                     ),
