@@ -18,6 +18,7 @@ import '../../core/problem_error.dart';
 import '../../l10n/app_localizations_provider.dart';
 import '../../l10n/generated/app_localizations.dart';
 import '../episodes/episodes_screen.dart';
+import '../shell/planning_location.dart';
 import 'blocks_controller.dart';
 import 'blocks_state.dart';
 import 'create_block_sheet.dart';
@@ -147,6 +148,7 @@ class BlocksScreen extends ConsumerWidget {
                                               .set(
                                                 seasonId: block.seasonId,
                                                 blockId: block.id,
+                                                blockNumber: block.number,
                                               );
                                           // Scope first (synchronous — the
                                           // pushed screen's fetches must see
@@ -154,9 +156,19 @@ class BlocksScreen extends ConsumerWidget {
                                           // future is intentionally
                                           // unawaited (fire-and-forget
                                           // navigation, no result consumed).
+                                          // Issue #548: the route carries
+                                          // the block-level location (season
+                                          // included) for the shell's strip.
                                           unawaited(
                                             Navigator.of(context).push(
                                               MaterialPageRoute<void>(
+                                                settings: RouteSettings(
+                                                  arguments:
+                                                      PlanningLocation.block(
+                                                        season,
+                                                        block,
+                                                      ),
+                                                ),
                                                 builder: (_) => EpisodesScreen(
                                                   block: block,
                                                 ),

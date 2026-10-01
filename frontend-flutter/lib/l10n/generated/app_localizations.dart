@@ -3322,6 +3322,42 @@ abstract class AppLocalizations {
   /// **'Szenen'**
   String get navScenes;
 
+  /// No description provided for @locationStripSemantics.
+  ///
+  /// In de, this message translates to:
+  /// **'Position: {path}'**
+  String locationStripSemantics(Object path);
+
+  /// No description provided for @scopeChipBlock.
+  ///
+  /// In de, this message translates to:
+  /// **'Filter: {block}'**
+  String scopeChipBlock(Object block);
+
+  /// No description provided for @scopeChipUnknownBlock.
+  ///
+  /// In de, this message translates to:
+  /// **'Filter: Block unbekannt'**
+  String get scopeChipUnknownBlock;
+
+  /// No description provided for @scopeChipForeignSeason.
+  ///
+  /// In de, this message translates to:
+  /// **'Filter gilt hier nicht – andere Season'**
+  String get scopeChipForeignSeason;
+
+  /// No description provided for @scopeChipTooltip.
+  ///
+  /// In de, this message translates to:
+  /// **'Aktiven Block-Filter ändern'**
+  String get scopeChipTooltip;
+
+  /// No description provided for @scopeChipPickTitle.
+  ///
+  /// In de, this message translates to:
+  /// **'Block-Filter wählen'**
+  String get scopeChipPickTitle;
+
   /// No description provided for @seasonsTitle.
   ///
   /// In de, this message translates to:

@@ -64,6 +64,17 @@ is not deleted).
      where they can go from here, back behavior, route parameters,
      and the AUTHZ-GATE that applies before any protected call. -->
 
+## Location & Context
+<!-- Shell-owned hierarchy surfaces (issue #548): the location strip
+     renders the PlanningLocation chain the screen was PUSHED with
+     (RouteSettings.arguments); the scope chip renders the sticky active
+     block filter. A screen participates by pushing the next hierarchy
+     level with typed deepening (withBlock / withEpisode / withScene) —
+     never by re-deriving context from a second projection call. Screens
+     pushed without a location argument (direct-pumped tests/goldens)
+     degrade gracefully: the strip stays hidden. State which levels this
+     screen contributes and which location it expects to read. -->
+
 ## Layout
 <!-- PlantUML Salt wireframe (fenced ```plantuml block, @startsalt…).
      Static structure only — see the rule box above.
@@ -117,6 +128,15 @@ Reached from the Planen tab → Scene → character row. Back returns to
 the scene. No route parameters beyond scene id. AUTHZ-GATE: costume
 read requires an active membership; dispatch is gated client-side via
 the membership check before any network call.
+
+## Location & Context
+The shell renders the location strip and scope chip above the content
+(one surface, all morphologies). This screen is a scene-level leaf: its
+push site deepens the chain with `withScene(...)` and passes it as the
+route argument; the strip then shows Season → Block → Episode → Scene
+with the full path announced by a single merged semantics node. The
+scope chip (sticky active-block filter) is shell-owned — this screen
+does not duplicate it.
 
 ## Layout
 

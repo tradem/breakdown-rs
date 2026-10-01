@@ -12,6 +12,7 @@ import '../../core/problem_error.dart';
 import '../../l10n/app_localizations_provider.dart';
 import '../blocks/active_block_gate.dart';
 import '../blocks/blocks_controller.dart';
+import '../shell/planning_location.dart';
 import 'character_detail_screen.dart';
 import 'characters_controller.dart';
 import 'characters_state.dart';
@@ -131,6 +132,14 @@ class CharactersScreen extends ConsumerWidget {
                                     onTap: row is ProjectedCharacterRow
                                         ? () => Navigator.of(context).push(
                                             MaterialPageRoute(
+                                              // Issue #548: season level only
+                                              // (season-direct screen).
+                                              settings: RouteSettings(
+                                                arguments:
+                                                    PlanningLocation.season(
+                                                      season,
+                                                    ),
+                                              ),
                                               builder: (_) =>
                                                   CharacterDetailScreen(
                                                     season: season,

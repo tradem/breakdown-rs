@@ -90,8 +90,8 @@ void main() {
         isTrue,
       );
       expect((await store.readScopes()).getRight().toNullable(), {
-        's-1': 'b-1',
-        's-2': 'b-2',
+        's-1': const PersistedBlockScope(blockId: 'b-1'),
+        's-2': const PersistedBlockScope(blockId: 'b-2'),
       });
 
       // Overwrite keeps the other season untouched.
@@ -100,14 +100,14 @@ void main() {
         isTrue,
       );
       expect((await store.readScopes()).getRight().toNullable(), {
-        's-1': 'b-9',
-        's-2': 'b-2',
+        's-1': const PersistedBlockScope(blockId: 'b-9'),
+        's-2': const PersistedBlockScope(blockId: 'b-2'),
       });
 
       // Stale eviction removes one season only.
       expect((await store.removeScope('s-1')).isRight(), isTrue);
       expect((await store.readScopes()).getRight().toNullable(), {
-        's-2': 'b-2',
+        's-2': const PersistedBlockScope(blockId: 'b-2'),
       });
 
       // Removing an unknown season is a no-op success.
@@ -127,8 +127,8 @@ void main() {
       final second = store.saveScope(seasonId: 's-2', blockId: 'b-2');
       await Future.wait([first, second]);
       expect((await store.readScopes()).getRight().toNullable(), {
-        's-1': 'b-1',
-        's-2': 'b-2',
+        's-1': const PersistedBlockScope(blockId: 'b-1'),
+        's-2': const PersistedBlockScope(blockId: 'b-2'),
       });
     });
 
@@ -147,7 +147,7 @@ void main() {
       final save = store.saveScope(seasonId: 's-1', blockId: 'b-fresh');
       await Future.wait([evict, save]);
       expect((await store.readScopes()).getRight().toNullable(), {
-        's-1': 'b-fresh',
+        's-1': const PersistedBlockScope(blockId: 'b-fresh'),
       });
     });
 
@@ -182,7 +182,7 @@ void main() {
       expect((await store.clear()).isRight(), isTrue);
       await store.saveScope(seasonId: 's-1', blockId: 'b-1');
       expect((await store.readScopes()).getRight().toNullable(), {
-        's-1': 'b-1',
+        's-1': const PersistedBlockScope(blockId: 'b-1'),
       });
     });
 
@@ -204,7 +204,7 @@ void main() {
         isTrue,
       );
       expect((await store.readScopes()).getRight().toNullable(), {
-        's-1': 'b-1',
+        's-1': const PersistedBlockScope(blockId: 'b-1'),
       });
     });
 
@@ -212,6 +212,60 @@ void main() {
       platform.store[ActiveBlockStore.key] = '[1,2,3]';
       final store = ActiveBlockStore.secure();
       expect((await store.readScopes()).getRight().toNullable(), isEmpty);
+    });
+
+    group('document shape v2 (issue #548)', () {
+      test('round-trips the number into the object shape', () async {
+        final store = ActiveBlockStore.secure();
+        expect(
+          (await store.saveScope(
+            seasonId: 's-1',
+            blockId: 'b-1',
+            blockNumber: 3,
+          )).isRight(),
+          isTrue,
+        );
+        expect((await store.readScopes()).getRight().toNullable(), {
+          's-1': const PersistedBlockScope(blockId: 'b-1', blockNumber: 3),
+        });
+        // The stored document is the v2 object shape.
+        expect(
+          platform.store[ActiveBlockStore.key],
+          '{"s-1":{"blockId":"b-1","number":3}}',
+        );
+      });
+
+      test('old bare-string values load as label-less scopes', () async {
+        // Pre-#548 document: values ARE the block ids.
+        platform.store[ActiveBlockStore.key] = '{"s-1":"b-1","s-2":"b-2"}';
+        final store = ActiveBlockStore.secure();
+        expect((await store.readScopes()).getRight().toNullable(), {
+          's-1': const PersistedBlockScope(blockId: 'b-1'),
+          's-2': const PersistedBlockScope(blockId: 'b-2'),
+        });
+      });
+
+      test('mixed shapes load; invalid value shapes are dropped', () async {
+        platform.store[ActiveBlockStore.key] =
+            '{"s-1":"b-1","s-2":{"blockId":"b-2","number":7},'
+            '"s-3":{"unknown":true}}';
+        final store = ActiveBlockStore.secure();
+        expect((await store.readScopes()).getRight().toNullable(), {
+          's-1': const PersistedBlockScope(blockId: 'b-1'),
+          's-2': const PersistedBlockScope(blockId: 'b-2', blockNumber: 7),
+        });
+      });
+
+      test(
+        'a save without a number keeps the label-less degradation',
+        () async {
+          final store = ActiveBlockStore.secure();
+          await store.saveScope(seasonId: 's-1', blockId: 'b-1');
+          expect((await store.readScopes()).getRight().toNullable(), {
+            's-1': const PersistedBlockScope(blockId: 'b-1'),
+          });
+        },
+      );
     });
 
     test('storage failures are Err values with stable codes', () async {

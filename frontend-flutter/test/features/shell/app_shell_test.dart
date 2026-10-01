@@ -19,8 +19,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:fpdart/fpdart.dart';
 
 import 'package:flutter/semantics.dart';
-import 'package:frontend_flutter/auth/auth_providers.dart';
+import 'package:frontend_flutter/auth/active_block.dart';
 import 'package:frontend_flutter/core/result.dart';
+import 'package:frontend_flutter/auth/auth_providers.dart';
 import 'package:frontend_flutter/data/cache/cache_database.dart';
 import 'package:frontend_flutter/data/cache/hierarchy_cache_dao.dart';
 import 'package:frontend_flutter/data/cache/season_cache_dao.dart';
@@ -30,6 +31,7 @@ import 'package:frontend_flutter/data/cache/ai_import_jobs_cache_dao.dart';
 import 'package:frontend_flutter/data/ai_import_providers.dart';
 import 'package:frontend_flutter/design/theme.dart';
 import 'package:frontend_flutter/features/ai_import/import_jobs/jobs_controller.dart';
+import 'package:frontend_flutter/features/shell/planning_location.dart';
 
 import 'package:frontend_flutter/domain/reconciliation/reconciliation_scheduler.dart';
 import 'package:frontend_flutter/features/blocks/blocks_screen.dart';
@@ -65,6 +67,11 @@ void main() {
   late FakeTokenStore tokens;
   late ValueNotifier<Result<List<SeasonView>>> holder;
   late ProviderContainer container;
+
+  // Overridable per-test seams: the blocks list fetch result backing the
+  // Planen drilldown and the season-direct scope resolution (issue #548
+  // context-strip tests need real candidate blocks).
+  Result<List<BlockView>> blocksResult = const Right([]);
 
   Future<void> setupContainer() async {
     db = CacheDatabase(NativeDatabase.memory());
@@ -105,7 +112,7 @@ void main() {
           BlockRepository(BreakdownApi(), BlockCacheDao(db)),
         ),
         blocksListFetchProvider('season-1')
-            .overrideWith((ref) async => const Right([])),
+            .overrideWith((ref) async => blocksResult),
         costumeCategoriesListFetchProvider('season-1')
             .overrideWith((ref) async => const Right([])),
         membershipFetchProvider('season-1')
@@ -333,6 +340,180 @@ void main() {
       await pumpFrames(tester);
       expect(find.byType(SeasonsScreen), findsOneWidget);
       expect(find.text('Shell Season'), findsOneWidget);
+    });
+  });
+
+  group('5.4 hierarchy context strip + scope chip (issue #548)', () {
+    BlockView block(String id, int number) => BlockView(
+      (b) => b
+        ..id = id
+        ..number = number
+        ..seasonId = 'season-1'
+        ..seriesId = 'series-1'
+        ..updatedAt = DateTime.utc(2026, 1, 1)
+        ..version = 1,
+    );
+
+    EpisodeView episode(String id, int number, {String? name}) => EpisodeView(
+      (b) => b
+        ..id = id
+        ..number = number
+        ..name = name
+        ..blockId = 'b-1'
+        ..seriesId = 'series-1'
+        ..updatedAt = DateTime.utc(2026, 1, 1)
+        ..version = 1,
+    );
+
+    SceneView scene(String id, {int? sceneNumber = 7, String? summary}) =>
+        SceneView(
+          (b) => b
+            ..id = id
+            ..sceneNumber = sceneNumber
+            ..summary = summary
+            ..episodeId = 'e-1'
+            ..assignedCharacters.replace(const <String>[])
+            ..shootingDayIds.replace(const <String>[])
+            ..isScheduleSet = false
+            ..updatedAt = DateTime.utc(2026, 1, 1)
+            ..version = 1,
+        );
+
+    final seasonDto = SeasonView(
+      (b) => b
+        ..id = 'season-1'
+        ..number = 1
+        ..seriesId = 'series-1'
+        ..title = 'Shell Season'
+        ..updatedAt = DateTime.utc(2026, 1, 1)
+        ..version = 1,
+    );
+
+    Future<void> pushLocation(
+      WidgetTester tester,
+      int tab,
+      PlanningLocation location,
+    ) async {
+      final shell = tester.state<AppShellState>(find.byType(AppShell));
+      // Fire-and-forget: a push future completes on POP, awaiting it here
+      // would deadlock the test.
+      shell.tabNavigatorKeys[tab].currentState!.push(
+        MaterialPageRoute<void>(
+          settings: RouteSettings(arguments: location),
+          builder: (_) => const Scaffold(body: Text('pushed')),
+        ),
+      );
+      await pumpFrames(tester, n: 12);
+    }
+
+    testWidgets('hidden at tab roots (no location, no scope)', (tester) async {
+      await setupContainer();
+      await pumpShell(tester, widthDp: 360);
+      expect(find.byKey(const Key('shell-context-bar')), findsNothing);
+    });
+
+    testWidgets('pop updates the strip in the SAME frame (no stale level)', (
+      tester,
+    ) async {
+      await setupContainer();
+      await pumpShell(tester, widthDp: 360);
+      await pushLocation(
+        tester,
+        kSeasonTabIndex,
+        PlanningLocation.season(seasonDto),
+      );
+      expect(find.byKey(const Key('shell-context-bar')), findsOneWidget);
+      expect(find.text('Shell Season'), findsWidgets);
+
+      tester
+          .state<AppShellState>(find.byType(AppShell))
+          .tabNavigatorKeys[kSeasonTabIndex]
+          .currentState!
+          .pop();
+      // ONE pump — the route is gone, the location with it.
+      await tester.pump();
+      expect(find.byKey(const Key('shell-context-bar')), findsNothing);
+    });
+
+    testWidgets(
+      'tab switch shows the ACTIVE tab location (nested navigators)',
+      (tester) async {
+        await setupContainer();
+        await pumpShell(tester, widthDp: 360);
+        await pushLocation(
+          tester,
+          kPlanenTabIndex,
+          PlanningLocation.block(seasonDto, block('b-1', 2)),
+        );
+        // Tab 0 is active — no location there, bar hidden.
+        expect(find.byKey(const Key('shell-context-bar')), findsNothing);
+
+        await tester.tap(find.text('Planen'));
+        await pumpFrames(tester);
+        // The Planen tab's nested navigator resolves its own chain.
+        expect(find.byKey(const Key('shell-context-bar')), findsOneWidget);
+        expect(find.text('Shell Season'), findsWidgets);
+        expect(find.text('Block 2'), findsOneWidget);
+
+        // Back to Season: hidden again (per-tab state, none to clear).
+        await tester.tap(find.text('Season'));
+        await pumpFrames(tester);
+        expect(find.byKey(const Key('shell-context-bar')), findsNothing);
+      },
+    );
+
+    testWidgets('deep chain renders every level on medium (max 4)', (
+      tester,
+    ) async {
+      await setupContainer();
+      await pumpShell(tester, widthDp: 700);
+      // The strip mirrors the ACTIVE tab's nested navigator — activate the
+      // Planen tab first, then push the full scene chain onto it.
+      await tester.tap(find.text('Planen'));
+      await pumpFrames(tester);
+      await pushLocation(
+        tester,
+        kPlanenTabIndex,
+        PlanningLocation.scene(
+          seasonDto,
+          block('b-1', 2),
+          episode('e-1', 3, name: 'Der Diebstahl'),
+          scene('sc-1', summary: 'Die Küche'),
+        ),
+      );
+      expect(find.byKey(const Key('shell-context-bar')), findsOneWidget);
+      expect(find.text('Shell Season'), findsWidgets);
+      expect(find.text('Block 2'), findsOneWidget);
+      expect(find.text('Der Diebstahl'), findsOneWidget);
+      expect(find.text('Die Küche'), findsOneWidget);
+    });
+
+    testWidgets('scope chip: visible with a label; tap opens the picker', (
+      tester,
+    ) async {
+      blocksResult = Right<ProblemError, List<BlockView>>([
+        block('b-1', 1),
+        block('b-2', 2),
+      ]);
+      await setupContainer();
+      await pumpShell(tester, widthDp: 360);
+      // Simulate a set scope (as the pick/gate paths would).
+      container
+          .read(activeBlockProvider.notifier)
+          .set(seasonId: 'season-1', blockId: 'b-2', blockNumber: 2);
+      await pumpFrames(tester, n: 12);
+      expect(find.byKey(const Key('active-scope-chip')), findsOneWidget);
+      expect(find.text('Filter: Block 2'), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('active-scope-chip')));
+      await pumpFrames(tester, n: 12);
+      // The picker opened on the active tab's nested navigator.
+      expect(find.byKey(const Key('block-scope-picker')), findsOneWidget);
+      // Picking a block changes the scope and pops back.
+      await tester.tap(find.byKey(const Key('block-scope-pick-b-1')));
+      await pumpFrames(tester, n: 24);
+      expect(container.read(activeBlockProvider)?.blockId, 'b-1');
+      expect(find.byKey(const Key('block-scope-picker')), findsNothing);
     });
   });
 
