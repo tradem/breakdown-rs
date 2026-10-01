@@ -89,13 +89,43 @@ StepDefinitionGeneric givenAuthenticatedAs() => given1<String, FlutterWorld>(
 /// Opens the day-context reports from the day board's "Reports" action
 /// (`reports-open` on `SceneShootsScreen`, `flutter-reports` 2.1). Runs on
 /// device, does not call a pure function.
+///
+/// The entry has TWO forms (issue #549): a labelled `TextButton.icon` at
+/// realistic widths, and — when the app bar is too narrow to carry the label
+/// next to a readable title — a `PopupMenuButton` whose item is itself
+/// labelled. `reports-open` is the tap target of BOTH, but only the labelled
+/// form navigates on the first tap; the collapsed form opens a menu. So this
+/// step taps the entry and then selects the overflow item when it appears.
+///
+/// The 2s bound is the analytic worst case, not a sleep budget: the menu is a
+/// `FadeScaleTransition` over `kThemeChangeDuration` (200ms) plus one frame,
+/// so 2s carries a 10x margin. On the common (wide) path the wait simply
+/// times out and the step returns — the branch costs one failed wait, never a
+/// flaky navigation.
 StepDefinitionGeneric whenOpenReports() => when1<String, FlutterWorld>(
   'I open the reports for shooting day {string}',
   (String dayId, context) async {
-    final locator = find.byValueKey('reports-open');
-    await FlutterDriverUtils.tap(context.world.driver!, locator);
+    final driver = context.world.driver!;
+    final entry = find.byValueKey('reports-open');
+    await FlutterDriverUtils.tap(driver, entry);
+
+    // Only the collapsed form leaves a menu open; the labelled form already
+    // navigated and this item will never exist.
+    final overflowItem = find.byValueKey('reports-open-overflow-item');
+    try {
+      await driver.waitFor(overflowItem, timeout: _reportsMenuTimeout);
+    } on DriverError {
+      // Labelled action: the reports screen is already pushed.
+      return;
+    }
+    await FlutterDriverUtils.tap(driver, overflowItem);
   },
 );
+
+/// Analytic upper bound for the overflow menu to route in and paint its item
+/// (Material `kThemeChangeDuration` = 200ms + one frame, 10x margin). Never a
+/// sleep used to hope something became true.
+const _reportsMenuTimeout = Duration(seconds: 2);
 
 /// Opens a season from the seasons list (`season-<id>` tile).
 StepDefinitionGeneric whenOpenSeason() => when1<String, FlutterWorld>(

@@ -68,21 +68,35 @@ class _ReportsAppBarAction extends StatelessWidget {
     final l10n = l10nOf(context);
     final label = l10n.sceneShootsReportsLabel;
     if (roomForLabel) {
+      // No tooltip here: the label is already visible, and a duplicate
+      // long-press hint on a visibly-labelled control is noise. The tooltip
+      // key carries the overflow branch below, whose control is an icon
+      // until the menu opens.
       return TextButton.icon(
         key: const Key('reports-open'),
         onPressed: onOpen,
         icon: _icon,
         label: Text(label),
-        // No tooltip here: the label is already visible, and a duplicate
-        // long-press hint on a visibly-labelled control is noise. The
-        // tooltip key carries the overflow branch below, whose control is an
-        // icon until the menu opens.
-        style: TextButton.styleFrom(
-          // Keep the tappable height a comfortable on-set target without
-          // growing the app bar.
-          minimumSize: const Size(0, 40),
-          padding: const EdgeInsets.symmetric(horizontal: 12),
-        ),
+        // No `style:` override on purpose (issue #549 review). The M3
+        // defaults already carry what this control needs, and an inline
+        // `styleFrom` was breaking both of them:
+        //   * Height: `minimumSize` is `Size(64, 40)` in M3 (Flutter
+        //     `text_button.dart` `_TextButtonDefaultsM3`), but the RENDERED
+        //     height is 48 either way — `ThemeData.materialTapTargetSize`
+        //     defaults to `padded`, whose 48x48 minimum outranks it.
+        //     Measured with the app's own `AppThemes.light()`:
+        //     `Size(0, 40)` override → `Size(162.8, 48.0)`; M3 defaults →
+        //     `Size(166.8, 48.0)`. Same height, so the override only ever
+        //     restated a framework default — and a project "control height"
+        //     token would have encoded a framework default as policy.
+        //   * Padding: M3 padding is text-scale aware (`_scaledPadding`) and
+        //     the `.icon` factory widens the end padding to 16. The hardcoded
+        //     `EdgeInsets.symmetric(horizontal: 12)` defeated that scaling —
+        //     a real (small) a11y regression on top of the design-token
+        //     contract this file is bound by (`flutter-design-tokens`: no
+        //     hardcoded spacing in widgets; `AppSpacing.space12` would have
+        //     been a hardcoded value wearing a token's name).
+        //     The 4px width difference above is exactly that 12 → 16.
       );
     }
     // The item carries an explicit value, not `void`: a `PopupMenuItem<void>`
