@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: space-bunny-free (opencode-go)
 // Co-authored-by: muse-spark-1.3 (opencode)
 // Co-authored-by: omen-alpha (opencode-go)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
@@ -19,6 +20,102 @@ import '../shooting_days/shooting_days_controller.dart';
 import 'scene_shoots_controller.dart';
 import 'scene_shoots_state.dart';
 import 'widgets/continuity_strip.dart';
+
+/// Minimum app-bar width (logical px) at which the reports entry can be a
+/// labelled action without starving the title (issue #549).
+///
+/// Derivation: the labelled control needs its icon (24) + gap (8) + the
+/// German label "Berichte" at `labelLarge` (~68, the longest supported
+/// label) + horizontal padding (2 × 8) ≈ 116, plus 56 for the back button
+/// and the app bar's own insets — and at least ~120 left for a readable,
+/// only-mildly-ellipsized day label. 116 + 56 + 120 ≈ 292; the constant is
+/// rounded up so the threshold is not tuned to one translation length.
+const double _reportsLabelMinBarWidth = 300;
+
+/// The day board's reports entry (issue #549).
+///
+/// Design D8 keeps the report strictly day-scoped and anchored here — this
+/// widget changes only how the entry is *presented*, never where it lives.
+/// The glossary's visible-label norm requires a visible label on every
+/// navigation destination, so both branches below render text next to the
+/// icon:
+///
+/// - **[roomForLabel]** — a `TextButton.icon`: one tap, readable without
+///   hover. This is the form on every realistic phone and tablet width.
+/// - **[!roomForLabel]** — a `PopupMenuButton` whose single item is a
+///   `ListTile` with a leading icon *and* the same label. This is a
+///   width-safety valve for compact/narrow surfaces, not the primary path:
+///   the entry stays one tap from the board and stays labelled, and it
+///   deliberately does **not** fall back to a bare icon (the form the issue
+///   rejects — unlabelled, unfindable without hover).
+///
+/// The Gherkin contract key `reports-open` sits on the tap target in *both*
+/// branches, so the day-context step `I open the reports for shooting day
+/// {string}` resolves without a scenario change.
+class _ReportsAppBarAction extends StatelessWidget {
+  const _ReportsAppBarAction({
+    required this.roomForLabel,
+    required this.onOpen,
+  });
+
+  final bool roomForLabel;
+  final VoidCallback onOpen;
+
+  static const _icon = Icon(Icons.summarize_outlined);
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = l10nOf(context);
+    final label = l10n.sceneShootsReportsLabel;
+    if (roomForLabel) {
+      return TextButton.icon(
+        key: const Key('reports-open'),
+        onPressed: onOpen,
+        icon: _icon,
+        label: Text(label),
+        // No tooltip here: the label is already visible, and a duplicate
+        // long-press hint on a visibly-labelled control is noise. The
+        // tooltip key carries the overflow branch below, whose control is an
+        // icon until the menu opens.
+        style: TextButton.styleFrom(
+          // Keep the tappable height a comfortable on-set target without
+          // growing the app bar.
+          minimumSize: const Size(0, 40),
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+        ),
+      );
+    }
+    // The item carries an explicit value, not `void`: a `PopupMenuItem<void>`
+    // silently never invokes `PopupMenuButton.onSelected` (verified against
+    // this Flutter version), which would leave the overflow entry inert.
+    return PopupMenuButton<_ReportsMenuAction>(
+      key: const Key('reports-open'),
+      tooltip: l10n.sceneShootsReportsTooltip,
+      icon: const Icon(Icons.more_vert),
+      onSelected: (_) => onOpen(),
+      itemBuilder: (context) => [
+        PopupMenuItem<_ReportsMenuAction>(
+          key: Key('reports-open-overflow-item'),
+          value: _ReportsMenuAction.open,
+          // A Row, not a ListTile: `PopupMenuItem` is a fixed-height
+          // (kMinInteractiveDimension) box, and a ListTile inside it is not
+          // laid out to fit.
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _icon,
+              const SizedBox(width: 12),
+              Flexible(child: Text(label)),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Single action of the reports overflow fallback (see [_ReportsAppBarAction]).
+enum _ReportsMenuAction { open }
 
 /// `SceneShootsScreen` — the shooting day's scene shoots in server order
 /// (`COALESCE(actual_order, planned_order) ASC` — the client never
@@ -76,156 +173,172 @@ class SceneShootsScreen extends ConsumerWidget {
     }
     final wrapped = dayNow.wrappedAt != null;
 
-    return Scaffold(
-      appBar: AppBar(
-        // Provenance badge on the acted-on day (issue #538, EU AI Act
-        // Art. 50): evolves with the live projection (dayNow) so an
-        // in-session recomposition keeps the AI framing from the wire
-        // source; `Manual` days carry none.
-        title: switch (dayProvenance(dayNow.source_)) {
-          AiProvenanceVariant.aiExtracted => Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const AiProvenanceBadge(semanticKey: 'scene-shoots-ai-badge'),
-              Flexible(
-                child: Text(
-                  dayNow.label ?? l10nOf(context).sceneShootDayFallback,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-            ],
-          ),
-          _ => Text(dayNow.label ?? l10nOf(context).sceneShootDayFallback),
-        },
-        actions: [
-          IconButton(
-            key: const Key('reports-open'),
-            icon: const Icon(Icons.summarize_outlined),
-            tooltip: l10nOf(context).sceneShootsReportsTooltip,
-            onPressed: () => Navigator.of(context).push(
-              MaterialPageRoute(
-                // Issue #548: the reports entry rides on the same
-                // scene-level location chain (from the route arguments).
-                settings: RouteSettings(
-                  arguments: locationFromArguments(
-                    ModalRoute.of(context)?.settings.arguments,
+    // The reports entry is a labelled action, not a bare icon (issue #549 —
+    // glossary visible-label norm: every navigation destination shows a
+    // visible label). The day board is the on-set surface, so the affordance
+    // must be findable without hover. Deciding labelled-button vs labelled
+    // overflow item needs the scaffold's width, hence the LayoutBuilder.
+    return LayoutBuilder(
+      builder: (context, constraints) => Scaffold(
+        appBar: AppBar(
+          // Provenance badge on the acted-on day (issue #538, EU AI Act
+          // Art. 50): evolves with the live projection (dayNow) so an
+          // in-session recomposition keeps the AI framing from the wire
+          // source; `Manual` days carry none.
+          title: switch (dayProvenance(dayNow.source_)) {
+            AiProvenanceVariant.aiExtracted => Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const AiProvenanceBadge(semanticKey: 'scene-shoots-ai-badge'),
+                Flexible(
+                  child: Text(
+                    dayNow.label ?? l10nOf(context).sceneShootDayFallback,
+                    overflow: TextOverflow.ellipsis,
                   ),
                 ),
-                builder: (context) =>
-                    ReportsScreen(day: dayNow, seasonId: seasonId),
-              ),
+              ],
             ),
-          ),
-        ],
-      ),
-      body: Column(
-        children: [
-          if (state.commandError case final error?)
-            _Banner(
-              key: const Key('scene-shoot-command-error-banner'),
-              text: sceneShootErrorCopy(l10nOf(context), error),
-              onDismiss: controller.dismissCommandError,
-            ),
-          if (state.isStale && notFound == null)
-            _Banner(
-              key: const Key('scene-shoots-stale-banner'),
-              text: l10nOf(context).sceneShootsStaleBanner,
-            ),
-          if (wrapped)
-            _Banner(
-              key: const Key('scene-shoots-wrapped-banner'),
-              text: l10nOf(context).sceneShootsWrappedBanner,
-            ),
-          Expanded(
-            child: notFound != null
-                ? _NotFoundView(
-                    code: notFound.code,
-                    onBack: () => Navigator.of(context).pop(),
-                  )
-                : RefreshIndicator(
-                    onRefresh: controller.refresh,
-                    child: switch (state.projected) {
-                      AsyncLoading() when rows.isEmpty => const Center(
-                        child: CircularProgressIndicator(
-                          key: Key('scene-shoots-loading'),
-                        ),
-                      ),
-                      AsyncError(:final error) when rows.isEmpty =>
-                        _FetchErrorView(
-                          code: error is ProblemError ? error.code : 'unknown',
-                          onRetry: () => controller.refresh(),
-                        ),
-                      _ =>
-                        rows.isEmpty
-                            ? ListView(
-                                key: const Key('scene-shoots-list'),
-                                physics: const AlwaysScrollableScrollPhysics(),
-                                children: [
-                                  const SizedBox(height: 160),
-                                  _EmptyView(
-                                    onPlan: wrapped
-                                        ? null
-                                        : () => controller.plan(
-                                            plannedOrder: _appendOrderKey(rows),
-                                          ),
-                                  ),
-                                ],
-                              )
-                            : ListView.builder(
-                                key: const Key('scene-shoots-list'),
-                                physics: const AlwaysScrollableScrollPhysics(),
-                                itemCount: rows.length,
-                                itemBuilder: (context, i) {
-                                  final row = rows[i];
-                                  return switch (row) {
-                                    ProjectedSceneShootRow(:final shoot) =>
-                                      _ShootCard(
-                                        shoot: shoot,
-                                        scope: scope,
-                                        wrapped: wrapped,
-                                        onStart: _canStart(shoot) && !wrapped
-                                            ? () =>
-                                                  controller.start(shoot: shoot)
-                                            : null,
-                                        onFinish: _canFinish(shoot) && !wrapped
-                                            ? () => controller.finish(
-                                                shoot: shoot,
-                                              )
-                                            : null,
-                                        onSkip: _canSkip(shoot) && !wrapped
-                                            ? () =>
-                                                  controller.skip(shoot: shoot)
-                                            : null,
-                                      ),
-                                    OptimisticSceneShootRow(:final overlay) =>
-                                      _ShootCard(
-                                        shoot: overlay.overlay,
-                                        scope: scope,
-                                        wrapped: wrapped,
-                                        pending: true,
-                                        onStart: null,
-                                        onFinish: null,
-                                        onSkip: null,
-                                      ),
-                                  };
-                                },
-                              ),
-                    },
+            _ => Text(dayNow.label ?? l10nOf(context).sceneShootDayFallback),
+          },
+          actions: [
+            _ReportsAppBarAction(
+              // Collapse to the labelled overflow item only when the app bar
+              // cannot carry the label AND a readable title (issue #549).
+              roomForLabel: constraints.maxWidth >= _reportsLabelMinBarWidth,
+              onOpen: () => Navigator.of(context).push(
+                MaterialPageRoute(
+                  // Issue #548: the reports entry rides on the same
+                  // scene-level location chain (from the route arguments).
+                  settings: RouteSettings(
+                    arguments: locationFromArguments(
+                      ModalRoute.of(context)?.settings.arguments,
+                    ),
                   ),
-          ),
-          if (!wrapped)
-            SafeArea(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: FilledButton(
-                  key: const Key('scene-shoots-wrap'),
-                  onPressed: () =>
-                      _confirmWrap(context, ref, scope, dayNow.version),
-                  child: Text(l10nOf(context).sceneShootWrapButton),
+                  builder: (context) =>
+                      ReportsScreen(day: dayNow, seasonId: seasonId),
                 ),
               ),
             ),
-        ],
+          ],
+        ),
+        body: Column(
+          children: [
+            if (state.commandError case final error?)
+              _Banner(
+                key: const Key('scene-shoot-command-error-banner'),
+                text: sceneShootErrorCopy(l10nOf(context), error),
+                onDismiss: controller.dismissCommandError,
+              ),
+            if (state.isStale && notFound == null)
+              _Banner(
+                key: const Key('scene-shoots-stale-banner'),
+                text: l10nOf(context).sceneShootsStaleBanner,
+              ),
+            if (wrapped)
+              _Banner(
+                key: const Key('scene-shoots-wrapped-banner'),
+                text: l10nOf(context).sceneShootsWrappedBanner,
+              ),
+            Expanded(
+              child: notFound != null
+                  ? _NotFoundView(
+                      code: notFound.code,
+                      onBack: () => Navigator.of(context).pop(),
+                    )
+                  : RefreshIndicator(
+                      onRefresh: controller.refresh,
+                      child: switch (state.projected) {
+                        AsyncLoading() when rows.isEmpty => const Center(
+                          child: CircularProgressIndicator(
+                            key: Key('scene-shoots-loading'),
+                          ),
+                        ),
+                        AsyncError(:final error) when rows.isEmpty =>
+                          _FetchErrorView(
+                            code: error is ProblemError
+                                ? error.code
+                                : 'unknown',
+                            onRetry: () => controller.refresh(),
+                          ),
+                        _ =>
+                          rows.isEmpty
+                              ? ListView(
+                                  key: const Key('scene-shoots-list'),
+                                  physics:
+                                      const AlwaysScrollableScrollPhysics(),
+                                  children: [
+                                    const SizedBox(height: 160),
+                                    _EmptyView(
+                                      onPlan: wrapped
+                                          ? null
+                                          : () => controller.plan(
+                                              plannedOrder: _appendOrderKey(
+                                                rows,
+                                              ),
+                                            ),
+                                    ),
+                                  ],
+                                )
+                              : ListView.builder(
+                                  key: const Key('scene-shoots-list'),
+                                  physics:
+                                      const AlwaysScrollableScrollPhysics(),
+                                  itemCount: rows.length,
+                                  itemBuilder: (context, i) {
+                                    final row = rows[i];
+                                    return switch (row) {
+                                      ProjectedSceneShootRow(:final shoot) =>
+                                        _ShootCard(
+                                          shoot: shoot,
+                                          scope: scope,
+                                          wrapped: wrapped,
+                                          onStart: _canStart(shoot) && !wrapped
+                                              ? () => controller.start(
+                                                  shoot: shoot,
+                                                )
+                                              : null,
+                                          onFinish:
+                                              _canFinish(shoot) && !wrapped
+                                              ? () => controller.finish(
+                                                  shoot: shoot,
+                                                )
+                                              : null,
+                                          onSkip: _canSkip(shoot) && !wrapped
+                                              ? () => controller.skip(
+                                                  shoot: shoot,
+                                                )
+                                              : null,
+                                        ),
+                                      OptimisticSceneShootRow(:final overlay) =>
+                                        _ShootCard(
+                                          shoot: overlay.overlay,
+                                          scope: scope,
+                                          wrapped: wrapped,
+                                          pending: true,
+                                          onStart: null,
+                                          onFinish: null,
+                                          onSkip: null,
+                                        ),
+                                    };
+                                  },
+                                ),
+                      },
+                    ),
+            ),
+            if (!wrapped)
+              SafeArea(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: FilledButton(
+                    key: const Key('scene-shoots-wrap'),
+                    onPressed: () =>
+                        _confirmWrap(context, ref, scope, dayNow.version),
+                    child: Text(l10nOf(context).sceneShootWrapButton),
+                  ),
+                ),
+              ),
+          ],
+        ),
       ),
     );
   }

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: space-bunny-free (opencode-go)
 // Co-authored-by: omen-alpha (opencode-go)
 
 // Widget tests + goldens (`flutter-reports` 2.4): idle/fetching/error/ready
@@ -554,16 +555,41 @@ void main() {
   });
 
   group('ReportsScreen goldens ({light,dark} x {android,macOS})', () {
+    // Note on the pre-existing `idle_*` set: despite the name, those four
+    // goldens already render a FULLY LOADED, FINAL report (the fixture's
+    // `isFinal` defaults to true) — "idle" describes the PDF cards, not the
+    // report. Measured: `reports_loaded_final_*.png` is byte-identical to
+    // `reports_idle_*.png` today. They are kept byte-valid (issue #549, Gap 3
+    // asks that they stay valid) and the loaded states below are added with
+    // names that say what they actually pin, so the finality banner gets a
+    // correctly-named home that survives the day someone fixes the `idle_*`
+    // fixture to be genuinely pre-data:
+    //   loaded_*        — a non-final day's report (rows, chips, counts; no
+    //                     banner) — genuinely new pixels
+    //   loaded_final_*  — the `wrapped_at` finality banner, asserted and
+    //                     pinned deliberately rather than covered
+    //                     incidentally
+    //   loaded_denied_* — the 403 AUTHZ-GATE narrative, zero requests
     Future<void> golden(
       WidgetTester tester,
       String name, {
       required Brightness brightness,
       TargetPlatform? platform,
+      MembershipMode membership = MembershipMode.allowed,
+      bool isFinal = true,
+      // Semantic pre-conditions checked BEFORE the pixel comparison, so a
+      // wrong-but-stable render can never be blessed as a golden.
+      void Function()? assertState,
     }) async {
       try {
+        await setupContainer(
+          membership: membership,
+          sollIst: Right(_report(isFinal: isFinal)),
+        );
         await pumpScreen(tester, brightness: brightness, platform: platform);
         expect(find.byKey(const Key('soll-ist-report-screen')), findsOneWidget);
         expect(find.text('Geplant vs. tatsächlich'), findsOneWidget);
+        assertState?.call();
         await expectLater(
           find.byType(ReportsScreen),
           matchesGoldenFile('goldens/reports_$name.png'),
@@ -575,34 +601,90 @@ void main() {
       }
     }
 
-    testWidgets('idle light android', (tester) async {
-      await setupContainer();
-      await golden(tester, 'idle_light_android', brightness: Brightness.light);
-    });
+    // The loaded report is what a user actually looks at: rows, the four
+    // flag chips, and the counts row.
+    void assertLoaded() {
+      expect(find.byKey(const Key('soll-ist-planned')), findsOneWidget);
+      expect(find.byKey(const Key('soll-ist-actual')), findsOneWidget);
+      expect(find.byKey(const Key('soll-ist-flag-moved')), findsOneWidget);
+      expect(find.byKey(const Key('soll-ist-flag-missing')), findsOneWidget);
+      expect(find.byKey(const Key('soll-ist-flag-skipped')), findsOneWidget);
+      expect(find.byKey(const Key('soll-ist-flag-reshot')), findsOneWidget);
+      // Not final in this state: the banner must be absent.
+      expect(find.byKey(const Key('soll-ist-final')), findsNothing);
+    }
 
-    testWidgets('idle dark android', (tester) async {
-      await setupContainer();
-      await golden(tester, 'idle_dark_android', brightness: Brightness.dark);
-    });
-
-    testWidgets('idle light macos', (tester) async {
-      await setupContainer();
-      await golden(
-        tester,
-        'idle_light_macos',
-        brightness: Brightness.light,
-        platform: TargetPlatform.macOS,
+    // `wrapped_at` finality is its own easy-to-regress state: a distinct
+    // banner over the same rows.
+    void assertFinal() {
+      expect(find.byKey(const Key('soll-ist-final')), findsOneWidget);
+      expect(
+        find.text('Abschließend – dieser Tag ist abgeschlossen.'),
+        findsOneWidget,
       );
-    });
+    }
 
-    testWidgets('idle dark macos', (tester) async {
-      await setupContainer();
-      await golden(
-        tester,
-        'idle_dark_macos',
-        brightness: Brightness.dark,
-        platform: TargetPlatform.macOS,
+    // The 403 narrative must render with ZERO report requests issued.
+    void assertDenied() {
+      expect(find.byKey(const Key('reports-denied')), findsOneWidget);
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('reports-denied')),
+          matching: find.textContaining('keinen Zugriff'),
+        ),
+        findsOneWidget,
       );
-    });
+      expect(repo.jsonCalls, 0);
+      expect(repo.pdfCalls, 0);
+    }
+
+    for (final brightness in Brightness.values) {
+      final tone = brightness == Brightness.light ? 'light' : 'dark';
+      for (final platform in [TargetPlatform.android, TargetPlatform.macOS]) {
+        final os = platform == TargetPlatform.android ? 'android' : 'macos';
+        final label = '${tone}_$os';
+
+        testWidgets('idle $label', (tester) async {
+          await golden(
+            tester,
+            'idle_$label',
+            brightness: brightness,
+            platform: platform,
+          );
+        });
+
+        testWidgets('loaded $label', (tester) async {
+          await golden(
+            tester,
+            'loaded_$label',
+            brightness: brightness,
+            platform: platform,
+            isFinal: false,
+            assertState: assertLoaded,
+          );
+        });
+
+        testWidgets('loaded_final $label', (tester) async {
+          await golden(
+            tester,
+            'loaded_final_$label',
+            brightness: brightness,
+            platform: platform,
+            assertState: assertFinal,
+          );
+        });
+
+        testWidgets('loaded_denied $label', (tester) async {
+          await golden(
+            tester,
+            'loaded_denied_$label',
+            brightness: brightness,
+            platform: platform,
+            membership: MembershipMode.denied,
+            assertState: assertDenied,
+          );
+        });
+      }
+    }
   });
 }

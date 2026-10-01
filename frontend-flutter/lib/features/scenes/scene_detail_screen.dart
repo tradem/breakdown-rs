@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: space-bunny-free (opencode-go)
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
 // Co-authored-by: qwen3.8-flash (opencode-go)
@@ -392,6 +393,16 @@ class _SceneShootingDaysSection extends ConsumerWidget {
           ListTile(
             key: const Key('scene-shooting-days-empty'),
             title: Text(l10nOf(context).sceneDetailNoShootingDays),
+            // Report provenance (issue #549): the reports entry lives on the
+            // day board, and the day board is reachable only from a
+            // scheduled day — so a 0-day scene showed no reports affordance
+            // and no reason to expect one. The hint NAMES what becomes
+            // available once a day is planned. It invents no report and adds
+            // no season-level entry: the report routes are day-scoped in the
+            // contract itself, so this stays copy, not an affordance that
+            // leads nowhere (`flutter-reports-screen`,
+            // Report-Provenance Empty State).
+            subtitle: Text(l10nOf(context).sceneDetailNoShootingDaysReportHint),
           )
         else
           for (final id in scheduled)

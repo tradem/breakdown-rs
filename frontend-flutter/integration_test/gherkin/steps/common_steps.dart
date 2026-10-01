@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: space-bunny-free (opencode-go)
 // Co-authored-by: hy3 (opencode-go)
 // Co-authored-by: omen-alpha (opencode-go)
 //Co-authored-by: glm-5.3 (neuralwatt)
@@ -92,19 +93,6 @@ StepDefinitionGeneric whenOpenReports() => when1<String, FlutterWorld>(
   'I open the reports for shooting day {string}',
   (String dayId, context) async {
     final locator = find.byValueKey('reports-open');
-    await FlutterDriverUtils.tap(context.world.driver!, locator);
-  },
-);
-
-/// Legacy season-level entry (kept for step-registry completeness; the
-/// `soll_ist_report.feature` scenarios use the day-context entry above
-/// since `flutter-reports` 2.1).
-StepDefinitionGeneric whenOpenSollIstReport() => when1<String, FlutterWorld>(
-  'I open the Soll-Ist report for season {string}',
-  (String seasonId, context) async {
-    // TODO(screen): tap the report affordance once the Soll-Ist report
-    // screen ships; it should expose `Key('open-soll-ist-report-$seasonId')`.
-    final locator = find.byValueKey('open-soll-ist-report-$seasonId');
     await FlutterDriverUtils.tap(context.world.driver!, locator);
   },
 );
