@@ -1962,6 +1962,28 @@ class AppLocalizationsDe extends AppLocalizations {
   String get navScenes => 'Szenen';
 
   @override
+  String locationStripSemantics(Object path) {
+    return 'Position: $path';
+  }
+
+  @override
+  String scopeChipBlock(Object block) {
+    return 'Filter: $block';
+  }
+
+  @override
+  String get scopeChipUnknownBlock => 'Filter: Block unbekannt';
+
+  @override
+  String get scopeChipForeignSeason => 'Filter gilt hier nicht – andere Season';
+
+  @override
+  String get scopeChipTooltip => 'Aktiven Block-Filter ändern';
+
+  @override
+  String get scopeChipPickTitle => 'Block-Filter wählen';
+
+  @override
   String get seasonsTitle => 'Seasons';
 
   @override

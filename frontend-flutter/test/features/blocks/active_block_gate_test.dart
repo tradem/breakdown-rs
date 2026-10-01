@@ -220,12 +220,39 @@ void main() {
         await settleFetch(container);
         // Adopted silently — no picker, sticky matches the remembered block.
         expect(container.read(activeBlockProvider)?.blockId, 'b-2');
+        // Issue #548: the number comes from the fetched rows (fresher
+        // than anything persisted), so even the OLD bare-string document
+        // restores with a visible label.
+        expect(container.read(activeBlockProvider)?.blockNumber, 2);
         final resolution = container.read(
           blockScopeResolutionProvider('season-1'),
         );
         final value = (resolution as AsyncData<BlockScopeResolution>).value;
         expect(value.scope!.blockId, 'b-2');
         expect(value.candidates, isNull);
+      },
+    );
+
+    test(
+      'restores with the persisted v2 number (scope chip label, #548)',
+      () async {
+        _platform!.store[ActiveBlockStore.key] =
+            '{"season-1":{"blockId":"b-2","number":2}}';
+        final container = gateContainer(
+          Right<ProblemError, List<BlockView>>([
+            _block('b-1', number: 1),
+            _block('b-2', number: 2),
+          ]),
+        );
+        await settleFetch(container);
+        expect(
+          container.read(activeBlockProvider),
+          const ActiveScope(
+            seasonId: 'season-1',
+            blockId: 'b-2',
+            blockNumber: 2,
+          ),
+        );
       },
     );
 
@@ -327,7 +354,8 @@ void main() {
       await tester.pump();
       expect(
         container.read(activeBlockProvider),
-        const ActiveScope(seasonId: 'season-1', blockId: 'b-2'),
+        // Issue #548: the pick carries the acted-on block's number.
+        const ActiveScope(seasonId: 'season-1', blockId: 'b-2', blockNumber: 2),
       );
     });
   });

@@ -16,6 +16,7 @@ import '../ai_import/import_jobs/import_submit_screen.dart';
 import '../ai_import/import_jobs/jobs_controller.dart';
 import '../ai_import/import_jobs/jobs_screen.dart';
 import '../blocks/blocks_screen.dart';
+import 'planning_location.dart';
 import 'shell_controller.dart';
 
 /// The AI-import entry's AUTHZ-GATE comment travels with it (the submit
@@ -151,12 +152,19 @@ class PlanningTabScreen extends ConsumerWidget {
 
   /// Sets the active season from the tapped DTO (design D5: last-opened
   /// season) and pushes BlocksScreen on the Planen tab's nested navigator.
+  ///
+  /// Issue #548: the pushed route carries the season-level
+  /// `PlanningLocation` in `RouteSettings.arguments` — the shell's context
+  /// strip renders it, and every deeper push deepens the same chain.
   void _openSeason(BuildContext context, WidgetRef ref, SeasonView season) {
     ref.read(shellControllerProvider.notifier).setActiveSeason(season);
     // Fire-and-forget navigation (no result consumed).
     unawaited(
       Navigator.of(context).push(
-        MaterialPageRoute<void>(builder: (_) => BlocksScreen(season: season)),
+        MaterialPageRoute<void>(
+          settings: RouteSettings(arguments: PlanningLocation.season(season)),
+          builder: (_) => BlocksScreen(season: season),
+        ),
       ),
     );
   }
