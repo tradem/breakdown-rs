@@ -675,6 +675,30 @@ class AppLocalizationsDe extends AppLocalizations {
   }
 
   @override
+  String get aiJobsTitle => 'KI-Import-Aufträge';
+
+  @override
+  String get aiJobsEmpty => 'Noch kein KI-Import gestartet.';
+
+  @override
+  String get aiJobsEmptyCta => 'KI-Import starten';
+
+  @override
+  String aiJobsActiveBadge(Object count) {
+    return 'Aktive Aufträge: $count';
+  }
+
+  @override
+  String aiJobsRowSubtitle(Object date, Object kind) {
+    return '$kind · $date';
+  }
+
+  @override
+  String aiJobsLoadError(Object code) {
+    return 'Die Auftragsliste konnte nicht geladen werden ($code).';
+  }
+
+  @override
   String get aiJobReviewPreview => 'Vorschau prüfen';
 
   @override
@@ -2065,6 +2089,9 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get planningImportSubtitle => 'KI-Assistent: Spielplan importieren';
+
+  @override
+  String get planningActiveJobRow => 'KI-Import läuft – Status prüfen';
 
   @override
   String get authSignIn => 'Anmelden';

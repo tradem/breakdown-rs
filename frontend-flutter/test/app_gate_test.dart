@@ -15,12 +15,16 @@ import 'package:frontend_flutter/app.dart';
 import 'package:frontend_flutter/auth/auth_providers.dart';
 import 'package:frontend_flutter/core/problem_error.dart';
 import 'package:frontend_flutter/core/result.dart';
+import 'package:frontend_flutter/data/ai_import_providers.dart';
+import 'package:frontend_flutter/data/cache/ai_import_jobs_cache_dao.dart';
 import 'package:frontend_flutter/data/cache/cache_database.dart';
 import 'package:frontend_flutter/data/cache/season_cache_dao.dart';
 import 'package:frontend_flutter/data/cache/seasons_cache_providers.dart';
+import 'package:frontend_flutter/features/ai_import/import_jobs/jobs_controller.dart';
 import 'package:frontend_flutter/features/seasons/seasons_controller.dart';
 
 import 'features/seasons/seasons_test_fakes.dart';
+import 'features/ai_import/jobs_screen_test.dart' show FakeJobsRepository;
 
 /// Pumps a bounded number of frames (never `pumpAndSettle` while an
 /// indeterminate spinner may be on screen — that would hang the settle loop).
@@ -83,6 +87,14 @@ void main() {
           final r = ref.watch(seasonRepositoryProvider);
           return r.fetchAndCacheList(() async => holder.value);
         }),
+        // The Planen-tab active-jobs summary row (issue #547): stub the
+        // AI-import jobs repository + fetch seam (no client needed here).
+        aiImportRepositoryProvider.overrideWithValue(
+          FakeJobsRepository(BreakdownApi(), AiImportJobsCacheDao(db)),
+        ),
+        aiImportJobsFetchProvider.overrideWith(
+          (ref) async => Right(<AiImportJob>[]),
+        ),
       ],
     );
     addTearDown(container.dispose);

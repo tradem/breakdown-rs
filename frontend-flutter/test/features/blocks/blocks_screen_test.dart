@@ -17,11 +17,14 @@ import 'package:frontend_flutter/core/problem_error.dart';
 import 'package:frontend_flutter/core/result.dart';
 import 'package:frontend_flutter/data/costume_category_repository.dart';
 import 'package:frontend_flutter/data/block_repository.dart';
+import 'package:frontend_flutter/data/ai_import_providers.dart';
+import 'package:frontend_flutter/data/cache/ai_import_jobs_cache_dao.dart';
 import 'package:frontend_flutter/data/cache/cache_database.dart';
 import 'package:frontend_flutter/data/cache/hierarchy_cache_dao.dart';
 import 'package:frontend_flutter/data/cache/season_cache_dao.dart';
 import 'package:frontend_flutter/data/cache/seasons_cache_providers.dart';
 import 'package:frontend_flutter/domain/reconciliation/reconciliation_scheduler.dart';
+import 'package:frontend_flutter/features/ai_import/import_jobs/jobs_controller.dart';
 import 'package:frontend_flutter/features/blocks/blocks_controller.dart';
 import 'package:frontend_flutter/features/blocks/blocks_screen.dart';
 import 'package:frontend_flutter/features/costume_categories/costume_categories_controller.dart';
@@ -31,6 +34,7 @@ import 'package:frontend_flutter/features/shell/planning_tab_screen.dart';
 import 'package:frontend_flutter/features/shell/shell_controller.dart';
 
 import '../seasons/seasons_test_fakes.dart';
+import '../ai_import/jobs_screen_test.dart' show FakeJobsRepository;
 
 const _networkDown = ProblemError(code: 'transport.connectionError');
 const _gone = ProblemError(code: 'season.not-found', status: 404);
@@ -315,6 +319,12 @@ void main() {
           cacheDatabaseProvider.overrideWithValue(db),
           seasonRepositoryProvider.overrideWithValue(seasonRepo),
           blockRepositoryProvider.overrideWithValue(repo),
+          aiImportRepositoryProvider.overrideWithValue(
+            FakeJobsRepository(BreakdownApi(), AiImportJobsCacheDao(db)),
+          ),
+          aiImportJobsFetchProvider.overrideWith(
+            (ref) async => Right(<AiImportJob>[]),
+          ),
           costumeCategoryRepositoryProvider.overrideWithValue(
             CostumeCategoryRepository(
               BreakdownApi(),
