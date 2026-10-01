@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: space-bunny-free (opencode-go)
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
 // Co-authored-by: qwen3.8-flash (opencode-go)
@@ -404,6 +405,50 @@ void main() {
       expect(
         find.text('Changed elsewhere — refresh and try again.'),
         findsOneWidget,
+      );
+    });
+  });
+
+  // Issue #549 (Gap 5) — the reports entry lives on the day board, and the
+  // day board is reachable only from a scheduled day. So a 0-day scene gave
+  // the user no reports affordance AND no reason to expect one. The empty
+  // state now names the Soll/Ist report as what becomes available. The
+  // second test is the guard: the hint must never leak onto a scene that
+  // already has days (that would put the hint on every scene).
+  group('SceneDetailScreen report-provenance empty state (issue #549)', () {
+    testWidgets('scene with no shooting day names the Soll/Ist report', (
+      tester,
+    ) async {
+      await setupContainer(scene: _scene(), dayRows: []);
+      await pumpDetail(tester);
+
+      expect(
+        find.byKey(const Key('scene-shooting-days-empty')),
+        findsOneWidget,
+      );
+      // Semantic: the copy itself, not just the presence of a subtitle slot.
+      expect(
+        find.textContaining('planned-vs-actual (Soll/Ist) report'),
+        findsOneWidget,
+      );
+      // It names a LATER affordance, so it must not invent one now: no
+      // season-level report entry, no reports-open key on this screen.
+      expect(find.byKey(const Key('reports-open')), findsNothing);
+    });
+
+    testWidgets('the hint is ABSENT once the scene has a shooting day', (
+      tester,
+    ) async {
+      await setupContainer(
+        scene: _scene(days: ['d-1']),
+        dayRows: [_day('d-1', label: '1. Tag')],
+      );
+      await pumpDetail(tester);
+
+      expect(find.byKey(const Key('scene-shooting-days-empty')), findsNothing);
+      expect(
+        find.textContaining('planned-vs-actual (Soll/Ist) report'),
+        findsNothing,
       );
     });
   });

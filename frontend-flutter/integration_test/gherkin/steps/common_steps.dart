@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: space-bunny-free (opencode-go)
 // Co-authored-by: hy3 (opencode-go)
 // Co-authored-by: omen-alpha (opencode-go)
 //Co-authored-by: glm-5.3 (neuralwatt)
@@ -88,26 +89,43 @@ StepDefinitionGeneric givenAuthenticatedAs() => given1<String, FlutterWorld>(
 /// Opens the day-context reports from the day board's "Reports" action
 /// (`reports-open` on `SceneShootsScreen`, `flutter-reports` 2.1). Runs on
 /// device, does not call a pure function.
+///
+/// The entry has TWO forms (issue #549): a labelled `TextButton.icon` at
+/// realistic widths, and — when the app bar is too narrow to carry the label
+/// next to a readable title — a `PopupMenuButton` whose item is itself
+/// labelled. `reports-open` is the tap target of BOTH, but only the labelled
+/// form navigates on the first tap; the collapsed form opens a menu. So this
+/// step taps the entry and then selects the overflow item when it appears.
+///
+/// The 2s bound is the analytic worst case, not a sleep budget: the menu is a
+/// `FadeScaleTransition` over `kThemeChangeDuration` (200ms) plus one frame,
+/// so 2s carries a 10x margin. On the common (wide) path the wait simply
+/// times out and the step returns — the branch costs one failed wait, never a
+/// flaky navigation.
 StepDefinitionGeneric whenOpenReports() => when1<String, FlutterWorld>(
   'I open the reports for shooting day {string}',
   (String dayId, context) async {
-    final locator = find.byValueKey('reports-open');
-    await FlutterDriverUtils.tap(context.world.driver!, locator);
+    final driver = context.world.driver!;
+    final entry = find.byValueKey('reports-open');
+    await FlutterDriverUtils.tap(driver, entry);
+
+    // Only the collapsed form leaves a menu open; the labelled form already
+    // navigated and this item will never exist.
+    final overflowItem = find.byValueKey('reports-open-overflow-item');
+    try {
+      await driver.waitFor(overflowItem, timeout: _reportsMenuTimeout);
+    } on DriverError {
+      // Labelled action: the reports screen is already pushed.
+      return;
+    }
+    await FlutterDriverUtils.tap(driver, overflowItem);
   },
 );
 
-/// Legacy season-level entry (kept for step-registry completeness; the
-/// `soll_ist_report.feature` scenarios use the day-context entry above
-/// since `flutter-reports` 2.1).
-StepDefinitionGeneric whenOpenSollIstReport() => when1<String, FlutterWorld>(
-  'I open the Soll-Ist report for season {string}',
-  (String seasonId, context) async {
-    // TODO(screen): tap the report affordance once the Soll-Ist report
-    // screen ships; it should expose `Key('open-soll-ist-report-$seasonId')`.
-    final locator = find.byValueKey('open-soll-ist-report-$seasonId');
-    await FlutterDriverUtils.tap(context.world.driver!, locator);
-  },
-);
+/// Analytic upper bound for the overflow menu to route in and paint its item
+/// (Material `kThemeChangeDuration` = 200ms + one frame, 10x margin). Never a
+/// sleep used to hope something became true.
+const _reportsMenuTimeout = Duration(seconds: 2);
 
 /// Opens a season from the seasons list (`season-<id>` tile).
 StepDefinitionGeneric whenOpenSeason() => when1<String, FlutterWorld>(
