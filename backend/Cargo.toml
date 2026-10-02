@@ -76,7 +76,7 @@ getrandom = "0.4"
 
 # OpenAPI generation (ADR-006)
 utoipa = { version = "5", features = ["axum_extras", "chrono", "uuid"] }
-utoipa-swagger-ui = { version = "9", features = ["axum"] }
+utoipa-swagger-ui = { version = "10", features = ["axum"] }
 
 # JSON Schema generation for LLM schema-constrained decoding (ADR-013 / ai context).
 # Coexists with `utoipa`: utoipa documents the API, schemars derives the JSON
