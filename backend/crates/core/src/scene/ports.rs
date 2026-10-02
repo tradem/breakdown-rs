@@ -13,8 +13,9 @@ use crate::error::DomainError;
 use crate::shared::{AggregateVersion, EpisodeId, UserId};
 
 use super::commands::{
-    AssignCharacter, CreateScene, RemoveCharacter, ScheduleSceneOnShootingDay,
-    UnscheduleSceneFromShootingDay, UpdateSceneDetails,
+    AddCostumeBeat, AssignCharacter, CreateScene, RemoveCharacter, RemoveCostumeBeat,
+    ScheduleSceneOnShootingDay, UnscheduleSceneFromShootingDay, UpdateCostumeBeat,
+    UpdateSceneDetails,
 };
 use super::views::SceneView;
 
@@ -49,6 +50,28 @@ pub trait SceneCommands: Send + Sync {
         &self,
         actor: UserId,
         cmd: RemoveCharacter,
+    ) -> Result<AggregateVersion, DomainError>;
+
+    /// Add a costume beat (order computed by the aggregate, issue #546).
+    async fn add_costume_beat(
+        &self,
+        actor: UserId,
+        cmd: AddCostumeBeat,
+    ) -> Result<AggregateVersion, DomainError>;
+
+    /// Update a costume beat in place at `(character_id, order)`.
+    async fn update_costume_beat(
+        &self,
+        actor: UserId,
+        cmd: UpdateCostumeBeat,
+    ) -> Result<AggregateVersion, DomainError>;
+
+    /// Remove one (`Some(order)`) or all (`None`) costume beats of a
+    /// character.
+    async fn remove_costume_beat(
+        &self,
+        actor: UserId,
+        cmd: RemoveCostumeBeat,
     ) -> Result<AggregateVersion, DomainError>;
 
     /// Link a `ShootingDay` to this scene (scene owns the collection).

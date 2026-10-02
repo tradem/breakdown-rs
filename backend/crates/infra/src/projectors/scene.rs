@@ -212,6 +212,108 @@ impl<'a> EntityEventHandler<SceneAggregate, Transaction<'a, Postgres>> for Scene
 
                 Self::touch_parent(ctx, id, version, updated_at).await?;
             }
+            SceneEvent::CostumeBeatAdded {
+                id,
+                character_id,
+                costume_id,
+                order,
+                note,
+                version,
+            } => {
+                let version = version.0 as i64;
+                sqlx::query(
+                    r#"
+                    INSERT INTO projection_scene_costume_assignment
+                        (scene_id, character_id, "order", costume_id, note, version)
+                    VALUES ($1, $2, $3, $4, $5, $6)
+                    ON CONFLICT (scene_id, character_id, "order") DO UPDATE SET
+                        costume_id = EXCLUDED.costume_id,
+                        note = EXCLUDED.note,
+                        version = EXCLUDED.version
+                    "#,
+                )
+                .bind(id)
+                .bind(character_id)
+                .bind(order as i32)
+                .bind(costume_id)
+                .bind(note)
+                .bind(version)
+                .execute(&mut **ctx)
+                .await?;
+
+                Self::touch_parent(ctx, id, version, updated_at).await?;
+            }
+            SceneEvent::CostumeBeatUpdated {
+                id,
+                character_id,
+                order,
+                costume_id,
+                note,
+                version,
+            } => {
+                let version = version.0 as i64;
+                sqlx::query(
+                    r#"
+                    UPDATE projection_scene_costume_assignment
+                    SET costume_id = $3,
+                        note = $4,
+                        version = $5
+                    WHERE scene_id = $1 AND character_id = $2 AND "order" = $6
+                    "#,
+                )
+                .bind(id)
+                .bind(character_id)
+                .bind(costume_id)
+                .bind(note)
+                .bind(version)
+                .bind(order as i32)
+                .execute(&mut **ctx)
+                .await?;
+
+                Self::touch_parent(ctx, id, version, updated_at).await?;
+            }
+            SceneEvent::CostumeBeatRemoved {
+                id,
+                character_id,
+                order,
+                version,
+            } => {
+                let version = version.0 as i64;
+                // Exactly one row goes; surviving orders are untouched —
+                // denseness is an aggregate fact, not a projection repair job.
+                sqlx::query(
+                    r#"
+                    DELETE FROM projection_scene_costume_assignment
+                    WHERE scene_id = $1 AND character_id = $2 AND "order" = $3
+                    "#,
+                )
+                .bind(id)
+                .bind(character_id)
+                .bind(order as i32)
+                .execute(&mut **ctx)
+                .await?;
+
+                Self::touch_parent(ctx, id, version, updated_at).await?;
+            }
+            SceneEvent::CostumeBeatsCleared {
+                id,
+                character_id,
+                version,
+            } => {
+                let version = version.0 as i64;
+                sqlx::query(
+                    r#"
+                    DELETE FROM projection_scene_costume_assignment
+                    WHERE scene_id = $1 AND character_id = $2
+                    "#,
+                )
+                .bind(id)
+                .bind(character_id)
+                .execute(&mut **ctx)
+                .await?;
+
+                Self::touch_parent(ctx, id, version, updated_at).await?;
+            }
         }
 
         Ok(())

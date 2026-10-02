@@ -84,8 +84,9 @@ use breakdown_core::reporting::{
     TEMPLATE_VERSION,
 };
 use breakdown_core::scene::commands::{
-    AssignCharacter, CreateScene, RemoveCharacter, ScheduleSceneOnShootingDay,
-    UnscheduleSceneFromShootingDay, UpdateSceneDetails,
+    AddCostumeBeat, AssignCharacter, CreateScene, RemoveCharacter, RemoveCostumeBeat,
+    ScheduleSceneOnShootingDay, UnscheduleSceneFromShootingDay, UpdateCostumeBeat,
+    UpdateSceneDetails,
 };
 use breakdown_core::scene::events::{SceneDetails, SceneSource};
 use breakdown_core::scene::ports::{SceneCommands, SceneRepository};
@@ -419,6 +420,27 @@ pub struct ScheduleSceneRequest {
 #[derive(Debug, Clone, Deserialize, ToSchema)]
 pub struct AssignCharacterRequest {
     pub character_id: Uuid,
+    pub version: AggregateVersion,
+}
+
+/// Request body for adding a costume beat (issue #546). The `order` is
+/// deliberately absent — the aggregate computes it (`max + 1` per character);
+/// a client-chosen order would be a race.
+#[derive(Debug, Clone, Deserialize, ToSchema)]
+pub struct AddSceneCostumeBeatRequest {
+    pub character_id: Uuid,
+    pub costume_id: Uuid,
+    /// Optional free-text cue for the wardrobe crew ("nach dem Telefonat").
+    pub note: Option<String>,
+    pub version: AggregateVersion,
+}
+
+/// Request body for updating a costume beat in place at the path-addressed
+/// `(character_id, order)` (issue #546).
+#[derive(Debug, Clone, Deserialize, ToSchema)]
+pub struct UpdateSceneCostumeBeatRequest {
+    pub costume_id: Uuid,
+    pub note: Option<String>,
     pub version: AggregateVersion,
 }
 
@@ -1522,6 +1544,144 @@ pub async fn remove_scene_character<P: Ports>(
         .ports
         .scene_commands()
         .remove_character(current_user.sub.clone(), cmd)
+        .await?;
+    Ok((StatusCode::OK, Json(version)))
+}
+
+#[utoipa::path(
+    post,
+    path = "/scenes/{id}/costumes",
+    request_body = AddSceneCostumeBeatRequest,
+    responses(
+        (status = 200, body = AggregateVersion),
+        (status = 404, body = ProblemDetails),
+        (status = 409, body = ProblemDetails),
+        (status = 422, body = ProblemDetails, description = "Character not in scene, identical consecutive beat, or validation error"),
+    )
+)]
+pub async fn add_scene_costume_beat<P: Ports>(
+    State(state): State<AppState<P>>,
+    current_user: CurrentUser,
+    Path(id): Path<Uuid>,
+    Json(req): Json<AddSceneCostumeBeatRequest>,
+) -> ApiResult<AggregateVersion> {
+    let series_id = Some(series_id_for_scene(&state, id).await?);
+    let cmd = AddCostumeBeat {
+        id,
+        character_id: req.character_id,
+        costume_id: req.costume_id,
+        note: req.note,
+        series_id,
+        version: req.version,
+    };
+    let version = state
+        .ports
+        .scene_commands()
+        .add_costume_beat(current_user.sub.clone(), cmd)
+        .await?;
+    Ok((StatusCode::OK, Json(version)))
+}
+
+#[utoipa::path(
+    patch,
+    path = "/scenes/{id}/costumes/{character_id}/{order}",
+    params(("id" = Uuid, Path), ("character_id" = Uuid, Path), ("order" = u32, Path)),
+    request_body = UpdateSceneCostumeBeatRequest,
+    responses(
+        (status = 200, body = AggregateVersion),
+        (status = 404, body = ProblemDetails),
+        (status = 409, body = ProblemDetails),
+        (status = 422, body = ProblemDetails, description = "Beat not found, character not in scene, or validation error"),
+    )
+)]
+pub async fn update_scene_costume_beat<P: Ports>(
+    State(state): State<AppState<P>>,
+    current_user: CurrentUser,
+    Path((id, character_id, order)): Path<(Uuid, Uuid, u32)>,
+    Json(req): Json<UpdateSceneCostumeBeatRequest>,
+) -> ApiResult<AggregateVersion> {
+    let series_id = Some(series_id_for_scene(&state, id).await?);
+    let cmd = UpdateCostumeBeat {
+        id,
+        character_id,
+        order,
+        costume_id: req.costume_id,
+        note: req.note,
+        series_id,
+        version: req.version,
+    };
+    let version = state
+        .ports
+        .scene_commands()
+        .update_costume_beat(current_user.sub.clone(), cmd)
+        .await?;
+    Ok((StatusCode::OK, Json(version)))
+}
+
+#[utoipa::path(
+    delete,
+    path = "/scenes/{id}/costumes/{character_id}/{order}",
+    params(VersionRequest, ("id" = Uuid, Path), ("character_id" = Uuid, Path), ("order" = u32, Path)),
+    responses(
+        (status = 200, body = AggregateVersion),
+        (status = 404, body = ProblemDetails),
+        (status = 409, body = ProblemDetails),
+        (status = 422, body = ProblemDetails, description = "Beat not found or character not in scene"),
+    )
+)]
+pub async fn remove_scene_costume_beat<P: Ports>(
+    State(state): State<AppState<P>>,
+    current_user: CurrentUser,
+    Path((id, character_id, order)): Path<(Uuid, Uuid, u32)>,
+    Query(version): Query<VersionRequest>,
+) -> ApiResult<AggregateVersion> {
+    let series_id = Some(series_id_for_scene(&state, id).await?);
+    let cmd = RemoveCostumeBeat {
+        id,
+        character_id,
+        order: Some(order),
+        series_id,
+        version: version.version,
+    };
+    let version = state
+        .ports
+        .scene_commands()
+        .remove_costume_beat(current_user.sub.clone(), cmd)
+        .await?;
+    Ok((StatusCode::OK, Json(version)))
+}
+
+/// Clears all costume beats of a character in the scene
+/// (`RemoveCostumeBeat.order = None` = "no costume in this scene", #546).
+#[utoipa::path(
+    delete,
+    path = "/scenes/{id}/costumes/{character_id}",
+    params(VersionRequest, ("id" = Uuid, Path), ("character_id" = Uuid, Path)),
+    responses(
+        (status = 200, body = AggregateVersion),
+        (status = 404, body = ProblemDetails),
+        (status = 409, body = ProblemDetails),
+        (status = 422, body = ProblemDetails, description = "Character has no beats or is not in scene"),
+    )
+)]
+pub async fn clear_scene_costume_beats<P: Ports>(
+    State(state): State<AppState<P>>,
+    current_user: CurrentUser,
+    Path((id, character_id)): Path<(Uuid, Uuid)>,
+    Query(version): Query<VersionRequest>,
+) -> ApiResult<AggregateVersion> {
+    let series_id = Some(series_id_for_scene(&state, id).await?);
+    let cmd = RemoveCostumeBeat {
+        id,
+        character_id,
+        order: None,
+        series_id,
+        version: version.version,
+    };
+    let version = state
+        .ports
+        .scene_commands()
+        .remove_costume_beat(current_user.sub.clone(), cmd)
         .await?;
     Ok((StatusCode::OK, Json(version)))
 }
@@ -6217,6 +6377,19 @@ pub fn routes() -> Router<AppState<ProductionPorts>> {
         .route(
             "/scenes/{id}/characters/{character_id}",
             routing::delete(remove_scene_character::<ProductionPorts>),
+        )
+        .route(
+            "/scenes/{id}/costumes",
+            routing::post(add_scene_costume_beat::<ProductionPorts>),
+        )
+        .route(
+            "/scenes/{id}/costumes/{character_id}",
+            routing::delete(clear_scene_costume_beats::<ProductionPorts>),
+        )
+        .route(
+            "/scenes/{id}/costumes/{character_id}/{order}",
+            routing::patch(update_scene_costume_beat::<ProductionPorts>)
+                .delete(remove_scene_costume_beat::<ProductionPorts>),
         )
         .route(
             "/scenes/{id}/shooting-days",

@@ -17,6 +17,29 @@ commits (ADR-020 D5).
 
 ## [0.20.0] - Unreleased
 
+### Added — scene costume-beat projection + adapters (issue #546)
+
+- Migration `20261003000001_projection_scene_costume_assignment`:
+  `projection_scene_costume_assignment` with
+  `PRIMARY KEY (scene_id, character_id, "order")` (structural backstop for
+  one costume per beat, beats uniquely ordered per character), FK cascade
+  to `projection_scene`, reverse index on `costume_id` for "in which
+  scenes is this costume worn?" lookups. No cascade to
+  `projection_costume` (a costume is never deleted).
+- `SceneProjector`: four new branches (`CostumeBeatAdded`/`Updated`/
+  `Removed`/`BeatsCleared`), idempotent upsert/delete style matching the
+  file; removal deletes exactly one row and never renumbers survivors;
+  the audit projector covers the new variants.
+- `SceneCommandsImpl`: `add_costume_beat` / `update_costume_beat` /
+  `remove_costume_beat` adapters (`check_nonzero_version`,
+  `ExpectedVersion::Exact`, `series_id` only from the command field).
+- `SceneRepositoryImpl` + `ShootingDayRepositoryImpl` scene reads:
+  `SceneView.costume_beats` read fan-out-free (correlated jsonb subquery,
+  issue-#550 pattern) and enriched by LEFT JOIN to
+  `projection_character`/`projection_costume` (best-effort names).
+- **No version bump:** the pending, still-unreleased 0.20.0 window already
+  carries the MINOR bump for issue #543's additive API.
+
 ### Added — costume detail edit/delete adapters and projection (issue #544)
 
 - `update_detail` command adapter (same version-fence + `EventMetadata`

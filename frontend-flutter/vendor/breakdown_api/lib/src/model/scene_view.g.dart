@@ -10,6 +10,8 @@ class _$SceneView extends SceneView {
   @override
   final BuiltList<String> assignedCharacters;
   @override
+  final BuiltList<SceneCostumeBeatView>? costumeBeats;
+  @override
   final String episodeId;
   @override
   final String id;
@@ -39,6 +41,7 @@ class _$SceneView extends SceneView {
 
   _$SceneView._(
       {required this.assignedCharacters,
+      this.costumeBeats,
       required this.episodeId,
       required this.id,
       required this.isScheduleSet,
@@ -64,6 +67,7 @@ class _$SceneView extends SceneView {
     if (identical(other, this)) return true;
     return other is SceneView &&
         assignedCharacters == other.assignedCharacters &&
+        costumeBeats == other.costumeBeats &&
         episodeId == other.episodeId &&
         id == other.id &&
         isScheduleSet == other.isScheduleSet &&
@@ -82,6 +86,7 @@ class _$SceneView extends SceneView {
   int get hashCode {
     var _$hash = 0;
     _$hash = $jc(_$hash, assignedCharacters.hashCode);
+    _$hash = $jc(_$hash, costumeBeats.hashCode);
     _$hash = $jc(_$hash, episodeId.hashCode);
     _$hash = $jc(_$hash, id.hashCode);
     _$hash = $jc(_$hash, isScheduleSet.hashCode);
@@ -102,6 +107,7 @@ class _$SceneView extends SceneView {
   String toString() {
     return (newBuiltValueToStringHelper(r'SceneView')
           ..add('assignedCharacters', assignedCharacters)
+          ..add('costumeBeats', costumeBeats)
           ..add('episodeId', episodeId)
           ..add('id', id)
           ..add('isScheduleSet', isScheduleSet)
@@ -126,6 +132,12 @@ class SceneViewBuilder implements Builder<SceneView, SceneViewBuilder> {
       _$this._assignedCharacters ??= ListBuilder<String>();
   set assignedCharacters(ListBuilder<String>? assignedCharacters) =>
       _$this._assignedCharacters = assignedCharacters;
+
+  ListBuilder<SceneCostumeBeatView>? _costumeBeats;
+  ListBuilder<SceneCostumeBeatView> get costumeBeats =>
+      _$this._costumeBeats ??= ListBuilder<SceneCostumeBeatView>();
+  set costumeBeats(ListBuilder<SceneCostumeBeatView>? costumeBeats) =>
+      _$this._costumeBeats = costumeBeats;
 
   String? _episodeId;
   String? get episodeId => _$this._episodeId;
@@ -186,6 +198,7 @@ class SceneViewBuilder implements Builder<SceneView, SceneViewBuilder> {
     final $v = _$v;
     if ($v != null) {
       _assignedCharacters = $v.assignedCharacters.toBuilder();
+      _costumeBeats = $v.costumeBeats?.toBuilder();
       _episodeId = $v.episodeId;
       _id = $v.id;
       _isScheduleSet = $v.isScheduleSet;
@@ -222,6 +235,7 @@ class SceneViewBuilder implements Builder<SceneView, SceneViewBuilder> {
       _$result = _$v ??
           _$SceneView._(
             assignedCharacters: assignedCharacters.build(),
+            costumeBeats: _costumeBeats?.build(),
             episodeId: BuiltValueNullFieldError.checkNotNull(
                 episodeId, r'SceneView', 'episodeId'),
             id: BuiltValueNullFieldError.checkNotNull(id, r'SceneView', 'id'),
@@ -244,6 +258,8 @@ class SceneViewBuilder implements Builder<SceneView, SceneViewBuilder> {
       try {
         _$failedField = 'assignedCharacters';
         assignedCharacters.build();
+        _$failedField = 'costumeBeats';
+        _costumeBeats?.build();
 
         _$failedField = 'shootingDayIds';
         shootingDayIds.build();

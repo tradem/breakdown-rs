@@ -22,6 +22,30 @@ components:
       required:
       - body
       type: object
+    AddSceneCostumeBeatRequest:
+      description: |-
+        Request body for adding a costume beat (issue #546). The `order` is
+        deliberately absent — the aggregate computes it (`max + 1` per character);
+        a client-chosen order would be a race.
+      properties:
+        character_id:
+          format: uuid
+          type: string
+        costume_id:
+          format: uuid
+          type: string
+        note:
+          description: Optional free-text cue for the wardrobe crew ("nach dem Telefonat").
+          type:
+          - string
+          - 'null'
+        version:
+          $ref: '#/components/schemas/AggregateVersion'
+      required:
+      - character_id
+      - costume_id
+      - version
+      type: object
     AggregateVersion:
       description: |-
         Aggregate version for optimistic locking.
@@ -1752,6 +1776,47 @@ components:
       - costume_assistant
       - ops_admin
       type: string
+    SceneCostumeBeatView:
+      description: |-
+        One costume beat of a scene, enriched by the query layer: character and
+        costume identity resolved by join (`projection_character`,
+        `projection_costume`); a projection miss yields `None`, never an error
+        (audit/derived metadata never blocks reads, issue #546).
+      properties:
+        character_id:
+          format: uuid
+          type: string
+        character_name:
+          type:
+          - string
+          - 'null'
+        costume_category_id:
+          format: uuid
+          type:
+          - string
+          - 'null'
+        costume_category_name:
+          type:
+          - string
+          - 'null'
+        costume_id:
+          format: uuid
+          type: string
+        note:
+          description: Optional free-text cue for the wardrobe crew.
+          type:
+          - string
+          - 'null'
+        order:
+          description: Dense, zero-based, unique per character within this scene.
+          format: int32
+          minimum: 0
+          type: integer
+      required:
+      - character_id
+      - costume_id
+      - order
+      type: object
     SceneDetails:
       properties:
         is_schedule_set:
@@ -1921,6 +1986,14 @@ components:
           items:
             format: uuid
             type: string
+          type: array
+        costume_beats:
+          description: |-
+            Ordered costume beats per (character, order) — the scene-side casting
+            relation (issue #546). Additive on the wire; empty for scenes without
+            beats.
+          items:
+            $ref: '#/components/schemas/SceneCostumeBeatView'
           type: array
         episode_id:
           $ref: '#/components/schemas/EpisodeId'
@@ -2643,6 +2716,24 @@ components:
           $ref: '#/components/schemas/AggregateVersion'
       required:
       - body
+      - version
+      type: object
+    UpdateSceneCostumeBeatRequest:
+      description: |-
+        Request body for updating a costume beat in place at the path-addressed
+        `(character_id, order)` (issue #546).
+      properties:
+        costume_id:
+          format: uuid
+          type: string
+        note:
+          type:
+          - string
+          - 'null'
+        version:
+          $ref: '#/components/schemas/AggregateVersion'
+      required:
+      - costume_id
       - version
       type: object
     UpdateSceneDetailsRequest:
@@ -5107,6 +5198,198 @@ paths:
                 $ref: '#/components/schemas/ProblemDetails'
       tags:
       - handlers
+  /v1/scenes/{id}/costumes:
+    post:
+      operationId: add_scene_costume_beat
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          format: uuid
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddSceneCostumeBeatRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AggregateVersion'
+        '404':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+        '409':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+        '422':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Character not in scene, identical consecutive beat, or validation error
+      tags:
+      - handlers
+  /v1/scenes/{id}/costumes/{character_id}:
+    delete:
+      operationId: clear_scene_costume_beats
+      parameters:
+      - in: query
+        name: version
+        required: true
+        schema:
+          $ref: '#/components/schemas/AggregateVersion'
+      - in: path
+        name: id
+        required: true
+        schema:
+          format: uuid
+          type: string
+      - in: path
+        name: character_id
+        required: true
+        schema:
+          format: uuid
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AggregateVersion'
+        '404':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+        '409':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+        '422':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Character has no beats or is not in scene
+      summary: |-
+        Clears all costume beats of a character in the scene
+        (`RemoveCostumeBeat.order = None` = "no costume in this scene", #546).
+      tags:
+      - handlers
+  /v1/scenes/{id}/costumes/{character_id}/{order}:
+    delete:
+      operationId: remove_scene_costume_beat
+      parameters:
+      - in: query
+        name: version
+        required: true
+        schema:
+          $ref: '#/components/schemas/AggregateVersion'
+      - in: path
+        name: id
+        required: true
+        schema:
+          format: uuid
+          type: string
+      - in: path
+        name: character_id
+        required: true
+        schema:
+          format: uuid
+          type: string
+      - in: path
+        name: order
+        required: true
+        schema:
+          format: int32
+          minimum: 0
+          type: integer
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AggregateVersion'
+        '404':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+        '409':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+        '422':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Beat not found or character not in scene
+      tags:
+      - handlers
+    patch:
+      operationId: update_scene_costume_beat
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          format: uuid
+          type: string
+      - in: path
+        name: character_id
+        required: true
+        schema:
+          format: uuid
+          type: string
+      - in: path
+        name: order
+        required: true
+        schema:
+          format: int32
+          minimum: 0
+          type: integer
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateSceneCostumeBeatRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AggregateVersion'
+        '404':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+        '409':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+        '422':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Beat not found, character not in scene, or validation error
+      tags:
+      - handlers
   /v1/scenes/{id}/details:
     patch:
       operationId: update_scene_details
@@ -6871,6 +7154,19 @@ x-code-registry:
   status: 409
   title: Character already assigned to this scene
   type: https://docs.breakdown.example/problems/scene.character-already-assigned
+- code: scene.character-not-in-scene
+  extensions:
+  - character_id
+  status: 422
+  title: Character is not assigned to this scene
+  type: https://docs.breakdown.example/problems/scene.character-not-in-scene
+- code: scene.beat-not-found
+  extensions:
+  - character_id
+  - order
+  status: 422
+  title: Costume beat not found
+  type: https://docs.breakdown.example/problems/scene.beat-not-found
 - code: scene.already-scheduled
   extensions:
   - offending_shooting_day_id

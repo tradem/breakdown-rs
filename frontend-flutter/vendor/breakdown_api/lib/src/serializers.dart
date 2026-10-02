@@ -18,6 +18,7 @@ import 'package:breakdown_api/src/model/date.dart';
 
 import 'package:breakdown_api/src/model/add_costume_detail_request.dart';
 import 'package:breakdown_api/src/model/add_note_request.dart';
+import 'package:breakdown_api/src/model/add_scene_costume_beat_request.dart';
 import 'package:breakdown_api/src/model/ai_config_view.dart';
 import 'package:breakdown_api/src/model/ai_import_defaults.dart';
 import 'package:breakdown_api/src/model/ai_import_job.dart';
@@ -100,6 +101,7 @@ import 'package:breakdown_api/src/model/rename_season_request.dart';
 import 'package:breakdown_api/src/model/replan_scene_shoot_request.dart';
 import 'package:breakdown_api/src/model/revoke_ai_config_request.dart';
 import 'package:breakdown_api/src/model/role.dart';
+import 'package:breakdown_api/src/model/scene_costume_beat_view.dart';
 import 'package:breakdown_api/src/model/scene_details.dart';
 import 'package:breakdown_api/src/model/scene_shoot_status.dart';
 import 'package:breakdown_api/src/model/scene_shoot_view.dart';
@@ -137,6 +139,7 @@ import 'package:breakdown_api/src/model/update_costume_detail_request.dart';
 import 'package:breakdown_api/src/model/update_costume_notes_request.dart';
 import 'package:breakdown_api/src/model/update_measurements_request.dart';
 import 'package:breakdown_api/src/model/update_note_request.dart';
+import 'package:breakdown_api/src/model/update_scene_costume_beat_request.dart';
 import 'package:breakdown_api/src/model/update_scene_details_request.dart';
 import 'package:breakdown_api/src/model/update_shooting_day_request.dart';
 import 'package:breakdown_api/src/model/variant_status.dart';
@@ -148,6 +151,7 @@ part 'serializers.g.dart';
 @SerializersFor([
   AddCostumeDetailRequest,
   AddNoteRequest,
+  AddSceneCostumeBeatRequest,
   AiConfigView,
   AiImportDefaults,
   AiImportJob,
@@ -231,6 +235,7 @@ part 'serializers.g.dart';
   ReplanSceneShootRequest,
   RevokeAiConfigRequest,
   Role,
+  SceneCostumeBeatView,
   SceneDetails,
   SceneShootStatus,
   SceneShootView,
@@ -268,6 +273,7 @@ part 'serializers.g.dart';
   UpdateCostumeNotesRequest,
   UpdateMeasurementsRequest,
   UpdateNoteRequest,
+  UpdateSceneCostumeBeatRequest,
   UpdateSceneDetailsRequest,
   UpdateShootingDayRequest,
   VariantStatus,
@@ -370,6 +376,10 @@ Serializers serializers = (_$serializers.toBuilder()
       ..addBuilderFactory(
         const FullType(BuiltList, [FullType(SceneShootView)]),
         () => ListBuilder<SceneShootView>(),
+      )
+      ..addBuilderFactory(
+        const FullType(BuiltList, [FullType(SceneCostumeBeatView)]),
+        () => ListBuilder<SceneCostumeBeatView>(),
       )
       ..addBuilderFactory(
         const FullType(BuiltList, [FullType(Uncertainty)]),

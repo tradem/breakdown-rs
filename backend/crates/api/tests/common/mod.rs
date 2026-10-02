@@ -47,8 +47,9 @@ use breakdown_core::reporting::{
     ReportJobId, ReportJobStatus,
 };
 use breakdown_core::scene::commands::{
-    AssignCharacter, CreateScene, RemoveCharacter, ScheduleSceneOnShootingDay,
-    UnscheduleSceneFromShootingDay, UpdateSceneDetails,
+    AddCostumeBeat, AssignCharacter, CreateScene, RemoveCharacter, RemoveCostumeBeat,
+    ScheduleSceneOnShootingDay, UnscheduleSceneFromShootingDay, UpdateCostumeBeat,
+    UpdateSceneDetails,
 };
 use breakdown_core::scene::ports::{SceneCommands, SceneRepository};
 use breakdown_core::scene::views::SceneView;
@@ -106,7 +107,24 @@ use infra::ai::MemoryAiPreviewStore;
 
 #[derive(Clone, Default)]
 #[allow(dead_code)]
-pub struct FakeSceneCommands;
+pub struct FakeSceneCommands {
+    /// Failure injection for the costume-beat command paths (issue #546
+    /// handler tests): the next beat command fails with this error.
+    fail_next_beat: Arc<Mutex<Option<DomainError>>>,
+}
+
+// Failure injection is used only by the beat-route test binaries; other
+// test binaries sharing `common` never call it (dead_code there).
+#[allow(dead_code)]
+impl FakeSceneCommands {
+    pub async fn fail_next_beat(&self, err: DomainError) {
+        *self.fail_next_beat.lock().await = Some(err);
+    }
+
+    async fn take_beat_failure(&self) -> Option<DomainError> {
+        self.fail_next_beat.lock().await.take()
+    }
+}
 
 impl SceneCommands for FakeSceneCommands {
     async fn create(
@@ -135,6 +153,36 @@ impl SceneCommands for FakeSceneCommands {
         _actor: UserId,
         _cmd: RemoveCharacter,
     ) -> Result<AggregateVersion, DomainError> {
+        Ok(AggregateVersion::INITIAL.next())
+    }
+    async fn add_costume_beat(
+        &self,
+        _actor: UserId,
+        _cmd: AddCostumeBeat,
+    ) -> Result<AggregateVersion, DomainError> {
+        if let Some(err) = self.take_beat_failure().await {
+            return Err(err);
+        }
+        Ok(AggregateVersion::INITIAL.next())
+    }
+    async fn update_costume_beat(
+        &self,
+        _actor: UserId,
+        _cmd: UpdateCostumeBeat,
+    ) -> Result<AggregateVersion, DomainError> {
+        if let Some(err) = self.take_beat_failure().await {
+            return Err(err);
+        }
+        Ok(AggregateVersion::INITIAL.next())
+    }
+    async fn remove_costume_beat(
+        &self,
+        _actor: UserId,
+        _cmd: RemoveCostumeBeat,
+    ) -> Result<AggregateVersion, DomainError> {
+        if let Some(err) = self.take_beat_failure().await {
+            return Err(err);
+        }
         Ok(AggregateVersion::INITIAL.next())
     }
     async fn schedule_on_shooting_day(

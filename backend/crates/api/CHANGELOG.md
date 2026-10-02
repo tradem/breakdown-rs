@@ -18,6 +18,33 @@ commits (ADR-020 D5).
 
 ## [0.14.0] - Unreleased
 
+### Added — scene costume-beat routes (issue #546)
+
+- Four routes under the existing scene route group (block-membership
+  middleware applies — no handler-internal AUTHZ-GATE needed, in contrast
+  to #543/#544's Authenticated-only routes):
+  `POST /v1/scenes/{id}/costumes`,
+  `PATCH /v1/scenes/{id}/costumes/{character_id}/{order}`,
+  `DELETE /v1/scenes/{id}/costumes/{character_id}/{order}`, and
+  `DELETE /v1/scenes/{id}/costumes/{character_id}` (clear = "no costume in
+  this scene"). All return 200 `AggregateVersion`; 404 via
+  `series_id_for_scene`, 409 version conflicts, 422 for the new aggregate
+  errors.
+- New request schemas `AddSceneCostumeBeatRequest { character_id,
+  costume_id, note, version }` (deliberately **no** client `order` — the
+  aggregate computes it) and `UpdateSceneCostumeBeatRequest { costume_id,
+  note, version }`.
+- New problem codes 422 `scene.character-not-in-scene` (extension
+  `character_id`) and 422 `scene.beat-not-found` (extensions
+  `character_id`, `order`) in the `problem_codes!` registry, Fluent texts
+  in `de`/`en`, golden snapshots; route-coverage inventory updated (80 →
+  83 path patterns).
+- `openapi.yaml` regenerated (`UPDATE_OPENAPI=1`); vendored
+  `frontend-flutter/vendor/breakdown_api/` regenerated via
+  `frontend-flutter/scripts/regen-client.sh`.
+- **No version bump:** the pending, still-unreleased 0.14.0 window already
+  carries the MINOR bump for issue #543's additive API.
+
 ### Added — costume detail edit + delete routes (issue #544)
 
 - `PATCH /v1/costumes/{id}/details/{detail_id}` and

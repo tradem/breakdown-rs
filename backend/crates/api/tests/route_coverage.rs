@@ -87,7 +87,7 @@ fn api_routes_are_behind_auth_middleware() {
     //  patterns, not method-verb pairs.)
     assert_eq!(
         api.len(),
-        80,
+        83,
         "number of API route path patterns has changed — \
          see doc comment above for update instructions"
     );
@@ -161,6 +161,17 @@ fn api_routes_have_deliberate_authorization_requirement() {
         ("/scenes/{id}/characters", Requirement::BlockMember),
         (
             "/scenes/{id}/characters/{character_id}",
+            Requirement::BlockMember,
+        ),
+        // Costume beats (issue #546) — same scene route group, block
+        // membership middleware applies (no handler-internal gate needed).
+        ("/scenes/{id}/costumes", Requirement::BlockMember),
+        (
+            "/scenes/{id}/costumes/{character_id}",
+            Requirement::BlockMember,
+        ),
+        (
+            "/scenes/{id}/costumes/{character_id}/{order}",
             Requirement::BlockMember,
         ),
         ("/scenes/{id}/shooting-days", Requirement::BlockMember),

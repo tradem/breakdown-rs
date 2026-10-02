@@ -1,0 +1,10 @@
+{
+  "code": "scene.character-not-in-scene",
+  "detail": "Der Charakter ist dieser Szene nicht zugeordnet.",
+  "extensions": {
+    "character_id": "00000000-0000-0000-0000-000000000001"
+  },
+  "status": 422,
+  "title": "Character is not assigned to this scene",
+  "type": "https://docs.breakdown.example/problems/scene.character-not-in-scene"
+}

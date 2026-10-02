@@ -1,0 +1,11 @@
+{
+  "code": "scene.beat-not-found",
+  "detail": "Für diesen Charakter existiert kein Kostümeintrag an dieser Position.",
+  "extensions": {
+    "character_id": "00000000-0000-0000-0000-000000000001",
+    "order": "00000000-0000-0000-0000-000000000001"
+  },
+  "status": 422,
+  "title": "Costume beat not found",
+  "type": "https://docs.breakdown.example/problems/scene.beat-not-found"
+}

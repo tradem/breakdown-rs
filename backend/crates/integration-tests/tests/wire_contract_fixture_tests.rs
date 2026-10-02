@@ -83,6 +83,10 @@ const ADDITIVE_ALLOWLIST: &[(&str, &str)] = &[
     // the response shape).
     ("costume_view", "costume_view.category_id"),
     ("costume_view", "costume_view.category_name"),
+    // #546: ordered costume beats on `SceneView` — additive and
+    // `#[serde(default)]`-backed (an empty list for every pre-#546 client;
+    // MINOR-additive on the response shape).
+    ("scene_view", "scene_view.costume_beats"),
 ];
 
 /// Deliberate MAJOR breaks (ADR-021 D2/D5): fields REMOVED from, or whose
@@ -235,6 +239,7 @@ fn sample_views() -> Vec<(&'static str, Value)> {
                 script_day: Some("1. Spieltag".to_string()),
                 shooting_day_ids: vec![ShootingDayId(shooting_day_id)],
                 assigned_characters: vec![character_id],
+                costume_beats: Vec::new(),
                 version: AggregateVersion(4),
                 updated_at: t,
                 source: Some(SceneSource::Manual),

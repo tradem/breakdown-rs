@@ -94,6 +94,41 @@ pub enum SceneEvent {
         shooting_day_id: ShootingDayId,
         version: AggregateVersion,
     },
+    /// A costume beat was appended for a character (order aggregate-computed
+    /// as `max + 1`, issue #546).
+    CostumeBeatAdded {
+        id: Uuid,
+        character_id: Uuid,
+        costume_id: Uuid,
+        order: u32,
+        note: Option<String>,
+        version: AggregateVersion,
+    },
+    /// A costume beat was edited in place at `(character_id, order)`.
+    CostumeBeatUpdated {
+        id: Uuid,
+        character_id: Uuid,
+        order: u32,
+        costume_id: Uuid,
+        note: Option<String>,
+        version: AggregateVersion,
+    },
+    /// Exactly the beat `(character_id, order)` was removed; surviving
+    /// orders are untouched (removal of the dense tail keeps the sequence
+    /// dense; reordering is remove + add).
+    CostumeBeatRemoved {
+        id: Uuid,
+        character_id: Uuid,
+        order: u32,
+        version: AggregateVersion,
+    },
+    /// All costume beats of a character were cleared
+    /// (`RemoveCostumeBeat.order == None` = “no costume in this scene”).
+    CostumeBeatsCleared {
+        id: Uuid,
+        character_id: Uuid,
+        version: AggregateVersion,
+    },
 }
 
 impl kameo_es::EventType for SceneEvent {
@@ -105,6 +140,10 @@ impl kameo_es::EventType for SceneEvent {
             Self::CharacterRemoved { .. } => "CharacterRemoved",
             Self::ShootingDayScheduled { .. } => "ShootingDayScheduled",
             Self::ShootingDayUnscheduled { .. } => "ShootingDayUnscheduled",
+            Self::CostumeBeatAdded { .. } => "CostumeBeatAdded",
+            Self::CostumeBeatUpdated { .. } => "CostumeBeatUpdated",
+            Self::CostumeBeatRemoved { .. } => "CostumeBeatRemoved",
+            Self::CostumeBeatsCleared { .. } => "CostumeBeatsCleared",
         }
     }
 }

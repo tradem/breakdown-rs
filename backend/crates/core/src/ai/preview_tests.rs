@@ -23,6 +23,7 @@ fn scene(number: u32) -> SceneView {
         script_day: None,
         shooting_day_ids: Vec::new(),
         assigned_characters: Vec::new(),
+        costume_beats: Vec::new(),
         version: AggregateVersion::INITIAL,
         updated_at: Utc.timestamp_opt(0, 0).single().unwrap(),
         source: Some(SceneSource::Manual),

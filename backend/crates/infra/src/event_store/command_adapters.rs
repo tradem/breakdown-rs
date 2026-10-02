@@ -65,8 +65,9 @@ use breakdown_core::photo::commands::{
 use breakdown_core::photo::ports::PhotoCommands;
 use breakdown_core::scene::aggregate::SceneAggregate;
 use breakdown_core::scene::commands::{
-    AssignCharacter, CreateScene, RemoveCharacter, ScheduleSceneOnShootingDay,
-    UnscheduleSceneFromShootingDay, UpdateSceneDetails,
+    AddCostumeBeat, AssignCharacter, CreateScene, RemoveCharacter, RemoveCostumeBeat,
+    ScheduleSceneOnShootingDay, UnscheduleSceneFromShootingDay, UpdateCostumeBeat,
+    UpdateSceneDetails,
 };
 use breakdown_core::scene::ports::SceneCommands;
 use breakdown_core::scene_shoot::aggregate::SceneShootAggregate;
@@ -176,6 +177,66 @@ impl SceneCommands for SceneCommandsImpl {
         &self,
         actor: UserId,
         cmd: RemoveCharacter,
+    ) -> Result<AggregateVersion, DomainError> {
+        let id = cmd.id;
+        let version = cmd.version;
+        check_nonzero_version(version)?;
+        let series_id = cmd.series_id;
+        let result = SceneAggregate::execute(&self.cmd_service, id, cmd)
+            .expected_version(ExpectedVersion::Exact(domain_to_stream_checked(version)?))
+            .metadata(EventMetadata {
+                actor: Some(actor),
+                provenance: Provenance::Human,
+                series_id,
+            })
+            .await;
+        map_version_only(result)
+    }
+
+    async fn add_costume_beat(
+        &self,
+        actor: UserId,
+        cmd: AddCostumeBeat,
+    ) -> Result<AggregateVersion, DomainError> {
+        let id = cmd.id;
+        let version = cmd.version;
+        check_nonzero_version(version)?;
+        let series_id = cmd.series_id;
+        let result = SceneAggregate::execute(&self.cmd_service, id, cmd)
+            .expected_version(ExpectedVersion::Exact(domain_to_stream_checked(version)?))
+            .metadata(EventMetadata {
+                actor: Some(actor),
+                provenance: Provenance::Human,
+                series_id,
+            })
+            .await;
+        map_version_only(result)
+    }
+
+    async fn update_costume_beat(
+        &self,
+        actor: UserId,
+        cmd: UpdateCostumeBeat,
+    ) -> Result<AggregateVersion, DomainError> {
+        let id = cmd.id;
+        let version = cmd.version;
+        check_nonzero_version(version)?;
+        let series_id = cmd.series_id;
+        let result = SceneAggregate::execute(&self.cmd_service, id, cmd)
+            .expected_version(ExpectedVersion::Exact(domain_to_stream_checked(version)?))
+            .metadata(EventMetadata {
+                actor: Some(actor),
+                provenance: Provenance::Human,
+                series_id,
+            })
+            .await;
+        map_version_only(result)
+    }
+
+    async fn remove_costume_beat(
+        &self,
+        actor: UserId,
+        cmd: RemoveCostumeBeat,
     ) -> Result<AggregateVersion, DomainError> {
         let id = cmd.id;
         let version = cmd.version;

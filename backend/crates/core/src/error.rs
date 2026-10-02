@@ -23,13 +23,14 @@ use crate::error_registry::{
     DOMAIN_SERVICE_UNAVAILABLE, DOMAIN_VALIDATION, EPISODE_NOT_FOUND, MEMBERSHIP_ALREADY_INVITED,
     MEMBERSHIP_BOOTSTRAP_NOT_ALLOWED, MEMBERSHIP_MISSING_ACTOR, MEMBERSHIP_NO_PENDING_INVITATION,
     MEMBERSHIP_NOT_ACTIVE_MEMBER, MEMBERSHIP_NOT_FOUND, PHOTO_ALREADY_DELETED, PHOTO_NOT_FOUND,
-    PHOTO_VALIDATION, ProblemCode, SCENE_CHARACTER_ALREADY_ASSIGNED, SCENE_CHARACTER_NOT_FOUND,
-    SCENE_NOT_FOUND, SCENE_SHOOT_ALREADY_STARTED, SCENE_SHOOT_NOT_FOUND,
-    SCENE_SHOOT_NOTE_NOT_FOUND, SCENE_SHOOT_PAIR_ALREADY_EXISTS, SCENE_SHOOT_PLANNED_ORDER_FROZEN,
-    SCENE_SHOOT_TERMINAL_STATE, SCENE_SHOOT_VALIDATION, SCENE_VALIDATION, SEASON_NOT_FOUND,
-    SETTINGS_ALREADY_REVOKED, SETTINGS_EMPTY_PROVIDER, SETTINGS_EMPTY_VAULT_KEY,
-    SETTINGS_NOT_FOUND, SETTINGS_PROVIDER_MISMATCH, SHOOTING_DAY_ARCHIVED,
-    SHOOTING_DAY_DUPLICATE_ORDER_KEY, SHOOTING_DAY_NOT_FOUND, SHOOTING_DAY_VALIDATION,
+    PHOTO_VALIDATION, ProblemCode, SCENE_BEAT_NOT_FOUND, SCENE_CHARACTER_ALREADY_ASSIGNED,
+    SCENE_CHARACTER_NOT_FOUND, SCENE_CHARACTER_NOT_IN_SCENE, SCENE_NOT_FOUND,
+    SCENE_SHOOT_ALREADY_STARTED, SCENE_SHOOT_NOT_FOUND, SCENE_SHOOT_NOTE_NOT_FOUND,
+    SCENE_SHOOT_PAIR_ALREADY_EXISTS, SCENE_SHOOT_PLANNED_ORDER_FROZEN, SCENE_SHOOT_TERMINAL_STATE,
+    SCENE_SHOOT_VALIDATION, SCENE_VALIDATION, SEASON_NOT_FOUND, SETTINGS_ALREADY_REVOKED,
+    SETTINGS_EMPTY_PROVIDER, SETTINGS_EMPTY_VAULT_KEY, SETTINGS_NOT_FOUND,
+    SETTINGS_PROVIDER_MISMATCH, SHOOTING_DAY_ARCHIVED, SHOOTING_DAY_DUPLICATE_ORDER_KEY,
+    SHOOTING_DAY_NOT_FOUND, SHOOTING_DAY_VALIDATION,
 };
 use crate::membership::error::MembershipError;
 use crate::photo::error::PhotoError;
@@ -204,6 +205,17 @@ impl From<SceneError> for DomainError {
             SceneError::CharacterAlreadyAssigned => DomainError::Conflict {
                 code: &SCENE_CHARACTER_ALREADY_ASSIGNED,
                 reason: "character already assigned to this scene".into(),
+            },
+            SceneError::CharacterNotInScene { character_id } => DomainError::Validation {
+                code: &SCENE_CHARACTER_NOT_IN_SCENE,
+                reason: format!("character {character_id} is not assigned to this scene"),
+            },
+            SceneError::BeatNotFound {
+                character_id,
+                order,
+            } => DomainError::Validation {
+                code: &SCENE_BEAT_NOT_FOUND,
+                reason: format!("no costume beat for character {character_id} at order {order}"),
             },
             SceneError::AlreadyScheduled { shooting_day_id } => DomainError::AlreadyScheduled {
                 shooting_day_id: shooting_day_id.0,

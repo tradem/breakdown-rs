@@ -68,6 +68,61 @@ pub struct RemoveCharacter {
     pub version: AggregateVersion,
 }
 
+/// Add a costume beat: “character C wears costume K in this scene”.
+///
+/// The beat's `order` is computed by the aggregate (`max + 1` per character,
+/// `0` when none exist) — never client-supplied: a client-chosen order is a
+/// race. The character must already be in `assigned_characters`.
+///
+/// `series_id` is carried for the `EventMetadata` audit trail (the audit
+/// projector keys on `series_id`); it is resolved at the API edge from the
+/// scene projection, never queried again by the command adapter.
+#[derive(Debug, Clone, serde::Deserialize, utoipa::ToSchema)]
+pub struct AddCostumeBeat {
+    pub id: Uuid,
+    pub character_id: Uuid,
+    pub costume_id: Uuid,
+    /// Optional free-text cue for the wardrobe crew ("nach dem Telefonat").
+    pub note: Option<String>,
+    pub series_id: Option<SeriesId>,
+    pub version: AggregateVersion,
+}
+
+/// Update a costume beat in place, addressing it by `(character_id, order)`.
+///
+/// Never changes `order` (reordering is remove + add, which keeps the event
+/// history legible); `BeatNotFound` if no beat exists at that position.
+///
+/// `series_id` is carried for the `EventMetadata` audit trail (the audit
+/// projector keys on `series_id`); it is resolved at the API edge from the
+/// scene projection, never queried again by the command adapter.
+#[derive(Debug, Clone, serde::Deserialize, utoipa::ToSchema)]
+pub struct UpdateCostumeBeat {
+    pub id: Uuid,
+    pub character_id: Uuid,
+    pub order: u32,
+    pub costume_id: Uuid,
+    pub note: Option<String>,
+    pub series_id: Option<SeriesId>,
+    pub version: AggregateVersion,
+}
+
+/// Remove costume beats of a character: `Some(order)` removes exactly that
+/// beat, `None` removes all beats of the character (= “no costume in this
+/// scene”, the first-class empty state).
+///
+/// `series_id` is carried for the `EventMetadata` audit trail (the audit
+/// projector keys on `series_id`); it is resolved at the API edge from the
+/// scene projection, never queried again by the command adapter.
+#[derive(Debug, Clone, serde::Deserialize, utoipa::ToSchema)]
+pub struct RemoveCostumeBeat {
+    pub id: Uuid,
+    pub character_id: Uuid,
+    pub order: Option<u32>,
+    pub series_id: Option<SeriesId>,
+    pub version: AggregateVersion,
+}
+
 impl kameo_es::CommandName for CreateScene {
     fn command_name() -> &'static str {
         "CreateScene"
@@ -86,6 +141,21 @@ impl kameo_es::CommandName for AssignCharacter {
 impl kameo_es::CommandName for RemoveCharacter {
     fn command_name() -> &'static str {
         "RemoveCharacter"
+    }
+}
+impl kameo_es::CommandName for AddCostumeBeat {
+    fn command_name() -> &'static str {
+        "AddCostumeBeat"
+    }
+}
+impl kameo_es::CommandName for UpdateCostumeBeat {
+    fn command_name() -> &'static str {
+        "UpdateCostumeBeat"
+    }
+}
+impl kameo_es::CommandName for RemoveCostumeBeat {
+    fn command_name() -> &'static str {
+        "RemoveCostumeBeat"
     }
 }
 
