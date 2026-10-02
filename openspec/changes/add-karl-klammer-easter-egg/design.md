@@ -42,6 +42,7 @@ comments + four-tier tests.
 ## Decisions
 
 ### D1 — Persistence: `shared_preferences` (resolved Q1)
+
 The Easter-eggs flag is a non-secret boolean; `flutter_secure_storage`
 would misuse the secure enclave. A new `shared_preferences` dependency
 (the first-party plugin, no transitive surprises) is fit for purpose.
@@ -52,6 +53,7 @@ considered:* reusing secure storage for consistency — rejected
 (overkill for a boolean; contradicts the "not a secret" honesty rule).
 
 ### D2 — Karl Klammer asset: self-drawn CustomPainter (resolved Q2)
+
 The hanger is drawn with `CustomPainter`/`Clippers`, geometrically based
 on the Material Symbols `checkroom` glyph (Apache-2.0, the same source
 as the launcher icon — verified by `gen-app-icon.sh`); the figure itself
@@ -62,14 +64,25 @@ programmatic approach gives state-driven poses (swing/droop/pride) with
 zero package growth.
 
 ### D3 — Settings provider architecture
-`easterEggsEnabledProvider` — a `@riverpod` `Notifier<bool>` (default
-`true`) that hydrates from the store on init and flips immediately on
-`toggle()`. AI Import screens `ref.watch` it; the overlay disappears
-immediately on `false`. The settings screen's dev section reuses the
-existing providers (`appConfigProvider`, `runtimeApiBaseProvider`,
-`sessionResetProvider`) — no new state machinery for the migration.
+
+`easterEggsProvider` — a hand-written plain `Notifier<bool>` wired via
+`NotifierProvider` (deliberate exception to the `@riverpod`-codegen
+rule, mirroring the neighboring `RuntimeApiBase` in
+`api_base_override_store.dart`; default `true`) that flips immediately
+on `toggle()` and persists through the store. Hydration is owned by
+`bootstrap()`: it reads the store BEFORE any consumer exists and seeds
+the notifier via a `HydratedEasterEggs` subclass override — the
+AI-Import view therefore reflects the stored preference on cold start
+without a settings visit, and a read failure surfaces as default ON
+plus the notifier's `readFailed` flag (visible error state in the
+settings screen). AI Import screens `ref.watch` it; the overlay
+disappears immediately on `false`. The settings screen's dev section
+reuses the existing providers (`appConfigProvider`,
+`runtimeApiBaseProvider`, `sessionResetProvider`) — no new state
+machinery for the migration.
 
 ### D4 — Karl Klammer trigger logic (resolved Q3 — tone & triggers)
+
 Pure function `clippyTipFor(ImportFlowState state, int visitCount)` in
 `lib/features/ai_import/` (unit-testable, deterministic): maps the AI
 Import flow state to a tip/pose. Triggers:
@@ -88,6 +101,7 @@ content, never over primary CTAs (verified in goldens); tap dismisses
 for the session.
 
 ### D5 — Prod visibility (resolved Q5)
+
 The development section is dev-flavor-only; in `prod` the read-only
 server address + flavor rows (with the explanatory prod note) remain on
 the settings screen — exactly the previous dialog's prod surface,

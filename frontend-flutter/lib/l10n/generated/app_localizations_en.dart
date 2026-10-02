@@ -2359,6 +2359,10 @@ class AppLocalizationsEn extends AppLocalizations {
       'Switch the little surprises in the app on or off.';
 
   @override
+  String get settingsEasterEggsWriteError =>
+      'The setting could not be saved. The change applies until the app restarts.';
+
+  @override
   String get settingsEasterEggsError =>
       'The setting could not be read – the default (enabled) stays active.';
 

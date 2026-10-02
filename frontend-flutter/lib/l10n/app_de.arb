@@ -649,6 +649,7 @@
   "settingsGeneral": "Allgemein",
   "settingsEasterEggs": "Easter-Eggs",
   "settingsEasterEggsSubtitle": "Kleine Überraschungen in der App lassen sich ein- und ausschalten.",
+  "settingsEasterEggsWriteError": "Die Einstellung konnte nicht gespeichert werden. Die Änderung gilt nur bis zum Neustart.",
   "settingsEasterEggsError": "Die Einstellung konnte nicht gelesen werden – Standard (eingeschaltet) bleibt aktiv.",
   "settingsDev": "Entwicklung",
   "aiImportClippyNoConfig": "Es sieht so aus, als wolltest du einen Spielplan importieren… Willst du zuerst eine KI-Konfiguration einrichten?",

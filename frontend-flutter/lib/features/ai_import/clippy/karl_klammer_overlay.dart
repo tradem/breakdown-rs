@@ -159,8 +159,13 @@ class _KarlKlammerOverlayState extends ConsumerState<KarlKlammerOverlay> {
             bottom: AppSpacing.space16,
             child: Semantics(
               button: true,
-              label: l10n.aiImportClippyDismissTooltip,
+              // The TIP copy is the label (screen readers hear what Karl
+              // says); the dismiss action is the hint (CodeRabbit fix —
+              // ExcludeSemantics previously swallowed the tip text).
+              label: _tipText(tip.key),
+              hint: l10n.aiImportClippyDismissTooltip,
               onTap: _dismiss,
+              onTapHint: l10n.aiImportClippyDismissTooltip,
               child: ExcludeSemantics(
                 child: Material(
                   color: Theme.of(context).colorScheme.surfaceContainerHigh,

@@ -4000,6 +4000,12 @@ abstract class AppLocalizations {
   /// **'Kleine Überraschungen in der App lassen sich ein- und ausschalten.'**
   String get settingsEasterEggsSubtitle;
 
+  /// No description provided for @settingsEasterEggsWriteError.
+  ///
+  /// In de, this message translates to:
+  /// **'Die Einstellung konnte nicht gespeichert werden. Die Änderung gilt nur bis zum Neustart.'**
+  String get settingsEasterEggsWriteError;
+
   /// No description provided for @settingsEasterEggsError.
   ///
   /// In de, this message translates to:

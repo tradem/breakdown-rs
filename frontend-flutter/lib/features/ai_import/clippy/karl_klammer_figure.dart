@@ -76,13 +76,16 @@ class _KarlKlammerFigureState extends State<KarlKlammerFigure>
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final wobble = _controller?.value ?? 0.0;
+    final controller = _controller;
     return SizedBox.square(
       dimension: widget.size,
       child: CustomPaint(
         painter: _HangerPainter(
+          // The controller doubles as the repaint listenable: every tick
+          // re-schedules a paint (CodeRabbit fix — a plain field read in
+          // build never repaints the wobble).
+          repaint: controller,
           pose: widget.pose,
-          wobble: wobble,
           body: scheme.primary,
           face: scheme.onSurfaceVariant,
           outline: scheme.outline,
@@ -94,19 +97,25 @@ class _KarlKlammerFigureState extends State<KarlKlammerFigure>
 
 /// Draws the hanger: hook with a small face on it (Karl's head),
 /// shoulder bar, and the bottom triangle. Poses rotate/tilt the figure:
-/// `excited` swings by the [wobble] phase, `droop` leans sideways with a
-/// downturned mouth, `proud` tilts slightly upright with a smiling face.
+/// `excited` swings by the controller phase read inside [paint],
+/// `droop` leans sideways with a downturned mouth, `proud` tilts
+/// slightly upright with a smiling face.
 class _HangerPainter extends CustomPainter {
-  const _HangerPainter({
+  _HangerPainter({
+    Animation<double>? repaint,
     required this.pose,
-    required this.wobble,
     required this.body,
     required this.face,
     required this.outline,
-  });
+  }) : _wobble = repaint,
+       // Wires the live phase to the render object: every controller
+       // tick marks the paint dirty (the repaint proof test pins this).
+       super(repaint: repaint);
+
+  /// Live animation phase (the excited wobble); `null` = static poses.
+  final Animation<double>? _wobble;
 
   final ClippyPose pose;
-  final double wobble;
 
   final Color body;
   final Color face;
@@ -118,6 +127,8 @@ class _HangerPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     final scale = size.width / 72;
     canvas.scale(scale);
+
+    final wobble = _wobble?.value ?? 0.0;
 
     // Pose transform (applied around the hook anchor at the top center).
     final angle = switch (pose) {
@@ -187,7 +198,6 @@ class _HangerPainter extends CustomPainter {
   @override
   bool shouldRepaint(_HangerPainter oldDelegate) =>
       oldDelegate.pose != pose ||
-      oldDelegate.wobble != wobble ||
       oldDelegate.body != body ||
       oldDelegate.face != face ||
       oldDelegate.outline != outline;

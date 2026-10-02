@@ -9,7 +9,10 @@
 // remove-animations static pose, screen-reader semantics, and the
 // with/without goldens.
 
+import 'dart:io';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart' show listEquals;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -225,8 +228,11 @@ void main() {
       expect(tester.binding.transientCallbackCount, greaterThan(0));
     });
 
-    testWidgets('screen-reader semantics: one dismissible button, '
-        'figure internals excluded', (tester) async {
+    testWidgets('screen-reader semantics: the TIP is the label, the '
+        'dismiss affordance the hint', (tester) async {
+      // CodeRabbit review #576: the tip copy never reached assistive
+      // technology (ExcludeSemantics hid the text; only the dismiss
+      // tooltip was announced).
       final handle = tester.ensureSemantics();
       await pumpOverlay(tester, flowState: ClippyFlowState.error);
 
@@ -234,9 +240,69 @@ void main() {
         find.byKey(const Key('karl-klammer-bubble')),
       );
       expect(node.flagsCollection.isButton, isTrue);
-      // The droop/error tip text is announced via the bubble label.
-      expect(node.label, contains('Hide Karl Klammer'));
+      // The tip text itself is announced as the label...
+      expect(node.label, contains("didn't work out"));
+      // ...and the dismiss affordance is the hint.
+      expect(node.hint, contains('Hide Karl Klammer'));
       handle.dispose();
+    });
+
+    testWidgets('excited wobble repaints each tick (phase goldens)', (
+      tester,
+    ) async {
+      // CodeRabbit review #576: the controller ticked but nothing
+      // repainted — the running pose sat static. The two PHASE captures
+      // below are asserted byte-wise different by the follow-up test:
+      // a broken repaint wiring makes both phases render identically.
+      SharedPreferencesAsyncPlatform.instance =
+          InMemorySharedPreferencesAsync.empty();
+      final container = ProviderContainer();
+      addTearDown(container.dispose);
+      tester.view.physicalSize = const Size(600, 1000);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: const MaterialApp(
+            home: Scaffold(
+              body: Center(
+                child: KarlKlammerFigure(
+                  pose: ClippyPose.excited,
+                  animate: true,
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      // Distinct swing phases (1.6 s repeat: sin(2π·0.25)=1 vs
+      // sin(2π·0.5)=0).
+      await tester.pump(const Duration(milliseconds: 400));
+      await expectLater(
+        find.byType(KarlKlammerFigure),
+        matchesGoldenFile('goldens/clippy_excited_phase_a.png'),
+      );
+      await tester.pump(const Duration(milliseconds: 400));
+      await expectLater(
+        find.byType(KarlKlammerFigure),
+        matchesGoldenFile('goldens/clippy_excited_phase_b.png'),
+      );
+    });
+
+    test('the two excited-wobble phase goldens differ byte-wise '
+        '(repaint proof)', () {
+      final a = File(
+        'test/features/ai_import/goldens/clippy_excited_phase_a.png',
+      ).readAsBytesSync();
+      final b = File(
+        'test/features/ai_import/goldens/clippy_excited_phase_b.png',
+      ).readAsBytesSync();
+      // If the controller tick were NOT wired to the painter, both
+      // phases would render the static wobble=0 pose and the files
+      // would be byte-identical — this assertion is the actual fix
+      // guard (a transientCallbackCount check cannot detect it).
+      expect(listEquals(a, b), isFalse);
     });
   });
 

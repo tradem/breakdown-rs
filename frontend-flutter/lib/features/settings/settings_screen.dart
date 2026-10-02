@@ -118,9 +118,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     // persistence is surfaced as an inline error — no silent discard.
     if (!mounted) return;
     result.match(
-      (e) =>
-          ScaffoldMessenger.of(context)
-              .showSnackBar(SnackBar(content: Text(apiBaseValidationCopy(e)))),
+      // CodeRabbit fix: localized, code-scoped copy — never the
+      // backend-URI validation copy (that maps different codes).
+      (e) => ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(l10nOf(context).settingsEasterEggsWriteError)),
+      ),
       (_) {},
     );
   }

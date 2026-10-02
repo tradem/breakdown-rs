@@ -31,6 +31,19 @@ import 'package:shared_preferences_platform_interface/shared_preferences_async_p
 
 import '../seasons/seasons_test_fakes.dart';
 
+/// In-memory `SharedPreferencesAsyncPlatform` double forced to fail every
+/// operation (write-failure snackbar test, CodeRabbit review #576).
+final class _FailingWritePrefsPlatform extends InMemorySharedPreferencesAsync {
+  _FailingWritePrefsPlatform() : super.empty();
+
+  @override
+  Future<bool> setBool(
+    String key,
+    bool value,
+    SharedPreferencesOptions options,
+  ) async => throw Exception('storage unavailable');
+}
+
 /// Pumps a bounded number of frames (never `pumpAndSettle` against
 /// open-ended timers).
 Future<void> pumpFrames(WidgetTester tester, {int n = 8}) async {
@@ -111,17 +124,30 @@ void main() {
     // (bootstrap merges it into the effective base before any client
     // exists — task 6.1).
     String? activeOverride,
+    // Simulates a bootstrap preference-read failure (HydratedEasterEggs
+    // carries the visible-error flag; issue #516 spec scenario).
+    bool easterEggsReadFailed = false,
+    // Simulates a failing on-device preference write (snackbar test).
+    bool failPrefsWrite = false,
   }) async {
     platform = _OverridePlatform();
     FlutterSecureStoragePlatform.instance = platform;
-    SharedPreferencesAsyncPlatform.instance =
-        InMemorySharedPreferencesAsync.empty();
+    if (failPrefsWrite) {
+      SharedPreferencesAsyncPlatform.instance = _FailingWritePrefsPlatform();
+    } else {
+      SharedPreferencesAsyncPlatform.instance =
+          InMemorySharedPreferencesAsync.empty();
+    }
     db = CacheDatabase(NativeDatabase.memory());
     addTearDown(db.close);
     final holder = ValueNotifier<Result<List<SeasonView>>>(Right(const []));
     container = ProviderContainer(
       retry: (_, _) => null,
       overrides: [
+        if (easterEggsReadFailed)
+          easterEggsProvider.overrideWith(
+            () => HydratedEasterEggs(initial: true, failed: true),
+          ),
         appConfigProvider.overrideWithValue(config),
         tokenStoreProvider.overrideWithValue(FakeTokenStore(null)),
         pinnedSecurityContextProvider.overrideWithValue(SecurityContext()),
@@ -374,6 +400,40 @@ void main() {
         await SharedPreferencesAsync().getBool(EasterEggsStore.key),
         isFalse,
       );
+    });
+
+    testWidgets('read-failure fallback: visible error subtitle, default ON', (
+      tester,
+    ) async {
+      // CodeRabbit review #576: cover the visible error state.
+      await pumpScreen(tester, easterEggsReadFailed: true);
+
+      final switchTile = tester.widget<SwitchListTile>(
+        find.byKey(const Key('settings-easter-eggs')),
+      );
+      expect(switchTile.value, isTrue); // default ON fallback
+      expect(
+        find.byKey(const Key('settings-easter-eggs-error')),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('write failure: localized snackbar, no silent discard', (
+      tester,
+    ) async {
+      // CodeRabbit review #576: the snackbar path (and its copy) was
+      // uncovered — this would have caught the wrong (English,
+      // backend-URI) copy.
+      await pumpScreen(tester, failPrefsWrite: true);
+
+      await tester.tap(find.byKey(const Key('settings-easter-eggs')));
+      await pumpFrames(tester);
+
+      // The in-memory flip still applied...
+      expect(container.read(easterEggsProvider), isFalse);
+      // ...and the persistence failure surfaces as a localized snackbar.
+      expect(find.byType(SnackBar), findsOneWidget);
+      expect(find.textContaining('could not be saved'), findsOneWidget);
     });
   });
 

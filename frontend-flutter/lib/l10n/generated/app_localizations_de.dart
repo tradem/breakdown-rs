@@ -2385,6 +2385,10 @@ class AppLocalizationsDe extends AppLocalizations {
       'Kleine Überraschungen in der App lassen sich ein- und ausschalten.';
 
   @override
+  String get settingsEasterEggsWriteError =>
+      'Die Einstellung konnte nicht gespeichert werden. Die Änderung gilt nur bis zum Neustart.';
+
+  @override
   String get settingsEasterEggsError =>
       'Die Einstellung konnte nicht gelesen werden – Standard (eingeschaltet) bleibt aktiv.';
 

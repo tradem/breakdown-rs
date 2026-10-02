@@ -29,8 +29,10 @@
       Result-typed `read()`/`write(bool)`, key `easter_eggs`,
       `ProblemError` codes `settings.easter_eggs_read_failed` /
       `easter_eggs_write_failed`, no `throw`.
-- [x] 2.3 Implement `easterEggsEnabledProvider` (`@riverpod` Notifier,
-      default `true`) hydrating from the store; read failure → default
+- [x] 2.3 Implement `easterEggsProvider` (plain `Notifier<bool>` via
+      `NotifierProvider` — deliberate codegen exception, mirroring the
+      neighboring `RuntimeApiBase`; default `true`), seeded at
+      `bootstrap()` via `HydratedEasterEggs`; read failure → default
       ON + visible error state flag.
 - [x] 2.4 Unit tests: store Ok/Err branches, default-ON on missing
       value, persist+restore round-trip, notifier immediate flip.

@@ -649,6 +649,7 @@
   "settingsGeneral": "General",
   "settingsEasterEggs": "Easter eggs",
   "settingsEasterEggsSubtitle": "Switch the little surprises in the app on or off.",
+  "settingsEasterEggsWriteError": "The setting could not be saved. The change applies until the app restarts.",
   "settingsEasterEggsError": "The setting could not be read – the default (enabled) stays active.",
   "settingsDev": "Development",
   "aiImportClippyNoConfig": "It looks like you're trying to import a schedule… Want to set up an AI configuration first?",
