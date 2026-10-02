@@ -1356,6 +1356,9 @@ class AppLocalizationsDe extends AppLocalizations {
   String get sceneShootsReportsTooltip => 'Berichte';
 
   @override
+  String get sceneShootsReportsLabel => 'Berichte';
+
+  @override
   String get sceneShootWrapButton => 'Drehtag abschließen';
 
   @override
@@ -1539,6 +1542,10 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get sceneDetailNoShootingDays => 'Noch keinem Drehtag zugeordnet.';
+
+  @override
+  String get sceneDetailNoShootingDaysReportHint =>
+      'Plane die Szene auf einem Drehtag – der Soll-/Ist-Bericht (geplant vs. tatsächlich) öffnet sich dann über das Day-Board dieses Tages.';
 
   @override
   String get sceneDetailOpenDayBoard => 'Day-Board öffnen';
@@ -1960,6 +1967,28 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get navScenes => 'Szenen';
+
+  @override
+  String locationStripSemantics(Object path) {
+    return 'Position: $path';
+  }
+
+  @override
+  String scopeChipBlock(Object block) {
+    return 'Filter: $block';
+  }
+
+  @override
+  String get scopeChipUnknownBlock => 'Filter: Block unbekannt';
+
+  @override
+  String get scopeChipForeignSeason => 'Filter gilt hier nicht – andere Season';
+
+  @override
+  String get scopeChipTooltip => 'Aktiven Block-Filter ändern';
+
+  @override
+  String get scopeChipPickTitle => 'Block-Filter wählen';
 
   @override
   String get seasonsTitle => 'Seasons';

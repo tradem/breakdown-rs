@@ -33,23 +33,43 @@ part 'active_block.g.dart';
 /// instead of re-showing the picker. Persistence is best-effort — a store
 /// failure never breaks the in-memory scope; resolution degrades to the
 /// existing re-resolution path.
+///
+/// [blockNumber] (issue #548) carries the picked block's number from the
+/// acted-on `BlockView` so the shell's `ActiveScopeChip` can render a
+/// VISIBLE label. It is deliberately the locale-neutral number, not a
+/// pre-rendered label string: the chip formats it through
+/// `blockTileLabel` at render time. A scope restored from an OLD persisted
+/// document (bare block id, pre-#548 shape) carries `null` and degrades to
+/// the chip's "unknown" narrative until the cache-only backfill resolves
+/// the number (never a network fetch) and writes it back.
 class ActiveScope {
-  const ActiveScope({required this.seasonId, required this.blockId});
+  const ActiveScope({
+    required this.seasonId,
+    required this.blockId,
+    this.blockNumber,
+  });
 
   final String seasonId;
   final String blockId;
+
+  /// The picked block's number from the acted-on `BlockView` (issue #548);
+  /// `null` for a scope restored from the pre-#548 document shape.
+  final int? blockNumber;
 
   @override
   bool operator ==(Object other) =>
       other is ActiveScope &&
       other.seasonId == seasonId &&
-      other.blockId == blockId;
+      other.blockId == blockId &&
+      other.blockNumber == blockNumber;
 
   @override
-  int get hashCode => Object.hash(seasonId, blockId);
+  int get hashCode => Object.hash(seasonId, blockId, blockNumber);
 
   @override
-  String toString() => 'ActiveScope(seasonId: $seasonId, blockId: $blockId)';
+  String toString() =>
+      'ActiveScope(seasonId: $seasonId, blockId: $blockId, '
+      'blockNumber: $blockNumber)';
 }
 
 /// The sticky active-block scope. `null` means no scope is set (fresh boot
@@ -65,18 +85,34 @@ class ActiveBlock extends _$ActiveBlock {
 
   /// Sets the scope from the block DTO the user acted on.
   ///
+  /// [blockNumber] rides along (issue #548) from the same `BlockView` so
+  /// the scope chip can render a visible label — never a second projection
+  /// lookup (CQRS boundary).
+  ///
   /// The in-memory state updates synchronously (call sites — e.g. the
   /// `BlocksScreen` tap — must observe it before navigating); the
   /// per-season persistence follows fire-and-forget and refreshes
   /// [activeBlockPersistedProvider] once settled so the gate converges.
   /// The refresh is `mounted`-guarded: the write may settle after the
   /// provider was invalidated or disposed (sign-out, test teardown).
-  void set({required String seasonId, required String blockId}) {
-    state = ActiveScope(seasonId: seasonId, blockId: blockId);
+  void set({
+    required String seasonId,
+    required String blockId,
+    int? blockNumber,
+  }) {
+    state = ActiveScope(
+      seasonId: seasonId,
+      blockId: blockId,
+      blockNumber: blockNumber,
+    );
     unawaited(
       ref
           .read(activeBlockStoreProvider)
-          .saveScope(seasonId: seasonId, blockId: blockId)
+          .saveScope(
+            seasonId: seasonId,
+            blockId: blockId,
+            blockNumber: blockNumber,
+          )
           .then((r) {
             r.fold((_) {}, (_) {});
             if (!ref.mounted) return;

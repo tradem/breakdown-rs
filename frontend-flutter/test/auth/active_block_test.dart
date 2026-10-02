@@ -120,7 +120,12 @@ void main() {
       final persisted = await container.read(
         activeBlockPersistedProvider.future,
       );
-      expect(persisted, {'season-1': 'block-1'});
+      // Issue #548: the persisted value is the typed document — the
+      // block id plus the label-less degradation (`blockNumber: null` on
+      // a set without a block DTO).
+      expect(persisted, {
+        'season-1': const PersistedBlockScope(blockId: 'block-1'),
+      });
     });
 
     test('set keeps every season (per-season map)', () async {
@@ -134,7 +139,10 @@ void main() {
       final persisted = await container.read(
         activeBlockPersistedProvider.future,
       );
-      expect(persisted, {'season-1': 'block-1', 'season-2': 'block-2'});
+      expect(persisted, {
+        'season-1': const PersistedBlockScope(blockId: 'block-1'),
+        'season-2': const PersistedBlockScope(blockId: 'block-2'),
+      });
       // The sticky scope is still single (last set wins in memory).
       expect(
         container.read(activeBlockProvider),
@@ -156,7 +164,7 @@ void main() {
       expect(persisted, isEmpty);
     });
 
-    test('ActiveScope equality is by value', () {
+    test('ActiveScope equality is by value (incl. blockNumber, #548)', () {
       expect(
         const ActiveScope(seasonId: 's', blockId: 'b'),
         const ActiveScope(seasonId: 's', blockId: 'b'),
@@ -164,6 +172,14 @@ void main() {
       expect(
         const ActiveScope(seasonId: 's', blockId: 'b'),
         isNot(const ActiveScope(seasonId: 's', blockId: 'other')),
+      );
+      expect(
+        const ActiveScope(seasonId: 's', blockId: 'b'),
+        isNot(const ActiveScope(seasonId: 's', blockId: 'b', blockNumber: 1)),
+      );
+      expect(
+        const ActiveScope(seasonId: 's', blockId: 'b', blockNumber: 2),
+        const ActiveScope(seasonId: 's', blockId: 'b', blockNumber: 2),
       );
     });
   });

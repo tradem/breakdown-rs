@@ -4,6 +4,8 @@
 // Co-authored-by: space-bunny-free (opencode-go)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
 
+import 'dart:async' show unawaited;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -11,10 +13,14 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../l10n/generated/app_localizations.dart';
 import '../../l10n/generated/app_localizations_de.dart';
 import '../../design/material_icons.dart';
+import '../../auth/active_block.dart';
+import 'active_scope_chip.dart';
+import 'location_strip.dart';
 import 'more_tab_screen.dart';
 import 'planning_tab_screen.dart';
 import '../seasons/seasons_screen.dart';
 import 'costuming_tab_screen.dart';
+import 'planning_location_route_observer.dart';
 import 'shell_controller.dart';
 import 'window_size_class.dart';
 
@@ -74,6 +80,13 @@ class AppShellState extends ConsumerState<AppShell> {
     GlobalKey<NavigatorState>(debugLabel: 'shell-tab-3-mehr'),
   ];
 
+  /// One location observer per tab navigator (issue #548): the context
+  /// bar resolves the ACTIVE tab's location from its topmost route's
+  /// `RouteSettings.arguments`; pop/tab-switch updates come free.
+  final List<LocationRouteObserver> tabLocationObservers = [
+    for (var i = 0; i < 4; i++) LocationRouteObserver(),
+  ];
+
   @override
   Widget build(BuildContext context) {
     final state = ref.watch(shellControllerProvider);
@@ -110,6 +123,7 @@ class AppShellState extends ConsumerState<AppShell> {
             Navigator(
               key: tabNavigatorKeys[i],
               restorationScopeId: 'shell-tab-$i',
+              observers: [tabLocationObservers[i]],
               onGenerateRoute: (settings) => MaterialPageRoute<void>(
                 settings: settings,
                 builder: (_) => AppShell._tabRoots[i],
@@ -119,10 +133,24 @@ class AppShellState extends ConsumerState<AppShell> {
       ),
     );
 
+    // Issue #548: the hierarchy context surface lives in the SHELL (not in
+    // each screen's app bar) — one surface, all three morphologies, the
+    // ~60 per-feature goldens pump their screens directly and stay
+    // untouched.
+    final contentWithLocation = Column(
+      children: [
+        ShellContextBar(
+          navigatorKey: tabNavigatorKeys[state.selectedIndex],
+          observer: tabLocationObservers[state.selectedIndex],
+        ),
+        Expanded(child: content),
+      ],
+    );
+
     return switch (sizeClass) {
       WindowSizeClass.compact => Column(
         children: [
-          Expanded(child: content),
+          Expanded(child: contentWithLocation),
           ShellDestinations.navigationBar(
             selectedIndex: state.selectedIndex,
             onSelected: controller.selectTab,
@@ -138,7 +166,7 @@ class AppShellState extends ConsumerState<AppShell> {
             l10n: l10n,
           ),
           const VerticalDivider(width: 1, thickness: 1),
-          Expanded(child: content),
+          Expanded(child: contentWithLocation),
         ],
       ),
       WindowSizeClass.expanded => Row(
@@ -148,10 +176,88 @@ class AppShellState extends ConsumerState<AppShell> {
             onSelected: controller.selectTab,
             l10n: l10n,
           ),
-          Expanded(child: content),
+          Expanded(child: contentWithLocation),
         ],
       ),
     };
+  }
+}
+
+/// The shell's context bar (issue #548): the [LocationStrip] for the
+/// active tab's topmost route location plus the [ActiveScopeChip] —
+/// WHERE YOU NAVIGATED (per-route) and WHAT FILTERS YOUR REQUESTS
+/// (sticky) as two separate widgets with separate lifetimes. Hidden
+/// entirely when neither has anything to say (tab roots without a pushed
+/// location and no scope).
+class ShellContextBar extends ConsumerWidget {
+  const ShellContextBar({
+    super.key,
+    required this.navigatorKey,
+    required this.observer,
+  });
+
+  final GlobalKey<NavigatorState> navigatorKey;
+  final LocationRouteObserver observer;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return ListenableBuilder(
+      listenable: observer,
+      builder: (context, _) {
+        final navigator = navigatorKey.currentState;
+        final location = navigator == null ? null : locationOf(navigator);
+        final scope = ref.watch(activeBlockProvider);
+        if (location == null && scope == null) return const SizedBox.shrink();
+
+        final maxSegments =
+            resolveWindowSizeClass(MediaQuery.sizeOf(context).width) ==
+                WindowSizeClass.compact
+            ? 3
+            : 4;
+        // ActionChip needs a Material ancestor; the bar sits OUTSIDE the
+        // tab navigators' Scaffolds in all three morphologies, so it
+        // provides its own transparent one.
+        return Material(
+          type: MaterialType.transparency,
+          child: Container(
+            key: const Key('shell-context-bar'),
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+            decoration: BoxDecoration(
+              border: Border(
+                bottom: BorderSide(
+                  color: Theme.of(context).colorScheme.outlineVariant,
+                ),
+              ),
+            ),
+            child: Row(
+              children: [
+                if (location != null) ...[
+                  Expanded(
+                    child: LocationStrip(
+                      location: location,
+                      maxSegments: maxSegments,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                ],
+                ActiveScopeChip(
+                  location: location,
+                  onOpenPicker: (seasonId) => unawaited(
+                    Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) =>
+                            ScopeChipPickerScreen(seasonId: seasonId),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
   }
 }
 

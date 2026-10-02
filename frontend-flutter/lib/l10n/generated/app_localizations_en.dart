@@ -1339,6 +1339,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get sceneShootsReportsTooltip => 'Reports';
 
   @override
+  String get sceneShootsReportsLabel => 'Reports';
+
+  @override
   String get sceneShootWrapButton => 'Wrap shooting day';
 
   @override
@@ -1520,6 +1523,10 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get sceneDetailNoShootingDays =>
       'Not scheduled on any shooting day yet.';
+
+  @override
+  String get sceneDetailNoShootingDaysReportHint =>
+      'Schedule the scene on a shooting day – the planned-vs-actual (Soll/Ist) report then opens from that day\'s board.';
 
   @override
   String get sceneDetailOpenDayBoard => 'Open day board';
@@ -1938,6 +1945,29 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get navScenes => 'Scenes';
+
+  @override
+  String locationStripSemantics(Object path) {
+    return 'Location: $path';
+  }
+
+  @override
+  String scopeChipBlock(Object block) {
+    return 'Filter: $block';
+  }
+
+  @override
+  String get scopeChipUnknownBlock => 'Filter: unknown block';
+
+  @override
+  String get scopeChipForeignSeason =>
+      'Filter applies elsewhere – different season';
+
+  @override
+  String get scopeChipTooltip => 'Change the active block filter';
+
+  @override
+  String get scopeChipPickTitle => 'Pick the block filter';
 
   @override
   String get seasonsTitle => 'Seasons';

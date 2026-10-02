@@ -187,7 +187,7 @@ void main() {
         // `testWidgets` — pin the seam to "nothing remembered" (the
         // restore/stale paths are covered in `active_block_gate_test`).
         activeBlockPersistedProvider.overrideWith(
-          (ref) async => <String, String>{},
+          (ref) async => <String, PersistedBlockScope>{},
         ),
         charactersListFetchProvider('season-1').overrideWith((ref) async {
           final dao = CharacterCacheDao(ref.watch(cacheDatabaseProvider));
