@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: qwen3.8-flash (opencode-go)
 // Co-authored-by: glm-5.3-flash (opencode-go)
 
 import 'package:breakdown_api/breakdown_api.dart';
@@ -104,6 +105,11 @@ class ReportIndexFinalityChip extends StatelessWidget {
 /// becomes available once a shooting day is planned — and offers NO
 /// report affordance, because the report routes are day-scoped in the
 /// contract itself.
+///
+/// This is the CONFIRMED-empty surface: it renders only once the day list
+/// resolved with no days. While the list is loading or a day is still an
+/// optimistic overlay, [ReportIndexLoadingView] / [ReportIndexPendingView]
+/// stand in instead — an un-loaded or pending scope is not an empty scope.
 class ReportIndexEmptyView extends StatelessWidget {
   const ReportIndexEmptyView({super.key});
 
@@ -121,5 +127,79 @@ class ReportIndexEmptyView extends StatelessWidget {
         ),
       ],
     ),
+  );
+}
+
+/// The scrollable host for the confirmed-empty state (stays pull-to-
+/// refreshable so a stale cache can be reconciled).
+class ReportIndexEmptyList extends StatelessWidget {
+  const ReportIndexEmptyList({super.key});
+
+  @override
+  Widget build(BuildContext context) => ListView(
+    key: const Key('reports-index-screen'),
+    physics: const AlwaysScrollableScrollPhysics(),
+    children: const [SizedBox(height: 160), ReportIndexEmptyView()],
+  );
+}
+
+/// Initial-load state: the day list has not resolved yet, so the index has
+/// nothing to say about this scope's days — a progress indicator, never the
+/// confirmed-empty copy.
+class ReportIndexLoadingView extends StatelessWidget {
+  const ReportIndexLoadingView({super.key});
+
+  @override
+  Widget build(BuildContext context) => ListView(
+    key: const Key('reports-index-loading'),
+    physics: const AlwaysScrollableScrollPhysics(),
+    children: const [
+      SizedBox(height: 160),
+      Center(
+        child: CircularProgressIndicator(
+          key: Key('reports-index-loading-spinner'),
+        ),
+      ),
+    ],
+  );
+}
+
+/// Pending state for a scope whose only days are optimistic
+/// acknowledgements: no row is listed (an unprojected day has no
+/// server-derived `wrappedAt`, so no honest finality), and the day list's
+/// syncing copy + spinner stands in for both a row and the empty state.
+class ReportIndexPendingView extends StatelessWidget {
+  const ReportIndexPendingView({super.key});
+
+  @override
+  Widget build(BuildContext context) => ListView(
+    key: const Key('reports-index-pending'),
+    physics: const AlwaysScrollableScrollPhysics(),
+    children: [
+      const SizedBox(height: 160),
+      Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(
+              width: 20,
+              height: 20,
+              child: CircularProgressIndicator(
+                key: Key('reports-index-pending-spinner'),
+                strokeWidth: 2,
+              ),
+            ),
+            const SizedBox(height: 8),
+            // The day list's own syncing copy — the same narrative the
+            // overlay row shows where the user watches it reconcile.
+            Text(
+              l10nOf(context).seasonsSyncing,
+              key: const Key('reports-index-pending-text'),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+      ),
+    ],
   );
 }

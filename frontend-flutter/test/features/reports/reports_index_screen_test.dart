@@ -1,14 +1,17 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: qwen3.8-flash (opencode-go)
 // Co-authored-by: glm-5.3-flash (opencode-go)
 
 // Tier-2 widget + golden tests for `ReportsIndexScreen`
 // (`flutter-reports-index`): rows in server order, per-day finality from
-// `wrapped_at` (no aggregate verdict), empty state, pending (optimistic)
-// row exclusion, row tap → day-scoped `ReportsScreen`, and the
-// zero-request denial matrix. Goldens across {light,dark} × {android,macOS}:
-// loaded, empty, denied — the same matrix #549 extended for the report
-// screen.
+// `wrapped_at` (no aggregate verdict), the CONFIRMED-empty state (loading
+// and pending never render it), pending (optimistic) row exclusion, row tap
+// → day-scoped `ReportsScreen`, stale-indication that survives a failed
+// refresh, and the zero-request denial matrix — where a denied or
+// unresolved gate also removes the pull-to-refresh and row affordances.
+// Goldens across {light,dark} × {android,macOS}: loaded, empty, denied — the
+// same matrix #549 extended for the report screen.
 
 import 'dart:async';
 import 'dart:io';
@@ -175,15 +178,23 @@ void main() {
   // the initial read).
   int dayListFetches = 0;
 
+  // When set, the day-list fetch seam blocks on this completer, so a test
+  // can observe the index's LOADING phase (the fetch never resolves).
+  Completer<Result<List<ShootingDayView>>>? dayFetchGate;
+
   Future<void> setupContainer({
     MembershipMode membership = MembershipMode.allowed,
     List<ShootingDayView> initialRows = const [],
+    bool holdDayFetch = false,
   }) async {
     db = CacheDatabase(NativeDatabase.memory());
     addTearDown(db.close);
     repo = _CountingReportsRepository(BreakdownApi(), SceneShootCacheDao(db));
     holder = ValueNotifier<Result<List<ShootingDayView>>>(Right(initialRows));
     dayListFetches = 0;
+    dayFetchGate = holdDayFetch
+        ? Completer<Result<List<ShootingDayView>>>()
+        : null;
     scheduler = ManualReconciliationScheduler();
     container = ProviderContainer(
       overrides: [
@@ -200,6 +211,9 @@ void main() {
         // any refresh beyond the initial read (task 5.3).
         shootingDaysListFetchProvider('episode-1').overrideWith((ref) async {
           dayListFetches++;
+          if (dayFetchGate case final gate?) {
+            return await gate.future;
+          }
           final dao = ShootingDayCacheDao(ref.watch(cacheDatabaseProvider));
           return holder.value.match((err) => Left(err), (rows) async {
             // Faithful double: the server returns ORDER BY order_key ASC
@@ -409,6 +423,81 @@ void main() {
       expect(find.byKey(const Key('report-index-day-d-1')), findsNothing);
     });
 
+    testWidgets('initial loading shows progress, NOT the empty state', (
+      tester,
+    ) async {
+      // The day-list fetch never resolves: the row list is empty because
+      // NOTHING has been projected yet, which must not render as "this
+      // episode has no days".
+      await setupContainer(holdDayFetch: true);
+      await pumpScreen(tester);
+
+      expect(
+        find.byKey(const Key('reports-index-loading-spinner')),
+        findsOneWidget,
+      );
+      expect(find.byKey(const Key('report-index-empty')), findsNothing);
+    });
+
+    testWidgets(
+      'a pending-only day list shows the pending indicator, not empty copy',
+      (tester) async {
+        await setupContainer(initialRows: const []);
+        container
+            .read(shootingDaysOverlaysProvider('episode-1').notifier)
+            .add(
+              ShootingDayOverlay(
+                id: 'd-optimistic',
+                label: 'Unprojected',
+                orderKey: 'z',
+                status: OverlayStatus.acknowledged,
+              ),
+            );
+        await pumpScreen(tester);
+
+        // No row for the unprojected day, and NOT the confirmed-empty
+        // message either — the pending indicator stands in (spec: "A pending
+        // day is not listed … shows the stale/pending indicator instead").
+        expect(find.byKey(const Key('reports-index-pending')), findsOneWidget);
+        expect(
+          find.byKey(const Key('reports-index-pending-spinner')),
+          findsOneWidget,
+        );
+        expect(find.byKey(const Key('report-index-empty')), findsNothing);
+        expect(
+          find.byKey(const Key('report-index-day-d-optimistic')),
+          findsNothing,
+        );
+      },
+    );
+
+    testWidgets('pending overlay alongside projected rows keeps a banner', (
+      tester,
+    ) async {
+      await setupContainer(initialRows: [_day('d-1', label: 'Tag 1')]);
+      container
+          .read(shootingDaysOverlaysProvider('episode-1').notifier)
+          .add(
+            ShootingDayOverlay(
+              id: 'd-optimistic',
+              label: 'Unprojected',
+              orderKey: 'z',
+              status: OverlayStatus.acknowledged,
+            ),
+          );
+      await pumpScreen(tester);
+
+      expect(find.byKey(const Key('report-index-day-d-1')), findsOneWidget);
+      expect(
+        find.byKey(const Key('report-index-pending-banner')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const Key('report-index-day-d-optimistic')),
+        findsNothing,
+      );
+    });
+
     testWidgets('pending (optimistic) day is absent from the index', (
       tester,
     ) async {
@@ -522,6 +611,86 @@ void main() {
       expect(find.byKey(const Key('reports-index-error')), findsOneWidget);
       expect(find.byKey(const Key('reports-index-error-text')), findsOneWidget);
       expect(find.byKey(const Key('reports-index-retry')), findsOneWidget);
+    });
+
+    testWidgets(
+      'failed refresh keeps cached rows visible AND stale-indicated',
+      (tester) async {
+        await setupContainer(initialRows: [_day('d-1', label: 'Tag 1')]);
+        await pumpScreen(tester);
+        expect(find.byKey(const Key('report-index-day-d-1')), findsOneWidget);
+        expect(
+          find.byKey(const Key('report-index-stale-banner')),
+          findsNothing,
+        );
+
+        // The refresh fails while the cached projection stays on screen:
+        // the stale banner must remain visible even though a fetch error is
+        // present — retained cached rows are never rendered as if they were
+        // current (spec: "cached rows remain visible and stale-indicated
+        // when a refresh fails").
+        holder.value = const Left(ProblemError(code: 'transport.network'));
+        await container
+            .read(shootingDaysControllerProvider('episode-1').notifier)
+            .refresh();
+        await pumpScreen(tester);
+
+        expect(find.byKey(const Key('report-index-day-d-1')), findsOneWidget);
+        expect(
+          find.byKey(const Key('report-index-stale-banner')),
+          findsOneWidget,
+        );
+      },
+    );
+
+    testWidgets('gate denial disables pull-to-refresh and row navigation', (
+      tester,
+    ) async {
+      await setupContainer(
+        membership: MembershipMode.denied,
+        initialRows: [_day('d-1', label: 'Tag 1')],
+      );
+      await pumpScreen(tester);
+
+      expect(find.byKey(const Key('reports-index-denied')), findsOneWidget);
+      // No refresh affordance at all while the gate denies.
+      expect(find.byType(RefreshIndicator), findsNothing);
+
+      // The row is NOT a navigation target: a denied member never enters
+      // the day-scoped report screen and no request leaves the device —
+      // the gate is the pre-check FOR the push.
+      await tester.tap(find.byKey(const Key('report-index-day-d-1')));
+      await _pumpFrames(tester);
+      expect(find.byKey(const Key('soll-ist-report-screen')), findsNothing);
+      expect(repo.jsonCalls, 0);
+      expect(repo.pdfCalls, 0);
+      expect(dayListFetches, 1);
+    });
+
+    testWidgets('unresolved gate disables pull-to-refresh and row navigation', (
+      tester,
+    ) async {
+      await setupContainer(
+        membership: MembershipMode.loading,
+        initialRows: [_day('d-1', label: 'Tag 1')],
+      );
+      await pumpScreen(tester);
+
+      // Never rendered as forbidden, never rendered as permitted either.
+      expect(find.byKey(const Key('reports-index-denied')), findsNothing);
+      expect(find.byType(RefreshIndicator), findsNothing);
+      await tester.tap(find.byKey(const Key('report-index-day-d-1')));
+      await _pumpFrames(tester);
+      expect(find.byKey(const Key('soll-ist-report-screen')), findsNothing);
+    });
+
+    testWidgets('an allowed gate installs the pull-to-refresh affordance', (
+      tester,
+    ) async {
+      await setupContainer(initialRows: [_day('d-1', label: 'Tag 1')]);
+      await pumpScreen(tester);
+
+      expect(find.byType(RefreshIndicator), findsOneWidget);
     });
   });
 

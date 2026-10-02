@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: qwen3.8-flash (opencode-go)
 // Co-authored-by: glm-5.3-flash (opencode-go)
 
 import 'package:breakdown_api/breakdown_api.dart';
@@ -61,6 +62,11 @@ class ReportsIndexScreen extends ConsumerWidget {
     final controller = ref.read(reportsIndexControllerProvider(scope).notifier);
     final l10n = l10nOf(context);
     final episodeLabel = episode.name ?? l10n.episodeTileLabel(episode.number);
+    // AUTHZ-GATE: every network-triggering affordance on this screen is
+    // disabled while the gate is denied or unresolved — a denied scope
+    // issues ZERO requests and never enters a day report.
+    final gateOpen = state.gateOpen;
+    Future<void> refresh() => controller.refresh(episode.id);
 
     return Scaffold(
       appBar: AppBar(title: ReportsIndexTitle(episodeLabel: episodeLabel)),
@@ -72,20 +78,32 @@ class ReportsIndexScreen extends ConsumerWidget {
               key: const Key('reports-index-denied'),
               denial: denial,
             ),
-          if (state.isStale && state.commandError == null)
+          // Stale stays visible whenever the day list says so — including
+          // alongside a fetch failure, so retained cached rows are never
+          // rendered as if they were current.
+          if (state.isStale)
             _Banner(
               key: const Key('report-index-stale-banner'),
               text: l10n.shootingDaysStaleBanner,
             ),
+          // A pending (unprojected) day alongside projected rows: the index
+          // lists no row for it, so it says so in the banner instead. When
+          // NO row exists yet the body itself carries the pending indicator
+          // (see `_IndexList`), so the copy is never duplicated.
+          if (state.hasPendingOverlay && state.rows.isNotEmpty)
+            _Banner(
+              key: const Key('report-index-pending-banner'),
+              text: l10n.seasonsSyncing,
+              tone: _BannerTone.info,
+            ),
           Expanded(
-            child: RefreshIndicator(
-              onRefresh: () => controller.refresh(episode.id),
-              child: _IndexList(
-                state: state,
-                episode: episode,
-                seasonId: seasonId,
-                onRetry: () => controller.refresh(episode.id),
-              ),
+            child: _IndexList(
+              state: state,
+              episode: episode,
+              seasonId: seasonId,
+              gateOpen: gateOpen,
+              onRefresh: gateOpen ? refresh : null,
+              onRetry: gateOpen ? refresh : null,
             ),
           ),
         ],
@@ -99,6 +117,8 @@ class _IndexList extends StatelessWidget {
     required this.state,
     required this.episode,
     required this.seasonId,
+    required this.gateOpen,
+    required this.onRefresh,
     required this.onRetry,
   });
 
@@ -106,65 +126,101 @@ class _IndexList extends StatelessWidget {
   final EpisodeView episode;
   final String seasonId;
 
+  /// Whether the client-side AUTHZ-GATE passes. When `false`, pull-to-
+  /// refresh, the retry affordance and every row's navigation target are
+  /// all disabled — the index issues zero requests on denial and never
+  /// pushes the day-scoped report screen.
+  final bool gateOpen;
+
+  /// The SHARED day-list refresh, or `null` while the AUTHZ-GATE denies:
+  /// a denied scope must not pull the day list.
+  final Future<void> Function()? onRefresh;
+
   /// Re-enters the SHARED day-list controller — the index has no fetch of
-  /// its own (design decision 2).
-  final Future<void> Function() onRetry;
+  /// its own (design decision 2). `null` on gate denial.
+  final Future<void> Function()? onRetry;
 
   @override
   Widget build(BuildContext context) {
     final rows = state.rows;
-    // Error state keyed on the stable problem `code`, with cached rows
-    // kept visible and stale-indicated on a failed refresh (spec: the
-    // index inherits the day list's projection-lag semantics unchanged).
-    if (state.commandError case final error? when rows.isEmpty) {
-      return _IndexErrorView(code: error.code, onRetry: onRetry);
-    }
-    if (rows.isEmpty) {
-      return ListView(
+    Widget list;
+    if (rows.isNotEmpty) {
+      list = ListView.builder(
         key: const Key('reports-index-screen'),
         physics: const AlwaysScrollableScrollPhysics(),
-        children: const [SizedBox(height: 160), ReportIndexEmptyView()],
+        itemCount: rows.length,
+        itemBuilder: (context, i) {
+          final row = rows[i];
+          return ReportIndexDayTile(
+            day: row.day,
+            finality: row.finality,
+            // On gate denial the row loses its navigation target entirely:
+            // no push into the day-scoped report screen.
+            onOpen: gateOpen
+                ? () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) =>
+                          ReportsScreen(day: row.day, seasonId: seasonId),
+                    ),
+                  )
+                : null,
+          );
+        },
       );
+    } else if (state.isLoading) {
+      // Not loaded yet — an empty row list here is NOT "confirmed empty".
+      list = const ReportIndexLoadingView();
+    } else if (state.hasPendingOverlay) {
+      // A day exists only as an optimistic acknowledgement: no row, no
+      // confirmed-empty copy — the pending indicator stands in (spec
+      // `flutter-reports-index`, "A pending day is not listed").
+      list = const ReportIndexPendingView();
+    } else if (state.commandError case final error?) {
+      // Error state keyed on the stable problem `code`; cached rows stay
+      // visible and stale-indicated on a failed refresh (the index inherits
+      // the day list's projection-lag semantics unchanged).
+      list = _IndexErrorView(code: error.code, onRetry: onRetry);
+    } else {
+      list = const ReportIndexEmptyList();
     }
-    return ListView.builder(
-      key: const Key('reports-index-screen'),
-      physics: const AlwaysScrollableScrollPhysics(),
-      itemCount: rows.length,
-      itemBuilder: (context, i) {
-        final row = rows[i];
-        return ReportIndexDayTile(
-          day: row.day,
-          finality: row.finality,
-          onOpen: () => Navigator.of(context).push(
-            MaterialPageRoute<void>(
-              builder: (_) => ReportsScreen(day: row.day, seasonId: seasonId),
-            ),
-          ),
-        );
-      },
-    );
+
+    // Pull-to-refresh exists only while the gate passes: a denied or
+    // unresolved scope issues no day-list request.
+    if (onRefresh case final allowed?) {
+      list = RefreshIndicator(onRefresh: allowed, child: list);
+    }
+    return list;
   }
 }
 
 class _Banner extends StatelessWidget {
-  const _Banner({super.key, required this.text});
+  const _Banner({super.key, required this.text, this.tone = _BannerTone.error});
 
   final String text;
+  final _BannerTone tone;
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final (Color container, Color onContainer) = switch (tone) {
+      _BannerTone.error => (scheme.errorContainer, scheme.onErrorContainer),
+      _BannerTone.info => (
+        scheme.surfaceContainerHighest,
+        scheme.onSurfaceVariant,
+      ),
+    };
     return ColoredBox(
-      color: scheme.errorContainer,
+      color: container,
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         child: Row(
           children: [
+            if (tone == _BannerTone.info) ...[
+              const Icon(Icons.sync, size: 18),
+              const SizedBox(width: 8),
+            ],
             Expanded(
-              child: Text(
-                text,
-                style: TextStyle(color: scheme.onErrorContainer),
-              ),
+              child: Text(text, style: TextStyle(color: onContainer)),
             ),
           ],
         ),
@@ -172,6 +228,11 @@ class _Banner extends StatelessWidget {
     );
   }
 }
+
+/// Banner emphasis: a failure reads in the error container, a
+/// reconciliation-pending notice in the neutral surface container (a pending
+/// day is not an error).
+enum _BannerTone { error, info }
 
 /// Client-side AUTHZ-GATE denial narrative for the index (localized 403
 /// copy keyed on the stable problem `code`): rendered with ZERO requests —

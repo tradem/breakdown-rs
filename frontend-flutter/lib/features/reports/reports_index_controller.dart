@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: qwen3.8-flash (opencode-go)
 // Co-authored-by: glm-5.3-flash (opencode-go)
 
 import 'package:breakdown_api/breakdown_api.dart';
@@ -87,7 +88,8 @@ class ReportsIndexController extends _$ReportsIndexController {
     // Only PROJECTED days are listed (design decision 4): an optimistic
     // overlay row carries no `ShootingDayView`, therefore no
     // server-derived `wrappedAt` and no honest finality. The screen shows
-    // the day list's stale/pending indicator instead.
+    // the day list's pending indicator instead — it must NOT read the empty
+    // row list as "this scope has no days".
     final projectedRows = switch (dayList.projected) {
       AsyncData(:final value) =>
         value.map((day) => ReportsIndexRow(day: day)).toList(),
@@ -101,6 +103,14 @@ class ReportsIndexController extends _$ReportsIndexController {
 
     return ReportsIndexScreenState(
       rows: projectedRows,
+      // The day list's own async phases ride along, so the screen can tell
+      // "still loading" / "a day is pending projection" apart from a
+      // CONFIRMED empty day list (and never renders the empty-state copy
+      // for the first two).
+      isLoading: dayList.projected.isLoading,
+      hasPendingOverlay: dayList.rows.any(
+        (row) => row is OptimisticShootingDayRow,
+      ),
       isStale: dayList.isStale,
       commandError: switch (dayList.projected) {
         AsyncError(:final error) =>

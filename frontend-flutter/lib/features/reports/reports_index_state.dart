@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: qwen3.8-flash (opencode-go)
 // Co-authored-by: glm-5.3-flash (opencode-go)
 
 import 'package:breakdown_api/breakdown_api.dart';
@@ -45,6 +46,8 @@ class ReportsIndexRow {
 class ReportsIndexScreenState {
   const ReportsIndexScreenState({
     required this.rows,
+    this.isLoading = false,
+    this.hasPendingOverlay = false,
     this.isStale = false,
     this.commandError,
     this.gateDenial,
@@ -56,6 +59,20 @@ class ReportsIndexScreenState {
   /// honest finality to render (the day list stays the place to watch the
   /// overlay reconcile).
   final List<ReportsIndexRow> rows;
+
+  /// The day list's initial projection fetch is still in flight. An empty
+  /// [rows] here means "not loaded yet", NOT "this scope has no days" — the
+  /// screen renders a progress indicator instead of the confirmed-empty
+  /// message (spec `flutter-reports-index`: the empty state is for a scope
+  /// whose day list resolved empty).
+  final bool isLoading;
+
+  /// The day list holds at least one optimistic (unprojected) day.
+  /// Such a day is never listed on the index (it has no server-derived
+  /// `wrappedAt`, so no honest finality), but the index must show the day
+  /// list's pending indicator rather than claiming the scope is empty or
+  /// current.
+  final bool hasPendingOverlay;
 
   /// The day list's stale indicator, inherited when a refresh fails while
   /// cached rows stay visible (projection-lag semantics, unchanged).
@@ -69,4 +86,10 @@ class ReportsIndexScreenState {
   /// membership is unresolved) — rendered with ZERO requests on denial.
   /// `null` when the gate passes.
   final ProblemError? gateDenial;
+
+  /// `false` while the gate is denied or unresolved: pull-to-refresh, the
+  /// error-view retry and row navigation are all disabled, so a denied
+  /// scope issues no request and never enters a day report (spec: the gate
+  /// runs BEFORE the user navigates into a day report).
+  bool get gateOpen => gateDenial == null;
 }
