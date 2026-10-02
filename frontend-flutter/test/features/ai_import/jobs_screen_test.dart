@@ -494,6 +494,15 @@ void main() {
               locale: const Locale('en'),
               supportedLocales: const [Locale('en'), Locale('de')],
               localizationsDelegates: AppLocalizations.localizationsDelegates,
+              // Goldens must be deterministic (AGENTS.md §6): the Karl
+              // Klammer excited wobble is time-driven, so the golden
+              // pumps freeze animations — the static excited pose is
+              // exactly the remove-animations rendering (spec
+              // `flutter-easter-eggs`).
+              builder: (context, child) => MediaQuery(
+                data: MediaQuery.of(context).copyWith(disableAnimations: true),
+                child: child!,
+              ),
               home: const AiImportJobsScreen(),
             ),
           ),

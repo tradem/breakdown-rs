@@ -2347,4 +2347,53 @@ class AppLocalizationsEn extends AppLocalizations {
   String seasonTabSemanticEn(Object label, Object position) {
     return '$label, Tab $position of 4';
   }
+
+  @override
+  String get settingsGeneral => 'General';
+
+  @override
+  String get settingsEasterEggs => 'Easter eggs';
+
+  @override
+  String get settingsEasterEggsSubtitle =>
+      'Switch the little surprises in the app on or off.';
+
+  @override
+  String get settingsEasterEggsWriteError =>
+      'The setting could not be saved. The change applies until the app restarts.';
+
+  @override
+  String get settingsEasterEggsError =>
+      'The setting could not be read – the default (enabled) stays active.';
+
+  @override
+  String get settingsDev => 'Development';
+
+  @override
+  String get aiImportClippyNoConfig =>
+      'It looks like you\'re trying to import a schedule… Want to set up an AI configuration first?';
+
+  @override
+  String get aiImportClippyRunning => 'I\'m all ears!';
+
+  @override
+  String get aiImportClippyError =>
+      'That didn\'t work out. But together we\'ll get there!';
+
+  @override
+  String get aiImportClippySuccess =>
+      'Nice! The import fits like it\'s tailor-made.';
+
+  @override
+  String get aiImportClippyIdle1 =>
+      'Did you know \'Klamotten\' colloquially means clothes? The name fits twice.';
+
+  @override
+  String get aiImportClippyIdle2 => 'I\'m a clothes hanger with ambition.';
+
+  @override
+  String get aiImportClippyIdle3 => 'Don\'t hang around – I\'m here for you.';
+
+  @override
+  String get aiImportClippyDismissTooltip => 'Hide Karl Klammer';
 }

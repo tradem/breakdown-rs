@@ -11,6 +11,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../l10n/app_localizations_provider.dart';
+import '../clippy/clippy_trigger.dart';
+import '../clippy/karl_klammer_overlay.dart';
 import '../ai_config/ai_config_screen.dart';
 import 'import_state.dart';
 
@@ -54,42 +56,48 @@ class AiImportSubmitScreen extends ConsumerWidget {
           ),
         ],
       ),
-      body: ListView(
-        key: const Key('ai-import-submit-screen'),
-        padding: const EdgeInsets.all(16),
-        children: [
-          SegmentedButton<AiImportKind>(
-            key: const Key('ai-import-kind-picker'),
-            segments: [
-              ButtonSegment(
-                value: AiImportKind.script,
-                label: Text(l10nOf(context).aiImportScript),
-              ),
-              ButtonSegment(
-                value: AiImportKind.schedule,
-                label: Text(l10nOf(context).aiImportSchedule),
-              ),
-            ],
-            selected: {kind},
-            onSelectionChanged: (selection) =>
-                controller.selectKind(selection.first),
-          ),
-          const SizedBox(height: 16),
-          if (kind == AiImportKind.schedule)
-            Text(l10nOf(context).aiImportScheduleHint)
-          else
-            Text(l10nOf(context).aiImportScriptHint),
-          const SizedBox(height: 16),
-          _FilePickRow(key: ValueKey(kind), kind: kind),
-          const SizedBox(height: 16),
-          // Persistent disclosure card (EU AI Act Art. 50, issue #538):
-          // the point of AI interaction names itself BEFORE the submit
-          // action, at scroll position above the button — never skippable
-          // content below the fold.
-          _DisclosureCard(),
-          const SizedBox(height: 24),
-          _SubmitButton(seasonId: seasonId),
-        ],
+      // Karl Klammer (issue #516): the submit screen is always idle-flow
+      // (the upload progress is a dialog-free inline row; job lifecycle
+      // reactions live on the jobs/status screens).
+      body: KarlKlammerOverlay(
+        flowState: ClippyFlowState.idle,
+        child: ListView(
+          key: const Key('ai-import-submit-screen'),
+          padding: const EdgeInsets.all(16),
+          children: [
+            SegmentedButton<AiImportKind>(
+              key: const Key('ai-import-kind-picker'),
+              segments: [
+                ButtonSegment(
+                  value: AiImportKind.script,
+                  label: Text(l10nOf(context).aiImportScript),
+                ),
+                ButtonSegment(
+                  value: AiImportKind.schedule,
+                  label: Text(l10nOf(context).aiImportSchedule),
+                ),
+              ],
+              selected: {kind},
+              onSelectionChanged: (selection) =>
+                  controller.selectKind(selection.first),
+            ),
+            const SizedBox(height: 16),
+            if (kind == AiImportKind.schedule)
+              Text(l10nOf(context).aiImportScheduleHint)
+            else
+              Text(l10nOf(context).aiImportScriptHint),
+            const SizedBox(height: 16),
+            _FilePickRow(key: ValueKey(kind), kind: kind),
+            const SizedBox(height: 16),
+            // Persistent disclosure card (EU AI Act Art. 50, issue #538):
+            // the point of AI interaction names itself BEFORE the submit
+            // action, at scroll position above the button — never skippable
+            // content below the fold.
+            _DisclosureCard(),
+            const SizedBox(height: 24),
+            _SubmitButton(seasonId: seasonId),
+          ],
+        ),
       ),
     );
   }
