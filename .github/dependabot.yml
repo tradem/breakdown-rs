@@ -41,6 +41,18 @@ updates:
           - "opentelemetry-*"
           - "opentelemetry_*"
           - "tracing-opentelemetry"
+      # The utoipa family: `utoipa-swagger-ui` 10 depends on `utoipa` ^6 (9.x on
+      # utoipa 5). Bumping a single member leaves two `utoipa` versions in the
+      # graph and fails to compile in `crates/api/src/lib.rs`
+      # (E0308, "expected `utoipa::openapi::OpenApi`, found a different ...").
+      # Same lockstep situation as the OpenTelemetry family above, so this
+      # patterns-based group moves utoipa and utoipa-swagger-ui together.
+      # Pairing: utoipa 6 <-> utoipa-swagger-ui 10.
+      utoipa:
+        patterns:
+          - "utoipa"
+          - "utoipa-*"
+          - "utoipa_*"
   - package-ecosystem: github-actions
     directory: /
     schedule:
