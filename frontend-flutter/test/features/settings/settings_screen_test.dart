@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
-// Co-authored-by: muse-spark-1.3-contributor (opencode-go)
+// Co-authored-by: glm-5.3-flash (opencode-go)
 
 import 'dart:async';
 import 'dart:io';
@@ -21,14 +21,18 @@ import 'package:frontend_flutter/data/cache/cache_database.dart';
 import 'package:frontend_flutter/data/cache/season_cache_dao.dart';
 import 'package:frontend_flutter/data/cache/seasons_cache_providers.dart';
 import 'package:frontend_flutter/data/settings/api_base_override_store.dart';
+import 'package:frontend_flutter/data/settings/easter_eggs_store.dart';
 import 'package:frontend_flutter/design/theme.dart';
-import 'package:frontend_flutter/features/app_info/settings_dialog.dart';
+import 'package:frontend_flutter/features/settings/settings_screen.dart';
 import 'package:frontend_flutter/src/network/api_client.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:shared_preferences_platform_interface/in_memory_shared_preferences_async.dart';
+import 'package:shared_preferences_platform_interface/shared_preferences_async_platform_interface.dart';
 
 import '../seasons/seasons_test_fakes.dart';
 
-/// Pumps a bounded number of frames (dialog animations settle within a few
-/// frames; never `pumpAndSettle` against open-ended timers).
+/// Pumps a bounded number of frames (never `pumpAndSettle` against
+/// open-ended timers).
 Future<void> pumpFrames(WidgetTester tester, {int n = 8}) async {
   for (var i = 0; i < n; i++) {
     await tester.pump(const Duration(milliseconds: 50));
@@ -94,16 +98,15 @@ void main() {
   late CacheDatabase db;
   late ProviderContainer container;
 
-  /// Dialog host with full composition (db, repo, token store, pinned
+  /// Screen host with full composition (db, repo, token store, pinned
   /// context). The seasons fetch is holder-driven unless [realFetch] turns
   /// on the genuine transport (unreachable-base test).
-  Future<void> pumpDialog(
+  Future<void> pumpScreen(
     WidgetTester tester, {
     AppConfig config = devAuthConfig,
     Brightness brightness = Brightness.light,
     double textScaler = 1.0,
     bool realFetch = false,
-    List<SeasonView> initialRows = const [],
     // Simulates post-boot state with a persisted override already applied
     // (bootstrap merges it into the effective base before any client
     // exists — task 6.1).
@@ -111,9 +114,11 @@ void main() {
   }) async {
     platform = _OverridePlatform();
     FlutterSecureStoragePlatform.instance = platform;
+    SharedPreferencesAsyncPlatform.instance =
+        InMemorySharedPreferencesAsync.empty();
     db = CacheDatabase(NativeDatabase.memory());
     addTearDown(db.close);
-    final holder = ValueNotifier<Result<List<SeasonView>>>(Right(initialRows));
+    final holder = ValueNotifier<Result<List<SeasonView>>>(Right(const []));
     container = ProviderContainer(
       retry: (_, _) => null,
       overrides: [
@@ -174,7 +179,12 @@ void main() {
       ),
     );
     await pumpFrames(tester);
-    unawaited(showSettingsDialog(tester.element(find.byType(Scaffold))));
+    // Push the screen like the Mehr tab does (no dialog).
+    unawaited(
+      Navigator.of(
+        tester.element(find.byType(Scaffold)),
+      ).push(MaterialPageRoute<void>(builder: (_) => const SettingsScreen())),
+    );
     await pumpFrames(tester);
   }
 
@@ -183,11 +193,33 @@ void main() {
     await pumpFrames(tester);
   }
 
-  group('SettingsDialog dev (task 6.4/6.6)', () {
-    testWidgets('shows base, flavor, and the editor', (tester) async {
-      await pumpDialog(tester);
+  group('SettingsScreen dev (issue #516)', () {
+    testWidgets('pushed as a full screen, not a dialog', (tester) async {
+      await pumpScreen(tester);
 
-      expect(find.byKey(const Key('settings-dialog')), findsOneWidget);
+      expect(find.byKey(const Key('settings-screen')), findsOneWidget);
+      expect(find.byKey(const Key('settings-dialog')), findsNothing);
+      expect(find.byType(AlertDialog), findsNothing);
+      // Back navigation affordance present.
+      expect(find.byType(BackButton), findsOneWidget);
+    });
+
+    testWidgets('general section always visible with the easter-eggs switch', (
+      tester,
+    ) async {
+      await pumpScreen(tester);
+
+      expect(find.byKey(const Key('settings-easter-eggs')), findsOneWidget);
+      // Default ON.
+      final switchTile = tester.widget<SwitchListTile>(
+        find.byKey(const Key('settings-easter-eggs')),
+      );
+      expect(switchTile.value, isTrue);
+    });
+
+    testWidgets('shows base, flavor, and the dev editor', (tester) async {
+      await pumpScreen(tester);
+
       expect(
         find.descendant(
           of: find.byKey(const Key('settings-base')),
@@ -201,7 +233,7 @@ void main() {
     });
 
     testWidgets('invalid input rejected inline, no save', (tester) async {
-      await pumpDialog(tester);
+      await pumpScreen(tester);
 
       await enterUri(tester, 'not-a-uri');
       await tester.tap(find.byKey(const Key('settings-save')));
@@ -210,11 +242,11 @@ void main() {
       expect(find.textContaining('absolute address'), findsOneWidget);
       expect(platform.store.isEmpty, isTrue);
       expect(container.read(runtimeApiBaseProvider), isNull);
-      expect(find.byKey(const Key('settings-dialog')), findsOneWidget);
+      expect(find.byKey(const Key('settings-screen')), findsOneWidget);
     });
 
     testWidgets('non-loopback http rejected inline (CWE-319)', (tester) async {
-      await pumpDialog(tester);
+      await pumpScreen(tester);
 
       await enterUri(tester, 'http://192.168.1.10:3000');
       await tester.tap(find.byKey(const Key('settings-save')));
@@ -224,8 +256,8 @@ void main() {
       expect(platform.store.isEmpty, isTrue);
     });
 
-    testWidgets('valid save persists, rebuilds, closes', (tester) async {
-      await pumpDialog(tester);
+    testWidgets('valid save persists and rebuilds the client', (tester) async {
+      await pumpScreen(tester);
       final dioBefore = container.read(apiDioProvider);
 
       await enterUri(tester, 'https://dev.example:4000/');
@@ -243,13 +275,12 @@ void main() {
       final dioAfter = container.read(apiDioProvider);
       expect(identical(dioAfter, dioBefore), isFalse);
       expect(dioAfter.options.baseUrl, 'https://dev.example:4000');
-      expect(find.byKey(const Key('settings-dialog')), findsNothing);
     });
 
     testWidgets('reset clears the override and restores the default', (
       tester,
     ) async {
-      await pumpDialog(tester, activeOverride: 'https://dev.example:4000');
+      await pumpScreen(tester, activeOverride: 'https://dev.example:4000');
       expect(
         find.descendant(
           of: find.byKey(const Key('settings-base')),
@@ -270,20 +301,20 @@ void main() {
         ),
         findsOneWidget,
       );
-      expect(find.byKey(const Key('settings-dialog')), findsOneWidget);
+      expect(find.byKey(const Key('settings-screen')), findsOneWidget);
     });
 
     testWidgets('unreachable base: transport error keyed on code', (
       tester,
     ) async {
-      await pumpDialog(tester, realFetch: true);
+      await pumpScreen(tester, realFetch: true);
 
       await enterUri(tester, 'http://127.0.0.1:9');
       await tester.tap(find.byKey(const Key('settings-save')));
       await pumpFrames(tester, n: 12);
 
-      // Save accepted (loopback http is valid); dialog closed…
-      expect(find.byKey(const Key('settings-dialog')), findsNothing);
+      // Save accepted (loopback http is valid); the screen stays…
+      expect(find.byKey(const Key('settings-screen')), findsOneWidget);
       // …against the rebuilt client targeting the switched base…
       expect(
         container.read(apiDioProvider).options.baseUrl,
@@ -300,66 +331,85 @@ void main() {
     });
 
     testWidgets('holds at textScaler 1.3 without overflow', (tester) async {
-      await pumpDialog(tester, textScaler: 1.3);
+      await pumpScreen(tester, textScaler: 1.3);
 
-      expect(find.byKey(const Key('settings-dialog')), findsOneWidget);
+      expect(find.byKey(const Key('settings-screen')), findsOneWidget);
       expect(tester.takeException(), isNull);
     });
   });
 
-  group('SettingsDialog prod (task 6.4/6.6)', () {
-    testWidgets('editor absent, read-only base with explanation', (
+  group('SettingsScreen prod (issue #516)', () {
+    testWidgets('dev section absent; general section + read-only base remain', (
       tester,
     ) async {
-      await pumpDialog(tester, config: _prodConfig);
+      await pumpScreen(tester, config: _prodConfig);
 
-      expect(find.byKey(const Key('settings-dialog')), findsOneWidget);
+      expect(find.byKey(const Key('settings-screen')), findsOneWidget);
       expect(find.text('https://api.breakdown.rs'), findsOneWidget);
       expect(find.text('prod'), findsOneWidget);
+      // The development section is dev-flavor-only…
       expect(find.byKey(const Key('settings-uri-field')), findsNothing);
       expect(find.byKey(const Key('settings-save')), findsNothing);
       expect(find.byKey(const Key('settings-reset')), findsNothing);
+      // …while general settings (Easter-eggs) stay available.
+      expect(find.byKey(const Key('settings-easter-eggs')), findsOneWidget);
       expect(find.byKey(const Key('settings-prod-note')), findsOneWidget);
+    });
+  });
+
+  group('SettingsScreen easter-eggs switch (issue #516)', () {
+    testWidgets('toggle flips the global notifier immediately', (tester) async {
+      await pumpScreen(tester);
+
+      final flips = <bool>[];
+      container.listen(easterEggsProvider, (_, v) => flips.add(v));
+
+      await tester.tap(find.byKey(const Key('settings-easter-eggs')));
+      await pumpFrames(tester);
+
+      expect(container.read(easterEggsProvider), isFalse);
+      expect(flips, [false]);
+      // Persisted on-device.
       expect(
-        find.textContaining('set by your organization for security'),
-        findsOneWidget,
+        await SharedPreferencesAsync().getBool(EasterEggsStore.key),
+        isFalse,
       );
     });
   });
 
-  group('SettingsDialog goldens (task 6.6)', () {
+  group('SettingsScreen goldens (issue #516)', () {
     testWidgets('dev light', (tester) async {
-      await pumpDialog(tester, brightness: Brightness.light);
+      await pumpScreen(tester, brightness: Brightness.light);
       await expectLater(
-        find.byType(SettingsDialog),
+        find.byKey(const Key('settings-screen')),
         matchesGoldenFile('goldens/settings_dev_light.png'),
       );
     });
 
     testWidgets('dev dark', (tester) async {
-      await pumpDialog(tester, brightness: Brightness.dark);
+      await pumpScreen(tester, brightness: Brightness.dark);
       await expectLater(
-        find.byType(SettingsDialog),
+        find.byKey(const Key('settings-screen')),
         matchesGoldenFile('goldens/settings_dev_dark.png'),
       );
     });
 
     testWidgets('prod light', (tester) async {
-      await pumpDialog(tester, config: _prodConfig);
+      await pumpScreen(tester, config: _prodConfig);
       await expectLater(
-        find.byType(SettingsDialog),
+        find.byKey(const Key('settings-screen')),
         matchesGoldenFile('goldens/settings_prod_light.png'),
       );
     });
 
     testWidgets('prod dark', (tester) async {
-      await pumpDialog(
+      await pumpScreen(
         tester,
         config: _prodConfig,
         brightness: Brightness.dark,
       );
       await expectLater(
-        find.byType(SettingsDialog),
+        find.byKey(const Key('settings-screen')),
         matchesGoldenFile('goldens/settings_prod_dark.png'),
       );
     });

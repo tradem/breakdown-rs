@@ -645,5 +645,18 @@
   "shootingDaysGone": "Die Episode ist nicht mehr verfügbar.",
   "commonBack": "Zurück",
   "seasonTabSemantic": "{label}, Tab {position} von 4",
-  "seasonTabSemanticEn": "{label}, Tab {position} of 4"
+  "seasonTabSemanticEn": "{label}, Tab {position} of 4",
+  "settingsGeneral": "Allgemein",
+  "settingsEasterEggs": "Easter-Eggs",
+  "settingsEasterEggsSubtitle": "Kleine Überraschungen in der App lassen sich ein- und ausschalten.",
+  "settingsEasterEggsError": "Die Einstellung konnte nicht gelesen werden – Standard (eingeschaltet) bleibt aktiv.",
+  "settingsDev": "Entwicklung",
+  "aiImportClippyNoConfig": "Es sieht so aus, als wolltest du einen Spielplan importieren… Willst du zuerst eine KI-Konfiguration einrichten?",
+  "aiImportClippyRunning": "Ich bin ganz Ohr!",
+  "aiImportClippyError": "Das hat leider nicht geklappt. Aber gemeinsam kriegen wir das hin!",
+  "aiImportClippySuccess": "Klasse! Der Import sitzt wie maßgeschneidert.",
+  "aiImportClippyIdle1": "Wusstest du, dass „Klamotten“ umgangssprachlich Kleidung bedeutet? Der Name sitzt also doppelt.",
+  "aiImportClippyIdle2": "Ich bin ein Kleiderbügel mit Ambitionen.",
+  "aiImportClippyIdle3": "Häng dich nicht auf – ich bin ja da.",
+  "aiImportClippyDismissTooltip": "Karl Klammer ausblenden"
 }

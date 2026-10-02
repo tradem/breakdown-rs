@@ -3981,6 +3981,84 @@ abstract class AppLocalizations {
   /// In de, this message translates to:
   /// **'{label}, Tab {position} of 4'**
   String seasonTabSemanticEn(Object label, Object position);
+
+  /// No description provided for @settingsGeneral.
+  ///
+  /// In de, this message translates to:
+  /// **'Allgemein'**
+  String get settingsGeneral;
+
+  /// No description provided for @settingsEasterEggs.
+  ///
+  /// In de, this message translates to:
+  /// **'Easter-Eggs'**
+  String get settingsEasterEggs;
+
+  /// No description provided for @settingsEasterEggsSubtitle.
+  ///
+  /// In de, this message translates to:
+  /// **'Kleine Überraschungen in der App lassen sich ein- und ausschalten.'**
+  String get settingsEasterEggsSubtitle;
+
+  /// No description provided for @settingsEasterEggsError.
+  ///
+  /// In de, this message translates to:
+  /// **'Die Einstellung konnte nicht gelesen werden – Standard (eingeschaltet) bleibt aktiv.'**
+  String get settingsEasterEggsError;
+
+  /// No description provided for @settingsDev.
+  ///
+  /// In de, this message translates to:
+  /// **'Entwicklung'**
+  String get settingsDev;
+
+  /// No description provided for @aiImportClippyNoConfig.
+  ///
+  /// In de, this message translates to:
+  /// **'Es sieht so aus, als wolltest du einen Spielplan importieren… Willst du zuerst eine KI-Konfiguration einrichten?'**
+  String get aiImportClippyNoConfig;
+
+  /// No description provided for @aiImportClippyRunning.
+  ///
+  /// In de, this message translates to:
+  /// **'Ich bin ganz Ohr!'**
+  String get aiImportClippyRunning;
+
+  /// No description provided for @aiImportClippyError.
+  ///
+  /// In de, this message translates to:
+  /// **'Das hat leider nicht geklappt. Aber gemeinsam kriegen wir das hin!'**
+  String get aiImportClippyError;
+
+  /// No description provided for @aiImportClippySuccess.
+  ///
+  /// In de, this message translates to:
+  /// **'Klasse! Der Import sitzt wie maßgeschneidert.'**
+  String get aiImportClippySuccess;
+
+  /// No description provided for @aiImportClippyIdle1.
+  ///
+  /// In de, this message translates to:
+  /// **'Wusstest du, dass „Klamotten“ umgangssprachlich Kleidung bedeutet? Der Name sitzt also doppelt.'**
+  String get aiImportClippyIdle1;
+
+  /// No description provided for @aiImportClippyIdle2.
+  ///
+  /// In de, this message translates to:
+  /// **'Ich bin ein Kleiderbügel mit Ambitionen.'**
+  String get aiImportClippyIdle2;
+
+  /// No description provided for @aiImportClippyIdle3.
+  ///
+  /// In de, this message translates to:
+  /// **'Häng dich nicht auf – ich bin ja da.'**
+  String get aiImportClippyIdle3;
+
+  /// No description provided for @aiImportClippyDismissTooltip.
+  ///
+  /// In de, this message translates to:
+  /// **'Karl Klammer ausblenden'**
+  String get aiImportClippyDismissTooltip;
 }
 
 class _AppLocalizationsDelegate

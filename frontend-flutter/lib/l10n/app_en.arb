@@ -645,5 +645,18 @@
   "shootingDaysGone": "The episode is gone.",
   "commonBack": "Back",
   "seasonTabSemantic": "{label}, Tab {position} of 4",
-  "seasonTabSemanticEn": "{label}, Tab {position} of 4"
+  "seasonTabSemanticEn": "{label}, Tab {position} of 4",
+  "settingsGeneral": "General",
+  "settingsEasterEggs": "Easter eggs",
+  "settingsEasterEggsSubtitle": "Switch the little surprises in the app on or off.",
+  "settingsEasterEggsError": "The setting could not be read – the default (enabled) stays active.",
+  "settingsDev": "Development",
+  "aiImportClippyNoConfig": "It looks like you're trying to import a schedule… Want to set up an AI configuration first?",
+  "aiImportClippyRunning": "I'm all ears!",
+  "aiImportClippyError": "That didn't work out. But together we'll get there!",
+  "aiImportClippySuccess": "Nice! The import fits like it's tailor-made.",
+  "aiImportClippyIdle1": "Did you know 'Klamotten' colloquially means clothes? The name fits twice.",
+  "aiImportClippyIdle2": "I'm a clothes hanger with ambition.",
+  "aiImportClippyIdle3": "Don't hang around – I'm here for you.",
+  "aiImportClippyDismissTooltip": "Hide Karl Klammer"
 }

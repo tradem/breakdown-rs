@@ -109,6 +109,14 @@ dependencies:
   # dart:ui), so it cannot use the foundation annotation. Transitive via
   # flutter in practice; declared directly for depend_on_referenced_packages.
   meta: ^1.19.0
+  # Easter-eggs toggle persistence (issue #516): the flag is NOT a secret
+  # (no token, no credential), so it deliberately does NOT live in
+  # flutter_secure_storage — plain on-device preferences are the
+  # fit-for-purpose store (Decision D1 of add-karl-klammer-easter-egg).
+  shared_preferences: ^2.5.5
+  # Test-surface dependency (issue #516): the in-memory platform double
+  # for shared_preferences lives in the platform-interface package.
+  shared_preferences_platform_interface: ^2.4.2
 
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.

@@ -2373,4 +2373,49 @@ class AppLocalizationsDe extends AppLocalizations {
   String seasonTabSemanticEn(Object label, Object position) {
     return '$label, Tab $position of 4';
   }
+
+  @override
+  String get settingsGeneral => 'Allgemein';
+
+  @override
+  String get settingsEasterEggs => 'Easter-Eggs';
+
+  @override
+  String get settingsEasterEggsSubtitle =>
+      'Kleine Überraschungen in der App lassen sich ein- und ausschalten.';
+
+  @override
+  String get settingsEasterEggsError =>
+      'Die Einstellung konnte nicht gelesen werden – Standard (eingeschaltet) bleibt aktiv.';
+
+  @override
+  String get settingsDev => 'Entwicklung';
+
+  @override
+  String get aiImportClippyNoConfig =>
+      'Es sieht so aus, als wolltest du einen Spielplan importieren… Willst du zuerst eine KI-Konfiguration einrichten?';
+
+  @override
+  String get aiImportClippyRunning => 'Ich bin ganz Ohr!';
+
+  @override
+  String get aiImportClippyError =>
+      'Das hat leider nicht geklappt. Aber gemeinsam kriegen wir das hin!';
+
+  @override
+  String get aiImportClippySuccess =>
+      'Klasse! Der Import sitzt wie maßgeschneidert.';
+
+  @override
+  String get aiImportClippyIdle1 =>
+      'Wusstest du, dass „Klamotten“ umgangssprachlich Kleidung bedeutet? Der Name sitzt also doppelt.';
+
+  @override
+  String get aiImportClippyIdle2 => 'Ich bin ein Kleiderbügel mit Ambitionen.';
+
+  @override
+  String get aiImportClippyIdle3 => 'Häng dich nicht auf – ich bin ja da.';
+
+  @override
+  String get aiImportClippyDismissTooltip => 'Karl Klammer ausblenden';
 }

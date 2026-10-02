@@ -161,7 +161,15 @@ establishing change).
 | `—` *(no icon)* | **Ersten Block erstellen** | Blocks empty-state create CTA | `blocks.create.first` |
 | `—` *(no icon)* | **Zurück zu den Staffeln** | Deleted-parent (404) back affordance | `blocks.notFound.back` |
 | `—` *(no icon)* | **Staffel {n}** | Season-number fallback title on the blocks AppBar | `blocks.seasonNumber` |
-| `—` *(no icon)* | **Einstellungen** | Settings dialog title and entry label | `settings.title` |
+| `—` *(no icon)* | **Einstellungen** | Mehr-tab tile (issue #516: pushes the settings screen — no dialog) and screen app-bar title | `settings.title` |
+| `—` *(no icon)* | **Allgemein** | Settings screen — general app-settings section header (every flavor) | `settings.general` |
+| `—` *(no icon)* | **Easter-Eggs** | Settings — global Easter-eggs switch (default ON) | `settings.easterEggs` |
+| `—` *(no icon)* | **Kleine Überraschungen in der App lassen sich ein- und ausschalten.** | Settings — Easter-eggs switch explanatory subtitle | `settings.easterEggsSubtitle` |
+| `—` *(no icon)* | **Entwicklung** | Settings screen — dev-only section header (backend switch flow lives here) | `settings.dev` |
+| `—` *(no icon)* | **Backend-URI** | Settings (dev) — editable backend-URI field label | `settings.backendUri` |
+| `—` *(no icon)* | **Speichern** | Settings (dev) — save override action | `settings.save` |
+| `—` *(no icon)* | **Zurücksetzen** | Settings (dev) — reset-to-default action | `settings.reset` |
+| `—` *(no icon)* | **Die Serveradresse wird von deiner Organisation sicherheitsbedingt festgelegt und kann hier nicht geändert werden.** | Settings (prod) — explanatory note for the absent editor (store compliance) | `settings.prodNote` |
 | `cloud_off` | **Verbindung gestört** | Stale/optimistic overlay banner when sync hangs | `errors.connectionLost` |
 | `style_outlined` | **Kategorien** | Season tile → costume categories. Redesign note (report §4.5): not a daily entry point — relocates into „Mehr"/season detail; then icon-only entry is removed | `nav.costumeCategories` |
 | `add` (FAB) | **Kategorie hinzufügen** | Costume-categories FAB (same icon, per-screen label) | `costumeCategories.create` |
@@ -208,7 +216,7 @@ establishing change).
 | `—` *(no icon)* | **Zurück zu den Episoden** | Deleted-parent (404) back affordance | `scenes.notFound.back` |
 | `—` *(no icon)* | **Szene erstellen** | Create-scene dialog/sheet title | `scenes.create.title` |
 | `more_vert` | **Mehr** | Overflow menu (seasons, shooting days) | `common.overflow` |
-| `settings_outlined` | **Einstellungen** | Seasons overflow → settings dialog; AI-import config | `common.settings` |
+| `settings_outlined` | **Einstellungen** | Mehr-tab settings entry; AI-import config | `common.settings` |
 | `logout` | **Abmelden** | Seasons overflow → sign out | `common.signOut` |
 | `account_circle` | **Profil** | Seasons overflow → account/membership entry | `common.profile` |
 | `info_outline` | **Über die App** | Seasons overflow → app info | `common.about` |
@@ -223,6 +231,11 @@ establishing change).
 | `balance` | **Lizenz** | App info — license entry (AGPL-3.0) | `common.license` |
 | `tag` | **Version** | App info — version entry | `common.version` |
 | `dns_outlined` | **Serveradresse** | Settings — backend endpoint display | `settings.serverUrl` |
+| `—` *(no icon)* | **Es sieht so aus, als wolltest du einen Spielplan importieren…** | Karl Klammer (Easter egg, AI Import) — no-config allusion offering the AI-config entry | `aiImport.clippy.noConfig` |
+| `—` *(no icon)* | **Ich bin ganz Ohr!** | Karl Klammer — import-job-running reaction (excited swing pose) | `aiImport.clippy.running` |
+| `—` *(no icon)* | **Das hat leider nicht geklappt. Aber gemeinsam kriegen wir das hin!** | Karl Klammer — error consolation (droop pose) | `aiImport.clippy.error` |
+| `—` *(no icon)* | **Klasse! Der Import sitzt wie maßgeschneidert.** | Karl Klammer — success praise (proud pose) | `aiImport.clippy.success` |
+| `—` *(no icon)* | *(small fixed joke set)* | Karl Klammer — idle jokes from the Clippy canon (`aiImport.clippy.idle.*`) | `aiImport.clippy.idle` |
 | `science_outlined` | **Experimentelle Funktionen** | Settings — experimental features | `settings.experimental` |
 | `psychology_alt_outlined` | **KI-Konfiguration** | AI provider/model configuration | `ai.config` |
 | `smart_toy_outlined` *(info)* | **KI-Assistent** | App info — AI attribution entry | `common.aiInfo` |
