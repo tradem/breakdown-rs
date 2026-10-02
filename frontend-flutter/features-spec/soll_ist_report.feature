@@ -2,6 +2,7 @@
 # Copyright (C) 2024-2026 Breakdown RS Contributors
 # Co-authored-by: muse-spark-1.3 (opencode)
 # Co-authored-by: omen-alpha (opencode-go)
+# Co-authored-by: glm-5.3-flash (opencode-go)
 
 @critical
 Feature: Soll-Ist report (planned vs actual)
@@ -57,3 +58,17 @@ Feature: Soll-Ist report (planned vs actual)
     And I open the day board for shooting day "day-1"
     And I open the reports for shooting day "day-1"
     Then the Soll-Ist report is marked final
+
+  @pending
+  Scenario: Reports are indexed per episode and reachable from the day list
+    Given the app is launched in dev-auth mode
+    And I am authenticated as a "costume_dept" user
+    When I open season "1"
+    And I open block "b-1"
+    And I open episode "e-1"
+    And I open the shooting days for episode "e-1"
+    And I open the Soll-Ist report for season "1"
+    Then I expect the widget "reports-index-screen" to be present within 10 seconds
+    And the report index lists shooting day "day-1"
+    When I open the report index entry for shooting day "day-1"
+    Then I expect the widget "soll-ist-report-screen" to be present within 10 seconds

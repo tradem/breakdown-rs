@@ -5,6 +5,7 @@
 // Co-authored-by: omen-alpha (opencode-go)
 
 //Co-authored-by: glm-5.3 (neuralwatt)
+// Co-authored-by: glm-5.3-flash (opencode-go)
 
 import 'dart:io';
 
@@ -42,6 +43,11 @@ Future<FlutterTestConfiguration> buildGherkinConfig() async {
     whenOpenScene(),
     whenOpenDayBoard(),
     whenOpenReports(),
+    // Reinstated against the report-index entry this change ships
+    // (`reports-season-report-index-571`), plus the index's own steps.
+    whenOpenSollIstReport(),
+    whenOpenShootingDays(),
+    whenOpenReportIndexEntry(),
     whenOpenCostumeAssignment(),
     ...sollIstReportSteps(),
     ...sollIstExecutionSteps(),

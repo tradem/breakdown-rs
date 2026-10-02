@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: hy3 (opencode-go)
+// Co-authored-by: glm-5.3-flash (opencode-go)
 
 import 'package:flutter_driver/flutter_driver.dart';
 import 'package:flutter_gherkin/flutter_gherkin.dart';
@@ -57,6 +58,17 @@ Iterable<StepDefinitionGeneric> sollIstReportSteps() => [
     // TODO(screen): assert the `final` badge derived from `wrapped_at`
     // is present (key `soll-ist-final`).
     final locator = find.byValueKey('soll-ist-final');
+    await context.world.driver!.waitFor(
+      locator,
+      timeout: const Duration(seconds: 10),
+    );
+  }),
+  then1<String, FlutterWorld>('the report index lists shooting day {string}', (
+    String dayId,
+    context,
+  ) async {
+    // The index row for the day (its own tap target; the per-day hop).
+    final locator = find.byValueKey('report-index-day-$dayId');
     await context.world.driver!.waitFor(
       locator,
       timeout: const Duration(seconds: 10),

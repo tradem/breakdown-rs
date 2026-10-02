@@ -452,6 +452,24 @@ class AppLocalizationsDe extends AppLocalizations {
   }
 
   @override
+  String get shootingDaysReportsLabel => 'Berichte';
+
+  @override
+  String reportsIndexTitle(Object episode) {
+    return 'Berichte – $episode';
+  }
+
+  @override
+  String get reportsIndexDayFinal => 'Abschließend';
+
+  @override
+  String get reportsIndexDayOpen => 'Offen';
+
+  @override
+  String get reportsIndexEmpty =>
+      'Sobald ein Drehtag geplant ist, öffnet sich hier der Soll-/Ist-Bericht (geplant vs. tatsächlich) dieses Tages.';
+
+  @override
   String get aiConfigErrorAdmin =>
       'Administrator-Rolle erforderlich – frag deine Produktionsadmins.';
 

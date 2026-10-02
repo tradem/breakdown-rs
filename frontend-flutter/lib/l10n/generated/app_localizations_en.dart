@@ -446,6 +446,24 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String get shootingDaysReportsLabel => 'Reports';
+
+  @override
+  String reportsIndexTitle(Object episode) {
+    return 'Reports — $episode';
+  }
+
+  @override
+  String get reportsIndexDayFinal => 'Final';
+
+  @override
+  String get reportsIndexDayOpen => 'Open';
+
+  @override
+  String get reportsIndexEmpty =>
+      'Once a shooting day is planned, that day\'s planned-vs-actual (Soll/Ist) report opens from here.';
+
+  @override
   String get aiConfigErrorAdmin =>
       'Administrator role required — ask your production admin.';
 
