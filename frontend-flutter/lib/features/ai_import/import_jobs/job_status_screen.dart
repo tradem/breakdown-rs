@@ -9,6 +9,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/problem_error.dart';
 import '../../../l10n/app_localizations_provider.dart';
+import '../clippy/clippy_trigger.dart';
+import '../clippy/karl_klammer_overlay.dart';
 import 'import_state.dart';
 import 'job_status_controller.dart';
 import 'preview_screen.dart';
@@ -43,38 +45,54 @@ class AiJobStatusScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final status = ref.watch(aiJobStatusControllerProvider(jobId));
 
+    // Karl Klammer flow state (issue #516): derived ONLY from this
+    // screen's own watched status — running/droop/proud reactions.
+    final clippyState = switch (status) {
+      AsyncData(:final value) => switch (value.status) {
+        JobStatus.pending || JobStatus.running => ClippyFlowState.running,
+        JobStatus.failed => ClippyFlowState.error,
+        JobStatus.succeeded => ClippyFlowState.success,
+        _ => ClippyFlowState.idle,
+      },
+      AsyncError() => ClippyFlowState.error,
+      _ => ClippyFlowState.idle,
+    };
+
     return Scaffold(
       appBar: AppBar(title: Text(l10nOf(context).aiJobTitle)),
-      body: ListView(
-        key: const Key('ai-job-status-screen'),
-        padding: const EdgeInsets.all(16),
-        children: [
-          if (duplicate)
-            Card(
-              key: const Key('ai-job-duplicate-callout'),
-              color: Theme.of(context).colorScheme.tertiaryContainer,
-              child: Padding(
-                padding: const EdgeInsets.all(12),
-                child: Text(l10nOf(context).aiJobDuplicate),
+      body: KarlKlammerOverlay(
+        flowState: clippyState,
+        child: ListView(
+          key: const Key('ai-job-status-screen'),
+          padding: const EdgeInsets.all(16),
+          children: [
+            if (duplicate)
+              Card(
+                key: const Key('ai-job-duplicate-callout'),
+                color: Theme.of(context).colorScheme.tertiaryContainer,
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Text(l10nOf(context).aiJobDuplicate),
+                ),
               ),
-            ),
-          switch (status) {
-            AsyncData(:final value) => _JobCard(job: value),
-            AsyncError(:final error) => _WatchErrorCard(
-              jobId: jobId,
-              error: error is ProblemError
-                  ? error
-                  : ProblemError(code: 'unknown', detail: '$error'),
-            ),
-            _ => const SizedBox(
-              key: Key('ai-job-status-loading'),
-              height: 48,
-              child: Center(child: CircularProgressIndicator()),
-            ),
-          },
-          const SizedBox(height: 16),
-          const _NoCancelNotice(),
-        ],
+            switch (status) {
+              AsyncData(:final value) => _JobCard(job: value),
+              AsyncError(:final error) => _WatchErrorCard(
+                jobId: jobId,
+                error: error is ProblemError
+                    ? error
+                    : ProblemError(code: 'unknown', detail: '$error'),
+              ),
+              _ => const SizedBox(
+                key: Key('ai-job-status-loading'),
+                height: 48,
+                child: Center(child: CircularProgressIndicator()),
+              ),
+            },
+            const SizedBox(height: 16),
+            const _NoCancelNotice(),
+          ],
+        ),
       ),
     );
   }

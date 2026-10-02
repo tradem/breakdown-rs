@@ -22,6 +22,7 @@ import 'auth/auth_providers.dart';
 import 'core/problem_error.dart';
 import 'data/settings/api_base_override_store.dart';
 import 'data/settings/api_base_validation.dart';
+import 'data/settings/easter_eggs_store.dart';
 import 'design/spacing.dart';
 import 'design/theme.dart';
 import 'features/auth/login_screen.dart';
@@ -31,6 +32,7 @@ import 'l10n/generated/app_localizations.dart';
 import 'src/network/api_client.dart';
 
 import 'package:intl/date_symbol_data_local.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 /// Root widget. Riverpod is the sole composition mechanism (AGENTS.md §1, D3);
 /// widgets render and dispatch, they never branch on domain semantics.
@@ -280,6 +282,23 @@ Future<void> bootstrap(Flavor flavor) async {
   // copy.
   logDevMissingSeriesIdWarning(config);
 
+  // Easter-eggs toggle hydration (issue #516): the persisted value seeds
+  // the global notifier BEFORE any consumer exists, so the AI-Import view
+  // reflects the stored preference on cold start (default ON on first
+  // launch). A failed read is NOT swallowed (discard-result rule): the
+  // Err branch is matched here, logs a warning, falls back to default ON
+  // and raises the notifier's `readFailed` flag — the settings screen
+  // renders a visible error state for it.
+  final easterEggsResult = await EasterEggsStore(SharedPreferencesAsync())
+      .read();
+  final (easterEggsValue, easterEggsFailed) = easterEggsResult.match((e) {
+    logBootstrapWarning(
+      'easter-eggs preference read failed (${e.code}) — falling back to '
+      'default ON',
+    );
+    return (true, true);
+  }, (stored) => (stored ?? true, false));
+
   final configError = validateStartupConfig(config);
   if (configError != null) {
     runApp(FatalConfigErrorApp(error: configError));
@@ -326,6 +345,12 @@ Future<void> bootstrap(Flavor flavor) async {
         dioProvider.overrideWithValue(apiDio),
         idpDioProvider.overrideWith((ref) => Future.value(idpDio)),
         pinnedSecurityContextProvider.overrideWithValue(pinnedContext),
+        easterEggsProvider.overrideWith(
+          () => HydratedEasterEggs(
+            initial: easterEggsValue,
+            failed: easterEggsFailed,
+          ),
+        ),
       ],
       child: const App(),
     ),
@@ -495,4 +520,14 @@ void logDevMissingSeriesIdWarning(
   final warning = devMissingSeriesIdWarning(config);
   if (warning == null) return;
   (log ?? debugPrint)('[bootstrap] $warning');
+}
+
+/// Non-fatal warning emission for bootstrap-internal failures that fall
+/// back to a safe default (used for the easter-eggs preference read
+/// failure, issue #516). Same seam shape as
+/// [logDevMissingSeriesIdWarning]: logged through [debugPrint] by
+/// default, injectable for tests. Never aborts startup.
+@visibleForTesting
+void logBootstrapWarning(String message, {void Function(String message)? log}) {
+  (log ?? debugPrint)('[bootstrap] $message');
 }

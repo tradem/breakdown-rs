@@ -150,7 +150,9 @@ void main() {
       expect(find.byKey(const Key('info-ai-notice')), findsOneWidget);
     });
 
-    testWidgets('settings opens the settings dialog', (tester) async {
+    testWidgets('settings opens the settings screen (no dialog)', (
+      tester,
+    ) async {
       await setupDevAuth();
       await pumpApp(tester);
 
@@ -158,8 +160,11 @@ void main() {
       await tester.tap(find.byKey(const Key('mehr-settings')));
       await pumpFrames(tester);
 
-      expect(find.byKey(const Key('settings-dialog')), findsOneWidget);
+      // Issue #516: a pushed full screen, not a dialog.
+      expect(find.byKey(const Key('settings-screen')), findsOneWidget);
+      expect(find.byKey(const Key('settings-appbar')), findsOneWidget);
       expect(find.byKey(const Key('settings-uri-field')), findsOneWidget);
+      expect(find.byKey(const Key('settings-easter-eggs')), findsOneWidget);
     });
 
     testWidgets('failed sign-out leaves the gate, error surfaced', (
