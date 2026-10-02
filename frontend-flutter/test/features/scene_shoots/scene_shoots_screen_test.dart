@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: space-bunny-free (opencode-go)
 // Co-authored-by: muse-spark-1.3 (opencode)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
 
@@ -351,8 +352,12 @@ void main() {
     await container.read(authSessionControllerProvider.notifier).signIn();
   }
 
-  Future<void> pumpScreen(WidgetTester tester, {ShootingDayView? day}) async {
-    tester.view.physicalSize = const Size(800, 1200);
+  Future<void> pumpScreen(
+    WidgetTester tester, {
+    ShootingDayView? day,
+    double width = 800,
+  }) async {
+    tester.view.physicalSize = Size(width, 1200);
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.reset);
     await tester.pumpWidget(
@@ -716,6 +721,78 @@ void main() {
         find.byKey(const Key('continuity-costume-hint-ssh-1')),
         findsOneWidget,
       );
+    });
+  });
+
+  group('reports entry is labelled (issue #549, Gap 1)', () {
+    // The day board is the on-set surface, so the reports entry must be
+    // identifiable WITHOUT hover: a bare IconButton with only a tooltip
+    // violates the glossary visible-label norm. These tests fail if the
+    // label regresses to icon-only — they assert on the label TEXT, not on
+    // `find.byType` alone.
+
+    testWidgets('wide app bar: labelled action, Gherkin key intact', (
+      tester,
+    ) async {
+      await setupContainer();
+      await pumpScreen(tester);
+
+      // The contract key the day-context Gherkin step taps.
+      expect(find.byKey(const Key('reports-open')), findsOneWidget);
+      // Semantic: the visible label, not just an icon+tooltip.
+      expect(find.text('Reports'), findsOneWidget);
+      // And the tap target is the labelled control, not a bare icon button.
+      expect(find.byKey(const Key('reports-open')), findsOneWidget);
+      expect(find.byType(TextButton), findsWidgets);
+    });
+
+    testWidgets('narrow app bar: collapses to a LABELLED overflow item', (
+      tester,
+    ) async {
+      await setupContainer();
+      // Below the 300px label breakpoint (see `_reportsLabelMinBarWidth`).
+      await pumpScreen(tester, width: 280);
+
+      // The contract key still resolves to a tappable target.
+      expect(find.byKey(const Key('reports-open')), findsOneWidget);
+      // Before the menu opens, the label is NOT on the bar (it is an icon
+      // overflow affordance) — so the collapsed form must be asserted through
+      // the opened menu, which is where the label has to live.
+      expect(find.text('Reports'), findsNothing);
+
+      await tester.tap(find.byKey(const Key('reports-open')));
+      // The menu route animates in — settle it, otherwise the item is still
+      // NEEDS-PAINT and the tap below misses.
+      await tester.pumpAndSettle();
+
+      // The fallback is a LABELLED item, never a bare icon (the form the
+      // issue rejects).
+      expect(
+        find.byKey(const Key('reports-open-overflow-item')),
+        findsOneWidget,
+      );
+      expect(find.text('Reports'), findsOneWidget);
+
+      // And the item is wired, not decorative: selecting it opens the same
+      // report surface the labelled button opens. Tapped by its label (the
+      // item key is not hit-testable at its own centre through the menu's
+      // gesture arena). Exactly one push — the item carries no second
+      // `onTap` alongside `onSelected`.
+      await tester.tap(find.text('Reports'));
+      await tester.pumpAndSettle();
+      expect(find.text('Reports — Day 1'), findsOneWidget);
+    });
+
+    testWidgets('tapping the labelled entry opens the reports screen', (
+      tester,
+    ) async {
+      await setupContainer();
+      await pumpScreen(tester);
+
+      await tester.tap(find.byKey(const Key('reports-open')));
+      await _pumpFrames(tester, n: 6);
+
+      expect(find.text('Reports — Day 1'), findsOneWidget);
     });
   });
 

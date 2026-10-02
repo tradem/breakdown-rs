@@ -2296,6 +2296,12 @@ abstract class AppLocalizations {
   /// **'Berichte'**
   String get sceneShootsReportsTooltip;
 
+  /// No description provided for @sceneShootsReportsLabel.
+  ///
+  /// In de, this message translates to:
+  /// **'Berichte'**
+  String get sceneShootsReportsLabel;
+
   /// No description provided for @sceneShootWrapButton.
   ///
   /// In de, this message translates to:
@@ -2601,6 +2607,12 @@ abstract class AppLocalizations {
   /// In de, this message translates to:
   /// **'Noch keinem Drehtag zugeordnet.'**
   String get sceneDetailNoShootingDays;
+
+  /// No description provided for @sceneDetailNoShootingDaysReportHint.
+  ///
+  /// In de, this message translates to:
+  /// **'Plane die Szene auf einem Drehtag – der Soll-/Ist-Bericht (geplant vs. tatsächlich) öffnet sich dann über das Day-Board dieses Tages.'**
+  String get sceneDetailNoShootingDaysReportHint;
 
   /// No description provided for @sceneDetailOpenDayBoard.
   ///

@@ -1356,6 +1356,9 @@ class AppLocalizationsDe extends AppLocalizations {
   String get sceneShootsReportsTooltip => 'Berichte';
 
   @override
+  String get sceneShootsReportsLabel => 'Berichte';
+
+  @override
   String get sceneShootWrapButton => 'Drehtag abschließen';
 
   @override
@@ -1539,6 +1542,10 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get sceneDetailNoShootingDays => 'Noch keinem Drehtag zugeordnet.';
+
+  @override
+  String get sceneDetailNoShootingDaysReportHint =>
+      'Plane die Szene auf einem Drehtag – der Soll-/Ist-Bericht (geplant vs. tatsächlich) öffnet sich dann über das Day-Board dieses Tages.';
 
   @override
   String get sceneDetailOpenDayBoard => 'Day-Board öffnen';

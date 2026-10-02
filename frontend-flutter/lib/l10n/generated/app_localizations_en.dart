@@ -1339,6 +1339,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get sceneShootsReportsTooltip => 'Reports';
 
   @override
+  String get sceneShootsReportsLabel => 'Reports';
+
+  @override
   String get sceneShootWrapButton => 'Wrap shooting day';
 
   @override
@@ -1520,6 +1523,10 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get sceneDetailNoShootingDays =>
       'Not scheduled on any shooting day yet.';
+
+  @override
+  String get sceneDetailNoShootingDaysReportHint =>
+      'Schedule the scene on a shooting day – the planned-vs-actual (Soll/Ist) report then opens from that day\'s board.';
 
   @override
   String get sceneDetailOpenDayBoard => 'Open day board';
