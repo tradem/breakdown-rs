@@ -321,13 +321,19 @@ pub fn api_doc() -> utoipa::openapi::OpenApi {
                 let RefOr::T(response) = response else {
                     continue;
                 };
-                let mut renamed: indexmap::IndexMap<String, utoipa::openapi::Content> =
+                // utoipa 6: the media-type map holds `RefOr<Content>` (a `$ref`
+                // may point at a reusable Content object). Only the inline
+                // variant (`RefOr::T`) exposes `schema`; a `$ref` entry is
+                // opaque here and keeps its declared media type.
+                let mut renamed: indexmap::IndexMap<String, RefOr<utoipa::openapi::Content>> =
                     indexmap::IndexMap::new();
                 for (media_type, content) in std::mem::take(&mut response.content) {
                     let is_problem = matches!(
-                        &content.schema,
-                        Some(RefOr::Ref(reference))
-                            if reference.ref_location.ends_with("/ProblemDetails")
+                        &content,
+                        RefOr::T(utoipa::openapi::Content {
+                            schema: Some(RefOr::Ref(reference)),
+                            ..
+                        }) if reference.ref_location.ends_with("/ProblemDetails")
                     );
                     let key = if is_problem {
                         "application/problem+json".to_string()
