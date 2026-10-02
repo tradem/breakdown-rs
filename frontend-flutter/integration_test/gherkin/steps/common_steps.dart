@@ -5,6 +5,7 @@
 // Co-authored-by: omen-alpha (opencode-go)
 //Co-authored-by: glm-5.3 (neuralwatt)
 // Co-authored-by: glm-5.3-flash (neuralwatt)
+// Co-authored-by: glm-5.3-flash (opencode-go)
 
 import 'package:flutter_driver/flutter_driver.dart';
 import 'package:flutter_gherkin/flutter_gherkin.dart';
@@ -126,6 +127,62 @@ StepDefinitionGeneric whenOpenReports() => when1<String, FlutterWorld>(
 /// (Material `kThemeChangeDuration` = 200ms + one frame, 10x margin). Never a
 /// sleep used to hope something became true.
 const _reportsMenuTimeout = Duration(seconds: 2);
+
+/// Reinstates the step #549 deleted: it tapped
+/// `Key('open-soll-ist-report-$seasonId')`, a key that existed nowhere, and
+/// was removed rather than smuggled into a discoverability fix. This change
+/// (`reports-season-report-index-571`) ships the episode's report index and
+/// reinstates the step against the key that NOW exists: the labelled
+/// reports entry on the episode's shooting-days screen
+/// (`reportsIndexOpen`, label „Berichte"), which pushes the index — the
+/// season-level REACHABILITY surface for the day-scoped reports (D8: the
+/// report itself stays day-scoped; aggregated season reports remain #571's
+/// unmade decision). The season parameter is retained for the original
+/// step text; the affordance it resolves is the episode's index entry.
+///
+/// Same two-form discipline as [whenOpenReports]: the labelled
+/// `TextButton.icon` navigates on the first tap; the collapsed (narrow)
+/// form opens a menu whose item must be tapped. Runs on device.
+StepDefinitionGeneric whenOpenSollIstReport() => when1<String, FlutterWorld>(
+  'I open the Soll-Ist report for season {string}',
+  (String seasonId, context) async {
+    final driver = context.world.driver!;
+    final entry = find.byValueKey('reportsIndexOpen');
+    await FlutterDriverUtils.tap(driver, entry);
+
+    // Only the collapsed form leaves a menu open; the labelled form
+    // already navigated and this item will never exist.
+    final overflowItem = find.byValueKey('reportsIndexOpen-overflow-item');
+    try {
+      await driver.waitFor(overflowItem, timeout: _reportsMenuTimeout);
+    } on DriverError {
+      return;
+    }
+    await FlutterDriverUtils.tap(driver, overflowItem);
+  },
+);
+
+/// Opens an episode's shooting-days list from the episodes screen's
+/// context entry (`episode-shooting-days-<episodeId>`).
+StepDefinitionGeneric whenOpenShootingDays() => when1<String, FlutterWorld>(
+  'I open the shooting days for episode {string}',
+  (String episodeId, context) async {
+    final locator = find.byValueKey('episode-shooting-days-$episodeId');
+    await FlutterDriverUtils.tap(context.world.driver!, locator);
+  },
+);
+
+/// Opens one day's report FROM the report index (the row tap target
+/// `report-index-day-<dayId>` — the index's single navigation affordance;
+/// distinct from [whenOpenReports], which taps the day board's entry and
+/// stays untouched).
+StepDefinitionGeneric whenOpenReportIndexEntry() => when1<String, FlutterWorld>(
+  'I open the report index entry for shooting day {string}',
+  (String dayId, context) async {
+    final locator = find.byValueKey('report-index-day-$dayId');
+    await FlutterDriverUtils.tap(context.world.driver!, locator);
+  },
+);
 
 /// Opens a season from the seasons list (`season-<id>` tile).
 StepDefinitionGeneric whenOpenSeason() => when1<String, FlutterWorld>(

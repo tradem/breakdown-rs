@@ -7,6 +7,7 @@
 // sheet submit (append key + Manual), rename sheet, reschedule via the
 // Material date picker, archive confirm-first, reorder move up/down as
 // single-intent PATCHes, error dismiss.
+// Co-authored-by: glm-5.3-flash (opencode-go)
 
 import 'package:breakdown_api/breakdown_api.dart';
 import 'package:drift/native.dart';
@@ -176,7 +177,9 @@ void main() {
     await tester.pumpWidget(
       UncontrolledProviderScope(
         container: container,
-        child: MaterialApp(home: ShootingDaysScreen(episode: _episode())),
+        child: MaterialApp(
+          home: ShootingDaysScreen(episode: _episode(), seasonId: 'season-1'),
+        ),
       ),
     );
     await tester.pumpAndSettle();
@@ -373,7 +376,9 @@ void main() {
       await tester.pumpWidget(
         UncontrolledProviderScope(
           container: container,
-          child: MaterialApp(home: ShootingDaysScreen(episode: _episode())),
+          child: MaterialApp(
+            home: ShootingDaysScreen(episode: _episode(), seasonId: 'season-1'),
+          ),
         ),
       );
       await tester.pumpAndSettle();

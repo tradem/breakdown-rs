@@ -8,6 +8,7 @@
 // order fidelity (no re-sort), date null-vs-absent semantics, conflicts,
 // archives, create (append order_key, Manual), and goldens
 // {light,dark}×{android,macos}.
+// Co-authored-by: glm-5.3-flash (opencode-go)
 
 import 'package:breakdown_api/breakdown_api.dart';
 import 'package:drift/native.dart';
@@ -200,7 +201,9 @@ void main() {
     await tester.pumpWidget(
       UncontrolledProviderScope(
         container: container,
-        child: MaterialApp(home: ShootingDaysScreen(episode: _episode())),
+        child: MaterialApp(
+          home: ShootingDaysScreen(episode: _episode(), seasonId: 'season-1'),
+        ),
       ),
     );
     await tester.pumpAndSettle();
@@ -335,7 +338,10 @@ void main() {
               theme: ThemeData.light(),
               darkTheme: ThemeData.dark(),
               themeMode: mode,
-              home: ShootingDaysScreen(episode: _episode()),
+              home: ShootingDaysScreen(
+                episode: _episode(),
+                seasonId: 'season-1',
+              ),
             ),
           ),
         );
@@ -403,6 +409,89 @@ void main() {
         mode: ThemeMode.dark,
         platform: TargetPlatform.macOS,
       );
+    });
+  });
+
+  group('ShootingDaysScreen reports entry (reportsIndexOpen)', () {
+    testWidgets('wide: labelled TextButton.icon pushes the report index', (
+      tester,
+    ) async {
+      await setupContainer(initialRows: [_day('d-1', label: 'Tag 1')]);
+      tester.view.physicalSize = const Size(800, 1200);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: MaterialApp(
+            home: ShootingDaysScreen(episode: _episode(), seasonId: 'season-1'),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // The labelled control is present (glossary visible-label norm) with
+      // the contract key on the tap target.
+      final entry = find.byKey(const Key('reportsIndexOpen'));
+      expect(entry, findsOneWidget);
+      // Standalone widget tests without delegates resolve the English
+      // catalog (l10nOf fallback) — the label is still VISIBLE.
+      expect(find.text('Reports'), findsOneWidget);
+      expect(
+        find.descendant(
+          of: entry,
+          matching: find.byIcon(Icons.summarize_outlined),
+        ),
+        findsOneWidget,
+      );
+
+      // Tapping it pushes the EPISODE's report index (same episode and the
+      // threaded season id).
+      await tester.tap(entry);
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('reports-index-screen')), findsOneWidget);
+      expect(find.byKey(const Key('report-index-day-d-1')), findsOneWidget);
+      // Day rows stay non-navigating: the tile carries no report tap
+      // target beyond its existing menu.
+      expect(find.byKey(const Key('reports-open')), findsNothing);
+    });
+
+    testWidgets('narrow: collapses into a LABELLED overflow item that pushes', (
+      tester,
+    ) async {
+      await setupContainer(initialRows: [_day('d-1', label: 'Tag 1')]);
+      // 280px is below the _reportsIndexMinBarWidth breakpoint (300) —
+      // the width-safety-valve branch.
+      tester.view.physicalSize = const Size(280, 800);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: MaterialApp(
+            home: ShootingDaysScreen(episode: _episode(), seasonId: 'season-1'),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // The entry key sits on the collapsed control as well — never a bare
+      // icon.
+      final entry = find.byKey(const Key('reportsIndexOpen'));
+      expect(entry, findsOneWidget);
+
+      // The collapsed form opens the overflow menu; its single item is
+      // labelled and carries the contract key too.
+      await tester.tap(entry);
+      await tester.pumpAndSettle();
+      final item = find.byKey(const Key('reportsIndexOpen-overflow-item'));
+      expect(item, findsOneWidget);
+      expect(find.text('Reports'), findsOneWidget);
+      // Tapped by its label (the item key is not hit-testable at its own
+      // centre through the menu's gesture arena — #549's finding).
+      await tester.tap(find.text('Reports'));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('reports-index-screen')), findsOneWidget);
     });
   });
 }

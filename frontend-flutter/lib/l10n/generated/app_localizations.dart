@@ -836,6 +836,36 @@ abstract class AppLocalizations {
   /// **'Der Bericht konnte nicht geladen werden ({code}).'**
   String reportErrorLoad(Object code);
 
+  /// No description provided for @shootingDaysReportsLabel.
+  ///
+  /// In de, this message translates to:
+  /// **'Berichte'**
+  String get shootingDaysReportsLabel;
+
+  /// No description provided for @reportsIndexTitle.
+  ///
+  /// In de, this message translates to:
+  /// **'Berichte – {episode}'**
+  String reportsIndexTitle(Object episode);
+
+  /// No description provided for @reportsIndexDayFinal.
+  ///
+  /// In de, this message translates to:
+  /// **'Abschließend'**
+  String get reportsIndexDayFinal;
+
+  /// No description provided for @reportsIndexDayOpen.
+  ///
+  /// In de, this message translates to:
+  /// **'Offen'**
+  String get reportsIndexDayOpen;
+
+  /// No description provided for @reportsIndexEmpty.
+  ///
+  /// In de, this message translates to:
+  /// **'Sobald ein Drehtag geplant ist, öffnet sich hier der Soll-/Ist-Bericht (geplant vs. tatsächlich) dieses Tages.'**
+  String get reportsIndexEmpty;
+
   /// No description provided for @aiConfigErrorAdmin.
   ///
   /// In de, this message translates to:

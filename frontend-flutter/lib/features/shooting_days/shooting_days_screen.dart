@@ -3,6 +3,7 @@
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
 // Co-authored-by: space-bunny-free (opencode-go)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
+// Co-authored-by: glm-5.3-flash (opencode-go)
 
 import 'package:breakdown_api/breakdown_api.dart';
 import 'package:flutter/material.dart';
@@ -12,6 +13,7 @@ import '../../auth/auth_providers.dart';
 import '../../core/problem_error.dart';
 import '../../l10n/app_localizations_provider.dart';
 import '../costume_categories/next_order_key.dart';
+import '../reports/reports_index_screen.dart';
 import 'order_keys.dart';
 import 'shooting_days_controller.dart';
 import 'shooting_days_state.dart';
@@ -25,10 +27,27 @@ import 'widgets/shooting_days_widgets.dart';
 /// single-intent (reorder / reschedule+unschedule / rename — one PATCH per
 /// action); archive reconciles via the bounded refetch. The Soll/Ist
 /// execution UI is out of scope (own change).
+///
+/// [seasonId] is **navigation context only** (change
+/// `reports-season-report-index-571`): threaded down by `EpisodesScreen`
+/// from the parent `BlockView.seasonId` — the same field `ScenesScreen`
+/// already receives on the adjacent push. It scopes the report-index entry
+/// pushed from the app bar and is NEVER resolved through a second
+/// projection lookup (`GET /v1/blocks/{id}`, an episode-side season lookup)
+/// or the shell's active season (the spine supports browsing a
+/// non-active season). Command payloads on this screen keep sourcing
+/// every id exclusively from the DTO the user acts on.
 class ShootingDaysScreen extends ConsumerWidget {
-  const ShootingDaysScreen({super.key, required this.episode});
+  const ShootingDaysScreen({
+    super.key,
+    required this.episode,
+    required this.seasonId,
+  });
 
   final EpisodeView episode;
+
+  /// The parent block's season id (nav context, never from a lookup).
+  final String seasonId;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -48,113 +67,147 @@ class ShootingDaysScreen extends ConsumerWidget {
     final notFound = state.notFound;
     final l10n = l10nOf(context);
 
-    return Scaffold(
-      appBar: AppBar(title: Text(l10n.navShootingDays)),
-      body: Column(
-        children: [
-          if (state.commandError case final error?)
-            _Banner(
-              key: const Key('shooting-day-command-error-banner'),
-              text: shootingDayErrorCopy(l10n, error),
-              onDismiss: controller.dismissCommandError,
+    // The reports entry is a labelled action, not a bare icon (the same
+    // visible-label norm #549 established for the day board's entry). The
+    // index is the one new affordance here; the day rows themselves stay
+    // non-navigating (their six callback action set is unchanged).
+    // Deciding labelled-button vs labelled overflow item needs the
+    // scaffold's width, hence the LayoutBuilder (never a platform check).
+    return LayoutBuilder(
+      builder: (context, constraints) => Scaffold(
+        appBar: AppBar(
+          title: Text(l10n.navShootingDays),
+          actions: [
+            _ReportsIndexAppBarAction(
+              // Collapse to the labelled overflow item only when the app
+              // bar cannot carry the label AND a readable title (same
+              // breakpoint family #549 uses on the day board).
+              roomForLabel: constraints.maxWidth >= _reportsIndexMinBarWidth,
+              onOpen: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) =>
+                      ReportsIndexScreen(episode: episode, seasonId: seasonId),
+                ),
+              ),
             ),
-          if (state.isStale && notFound == null)
-            _Banner(
-              key: const Key('shooting-days-stale-banner'),
-              text: l10n.shootingDaysStaleBanner,
+          ],
+        ),
+        body: Column(
+          children: [
+            if (state.commandError case final error?)
+              _Banner(
+                key: const Key('shooting-day-command-error-banner'),
+                text: shootingDayErrorCopy(l10n, error),
+                onDismiss: controller.dismissCommandError,
+              ),
+            if (state.isStale && notFound == null)
+              _Banner(
+                key: const Key('shooting-days-stale-banner'),
+                text: l10n.shootingDaysStaleBanner,
+              ),
+            Expanded(
+              child: notFound != null
+                  ? ShootingDaysNotFoundView(
+                      code: notFound.code,
+                      onBack: () => Navigator.of(context).pop(),
+                    )
+                  : RefreshIndicator(
+                      onRefresh: controller.refresh,
+                      child: switch (state.projected) {
+                        AsyncLoading() when rows.isEmpty => const Center(
+                          child: CircularProgressIndicator(
+                            key: Key('shooting-days-loading'),
+                          ),
+                        ),
+                        AsyncError(:final error) when rows.isEmpty =>
+                          _FetchErrorView(
+                            code: error is ProblemError
+                                ? error.code
+                                : 'unknown',
+                            onRetry: () => controller.refresh(),
+                          ),
+                        _ =>
+                          rows.isEmpty
+                              ? ListView(
+                                  key: const Key('shooting-days-list'),
+                                  physics:
+                                      const AlwaysScrollableScrollPhysics(),
+                                  children: [
+                                    const SizedBox(height: 160),
+                                    ShootingDaysEmptyView(
+                                      onCreate: _canCreate(ref)
+                                          ? () => _showCreateSheet(context, ref)
+                                          : null,
+                                    ),
+                                  ],
+                                )
+                              : ListView.builder(
+                                  key: const Key('shooting-days-list'),
+                                  physics:
+                                      const AlwaysScrollableScrollPhysics(),
+                                  itemCount: rows.length,
+                                  itemBuilder: (context, i) {
+                                    final row = rows[i];
+                                    return ShootingDayTile(
+                                      row: row,
+                                      onRename: row is ProjectedShootingDayRow
+                                          ? () => _showRenameSheet(
+                                              context,
+                                              ref,
+                                              row.day,
+                                            )
+                                          : null,
+                                      onReschedule:
+                                          row is ProjectedShootingDayRow
+                                          ? () =>
+                                                _pickDate(context, ref, row.day)
+                                          : null,
+                                      onUnschedule:
+                                          row is ProjectedShootingDayRow
+                                          ? () => _confirmUnschedule(
+                                              context,
+                                              ref,
+                                              row.day,
+                                            )
+                                          : null,
+                                      onArchive: row is ProjectedShootingDayRow
+                                          ? () => _confirmArchive(
+                                              context,
+                                              ref,
+                                              row.day,
+                                            )
+                                          : null,
+                                      onMoveUp:
+                                          row is ProjectedShootingDayRow &&
+                                              i > 0
+                                          ? () =>
+                                                _move(context, ref, rows, i, -1)
+                                          : null,
+                                      onMoveDown:
+                                          row is ProjectedShootingDayRow &&
+                                              i < rows.length - 1 &&
+                                              rows[i + 1]
+                                                  is ProjectedShootingDayRow
+                                          ? () =>
+                                                _move(context, ref, rows, i, 1)
+                                          : null,
+                                    );
+                                  },
+                                ),
+                      },
+                    ),
             ),
-          Expanded(
-            child: notFound != null
-                ? ShootingDaysNotFoundView(
-                    code: notFound.code,
-                    onBack: () => Navigator.of(context).pop(),
-                  )
-                : RefreshIndicator(
-                    onRefresh: controller.refresh,
-                    child: switch (state.projected) {
-                      AsyncLoading() when rows.isEmpty => const Center(
-                        child: CircularProgressIndicator(
-                          key: Key('shooting-days-loading'),
-                        ),
-                      ),
-                      AsyncError(:final error) when rows.isEmpty =>
-                        _FetchErrorView(
-                          code: error is ProblemError ? error.code : 'unknown',
-                          onRetry: () => controller.refresh(),
-                        ),
-                      _ =>
-                        rows.isEmpty
-                            ? ListView(
-                                key: const Key('shooting-days-list'),
-                                physics: const AlwaysScrollableScrollPhysics(),
-                                children: [
-                                  const SizedBox(height: 160),
-                                  ShootingDaysEmptyView(
-                                    onCreate: _canCreate(ref)
-                                        ? () => _showCreateSheet(context, ref)
-                                        : null,
-                                  ),
-                                ],
-                              )
-                            : ListView.builder(
-                                key: const Key('shooting-days-list'),
-                                physics: const AlwaysScrollableScrollPhysics(),
-                                itemCount: rows.length,
-                                itemBuilder: (context, i) {
-                                  final row = rows[i];
-                                  return ShootingDayTile(
-                                    row: row,
-                                    onRename: row is ProjectedShootingDayRow
-                                        ? () => _showRenameSheet(
-                                            context,
-                                            ref,
-                                            row.day,
-                                          )
-                                        : null,
-                                    onReschedule: row is ProjectedShootingDayRow
-                                        ? () => _pickDate(context, ref, row.day)
-                                        : null,
-                                    onUnschedule: row is ProjectedShootingDayRow
-                                        ? () => _confirmUnschedule(
-                                            context,
-                                            ref,
-                                            row.day,
-                                          )
-                                        : null,
-                                    onArchive: row is ProjectedShootingDayRow
-                                        ? () => _confirmArchive(
-                                            context,
-                                            ref,
-                                            row.day,
-                                          )
-                                        : null,
-                                    onMoveUp:
-                                        row is ProjectedShootingDayRow && i > 0
-                                        ? () => _move(context, ref, rows, i, -1)
-                                        : null,
-                                    onMoveDown:
-                                        row is ProjectedShootingDayRow &&
-                                            i < rows.length - 1 &&
-                                            rows[i + 1]
-                                                is ProjectedShootingDayRow
-                                        ? () => _move(context, ref, rows, i, 1)
-                                        : null,
-                                  );
-                                },
-                              ),
-                    },
-                  ),
-          ),
-        ],
+          ],
+        ),
+        floatingActionButton: _canCreate(ref)
+            ? FloatingActionButton(
+                key: const Key('shooting-day-add-fab'),
+                onPressed: () => _showCreateSheet(context, ref),
+                tooltip: l10n.shootingDayAddFab,
+                child: const Icon(Icons.add),
+              )
+            : null,
       ),
-      floatingActionButton: _canCreate(ref)
-          ? FloatingActionButton(
-              key: const Key('shooting-day-add-fab'),
-              onPressed: () => _showCreateSheet(context, ref),
-              tooltip: l10n.shootingDayAddFab,
-              child: const Icon(Icons.add),
-            )
-          : null,
     );
   }
 
@@ -581,3 +634,78 @@ class _Banner extends StatelessWidget {
     );
   }
 }
+
+// The shooting-days screen's reports entry (change
+// `reports-season-report-index-571`). Same breakpoint family #549 uses on
+// the day board: the label plus its padding and the app bar's own insets —
+// and at least ~120 left for a readable title. 300 is the rounded-up
+// threshold, not tuned to one translation length.
+const double _reportsIndexMinBarWidth = 300;
+
+/// The shooting-days screen's reports entry: pushes the episode's report
+/// index. A LABELLED control per the glossary visible-label norm — a
+/// `TextButton.icon` at realistic widths, collapsing into a LABELLED
+/// overflow item when the app bar is too narrow to carry the label next to
+/// a readable title. Never a bare icon: the entry must be findable without
+/// hover.
+///
+/// The Gherkin contract key `reportsIndexOpen` sits on the tap target in
+/// BOTH branches, so the index step resolves at either width.
+class _ReportsIndexAppBarAction extends StatelessWidget {
+  const _ReportsIndexAppBarAction({
+    required this.roomForLabel,
+    required this.onOpen,
+  });
+
+  final bool roomForLabel;
+  final VoidCallback onOpen;
+
+  static const _icon = Icon(Icons.summarize_outlined);
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = l10nOf(context);
+    final label = l10n.shootingDaysReportsLabel;
+    if (roomForLabel) {
+      // No tooltip: the label is already visible (same rationale as #549).
+      // No `style:` override: the M3 defaults already carry what this
+      // control needs (see the #549 review notes on height/padding).
+      return TextButton.icon(
+        key: const Key('reportsIndexOpen'),
+        onPressed: onOpen,
+        icon: _icon,
+        label: Text(label),
+      );
+    }
+    // The item carries an explicit enum value, not `void`: a
+    // `PopupMenuItem<void>` silently never invokes
+    // `PopupMenuButton.onSelected` (verified in #549), which would leave
+    // the overflow entry inert.
+    return PopupMenuButton<_ReportsIndexMenuAction>(
+      key: const Key('reportsIndexOpen'),
+      tooltip: label,
+      icon: const Icon(Icons.more_vert),
+      onSelected: (_) => onOpen(),
+      itemBuilder: (context) => [
+        PopupMenuItem<_ReportsIndexMenuAction>(
+          key: const Key('reportsIndexOpen-overflow-item'),
+          value: _ReportsIndexMenuAction.open,
+          // A Row, not a ListTile: `PopupMenuItem` is a fixed-height box,
+          // and a ListTile inside it is not laid out to fit.
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _icon,
+              const SizedBox(width: 12),
+              Flexible(child: Text(label)),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Single action of the reports-index overflow fallback
+/// (see [_ReportsIndexAppBarAction]).
+enum _ReportsIndexMenuAction { open }
