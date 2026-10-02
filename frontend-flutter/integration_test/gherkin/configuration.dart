@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: space-bunny-free (opencode-go)
 // Co-authored-by: hy3 (opencode-go)
 // Co-authored-by: omen-alpha (opencode-go)
+
 //Co-authored-by: glm-5.3 (neuralwatt)
 
 import 'dart:io';
@@ -40,7 +42,6 @@ Future<FlutterTestConfiguration> buildGherkinConfig() async {
     whenOpenScene(),
     whenOpenDayBoard(),
     whenOpenReports(),
-    whenOpenSollIstReport(),
     whenOpenCostumeAssignment(),
     ...sollIstReportSteps(),
     ...sollIstExecutionSteps(),

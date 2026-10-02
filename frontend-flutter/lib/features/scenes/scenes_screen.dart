@@ -13,6 +13,7 @@ import '../../core/problem_error.dart';
 import '../../l10n/app_localizations_provider.dart';
 import '../../l10n/generated/app_localizations.dart';
 import 'create_scene_sheet.dart';
+import '../shell/planning_location.dart';
 import 'scene_detail_screen.dart';
 import 'scenes_controller.dart';
 import 'scenes_state.dart';
@@ -67,6 +68,13 @@ class ScenesScreen extends ConsumerWidget {
     final rows = state.rows;
     final notFound = state.notFound;
     final l10n = l10nOf(context);
+    // Issue #548: the route argument carries the episode-level location
+    // (season + block included); the scene push deepens the SAME chain.
+    // `null` only for direct-pumped tests — the deeper route then carries
+    // no location and the strip hides.
+    final sceneLocation = locationFromArguments(
+      ModalRoute.of(context)?.settings.arguments,
+    );
 
     return Scaffold(
       appBar: AppBar(
@@ -130,6 +138,17 @@ class ScenesScreen extends ConsumerWidget {
                                   onTap: rows[i] is ProjectedSceneRow
                                       ? () => Navigator.of(context).push(
                                           MaterialPageRoute<void>(
+                                            settings: RouteSettings(
+                                              arguments:
+                                                  sceneLocation
+                                                      is EpisodeLocation
+                                                  ? sceneLocation.withScene(
+                                                      (rows[i]
+                                                              as ProjectedSceneRow)
+                                                          .scene,
+                                                    )
+                                                  : null,
+                                            ),
                                             builder: (_) => SceneDetailScreen(
                                               seasonId: seasonId,
                                               episodeId: episode.id,

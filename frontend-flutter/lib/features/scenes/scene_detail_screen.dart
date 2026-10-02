@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: space-bunny-free (opencode-go)
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
 // Co-authored-by: qwen3.8-flash (opencode-go)
@@ -19,6 +20,7 @@ import '../../l10n/app_localizations_provider.dart';
 import '../characters/characters_controller.dart';
 import '../costumes/widgets/costumes_widgets.dart';
 import '../scene_shoots/scene_shoots_screen.dart';
+import '../shell/planning_location.dart';
 import '../shooting_days/shooting_days_controller.dart';
 import 'scenes_controller.dart';
 import 'scenes_state.dart';
@@ -391,6 +393,16 @@ class _SceneShootingDaysSection extends ConsumerWidget {
           ListTile(
             key: const Key('scene-shooting-days-empty'),
             title: Text(l10nOf(context).sceneDetailNoShootingDays),
+            // Report provenance (issue #549): the reports entry lives on the
+            // day board, and the day board is reachable only from a
+            // scheduled day — so a 0-day scene showed no reports affordance
+            // and no reason to expect one. The hint NAMES what becomes
+            // available once a day is planned. It invents no report and adds
+            // no season-level entry: the report routes are day-scoped in the
+            // contract itself, so this stays copy, not an affordance that
+            // leads nowhere (`flutter-reports-screen`,
+            // Report-Provenance Empty State).
+            subtitle: Text(l10nOf(context).sceneDetailNoShootingDaysReportHint),
           )
         else
           for (final id in scheduled)
@@ -462,9 +474,18 @@ class _SceneShootingDaysSection extends ConsumerWidget {
 
   void _openBoard(BuildContext context, ShootingDayView day) {
     // Fire-and-forget navigation (route push has no consumable result).
+    // Issue #548: the day board rides on the SAME scene-level location
+    // chain (from the route arguments) — display context only, the screen
+    // keeps resolving its scene from the acted-on ids.
+    final location = locationFromArguments(
+      ModalRoute.of(context)?.settings.arguments,
+    );
     unawaited(
       Navigator.of(context).push(
         MaterialPageRoute<void>(
+          settings: RouteSettings(
+            arguments: location is SceneLocation ? location : null,
+          ),
           builder: (_) =>
               SceneShootsScreen(day: day, scene: scene, seasonId: seasonId),
         ),

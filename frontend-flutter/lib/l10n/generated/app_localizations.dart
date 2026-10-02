@@ -2296,6 +2296,12 @@ abstract class AppLocalizations {
   /// **'Berichte'**
   String get sceneShootsReportsTooltip;
 
+  /// No description provided for @sceneShootsReportsLabel.
+  ///
+  /// In de, this message translates to:
+  /// **'Berichte'**
+  String get sceneShootsReportsLabel;
+
   /// No description provided for @sceneShootWrapButton.
   ///
   /// In de, this message translates to:
@@ -2601,6 +2607,12 @@ abstract class AppLocalizations {
   /// In de, this message translates to:
   /// **'Noch keinem Drehtag zugeordnet.'**
   String get sceneDetailNoShootingDays;
+
+  /// No description provided for @sceneDetailNoShootingDaysReportHint.
+  ///
+  /// In de, this message translates to:
+  /// **'Plane die Szene auf einem Drehtag – der Soll-/Ist-Bericht (geplant vs. tatsächlich) öffnet sich dann über das Day-Board dieses Tages.'**
+  String get sceneDetailNoShootingDaysReportHint;
 
   /// No description provided for @sceneDetailOpenDayBoard.
   ///
@@ -3321,6 +3333,42 @@ abstract class AppLocalizations {
   /// In de, this message translates to:
   /// **'Szenen'**
   String get navScenes;
+
+  /// No description provided for @locationStripSemantics.
+  ///
+  /// In de, this message translates to:
+  /// **'Position: {path}'**
+  String locationStripSemantics(Object path);
+
+  /// No description provided for @scopeChipBlock.
+  ///
+  /// In de, this message translates to:
+  /// **'Filter: {block}'**
+  String scopeChipBlock(Object block);
+
+  /// No description provided for @scopeChipUnknownBlock.
+  ///
+  /// In de, this message translates to:
+  /// **'Filter: Block unbekannt'**
+  String get scopeChipUnknownBlock;
+
+  /// No description provided for @scopeChipForeignSeason.
+  ///
+  /// In de, this message translates to:
+  /// **'Filter gilt hier nicht – andere Season'**
+  String get scopeChipForeignSeason;
+
+  /// No description provided for @scopeChipTooltip.
+  ///
+  /// In de, this message translates to:
+  /// **'Aktiven Block-Filter ändern'**
+  String get scopeChipTooltip;
+
+  /// No description provided for @scopeChipPickTitle.
+  ///
+  /// In de, this message translates to:
+  /// **'Block-Filter wählen'**
+  String get scopeChipPickTitle;
 
   /// No description provided for @seasonsTitle.
   ///

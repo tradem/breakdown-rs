@@ -19,6 +19,13 @@ abstract final class BreakdownMaterialIcons {
   static const shellCostumesFilled = Icons.checkroom;
   static const shellMore = Icons.more_horiz;
 
+  // Hierarchy context strip segments (issue #548 — glossary:
+  // icon + visible text per segment; icons reinforce only).
+  static const locationSeason = Icons.video_collection_outlined;
+  static const locationBlock = Icons.folder_outlined;
+  static const locationEpisode = Icons.movie_creation_outlined;
+  static const locationScene = Icons.view_agenda_outlined;
+
   static IconData forCostumeCategory(String? categoryName) {
     final normalized = categoryName?.trim().toLowerCase();
     return switch (normalized) {

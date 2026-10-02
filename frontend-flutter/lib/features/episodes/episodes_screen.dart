@@ -15,6 +15,7 @@ import '../../l10n/app_localizations_provider.dart';
 import '../../l10n/generated/app_localizations.dart';
 import '../scenes/scenes_screen.dart';
 import '../shooting_days/shooting_days_screen.dart';
+import '../shell/planning_location.dart';
 import 'create_episode_sheet.dart';
 import 'episodes_controller.dart';
 import 'episodes_state.dart';
@@ -66,6 +67,15 @@ class EpisodesScreen extends ConsumerWidget {
     final rows = state.rows;
     final notFound = state.notFound;
     final l10n = l10nOf(context);
+    // Issue #548: the route argument carries the block-level location
+    // (season included); deeper pushes deepen the SAME chain — never a
+    // re-derivation from a second projection lookup. `null` only when the
+    // screen was pushed without a location (direct-pumped tests): deeper
+    // routes then carry no location and the strip hides.
+    final ownLocation = locationFromArguments(
+      ModalRoute.of(context)?.settings.arguments,
+    );
+    final episodeLocation = ownLocation is BlockLocation ? ownLocation : null;
 
     return Scaffold(
       appBar: AppBar(title: Text(l10n.blockTileLabel('${block.number}'))),
@@ -133,6 +143,13 @@ class EpisodesScreen extends ConsumerWidget {
                                               ? () => Navigator.of(context)
                                                     .push(
                                                       MaterialPageRoute<void>(
+                                                        settings: RouteSettings(
+                                                          arguments:
+                                                              episodeLocation
+                                                                  ?.withEpisode(
+                                                                    row.episode,
+                                                                  ),
+                                                        ),
                                                         builder: (_) =>
                                                             ScenesScreen(
                                                               episode:
@@ -159,6 +176,12 @@ class EpisodesScreen extends ConsumerWidget {
                                           onPressed: () => Navigator.of(context)
                                               .push(
                                                 MaterialPageRoute<void>(
+                                                  settings: RouteSettings(
+                                                    arguments: episodeLocation
+                                                        ?.withEpisode(
+                                                          row.episode,
+                                                        ),
+                                                  ),
                                                   builder: (_) =>
                                                       ShootingDaysScreen(
                                                         episode: row.episode,

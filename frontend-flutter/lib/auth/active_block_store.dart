@@ -16,12 +16,18 @@ import '../core/result.dart';
 ///
 /// The in-memory sticky scope (`ActiveBlock`) resets on every cold start, so
 /// returning users on multi-block seasons re-face the remembered picker.
-/// This store keeps a `Map<seasonId, blockId>` as a JSON object under [key]
-/// in secure storage — the same seam as `SecureTokenStore` /
+/// This store keeps a `Map<seasonId, PersistedBlockScope>` as a JSON object
+/// under [key] in secure storage — the same seam as `SecureTokenStore` /
 /// `ApiBaseOverrideStore`, so the scope stays identity-scoped and dies with
 /// sign-out (no cross-identity leak, no plaintext-preference spread).
 /// Block ids are not secrets; secure storage is chosen for the
 /// session-lifecycle coupling, not for confidentiality.
+///
+/// **Document shape v2 (issue #548):** values are objects
+/// `{"blockId": …, "number": …}` so the scope chip can render a visible
+/// label. The read path accepts BOTH shapes — the pre-#548 bare-string
+/// values (`{"s1": "b1"}`) load as label-less scopes ("label unknown"
+/// degradation, never a failure) and the next write upgrades the document.
 ///
 /// All methods are [Result]-typed; storage failures are values, never
 /// throws (AGENTS.md §5). A corrupt payload self-heals to `{}` (best-effort
@@ -36,6 +42,47 @@ import '../core/result.dart';
 /// map and resurrect a previous identity's scope. Reads stay unfenced — a
 /// torn read is impossible on one key and either side of a write is a valid
 /// map.
+/// One persisted scope value: the block id plus (since #548) the picked
+/// block's locale-neutral number for the scope chip's visible label.
+/// `blockNumber` is `null` for values read from the pre-#548 bare-string
+/// document shape — the "label unknown" degradation.
+class PersistedBlockScope {
+  const PersistedBlockScope({required this.blockId, this.blockNumber});
+
+  static PersistedBlockScope? fromJson(Object? json) => switch (json) {
+    // Legacy shape (pre-#548): the value IS the block id.
+    final String id => PersistedBlockScope(blockId: id),
+    final Map<Object?, Object?> map when map['blockId'] is String =>
+      PersistedBlockScope(
+        blockId: map['blockId']! as String,
+        blockNumber: switch (map['number']) {
+          final int n => n,
+          _ => null,
+        },
+      ),
+    // Unknown/invalid value shapes degrade to "label unknown" — never a
+    // failure (the entry names no block id, so it is dropped; the gate
+    // re-resolves).
+    _ => null,
+  };
+
+  final String blockId;
+  final int? blockNumber;
+
+  @override
+  bool operator ==(Object other) =>
+      other is PersistedBlockScope &&
+      other.blockId == blockId &&
+      other.blockNumber == blockNumber;
+
+  @override
+  int get hashCode => Object.hash(blockId, blockNumber);
+
+  Object? toJson() => blockNumber == null
+      ? blockId
+      : {'blockId': blockId, 'number': blockNumber};
+}
+
 class ActiveBlockStore {
   ActiveBlockStore(this._storage);
 
@@ -49,25 +96,30 @@ class ActiveBlockStore {
   final FlutterSecureStorage _storage;
   final _WriteMutex _mutex = _WriteMutex();
 
-  /// Reads the persisted scopes, or `{}` when none is stored.
-  Future<Result<Map<String, String>>> readScopes() async {
+  /// Reads the persisted scopes, or `{}` when none is stored. Accepts both
+  /// document shapes (see [PersistedBlockScope]); entries whose value shape
+  /// is neither a bare string nor a v2 object are dropped.
+  Future<Result<Map<String, PersistedBlockScope>>> readScopes() async {
     try {
       final raw = await _storage.read(key: key);
-      if (raw == null || raw.isEmpty) return Right(<String, String>{});
+      if (raw == null || raw.isEmpty) {
+        return Right(<String, PersistedBlockScope>{});
+      }
       final decoded = jsonDecode(raw);
       if (decoded is! Map<String, dynamic>) {
         await _heal();
-        return Right(<String, String>{});
+        return Right(<String, PersistedBlockScope>{});
       }
-      final scopes = <String, String>{};
+      final scopes = <String, PersistedBlockScope>{};
       for (final entry in decoded.entries) {
-        if (entry.value is String) scopes[entry.key] = entry.value as String;
+        final scope = PersistedBlockScope.fromJson(entry.value);
+        if (scope case final scope?) scopes[entry.key] = scope;
       }
       return Right(scopes);
     } catch (e) {
       if (e is FormatException) {
         await _heal();
-        return Right(<String, String>{});
+        return Right(<String, PersistedBlockScope>{});
       }
       return Left(
         ProblemError(code: 'active_block.scopes_read_failed', detail: '$e'),
@@ -75,17 +127,22 @@ class ActiveBlockStore {
     }
   }
 
-  /// Persists the scope for [seasonId] (insert or overwrite).
+  /// Persists the scope for [seasonId] (insert or overwrite); [blockNumber]
+  /// rides along for the scope chip's visible label (issue #548).
   Future<Result<void>> saveScope({
     required String seasonId,
     required String blockId,
+    int? blockNumber,
   }) => _mutex.run(() async {
     final current = await readScopes();
     final scopes = current.getRight().toNullable();
     if (scopes == null) {
       return Left(current.getLeft().toNullable()!);
     }
-    scopes[seasonId] = blockId;
+    scopes[seasonId] = PersistedBlockScope(
+      blockId: blockId,
+      blockNumber: blockNumber,
+    );
     return _writeAll(scopes, 'active_block.scopes_write_failed');
   });
 
@@ -114,7 +171,7 @@ class ActiveBlockStore {
     if (scopes == null) {
       return Left(current.getLeft().toNullable()!);
     }
-    if (scopes[seasonId] != blockId) return const Right(null);
+    if (scopes[seasonId]?.blockId != blockId) return const Right(null);
     scopes.remove(seasonId);
     return _writeAll(scopes, 'active_block.scopes_write_failed');
   });
@@ -134,7 +191,7 @@ class ActiveBlockStore {
   });
 
   Future<Result<void>> _writeAll(
-    Map<String, String> scopes,
+    Map<String, PersistedBlockScope> scopes,
     String code,
   ) async {
     try {
@@ -204,9 +261,8 @@ final activeBlockStoreProvider = Provider<ActiveBlockStore>(
 /// Refresh it (invalidate) after every settled store write so watchers
 /// converge; the sticky-scope hit short-circuits the gate meanwhile, so the
 /// settle window is unobservable.
-final activeBlockPersistedProvider = FutureProvider<Map<String, String>>((
-  ref,
-) async {
-  final res = await ref.watch(activeBlockStoreProvider).readScopes();
-  return res.getRight().toNullable() ?? <String, String>{};
-}, name: 'activeBlockPersisted');
+final activeBlockPersistedProvider =
+    FutureProvider<Map<String, PersistedBlockScope>>((ref) async {
+      final res = await ref.watch(activeBlockStoreProvider).readScopes();
+      return res.getRight().toNullable() ?? <String, PersistedBlockScope>{};
+    }, name: 'activeBlockPersisted');
