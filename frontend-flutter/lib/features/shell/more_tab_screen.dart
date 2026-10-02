@@ -12,8 +12,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../auth/auth_providers.dart';
 import '../../l10n/app_localizations_provider.dart';
 import '../app_info/info_dialog.dart';
-import '../app_info/settings_dialog.dart';
 import '../auth/sign_out.dart';
+import '../settings/settings_screen.dart';
 import '../costume_categories/costume_categories_screen.dart';
 import 'planning_location.dart';
 import 'shell_controller.dart';
@@ -106,7 +106,13 @@ class MoreTabScreen extends ConsumerWidget {
             key: const Key('mehr-settings'),
             leading: const Icon(Icons.settings_outlined),
             title: Text(l10n.commonSettings),
-            onTap: () => showSettingsDialog(context),
+            // Issue #516: full-screen settings (no dialog) — AppBar back
+            // navigation, general vs. development section separation.
+            onTap: () => unawaited(
+              Navigator.of(context).push(
+                MaterialPageRoute<void>(builder: (_) => const SettingsScreen()),
+              ),
+            ),
           ),
           ListTile(
             key: const Key('mehr-signout'),

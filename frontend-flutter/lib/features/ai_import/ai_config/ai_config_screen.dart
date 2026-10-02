@@ -13,6 +13,8 @@ import '../../../core/problem_error.dart';
 import '../../../design/components/xml_prompt_editor.dart';
 import '../../../design/spacing.dart';
 import '../../../l10n/app_localizations_provider.dart';
+import '../clippy/clippy_trigger.dart';
+import '../clippy/karl_klammer_overlay.dart';
 import 'ai_config_controller.dart';
 import 'ai_config_state.dart';
 
@@ -38,77 +40,90 @@ class AiConfigScreen extends ConsumerWidget {
     final state = ref.watch(aiConfigControllerProvider);
     final controller = ref.read(aiConfigControllerProvider.notifier);
 
+    // Karl Klammer flow state (issue #516): first-run (no config) is
+    // the classic Clippy trigger; command errors console; otherwise
+    // idle. Derived ONLY from this screen's own watched state.
+    final clippyState = state.commandError != null
+        ? ClippyFlowState.error
+        : state.isFirstRun
+        ? ClippyFlowState.noConfig
+        : ClippyFlowState.idle;
+
     return Scaffold(
       appBar: AppBar(title: Text(l10nOf(context).aiConfigTitle)),
-      body: ListView(
-        key: const Key('ai-config-screen'),
-        padding: const EdgeInsets.all(16),
-        children: [
-          // Admin-facing AI-literacy helper (EU AI Act Art. 4, issue
-          // #538): persistent ABOVE the forms in BOTH the first-run and
-          // configured states — what the configuration controls, whose
-          // data the configured provider processes, and the duty to
-          // configure honestly. Catalog copy only (inline-copy gate).
-          _LiteracyCard(),
-          if (state.unresolved != null)
-            _UnresolvedCard(
-              unresolved: state.unresolved!,
-              onRecheck: controller.recheckUnresolved,
-              onCleanup: controller.cleanupUnresolved,
-            ),
-          if (state.commandError != null)
-            _Banner(
-              key: const Key('ai-config-error-banner'),
-              text: aiConfigErrorCopy(l10nOf(context), state.commandError!),
-              onDismiss: controller.dismissCommandError,
-            ),
-          if (state.discoveryError != null && state.config == null)
-            if (isAiImportDisabled(state.discoveryError!))
-              // Feature disabled on this instance (wire code
-              // `ai-import.disabled`, issue #422): NOT a load failure —
-              // retrying cannot fix a server configuration flag. Dedicated
-              // honest state WITHOUT a retry affordance.
-              Card(
-                key: const Key('ai-config-disabled'),
-                color: Theme.of(context).colorScheme.errorContainer,
-                child: Padding(
-                  padding: const EdgeInsets.all(AppSpacing.space12),
-                  child: Text(
-                    aiConfigErrorCopy(l10nOf(context), state.discoveryError!),
+      body: KarlKlammerOverlay(
+        flowState: clippyState,
+        child: ListView(
+          key: const Key('ai-config-screen'),
+          padding: const EdgeInsets.all(16),
+          children: [
+            // Admin-facing AI-literacy helper (EU AI Act Art. 4, issue
+            // #538): persistent ABOVE the forms in BOTH the first-run and
+            // configured states — what the configuration controls, whose
+            // data the configured provider processes, and the duty to
+            // configure honestly. Catalog copy only (inline-copy gate).
+            _LiteracyCard(),
+            if (state.unresolved != null)
+              _UnresolvedCard(
+                unresolved: state.unresolved!,
+                onRecheck: controller.recheckUnresolved,
+                onCleanup: controller.cleanupUnresolved,
+              ),
+            if (state.commandError != null)
+              _Banner(
+                key: const Key('ai-config-error-banner'),
+                text: aiConfigErrorCopy(l10nOf(context), state.commandError!),
+                onDismiss: controller.dismissCommandError,
+              ),
+            if (state.discoveryError != null && state.config == null)
+              if (isAiImportDisabled(state.discoveryError!))
+                // Feature disabled on this instance (wire code
+                // `ai-import.disabled`, issue #422): NOT a load failure —
+                // retrying cannot fix a server configuration flag. Dedicated
+                // honest state WITHOUT a retry affordance.
+                Card(
+                  key: const Key('ai-config-disabled'),
+                  color: Theme.of(context).colorScheme.errorContainer,
+                  child: Padding(
+                    padding: const EdgeInsets.all(AppSpacing.space12),
+                    child: Text(
+                      aiConfigErrorCopy(l10nOf(context), state.discoveryError!),
+                    ),
                   ),
-                ),
-              )
+                )
+              else
+                // Failed discovery is NOT "no config exists": rendering the
+                // first-run form here would let the user create a SECOND
+                // credential. The honest state is a retry affordance.
+                Card(
+                  key: const Key('ai-config-discovery-error'),
+                  color: Theme.of(context).colorScheme.errorContainer,
+                  child: Padding(
+                    padding: const EdgeInsets.all(AppSpacing.space12),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          l10nOf(
+                            context,
+                          ).aiConfigDiscoveryError(state.discoveryError!.code),
+                        ),
+                        const SizedBox(height: 8),
+                        OutlinedButton(
+                          key: const Key('ai-config-discovery-retry'),
+                          onPressed: controller.refresh,
+                          child: Text(l10nOf(context).commonRetry),
+                        ),
+                      ],
+                    ),
+                  ),
+                )
+            else if (state.isFirstRun)
+              _FirstRunForm(state: state)
             else
-              // Failed discovery is NOT "no config exists": rendering the
-              // first-run form here would let the user create a SECOND
-              // credential. The honest state is a retry affordance.
-              Card(
-                key: const Key('ai-config-discovery-error'),
-                color: Theme.of(context).colorScheme.errorContainer,
-                child: Padding(
-                  padding: const EdgeInsets.all(AppSpacing.space12),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        l10nOf(context)
-                            .aiConfigDiscoveryError(state.discoveryError!.code),
-                      ),
-                      const SizedBox(height: 8),
-                      OutlinedButton(
-                        key: const Key('ai-config-discovery-retry'),
-                        onPressed: controller.refresh,
-                        child: Text(l10nOf(context).commonRetry),
-                      ),
-                    ],
-                  ),
-                ),
-              )
-          else if (state.isFirstRun)
-            _FirstRunForm(state: state)
-          else
-            _ConfiguredForm(state: state),
-        ],
+              _ConfiguredForm(state: state),
+          ],
+        ),
       ),
     );
   }
