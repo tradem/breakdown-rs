@@ -75,7 +75,7 @@ EpisodeView _episode(String id, String blockId, {int number = 1}) =>
 // --- Harness ----------------------------------------------------------------
 
 class Harness {
-  Harness() {
+  Harness({bool failingCacheRead = false}) {
     db = CacheDatabase(NativeDatabase.memory());
     dao = AiImportJobsCacheDao(db);
     episodes = EpisodeCacheDao(db);
@@ -83,7 +83,9 @@ class Harness {
       overrides: [
         appConfigProvider.overrideWithValue(devAuthConfig),
         aiImportRepositoryProvider.overrideWithValue(
-          AiImportRepository(BreakdownApi(), dao),
+          failingCacheRead
+              ? _FailingCacheReadRepository(dao)
+              : AiImportRepository(BreakdownApi(), dao),
         ),
         cacheDatabaseProvider.overrideWithValue(db),
         episodesListFetchProvider.overrideWith((ref, params) async {
@@ -213,4 +215,39 @@ void main() {
     expect(h.fetchedBlocks, isEmpty);
     expect(find.byKey(const Key('ai-episode-pick-ep-legacy')), findsOneWidget);
   });
+
+  testWidgets('a FAILED job-cache read is a picker ERROR — never the '
+      'cache-wide fallback (no cross-block episode can be picked)', (
+    tester,
+  ) async {
+    final h = Harness(failingCacheRead: true);
+    addTearDown(h.dispose);
+    await h.signIn();
+    await h.dao.upsertAll([_job('job-1', blockId: 'b-1')], DateTime.utc(2026));
+    // Rows that a WRONG cache-wide fallback would happily offer: the
+    // error must win instead.
+    await h.episodes.applySnapshotForBlock('b-1', [
+      _episode('ep-own', 'b-1'),
+    ], DateTime.utc(2026));
+    await h.episodes.applySnapshotForBlock('b-other', [
+      _episode('ep-foreign', 'b-other'),
+    ], DateTime.utc(2026));
+
+    await h.openPicker(tester, 'job-1');
+
+    expect(find.byKey(const Key('ai-episode-picker-error')), findsOneWidget);
+    expect(find.byKey(const Key('ai-episode-pick-ep-own')), findsNothing);
+    expect(find.byKey(const Key('ai-episode-pick-ep-foreign')), findsNothing);
+  });
+}
+
+/// Cache read always fails (simulates a Drift/IO failure): pins that the
+/// picker surfaces the failure instead of mistaking it for a block-less job.
+class _FailingCacheReadRepository extends AiImportRepository {
+  _FailingCacheReadRepository(AiImportJobsCacheDao dao)
+    : super(BreakdownApi(), dao);
+
+  @override
+  Future<Result<List<AiImportJobCacheRow>>> readCached(String sub) async =>
+      const Left(ProblemError(code: 'cache.read_failed'));
 }

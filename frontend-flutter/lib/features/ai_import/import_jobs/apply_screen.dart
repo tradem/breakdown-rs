@@ -6,6 +6,8 @@
 import 'package:breakdown_api/breakdown_api.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:fpdart/fpdart.dart';
+import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../../../auth/auth_providers.dart';
 import '../../../core/problem_error.dart';
@@ -18,6 +20,8 @@ import '../../episodes/episodes_controller.dart';
 import '../../scenes/scenes_controller.dart';
 import 'apply_controller.dart';
 import 'job_status_controller.dart';
+
+part 'apply_screen.g.dart';
 
 /// The apply section (`flutter-ai-import-workflow` task 4.2): the
 /// persisted episode context (or the REQUIRED explicit episode picker),
@@ -348,7 +352,7 @@ Future<EpisodeView?> showEpisodePicker(
     context: context,
     builder: (sheetContext) => Consumer(
       builder: (context, sheetRef, _) {
-        final episodes = sheetRef.watch(_pickerEpisodesProvider(jobId));
+        final episodes = sheetRef.watch(aiEpisodePickerRowsProvider(jobId));
         return SafeArea(
           child: SizedBox(
             height: 400,
@@ -415,50 +419,59 @@ Future<EpisodeView?> showEpisodePicker(
 /// A failed fetch falls back to the block's CACHED rows (offline-first,
 /// retained-stale-rows pattern — a transient failure never renders as an
 /// empty list while stale rows exist); only a failure with an empty cache
-/// surfaces the error. A job without a `block_id` falls back to the
-/// identity-scoped cache read across blocks — the previous behavior.
-final _pickerEpisodesProvider =
-    FutureProvider.family<List<EpisodeView>, String>((ref, jobId) async {
-      final db = ref.watch(cacheDatabaseProvider);
-      final repo = ref.watch(aiImportRepositoryProvider);
+/// surfaces the error. A FAILED cache read surfaces as a picker error —
+/// it is never mistaken for "the job has no block", which would fall back
+/// to the cache-wide read and offer episodes OUTSIDE the job's block. The
+/// cache-wide fallback runs only after a successful lookup establishes
+/// that the job carries no `block_id`.
+@riverpod
+Future<List<EpisodeView>> aiEpisodePickerRows(Ref ref, String jobId) async {
+  final db = ref.watch(cacheDatabaseProvider);
+  final repo = ref.watch(aiImportRepositoryProvider);
 
-      // The job's block scope from the identity-scoped cache row (the same
-      // discipline as `aiJobContext` — never navigation state, never a
-      // second projection lookup for the command payload; the picked id IS
-      // the apply command's own `episode_id`).
-      String sub = '';
-      try {
-        final session = await ref.read(authSessionControllerProvider.future);
-        sub = session?.sub ?? '';
-      } on Object {
-        sub = '';
-      }
-      final rows = await repo.readCached(sub);
-      String? blockId;
-      for (final row in rows.getRight().toNullable() ?? const []) {
-        if (row.id == jobId) {
-          blockId = row.blockId;
-          break;
-        }
-      }
+  // The job's block scope from the identity-scoped cache row (the same
+  // discipline as `aiJobContext` — never navigation state, never a
+  // second projection lookup for the command payload; the picked id IS
+  // the apply command's own `episode_id`).
+  String sub = '';
+  try {
+    final session = await ref.read(authSessionControllerProvider.future);
+    sub = session?.sub ?? '';
+  } on Object {
+    sub = '';
+  }
+  // A failed cache read is a picker ERROR, never a silent "no block":
+  // treating it as block-less would widen the picker beyond the job's
+  // block and let the apply payload reference a foreign episode.
+  final jobRows = switch (await repo.readCached(sub)) {
+    Right(:final value) => value,
+    Left(:final value) => throw value,
+  };
+  String? blockId;
+  for (final row in jobRows) {
+    if (row.id == jobId) {
+      blockId = row.blockId;
+      break;
+    }
+  }
 
-      // No block scope (a job id from an older build, or an un-cached job)
-      // → the legacy cache-wide read.
-      final scopedBlock = blockId;
-      if (scopedBlock == null || scopedBlock.isEmpty) {
-        return EpisodeCacheDao(db).readAllEpisodes();
-      }
+  // No block scope (a job id from an older build, or an un-cached job)
+  // → the legacy cache-wide read.
+  final scopedBlock = blockId;
+  if (scopedBlock == null || scopedBlock.isEmpty) {
+    return EpisodeCacheDao(db).readAllEpisodes();
+  }
 
-      final fetch = await ref.watch(
-        episodesListFetchProvider(scopedBlock, '').future,
-      );
-      return fetch.match((err) async {
-        final cached = await EpisodeCacheDao(db).readByBlock(scopedBlock);
-        if (cached.isNotEmpty) return cached;
-        // Empty cache → surface the failure code (the sheet's error branch).
-        throw err;
-      }, (rows) async => rows);
-    }, name: 'aiEpisodePickerRows');
+  final fetch = await ref.watch(
+    episodesListFetchProvider(scopedBlock, '').future,
+  );
+  return fetch.match((err) async {
+    final cached = await EpisodeCacheDao(db).readByBlock(scopedBlock);
+    if (cached.isNotEmpty) return cached;
+    // Empty cache → surface the failure code (the sheet's error branch).
+    throw err;
+  }, (rows) async => rows);
+}
 
 /// Localized copy for a costume row the apply could not finish, keyed on the
 /// stable wire enum. `_ => commonUnknown` is forward-compat, not dead code: the
