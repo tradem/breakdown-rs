@@ -230,6 +230,7 @@
   "aiApplyUnappliedReasonCreateRejected": "the costume could not be created",
   "aiApplyUnappliedReasonNotesRejected": "costume created, description refused",
   "aiApplyUnappliedReasonBindingRejected": "costume created, binding refused (unassigned)",
+  "aiApplyUnappliedReasonBeatRejected": "costume created, scene costume beat refused",
   "aiConfigStoredPromptNote": "A stored prompt is in effect — it does not follow deployment defaults.",
   "aiConfigResetPrompt": "Reset to default",
   "aiConfigDefaultPromptNote": "No stored prompt — the deployment default is in effect.",

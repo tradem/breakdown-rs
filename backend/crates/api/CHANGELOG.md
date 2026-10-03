@@ -45,6 +45,19 @@ commits (ADR-020 D5).
 - **No version bump:** the pending, still-unreleased 0.14.0 window already
   carries the MINOR bump for issue #543's additive API.
 
+### Changed — apply report distinguishes a refused beat from the ungrounded drop (issue #546 §5.8)
+
+- `UnappliedCostumeReason` gains the additive enum value `beat_rejected`: a
+  costume that was created and bound but whose `AddCostumeBeat` was refused
+  by the scene (e.g. a concurrent manual edit removed the figure). A
+  reviewer now sees "the scene relation is missing" distinctly from the
+  plan-time `character_not_planned` drop ("the costume never existed").
+- `openapi.yaml` regenerated (`UPDATE_OPENAPI=1`); vendored
+  `frontend-flutter/vendor/breakdown_api/` regenerated via
+  `frontend-flutter/scripts/regen-client.sh`; Flutter reason copy
+  (`aiApplyUnappliedReasonBeatRejected`, de/en) + switch arm in the apply
+  screen.
+
 ### Added — costume detail edit + delete routes (issue #544)
 
 - `PATCH /v1/costumes/{id}/details/{detail_id}` and

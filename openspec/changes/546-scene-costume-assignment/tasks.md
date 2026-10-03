@@ -77,9 +77,14 @@ goldens, `docs/design/screens/scenes.md`).
       correlated subquery pattern (issue #550 shape), enriched with
       character name + costume identity (category + icon via the current
       model) joining `projection_character` / `projection_costume`.
-- [ ] **2.5 Infra tests**: projector for all four events incl. version-guard
+- [x] **2.5 Infra tests**: projector for all four events incl. version-guard
       redelivery; migration up/down; FK cascade when the scene row
-      disappears.
+      disappears. (Delivered across PR #578 + the §5.8 PR:
+      `crates/integration-tests/tests/scene_costume_beats.rs` covers all four
+      projector branches, the PK backstop and the FK cascade;
+      `beat_projector_redelivery_is_idempotent_under_guard_parent` pins the
+      `guard_parent` redelivery behaviour; migration up/down is covered by
+      the global `migrations_are_reversible` harness.)
 
 ## 3. API
 
@@ -127,3 +132,38 @@ goldens, `docs/design/screens/scenes.md`).
 - [x] **5.4** `docs/design/screens/scenes.md` (nine sections + Salt
       wireframe), `scripts/check-design-diagrams.sh` green; widget tests +
       first scene-screen goldens.
+
+## 6. AI-import persistence (§5.8 — the apply persists the scene relation)
+
+- [x] **6.1** OpenSpec delta `specs/ai-import/spec.md` (MODIFIED requirement
+      "Idempotent upsert apply via user-driven mapping"): the apply persists
+      `AssignCharacter`×n before the beats, `AddCostumeBeat` per accepted
+      costume in per-figure plan order, `scene_costume_beat` mapping rows;
+      re-apply adds no second beat; the report distinguishes "dropped as
+      ungrounded" from a refused beat.
+- [x] **6.2 Core** (`crates/core/src/ai/`): `mapping_kind::SCENE_COSTUME_BEAT`
+      (additive constant); pure per-figure re-grouping of the row's flat
+      costume list (`scene_beat_lanes`, plan order kept, per-figure 0..n-1,
+      unit-tested); `UnappliedCostumeReason::BeatRejected` (additive wire
+      variant) so a refused beat never looks like the plan-time drop.
+- [x] **6.3 Infra apply worker** (`crates/infra/src/ai/workers.rs`):
+      `AssignCharacter` per figure of the row on the scene stream (before any
+      beat; `CharacterAlreadyAssigned` and a stale version are recovery, not
+      failure), `AddCostumeBeat` per costume after its chain succeeded;
+      `scene_costume_beat` mapping rows keyed by the figure's mapping
+      reference + per-figure ordinal, `aggregate_id` = scene id; the
+      scene-stream version is maintained jointly across the `scene` row and
+      the beat rows (max-read on recovery, only-moves-forward confirms,
+      collision documented at the worker).
+- [x] **6.4 Worker tests**: pinned chain arithmetic (exactly one event per
+      step, mapping versions record the phases), re-apply adds no second
+      beat, crash recovery between the chain steps resumes at the right
+      phase, drop-vs-beat report distinction.
+- [x] **6.5 Wire + client (single-PR closure, user decision 2026-10-03):
+      additive `beat_rejected` enum value regenerated into
+      `backend/openapi.yaml` and `vendor/breakdown_api/`; Flutter reason copy
+      (`aiApplyUnappliedReasonBeatRejected`, de/en) + switch arm. Overrides
+      the handoff's "no wire change" assumption — without it the refused-beat
+      case would be indistinguishable from the ungrounded drop on the wire.
+- [x] **6.6** `openspec validate 546-scene-costume-assignment --strict`
+      passes.

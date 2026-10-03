@@ -427,5 +427,7 @@ String aiUnappliedCostumeReasonCopy(
     l10n.aiApplyUnappliedReasonNotesRejected,
   UnappliedCostumeReason.bindingRejected =>
     l10n.aiApplyUnappliedReasonBindingRejected,
+  UnappliedCostumeReason.beatRejected =>
+    l10n.aiApplyUnappliedReasonBeatRejected,
   _ => l10n.commonUnknown,
 };

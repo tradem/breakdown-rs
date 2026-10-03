@@ -1486,6 +1486,12 @@ abstract class AppLocalizations {
   /// **'Kostüm angelegt, Bindung abgelehnt (unzugeordnet)'**
   String get aiApplyUnappliedReasonBindingRejected;
 
+  /// No description provided for @aiApplyUnappliedReasonBeatRejected.
+  ///
+  /// In de, this message translates to:
+  /// **'Kostüm angelegt, Kostümwechsel in der Szene abgelehnt'**
+  String get aiApplyUnappliedReasonBeatRejected;
+
   /// No description provided for @aiConfigStoredPromptNote.
   ///
   /// In de, this message translates to:

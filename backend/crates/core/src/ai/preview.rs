@@ -501,6 +501,13 @@ pub enum UnappliedCostumeReason {
     /// The costume exists but `AssignCostumeToCharacter` was rejected; it stays
     /// unassigned and correctable (spec `costume-character-binding`).
     BindingRejected,
+    /// The costume exists and is bound to its figure, but `AddCostumeBeat` was
+    /// refused by the scene (issue #546 §5.8) — e.g. a concurrent manual edit
+    /// removed the figure from the scene between the assign and the beat. The
+    /// scene relation is missing while the costume itself is fine: this must
+    /// never look like the plan-time drop ([`Self::CharacterNotPlanned`]),
+    /// where the costume never came into existence at all.
+    BeatRejected,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -659,6 +666,63 @@ pub fn plan_scene_apply(
         });
     }
     Ok(plan)
+}
+
+/// One costume beat slot of a figure's lane: the costume in plan order plus
+/// its PER-FIGURE position, which is what the `scene_costume_beat` mapping
+/// rows are addressed by (issue #546 §5.8).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CostumeBeatSlot<'a> {
+    /// Position of this costume among the figure's beats of the row,
+    /// 0..n-1 in plan order — deliberately NOT the row-flat `ordinal`, which
+    /// two figures would collide on.
+    pub per_figure_order: usize,
+    pub costume: &'a CostumeApplyPlan,
+}
+
+/// One figure's lane of the scene-apply chain: the figure itself plus its
+/// costume beats, filtered from the row's flat costume list (issue #546
+/// §5.8). Pure re-grouping — no extraction behaviour, no LLM call.
+#[derive(Debug, Clone)]
+pub struct SceneBeatLane<'a> {
+    pub character: &'a CharacterApplyPlan,
+    /// The figure's costumes of this row, plan order kept, numbered per
+    /// figure 0..n-1. A costume whose identity matches no figure of the row
+    /// never appears in any lane — [`ScriptApplyPlan::unapplied_costumes`]
+    /// already reported it at plan time.
+    pub beats: Vec<CostumeBeatSlot<'a>>,
+}
+
+/// Re-group a draft row's flat costume list into per-figure beat lanes.
+///
+/// The extraction produces `costumes` flat across all figures with the
+/// ordinal as a PER-SCENE position, while `AddCostumeBeat` orders per figure
+/// (aggregate-computed `max + 1`) and the beat mapping rows need a
+/// collision-free per-figure address. This function is the single place
+/// that defines the mapping between the two: filter the row's costumes by
+/// the lane figure's identity, keep the plan order, number 0..n-1 per
+/// figure.
+pub fn scene_beat_lanes(row: &SceneApplyPlan) -> Vec<SceneBeatLane<'_>> {
+    row.characters
+        .iter()
+        .map(|character| {
+            let mut per_figure_order = 0usize;
+            let beats = row
+                .costumes
+                .iter()
+                .filter(|costume| costume.character_identity == character.identity)
+                .map(|costume| {
+                    let slot = CostumeBeatSlot {
+                        per_figure_order,
+                        costume,
+                    };
+                    per_figure_order += 1;
+                    slot
+                })
+                .collect();
+            SceneBeatLane { character, beats }
+        })
+        .collect()
 }
 
 /// Deterministic, unique and document-traceable reference for a preview row.

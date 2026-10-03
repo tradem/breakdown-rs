@@ -230,6 +230,7 @@
   "aiApplyUnappliedReasonCreateRejected": "Kostüm konnte nicht angelegt werden",
   "aiApplyUnappliedReasonNotesRejected": "Kostüm angelegt, Beschreibung abgelehnt",
   "aiApplyUnappliedReasonBindingRejected": "Kostüm angelegt, Bindung abgelehnt (unzugeordnet)",
+  "aiApplyUnappliedReasonBeatRejected": "Kostüm angelegt, Kostümwechsel in der Szene abgelehnt",
   "aiConfigStoredPromptNote": "Gespeicherter Prompt aktiv – folgt nicht den Deployment-Voreinstellungen.",
   "aiConfigResetPrompt": "Auf Voreinstellung zurücksetzen",
   "aiConfigDefaultPromptNote": "Kein gespeicherter Prompt – die Deployment-Voreinstellung gilt.",

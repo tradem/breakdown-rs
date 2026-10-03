@@ -41,7 +41,7 @@ abstract class UnappliedCostume
 
   @BuiltValueField(wireName: r'reason')
   UnappliedCostumeReason get reason;
-  // enum reasonEnum {  character_not_planned,  character_unavailable,  create_rejected,  notes_rejected,  binding_rejected,  };
+  // enum reasonEnum {  character_not_planned,  character_unavailable,  create_rejected,  notes_rejected,  binding_rejected,  beat_rejected,  };
 
   UnappliedCostume._();
 
