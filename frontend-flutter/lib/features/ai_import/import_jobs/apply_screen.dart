@@ -417,51 +417,48 @@ Future<EpisodeView?> showEpisodePicker(
 /// empty list while stale rows exist); only a failure with an empty cache
 /// surfaces the error. A job without a `block_id` falls back to the
 /// identity-scoped cache read across blocks — the previous behavior.
-final _pickerEpisodesProvider = FutureProvider.family<List<EpisodeView>, String>(
-  (ref, jobId) async {
-  final db = ref.watch(cacheDatabaseProvider);
-  final repo = ref.watch(aiImportRepositoryProvider);
+final _pickerEpisodesProvider =
+    FutureProvider.family<List<EpisodeView>, String>((ref, jobId) async {
+      final db = ref.watch(cacheDatabaseProvider);
+      final repo = ref.watch(aiImportRepositoryProvider);
 
-  // The job's block scope from the identity-scoped cache row (the same
-  // discipline as `aiJobContext` — never navigation state, never a
-  // second projection lookup for the command payload; the picked id IS
-  // the apply command's own `episode_id`).
-  String sub = '';
-  try {
-    final session = await ref.read(authSessionControllerProvider.future);
-    sub = session?.sub ?? '';
-  } on Object {
-    sub = '';
-  }
-  final rows = await repo.readCached(sub);
-  String? blockId;
-  for (final row in rows.getRight().toNullable() ?? const []) {
-    if (row.id == jobId) {
-      blockId = row.blockId;
-      break;
-    }
-  }
+      // The job's block scope from the identity-scoped cache row (the same
+      // discipline as `aiJobContext` — never navigation state, never a
+      // second projection lookup for the command payload; the picked id IS
+      // the apply command's own `episode_id`).
+      String sub = '';
+      try {
+        final session = await ref.read(authSessionControllerProvider.future);
+        sub = session?.sub ?? '';
+      } on Object {
+        sub = '';
+      }
+      final rows = await repo.readCached(sub);
+      String? blockId;
+      for (final row in rows.getRight().toNullable() ?? const []) {
+        if (row.id == jobId) {
+          blockId = row.blockId;
+          break;
+        }
+      }
 
-  // No block scope (a job id from an older build, or an un-cached job)
-  // → the legacy cache-wide read.
-  final scopedBlock = blockId;
-  if (scopedBlock == null || scopedBlock.isEmpty) {
-    return EpisodeCacheDao(db).readAllEpisodes();
-  }
+      // No block scope (a job id from an older build, or an un-cached job)
+      // → the legacy cache-wide read.
+      final scopedBlock = blockId;
+      if (scopedBlock == null || scopedBlock.isEmpty) {
+        return EpisodeCacheDao(db).readAllEpisodes();
+      }
 
-  final fetch = await ref.watch(
-    episodesListFetchProvider(scopedBlock, '').future,
-  );
-  return fetch.match(
-    (err) async {
-      final cached = await EpisodeCacheDao(db).readByBlock(scopedBlock);
-      if (cached.isNotEmpty) return cached;
-      // Empty cache → surface the failure code (the sheet's error branch).
-      throw err;
-    },
-    (rows) async => rows,
-  );
-}, name: 'aiEpisodePickerRows');
+      final fetch = await ref.watch(
+        episodesListFetchProvider(scopedBlock, '').future,
+      );
+      return fetch.match((err) async {
+        final cached = await EpisodeCacheDao(db).readByBlock(scopedBlock);
+        if (cached.isNotEmpty) return cached;
+        // Empty cache → surface the failure code (the sheet's error branch).
+        throw err;
+      }, (rows) async => rows);
+    }, name: 'aiEpisodePickerRows');
 
 /// Localized copy for a costume row the apply could not finish, keyed on the
 /// stable wire enum. `_ => commonUnknown` is forward-compat, not dead code: the

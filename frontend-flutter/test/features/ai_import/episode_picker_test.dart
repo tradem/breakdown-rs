@@ -144,9 +144,7 @@ class Harness {
 
 void main() {
   testWidgets('live fetch: the job block\'s episodes from the READ API, '
-      'not the cache — a fresh install can assign its episode', (
-    tester,
-  ) async {
+      'not the cache — a fresh install can assign its episode', (tester) async {
     final h = Harness()..fetchResult = Right([_episode('ep-1', 'b-1')]);
     addTearDown(h.dispose);
     await h.signIn();
@@ -185,9 +183,10 @@ void main() {
   testWidgets('fetch failure with an EMPTY cache surfaces the error branch', (
     tester,
   ) async {
-    final h = Harness()..fetchResult = const Left(
-      ProblemError(code: 'transport.connectionTimeout'),
-    );
+    final h = Harness()
+      ..fetchResult = const Left(
+        ProblemError(code: 'transport.connectionTimeout'),
+      );
     addTearDown(h.dispose);
     await h.signIn();
     await h.dao.upsertAll([_job('job-1', blockId: 'b-1')], DateTime.utc(2026));
