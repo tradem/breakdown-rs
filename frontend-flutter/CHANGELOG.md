@@ -18,6 +18,30 @@ releases are cut as `flutter-vX.Y.Z` tags.
 
 ## [Unreleased]
 
+### Fixed
+
+- **AI-import apply: the episode picker live-fetches the JOB'S BLOCK
+  episodes** (found while testing issue #581 on device): the picker read
+  ONLY the local Drift cache, so a fresh install (or any episode the user
+  had not visited before) rendered an empty/unassignable list — the target
+  episode could not be picked and apply stayed disabled. The picker now
+  scopes a live `GET /v1/episodes?block_id=…` through the shared
+  `episodesListFetchProvider` seam, keyed on the cached job row's
+  `block_id` (the same identity-scoped read discipline as `aiJobContext`).
+  Offline-first fallback chain: fetch failure + cached block rows → cached
+  rows (never an empty list while stale rows exist); failure + empty cache
+  → the error branch; job without a `block_id` → the previous cache-wide
+  read. Copy de-"cached"-ed (en/de) and regenerated.
+- **Apply outcome no longer abandons the import flow:** the
+  `ai-apply-open-episode` button popped to the app start, stranding the
+  user away from the import surface. It now pops to the named
+  `ai-import-jobs` route when the jobs screen is on the stack (the
+  standard entry — review the job or start the next import); only a
+  preview reached without the jobs screen falls back to the app start.
+- **Version bump:** `0.3.0-alpha.39+49 → 0.3.0-alpha.40+50` (pre-release
+  increment per merged-PR practice on the alpha line; `+N` stays strictly
+  monotonic for the Play `versionCode`).
+
 ### Added
 - **AI-import jobs view (issue #547):** a started import job is no longer
   lost once the status screen is left — the previously-unused

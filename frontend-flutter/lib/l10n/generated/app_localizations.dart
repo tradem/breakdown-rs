@@ -1600,11 +1600,11 @@ abstract class AppLocalizations {
   /// **'Angewendet: {applied} Entwurf(e): {days} Drehtag(e) erstellt, {shoots} Szenen-Dreh(e) geplant.'**
   String aiApplyOutcome(Object applied, Object days, Object shoots);
 
-  /// No description provided for @aiApplyBackToStart.
+  /// No description provided for @aiApplyBackToImports.
   ///
   /// In de, this message translates to:
-  /// **'Zurück zum Start'**
-  String get aiApplyBackToStart;
+  /// **'Zurück zu den Importen'**
+  String get aiApplyBackToImports;
 
   /// No description provided for @aiScenePickerError.
   ///
@@ -1627,13 +1627,13 @@ abstract class AppLocalizations {
   /// No description provided for @aiEpisodePickerError.
   ///
   /// In de, this message translates to:
-  /// **'Zwischengespeicherte Episoden konnten nicht gelesen werden ({error}).'**
+  /// **'Episoden konnten nicht geladen werden ({error}).'**
   String aiEpisodePickerError(Object error);
 
   /// No description provided for @aiEpisodePickerEmpty.
   ///
   /// In de, this message translates to:
-  /// **'Keine zwischengespeicherten Episoden – öffne zuerst einen Produktionsblock und wähle dann.'**
+  /// **'Keine Episoden in diesem Block – lege zuerst eine Episode im Drehplan an.'**
   String get aiEpisodePickerEmpty;
 
   /// No description provided for @aiImportTitle.
