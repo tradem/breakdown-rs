@@ -11,15 +11,32 @@ A `Scene` SHALL reference exactly one `Episode` via an `episode_id: EpisodeId` f
 - **THEN** the aggregate SHALL emit `SceneCreated { id, episode_id, details, assigned_characters, version }` where `details` carries `summary` and `script_day`, and SHALL NOT carry any `project_id` field
 
 ### Requirement: Scene read model reflects episode scoping
-The scene projection SHALL store `episode_id` and SHALL expose queries for Scenes by `episode_id`. Existing queries by `project_id` SHALL be removed. The scene projection SHALL additionally store `script_day` and SHALL expose queries for Scenes by `script_day` (exact or case-insensitive like match).
+
+The scene projection SHALL store `episode_id` and SHALL expose queries for
+Scenes by `episode_id`. Existing queries by `project_id` SHALL be removed. The
+scene projection SHALL additionally store `script_day` and SHALL expose
+queries for Scenes by `script_day` (exact or case-insensitive like match).
+The scene read model SHALL additionally expose the scene's ordered costume
+beats (`costume_beats`, see `scene-costume-assignment`) resolved per
+(character, order) with character and costume identity enriched by join.
 
 #### Scenario: Listing scenes of an episode
+
 - **WHEN** a query requests all Scenes of `Episode E`
-- **THEN** the read model SHALL return Scenes whose `episode_id = E`, ordered by their scene number
+- **THEN** the read model SHALL return Scenes whose `episode_id = E`, ordered
+  by their scene number
 
 #### Scenario: Finding scenes by script day
-- **WHEN** a query requests scenes with `script_day = "1. Spieltag"` (or a case-insensitive match)
+
+- **WHEN** a query requests scenes with `script_day = "1. Spieltag"` (or a
+  case-insensitive match)
 - **THEN** the read model SHALL return all matching scenes across episodes
+
+#### Scenario: Reading costume beats with the scene
+
+- **WHEN** a scene read request is served for a scene with costume beats
+- **THEN** the returned view SHALL include the beats resolved with character
+  and costume identity, ordered per character
 
 ### Requirement: Scene commands and events carry no project_id
 No `Scene` command (`CreateScene`, `UpdateSceneDetails`, `AssignCharacter`, `RemoveCharacter`) or `SceneEvent` variant SHALL contain a `project_id` field. All references SHALL be `episode_id` (on creation) or `id` (on mutation, scoped to the aggregate stream).

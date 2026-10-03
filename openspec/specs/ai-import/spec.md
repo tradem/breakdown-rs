@@ -11,9 +11,7 @@ context with its own `AiConfig` aggregate; imports are operational jobs
 merge deterministically onto applied scenes, and applies dispatch existing
 commands idempotently via a user-driven mapping projection. Telemetry is
 captured from day one, and all endpoints are authorization-gated.
-
 ## Requirements
-
 ### Requirement: AI bounded context is separate from Settings
 The system SHALL model AI provider/model/prompt configuration in a dedicated
 `ai` bounded context (`crates/core/src/ai`) with its own `AiConfig` aggregate.
@@ -185,6 +183,34 @@ character name, by dispatching the existing `CreateCostume`, then
 `UpdateCostumeNotes` (which carries the extracted description —
 `CreateCostume` has no description field), then `AssignCostumeToCharacter`.
 
+A draft row's scene relation SHALL be persisted (issue #546 §5.8): after the
+row's scene step, the apply SHALL dispatch `AssignCharacter` for every figure
+of the row on the row's scene stream — before any beat of that row — and then
+`AddCostumeBeat` for every accepted costume, in the costume's plan order,
+grouped per figure. A beat SHALL only be attempted for a costume whose
+`Costume` chain fully succeeded (created, noted, bound); a costume that was
+dropped as ungrounded SHALL never surface as a beat attempt. Beat mapping rows
+SHALL use `aggregate_kind = 'scene_costume_beat'`, be addressed by the
+figure's preview-wide mapping reference as `draft_ref` (the same reference the
+`character` rows use) with `ordinal` = the costume's per-figure position
+0..n-1 from the plan-order re-grouping, and carry the scene aggregate id —
+per-figure position, not the row-flat costume ordinal, because two figures of
+one row would otherwise share one mapping row and the second figure's first
+beat would silently never be applied.
+
+The scene-stream version SHALL be maintained jointly by the row's `scene`
+mapping row and its `scene_costume_beat` rows: both kinds hold versions of the
+SAME aggregate stream, so a reader recovering the stream version SHALL take the
+maximum across all of the row's rows, and confirms SHALL stay only-moves-
+forward so a late duplicate can never roll a confirmed phase back. Every step
+of the chain (`CreateScene` → `AssignCharacter`×n → `AddCostumeBeat`×m) SHALL
+append exactly one event. Re-applying the same preview SHALL NOT add a second
+beat: a confirmed `scene_costume_beat` row skips the dispatch. The reviewer
+report SHALL distinguish a costume dropped as ungrounded (never created) from
+a costume whose scene relation could not be established (the `Costume` exists
+and is bound, but `AddCostumeBeat` was refused) — the two SHALL NOT be
+reported with the same reason.
+
 A figure SHALL be deduplicated across the WHOLE preview by a normalised name
 identity (trimmed, case-folded, internal whitespace collapsed), not per draft
 row, and SHALL be keyed in the mapping as an `aggregate_kind = 'character'` row
@@ -220,6 +246,38 @@ instead of creating an unbindable costume.
 - **AND** each costume row SHALL be persisted in the mapping with
   `aggregate_kind = 'costume'` and its own ordinal
 - **AND** re-applying the same preview SHALL skip both costumes (no duplicates)
+
+#### Scenario: The apply persists the scene relation as ordered beats
+- **WHEN** an accepted draft row names two figures and carries one costume for
+  each
+- **THEN** the apply SHALL dispatch `AssignCharacter` for both figures on the
+  row's scene stream before any beat
+- **AND** each costume SHALL be dispatched as `AddCostumeBeat` on the scene
+  stream after its `Costume` is bound, in plan order
+- **AND** each beat SHALL be persisted as a `scene_costume_beat` mapping row
+  addressed by the figure's mapping reference and its per-figure position,
+  carrying the scene aggregate id
+
+#### Scenario: Re-applying a preview adds no second beat
+- **WHEN** an apply that already added a costume beat to a scene is retried
+- **THEN** the confirmed `scene_costume_beat` mapping row SHALL skip the
+  `AddCostumeBeat` dispatch
+- **AND** the scene SHALL NOT carry a duplicate beat
+
+#### Scenario: The scene chain appends exactly one event per step
+- **WHEN** a draft row with two figures and two costumes is applied
+- **THEN** the scene stream SHALL carry exactly one event per chain step:
+  create, one assign per figure, one beat per costume
+- **AND** the mapping rows SHALL record the scene-stream version after every
+  confirmed step, so a retry re-drives only the steps above the stored version
+
+#### Scenario: A costume beat that cannot be added is reported distinctly
+- **WHEN** `AddCostumeBeat` is refused for a costume whose `Costume` chain
+  succeeded (e.g. a concurrent manual edit removed the figure from the scene)
+- **THEN** the reviewer report SHALL surface the costume with a reason
+  distinct from the plan-time ungrounded drop
+- **AND** a costume dropped as ungrounded SHALL never be reported as a beat
+  failure, and vice versa
 
 #### Scenario: One figure mentioned in many rows becomes one aggregate
 - **WHEN** a preview names the same figure, in differing case or spacing, across
@@ -432,3 +490,4 @@ It SHALL NOT hard-code a placeholder confidence value.
 - **THEN** it deserializes losslessly as `Some(...)`
 - **WHEN** the current apply creates a shooting day
 - **THEN** the persisted provenance carries `confidence: null`
+
