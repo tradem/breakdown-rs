@@ -2558,6 +2558,7 @@ components:
       - create_rejected
       - notes_rejected
       - binding_rejected
+      - beat_rejected
       type: string
     Uncertainty:
       properties:

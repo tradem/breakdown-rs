@@ -17,6 +17,27 @@ commits (ADR-020 D5).
 
 ## [0.16.0] - Unreleased
 
+### Added — AI-import persistence of the scene relation (issue #546 §5.8)
+
+- `mapping_kind::SCENE_COSTUME_BEAT`: one mapping row per applied costume
+  beat, addressed by the figure's preview-wide mapping reference (the same
+  `draft_ref` the `character` rows use) plus the costume's PER-FIGURE
+  position — per-figure, not the row-flat ordinal, because two figures of
+  one row would otherwise share a row and the second figure's first beat
+  would silently never be applied. `aggregate_id` is the scene the beat was
+  added to.
+- `scene_beat_lanes` (+ `SceneBeatLane`/`CostumeBeatSlot`): pure re-grouping
+  of a draft row's flat costume list into per-figure beat lanes — filter by
+  `character_identity`, plan order kept, numbered per figure 0..n-1. No
+  extraction behaviour, no LLM call.
+- `UnappliedCostumeReason::BeatRejected` (additive wire enum value): a
+  costume that exists and is bound but whose `AddCostumeBeat` was refused
+  (e.g. a concurrent manual edit removed the figure from the scene) — never
+  to be confused with the plan-time `CharacterNotPlanned` drop, where the
+  costume never came into existence at all.
+- **No additional bump:** additive API — rides with the open, still-
+  unreleased 0.16.0 window.
+
 ### Added — ordered scene costume beats (issue #546)
 
 - New aggregate state `SceneAggregate.costume_beats:

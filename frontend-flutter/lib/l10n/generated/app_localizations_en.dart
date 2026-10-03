@@ -863,6 +863,10 @@ class AppLocalizationsEn extends AppLocalizations {
       'costume created, binding refused (unassigned)';
 
   @override
+  String get aiApplyUnappliedReasonBeatRejected =>
+      'costume created, scene costume beat refused';
+
+  @override
   String get aiConfigStoredPromptNote =>
       'A stored prompt is in effect — it does not follow deployment defaults.';
 

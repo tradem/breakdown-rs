@@ -18,7 +18,7 @@ use breakdown_core::ai::{
     SceneApplyPlan, ScriptContext, ShootingSchedule, SourceFormat, Telemetry, TelemetryApplyState,
     UnappliedCostume, UnappliedCostumeReason, Uncertainty, UncertaintyKind, character_mapping_ref,
     draft_row_ref, ensure_merge_applyable, extract_scenes, mapping_kind, merge_schedule_to_scenes,
-    plan_scene_apply, stable_draft_ref, verify_draft_costumes,
+    plan_scene_apply, scene_beat_lanes, stable_draft_ref, verify_draft_costumes,
 };
 use breakdown_core::character::category::CharacterCategory;
 use breakdown_core::character::commands::CreateCharacter;
@@ -28,7 +28,8 @@ use breakdown_core::costume::commands::{
 };
 use breakdown_core::costume::ports::CostumeCommands;
 use breakdown_core::error::DomainError;
-use breakdown_core::scene::commands::CreateScene;
+use breakdown_core::error_registry::{SCENE_CHARACTER_ALREADY_ASSIGNED, SCENE_VALIDATION};
+use breakdown_core::scene::commands::{AddCostumeBeat, AssignCharacter, CreateScene};
 use breakdown_core::scene::events::{SceneDetails, SceneSource};
 use breakdown_core::scene::ports::SceneCommands;
 use breakdown_core::shared::{AggregateVersion, EpisodeId, SeasonId, SeriesId, UserId};
@@ -744,6 +745,12 @@ pub struct ScriptApplyResult {
     /// keying a figure's mapping row by its name identity.
     pub created_characters: u32,
     pub created_costumes: u32,
+    /// Costume beats this apply appended to the row scenes' streams (issue
+    /// #546 §5.8). A settled beat (already present from an earlier apply) is
+    /// not counted again. Infra-internal reporting: the wire response carries
+    /// the per-costume refusals (`unapplied_costumes`), from which the applied
+    /// beats are exactly the accepted costumes absent from that list.
+    pub created_costume_beats: u32,
     /// Costumes that did not become a `Costume`, each with its reason. Reported,
     /// never dropped: a silently missing costume is the failure mode this change
     /// exists to remove (design D5).
@@ -767,9 +774,25 @@ enum Figure {
 struct CostumeAttempt {
     /// This call appended a `CostumeCreated`.
     created: bool,
+    /// The costume's aggregate id — the beat step binds it into the row's
+    /// scene stream (issue #546 §5.8).
+    costume_id: Uuid,
     /// `Some` when the row did not reach a bound costume, with the reason the
     /// reviewer sees.
     failure: Option<(UnappliedCostumeReason, String)>,
+}
+
+/// What one beat dispatch produced (issue #546 §5.8).
+enum BeatAttempt {
+    /// This call appended the `CostumeBeatAdded`.
+    Appended,
+    /// The beat already exists (confirmed mapping row, a folded replay or
+    /// the identical-last guard): settled without appending.
+    Settled,
+    /// The scene refused the beat for a costume that is fully applied —
+    /// reported to the reviewer as `BeatRejected`, distinct from the
+    /// plan-time drop where the costume never came into existence.
+    Refused(DomainError),
 }
 
 /// Split "the domain refused this row" from "a dependency is down".
@@ -887,6 +910,24 @@ pub struct UuidVersion {
     pub version: breakdown_core::shared::AggregateVersion,
 }
 
+/// Where one costume beat's command points. Bundled so `apply_costume_beat`
+/// stays under the `too_many_arguments` lint (an `#[allow]` would violate
+/// AGENTS.md §3, cf. `CostumeDispatch`).
+struct BeatDispatch<'a> {
+    actor: UserId,
+    preview_id: AiImportJobId,
+    series_id: Option<SeriesId>,
+    /// The scene aggregate the beat mutates — the stream whose version the
+    /// row's mapping rows jointly track.
+    scene_id: Uuid,
+    character_id: Uuid,
+    costume: &'a CostumeApplyPlan,
+    per_figure_order: usize,
+    costume_id: Uuid,
+    /// The running scene-stream version of the row, advanced in place.
+    scene_version: &'a mut AggregateVersion,
+}
+
 impl<C, CH, CO, M, Q> ApplyWorker<C, CH, CO, M, Q>
 where
     C: SceneCommands + 'static,
@@ -949,17 +990,69 @@ where
                 }
             }
 
-            for costume in &row.costumes {
-                let key = character_mapping_ref(&costume.character_identity);
-                let character_id = match figures.get(&key) {
+            // ── Scene relation (issue #546 §5.8) ──
+            // ScenePhases: the row's `scene` mapping row and its
+            // `scene_costume_beat` rows hold versions of the SAME stream (the
+            // scene aggregate). Recover the stream version as the MAX across
+            // all of them — a single row can lag the stream when a previous
+            // apply crashed between a beat append and its confirm. Confirms
+            // stay only-moves-forward, so no row can exceed the stream and
+            // the max is exact at every quiet point.
+            let lanes = scene_beat_lanes(row);
+            let mut scene_version = scene.version;
+            for lane in &lanes {
+                let lane_ref = character_mapping_ref(&lane.character.identity);
+                for slot in &lane.beats {
+                    let stored = self
+                        .mappings
+                        .find(
+                            preview_id,
+                            &lane_ref,
+                            mapping_kind::SCENE_COSTUME_BEAT,
+                            ordinal_of(slot.per_figure_order)?, // ast-grep-ignore: cqrs-boundary
+                        )
+                        .await?;
+                    if let Some(stored) = stored {
+                        scene_version = scene_version.max(stored.aggregate_version);
+                    }
+                }
+            }
+
+            // One `AssignCharacter` per figure of the row, BEFORE any beat:
+            // a beat may only exist for a figure in `assigned_characters`
+            // (the handler answers 422 `scene.character-not-in-scene`
+            // otherwise).
+            for lane in &lanes {
+                let Some(Figure::Resolved(resolved)) =
+                    figures.get(&character_mapping_ref(&lane.character.identity))
+                else {
+                    // Unavailable figures are reported per costume below.
+                    continue;
+                };
+                scene_version = self
+                    .assign_figure_to_scene(
+                        actor.clone(),
+                        series_id,
+                        scene.aggregate_id,
+                        resolved.aggregate_id,
+                        scene_version,
+                    )
+                    .await?;
+            }
+
+            for lane in &lanes {
+                let lane_ref = character_mapping_ref(&lane.character.identity);
+                let character_id = match figures.get(&lane_ref) {
                     Some(Figure::Resolved(resolved)) => resolved.aggregate_id,
                     Some(Figure::Unavailable(detail)) => {
-                        result.unapplied_costumes.push(unapplied(
-                            row,
-                            costume,
-                            UnappliedCostumeReason::CharacterUnavailable,
-                            Some(detail.clone()),
-                        ));
+                        for slot in &lane.beats {
+                            result.unapplied_costumes.push(unapplied(
+                                row,
+                                slot.costume,
+                                UnappliedCostumeReason::CharacterUnavailable,
+                                Some(detail.clone()),
+                            ));
+                        }
                         continue;
                     }
                     None => {
@@ -967,42 +1060,88 @@ where
                         // costume with a figure of the same row; reported rather
                         // than assumed, because an ownerless costume is exactly
                         // what must never be created.
-                        result.unapplied_costumes.push(unapplied(
-                            row,
-                            costume,
-                            UnappliedCostumeReason::CharacterNotPlanned,
-                            None,
-                        ));
+                        for slot in &lane.beats {
+                            result.unapplied_costumes.push(unapplied(
+                                row,
+                                slot.costume,
+                                UnappliedCostumeReason::CharacterNotPlanned,
+                                None,
+                            ));
+                        }
                         continue;
                     }
                 };
-                let CostumeAttempt { created, failure } = self
-                    .apply_costume(
-                        actor.clone(),
-                        CostumeDispatch {
-                            preview_id,
-                            season_id,
-                            series_id,
+                for slot in &lane.beats {
+                    let costume = slot.costume;
+                    let CostumeAttempt {
+                        created,
+                        costume_id,
+                        failure,
+                    } = self
+                        .apply_costume(
+                            actor.clone(),
+                            CostumeDispatch {
+                                preview_id,
+                                season_id,
+                                series_id,
+                                row,
+                                costume,
+                                character_id,
+                            },
+                        )
+                        .await?;
+                    if created {
+                        result.created_costumes += 1;
+                    }
+                    if let Some((reason, detail)) = failure {
+                        tracing::warn!(
+                            draft_ref = %row.draft_ref,
+                            costume_ordinal = costume.ordinal,
+                            reason = ?reason,
+                            error = %detail,
+                            "AI apply could not finish one costume row"
+                        );
+                        result.unapplied_costumes.push(unapplied(
                             row,
                             costume,
+                            reason,
+                            Some(detail),
+                        ));
+                        continue;
+                    }
+                    // The costume chain fully succeeded — persist the scene
+                    // relation as its beat (issue #546 §5.8).
+                    match self
+                        .apply_costume_beat(BeatDispatch {
+                            actor: actor.clone(),
+                            preview_id,
+                            series_id,
+                            scene_id: scene.aggregate_id,
                             character_id,
-                        },
-                    )
-                    .await?;
-                if created {
-                    result.created_costumes += 1;
-                }
-                if let Some((reason, detail)) = failure {
-                    tracing::warn!(
-                        draft_ref = %row.draft_ref,
-                        costume_ordinal = costume.ordinal,
-                        reason = ?reason,
-                        error = %detail,
-                        "AI apply could not finish one costume row"
-                    );
-                    result
-                        .unapplied_costumes
-                        .push(unapplied(row, costume, reason, Some(detail)));
+                            costume,
+                            per_figure_order: slot.per_figure_order,
+                            costume_id,
+                            scene_version: &mut scene_version,
+                        })
+                        .await?
+                    {
+                        BeatAttempt::Appended => result.created_costume_beats += 1,
+                        BeatAttempt::Settled => {}
+                        BeatAttempt::Refused(error) => {
+                            tracing::warn!(
+                                draft_ref = %row.draft_ref,
+                                costume_ordinal = costume.ordinal,
+                                error = %error,
+                                "AI apply could not add one costume beat"
+                            );
+                            result.unapplied_costumes.push(unapplied(
+                                row,
+                                costume,
+                                UnappliedCostumeReason::BeatRejected,
+                                Some(error.to_string()),
+                            ));
+                        }
+                    }
                 }
             }
         }
@@ -1314,6 +1453,7 @@ where
             ($reason:expr, $error:expr) => {{
                 return Ok(CostumeAttempt {
                     created,
+                    costume_id: id,
                     failure: Some(($reason, $error.to_string())),
                 });
             }};
@@ -1409,8 +1549,182 @@ where
         }
         Ok(CostumeAttempt {
             created,
+            costume_id: id,
             failure: None,
         })
+    }
+
+    /// Assign one figure of the row to the row's scene (issue #546 §5.8),
+    /// advancing the shared scene-stream version.
+    ///
+    /// Recovery, not failure: a `CharacterAlreadyAssigned` conflict means an
+    /// earlier attempt — or an earlier row naming the same figure — assigned
+    /// it already; the goal state holds and no event is appended. A stale
+    /// expected version folds into the version the stream reached via
+    /// [`recover_version`]: for a create-row the scene id came from this
+    /// apply's reservation, so the conflict proves our own earlier append.
+    /// For an update-row the fold may ride a concurrent manual edit; the beat
+    /// dispatch below still verifies every command against the aggregate, so
+    /// the fold can never invent a beat — it can only proceed at the stream's
+    /// real version or be refused per costume as `BeatRejected`.
+    async fn assign_figure_to_scene(
+        &self,
+        actor: UserId,
+        series_id: Option<SeriesId>,
+        scene_id: Uuid,
+        character_id: Uuid,
+        version: AggregateVersion,
+    ) -> Result<AggregateVersion, DomainError> {
+        let attempt = self
+            .scene_commands
+            .assign_character(
+                actor,
+                AssignCharacter {
+                    id: scene_id,
+                    character_id,
+                    series_id,
+                    version,
+                },
+            )
+            .await;
+        match recover_version(attempt) {
+            Ok(reached) => Ok(reached),
+            Err(DomainError::Conflict { code, .. })
+                if *code == SCENE_CHARACTER_ALREADY_ASSIGNED =>
+            {
+                Ok(version)
+            }
+            Err(error) => Err(error),
+        }
+    }
+
+    /// Add one costume beat for a fully applied costume (issue #546 §5.8),
+    /// running the mapping-row phase protocol of [`CostumePhases`] against
+    /// the SCENE stream.
+    ///
+    /// The `scene_costume_beat` row is addressed by the figure's mapping
+    /// reference plus the costume's per-figure position and carries the
+    /// SCENE aggregate id. **Shared-stream collision:** the row's `scene`
+    /// mapping row and every `scene_costume_beat` row of the same draft hold
+    /// versions of the same scene stream — never read one of them alone;
+    /// recover the stream version as the max across all of the row's rows
+    /// (`apply_script` does) and rely on confirms being only-moves-forward.
+    async fn apply_costume_beat(
+        &self,
+        dispatch: BeatDispatch<'_>,
+    ) -> Result<BeatAttempt, DomainError> {
+        let BeatDispatch {
+            actor,
+            preview_id,
+            series_id,
+            scene_id,
+            character_id,
+            costume,
+            per_figure_order,
+            costume_id,
+            scene_version,
+        } = dispatch;
+        let ordinal = ordinal_of(per_figure_order)?;
+        let lane_ref = character_mapping_ref(&costume.character_identity);
+        let stored = self
+            .mappings
+            .find(
+                preview_id,
+                &lane_ref,
+                mapping_kind::SCENE_COSTUME_BEAT,
+                ordinal,
+            ) // ast-grep-ignore: cqrs-boundary
+            .await?;
+        let mapping = match stored {
+            Some(row) => row,
+            None => {
+                self.mappings
+                    .reserve(AiImportMapping::reservation(
+                        preview_id,
+                        lane_ref.clone(),
+                        mapping_kind::SCENE_COSTUME_BEAT.to_owned(),
+                        ordinal,
+                        // The beat row pins the SCENE id — the aggregate it
+                        // mutates — not a derived id: the scene already exists
+                        // by the time a beat is dispatched.
+                        scene_id,
+                    ))
+                    .await?
+            }
+        };
+        // A confirmed row means the beat already exists: re-applying the
+        // preview adds no second beat (idempotency over the mapping rows).
+        if !mapping.is_reserved() {
+            *scene_version = (*scene_version).max(mapping.aggregate_version);
+            return Ok(BeatAttempt::Settled);
+        }
+        let beat = |version: AggregateVersion| {
+            AddCostumeBeat {
+                id: scene_id,
+                character_id,
+                costume_id,
+                // The extracted description lives on the costume's notes;
+                // a beat note is a crew cue the extraction does not produce.
+                note: None,
+                series_id,
+                version,
+            }
+        };
+        let mut version = *scene_version;
+        let attempt = self
+            .scene_commands
+            .add_costume_beat(actor.clone(), beat(version))
+            .await;
+        match attempt {
+            Ok(next) => {
+                *scene_version = next;
+                self.confirm(&mapping, next).await?;
+                return Ok(BeatAttempt::Appended);
+            }
+            Err(DomainError::VersionConflict { current, .. }) if current != AggregateVersion(0) => {
+                // A crash between the beat append and its confirm — or a
+                // concurrent writer — moved the stream. Re-dispatch ONCE at
+                // the reached version below; the aggregate's guards then
+                // decide (identical-last settles, append lands, refusal
+                // reports), so a foreign move can never settle an absent
+                // beat silently.
+                tracing::info!(
+                    current = current.0,
+                    "recovered an AI apply scene beat from a moved scene stream"
+                );
+                version = current;
+            }
+            // The identical-last guard is the only `scene.validation`
+            // refusal `AddCostumeBeat` can produce (pinned in
+            // `add_costume_beat_refuses_identical_last_as_the_only_validation_error`):
+            // the beat already exists as the character's last beat at
+            // exactly this version — settle the row, append nothing.
+            Err(DomainError::Validation { code, .. }) if *code == SCENE_VALIDATION => {
+                *scene_version = (*scene_version).max(version);
+                self.confirm(&mapping, version).await?;
+                return Ok(BeatAttempt::Settled);
+            }
+            Err(error) if is_infra_outage(&error) => return Err(error),
+            Err(error) => return Ok(BeatAttempt::Refused(error)),
+        }
+        let attempt = self
+            .scene_commands
+            .add_costume_beat(actor, beat(version))
+            .await;
+        match attempt {
+            Ok(next) => {
+                *scene_version = next;
+                self.confirm(&mapping, next).await?;
+                Ok(BeatAttempt::Appended)
+            }
+            Err(DomainError::Validation { code, .. }) if *code == SCENE_VALIDATION => {
+                *scene_version = (*scene_version).max(version);
+                self.confirm(&mapping, version).await?;
+                Ok(BeatAttempt::Settled)
+            }
+            Err(error) if is_infra_outage(&error) => Err(error),
+            Err(error) => Ok(BeatAttempt::Refused(error)),
+        }
     }
 
     /// Advance a mapping row to the version the aggregate just reached. The

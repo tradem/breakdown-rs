@@ -17,6 +17,31 @@ commits (ADR-020 D5).
 
 ## [0.20.0] - Unreleased
 
+### Added — AI apply persists the scene relation (issue #546 §5.8)
+
+- `ApplyWorker::apply_script` drives, per accepted draft row, the chain
+  `CreateScene` → `AssignCharacter`×n → `AddCostumeBeat`×m: one
+  `AssignCharacter` per figure of the row BEFORE any beat (a beat may only
+  exist for a figure in `assigned_characters`), then one `AddCostumeBeat`
+  per costume whose `Costume` chain fully succeeded, in per-figure plan
+  order (`scene_beat_lanes` re-grouping).
+- `scene_costume_beat` mapping rows with the mapping-row phase protocol of
+  `CostumePhases` applied to the SCENE stream: the row's `scene` mapping row
+  and its beat rows hold versions of the SAME aggregate stream — recovery
+  reads the MAX across all of the row's rows, confirms stay
+  only-moves-forward, and every chain step appends exactly one event
+  (pinned by `scene_apply_chain_appends_exactly_one_event_per_step`). A
+  confirmed beat row skips the dispatch, so a re-apply adds no second beat;
+  a version conflict on the first dispatch re-dispatches once at the
+  reached version so a concurrent stream move can never settle an absent
+  beat silently; the identical-last guard settles the crash window between
+  an append and its confirm.
+- `ScriptApplyResult.created_costume_beats` (infra-internal reporting) and
+  `UnappliedCostumeReason::BeatRejected` for the refused-beat report —
+  distinct from the plan-time ungrounded drop.
+- **No additional bump:** rides with the open, still-unreleased 0.20.0
+  window.
+
 ### Added — scene costume-beat projection + adapters (issue #546)
 
 - Migration `20261003000001_projection_scene_costume_assignment`:

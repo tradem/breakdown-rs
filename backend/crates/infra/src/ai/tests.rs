@@ -874,11 +874,60 @@ async fn oversized_script_transitions_to_failed_without_llm_calls() {
     assert!(state.telemetry.is_empty());
 }
 
+/// Scene-command double faithful to the `SceneAggregate` + adapter contract
+/// for the scene-relation chain (issue #546 §5.8): version fence per command,
+/// `CharacterAlreadyAssigned` on a duplicate assign (409, the code the worker
+/// folds into recovery), `CharacterNotInScene` for a beat of a figure that is
+/// not assigned, and the identical-last guard as the only `scene.validation`
+/// refusal of `AddCostumeBeat` (pinned in core).
 #[derive(Clone, Default)]
 struct FakeSceneCommands {
     created: Arc<Mutex<Vec<Uuid>>>,
     updated: Arc<Mutex<Vec<Uuid>>>,
     scheduled: Arc<Mutex<Vec<(Uuid, breakdown_core::shared::ShootingDayId)>>>,
+    /// Shared dispatch journal ("scene:create", "scene:assign:{char}"…).
+    journal: Arc<Mutex<Vec<String>>>,
+    /// Scene-stream versions, i.e. how many events each scene has appended.
+    versions: Arc<Mutex<HashMap<Uuid, Version>>>,
+    /// `assigned_characters` per scene, as the aggregate state holds them.
+    assigned: Arc<Mutex<HashMap<Uuid, Vec<Uuid>>>>,
+    /// Beats per scene as `(character_id, costume_id)` in append order.
+    beats: Arc<Mutex<Vec<(Uuid, Uuid, Uuid)>>>,
+    /// One-shot refusal for the next `add_costume_beat` (simulating a
+    /// concurrent manual edit between the assign and the beat).
+    fail_beat_with: Arc<Mutex<Option<DomainError>>>,
+}
+
+impl FakeSceneCommands {
+    fn version_of(&self, id: &Uuid) -> Version {
+        self.versions
+            .lock()
+            .unwrap()
+            .get(id)
+            .copied()
+            .unwrap_or(Version::INITIAL)
+    }
+
+    /// Mimic the aggregate's version fence: a stale expected version is a
+    /// typed `VersionConflict` carrying the current one.
+    fn check(&self, id: Uuid, expected: Version) -> Result<Version, DomainError> {
+        let current = self.version_of(&id);
+        if current == expected {
+            Ok(current.next())
+        } else {
+            Err(DomainError::VersionConflict { expected, current })
+        }
+    }
+
+    fn beats_of(&self, scene: Uuid) -> Vec<(Uuid, Uuid)> {
+        self.beats
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|(id, _, _)| *id == scene)
+            .map(|(_, character, costume)| (*character, *costume))
+            .collect()
+    }
 }
 
 impl breakdown_core::scene::ports::SceneCommands for FakeSceneCommands {
@@ -896,10 +945,15 @@ impl breakdown_core::scene::ports::SceneCommands for FakeSceneCommands {
         if created.contains(&command.id) {
             return Err(DomainError::VersionConflict {
                 expected: version(0),
-                current: breakdown_core::shared::AggregateVersion::INITIAL,
+                current: self.version_of(&command.id),
             });
         }
         created.push(command.id);
+        self.versions
+            .lock()
+            .unwrap()
+            .insert(command.id, Version::INITIAL);
+        self.journal.lock().unwrap().push("scene:create".to_owned());
         Ok((
             command.id,
             breakdown_core::shared::AggregateVersion::INITIAL,
@@ -912,15 +966,37 @@ impl breakdown_core::scene::ports::SceneCommands for FakeSceneCommands {
         command: breakdown_core::scene::commands::UpdateSceneDetails,
     ) -> Result<breakdown_core::shared::AggregateVersion, DomainError> {
         self.updated.lock().unwrap().push(command.id);
+        // The real stream advances to `next`; seed it so a later assign/beat
+        // on an update-row scene has a version to fence against.
+        self.versions
+            .lock()
+            .unwrap()
+            .insert(command.id, command.version.next());
         Ok(command.version.next())
     }
 
     async fn assign_character(
         &self,
         _actor: UserId,
-        _command: breakdown_core::scene::commands::AssignCharacter,
+        command: breakdown_core::scene::commands::AssignCharacter,
     ) -> Result<breakdown_core::shared::AggregateVersion, DomainError> {
-        Ok(breakdown_core::shared::AggregateVersion::INITIAL)
+        let next = self.check(command.id, command.version)?;
+        let mut assigned = self.assigned.lock().unwrap();
+        let members = assigned.entry(command.id).or_default();
+        if members.contains(&command.character_id) {
+            return Err(DomainError::Conflict {
+                code: &breakdown_core::error_registry::SCENE_CHARACTER_ALREADY_ASSIGNED,
+                reason: "character already assigned to this scene".to_owned(),
+            });
+        }
+        members.push(command.character_id);
+        drop(assigned);
+        self.versions.lock().unwrap().insert(command.id, next);
+        self.journal
+            .lock()
+            .unwrap()
+            .push(format!("scene:assign:{}", command.character_id));
+        Ok(next)
     }
 
     async fn remove_character(
@@ -933,9 +1009,50 @@ impl breakdown_core::scene::ports::SceneCommands for FakeSceneCommands {
     async fn add_costume_beat(
         &self,
         _actor: UserId,
-        _command: breakdown_core::scene::commands::AddCostumeBeat,
+        command: breakdown_core::scene::commands::AddCostumeBeat,
     ) -> Result<breakdown_core::shared::AggregateVersion, DomainError> {
-        Ok(breakdown_core::shared::AggregateVersion::INITIAL)
+        if let Some(error) = self.fail_beat_with.lock().unwrap().take() {
+            return Err(error);
+        }
+        let next = self.check(command.id, command.version)?;
+        let assigned = self.assigned.lock().unwrap();
+        let in_scene = assigned
+            .get(&command.id)
+            .is_some_and(|members| members.contains(&command.character_id));
+        if !in_scene {
+            return Err(DomainError::Validation {
+                code: &breakdown_core::error_registry::SCENE_CHARACTER_NOT_IN_SCENE,
+                reason: format!(
+                    "character {} is not assigned to this scene",
+                    command.character_id
+                ),
+            });
+        }
+        // Identical-last guard, faithful to the aggregate: appending the
+        // (costume, note) the character already wears last is refused as the
+        // ONLY `scene.validation` refusal of `AddCostumeBeat`.
+        let last = self
+            .beats_of(command.id)
+            .into_iter()
+            .rev()
+            .find(|(character, _)| *character == command.character_id);
+        if last.is_some_and(|(_, costume)| costume == command.costume_id) {
+            return Err(DomainError::Validation {
+                code: &breakdown_core::error_registry::SCENE_VALIDATION,
+                reason: "Costume beat identical to the character's last beat".to_owned(),
+            });
+        }
+        drop(assigned);
+        self.versions.lock().unwrap().insert(command.id, next);
+        self.beats
+            .lock()
+            .unwrap()
+            .push((command.id, command.character_id, command.costume_id));
+        self.journal
+            .lock()
+            .unwrap()
+            .push(format!("scene:beat:{}", command.costume_id));
+        Ok(next)
     }
 
     async fn update_costume_beat(
@@ -2278,7 +2395,10 @@ impl ScriptApplyFixture {
         Self {
             queue: Arc::new(FakeQueue::default()),
             mappings: Arc::new(FakeMappings::default()),
-            scenes: Arc::new(FakeSceneCommands::default()),
+            scenes: Arc::new(FakeSceneCommands {
+                journal: Arc::clone(&journal),
+                ..Default::default()
+            }),
             characters: Arc::new(FakeCharacterCommands {
                 journal: Arc::clone(&journal),
                 ..Default::default()
@@ -2333,6 +2453,33 @@ impl ScriptApplyFixture {
 
     fn steps(&self) -> Vec<String> {
         self.journal.lock().unwrap().clone()
+    }
+
+    /// Confirmed `scene_costume_beat` mapping row of one figure lane, if any.
+    async fn beat_mapping(
+        &self,
+        lane_identity: &str,
+        per_figure_order: i32,
+    ) -> Option<AiImportMapping> {
+        self.mappings
+            .find(
+                self.preview_id,
+                &breakdown_core::ai::character_mapping_ref(lane_identity),
+                "scene_costume_beat",
+                per_figure_order,
+            )
+            .await
+            .unwrap()
+    }
+
+    /// The scene's beat list as `(character_id, costume_id)` in stream order.
+    fn scene_beats(&self, scene: Uuid) -> Vec<(Uuid, Uuid)> {
+        self.scenes.beats_of(scene)
+    }
+
+    /// The scene-stream version the fake has appended up to.
+    fn scene_version_of(&self, scene: Uuid) -> Version {
+        self.scenes.version_of(&scene)
     }
 }
 
@@ -2903,4 +3050,237 @@ async fn extraction_drops_an_ungrounded_costume_and_records_an_uncertainty() {
         uncertainty.note
     );
     assert!(breakdown_core::ai::ensure_script_applyable(&preview).is_ok());
+}
+
+// ── Scene-relation persistence (issue #546 §5.8) ────────────────────────────
+
+/// Pinned worker chain arithmetic: `CreateScene → AssignCharacter×n →
+/// AddCostumeBeat×m` hangs exactly ONE event per step, and the mapping rows
+/// record the scene-stream version after every confirmed beat — the phase
+/// record a crashed apply re-drives from. (The aggregate-side arithmetic is
+/// pinned in `test_ai_scene_chain_advances_exactly_one_version_per_step`.)
+#[tokio::test]
+async fn scene_apply_chain_appends_exactly_one_event_per_step() {
+    let fixture = ScriptApplyFixture::new();
+    let preview = ScriptContext {
+        scenes: vec![row_with_costume(
+            "1. INT. OP",
+            &["BEN", "RENEE"],
+            &[("Ben", "ölverschmierter Overall"), ("Renee", "Kasack")],
+        )],
+        ..Default::default()
+    };
+    let result = fixture
+        .apply(&preview, &[create_decision("1. INT. OP")])
+        .await
+        .unwrap();
+
+    let scene_id = result.applied[0].aggregate_id;
+    let steps = fixture.steps();
+    let assigns: Vec<usize> = steps
+        .iter()
+        .enumerate()
+        .filter(|(_, step)| step.starts_with("scene:assign:"))
+        .map(|(index, _)| index)
+        .collect();
+    let beats: Vec<usize> = steps
+        .iter()
+        .enumerate()
+        .filter(|(_, step)| step.starts_with("scene:beat:"))
+        .map(|(index, _)| index)
+        .collect();
+    assert_eq!(assigns.len(), 2, "one assign per figure: {steps:?}");
+    assert_eq!(beats.len(), 2, "one beat per costume: {steps:?}");
+    assert_eq!(steps[0], "scene:create");
+    assert_eq!(
+        steps.iter().filter(|s| s.starts_with("character:")).count(),
+        2,
+        "one created figure per row name"
+    );
+    // Assigns come strictly before any beat (invariant I1).
+    assert!(
+        assigns
+            .iter()
+            .all(|assign| beats.iter().all(|beat| assign < beat)),
+        "every AssignCharacter must precede every AddCostumeBeat: {steps:?}"
+    );
+    assert_eq!(fixture.scene_beats(scene_id).len(), 2);
+
+    // The mapping rows record the phase versions: create = INITIAL(1),
+    // assign ben = 2, assign renee = 3, beat ben = 4, beat renee = 5.
+    assert_eq!(result.applied[0].version, version(1));
+    let ben_beat = fixture.beat_mapping("ben", 0).await.expect("ben beat row");
+    assert!(!ben_beat.is_reserved());
+    assert_eq!(ben_beat.aggregate_id, scene_id);
+    assert_eq!(ben_beat.aggregate_version, version(4));
+    let renee_beat = fixture
+        .beat_mapping("renee", 0)
+        .await
+        .expect("renee beat row");
+    assert_eq!(renee_beat.aggregate_version, version(5));
+    assert_eq!(fixture.scene_version_of(scene_id), version(5));
+    assert_eq!(result.created_costume_beats, 2);
+}
+
+/// Re-applying a fully applied preview adds no second beat: the confirmed
+/// `scene_costume_beat` rows skip the dispatch entirely.
+#[tokio::test]
+async fn scene_beat_re_apply_adds_no_second_beat() {
+    let fixture = ScriptApplyFixture::new();
+    let preview = ScriptContext {
+        scenes: vec![row_with_costume(
+            "1. INT. OP",
+            &["BEN"],
+            &[("Ben", "ölverschmierter Overall")],
+        )],
+        ..Default::default()
+    };
+    let first = fixture
+        .apply(&preview, &[create_decision("1. INT. OP")])
+        .await
+        .unwrap();
+    let scene_id = first.applied[0].aggregate_id;
+    assert_eq!(first.created_costume_beats, 1);
+
+    let second = fixture.apply(&preview, &[]).await.unwrap();
+    assert_eq!(
+        second.created_costume_beats, 0,
+        "a re-apply must not add a second beat"
+    );
+    assert_eq!(
+        fixture.scene_beats(scene_id).len(),
+        1,
+        "the scene must not carry a duplicate beat"
+    );
+    assert_eq!(
+        fixture
+            .steps()
+            .iter()
+            .filter(|step| step.starts_with("scene:beat:"))
+            .count(),
+        1,
+        "only the first apply may dispatch the beat"
+    );
+    let beat = fixture.beat_mapping("ben", 0).await.unwrap();
+    assert!(!beat.is_reserved());
+    assert_eq!(beat.aggregate_version, version(3));
+}
+
+/// Crash recovery: the confirm of ben's beat fails after the event appended.
+/// The retry re-drives exactly the steps above the stored versions — renee's
+/// figure lane — and settles ben's beat WITHOUT appending it a second time
+/// (the identical-last guard is the aggregate's own fence against the
+/// crash-window replay).
+#[tokio::test]
+async fn scene_beat_crash_between_steps_resumes_at_the_right_phase() {
+    let fixture = ScriptApplyFixture::new();
+    let preview = ScriptContext {
+        scenes: vec![row_with_costume(
+            "1. INT. OP",
+            &["BEN", "RENEE"],
+            &[("Ben", "Overall"), ("Renee", "Kasack")],
+        )],
+        ..Default::default()
+    };
+    // Inserts 1–6 are the scene/character/costume confirms of the first two
+    // lanes; #7 is the confirm of ben's beat — crash right there.
+    fixture.mappings.fail_nth_insert(7);
+    let error = fixture
+        .apply(&preview, &[create_decision("1. INT. OP")])
+        .await
+        .expect_err("the beat confirm must fail the apply");
+    assert!(matches!(error, DomainError::ServiceUnavailable { .. }));
+
+    let scene_id = fixture.scenes.created.lock().unwrap()[0];
+    assert_eq!(
+        fixture.scene_beats(scene_id).len(),
+        1,
+        "ben's beat DID append before the confirm crashed"
+    );
+
+    fixture
+        .apply(&preview, &[])
+        .await
+        .expect("the retry must converge");
+
+    // Exactly one beat per figure — ben's replayed dispatch was settled by
+    // the identical-last guard, renee's lane was re-driven from its mapping.
+    let scene_id = fixture.scenes.created.lock().unwrap()[0];
+    assert_eq!(fixture.scene_beats(scene_id).len(), 2);
+    assert_eq!(
+        fixture
+            .steps()
+            .iter()
+            .filter(|step| step.starts_with("scene:beat:"))
+            .count(),
+        2,
+        "the retry must not append ben's beat twice"
+    );
+    let ben_beat = fixture.beat_mapping("ben", 0).await.unwrap();
+    assert!(!ben_beat.is_reserved());
+    assert_eq!(ben_beat.aggregate_version, version(4));
+    let renee_beat = fixture.beat_mapping("renee", 0).await.unwrap();
+    assert!(!renee_beat.is_reserved());
+    assert_eq!(renee_beat.aggregate_version, version(5));
+    assert_eq!(fixture.scene_version_of(scene_id), version(5));
+}
+
+/// The reviewer report distinguishes a costume dropped as ungrounded (never
+/// created) from a costume whose scene beat was refused (created, bound, but
+/// the scene relation is missing) — the two must never look identical.
+#[tokio::test]
+async fn a_refused_beat_is_reported_distinctly_from_the_ungrounded_drop() {
+    let fixture = ScriptApplyFixture::new();
+    let preview = ScriptContext {
+        scenes: vec![row_with_costume(
+            "1. INT. OP",
+            &["BEN"],
+            // "Ghost" names no figure of the row: dropped at plan time.
+            &[("Ben", "Overall"), ("Ghost", "Nebelkulisse")],
+        )],
+        ..Default::default()
+    };
+    // Simulate a concurrent manual edit: the beat dispatch is refused.
+    *fixture.scenes.fail_beat_with.lock().unwrap() = Some(DomainError::Validation {
+        code: &breakdown_core::error_registry::SCENE_CHARACTER_NOT_IN_SCENE,
+        reason: "character was removed from the scene".to_owned(),
+    });
+
+    let result = fixture
+        .apply(&preview, &[create_decision("1. INT. OP")])
+        .await
+        .unwrap();
+
+    let refused: Vec<_> = result
+        .unapplied_costumes
+        .iter()
+        .filter(|entry| entry.reason == UnappliedCostumeReason::BeatRejected)
+        .collect();
+    let dropped: Vec<_> = result
+        .unapplied_costumes
+        .iter()
+        .filter(|entry| entry.reason == UnappliedCostumeReason::CharacterNotPlanned)
+        .collect();
+    assert_eq!(
+        refused.len(),
+        1,
+        "the grounded costume whose beat was refused must be reported as BeatRejected: {:?}",
+        result.unapplied_costumes
+    );
+    assert_eq!(refused[0].description, "Overall");
+    assert_eq!(
+        dropped.len(),
+        1,
+        "the ungrounded costume must stay the plan-time drop"
+    );
+    assert_eq!(dropped[0].description, "Nebelkulisse");
+    // The refused costume itself exists and is bound — only the scene
+    // relation is missing, and no beat was appended.
+    assert_eq!(fixture.costumes.assigned.lock().unwrap().len(), 1);
+    assert!(
+        fixture
+            .scene_beats(fixture.scenes.created.lock().unwrap()[0])
+            .is_empty()
+    );
+    assert_eq!(result.created_costume_beats, 0);
 }

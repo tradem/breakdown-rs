@@ -877,6 +877,10 @@ class AppLocalizationsDe extends AppLocalizations {
       'Kostüm angelegt, Bindung abgelehnt (unzugeordnet)';
 
   @override
+  String get aiApplyUnappliedReasonBeatRejected =>
+      'Kostüm angelegt, Kostümwechsel in der Szene abgelehnt';
+
+  @override
   String get aiConfigStoredPromptNote =>
       'Gespeicherter Prompt aktiv – folgt nicht den Deployment-Voreinstellungen.';
 

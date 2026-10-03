@@ -444,6 +444,13 @@ pub mod mapping_kind {
     pub const COSTUME: &str = "costume";
     pub const SHOOTING_DAY: &str = "shooting_day";
     pub const SCENE_SHOOT: &str = "scene_shoot";
+    /// One costume beat the AI apply added to a draft row's scene (issue
+    /// #546 §5.8). Addressed by the figure's preview-wide mapping reference
+    /// (the same `draft_ref` the `character` rows use) plus the costume's
+    /// PER-FIGURE position — two figures of one row would otherwise share
+    /// one row and the second figure's first beat would silently never be
+    /// applied. `aggregate_id` is the scene the beat was added to.
+    pub const SCENE_COSTUME_BEAT: &str = "scene_costume_beat";
 }
 
 /// Ordinal of a mapping kind that has exactly one row per `draft_ref` — scenes,

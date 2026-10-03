@@ -400,3 +400,82 @@ async fn aggregate_state_and_read_model_agree_for_the_same_beat_stream() -> Resu
 
     Ok(())
 }
+
+/// Version-guard redelivery (tasks.md 2.5): the four beat branches are
+/// guarded by `guard_parent` (claim the parent version with
+/// `UPDATE … WHERE version < $2` first). An at-least-once redelivery of the
+/// same event — or of a STALE add after a later removal — must skip the
+/// mutation: a replayed add can never recreate a removed beat, and a
+/// redelivered add never duplicates a row.
+#[tokio::test]
+async fn beat_projector_redelivery_is_idempotent_under_guard_parent() -> Result<()> {
+    let (pool, _container) = fixtures::spawn_postgres().await?;
+
+    let episode_id = EpisodeId::new();
+    let scene_id = Uuid::now_v7();
+    let character_id = Uuid::now_v7();
+    let now = Utc::now();
+    let create = SceneEvent::SceneCreated {
+        id: scene_id,
+        episode_id,
+        details: SceneDetails::default(),
+        assigned_characters: vec![character_id],
+        version: AggregateVersion::INITIAL,
+        source: SceneSource::Manual,
+    };
+    let add = SceneEvent::CostumeBeatAdded {
+        id: scene_id,
+        character_id,
+        costume_id: Uuid::now_v7(),
+        order: 0,
+        note: Some("Mantel".into()),
+        version: AggregateVersion(2),
+    };
+    for event in [&create, &add] {
+        project(&pool, scene_id, event.clone(), now).await?;
+    }
+
+    // Redeliver both events verbatim (at-least-once): the projection keeps
+    // exactly one beat row and the parent version stays at the newest seen.
+    for event in [&create, &add] {
+        project(&pool, scene_id, event.clone(), now).await?;
+    }
+    let repo = SceneRepositoryImpl::new(pool.clone());
+    let view = repo.find_by_id(scene_id).await?;
+    assert_eq!(view.costume_beats.len(), 1, "redelivery must not duplicate");
+    let parent_version: i64 =
+        sqlx::query_scalar("SELECT version FROM projection_scene WHERE id = $1")
+            .bind(scene_id)
+            .fetch_one(&pool)
+            .await?;
+    assert_eq!(parent_version, 2);
+
+    // Clear (v3), then redeliver the STALE add (v2): guard_parent claims the
+    // parent version first, so the stale add is skipped — the removed beat
+    // stays removed.
+    project(
+        &pool,
+        scene_id,
+        SceneEvent::CostumeBeatsCleared {
+            id: scene_id,
+            character_id,
+            version: AggregateVersion(3),
+        },
+        now,
+    )
+    .await?;
+    project(&pool, scene_id, add, now).await?;
+    let view = repo.find_by_id(scene_id).await?;
+    assert!(
+        view.costume_beats.is_empty(),
+        "a replayed stale add must not recreate a removed beat"
+    );
+    let parent_version: i64 =
+        sqlx::query_scalar("SELECT version FROM projection_scene WHERE id = $1")
+            .bind(scene_id)
+            .fetch_one(&pool)
+            .await?;
+    assert_eq!(parent_version, 3);
+
+    Ok(())
+}
