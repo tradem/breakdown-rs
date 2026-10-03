@@ -2758,6 +2758,18 @@ abstract class AppLocalizations {
   /// **'Der Kostümwechsel konnte nicht gespeichert werden ({code}).'**
   String sceneBeatErrorGeneric(Object code);
 
+  /// No description provided for @sceneBeatOverlaySyncing.
+  ///
+  /// In de, this message translates to:
+  /// **'Kostümwechsel wird gespeichert – die Liste wird noch aktualisiert.'**
+  String get sceneBeatOverlaySyncing;
+
+  /// No description provided for @sceneBeatOverlayStale.
+  ///
+  /// In de, this message translates to:
+  /// **'Kostümwechsel konnte noch nicht bestätigt werden – ziehe nach, um zu aktualisieren.'**
+  String get sceneBeatOverlayStale;
+
   /// No description provided for @assignCharacterSheetTitle.
   ///
   /// In de, this message translates to:

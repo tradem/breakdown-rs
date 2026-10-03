@@ -442,6 +442,8 @@
   "sceneBeatErrorValidation": "Dieser Kostümwechsel ist ungültig (z. B. identischer Folge-Wechsel).",
   "sceneBeatErrorNetwork": "Netzwerkproblem – die Änderung wurde nicht gespeichert. Versuch es erneut.",
   "sceneBeatErrorGeneric": "Der Kostümwechsel konnte nicht gespeichert werden ({code}).",
+  "sceneBeatOverlaySyncing": "Kostümwechsel wird gespeichert – die Liste wird noch aktualisiert.",
+  "sceneBeatOverlayStale": "Kostümwechsel konnte noch nicht bestätigt werden – ziehe nach, um zu aktualisieren.",
   "assignCharacterSheetTitle": "Figur zuweisen",
   "characterDetailFetchError": "Figur konnte nicht geladen werden ({code}).",
   "characterDetailGone": "Diese Figur existiert nicht mehr.",

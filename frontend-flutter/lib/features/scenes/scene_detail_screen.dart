@@ -470,7 +470,14 @@ class _SceneCostumesSection extends ConsumerWidget {
                       height: 14,
                       child: CircularProgressIndicator(strokeWidth: 2),
                     ),
-              title: Text(beatOverlay.warning ?? l10n.reconcileStaleWarning),
+              // Status-specific copy keyed on the overlay status: the
+              // "Created" stale warning would lie for costume updates and
+              // removals, and the raw `warning` CODE is never user copy.
+              title: Text(
+                beatOverlay.status == OverlayStatus.stale
+                    ? l10n.sceneBeatOverlayStale
+                    : l10n.sceneBeatOverlaySyncing,
+              ),
             ),
         ],
       ],

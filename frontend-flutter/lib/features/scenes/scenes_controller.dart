@@ -436,6 +436,40 @@ class ScenesController extends _$ScenesController {
     return version;
   }
 
+  /// The freshest known beat list for [scene] at command time: the
+  /// acted-on snapshot can lag BOTH the projected row (a reconcile refetch
+  /// landed after the screen rendered) and this client's own beat overlay
+  /// (a second command acks while the first is still unprojected —
+  /// `overlayAdd` replaces the per-scene entry, so building from a stale
+  /// list would DROP earlier acknowledged beats). Sources, freshest first;
+  /// on a version tie the projected row wins (same tie-break as the
+  /// version-fenced overlay drop):
+  ///   1. the matching projected row (`scenesViewProvider`),
+  ///   2. the matching beat overlay (`sceneBeatOverlaysProvider`),
+  ///   3. the screen-passed [scene] snapshot.
+  List<SceneCostumeBeatView> _currentBeats(SceneView scene) {
+    var version = scene.version;
+    var beats = scene.costumeBeats?.toList() ?? const <SceneCostumeBeatView>[];
+    final projected = ref
+        .read(scenesViewProvider(episodeId))
+        .rows
+        .where((row) => row.id == scene.id)
+        .firstOrNull;
+    if (projected != null && projected.version > version) {
+      version = projected.version;
+      beats =
+          projected.costumeBeats?.toList() ?? const <SceneCostumeBeatView>[];
+    }
+    final overlay = ref
+        .read(sceneBeatOverlaysProvider(episodeId))
+        .where((o) => o.id == scene.id)
+        .firstOrNull;
+    if (overlay != null && overlay.version > version) {
+      return overlay.beats.toList();
+    }
+    return beats;
+  }
+
   /// Adds a costume beat (issue #546). The aggregate computes the dense
   /// zero-based order; the optimistic overlay appends at the next index
   /// for the character (display-only until the projection reconciles).
@@ -471,11 +505,20 @@ class ScenesController extends _$ScenesController {
       },
       (version) {
         ref.read(scenesCommandErrorProvider(episodeId).notifier).clear();
-        final current =
-            scene.costumeBeats?.toList() ?? const <SceneCostumeBeatView>[];
-        final nextOrder = current
-            .where((b) => b.characterId == characterId)
-            .length;
+        final current = _currentBeats(scene);
+        // The aggregate computes the dense zero-based position as
+        // max(existing orders)+1 — NEVER a count: after a removal the
+        // surviving orders keep their positions ([0, 2] stays [0, 2]), so
+        // a count-based order would collide with the persisted one.
+        final nextOrder =
+            current
+                .where((b) => b.characterId == characterId)
+                .map((b) => b.order)
+                .fold<int>(
+                  -1,
+                  (maxOrder, order) => order > maxOrder ? order : maxOrder,
+                ) +
+            1;
         final beat = SceneCostumeBeatView(
           (b) => b
             ..characterId = characterId
@@ -536,8 +579,7 @@ class ScenesController extends _$ScenesController {
       },
       (version) {
         ref.read(scenesCommandErrorProvider(episodeId).notifier).clear();
-        final current =
-            scene.costumeBeats?.toList() ?? const <SceneCostumeBeatView>[];
+        final current = _currentBeats(scene);
         final beats = [
           for (final beat in current)
             if (beat.characterId == characterId && beat.order == order)
@@ -603,9 +645,7 @@ class ScenesController extends _$ScenesController {
                 id: scene.id,
                 version: version,
                 beats: [
-                  for (final beat
-                      in scene.costumeBeats?.toList() ??
-                          const <SceneCostumeBeatView>[])
+                  for (final beat in _currentBeats(scene))
                     if (beat.characterId != characterId || beat.order != order)
                       beat,
                 ],
@@ -651,9 +691,7 @@ class ScenesController extends _$ScenesController {
                 id: scene.id,
                 version: version,
                 beats: [
-                  for (final beat
-                      in scene.costumeBeats?.toList() ??
-                          const <SceneCostumeBeatView>[])
+                  for (final beat in _currentBeats(scene))
                     if (beat.characterId != characterId) beat,
                 ],
                 status: OverlayStatus.acknowledged,
@@ -697,10 +735,13 @@ String sceneBeatErrorCopy(AppLocalizations l10n, ProblemError error) =>
       // 409 `concurrency.version-mismatch`: the backend's sole
       // version-conflict code (same copy as every other controller).
       'concurrency.version-mismatch' => l10n.costumeCategoryErrorChanged,
-      'authz.denied' ||
-      'auth.session_required' ||
-      'costume.forbidden' ||
-      'membership.pending' => l10n.blocksCreateErrorSignIn,
+      // Capability denial: the user is SIGNED IN but lacks the
+      // `assign_costumes` capability — the forbidden narrative, never the
+      // sign-in copy.
+      'costume.forbidden' => l10n.costumeErrorForbidden,
+      // Membership could not be resolved (pending / fetch failure).
+      'membership.pending' => l10n.costumeErrorMembership,
+      'authz.denied' || 'auth.session_required' => l10n.blocksCreateErrorSignIn,
       _ when error.code.startsWith('transport.') => l10n.sceneBeatErrorNetwork,
       _ => l10n.sceneBeatErrorGeneric(error.code),
     };

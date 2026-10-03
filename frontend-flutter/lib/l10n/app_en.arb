@@ -442,6 +442,8 @@
   "sceneBeatErrorValidation": "This costume change is invalid (e.g. identical consecutive change).",
   "sceneBeatErrorNetwork": "Network problem \u2013 the change was not saved. Try again.",
   "sceneBeatErrorGeneric": "The costume change could not be saved ({code}).",
+  "sceneBeatOverlaySyncing": "Costume change is being saved – the list is still syncing.",
+  "sceneBeatOverlayStale": "Costume change could not be confirmed yet – pull to refresh.",
   "assignCharacterSheetTitle": "Assign character",
   "characterDetailFetchError": "Could not load the character ({code}).",
   "characterDetailGone": "This character no longer exists.",

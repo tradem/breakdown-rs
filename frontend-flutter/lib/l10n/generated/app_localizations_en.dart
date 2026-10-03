@@ -1615,6 +1615,14 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String get sceneBeatOverlaySyncing =>
+      'Costume change is being saved – the list is still syncing.';
+
+  @override
+  String get sceneBeatOverlayStale =>
+      'Costume change could not be confirmed yet – pull to refresh.';
+
+  @override
   String get assignCharacterSheetTitle => 'Assign character';
 
   @override

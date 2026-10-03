@@ -1634,6 +1634,14 @@ class AppLocalizationsDe extends AppLocalizations {
   }
 
   @override
+  String get sceneBeatOverlaySyncing =>
+      'Kostümwechsel wird gespeichert – die Liste wird noch aktualisiert.';
+
+  @override
+  String get sceneBeatOverlayStale =>
+      'Kostümwechsel konnte noch nicht bestätigt werden – ziehe nach, um zu aktualisieren.';
+
+  @override
   String get assignCharacterSheetTitle => 'Figur zuweisen';
 
   @override

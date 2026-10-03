@@ -755,8 +755,13 @@ void main() {
       // The capability check denied before any network call: fake repo call
       // count of zero (provable non-issue of the request).
       expect(sceneRepo.addCalls, 0);
-      // Localized 403 narrative keyed on the gate code.
-      expect(find.text('Please sign in to continue.'), findsOneWidget);
+      // Localized 403 narrative keyed on the gate code: a signed-in user
+      // WITHOUT the capability gets the forbidden narrative (not the
+      // sign-in copy).
+      expect(
+        find.text('You need an active costume role in this season.'),
+        findsOneWidget,
+      );
     });
 
     testWidgets('409 conflict refetches the projection with keyed copy', (
@@ -885,5 +890,82 @@ void main() {
         matchesGoldenFile('goldens/scene_detail_screen.png'),
       );
     });
+  });
+
+  // CodeRabbit #4172169333 (Major): the aggregate computes the dense
+  // order as max(existing)+1 — after a removal the surviving orders KEEP
+  // their positions ([0, 2] stays [0, 2]), so a count-based optimistic
+  // order would collide with the persisted one (duplicate row keys AND a
+  // wrong remove dispatch).
+  testWidgets('optimistic order continues at max+1 after a removal gap', (
+    tester,
+  ) async {
+    await setupContainer(
+      scene: _scene(
+        characters: ['ch-1'],
+        beats: [
+          _beat('ch-1', 0, costumeId: 'costume-1'),
+          _beat('ch-1', 2, costumeId: 'costume-3'),
+        ],
+      ),
+      characterRows: [_character('ch-1')],
+      costumeRows: [
+        _costume('costume-1', subject: 'Mantel'),
+        _costume('costume-9', subject: 'Hut'),
+        _costume('costume-3', subject: 'Schuhe'),
+      ],
+    );
+    await pumpDetail(tester);
+    await tester.tap(find.byKey(const Key('scene-costume-add-change-ch-1')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('pick-costume-costume-9')));
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pump(const Duration(milliseconds: 400));
+    // The optimistic beat renders at order 3 (max 2 + 1) — the same
+    // position the aggregate will assign — so the row keys stay unique.
+    expect(find.byKey(const Key('scene-costume-beat-ch-1-3')), findsOneWidget);
+    expect(find.text('Costumes (3)'), findsOneWidget);
+  });
+
+  // CodeRabbit #4172169329: a SECOND command must build its optimistic
+  // beats from the freshest state — the acted-on scene snapshot still
+  // omits the first (unprojected) beat, so building from it would drop
+  // the first acknowledged change.
+  testWidgets('second command builds on the freshest overlay beats', (
+    tester,
+  ) async {
+    await setupContainer(
+      scene: _scene(characters: ['ch-1']),
+      characterRows: [_character('ch-1')],
+      costumeRows: [
+        _costume('costume-9', subject: 'Hut'),
+        _costume('costume-3', subject: 'Schuhe'),
+      ],
+    );
+    await pumpDetail(tester);
+    // First beat: acked version 2, optimistic row 0.
+    await tester.tap(find.byKey(const Key('scene-costume-assign-ch-1')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('pick-costume-costume-9')));
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.byKey(const Key('scene-costume-beat-ch-1-0')), findsOneWidget);
+    // Second beat: the controller must source the freshest beats (the
+    // version-2 overlay), not the stale acted-on snapshot — the new beat
+    // lands at order 1 and row 0 survives. Fixed pumps throughout: the
+    // first overlay is still reconciling (indeterminate spinner), so
+    // pumpAndSettle would never settle (AGENTS §6 deterministic tests).
+    await tester.tap(find.byKey(const Key('scene-costume-add-change-ch-1')));
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.tap(find.byKey(const Key('pick-costume-costume-3')));
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.byKey(const Key('scene-costume-beat-ch-1-0')), findsOneWidget);
+    expect(find.byKey(const Key('scene-costume-beat-ch-1-1')), findsOneWidget);
+    expect(sceneRepo.addCalls, 2);
+    // The version fence echoed the freshest known version (2 from the
+    // first ack), not the screen-rendered snapshot's 1.
+    expect(sceneRepo.lastVersion, 2);
   });
 }
