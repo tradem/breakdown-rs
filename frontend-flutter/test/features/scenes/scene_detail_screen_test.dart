@@ -4,6 +4,7 @@
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
 // Co-authored-by: qwen3.8-flash (opencode-go)
+// Co-authored-by: glm-5.3-flash (neuralwatt)
 
 // Tier-2 widget tests for `SceneDetailScreen` (Tasks 5.2, 6.2): assigned
 // characters (read-DTO join) + assign/unassign with scene version echo,
