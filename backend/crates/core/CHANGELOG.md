@@ -31,9 +31,14 @@ commits (ADR-020 D5).
   client-supplied on the add path; `UpdateCostumeBeat` never changes
   `order` (reordering is remove + add).
 - New `SceneError` variants `CharacterNotInScene` (a beat may only exist
-  for a character in `assigned_characters`) and `BeatNotFound`;
+  for a character in `assigned_characters`), `BeatNotFound` and
+  `NoCostumeBeats` (the empty clear surfaces the dedicated 422
+  `scene.beat-not-found`, not the generic `scene.validation`);
   `From<SceneError> for DomainError` maps them to the new registry codes
   422 `scene.character-not-in-scene` / 422 `scene.beat-not-found`.
+- `RemoveCharacter` clears the character's beats first (`CostumeBeatsCleared`
+  before `CharacterRemoved`, versions advancing in order) so no orphan beat
+  survives a character removal (CodeRabbit review on this PR).
 - `SceneView.costume_beats: Vec<SceneCostumeBeatView>` — additive on the
   wire; enrichment (character name, costume identity) is best-effort by
   join (`None` on a projection miss).

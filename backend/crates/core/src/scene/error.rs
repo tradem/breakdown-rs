@@ -34,6 +34,12 @@ pub enum SceneError {
         order: u32,
     },
 
+    /// A clear-all (`RemoveCostumeBeat.order = None`) targeted a character
+    /// with no beats at all — surfaced as the dedicated 422
+    /// `scene.beat-not-found` (issue #546, CodeRabbit review).
+    #[error("Character {character_id} has no costume beats in this scene")]
+    NoCostumeBeats { character_id: uuid::Uuid },
+
     #[error("Scene is already scheduled on shooting day {shooting_day_id}")]
     AlreadyScheduled { shooting_day_id: ShootingDayId },
 

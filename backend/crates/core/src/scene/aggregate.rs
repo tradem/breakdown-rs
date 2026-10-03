@@ -265,12 +265,32 @@ impl Command<RemoveCharacter> for SceneAggregate {
                 "Character is not assigned to this scene".into(),
             ));
         }
-        let new_version = self.version.next();
-        Ok(vec![SceneEvent::CharacterRemoved {
+        let mut v = self.version;
+        let mut events = Vec::new();
+        // Issue #546 (CodeRabbit review): a character with costume beats must
+        // not leave orphan beats behind — after `CharacterRemoved` every beat
+        // command would fail `CharacterNotInScene`, making the beats
+        // unreachable. Clear them first, then remove the character; both
+        // events advance the version in order.
+        if self
+            .costume_beats
+            .iter()
+            .any(|b| b.character_id == cmd.character_id)
+        {
+            v = v.next();
+            events.push(SceneEvent::CostumeBeatsCleared {
+                id: self.id,
+                character_id: cmd.character_id,
+                version: v,
+            });
+        }
+        v = v.next();
+        events.push(SceneEvent::CharacterRemoved {
             id: self.id,
             character_id: cmd.character_id,
-            version: new_version,
-        }])
+            version: v,
+        });
+        Ok(events)
     }
 }
 
@@ -490,9 +510,9 @@ impl Command<RemoveCostumeBeat> for SceneAggregate {
             }
             None => {
                 if !has_beats {
-                    return Err(SceneError::ValidationError(
-                        "Character has no costume beats in this scene".into(),
-                    ));
+                    return Err(SceneError::NoCostumeBeats {
+                        character_id: cmd.character_id,
+                    });
                 }
                 let new_version = self.version.next();
                 Ok(vec![SceneEvent::CostumeBeatsCleared {

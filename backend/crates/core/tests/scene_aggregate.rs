@@ -790,7 +790,11 @@ fn test_clear_all_with_no_beats_is_a_validation_error() {
         },
         make_ctx(),
     );
-    assert!(matches!(result, Err(SceneError::ValidationError(_))));
+    // Surfaced as the dedicated 422 `scene.beat-not-found` code
+    // (`NoCostumeBeats`), not the generic `scene.validation` — a client
+    // can tell "nothing to clear" apart from a real validation failure
+    // (issue #546, CodeRabbit review).
+    assert!(matches!(result, Err(SceneError::NoCostumeBeats { .. })));
 }
 
 #[test]
@@ -836,4 +840,80 @@ fn test_beat_events_round_trip_through_serde() {
     let json = serde_json::to_string(&event).unwrap();
     let back: SceneEvent = serde_json::from_str(&json).unwrap();
     assert_eq!(back, event);
+}
+
+#[test]
+fn test_remove_character_clears_beats_first() {
+    let mut agg = scene_with_character();
+    let character_id = agg.assigned_characters[0];
+    add_beat(&mut agg, character_id, Uuid::now_v7(), None);
+    add_beat(&mut agg, character_id, Uuid::now_v7(), None);
+
+    let events = agg
+        .handle(
+            RemoveCharacter {
+                id: agg.id,
+                character_id,
+                series_id: Some(series_id()),
+                version: agg.version,
+            },
+            make_ctx(),
+        )
+        .unwrap();
+
+    // Two events, versions advancing in order: clear, then remove.
+    assert_eq!(events.len(), 2);
+    match (&events[0], &events[1]) {
+        (
+            SceneEvent::CostumeBeatsCleared { version: v0, .. },
+            SceneEvent::CharacterRemoved { version: v1, .. },
+        ) => {
+            assert_eq!(*v0, agg.version.next());
+            assert_eq!(*v1, agg.version.next().next());
+        }
+        _ => panic!("Expected CostumeBeatsCleared then CharacterRemoved"),
+    }
+
+    test_support::replay_events(&mut agg, events.clone());
+    assert!(agg.costume_beats.is_empty(), "no orphan beats may survive");
+    assert!(!agg.assigned_characters.contains(&character_id));
+}
+
+#[test]
+fn test_remove_character_without_beats_emits_one_event() {
+    let agg = scene_with_character();
+    let character_id = agg.assigned_characters[0];
+    let events = agg
+        .handle(
+            RemoveCharacter {
+                id: agg.id,
+                character_id,
+                series_id: Some(series_id()),
+                version: agg.version,
+            },
+            make_ctx(),
+        )
+        .unwrap();
+    assert_eq!(events.len(), 1);
+    assert!(matches!(events[0], SceneEvent::CharacterRemoved { .. }));
+}
+
+#[test]
+fn test_clear_all_without_beats_is_beat_not_found_code() {
+    let agg = scene_with_character();
+    let character_id = agg.assigned_characters[0];
+    let result = agg.handle(
+        RemoveCostumeBeat {
+            id: agg.id,
+            character_id,
+            order: None,
+            series_id: Some(series_id()),
+            version: agg.version,
+        },
+        make_ctx(),
+    );
+    match result {
+        Err(SceneError::NoCostumeBeats { character_id: c }) => assert_eq!(c, character_id),
+        _ => panic!("Expected NoCostumeBeats"),
+    }
 }

@@ -217,6 +217,10 @@ impl From<SceneError> for DomainError {
                 code: &SCENE_BEAT_NOT_FOUND,
                 reason: format!("no costume beat for character {character_id} at order {order}"),
             },
+            SceneError::NoCostumeBeats { character_id } => DomainError::Validation {
+                code: &SCENE_BEAT_NOT_FOUND,
+                reason: format!("no costume beats for character {character_id}"),
+            },
             SceneError::AlreadyScheduled { shooting_day_id } => DomainError::AlreadyScheduled {
                 shooting_day_id: shooting_day_id.0,
             },

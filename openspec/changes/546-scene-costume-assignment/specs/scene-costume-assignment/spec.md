@@ -67,7 +67,19 @@ never change `order`.
 - **THEN** the aggregate SHALL emit `CostumeBeatsCleared` and the character
   SHALL have no costume in the scene afterwards
 - **AND** when the character has no beats at all the command SHALL fail
-  (422 `scene.beat-not-found`)
+  with 422 `scene.beat-not-found` (dedicated `NoCostumeBeats` variant — a
+  client can tell "nothing to clear" apart from a generic validation
+  failure)
+
+#### Scenario: Removing a character clears its beats
+
+- **WHEN** a `RemoveCharacter` command targets a character that holds one
+  or more costume beats
+- **THEN** the aggregate SHALL emit `CostumeBeatsCleared` for the
+  character **before** `CharacterRemoved`, both advancing the aggregate
+  version in order
+- **AND** no orphan beat row SHALL survive in aggregate state or the
+  projection
 
 #### Scenario: Legacy streams replay without beats
 

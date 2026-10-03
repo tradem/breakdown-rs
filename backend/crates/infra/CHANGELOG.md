@@ -28,8 +28,11 @@ commits (ADR-020 D5).
   `projection_costume` (a costume is never deleted).
 - `SceneProjector`: four new branches (`CostumeBeatAdded`/`Updated`/
   `Removed`/`BeatsCleared`), idempotent upsert/delete style matching the
-  file; removal deletes exactly one row and never renumbers survivors;
-  the audit projector covers the new variants.
+  file, each guarded by the shared parent-version guard (`guard_parent`:
+  claim `WHERE version < $N` first, skip the mutation on same-or-newer
+  redelivery — a replayed older add cannot recreate a removed beat);
+  removal deletes exactly one row and never renumbers survivors; the
+  audit projector covers the new variants.
 - `SceneCommandsImpl`: `add_costume_beat` / `update_costume_beat` /
   `remove_costume_beat` adapters (`check_nonzero_version`,
   `ExpectedVersion::Exact`, `series_id` only from the command field).
