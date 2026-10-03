@@ -2674,6 +2674,108 @@ abstract class AppLocalizations {
   /// **'Diese Szene ist nicht mehr verfügbar.'**
   String get sceneDetailGone;
 
+  /// No description provided for @sceneDetailCostumesTitle.
+  ///
+  /// In de, this message translates to:
+  /// **'Kostüme ({count})'**
+  String sceneDetailCostumesTitle(Object count);
+
+  /// No description provided for @sceneDetailAssignCostume.
+  ///
+  /// In de, this message translates to:
+  /// **'Kostüm zuweisen'**
+  String get sceneDetailAssignCostume;
+
+  /// No description provided for @sceneDetailAddChange.
+  ///
+  /// In de, this message translates to:
+  /// **'+ Kostümwechsel'**
+  String get sceneDetailAddChange;
+
+  /// No description provided for @sceneDetailRemoveCostumeTooltip.
+  ///
+  /// In de, this message translates to:
+  /// **'Kostüm entfernen'**
+  String get sceneDetailRemoveCostumeTooltip;
+
+  /// No description provided for @sceneDetailRemoveCostumeTitle.
+  ///
+  /// In de, this message translates to:
+  /// **'Kostüm entfernen?'**
+  String get sceneDetailRemoveCostumeTitle;
+
+  /// No description provided for @sceneDetailRemoveCostumeMessage.
+  ///
+  /// In de, this message translates to:
+  /// **'„{name}“ wird aus dieser Szene entfernt.'**
+  String sceneDetailRemoveCostumeMessage(Object name);
+
+  /// No description provided for @sceneDetailNoCostumeInScene.
+  ///
+  /// In de, this message translates to:
+  /// **'Kein Kostüm in dieser Szene.'**
+  String get sceneDetailNoCostumeInScene;
+
+  /// No description provided for @sceneDetailPickCostumeTitle.
+  ///
+  /// In de, this message translates to:
+  /// **'Kostüm wählen'**
+  String get sceneDetailPickCostumeTitle;
+
+  /// No description provided for @sceneDetailCostumeCueHint.
+  ///
+  /// In de, this message translates to:
+  /// **'Notiz für die Garderobe (optional)'**
+  String get sceneDetailCostumeCueHint;
+
+  /// No description provided for @sceneBeatErrorNotInScene.
+  ///
+  /// In de, this message translates to:
+  /// **'Diese Figur ist nicht in der Szene.'**
+  String get sceneBeatErrorNotInScene;
+
+  /// No description provided for @sceneBeatErrorNotFound.
+  ///
+  /// In de, this message translates to:
+  /// **'Dieser Kostümwechsel existiert nicht (mehr).'**
+  String get sceneBeatErrorNotFound;
+
+  /// No description provided for @sceneBeatErrorValidation.
+  ///
+  /// In de, this message translates to:
+  /// **'Dieser Kostümwechsel ist ungültig (z. B. identischer Folge-Wechsel).'**
+  String get sceneBeatErrorValidation;
+
+  /// No description provided for @sceneBeatErrorNetwork.
+  ///
+  /// In de, this message translates to:
+  /// **'Netzwerkproblem – die Änderung wurde nicht gespeichert. Versuch es erneut.'**
+  String get sceneBeatErrorNetwork;
+
+  /// No description provided for @sceneBeatErrorGeneric.
+  ///
+  /// In de, this message translates to:
+  /// **'Der Kostümwechsel konnte nicht gespeichert werden ({code}).'**
+  String sceneBeatErrorGeneric(Object code);
+
+  /// No description provided for @sceneBeatOverlaySyncing.
+  ///
+  /// In de, this message translates to:
+  /// **'Kostümwechsel wird gespeichert – die Liste wird noch aktualisiert.'**
+  String get sceneBeatOverlaySyncing;
+
+  /// No description provided for @sceneBeatOverlayStale.
+  ///
+  /// In de, this message translates to:
+  /// **'Kostümwechsel konnte noch nicht bestätigt werden – ziehe nach, um zu aktualisieren.'**
+  String get sceneBeatOverlayStale;
+
+  /// No description provided for @assignCharacterSheetTitle.
+  ///
+  /// In de, this message translates to:
+  /// **'Figur zuweisen'**
+  String get assignCharacterSheetTitle;
+
   /// No description provided for @characterDetailFetchError.
   ///
   /// In de, this message translates to:

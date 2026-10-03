@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: space-bunny-free (opencode-go)
+// Co-authored-by: glm-5.3-flash (neuralwatt)
 
 import 'package:breakdown_api/breakdown_api.dart';
 
@@ -55,3 +56,28 @@ String costumeDisplayName(CostumeView costume, String genericFallback) {
   if (notes.isNotEmpty) return notes;
   return genericFallback;
 }
+
+/// Display label for a scene costume beat (issue #546).
+///
+/// Identity comes from the SAME tile helper ([costumeDisplayName] over
+/// [costumeTileIdentity]) — never from a random detail. A costume missing
+/// from the season projection (projection miss) falls back to the
+/// backend-joined `costume_category_name`, then the localized generic
+/// fallback.
+String sceneBeatCostumeLabel({
+  required CostumeView? costume,
+  required String? joinedCategoryName,
+  required String genericFallback,
+}) {
+  if (costume != null) return costumeDisplayName(costume, genericFallback);
+  final joined = joinedCategoryName?.trim();
+  if (joined != null && joined.isNotEmpty) return joined;
+  return genericFallback;
+}
+
+/// Icon category for a scene costume beat: the costume's own category
+/// (tile source) wins, the backend-joined name is the fallback.
+String? sceneBeatCostumeCategory({
+  required CostumeView? costume,
+  required String? joinedCategoryName,
+}) => costume?.categoryName ?? joinedCategoryName;

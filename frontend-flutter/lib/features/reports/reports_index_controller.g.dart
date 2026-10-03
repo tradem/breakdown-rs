@@ -108,7 +108,7 @@ final class ReportsIndexControllerProvider
 }
 
 String _$reportsIndexControllerHash() =>
-    r'bc0883b4b53f74b83c77840becfc770a5ed4294f';
+    r'50e749ddf805cabe18b002d023957b4862bced58';
 
 /// `ReportsIndexController(scope)` — a pure projection of the episode's
 /// existing day-list controller state (`shootingDaysControllerProvider`),

@@ -139,7 +139,7 @@ final class BlockScopeResolutionProvider
 }
 
 String _$blockScopeResolutionHash() =>
-    r'983807c4e774aeca44d9664b097f6c0b155544a8';
+    r'6238b579cf254d048b1899193e6d5b3ac0d1073c';
 
 /// Resolves the active-block scope for a season-direct entry.
 ///

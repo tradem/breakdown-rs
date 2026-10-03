@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
+// Co-authored-by: glm-5.3-flash (neuralwatt)
 
 import 'package:breakdown_api/breakdown_api.dart';
 import 'package:flutter/material.dart';
@@ -361,11 +362,13 @@ class AssignCharacterSheet extends StatelessWidget {
     child: Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        const Padding(
-          padding: EdgeInsets.all(16),
+        Padding(
+          padding: const EdgeInsets.all(16),
           child: Text(
-            'Assign character',
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            // l10n rule (issue #546 side-finding 3): never hardcode
+            // user-facing copy — the Key-Parity-Gate counts on ARB keys.
+            l10nOf(context).assignCharacterSheetTitle,
+            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
           ),
         ),
         Flexible(

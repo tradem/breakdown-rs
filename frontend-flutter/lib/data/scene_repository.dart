@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
 // Co-authored-by: longcat-2.0 (opencode-go)
+// Co-authored-by: glm-5.3-flash (neuralwatt)
 
 import 'package:breakdown_api/breakdown_api.dart';
 import 'package:fpdart/fpdart.dart';
@@ -152,6 +153,67 @@ class SceneRepository extends BaseRepository {
     () => api.getHandlersApi().unscheduleSceneFromShootingDay(
       id: id,
       shootingDayId: shootingDayId,
+      version: version,
+    ),
+  );
+
+  /// Adds a costume beat (`POST /v1/scenes/{id}/costumes`, issue #546).
+  /// The wire body carries NO `order` — the aggregate computes the dense
+  /// zero-based position per character. The 200 body is the new aggregate
+  /// version (echo for the optimistic fence).
+  Future<Result<int>> addCostumeBeat(
+    String id,
+    AddSceneCostumeBeatRequest request,
+  ) => run(
+    () => api.getHandlersApi().addSceneCostumeBeat(
+      id: id,
+      addSceneCostumeBeatRequest: request,
+    ),
+  );
+
+  /// Updates a costume beat (`PATCH /v1/scenes/{id}/costumes/{character_id}/{order}`).
+  Future<Result<int>> updateCostumeBeat(
+    String id,
+    String characterId,
+    int order,
+    UpdateSceneCostumeBeatRequest request,
+  ) => run(
+    () => api.getHandlersApi().updateSceneCostumeBeat(
+      id: id,
+      characterId: characterId,
+      order: order,
+      updateSceneCostumeBeatRequest: request,
+    ),
+  );
+
+  /// Removes one costume beat
+  /// (`DELETE /v1/scenes/{id}/costumes/{character_id}/{order}?version=N`).
+  Future<Result<int>> removeCostumeBeat(
+    String id,
+    String characterId,
+    int order,
+    int version,
+  ) => run(
+    () => api.getHandlersApi().removeSceneCostumeBeat(
+      id: id,
+      characterId: characterId,
+      order: order,
+      version: version,
+    ),
+  );
+
+  /// Clears ALL costume beats of a character
+  /// (`DELETE /v1/scenes/{id}/costumes/{character_id}?version=N` = "no
+  /// costume in this scene"). `scene.beat-not-found` (422) when there are
+  /// no beats to clear.
+  Future<Result<int>> clearCostumeBeats(
+    String id,
+    String characterId,
+    int version,
+  ) => run(
+    () => api.getHandlersApi().clearSceneCostumeBeats(
+      id: id,
+      characterId: characterId,
       version: version,
     ),
   );

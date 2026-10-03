@@ -114,16 +114,16 @@ goldens, `docs/design/screens/scenes.md`).
 
 ## 5. Flutter (deferred to the second PR — PLANNED, NOT in this diff)
 
-- [ ] **5.1** `scene_repository.dart` + `scenes_controller.dart`:
+- [x] **5.1** `scene_repository.dart` + `scenes_controller.dart`:
       `addCostumeBeat` / `updateCostumeBeat` / `removeCostumeBeat`, `Result`
       returns, `// AUTHZ-GATE:` membership capability check before the
       network call, optimistic-after-2xx + version fence + bounded retry.
-- [ ] **5.2** Scene detail screen `_SceneCostumesSection` (`ExpansionTile`,
+- [x] **5.2** Scene detail screen `_SceneCostumesSection` (`ExpansionTile`,
       one row per beat, `A → B` rendering, empty-state affordance,
       `+ Kostümwechsel`), bottom-sheet picker per the create-sheet
       convention.
-- [ ] **5.3** ARB keys (`app_de`/`app_en`, parity), error banners keyed on
+- [x] **5.3** ARB keys (`app_de`/`app_en`, parity), error banners keyed on
       `code`.
-- [ ] **5.4** `docs/design/screens/scenes.md` (nine sections + Salt
+- [x] **5.4** `docs/design/screens/scenes.md` (nine sections + Salt
       wireframe), `scripts/check-design-diagrams.sh` green; widget tests +
       first scene-screen goldens.
