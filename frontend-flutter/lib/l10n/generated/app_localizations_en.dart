@@ -1564,6 +1564,60 @@ class AppLocalizationsEn extends AppLocalizations {
   String get sceneDetailGone => 'This scene is no longer available.';
 
   @override
+  String sceneDetailCostumesTitle(Object count) {
+    return 'Costumes ($count)';
+  }
+
+  @override
+  String get sceneDetailAssignCostume => 'Assign costume';
+
+  @override
+  String get sceneDetailAddChange => '+ Costume change';
+
+  @override
+  String get sceneDetailRemoveCostumeTooltip => 'Remove costume';
+
+  @override
+  String get sceneDetailRemoveCostumeTitle => 'Remove costume?';
+
+  @override
+  String sceneDetailRemoveCostumeMessage(Object name) {
+    return '“$name” will be removed from this scene.';
+  }
+
+  @override
+  String get sceneDetailNoCostumeInScene => 'No costume in this scene.';
+
+  @override
+  String get sceneDetailPickCostumeTitle => 'Pick costume';
+
+  @override
+  String get sceneDetailCostumeCueHint =>
+      'Note for the wardrobe crew (optional)';
+
+  @override
+  String get sceneBeatErrorNotInScene => 'This character is not in the scene.';
+
+  @override
+  String get sceneBeatErrorNotFound => 'This costume change no longer exists.';
+
+  @override
+  String get sceneBeatErrorValidation =>
+      'This costume change is invalid (e.g. identical consecutive change).';
+
+  @override
+  String get sceneBeatErrorNetwork =>
+      'Network problem – the change was not saved. Try again.';
+
+  @override
+  String sceneBeatErrorGeneric(Object code) {
+    return 'The costume change could not be saved ($code).';
+  }
+
+  @override
+  String get assignCharacterSheetTitle => 'Assign character';
+
+  @override
   String characterDetailFetchError(Object code) {
     return 'Could not load the character ($code).';
   }

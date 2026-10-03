@@ -22,8 +22,10 @@ import 'package:frontend_flutter/domain/reconciliation/reconciliation_scheduler.
 import 'package:frontend_flutter/auth/membership/membership_providers.dart';
 import 'package:frontend_flutter/data/cache/costume_domains_cache_dao.dart';
 import 'package:frontend_flutter/data/character_repository.dart';
+import 'package:frontend_flutter/data/costume_repository.dart';
 import 'package:frontend_flutter/data/shooting_day_repository.dart';
 import 'package:frontend_flutter/features/characters/characters_controller.dart';
+import 'package:frontend_flutter/features/costumes/costumes_controller.dart';
 import 'package:frontend_flutter/features/scenes/scenes_controller.dart';
 import 'package:frontend_flutter/features/scenes/scenes_screen.dart';
 import 'package:frontend_flutter/features/shooting_days/shooting_days_controller.dart';
@@ -393,6 +395,11 @@ void main() {
           }),
           characterRepositoryProvider.overrideWithValue(
             CharacterRepository(BreakdownApi(), CharacterCacheDao(db)),
+          ),
+          // The costumes section (issue #546) reads the costumes projection;
+          // its repository must never touch the pinned production client.
+          costumeRepositoryProvider.overrideWithValue(
+            CostumeRepository(BreakdownApi(), CostumeCacheDao(db)),
           ),
           shootingDayRepositoryProvider.overrideWithValue(
             ShootingDayRepository(BreakdownApi(), ShootingDayCacheDao(db)),

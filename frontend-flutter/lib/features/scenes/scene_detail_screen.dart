@@ -15,13 +15,19 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../auth/auth_providers.dart';
 import '../../core/problem_error.dart';
 import '../../design/components/ai_provenance_badge.dart';
+import '../../design/material_icons.dart';
 import '../../domain/ai_provenance.dart';
 import '../../l10n/app_localizations_provider.dart';
+import '../../l10n/generated/app_localizations.dart';
 import '../characters/characters_controller.dart';
+import '../costumes/costume_identity.dart';
+import '../costumes/costumes_controller.dart';
 import '../costumes/widgets/costumes_widgets.dart';
 import '../scene_shoots/scene_shoots_screen.dart';
 import '../shell/planning_location.dart';
 import '../shooting_days/shooting_days_controller.dart';
+import 'pick_costume_sheet.dart';
+import 'scene_beats.dart';
 import 'scenes_controller.dart';
 import 'scenes_state.dart';
 
@@ -94,6 +100,12 @@ class SceneDetailScreen extends ConsumerWidget {
               _SceneSummary(scene: s),
               const SizedBox(height: 8),
               _SceneCharactersSection(
+                seasonId: seasonId,
+                episodeId: episodeId,
+                scene: s,
+              ),
+              const SizedBox(height: 8),
+              _SceneCostumesSection(
                 seasonId: seasonId,
                 episodeId: episodeId,
                 scene: s,
@@ -339,6 +351,280 @@ class _SceneCharactersSection extends ConsumerWidget {
                   (err) => ScaffoldMessenger.of(dialogContext).showSnackBar(
                     SnackBar(
                       content: Text(characterErrorCopy(l10nOf(context), err)),
+                    ),
+                  ),
+                  (_) {},
+                );
+              }
+              if (dialogContext.mounted) {
+                Navigator.of(dialogContext).pop();
+              }
+            },
+            child: Text(l10n.commonDelete),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Costumes section (issue #546): one row per (character, beat), grouped
+/// in the characters' assignment order; multiple beats of a character
+/// render as a change sequence (`Kostüm A → Kostüm B`). Common case stays
+/// trivial: one row per character, no sequence editor, no drag-and-drop.
+///
+/// // AUTHZ-GATE: beat commands run the membership capability check inside
+/// the scenes controller BEFORE any network call (same send-as-read story
+/// as the costume-assign surface).
+class _SceneCostumesSection extends ConsumerWidget {
+  const _SceneCostumesSection({
+    required this.seasonId,
+    required this.episodeId,
+    required this.scene,
+  });
+
+  final String seasonId;
+  final String episodeId;
+  final SceneView scene;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    // The costumes projection already serves plain read DTOs (the view
+    // selector flattened the overlay rows) — no row unwrapping here.
+    final costumeViews = ref.watch(costumesViewProvider(seasonId)).rows;
+    final costumesById = {for (final c in costumeViews) c.id: c};
+    final characters = ref.watch(charactersViewProvider(seasonId));
+    final names = {for (final c in characters.rows) c.id: c.name};
+    final groups = groupSceneBeats(
+      assignedCharacters: scene.assignedCharacters,
+      beats: scene.costumeBeats?.toList() ?? const [],
+    );
+    final totalBeats = [for (final g in groups) ...g.beats].length;
+    // Ephemeral reconciliation indicator for this scene's optimistic
+    // beat overlay (reconciling spinner / stale cloud-off + warning).
+    final beatOverlay = ref
+        .watch(scenesControllerProvider(episodeId))
+        .beatOverlays
+        .where((o) => o.id == scene.id)
+        .firstOrNull;
+    final l10n = l10nOf(context);
+
+    return ExpansionTile(
+      key: Key('scene-costumes-${scene.id}'),
+      initiallyExpanded: true,
+      title: Text(l10n.sceneDetailCostumesTitle('$totalBeats')),
+      children: [
+        if (scene.assignedCharacters.isEmpty)
+          ListTile(
+            key: const Key('scene-costumes-empty'),
+            title: Text(l10n.sceneDetailNoCharacters),
+          )
+        else ...[
+          for (final group in groups) ...[
+            for (final beat in group.beats)
+              _buildBeatTile(context, ref, group, beat, costumesById, l10n),
+            if (group.beats.isEmpty)
+              ListTile(
+                key: Key('scene-costume-empty-${group.characterId}'),
+                title: Text(l10n.sceneDetailNoCostumeInScene),
+                trailing: FilledButton.tonal(
+                  key: Key('scene-costume-assign-${group.characterId}'),
+                  onPressed: () => _pickCostume(
+                    context,
+                    ref,
+                    group.characterId,
+                    names[group.characterId],
+                    costumeViews,
+                  ),
+                  child: Text(l10n.sceneDetailAssignCostume),
+                ),
+              )
+            else
+              Align(
+                alignment: Alignment.centerRight,
+                child: FilledButton.tonal(
+                  key: Key('scene-costume-add-change-${group.characterId}'),
+                  onPressed: () => _pickCostume(
+                    context,
+                    ref,
+                    group.characterId,
+                    names[group.characterId],
+                    costumeViews,
+                  ),
+                  child: Text(l10n.sceneDetailAddChange),
+                ),
+              ),
+          ],
+          if (beatOverlay != null &&
+              beatOverlay.status != OverlayStatus.acknowledged)
+            ListTile(
+              key: const Key('scene-costumes-overlay-status'),
+              leading: beatOverlay.status == OverlayStatus.stale
+                  ? const Icon(
+                      Icons.cloud_off,
+                      key: Key('scene-costumes-overlay-warning'),
+                    )
+                  : const SizedBox(
+                      width: 14,
+                      height: 14,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+              title: Text(beatOverlay.warning ?? l10n.reconcileStaleWarning),
+            ),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildBeatTile(
+    BuildContext context,
+    WidgetRef ref,
+    SceneBeatGroup group,
+    SceneCostumeBeatView beat,
+    Map<String, CostumeView> costumesById,
+    AppLocalizations l10n,
+  ) {
+    final costume = costumesById[beat.costumeId];
+    // Tile-identity discipline: the label NEVER comes from a random
+    // detail — same helper as the costume grid tile, with the
+    // backend-joined category name as the projection-miss fallback.
+    final label = sceneBeatCostumeLabel(
+      costume: costume,
+      joinedCategoryName: beat.costumeCategoryName,
+      genericFallback: l10n.costumeTileLabelFallback,
+    );
+    final iconCategory = sceneBeatCostumeCategory(
+      costume: costume,
+      joinedCategoryName: beat.costumeCategoryName,
+    );
+    return ListTile(
+      key: Key('scene-costume-beat-${group.characterId}-${beat.order}'),
+      leading: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (beat.order > 0)
+            Padding(
+              padding: const EdgeInsets.only(right: 4),
+              child: Text(
+                '→',
+                key: Key(
+                  'scene-costume-arrow-${group.characterId}-${beat.order}',
+                ),
+              ),
+            ),
+          Icon(BreakdownMaterialIcons.forCostumeCategory(iconCategory)),
+        ],
+      ),
+      title: Text(label),
+      subtitle: beat.note == null || beat.note!.isEmpty
+          ? null
+          : Text(beat.note!),
+      trailing: IconButton(
+        key: Key('scene-costume-remove-${group.characterId}-${beat.order}'),
+        icon: const Icon(Icons.delete_outline),
+        tooltip: l10n.sceneDetailRemoveCostumeTooltip,
+        // Confirm-first (destructive actions confirm-first, §5).
+        onPressed: () => _confirmRemove(context, ref, group, beat, label),
+      ),
+    );
+  }
+
+  Future<void> _pickCostume(
+    BuildContext context,
+    WidgetRef ref,
+    String characterId,
+    String? characterName,
+    List<CostumeView> costumes,
+  ) async {
+    if (costumes.isEmpty) return;
+    final picked = await showPickCostumeSheet(context, costumes);
+    if (picked == null || !context.mounted) return;
+    final pickedCostumeId = picked.costumeId;
+    final costume = ref
+        .read(costumesViewProvider(seasonId))
+        .rows
+        .where((c) => c.id == pickedCostumeId)
+        .firstOrNull;
+    final result = await ref
+        .read(scenesControllerProvider(episodeId).notifier)
+        .addCostumeBeat(
+          seasonId: seasonId,
+          scene: scene,
+          characterId: characterId,
+          costumeId: picked.costumeId,
+          note: picked.note,
+          characterName: characterName,
+          costumeCategoryName: costume?.categoryName,
+        );
+    if (result.isRight()) return; // optimistic overlay + reconcile own the UI.
+    if (!context.mounted) return;
+    // Reconcile the version even on conflict: the next action must echo
+    // the current projection version, not the rejected one. The command
+    // itself is never re-dispatched automatically.
+    await ref.read(scenesControllerProvider(episodeId).notifier).refresh();
+    if (!context.mounted) return;
+    result.match(
+      (err) => ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(sceneBeatErrorCopy(l10nOf(context), err))),
+      ),
+      (_) {},
+    );
+  }
+
+  Future<void> _confirmRemove(
+    BuildContext context,
+    WidgetRef ref,
+    SceneBeatGroup group,
+    SceneCostumeBeatView beat,
+    String label,
+  ) {
+    final l10n = l10nOf(context);
+    return showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(l10n.sceneDetailRemoveCostumeTitle),
+        content: Text(l10n.sceneDetailRemoveCostumeMessage(label)),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: Text(l10n.commonCancel),
+          ),
+          FilledButton(
+            key: Key(
+              'scene-costume-remove-confirm-'
+              '${group.characterId}-${beat.order}',
+            ),
+            onPressed: () async {
+              // The controller on this scene (the section is keyed to the
+              // episode the scene belongs to).
+              final controller = ref.read(
+                scenesControllerProvider(episodeId).notifier,
+              );
+              // The only remaining beat IS the clear-all ("no costume in
+              // this scene"); otherwise a single-beat removal.
+              final result = group.beats.length <= 1
+                  ? await controller.clearCostumeBeats(
+                      seasonId: seasonId,
+                      scene: scene,
+                      characterId: group.characterId,
+                    )
+                  : await controller.removeCostumeBeat(
+                      seasonId: seasonId,
+                      scene: scene,
+                      characterId: group.characterId,
+                      order: beat.order,
+                    );
+              if (result.isRight()) {
+                // Optimistic overlay + reconciliation own the UI.
+              } else if (dialogContext.mounted) {
+                await ref
+                    .read(scenesControllerProvider(episodeId).notifier)
+                    .refresh();
+                if (!dialogContext.mounted) return;
+                result.match(
+                  (err) => ScaffoldMessenger.of(dialogContext).showSnackBar(
+                    SnackBar(
+                      content: Text(sceneBeatErrorCopy(l10nOf(context), err)),
                     ),
                   ),
                   (_) {},

@@ -702,6 +702,120 @@ abstract class _$ScenesOverlays extends $Notifier<List<SceneOverlay>> {
   }
 }
 
+/// Ephemeral optimistic beat-overlay store per episode (issue #546):
+/// controller state keyed by SCENE id — never Drift.
+
+@ProviderFor(SceneBeatOverlays)
+final sceneBeatOverlaysProvider = SceneBeatOverlaysFamily._();
+
+/// Ephemeral optimistic beat-overlay store per episode (issue #546):
+/// controller state keyed by SCENE id — never Drift.
+final class SceneBeatOverlaysProvider
+    extends $NotifierProvider<SceneBeatOverlays, List<SceneBeatOverlay>> {
+  /// Ephemeral optimistic beat-overlay store per episode (issue #546):
+  /// controller state keyed by SCENE id — never Drift.
+  SceneBeatOverlaysProvider._({
+    required SceneBeatOverlaysFamily super.from,
+    required String super.argument,
+  }) : super(
+         retry: null,
+         name: r'sceneBeatOverlaysProvider',
+         isAutoDispose: false,
+         dependencies: null,
+         $allTransitiveDependencies: null,
+       );
+
+  @override
+  String debugGetCreateSourceHash() => _$sceneBeatOverlaysHash();
+
+  @override
+  String toString() {
+    return r'sceneBeatOverlaysProvider'
+        ''
+        '($argument)';
+  }
+
+  @$internal
+  @override
+  SceneBeatOverlays create() => SceneBeatOverlays();
+
+  /// {@macro riverpod.override_with_value}
+  Override overrideWithValue(List<SceneBeatOverlay> value) {
+    return $ProviderOverride(
+      origin: this,
+      providerOverride: $SyncValueProvider<List<SceneBeatOverlay>>(value),
+    );
+  }
+
+  @override
+  bool operator ==(Object other) {
+    return other is SceneBeatOverlaysProvider && other.argument == argument;
+  }
+
+  @override
+  int get hashCode {
+    return argument.hashCode;
+  }
+}
+
+String _$sceneBeatOverlaysHash() => r'0718c80cb512443beea16ec45696fe5df60efe58';
+
+/// Ephemeral optimistic beat-overlay store per episode (issue #546):
+/// controller state keyed by SCENE id — never Drift.
+
+final class SceneBeatOverlaysFamily extends $Family
+    with
+        $ClassFamilyOverride<
+          SceneBeatOverlays,
+          List<SceneBeatOverlay>,
+          List<SceneBeatOverlay>,
+          List<SceneBeatOverlay>,
+          String
+        > {
+  SceneBeatOverlaysFamily._()
+    : super(
+        retry: null,
+        name: r'sceneBeatOverlaysProvider',
+        dependencies: null,
+        $allTransitiveDependencies: null,
+        isAutoDispose: false,
+      );
+
+  /// Ephemeral optimistic beat-overlay store per episode (issue #546):
+  /// controller state keyed by SCENE id — never Drift.
+
+  SceneBeatOverlaysProvider call(String episodeId) =>
+      SceneBeatOverlaysProvider._(argument: episodeId, from: this);
+
+  @override
+  String toString() => r'sceneBeatOverlaysProvider';
+}
+
+/// Ephemeral optimistic beat-overlay store per episode (issue #546):
+/// controller state keyed by SCENE id — never Drift.
+
+abstract class _$SceneBeatOverlays extends $Notifier<List<SceneBeatOverlay>> {
+  late final _$args = ref.$arg as String;
+  String get episodeId => _$args;
+
+  List<SceneBeatOverlay> build(String episodeId);
+  @$mustCallSuper
+  @override
+  WhenComplete runBuild() {
+    final ref =
+        this.ref as $Ref<List<SceneBeatOverlay>, List<SceneBeatOverlay>>;
+    final element =
+        ref.element
+            as $ClassProviderElement<
+              AnyNotifier<List<SceneBeatOverlay>, List<SceneBeatOverlay>>,
+              List<SceneBeatOverlay>,
+              Object?,
+              Object?
+            >;
+    return element.handleCreate(ref, () => build(_$args));
+  }
+}
+
 /// Last command failure per episode, surfaced to the screen keyed on `code`.
 
 @ProviderFor(ScenesCommandError)
@@ -863,7 +977,7 @@ final class ScenesControllerProvider
   }
 }
 
-String _$scenesControllerHash() => r'26582f9f9f6c17bb6147490d83823305a1bf29b2';
+String _$scenesControllerHash() => r'346970d8ec6c7197fd7859f90a07c10ba07769be';
 
 /// `ScenesController(episodeId)` on the shared reconciliation runner.
 

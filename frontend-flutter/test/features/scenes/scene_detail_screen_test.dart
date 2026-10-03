@@ -28,13 +28,17 @@ import 'package:frontend_flutter/data/cache/costume_domains_cache_dao.dart';
 import 'package:frontend_flutter/data/cache/hierarchy_cache_dao.dart';
 import 'package:frontend_flutter/data/cache/seasons_cache_providers.dart';
 import 'package:frontend_flutter/data/character_repository.dart';
+import 'package:frontend_flutter/data/costume_repository.dart';
 import 'package:frontend_flutter/data/scene_repository.dart';
 import 'package:frontend_flutter/data/shooting_day_repository.dart';
 import 'package:frontend_flutter/domain/reconciliation/reconciliation_scheduler.dart';
+import 'package:frontend_flutter/design/theme.dart';
 import 'package:frontend_flutter/features/characters/characters_controller.dart';
+import 'package:frontend_flutter/features/costumes/costumes_controller.dart';
 import 'package:frontend_flutter/features/scenes/scene_detail_screen.dart';
 import 'package:frontend_flutter/features/scenes/scenes_controller.dart';
 import 'package:frontend_flutter/features/shooting_days/shooting_days_controller.dart';
+import 'package:frontend_flutter/l10n/generated/app_localizations.dart';
 
 import '../seasons/seasons_test_fakes.dart';
 
@@ -48,6 +52,7 @@ SceneView _scene({
   List<String> characters = const [],
   List<String> days = const [],
   int version = 1,
+  List<SceneCostumeBeatView> beats = const [],
 }) => SceneView(
   (b) => b
     ..id = id
@@ -57,10 +62,46 @@ SceneView _scene({
     ..location = 'Studio A'
     ..sceneNumber = 7
     ..shootingDayIds.replace(days)
+    ..costumeBeats.replace(beats)
     ..summary = 'Night shoot'
     ..updatedAt = DateTime.utc(2026, 1, 1)
     ..version = version,
 );
+
+SceneCostumeBeatView _beat(
+  String characterId,
+  int order, {
+  String costumeId = 'costume-1',
+  String? characterName = 'Ada',
+  String? categoryName = 'Jacke',
+  String? note,
+}) => SceneCostumeBeatView(
+  (b) => b
+    ..characterId = characterId
+    ..costumeId = costumeId
+    ..characterName = characterName
+    ..costumeCategoryName = categoryName
+    ..order = order
+    ..note = note,
+);
+
+CostumeView _costume(String id, {String? subject, String? categoryName}) =>
+    CostumeView(
+      (b) => b
+        ..id = id
+        ..notes = ''
+        ..categoryName = categoryName
+        ..details.replace([
+          CostumeDetailView(
+            (d) => d
+              ..id = 'd-$id'
+              ..subject = subject
+              ..text = '',
+          ),
+        ])
+        ..updatedAt = DateTime.utc(2026, 1, 1)
+        ..version = 1,
+    );
 
 CharacterView _character(String id, {String name = 'Ada'}) => CharacterView(
   (b) => b
@@ -105,12 +146,70 @@ ShootingDayView _day(String id, {String? label, bool archived = false}) =>
         ..version = 1,
     );
 
-SeasonMembershipDto _membership() => SeasonMembershipDto(
+SeasonMembershipDto _membership({
+  List<String> capabilities = const ['assign_costumes'],
+}) => SeasonMembershipDto(
   (b) => b
     ..seasonId = 'season-1'
     ..hasActiveCostumeRoleInSeason = true
-    ..capabilities.replace(['assign_costumes']),
+    ..capabilities.replace(capabilities),
 );
+
+class _FakeSceneRepository extends SceneRepository {
+  _FakeSceneRepository(super.api, super.cache);
+
+  Result<int>? nextWrite;
+  int addCalls = 0;
+  int updateCalls = 0;
+  int removeCalls = 0;
+  int clearCalls = 0;
+  int? lastVersion;
+
+  @override
+  Future<Result<int>> addCostumeBeat(
+    String id,
+    AddSceneCostumeBeatRequest request,
+  ) {
+    addCalls++;
+    lastVersion = request.version;
+    return Future.value(nextWrite ?? const Right(2));
+  }
+
+  @override
+  Future<Result<int>> updateCostumeBeat(
+    String id,
+    String characterId,
+    int order,
+    UpdateSceneCostumeBeatRequest request,
+  ) {
+    updateCalls++;
+    lastVersion = request.version;
+    return Future.value(nextWrite ?? const Right(2));
+  }
+
+  @override
+  Future<Result<int>> removeCostumeBeat(
+    String id,
+    String characterId,
+    int order,
+    int version,
+  ) {
+    removeCalls++;
+    lastVersion = version;
+    return Future.value(nextWrite ?? const Right(2));
+  }
+
+  @override
+  Future<Result<int>> clearCostumeBeats(
+    String id,
+    String characterId,
+    int version,
+  ) {
+    clearCalls++;
+    lastVersion = version;
+    return Future.value(nextWrite ?? const Right(2));
+  }
+}
 
 class _FakeCharacterRepository extends CharacterRepository {
   _FakeCharacterRepository(super.api, super.cache);
@@ -186,14 +285,19 @@ void main() {
   late _FakeShootingDayRepository days;
   late ProviderContainer container;
 
+  late _FakeSceneRepository sceneRepo;
+
   Future<void> setupContainer({
     SceneView? scene,
     List<CharacterView> characterRows = const [],
     List<ShootingDayView> dayRows = const [],
     List<int>? scenesFetchLog,
+    List<String> membershipCapabilities = const ['assign_costumes'],
+    List<CostumeView> costumeRows = const [],
   }) async {
     db = CacheDatabase(NativeDatabase.memory());
     addTearDown(db.close);
+    sceneRepo = _FakeSceneRepository(BreakdownApi(), SceneCacheDao(db));
     characters = _FakeCharacterRepository(
       BreakdownApi(),
       CharacterCacheDao(db),
@@ -203,16 +307,21 @@ void main() {
       overrides: [
         appConfigProvider.overrideWithValue(devAuthConfig),
         cacheDatabaseProvider.overrideWithValue(db),
-        sceneRepositoryProvider.overrideWithValue(
-          SceneRepository(BreakdownApi(), SceneCacheDao(db)),
-        ),
+        sceneRepositoryProvider.overrideWithValue(sceneRepo),
         characterRepositoryProvider.overrideWithValue(characters),
         shootingDayRepositoryProvider.overrideWithValue(days),
         reconciliationSchedulerProvider.overrideWith(
           (ref) => ManualReconciliationScheduler(),
         ),
-        membershipFetchProvider('season-1')
-            .overrideWith((ref) async => Right(_membership())),
+        membershipFetchProvider('season-1').overrideWith(
+          (ref) async =>
+              Right(_membership(capabilities: membershipCapabilities)),
+        ),
+        costumeRepositoryProvider.overrideWithValue(
+          CostumeRepository(BreakdownApi(), CostumeCacheDao(db)),
+        ),
+        costumesListFetchProvider('season-1')
+            .overrideWith((ref) async => Right(costumeRows)),
         scenesListFetchProvider('episode-1').overrideWith((ref) async {
           scenesFetchLog?.add(1);
           return Right(scene == null ? [] : [scene]);
@@ -505,6 +614,275 @@ void main() {
       await tester.tap(find.byKey(const Key('scene-character-assign-scene-1')));
       await tester.pumpAndSettle();
       expect(find.byKey(const Key('assign-character-c-2')), findsOneWidget);
+    });
+  });
+  // Issue #546 — the scene COSTUMES section (tasks 5.1–5.3): one row per
+  // (character, beat), change arrow, empty-state affordance, picker dispatch,
+  // AUTHZ-GATE denial before the network call, optimistic-after-2xx with the
+  // version fence, and 409 → refetch with keyed copy.
+  group('SceneDetailScreen costume beats (issue #546)', () {
+    testWidgets('renders one beat row with the tile-identity label + cue', (
+      tester,
+    ) async {
+      await setupContainer(
+        scene: _scene(
+          characters: ['ch-1'],
+          beats: [_beat('ch-1', 0, note: 'Trench, guanti')],
+        ),
+        characterRows: [_character('ch-1')],
+        costumeRows: [_costume('costume-1', subject: 'Mantel')],
+      );
+      await pumpDetail(tester);
+      expect(
+        find.byKey(const Key('scene-costume-beat-ch-1-0')),
+        findsOneWidget,
+      );
+      // Tile-identity discipline: the label comes from the SAME helper as the
+      // costume grid tile (detail subject), never from a random detail.
+      expect(find.text('Mantel'), findsOneWidget);
+      expect(find.text('Trench, guanti'), findsOneWidget);
+      expect(find.text('Costumes (1)'), findsOneWidget);
+    });
+
+    testWidgets('two beats render the change sequence with the arrow', (
+      tester,
+    ) async {
+      await setupContainer(
+        scene: _scene(
+          characters: ['ch-1'],
+          beats: [
+            _beat('ch-1', 0, costumeId: 'costume-1'),
+            _beat('ch-1', 1, costumeId: 'costume-2', note: 'Wandel'),
+          ],
+        ),
+        characterRows: [_character('ch-1')],
+        costumeRows: [
+          _costume('costume-1', subject: 'Mantel'),
+          _costume('costume-2', subject: 'Hut'),
+        ],
+      );
+      await pumpDetail(tester);
+      expect(
+        find.byKey(const Key('scene-costume-beat-ch-1-0')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const Key('scene-costume-beat-ch-1-1')),
+        findsOneWidget,
+      );
+      // The `→` prefix marks the change from the previous beat of the
+      // character; order 0 carries none.
+      expect(find.byKey(const Key('scene-costume-arrow-ch-1-0')), findsNothing);
+      expect(
+        find.byKey(const Key('scene-costume-arrow-ch-1-1')),
+        findsOneWidget,
+      );
+      expect(find.text('Costumes (2)'), findsOneWidget);
+    });
+
+    testWidgets('empty-state affordance for a character without a beat', (
+      tester,
+    ) async {
+      await setupContainer(
+        scene: _scene(characters: ['ch-1']),
+        characterRows: [_character('ch-1')],
+        costumeRows: [_costume('costume-1', subject: 'Mantel')],
+      );
+      await pumpDetail(tester);
+      expect(find.byKey(const Key('scene-costume-empty-ch-1')), findsOneWidget);
+      expect(
+        find.byKey(const Key('scene-costume-assign-ch-1')),
+        findsOneWidget,
+      );
+      // No add-change affordance without an existing beat.
+      expect(
+        find.byKey(const Key('scene-costume-add-change-ch-1')),
+        findsNothing,
+      );
+    });
+
+    testWidgets(
+      'picker dispatches add with the version echo + optimistic row',
+      (tester) async {
+        await setupContainer(
+          scene: _scene(characters: ['ch-1']),
+          characterRows: [_character('ch-1')],
+          costumeRows: [
+            _costume('costume-1', subject: 'Mantel'),
+            _costume('costume-9', subject: 'Hut'),
+          ],
+        );
+        await pumpDetail(tester);
+        await tester.tap(find.byKey(const Key('scene-costume-assign-ch-1')));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const Key('pick-costume-costume-9')));
+        // Pump PAST the sheet's exit animation with a FIXED duration —
+        // never `pumpAndSettle`: the reconciling optimistic overlay shows
+        // an indeterminate spinner (deterministic-tests rule, AGENTS §6).
+        await tester.pump(const Duration(milliseconds: 400));
+        await tester.pump(const Duration(milliseconds: 400));
+        await _pumpFrames(tester);
+        expect(sceneRepo.addCalls, 1);
+        // Version echo: the acted-on scene's version rides the request body.
+        expect(sceneRepo.lastVersion, 1);
+        // Optimistic-after-2xx: the beat row renders immediately from the
+        // overlay — the fake projection still serves the pre-command scene
+        // (version 1 < acked 2), so the version fence retains the overlay.
+        expect(
+          find.byKey(const Key('scene-costume-beat-ch-1-0')),
+          findsOneWidget,
+        );
+        expect(find.text('Hut'), findsOneWidget);
+        expect(find.text('Costumes (1)'), findsOneWidget);
+      },
+    );
+
+    testWidgets('AUTHZ-GATE denial blocks BEFORE the network call', (
+      tester,
+    ) async {
+      await setupContainer(
+        scene: _scene(characters: ['ch-1']),
+        characterRows: [_character('ch-1')],
+        costumeRows: [_costume('costume-9', subject: 'Hut')],
+        membershipCapabilities: const [],
+      );
+      await pumpDetail(tester);
+      await tester.tap(find.byKey(const Key('scene-costume-assign-ch-1')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('pick-costume-costume-9')));
+      await _pumpFrames(tester);
+      // The capability check denied before any network call: fake repo call
+      // count of zero (provable non-issue of the request).
+      expect(sceneRepo.addCalls, 0);
+      // Localized 403 narrative keyed on the gate code.
+      expect(find.text('Please sign in to continue.'), findsOneWidget);
+    });
+
+    testWidgets('409 conflict refetches the projection with keyed copy', (
+      tester,
+    ) async {
+      final fetchLog = <int>[];
+      await setupContainer(
+        scene: _scene(characters: ['ch-1']),
+        characterRows: [_character('ch-1')],
+        costumeRows: [_costume('costume-9', subject: 'Hut')],
+        scenesFetchLog: fetchLog,
+      );
+      await pumpDetail(tester);
+      final baseline = fetchLog.length;
+      sceneRepo.nextWrite = const Left(_conflict);
+      await tester.tap(find.byKey(const Key('scene-costume-assign-ch-1')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('pick-costume-costume-9')));
+      await _pumpFrames(tester);
+      expect(sceneRepo.addCalls, 1);
+      // Conflict copy renders keyed on `code`…
+      expect(
+        find.text('Changed elsewhere — refresh and try again.'),
+        findsOneWidget,
+      );
+      // …and the projection refetches so the next action echoes the current
+      // version (never an automatic re-dispatch).
+      expect(fetchLog.length, greaterThan(baseline));
+    });
+
+    testWidgets('removing the ONLY beat dispatches clear-all', (tester) async {
+      await setupContainer(
+        scene: _scene(characters: ['ch-1'], beats: [_beat('ch-1', 0)]),
+        characterRows: [_character('ch-1')],
+        costumeRows: [_costume('costume-1', subject: 'Mantel')],
+      );
+      await pumpDetail(tester);
+      await tester.tap(find.byKey(const Key('scene-costume-remove-ch-1-0')));
+      await tester.pumpAndSettle();
+      // Confirm-first: no dispatch before confirmation.
+      expect(sceneRepo.clearCalls, 0);
+      expect(sceneRepo.removeCalls, 0);
+      await tester.tap(
+        find.byKey(const Key('scene-costume-remove-confirm-ch-1-0')),
+      );
+      await _pumpFrames(tester);
+      // The single remaining beat IS the clear-all ("no costume in this
+      // scene") — the dedicated route, not a per-order removal.
+      expect(sceneRepo.clearCalls, 1);
+      expect(sceneRepo.removeCalls, 0);
+      // Optimistic empty state appears immediately.
+      expect(find.byKey(const Key('scene-costume-empty-ch-1')), findsOneWidget);
+    });
+
+    testWidgets('removing one of two beats dispatches the per-order removal', (
+      tester,
+    ) async {
+      await setupContainer(
+        scene: _scene(
+          characters: ['ch-1'],
+          beats: [
+            _beat('ch-1', 0, costumeId: 'costume-1'),
+            _beat('ch-1', 1, costumeId: 'costume-2'),
+          ],
+        ),
+        characterRows: [_character('ch-1')],
+        costumeRows: [
+          _costume('costume-1', subject: 'Mantel'),
+          _costume('costume-2', subject: 'Hut'),
+        ],
+      );
+      await pumpDetail(tester);
+      await tester.tap(find.byKey(const Key('scene-costume-remove-ch-1-0')));
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.byKey(const Key('scene-costume-remove-confirm-ch-1-0')),
+      );
+      await _pumpFrames(tester);
+      expect(sceneRepo.removeCalls, 1);
+      expect(sceneRepo.clearCalls, 0);
+    });
+
+    testWidgets('SceneDetailScreen golden (costumes section, German)', (
+      tester,
+    ) async {
+      await setupContainer(
+        scene: _scene(
+          characters: ['ch-1', 'ch-2'],
+          beats: [
+            _beat('ch-1', 0, note: 'Trench, guanti'),
+            _beat('ch-1', 1, costumeId: 'costume-2'),
+          ],
+        ),
+        characterRows: [
+          _character('ch-1'),
+          _character('ch-2', name: 'Bea'),
+        ],
+        costumeRows: [
+          _costume('costume-1', subject: 'Mantel', categoryName: 'Jacke'),
+          _costume('costume-2', subject: 'Hut', categoryName: 'Accessoires'),
+        ],
+      );
+      // The golden harness renders the German template locale (AGENTS.md §6).
+      tester.view.physicalSize = const Size(800, 1200);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: MaterialApp(
+            theme: AppThemes.light(),
+            locale: const Locale('de'),
+            supportedLocales: AppLocalizations.supportedLocales,
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            home: const SceneDetailScreen(
+              seasonId: 'season-1',
+              episodeId: 'episode-1',
+              sceneId: 'scene-1',
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await expectLater(
+        find.byType(SceneDetailScreen),
+        matchesGoldenFile('goldens/scene_detail_screen.png'),
+      );
     });
   });
 }

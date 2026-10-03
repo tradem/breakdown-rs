@@ -63,6 +63,76 @@ class SceneOverlay implements ReconciliationOverlay {
   int get hashCode => Object.hash(id, summary, sceneNumber, status, warning);
 }
 
+/// Controller-state optimistic overlay for a scene COSTUME BEAT command
+/// (issue #546): ephemeral UI state keyed by the SCENE id — never in Drift.
+///
+/// Unlike [SceneOverlay] (whole-row create), this overlay carries the FULL
+/// optimistic beat list of the scene (computed from the pre-command state
+/// plus the acked change) and the acked aggregate version. The version is
+/// the optimistic fence: the overlay is dropped only when the projected
+/// scene row carries `version >= overlay.version` — never on a lagging
+/// projection row.
+class SceneBeatOverlay implements ReconciliationOverlay {
+  const SceneBeatOverlay({
+    required this.id,
+    required this.version,
+    required this.beats,
+    required this.status,
+    this.warning,
+  });
+
+  /// The SCENE id this overlay's beats belong to.
+  @override
+  final String id;
+
+  /// The aggregate version echoed by the command's 2xx ack — the new
+  /// scene version (optimistic fence + version source for follow-ups).
+  final int version;
+
+  /// The complete optimistic beat list of the scene (display rendering
+  /// only; the projected list replaces it once the projection catches up).
+  final List<SceneCostumeBeatView> beats;
+
+  @override
+  final OverlayStatus status;
+
+  @override
+  final String? warning;
+
+  @override
+  SceneBeatOverlay copyWithStatus({
+    OverlayStatus? status,
+    String? warning,
+    bool clearWarning = false,
+  }) => SceneBeatOverlay(
+    id: id,
+    version: version,
+    beats: beats,
+    status: status ?? this.status,
+    warning: clearWarning ? null : (warning ?? this.warning),
+  );
+
+  /// Returns the scene row with the overlay's optimistic beats applied
+  /// (display-only; the projected row wins after the version-fenced drop).
+  SceneView applyTo(SceneView row) => row.rebuild(
+    (b) => b
+      ..costumeBeats.replace(beats)
+      ..version = version,
+  );
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is SceneBeatOverlay &&
+          other.id == id &&
+          other.version == version &&
+          other.status == status &&
+          other.warning == warning;
+
+  @override
+  int get hashCode => Object.hash(id, version, status, warning);
+}
+
 /// One row rendered by `ScenesScreen`.
 sealed class SceneRow {
   const SceneRow();
@@ -89,6 +159,7 @@ class ScenesScreenState {
     this.cachedRows = const [],
     this.isStale = false,
     this.overlays = const [],
+    this.beatOverlays = const [],
     this.commandError,
   });
 
@@ -96,6 +167,11 @@ class ScenesScreenState {
   final List<SceneView> cachedRows;
   final bool isStale;
   final List<SceneOverlay> overlays;
+
+  /// Ephemeral optimistic beat overlays per scene (issue #546), merged
+  /// into [cachedRows] by the controller; the screen reads this for the
+  /// reconciling/stale indicator.
+  final List<SceneBeatOverlay> beatOverlays;
 
   /// Last command failure keyed by its stable problem `code`.
   final ProblemError? commandError;

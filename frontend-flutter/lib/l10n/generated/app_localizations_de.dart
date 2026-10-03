@@ -1583,6 +1583,60 @@ class AppLocalizationsDe extends AppLocalizations {
   String get sceneDetailGone => 'Diese Szene ist nicht mehr verfügbar.';
 
   @override
+  String sceneDetailCostumesTitle(Object count) {
+    return 'Kostüme ($count)';
+  }
+
+  @override
+  String get sceneDetailAssignCostume => 'Kostüm zuweisen';
+
+  @override
+  String get sceneDetailAddChange => '+ Kostümwechsel';
+
+  @override
+  String get sceneDetailRemoveCostumeTooltip => 'Kostüm entfernen';
+
+  @override
+  String get sceneDetailRemoveCostumeTitle => 'Kostüm entfernen?';
+
+  @override
+  String sceneDetailRemoveCostumeMessage(Object name) {
+    return '„$name“ wird aus dieser Szene entfernt.';
+  }
+
+  @override
+  String get sceneDetailNoCostumeInScene => 'Kein Kostüm in dieser Szene.';
+
+  @override
+  String get sceneDetailPickCostumeTitle => 'Kostüm wählen';
+
+  @override
+  String get sceneDetailCostumeCueHint => 'Notiz für die Garderobe (optional)';
+
+  @override
+  String get sceneBeatErrorNotInScene => 'Diese Figur ist nicht in der Szene.';
+
+  @override
+  String get sceneBeatErrorNotFound =>
+      'Dieser Kostümwechsel existiert nicht (mehr).';
+
+  @override
+  String get sceneBeatErrorValidation =>
+      'Dieser Kostümwechsel ist ungültig (z. B. identischer Folge-Wechsel).';
+
+  @override
+  String get sceneBeatErrorNetwork =>
+      'Netzwerkproblem – die Änderung wurde nicht gespeichert. Versuch es erneut.';
+
+  @override
+  String sceneBeatErrorGeneric(Object code) {
+    return 'Der Kostümwechsel konnte nicht gespeichert werden ($code).';
+  }
+
+  @override
+  String get assignCharacterSheetTitle => 'Figur zuweisen';
+
+  @override
   String characterDetailFetchError(Object code) {
     return 'Figur konnte nicht geladen werden ($code).';
   }
