@@ -942,7 +942,7 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
-  String get aiApplyBackToStart => 'Back to start';
+  String get aiApplyBackToImports => 'Back to imports';
 
   @override
   String aiScenePickerError(Object code) {
@@ -957,12 +957,12 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String aiEpisodePickerError(Object error) {
-    return 'Cached episodes could not be read ($error).';
+    return 'Episodes could not be loaded ($error).';
   }
 
   @override
   String get aiEpisodePickerEmpty =>
-      'No cached episodes — open a production block first, then pick.';
+      'No episodes in this block yet — create an episode in the schedule first.';
 
   @override
   String get aiImportTitle => 'AI import';

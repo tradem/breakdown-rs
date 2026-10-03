@@ -956,7 +956,7 @@ class AppLocalizationsDe extends AppLocalizations {
   }
 
   @override
-  String get aiApplyBackToStart => 'Zurück zum Start';
+  String get aiApplyBackToImports => 'Zurück zu den Importen';
 
   @override
   String aiScenePickerError(Object code) {
@@ -972,12 +972,12 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String aiEpisodePickerError(Object error) {
-    return 'Zwischengespeicherte Episoden konnten nicht gelesen werden ($error).';
+    return 'Episoden konnten nicht geladen werden ($error).';
   }
 
   @override
   String get aiEpisodePickerEmpty =>
-      'Keine zwischengespeicherten Episoden – öffne zuerst einen Produktionsblock und wähle dann.';
+      'Keine Episoden in diesem Block – lege zuerst eine Episode im Drehplan an.';
 
   @override
   String get aiImportTitle => 'KI-Import';

@@ -123,10 +123,15 @@ class PlanningTabScreen extends ConsumerWidget {
       title: Text(l10nOf(context).planningActiveJobRow),
       subtitle: Text(l10nOf(context).aiJobsActiveBadge(attention)),
       trailing: const Icon(Icons.chevron_right),
-      // Fire-and-forget navigation (no result consumed).
+      // Fire-and-forget navigation (no result consumed). The named
+      // route is the apply-outcome button's pop target ("back to
+      // imports" — the user lands back HERE, not at the app start).
       onTap: () => unawaited(
         Navigator.of(context).push(
-          MaterialPageRoute<void>(builder: (_) => const AiImportJobsScreen()),
+          MaterialPageRoute<void>(
+            settings: const RouteSettings(name: 'ai-import-jobs'),
+            builder: (_) => const AiImportJobsScreen(),
+          ),
         ),
       ),
     );

@@ -7,11 +7,14 @@ import 'package:breakdown_api/breakdown_api.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../auth/auth_providers.dart';
 import '../../../core/problem_error.dart';
+import '../../../data/ai_import_providers.dart';
 import '../../../data/cache/hierarchy_cache_dao.dart';
 import '../../../l10n/app_localizations_provider.dart';
 import '../../../l10n/generated/app_localizations.dart';
 import '../../../data/cache/seasons_cache_providers.dart';
+import '../../episodes/episodes_controller.dart';
 import '../../scenes/scenes_controller.dart';
 import 'apply_controller.dart';
 import 'job_status_controller.dart';
@@ -156,7 +159,7 @@ class _AiApplySectionState extends ConsumerState<AiApplySection> {
               TextButton(
                 key: const Key('ai-apply-pick-episode'),
                 onPressed: () async {
-                  final picked = await showEpisodePicker(context, ref);
+                  final picked = await showEpisodePicker(context, ref, jobId);
                   if (picked != null) {
                     controller.setContext(
                       AiJobContext(
@@ -259,12 +262,15 @@ class _OutcomeCard extends StatelessWidget {
         onPressed: () {
           // The apply flow carries only the episode id (no BlockView
           // navigation context), so a deep push into the episode's
-          // screens is not available here — the button is honest about
-          // returning to the app start, where the episode is reachable
-          // through the hierarchy navigation.
-          Navigator.of(context).popUntil((route) => route.isFirst);
+          // screens is not available here. Return to the AI-import jobs
+          // list when it is on the stack (the standard entry — the user
+          // can review the job or start the next import); only a preview
+          // reached WITHOUT the jobs screen falls back to the app start.
+          Navigator.of(context).popUntil(
+            (route) => route.isFirst || route.settings.name == 'ai-import-jobs',
+          );
         },
-        child: Text(l10nOf(context).aiApplyBackToStart),
+        child: Text(l10nOf(context).aiApplyBackToImports),
       ),
     ],
   );
@@ -328,16 +334,21 @@ Future<SceneView?> showExistingScenePicker(
 }
 
 /// The explicit episode picker (the missing-context → picker-required
-/// path): episodes from the season's read DTOs — ids never guessed.
-Future<EpisodeView?> showEpisodePicker(BuildContext context, WidgetRef ref) {
-  // The picker lists the CACHED episodes of every block; the job's
-  // remembered season (if any) scopes the read. Fresh-job AND
-  // remembered-job entry both reach here (design §2.3).
+/// path): the JOB'S BLOCK episodes, live-fetched from the read API — ids
+/// never guessed, and the list never depends on what the user happened
+/// to have visited before (the former cache-only read left fresh
+/// installs with an empty picker, so the target episode could not be
+/// assigned).
+Future<EpisodeView?> showEpisodePicker(
+  BuildContext context,
+  WidgetRef ref,
+  String jobId,
+) {
   return showModalBottomSheet<EpisodeView>(
     context: context,
     builder: (sheetContext) => Consumer(
       builder: (context, sheetRef, _) {
-        final episodes = sheetRef.watch(_cachedEpisodesProvider);
+        final episodes = sheetRef.watch(_pickerEpisodesProvider(jobId));
         return SafeArea(
           child: SizedBox(
             height: 400,
@@ -397,16 +408,59 @@ Future<EpisodeView?> showEpisodePicker(BuildContext context, WidgetRef ref) {
   );
 }
 
-/// The cached episode rows across blocks (the picker's source): a pure
-/// read-only Drift projection over `episode_cache_rows` — the picked
-/// episode id becomes the apply command's own payload (`episode_id`),
-/// never a second projection lookup for audit context (CQRS boundary).
-final _cachedEpisodesProvider = FutureProvider<List<EpisodeView>>((ref) async {
+/// The picker's rows for ONE job: the job's `block_id` scopes a LIVE
+/// `GET /v1/episodes?block_id=…` fetch through the shared
+/// [episodesListFetchProvider] seam (tests override it with a fake;
+/// the `seasonId` family slot is unused by the fetch and passed empty).
+/// A failed fetch falls back to the block's CACHED rows (offline-first,
+/// retained-stale-rows pattern — a transient failure never renders as an
+/// empty list while stale rows exist); only a failure with an empty cache
+/// surfaces the error. A job without a `block_id` falls back to the
+/// identity-scoped cache read across blocks — the previous behavior.
+final _pickerEpisodesProvider = FutureProvider.family<List<EpisodeView>, String>(
+  (ref, jobId) async {
   final db = ref.watch(cacheDatabaseProvider);
-  // A read racing a sign-out clear renders an empty picker (the next
-  // open re-reads) — no cross-identity rows are reachable because
-  // SessionReset clears the table wholesale (identity-scoped, §3).
-  return EpisodeCacheDao(db).readAllEpisodes();
+  final repo = ref.watch(aiImportRepositoryProvider);
+
+  // The job's block scope from the identity-scoped cache row (the same
+  // discipline as `aiJobContext` — never navigation state, never a
+  // second projection lookup for the command payload; the picked id IS
+  // the apply command's own `episode_id`).
+  String sub = '';
+  try {
+    final session = await ref.read(authSessionControllerProvider.future);
+    sub = session?.sub ?? '';
+  } on Object {
+    sub = '';
+  }
+  final rows = await repo.readCached(sub);
+  String? blockId;
+  for (final row in rows.getRight().toNullable() ?? const []) {
+    if (row.id == jobId) {
+      blockId = row.blockId;
+      break;
+    }
+  }
+
+  // No block scope (a job id from an older build, or an un-cached job)
+  // → the legacy cache-wide read.
+  final scopedBlock = blockId;
+  if (scopedBlock == null || scopedBlock.isEmpty) {
+    return EpisodeCacheDao(db).readAllEpisodes();
+  }
+
+  final fetch = await ref.watch(
+    episodesListFetchProvider(scopedBlock, '').future,
+  );
+  return fetch.match(
+    (err) async {
+      final cached = await EpisodeCacheDao(db).readByBlock(scopedBlock);
+      if (cached.isNotEmpty) return cached;
+      // Empty cache → surface the failure code (the sheet's error branch).
+      throw err;
+    },
+    (rows) async => rows,
+  );
 }, name: 'aiEpisodePickerRows');
 
 /// Localized copy for a costume row the apply could not finish, keyed on the
