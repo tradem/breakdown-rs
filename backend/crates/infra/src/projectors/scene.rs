@@ -212,6 +212,124 @@ impl<'a> EntityEventHandler<SceneAggregate, Transaction<'a, Postgres>> for Scene
 
                 Self::touch_parent(ctx, id, version, updated_at).await?;
             }
+            SceneEvent::CostumeBeatAdded {
+                id,
+                character_id,
+                costume_id,
+                order,
+                note,
+                version,
+            } => {
+                let version = version.0 as i64;
+                // Version guard (issue #546, CodeRabbit review): a replayed
+                // older add event must not recreate a removed beat — claim
+                // the parent version first, skip the mutation when a
+                // same-or-newer version is already projected.
+                if !Self::guard_parent(ctx, id, version, updated_at).await? {
+                    return Ok(());
+                }
+                sqlx::query(
+                    r#"
+                    INSERT INTO projection_scene_costume_assignment
+                        (scene_id, character_id, "order", costume_id, note, version)
+                    VALUES ($1, $2, $3, $4, $5, $6)
+                    ON CONFLICT (scene_id, character_id, "order") DO UPDATE SET
+                        costume_id = EXCLUDED.costume_id,
+                        note = EXCLUDED.note,
+                        version = EXCLUDED.version
+                    "#,
+                )
+                .bind(id)
+                .bind(character_id)
+                .bind(order as i32)
+                .bind(costume_id)
+                .bind(note)
+                .bind(version)
+                .execute(&mut **ctx)
+                .await?;
+
+                Self::touch_parent(ctx, id, version, updated_at).await?;
+            }
+            SceneEvent::CostumeBeatUpdated {
+                id,
+                character_id,
+                order,
+                costume_id,
+                note,
+                version,
+            } => {
+                let version = version.0 as i64;
+                if !Self::guard_parent(ctx, id, version, updated_at).await? {
+                    return Ok(());
+                }
+                sqlx::query(
+                    r#"
+                    UPDATE projection_scene_costume_assignment
+                    SET costume_id = $3,
+                        note = $4,
+                        version = $5
+                    WHERE scene_id = $1 AND character_id = $2 AND "order" = $6
+                    "#,
+                )
+                .bind(id)
+                .bind(character_id)
+                .bind(costume_id)
+                .bind(note)
+                .bind(version)
+                .bind(order as i32)
+                .execute(&mut **ctx)
+                .await?;
+
+                Self::touch_parent(ctx, id, version, updated_at).await?;
+            }
+            SceneEvent::CostumeBeatRemoved {
+                id,
+                character_id,
+                order,
+                version,
+            } => {
+                let version = version.0 as i64;
+                if !Self::guard_parent(ctx, id, version, updated_at).await? {
+                    return Ok(());
+                }
+                // Exactly one row goes; surviving orders are untouched —
+                // denseness is an aggregate fact, not a projection repair job.
+                sqlx::query(
+                    r#"
+                    DELETE FROM projection_scene_costume_assignment
+                    WHERE scene_id = $1 AND character_id = $2 AND "order" = $3
+                    "#,
+                )
+                .bind(id)
+                .bind(character_id)
+                .bind(order as i32)
+                .execute(&mut **ctx)
+                .await?;
+
+                Self::touch_parent(ctx, id, version, updated_at).await?;
+            }
+            SceneEvent::CostumeBeatsCleared {
+                id,
+                character_id,
+                version,
+            } => {
+                let version = version.0 as i64;
+                if !Self::guard_parent(ctx, id, version, updated_at).await? {
+                    return Ok(());
+                }
+                sqlx::query(
+                    r#"
+                    DELETE FROM projection_scene_costume_assignment
+                    WHERE scene_id = $1 AND character_id = $2
+                    "#,
+                )
+                .bind(id)
+                .bind(character_id)
+                .execute(&mut **ctx)
+                .await?;
+
+                Self::touch_parent(ctx, id, version, updated_at).await?;
+            }
         }
 
         Ok(())
@@ -219,6 +337,34 @@ impl<'a> EntityEventHandler<SceneAggregate, Transaction<'a, Postgres>> for Scene
 }
 
 impl SceneProjector {
+    /// Claim the parent scene version for a beat mutation (issue #546,
+    /// CodeRabbit review). Returns `true` when the incoming event version is
+    /// newer than the projected parent version — the caller may then mutate
+    /// the beat rows in the same transaction. `false` means a
+    /// same-or-newer version is already projected (at-least-once
+    /// redelivery of a stale event): the mutation must be skipped so a
+    /// replayed add cannot recreate a removed beat.
+    async fn guard_parent<'b>(
+        ctx: &mut Transaction<'b, Postgres>,
+        id: Uuid,
+        version: i64,
+        updated_at: chrono::DateTime<chrono::Utc>,
+    ) -> Result<bool, sqlx::Error> {
+        let result = sqlx::query(
+            r#"
+            UPDATE projection_scene
+            SET version = $2, updated_at = $3
+            WHERE id = $1 AND version < $2
+            "#,
+        )
+        .bind(id)
+        .bind(version)
+        .bind(updated_at)
+        .execute(&mut **ctx)
+        .await?;
+        Ok(result.rows_affected() > 0)
+    }
+
     async fn touch_parent<'b>(
         ctx: &mut Transaction<'b, Postgres>,
         id: Uuid,

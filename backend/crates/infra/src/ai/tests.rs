@@ -350,6 +350,7 @@ async fn merge_worker_success_records_telemetry() {
             script_day: None,
             shooting_day_ids: Vec::new(),
             assigned_characters: Vec::new(),
+            costume_beats: Vec::new(),
             version: AggregateVersion::INITIAL,
             updated_at: Utc.timestamp_opt(0, 0).single().unwrap(),
             source: Some(SceneSource::Manual),
@@ -929,6 +930,29 @@ impl breakdown_core::scene::ports::SceneCommands for FakeSceneCommands {
     ) -> Result<breakdown_core::shared::AggregateVersion, DomainError> {
         Ok(breakdown_core::shared::AggregateVersion::INITIAL)
     }
+    async fn add_costume_beat(
+        &self,
+        _actor: UserId,
+        _command: breakdown_core::scene::commands::AddCostumeBeat,
+    ) -> Result<breakdown_core::shared::AggregateVersion, DomainError> {
+        Ok(breakdown_core::shared::AggregateVersion::INITIAL)
+    }
+
+    async fn update_costume_beat(
+        &self,
+        _actor: UserId,
+        _command: breakdown_core::scene::commands::UpdateCostumeBeat,
+    ) -> Result<breakdown_core::shared::AggregateVersion, DomainError> {
+        Ok(breakdown_core::shared::AggregateVersion::INITIAL)
+    }
+
+    async fn remove_costume_beat(
+        &self,
+        _actor: UserId,
+        _command: breakdown_core::scene::commands::RemoveCostumeBeat,
+    ) -> Result<breakdown_core::shared::AggregateVersion, DomainError> {
+        Ok(breakdown_core::shared::AggregateVersion::INITIAL)
+    }
 
     async fn schedule_on_shooting_day(
         &self,
@@ -1292,6 +1316,7 @@ impl ScheduleApplyFixture {
             script_day: None,
             shooting_day_ids: Vec::new(),
             assigned_characters: Vec::new(),
+            costume_beats: Vec::new(),
             version: breakdown_core::shared::AggregateVersion::INITIAL,
             updated_at: Utc::now(),
             source: Some(SceneSource::Manual),

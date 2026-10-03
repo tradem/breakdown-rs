@@ -37,7 +37,7 @@ pub const PROBLEM_DOCS_BASE: &str = "https://docs.breakdown.example";
 /// Kept in sync with the `problem_codes!` invocation below by a compile-time
 /// assertion — adding or removing a code without deliberately updating this
 /// count fails the build (issue #232).
-const PROBLEM_CODE_COUNT: usize = 88;
+const PROBLEM_CODE_COUNT: usize = 90;
 
 /// One registered problem code (ADR-031 D2/D4).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -428,6 +428,23 @@ problem_codes! {
         status: 409,
         title: "Character already assigned to this scene",
         extensions: &[],
+    },
+
+    /// 422 — a costume-beat command targeted a character that is not in the
+    /// scene's `assigned_characters` (issue #546).
+    SCENE_CHARACTER_NOT_IN_SCENE {
+        code: "scene.character-not-in-scene",
+        status: 422,
+        title: "Character is not assigned to this scene",
+        extensions: &["character_id"],
+    },
+
+    /// 422 — no costume beat exists at `(character_id, order)` (issue #546).
+    SCENE_BEAT_NOT_FOUND {
+        code: "scene.beat-not-found",
+        status: 422,
+        title: "Costume beat not found",
+        extensions: &["character_id", "order"],
     },
 
     /// Conflict: the scene is already scheduled on *another* shooting day.

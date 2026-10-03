@@ -5,6 +5,7 @@
 
 pub mod aggregate;
 pub mod commands;
+pub mod costume;
 pub mod error;
 pub mod events;
 pub mod ports;
@@ -12,10 +13,12 @@ pub mod views;
 
 pub use aggregate::SceneAggregate;
 pub use commands::{
-    AssignCharacter, CreateScene, RemoveCharacter, ScheduleSceneOnShootingDay,
-    UnscheduleSceneFromShootingDay, UpdateSceneDetails,
+    AddCostumeBeat, AssignCharacter, CreateScene, RemoveCharacter, RemoveCostumeBeat,
+    ScheduleSceneOnShootingDay, UnscheduleSceneFromShootingDay, UpdateCostumeBeat,
+    UpdateSceneDetails,
 };
+pub use costume::SceneCostumeBeat;
 pub use error::SceneError;
 pub use events::{SceneDetails, SceneEvent, SceneSource, default_scene_source};
 pub use ports::{SceneCommands, SceneRepository};
-pub use views::SceneView;
+pub use views::{SceneCostumeBeatView, SceneView};

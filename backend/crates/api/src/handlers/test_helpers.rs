@@ -40,8 +40,9 @@ use breakdown_core::reporting::{
     ReportJobId, ReportJobStatus,
 };
 use breakdown_core::scene::commands::{
-    AssignCharacter, CreateScene, RemoveCharacter, ScheduleSceneOnShootingDay,
-    UnscheduleSceneFromShootingDay, UpdateSceneDetails,
+    AddCostumeBeat, AssignCharacter, CreateScene, RemoveCharacter, RemoveCostumeBeat,
+    ScheduleSceneOnShootingDay, UnscheduleSceneFromShootingDay, UpdateCostumeBeat,
+    UpdateSceneDetails,
 };
 use breakdown_core::scene::ports::{SceneCommands, SceneRepository};
 use breakdown_core::scene::views::SceneView;
@@ -106,6 +107,24 @@ impl SceneCommands for FakeSceneCommands {
     async fn remove_character(
         &self,
         _cmd: RemoveCharacter,
+    ) -> Result<AggregateVersion, DomainError> {
+        Ok(AggregateVersion::INITIAL.next())
+    }
+    async fn add_costume_beat(
+        &self,
+        _cmd: AddCostumeBeat,
+    ) -> Result<AggregateVersion, DomainError> {
+        Ok(AggregateVersion::INITIAL.next())
+    }
+    async fn update_costume_beat(
+        &self,
+        _cmd: UpdateCostumeBeat,
+    ) -> Result<AggregateVersion, DomainError> {
+        Ok(AggregateVersion::INITIAL.next())
+    }
+    async fn remove_costume_beat(
+        &self,
+        _cmd: RemoveCostumeBeat,
     ) -> Result<AggregateVersion, DomainError> {
         Ok(AggregateVersion::INITIAL.next())
     }

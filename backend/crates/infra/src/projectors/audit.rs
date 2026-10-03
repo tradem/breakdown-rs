@@ -356,7 +356,11 @@ impl<'a> EntityEventHandler<SceneAggregate, Transaction<'a, Postgres>> for Scene
             | SceneEvent::CharacterAssigned { id, .. }
             | SceneEvent::CharacterRemoved { id, .. }
             | SceneEvent::ShootingDayScheduled { id, .. }
-            | SceneEvent::ShootingDayUnscheduled { id, .. } => id.to_string(),
+            | SceneEvent::ShootingDayUnscheduled { id, .. }
+            | SceneEvent::CostumeBeatAdded { id, .. }
+            | SceneEvent::CostumeBeatUpdated { id, .. }
+            | SceneEvent::CostumeBeatRemoved { id, .. }
+            | SceneEvent::CostumeBeatsCleared { id, .. } => id.to_string(),
         };
         let event_type = event.data.event_type().to_string();
         let (actor, provenance, series_id) = extract_metadata(&event);

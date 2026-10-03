@@ -220,6 +220,12 @@ problem-scene-already-scheduled =
 problem-scene-character-already-assigned =
     Der Charakter ist dieser Szene bereits zugeordnet.
 
+problem-scene-character-not-in-scene =
+    Der Charakter ist dieser Szene nicht zugeordnet.
+
+problem-scene-beat-not-found =
+    Für diesen Charakter existiert kein Kostümeintrag an dieser Position.
+
 problem-scene-character-not-found =
     Charakter nicht gefunden.
 

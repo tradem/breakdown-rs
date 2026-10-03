@@ -7,6 +7,7 @@
 // ignore_for_file: unused_element
 import 'package:breakdown_api/src/model/scene_source.dart';
 import 'package:built_collection/built_collection.dart';
+import 'package:breakdown_api/src/model/scene_costume_beat_view.dart';
 import 'package:built_value/built_value.dart';
 import 'package:built_value/serializer.dart';
 
@@ -16,6 +17,7 @@ part 'scene_view.g.dart';
 ///
 /// Properties:
 /// * [assignedCharacters]
+/// * [costumeBeats] - Ordered costume beats per (character, order) — the scene-side casting relation (issue #546). Additive on the wire; empty for scenes without beats.
 /// * [episodeId] - Opaque identifier for an `Episode` aggregate.
 /// * [id]
 /// * [isScheduleSet]
@@ -32,6 +34,10 @@ part 'scene_view.g.dart';
 abstract class SceneView implements Built<SceneView, SceneViewBuilder> {
   @BuiltValueField(wireName: r'assigned_characters')
   BuiltList<String> get assignedCharacters;
+
+  /// Ordered costume beats per (character, order) — the scene-side casting relation (issue #546). Additive on the wire; empty for scenes without beats.
+  @BuiltValueField(wireName: r'costume_beats')
+  BuiltList<SceneCostumeBeatView>? get costumeBeats;
 
   /// Opaque identifier for an `Episode` aggregate.
   @BuiltValueField(wireName: r'episode_id')
@@ -102,6 +108,14 @@ class _$SceneViewSerializer implements PrimitiveSerializer<SceneView> {
       object.assignedCharacters,
       specifiedType: const FullType(BuiltList, [FullType(String)]),
     );
+    if (object.costumeBeats != null) {
+      yield r'costume_beats';
+      yield serializers.serialize(
+        object.costumeBeats,
+        specifiedType:
+            const FullType(BuiltList, [FullType(SceneCostumeBeatView)]),
+      );
+    }
     yield r'episode_id';
     yield serializers.serialize(
       object.episodeId,
@@ -205,6 +219,15 @@ class _$SceneViewSerializer implements PrimitiveSerializer<SceneView> {
             specifiedType: const FullType(BuiltList, [FullType(String)]),
           ) as BuiltList<String>;
           result.assignedCharacters.replace(valueDes);
+          break;
+        case r'costume_beats':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType.nullable(
+                BuiltList, [FullType(SceneCostumeBeatView)]),
+          ) as BuiltList<SceneCostumeBeatView>?;
+          if (valueDes == null) continue;
+          result.costumeBeats.replace(valueDes);
           break;
         case r'episode_id':
           final valueDes = serializers.deserialize(

@@ -10,6 +10,7 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..add($GDriveCredentialRequest.serializer)
       ..add(AddCostumeDetailRequest.serializer)
       ..add(AddNoteRequest.serializer)
+      ..add(AddSceneCostumeBeatRequest.serializer)
       ..add(AiConfigView.serializer)
       ..add(AiImportDefaults.serializer)
       ..add(AiImportJob.serializer)
@@ -94,6 +95,7 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..add(ReplanSceneShootRequest.serializer)
       ..add(RevokeAiConfigRequest.serializer)
       ..add(Role.serializer)
+      ..add(SceneCostumeBeatView.serializer)
       ..add(SceneDetails.serializer)
       ..add(SceneShootStatus.serializer)
       ..add(SceneShootView.serializer)
@@ -131,6 +133,7 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..add(UpdateCostumeNotesRequest.serializer)
       ..add(UpdateMeasurementsRequest.serializer)
       ..add(UpdateNoteRequest.serializer)
+      ..add(UpdateSceneCostumeBeatRequest.serializer)
       ..add(UpdateSceneDetailsRequest.serializer)
       ..add(UpdateShootingDayRequest.serializer)
       ..add(VariantStatus.serializer)
@@ -214,6 +217,16 @@ Serializers _$serializers = (Serializers().toBuilder()
           const FullType(BuiltList, const [const FullType(String)]),
           () => ListBuilder<String>())
       ..addBuilderFactory(
+          const FullType(
+              BuiltList, const [const FullType(SceneCostumeBeatView)]),
+          () => ListBuilder<SceneCostumeBeatView>())
+      ..addBuilderFactory(
+          const FullType(BuiltList, const [const FullType(String)]),
+          () => ListBuilder<String>())
+      ..addBuilderFactory(
+          const FullType(BuiltList, const [const FullType(String)]),
+          () => ListBuilder<String>())
+      ..addBuilderFactory(
           const FullType(BuiltList, const [const FullType(SerializedNote)]),
           () => ListBuilder<SerializedNote>())
       ..addBuilderFactory(
@@ -222,12 +235,6 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..addBuilderFactory(
           const FullType(BuiltList, const [const FullType(SerializedNote)]),
           () => ListBuilder<SerializedNote>())
-      ..addBuilderFactory(
-          const FullType(BuiltList, const [const FullType(String)]),
-          () => ListBuilder<String>())
-      ..addBuilderFactory(
-          const FullType(BuiltList, const [const FullType(String)]),
-          () => ListBuilder<String>())
       ..addBuilderFactory(
           const FullType(BuiltList, const [const FullType(UnappliedCostume)]),
           () => ListBuilder<UnappliedCostume>())

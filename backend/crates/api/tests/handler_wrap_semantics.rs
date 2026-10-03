@@ -106,6 +106,7 @@ async fn seed_scene_with_episode(ports: &FakePorts) -> Uuid {
             script_day: None,
             shooting_day_ids: Vec::new(),
             assigned_characters: Vec::new(),
+            costume_beats: Vec::new(),
             version: AggregateVersion::INITIAL,
             updated_at: chrono::Utc::now(),
             source: Some(SceneSource::Manual),
