@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: omen-alpha (opencode-go)
+// Co-authored-by: glm-5.3-flash (neuralwatt)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
 
 import 'package:breakdown_api/breakdown_api.dart';
+import 'package:built_collection/built_collection.dart';
 import 'package:fpdart/fpdart.dart';
 import 'package:one_of/one_of.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
@@ -52,6 +54,50 @@ class SkipDecision extends RowDecision {
   const SkipDecision();
 }
 
+/// The per-group episode target (issue #581). The backend requires a target
+/// for EVERY group the preview carries (`MissingEpisodeGroup`), so groups are
+/// pre-mapped to a create-new target pre-filled from the heading and the
+/// reviewer can switch any group to an existing episode.
+sealed class EpisodeGroupTarget {
+  const EpisodeGroupTarget();
+}
+
+/// Create a NEW episode under the job's block. `number` is REQUIRED on the
+/// wire (`EpisodeTargetOneOf1.number`) — a marker without a number leaves this
+/// incomplete and keeps apply disabled until the reviewer enters one.
+class CreateEpisodeGroupTarget extends EpisodeGroupTarget {
+  const CreateEpisodeGroupTarget({this.number, this.name});
+
+  final int? number;
+
+  /// The heading's title, kept verbatim; nullable on the wire.
+  final String? name;
+}
+
+/// Apply the group to the EXISTING episode the reviewer picked (id from the
+/// picked read DTO — never invented).
+class ExistingEpisodeGroupTarget extends EpisodeGroupTarget {
+  const ExistingEpisodeGroupTarget({required this.episodeId, this.label});
+
+  final String episodeId;
+
+  /// Human-readable label captured at pick time (never re-derived).
+  final String? label;
+}
+
+/// Mirrors `breakdown_core::ai::DraftEpisode::group_key` BYTE-FOR-BYTE:
+/// `ep:<n>` when the marker carried a number, else `ep-t:<trimmed title>`.
+/// The apply request's group refs must match the backend's derivation exactly
+/// or the validation rejects the mapping. `null` = no grouping (the row
+/// applies to the explicitly picked target episode).
+String? draftEpisodeGroupRef(DraftEpisode episode) {
+  final number = episode.number;
+  if (number != null) return 'ep:$number';
+  final title = episode.title;
+  if (title != null && title.trim().isNotEmpty) return 'ep-t:${title.trim()}';
+  return null;
+}
+
 /// One extracted costume of a draft row, with the reviewer's decision.
 ///
 /// A costume is decided *independently of its scene* (spec `ai-import`): the
@@ -98,6 +144,7 @@ class PreviewRow {
     required this.label,
     this.decision = const CreateDecision(),
     this.costumes = const <PreviewCostume>[],
+    this.episode,
   });
 
   final String draftRef;
@@ -112,11 +159,18 @@ class PreviewRow {
   /// costuming to — both are correct, not failures.
   final List<PreviewCostume> costumes;
 
+  /// The draft episode the row's `Ep.:` marker carried (issue #581). `null`
+  /// for previews stored before the field existed and for rows without a
+  /// marker — both apply to the explicitly picked target episode (the
+  /// single-episode flow), which is correct, not a failure.
+  final DraftEpisode? episode;
+
   PreviewRow withDecision(RowDecision decision) => PreviewRow(
     draftRef: draftRef,
     label: label,
     decision: decision,
     costumes: costumes,
+    episode: episode,
   );
 
   /// Replaces one costume row's decision by [ordinal]; an unknown ordinal is
@@ -132,6 +186,7 @@ class PreviewRow {
         else
           costume,
     ],
+    episode: episode,
   );
 }
 
@@ -148,6 +203,7 @@ class AiApplyState {
     this.context,
     this.outcome,
     this.commandError,
+    this.groupTargets = const <String, EpisodeGroupTarget>{},
   });
 
   /// The actionable rows with their decisions. Degraded/unmatched rows
@@ -167,6 +223,13 @@ class AiApplyState {
   /// The last command failure, keyed on the stable problem `code`.
   final ProblemError? commandError;
 
+  /// The reviewer's per-group episode targets, keyed by the backend-derived
+  /// group ref. ABSENT entries fall back to the seeded default (create-new,
+  /// pre-filled from the heading — [targetFor]); only explicit picks land
+  /// here, so the map stays small and the default derivation lives in one
+  /// place.
+  final Map<String, EpisodeGroupTarget> groupTargets;
+
   /// True when the user made zero decision edits.
   bool get acceptAsIs => editDistance == 0;
 
@@ -177,11 +240,90 @@ class AiApplyState {
   /// statement about the review, and the backend rejects the combination.
   int get editDistance =>
       rows.where((r) => r.decision is! CreateDecision).length +
-      rows.fold(
+      rows.fold<int>(
         0,
         (sum, row) =>
             sum + row.costumes.where((costume) => !costume.accepted).length,
-      );
+      ) +
+      _groupEdits;
+
+  /// The preview's group refs in first-appearance order (verbatim backend
+  /// `group_key` derivations — the apply request carries exactly these).
+  List<String> get groupRefs {
+    final refs = <String>[];
+    for (final row in rows) {
+      final episode = row.episode;
+      if (episode == null) continue;
+      final ref = draftEpisodeGroupRef(episode);
+      if (ref != null && !refs.contains(ref)) refs.add(ref);
+    }
+    return refs;
+  }
+
+  /// The episode metadata of [ref]'s first row (the heading the group was
+  /// extracted from); `null` for an unknown ref (never dispatched).
+  DraftEpisode? episodeOfGroup(String ref) {
+    for (final row in rows) {
+      final episode = row.episode;
+      if (episode != null && draftEpisodeGroupRef(episode) == ref) {
+        return episode;
+      }
+    }
+    return null;
+  }
+
+  /// The effective target for [ref]: the reviewer's pick, else the seeded
+  /// default (create-new, pre-filled from the heading — the user-confirmed
+  /// default; the backend rejects a forgotten group outright).
+  EpisodeGroupTarget targetFor(String ref) {
+    final picked = groupTargets[ref];
+    if (picked != null) return picked;
+    final episode = episodeOfGroup(ref);
+    if (episode == null) return const CreateEpisodeGroupTarget();
+    return CreateEpisodeGroupTarget(
+      number: episode.number,
+      name: episode.title,
+    );
+  }
+
+  /// Group-target edits: a group whose effective target deviates from its
+  /// seeded create-default (switched to existing, or number/name changed) is
+  /// an edit — `accept_as_is` must stay a truthful statement about the review.
+  int get _groupEdits {
+    var edits = 0;
+    for (final ref in groupRefs) {
+      final target = targetFor(ref);
+      final episode = episodeOfGroup(ref);
+      final isDefault =
+          target is CreateEpisodeGroupTarget &&
+          episode != null &&
+          target.number == episode.number &&
+          target.name == episode.title;
+      if (!isDefault) edits++;
+    }
+    return edits;
+  }
+
+  /// Every create target must carry its wire-required number; a marker
+  /// without one leaves the target incomplete and apply disabled.
+  bool get hasCompleteGroupTargets => groupRefs.every((ref) {
+    final target = targetFor(ref);
+    return target is! CreateEpisodeGroupTarget || target.number != null;
+  });
+
+  /// Client-side mirror of the backend's "two groups create the same episode
+  /// number" 422 — caught before the wire, not after.
+  bool get hasDuplicateCreateNumbers {
+    final numbers = <int>{};
+    for (final ref in groupRefs) {
+      final target = targetFor(ref);
+      if (target is CreateEpisodeGroupTarget) {
+        final number = target.number;
+        if (number != null && !numbers.add(number)) return true;
+      }
+    }
+    return false;
+  }
 
   /// Builds the request's mappings: verbatim `draft_ref`s, Create /
   /// Update-from-picked-DTO / skip (skipped rows are EXCLUDED).
@@ -245,6 +387,45 @@ class AiApplyState {
     }
     return mappings;
   }
+
+  /// Builds the request's per-group episode targets (issue #581): one entry
+  /// per preview group ref, existing id from the picked read DTO / create
+  /// with the (required) number. Empty when no row carries episode metadata —
+  /// the request then stays byte-identical to the single-episode flow.
+  BuiltList<ApplyEpisodeGroupRequest> buildEpisodeGroups() =>
+      BuiltList<ApplyEpisodeGroupRequest>([
+        for (final ref in groupRefs)
+          ApplyEpisodeGroupRequest(
+            (b) => b
+              ..episodeRef = ref
+              ..target.replace(_wireTarget(targetFor(ref))),
+          ),
+      ]);
+
+  EpisodeTarget _wireTarget(EpisodeGroupTarget target) => switch (target) {
+    ExistingEpisodeGroupTarget(:final episodeId) => EpisodeTarget(
+      (e) => e
+        ..oneOf = OneOf.fromValue1<EpisodeTargetOneOf>(
+          value: EpisodeTargetOneOf(
+            (v) => v
+              ..episodeId = episodeId
+              ..kind = EpisodeTargetOneOfKindEnum.existing,
+          ),
+        ),
+    ),
+    CreateEpisodeGroupTarget(:final number, :final name) => EpisodeTarget(
+      (e) =>
+          e
+            ..oneOf = OneOf.fromValue2<EpisodeTargetOneOf, EpisodeTargetOneOf1>(
+              value: EpisodeTargetOneOf1(
+                (v) => v
+                  ..number = number!
+                  ..name = name
+                  ..kind = EpisodeTargetOneOf1KindEnum.create,
+              ),
+            ),
+    ),
+  };
 }
 
 /// The apply controller (task 4.2): builds + submits the mappings.
@@ -256,9 +437,22 @@ class AiApplyController extends _$AiApplyController {
   /// Seeds the actionable rows from the typed preview payload (D1) and
   /// the persisted episode context. Called by the preview screen once the
   /// typed payload is in hand; the rows carry the payload's verbatim
-  /// `draft_ref`s.
+  /// `draft_ref`s. Group targets RESET to the seeded defaults: a fresh
+  /// payload is a fresh review, never one carrying over stale picks.
   void seedRows(List<PreviewRow> rows, AiJobContext? context) {
     state = AiApplyState(rows: rows, context: context);
+  }
+
+  /// Records the reviewer's target for one episode group (existing episode
+  /// id or create number/name). Absent keys keep the seeded create-default.
+  void setGroupTarget(String groupRef, EpisodeGroupTarget target) {
+    state = AiApplyState(
+      rows: state.rows,
+      context: state.context,
+      outcome: state.outcome,
+      commandError: state.commandError,
+      groupTargets: {...state.groupTargets, groupRef: target},
+    );
   }
 
   /// Overrides the persisted context with the user's explicit episode
@@ -282,6 +476,7 @@ class AiApplyController extends _$AiApplyController {
       context: state.context,
       outcome: state.outcome,
       commandError: state.commandError,
+      groupTargets: state.groupTargets,
     );
   }
 
@@ -300,6 +495,7 @@ class AiApplyController extends _$AiApplyController {
       context: state.context,
       outcome: state.outcome,
       commandError: state.commandError,
+      groupTargets: state.groupTargets,
     );
   }
 
@@ -308,11 +504,18 @@ class AiApplyController extends _$AiApplyController {
       rows: state.rows,
       context: state.context,
       outcome: state.outcome,
+      groupTargets: state.groupTargets,
     );
   }
 
   bool get canApply =>
-      state.context != null && state.rows.isNotEmpty && state.outcome == null;
+      state.context != null &&
+      state.rows.isNotEmpty &&
+      state.outcome == null &&
+      // A group create target without its wire-required number (a marker
+      // without `Ep.: <n>`) or two groups on one number keep apply disabled.
+      state.hasCompleteGroupTargets &&
+      !state.hasDuplicateCreateNumbers;
 
   /// The explicit apply dispatch with the ambiguous-timeout
   /// reconciliation (task 4.2 / design §1): a timeout re-reads the
@@ -337,13 +540,19 @@ class AiApplyController extends _$AiApplyController {
       return const Left(error);
     }
     final repo = ref.read(aiImportRepositoryProvider);
+    final episodeGroups = state.buildEpisodeGroups();
     final request = ApplyAiImportRequest(
       (b) => b
         ..episodeId = context.episodeId
         ..seriesId = context.seriesId.isEmpty ? null : context.seriesId
         ..mappings.replace(state.buildMappings())
         ..acceptAsIs = state.acceptAsIs
-        ..editDistance = state.editDistance,
+        ..editDistance = state.editDistance
+        // Absent on a flat script: the wire request stays byte-identical to
+        // the single-episode flow (backend treats empty as absent).
+        ..episodeGroups = episodeGroups.isEmpty
+            ? null
+            : episodeGroups.toBuilder(),
     );
     final outcome = await repo.applyWithReconciliation(
       jobId,
@@ -361,6 +570,7 @@ class AiApplyController extends _$AiApplyController {
           rows: state.rows,
           context: context,
           outcome: response,
+          groupTargets: state.groupTargets,
         );
         return Right(response);
       case ApplyBlocked(:final error):
@@ -370,6 +580,7 @@ class AiApplyController extends _$AiApplyController {
           context: context,
           outcome: null,
           commandError: error,
+          groupTargets: state.groupTargets,
         );
         return Left(error);
       case ApplyUnresolved(:final error):
@@ -379,6 +590,7 @@ class AiApplyController extends _$AiApplyController {
           context: context,
           outcome: null,
           commandError: error,
+          groupTargets: state.groupTargets,
         );
         return Left(error);
     }
@@ -398,6 +610,52 @@ String aiApplyErrorCopy(AppLocalizations l10n, ProblemError error) =>
       'ai_import.apply_job_not_succeeded' => l10n.aiApplyErrorNotSucceeded,
       'ai_import.apply_unresolved' => l10n.aiApplyErrorUnresolved,
       'ai_import.apply_context_missing' => l10n.aiApplyErrorContextMissing,
+      // Issue #581: the API-edge create-number pre-check (#404 doctrine) —
+      // the reviewer picked a number the series already uses.
+      'episode.number-already-exists' => l10n.aiApplyErrorEpisodeNumberTaken,
       _ when error.code.startsWith('transport.') => l10n.aiApplyErrorNetwork,
       _ => l10n.aiApplyErrorGeneric(error.code),
     };
+
+/// Composed human label for a draft episode: `Episode 3 · Titel` /
+/// `Episode 3` / `„Titel“`. Empty only when both parts are absent — such a
+/// draft episode yields no group ref either ([draftEpisodeGroupRef]).
+String draftEpisodeLabel(AppLocalizations l10n, int? number, String? title) {
+  final numberLabel = number == null ? null : l10n.episodeTileLabel('$number');
+  final trimmedTitle = title?.trim();
+  final hasTitle = trimmedTitle != null && trimmedTitle.isNotEmpty;
+  if (numberLabel == null) return hasTitle ? '\u201e$trimmedTitle\u201c' : '';
+  return hasTitle ? '$numberLabel \u00b7 $trimmedTitle' : numberLabel;
+}
+
+/// Localized target label for ONE episode group: what the reviewer sees next
+/// to the group heading and in the apply card's summary. A create target
+/// without its wire-required number says so instead of inventing one.
+String groupTargetLabel(AppLocalizations l10n, EpisodeGroupTarget target) =>
+    switch (target) {
+      ExistingEpisodeGroupTarget(:final label, :final episodeId) =>
+        l10n.aiApplyGroupTargetExisting(label ?? episodeId),
+      CreateEpisodeGroupTarget(:final number, :final name) =>
+        number == null
+            ? l10n.aiApplyGroupTargetCreateNoNumber
+            : l10n.aiApplyGroupTargetCreate(
+                draftEpisodeLabel(l10n, number, name),
+              ),
+    };
+
+/// The apply card's per-group summary line (EU AI Act review gate): WHICH
+/// episode the group lands in, right at the dispatch point.
+String groupTargetSummaryLine(
+  AppLocalizations l10n,
+  AiApplyState state,
+  String groupRef,
+) {
+  final episode = state.episodeOfGroup(groupRef);
+  final heading = episode == null
+      ? groupRef
+      : draftEpisodeLabel(l10n, episode.number, episode.title);
+  return l10n.aiApplyGroupTargetSummary(
+    heading,
+    groupTargetLabel(l10n, state.targetFor(groupRef)),
+  );
+}

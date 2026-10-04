@@ -1594,6 +1594,84 @@ abstract class AppLocalizations {
   /// **'Episode wählen…'**
   String get aiApplyPickEpisode;
 
+  /// No description provided for @aiApplyUngroupedHeading.
+  ///
+  /// In de, this message translates to:
+  /// **'Ohne Episoden-Marker – Ziel: Episode {episode}'**
+  String aiApplyUngroupedHeading(Object episode);
+
+  /// No description provided for @aiApplyUngroupedHeadingNoTarget.
+  ///
+  /// In de, this message translates to:
+  /// **'Ohne Episoden-Marker – Ziel unten wählen'**
+  String get aiApplyUngroupedHeadingNoTarget;
+
+  /// No description provided for @aiApplyGroupTargetChange.
+  ///
+  /// In de, this message translates to:
+  /// **'Ziel ändern'**
+  String get aiApplyGroupTargetChange;
+
+  /// No description provided for @aiApplyGroupTargetPickExisting.
+  ///
+  /// In de, this message translates to:
+  /// **'Vorhandene Episode wählen…'**
+  String get aiApplyGroupTargetPickExisting;
+
+  /// No description provided for @aiApplyGroupTargetEditCreate.
+  ///
+  /// In de, this message translates to:
+  /// **'Neue Episode anlegen…'**
+  String get aiApplyGroupTargetEditCreate;
+
+  /// No description provided for @aiApplyGroupTargetCreate.
+  ///
+  /// In de, this message translates to:
+  /// **'Neu anlegen: {label}'**
+  String aiApplyGroupTargetCreate(Object label);
+
+  /// No description provided for @aiApplyGroupTargetCreateNoNumber.
+  ///
+  /// In de, this message translates to:
+  /// **'Neu anlegen – Episoden-Nummer fehlt noch'**
+  String get aiApplyGroupTargetCreateNoNumber;
+
+  /// No description provided for @aiApplyGroupTargetExisting.
+  ///
+  /// In de, this message translates to:
+  /// **'Vorhandene Episode: {label}'**
+  String aiApplyGroupTargetExisting(Object label);
+
+  /// No description provided for @aiApplyGroupTargetSummary.
+  ///
+  /// In de, this message translates to:
+  /// **'{group} → {target}'**
+  String aiApplyGroupTargetSummary(Object group, Object target);
+
+  /// No description provided for @aiApplyGroupCreateNumberLabel.
+  ///
+  /// In de, this message translates to:
+  /// **'Episoden-Nummer'**
+  String get aiApplyGroupCreateNumberLabel;
+
+  /// No description provided for @aiApplyGroupCreateNameLabel.
+  ///
+  /// In de, this message translates to:
+  /// **'Episoden-Titel (optional)'**
+  String get aiApplyGroupCreateNameLabel;
+
+  /// No description provided for @aiApplyGroupNumberInvalid.
+  ///
+  /// In de, this message translates to:
+  /// **'Bitte eine ganze Zahl eingeben.'**
+  String get aiApplyGroupNumberInvalid;
+
+  /// No description provided for @aiApplyErrorEpisodeNumberTaken.
+  ///
+  /// In de, this message translates to:
+  /// **'Diese Episoden-Nummer ist in der Staffel bereits vergeben.'**
+  String get aiApplyErrorEpisodeNumberTaken;
+
   /// No description provided for @aiApplyOutcome.
   ///
   /// In de, this message translates to:

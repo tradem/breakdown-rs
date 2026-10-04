@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: omen-alpha (opencode-go)
+// Co-authored-by: glm-5.3-flash (neuralwatt)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
 
 import 'package:breakdown_api/breakdown_api.dart';
@@ -120,6 +121,18 @@ class _AiApplySectionState extends ConsumerState<AiApplySection> {
                       '${state.editDistance}',
                     ),
             ),
+            // Per-group target summary (issue #581, EU AI Act review gate):
+            // the reviewer sees WHICH episode each draft-episode group (and
+            // each to-be-created episode) lands in, right at the dispatch.
+            for (final groupRef in state.groupRefs)
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Text(
+                  key: Key('ai-apply-group-target-$groupRef'),
+                  groupTargetSummaryLine(l10nOf(context), state, groupRef),
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ),
             const SizedBox(height: 12),
             if (state.commandError != null)
               Padding(

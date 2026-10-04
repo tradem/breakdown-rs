@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: omen-alpha (opencode-go)
+// Co-authored-by: glm-5.3-flash (neuralwatt)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
 
 // Tier-1 + Tier-2 tests for the preview + apply features
@@ -31,6 +32,8 @@ import 'package:frontend_flutter/data/ai_import_providers.dart';
 import 'package:frontend_flutter/data/ai_import_repository.dart';
 import 'package:frontend_flutter/data/cache/ai_import_jobs_cache_dao.dart';
 import 'package:frontend_flutter/data/cache/cache_database.dart';
+import 'package:frontend_flutter/data/cache/hierarchy_cache_dao.dart';
+import 'package:frontend_flutter/data/cache/seasons_cache_providers.dart';
 import 'package:frontend_flutter/domain/reconciliation/reconciliation_scheduler.dart';
 import 'package:frontend_flutter/features/ai_import/import_jobs/apply_controller.dart';
 import 'package:frontend_flutter/features/ai_import/import_jobs/job_status_controller.dart';
@@ -56,13 +59,34 @@ DraftScene _draft(
   String ref, {
   int? number,
   List<DraftCostume> costumes = const [],
-}) => DraftScene(
-  (b) => b
+  DraftEpisode? episode,
+}) => DraftScene((b) {
+  b
     ..draftRef = ref
     ..sceneNumber = number
     ..summary = 'Scene $ref'
     ..characters.replace(const <String>['ch-1'])
-    ..costumes.replace(costumes),
+    ..costumes.replace(costumes);
+  // A complex built_value field is set through its builder; an absent
+  // marker stays UNSET (null on the wire — the single-episode flow).
+  if (episode != null) b.episode.replace(episode);
+});
+
+/// The `Ep.:` marker metadata a draft row carries (issue #581).
+DraftEpisode _episodeMeta(int? number, String? title) => DraftEpisode(
+  (b) => b
+    ..number = number
+    ..title = title,
+);
+
+EpisodeView _cachedEpisode(String id, {int number = 2}) => EpisodeView(
+  (b) => b
+    ..id = id
+    ..blockId = 'block-1'
+    ..number = number
+    ..seriesId = 'series-1'
+    ..updatedAt = DateTime.utc(2026, 1, 1)
+    ..version = 1,
 );
 
 DraftCostume _costume(String character, String description, {String? quote}) =>
@@ -428,6 +452,216 @@ void main() {
     });
   });
 
+  group('AiApplyState — draft-episode groups (issue #581)', () {
+    test(
+      'group ref derivation mirrors the backend group_key byte-for-byte',
+      () {
+        // The backend derives `ep:<n>` / `ep-t:<trimmed title>`; a ref the
+        // backend does not derive would 422 the whole apply.
+        expect(draftEpisodeGroupRef(_episodeMeta(3, 'Titel')), 'ep:3');
+        expect(
+          draftEpisodeGroupRef(_episodeMeta(null, '  Sommer ')),
+          'ep-t:Sommer',
+        );
+        expect(draftEpisodeGroupRef(_episodeMeta(null, '   ')), isNull);
+        expect(draftEpisodeGroupRef(_episodeMeta(null, null)), isNull);
+        // The number wins over the title.
+        expect(draftEpisodeGroupRef(_episodeMeta(7, 'Titel')), 'ep:7');
+      },
+    );
+
+    test('groupRefs are first-appearance ordered and deduplicated; rows '
+        'without metadata never produce a ref', () {
+      final state = AiApplyState(
+        rows: [
+          const PreviewRow(draftRef: 'd1', label: 'A'),
+          PreviewRow(
+            draftRef: 'd2',
+            label: 'B',
+            episode: _episodeMeta(3, 'Titel'),
+          ),
+          PreviewRow(
+            draftRef: 'd3',
+            label: 'C',
+            episode: _episodeMeta(3, 'Anders'),
+          ),
+          PreviewRow(
+            draftRef: 'd4',
+            label: 'D',
+            episode: _episodeMeta(5, null),
+          ),
+          const PreviewRow(draftRef: 'd5', label: 'E'),
+        ],
+      );
+      expect(state.groupRefs, ['ep:3', 'ep:5']);
+      expect(state.episodeOfGroup('ep:3')!.title, 'Titel');
+      expect(state.episodeOfGroup('ep:missing'), isNull);
+    });
+
+    test('targetFor defaults to create-new pre-filled from the heading; an '
+        'explicit pick wins', () {
+      final state = AiApplyState(
+        rows: [
+          PreviewRow(
+            draftRef: 'd1',
+            label: 'A',
+            episode: _episodeMeta(3, 'Titel'),
+          ),
+        ],
+      );
+      final defaultTarget = state.targetFor('ep:3');
+      expect(defaultTarget, isA<CreateEpisodeGroupTarget>());
+      final create = defaultTarget as CreateEpisodeGroupTarget;
+      expect(create.number, 3);
+      expect(create.name, 'Titel');
+
+      final picked = AiApplyState(
+        rows: state.rows,
+        groupTargets: const {
+          'ep:3': ExistingEpisodeGroupTarget(episodeId: 'ep-9'),
+        },
+      );
+      expect(picked.targetFor('ep:3'), isA<ExistingEpisodeGroupTarget>());
+    });
+
+    test('a group-target deviation is an edit: accept_as_is stays honest', () {
+      final rows = [
+        PreviewRow(
+          draftRef: 'd1',
+          label: 'A',
+          episode: _episodeMeta(3, 'Titel'),
+        ),
+      ];
+      expect(AiApplyState(rows: rows).editDistance, 0);
+      expect(AiApplyState(rows: rows).acceptAsIs, isTrue);
+
+      // Switching to an existing episode is an edit.
+      final switched = AiApplyState(
+        rows: rows,
+        groupTargets: const {
+          'ep:3': ExistingEpisodeGroupTarget(episodeId: 'ep-9'),
+        },
+      );
+      expect(switched.editDistance, 1);
+      expect(switched.acceptAsIs, isFalse);
+
+      // Editing the pre-filled number is an edit, too.
+      final renumbered = AiApplyState(
+        rows: rows,
+        groupTargets: const {
+          'ep:3': CreateEpisodeGroupTarget(number: 4, name: 'Titel'),
+        },
+      );
+      expect(renumbered.editDistance, 1);
+
+      // Re-entering the EXACT heading values is not an edit.
+      final same = AiApplyState(
+        rows: rows,
+        groupTargets: const {
+          'ep:3': CreateEpisodeGroupTarget(number: 3, name: 'Titel'),
+        },
+      );
+      expect(same.editDistance, 0);
+    });
+
+    test('apply gates: a create target without its wire-required number and '
+        'two groups on one number keep the dispatch disabled', () {
+      final titleOnly = PreviewRow(
+        draftRef: 'd1',
+        label: 'A',
+        episode: _episodeMeta(null, 'Sommer'),
+      );
+      final incomplete = AiApplyState(
+        rows: [titleOnly],
+        context: const AiJobContext(episodeId: 'ep-1', seriesId: 'series-1'),
+      );
+      expect(incomplete.hasCompleteGroupTargets, isFalse);
+
+      final numbered = AiApplyState(
+        rows: [titleOnly],
+        context: const AiJobContext(episodeId: 'ep-1', seriesId: 'series-1'),
+        groupTargets: const {
+          'ep-t:Sommer': CreateEpisodeGroupTarget(number: 7, name: 'Sommer'),
+        },
+      );
+      expect(numbered.hasCompleteGroupTargets, isTrue);
+
+      // Two groups creating the same number mirror the backend 422
+      // client-side — caught before the wire.
+      final twoGroups = [
+        PreviewRow(
+          draftRef: 'd1',
+          label: 'A',
+          episode: _episodeMeta(3, 'Titel'),
+        ),
+        PreviewRow(
+          draftRef: 'd2',
+          label: 'B',
+          episode: _episodeMeta(null, 'Sommer'),
+        ),
+      ];
+      final colliding = AiApplyState(
+        rows: twoGroups,
+        context: const AiJobContext(episodeId: 'ep-1', seriesId: 'series-1'),
+        groupTargets: const {
+          'ep-t:Sommer': CreateEpisodeGroupTarget(number: 3, name: 'Sommer'),
+        },
+      );
+      expect(colliding.hasDuplicateCreateNumbers, isTrue);
+    });
+
+    test('buildEpisodeGroups: existing sends kind existing + episode_id; '
+        'create sends kind create + number; no metadata → empty '
+        '(single-episode flow)', () {
+      final grouped = AiApplyState(
+        rows: [
+          PreviewRow(
+            draftRef: 'd1',
+            label: 'A',
+            episode: _episodeMeta(3, 'Titel'),
+          ),
+          const PreviewRow(draftRef: 'd2', label: 'B'),
+        ],
+        groupTargets: const {
+          'ep:3': ExistingEpisodeGroupTarget(episodeId: 'ep-9'),
+        },
+      );
+      final groups = grouped.buildEpisodeGroups();
+      expect(groups, hasLength(1));
+      expect(groups.single.episodeRef, 'ep:3');
+      final existing = groups.single.target.oneOf.value as EpisodeTargetOneOf;
+      expect(existing.episodeId, 'ep-9');
+      expect(existing.kind, EpisodeTargetOneOfKindEnum.existing);
+
+      // A title-only group with a reviewer-entered number.
+      final created = AiApplyState(
+        rows: [
+          PreviewRow(
+            draftRef: 'd1',
+            label: 'A',
+            episode: _episodeMeta(null, 'Sommer'),
+          ),
+        ],
+        groupTargets: const {
+          'ep-t:Sommer': CreateEpisodeGroupTarget(number: 7, name: 'Sommer'),
+        },
+      );
+      final createGroups = created.buildEpisodeGroups();
+      final create =
+          createGroups.single.target.oneOf.value as EpisodeTargetOneOf1;
+      expect(create.number, 7);
+      expect(create.name, 'Sommer');
+      expect(create.kind, EpisodeTargetOneOf1KindEnum.create);
+
+      // No metadata anywhere → empty list → the apply request leaves
+      // episode_groups ABSENT (byte-identical single-episode flow).
+      const flat = AiApplyState(
+        rows: [PreviewRow(draftRef: 'd1', label: 'A')],
+      );
+      expect(flat.buildEpisodeGroups(), isEmpty);
+    });
+  });
+
   group('Apply round-trip against a fake (task 4.3)', () {
     late CacheDatabase db;
     late FakeAiImportRepository repo;
@@ -553,6 +787,11 @@ void main() {
       Result<List<SceneView>>? scenesValue,
       bool withPersistedContext = true,
       List<Result<ApplyAiImportResponse>>? applyQueue,
+
+      /// Overrides [cacheDatabaseProvider] so the episode-picker's legacy
+      /// cache-wide fallback reads THIS test's in-memory Drift (the test
+      /// seeds rows via [EpisodeCacheDao] after setup).
+      bool withCacheDatabase = false,
     }) async {
       db = CacheDatabase(NativeDatabase.memory());
       addTearDown(db.close);
@@ -578,6 +817,7 @@ void main() {
           scenesListFetchProvider.overrideWith((ref, episodeId) async {
             return scenes.value;
           }),
+          if (withCacheDatabase) cacheDatabaseProvider.overrideWithValue(db),
         ],
       );
       addTearDown(container.dispose);
@@ -1209,6 +1449,228 @@ void main() {
         isNotNull,
         reason: 'a dropped costume row must not block the whole import',
       );
+    });
+
+    testWidgets('script rows render GROUPED by draft episode with per-group '
+        'targets; unmarked rows fall back to the picked target (issue #581)', (
+      tester,
+    ) async {
+      await setupContainer(
+        previewValue: Right(
+          _previewResponse(
+            _scriptPayloadWith([
+              _draft('d1', episode: _episodeMeta(3, 'Titel')),
+              _draft('d2', episode: _episodeMeta(3, 'Titel')),
+              _draft('d3', episode: _episodeMeta(5, null)),
+              _draft('d4'),
+            ]),
+          ),
+        ),
+      );
+      await pumpPreview(tester);
+
+      // Group headers in document order: one per group-run, labelled from
+      // the Ep.: marker, with the seeded create-new target.
+      expect(
+        find.byKey(const Key('ai-preview-group-header-ep:3')),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('ai-preview-group-header-ep:3')),
+          matching: find.text('Episode 3 \u00b7 Titel'),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('ai-preview-group-header-ep:3')),
+          matching: find.text('Create new: Episode 3 \u00b7 Titel'),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const Key('ai-preview-group-header-ep:5')),
+        findsOneWidget,
+      );
+      // Unmarked rows: the ungrouped header names the explicitly picked
+      // target episode — no selector there.
+      expect(
+        find.byKey(const Key('ai-preview-ungrouped-header')),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('ai-preview-ungrouped-header')),
+          matching: find.text('No episode marker — target: episode ep-1'),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const Key('ai-preview-group-target-change-ep:5')),
+        findsOneWidget,
+        reason: 'grouped rows carry the target selector',
+      );
+      expect(
+        find.byKey(const Key('ai-preview-group-target-change-ungrouped')),
+        findsNothing,
+      );
+
+      // The apply card summarizes each group's target at the dispatch
+      // point (EU AI Act review gate).
+      expect(
+        find.byKey(const Key('ai-apply-group-target-ep:3')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const Key('ai-apply-group-target-ep:5')),
+        findsOneWidget,
+      );
+
+      // Every seeded target carries its number → apply unlocks with the
+      // review acknowledgement.
+      await tester.tap(find.byKey(const Key('ai-apply-review-checkbox')));
+      await tester.pumpAndSettle();
+      final submit = tester.widget<FilledButton>(
+        find.byKey(const Key('ai-apply-submit')),
+      );
+      expect(submit.onPressed, isNotNull);
+      await tester.pump();
+    });
+
+    testWidgets('a title-only group gates the dispatch until the reviewer '
+        'enters the wire-required number; the create editor pre-fills the '
+        'heading and the dispatch carries episode_groups (issue #581)', (
+      tester,
+    ) async {
+      await setupContainer(
+        previewValue: Right(
+          _previewResponse(
+            _scriptPayloadWith([
+              _draft('d1', episode: _episodeMeta(null, 'Sommer')),
+            ]),
+          ),
+        ),
+        applyQueue: [Right(_outcome(createdEpisodes: 1))],
+      );
+      await pumpPreview(tester);
+      FilledButton submit() =>
+          tester.widget<FilledButton>(find.byKey(const Key('ai-apply-submit')));
+
+      // The marker had no number → the create target is incomplete → the
+      // dispatch stays disabled even WITH the review acknowledgement.
+      await tester.tap(find.byKey(const Key('ai-apply-review-checkbox')));
+      await tester.pumpAndSettle();
+      expect(
+        submit().onPressed,
+        isNull,
+        reason:
+            'a create target without its wire-required number must not '
+            'dispatch',
+      );
+
+      // The create editor: number empty, name pre-filled from the heading.
+      await tester.tap(
+        find.byKey(const Key('ai-preview-group-target-change-ep-t:Sommer')),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('ai-group-target-create')));
+      await tester.pumpAndSettle();
+      final nameField = tester.widget<TextFormField>(
+        find.byKey(const Key('ai-group-create-name')),
+      );
+      expect(nameField.controller!.text, 'Sommer');
+
+      // An invalid number keeps the dialog open with its validation copy.
+      await tester.enterText(
+        find.byKey(const Key('ai-group-create-number')),
+        'abc',
+      );
+      await tester.tap(find.byKey(const Key('ai-group-create-save')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('ai-group-create-dialog')), findsOneWidget);
+
+      // A valid number closes the dialog, updates the target and unlocks
+      // the dispatch (the acknowledgement is already checked).
+      await tester.enterText(
+        find.byKey(const Key('ai-group-create-number')),
+        '7',
+      );
+      await tester.tap(find.byKey(const Key('ai-group-create-save')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('ai-group-create-dialog')), findsNothing);
+      expect(submit().onPressed, isNotNull);
+
+      await tester.tap(find.byKey(const Key('ai-apply-submit')));
+      await tester.pumpAndSettle();
+
+      // The wire: one group with kind create + the entered number and the
+      // heading's name; the group edit counted into edit_distance.
+      final groups = repo.lastRequest!.episodeGroups!;
+      expect(groups, hasLength(1));
+      expect(groups.single.episodeRef, 'ep-t:Sommer');
+      final target = groups.single.target.oneOf.value as EpisodeTargetOneOf1;
+      expect(target.number, 7);
+      expect(target.name, 'Sommer');
+      expect(target.kind, EpisodeTargetOneOf1KindEnum.create);
+      expect(repo.lastRequest!.editDistance, 1);
+      expect(repo.lastRequest!.acceptAsIs, isFalse);
+    });
+
+    testWidgets('switching a group to an EXISTING episode picks from the read '
+        'DTOs and sends kind existing (issue #581)', (tester) async {
+      await setupContainer(
+        previewValue: Right(
+          _previewResponse(
+            _scriptPayloadWith([
+              _draft('d1', episode: _episodeMeta(3, 'Titel')),
+            ]),
+          ),
+        ),
+        applyQueue: [Right(_outcome())],
+        withCacheDatabase: true,
+      );
+      // Seed the cache the picker's legacy cache-wide fallback reads (the
+      // job fixture carries no block scope).
+      await EpisodeCacheDao(db)
+          .upsert(_cachedEpisode('ep-9'), DateTime.utc(2026, 1, 1));
+      await pumpPreview(tester);
+
+      await tester.tap(
+        find.byKey(const Key('ai-preview-group-target-change-ep:3')),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('ai-group-target-pick-existing')));
+      await tester.pumpAndSettle();
+      // The picker lists the cached episode; ids come from the read DTO.
+      await tester.tap(find.byKey(const Key('ai-episode-pick-ep-9')));
+      await tester.pumpAndSettle();
+
+      // The group header's target label AND the apply card's summary line
+      // both reflect the pick.
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('ai-preview-group-header-ep:3')),
+          matching: find.text('Existing episode: Episode 2'),
+        ),
+        findsOneWidget,
+      );
+      final summary = tester.widget<Text>(
+        find.byKey(const Key('ai-apply-group-target-ep:3')),
+      );
+      expect(summary.data, contains('Existing episode: Episode 2'));
+
+      await tester.tap(find.byKey(const Key('ai-apply-review-checkbox')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('ai-apply-submit')));
+      await tester.pumpAndSettle();
+
+      final groups = repo.lastRequest!.episodeGroups!;
+      expect(groups, hasLength(1));
+      expect(groups.single.episodeRef, 'ep:3');
+      final target = groups.single.target.oneOf.value as EpisodeTargetOneOf;
+      expect(target.episodeId, 'ep-9');
+      expect(target.kind, EpisodeTargetOneOfKindEnum.existing);
     });
 
     group('goldens (4.4): merged preview {light,dark}×{android,macos}', () {
