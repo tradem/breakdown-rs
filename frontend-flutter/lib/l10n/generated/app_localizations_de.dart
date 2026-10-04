@@ -951,6 +951,56 @@ class AppLocalizationsDe extends AppLocalizations {
   String get aiApplyPickEpisode => 'Episode wählen…';
 
   @override
+  String aiApplyUngroupedHeading(Object episode) {
+    return 'Ohne Episoden-Marker – Ziel: Episode $episode';
+  }
+
+  @override
+  String get aiApplyUngroupedHeadingNoTarget =>
+      'Ohne Episoden-Marker – Ziel unten wählen';
+
+  @override
+  String get aiApplyGroupTargetChange => 'Ziel ändern';
+
+  @override
+  String get aiApplyGroupTargetPickExisting => 'Vorhandene Episode wählen…';
+
+  @override
+  String get aiApplyGroupTargetEditCreate => 'Neue Episode anlegen…';
+
+  @override
+  String aiApplyGroupTargetCreate(Object label) {
+    return 'Neu anlegen: $label';
+  }
+
+  @override
+  String get aiApplyGroupTargetCreateNoNumber =>
+      'Neu anlegen – Episoden-Nummer fehlt noch';
+
+  @override
+  String aiApplyGroupTargetExisting(Object label) {
+    return 'Vorhandene Episode: $label';
+  }
+
+  @override
+  String aiApplyGroupTargetSummary(Object group, Object target) {
+    return '$group → $target';
+  }
+
+  @override
+  String get aiApplyGroupCreateNumberLabel => 'Episoden-Nummer';
+
+  @override
+  String get aiApplyGroupCreateNameLabel => 'Episoden-Titel (optional)';
+
+  @override
+  String get aiApplyGroupNumberInvalid => 'Bitte eine ganze Zahl eingeben.';
+
+  @override
+  String get aiApplyErrorEpisodeNumberTaken =>
+      'Diese Episoden-Nummer ist in der Staffel bereits vergeben.';
+
+  @override
   String aiApplyOutcome(Object applied, Object days, Object shoots) {
     return 'Angewendet: $applied Entwurf(e): $days Drehtag(e) erstellt, $shoots Szenen-Dreh(e) geplant.';
   }

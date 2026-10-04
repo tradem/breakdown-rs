@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: omen-alpha (opencode-go)
+// Co-authored-by: glm-5.3-flash (neuralwatt)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
 
 import 'dart:async';
 
 import 'package:breakdown_api/breakdown_api.dart';
+import 'package:built_collection/built_collection.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -202,10 +204,12 @@ class _TypedPreviewBodyState extends ConsumerState<_TypedPreviewBody> {
         ),
         _payloadHeader(context, payload),
         const SizedBox(height: 12),
-        ..._payloadRows(context, payload),
-        const SizedBox(height: 24),
-        // The apply action: rows + decisions + persisted episode context
-        // (or the explicit picker) drive it.
+        // The apply action FIRST (issue #581 UX): the reviewer reaches the
+        // dispatch — context/picker, per-group target summary, review
+        // acknowledgement — without scrolling past the whole preview list.
+        // The rows (with their per-group headers and selectors) follow
+        // below; the per-group summary lines in the apply card keep the EU
+        // AI Act gate intact at the dispatch point.
         AiApplySection(
           jobId: widget.jobId,
           // The reviewed payload identity: a provider refresh delivers a NEW
@@ -213,6 +217,8 @@ class _TypedPreviewBodyState extends ConsumerState<_TypedPreviewBody> {
           // must not carry over to the replacement rows (#538).
           reviewToken: widget.response,
         ),
+        const SizedBox(height: 24),
+        ..._payloadRows(context, payload),
       ],
     );
   }
@@ -257,16 +263,12 @@ class _TypedPreviewBodyState extends ConsumerState<_TypedPreviewBody> {
     BuildContext context,
     Object payload,
   ) => switch (payload) {
+    // Script rows render GROUPED by their draft episode (issue #581): a
+    // group header with the per-group target selector precedes the first
+    // row of each group; unmarked rows render under the picked-target
+    // header (the single-episode flow).
     AiPreviewPayloadOneOf() => [
-      for (final scene in payload.data.scenes)
-        _PreviewRowCard(
-          jobId: widget.jobId,
-          draftRef: scene.draftRef,
-          label: l10nOf(context).aiPreviewSceneWithSummary(
-            '${scene.sceneNumber ?? '?'}',
-            scene.summary == null ? '' : ' — ${scene.summary}',
-          ),
-        ),
+      ..._scriptRowsGrouped(context, payload.data.scenes),
       for (final uncertainty in payload.data.uncertainties)
         // A costume the server dropped is reported here rather than vanishing:
         // the reviewer sees a MISSING entry with its reason slug
@@ -322,6 +324,42 @@ class _TypedPreviewBodyState extends ConsumerState<_TypedPreviewBody> {
     _ => [_InfoRowCard(label: l10nOf(context).aiPreviewUnrecognizedShape)],
   };
 
+  /// Script rows grouped by draft episode: a [_EpisodeGroupHeader] with the
+  /// group's target selector is inserted before the first row of each
+  /// group-run (document order — header repetitions in page headers are
+  /// harmless, consecutive rows of one group cluster under one header).
+  /// Rows without episode metadata cluster under the ungrouped header, which
+  /// names the explicitly picked target episode — no selector there, the
+  /// target lives in the apply card (the single-episode flow).
+  List<Widget> _scriptRowsGrouped(
+    BuildContext context,
+    BuiltList<DraftScene> scenes,
+  ) {
+    final widgets = <Widget>[];
+    String? lastRef;
+    var isFirst = true;
+    for (final scene in scenes) {
+      final episode = scene.episode;
+      final ref = episode == null ? null : draftEpisodeGroupRef(episode);
+      if (isFirst || ref != lastRef) {
+        lastRef = ref;
+        isFirst = false;
+        widgets.add(_EpisodeGroupHeader(jobId: widget.jobId, groupRef: ref));
+      }
+      widgets.add(
+        _PreviewRowCard(
+          jobId: widget.jobId,
+          draftRef: scene.draftRef,
+          label: l10nOf(context).aiPreviewSceneWithSummary(
+            '${scene.sceneNumber ?? '?'}',
+            scene.summary == null ? '' : ' — ${scene.summary}',
+          ),
+        ),
+      );
+    }
+    return widgets;
+  }
+
   /// The actionable rows (never the info cards): script scenes carry
   /// their `draft_ref`s; merged previews act on the merged scene ids.
   List<PreviewRow> _actionableRows(
@@ -333,6 +371,10 @@ class _TypedPreviewBodyState extends ConsumerState<_TypedPreviewBody> {
         PreviewRow(
           draftRef: scene.draftRef,
           label: l10nOf(context).sceneTileLabel('${scene.sceneNumber ?? '?'}'),
+          // The row's `Ep.:` marker (issue #581) — drives the group the row
+          // belongs to and the pre-filled create-new target. `null` keeps the
+          // single-episode flow.
+          episode: scene.episode,
           // `costumes` is null on a preview stored before the field existed:
           // not a failure, just a row with nothing to decide.
           costumes: [
@@ -539,6 +581,199 @@ class _PreviewRowCard extends ConsumerWidget {
         ),
     ];
   }
+}
+
+/// The per-group episode header (issue #581). Grouped rows get the draft
+/// episode label from the `Ep.:` marker, the group's CURRENT target, and the
+/// change affordance. The ungrouped variant (`groupRef == null`) names the
+/// explicitly picked target episode and offers NO selector — those rows
+/// follow the apply card's single-episode target (the backward-compatible
+/// flow).
+class _EpisodeGroupHeader extends ConsumerWidget {
+  const _EpisodeGroupHeader({required this.jobId, required this.groupRef});
+
+  final String jobId;
+  final String? groupRef;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final state = ref.watch(aiApplyControllerProvider(jobId));
+    final ref_ = groupRef;
+    if (ref_ == null) {
+      final target = state.context?.episodeId;
+      return _headerCard(
+        context,
+        key: const Key('ai-preview-ungrouped-header'),
+        title: target == null
+            ? l10nOf(context).aiApplyUngroupedHeadingNoTarget
+            : l10nOf(context).aiApplyUngroupedHeading(target),
+      );
+    }
+    final episode = state.episodeOfGroup(ref_);
+    final label = episode == null
+        ? ref_
+        : draftEpisodeLabel(l10nOf(context), episode.number, episode.title);
+    return _headerCard(
+      context,
+      key: Key('ai-preview-group-header-$ref_'),
+      title: label,
+      subtitle: groupTargetLabel(l10nOf(context), state.targetFor(ref_)),
+      trailing: TextButton(
+        key: Key('ai-preview-group-target-change-$ref_'),
+        onPressed: () => showGroupTargetSheet(context, ref, jobId, ref_),
+        child: Text(l10nOf(context).aiApplyGroupTargetChange),
+      ),
+    );
+  }
+
+  Widget _headerCard(
+    BuildContext context, {
+    required Key key,
+    required String title,
+    String? subtitle,
+    Widget? trailing,
+  }) => Card(
+    key: key,
+    color: Theme.of(context).colorScheme.surfaceContainerHighest,
+    margin: const EdgeInsets.only(top: 8),
+    child: ListTile(
+      dense: true,
+      title: Text(title, style: Theme.of(context).textTheme.titleSmall),
+      subtitle: subtitle == null ? null : Text(subtitle),
+      trailing: trailing,
+    ),
+  );
+}
+
+/// The per-group target sheet (issue #581): switch the group between an
+/// EXISTING episode (the job's block, live-fetched — ids never guessed) and
+/// a NEW one (number + name, pre-filled from the heading). The dispatch
+/// stays one explicit reviewed apply — this only edits the mapping.
+Future<void> showGroupTargetSheet(
+  BuildContext context,
+  WidgetRef ref,
+  String jobId,
+  String groupRef,
+) async {
+  final controller = ref.read(aiApplyControllerProvider(jobId).notifier);
+  final choice = await showModalBottomSheet<String>(
+    context: context,
+    builder: (sheetContext) => SafeArea(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          ListTile(
+            key: const Key('ai-group-target-pick-existing'),
+            leading: const Icon(Icons.playlist_add_check_outlined),
+            title: Text(l10nOf(sheetContext).aiApplyGroupTargetPickExisting),
+            onTap: () => Navigator.of(sheetContext).pop('existing'),
+          ),
+          ListTile(
+            key: const Key('ai-group-target-create'),
+            leading: const Icon(Icons.add),
+            title: Text(l10nOf(sheetContext).aiApplyGroupTargetEditCreate),
+            onTap: () => Navigator.of(sheetContext).pop('create'),
+          ),
+        ],
+      ),
+    ),
+  );
+  if (choice == null || !context.mounted) return;
+  switch (choice) {
+    case 'existing':
+      final picked = await showEpisodePicker(context, ref, jobId);
+      if (picked == null || !context.mounted) return;
+      final numberLabel = l10nOf(context).episodeTileLabel('${picked.number}');
+      final name = picked.name?.trim();
+      controller.setGroupTarget(
+        groupRef,
+        ExistingEpisodeGroupTarget(
+          episodeId: picked.id,
+          label: name == null || name.isEmpty
+              ? numberLabel
+              : '$numberLabel \u00b7 $name',
+        ),
+      );
+    case 'create':
+      final state = ref.read(aiApplyControllerProvider(jobId));
+      final current = state.targetFor(groupRef);
+      final initial = current is CreateEpisodeGroupTarget
+          ? current
+          : const CreateEpisodeGroupTarget();
+      final result = await showGroupCreateDialog(context, initial: initial);
+      // The dialog can outlive the notifier (a preview refresh replaced the
+      // payload, or navigation disposed the autoDispose provider) — the same
+      // guard the existing-episode branch applies after its await.
+      if (result == null || !context.mounted) return;
+      controller.setGroupTarget(groupRef, result);
+  }
+}
+
+/// The create-new editor: the wire-required number (a marker without one
+/// leaves the target incomplete and apply disabled) plus the optional name,
+/// both pre-filled from the heading the group was extracted from.
+Future<CreateEpisodeGroupTarget?> showGroupCreateDialog(
+  BuildContext context, {
+  required CreateEpisodeGroupTarget initial,
+}) {
+  final numberController = TextEditingController(
+    text: initial.number?.toString() ?? '',
+  );
+  final nameController = TextEditingController(text: initial.name ?? '');
+  final formKey = GlobalKey<FormState>();
+  return showDialog<CreateEpisodeGroupTarget>(
+    context: context,
+    builder: (dialogContext) => AlertDialog(
+      key: const Key('ai-group-create-dialog'),
+      title: Text(l10nOf(dialogContext).aiApplyGroupTargetEditCreate),
+      content: Form(
+        key: formKey,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextFormField(
+              key: const Key('ai-group-create-number'),
+              controller: numberController,
+              keyboardType: TextInputType.number,
+              decoration: InputDecoration(
+                labelText: l10nOf(dialogContext).aiApplyGroupCreateNumberLabel,
+              ),
+              validator: (value) => int.tryParse(value ?? '') == null
+                  ? l10nOf(dialogContext).aiApplyGroupNumberInvalid
+                  : null,
+            ),
+            TextFormField(
+              key: const Key('ai-group-create-name'),
+              controller: nameController,
+              decoration: InputDecoration(
+                labelText: l10nOf(dialogContext).aiApplyGroupCreateNameLabel,
+              ),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(dialogContext).pop(),
+          child: Text(l10nOf(dialogContext).commonCancel),
+        ),
+        FilledButton(
+          key: const Key('ai-group-create-save'),
+          onPressed: () {
+            if (!(formKey.currentState?.validate() ?? false)) return;
+            final name = nameController.text.trim();
+            Navigator.of(dialogContext).pop(
+              CreateEpisodeGroupTarget(
+                number: int.parse(numberController.text),
+                name: name.isEmpty ? null : name,
+              ),
+            );
+          },
+          child: Text(l10nOf(dialogContext).commonSave),
+        ),
+      ],
+    ),
+  );
 }
 
 /// Non-actionable preview row card (info only — excluded from the
