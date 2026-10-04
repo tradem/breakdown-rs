@@ -204,10 +204,12 @@ class _TypedPreviewBodyState extends ConsumerState<_TypedPreviewBody> {
         ),
         _payloadHeader(context, payload),
         const SizedBox(height: 12),
-        ..._payloadRows(context, payload),
-        const SizedBox(height: 24),
-        // The apply action: rows + decisions + persisted episode context
-        // (or the explicit picker) drive it.
+        // The apply action FIRST (issue #581 UX): the reviewer reaches the
+        // dispatch — context/picker, per-group target summary, review
+        // acknowledgement — without scrolling past the whole preview list.
+        // The rows (with their per-group headers and selectors) follow
+        // below; the per-group summary lines in the apply card keep the EU
+        // AI Act gate intact at the dispatch point.
         AiApplySection(
           jobId: widget.jobId,
           // The reviewed payload identity: a provider refresh delivers a NEW
@@ -215,6 +217,8 @@ class _TypedPreviewBodyState extends ConsumerState<_TypedPreviewBody> {
           // must not carry over to the replacement rows (#538).
           reviewToken: widget.response,
         ),
+        const SizedBox(height: 24),
+        ..._payloadRows(context, payload),
       ],
     );
   }
