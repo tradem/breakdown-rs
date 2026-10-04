@@ -162,9 +162,9 @@ contract; `1.0.0` is *not* gated on code maturity alone.
 
 ### D9: Bump-vs-cut decoupling (amended 2026-10-04, pre-deployment)
 
-Until the backend is deployed to a hosting target, per-change release
+Until the first deployment target exists, per-change release
 ceremony is rejected: **no PATCH/MINOR image cut per fix** (this supersedes
-D7's fix-release rule until the first deployment exists). The release
+D7's fix-release rule until the first deployment target exists). The release
 mechanics split into two decoupled steps:
 
 - **Bump (per PR, on `main`):** a behaviour change bumps at least one crate
