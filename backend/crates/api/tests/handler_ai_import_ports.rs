@@ -1856,3 +1856,40 @@ async fn apply_ai_import_creates_an_episode_for_a_free_group_number() {
     assert_eq!(created[0].block_id, block_id);
     assert_eq!(created[0].series_id, series_id);
 }
+
+#[tokio::test]
+async fn apply_ai_import_rejects_more_episode_groups_than_the_preview_carries() {
+    let ports = FakePorts::default();
+    let block_id = BlockId::from_uuid(Uuid::now_v7());
+    *ports.episode_repo.block_id_override.lock().await = Some(block_id);
+    seed_ai_block_access(&ports, block_id).await;
+    // The preview carries ONE group (ep:7); the request tries two. The bound
+    // mirrors the mappings/costume-decisions bounds: reject before the
+    // per-group validation reads (CodeRabbit review, issue #581).
+    let job_id = seed_episode_grouped_script_job(&ports, Some(block_id), 1).await;
+
+    let mut second = create_group_request(9);
+    second.episode_ref = "ep:9".to_owned();
+    let problem = apply_ai_import::<FakePorts>(
+        State(state(ports)),
+        user(),
+        Path(job_id),
+        Json(ApplyAiImportRequest {
+            episode_id: EpisodeId::new(),
+            series_id: None,
+            mappings: vec![ApplyMapping {
+                draft_ref: "scene-0".to_owned(),
+                decision: ApplyMappingDecision::Create,
+                costume_decisions: Vec::new(),
+            }],
+            accept_as_is: true,
+            edit_distance: 0,
+            episode_groups: vec![create_group_request(7), second],
+        }),
+    )
+    .await
+    .expect_err("an oversized group list must be rejected before any read")
+    .into_problem();
+    assert_eq!(problem.status, StatusCode::UNPROCESSABLE_ENTITY.as_u16());
+    assert_eq!(problem.code, "domain.validation");
+}

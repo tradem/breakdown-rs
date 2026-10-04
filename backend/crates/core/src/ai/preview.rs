@@ -74,8 +74,9 @@ impl DraftEpisode {
 /// (invisible Word→PDF look-alikes folded to ASCII). The marker may sit
 /// anywhere in the line — page headers carry it next to the `Block:` field —
 /// but the `Ep` token is matched case-sensitively so a lowercase prose mention
-/// (`"ep 3 war besser"`) never flips the episode in effect. The first marker
-/// on a line wins. Normalization replaces every character one-for-one, so
+/// (`"ep 3 war besser"`) never flips the episode in effect. Every `Ep`
+/// occurrence on the line is tried; the FIRST one that yields a number or a
+/// title wins. Normalization replaces every character one-for-one, so
 /// character indices align with the original line — the returned title keeps
 /// the document's verbatim bytes.
 fn episode_marker(line: &str) -> Option<DraftEpisode> {
@@ -83,9 +84,32 @@ fn episode_marker(line: &str) -> Option<DraftEpisode> {
     // `Ep` + a run of separator characters (`.` / `:` / spaces — `Ep. : 2`
     // after NBSP folding) + 1-4 digits. The digit cap keeps a page number
     // glued to a stray `Ep` from parsing as a huge episode number.
-    let marker_start = normalized.find("Ep")?;
+    //
+    // EVERY `Ep` occurrence is tried, not only the first: `Ep` also occurs
+    // inside capitalized words (`Epilog – Ep.: 5 (Titel)`), and stopping at
+    // the first occurrence would parse the wrong one. A candidate preceded by
+    // an alphanumeric character is not a token start (`DEp`), and a candidate
+    // whose number/title does not sit CLOSE to the token is prose
+    // (`Episode 12`, `Epilog (Fortsetzung)`) — the scan moves on to the next
+    // occurrence.
     let chars: Vec<char> = normalized.chars().collect();
-    let mut i = marker_char_index(&normalized, marker_start) + "Ep".len();
+    let ep_char = "Ep".chars().count();
+    normalized
+        .match_indices("Ep")
+        .map(|(byte_offset, _)| marker_char_index(&normalized, byte_offset))
+        .filter(|&start| start == 0 || !chars[start - 1].is_alphanumeric())
+        .find_map(|start| parse_marker_at(line, &chars, start + ep_char))
+}
+
+/// Try to read a `DraftEpisode` from `chars[from..]` — the characters after
+/// one `Ep` token. `None` means this occurrence is not a marker; the caller
+/// continues with the next.
+fn parse_marker_at(line: &str, chars: &[char], from: usize) -> Option<DraftEpisode> {
+    // The title's `(` must sit within this many characters of the token (or
+    // of the number) — the observed format is `Ep.: 5 (Titel)`; a far-away
+    // parenthesis belongs to different text, not to this marker.
+    const TITLE_WINDOW: usize = 3;
+    let mut i = from;
     while i < chars.len() && matches!(chars[i], '.' | ':' | ' ') {
         i += 1;
     }
@@ -94,18 +118,22 @@ fn episode_marker(line: &str) -> Option<DraftEpisode> {
         i += 1;
     }
     let digits: String = chars[digit_start..i].iter().collect();
-    let (number, title_from) = if digits.is_empty() || digits.len() > 4 {
-        // No number: only a `(Titel)` form is recognizable.
-        (None, digit_start)
-    } else {
+    if !digits.is_empty() && digits.len() <= 4 {
         // Numbers parse losslessly into i32 (≤ 4 digits).
-        (Some(digits.parse::<i32>().ok()?), i)
-    };
-    let title = title_in_parentheses(line, title_from);
-    if number.is_none() && title.is_none() {
-        return None;
+        let number = digits.parse::<i32>().ok()?;
+        let title = title_in_parentheses_bounded(line, chars, i, TITLE_WINDOW);
+        return Some(DraftEpisode {
+            number: Some(number),
+            title,
+        });
     }
-    Some(DraftEpisode { number, title })
+    // No usable number: only a closely-following `(Titel)` form is
+    // recognizable — otherwise this `Ep` is a word, not a marker.
+    let title = title_in_parentheses_bounded(line, chars, i, TITLE_WINDOW)?;
+    Some(DraftEpisode {
+        number: None,
+        title: Some(title),
+    })
 }
 
 /// Character index of a byte offset found in `text`.
@@ -113,14 +141,20 @@ fn marker_char_index(text: &str, byte_offset: usize) -> usize {
     text[..byte_offset].chars().count()
 }
 
-/// The first `(…)` group of `text` from character index `from` on, when one is
-/// present and non-blank. Scans the ORIGINAL line: character indices align
-/// with the normalized copy, but the bytes must stay verbatim.
-fn title_in_parentheses(text: &str, from: usize) -> Option<String> {
+/// The first `(…)` group of `text` whose `(` opens within `window` characters
+/// after character index `from`, when one is present and non-blank. Scans the
+/// ORIGINAL line: character indices align with the normalized copy, but the
+/// bytes must stay verbatim.
+fn title_in_parentheses_bounded(
+    text: &str,
+    chars: &[char],
+    from: usize,
+    window: usize,
+) -> Option<String> {
     let mut open = None;
-    for (index, character) in text.chars().enumerate().skip(from) {
-        if character == '(' {
-            open = Some(index);
+    for (offset, character) in chars.iter().skip(from).take(window).enumerate() {
+        if *character == '(' {
+            open = Some(from + offset);
             break;
         }
     }

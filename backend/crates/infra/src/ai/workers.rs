@@ -1856,15 +1856,6 @@ where
             .await
     }
 
-    /// Reserve `candidate_id` for `(preview_id, draft_ref, 'scene', 0)` *before*
-    /// dispatching `CreateScene`, then confirm the mapping — mirroring the
-    /// schedule apply path (issue #338).
-    ///
-    /// The reservation is insert-if-absent: concurrent duplicates (or a retry
-    /// after a crashed confirm) converge on the winning row's id, and the
-    /// command runs against that id. A `VersionConflict` on the reserved
-    /// stream proves our own earlier append, so `recover_version` treats it
-    /// as success instead of duplicating the scene.
     /// Reserve the aggregate id for `(preview_id, episode_ref, 'episode', 0)`
     /// and create the episode one draft episode group maps to (issue #581,
     /// mirroring [`Self::create_scene_reserved`]).
@@ -1896,7 +1887,7 @@ where
                 &episode_ref,
                 mapping_kind::EPISODE,
                 PRIMARY_ORDINAL,
-            ) // ast-grep-ignore: cqrs-boundary
+            )
             .await?;
         let candidate_id = match stored {
             Some(mapping) => mapping.aggregate_id,
@@ -1950,6 +1941,15 @@ where
         Ok((EpisodeId::from_uuid(id), outcome.appended))
     }
 
+    /// Reserve `candidate_id` for `(preview_id, draft_ref, 'scene', 0)` *before*
+    /// dispatching `CreateScene`, then confirm the mapping — mirroring the
+    /// schedule apply path (issue #338).
+    ///
+    /// The reservation is insert-if-absent: concurrent duplicates (or a retry
+    /// after a crashed confirm) converge on the winning row's id, and the
+    /// command runs against that id. A `VersionConflict` on the reserved
+    /// stream proves our own earlier append, so `recover_version` treats it
+    /// as success instead of duplicating the scene.
     async fn create_scene_reserved(
         &self,
         actor: UserId,

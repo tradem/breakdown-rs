@@ -1293,3 +1293,28 @@ fn plan_rejects_a_group_the_request_forgot() {
     .expect_err("ungrouped episode must not silently apply to the default");
     assert!(matches!(error, ApplyGateError::MissingEpisodeGroup(ref key) if key == "ep:3"));
 }
+
+#[test]
+fn episode_marker_survives_an_ep_word_before_the_marker() {
+    // `Ep` also occurs inside capitalized words; only the occurrence that
+    // actually parses as a marker may win (CodeRabbit review, issue #581).
+    let document = "Epilog \u{2013} Ep.: 5 (Titel)\n\n1. I/T - OP\nAktion.\n";
+    let episode = episode_of(document, 0).expect("marker");
+    assert_eq!(episode.number, Some(5));
+    assert_eq!(episode.title.as_deref(), Some("Titel"));
+}
+
+#[test]
+fn episode_marker_ignores_an_ep_glued_to_a_word() {
+    // A candidate preceded by an alphanumeric character is not a token start.
+    let document = "DEp. 3 ist keine Episode\n\n1. I/T - OP\nAktion.\n";
+    assert!(episode_of(document, 0).is_none());
+}
+
+#[test]
+fn episode_word_alone_is_not_a_marker() {
+    // `Episode 12` in prose: the `Ep` occurrence yields neither a number nor a
+    // title, so the scan moves on — the line carries no marker.
+    let chunks = SceneChunk::extract_scenes("Episode 12 beginnt hier.\n\n1. INT. OP\nA\n");
+    assert!(chunks[0].episode.is_none());
+}

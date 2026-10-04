@@ -5536,6 +5536,16 @@ pub async fn apply_ai_import<P: Ports>(
             // in the series is a clean 409 (#404 doctrine: advisory pre-check,
             // idx_projection_episode_series_number stays authoritative).
             let preview_group_refs = episode_group_refs(&preview);
+            // Bound the per-group loop before any repository read, mirroring
+            // the mappings/costume-decisions bounds above: every valid group
+            // ref comes from `preview_group_refs`, so a longer request is
+            // rejected by construction (the linear `contains` below stays
+            // O(n·m)-free for an oversized body).
+            if request.episode_groups.len() > preview_group_refs.len() {
+                return Err(ApiError::Validation(
+                    "apply carries more episode groups than the preview contains",
+                ));
+            }
             let mut seen_group_refs = std::collections::HashSet::new();
             let mut create_numbers = std::collections::HashSet::new();
             for group in &request.episode_groups {
