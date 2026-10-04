@@ -724,6 +724,74 @@ fn german_headings_accept_number_prefix_and_case_variants() {
 }
 
 #[test]
+fn german_headings_survive_word_pdf_export_artifacts() {
+    // Issue #581 user report: a Word→PDF production script extracts via
+    // `pdftotext` with invisible look-alikes — non-breaking/narrow spaces
+    // after the leading scene number and en/em dashes instead of `-`. The
+    // ASCII-strict detector rejected every heading and the whole import
+    // died with "script did not contain an INT./EXT. scene heading". The
+    // user's verbatim headings first, then the artifact variants.
+    for line in [
+        "1 I/T - KLINIKUM / OP / Waschraum",
+        "2 I/T - NOTAUFNHAME  / SCHOCKBOX",
+        "3 A/I/T - ERFURT / STRASSE + KLINIKUM / EINGANG + EMPFANG + FLUR VOR OP",
+        // NBSP (U+00A0), narrow NBSP (U+202F) and figure space (U+2007)
+        // after the number; tab as the separator.
+        "1\u{00A0}I/T - KLINIKUM / OP",
+        "12\u{202F}I/N - OP / KREISSAAL",
+        "5\u{2007}A/T - STRASSE",
+        "7\tI/T - WOHNUNG",
+        // En dash (U+2013), em dash (U+2014), non-breaking hyphen (U+2011)
+        // and minus sign (U+2212) as the time-token terminator.
+        "4 I/T \u{2013} KÜCHE",
+        "6 A/I/T \u{2014} ERFURT / STRASSE",
+        "8 A/I/T \u{2011} KLINIKUM",
+        "9 I/N \u{2212} LABOR",
+    ] {
+        assert!(
+            is_scene_heading(line),
+            "expected {line:?} to survive export artifacts as a German scene heading"
+        );
+    }
+}
+
+#[test]
+fn extract_scenes_parses_scene_numbers_through_export_artifacts() {
+    // The chunk must carry the document's leading number even when the line
+    // arrives with NBSP/en-dash artifacts — the worker backfills
+    // `DraftScene.scene_number` from it when the model omits the field.
+    let document = "1\u{00A0}I/T \u{2013} KLINIKUM / OP\n\nOP-Saal,\nlautlose Heizung.\n\n2 I/T - NOTAUFNAHME / SCHOCKBOX\n\nEin Monitor pfeift.\n";
+    let chunks = extract_scenes(document);
+    assert_eq!(
+        chunks.len(),
+        2,
+        "both artifact headings must split, got {chunks:?}"
+    );
+    assert_eq!(chunks[0].scene_number, Some(1));
+    // The stored heading stays the document's verbatim bytes (grounding
+    // identity) — normalization is detection-only.
+    assert_eq!(chunks[0].heading, "1\u{00A0}I/T \u{2013} KLINIKUM / OP");
+    assert_eq!(chunks[1].scene_number, Some(2));
+}
+
+#[test]
+fn export_artifact_normalization_does_not_swallow_prose() {
+    // The guard rails must hold on the normalized copy too: a number plus
+    // NBSP in front of lowercase prose is still prose, and an en dash inside
+    // a sentence does not make it a heading.
+    for line in [
+        "1\u{00A0}Innen brennt noch Licht.",
+        "3\tAussen am Gang wartet Renke.",
+        "I/TAXI \u{2013} FAHRT",
+    ] {
+        assert!(
+            !is_scene_heading(line),
+            "must NOT treat {line:?} as a scene heading"
+        );
+    }
+}
+
+#[test]
 fn german_detection_does_not_swallow_ordinary_prose() {
     // The guard rails: a bare `I` or `A` is a character/dialogue line, a long
     // "time token" is a word that merely starts with T/N/AB, and a word glued to

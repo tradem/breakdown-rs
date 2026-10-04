@@ -755,12 +755,18 @@ pub fn stable_draft_ref(
 }
 
 /// Deterministically split a script at fuzzy INT./EXT. heading lines.
+///
+/// Heading *detection* runs on a normalized copy of each line (see
+/// [`normalize_for_heading_detection`]); the stored heading stays the
+/// document's verbatim bytes — it is the identity (`stable_draft_ref`) and
+/// the grounding text the model receives, so silently rewriting it would
+/// desynchronize `source_quote` verification.
 pub fn extract_scenes(document: &str) -> Vec<SceneChunk> {
     let mut chunks: Vec<SceneChunk> = Vec::new();
     for line in document.lines() {
         let trimmed = line.trim();
         if is_scene_heading(trimmed) {
-            let scene_number = leading_scene_number(trimmed);
+            let scene_number = leading_scene_number(&normalize_for_heading_detection(trimmed));
             chunks.push(SceneChunk {
                 index: chunks.len(),
                 heading: trimmed.to_owned(),
@@ -778,6 +784,29 @@ pub fn extract_scenes(document: &str) -> Vec<SceneChunk> {
         chunk.text = chunk.text.trim().to_owned();
     }
     chunks
+}
+
+/// Word→PDF text extraction substitutes invisible look-alikes for the plain
+/// ASCII separators the heading grammar expects: non-breaking spaces
+/// (U+00A0, U+202F, …) for spaces, en/em/figure dashes (U+2013, U+2014,
+/// U+2212) and the non-breaking hyphen (U+2011) for `-`. A production script
+/// exported from Word arrives with exactly these bytes, and the ASCII-strict
+/// detector then rejected every heading — the whole import died with
+/// "script did not contain an INT./EXT. scene heading" (issue #581 user
+/// report: `1 I/T - KLINIKUM / OP / Waschraum` with NBSP + en dash).
+///
+/// Detection-only: case is preserved (the German space-form check needs the
+/// original casing to tell `INNEN WOHNUNG` from prose), and the result is
+/// never stored — only fed to [`is_scene_heading`] and
+/// [`leading_scene_number`].
+fn normalize_for_heading_detection(line: &str) -> String {
+    line.chars()
+        .map(|c| match c {
+            '\t' | '\u{00A0}' | '\u{2007}' | '\u{2009}' | '\u{202F}' => ' ',
+            '\u{2011}' | '\u{2013}' | '\u{2014}' | '\u{2212}' => '-',
+            other => other,
+        })
+        .collect()
 }
 
 /// Scene-heading prefixes in the English / Hollywood convention.
@@ -803,13 +832,17 @@ const GERMAN_HEADING_PREFIXES: [&str; 4] = ["INNENAUFNAHME", "AUSSENAUFNAHME", "
 const GERMAN_SPACE_HEADING_PREFIXES: [&str; 2] = ["INNEN ", "AUSSEN "];
 
 fn is_scene_heading(line: &str) -> bool {
-    let trimmed =
-        line.trim_start_matches(|c: char| c.is_ascii_digit() || c == '.' || c == '-' || c == ' ');
+    // Word→PDF export artifacts are normalized INSIDE the detector so every
+    // caller (chunk splitting and direct tests alike) gets the robust
+    // behavior; the stored heading stays verbatim (see `extract_scenes`).
+    let trimmed = normalize_for_heading_detection(line)
+        .trim_start_matches(|c: char| c.is_ascii_digit() || c == '.' || c == '-' || c == ' ')
+        .to_owned();
     let normalized = trimmed.to_ascii_uppercase();
     ENGLISH_HEADING_PREFIXES
         .iter()
         .any(|prefix| normalized.starts_with(prefix))
-        || is_german_scene_heading(&normalized, trimmed)
+        || is_german_scene_heading(&normalized, &trimmed)
 }
 
 /// The discriminator for the space-separated German forms: a production script

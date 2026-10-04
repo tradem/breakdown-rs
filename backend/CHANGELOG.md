@@ -17,6 +17,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Script import: Word→PDF export artifacts no longer kill scene
+  recognition (issue #581 user report).** A production script exported
+  from Word arrives with non-breaking spaces (U+00A0/U+202F/U+2007), tabs
+  and en/em dashes (U+2011/U+2013/U+2014/U+2212) where the heading grammar
+  expected plain ASCII — the detector rejected EVERY heading and the import
+  died with "script did not contain an INT./EXT. scene heading". Heading
+  detection now runs on a normalized copy of each line; the stored heading
+  stays the document's verbatim bytes (grounding identity).
+- **Preview rows no longer render "?" for a number the document states.**
+  When the model omits `scene_number` although the chunk heading carries a
+  leading number, the worker backfills the draft row from the chunk —
+  server-side truth, the same doctrine as `stable_draft_ref` overwriting
+  the model's `draft_ref`. Backfill is limited to the FIRST scene of a
+  chunk (the heading is that scene's heading).
+
 ## [api-v0.14.0] – Released 2026-10-04
 
 - Shipped artifact: `ghcr.io/<owner>/<repo>:api-v0.14.0` (immutable,

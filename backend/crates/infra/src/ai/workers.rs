@@ -387,6 +387,17 @@ where
                         // to one decision via a repeated placeholder.
                         scene.draft_ref =
                             stable_draft_ref(scene_ordinal, &chunk.heading, index_in_chunk);
+                        // Server-side truth beats the prompt (same doctrine as
+                        // `draft_ref` above): `extract_scenes` read the leading
+                        // number out of the document heading. When the model
+                        // omits `scene_number` despite the heading carrying one,
+                        // the preview row rendered "?" for a number the document
+                        // states (issue #581 user report). Only the FIRST scene
+                        // of a chunk backfills — the heading is that scene's
+                        // heading; a model-split further scene is not.
+                        if scene.scene_number.is_none() && index_in_chunk == 0 {
+                            scene.scene_number = chunk.scene_number;
+                        }
                         // Server-side truth beats the prompt too (design D5): a
                         // prompt forbids inventing a costume, but a prompt is an
                         // instruction, not a guarantee. Everything the check drops
