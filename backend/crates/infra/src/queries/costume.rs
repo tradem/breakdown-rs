@@ -264,12 +264,22 @@ impl CostumeRepositoryImpl {
                 });
         }
 
+        // Fully specified (no `..view` spread) so a deleted field is a
+        // compile error instead of a silent fallback to the un-enriched
+        // base view (mutation hardening, issue #585; same pattern as
+        // PR #358 for `enrich`).
         Ok(views
             .into_iter()
             .map(|view| CostumeView {
+                id: view.id,
+                character_id: view.character_id,
+                category_id: view.category_id,
+                category_name: view.category_name,
+                notes: view.notes,
                 details: details_by_costume.remove(&view.id).unwrap_or_default(),
                 photos: photos_by_costume.remove(&view.id).unwrap_or_default(),
-                ..view
+                version: view.version,
+                updated_at: view.updated_at,
             })
             .collect())
     }
