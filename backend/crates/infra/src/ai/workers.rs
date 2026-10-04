@@ -1021,10 +1021,16 @@ where
             &episode_groups,
         )
         .map_err(|error| DomainError::conflict(error.to_string()))?;
+        // Fully specified (no `..Default` spread) so a deleted field is a
+        // compile error instead of a silent default (mutation hardening,
+        // issue #585; same pattern as PR #358).
         let mut result = ScriptApplyResult {
             applied: Vec::with_capacity(plan.scenes.len()),
+            created_characters: 0,
+            created_costumes: 0,
+            created_costume_beats: 0,
+            created_episodes: 0,
             unapplied_costumes: plan.unapplied_costumes,
-            ..ScriptApplyResult::default()
         };
         // Figures named by several draft rows are created once. This is a cache
         // of what *this* request resolved, not a projection read: everything that
