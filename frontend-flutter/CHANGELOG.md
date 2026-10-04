@@ -14,9 +14,19 @@ All notable changes to the Breakdown Flutter client will be documented in this f
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 per ADR-033: single source of truth is `version: X.Y.Z+N` in `pubspec.yaml`,
-releases are cut as `flutter-vX.Y.Z` tags.
+releases are cut as `vX.Y.Z` tags (`v<build-name>`, enforced by
+`scripts/release/version-gate.sh`).
 
 ## [Unreleased]
+
+## [0.3.0] – Released 2026-10-04
+
+Stable release of the 0.3.0 alpha line (`0.3.0-alpha.1` →
+`0.3.0-alpha.40`). The entries below cover everything since the first
+published alpha.
+
+- **Version bump:** `0.3.0-alpha.40+50 → 0.3.0+51` (stable graduation of
+  the alpha line; the Play `versionCode` `+N` stays strictly monotonic).
 
 ### Fixed
 
