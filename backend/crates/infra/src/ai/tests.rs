@@ -571,6 +571,27 @@ impl LlmClient for FakeLlmClient {
     }
 }
 
+#[derive(Clone, Default)]
+struct FakeLlmClientWithoutSceneNumber;
+
+#[async_trait]
+impl LlmClient for FakeLlmClientWithoutSceneNumber {
+    async fn chat_constrained(
+        &self,
+        _request: LlmChatRequest,
+    ) -> Result<ScriptContext, DomainError> {
+        tokio::time::sleep(std::time::Duration::from_millis(2)).await;
+        Ok(ScriptContext {
+            title: Some("fixture".to_owned()),
+            scenes: vec![DraftScene {
+                draft_ref: "fixture-scene".to_owned(),
+                ..Default::default()
+            }],
+            uncertainties: Vec::new(),
+        })
+    }
+}
+
 fn script_job(id: AiImportJobId) -> AiImportJob {
     AiImportJob {
         id,
@@ -852,6 +873,49 @@ async fn script_worker_assembles_preview_and_telemetry() {
     );
     assert_eq!(state.telemetry[0].apply_state.edit_distance(), None);
     assert_eq!(state.telemetry[0].apply_state.accept_as_is(), None);
+}
+
+#[tokio::test]
+async fn script_worker_backfills_scene_number_from_chunk_heading() {
+    // Issue #581: the model omitted `scene_number` although the document
+    // heading carries one — the preview must not render "?" for a number
+    // the server already read out of the heading. Server-side truth, same
+    // doctrine as `stable_draft_ref` overwriting the model's `draft_ref`.
+    let queue = Arc::new(FakeQueue::default());
+    let previews = Arc::new(MemoryAiPreviewStore::default());
+    let worker = ScriptImportWorker {
+        queue: Arc::clone(&queue),
+        client: Arc::new(FakeLlmClientWithoutSceneNumber),
+        previews: previews.clone() as Arc<dyn AiPreviewStore>,
+        extractor: super::PdfTextExtractor::new(1024 * 1024, std::time::Duration::from_secs(30)),
+        provider: LlmProvider::Neuralwatt,
+        model: "deepseek-v4-flash".to_owned(),
+        prompt: "fixture prompt".to_owned(),
+        bounds: AiImportBounds {
+            max_chunks_per_script: 4,
+            ..AiImportBounds::default()
+        },
+    };
+    let job = script_job(AiImportJobId::new());
+    let handle = worker
+        .process_text(
+            &job,
+            "test-worker",
+            "12 I/T - WOHNUNG\nA\n14 I/T - KÜCHE\nB",
+        )
+        .await
+        .unwrap();
+    let payload = previews.get(&handle).await.unwrap().unwrap();
+    let preview: ScriptContext = serde_json::from_slice(&payload).unwrap();
+    assert_eq!(preview.scenes.len(), 2);
+    assert_eq!(
+        preview.scenes[0].scene_number,
+        Some(12),
+        "first chunk's heading number must reach the preview row"
+    );
+    assert_eq!(preview.scenes[1].scene_number, Some(14));
+    let state = queue.state.lock().unwrap();
+    assert_eq!(state.succeeded, vec![job.id]);
 }
 
 #[tokio::test]

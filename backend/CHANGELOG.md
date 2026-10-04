@@ -15,7 +15,39 @@ entry.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+**Release policy (ADR-020 D9):** development after a cut accumulates under
+`## [Unreleased]` — version bumps land on `main` per PR (at least one crate
+version per behaviour change, dependency-order lockstep `core → infra → api`)
+and are recorded as a `Changed` bullet. A release means: turn `[Unreleased]`
+into a dated `## [api-vX.Y.Z] – Released <date>` section and cut the image
+tag. Never edit a released entry afterwards.
+
 ## [Unreleased]
+
+### Fixed
+
+- **Script import: Word→PDF export artifacts no longer kill scene
+  recognition (issue #581 user report).** A production script exported
+  from Word arrives with non-breaking spaces (U+00A0/U+202F/U+2007), tabs
+  and en/em dashes (U+2011/U+2013/U+2014/U+2212) where the heading grammar
+  expected plain ASCII — the detector rejected EVERY heading and the import
+  died with "script did not contain an INT./EXT. scene heading". Heading
+  detection now runs on a normalized copy of each line; the stored heading
+  stays the document's verbatim bytes (grounding identity).
+- **Preview rows no longer render "?" for a number the document states.**
+  When the model omits `scene_number` although the chunk heading carries a
+  leading number, the worker backfills the draft row from the chunk —
+  server-side truth, the same doctrine as `stable_draft_ref` overwriting
+  the model's `draft_ref`. Backfill is limited to the FIRST scene of a
+  chunk (the heading is that scene's heading).
+
+### Changed
+
+- **Version bumps (post-release development, next image cut picks these
+  up):** `core 0.16.0 → 0.16.1`, `infra 0.20.0 → 0.20.1`,
+  `api 0.14.0 → 0.14.1`; test-support crates `integration-tests`,
+  `test_support`, `architecture`, `fuzz-targets` `0.3.0 → 0.3.1` —
+  lockstep re-pins per ADR-020 D3.
 
 ## [api-v0.14.0] – Released 2026-10-04
 
