@@ -5,6 +5,7 @@
 //
 
 // ignore_for_file: unused_element
+import 'package:breakdown_api/src/model/draft_episode.dart';
 import 'package:built_collection/built_collection.dart';
 import 'package:breakdown_api/src/model/draft_costume.dart';
 import 'package:built_value/built_value.dart';
@@ -18,6 +19,7 @@ part 'draft_scene.g.dart';
 /// * [characters]
 /// * [costumes] - Costumes worn by this scene's characters. Additive on the wire with a default so previews stored before this field existed still load; a preview written by this version loses the field when read by an older binary (breaking, see the change proposal).
 /// * [draftRef]
+/// * [episode] - The episode this row belongs to (issue #581). Additive on the wire with a default so previews stored before this field existed still load; `None` applies the row to the explicitly picked target episode.
 /// * [location]
 /// * [mood]
 /// * [sceneNumber]
@@ -34,6 +36,10 @@ abstract class DraftScene implements Built<DraftScene, DraftSceneBuilder> {
 
   @BuiltValueField(wireName: r'draft_ref')
   String get draftRef;
+
+  /// The episode this row belongs to (issue #581). Additive on the wire with a default so previews stored before this field existed still load; `None` applies the row to the explicitly picked target episode.
+  @BuiltValueField(wireName: r'episode')
+  DraftEpisode? get episode;
 
   @BuiltValueField(wireName: r'location')
   String? get location;
@@ -90,6 +96,13 @@ class _$DraftSceneSerializer implements PrimitiveSerializer<DraftScene> {
       object.draftRef,
       specifiedType: const FullType(String),
     );
+    if (object.episode != null) {
+      yield r'episode';
+      yield serializers.serialize(
+        object.episode,
+        specifiedType: const FullType.nullable(DraftEpisode),
+      );
+    }
     if (object.location != null) {
       yield r'location';
       yield serializers.serialize(
@@ -172,6 +185,14 @@ class _$DraftSceneSerializer implements PrimitiveSerializer<DraftScene> {
             specifiedType: const FullType(String),
           ) as String;
           result.draftRef = valueDes;
+          break;
+        case r'episode':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType.nullable(DraftEpisode),
+          ) as DraftEpisode?;
+          if (valueDes == null) continue;
+          result.episode.replace(valueDes);
           break;
         case r'location':
           final valueDes = serializers.deserialize(

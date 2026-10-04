@@ -16,6 +16,8 @@ class _$ApplyAiImportResponse extends ApplyAiImportResponse {
   @override
   final int createdDays;
   @override
+  final int createdEpisodes;
+  @override
   final int plannedSceneShoots;
   @override
   final BuiltList<UnappliedCostume> unappliedCostumes;
@@ -29,6 +31,7 @@ class _$ApplyAiImportResponse extends ApplyAiImportResponse {
       required this.createdCharacters,
       required this.createdCostumes,
       required this.createdDays,
+      required this.createdEpisodes,
       required this.plannedSceneShoots,
       required this.unappliedCostumes})
       : super._();
@@ -49,6 +52,7 @@ class _$ApplyAiImportResponse extends ApplyAiImportResponse {
         createdCharacters == other.createdCharacters &&
         createdCostumes == other.createdCostumes &&
         createdDays == other.createdDays &&
+        createdEpisodes == other.createdEpisodes &&
         plannedSceneShoots == other.plannedSceneShoots &&
         unappliedCostumes == other.unappliedCostumes;
   }
@@ -60,6 +64,7 @@ class _$ApplyAiImportResponse extends ApplyAiImportResponse {
     _$hash = $jc(_$hash, createdCharacters.hashCode);
     _$hash = $jc(_$hash, createdCostumes.hashCode);
     _$hash = $jc(_$hash, createdDays.hashCode);
+    _$hash = $jc(_$hash, createdEpisodes.hashCode);
     _$hash = $jc(_$hash, plannedSceneShoots.hashCode);
     _$hash = $jc(_$hash, unappliedCostumes.hashCode);
     _$hash = $jf(_$hash);
@@ -73,6 +78,7 @@ class _$ApplyAiImportResponse extends ApplyAiImportResponse {
           ..add('createdCharacters', createdCharacters)
           ..add('createdCostumes', createdCostumes)
           ..add('createdDays', createdDays)
+          ..add('createdEpisodes', createdEpisodes)
           ..add('plannedSceneShoots', plannedSceneShoots)
           ..add('unappliedCostumes', unappliedCostumes))
         .toString();
@@ -101,6 +107,11 @@ class ApplyAiImportResponseBuilder
   int? get createdDays => _$this._createdDays;
   set createdDays(int? createdDays) => _$this._createdDays = createdDays;
 
+  int? _createdEpisodes;
+  int? get createdEpisodes => _$this._createdEpisodes;
+  set createdEpisodes(int? createdEpisodes) =>
+      _$this._createdEpisodes = createdEpisodes;
+
   int? _plannedSceneShoots;
   int? get plannedSceneShoots => _$this._plannedSceneShoots;
   set plannedSceneShoots(int? plannedSceneShoots) =>
@@ -123,6 +134,7 @@ class ApplyAiImportResponseBuilder
       _createdCharacters = $v.createdCharacters;
       _createdCostumes = $v.createdCostumes;
       _createdDays = $v.createdDays;
+      _createdEpisodes = $v.createdEpisodes;
       _plannedSceneShoots = $v.plannedSceneShoots;
       _unappliedCostumes = $v.unappliedCostumes.toBuilder();
       _$v = null;
@@ -158,6 +170,8 @@ class ApplyAiImportResponseBuilder
                 createdCostumes, r'ApplyAiImportResponse', 'createdCostumes'),
             createdDays: BuiltValueNullFieldError.checkNotNull(
                 createdDays, r'ApplyAiImportResponse', 'createdDays'),
+            createdEpisodes: BuiltValueNullFieldError.checkNotNull(
+                createdEpisodes, r'ApplyAiImportResponse', 'createdEpisodes'),
             plannedSceneShoots: BuiltValueNullFieldError.checkNotNull(
                 plannedSceneShoots,
                 r'ApplyAiImportResponse',

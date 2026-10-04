@@ -6,6 +6,7 @@
 
 // ignore_for_file: unused_element
 import 'package:built_collection/built_collection.dart';
+import 'package:breakdown_api/src/model/apply_episode_group_request.dart';
 import 'package:breakdown_api/src/model/apply_mapping.dart';
 import 'package:built_value/built_value.dart';
 import 'package:built_value/serializer.dart';
@@ -17,6 +18,7 @@ part 'apply_ai_import_request.g.dart';
 /// Properties:
 /// * [acceptAsIs]
 /// * [editDistance]
+/// * [episodeGroups] - Per-episode-group targets (issue #581). Absent or empty → every draft row applies to `episode_id` (the single-episode flow). A group the preview does not carry, a duplicate group ref, or two groups creating the same episode number is a validation error; a create number already taken in the series is a 409 `episode.number-already-exists` pre-check (#404 doctrine — the projection unique index stays authoritative).
 /// * [episodeId] - Opaque identifier for an `Episode` aggregate.
 /// * [mappings]
 /// * [seriesId] - Opaque identifier for a `Series` (a show run).  `SeriesId` is an opaque UUIDv7 value type introduced by the `introduce-season-block-episode-hierarchy` change. It is the seam for a future additive `Series` aggregate: every hierarchy entity (Season, Block, Episode) references it but no `Series` aggregate exists yet.
@@ -28,6 +30,10 @@ abstract class ApplyAiImportRequest
 
   @BuiltValueField(wireName: r'edit_distance')
   int get editDistance;
+
+  /// Per-episode-group targets (issue #581). Absent or empty → every draft row applies to `episode_id` (the single-episode flow). A group the preview does not carry, a duplicate group ref, or two groups creating the same episode number is a validation error; a create number already taken in the series is a 409 `episode.number-already-exists` pre-check (#404 doctrine — the projection unique index stays authoritative).
+  @BuiltValueField(wireName: r'episode_groups')
+  BuiltList<ApplyEpisodeGroupRequest>? get episodeGroups;
 
   /// Opaque identifier for an `Episode` aggregate.
   @BuiltValueField(wireName: r'episode_id')
@@ -79,6 +85,14 @@ class _$ApplyAiImportRequestSerializer
       object.editDistance,
       specifiedType: const FullType(int),
     );
+    if (object.episodeGroups != null) {
+      yield r'episode_groups';
+      yield serializers.serialize(
+        object.episodeGroups,
+        specifiedType:
+            const FullType(BuiltList, [FullType(ApplyEpisodeGroupRequest)]),
+      );
+    }
     yield r'episode_id';
     yield serializers.serialize(
       object.episodeId,
@@ -134,6 +148,15 @@ class _$ApplyAiImportRequestSerializer
             specifiedType: const FullType(int),
           ) as int;
           result.editDistance = valueDes;
+          break;
+        case r'episode_groups':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType.nullable(
+                BuiltList, [FullType(ApplyEpisodeGroupRequest)]),
+          ) as BuiltList<ApplyEpisodeGroupRequest>?;
+          if (valueDes == null) continue;
+          result.episodeGroups.replace(valueDes);
           break;
         case r'episode_id':
           final valueDes = serializers.deserialize(

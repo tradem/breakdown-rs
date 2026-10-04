@@ -31,6 +31,7 @@ import 'package:breakdown_api/src/model/ai_preview_payload_one_of2.dart';
 import 'package:breakdown_api/src/model/ai_provider_info.dart';
 import 'package:breakdown_api/src/model/apply_ai_import_request.dart';
 import 'package:breakdown_api/src/model/apply_ai_import_response.dart';
+import 'package:breakdown_api/src/model/apply_episode_group_request.dart';
 import 'package:breakdown_api/src/model/apply_mapping.dart';
 import 'package:breakdown_api/src/model/apply_mapping_decision.dart';
 import 'package:breakdown_api/src/model/apply_mapping_decision_one_of.dart';
@@ -66,7 +67,11 @@ import 'package:breakdown_api/src/model/dead_letter_entry.dart';
 import 'package:breakdown_api/src/model/dispo_row.dart';
 import 'package:breakdown_api/src/model/document_kind.dart';
 import 'package:breakdown_api/src/model/draft_costume.dart';
+import 'package:breakdown_api/src/model/draft_episode.dart';
 import 'package:breakdown_api/src/model/draft_scene.dart';
+import 'package:breakdown_api/src/model/episode_target.dart';
+import 'package:breakdown_api/src/model/episode_target_one_of.dart';
+import 'package:breakdown_api/src/model/episode_target_one_of1.dart';
 import 'package:breakdown_api/src/model/episode_view.dart';
 import 'package:breakdown_api/src/model/finish_scene_shoot_request.dart';
 import 'package:breakdown_api/src/model/g_drive_credential_request.dart';
@@ -164,6 +169,7 @@ part 'serializers.g.dart';
   AiProviderInfo,
   ApplyAiImportRequest,
   ApplyAiImportResponse,
+  ApplyEpisodeGroupRequest,
   ApplyMapping,
   ApplyMappingDecision,
   ApplyMappingDecisionOneOf,
@@ -199,7 +205,11 @@ part 'serializers.g.dart';
   DispoRow,
   DocumentKind,
   DraftCostume,
+  DraftEpisode,
   DraftScene,
+  EpisodeTarget,
+  EpisodeTargetOneOf,
+  EpisodeTargetOneOf1,
   EpisodeView,
   FinishSceneShootRequest,
   GDriveCredentialRequest,
@@ -336,6 +346,10 @@ Serializers serializers = (_$serializers.toBuilder()
       ..addBuilderFactory(
         const FullType(BuiltList, [FullType(CostumeDecision)]),
         () => ListBuilder<CostumeDecision>(),
+      )
+      ..addBuilderFactory(
+        const FullType(BuiltList, [FullType(ApplyEpisodeGroupRequest)]),
+        () => ListBuilder<ApplyEpisodeGroupRequest>(),
       )
       ..addBuilderFactory(
         const FullType(BuiltList, [FullType(SollIstDiffRow)]),
