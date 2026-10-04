@@ -160,6 +160,29 @@ workspace (issue #123). `1.0.0` is reserved until the
 first-party clients (Flutter app, Svelte web app) against a frozen read-model
 contract; `1.0.0` is *not* gated on code maturity alone.
 
+### D9: Bump-vs-cut decoupling (amended 2026-10-04, pre-deployment)
+
+Until the backend is deployed to a hosting target, per-change release
+ceremony is rejected: **no PATCH/MINOR image cut per fix** (this supersedes
+D7's fix-release rule until the first deployment exists). The release
+mechanics split into two decoupled steps:
+
+- **Bump (per PR, on `main`):** a behaviour change bumps at least one crate
+  version immediately (dependency order `core → infra → api`, lockstep
+  re-pins per D3) and records the change under the `## [Unreleased]`
+  section of `backend/CHANGELOG.md` (bumps themselves as a `Changed`
+  bullet). A released entry is never edited afterwards — it stays as the
+  released historical state.
+- **Cut (on demand, release owner):** a new `api-vX.Y.Z` image tag turns
+  the accumulated `[Unreleased]` entries into a dated section and ships
+  whatever crate versions are current.
+
+Rationale: with zero deployed instances, an immutable `api-vX.Y.N` image
+per small fix is ceremony without a consumer. The version numbers still
+advance in lockstep, so the next cut is a single, reproducible step that
+picks up everything accumulated on `main`. Revisit this decision when the
+first deployment target exists (then D7's fix-release rules apply again).
+
 ## Alternatives Considered
 
 - **Single workspace version (one `version` bumped in lockstep for all

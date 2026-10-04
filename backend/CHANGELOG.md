@@ -15,6 +15,13 @@ entry.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+**Release policy (ADR-020 D9):** development after a cut accumulates under
+`## [Unreleased]` — version bumps land on `main` per PR (at least one crate
+version per behaviour change, dependency-order lockstep `core → infra → api`)
+and are recorded as a `Changed` bullet. A release means: turn `[Unreleased]`
+into a dated `## [api-vX.Y.Z] – Released <date>` section and cut the image
+tag. Never edit a released entry afterwards.
+
 ## [Unreleased]
 
 ### Fixed
