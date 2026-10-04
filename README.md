@@ -1,6 +1,7 @@
 <!-- SPDX-License-Identifier: AGPL-3.0 -->
 <!-- Copyright (C) 2024-2026 Breakdown RS Contributors -->
 <!-- Co-authored-by: omen-alpha (opencode-go) -->
+<!-- Co-authored-by: glm-5.3-flash (neuralwatt) -->
 
 # breakdown-rs
 
@@ -8,13 +9,23 @@
 
 ## Quality Gates
 
-### 🦀 Backend
+| Gate | Scope | Status |
+|---|---|---|
+| CI (format, clippy, tests, MSRV, deny) | 🦀 Backend | [![CI](https://github.com/tradem/breakdown-rs/actions/workflows/ci.yml/badge.svg)](https://github.com/tradem/breakdown-rs/actions/workflows/ci.yml) |
+| Architecture Checks (rust_arkitect, ast-grep, cargo-deny) | 🦀 Backend | [![Architecture Checks](https://github.com/tradem/breakdown-rs/actions/workflows/architecture-checks.yml/badge.svg)](https://github.com/tradem/breakdown-rs/actions/workflows/architecture-checks.yml) |
+| Security Audit (cargo-deny advisories, gitleaks) | 🦀 Backend | [![Security Audit](https://github.com/tradem/breakdown-rs/actions/workflows/audit.yml/badge.svg)](https://github.com/tradem/breakdown-rs/actions/workflows/audit.yml) |
+| Integration Tests (tiers 1–4, Testcontainers) | 🦀 Backend | [![Integration Tests](https://github.com/tradem/breakdown-rs/actions/workflows/integration-tests.yml/badge.svg)](https://github.com/tradem/breakdown-rs/actions/workflows/integration-tests.yml) |
+| Semver Checks (per-crate, ADR-020) | 🦀 Backend | [![Semver Checks](https://github.com/tradem/breakdown-rs/actions/workflows/semver-checks.yml/badge.svg)](https://github.com/tradem/breakdown-rs/actions/workflows/semver-checks.yml) |
+| Mutation Testing (CI-only, nightly) | 🦀 Backend | [![Mutation Testing](https://github.com/tradem/breakdown-rs/actions/workflows/mutation-testing.yml/badge.svg)](https://github.com/tradem/breakdown-rs/actions/workflows/mutation-testing.yml) |
+| Fuzz (nightly) | 🦀 Backend | [![Fuzz (nightly)](https://github.com/tradem/breakdown-rs/actions/workflows/fuzz-nightly.yml/badge.svg)](https://github.com/tradem/breakdown-rs/actions/workflows/fuzz-nightly.yml) |
+| Flutter CI (format, analyze, gitleaks, OpenAPI drift, coverage, Gherkin) | 📱 Frontend | [![Flutter CI](https://github.com/tradem/breakdown-rs/actions/workflows/flutter-ci.yml/badge.svg)](https://github.com/tradem/breakdown-rs/actions/workflows/flutter-ci.yml) |
+| Design Tokens Drift | 📱 Frontend | [![Design Tokens Drift](https://github.com/tradem/breakdown-rs/actions/workflows/design-tokens-drift.yml/badge.svg)](https://github.com/tradem/breakdown-rs/actions/workflows/design-tokens-drift.yml) |
+| Icon Drift (SVG ↔ adaptive launcher icons) | 📱 Frontend | [![Icon Drift](https://github.com/tradem/breakdown-rs/actions/workflows/icon-drift.yml/badge.svg)](https://github.com/tradem/breakdown-rs/actions/workflows/icon-drift.yml) |
+| Docs Design Lint (PlantUML screen specs) | 📱 Frontend | [![Docs Design Lint](https://github.com/tradem/breakdown-rs/actions/workflows/docs-design-lint.yml/badge.svg)](https://github.com/tradem/breakdown-rs/actions/workflows/docs-design-lint.yml) |
 
-- [![CI](https://github.com/tradem/breakdown-rs/actions/workflows/ci.yml/badge.svg)](https://github.com/tradem/breakdown-rs/actions/workflows/ci.yml)
-- [![Architecture Checks](https://github.com/tradem/breakdown-rs/actions/workflows/architecture-checks.yml/badge.svg)](https://github.com/tradem/breakdown-rs/actions/workflows/architecture-checks.yml)
-- [![Security Audit](https://github.com/tradem/breakdown-rs/actions/workflows/audit.yml/badge.svg)](https://github.com/tradem/breakdown-rs/actions/workflows/audit.yml)
-- [![Mutation Testing](https://github.com/tradem/breakdown-rs/actions/workflows/mutation-testing.yml/badge.svg)](https://github.com/tradem/breakdown-rs/actions/workflows/mutation-testing.yml)
-- [![Fuzz (nightly)](https://github.com/tradem/breakdown-rs/actions/workflows/fuzz-nightly.yml/badge.svg)](https://github.com/tradem/breakdown-rs/actions/workflows/fuzz-nightly.yml)
+Release pipelines (tag-triggered, not gates): the `api` Docker image
+(`api-vX.Y.Z` tags → `release-image.yml`) and the signed Android release
+(`vX.Y.Z` tags → `flutter-release.yml`).
 
 ## Development
 
