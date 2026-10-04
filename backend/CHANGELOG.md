@@ -34,6 +34,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the model's `draft_ref`. Backfill is limited to the FIRST scene of a
   chunk (the heading is that scene's heading).
 
+### Changed
+
+- **Version bumps (post-release development, next image cut picks these
+  up):** `core 0.16.0 → 0.16.1`, `infra 0.20.0 → 0.20.1`,
+  `api 0.14.0 → 0.14.1`; test-support crates `integration-tests`,
+  `test_support`, `architecture`, `fuzz-targets` `0.3.0 → 0.3.1` —
+  lockstep re-pins per ADR-020 D3.
+
 ## [api-v0.14.0] – Released 2026-10-04
 
 - Shipped artifact: `ghcr.io/<owner>/<repo>:api-v0.14.0` (immutable,
