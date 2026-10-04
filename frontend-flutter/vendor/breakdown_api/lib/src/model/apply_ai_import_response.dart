@@ -19,6 +19,7 @@ part 'apply_ai_import_response.g.dart';
 /// * [createdCharacters] - Figures the script apply created. A figure named by several draft rows is created once, so this is not `applied_count`-related. `0` for a schedule apply, which has no figures.
 /// * [createdCostumes] - Costumes the script apply created (unassigned, then bound).
 /// * [createdDays]
+/// * [createdEpisodes] - Episodes the script apply created for draft episode groups the reviewer mapped to a NEW episode (issue #581). `0` for a schedule apply.
 /// * [plannedSceneShoots]
 /// * [unappliedCostumes] - Costume rows that did **not** become a `Costume`, each with the reason. An apply that created a costume but could not bind it reports the row here while `created_costumes` still counts it — a partially applied row must never look like a fully applied one.
 @BuiltValue()
@@ -37,6 +38,10 @@ abstract class ApplyAiImportResponse
 
   @BuiltValueField(wireName: r'created_days')
   int get createdDays;
+
+  /// Episodes the script apply created for draft episode groups the reviewer mapped to a NEW episode (issue #581). `0` for a schedule apply.
+  @BuiltValueField(wireName: r'created_episodes')
+  int get createdEpisodes;
 
   @BuiltValueField(wireName: r'planned_scene_shoots')
   int get plannedSceneShoots;
@@ -92,6 +97,11 @@ class _$ApplyAiImportResponseSerializer
     yield r'created_days';
     yield serializers.serialize(
       object.createdDays,
+      specifiedType: const FullType(int),
+    );
+    yield r'created_episodes';
+    yield serializers.serialize(
+      object.createdEpisodes,
       specifiedType: const FullType(int),
     );
     yield r'planned_scene_shoots';
@@ -156,6 +166,13 @@ class _$ApplyAiImportResponseSerializer
             specifiedType: const FullType(int),
           ) as int;
           result.createdDays = valueDes;
+          break;
+        case r'created_episodes':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(int),
+          ) as int;
+          result.createdEpisodes = valueDes;
           break;
         case r'planned_scene_shoots':
           final valueDes = serializers.deserialize(

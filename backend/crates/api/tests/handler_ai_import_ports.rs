@@ -34,19 +34,20 @@ use axum::http::{HeaderMap, HeaderValue, StatusCode};
 
 use api::auth::CurrentUser;
 use api::handlers::{
-    AiImportJobResponse, ApplyAiImportRequest, CreateAiConfigRequest, ListParams,
-    RevokeAiConfigRequest, UpdateAiConfigRequest, apply_ai_import, create_ai_config, get_ai_config,
-    get_ai_import_job, get_ai_import_preview, list_ai_configs, list_ai_import_jobs,
+    AiImportJobResponse, ApplyAiImportRequest, ApplyEpisodeGroupRequest, CreateAiConfigRequest,
+    ListParams, RevokeAiConfigRequest, UpdateAiConfigRequest, apply_ai_import, create_ai_config,
+    get_ai_config, get_ai_import_job, get_ai_import_preview, list_ai_configs, list_ai_import_jobs,
     revoke_ai_config, update_ai_config, upload_ai_schedule, upload_ai_script,
 };
 use api::state::AppState;
 use breakdown_core::ai::{
     AiConfigView, AiImportJob, AiImportJobId, AiImportMappingRepository, AiImportPreviewResponse,
     AiImportQueue, AiPreviewPayload, ApplyMapping, ApplyMappingDecision, DocumentKind, DraftScene,
-    JobStatus, LlmProvider, MergedPreview, ScriptContext, ShootingSchedule, SourceFormat,
-    TelemetryApplyState,
+    EpisodeTarget, JobStatus, LlmProvider, MergedPreview, ScriptContext, ShootingSchedule,
+    SourceFormat, TelemetryApplyState,
 };
 use breakdown_core::block::BlockView;
+use breakdown_core::episode::views::EpisodeView;
 use breakdown_core::membership::Role;
 use breakdown_core::shared::{AggregateVersion, BlockId, EpisodeId, SeasonId, SeriesId, UserId};
 use chrono::Utc;
@@ -547,6 +548,7 @@ async fn apply_ai_import_drives_the_script_worker_through_the_ports_seam() {
             ],
             accept_as_is: true,
             edit_distance: 0,
+            episode_groups: Vec::new(),
         }),
     )
     .await
@@ -614,6 +616,7 @@ async fn apply_ai_import_rejects_an_episode_from_another_block() {
             }],
             accept_as_is: true,
             edit_distance: 0,
+            episode_groups: Vec::new(),
         }),
     )
     .await
@@ -666,6 +669,7 @@ async fn apply_ai_import_rejects_accept_as_is_with_a_nonzero_edit_distance() {
             // Contradictory: "no edits" alongside a nonzero edit count.
             accept_as_is: true,
             edit_distance: 3,
+            episode_groups: Vec::new(),
         }),
     )
     .await
@@ -1643,4 +1647,249 @@ async fn ai_config_update_rejects_a_foreign_replacement_vault_key() {
     assert_eq!(problem.status, StatusCode::FORBIDDEN.as_u16());
     assert_eq!(problem.code, "ai-config.vault-key-forbidden");
     assert!(commands.updated.lock().await.is_empty());
+}
+
+// ===========================================================================
+// Episode groups on the apply endpoint (issue #581)
+// ===========================================================================
+
+/// Seed a succeeded script job whose preview carries `scene_count` rows, the
+/// first of which belongs to episode group `ep:7`.
+async fn seed_episode_grouped_script_job(
+    ports: &FakePorts,
+    block_id: Option<BlockId>,
+    scene_count: usize,
+) -> AiImportJobId {
+    let preview = ScriptContext {
+        title: Some("grouped script".to_owned()),
+        scenes: (0..scene_count)
+            .map(|i| DraftScene {
+                draft_ref: format!("scene-{i}"),
+                scene_number: Some(i as u32 + 1),
+                episode: Some(breakdown_core::ai::DraftEpisode {
+                    number: Some(7),
+                    title: None,
+                }),
+                ..DraftScene::default()
+            })
+            .collect(),
+        uncertainties: vec![],
+    };
+    let mut job = succeeded_job("placeholder");
+    job.block_id = block_id;
+    let handle = ports
+        .ai_payload_store
+        .put(
+            job.id,
+            serde_json::to_vec(&preview).expect("preview serializes"),
+        )
+        .await
+        .expect("preview store write should succeed");
+    job.preview_handle = Some(handle);
+    let job_id = job.id;
+    ports.ai_import_queue.seed(job).await;
+    job_id
+}
+
+fn create_group_request(number: i32) -> ApplyEpisodeGroupRequest {
+    ApplyEpisodeGroupRequest {
+        episode_ref: "ep:7".to_owned(),
+        target: EpisodeTarget::Create {
+            number,
+            name: Some("Episode 7".to_owned()),
+        },
+    }
+}
+
+#[tokio::test]
+async fn apply_ai_import_rejects_an_episode_group_the_preview_does_not_carry() {
+    let ports = FakePorts::default();
+    let block_id = BlockId::from_uuid(Uuid::now_v7());
+    *ports.episode_repo.block_id_override.lock().await = Some(block_id);
+    seed_ai_block_access(&ports, block_id).await;
+    // The preview carries NO episode metadata at all.
+    let job_id = seed_applyable_script_job(&ports, Some(block_id), 1).await;
+
+    let problem = apply_ai_import::<FakePorts>(
+        State(state(ports)),
+        user(),
+        Path(job_id),
+        Json(ApplyAiImportRequest {
+            episode_id: EpisodeId::new(),
+            series_id: None,
+            mappings: vec![ApplyMapping {
+                draft_ref: "scene-0".to_owned(),
+                decision: ApplyMappingDecision::Create,
+                costume_decisions: Vec::new(),
+            }],
+            accept_as_is: true,
+            edit_distance: 0,
+            episode_groups: vec![create_group_request(7)],
+        }),
+    )
+    .await
+    .expect_err("unknown group must be rejected")
+    .into_problem();
+    assert_eq!(problem.status, StatusCode::UNPROCESSABLE_ENTITY.as_u16());
+    assert_eq!(problem.code, "domain.validation");
+}
+
+#[tokio::test]
+async fn apply_ai_import_prechecks_a_taken_episode_number_with_409() {
+    let ports = FakePorts::default();
+    let block_id = BlockId::from_uuid(Uuid::now_v7());
+    seed_ai_block_access(&ports, block_id).await;
+    let job_id = seed_episode_grouped_script_job(&ports, Some(block_id), 1).await;
+    // Seed the apply's target episode (pinned into the job's block) and a
+    // sibling of the SAME series already using number 7 — the number the
+    // create group wants.
+    let series_id = SeriesId::from_uuid(Uuid::now_v7());
+    let target = EpisodeView {
+        id: Uuid::now_v7(),
+        block_id,
+        series_id,
+        number: 1,
+        name: None,
+        version: AggregateVersion::INITIAL,
+        updated_at: chrono::Utc::now(),
+    };
+    let taken = EpisodeView {
+        id: Uuid::now_v7(),
+        block_id,
+        series_id,
+        number: 7,
+        name: None,
+        version: AggregateVersion::INITIAL,
+        updated_at: chrono::Utc::now(),
+    };
+    ports
+        .episode_repo
+        .episodes
+        .lock()
+        .await
+        .insert(target.id, target.clone());
+    ports
+        .episode_repo
+        .episodes
+        .lock()
+        .await
+        .insert(taken.id, taken);
+
+    let problem = apply_ai_import::<FakePorts>(
+        State(state(ports.clone())),
+        user(),
+        Path(job_id),
+        Json(ApplyAiImportRequest {
+            episode_id: EpisodeId::from_uuid(target.id),
+            series_id: None,
+            mappings: vec![ApplyMapping {
+                draft_ref: "scene-0".to_owned(),
+                decision: ApplyMappingDecision::Create,
+                costume_decisions: Vec::new(),
+            }],
+            accept_as_is: true,
+            edit_distance: 0,
+            episode_groups: vec![create_group_request(7)],
+        }),
+    )
+    .await
+    .expect_err("taken episode number must be a clean 409")
+    .into_problem();
+    // #404 doctrine: the API-edge pre-check is advisory; the projection
+    // unique index stays authoritative.
+    assert_eq!(problem.status, StatusCode::CONFLICT.as_u16());
+    assert_eq!(problem.code, "episode.number-already-exists");
+    // The pre-check fires BEFORE any dispatch: nothing was created.
+    assert!(
+        ports.episode_commands.created.lock().await.is_empty(),
+        "a 409 pre-check must not create an episode"
+    );
+}
+
+#[tokio::test]
+async fn apply_ai_import_creates_an_episode_for_a_free_group_number() {
+    let ports = FakePorts::default();
+    let block_id = BlockId::from_uuid(Uuid::now_v7());
+    seed_ai_block_access(&ports, block_id).await;
+    let job_id = seed_episode_grouped_script_job(&ports, Some(block_id), 1).await;
+    let series_id = SeriesId::from_uuid(Uuid::now_v7());
+    let target = EpisodeView {
+        id: Uuid::now_v7(),
+        block_id,
+        series_id,
+        number: 1,
+        name: None,
+        version: AggregateVersion::INITIAL,
+        updated_at: chrono::Utc::now(),
+    };
+    ports
+        .episode_repo
+        .episodes
+        .lock()
+        .await
+        .insert(target.id, target.clone());
+
+    let (status, Json(response)) = apply_ai_import::<FakePorts>(
+        State(state(ports.clone())),
+        user(),
+        Path(job_id),
+        Json(ApplyAiImportRequest {
+            episode_id: EpisodeId::from_uuid(target.id),
+            series_id: None,
+            mappings: vec![ApplyMapping {
+                draft_ref: "scene-0".to_owned(),
+                decision: ApplyMappingDecision::Create,
+                costume_decisions: Vec::new(),
+            }],
+            accept_as_is: true,
+            edit_distance: 0,
+            episode_groups: vec![create_group_request(7)],
+        }),
+    )
+    .await
+    .expect("free episode number applies");
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(response.created_episodes, 1);
+    let created = ports.episode_commands.created.lock().await;
+    assert_eq!(created.len(), 1);
+    assert_eq!(created[0].number, 7);
+    assert_eq!(created[0].block_id, block_id);
+    assert_eq!(created[0].series_id, series_id);
+}
+
+#[tokio::test]
+async fn apply_ai_import_rejects_more_episode_groups_than_the_preview_carries() {
+    let ports = FakePorts::default();
+    let block_id = BlockId::from_uuid(Uuid::now_v7());
+    *ports.episode_repo.block_id_override.lock().await = Some(block_id);
+    seed_ai_block_access(&ports, block_id).await;
+    // The preview carries ONE group (ep:7); the request tries two. The bound
+    // mirrors the mappings/costume-decisions bounds: reject before the
+    // per-group validation reads (CodeRabbit review, issue #581).
+    let job_id = seed_episode_grouped_script_job(&ports, Some(block_id), 1).await;
+
+    let mut second = create_group_request(9);
+    second.episode_ref = "ep:9".to_owned();
+    let problem = apply_ai_import::<FakePorts>(
+        State(state(ports)),
+        user(),
+        Path(job_id),
+        Json(ApplyAiImportRequest {
+            episode_id: EpisodeId::new(),
+            series_id: None,
+            mappings: vec![ApplyMapping {
+                draft_ref: "scene-0".to_owned(),
+                decision: ApplyMappingDecision::Create,
+                costume_decisions: Vec::new(),
+            }],
+            accept_as_is: true,
+            edit_distance: 0,
+            episode_groups: vec![create_group_request(7), second],
+        }),
+    )
+    .await
+    .expect_err("an oversized group list must be rejected before any read")
+    .into_problem();
+    assert_eq!(problem.status, StatusCode::UNPROCESSABLE_ENTITY.as_u16());
+    assert_eq!(problem.code, "domain.validation");
 }

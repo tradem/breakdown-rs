@@ -14,11 +14,12 @@ use std::collections::HashMap;
 use breakdown_core::ai::{
     AiImportBounds, AiImportJob, AiImportJobId, AiImportMapping, AiImportMappingRepository,
     AiImportQueue, ApplyMapping, ApplyMappingDecision, CharacterApplyPlan, CostumeApplyPlan,
-    DocumentKind, LlmChatRequest, LlmClient, MergedPreview, PRIMARY_ORDINAL, SceneApplyCommand,
-    SceneApplyPlan, ScriptContext, ShootingSchedule, SourceFormat, Telemetry, TelemetryApplyState,
-    UnappliedCostume, UnappliedCostumeReason, Uncertainty, UncertaintyKind, character_mapping_ref,
-    draft_row_ref, ensure_merge_applyable, extract_scenes, mapping_kind, merge_schedule_to_scenes,
-    plan_scene_apply, scene_beat_lanes, stable_draft_ref, verify_draft_costumes,
+    DocumentKind, EpisodeGroupPlan, LlmChatRequest, LlmClient, MergedPreview, PRIMARY_ORDINAL,
+    PlannedEpisode, SceneApplyCommand, SceneApplyPlan, ScriptContext, ShootingSchedule,
+    SourceFormat, Telemetry, TelemetryApplyState, UnappliedCostume, UnappliedCostumeReason,
+    Uncertainty, UncertaintyKind, character_mapping_ref, draft_row_ref, ensure_merge_applyable,
+    extract_scenes, mapping_kind, merge_schedule_to_scenes, plan_scene_apply, scene_beat_lanes,
+    stable_draft_ref, verify_draft_costumes,
 };
 use breakdown_core::character::category::CharacterCategory;
 use breakdown_core::character::commands::CreateCharacter;
@@ -27,12 +28,14 @@ use breakdown_core::costume::commands::{
     AssignCostumeToCharacter, CreateCostume, UpdateCostumeNotes,
 };
 use breakdown_core::costume::ports::CostumeCommands;
+use breakdown_core::episode::commands::CreateEpisode;
+use breakdown_core::episode::ports::EpisodeCommands;
 use breakdown_core::error::DomainError;
 use breakdown_core::error_registry::{SCENE_CHARACTER_ALREADY_ASSIGNED, SCENE_VALIDATION};
 use breakdown_core::scene::commands::{AddCostumeBeat, AssignCharacter, CreateScene};
 use breakdown_core::scene::events::{SceneDetails, SceneSource};
 use breakdown_core::scene::ports::SceneCommands;
-use breakdown_core::shared::{AggregateVersion, EpisodeId, SeasonId, SeriesId, UserId};
+use breakdown_core::shared::{AggregateVersion, BlockId, EpisodeId, SeasonId, SeriesId, UserId};
 
 #[cfg(test)]
 #[path = "worker_mutation_tests.rs"]
@@ -398,6 +401,14 @@ where
                         if scene.scene_number.is_none() && index_in_chunk == 0 {
                             scene.scene_number = chunk.scene_number;
                         }
+
+                        // Episode metadata: the deterministic `Ep.:` scan of the
+                        // document is authoritative; the LLM's `episode` field
+                        // (issue #581 prompt rule) only fills in when the scan
+                        // found no marker for this chunk (foreign notation).
+                        if scene.episode.is_none() {
+                            scene.episode = chunk.episode.clone();
+                        }
                         // Server-side truth beats the prompt too (design D5): a
                         // prompt forbids inventing a costume, but a prompt is an
                         // instruction, not a guarantee. Everything the check drops
@@ -725,10 +736,14 @@ impl MergeWorker {
 /// Every kind is checked against the persisted mapping before it dispatches, so
 /// a crash or a concurrent duplicate cannot create a second Scene, Character or
 /// Costume.
-pub struct ApplyWorker<C, CH, CO, M, Q> {
+pub struct ApplyWorker<C, CH, CO, E, M, Q> {
     pub scene_commands: Arc<C>,
     pub character_commands: Arc<CH>,
     pub costume_commands: Arc<CO>,
+    /// Episode creation for draft episode groups the reviewer mapped to a NEW
+    /// episode (issue #581). Never used to look an episode up: targets that
+    /// already exist reach the worker as a resolved id inside the plan.
+    pub episode_commands: Arc<E>,
     pub mappings: Arc<M>,
     pub queue: Arc<Q>,
 }
@@ -743,6 +758,20 @@ struct ReservedSceneDraft {
     episode_id: EpisodeId,
     series_id: Option<SeriesId>,
     details: SceneDetails,
+}
+
+/// Parameters for one reserved episode create in the script apply path
+/// (issue #581). Bundled so `create_episode_reserved` stays under the
+/// `too_many_arguments` lint (an `#[allow]` would violate AGENTS.md §3, cf.
+/// `ReservedSceneDraft`).
+struct ReservedEpisodeDraft {
+    preview_id: AiImportJobId,
+    /// The draft episode group's stable ref (`ep:<n>` / `ep-t:<title>`).
+    episode_ref: String,
+    block_id: BlockId,
+    series_id: SeriesId,
+    number: i32,
+    name: Option<String>,
 }
 
 /// What one script apply produced.
@@ -762,6 +791,11 @@ pub struct ScriptApplyResult {
     /// the per-costume refusals (`unapplied_costumes`), from which the applied
     /// beats are exactly the accepted costumes absent from that list.
     pub created_costume_beats: u32,
+    /// Episodes this apply created for draft episode groups mapped to a NEW
+    /// episode (issue #581). A group an earlier attempt (or a concurrent
+    /// duplicate) already created is not counted again — the mapping row
+    /// short-circuits, mirroring the figure dedup.
+    pub created_episodes: u32,
     /// Costumes that did not become a `Costume`, each with its reason. Reported,
     /// never dropped: a silently missing costume is the failure mode this change
     /// exists to remove (design D5).
@@ -900,10 +934,12 @@ fn ordinal_of(index: usize) -> Result<i32, DomainError> {
     })
 }
 
-/// Reviewed script apply request. `episode_id`, `season_id` and `series_id` are
-/// resolved by the API edge from the target episode and are never looked up by
-/// this write-side worker (CQRS boundary, AGENTS.md §1). Figures and costumes are
-/// season-scoped aggregates, so the season cannot be derived here.
+/// Reviewed script apply request. `episode_id`, `season_id`, `series_id` and
+/// `block_id` are resolved by the API edge from the target episode / job block
+/// and are never looked up by this write-side worker (CQRS boundary, AGENTS.md
+/// §1). Figures and costumes are season-scoped aggregates, so the season
+/// cannot be derived here. `episode_groups` carries the reviewer's per-group
+/// episode targets (issue #581); a NEW episode is created under `block_id`.
 pub struct ApplyScriptRequest<'a> {
     pub actor: UserId,
     pub preview_id: AiImportJobId,
@@ -912,6 +948,12 @@ pub struct ApplyScriptRequest<'a> {
     pub episode_id: EpisodeId,
     pub season_id: SeasonId,
     pub series_id: Option<SeriesId>,
+    /// Parent of episodes a group creates (issue #581) — the job's block,
+    /// resolved at the API edge.
+    pub block_id: BlockId,
+    /// Per-group episode targets keyed by the preview's group refs. Absent
+    /// groups (rows without episode metadata) apply to `episode_id`.
+    pub episode_groups: Vec<EpisodeGroupPlan>,
     pub telemetry: Option<Telemetry>,
 }
 
@@ -939,11 +981,12 @@ struct BeatDispatch<'a> {
     scene_version: &'a mut AggregateVersion,
 }
 
-impl<C, CH, CO, M, Q> ApplyWorker<C, CH, CO, M, Q>
+impl<C, CH, CO, E, M, Q> ApplyWorker<C, CH, CO, E, M, Q>
 where
     C: SceneCommands + 'static,
     CH: CharacterCommands + 'static,
     CO: CostumeCommands + 'static,
+    E: EpisodeCommands + 'static,
     M: AiImportMappingRepository + 'static,
     Q: AiImportQueue + 'static,
 {
@@ -959,6 +1002,8 @@ where
             episode_id,
             season_id,
             series_id,
+            block_id,
+            episode_groups,
             telemetry,
         } = request;
         // The planner is the single source of what an apply dispatches; the
@@ -967,8 +1012,15 @@ where
         let decisions = self
             .resolved_decisions(preview_id, preview, decisions)
             .await?;
-        let plan = plan_scene_apply(preview, &decisions, episode_id, series_id, preview_id)
-            .map_err(|error| DomainError::conflict(error.to_string()))?;
+        let plan = plan_scene_apply(
+            preview,
+            &decisions,
+            episode_id,
+            series_id,
+            preview_id,
+            &episode_groups,
+        )
+        .map_err(|error| DomainError::conflict(error.to_string()))?;
         let mut result = ScriptApplyResult {
             applied: Vec::with_capacity(plan.scenes.len()),
             unapplied_costumes: plan.unapplied_costumes,
@@ -978,10 +1030,56 @@ where
         // of what *this* request resolved, not a projection read: everything that
         // crosses a request boundary goes through the mapping (CQRS boundary).
         let mut figures: HashMap<String, Figure> = HashMap::new();
+        // Episodes a NEW group already resolved in *this* request (issue #581).
+        // Same rationale as `figures`: the mapping is the durable record, the
+        // map only avoids re-driving it per row of the same group.
+        let mut resolved_episodes: HashMap<String, EpisodeId> = HashMap::new();
 
         for row in &plan.scenes {
+            let row_episode_id = match &row.episode {
+                PlannedEpisode::Existing(episode_id) => *episode_id,
+                PlannedEpisode::New {
+                    episode_ref,
+                    number,
+                    name,
+                } => {
+                    // `CreateEpisode` carries a denormalized series reference;
+                    // the API edge always resolves it from the target episode.
+                    // A missing series is an API-edge contract violation,
+                    // surfaced as a validation failure instead of an episode
+                    // without a series.
+                    let Some(series_id) = series_id else {
+                        return Err(DomainError::validation(
+                            "apply cannot create an episode without a series context",
+                        ));
+                    };
+                    match resolved_episodes.get(episode_ref) {
+                        Some(episode_id) => *episode_id,
+                        None => {
+                            let (episode_id, created) = self
+                                .create_episode_reserved(
+                                    actor.clone(),
+                                    ReservedEpisodeDraft {
+                                        preview_id,
+                                        episode_ref: episode_ref.clone(),
+                                        block_id,
+                                        series_id,
+                                        number: *number,
+                                        name: name.clone(),
+                                    },
+                                )
+                                .await?;
+                            if created {
+                                result.created_episodes += 1;
+                            }
+                            resolved_episodes.insert(episode_ref.clone(), episode_id);
+                            episode_id
+                        }
+                    }
+                }
+            };
             let scene = self
-                .apply_scene_row(actor.clone(), preview_id, episode_id, series_id, row)
+                .apply_scene_row(actor.clone(), preview_id, row_episode_id, series_id, row)
                 .await?;
             result.applied.push(scene);
 
@@ -1756,6 +1854,91 @@ where
                 aggregate_version: version,
             })
             .await
+    }
+
+    /// Reserve the aggregate id for `(preview_id, episode_ref, 'episode', 0)`
+    /// and create the episode one draft episode group maps to (issue #581,
+    /// mirroring [`Self::create_scene_reserved`]).
+    ///
+    /// The mapping row is keyed by the GROUP ref, not a draft row ref, so
+    /// every row of the group converges on ONE episode. A reservation means a
+    /// previous attempt already claimed the aggregate id: the reservation
+    /// wins, the create is re-driven through `created_now` (our own earlier
+    /// append), and the confirm finishes the interrupted attempt. Returns the
+    /// episode id and whether THIS call appended the `EpisodeCreated` (not
+    /// counted again on a retry).
+    async fn create_episode_reserved(
+        &self,
+        actor: UserId,
+        draft: ReservedEpisodeDraft,
+    ) -> Result<(EpisodeId, bool), DomainError> {
+        let ReservedEpisodeDraft {
+            preview_id,
+            episode_ref,
+            block_id,
+            series_id,
+            number,
+            name,
+        } = draft;
+        let stored = self
+            .mappings
+            .find(
+                preview_id,
+                &episode_ref,
+                mapping_kind::EPISODE,
+                PRIMARY_ORDINAL,
+            )
+            .await?;
+        let candidate_id = match stored {
+            Some(mapping) => mapping.aggregate_id,
+            None => {
+                // Derived, never generated fresh: the id must be re-derivable
+                // after a crash so a retry converges on the same stream
+                // (issue #182, mirroring the scene reservation).
+                derive_id(
+                    preview_id,
+                    &episode_ref,
+                    mapping_kind::EPISODE,
+                    PRIMARY_ORDINAL,
+                )
+            }
+        };
+        let reservation = self
+            .mappings
+            .reserve(AiImportMapping::reservation(
+                preview_id,
+                episode_ref,
+                mapping_kind::EPISODE.to_owned(),
+                PRIMARY_ORDINAL,
+                candidate_id,
+            ))
+            .await?;
+        let id = reservation.aggregate_id;
+        let outcome = created_now(
+            self.episode_commands
+                .create(
+                    actor,
+                    CreateEpisode {
+                        id,
+                        block_id,
+                        series_id,
+                        number,
+                        name,
+                    },
+                )
+                .await,
+        )?;
+        self.mappings
+            .insert(AiImportMapping {
+                preview_id: reservation.preview_id,
+                draft_ref: reservation.draft_ref,
+                aggregate_kind: reservation.aggregate_kind,
+                ordinal: reservation.ordinal,
+                aggregate_id: id,
+                aggregate_version: outcome.version,
+            })
+            .await?;
+        Ok((EpisodeId::from_uuid(id), outcome.appended))
     }
 
     /// Reserve `candidate_id` for `(preview_id, draft_ref, 'scene', 0)` *before*

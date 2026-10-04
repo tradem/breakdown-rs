@@ -315,6 +315,17 @@ components:
           format: int32
           minimum: 0
           type: integer
+        episode_groups:
+          description: |-
+            Per-episode-group targets (issue #581). Absent or empty → every draft
+            row applies to `episode_id` (the single-episode flow). A group the
+            preview does not carry, a duplicate group ref, or two groups creating
+            the same episode number is a validation error; a create number already
+            taken in the series is a 409 `episode.number-already-exists` pre-check
+            (#404 doctrine — the projection unique index stays authoritative).
+          items:
+            $ref: '#/components/schemas/ApplyEpisodeGroupRequest'
+          type: array
         episode_id:
           $ref: '#/components/schemas/EpisodeId'
         mappings:
@@ -354,6 +365,13 @@ components:
           format: int32
           minimum: 0
           type: integer
+        created_episodes:
+          description: |-
+            Episodes the script apply created for draft episode groups the reviewer
+            mapped to a NEW episode (issue #581). `0` for a schedule apply.
+          format: int32
+          minimum: 0
+          type: integer
         planned_scene_shoots:
           format: int32
           minimum: 0
@@ -373,7 +391,22 @@ components:
       - planned_scene_shoots
       - created_characters
       - created_costumes
+      - created_episodes
       - unapplied_costumes
+      type: object
+    ApplyEpisodeGroupRequest:
+      description: |-
+        One episode group's reviewer decision on the wire (issue #581). `target`
+        reuses the core [`EpisodeTarget`] (tagged `existing` / `create`).
+      properties:
+        episode_ref:
+          description: The group ref the preview carries on each row (`ep:<n>` / `ep-t:<title>`).
+          type: string
+        target:
+          $ref: '#/components/schemas/EpisodeTarget'
+      required:
+      - episode_ref
+      - target
       type: object
     ApplyMapping:
       description: |-
@@ -1156,6 +1189,27 @@ components:
       - description
       - source_quote
       type: object
+    DraftEpisode:
+      description: |-
+        One episode of the source script, as the deterministic marker scan (and,
+        as a fallback, the LLM) read it out of the document. Production scripts
+        mark episodes as `Ep.: 3 (Titel)` — on the first page and repeated in the
+        page headers (issue #581). Metadata only: it groups preview rows for the
+        reviewer and names the episode an apply may create; it never resolves an
+        aggregate id (that is the reviewer's per-group decision).
+      properties:
+        number:
+          description: The number after `Ep.:`, when the marker carried one.
+          format: int32
+          type:
+          - integer
+          - 'null'
+        title:
+          description: The title in the trailing parentheses, when the marker carried one.
+          type:
+          - string
+          - 'null'
+      type: object
     DraftScene:
       properties:
         characters:
@@ -1173,6 +1227,14 @@ components:
           type: array
         draft_ref:
           type: string
+        episode:
+          oneOf:
+          - $ref: '#/components/schemas/DraftEpisode'
+            description: |-
+              The episode this row belongs to (issue #581). Additive on the wire with
+              a default so previews stored before this field existed still load;
+              `None` applies the row to the explicitly picked target episode.
+          - type: 'null'
         location:
           type:
           - string
@@ -1203,6 +1265,41 @@ components:
       description: Opaque identifier for an `Episode` aggregate.
       format: uuid
       type: string
+    EpisodeTarget:
+      description: |-
+        The reviewer's decision for ONE episode group of a preview (issue #581):
+        apply the group's rows to an existing episode, or create a new one. The
+        number comes from the document's `Ep.:` marker; the API edge pre-checks it
+        against the series' existing episodes (409 `episode.number-already-exists`,
+        #404 doctrine).
+      oneOf:
+      - properties:
+          episode_id:
+            $ref: '#/components/schemas/EpisodeId'
+          kind:
+            enum:
+            - existing
+            type: string
+        required:
+        - episode_id
+        - kind
+        type: object
+      - properties:
+          kind:
+            enum:
+            - create
+            type: string
+          name:
+            type:
+            - string
+            - 'null'
+          number:
+            format: int32
+            type: integer
+        required:
+        - number
+        - kind
+        type: object
     EpisodeView:
       description: |-
         Complete episode read model.

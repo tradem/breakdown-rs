@@ -1116,6 +1116,7 @@ void main() {
                 ..plannedSceneShoots = 5
                 ..createdCharacters = 0
                 ..createdCostumes = 0
+                ..createdEpisodes = 0
                 ..unappliedCostumes.replace(const <UnappliedCostume>[]),
             ),
           )!,
@@ -1154,6 +1155,7 @@ void main() {
             ..plannedSceneShoots = 2
             ..createdCharacters = 1
             ..createdCostumes = 2
+            ..createdEpisodes = 0
             ..unappliedCostumes.replace(const <UnappliedCostume>[]),
         ),
       )!;

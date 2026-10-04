@@ -15,6 +15,36 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
+## [0.17.0] - Unreleased
+
+### Added — AI script import extracts EPISODES (issue #581)
+
+- `DraftEpisode` (`{ number, title }`) and `DraftScene.episode` /
+  `SceneChunk.episode` (additive on the wire, `#[serde(default)]` —
+  previews stored before this field existed still load): the episode in
+  effect at a row's heading. Rows without metadata apply to the explicitly
+  picked target episode (backwards compatible).
+- Deterministic `Ep.:` marker scan in `extract_scenes`: production
+  scripts mark episodes as `Ep.: 3 (Titel)` / `Ep: 3 (Titel)` — on the
+  first page and repeated in page headers (next to the `Block:` field).
+  Detection runs on the same normalized copy as the scene-heading detector
+  (NBSP/en-dash folding); the extracted title keeps the document's verbatim
+  bytes. The `Ep` token is matched case-sensitively so a lowercase prose
+  mention never flips the episode in effect.
+- `DraftEpisode::group_key()` (`ep:<n>` / `ep-t:<title>`) and
+  `episode_group_refs(preview)`: the stable group identity the reviewer's
+  per-group decisions are keyed by.
+- `EpisodeTarget` (`Existing { episode_id }` / `Create { number, name }`),
+  `EpisodeGroupPlan`, `PlannedEpisode` and the extended
+  `plan_scene_apply(..., episode_groups)`: per-group episode resolution at
+  plan time; a group the request forgot is a distinct
+  `ApplyGateError::MissingEpisodeGroup` instead of a silent default.
+  `SceneApplyPlan.episode` carries the resolution; the wrapped
+  `CreateScene` of a `New` row holds the default episode id as a
+  documented placeholder — dispatch resolves the created id.
+- `mapping_kind::EPISODE`: one mapping row per created episode, keyed by
+  the group ref — the idempotency anchor of the apply's create path.
+
 ## [0.16.0] - Unreleased
 
 ### Added — AI-import persistence of the scene relation (issue #546 §5.8)

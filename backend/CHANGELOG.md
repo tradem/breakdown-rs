@@ -24,6 +24,22 @@ tag. Never edit a released entry afterwards.
 
 ## [Unreleased]
 
+### Added
+
+- **AI script import extracts EPISODES — apply creates/assigns episodes
+  instead of one hard-picked target (issue #581).** A script's episode
+  boundaries (`Ep.: 3 (Titel)` markers — first page and repeated page
+  headers) become draft metadata on every preview row, so the reviewer
+  sees WHICH episode each row (and each to-be-created episode) lands in.
+  The apply request carries per-group targets: an existing episode or a
+  NEW one created under the job's block with the marker's number and
+  title (API-edge 409 pre-check on taken numbers per the #404 doctrine;
+  idempotent create via the `episode` mapping row, same reservation
+  protocol as scenes). Rows without episode metadata keep the previous
+  single-episode flow. Deterministic `Ep.:` scan first, LLM extraction
+  (`episode` prompt field) as fallback for foreign notation. Flutter
+  grouped apply screen follows in the frontend PR.
+
 ### Fixed
 
 - **Script import: Word→PDF export artifacts no longer kill scene
@@ -48,6 +64,11 @@ tag. Never edit a released entry afterwards.
   `api 0.14.0 → 0.14.1`; test-support crates `integration-tests`,
   `test_support`, `architecture`, `fuzz-targets` `0.3.0 → 0.3.1` —
   lockstep re-pins per ADR-020 D3.
+- **Version bumps (issue #581):** `core 0.16.1 → 0.17.0`,
+  `infra 0.20.1 → 0.21.0`, `api 0.14.1 → 0.15.0` — new public API on all
+  three (preview payload, worker ports/request, wire request/response);
+  test-support crates `integration-tests`, `test_support`,
+  `architecture` `0.3.1 → 0.3.2` (lockstep re-pins per ADR-020 D3).
 
 ## [api-v0.14.0] – Released 2026-10-04
 

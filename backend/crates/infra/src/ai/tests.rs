@@ -16,10 +16,11 @@ use async_trait::async_trait;
 use breakdown_core::ai::{
     AiImportBounds, AiImportEnqueueRequest, AiImportEnqueueResult, AiImportJob, AiImportJobId,
     AiImportMapping, AiImportMappingRepository, AiImportQueue, ApplyMapping, CostumeDecision,
-    DocumentKind, DraftScene, JobStatus, LlmChatRequest, LlmClient, LlmProvider, PRIMARY_ORDINAL,
-    ScriptContext, ShootingSchedule, ShootingScheduleRow, SourceFormat, Telemetry,
-    TelemetryApplyState, UnappliedCostumeReason, UncertaintyKind, character_identity,
-    character_mapping_ref, mapping_kind, merge_schedule_to_scenes,
+    DocumentKind, DraftEpisode, DraftScene, EpisodeGroupPlan, EpisodeTarget, JobStatus,
+    LlmChatRequest, LlmClient, LlmProvider, PRIMARY_ORDINAL, ScriptContext, ShootingSchedule,
+    ShootingScheduleRow, SourceFormat, Telemetry, TelemetryApplyState, UnappliedCostumeReason,
+    UncertaintyKind, character_identity, character_mapping_ref, mapping_kind,
+    merge_schedule_to_scenes,
 };
 use breakdown_core::error::DomainError;
 use breakdown_core::scene::events::SceneSource;
@@ -947,6 +948,9 @@ async fn oversized_script_transitions_to_failed_without_llm_calls() {
 #[derive(Clone, Default)]
 struct FakeSceneCommands {
     created: Arc<Mutex<Vec<Uuid>>>,
+    /// The full `CreateScene` commands, so tests can assert WHICH episode a
+    /// scene landed in (issue #581).
+    created_commands: Arc<Mutex<Vec<breakdown_core::scene::commands::CreateScene>>>,
     updated: Arc<Mutex<Vec<Uuid>>>,
     scheduled: Arc<Mutex<Vec<(Uuid, breakdown_core::shared::ShootingDayId)>>>,
     /// Shared dispatch journal ("scene:create", "scene:assign:{char}"…).
@@ -1013,6 +1017,7 @@ impl breakdown_core::scene::ports::SceneCommands for FakeSceneCommands {
             });
         }
         created.push(command.id);
+        self.created_commands.lock().unwrap().push(command.clone());
         self.versions
             .lock()
             .unwrap()
@@ -1931,6 +1936,9 @@ async fn apply_retry_is_a_noop_for_confirmed_mappings() {
             episode_id: breakdown_core::shared::EpisodeId::new(),
             season_id: breakdown_core::shared::SeasonId::new(),
             series_id: None,
+            // Single-episode flow fixtures: no group targets, no episode creation (issue #581).
+            block_id: breakdown_core::shared::BlockId::new(),
+            episode_groups: Vec::new(),
             telemetry: Some(Telemetry {
                 doc_kind: Some(DocumentKind::Script),
                 // Zero-edit applied outcome is a valid edit_distance of 0 —
@@ -1953,6 +1961,9 @@ async fn apply_retry_is_a_noop_for_confirmed_mappings() {
             episode_id: breakdown_core::shared::EpisodeId::new(),
             season_id: breakdown_core::shared::SeasonId::new(),
             series_id: None,
+            // Single-episode flow fixtures: no group targets, no episode creation (issue #581).
+            block_id: breakdown_core::shared::BlockId::new(),
+            episode_groups: Vec::new(),
             telemetry: None,
         })
         .await
@@ -2034,6 +2045,9 @@ async fn apply_script_concurrent_applies_create_one_scene_per_draft() {
                     episode_id,
                     season_id: breakdown_core::shared::SeasonId::new(),
                     series_id: None,
+                    // Single-episode flow fixtures: no group targets, no episode creation (issue #581).
+                    block_id: breakdown_core::shared::BlockId::new(),
+                    episode_groups: Vec::new(),
                     telemetry: None,
                 })
                 .await
@@ -2177,6 +2191,9 @@ async fn script_pdf_round_trip_reaches_scene_apply() {
             episode_id: breakdown_core::shared::EpisodeId::new(),
             season_id: breakdown_core::shared::SeasonId::new(),
             series_id: None,
+            // Single-episode flow fixtures: no group targets, no episode creation (issue #581).
+            block_id: breakdown_core::shared::BlockId::new(),
+            episode_groups: Vec::new(),
             telemetry: None,
         })
         .await
@@ -2210,6 +2227,7 @@ fn script_apply_worker(
     FakeSceneCommands,
     FakeCharacterCommands,
     FakeCostumeCommands,
+    FakeEpisodeCommands,
     FakeMappings,
     FakeQueue,
 > {
@@ -2217,6 +2235,7 @@ fn script_apply_worker(
         scene_commands,
         character_commands: Arc::new(FakeCharacterCommands::default()),
         costume_commands: Arc::new(FakeCostumeCommands::default()),
+        episode_commands: Arc::new(FakeEpisodeCommands::default()),
         mappings,
         queue,
     }
@@ -2228,6 +2247,54 @@ fn unexpected_command(name: &str) -> Result<Version, DomainError> {
     Err(DomainError::validation(format!(
         "unexpected AI apply command: {name}"
     )))
+}
+
+/// Episode create port of the script apply (issue #581). Faithful to the real
+/// aggregate's create contract: a second create on the same stream reports the
+/// version instead of duplicating — exactly what `created_now` recovers on a
+/// retry that re-drives its own reservation.
+#[derive(Clone, Default)]
+struct FakeEpisodeCommands {
+    created: Arc<Mutex<Vec<breakdown_core::episode::commands::CreateEpisode>>>,
+    /// Shared dispatch journal ("episode:create:{number}") so tests can
+    /// assert the create order against the scene creates.
+    journal: Arc<Mutex<Vec<String>>>,
+}
+
+impl breakdown_core::episode::ports::EpisodeCommands for FakeEpisodeCommands {
+    async fn create(
+        &self,
+        _actor: UserId,
+        command: breakdown_core::episode::commands::CreateEpisode,
+    ) -> Result<(Uuid, Version), DomainError> {
+        if self
+            .created
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|created| created.id == command.id)
+        {
+            return Err(DomainError::VersionConflict {
+                expected: version(0),
+                current: Version::INITIAL,
+            });
+        }
+        let id = command.id;
+        self.journal
+            .lock()
+            .unwrap()
+            .push(format!("episode:create:{}", command.number));
+        self.created.lock().unwrap().push(command);
+        Ok((id, Version::INITIAL))
+    }
+
+    async fn rename(
+        &self,
+        _actor: UserId,
+        _command: breakdown_core::episode::commands::RenameEpisode,
+    ) -> Result<Version, DomainError> {
+        unexpected_command("RenameEpisode")
+    }
 }
 
 /// `CreateCharacter` faithful to the real aggregate's optimistic-locking
@@ -2447,10 +2514,15 @@ struct ScriptApplyFixture {
     scenes: Arc<FakeSceneCommands>,
     characters: Arc<FakeCharacterCommands>,
     costumes: Arc<FakeCostumeCommands>,
+    episodes: Arc<FakeEpisodeCommands>,
     journal: Arc<Mutex<Vec<String>>>,
     preview_id: AiImportJobId,
     episode_id: breakdown_core::shared::EpisodeId,
     season_id: breakdown_core::shared::SeasonId,
+    /// Series context the fixture apply carries (issue #581): a group mapped
+    /// to a NEW episode needs it for `CreateEpisode`.
+    series_id: breakdown_core::shared::SeriesId,
+    block_id: breakdown_core::shared::BlockId,
 }
 
 impl ScriptApplyFixture {
@@ -2471,10 +2543,16 @@ impl ScriptApplyFixture {
                 journal: Arc::clone(&journal),
                 ..Default::default()
             }),
+            episodes: Arc::new(FakeEpisodeCommands {
+                journal: Arc::clone(&journal),
+                ..Default::default()
+            }),
             journal,
             preview_id: AiImportJobId::new(),
             episode_id: breakdown_core::shared::EpisodeId::new(),
             season_id: breakdown_core::shared::SeasonId::new(),
+            series_id: breakdown_core::shared::SeriesId::new(),
+            block_id: breakdown_core::shared::BlockId::new(),
         }
     }
 
@@ -2484,6 +2562,7 @@ impl ScriptApplyFixture {
         FakeSceneCommands,
         FakeCharacterCommands,
         FakeCostumeCommands,
+        FakeEpisodeCommands,
         FakeMappings,
         FakeQueue,
     > {
@@ -2491,9 +2570,33 @@ impl ScriptApplyFixture {
             scene_commands: Arc::clone(&self.scenes),
             character_commands: Arc::clone(&self.characters),
             costume_commands: Arc::clone(&self.costumes),
+            episode_commands: Arc::clone(&self.episodes),
             mappings: Arc::clone(&self.mappings),
             queue: Arc::clone(&self.queue),
         }
+    }
+
+    /// Apply with per-group episode targets (issue #581).
+    async fn apply_with_groups(
+        &self,
+        preview: &ScriptContext,
+        decisions: &[ApplyMapping],
+        episode_groups: Vec<EpisodeGroupPlan>,
+    ) -> Result<super::ScriptApplyResult, DomainError> {
+        self.worker()
+            .apply_script(ApplyScriptRequest {
+                actor: UserId::from_sub("apply-test-user"),
+                preview_id: self.preview_id,
+                preview,
+                decisions,
+                episode_id: self.episode_id,
+                season_id: self.season_id,
+                series_id: Some(self.series_id),
+                block_id: self.block_id,
+                episode_groups,
+                telemetry: None,
+            })
+            .await
     }
 
     async fn apply(
@@ -2510,6 +2613,10 @@ impl ScriptApplyFixture {
                 episode_id: self.episode_id,
                 season_id: self.season_id,
                 series_id: None,
+                // Single-episode flow fixtures: no group targets, no episode
+                // creation (issue #581).
+                block_id: self.block_id,
+                episode_groups: Vec::new(),
                 telemetry: None,
             })
             .await
@@ -3347,4 +3454,177 @@ async fn a_refused_beat_is_reported_distinctly_from_the_ungrounded_drop() {
             .is_empty()
     );
     assert_eq!(result.created_costume_beats, 0);
+}
+
+// ===========================================================================
+// Script apply — episode groups (issue #581)
+// ===========================================================================
+
+/// A draft row carrying episode metadata, as the `Ep.:` scan produces it.
+fn row_with_episode(draft_ref: &str, episode: DraftEpisode) -> DraftScene {
+    DraftScene {
+        draft_ref: draft_ref.to_owned(),
+        scene_number: Some(1),
+        episode: Some(episode),
+        ..Default::default()
+    }
+}
+
+fn create_group(ref_name: &str, number: i32) -> EpisodeGroupPlan {
+    EpisodeGroupPlan {
+        episode_ref: ref_name.to_owned(),
+        target: EpisodeTarget::Create {
+            number,
+            name: Some(format!("Episode {number}")),
+        },
+    }
+}
+
+#[tokio::test]
+async fn script_apply_scene_lands_in_the_created_episode() {
+    let fixture = ScriptApplyFixture::new();
+    let preview = ScriptContext {
+        scenes: vec![row_with_episode(
+            "1. INT. OP",
+            DraftEpisode {
+                number: Some(3),
+                title: None,
+            },
+        )],
+        ..Default::default()
+    };
+    fixture
+        .apply_with_groups(
+            &preview,
+            &[create_decision("1. INT. OP")],
+            vec![create_group("ep:3", 3)],
+        )
+        .await
+        .expect("apply");
+    let episode_id = fixture.episodes.created.lock().unwrap()[0].id;
+    // The row's scene was created in the episode the apply created. The
+    // guards are scoped so no std Mutex lock is held across the mapping
+    // `await` below (`await_holding_lock`).
+    let (scene_count, scene_episode_id) = {
+        let created_scenes = fixture.scenes.created_commands.lock().unwrap();
+        (created_scenes.len(), created_scenes[0].episode_id)
+    };
+    assert_eq!(scene_count, 1);
+    assert_eq!(
+        scene_episode_id,
+        breakdown_core::shared::EpisodeId::from_uuid(episode_id)
+    );
+    // The episode create happened BEFORE the scene create.
+    let steps = fixture.steps();
+    let episode_step = steps
+        .iter()
+        .position(|step| step.starts_with("episode:create"))
+        .unwrap_or_else(|| panic!("journal: {steps:?}"));
+    let scene_step = steps
+        .iter()
+        .position(|step| step.contains("scene:create"))
+        .unwrap_or_else(|| panic!("journal: {steps:?}"));
+    assert!(episode_step < scene_step, "journal: {steps:?}");
+    // The episode mapping row is confirmed (version > 0), not a reservation.
+    let mapping = fixture
+        .mappings
+        .find(
+            fixture.preview_id,
+            "ep:3",
+            mapping_kind::EPISODE,
+            PRIMARY_ORDINAL,
+        )
+        .await
+        .unwrap()
+        .expect("episode mapping row");
+    assert_eq!(mapping.aggregate_id, episode_id);
+    assert!(!mapping.is_reserved());
+}
+
+#[tokio::test]
+async fn script_apply_two_rows_of_one_group_create_one_episode() {
+    let fixture = ScriptApplyFixture::new();
+    let preview = ScriptContext {
+        scenes: vec![
+            row_with_episode(
+                "1. INT. OP",
+                DraftEpisode {
+                    number: Some(3),
+                    title: None,
+                },
+            ),
+            row_with_episode(
+                "2. INT. OP",
+                DraftEpisode {
+                    number: Some(3),
+                    title: None,
+                },
+            ),
+        ],
+        ..Default::default()
+    };
+    let result = fixture
+        .apply_with_groups(
+            &preview,
+            &[create_decision("1. INT. OP"), create_decision("2. INT. OP")],
+            vec![create_group("ep:3", 3)],
+        )
+        .await
+        .expect("apply");
+    assert_eq!(result.applied.len(), 2);
+    assert_eq!(result.created_episodes, 1);
+    assert_eq!(fixture.episodes.created.lock().unwrap().len(), 1);
+    // Both scenes were created (in distinct streams).
+    assert_eq!(fixture.scenes.created.lock().unwrap().len(), 2);
+}
+
+#[tokio::test]
+async fn script_apply_retry_does_not_recreate_the_episode() {
+    let fixture = ScriptApplyFixture::new();
+    let preview = ScriptContext {
+        scenes: vec![row_with_episode(
+            "1. INT. OP",
+            DraftEpisode {
+                number: Some(3),
+                title: None,
+            },
+        )],
+        ..Default::default()
+    };
+    let decisions = vec![create_decision("1. INT. OP")];
+    let groups = vec![create_group("ep:3", 3)];
+    let first = fixture
+        .apply_with_groups(&preview, &decisions, groups.clone())
+        .await
+        .expect("first apply");
+    assert_eq!(first.created_episodes, 1);
+    // Retry: the confirmed episode mapping short-circuits, the scene mapping
+    // too — nothing is re-created.
+    let second = fixture
+        .apply_with_groups(&preview, &[], groups)
+        .await
+        .expect("retry");
+    assert_eq!(second.created_episodes, 0);
+    assert_eq!(fixture.episodes.created.lock().unwrap().len(), 1);
+    assert_eq!(fixture.scenes.created.lock().unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn script_apply_rows_without_metadata_stay_in_the_picked_episode() {
+    let fixture = ScriptApplyFixture::new();
+    let preview = ScriptContext {
+        scenes: vec![DraftScene {
+            draft_ref: "1. INT. OP".to_owned(),
+            scene_number: Some(1),
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    let result = fixture
+        .apply_with_groups(&preview, &[create_decision("1. INT. OP")], Vec::new())
+        .await
+        .expect("apply");
+    assert_eq!(result.created_episodes, 0);
+    assert!(fixture.episodes.created.lock().unwrap().is_empty());
+    assert_eq!(fixture.scenes.created.lock().unwrap().len(), 1);
 }

@@ -15,6 +15,26 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
+## [0.21.0] - Unreleased
+
+### Added — AI apply creates episodes for draft episode groups (issue #581)
+
+- `ApplyWorker` gains an `EpisodeCommands` port and `ApplyScriptRequest`
+  gains `block_id` + `episode_groups` (both resolved at the API edge — the
+  write side never queries a projection, CQRS boundary). A group mapped to
+  a NEW episode is created through `create_episode_reserved`, mirroring the
+  scene reservation protocol: the mapping row
+  `(preview_id, episode_ref, 'episode', 0)` is reserved before dispatch, a
+  crashed attempt re-drives onto the same derived aggregate id via
+  `created_now`, and the confirm finishes the interrupted attempt. Every
+  row of a group converges on ONE episode; a retry re-creates nothing.
+- The script import worker stamps each draft row with the deterministic
+  `Ep.:` episode scan of the document; the LLM's `episode` field (new
+  prompt rule in `config/default_ai_prompts.toml`) only fills in when the
+  scan found no marker for the chunk — the scan wins.
+- `ScriptApplyResult.created_episodes`: episodes THIS apply created (a
+  group an earlier attempt created is not counted again).
+
 ## [0.20.0] - Unreleased
 
 ### Added — AI apply persists the scene relation (issue #546 §5.8)

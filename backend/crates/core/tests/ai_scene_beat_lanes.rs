@@ -62,6 +62,8 @@ fn row(characters: Vec<CharacterApplyPlan>, costumes: Vec<CostumeApplyPlan>) -> 
             details: SceneDetails::default(),
             source: SceneSource::Manual,
         }),
+        // Beat lanes are episode-agnostic; the fixture uses the default target.
+        episode: breakdown_core::ai::PlannedEpisode::Existing(EpisodeId::new()),
         characters,
         costumes,
     }

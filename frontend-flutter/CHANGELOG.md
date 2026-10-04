@@ -19,6 +19,12 @@ releases are cut as `vX.Y.Z` tags (`v<build-name>`, enforced by
 
 ## [Unreleased]
 
+- **Version bump:** `0.3.0+51 → 0.4.0-alpha.1+52` — opening of the
+  0.4.0 alpha line for the multi-episode AI script import backend
+  (issue #581 backend in PR #584). Same convention as the pre-0.3.x
+  alphas: the pre-release suffix marks the channel, the Play
+  `versionCode` `+N` stays strictly monotonic.
+
 ## [0.3.0] – Released 2026-10-04
 
 Stable release of the 0.3.0 alpha line (`0.3.0-alpha.1` →

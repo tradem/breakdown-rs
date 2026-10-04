@@ -12,6 +12,8 @@ class _$ApplyAiImportRequest extends ApplyAiImportRequest {
   @override
   final int editDistance;
   @override
+  final BuiltList<ApplyEpisodeGroupRequest>? episodeGroups;
+  @override
   final String episodeId;
   @override
   final BuiltList<ApplyMapping> mappings;
@@ -25,6 +27,7 @@ class _$ApplyAiImportRequest extends ApplyAiImportRequest {
   _$ApplyAiImportRequest._(
       {required this.acceptAsIs,
       required this.editDistance,
+      this.episodeGroups,
       required this.episodeId,
       required this.mappings,
       this.seriesId})
@@ -44,6 +47,7 @@ class _$ApplyAiImportRequest extends ApplyAiImportRequest {
     return other is ApplyAiImportRequest &&
         acceptAsIs == other.acceptAsIs &&
         editDistance == other.editDistance &&
+        episodeGroups == other.episodeGroups &&
         episodeId == other.episodeId &&
         mappings == other.mappings &&
         seriesId == other.seriesId;
@@ -54,6 +58,7 @@ class _$ApplyAiImportRequest extends ApplyAiImportRequest {
     var _$hash = 0;
     _$hash = $jc(_$hash, acceptAsIs.hashCode);
     _$hash = $jc(_$hash, editDistance.hashCode);
+    _$hash = $jc(_$hash, episodeGroups.hashCode);
     _$hash = $jc(_$hash, episodeId.hashCode);
     _$hash = $jc(_$hash, mappings.hashCode);
     _$hash = $jc(_$hash, seriesId.hashCode);
@@ -66,6 +71,7 @@ class _$ApplyAiImportRequest extends ApplyAiImportRequest {
     return (newBuiltValueToStringHelper(r'ApplyAiImportRequest')
           ..add('acceptAsIs', acceptAsIs)
           ..add('editDistance', editDistance)
+          ..add('episodeGroups', episodeGroups)
           ..add('episodeId', episodeId)
           ..add('mappings', mappings)
           ..add('seriesId', seriesId))
@@ -84,6 +90,12 @@ class ApplyAiImportRequestBuilder
   int? _editDistance;
   int? get editDistance => _$this._editDistance;
   set editDistance(int? editDistance) => _$this._editDistance = editDistance;
+
+  ListBuilder<ApplyEpisodeGroupRequest>? _episodeGroups;
+  ListBuilder<ApplyEpisodeGroupRequest> get episodeGroups =>
+      _$this._episodeGroups ??= ListBuilder<ApplyEpisodeGroupRequest>();
+  set episodeGroups(ListBuilder<ApplyEpisodeGroupRequest>? episodeGroups) =>
+      _$this._episodeGroups = episodeGroups;
 
   String? _episodeId;
   String? get episodeId => _$this._episodeId;
@@ -108,6 +120,7 @@ class ApplyAiImportRequestBuilder
     if ($v != null) {
       _acceptAsIs = $v.acceptAsIs;
       _editDistance = $v.editDistance;
+      _episodeGroups = $v.episodeGroups?.toBuilder();
       _episodeId = $v.episodeId;
       _mappings = $v.mappings.toBuilder();
       _seriesId = $v.seriesId;
@@ -138,6 +151,7 @@ class ApplyAiImportRequestBuilder
                 acceptAsIs, r'ApplyAiImportRequest', 'acceptAsIs'),
             editDistance: BuiltValueNullFieldError.checkNotNull(
                 editDistance, r'ApplyAiImportRequest', 'editDistance'),
+            episodeGroups: _episodeGroups?.build(),
             episodeId: BuiltValueNullFieldError.checkNotNull(
                 episodeId, r'ApplyAiImportRequest', 'episodeId'),
             mappings: mappings.build(),
@@ -146,6 +160,9 @@ class ApplyAiImportRequestBuilder
     } catch (_) {
       late String _$failedField;
       try {
+        _$failedField = 'episodeGroups';
+        _episodeGroups?.build();
+
         _$failedField = 'mappings';
         mappings.build();
       } catch (e) {
