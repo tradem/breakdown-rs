@@ -271,6 +271,10 @@ ApplyAiImportResponse _outcome({
   int plannedSceneShoots = 3,
   int createdCharacters = 0,
   int createdCostumes = 0,
+  // issue #581 backend: episodes a NEW draft-episode group created. The
+  // single-episode fixtures of this suite exercise no group targets, so the
+  // fixture pins the empty case explicitly.
+  int createdEpisodes = 0,
   List<UnappliedCostume> unappliedCostumes = const [],
 }) => ApplyAiImportResponse(
   (b) => b
@@ -279,6 +283,7 @@ ApplyAiImportResponse _outcome({
     ..plannedSceneShoots = plannedSceneShoots
     ..createdCharacters = createdCharacters
     ..createdCostumes = createdCostumes
+    ..createdEpisodes = createdEpisodes
     ..unappliedCostumes.addAll(unappliedCostumes),
 );
 
