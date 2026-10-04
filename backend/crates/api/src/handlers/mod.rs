@@ -31,9 +31,9 @@ use axum::{Router, routing};
 use breakdown_core::ai::{
     AiConfigCommands, AiConfigRepository, AiConfigView, AiImportEnqueueRequest,
     AiImportEnqueueResult, AiImportJobId, AiImportPreviewResponse, AiImportQueue, AiPreviewPayload,
-    ApplyMapping, CreateAiConfig, DocumentKind, LlmProvider, MergedPreview, ModelInfo,
-    RevokeAiConfig, ScriptContext, ShootingSchedule, SourceFormat, Telemetry, TelemetryApplyState,
-    UpdateAiConfig,
+    ApplyMapping, CreateAiConfig, DocumentKind, EpisodeGroupPlan, EpisodeTarget, LlmProvider,
+    MergedPreview, ModelInfo, RevokeAiConfig, ScriptContext, ShootingSchedule, SourceFormat,
+    Telemetry, TelemetryApplyState, UpdateAiConfig, episode_group_refs,
 };
 use breakdown_core::audit::{AuditEntry, AuditRepository};
 use breakdown_core::block::commands::{CreateBlock, UpdateBlockTimeSpan};
@@ -5354,6 +5354,23 @@ pub struct ApplyAiImportRequest {
     pub mappings: Vec<ApplyMapping>,
     pub accept_as_is: bool,
     pub edit_distance: u32,
+    /// Per-episode-group targets (issue #581). Absent or empty → every draft
+    /// row applies to `episode_id` (the single-episode flow). A group the
+    /// preview does not carry, a duplicate group ref, or two groups creating
+    /// the same episode number is a validation error; a create number already
+    /// taken in the series is a 409 `episode.number-already-exists` pre-check
+    /// (#404 doctrine — the projection unique index stays authoritative).
+    #[serde(default)]
+    pub episode_groups: Vec<ApplyEpisodeGroupRequest>,
+}
+
+/// One episode group's reviewer decision on the wire (issue #581). `target`
+/// reuses the core [`EpisodeTarget`] (tagged `existing` / `create`).
+#[derive(Debug, Clone, Deserialize, ToSchema)]
+pub struct ApplyEpisodeGroupRequest {
+    /// The group ref the preview carries on each row (`ep:<n>` / `ep-t:<title>`).
+    pub episode_ref: String,
+    pub target: EpisodeTarget,
 }
 
 #[derive(Debug, Clone, Serialize, ToSchema)]
@@ -5367,6 +5384,9 @@ pub struct ApplyAiImportResponse {
     pub created_characters: u32,
     /// Costumes the script apply created (unassigned, then bound).
     pub created_costumes: u32,
+    /// Episodes the script apply created for draft episode groups the reviewer
+    /// mapped to a NEW episode (issue #581). `0` for a schedule apply.
+    pub created_episodes: u32,
     /// Costume rows that did **not** become a `Costume`, each with the reason.
     /// An apply that created a costume but could not bind it reports the row
     /// here while `created_costumes` still counts it — a partially applied row
@@ -5510,10 +5530,58 @@ pub async fn apply_ai_import<P: Ports>(
                     "apply carries more costume decisions than the preview contains costumes",
                 ));
             }
+            // Issue #581: validate the per-group episode targets against the
+            // preview BEFORE dispatching — a group the preview does not carry or
+            // a duplicate ref is a client bug, and a create number already taken
+            // in the series is a clean 409 (#404 doctrine: advisory pre-check,
+            // idx_projection_episode_series_number stays authoritative).
+            let preview_group_refs = episode_group_refs(&preview);
+            let mut seen_group_refs = std::collections::HashSet::new();
+            let mut create_numbers = std::collections::HashSet::new();
+            for group in &request.episode_groups {
+                if !seen_group_refs.insert(group.episode_ref.clone()) {
+                    return Err(ApiError::Validation(
+                        "duplicate episode group in apply request",
+                    ));
+                }
+                if !preview_group_refs.contains(&group.episode_ref) {
+                    return Err(ApiError::Validation(
+                        "apply maps an episode group the preview does not carry",
+                    ));
+                }
+                if let EpisodeTarget::Create { number, .. } = &group.target {
+                    if !create_numbers.insert(*number) {
+                        return Err(ApiError::Validation(
+                            "two episode groups create the same episode number",
+                        ));
+                    }
+                    if state
+                        .ports
+                        .episode_repo()
+                        .find_by_series_and_number(episode.series_id, *number)
+                        .await?
+                        .is_some()
+                    {
+                        return Err(ApiError::Domain(DomainError::Conflict {
+                            code: &EPISODE_NUMBER_ALREADY_EXISTS,
+                            reason: "episode number already taken".into(),
+                        }));
+                    }
+                }
+            }
+            let episode_groups: Vec<EpisodeGroupPlan> = request
+                .episode_groups
+                .iter()
+                .map(|group| EpisodeGroupPlan {
+                    episode_ref: group.episode_ref.clone(),
+                    target: group.target.clone(),
+                })
+                .collect();
             let worker = ApplyWorker {
                 scene_commands: Arc::new(state.ports.scene_commands().clone()),
                 character_commands: Arc::new(state.ports.character_commands().clone()),
                 costume_commands: Arc::new(state.ports.costume_commands().clone()),
+                episode_commands: Arc::new(state.ports.episode_commands().clone()),
                 mappings: Arc::new(state.ports.ai_import_mapping().clone()),
                 queue: Arc::new(state.ports.ai_import_queue().clone()),
             };
@@ -5526,6 +5594,10 @@ pub async fn apply_ai_import<P: Ports>(
                     episode_id: request.episode_id,
                     season_id,
                     series_id,
+                    // Created episodes live under the target episode's block —
+                    // the same block the AUTHZ-GATE above tied to the job.
+                    block_id: episode.block_id,
+                    episode_groups,
                     telemetry: Some(telemetry),
                 })
                 .await?;
@@ -5537,6 +5609,7 @@ pub async fn apply_ai_import<P: Ports>(
                     planned_scene_shoots: 0,
                     created_characters: applied.created_characters,
                     created_costumes: applied.created_costumes,
+                    created_episodes: applied.created_episodes,
                     unapplied_costumes: applied.unapplied_costumes,
                 }),
             ))
@@ -5580,9 +5653,10 @@ pub async fn apply_ai_import<P: Ports>(
                     applied_count: 0,
                     created_days: result.created_days,
                     planned_scene_shoots: result.planned_scene_shoots,
-                    // A schedule apply touches no figures and no costumes.
+                    // A schedule apply touches no figures, costumes or episodes.
                     created_characters: 0,
                     created_costumes: 0,
+                    created_episodes: 0,
                     unapplied_costumes: Vec::new(),
                 }),
             ))

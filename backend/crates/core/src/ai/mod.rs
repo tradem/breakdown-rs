@@ -34,11 +34,12 @@ pub use ports::{
 pub use preview::{
     AiImportPreviewResponse, AiPreviewPayload, ApplyGateError, ApplyMapping, ApplyMappingDecision,
     CharacterApplyPlan, CostumeApplyPlan, CostumeBeatSlot, CostumeDecision, DraftCostume,
-    DraftScene, MergeInput, MergedPreview, MergedScene, RejectedCostume, RejectedCostumeReason,
-    SceneApplyCommand, SceneApplyPlan, SceneBeatLane, SceneChunk, ScriptApplyPlan, ScriptContext,
-    ShootingSchedule, ShootingScheduleRow, UnappliedCostume, UnappliedCostumeReason, Uncertainty,
-    UncertaintyKind, character_identity, character_mapping_ref, draft_row_ref,
-    ensure_merge_applyable, ensure_script_applyable, extract_scenes, merge_from_input,
+    DraftEpisode, DraftScene, EpisodeGroupPlan, EpisodeTarget, MergeInput, MergedPreview,
+    MergedScene, PlannedEpisode, RejectedCostume, RejectedCostumeReason, SceneApplyCommand,
+    SceneApplyPlan, SceneBeatLane, SceneChunk, ScriptApplyPlan, ScriptContext, ShootingSchedule,
+    ShootingScheduleRow, UnappliedCostume, UnappliedCostumeReason, Uncertainty, UncertaintyKind,
+    character_identity, character_mapping_ref, draft_row_ref, ensure_merge_applyable,
+    ensure_script_applyable, episode_group_refs, extract_scenes, merge_from_input,
     merge_schedule_to_scenes, plan_scene_apply, scene_beat_lanes, stable_draft_ref,
     verify_draft_costumes,
 };

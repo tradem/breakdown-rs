@@ -85,7 +85,7 @@ pub trait Ports: Clone + Send + Sync + 'static {
     type SeasonRepo: SeasonRepository;
     type BlockCommands: BlockCommands;
     type BlockRepo: BlockRepository;
-    type EpisodeCommands: EpisodeCommands;
+    type EpisodeCommands: EpisodeCommands + Clone;
     type EpisodeRepo: EpisodeRepository;
     type MembershipCommands: MembershipCommands;
     type MembershipRepo: MembershipRepository;

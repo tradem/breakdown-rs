@@ -92,6 +92,7 @@ fn planner_uses_update_for_a_previously_mapped_row() {
         EpisodeId::new(),
         None,
         AiImportJobId(Uuid::now_v7()),
+        &[],
     )
     .unwrap();
     assert_eq!(plan.scenes.len(), 1);
@@ -147,7 +148,8 @@ fn open_uncertainties_and_unmatched_rows_block_apply() {
             &[],
             EpisodeId::new(),
             None,
-            AiImportJobId(Uuid::now_v7())
+            AiImportJobId(Uuid::now_v7()),
+            &[]
         ),
         Err(ApplyGateError::MissingMapping(_))
     ));
@@ -164,6 +166,7 @@ fn plan_of(preview: &ScriptContext, decisions: &[ApplyMapping]) -> ScriptApplyPl
         EpisodeId::new(),
         None,
         AiImportJobId(Uuid::now_v7()),
+        &[],
     )
     .expect("plan")
 }
@@ -995,4 +998,298 @@ fn merge_counts_unmatched_scenes_correctly() {
     let merged = merge_schedule_to_scenes(&schedule, &[scene(1), scene(2), scene(3)]);
     assert_eq!(merged.unmatched_script_scenes.len(), 3);
     assert_eq!(merged.scenes.len(), 3);
+}
+
+// ===========================================================================
+// Episode extraction (issue #581)
+// ===========================================================================
+
+fn episode_of(document: &str, chunk: usize) -> Option<DraftEpisode> {
+    SceneChunk::extract_scenes(document)[chunk].episode.clone()
+}
+
+#[test]
+fn episode_marker_reads_number_and_title() {
+    let document = "\
+Ep.: 3 (Der Unfall)
+
+1. I/T - WOHNUNG ZOE
+Aktion.
+";
+    let chunks = SceneChunk::extract_scenes(document);
+    assert_eq!(chunks.len(), 1);
+    let episode = chunks[0].episode.clone().expect("marker before heading");
+    assert_eq!(episode.number, Some(3));
+    assert_eq!(episode.title.as_deref(), Some("Der Unfall"));
+}
+
+#[test]
+fn episode_marker_without_colon_or_title_still_groups() {
+    let document = "Ep: 7\n\n1. I/T - OP\nAktion.\n";
+    let episode = episode_of(document, 0).expect("marker");
+    assert_eq!(episode.number, Some(7));
+    assert_eq!(episode.title, None);
+    assert_eq!(episode.group_key().as_deref(), Some("ep:7"));
+}
+
+#[test]
+fn episode_marker_with_title_only_groups_by_title() {
+    let document = "Ep. (Der Unfall)\n\n1. I/T - OP\nAktion.\n";
+    let episode = episode_of(document, 0).expect("marker");
+    assert_eq!(episode.number, None);
+    assert_eq!(episode.group_key().as_deref(), Some("ep-t:Der Unfall"));
+}
+
+#[test]
+fn episode_marker_survives_word_pdf_lookalikes() {
+    // NBSP after `Ep.`, en dash in the title — the Word→PDF artifacts the
+    // scene-heading detector already folds (issue #581 report).
+    let document = "Ep.\u{00A0}:\u{00A0}2 (Fahrt\u{2014}Nacht)\n\n1. I/T - KLINIKUM\nAktion.\n";
+    let episode = episode_of(document, 0).expect("marker");
+    assert_eq!(episode.number, Some(2));
+    assert_eq!(episode.title.as_deref(), Some("Fahrt—Nacht"));
+}
+
+#[test]
+fn episode_markers_repeat_in_page_headers_without_flipping() {
+    // The same episode repeats in page headers; a scene after the repeat must
+    // still carry the same episode.
+    let document = "\
+Ep.: 3 (Der Unfall)
+
+1. I/T - WOHNUNG
+Aktion.
+
+Block: 2   Ep.: 3 (Der Unfall)
+
+2. I/T - KLINIKUM
+Aktion.
+";
+    let chunks = SceneChunk::extract_scenes(document);
+    assert_eq!(chunks.len(), 2);
+    assert_eq!(chunks[0].episode, chunks[1].episode);
+}
+
+#[test]
+fn episode_switches_at_a_new_marker() {
+    let document = "\
+Ep.: 3 (Der Unfall)
+
+1. I/T - WOHNUNG
+Aktion.
+
+Ep.: 4 (Die Nacht)
+
+2. I/T - KLINIKUM
+Aktion.
+";
+    let chunks = SceneChunk::extract_scenes(document);
+    assert_eq!(chunks[0].episode.clone().unwrap().number, Some(3));
+    assert_eq!(chunks[1].episode.clone().unwrap().number, Some(4));
+}
+
+#[test]
+fn episode_without_markers_is_none() {
+    let chunks = SceneChunk::extract_scenes("1. INT. KITCHEN - DAY\nA\n");
+    assert!(chunks[0].episode.is_none());
+}
+
+#[test]
+fn lowercase_prose_mention_does_not_flip_the_episode() {
+    let document = "\
+Ep.: 3 (Der Unfall)
+
+1. I/T - WOHNUNG
+Sie fragte, ob ep. 3 die beste Folge war.
+";
+    let chunks = SceneChunk::extract_scenes(document);
+    let episode = chunks[0].episode.clone().unwrap();
+    assert_eq!(episode.number, Some(3));
+}
+
+#[test]
+fn episode_marker_tolerates_a_block_prefix_on_the_header_line() {
+    // Production page headers carry block and episode on one line.
+    let document = "Block: 2 Ep.: 5 (Zwei V\u{00e4}ter)\n\n1. I/T - OP\nAktion.\n";
+    let episode = episode_of(document, 0).expect("marker");
+    assert_eq!(episode.number, Some(5));
+    assert_eq!(episode.title.as_deref(), Some("Zwei Väter"));
+}
+
+#[test]
+fn draft_episode_group_key_prefers_the_number() {
+    let episode = DraftEpisode {
+        number: Some(3),
+        title: Some("Titel".into()),
+    };
+    assert_eq!(episode.group_key().as_deref(), Some("ep:3"));
+    assert_eq!(DraftEpisode::default().group_key(), None);
+}
+
+#[test]
+fn episode_group_refs_lists_distinct_group_refs_in_order() {
+    let preview = ScriptContext {
+        scenes: vec![
+            DraftScene {
+                episode: Some(DraftEpisode {
+                    number: Some(3),
+                    title: None,
+                }),
+                ..Default::default()
+            },
+            DraftScene {
+                episode: Some(DraftEpisode {
+                    number: Some(3),
+                    title: Some("same group".into()),
+                }),
+                ..Default::default()
+            },
+            DraftScene {
+                episode: Some(DraftEpisode {
+                    number: Some(4),
+                    title: None,
+                }),
+                ..Default::default()
+            },
+            DraftScene::default(),
+        ],
+        ..Default::default()
+    };
+    assert_eq!(episode_group_refs(&preview), vec!["ep:3", "ep:4"]);
+}
+
+// ===========================================================================
+// plan_scene_apply — episode groups (issue #581)
+// ===========================================================================
+
+fn preview_with_episode(episode: Option<DraftEpisode>) -> ScriptContext {
+    ScriptContext {
+        scenes: vec![DraftScene {
+            draft_ref: "scene-1".into(),
+            episode,
+            ..Default::default()
+        }],
+        ..Default::default()
+    }
+}
+
+fn create_mapping() -> ApplyMapping {
+    ApplyMapping {
+        draft_ref: "scene-1".into(),
+        decision: ApplyMappingDecision::Create,
+        costume_decisions: Vec::new(),
+    }
+}
+
+#[test]
+fn plan_resolves_a_create_group_to_a_new_episode() {
+    let preview = preview_with_episode(Some(DraftEpisode {
+        number: Some(3),
+        title: Some("Der Unfall".into()),
+    }));
+    let plan = plan_scene_apply(
+        &preview,
+        &[create_mapping()],
+        EpisodeId::new(),
+        None,
+        AiImportJobId(Uuid::now_v7()),
+        &[EpisodeGroupPlan {
+            episode_ref: "ep:3".into(),
+            target: EpisodeTarget::Create {
+                number: 3,
+                name: Some("Der Unfall".into()),
+            },
+        }],
+    )
+    .expect("plan");
+    assert!(matches!(
+        &plan.scenes[0].episode,
+        PlannedEpisode::New { episode_ref, number, name }
+            if episode_ref == "ep:3" && *number == 3 && name.as_deref() == Some("Der Unfall")
+    ));
+}
+
+#[test]
+fn plan_resolves_an_existing_group_target() {
+    let preview = preview_with_episode(Some(DraftEpisode {
+        number: Some(3),
+        title: None,
+    }));
+    let existing = EpisodeId::new();
+    let plan = plan_scene_apply(
+        &preview,
+        &[create_mapping()],
+        EpisodeId::new(),
+        None,
+        AiImportJobId(Uuid::now_v7()),
+        &[EpisodeGroupPlan {
+            episode_ref: "ep:3".into(),
+            target: EpisodeTarget::Existing {
+                episode_id: existing,
+            },
+        }],
+    )
+    .expect("plan");
+    match &plan.scenes[0].episode {
+        PlannedEpisode::Existing(episode_id) => assert_eq!(*episode_id, existing),
+        other => panic!("expected Existing, got {other:?}"),
+    }
+}
+
+#[test]
+fn plan_defaults_rows_without_episode_metadata_to_the_picked_episode() {
+    let default_episode = EpisodeId::new();
+    let preview = preview_with_episode(None);
+    let plan = plan_scene_apply(
+        &preview,
+        &[create_mapping()],
+        default_episode,
+        None,
+        AiImportJobId(Uuid::now_v7()),
+        &[],
+    )
+    .expect("plan");
+    assert_eq!(
+        plan.scenes[0].episode,
+        PlannedEpisode::Existing(default_episode)
+    );
+}
+
+#[test]
+fn plan_ignores_groups_for_ungroupable_episode_metadata() {
+    // An `episode` without number AND title cannot be grouped: it must fall
+    // back to the default target, not demand a group plan.
+    let default_episode = EpisodeId::new();
+    let preview = preview_with_episode(Some(DraftEpisode::default()));
+    let plan = plan_scene_apply(
+        &preview,
+        &[create_mapping()],
+        default_episode,
+        None,
+        AiImportJobId(Uuid::now_v7()),
+        &[],
+    )
+    .expect("plan");
+    assert_eq!(
+        plan.scenes[0].episode,
+        PlannedEpisode::Existing(default_episode)
+    );
+}
+
+#[test]
+fn plan_rejects_a_group_the_request_forgot() {
+    let preview = preview_with_episode(Some(DraftEpisode {
+        number: Some(3),
+        title: None,
+    }));
+    let error = plan_scene_apply(
+        &preview,
+        &[create_mapping()],
+        EpisodeId::new(),
+        None,
+        AiImportJobId(Uuid::now_v7()),
+        &[],
+    )
+    .expect_err("ungrouped episode must not silently apply to the default");
+    assert!(matches!(error, ApplyGateError::MissingEpisodeGroup(ref key) if key == "ep:3"));
 }

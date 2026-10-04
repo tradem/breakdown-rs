@@ -27,13 +27,15 @@ use breakdown_core::ai::{
 use breakdown_core::error::DomainError;
 use breakdown_core::scene::ports::SceneRepository as _;
 use breakdown_core::scene::views::SceneView;
-use breakdown_core::shared::{EpisodeId, SeasonId, UserId};
+use breakdown_core::shared::{BlockId, EpisodeId, SeasonId, UserId};
 use fixtures::{GarageCredentials, spawn_garage};
 use infra::ai::{
     AiDocumentStore, AiPreviewStore, ApplyScriptRequest, ApplyWorker, OpenDalAiPayloadStorage,
     PgAiImportMappingRepository, PgAiImportQueue, ScheduleImportWorker,
 };
-use infra::event_store::{CharacterCommandsImpl, CostumeCommandsImpl, SceneCommandsImpl};
+use infra::event_store::{
+    CharacterCommandsImpl, CostumeCommandsImpl, EpisodeCommandsImpl, SceneCommandsImpl,
+};
 use infra::queries::SceneRepositoryImpl;
 use kameo_es::command_service::CommandService;
 use uuid::Uuid;
@@ -389,6 +391,10 @@ async fn ai_payload_apply_round_trips_through_projection() -> Result<()> {
     // than the handler does.
     let character_commands = CharacterCommandsImpl::new(cmd_service.clone());
     let costume_commands = CostumeCommandsImpl::new(cmd_service.clone());
+    // The fixture applies to an existing episode, so no group maps to a NEW
+    // episode and this port stays idle — but the production write chain must
+    // be wired for the worker to compile (issue #581 shape).
+    let episode_commands = EpisodeCommandsImpl::new(cmd_service.clone());
     let scene_repo = SceneRepositoryImpl::new(pool.clone());
     let _scene_ref = infra::projectors::spawn_scene_projector(
         pool.clone(),
@@ -437,6 +443,9 @@ async fn ai_payload_apply_round_trips_through_projection() -> Result<()> {
             // normal outcome (outline blocks, English scripts without a
             // costume note), so the fixture states the empty case explicitly.
             costumes: vec![],
+            // Episode metadata is additive too; this fixture stays in the
+            // single-episode flow (issue #581).
+            episode: None,
         }],
         uncertainties: vec![],
     };
@@ -477,6 +486,9 @@ async fn ai_payload_apply_round_trips_through_projection() -> Result<()> {
         scene_commands: Arc::new(scene_commands),
         character_commands: Arc::new(character_commands),
         costume_commands: Arc::new(costume_commands),
+        // The fixture applies to an existing episode; no group is mapped to a
+        // NEW episode, so the episode port is never consulted.
+        episode_commands: Arc::new(episode_commands),
         mappings: Arc::new(mappings_b),
         queue: Arc::new(queue_b),
     };
@@ -495,6 +507,9 @@ async fn ai_payload_apply_round_trips_through_projection() -> Result<()> {
             // and this seam is never consulted.
             season_id: SeasonId::new(),
             series_id: None,
+            // Single-episode flow: no group targets and no episode creation.
+            block_id: BlockId::from_uuid(Uuid::now_v7()),
+            episode_groups: Vec::new(),
             telemetry: Some(Telemetry {
                 doc_kind: Some(DocumentKind::Script),
                 apply_state: TelemetryApplyState::NotApplied,

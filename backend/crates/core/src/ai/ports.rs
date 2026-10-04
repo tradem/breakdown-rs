@@ -451,6 +451,11 @@ pub mod mapping_kind {
     /// one row and the second figure's first beat would silently never be
     /// applied. `aggregate_id` is the scene the beat was added to.
     pub const SCENE_COSTUME_BEAT: &str = "scene_costume_beat";
+    /// One episode an AI script apply created for a draft episode group
+    /// (issue #581). Keyed by the group ref (`ep:<n>` / `ep-t:<title>`,
+    /// [`breakdown_core::ai::DraftEpisode::group_key`]) with
+    /// [`PRIMARY_ORDINAL`]; `aggregate_id` is the created Episode.
+    pub const EPISODE: &str = "episode";
 }
 
 /// Ordinal of a mapping kind that has exactly one row per `draft_ref` — scenes,

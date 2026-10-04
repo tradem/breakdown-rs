@@ -41,6 +41,8 @@ text = """
 
 <props>Record named, story-relevant objects (Requisiten) in the `summary` as well, in the same verbatim way — e.g. "Requisiten: Stethoskop, Blutbeutel". Ignore set dressing that carries no story function.</props>
 
+<episode>If the block itself names an episode of the series — for example a line like "EPISODE 3 - Der Unfall", "Folge 12", or an episode title card inside this block — record it in `episode` as {"number": the episode number when the text states one, "title": the episode title when the text states one}. Both fields are optional; leave a field null when the text does not state it. If the block does not itself mark an episode, leave `episode` null: never infer an episode from scene numbering or running order.</episode>
+
 <location>Take `location` from the heading (the place), not from the body. `scene_number` only if the heading actually carries one. `script_day` for a fictional day such as "Tag 1" or "1. Spieltag". `mood` only when the text states it.</location>
 
 <summary>One factual sentence describing what happens in the block. Costuming does NOT belong here — it goes in `costumes`; props are recorded here as described above. Do not interpret, do not speculate, do not summarise the plot beyond what is written.</summary>

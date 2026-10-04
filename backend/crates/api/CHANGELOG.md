@@ -16,6 +16,28 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
+## [0.15.0] - Unreleased
+
+### Added — multi-episode script apply (issue #581)
+
+- `ApplyAiImportRequest.episode_groups` (additive, `#[serde(default)]`):
+  per-episode-group reviewer decisions keyed by the preview's group refs
+  (`ep:<n>` / `ep-t:<title>`), each targeting an existing episode or a
+  NEW one (`create` with number + name from the document's `Ep.:` marker).
+  Absent/empty → the single-episode flow (backwards compatible).
+- Validation before dispatch: a group the preview does not carry, a
+  duplicate group ref, or two groups creating the same number is a 422
+  `domain.validation`; a create number already taken in the series is a
+  409 `episode.number-already-exists` API-edge pre-check (#404 doctrine —
+  `idx_projection_episode_series_number` stays authoritative; the check
+  fires before any write, so a 409 creates nothing).
+- `ApplyAiImportResponse.created_episodes`: episodes the apply created for
+  NEW groups (`0` for a schedule apply or a fully existing-target apply).
+- The EU AI Act review gate is preserved: the preview payload carries each
+  row's draft episode (which episode every row lands in is visible before
+  the single explicit apply dispatch); apply stays one reviewed call.
+- `openapi.yaml` regenerated.
+
 ## [0.14.0] - Unreleased
 
 ### Added — scene costume-beat routes (issue #546)

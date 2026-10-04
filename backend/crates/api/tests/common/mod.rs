@@ -433,7 +433,10 @@ impl BlockCommands for FakeBlockCommands {
 
 #[derive(Clone, Default)]
 #[allow(dead_code)]
-pub struct FakeEpisodeCommands;
+pub struct FakeEpisodeCommands {
+    /// `CreateEpisode` commands the apply dispatched (issue #581).
+    pub created: Arc<Mutex<Vec<CreateEpisode>>>,
+}
 
 impl EpisodeCommands for FakeEpisodeCommands {
     async fn create(
@@ -441,6 +444,7 @@ impl EpisodeCommands for FakeEpisodeCommands {
         _actor: UserId,
         cmd: CreateEpisode,
     ) -> Result<(Uuid, AggregateVersion), DomainError> {
+        self.created.lock().await.push(cmd.clone());
         Ok((cmd.id, AggregateVersion::INITIAL))
     }
     async fn rename(

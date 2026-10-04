@@ -23,6 +23,10 @@ pub struct SceneChunk {
     pub index: usize,
     pub heading: String,
     pub scene_number: Option<u32>,
+    /// The episode in effect at this chunk's heading, from the deterministic
+    /// `Ep.:` marker scan (issue #581). `None` for a script without markers —
+    /// the row then applies to the explicitly picked target episode.
+    pub episode: Option<DraftEpisode>,
     pub text: String,
 }
 
@@ -30,6 +34,139 @@ impl SceneChunk {
     pub fn extract_scenes(document: &str) -> Vec<Self> {
         extract_scenes(document)
     }
+}
+
+/// One episode of the source script, as the deterministic marker scan (and,
+/// as a fallback, the LLM) read it out of the document. Production scripts
+/// mark episodes as `Ep.: 3 (Titel)` — on the first page and repeated in the
+/// page headers (issue #581). Metadata only: it groups preview rows for the
+/// reviewer and names the episode an apply may create; it never resolves an
+/// aggregate id (that is the reviewer's per-group decision).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct DraftEpisode {
+    /// The number after `Ep.:`, when the marker carried one.
+    pub number: Option<i32>,
+    /// The title in the trailing parentheses, when the marker carried one.
+    pub title: Option<String>,
+}
+
+impl DraftEpisode {
+    /// The preview-wide key that groups rows of the same episode. Number and
+    /// title are alternative identities: a script that only titles its
+    /// episodes still groups, a script that only numbers them too. Rows whose
+    /// marker carried neither cannot be grouped — they apply to the default
+    /// target episode.
+    #[must_use]
+    pub fn group_key(&self) -> Option<String> {
+        if let Some(number) = self.number {
+            return Some(format!("ep:{number}"));
+        }
+        match self.title.as_deref() {
+            Some(title) if !title.trim().is_empty() => Some(format!("ep-t:{}", title.trim())),
+            _ => None,
+        }
+    }
+}
+
+/// Read one `Ep.: 3 (Titel)` / `Ep: 3 (Titel)` marker out of a line.
+///
+/// Detection runs on the same normalized copy as the scene-heading detector
+/// (invisible Word→PDF look-alikes folded to ASCII). The marker may sit
+/// anywhere in the line — page headers carry it next to the `Block:` field —
+/// but the `Ep` token is matched case-sensitively so a lowercase prose mention
+/// (`"ep 3 war besser"`) never flips the episode in effect. The first marker
+/// on a line wins. Normalization replaces every character one-for-one, so
+/// character indices align with the original line — the returned title keeps
+/// the document's verbatim bytes.
+fn episode_marker(line: &str) -> Option<DraftEpisode> {
+    let normalized = normalize_for_heading_detection(line);
+    // `Ep` + a run of separator characters (`.` / `:` / spaces — `Ep. : 2`
+    // after NBSP folding) + 1-4 digits. The digit cap keeps a page number
+    // glued to a stray `Ep` from parsing as a huge episode number.
+    let marker_start = normalized.find("Ep")?;
+    let chars: Vec<char> = normalized.chars().collect();
+    let mut i = marker_char_index(&normalized, marker_start) + "Ep".len();
+    while i < chars.len() && matches!(chars[i], '.' | ':' | ' ') {
+        i += 1;
+    }
+    let digit_start = i;
+    while i < chars.len() && chars[i].is_ascii_digit() {
+        i += 1;
+    }
+    let digits: String = chars[digit_start..i].iter().collect();
+    let (number, title_from) = if digits.is_empty() || digits.len() > 4 {
+        // No number: only a `(Titel)` form is recognizable.
+        (None, digit_start)
+    } else {
+        // Numbers parse losslessly into i32 (≤ 4 digits).
+        (Some(digits.parse::<i32>().ok()?), i)
+    };
+    let title = title_in_parentheses(line, title_from);
+    if number.is_none() && title.is_none() {
+        return None;
+    }
+    Some(DraftEpisode { number, title })
+}
+
+/// Character index of a byte offset found in `text`.
+fn marker_char_index(text: &str, byte_offset: usize) -> usize {
+    text[..byte_offset].chars().count()
+}
+
+/// The first `(…)` group of `text` from character index `from` on, when one is
+/// present and non-blank. Scans the ORIGINAL line: character indices align
+/// with the normalized copy, but the bytes must stay verbatim.
+fn title_in_parentheses(text: &str, from: usize) -> Option<String> {
+    let mut open = None;
+    for (index, character) in text.chars().enumerate().skip(from) {
+        if character == '(' {
+            open = Some(index);
+            break;
+        }
+    }
+    let open = open?;
+    let mut title = String::new();
+    for character in text.chars().skip(open + 1) {
+        if character == ')' {
+            break;
+        }
+        title.push(character);
+    }
+    // No closing parenthesis means the group never closed — not a title.
+    if !text
+        .chars()
+        .skip(open + 1)
+        .any(|character| character == ')')
+    {
+        return None;
+    }
+    let title = title.trim();
+    if title.is_empty() {
+        return None;
+    }
+    Some(title.to_owned())
+}
+
+/// The distinct episode group references of a preview, in first-seen order.
+///
+/// The apply endpoint validates the request's per-group targets against this
+/// list: a group the preview does not carry is a client bug, not a domain
+/// refusal.
+#[must_use]
+pub fn episode_group_refs(preview: &ScriptContext) -> Vec<String> {
+    let mut refs: Vec<String> = Vec::new();
+    for episode in preview
+        .scenes
+        .iter()
+        .filter_map(|scene| scene.episode.as_ref())
+    {
+        if let Some(key) = episode.group_key()
+            && !refs.contains(&key)
+        {
+            refs.push(key);
+        }
+    }
+    refs
 }
 
 /// Static LLM target for script extraction. Optional fields express the
@@ -73,6 +210,11 @@ pub struct DraftScene {
     /// binary (breaking, see the change proposal).
     #[serde(default)]
     pub costumes: Vec<DraftCostume>,
+    /// The episode this row belongs to (issue #581). Additive on the wire with
+    /// a default so previews stored before this field existed still load;
+    /// `None` applies the row to the explicitly picked target episode.
+    #[serde(default)]
+    pub episode: Option<DraftEpisode>,
 }
 
 /// A dropped costume and why it was dropped, surfaced as an `Uncertainty` so
@@ -411,6 +553,45 @@ pub enum SceneApplyCommand {
     Update(UpdateSceneDetails),
 }
 
+/// The reviewer's decision for ONE episode group of a preview (issue #581):
+/// apply the group's rows to an existing episode, or create a new one. The
+/// number comes from the document's `Ep.:` marker; the API edge pre-checks it
+/// against the series' existing episodes (409 `episode.number-already-exists`,
+/// #404 doctrine).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum EpisodeTarget {
+    Existing { episode_id: EpisodeId },
+    Create { number: i32, name: Option<String> },
+}
+
+/// One episode group's target, keyed by the group reference
+/// ([`DraftEpisode::group_key`]) the preview carries per row.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct EpisodeGroupPlan {
+    pub episode_ref: String,
+    pub target: EpisodeTarget,
+}
+
+/// The episode one planned row applies to, resolved by the planner.
+///
+/// `Existing` covers both the explicit default target and a group mapped to
+/// an existing episode — dispatch is identical. `New` carries the group's
+/// create payload; the apply worker creates the episode (idempotently, via
+/// the `episode` mapping row) before the row's scene dispatches. The wrapped
+/// `CreateScene` of a `New` row still carries the request's default episode
+/// id as a placeholder — dispatch resolves the real id from the created
+/// aggregate and never reads the placeholder.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PlannedEpisode {
+    Existing(EpisodeId),
+    New {
+        episode_ref: String,
+        number: i32,
+        name: Option<String>,
+    },
+}
+
 /// One figure a draft row names, planned for creation.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CharacterApplyPlan {
@@ -455,6 +636,10 @@ pub struct CostumeApplyPlan {
 #[derive(Debug, Clone)]
 pub struct SceneApplyPlan {
     pub draft_ref: String,
+    /// The episode this row applies to, resolved from the request's group
+    /// targets (issue #581). Rows without draft episode metadata — and groups
+    /// the reviewer mapped to an existing episode — resolve to `Existing`.
+    pub episode: PlannedEpisode,
     pub scene: SceneApplyCommand,
     pub characters: Vec<CharacterApplyPlan>,
     pub costumes: Vec<CostumeApplyPlan>,
@@ -520,6 +705,11 @@ pub enum ApplyGateError {
     UnmatchedScriptScenes(usize),
     #[error("no mapping decision for draft row {0}")]
     MissingMapping(String),
+    /// The request mapped a group the preview does not carry (issue #581).
+    /// A client bug surfaced as its own refusal so the grouped apply screen
+    /// can point at the stale group instead of failing the whole apply.
+    #[error("no episode group {0} in the preview")]
+    MissingEpisodeGroup(String),
 }
 
 pub fn ensure_script_applyable(preview: &ScriptContext) -> Result<(), ApplyGateError> {
@@ -576,6 +766,7 @@ pub fn plan_scene_apply(
     episode_id: EpisodeId,
     series_id: Option<SeriesId>,
     preview_id: AiImportJobId,
+    episode_groups: &[EpisodeGroupPlan],
 ) -> Result<ScriptApplyPlan, ApplyGateError> {
     ensure_script_applyable(preview)?;
     let mut plan = ScriptApplyPlan::default();
@@ -586,11 +777,42 @@ pub fn plan_scene_apply(
             .iter()
             .find(|mapping| mapping.draft_ref == draft_ref)
             .ok_or_else(|| ApplyGateError::MissingMapping(draft_ref.clone()))?;
+        // A row with episode metadata is resolved against the request's group
+        // targets; a group the request forgot is a client bug, not a default.
+        // Everything else — no metadata, ungroupable metadata, and every
+        // `Update` decision — applies to the explicitly picked target episode.
+        let episode = draft
+            .episode
+            .as_ref()
+            .and_then(DraftEpisode::group_key)
+            .map(|group_ref| {
+                let group = episode_groups
+                    .iter()
+                    .find(|group| group.episode_ref == group_ref)
+                    .ok_or_else(|| ApplyGateError::MissingEpisodeGroup(group_ref.clone()))?;
+                match &group.target {
+                    EpisodeTarget::Existing { episode_id } => {
+                        Ok(PlannedEpisode::Existing(*episode_id))
+                    }
+                    EpisodeTarget::Create { number, name } => Ok(PlannedEpisode::New {
+                        episode_ref: group_ref,
+                        number: *number,
+                        name: name.clone(),
+                    }),
+                }
+            })
+            .transpose()?
+            .unwrap_or(PlannedEpisode::Existing(episode_id));
         let details = draft.scene_details();
         let scene = match mapping.decision {
             ApplyMappingDecision::Create => SceneApplyCommand::Create(CreateScene {
                 id: Uuid::now_v7(),
-                episode_id,
+                // Placeholder for `PlannedEpisode::New` rows — dispatch
+                // resolves the created episode's id and ignores this field.
+                episode_id: match &episode {
+                    PlannedEpisode::Existing(episode_id) => *episode_id,
+                    PlannedEpisode::New { .. } => episode_id,
+                },
                 series_id,
                 details,
                 // Planned by the AI apply, so the provenance is AI-extracted;
@@ -660,6 +882,7 @@ pub fn plan_scene_apply(
 
         plan.scenes.push(SceneApplyPlan {
             draft_ref,
+            episode,
             scene,
             characters,
             costumes,
@@ -763,14 +986,22 @@ pub fn stable_draft_ref(
 /// desynchronize `source_quote` verification.
 pub fn extract_scenes(document: &str) -> Vec<SceneChunk> {
     let mut chunks: Vec<SceneChunk> = Vec::new();
+    // The episode in effect at the current line: the last `Ep.:` marker seen
+    // so far (page headers repeat it, which is harmless — same value). A chunk
+    // stamps the episode that was in effect at its heading line (issue #581).
+    let mut current_episode: Option<DraftEpisode> = None;
     for line in document.lines() {
         let trimmed = line.trim();
+        if let Some(episode) = episode_marker(trimmed) {
+            current_episode = Some(episode);
+        }
         if is_scene_heading(trimmed) {
             let scene_number = leading_scene_number(&normalize_for_heading_detection(trimmed));
             chunks.push(SceneChunk {
                 index: chunks.len(),
                 heading: trimmed.to_owned(),
                 scene_number,
+                episode: current_episode.clone(),
                 text: String::new(),
             });
         } else if let Some(current) = chunks.last_mut() {
