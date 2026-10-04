@@ -701,7 +701,10 @@ Future<void> showGroupTargetSheet(
           ? current
           : const CreateEpisodeGroupTarget();
       final result = await showGroupCreateDialog(context, initial: initial);
-      if (result == null) return;
+      // The dialog can outlive the notifier (a preview refresh replaced the
+      // payload, or navigation disposed the autoDispose provider) — the same
+      // guard the existing-episode branch applies after its await.
+      if (result == null || !context.mounted) return;
       controller.setGroupTarget(groupRef, result);
   }
 }
