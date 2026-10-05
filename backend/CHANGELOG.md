@@ -68,9 +68,14 @@ tag. Never edit a released entry afterwards.
   `domain.forbidden` nobody could explain. The predicates now run through
   one shared helper (`membership_gate` for single-scope gates,
   `membership_gate_any` under `authorize_costume_scoped` for multi-scope
-  ones): `Ok(false)` stays a genuine 403 deny (policy unchanged), `Err(_)`
-  is logged (`tracing::error!`) and propagated as 500 `http.internal-error`;
-  access is **never** granted on an error path (fail-closed). New fail-closed regression
+  ones). `Ok(false)` stays a genuine 403 deny (policy unchanged). In a
+  single-scope gate a predicate `Err(_)` is logged (`tracing::error!`) and
+  propagated as 500 `http.internal-error`. In the multi-scope helper a
+  failed scope lookup does **not** deny by itself — the remaining scopes may
+  still authorize (`Ok(true)` wins, even with another scope erroring); only
+  when **no** scope authorizes does the last lookup error surface as 500
+  instead of a 403 masquerading the outage. Fail-closed throughout: no error
+  grants access by itself. New fail-closed regression
   tests pin the 500 + no-write behavior per predicate family; the ast-grep
   rule `backend/rules/membership-gate.yml` forbids the pattern from
   creeping back in. The AI-import gates were already on an explicit error
