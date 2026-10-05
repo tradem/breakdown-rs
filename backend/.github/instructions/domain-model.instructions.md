@@ -11,11 +11,35 @@ applyTo:
 <!-- Co-authored-by: glm-5.3 (neuralwatt) -->
 <!-- Co-authored-by: space-bunny-free (opencode-go) -->
 
-# Production hierarchy (ADR: introduce-season-block-episode-hierarchy)
+# Production hierarchy (ADR: introduce-season-block-episode-hierarchy; strategy: ADR-035)
 
 The domain models a four-level production hierarchy:
 `Series` (opaque `SeriesId` only — no aggregate yet) → `Season` → `Block` → `Episode` → `Scene`.
-`Character` and `Costume` are scoped to a `Season` (`Character.season_id`) / scope-free (`Costume` is bound only via cross-aggregate references: `character_id` and, since #543, the optional `category_id` — both season-scoped aggregates, resolved by join in the read model).
+**ADR-035** (issue #531) records the strategic direction for this chain and binds new work:
+the container target is **`Project`** (a 1:1 rename of the `Series` term — it dissolves
+together with the `Season` term, it is *not* a new level above it), and the container chain
+**below** `Project` becomes production-kind-configurable in a later change. Its normative
+boundary: authorization predicates are typed by the *authorization level*, never by a
+production-form-specific container — **no new `*_in_season` predicate may be added**
+(B2), and cross-aggregate uniqueness keys are prefixed with the tenant id, not `series_id`
+(B4). No schema or wire change follows from that ADR (B5); `SeriesId` stays until the
+dedicated rename change. Read it before adding a container-scoped authorization predicate
+or a uniqueness constraint.
+`Character` is scoped to a `Season` (`Character.season_id`). `Costume` is **not**
+scope-free: since #453 it carries a season **repertoire** (`projection_costume_season`,
+PK `(costume_id, season_id)` — m:n by construction, the wardrobe lifecycle carries a costume
+from one season into the next), seeded from `CostumeCreated.season_id` and made real
+aggregate state by #534; it additionally references the optional `category_id` (#543),
+resolved by join in the read model.
+That union is the costume's **domain** scope: it decides which seasons list the costume,
+which series/project it resolves to, and what the season-scoped reports are about.
+Its **authorization** scope is a separate question and is *not* that union:
+`authorize_costume_scoped` (`api/src/handlers/mod.rs:757`) still checks the season-typed
+predicate per scope today, but ADR-035 B2/S2 moves that boundary up to the **project** — a
+costume-department role in any active block of the owning project. #535 removes the
+`…_in_season` call from the photo path (a deliberate widening); the repertoire then only
+serves to resolve *which* project. Do not re-introduce a season-union authorization check,
+and do not let the client deny on the season union — it would block flows the server permits.
 Core modules: `season`, `block`, `episode`, `scene`, `scene_shoot`, `shooting_day`, `character`, `costume`, `costume_category`, `shared`.
 The `calculation` context was removed; do not reintroduce it.
 `shooting_day` is an Episode-scoped `Drehtag` aggregate. It carries a `label`, a `LexicalSortKey`

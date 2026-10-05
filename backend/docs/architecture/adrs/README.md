@@ -20,7 +20,9 @@ and their consequences.
   co-authored with `GLM-5.2 (Zhipu, hosted by neuralwatt)`. ADR-023 … ADR-029
   form the Encryption & Secrets-Management ADR set (initiated from
   `prompts/encryption-secrets-adr-prompt.md`) and were co-authored with
-  `glm-5.2 (neuralwatt)`.
+  `glm-5.2 (neuralwatt)`. ADR-030 … ADR-034 are per-issue records authored by
+  `@tradem` with the assisting agent named per ADR; ADR-035 is the strategic
+  parent of the 0.4.x hierarchy series (#531).
 
 
 ## List of ADRs
@@ -59,7 +61,9 @@ and their consequences.
 | [030](ADR-030-ai-import-bounded-context.md) | AI Import Bounded Context | Accepted | 2026-08-02 | Tobias Rademacher (@tradem); gpt-5.6-luna (opencode-go) |
 | [031](ADR-031-http-error-surface.md) | HTTP Error Surface — RFC 9457 Problem Details, Stable Codes, Server-Side i18n | Accepted | 2026-08-12 | Tobias Rademacher (@tradem); kimi-k3 (neuralwatt) |
 | [032](ADR-032-flutter-client-tls-pinning-rotation.md) | Flutter Client TLS Certificate Pinning & Production Rotation Policy | Proposed | 2026-09-01 | Tobias Rademacher (@tradem); hy3 (opencode-go) |
+| [033](ADR-033-flutter-client-versioning.md) | Flutter Client Versioning & Release Mechanics | Accepted | 2026-09-04 | Tobias Rademacher (@tradem); Muse Spark (opencode-go) |
 | [034](ADR-034-flutter-app-localization-gen-l10n.md) | Flutter App Localization with the Official gen-l10n Pipeline | Accepted | 2026-09-04 | Tobias Rademacher (@tradem); glm-5.3 (neuralwatt) |
+| [035](ADR-035-production-kind-flexible-hierarchy.md) | Production-Kind-Flexible Hierarchy — `Project` as the Container Target | Accepted | 2026-10-05 | Tobias Rademacher (@tradem); space-bunny-free (opencode-go) |
 
 ## Creating a New ADR
 
