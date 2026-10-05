@@ -87,7 +87,7 @@ fn api_routes_are_behind_auth_middleware() {
     //  patterns, not method-verb pairs.)
     assert_eq!(
         api.len(),
-        83,
+        87,
         "number of API route path patterns has changed — \
          see doc comment above for update instructions"
     );
@@ -292,6 +292,18 @@ fn api_routes_have_deliberate_authorization_requirement() {
         ),
         (
             "/shooting-days/{id}/report/archive",
+            Requirement::Authenticated,
+        ),
+        // Aggregated Soll-Ist reports (issue #571) — handler-internal
+        // season-scoped auth gates, same policy as the day reports.
+        ("/seasons/{id}/report/soll-ist", Requirement::Authenticated),
+        ("/episodes/{id}/report/soll-ist", Requirement::Authenticated),
+        (
+            "/seasons/{id}/report/soll-ist.pdf",
+            Requirement::Authenticated,
+        ),
+        (
+            "/episodes/{id}/report/soll-ist.pdf",
             Requirement::Authenticated,
         ),
         ("/ai-import/scripts", Requirement::Authenticated),

@@ -61,7 +61,9 @@ use breakdown_core::scene_shoot::commands::{
 use breakdown_core::scene_shoot::ports::{
     SceneShootCommands, SceneShootReportRepository, SceneShootRepository,
 };
-use breakdown_core::scene_shoot::views::{DispoRow, SceneShootView, ShootDayRow, SollIstReport};
+use breakdown_core::scene_shoot::views::{
+    AggregateSollIstReport, DispoRow, SceneShootView, ShootDayRow, SollIstReport,
+};
 use breakdown_core::season::commands::{CreateSeason, RenameSeason};
 use breakdown_core::season::ports::{SeasonCommands, SeasonRepository};
 use breakdown_core::season::views::SeasonView;
@@ -1683,6 +1685,18 @@ impl SceneShootReportRepository for FakeSceneShootReportRepo {
         &self,
         _shooting_day_id: ShootingDayId,
     ) -> Result<SollIstReport, DomainError> {
+        unreachable!("not used in authz tests")
+    }
+    async fn season_soll_ist_report(
+        &self,
+        _season_id: SeasonId,
+    ) -> Result<AggregateSollIstReport, DomainError> {
+        unreachable!("not used in authz tests")
+    }
+    async fn episode_soll_ist_report(
+        &self,
+        _episode_id: EpisodeId,
+    ) -> Result<AggregateSollIstReport, DomainError> {
         unreachable!("not used in authz tests")
     }
 }

@@ -7,10 +7,11 @@
 use breakdown_core::error::DomainError;
 use breakdown_core::scene_shoot::ports::SceneShootReportRepository;
 use breakdown_core::scene_shoot::views::{
-    DispoRow, SerializedNote, ShootDayRow, SollIstDiffRow, SollIstReport,
+    AggregateSollIstDiffRow, AggregateSollIstReport, DispoRow, SerializedNote, ShootDayRow,
+    SollIstDiffRow, SollIstReport,
 };
 use breakdown_core::shared::SceneShootStatus;
-use breakdown_core::shared::{LexicalSortKey, PhotoId, ShootingDayId};
+use breakdown_core::shared::{EpisodeId, LexicalSortKey, PhotoId, SeasonId, ShootingDayId};
 use sqlx::{PgPool, Row};
 use uuid::Uuid;
 
@@ -209,6 +210,188 @@ impl SceneShootReportRepository for SceneShootReportRepositoryImpl {
             is_final,
         })
     }
+
+    async fn season_soll_ist_report(
+        &self,
+        season_id: SeasonId,
+    ) -> Result<AggregateSollIstReport, DomainError> {
+        // Day summary: non-archived days of the season, wrapped-vs-total.
+        // `count(*)` always returns exactly one row (zero scopes yield 0/0,
+        // never vacuous finality — issue #571 decision 3).
+        let summary = sqlx::query(
+            r#"
+            SELECT count(*)::BIGINT AS total,
+                   count(*) FILTER (WHERE d.wrapped_at IS NOT NULL)::BIGINT AS wrapped
+            FROM projection_shooting_day d
+            JOIN projection_episode e ON e.id = d.episode_id
+            JOIN projection_block b ON b.id = e.block_id
+            WHERE b.season_id = $1 AND d.archived = false
+            "#,
+        )
+        .bind(season_id.0)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(map_err)?;
+        let total = summary.try_get::<i64, _>("total").map_err(map_err)?;
+        let wrapped = summary.try_get::<i64, _>("wrapped").map_err(map_err)?;
+
+        // All scene-shoot rows of the season, day-scoped flags applied per row.
+        let rows = sqlx::query(
+            r#"
+            SELECT ss.scene_id, ss.planned_order, ss.actual_order, ss.status,
+                   ss.start_dt, ss.end_dt,
+                   s.scene_number, s.script_day, s.location,
+                   ss.shooting_day_id, d.label AS shooting_day_label
+            FROM projection_scene_shoot ss
+            JOIN projection_shooting_day d ON d.id = ss.shooting_day_id
+            LEFT JOIN projection_scene s ON s.id = ss.scene_id
+            JOIN projection_episode e ON e.id = d.episode_id
+            JOIN projection_block b ON b.id = e.block_id
+            WHERE b.season_id = $1 AND d.archived = false
+            ORDER BY d.order_key ASC, ss.planned_order ASC
+            "#,
+        )
+        .bind(season_id.0)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(map_err)?;
+
+        build_aggregate_report(rows, total, wrapped)
+    }
+
+    async fn episode_soll_ist_report(
+        &self,
+        episode_id: EpisodeId,
+    ) -> Result<AggregateSollIstReport, DomainError> {
+        // Day summary: non-archived days of the episode (see season method).
+        let summary = sqlx::query(
+            r#"
+            SELECT count(*)::BIGINT AS total,
+                   count(*) FILTER (WHERE d.wrapped_at IS NOT NULL)::BIGINT AS wrapped
+            FROM projection_shooting_day d
+            WHERE d.episode_id = $1 AND d.archived = false
+            "#,
+        )
+        .bind(episode_id.0)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(map_err)?;
+        let total = summary.try_get::<i64, _>("total").map_err(map_err)?;
+        let wrapped = summary.try_get::<i64, _>("wrapped").map_err(map_err)?;
+
+        // All scene-shoot rows of the episode.
+        let rows = sqlx::query(
+            r#"
+            SELECT ss.scene_id, ss.planned_order, ss.actual_order, ss.status,
+                   ss.start_dt, ss.end_dt,
+                   s.scene_number, s.script_day, s.location,
+                   ss.shooting_day_id, d.label AS shooting_day_label
+            FROM projection_scene_shoot ss
+            JOIN projection_shooting_day d ON d.id = ss.shooting_day_id
+            LEFT JOIN projection_scene s ON s.id = ss.scene_id
+            WHERE d.episode_id = $1 AND d.archived = false
+            ORDER BY d.order_key ASC, ss.planned_order ASC
+            "#,
+        )
+        .bind(episode_id.0)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(map_err)?;
+
+        build_aggregate_report(rows, total, wrapped)
+    }
+}
+
+/// Assemble the aggregate report from fetched row rows.
+///
+/// `reshot_candidate` is computed **from the fetched set itself**: the set is
+/// precisely the report scope, so a scene has a `Shot` record on another day
+/// *within the scope* iff another fetched row says so. `is_final` follows the
+/// issue-#571 decision: at least one non-archived day AND every one wrapped.
+fn build_aggregate_report(
+    rows: Vec<sqlx::postgres::PgRow>,
+    total: i64,
+    wrapped: i64,
+) -> Result<AggregateSollIstReport, DomainError> {
+    // (scene_id, status == Shot) pairs for the reshot check, skipping the
+    // row's own day at comparison time.
+    let shot_pairs: Vec<(Uuid, Uuid)> = rows
+        .iter()
+        .filter_map(|r| {
+            let status: String = r.try_get("status").ok()?;
+            if status != "Shot" {
+                return None;
+            }
+            Some((
+                r.try_get::<Uuid, _>("scene_id").ok()?,
+                r.try_get::<Uuid, _>("shooting_day_id").ok()?,
+            ))
+        })
+        .collect();
+
+    let diff_rows: Vec<AggregateSollIstDiffRow> = rows
+        .into_iter()
+        .map(|row| {
+            let scene_id: Uuid = row.try_get("scene_id").map_err(map_err)?;
+            let shooting_day_id: Uuid = row.try_get("shooting_day_id").map_err(map_err)?;
+            let shooting_day_label: Option<String> =
+                row.try_get("shooting_day_label").map_err(map_err)?;
+            let planned_str: String = row.try_get("planned_order").map_err(map_err)?;
+            let actual_str: Option<String> = row.try_get("actual_order").map_err(map_err)?;
+            let status_str: String = row.try_get("status").map_err(map_err)?;
+            let start_dt: Option<chrono::DateTime<chrono::Utc>> =
+                row.try_get("start_dt").map_err(map_err)?;
+
+            let planned_order = Some(
+                LexicalSortKey::new(planned_str)
+                    .map_err(|e| DomainError::conflict(e.to_string()))?,
+            );
+            let actual_order = actual_str
+                .map(LexicalSortKey::new)
+                .transpose()
+                .map_err(|e| DomainError::conflict(e.to_string()))?;
+
+            let status = parse_status(&status_str)?;
+            let is_skipped = status == SceneShootStatus::Skipped;
+            let missing =
+                actual_order.is_none() && start_dt.is_none() && status != SceneShootStatus::Shot;
+            let moved = match (&planned_order, &actual_order) {
+                (Some(p), Some(a)) => p != a,
+                _ => false,
+            };
+            let reshot_candidate = shot_pairs
+                .iter()
+                .any(|(s, d)| *s == scene_id && *d != shooting_day_id);
+
+            Ok(AggregateSollIstDiffRow {
+                scene_id,
+                shooting_day_id: ShootingDayId::from_uuid(shooting_day_id),
+                shooting_day_label,
+                scene_number: row
+                    .try_get::<Option<i32>, _>("scene_number")
+                    .map_err(map_err)?
+                    .map(|v| v as u32),
+                script_day: row.try_get("script_day").map_err(map_err)?,
+                location: row.try_get("location").map_err(map_err)?,
+                planned_order,
+                actual_order,
+                moved,
+                missing,
+                skipped: is_skipped,
+                reshot_candidate,
+            })
+        })
+        .collect::<Result<Vec<_>, DomainError>>()?;
+
+    let total = u32::try_from(total).unwrap_or(u32::MAX); // sat-guard: i64→u32
+    let wrapped = u32::try_from(wrapped).unwrap_or(u32::MAX);
+    let is_final = total >= 1 && wrapped == total;
+    Ok(AggregateSollIstReport {
+        rows: diff_rows,
+        is_final,
+        total_shooting_days: total,
+        wrapped_shooting_days: wrapped,
+    })
 }
 
 fn parse_status(s: &str) -> Result<SceneShootStatus, DomainError> {

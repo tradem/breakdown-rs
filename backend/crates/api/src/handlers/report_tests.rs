@@ -18,8 +18,9 @@ use breakdown_core::shared::ShootingDayId;
 
 use super::test_helpers::*;
 use super::{
-    dispo_report_pdf, map_render_error, planned_vs_actual_report_pdf, sanitize_pdf_filename,
-    shoot_day_report_pdf,
+    dispo_report_pdf, episode_soll_ist_report, episode_soll_ist_report_pdf, map_render_error,
+    planned_vs_actual_report_pdf, sanitize_pdf_filename, season_soll_ist_report,
+    season_soll_ist_report_pdf, shoot_day_report_pdf,
 };
 use crate::auth::CurrentUser;
 use crate::state::AppState;
@@ -148,6 +149,82 @@ async fn test_planned_vs_actual_report_pdf_shooting_day_not_found() {
         planned_vs_actual_report_pdf(State(state), user, api::problems::Path(day_id)).await;
 
     let (status, Json(resp)) = result.expect_err("handler should fail for missing shooting day");
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert!(!resp.message.is_empty());
+}
+
+// ---------------------------------------------------------------------------
+// Aggregated Soll-Ist report handlers (issue #571) — failure paths
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn test_season_soll_ist_report_season_not_found() {
+    let state = AppState::new(FakePorts::default());
+    let season_id = uuid::Uuid::now_v7();
+    let user = CurrentUser::dummy("test-user");
+
+    let result = season_soll_ist_report(
+        State(state),
+        user,
+        api::problems::Path(season_id),
+    )
+    .await;
+
+    let (status, Json(resp)) = result.expect_err("handler should fail for missing season");
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert!(!resp.message.is_empty());
+}
+
+#[tokio::test]
+async fn test_season_soll_ist_report_pdf_season_not_found() {
+    let state = AppState::new(FakePorts::default());
+    let season_id = uuid::Uuid::now_v7();
+    let user = CurrentUser::dummy("test-user");
+
+    let result = season_soll_ist_report_pdf(
+        State(state),
+        user,
+        api::problems::Path(season_id),
+    )
+    .await;
+
+    let (status, Json(resp)) = result.expect_err("handler should fail for missing season");
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert!(!resp.message.is_empty());
+}
+
+#[tokio::test]
+async fn test_episode_soll_ist_report_episode_not_found() {
+    let state = AppState::new(FakePorts::default());
+    let episode_id = uuid::Uuid::now_v7();
+    let user = CurrentUser::dummy("test-user");
+
+    let result = episode_soll_ist_report(
+        State(state),
+        user,
+        api::problems::Path(episode_id),
+    )
+    .await;
+
+    let (status, Json(resp)) = result.expect_err("handler should fail for missing episode");
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert!(!resp.message.is_empty());
+}
+
+#[tokio::test]
+async fn test_episode_soll_ist_report_pdf_episode_not_found() {
+    let state = AppState::new(FakePorts::default());
+    let episode_id = uuid::Uuid::now_v7();
+    let user = CurrentUser::dummy("test-user");
+
+    let result = episode_soll_ist_report_pdf(
+        State(state),
+        user,
+        api::problems::Path(episode_id),
+    )
+    .await;
+
+    let (status, Json(resp)) = result.expect_err("handler should fail for missing episode");
     assert_eq!(status, StatusCode::NOT_FOUND);
     assert!(!resp.message.is_empty());
 }

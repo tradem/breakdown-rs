@@ -12,14 +12,14 @@
 use uuid::Uuid;
 
 use crate::error::DomainError;
-use crate::shared::{AggregateVersion, SceneShootId, ShootingDayId, UserId};
+use crate::shared::{AggregateVersion, EpisodeId, SceneShootId, SeasonId, ShootingDayId, UserId};
 
 use super::commands::{
     AddSceneShootNote, FinishSceneShoot, LinkContinuityPhoto, PlanSceneShoot, RemoveSceneShootNote,
     ReplanSceneShoot, SetActualOrder, SkipSceneShoot, StartSceneShoot, UnlinkContinuityPhoto,
     UpdateSceneShootNote,
 };
-use super::views::{DispoRow, SceneShootView, ShootDayRow, SollIstReport};
+use super::views::{AggregateSollIstReport, DispoRow, SceneShootView, ShootDayRow, SollIstReport};
 
 /// Async write port for the `SceneShootAggregate`. Mockable seam used by API handlers.
 #[allow(async_fn_in_trait)]
@@ -148,4 +148,20 @@ pub trait SceneShootReportRepository: Send + Sync {
         &self,
         shooting_day_id: ShootingDayId,
     ) -> impl std::future::Future<Output = Result<SollIstReport, DomainError>> + Send;
+
+    /// Season-scoped aggregated Soll-Ist-Vergleich (issue #571): rows across
+    /// all non-archived shooting days of the season, plus the server-derived
+    /// aggregate finality flag and day counts.
+    fn season_soll_ist_report(
+        &self,
+        season_id: SeasonId,
+    ) -> impl std::future::Future<Output = Result<AggregateSollIstReport, DomainError>> + Send;
+
+    /// Episode-scoped aggregated Soll-Ist-Vergleich (issue #571): rows across
+    /// all non-archived shooting days of the episode, plus the server-derived
+    /// aggregate finality flag and day counts.
+    fn episode_soll_ist_report(
+        &self,
+        episode_id: EpisodeId,
+    ) -> impl std::future::Future<Output = Result<AggregateSollIstReport, DomainError>> + Send;
 }

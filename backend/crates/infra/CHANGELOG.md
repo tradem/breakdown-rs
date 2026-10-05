@@ -15,6 +15,23 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
+## [0.22.0] - Unreleased
+
+### Added — aggregated Soll-Ist read adapter + render kinds (issue #571)
+
+- `SceneShootReportRepositoryImpl::season_soll_ist_report` /
+  `episode_soll_ist_report`: static-literal SQL over
+  `projection_scene_shoot` × day/episode/block/season joins (non-archived
+  days only), one day-count summary query per scope (never vacuously final),
+  rows ordered by day `order_key` then planned order, `reshot_candidate`
+  computed from the fetched set (scope-true semantics).
+- Two embedded Typst templates (`season-soll-ist.typ`,
+  `episode-soll-ist.typ`) registered on the aggregate `ReportKind`s;
+  both render-only kinds are explicitly rejected by the archival data
+  loader (never archivable).
+- Tier-4 round-trip test `aggregate_soll_ist_report_episode_and_season_scopes`
+  (scopes, finality rule, archived exclusion, reshot semantics).
+
 ## [0.21.0] - Unreleased
 
 ### Added — AI apply creates episodes for draft episode groups (issue #581)

@@ -34,7 +34,7 @@ by `planned_order` (Soll) and `actual_order` (Ist). Lifecycle: `Planned` → `Sc
 append-only with mutable bodies (`SceneShootNote`), and continuity photos link via
 `ContinuityPhotoLinked/Unlinked` events. Three idempotent read-side reports are served from
 `SceneShootReportRepository`: Dispo (planned_order ASC), Shoot Day (actual_order NULLS LAST),
-and Soll-Ist (diff with moved/missing/skipped/reshot flags + `final` from `wrapped_at`).
+and Soll-Ist (diff with moved/missing/skipped/reshot flags + `final` from `wrapped_at`). Since #571 the same port additionally serves two **aggregated** Soll-Ist reports — `season_soll_ist_report(SeasonId)` / `episode_soll_ist_report(EpisodeId)` at `GET /v1/seasons/{id}/report/soll-ist` (+ `/v1/episodes/{id}/...`) and their `.pdf` twins (`ReportKind::SeasonSollIst`/`EpisodeSollIst`, own Typst templates, never archivable). Rows are one per scene × non-archived shooting day within the scope (day id + label attached, ordered by day `order_key`); `is_final` and the day counts are server-derived (`≥1` non-archived day AND all wrapped; zero days ⇒ `200` empty, never vacuously final); authz reuses the day reports' handler-internal `has_active_costume_role_in_season` gate.
 The projector uses version guards (`WHERE version < $N`) to ensure event-redelivery idempotency.
 `SeriesId` is an opaque UUIDv7 seam for a future additive `Series` aggregate — hierarchy entities reference it but no `Series` aggregate exists yet.
 `costume_category` is a **season-scoped vocabulary** aggregate (`CostumeCategory`, category `"costume_category"`)

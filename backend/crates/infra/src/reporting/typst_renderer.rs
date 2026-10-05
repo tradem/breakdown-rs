@@ -241,6 +241,14 @@ impl TypstReportRenderer {
             ReportKind::PlannedVsActual,
             include_str!("../../templates/reports/planned-vs-actual.typ").to_string(),
         );
+        templates.insert(
+            ReportKind::SeasonSollIst,
+            include_str!("../../templates/reports/season-soll-ist.typ").to_string(),
+        );
+        templates.insert(
+            ReportKind::EpisodeSollIst,
+            include_str!("../../templates/reports/episode-soll-ist.typ").to_string(),
+        );
 
         // Load system fonts
         let fonts = load_system_fonts().map_err(ReportRenderError::Internal)?;

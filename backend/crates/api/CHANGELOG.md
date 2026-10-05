@@ -16,6 +16,23 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
+## [0.16.0] - Unreleased
+
+### Added — aggregated Soll-Ist report routes (issue #571)
+
+- `GET /v1/seasons/{id}/report/soll-ist` +
+  `GET /v1/episodes/{id}/report/soll-ist` and their `.pdf` twins. Both JSON
+  handlers and both PDF handlers carry a handler-internal `// AUTHZ-GATE:`
+  over `has_active_costume_role_in_season` (season direct; episode via
+  episode → block → season): a member who can read every day report can
+  read the union — no new capability. Unknown ids answer the registered
+  `season.not-found` / `episode.not-found` 404s before the gate; a scope
+  with zero shooting days answers `200` with an empty report.
+- `requirement_for` arm for the episode route (`Authenticated`, mirroring
+  the day JSON reports; the season route is covered by the `/seasons`
+  prefix) and the route-coverage inventory rows + total (83 → 87 path
+  patterns).
+
 ## [0.15.0] - Unreleased
 
 ### Added — multi-episode script apply (issue #581)

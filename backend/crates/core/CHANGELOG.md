@@ -15,6 +15,19 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
+## [0.18.0] - Unreleased
+
+### Added — aggregated Soll-Ist report types (issue #571)
+
+- `AggregateSollIstDiffRow` (`scene_id` + `shooting_day_id` +
+  `shooting_day_label` + the diff flags; `reshot_candidate` scoped to the
+  report scope) and `AggregateSollIstReport` (`rows`, server-derived
+  `is_final`, `total_shooting_days` / `wrapped_shooting_days`).
+- `SceneShootReportRepository::season_soll_ist_report(SeasonId)` /
+  `episode_soll_ist_report(EpisodeId)` (additive port methods).
+- `ReportKind::SeasonSollIst` / `EpisodeSollIst` (kebab-case
+  `season-soll-ist` / `episode-soll-ist`; render-only, never archivable).
+
 ## [0.17.0] - Unreleased
 
 ### Added — AI script import extracts EPISODES (issue #581)

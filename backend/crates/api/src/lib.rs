@@ -109,6 +109,12 @@ use utoipa::OpenApi;
         handlers::shoot_day_report_pdf,
         handlers::planned_vs_actual_report_pdf,
         handlers::manual_archive_reports,
+        // Aggregated Soll-Ist reports (issue #571): JSON + PDF twins for the
+        // season- and episode-scoped surfaces.
+        handlers::season_soll_ist_report,
+        handlers::episode_soll_ist_report,
+        handlers::season_soll_ist_report_pdf,
+        handlers::episode_soll_ist_report_pdf,
         handlers::create_credential,
         handlers::list_ai_providers,
         handlers::list_ai_models,
@@ -256,6 +262,9 @@ use utoipa::OpenApi;
         breakdown_core::scene_shoot::views::ShootDayRow,
         breakdown_core::scene_shoot::views::SollIstDiffRow,
         breakdown_core::scene_shoot::views::SollIstReport,
+        // Aggregated Soll-Ist reports (issue #571).
+        breakdown_core::scene_shoot::views::AggregateSollIstDiffRow,
+        breakdown_core::scene_shoot::views::AggregateSollIstReport,
         // Ops surface DTOs (issue #409): projector health snapshot.
         breakdown_core::ops::DeadLetterEntry,
         breakdown_core::ops::CheckpointProgress,
