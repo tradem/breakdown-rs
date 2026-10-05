@@ -69,8 +69,8 @@ tag. Never edit a released entry afterwards.
   one shared helper (`membership_gate` for single-scope gates,
   `membership_gate_any` under `authorize_costume_scoped` for multi-scope
   ones): `Ok(false)` stays a genuine 403 deny (policy unchanged), `Err(_)`
-  is logged (`tracing::error!`) and propagated as 500 `http.internal-error`,
-  and access is still granted on an error path. New fail-closed regression
+  is logged (`tracing::error!`) and propagated as 500 `http.internal-error`;
+  access is **never** granted on an error path (fail-closed). New fail-closed regression
   tests pin the 500 + no-write behavior per predicate family; the ast-grep
   rule `backend/rules/membership-gate.yml` forbids the pattern from
   creeping back in. The AI-import gates were already on an explicit error
