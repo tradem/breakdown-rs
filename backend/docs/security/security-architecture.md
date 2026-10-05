@@ -151,21 +151,30 @@ let decision = tokio::task::spawn(async move { policy.authorize(&ctx).await })
 Any repository error also collapses to `PolicyDecision::Deny` in
 `MembershipAuthorizationPolicy::authorize`.
 
-Every handler-internal gate follows the same shape — the predicate is called
-with `.unwrap_or(false)` so a repository error denies:
+Every handler-internal gate routes its predicate through the shared
+`membership_gate` helper (`crates/api/src/handlers/mod.rs`, issue #537) —
+fail-closed, but with an honest error surface: a predicate error is logged
+(`tracing::error!`) and propagated as 500 `http.internal-error`, never
+masquerading as a 403 permission denial:
 
 ```rust
 // crates/api/src/handlers/mod.rs (pattern for all // AUTHZ-GATE: sites)
-let authorized = state
-    .ports
-    .membership_repo()
-    .has_active_membership_in_series(series_id, current_user.sub.clone())
-    .await
-    .unwrap_or(false);
-if !authorized {
-    return Err(ApiError::Forbidden("…"));
-}
+membership_gate(
+    state
+        .ports
+        .membership_repo()
+        .has_active_membership_in_series(series_id, current_user.sub.clone()),
+    || ApiError::Forbidden("…"),
+)
+.await?;
 ```
+
+`Ok(false)` is a genuine deny (403 with the site's reason); `Err(_)` still
+grants nothing — the fail-closed semantics are intentional — but the outage
+becomes traceable. Multi-scope gates (costume authorization) use
+`membership_gate_any` under `authorize_costume_scoped`. The ast-grep rule
+`backend/rules/membership-gate.yml` forbids the pre-#537
+`.unwrap_or(false)` pattern in production code.
 
 ## Membership projection encoding (role / state)
 

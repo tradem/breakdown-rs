@@ -14,7 +14,9 @@ permissions:
 #   Layer 4: cqrs-boundary — ast-grep: write-side code (adapters, sagas) must not query read-model projections
 #   Layer 5: test-shim-leak — ast-grep: production api code must not call test-only helpers
 #   Layer 6: error-hygiene — ast-grep: no discarded results (`let _ = <call>`), test helpers must be cfg-gated,
-#            UUIDv4 generation forbidden (UUIDv7 only), panic/unsafe-family `#[allow]` must carry a justification comment
+#            UUIDv4 generation forbidden (UUIDv7 only), panic/unsafe-family `#[allow]` must carry a justification comment,
+#            membership predicates must route their errors through the shared
+#            `membership_gate` helper, never `.unwrap_or(false)` (issue #537)
 #   Layer 7: problem-code-registry — every `pub const …: ProblemCode` must be declared through the problem_codes!
 #            macro in error_registry.rs (a standalone declaration would compile but never be registered, issue #232)
 #   Layer 8: gitleaks — blocks accidental secret commits against 150+ patterns
@@ -226,6 +228,10 @@ jobs:
           #     schema; the generated Dart client then throws on every response
           #     carrying the unset value (issue #423: characters screen broken
           #     for all freshly created characters).
+          #   backend/rules/membership-gate.yml — a membership predicate's
+          #     error swallowed with `.unwrap_or(false)` (fail-closed, but the
+          #     outage masquerades as a 403); must route through the shared
+          #     `membership_gate` helper (issue #537).
           # Intentional cases require an explicit
           # `// ast-grep-ignore: <rule-id>` + justification.
           if [ "${#FILES[@]}" -gt 0 ]; then
@@ -234,6 +240,7 @@ jobs:
             ast-grep scan -r rules/uuid-v7-only.yml "${FILES[@]}"
             ast-grep scan -r rules/allow-panic-lint-justification.yml "${FILES[@]}"
             ast-grep scan -r rules/openapi-value-type-nullable.yml "${FILES[@]}"
+            ast-grep scan -r rules/membership-gate.yml "${FILES[@]}"
           fi
           # UUIDv7-only rule also applies to test files (AGENTS.md §3 —
           # "Strictly use UUIDv7 ... No UUIDv4" applies everywhere).
@@ -257,7 +264,7 @@ jobs:
           # the S2 enforcement.
           test -d crates/api/src/problems
           ast-grep scan -r rules/s2-extension-ban.yml crates/api/src/problems
-          echo "OK: no discarded results / ungated test helpers / UUIDv4 / bare panic allows / no S2 extensions / dishonest value_type overrides found"
+          echo "OK: no discarded results / ungated test helpers / UUIDv4 / bare panic allows / no S2 extensions / dishonest value_type overrides / swallowed membership-predicate errors found"
 
   problem-code-registry:
     name: Problem-code registry (every code registered via the macro)
