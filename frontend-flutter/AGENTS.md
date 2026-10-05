@@ -129,6 +129,16 @@ feature folder per aggregate boundary, one screen per read-model query.
 Costume categories are season-scoped; continuity photos bind to scene
 shoots; the photo bounded context's `binding` discriminator
 (`Costume {| Continuity}`) is surfaced in the photos feature.
+**Forward direction (ADR-035, issue #531):** the top container will be
+renamed `Project` and the chain *below* it will become
+production-kind-configurable (film and theatre have no seasons). `Season` and
+the `Series` term are the terms being dissolved — do not build new navigation,
+feature folders or authorization gates on either as if it were permanent. The
+tenancy/authz seam moves *with* the rename (`Series` → `Project`, 1:1, no new
+level), so the client's scope headers and role checks keep their current
+meaning; when the rename lands, expect a `Project`-named counterpart of the
+`Series` scope it replaces. A costume's scope is its **repertoire** seasons ∪
+its character's season, not one season.
 
 ## 3. OpenAPI Contract & Drift Discipline
 
