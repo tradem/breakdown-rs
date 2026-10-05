@@ -464,6 +464,35 @@ class AppLocalizationsEn extends AppLocalizations {
       'Once a shooting day is planned, that day\'s planned-vs-actual (Soll/Ist) report opens from here.';
 
   @override
+  String get shootingDaysReportsAggregateLabel => 'Overall Soll-Ist';
+
+  @override
+  String reportsAggregateTitle(Object scope) {
+    return 'Planned vs. actual – $scope';
+  }
+
+  @override
+  String get reportsAggregateFinal => 'Final — every shooting day is wrapped.';
+
+  @override
+  String reportsAggregateProvisional(Object total, Object wrapped) {
+    return 'Provisional — $wrapped of $total shooting days wrapped.';
+  }
+
+  @override
+  String reportsAggregateProgress(Object total, Object wrapped) {
+    return '$wrapped of $total shooting days wrapped';
+  }
+
+  @override
+  String get reportsAggregatePdf => 'Planned vs. actual (PDF)';
+
+  @override
+  String reportsAggregateSceneLabel(Object number) {
+    return 'Scene $number';
+  }
+
+  @override
   String get aiConfigErrorAdmin =>
       'Administrator role required — ask your production admin.';
 

@@ -309,6 +309,16 @@ pub fn requirement_for(path: &str) -> Requirement {
         return Requirement::Authenticated;
     }
 
+    // Aggregated report routes (issue #571): gated internally by the
+    // handler-internal AUTHZ-GATE over the season membership policy — the
+    // same pattern as the day-scoped JSON reports. The season JSON route is
+    // covered by the `/seasons` prefix above.
+    if path.contains("/report/soll-ist")
+        && (path.starts_with("/episodes/") || path.starts_with("/seasons/"))
+    {
+        return Requirement::Authenticated;
+    }
+
     // Manual "archive now" uses handler-internal AUTHZ-GATE (designer/supervisor).
     if path.ends_with("/report/archive") {
         return Requirement::Authenticated;

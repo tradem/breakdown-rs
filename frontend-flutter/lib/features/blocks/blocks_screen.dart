@@ -18,11 +18,55 @@ import '../../core/problem_error.dart';
 import '../../l10n/app_localizations_provider.dart';
 import '../../l10n/generated/app_localizations.dart';
 import '../episodes/episodes_screen.dart';
+import '../reports/reports_aggregate_screen.dart';
+import '../reports/reports_aggregate_state.dart';
+import '../reports/widgets/reports_aggregate_entry.dart';
 import '../shell/planning_location.dart';
 import 'blocks_controller.dart';
 import 'blocks_state.dart';
 import 'create_block_sheet.dart';
 import 'widgets/blocks_widgets.dart';
+
+/// The season-level aggregated Soll-Ist entry (issue #571): pushes the
+/// season-scope aggregate screen with the acted-on [SeasonView] as nav
+/// context (client CQRS boundary: no second projection lookup). Width is
+/// resolved live via [LayoutBuilder] — the same deliberate-width pattern
+/// as the #549/#577 entries, never a platform check.
+class _AggregateReportsEntry extends StatelessWidget {
+  const _AggregateReportsEntry({
+    required this.season,
+    required this.roomForLabel,
+  });
+
+  final SeasonView season;
+  final bool roomForLabel;
+
+  @override
+  Widget build(BuildContext context) => ReportsAggregateAppBarAction(
+    baseKey: 'reportsAggregateOpen',
+    roomForLabel: roomForLabel,
+    // The push is the closure's expression value (VoidCallback coerces it
+    // — intentional fire-and-forget navigation, never a discarded Future
+    // statement).
+    onOpen: () => Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) {
+          final l10n = l10nOf(context);
+          return ReportsAggregateScreen(
+            scope: ReportsAggregateScope(
+              kind: ReportAggregateScopeKind.season,
+              id: season.id,
+              seasonId: season.id,
+              // Catalog copy only (check_inline_copy.sh) — never an inline
+              // label: the same fallback the app bar title uses.
+              label: season.title ?? l10n.blockSeasonNumber('${season.number}'),
+            ),
+          );
+        },
+      ),
+    ),
+  );
+}
 
 /// Localized client-side copy for a create-block failure, keyed on the
 /// stable problem `code` (never the server's localized `detail`).
@@ -70,128 +114,151 @@ class BlocksScreen extends ConsumerWidget {
     final notFound = state.notFound;
     final l10n = l10nOf(context);
 
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(season.title ?? l10n.blockSeasonNumber('${season.number}')),
-        actions: [_MembershipChip(seasonId: season.id)],
-      ),
-      body: Column(
-        children: [
-          if (state.commandError case final error?)
-            _Banner(
-              key: const Key('block-create-error-banner'),
-              text: blockCreateErrorCopy(l10n, error),
-              onDismiss: controller.dismissCommandError,
+    // The width-resolved reports entry needs the scaffold's viewport
+    // width (the #549 pattern): the LayoutBuilder wraps the Scaffold, not
+    // the action slot — an action slot is laid out at intrinsic width and
+    // reports an unbounded constraint.
+    return LayoutBuilder(
+      builder: (context, constraints) => Scaffold(
+        appBar: AppBar(
+          title: Text(
+            season.title ?? l10n.blockSeasonNumber('${season.number}'),
+          ),
+          actions: [
+            // Season-level aggregated Soll-Ist entry (issue #571): labelled
+            // per the visible-label norm; pushes the season-scope aggregate
+            // screen. Nav context = the acted-on SeasonView (CQRS boundary:
+            // no second projection lookup).
+            _AggregateReportsEntry(
+              season: season,
+              roomForLabel: constraints.maxWidth >= 520,
             ),
-          if (state.isStale && notFound == null)
-            _Banner(
-              key: const Key('blocks-stale-banner'),
-              text: l10n.blocksStaleBanner,
-            ),
-          Expanded(
-            child: notFound != null
-                ? BlocksNotFoundView(
-                    code: notFound.code,
-                    onBack: () => Navigator.of(context).pop(),
-                  )
-                : RefreshIndicator(
-                    onRefresh: controller.refresh,
-                    child: switch (state.projected) {
-                      AsyncLoading() when rows.isEmpty => const Center(
-                        child: CircularProgressIndicator(
-                          key: Key('blocks-loading'),
+            _MembershipChip(seasonId: season.id),
+          ],
+        ),
+        body: Column(
+          children: [
+            if (state.commandError case final error?)
+              _Banner(
+                key: const Key('block-create-error-banner'),
+                text: blockCreateErrorCopy(l10n, error),
+                onDismiss: controller.dismissCommandError,
+              ),
+            if (state.isStale && notFound == null)
+              _Banner(
+                key: const Key('blocks-stale-banner'),
+                text: l10n.blocksStaleBanner,
+              ),
+            Expanded(
+              child: notFound != null
+                  ? BlocksNotFoundView(
+                      code: notFound.code,
+                      onBack: () => Navigator.of(context).pop(),
+                    )
+                  : RefreshIndicator(
+                      onRefresh: controller.refresh,
+                      child: switch (state.projected) {
+                        AsyncLoading() when rows.isEmpty => const Center(
+                          child: CircularProgressIndicator(
+                            key: Key('blocks-loading'),
+                          ),
                         ),
-                      ),
-                      AsyncError(:final error) when rows.isEmpty =>
-                        _FetchErrorView(
-                          code: error is ProblemError ? error.code : 'unknown',
-                          onRetry: () => controller.refresh(),
-                        ),
-                      _ =>
-                        rows.isEmpty
-                            ? ListView(
-                                key: const Key('blocks-list'),
-                                physics: const AlwaysScrollableScrollPhysics(),
-                                children: [
-                                  const SizedBox(height: 160),
-                                  BlocksEmptyView(
-                                    canCreate: _canCreate(ref),
-                                    onCreate: () => showCreateBlockSheet(
-                                      context,
-                                      ref,
-                                      season,
+                        AsyncError(:final error) when rows.isEmpty =>
+                          _FetchErrorView(
+                            code: error is ProblemError
+                                ? error.code
+                                : 'unknown',
+                            onRetry: () => controller.refresh(),
+                          ),
+                        _ =>
+                          rows.isEmpty
+                              ? ListView(
+                                  key: const Key('blocks-list'),
+                                  physics:
+                                      const AlwaysScrollableScrollPhysics(),
+                                  children: [
+                                    const SizedBox(height: 160),
+                                    BlocksEmptyView(
+                                      canCreate: _canCreate(ref),
+                                      onCreate: () => showCreateBlockSheet(
+                                        context,
+                                        ref,
+                                        season,
+                                      ),
                                     ),
-                                  ),
-                                ],
-                              )
-                            : ListView.builder(
-                                key: const Key('blocks-list'),
-                                physics: const AlwaysScrollableScrollPhysics(),
-                                itemCount: rows.length,
-                                itemBuilder: (context, i) => BlockTile(
-                                  row: rows[i],
-                                  onTap: rows[i] is ProjectedBlockRow
-                                      ? () {
-                                          // Issue #378: entering block
-                                          // context sets the sticky
-                                          // active-block scope (from the
-                                          // DTO acted on — CQRS boundary)
-                                          // so every block-scoped request
-                                          // below carries X-Active-Block.
-                                          final block =
-                                              (rows[i] as ProjectedBlockRow)
-                                                  .block;
-                                          ref
-                                              .read(
-                                                activeBlockProvider.notifier,
-                                              )
-                                              .set(
-                                                seasonId: block.seasonId,
-                                                blockId: block.id,
-                                                blockNumber: block.number,
-                                              );
-                                          // Scope first (synchronous — the
-                                          // pushed screen's fetches must see
-                                          // it), then navigate. The push
-                                          // future is intentionally
-                                          // unawaited (fire-and-forget
-                                          // navigation, no result consumed).
-                                          // Issue #548: the route carries
-                                          // the block-level location (season
-                                          // included) for the shell's strip.
-                                          unawaited(
-                                            Navigator.of(context).push(
-                                              MaterialPageRoute<void>(
-                                                settings: RouteSettings(
-                                                  arguments:
-                                                      PlanningLocation.block(
-                                                        season,
-                                                        block,
+                                  ],
+                                )
+                              : ListView.builder(
+                                  key: const Key('blocks-list'),
+                                  physics:
+                                      const AlwaysScrollableScrollPhysics(),
+                                  itemCount: rows.length,
+                                  itemBuilder: (context, i) => BlockTile(
+                                    row: rows[i],
+                                    onTap: rows[i] is ProjectedBlockRow
+                                        ? () {
+                                            // Issue #378: entering block
+                                            // context sets the sticky
+                                            // active-block scope (from the
+                                            // DTO acted on — CQRS boundary)
+                                            // so every block-scoped request
+                                            // below carries X-Active-Block.
+                                            final block =
+                                                (rows[i] as ProjectedBlockRow)
+                                                    .block;
+                                            ref
+                                                .read(
+                                                  activeBlockProvider.notifier,
+                                                )
+                                                .set(
+                                                  seasonId: block.seasonId,
+                                                  blockId: block.id,
+                                                  blockNumber: block.number,
+                                                );
+                                            // Scope first (synchronous — the
+                                            // pushed screen's fetches must see
+                                            // it), then navigate. The push
+                                            // future is intentionally
+                                            // unawaited (fire-and-forget
+                                            // navigation, no result consumed).
+                                            // Issue #548: the route carries
+                                            // the block-level location (season
+                                            // included) for the shell's strip.
+                                            unawaited(
+                                              Navigator.of(context).push(
+                                                MaterialPageRoute<void>(
+                                                  settings: RouteSettings(
+                                                    arguments:
+                                                        PlanningLocation.block(
+                                                          season,
+                                                          block,
+                                                        ),
+                                                  ),
+                                                  builder: (_) =>
+                                                      EpisodesScreen(
+                                                        block: block,
                                                       ),
                                                 ),
-                                                builder: (_) => EpisodesScreen(
-                                                  block: block,
-                                                ),
                                               ),
-                                            ),
-                                          );
-                                        }
-                                      : null,
+                                            );
+                                          }
+                                        : null,
+                                  ),
                                 ),
-                              ),
-                    },
-                  ),
-          ),
-        ],
+                      },
+                    ),
+            ),
+          ],
+        ),
+        floatingActionButton: _canCreate(ref)
+            ? FloatingActionButton(
+                key: const Key('block-add-fab'),
+                onPressed: () => showCreateBlockSheet(context, ref, season),
+                tooltip: l10n.blocksAddFab,
+                child: const Icon(Icons.add),
+              )
+            : null,
       ),
-      floatingActionButton: _canCreate(ref)
-          ? FloatingActionButton(
-              key: const Key('block-add-fab'),
-              onPressed: () => showCreateBlockSheet(context, ref, season),
-              tooltip: l10n.blocksAddFab,
-              child: const Icon(Icons.add),
-            )
-          : null,
     );
   }
 
@@ -212,44 +279,57 @@ class _MembershipChip extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final membership = ref.watch(seasonMembershipProvider(seasonId));
-    return switch (membership) {
-      AsyncData(:final value) => value.match(
-        (err) => Chip(
-          key: const Key('membership-chip-error'),
-          label: Text(l10nOf(context).blocksRoleUnknown(err.code)),
-        ),
-        (dto) => dto.hasActiveCostumeRoleInSeason
-            ? Chip(
-                key: const Key('membership-chip'),
-                avatar: const Icon(Icons.check, size: 16),
-                label: Text(
-                  dto.capabilities.isEmpty
-                      ? l10nOf(context).blocksRoleCostume
-                      : dto.capabilities.join(', '),
+    // Display-only chip (D6): capped so a long unknown-capability code can
+    // never overflow the app bar next to the reports entry (issue #571).
+    // The full code stays visible in tests via the semantic finder — the
+    // ellipsis is a visual cap only.
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 220),
+      child: switch (membership) {
+        AsyncData(:final value) => value.match(
+          (err) => Chip(
+            key: const Key('membership-chip-error'),
+            label: Text(
+              l10nOf(context).blocksRoleUnknown(err.code),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          (dto) => dto.hasActiveCostumeRoleInSeason
+              ? Chip(
+                  key: const Key('membership-chip'),
+                  avatar: const Icon(Icons.check, size: 16),
+                  label: Text(
+                    dto.capabilities.isEmpty
+                        ? l10nOf(context).blocksRoleCostume
+                        : dto.capabilities.join(', '),
+                  ),
+                )
+              : Chip(
+                  key: const Key('membership-chip-none'),
+                  label: Text(l10nOf(context).blocksRoleNone),
                 ),
-              )
-            : Chip(
-                key: const Key('membership-chip-none'),
-                label: Text(l10nOf(context).blocksRoleNone),
-              ),
-      ),
-      AsyncError(:final error) => Chip(
-        key: const Key('membership-chip-error'),
-        label: Text(
-          l10nOf(
-            context,
-          ).blocksRoleUnknown(error is ProblemError ? error.code : 'unknown'),
         ),
-      ),
-      _ => const Chip(
-        key: Key('membership-chip-loading'),
-        label: SizedBox(
-          width: 12,
-          height: 12,
-          child: CircularProgressIndicator(strokeWidth: 2),
+        AsyncError(:final error) => Chip(
+          key: const Key('membership-chip-error'),
+          label: Text(
+            l10nOf(
+              context,
+            ).blocksRoleUnknown(error is ProblemError ? error.code : 'unknown'),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
         ),
-      ),
-    };
+        _ => const Chip(
+          key: Key('membership-chip-loading'),
+          label: SizedBox(
+            width: 12,
+            height: 12,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          ),
+        ),
+      },
+    );
   }
 }
 

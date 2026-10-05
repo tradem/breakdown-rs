@@ -470,6 +470,36 @@ class AppLocalizationsDe extends AppLocalizations {
       'Sobald ein Drehtag geplant ist, öffnet sich hier der Soll-/Ist-Bericht (geplant vs. tatsächlich) dieses Tages.';
 
   @override
+  String get shootingDaysReportsAggregateLabel => 'Soll-Ist gesamt';
+
+  @override
+  String reportsAggregateTitle(Object scope) {
+    return 'Soll-Ist-Vergleich – $scope';
+  }
+
+  @override
+  String get reportsAggregateFinal =>
+      'Abschließend – alle Drehtage sind abgeschlossen.';
+
+  @override
+  String reportsAggregateProvisional(Object total, Object wrapped) {
+    return 'Vorläufig – $wrapped von $total Drehtagen abgeschlossen.';
+  }
+
+  @override
+  String reportsAggregateProgress(Object total, Object wrapped) {
+    return '$wrapped von $total Drehtagen abgeschlossen';
+  }
+
+  @override
+  String get reportsAggregatePdf => 'Soll-Ist-Vergleich (PDF)';
+
+  @override
+  String reportsAggregateSceneLabel(Object number) {
+    return 'Szenen-Nr: $number';
+  }
+
+  @override
   String get aiConfigErrorAdmin =>
       'Administrator-Rolle erforderlich – frag deine Produktionsadmins.';
 

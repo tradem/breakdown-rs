@@ -154,6 +154,48 @@ void main() {
     );
   });
 
+  group('aggregate reports (issue #571): naming + interceptor paths', () {
+    test('aggregate share name sanitizes the scope label', () {
+      expect(
+        aggregateReportShareFileName(
+          scopeLabel: 'Staffel 1!/x',
+          kind: AggregateReportPdfKind.seasonSollIst,
+        ),
+        'Staffel-1--x-season-soll-ist.pdf',
+      );
+      expect(
+        aggregateReportShareFileName(
+          scopeLabel: 'Episode 2',
+          kind: AggregateReportPdfKind.episodeSollIst,
+        ),
+        'Episode-2-episode-soll-ist.pdf',
+      );
+    });
+
+    test('aggregate wire paths mirror the contract', () {
+      expect(
+        AggregateReportPdfKind.seasonSollIst.pathFor('season-9'),
+        '/v1/seasons/season-9/report/soll-ist.pdf',
+      );
+      expect(
+        AggregateReportPdfKind.episodeSollIst.pathFor('ep-7'),
+        '/v1/episodes/ep-7/report/soll-ist.pdf',
+      );
+    });
+
+    test('streaming interceptor matches the aggregate PDF routes', () {
+      bool isPdf_(String p) => isPdfReportPath(p);
+      expect(isPdf_('/v1/seasons/season-1/report/soll-ist.pdf'), isTrue);
+      expect(isPdf_('/v1/episodes/episode-2/report/soll-ist.pdf'), isTrue);
+      // JSON routes stay non-streaming.
+      expect(isPdf_('/v1/seasons/season-1/report/soll-ist'), isFalse);
+      // Day routes keep matching.
+      expect(isPdf_('/v1/shooting-days/day-1/report/dispo.pdf'), isTrue);
+      // Non-report paths never match.
+      expect(isPdf_('/v1/seasons/season-1/report/archive'), isFalse);
+    });
+  });
+
   group('PDF byte cap + share naming + temp cleanup', () {
     test(
       'oversized stream aborts with pdf.too_large and zero file writes',

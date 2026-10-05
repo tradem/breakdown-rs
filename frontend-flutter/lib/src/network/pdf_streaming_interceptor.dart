@@ -7,7 +7,11 @@ import 'package:dio/dio.dart';
 /// Matches the three per-day PDF report paths
 /// (`/v1/shooting-days/{id}/report/*.pdf`).
 bool isPdfReportPath(String path) =>
-    RegExp(r'/v1/shooting-days/[^/]+/report/[^/]+\.pdf').hasMatch(path);
+    // Day-scoped report PDFs + the aggregated season/episode Soll-Ist PDFs
+    // (issue #571) switch to the streaming shape so the repository can
+    // write chunks straight to the temp file under the byte cap.
+    RegExp(r'/v1/shooting-days/[^/]+/report/[^/]+\.pdf').hasMatch(path) ||
+    RegExp(r'/v1/(seasons|episodes)/[^/]+/report/[^/]+\.pdf').hasMatch(path);
 
 /// Path-keyed interceptor that switches the PDF report routes to streaming.
 ///

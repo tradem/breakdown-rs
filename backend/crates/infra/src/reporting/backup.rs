@@ -145,6 +145,14 @@ impl ReportDataLoader for SceneShootReportDataLoader {
                     .map_err(|e| e.to_string())?;
                 serde_json::to_value(report).map_err(|e| e.to_string())
             }
+            // Issue #571: the aggregated season/episode reports are
+            // render-only — deliberately NOT archivable, and they are keyed
+            // by season/episode, not by a shooting day. Reject explicitly so
+            // an aggregate kind can never leak into an archivable job.
+            ReportKind::SeasonSollIst | ReportKind::EpisodeSollIst => Err(
+                "aggregate report kinds (season-soll-ist, episode-soll-ist) are not archivable"
+                    .to_string(),
+            ),
         }
     }
 }

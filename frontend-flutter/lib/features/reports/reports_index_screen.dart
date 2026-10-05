@@ -14,6 +14,9 @@ import '../../l10n/app_localizations_provider.dart';
 import 'reports_index_controller.dart';
 import 'reports_index_state.dart';
 import 'reports_screen.dart';
+import 'reports_aggregate_screen.dart';
+import 'reports_aggregate_state.dart';
+import 'widgets/reports_aggregate_entry.dart';
 import 'widgets/reports_index_widgets.dart';
 
 /// `ReportsIndexScreen` — the episode's report index (a navigation
@@ -47,6 +50,32 @@ class ReportsIndexScreen extends ConsumerWidget {
   ReportIndexScope get _scope =>
       ReportIndexScope(episodeId: episode.id, seasonId: seasonId);
 
+  /// Pushes the episode-scope aggregate screen. The gate is re-checked
+  /// here (AUTHZ-GATE): the entry never navigates while the gate denies
+  /// or is unresolved — zero requests, no gated navigation. The push is
+  /// the method's expression value (VoidCallback coerces — intentional
+  /// fire-and-forget navigation, never a discarded Future statement).
+  Future<void> _openAggregate(
+    BuildContext context, {
+    required bool gateOpen,
+  }) async {
+    if (!gateOpen) return;
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => ReportsAggregateScreen(
+          scope: ReportsAggregateScope(
+            kind: ReportAggregateScopeKind.episode,
+            id: episode.id,
+            seasonId: seasonId,
+            label:
+                episode.name ??
+                l10nOf(context).episodeTileLabel(episode.number),
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     ref.listen(authSessionControllerProvider, (_, session) {
@@ -68,45 +97,62 @@ class ReportsIndexScreen extends ConsumerWidget {
     final gateOpen = state.gateOpen;
     Future<void> refresh() => controller.refresh(episode.id);
 
-    return Scaffold(
-      appBar: AppBar(title: ReportsIndexTitle(episodeLabel: episodeLabel)),
-      body: Column(
-        children: [
-          if (state.gateDenial case final denial?
-              when denial.code != 'membership.pending')
-            _IndexDenialBanner(
-              key: const Key('reports-index-denied'),
-              denial: denial,
+    // The width-resolved aggregate entry needs the scaffold's viewport
+    // width (the #549 pattern): LayoutBuilder wraps the Scaffold, never
+    // the unbounded action slot.
+    return LayoutBuilder(
+      builder: (context, constraints) => Scaffold(
+        appBar: AppBar(
+          title: ReportsIndexTitle(episodeLabel: episodeLabel),
+          // Episode-level aggregated Soll-Ist entry (issue #571): labelled
+          // per the visible-label norm; pushes the episode-scope aggregate
+          // screen with the acted-on [episode] as nav context.
+          actions: [
+            ReportsAggregateAppBarAction(
+              baseKey: 'reportsIndexAggregateOpen',
+              roomForLabel: constraints.maxWidth >= 300,
+              onOpen: () => _openAggregate(context, gateOpen: gateOpen),
             ),
-          // Stale stays visible whenever the day list says so — including
-          // alongside a fetch failure, so retained cached rows are never
-          // rendered as if they were current.
-          if (state.isStale)
-            _Banner(
-              key: const Key('report-index-stale-banner'),
-              text: l10n.shootingDaysStaleBanner,
+          ],
+        ),
+        body: Column(
+          children: [
+            if (state.gateDenial case final denial?
+                when denial.code != 'membership.pending')
+              _IndexDenialBanner(
+                key: const Key('reports-index-denied'),
+                denial: denial,
+              ),
+            // Stale stays visible whenever the day list says so — including
+            // alongside a fetch failure, so retained cached rows are never
+            // rendered as if they were current.
+            if (state.isStale)
+              _Banner(
+                key: const Key('report-index-stale-banner'),
+                text: l10n.shootingDaysStaleBanner,
+              ),
+            // A pending (unprojected) day alongside projected rows: the index
+            // lists no row for it, so it says so in the banner instead. When
+            // NO row exists yet the body itself carries the pending indicator
+            // (see `_IndexList`), so the copy is never duplicated.
+            if (state.hasPendingOverlay && state.rows.isNotEmpty)
+              _Banner(
+                key: const Key('report-index-pending-banner'),
+                text: l10n.seasonsSyncing,
+                tone: _BannerTone.info,
+              ),
+            Expanded(
+              child: _IndexList(
+                state: state,
+                episode: episode,
+                seasonId: seasonId,
+                gateOpen: gateOpen,
+                onRefresh: gateOpen ? refresh : null,
+                onRetry: gateOpen ? refresh : null,
+              ),
             ),
-          // A pending (unprojected) day alongside projected rows: the index
-          // lists no row for it, so it says so in the banner instead. When
-          // NO row exists yet the body itself carries the pending indicator
-          // (see `_IndexList`), so the copy is never duplicated.
-          if (state.hasPendingOverlay && state.rows.isNotEmpty)
-            _Banner(
-              key: const Key('report-index-pending-banner'),
-              text: l10n.seasonsSyncing,
-              tone: _BannerTone.info,
-            ),
-          Expanded(
-            child: _IndexList(
-              state: state,
-              episode: episode,
-              seasonId: seasonId,
-              gateOpen: gateOpen,
-              onRefresh: gateOpen ? refresh : null,
-              onRetry: gateOpen ? refresh : null,
-            ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

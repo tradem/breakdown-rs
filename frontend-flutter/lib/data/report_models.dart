@@ -42,6 +42,47 @@ enum ReportPdfKind {
   String pathFor(String dayId) => '/v1/shooting-days/$dayId/report/$urlSuffix';
 }
 
+/// The aggregated Soll-Ist PDF reports (issue #571): season- and episode-
+/// scoped, one kind each — the day-scoped [ReportPdfKind] stays the day
+/// surface's enum (the aggregate screens never render day PDF cards).
+enum AggregateReportPdfKind {
+  seasonSollIst('season-soll-ist.pdf'),
+  episodeSollIst('episode-soll-ist.pdf');
+
+  const AggregateReportPdfKind(this.fileSuffix);
+
+  /// File-name suffix for the shared document (`<scope>-<suffix>`).
+  final String fileSuffix;
+
+  /// The wire path for [id] (used by the streaming interceptor match and by
+  /// tests — production dispatches via the generated client methods only,
+  /// D1).
+  String pathFor(String id) =>
+      '/v1/${this == AggregateReportPdfKind.seasonSollIst ? 'seasons' : 'episodes'}/$id/report/soll-ist.pdf';
+}
+
+/// User-visible share-file name for an aggregate fetched PDF
+/// (`<scope>-<suffix>`), same sanitize posture as [reportShareFileName].
+String aggregateReportShareFileName({
+  required String scopeLabel,
+  required AggregateReportPdfKind kind,
+}) => '${sanitizeShareName(scopeLabel, fallback: 'scope')}-${kind.fileSuffix}';
+
+/// Same sanitize posture for every report share name (alphanumeric + `-`
+/// survive, everything else becomes `-`); [fallback] replaces an
+/// effectively-empty label.
+String sanitizeShareName(String label, {required String fallback}) {
+  final safe = label.split('').map((c) {
+    final code = c.codeUnitAt(0);
+    final alnum =
+        (code >= 48 && code <= 57) ||
+        (code >= 65 && code <= 90) ||
+        (code >= 97 && code <= 122);
+    return (alnum || c == '-') ? c : '-';
+  }).join();
+  return safe.isEmpty ? fallback : safe;
+}
+
 /// User-visible share-file name for a fetched PDF (`<day>-<report>.pdf`).
 ///
 /// Mirrors the backend `sanitize_pdf_filename` posture (alphanumeric + `-`
@@ -50,18 +91,7 @@ enum ReportPdfKind {
 String reportShareFileName({
   required String dayLabel,
   required ReportPdfKind kind,
-}) {
-  final safeDay = dayLabel.split('').map((c) {
-    final code = c.codeUnitAt(0);
-    final alnum =
-        (code >= 48 && code <= 57) ||
-        (code >= 65 && code <= 90) ||
-        (code >= 97 && code <= 122);
-    return (alnum || c == '-') ? c : '-';
-  }).join();
-  final trimmed = safeDay.isEmpty ? 'day' : safeDay;
-  return '$trimmed-${kind.fileSuffix}';
-}
+}) => '${sanitizeShareName(dayLabel, fallback: 'day')}-${kind.fileSuffix}';
 
 /// Normalizes a transport/HTTP failure to a stable [ProblemError] code.
 ///

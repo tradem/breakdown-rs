@@ -99,7 +99,9 @@ use breakdown_core::scene_shoot::commands::{
 use breakdown_core::scene_shoot::ports::{
     SceneShootCommands, SceneShootReportRepository, SceneShootRepository,
 };
-use breakdown_core::scene_shoot::views::{DispoRow, SceneShootView, ShootDayRow, SollIstReport};
+use breakdown_core::scene_shoot::views::{
+    AggregateSollIstReport, DispoRow, SceneShootView, ShootDayRow, SollIstReport,
+};
 use breakdown_core::season::commands::{CreateSeason, RenameSeason};
 use breakdown_core::season::ports::{SeasonCommands, SeasonRepository};
 use breakdown_core::season::views::SeasonView;
@@ -4195,9 +4197,103 @@ pub async fn soll_ist_report<P: Ports>(
     Ok((StatusCode::OK, Json(report)))
 }
 
-// ---------------------------------------------------------------------------
-// PDF Report Handlers
-// ---------------------------------------------------------------------------
+/// Season-scoped aggregated Soll-Ist report (issue #571).
+///
+/// Aggregates the day-scoped rows across every non-archived shooting day of
+/// the season. `is_final` and the day counts are **server-derived**; the
+/// client renders, never recomputes. A season with zero shooting days
+/// answers `200` with an empty report (never vacuously final); an unknown
+/// season answers `404 season.not-found` via the `DomainError` mapping.
+#[utoipa::path(
+    get,
+    path = "/seasons/{id}/report/soll-ist",
+    params(("id" = Uuid, Path, description = "Season id")),
+    responses(
+        (status = 200, body = AggregateSollIstReport),
+        (status = 403, body = ProblemDetails, description = "Not authorized"),
+        (status = 404, body = ProblemDetails, description = "Season not found"),
+    ),
+    tag = "handlers",
+)]
+pub async fn season_soll_ist_report<P: Ports>(
+    State(state): State<AppState<P>>,
+    current_user: CurrentUser,
+    Path(id): Path<Uuid>,
+) -> ApiResult<AggregateSollIstReport> {
+    // AUTHZ-GATE: handler-internal auth gate. Day-level report detail is
+    // already readable by any season member (the day routes use the same
+    // policy), so the aggregated union needs no wider capability — issue
+    // #571 decision 2. The first fetch answers `404 season.not-found` for
+    // unknown ids (fail closed: policy runs only for an existing season).
+    let season = state.ports.season_repo().find_by_id(id).await?;
+    let _ = season;
+    let is_authorized = state
+        .ports
+        .membership_repo()
+        .has_active_costume_role_in_season(SeasonId::from_uuid(id), current_user.sub.clone())
+        .await
+        .unwrap_or(false);
+    if !is_authorized {
+        return Err(ApiError::Forbidden("not authorized to view reports"));
+    }
+
+    let report = state
+        .ports
+        .scene_shoot_report_repo()
+        .season_soll_ist_report(SeasonId::from_uuid(id))
+        .await?;
+    Ok((StatusCode::OK, Json(report)))
+}
+
+/// Episode-scoped aggregated Soll-Ist report (issue #571).
+///
+/// Same semantics and gate as the season-scoped variant, scoped to one
+/// episode's non-archived shooting days; episode → block → season chain for
+/// the membership check. Unknown episode id answers `404
+/// episode.not-found`.
+#[utoipa::path(
+    get,
+    path = "/episodes/{id}/report/soll-ist",
+    params(("id" = Uuid, Path, description = "Episode id")),
+    responses(
+        (status = 200, body = AggregateSollIstReport),
+        (status = 403, body = ProblemDetails, description = "Not authorized"),
+        (status = 404, body = ProblemDetails, description = "Episode not found"),
+    ),
+    tag = "handlers",
+)]
+pub async fn episode_soll_ist_report<P: Ports>(
+    State(state): State<AppState<P>>,
+    current_user: CurrentUser,
+    Path(id): Path<Uuid>,
+) -> ApiResult<AggregateSollIstReport> {
+    // AUTHZ-GATE: handler-internal auth gate (episode → block → season).
+    // The fetch also 404s unknown ids (`episode.not-found`) before the
+    // policy runs. The 403/404 ordering deliberately mirrors the day-scoped
+    // report handlers (lookup first, then policy).
+    let episode = state.ports.episode_repo().find_by_id(id).await?;
+    let block = state
+        .ports
+        .block_repo()
+        .find_by_id(episode.block_id.0)
+        .await?;
+    let is_authorized = state
+        .ports
+        .membership_repo()
+        .has_active_costume_role_in_season(block.season_id, current_user.sub.clone())
+        .await
+        .unwrap_or(false);
+    if !is_authorized {
+        return Err(ApiError::Forbidden("not authorized to view reports"));
+    }
+
+    let report = state
+        .ports
+        .scene_shoot_report_repo()
+        .episode_soll_ist_report(EpisodeId::from_uuid(id))
+        .await?;
+    Ok((StatusCode::OK, Json(report)))
+}
 
 /// Generate a sanitized filename for the PDF response.
 #[allow(dead_code)]
@@ -4469,6 +4565,174 @@ pub async fn planned_vs_actual_report_pdf<P: Ports>(
             ApiError::Internal
         })?;
     headers.insert(axum::http::header::CONTENT_DISPOSITION, disposition_value);
+    Ok((StatusCode::OK, headers, rendered.pdf_bytes))
+}
+
+/// Season-scoped Soll-Ist PDF (issue #571). Same gate and fail-closed
+/// behavior as the JSON season report; rendered through the aggregate
+/// render kind's own embedded template.
+#[utoipa::path(
+    get,
+    path = "/seasons/{id}/report/soll-ist.pdf",
+    params(("id" = Uuid, Path, description = "Season id")),
+    responses(
+        (status = 200, description = "PDF report"),
+        (status = 403, body = ProblemDetails, description = "Not authorized"),
+        (status = 404, body = ProblemDetails, description = "Season not found"),
+    ),
+    tag = "handlers",
+)]
+pub async fn season_soll_ist_report_pdf<P: Ports>(
+    State(state): State<AppState<P>>,
+    current_user: CurrentUser,
+    Path(id): Path<Uuid>,
+) -> Result<(StatusCode, HeaderMap, Vec<u8>), ApiError> {
+    // AUTHZ-GATE: handler-internal auth gate (same policy as the day PDFs).
+    let season = state.ports.season_repo().find_by_id(id).await?;
+    let _ = season;
+    let is_authorized = state
+        .ports
+        .membership_repo()
+        .has_active_costume_role_in_season(SeasonId::from_uuid(id), current_user.sub.clone())
+        .await
+        .unwrap_or(false);
+    if !is_authorized {
+        return Err(ApiError::Forbidden("not authorized to view reports"));
+    }
+
+    let report = state
+        .ports
+        .scene_shoot_report_repo()
+        .season_soll_ist_report(SeasonId::from_uuid(id))
+        .await?;
+
+    let req = ReportRenderRequest {
+        kind: ReportKind::SeasonSollIst,
+        context: RenderPresentationContext {
+            locale: ReportLocale::de_de(),
+            timezone: "Europe/Berlin".into(),
+            template_version: TEMPLATE_VERSION.to_string(),
+        },
+        data: serde_json::to_value(report).map_err(|e| {
+            tracing::error!(error = %e, "report serialization failed");
+            ApiError::Internal
+        })?,
+    };
+    let renderer = state.ports.report_renderer_ref();
+    let rendered = renderer.render(req).await.map_err(map_render_error)?;
+
+    let mut headers = HeaderMap::new();
+    let content_type_value = rendered
+        .content_type
+        .parse::<axum::http::HeaderValue>()
+        .map_err(|e| {
+            tracing::error!(error = %e, "renderer produced invalid content-type");
+            ApiError::Internal
+        })?;
+    headers.insert(axum::http::header::CONTENT_TYPE, content_type_value);
+    let disposition_format = format!(
+        r#"inline; filename="{}""#,
+        sanitize_pdf_filename("season-soll-ist", "de-DE")
+    );
+    let disposition_value = disposition_format
+        .parse::<axum::http::HeaderValue>()
+        .map_err(|_| {
+            tracing::error!("failed to construct Content-Disposition header");
+            ApiError::Internal
+        })?;
+    headers.insert(axum::http::header::CONTENT_DISPOSITION, disposition_value);
+    // The scene-shoot-reports PDF requirement's cache policy (a member- and
+    // season-scoped document must never be retained by shared caches). The
+    // day-scoped PDF routes predate this hardening (issue #571 review
+    // finding) and stay untouched in this PR.
+    headers.insert(
+        axum::http::header::CACHE_CONTROL,
+        axum::http::HeaderValue::from_static("private, no-store"),
+    );
+    Ok((StatusCode::OK, headers, rendered.pdf_bytes))
+}
+
+/// Episode-scoped Soll-Ist PDF (issue #571). Same gate and fail-closed
+/// behavior as the JSON episode report; rendered through the aggregate
+/// render kind's own embedded template.
+#[utoipa::path(
+    get,
+    path = "/episodes/{id}/report/soll-ist.pdf",
+    params(("id" = Uuid, Path, description = "Episode id")),
+    responses(
+        (status = 200, description = "PDF report"),
+        (status = 403, body = ProblemDetails, description = "Not authorized"),
+        (status = 404, body = ProblemDetails, description = "Episode not found"),
+    ),
+    tag = "handlers",
+)]
+pub async fn episode_soll_ist_report_pdf<P: Ports>(
+    State(state): State<AppState<P>>,
+    current_user: CurrentUser,
+    Path(id): Path<Uuid>,
+) -> Result<(StatusCode, HeaderMap, Vec<u8>), ApiError> {
+    // AUTHZ-GATE: handler-internal auth gate (episode → block → season).
+    let episode = state.ports.episode_repo().find_by_id(id).await?;
+    let block = state
+        .ports
+        .block_repo()
+        .find_by_id(episode.block_id.0)
+        .await?;
+    let is_authorized = state
+        .ports
+        .membership_repo()
+        .has_active_costume_role_in_season(block.season_id, current_user.sub.clone())
+        .await
+        .unwrap_or(false);
+    if !is_authorized {
+        return Err(ApiError::Forbidden("not authorized to view reports"));
+    }
+
+    let report = state
+        .ports
+        .scene_shoot_report_repo()
+        .episode_soll_ist_report(EpisodeId::from_uuid(id))
+        .await?;
+
+    let req = ReportRenderRequest {
+        kind: ReportKind::EpisodeSollIst,
+        context: RenderPresentationContext {
+            locale: ReportLocale::de_de(),
+            timezone: "Europe/Berlin".into(),
+            template_version: TEMPLATE_VERSION.to_string(),
+        },
+        data: serde_json::to_value(report).map_err(|e| {
+            tracing::error!(error = %e, "report serialization failed");
+            ApiError::Internal
+        })?,
+    };
+    let renderer = state.ports.report_renderer_ref();
+    let rendered = renderer.render(req).await.map_err(map_render_error)?;
+
+    let mut headers = HeaderMap::new();
+    let content_type_value = rendered
+        .content_type
+        .parse::<axum::http::HeaderValue>()
+        .map_err(|e| {
+            tracing::error!(error = %e, "renderer produced invalid content-type");
+            ApiError::Internal
+        })?;
+    headers.insert(axum::http::header::CONTENT_TYPE, content_type_value);
+    let disposition_format = format!(
+        r#"inline; filename="{}""#,
+        sanitize_pdf_filename("episode-soll-ist", "de-DE")
+    );
+    let disposition_value = disposition_format
+        .parse::<axum::http::HeaderValue>()
+        .map_err(|_| {
+            tracing::error!("failed to construct Content-Disposition header");
+            ApiError::Internal
+        })?;
+    headers.insert(axum::http::header::CONTENT_DISPOSITION, disposition_value);
+    headers.insert(
+        axum::http::header::CACHE_CONTROL,
+        axum::http::HeaderValue::from_static("private, no-store"),
+    );
     Ok((StatusCode::OK, headers, rendered.pdf_bytes))
 }
 
@@ -6641,6 +6905,25 @@ pub fn routes() -> Router<AppState<ProductionPorts>> {
             routing::post(wrap_shooting_day::<ProductionPorts>),
         )
         // --- Report endpoints ---
+        // Aggregated Soll-Ist reports (issue #571): season- and episode-
+        // scoped, JSON + PDF twins. Handler-internal AUTHZ-GATE; see design
+        // D3 of the openspec change 571-aggregate-soll-ist-report.
+        .route(
+            "/seasons/{id}/report/soll-ist",
+            routing::get(season_soll_ist_report::<ProductionPorts>),
+        )
+        .route(
+            "/episodes/{id}/report/soll-ist",
+            routing::get(episode_soll_ist_report::<ProductionPorts>),
+        )
+        .route(
+            "/seasons/{id}/report/soll-ist.pdf",
+            routing::get(season_soll_ist_report_pdf::<ProductionPorts>),
+        )
+        .route(
+            "/episodes/{id}/report/soll-ist.pdf",
+            routing::get(episode_soll_ist_report_pdf::<ProductionPorts>),
+        )
         .route(
             "/shooting-days/{id}/report/dispo",
             routing::get(dispo_report::<ProductionPorts>),

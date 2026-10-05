@@ -19,6 +19,8 @@ import 'package:breakdown_api/src/model/date.dart';
 import 'package:breakdown_api/src/model/add_costume_detail_request.dart';
 import 'package:breakdown_api/src/model/add_note_request.dart';
 import 'package:breakdown_api/src/model/add_scene_costume_beat_request.dart';
+import 'package:breakdown_api/src/model/aggregate_soll_ist_diff_row.dart';
+import 'package:breakdown_api/src/model/aggregate_soll_ist_report.dart';
 import 'package:breakdown_api/src/model/ai_config_view.dart';
 import 'package:breakdown_api/src/model/ai_import_defaults.dart';
 import 'package:breakdown_api/src/model/ai_import_job.dart';
@@ -157,6 +159,8 @@ part 'serializers.g.dart';
   AddCostumeDetailRequest,
   AddNoteRequest,
   AddSceneCostumeBeatRequest,
+  AggregateSollIstDiffRow,
+  AggregateSollIstReport,
   AiConfigView,
   AiImportDefaults,
   AiImportJob,
@@ -334,6 +338,10 @@ Serializers serializers = (_$serializers.toBuilder()
       ..addBuilderFactory(
         const FullType(BuiltList, [FullType(DispoRow)]),
         () => ListBuilder<DispoRow>(),
+      )
+      ..addBuilderFactory(
+        const FullType(BuiltList, [FullType(AggregateSollIstDiffRow)]),
+        () => ListBuilder<AggregateSollIstDiffRow>(),
       )
       ..addBuilderFactory(
         const FullType(BuiltList, [FullType(EpisodeView)]),

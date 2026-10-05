@@ -29,7 +29,10 @@ use utoipa::ToSchema;
 // ReportKind
 // ---------------------------------------------------------------------------
 
-/// The three shoot-day report kinds.
+/// The report kinds.
+///
+/// The three shoot-day kinds are the archivable set; the two aggregated
+/// kinds (issue #571) are render-only and never archived.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "kebab-case")]
 pub enum ReportKind {
@@ -39,6 +42,10 @@ pub enum ReportKind {
     ShootDay,
     /// Planned vs Actual (Soll-Ist-Vergleich) report.
     PlannedVsActual,
+    /// Season-scoped aggregated Soll-Ist-Vergleich (issue #571).
+    SeasonSollIst,
+    /// Episode-scoped aggregated Soll-Ist-Vergleich (issue #571).
+    EpisodeSollIst,
 }
 
 impl fmt::Display for ReportKind {
@@ -47,6 +54,8 @@ impl fmt::Display for ReportKind {
             ReportKind::Dispo => write!(f, "dispo"),
             ReportKind::ShootDay => write!(f, "shoot-day"),
             ReportKind::PlannedVsActual => write!(f, "planned-vs-actual"),
+            ReportKind::SeasonSollIst => write!(f, "season-soll-ist"),
+            ReportKind::EpisodeSollIst => write!(f, "episode-soll-ist"),
         }
     }
 }

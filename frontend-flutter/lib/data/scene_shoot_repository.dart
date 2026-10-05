@@ -474,6 +474,55 @@ class SceneShootRepository extends BaseRepository {
     }
   }
 
+  // -- Reports: aggregated Soll-Ist (season/episode scope, issue #571) -------
+
+  /// Season-scoped aggregated Soll-Ist report
+  /// (`GET /v1/seasons/{id}/report/soll-ist`): the union of the day rows
+  /// across every non-archived shooting day of the season plus the
+  /// server-derived finality flag and day counts. The client renders them
+  /// verbatim and NEVER recomputes the aggregate finality rule.
+  Future<Result<AggregateSollIstReport>> fetchSeasonSollIstReport(
+    String seasonId,
+  ) async {
+    try {
+      final response = await api.getHandlersApi().seasonSollIstReport(
+        id: seasonId,
+      );
+      final data = response.data;
+      if (data == null) {
+        return const Left(ProblemError(code: 'report.unknown_shape'));
+      }
+      return Right(data);
+    } on DioException catch (e) {
+      return Left(_reportDioError(e));
+    } on Object catch (e) {
+      // Strict-reject: a deserialization failure inside the generated
+      // client surfaces as the standard error state.
+      return Left(strictParseError(e));
+    }
+  }
+
+  /// Episode-scoped aggregated Soll-Ist report — same semantics as
+  /// [fetchSeasonSollIstReport], scoped to one episode's shooting days.
+  Future<Result<AggregateSollIstReport>> fetchEpisodeSollIstReport(
+    String episodeId,
+  ) async {
+    try {
+      final response = await api.getHandlersApi().episodeSollIstReport(
+        id: episodeId,
+      );
+      final data = response.data;
+      if (data == null) {
+        return const Left(ProblemError(code: 'report.unknown_shape'));
+      }
+      return Right(data);
+    } on DioException catch (e) {
+      return Left(_reportDioError(e));
+    } on Object catch (e) {
+      return Left(strictParseError(e));
+    }
+  }
+
   // -- Reports: per-day PDF fetch (stream-to-temp-file) ----------------------
 
   /// Fetches the dispo PDF for the day, streaming bytes straight to a temp
@@ -496,8 +545,7 @@ class SceneShootRepository extends BaseRepository {
     CancelToken? cancelToken,
     ProgressCallback? onReceiveProgress,
   }) => _fetchReportPdf(
-    kind: ReportPdfKind.dispo,
-    dayId: id,
+    fileName: reportShareFileName(dayLabel: id, kind: ReportPdfKind.dispo),
     tempDir: tempDir,
     cancelToken: cancelToken,
     call: (token) => api.getHandlersApi().dispoReportPdf(
@@ -518,8 +566,7 @@ class SceneShootRepository extends BaseRepository {
     CancelToken? cancelToken,
     ProgressCallback? onReceiveProgress,
   }) => _fetchReportPdf(
-    kind: ReportPdfKind.shootDay,
-    dayId: id,
+    fileName: reportShareFileName(dayLabel: id, kind: ReportPdfKind.shootDay),
     tempDir: tempDir,
     cancelToken: cancelToken,
     call: (token) => api.getHandlersApi().shootDayReportPdf(
@@ -540,8 +587,10 @@ class SceneShootRepository extends BaseRepository {
     CancelToken? cancelToken,
     ProgressCallback? onReceiveProgress,
   }) => _fetchReportPdf(
-    kind: ReportPdfKind.plannedVsActual,
-    dayId: id,
+    fileName: reportShareFileName(
+      dayLabel: id,
+      kind: ReportPdfKind.plannedVsActual,
+    ),
     tempDir: tempDir,
     cancelToken: cancelToken,
     call: (token) => api.getHandlersApi().plannedVsActualReportPdf(
@@ -551,16 +600,70 @@ class SceneShootRepository extends BaseRepository {
     ),
   );
 
-  /// Shared streaming executor for the three per-day PDF fetches: runs the
-  /// generated call with an explicit [CancelToken] (so the transfer is
-  /// cancellable at any point), extracts the streaming payload, and writes
-  /// it to the temp file under the byte-cap contract. Never throws: every
-  /// failure maps to a `Left(ProblemError)` (`data/` no-throw rule).
-  Future<Result<File>> _fetchReportPdf({
-    required ReportPdfKind kind,
-    required String dayId,
+  /// Fetches the season-aggregated Soll-Ist PDF
+  /// (`GET /v1/seasons/{id}/report/soll-ist.pdf`), same streaming
+  /// temp-file contract as the per-day PDFs.
+  ///
+  /// // AUTHZ-GATE: callers check `canViewReports` via
+  /// // `currentMembershipProvider` BEFORE invoking; denial issues zero calls.
+  Future<Result<File>> seasonSollIstReportPdf(
+    String seasonId, {
     required Directory tempDir,
+    required String scopeLabel,
+    CancelToken? cancelToken,
+    ProgressCallback? onReceiveProgress,
+  }) => _fetchReportPdf(
+    fileName: aggregateReportShareFileName(
+      scopeLabel: scopeLabel,
+      kind: AggregateReportPdfKind.seasonSollIst,
+    ),
+    tempDir: tempDir,
+    cancelToken: cancelToken,
+    call: (token) => api.getHandlersApi().seasonSollIstReportPdf(
+      id: seasonId,
+      cancelToken: token,
+      onReceiveProgress: onReceiveProgress,
+    ),
+  );
+
+  /// Fetches the episode-aggregated Soll-Ist PDF
+  /// (`GET /v1/episodes/{id}/report/soll-ist.pdf`) — same contract as
+  /// [seasonSollIstReportPdf].
+  ///
+  /// // AUTHZ-GATE: callers check `canViewReports` via
+  /// // `currentMembershipProvider` BEFORE invoking; denial issues zero calls.
+  Future<Result<File>> episodeSollIstReportPdf(
+    String episodeId, {
+    required Directory tempDir,
+    required String scopeLabel,
+    CancelToken? cancelToken,
+    ProgressCallback? onReceiveProgress,
+  }) => _fetchReportPdf(
+    fileName: aggregateReportShareFileName(
+      scopeLabel: scopeLabel,
+      kind: AggregateReportPdfKind.episodeSollIst,
+    ),
+    tempDir: tempDir,
+    cancelToken: cancelToken,
+    call: (token) => api.getHandlersApi().episodeSollIstReportPdf(
+      id: episodeId,
+      cancelToken: token,
+      onReceiveProgress: onReceiveProgress,
+    ),
+  );
+
+  /// Shared streaming executor for the per-day and aggregated PDF fetches:
+  /// runs the generated call with an explicit [CancelToken] (so the
+  /// transfer is cancellable at any point), extracts the streaming payload,
+  /// and writes it to the temp file under the byte-cap contract. Never
+  /// throws: every failure maps to a `Left(ProblemError)` (`data/` no-throw
+  /// rule). [fileName] is built by the caller ([reportShareFileName] for
+  /// day kinds, [aggregateReportShareFileName] for the aggregate kinds —
+  /// issue #571).
+  Future<Result<File>> _fetchReportPdf({
+    required String fileName,
     required Future<Response<void>> Function(CancelToken token) call,
+    Directory? tempDir,
     CancelToken? cancelToken,
   }) async {
     final token = cancelToken ?? CancelToken();
@@ -571,10 +674,17 @@ class SceneShootRepository extends BaseRepository {
       // carries a Dio `ResponseBody`. Extract via `dynamic` — the cast is
       // the documented cost of the no-`Options` generated surface (spec).
       final Object? raw = (response as dynamic).data as Object?;
+      // tempDir is always supplied in production and tests (both callers
+      // pass it); `null` only via a direct miscall — fail closed rather
+      // than write outside the temp directory.
+      final resolvedTemp = tempDir;
+      if (resolvedTemp == null) {
+        return const Left(ProblemError(code: 'report.unknown_shape'));
+      }
       return await writePdfResponseDataToTemp(
         data: raw,
-        tempDir: tempDir,
-        fileName: reportShareFileName(dayLabel: dayId, kind: kind),
+        tempDir: resolvedTemp,
+        fileName: fileName,
         cancelToken: token,
       );
     } on DioException catch (e) {

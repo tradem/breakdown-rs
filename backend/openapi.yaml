@@ -46,6 +46,105 @@ components:
       - costume_id
       - version
       type: object
+    AggregateSollIstDiffRow:
+      description: |-
+        One row of an aggregated (season- or episode-scoped) Soll-Ist report
+        (issue #571): one planned execution of a scene on one shooting day within
+        the report scope.
+
+        The diff flags carry the day-scoped semantics applied per row: `moved` /
+        `missing` / `skipped` compare the row's own day, while `reshot_candidate`
+        is scoped to the whole report scope — the scene has a `Shot` record on
+        another day **within the scope**.
+      properties:
+        actual_order:
+          oneOf:
+          - $ref: '#/components/schemas/LexicalSortKey'
+          - type: 'null'
+        location:
+          type:
+          - string
+          - 'null'
+        missing:
+          description: '`true` when planned on this day but without execution data.'
+          type: boolean
+        moved:
+          description: '`true` when `actual_order` differs from `planned_order` on this day.'
+          type: boolean
+        planned_order:
+          oneOf:
+          - $ref: '#/components/schemas/LexicalSortKey'
+          - type: 'null'
+        reshot_candidate:
+          description: |-
+            `true` when the same `scene_id` has a `Shot` record on another day
+            within the report scope.
+          type: boolean
+        scene_id:
+          format: uuid
+          type: string
+        scene_number:
+          format: int32
+          minimum: 0
+          type:
+          - integer
+          - 'null'
+        script_day:
+          type:
+          - string
+          - 'null'
+        shooting_day_id:
+          $ref: '#/components/schemas/ShootingDayId'
+        shooting_day_label:
+          description: |-
+            Human-readable label of the row's shooting day (projection label;
+            nullable on the projection).
+          type:
+          - string
+          - 'null'
+        skipped:
+          description: '`true` when status is `Skipped` on this day.'
+          type: boolean
+      required:
+      - scene_id
+      - shooting_day_id
+      - moved
+      - missing
+      - skipped
+      - reshot_candidate
+      type: object
+    AggregateSollIstReport:
+      description: |-
+        The aggregated (season- or episode-scoped) Soll-Ist report (issue #571).
+
+        `is_final` is **server-derived** and never recomputed client-side:
+        `true` iff the scope has at least one non-archived shooting day and every
+        one of them has `wrapped_at` set. A scope with zero shooting days
+        therefore reports `false` (never vacuously final) with zero counts — an
+        empty report, not an error.
+      properties:
+        is_final:
+          type: boolean
+        rows:
+          items:
+            $ref: '#/components/schemas/AggregateSollIstDiffRow'
+          type: array
+        total_shooting_days:
+          description: Number of non-archived shooting days in the scope.
+          format: int32
+          minimum: 0
+          type: integer
+        wrapped_shooting_days:
+          description: How many of those days are wrapped (`wrapped_at` set).
+          format: int32
+          minimum: 0
+          type: integer
+      required:
+      - rows
+      - is_final
+      - total_shooting_days
+      - wrapped_shooting_days
+      type: object
     AggregateVersion:
       description: |-
         Aggregate version for optimistic locking.
@@ -5069,6 +5168,75 @@ paths:
           description: Validation error
       tags:
       - handlers
+  /v1/episodes/{id}/report/soll-ist:
+    get:
+      description: |-
+        Same semantics and gate as the season-scoped variant, scoped to one
+        episode's non-archived shooting days; episode → block → season chain for
+        the membership check. Unknown episode id answers `404
+        episode.not-found`.
+      operationId: episode_soll_ist_report
+      parameters:
+      - description: Episode id
+        in: path
+        name: id
+        required: true
+        schema:
+          format: uuid
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AggregateSollIstReport'
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Not authorized
+        '404':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Episode not found
+      summary: 'Episode-scoped aggregated Soll-Ist report (issue #571).'
+      tags:
+      - handlers
+  /v1/episodes/{id}/report/soll-ist.pdf:
+    get:
+      operationId: episode_soll_ist_report_pdf
+      parameters:
+      - description: Episode id
+        in: path
+        name: id
+        required: true
+        schema:
+          format: uuid
+          type: string
+      responses:
+        '200':
+          description: PDF report
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Not authorized
+        '404':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Episode not found
+      summary: |-
+        Episode-scoped Soll-Ist PDF (issue #571). Same gate and fail-closed
+        behavior as the JSON episode report; rendered through the aggregate
+        render kind's own embedded template.
+      tags:
+      - handlers
   /v1/ops/projector-health:
     get:
       description: |-
@@ -5766,6 +5934,76 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Validation error
+      tags:
+      - handlers
+  /v1/seasons/{id}/report/soll-ist:
+    get:
+      description: |-
+        Aggregates the day-scoped rows across every non-archived shooting day of
+        the season. `is_final` and the day counts are **server-derived**; the
+        client renders, never recomputes. A season with zero shooting days
+        answers `200` with an empty report (never vacuously final); an unknown
+        season answers `404 season.not-found` via the `DomainError` mapping.
+      operationId: season_soll_ist_report
+      parameters:
+      - description: Season id
+        in: path
+        name: id
+        required: true
+        schema:
+          format: uuid
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AggregateSollIstReport'
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Not authorized
+        '404':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Season not found
+      summary: 'Season-scoped aggregated Soll-Ist report (issue #571).'
+      tags:
+      - handlers
+  /v1/seasons/{id}/report/soll-ist.pdf:
+    get:
+      operationId: season_soll_ist_report_pdf
+      parameters:
+      - description: Season id
+        in: path
+        name: id
+        required: true
+        schema:
+          format: uuid
+          type: string
+      responses:
+        '200':
+          description: PDF report
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Not authorized
+        '404':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Season not found
+      summary: |-
+        Season-scoped Soll-Ist PDF (issue #571). Same gate and fail-closed
+        behavior as the JSON season report; rendered through the aggregate
+        render kind's own embedded template.
       tags:
       - handlers
   /v1/seasons/{season_id}/costume-categories:

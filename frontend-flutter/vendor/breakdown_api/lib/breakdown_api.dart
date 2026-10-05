@@ -17,6 +17,8 @@ export 'package:breakdown_api/src/api/handlers_api.dart';
 export 'package:breakdown_api/src/model/add_costume_detail_request.dart';
 export 'package:breakdown_api/src/model/add_note_request.dart';
 export 'package:breakdown_api/src/model/add_scene_costume_beat_request.dart';
+export 'package:breakdown_api/src/model/aggregate_soll_ist_diff_row.dart';
+export 'package:breakdown_api/src/model/aggregate_soll_ist_report.dart';
 export 'package:breakdown_api/src/model/ai_config_view.dart';
 export 'package:breakdown_api/src/model/ai_import_defaults.dart';
 export 'package:breakdown_api/src/model/ai_import_job.dart';

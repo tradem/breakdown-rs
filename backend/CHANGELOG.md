@@ -26,6 +26,24 @@ tag. Never edit a released entry afterwards.
 
 ### Added
 
+- **Season-/episode-scoped aggregated Soll-Ist report (issue #571, aggregation
+  half).** Two new read-only routes — `GET /v1/seasons/{id}/report/soll-ist`
+  and `GET /v1/episodes/{id}/report/soll-ist` — plus their `.pdf` twins.
+  Rows are the union of the day-scoped diff rows across every non-archived
+  shooting day of the scope (one row per scene × day, ordered by the day's
+  order key, carrying the day's id and label); `reshot_candidate` is scoped
+  to the report scope. `is_final` and the day counts (`total_/wrapped_`) are
+  **server-derived** (issue-#571 decision: ≥1 non-archived day AND all
+  wrapped; never vacuously final) and must never be recomputed client-side.
+  A scope with zero shooting days answers `200` with an empty report; an
+  unknown season/episode answers the existing `season.not-found` /
+  `episode.not-found` 404 codes. Authz reuses the day reports' handler-
+  internal season-membership gate verbatim (no new capability). The new
+  `ReportKind` variants `season-soll-ist` / `episode-soll-ist` render through
+  two new Typst templates and are deliberately **not** archivable. Flutter
+  consumption follows in the frontend change (PR #577 shipped the
+  reachability half).
+
 - **AI script import extracts EPISODES — apply creates/assigns episodes
   instead of one hard-picked target (issue #581).** A script's episode
   boundaries (`Ep.: 3 (Titel)` markers — first page and repeated page
@@ -58,6 +76,12 @@ tag. Never edit a released entry afterwards.
   chunk (the heading is that scene's heading).
 
 ### Changed
+- **Version bumps (issue `#571`).** Season-/episode-scoped aggregated
+  Soll-Ist report: `core 0.17.0 → 0.18.0` (new aggregate DTOs, port
+  methods, `ReportKind` variants), `infra 0.21.0 → 0.22.0` (read adapter +
+  Typst templates), `api 0.15.0 → 0.16.0` (new routes; repins core/infra
+  and the test-support crates: `architecture_tests`, `fuzz-targets`,
+  `integration-tests`, `test_support`).
 
 - **Version bumps (post-release development, next image cut picks these
   up):** `core 0.16.0 → 0.16.1`, `infra 0.20.0 → 0.20.1`,

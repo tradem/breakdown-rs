@@ -97,3 +97,51 @@ pub struct SollIstReport {
     pub rows: Vec<SollIstDiffRow>,
     pub is_final: bool,
 }
+
+/// One row of an aggregated (season- or episode-scoped) Soll-Ist report
+/// (issue #571): one planned execution of a scene on one shooting day within
+/// the report scope.
+///
+/// The diff flags carry the day-scoped semantics applied per row: `moved` /
+/// `missing` / `skipped` compare the row's own day, while `reshot_candidate`
+/// is scoped to the whole report scope — the scene has a `Shot` record on
+/// another day **within the scope**.
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct AggregateSollIstDiffRow {
+    pub scene_id: Uuid,
+    pub shooting_day_id: ShootingDayId,
+    /// Human-readable label of the row's shooting day (projection label;
+    /// nullable on the projection).
+    pub shooting_day_label: Option<String>,
+    pub scene_number: Option<u32>,
+    pub script_day: Option<String>,
+    pub location: Option<String>,
+    pub planned_order: Option<LexicalSortKey>,
+    pub actual_order: Option<LexicalSortKey>,
+    /// `true` when `actual_order` differs from `planned_order` on this day.
+    pub moved: bool,
+    /// `true` when planned on this day but without execution data.
+    pub missing: bool,
+    /// `true` when status is `Skipped` on this day.
+    pub skipped: bool,
+    /// `true` when the same `scene_id` has a `Shot` record on another day
+    /// within the report scope.
+    pub reshot_candidate: bool,
+}
+
+/// The aggregated (season- or episode-scoped) Soll-Ist report (issue #571).
+///
+/// `is_final` is **server-derived** and never recomputed client-side:
+/// `true` iff the scope has at least one non-archived shooting day and every
+/// one of them has `wrapped_at` set. A scope with zero shooting days
+/// therefore reports `false` (never vacuously final) with zero counts — an
+/// empty report, not an error.
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct AggregateSollIstReport {
+    pub rows: Vec<AggregateSollIstDiffRow>,
+    pub is_final: bool,
+    /// Number of non-archived shooting days in the scope.
+    pub total_shooting_days: u32,
+    /// How many of those days are wrapped (`wrapped_at` set).
+    pub wrapped_shooting_days: u32,
+}

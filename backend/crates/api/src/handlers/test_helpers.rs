@@ -1041,6 +1041,18 @@ impl SceneShootReportRepository for FakeSceneShootReportRepo {
     ) -> Result<SollIstReport, DomainError> {
         unreachable!("not used in authz tests")
     }
+    async fn season_soll_ist_report(
+        &self,
+        _season_id: SeasonId,
+    ) -> Result<AggregateSollIstReport, DomainError> {
+        unreachable!("not used in authz tests")
+    }
+    async fn episode_soll_ist_report(
+        &self,
+        _episode_id: EpisodeId,
+    ) -> Result<AggregateSollIstReport, DomainError> {
+        unreachable!("not used in authz tests")
+    }
 }
 
 /// A fake renderer that returns empty PDF bytes for handler tests.
