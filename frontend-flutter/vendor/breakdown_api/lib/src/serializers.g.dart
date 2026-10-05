@@ -11,6 +11,8 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..add(AddCostumeDetailRequest.serializer)
       ..add(AddNoteRequest.serializer)
       ..add(AddSceneCostumeBeatRequest.serializer)
+      ..add(AggregateSollIstDiffRow.serializer)
+      ..add(AggregateSollIstReport.serializer)
       ..add(AiConfigView.serializer)
       ..add(AiImportDefaults.serializer)
       ..add(AiImportJob.serializer)
@@ -146,6 +148,10 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..add(VariantStatus.serializer)
       ..add(VersionRequest.serializer)
       ..add(WrapShootingDayRequest.serializer)
+      ..addBuilderFactory(
+          const FullType(
+              BuiltList, const [const FullType(AggregateSollIstDiffRow)]),
+          () => ListBuilder<AggregateSollIstDiffRow>())
       ..addBuilderFactory(
           const FullType(
               BuiltList, const [const FullType(ApplyEpisodeGroupRequest)]),
