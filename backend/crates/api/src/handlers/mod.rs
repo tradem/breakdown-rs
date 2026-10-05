@@ -4641,6 +4641,14 @@ pub async fn season_soll_ist_report_pdf<P: Ports>(
             ApiError::Internal
         })?;
     headers.insert(axum::http::header::CONTENT_DISPOSITION, disposition_value);
+    // The scene-shoot-reports PDF requirement's cache policy (a member- and
+    // season-scoped document must never be retained by shared caches). The
+    // day-scoped PDF routes predate this hardening (issue #571 review
+    // finding) and stay untouched in this PR.
+    headers.insert(
+        axum::http::header::CACHE_CONTROL,
+        axum::http::HeaderValue::from_static("private, no-store"),
+    );
     Ok((StatusCode::OK, headers, rendered.pdf_bytes))
 }
 
@@ -4721,6 +4729,10 @@ pub async fn episode_soll_ist_report_pdf<P: Ports>(
             ApiError::Internal
         })?;
     headers.insert(axum::http::header::CONTENT_DISPOSITION, disposition_value);
+    headers.insert(
+        axum::http::header::CACHE_CONTROL,
+        axum::http::HeaderValue::from_static("private, no-store"),
+    );
     Ok((StatusCode::OK, headers, rendered.pdf_bytes))
 }
 

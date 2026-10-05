@@ -76,6 +76,12 @@ tag. Never edit a released entry afterwards.
   chunk (the heading is that scene's heading).
 
 ### Changed
+- **Version bumps (issue `#571`).** Season-/episode-scoped aggregated
+  Soll-Ist report: `core 0.17.0 → 0.18.0` (new aggregate DTOs, port
+  methods, `ReportKind` variants), `infra 0.21.0 → 0.22.0` (read adapter +
+  Typst templates), `api 0.15.0 → 0.16.0` (new routes; repins core/infra
+  and the test-support crates: `architecture_tests`, `fuzz-targets`,
+  `integration-tests`, `test_support`).
 
 - **Version bumps (post-release development, next image cut picks these
   up):** `core 0.16.0 → 0.16.1`, `infra 0.20.0 → 0.20.1`,

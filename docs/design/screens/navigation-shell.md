@@ -82,7 +82,7 @@ covered in Interactions and Tests — never in the wireframes.
 | Season destination | Navigation destination | Home: seasons overview (Season tab content) | `nav.seasons` |
 | Planen destination | Navigation destination | Hierarchy Season→Block→Episode→Scene | `nav.planen` |
 | Kleidung destination | Navigation destination | Costume domains (Kostüme, Figuren) scoped to the active season | `nav.costumes` |
-| Mehr destination | Navigation destination | Import, Kategorien, Über die App, Einstellungen, Abmelden (Berichte bleiben im Day-Board verankert und sind je Episode indiziert: der Day-Board-Eintrag (`reports-open`) öffnet den Tagesbericht, der Drehtage-Bildschirm führt über `reportsIndexOpen` zum Episoden-Berichtsindex — apply-time decision D8, erweitert durch `reports-season-report-index-571`) | `nav.more` |
+| Mehr destination | Navigation destination | Import, Kategorien, Über die App, Einstellungen, Abmelden (Berichte bleiben im Day-Board verankert und sind je Episode indiziert: der Day-Board-Eintrag (`reports-open`) öffnet den Tagesbericht, der Drehtage-Bildschirm führt über `reportsIndexOpen` zum Episoden-Berichtsindex, und die Stufen-Soll-Ist-Aggregatberichte (#571) öffnen über `reportsAggregateOpen` (Blocks-Screen, Staffel-Scope) bzw. `reportsIndexAggregateOpen` (Berichtsindex, Episoden-Scope) — apply-time decision D8, erweitert durch `reports-season-report-index-571` und `571-aggregate-soll-ist-report`) | `nav.more` |
 | Destination labels | Visible text | Mandatory on every destination in every morphology | — |
 | Tab content | Content pane | The active destination's screen (its own app bars and FABs stay) | — |
 

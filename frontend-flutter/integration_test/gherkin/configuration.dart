@@ -46,6 +46,9 @@ Future<FlutterTestConfiguration> buildGherkinConfig() async {
     // Reinstated against the report-index entry this change ships
     // (`reports-season-report-index-571`), plus the index's own steps.
     whenOpenSollIstReport(),
+    // Issue #571: the aggregated season/episode surfaces.
+    whenOpenAggregateSollIstReportForSeason(),
+    whenOpenAggregateSollIstReportOnIndex(),
     whenOpenShootingDays(),
     whenOpenReportIndexEntry(),
     whenOpenCostumeAssignment(),

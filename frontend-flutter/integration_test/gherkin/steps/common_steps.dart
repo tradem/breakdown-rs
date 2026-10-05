@@ -162,6 +162,55 @@ StepDefinitionGeneric whenOpenSollIstReport() => when1<String, FlutterWorld>(
   },
 );
 
+/// Season-level aggregate Soll-Ist entry (issue #571): the labelled action
+/// on the blocks screen (`reportsAggregateOpen`, label „Soll-Ist gesamt")
+/// pushes the season-scope aggregate screen. Same two-form discipline as
+/// [whenOpenReports]: labelled form navigates first tap, collapsed form
+/// opens the overflow menu whose item must be tapped.
+StepDefinitionGeneric whenOpenAggregateSollIstReportForSeason() =>
+    when1<String, FlutterWorld>(
+      'I open the aggregate Soll-Ist report for season {string}',
+      (String seasonId, context) async {
+        final driver = context.world.driver!;
+        final entry = find.byValueKey('reportsAggregateOpen');
+        await FlutterDriverUtils.tap(driver, entry);
+        final overflowItem = find.byValueKey(
+          'reportsAggregateOpen-overflow-item',
+        );
+        try {
+          await driver.waitFor(overflowItem, timeout: _reportsMenuTimeout);
+        } on DriverError {
+          return;
+        }
+        await FlutterDriverUtils.tap(driver, overflowItem);
+      },
+    );
+
+/// Episode-level aggregate Soll-Ist entry (issue #571): the labelled
+/// action on the report index (`reportsIndexAggregateOpen`) pushes the
+/// episode-scope aggregate screen. Same two-form discipline.
+// Zero-parameter step: the step text carries NO placeholder, so the
+// definition takes no argument (flutter_gherkin matches on the parameter
+// count — CodeRabbit review finding for this @pending scenario).
+StepDefinitionGeneric whenOpenAggregateSollIstReportOnIndex() =>
+    when<FlutterWorld>(
+      'I open the aggregate Soll-Ist report on the report index',
+      (context) async {
+        final driver = context.world.driver!;
+        final entry = find.byValueKey('reportsIndexAggregateOpen');
+        await FlutterDriverUtils.tap(driver, entry);
+        final overflowItem = find.byValueKey(
+          'reportsIndexAggregateOpen-overflow-item',
+        );
+        try {
+          await driver.waitFor(overflowItem, timeout: _reportsMenuTimeout);
+        } on DriverError {
+          return;
+        }
+        await FlutterDriverUtils.tap(driver, overflowItem);
+      },
+    );
+
 /// Opens an episode's shooting-days list from the episodes screen's
 /// context entry (`episode-shooting-days-<episodeId>`).
 StepDefinitionGeneric whenOpenShootingDays() => when1<String, FlutterWorld>(

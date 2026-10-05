@@ -72,3 +72,23 @@ Feature: Soll-Ist report (planned vs actual)
     And the report index lists shooting day "day-1"
     When I open the report index entry for shooting day "day-1"
     Then I expect the widget "soll-ist-report-screen" to be present within 10 seconds
+
+  @pending
+  Scenario: Season-level aggregate opens from the blocks spine
+    Given the app is launched in dev-auth mode
+    And I am authenticated as a "costume_dept" user
+    When I open season "1"
+    And I open the aggregate Soll-Ist report for season "1"
+    Then I expect the widget "soll-ist-aggregate-screen" to be present within 10 seconds
+
+  @pending
+  Scenario: Episode-level aggregate opens from the report index
+    Given the app is launched in dev-auth mode
+    And I am authenticated as a "costume_dept" user
+    When I open season "1"
+    And I open block "b-1"
+    And I open episode "e-1"
+    And I open the shooting days for episode "e-1"
+    And I open the Soll-Ist report for season "1"
+    And I open the aggregate Soll-Ist report on the report index
+    Then I expect the widget "soll-ist-aggregate-screen" to be present within 10 seconds

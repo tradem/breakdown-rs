@@ -866,6 +866,48 @@ abstract class AppLocalizations {
   /// **'Sobald ein Drehtag geplant ist, öffnet sich hier der Soll-/Ist-Bericht (geplant vs. tatsächlich) dieses Tages.'**
   String get reportsIndexEmpty;
 
+  /// No description provided for @shootingDaysReportsAggregateLabel.
+  ///
+  /// In de, this message translates to:
+  /// **'Soll-Ist gesamt'**
+  String get shootingDaysReportsAggregateLabel;
+
+  /// No description provided for @reportsAggregateTitle.
+  ///
+  /// In de, this message translates to:
+  /// **'Soll-Ist-Vergleich – {scope}'**
+  String reportsAggregateTitle(Object scope);
+
+  /// No description provided for @reportsAggregateFinal.
+  ///
+  /// In de, this message translates to:
+  /// **'Abschließend – alle Drehtage sind abgeschlossen.'**
+  String get reportsAggregateFinal;
+
+  /// No description provided for @reportsAggregateProvisional.
+  ///
+  /// In de, this message translates to:
+  /// **'Vorläufig – {wrapped} von {total} Drehtagen abgeschlossen.'**
+  String reportsAggregateProvisional(Object total, Object wrapped);
+
+  /// No description provided for @reportsAggregateProgress.
+  ///
+  /// In de, this message translates to:
+  /// **'{wrapped} von {total} Drehtagen abgeschlossen'**
+  String reportsAggregateProgress(Object total, Object wrapped);
+
+  /// No description provided for @reportsAggregatePdf.
+  ///
+  /// In de, this message translates to:
+  /// **'Soll-Ist-Vergleich (PDF)'**
+  String get reportsAggregatePdf;
+
+  /// No description provided for @reportsAggregateSceneLabel.
+  ///
+  /// In de, this message translates to:
+  /// **'Szenen-Nr: {number}'**
+  String reportsAggregateSceneLabel(Object number);
+
   /// No description provided for @aiConfigErrorAdmin.
   ///
   /// In de, this message translates to:
