@@ -21,6 +21,7 @@
 // Co-authored-by: hy4-preview (opencode-go)
 
 use std::collections::HashMap;
+use std::future::Future;
 use std::sync::Arc;
 
 use crate::problems::{ApiError, Bytes, Json, Path, ProblemDetails, Query};
@@ -717,6 +718,96 @@ async fn costume_season_scopes<P: Ports>(
     scopes
 }
 
+/// AUTHZ-GATE helper — fail-closed with an honest error surface (issue #537).
+///
+/// Every handler-internal membership gate is a predicate lookup against the
+/// membership projection. The predicate result has three shapes, each with a
+/// deliberate outcome:
+///
+/// - `Ok(true)` → the caller is authorized; the gate passes.
+/// - `Ok(false)` → a genuine deny: 403 with the caller-supplied denial
+///   reason (the helper does not change the denial policy).
+/// - `Err(_)` → the predicate itself failed (production source: a projection
+///   store outage surfacing as `DomainError::Internal`). The gate still
+///   grants **nothing** — fail-closed is intentional — but the reason must
+///   not masquerade as a permission problem: the error is logged and
+///   propagated via `From<DomainError>` so it renders as 500, never as a 403
+///   the caller cannot explain.
+///
+/// One shared helper instead of N hand-rolled `.unwrap_or(false)` patterns
+/// keeps the error behavior reviewable and changeable in a single place. The
+/// `// AUTHZ-GATE:` marker stays at each call site (reviewers grep for it);
+/// the mechanism behind it is homogeneous. The ast-grep rule
+/// `backend/rules/membership-gate.yml` forbids the swallowed-error pattern
+/// from creeping back in. Multi-scope gates use [`membership_gate_any`].
+async fn membership_gate<Fut, D>(lookup: Fut, denial: D) -> Result<(), ApiError>
+where
+    Fut: Future<Output = Result<bool, DomainError>>,
+    D: FnOnce() -> ApiError,
+{
+    match lookup.await {
+        Ok(true) => Ok(()),
+        Ok(false) => Err(denial()),
+        Err(err) => {
+            tracing::error!(
+                error = %err,
+                "authz predicate lookup failed; failing closed with a server error (issue #537)"
+            );
+            Err(err.into()) // 500 — never 403
+        }
+    }
+}
+
+/// ANY-semantics counterpart of [`membership_gate`] over N season scopes
+/// (issue #537): authorize the caller against **any** of the scopes and
+/// return the season that granted access.
+///
+/// A failed scope lookup does **not** deny — the remaining scopes may still
+/// authorize — but if no scope authorizes and at least one lookup failed, the
+/// last error is propagated as a 500 instead of a 403: a database outage must
+/// not masquerade as a permission problem. Fail-closed is intentional; an
+/// error never grants access. Backs [`authorize_costume_scoped`].
+async fn membership_gate_any<P: Ports>(
+    state: &AppState<P>,
+    scopes: Vec<SeasonId>,
+    user_id: UserId,
+    denial: &'static str,
+) -> Result<SeasonId, ApiError> {
+    let mut last_lookup_error: Option<DomainError> = None;
+    for season_id in scopes {
+        match state
+            .ports
+            .membership_repo()
+            .has_active_costume_role_in_season(season_id, user_id.clone())
+            .await
+        {
+            Ok(true) => return Ok(season_id),
+            Ok(false) => {}
+            Err(err) => {
+                tracing::warn!(
+                    error = %err,
+                    season_id = %season_id.0,
+                    "costume-role lookup failed; continuing with the remaining scopes"
+                );
+                last_lookup_error = Some(err);
+            }
+        }
+    }
+    match last_lookup_error {
+        // Fail closed, but report the real reason: the predicate's only
+        // production error is `DomainError::Internal` (a database failure), so
+        // this renders as 500 — never as a 403 the caller cannot explain.
+        Some(err) => {
+            tracing::error!(
+                error = %err,
+                "authorization predicate failed for every scope; denying with a server error (issue #537)"
+            );
+            Err(err.into())
+        }
+        None => Err(ApiError::Forbidden(denial)),
+    }
+}
+
 /// AUTHZ-GATE seam for costume handlers performing privileged, season-scoped
 /// actions on a costume the middleware alone cannot scope (issue #543; before
 /// that, the three photo handlers `upload_costume_photo`,
@@ -746,13 +837,11 @@ async fn costume_season_scopes<P: Ports>(
 /// - 500 when a scope lookup **failed** (see below — fail *closed*, but do not
 ///   let an outage masquerade as a permission error).
 ///
-/// Lookup failures are tracked instead of being collapsed into a denial
-/// (`unwrap_or(false)`, the older single-scope pattern in this file). With N
-/// scopes a swallowed error would silently turn a database outage into a 403
-/// that no operator can trace; the gate still grants **nothing** either way —
-/// only the reported reason becomes honest. Follow-up: hoist this into one
-/// shared membership-gate helper for all handler-internal AUTHZ-GATEs
-/// (issue #537).
+/// Lookup failures are tracked instead of being collapsed into a denial; with
+/// N scopes a swallowed error would silently turn a database outage into a 403
+/// that no operator can trace. Since issue #537 the error behavior lives in
+/// the shared [`membership_gate_any`] helper — this function only resolves
+/// the costume's season scopes and delegates.
 async fn authorize_costume_scoped<P: Ports>(
     state: &AppState<P>,
     costume: &CostumeView,
@@ -765,40 +854,7 @@ async fn authorize_costume_scoped<P: Ports>(
             "costume has no assigned character and no season repertoire — cannot determine season",
         ));
     }
-    let mut last_lookup_error: Option<DomainError> = None;
-    for season_id in scopes {
-        match state
-            .ports
-            .membership_repo()
-            .has_active_costume_role_in_season(season_id, user_id.clone())
-            .await
-        {
-            Ok(true) => return Ok(season_id),
-            Ok(false) => {}
-            Err(err) => {
-                tracing::warn!(
-                    error = %err,
-                    season_id = %season_id.0,
-                    "costume-role lookup failed; continuing with the remaining scopes"
-                );
-                last_lookup_error = Some(err);
-            }
-        }
-    }
-    match last_lookup_error {
-        // Fail closed, but report the real reason: the predicate's only
-        // production error is `DomainError::Internal` (a database failure), so
-        // this renders as 500 — never as a 403 the caller cannot explain.
-        Some(err) => {
-            tracing::error!(
-                error = %err,
-                costume_id = %costume.id,
-                "authorization predicate failed for every scope; denying with a server error"
-            );
-            Err(err.into())
-        }
-        None => Err(ApiError::Forbidden(denial)),
-    }
+    membership_gate_any(state, scopes, user_id, denial).await
 }
 
 #[utoipa::path(
@@ -827,18 +883,15 @@ pub async fn get_audit_history<P: Ports>(
     // any block of the series grants access — the journal is an operational
     // record of the whole production, not a costume-department artefact, so
     // the predicate is deliberately role-agnostic. Fails closed: a repository
-    // error denies.
-    let authorized = state
-        .ports
-        .membership_repo()
-        .has_active_membership_in_series(series_id, current_user.sub.clone())
-        .await
-        .unwrap_or(false);
-    if !authorized {
-        return Err(ApiError::Forbidden(
-            "not authorized to read the audit journal of this series",
-        ));
-    }
+    // error surfaces as a 500, never as a 403 (issue #537).
+    membership_gate(
+        state
+            .ports
+            .membership_repo()
+            .has_active_membership_in_series(series_id, current_user.sub.clone()),
+        || ApiError::Forbidden("not authorized to read the audit journal of this series"),
+    )
+    .await?;
 
     let entries = state
         .ports
@@ -3906,17 +3959,14 @@ pub async fn link_continuity_photo<P: Ports>(
     // block.season_id is a SeasonId — extract inner Uuid
     let season_id = block.season_id;
 
-    let is_authorized = state
-        .ports
-        .membership_repo()
-        .has_active_costume_role_in_season(season_id, current_user.sub.clone())
-        .await
-        .unwrap_or(false);
-    if !is_authorized {
-        return Err(ApiError::Forbidden(
-            "not authorized to link continuity photos",
-        ));
-    }
+    membership_gate(
+        state
+            .ports
+            .membership_repo()
+            .has_active_costume_role_in_season(season_id, current_user.sub.clone()),
+        || ApiError::Forbidden("not authorized to link continuity photos"),
+    )
+    .await?;
 
     let series_id = Some(block.series_id);
     let cmd = LinkContinuityPhoto {
@@ -3986,17 +4036,14 @@ pub async fn unlink_continuity_photo<P: Ports>(
         .await?;
     let season_id = block.season_id;
 
-    let is_authorized = state
-        .ports
-        .membership_repo()
-        .has_active_costume_role_in_season(season_id, current_user.sub.clone())
-        .await
-        .unwrap_or(false);
-    if !is_authorized {
-        return Err(ApiError::Forbidden(
-            "not authorized to unlink continuity photos",
-        ));
-    }
+    membership_gate(
+        state
+            .ports
+            .membership_repo()
+            .has_active_costume_role_in_season(season_id, current_user.sub.clone()),
+        || ApiError::Forbidden("not authorized to unlink continuity photos"),
+    )
+    .await?;
 
     let series_id = Some(block.series_id);
     let cmd = UnlinkContinuityPhoto {
@@ -4089,15 +4136,14 @@ pub async fn dispo_report<P: Ports>(
         .block_repo()
         .find_by_id(episode.block_id.0)
         .await?;
-    let is_authorized = state
-        .ports
-        .membership_repo()
-        .has_active_costume_role_in_season(block.season_id, current_user.sub.clone())
-        .await
-        .unwrap_or(false);
-    if !is_authorized {
-        return Err(ApiError::Forbidden("not authorized to view reports"));
-    }
+    membership_gate(
+        state
+            .ports
+            .membership_repo()
+            .has_active_costume_role_in_season(block.season_id, current_user.sub.clone()),
+        || ApiError::Forbidden("not authorized to view reports"),
+    )
+    .await?;
 
     let rows = state
         .ports
@@ -4134,15 +4180,14 @@ pub async fn shoot_day_report<P: Ports>(
         .block_repo()
         .find_by_id(episode.block_id.0)
         .await?;
-    let is_authorized = state
-        .ports
-        .membership_repo()
-        .has_active_costume_role_in_season(block.season_id, current_user.sub.clone())
-        .await
-        .unwrap_or(false);
-    if !is_authorized {
-        return Err(ApiError::Forbidden("not authorized to view reports"));
-    }
+    membership_gate(
+        state
+            .ports
+            .membership_repo()
+            .has_active_costume_role_in_season(block.season_id, current_user.sub.clone()),
+        || ApiError::Forbidden("not authorized to view reports"),
+    )
+    .await?;
 
     let rows = state
         .ports
@@ -4179,15 +4224,14 @@ pub async fn soll_ist_report<P: Ports>(
         .block_repo()
         .find_by_id(episode.block_id.0)
         .await?;
-    let is_authorized = state
-        .ports
-        .membership_repo()
-        .has_active_costume_role_in_season(block.season_id, current_user.sub.clone())
-        .await
-        .unwrap_or(false);
-    if !is_authorized {
-        return Err(ApiError::Forbidden("not authorized to view reports"));
-    }
+    membership_gate(
+        state
+            .ports
+            .membership_repo()
+            .has_active_costume_role_in_season(block.season_id, current_user.sub.clone()),
+        || ApiError::Forbidden("not authorized to view reports"),
+    )
+    .await?;
 
     let report = state
         .ports
@@ -4227,15 +4271,14 @@ pub async fn season_soll_ist_report<P: Ports>(
     // unknown ids (fail closed: policy runs only for an existing season).
     let season = state.ports.season_repo().find_by_id(id).await?;
     let _ = season;
-    let is_authorized = state
-        .ports
-        .membership_repo()
-        .has_active_costume_role_in_season(SeasonId::from_uuid(id), current_user.sub.clone())
-        .await
-        .unwrap_or(false);
-    if !is_authorized {
-        return Err(ApiError::Forbidden("not authorized to view reports"));
-    }
+    membership_gate(
+        state
+            .ports
+            .membership_repo()
+            .has_active_costume_role_in_season(SeasonId::from_uuid(id), current_user.sub.clone()),
+        || ApiError::Forbidden("not authorized to view reports"),
+    )
+    .await?;
 
     let report = state
         .ports
@@ -4277,15 +4320,14 @@ pub async fn episode_soll_ist_report<P: Ports>(
         .block_repo()
         .find_by_id(episode.block_id.0)
         .await?;
-    let is_authorized = state
-        .ports
-        .membership_repo()
-        .has_active_costume_role_in_season(block.season_id, current_user.sub.clone())
-        .await
-        .unwrap_or(false);
-    if !is_authorized {
-        return Err(ApiError::Forbidden("not authorized to view reports"));
-    }
+    membership_gate(
+        state
+            .ports
+            .membership_repo()
+            .has_active_costume_role_in_season(block.season_id, current_user.sub.clone()),
+        || ApiError::Forbidden("not authorized to view reports"),
+    )
+    .await?;
 
     let report = state
         .ports
@@ -4346,15 +4388,14 @@ pub async fn dispo_report_pdf<P: Ports>(
         .block_repo()
         .find_by_id(episode.block_id.0)
         .await?;
-    let is_authorized = state
-        .ports
-        .membership_repo()
-        .has_active_costume_role_in_season(block.season_id, current_user.sub.clone())
-        .await
-        .unwrap_or(false);
-    if !is_authorized {
-        return Err(ApiError::Forbidden("not authorized to view reports"));
-    }
+    membership_gate(
+        state
+            .ports
+            .membership_repo()
+            .has_active_costume_role_in_season(block.season_id, current_user.sub.clone()),
+        || ApiError::Forbidden("not authorized to view reports"),
+    )
+    .await?;
 
     // Query report data
     let rows = state
@@ -4429,15 +4470,14 @@ pub async fn shoot_day_report_pdf<P: Ports>(
         .block_repo()
         .find_by_id(episode.block_id.0)
         .await?;
-    let is_authorized = state
-        .ports
-        .membership_repo()
-        .has_active_costume_role_in_season(block.season_id, current_user.sub.clone())
-        .await
-        .unwrap_or(false);
-    if !is_authorized {
-        return Err(ApiError::Forbidden("not authorized to view reports"));
-    }
+    membership_gate(
+        state
+            .ports
+            .membership_repo()
+            .has_active_costume_role_in_season(block.season_id, current_user.sub.clone()),
+        || ApiError::Forbidden("not authorized to view reports"),
+    )
+    .await?;
 
     // Query report data
     let rows = state
@@ -4512,15 +4552,14 @@ pub async fn planned_vs_actual_report_pdf<P: Ports>(
         .block_repo()
         .find_by_id(episode.block_id.0)
         .await?;
-    let is_authorized = state
-        .ports
-        .membership_repo()
-        .has_active_costume_role_in_season(block.season_id, current_user.sub.clone())
-        .await
-        .unwrap_or(false);
-    if !is_authorized {
-        return Err(ApiError::Forbidden("not authorized to view reports"));
-    }
+    membership_gate(
+        state
+            .ports
+            .membership_repo()
+            .has_active_costume_role_in_season(block.season_id, current_user.sub.clone()),
+        || ApiError::Forbidden("not authorized to view reports"),
+    )
+    .await?;
 
     // Query report data
     let report = state
@@ -4590,15 +4629,14 @@ pub async fn season_soll_ist_report_pdf<P: Ports>(
     // AUTHZ-GATE: handler-internal auth gate (same policy as the day PDFs).
     let season = state.ports.season_repo().find_by_id(id).await?;
     let _ = season;
-    let is_authorized = state
-        .ports
-        .membership_repo()
-        .has_active_costume_role_in_season(SeasonId::from_uuid(id), current_user.sub.clone())
-        .await
-        .unwrap_or(false);
-    if !is_authorized {
-        return Err(ApiError::Forbidden("not authorized to view reports"));
-    }
+    membership_gate(
+        state
+            .ports
+            .membership_repo()
+            .has_active_costume_role_in_season(SeasonId::from_uuid(id), current_user.sub.clone()),
+        || ApiError::Forbidden("not authorized to view reports"),
+    )
+    .await?;
 
     let report = state
         .ports
@@ -4678,15 +4716,14 @@ pub async fn episode_soll_ist_report_pdf<P: Ports>(
         .block_repo()
         .find_by_id(episode.block_id.0)
         .await?;
-    let is_authorized = state
-        .ports
-        .membership_repo()
-        .has_active_costume_role_in_season(block.season_id, current_user.sub.clone())
-        .await
-        .unwrap_or(false);
-    if !is_authorized {
-        return Err(ApiError::Forbidden("not authorized to view reports"));
-    }
+    membership_gate(
+        state
+            .ports
+            .membership_repo()
+            .has_active_costume_role_in_season(block.season_id, current_user.sub.clone()),
+        || ApiError::Forbidden("not authorized to view reports"),
+    )
+    .await?;
 
     let report = state
         .ports
@@ -4788,17 +4825,14 @@ pub async fn manual_archive_reports<P: Ports>(
 
     // AUTHZ-GATE: manual archive — CostumeDesigner + WardrobeSupervisor only
     // (stricter than PDF routes; CostumeAssistant is excluded). Fail closed.
-    let is_authorized = state
-        .ports
-        .membership_repo()
-        .has_active_report_archive_role_in_season(block.season_id, current_user.sub.clone())
-        .await
-        .unwrap_or(false);
-    if !is_authorized {
-        return Err(ApiError::Forbidden(
-            "not authorized to enqueue report archival",
-        ));
-    }
+    membership_gate(
+        state
+            .ports
+            .membership_repo()
+            .has_active_report_archive_role_in_season(block.season_id, current_user.sub.clone()),
+        || ApiError::Forbidden("not authorized to enqueue report archival"),
+    )
+    .await?;
 
     // Enqueue all three kinds via the shared dedup key + pipeline.
     let kinds = [
@@ -4854,17 +4888,14 @@ pub async fn create_gdrive_credential<P: Ports>(
 ) -> ApiResult<IdVersionResponse> {
     // AUTHZ-GATE: only active CostumeDesigner/CostumeAssistant members may
     // create GDrive credentials. The bundle is handed to Vault immediately.
-    let authorized = state
-        .ports
-        .membership_repo()
-        .has_active_credential_role(current_user.sub.clone())
-        .await
-        .unwrap_or(false);
-    if !authorized {
-        return Err(ApiError::SettingsForbidden(
-            "not authorized to manage external credentials",
-        ));
-    }
+    membership_gate(
+        state
+            .ports
+            .membership_repo()
+            .has_active_credential_role(current_user.sub.clone()),
+        || ApiError::SettingsForbidden("not authorized to manage external credentials"),
+    )
+    .await?;
     let id = Uuid::now_v7();
     let bundle = req.into_bundle()?;
     let binding = state
@@ -4925,17 +4956,14 @@ pub async fn rotate_gdrive_credential<P: Ports>(
 ) -> ApiResult<IdVersionResponse> {
     // AUTHZ-GATE: only active CostumeDesigner/CostumeAssistant members may
     // rotate GDrive credentials.
-    let authorized = state
-        .ports
-        .membership_repo()
-        .has_active_credential_role(current_user.sub.clone())
-        .await
-        .unwrap_or(false);
-    if !authorized {
-        return Err(ApiError::SettingsForbidden(
-            "not authorized to manage external credentials",
-        ));
-    }
+    membership_gate(
+        state
+            .ports
+            .membership_repo()
+            .has_active_credential_role(current_user.sub.clone()),
+        || ApiError::SettingsForbidden("not authorized to manage external credentials"),
+    )
+    .await?;
     let view = state.ports.settings_repo().find_by_id(id).await?;
     // AUTHZ-GATE (ownership, issue #555): the binding must belong to the
     // caller. Checked before any Vault write, so a foreign rotate can neither
@@ -5056,17 +5084,14 @@ pub async fn create_credential<P: Ports>(
 ) -> ApiResult<IdVersionResponse> {
     // AUTHZ-GATE: only active CostumeDesigner/CostumeAssistant members may
     // create external credentials (role-specific settings authz, ADR-027).
-    let authorized = state
-        .ports
-        .membership_repo()
-        .has_active_credential_role(current_user.sub.clone())
-        .await
-        .unwrap_or(false);
-    if !authorized {
-        return Err(ApiError::SettingsForbidden(
-            "not authorized to manage external credentials",
-        ));
-    }
+    membership_gate(
+        state
+            .ports
+            .membership_repo()
+            .has_active_credential_role(current_user.sub.clone()),
+        || ApiError::SettingsForbidden("not authorized to manage external credentials"),
+    )
+    .await?;
     if req.provider.trim().is_empty() {
         return Err(ApiError::Validation("provider must not be empty"));
     }
@@ -5127,17 +5152,14 @@ pub async fn get_settings<P: Ports>(
 ) -> ApiResult<SettingsView> {
     // AUTHZ-GATE: only active CostumeDesigner/CostumeAssistant members may
     // read external credential binding metadata (never the secret).
-    let authorized = state
-        .ports
-        .membership_repo()
-        .has_active_credential_role(_current_user.sub.clone())
-        .await
-        .unwrap_or(false);
-    if !authorized {
-        return Err(ApiError::SettingsForbidden(
-            "not authorized to manage external credentials",
-        ));
-    }
+    membership_gate(
+        state
+            .ports
+            .membership_repo()
+            .has_active_credential_role(_current_user.sub.clone()),
+        || ApiError::SettingsForbidden("not authorized to manage external credentials"),
+    )
+    .await?;
     let mut view = state.ports.settings_repo().find_by_id(id).await?;
     // AUTHZ-GATE (ownership, issue #555): reading a binding's metadata —
     // including its opaque `vault_key_id` — is owner-scoped, mirroring the
@@ -5171,17 +5193,14 @@ pub async fn revoke_settings<P: Ports>(
 ) -> ApiResult<AggregateVersion> {
     // AUTHZ-GATE: only active CostumeDesigner/CostumeAssistant members may
     // revoke external credentials; Vault destruction happens after this gate.
-    let authorized = state
-        .ports
-        .membership_repo()
-        .has_active_credential_role(current_user.sub.clone())
-        .await
-        .unwrap_or(false);
-    if !authorized {
-        return Err(ApiError::SettingsForbidden(
-            "not authorized to manage external credentials",
-        ));
-    }
+    membership_gate(
+        state
+            .ports
+            .membership_repo()
+            .has_active_credential_role(current_user.sub.clone()),
+        || ApiError::SettingsForbidden("not authorized to manage external credentials"),
+    )
+    .await?;
     let view = state.ports.settings_repo().find_by_id(id).await?;
     // AUTHZ-GATE (ownership, issue #555): revoking destroys the Vault secret,
     // so the binding must belong to the caller. Checked before the command

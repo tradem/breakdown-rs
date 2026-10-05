@@ -60,6 +60,27 @@ tag. Never edit a released entry afterwards.
 
 ### Fixed
 
+- **Membership AUTHZ-GATE predicate errors now surface as 500 instead of a
+  swallowed 403 (issue #537).** All 19 handler-internal membership gates in
+  `crates/api/src/handlers/mod.rs` previously wrote their predicate as
+  `.unwrap_or(false)` — fail-closed (securely correct), but the error reason
+  was swallowed: a membership-projection outage reached the client as a 403
+  `domain.forbidden` nobody could explain. The predicates now run through
+  one shared helper (`membership_gate` for single-scope gates,
+  `membership_gate_any` under `authorize_costume_scoped` for multi-scope
+  ones). `Ok(false)` stays a genuine 403 deny (policy unchanged). In a
+  single-scope gate a predicate `Err(_)` is logged (`tracing::error!`) and
+  propagated as 500 `http.internal-error`. In the multi-scope helper a
+  failed scope lookup does **not** deny by itself — the remaining scopes may
+  still authorize (`Ok(true)` wins, even with another scope erroring); only
+  when **no** scope authorizes does the last lookup error surface as 500
+  instead of a 403 masquerading the outage. Fail-closed throughout: no error
+  grants access by itself. New fail-closed regression
+  tests pin the 500 + no-write behavior per predicate family; the ast-grep
+  rule `backend/rules/membership-gate.yml` forbids the pattern from
+  creeping back in. The AI-import gates were already on an explicit error
+  path (issues #481/#532 lineage) and are untouched.
+
 - **Script import: Word→PDF export artifacts no longer kill scene
   recognition (issue #581 user report).** A production script exported
   from Word arrives with non-breaking spaces (U+00A0/U+202F/U+2007), tabs
@@ -76,6 +97,10 @@ tag. Never edit a released entry afterwards.
   chunk (the heading is that scene's heading).
 
 ### Changed
+- **Version bumps (issue `#537`).** `api 0.16.0 → 0.16.1` — behavior fix on
+  the membership-gate predicate-error surface (500 instead of swallowed
+  403), no new public API (the gate helpers are crate-private); `core` and
+  `infra` untouched, no re-pins needed.
 - **Version bumps (issue `#571`).** Season-/episode-scoped aggregated
   Soll-Ist report: `core 0.17.0 → 0.18.0` (new aggregate DTOs, port
   methods, `ReportKind` variants), `infra 0.21.0 → 0.22.0` (read adapter +

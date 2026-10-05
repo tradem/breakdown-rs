@@ -945,9 +945,14 @@ async fn get_audit_history_denies_caller_without_series_membership() {
     assert!(!problem.detail.is_empty());
 }
 
-/// A repository error must fail closed (deny), never open the journal.
+/// A repository error must fail closed (deny), never open the journal. Since
+/// issue #537 the gate reports the *honest* reason — 500
+/// `http.internal-error` — instead of collapsing the outage into a 403 the
+/// caller cannot explain (this test previously pinned the 403 — issue #537
+/// changes exactly that). The remaining predicate families live in the
+/// P2.5 section at the bottom of this file.
 #[tokio::test]
-async fn get_audit_history_denies_when_membership_lookup_fails() {
+async fn get_audit_history_predicate_error_is_500_fail_closed() {
     let ports = FakePorts::default();
     *ports
         .membership_repo
@@ -966,8 +971,9 @@ async fn get_audit_history_denies_when_membership_lookup_fails() {
     let problem = result
         .expect_err("a failing membership lookup must deny")
         .into_problem();
-    assert_eq!(problem.status, 403);
-    assert_eq!(problem.code, "domain.forbidden");
+    assert_eq!(problem.status, 500);
+    assert_eq!(problem.code, "http.internal-error");
+    assert!(!problem.detail.is_empty());
 }
 
 /// An active member of the series reads the journal of exactly that series.
@@ -1133,4 +1139,122 @@ async fn upload_costume_photo_rejects_heic_content_type() {
     assert_eq!(problem.status, 415);
     assert_eq!(problem.code, "http.unsupported-media-type");
     assert!(!problem.detail.is_empty());
+}
+
+// ---------------------------------------------------------------------------
+// P2.5 — Predicate lookup errors are 500, never 403 (issue #537)
+// ---------------------------------------------------------------------------
+
+// Since issue #537 every handler-internal membership AUTHZ-GATE routes its
+// predicate through `membership_gate`: the gate stays **fail-closed** (an
+// error grants nothing), but a projection-store outage surfaces as 500
+// `http.internal-error` instead of being swallowed into a 403 no operator
+// can trace. One test per predicate family, each also proving that no write
+// access is granted on the error path.
+
+/// Production error shape of the membership predicates.
+fn predicate_outage() -> breakdown_core::error::DomainError {
+    breakdown_core::error::DomainError::internal("projection store outage (issue #537 test)")
+}
+
+/// Costume-role family — `unlink_continuity_photo` is a **write**: the fake
+/// command port panics (`unreachable!`) when reached, so the test only passes
+/// if the gate failed closed *before* dispatch.
+#[tokio::test]
+async fn unlink_continuity_photo_predicate_error_is_500_fail_closed() {
+    let ports = FakePorts::default();
+    let (sd_id, _sid) = seed_shooting_day_chain(&ports).await;
+    *ports.membership_repo.costume_role_override.lock().await = Some(Err(predicate_outage()));
+    let state = app_state(ports);
+
+    let result = unlink_continuity_photo::<FakePorts>(
+        State(state),
+        dummy_user(),
+        Path((
+            sd_id,
+            uuid::Uuid::now_v7(),
+            scene_shoot_id(),
+            PhotoId::new(),
+        )),
+        Query(VersionRequest {
+            version: AggregateVersion(1),
+        }),
+    )
+    .await;
+
+    let problem = result
+        .expect_err("a failing predicate must deny")
+        .into_problem();
+    assert_eq!(problem.status, 500);
+    assert_eq!(problem.code, "http.internal-error");
+    assert!(!problem.detail.is_empty());
+    // Fail-closed proof: the unlink command port must never have been
+    // reached — reaching it would panic (`unreachable!` in the fake).
+}
+
+// Series-membership family — the audit gate denies, and the journal is not
+// opened (covered by
+// `get_audit_history_predicate_error_is_500_fail_closed` above).
+
+/// Report-archive-role family — `manual_archive_reports` **writes** to the
+/// archival queue: on a predicate error nothing may be enqueued.
+#[tokio::test]
+async fn manual_archive_reports_predicate_error_is_500_fail_closed() {
+    let ports = FakePorts::default();
+    let (sd_id, _sid) = seed_shooting_day_chain(&ports).await;
+    *ports
+        .membership_repo
+        .report_archive_role_override
+        .lock()
+        .await = Some(Err(predicate_outage()));
+    // Clone before the state takes ownership: the fake queue is `Arc`-backed,
+    // so the clone observes the same job map.
+    let queue_jobs = ports.report_archival_queue.jobs.clone();
+    let state = app_state(ports);
+
+    let result =
+        api::handlers::manual_archive_reports::<FakePorts>(State(state), dummy_user(), Path(sd_id))
+            .await;
+
+    let problem = result
+        .expect_err("a failing predicate must deny")
+        .into_problem();
+    assert_eq!(problem.status, 500);
+    assert_eq!(problem.code, "http.internal-error");
+    assert!(!problem.detail.is_empty());
+    assert!(
+        queue_jobs.lock().await.is_empty(),
+        "fail-closed proof: a predicate error must never enqueue archival work"
+    );
+}
+
+/// Credential-role family — `revoke_settings` destroys a Vault secret: on a
+/// predicate error no revoke may reach the command port.
+#[tokio::test]
+async fn revoke_settings_predicate_error_is_500_fail_closed() {
+    let ports = FakePorts::default();
+    *ports.membership_repo.credential_role_override.lock().await = Some(Err(predicate_outage()));
+    let revokes = ports.settings_commands.revokes.clone();
+    let state = app_state(ports);
+
+    let result = api::handlers::revoke_settings::<FakePorts>(
+        State(state),
+        dummy_user(),
+        Path(uuid::Uuid::now_v7()),
+        Json(VersionRequest {
+            version: AggregateVersion(1),
+        }),
+    )
+    .await;
+
+    let problem = result
+        .expect_err("a failing predicate must deny")
+        .into_problem();
+    assert_eq!(problem.status, 500);
+    assert_eq!(problem.code, "http.internal-error");
+    assert!(!problem.detail.is_empty());
+    assert!(
+        revokes.lock().await.is_empty(),
+        "fail-closed proof: a predicate error must never dispatch a revoke"
+    );
 }

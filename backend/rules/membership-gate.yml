@@ -1,0 +1,46 @@
+# SPDX-License-Identifier: AGPL-3.0
+# Copyright (C) 2024-2026 Breakdown RS Contributors
+# Co-authored-by: glm-5.3-flash (opencode-go)
+
+# Handler-internal membership AUTHZ-GATEs must route their predicate through
+# the shared `membership_gate` helper (issue #537) — never write the
+# fail-closed-but-error-swallowing pattern
+#
+#     membership_repo().has_active_*(...).await.unwrap_or(false)
+#
+# by hand. `.unwrap_or(false)` is securely fail-closed, but it swallows the
+# error reason: a projection-store outage reaches the client as a 403
+# `domain.forbidden` that neither user nor operator can explain.
+# `membership_gate` keeps the fail-closed semantics while reporting the
+# honest reason (500 + tracing::error).
+#
+# The rule matches the predicate *pattern*, not a specific predicate name, so
+# new `has_active_*` membership predicates are covered automatically. The
+# AI-import gates (`credential_role_override` error path,
+# handler_ai_import_authz.rs) use a different, explicit mechanism and are not
+# touched by the helper; they don't match this pattern either.
+#
+# Scan scope: production source files (crates/*/src) in the CI error-hygiene
+# job and pre-commit hook — test code may pattern-match freely.
+#
+# A deliberate exception is permitted only with an explicit suppression:
+#   // ast-grep-ignore: membership-gate
+# on the call line, carrying a justification comment above.
+id: membership-gate
+message: >-
+  A membership predicate's error is swallowed with `.unwrap_or(false)` (issue
+  #537): fail-closed is correct, but the outage then surfaces as a 403 nobody
+  can explain. Route the predicate through the shared `membership_gate`
+  helper in `crates/api/src/handlers/mod.rs` instead — fail-closed with an
+  honest error surface (500 + tracing::error). Only suppress with an explicit
+  `// ast-grep-ignore: membership-gate` comment and a justification above the
+  call.
+severity: error
+language: Rust
+rule:
+  pattern: $REPO.$METHOD($$$ARGS).await.unwrap_or(false)
+constraints:
+  REPO:
+    regex: .*membership_repo\(\)$
+  METHOD:
+    regex: ^has_active_

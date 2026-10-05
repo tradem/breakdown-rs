@@ -66,7 +66,7 @@ fi
 
 # 5. Run ast-grep guardrails on staged files (mirrors the CI jobs)
 if [ -n "$STAGED_RS_FILES" ]; then
-    echo "🛡️  Running ast-grep guardrails (cqrs-boundary / test-shim-leak / discard-result / test-helper-gate / uuid-v7-only / allow-panic-lint-justification / openapi-value-type-nullable / s2-extension-ban / problem-code-registry / reqwest-no-dangerous-tls / reqwest-no-hardcoded-auth)..."
+    echo "🛡️  Running ast-grep guardrails (cqrs-boundary / test-shim-leak / discard-result / test-helper-gate / uuid-v7-only / allow-panic-lint-justification / openapi-value-type-nullable / membership-gate / s2-extension-ban / problem-code-registry / reqwest-no-dangerous-tls / reqwest-no-hardcoded-auth)..."
     if command -v ast-grep &> /dev/null; then
         # Write-side dirs → cqrs-boundary rule (see backend/rules/cqrs-boundary.yml).
         # AI workers are write-side code too and must stay projection-free.
@@ -86,7 +86,10 @@ if [ -n "$STAGED_RS_FILES" ]; then
         # escape-hatch comment requirement) + openapi-value-type-nullable
         # (issue #423: a `schema(value_type = …)` override without `Option`
         # on an `Option<…>` field drops nullability from the rendered schema
-        # and breaks the generated Dart client).
+        # and breaks the generated Dart client) + membership-gate (issue
+        # #537: a membership predicate's error must not be swallowed with
+        # `.unwrap_or(false)` — route through the shared `membership_gate`
+        # helper).
         PROD_FILES=$(echo "$STAGED_RS_FILES" | grep '^crates/.*/src/' \
             | grep -vE '_tests\.rs$|_test\.rs$|test_helpers\.rs$|/tests/|/test_helpers/' || true)
         if [ -n "$PROD_FILES" ]; then
@@ -95,6 +98,7 @@ if [ -n "$STAGED_RS_FILES" ]; then
             echo "$PROD_FILES" | xargs -r ast-grep scan -r rules/uuid-v7-only.yml
             echo "$PROD_FILES" | xargs -r ast-grep scan -r rules/allow-panic-lint-justification.yml
             echo "$PROD_FILES" | xargs -r ast-grep scan -r rules/openapi-value-type-nullable.yml
+            echo "$PROD_FILES" | xargs -r ast-grep scan -r rules/membership-gate.yml
             # Rust security rules (issue #262, vendored from
             # coderabbitai/ast-grep-essentials): no reqwest TLS bypasses, no
             # hardcoded HTTP auth credentials.
