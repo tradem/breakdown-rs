@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024 Breakdown RS Contributors
-// Co-authored-by: glm-5.3 (neuralwatt)
+// Co-authored-by: glm-5.3-flash (opencode-go)
 
 // Episode Soll-Ist-Vergleich Report Template (issue #571)
 // Aggregated across all non-archived shooting days of the episode.
