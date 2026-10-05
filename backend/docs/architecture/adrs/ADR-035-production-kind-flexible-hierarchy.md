@@ -207,11 +207,31 @@ Configurable **below** `Project`:
 The seams the 0.4.x issues must converge on. These are prescribed; the
 container model behind them is not.
 
-- **S1 — `ProjectId` in `core::shared`.** Replaces `SeriesId`
-  (`crates/core/src/shared.rs:109`) as a mechanical rename. The rename change
-  is **deferred past 0.4.x** — the 0.4.x issues cite this ADR and add no new
-  `SeriesId`-typed surface — and lands as its own change with the alias kept
-  during a compatibility window.
+- **S1 `ProjectId` in `core::shared`.** Replaces `SeriesId`
+  (`crates/core/src/shared.rs:109`). The rename change is **deferred past 0.4.x** —
+  the 0.4.x issues cite this ADR and add no new `SeriesId`-typed surface —
+  and lands as its own change. Tracked in issue #591.
+
+  **Not a mechanical rename.** The identifier lives on three layers with
+  three different rules, and conflating them is the main risk:
+
+  1. *Rust type name* (`SeriesId` → `ProjectId`) is wire-neutral — the type is
+     `#[serde(transparent)]` over `Uuid`, so the JSON value is unchanged. Watch the
+     `utoipa` schema names, which are derived from the Rust type.
+  2. *Command/event field names* (`series_id` → `project_id`) are **forbidden for
+     events**: the event store already holds serialized events and ADR-002
+     forbids rewriting history. A blind rename surfaces as a projector dying
+     on deserialization (SQLSTATE 22, dead-letter via the #37 path), not as a
+     compile error. Commands are not persisted and may be renamed freely;
+     events need `#[serde(rename = "project_id", alias = "series_id")]` or an unchanged
+     wire field. The choice must be recorded, not improvised.
+  3. *Projection column + OpenAPI field names* are a **breaking change**
+     (ADR-021, 32 fields in `openapi.yaml`) and need their own
+     migration plus a deprecation window.
+
+  Whether #591 covers layer 3 or stops after layers 1 — 2 is a decision for that
+  issue; the outcome updates **B5** below. What is normative here: the
+  rename must never be a single undifferentiated sweep across the three.
 - **S2 — Authorization seam.** `has_active_costume_role_in_project(
   project_id, user_id)` is the shape (the 0.4.x #535 work). Same role set as
   today's season-typed predicate (`costume_designer`, `wardrobe_supervisor`,
@@ -339,4 +359,4 @@ container model behind them is not.
   code* and is corrected by S1's rename change, not by this ADR (B5).
 - **No code.** This ADR is rationale + boundary + seams. The first code change
   it prescribes is #535's `has_active_costume_role_in_project`; the rename
-  (S1) is a separate, later change.
+  (S1) is a separate, later change (issue #591).
