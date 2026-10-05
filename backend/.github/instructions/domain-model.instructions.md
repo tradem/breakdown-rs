@@ -30,8 +30,16 @@ scope-free: since #453 it carries a season **repertoire** (`projection_costume_s
 PK `(costume_id, season_id)` — m:n by construction, the wardrobe lifecycle carries a costume
 from one season into the next), seeded from `CostumeCreated.season_id` and made real
 aggregate state by #534; it additionally references the optional `category_id` (#543),
-resolved by join in the read model. Its photo-authorization scope is therefore the union of
-its repertoire seasons and its character's season.
+resolved by join in the read model.
+That union is the costume's **domain** scope: it decides which seasons list the costume,
+which series/project it resolves to, and what the season-scoped reports are about.
+Its **authorization** scope is a separate question and is *not* that union:
+`authorize_costume_scoped` (`api/src/handlers/mod.rs:757`) still checks the season-typed
+predicate per scope today, but ADR-035 B2/S2 moves that boundary up to the **project** — a
+costume-department role in any active block of the owning project. #535 removes the
+`…_in_season` call from the photo path (a deliberate widening); the repertoire then only
+serves to resolve *which* project. Do not re-introduce a season-union authorization check,
+and do not let the client deny on the season union — it would block flows the server permits.
 Core modules: `season`, `block`, `episode`, `scene`, `scene_shoot`, `shooting_day`, `character`, `costume`, `costume_category`, `shared`.
 The `calculation` context was removed; do not reintroduce it.
 `shooting_day` is an Episode-scoped `Drehtag` aggregate. It carries a `label`, a `LexicalSortKey`

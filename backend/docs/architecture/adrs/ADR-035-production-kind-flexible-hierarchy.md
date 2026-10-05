@@ -216,6 +216,31 @@ container model behind them is not.
   project_id, user_id)` is the shape (the 0.4.x #535 work). Same role set as
   today's season-typed predicate (`costume_designer`, `wardrobe_supervisor`,
   `costume_assistant`), one level up, typed by B2.
+
+  **How the costume-photo boundary is enforced under S2** — this is a
+  deliberate *widening*, not a mechanical re-bending, so it is spelled out
+  rather than left to the implementing PR (#535 flags it as "deliberate scope
+  widening (review required)"):
+
+  - *Today* the gate is `authorize_costume_scoped`
+    (`crates/api/src/handlers/mod.rs:757`): it computes the costume's **season
+    scope** — its character's season ∪ its repertoire seasons
+    (`costume_season_scopes`, `:681`) — and calls the season-typed predicate
+    for **each** scope, passing on any `true`.
+  - *Under S2* the gate resolves **which project owns the costume**
+    (S3; `series_id_for_costume`, `:616`, already carries the repertoire
+    fallback) and calls the **project-typed** predicate **once**. Photo
+    access is therefore **project-wide**: holding a costume-department role in
+    any active block of the owning project is sufficient, and the season union
+    is **not** an authorization input.
+  - The repertoire remains the costume's **domain** scope — it decides which
+    seasons list the costume, which project the costume resolves to, and what
+    the season-scoped reports are about. Only the *authorization* level moves
+    up. B2 is not violated: it forbids **adding** season-typed predicates, and
+    S2 **removes** the existing season-typed call from the photo path.
+  - The client mirrors the rule (`frontend-flutter/AGENTS.md` §5): a client
+    that still denies on the season union will block flows the server permits
+    and silently drift, which is the #513 mirror lesson.
 - **S3 — Container-resolution seam.** The ad-hoc handler helpers
   `series_id_for_costume` and `series_id_for_costume_category`
   (`crates/api/src/handlers/mod.rs:616` / `:539`) are replaced by one
