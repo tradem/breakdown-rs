@@ -2713,7 +2713,7 @@ pub async fn set_costume_category<P: Ports>(
     request_body = AddCostumeToSeasonRequest,
     responses(
         (status = 200, body = AggregateVersion),
-        (status = 403, body = ProblemDetails, description = "Caller holds no active costume role in the target season"),
+        (status = 403, body = ProblemDetails, description = "Caller holds no active costume role in the target season or in any current season scope of the costume"),
         (status = 404, body = ProblemDetails, description = "Costume or season not found"),
         (status = 409, body = ProblemDetails, description = "Target season is archived or version conflict"),
         (status = 422, body = ProblemDetails, description = "Validation error"),
@@ -2725,17 +2725,36 @@ pub async fn add_costume_to_season<P: Ports>(
     Path(id): Path<Uuid>,
     Json(req): Json<AddCostumeToSeasonRequest>,
 ) -> ApiResult<AggregateVersion> {
-    // No costume existence pre-fetch: the aggregate load below answers an
-    // unknown costume with 404 `costume.not-found` — the authz gate keys on
-    // the target season, not on the costume.
+    // The costume must exist and be UNDER THE CALLER'S CONTROL before it can
+    // be extended (CodeRabbit review): without the costume-scope gate a
+    // caller holding a costume role in season B could pull a costume whose
+    // scopes live entirely in season A into B's repertoire — and B then
+    // becomes one of the costume's authorization scopes, opening the
+    // any-scope gates (photos, details, category) with the caller's B role.
+    // A costume with no scope at all answers 422, exactly like every other
+    // `authorize_costume_scoped` consumer.
+    let costume = state.ports.costume_repo().find_by_id(id).await?;
+
+    // AUTHZ-GATE (costume scope, ANY semantics): the caller must hold an
+    // active costume role in at least ONE current scope of the costume
+    // (character season ∪ repertoire). Lookup failures propagate as a
+    // server error — never as an empty scope set (issue #537).
+    authorize_costume_scoped(
+        &state,
+        &costume,
+        current_user.sub.clone(),
+        "costume repertoire add requires a costume role in a season scope of the costume",
+    )
+    .await?;
+
     let season = state.ports.season_repo().find_by_id(req.season_id).await?;
 
-    // AUTHZ-GATE: the mutation acts on the **target** season's repertoire,
-    // so the caller must hold an active costume-dept role in that season —
-    // the existing predicate, no new ADR-035-B2-disallowed `*_in_season`
-    // variant. Handler-internal because repertoire routes sit under the
-    // `/costumes` prefix, whose middleware classification cannot scope a
-    // specific target season.
+    // AUTHZ-GATE (target season): the mutation acts on the **target**
+    // season's repertoire, so the caller must hold an active costume-dept
+    // role in that season — the existing predicate, no new
+    // ADR-035-B2-disallowed `*_in_season` variant. Handler-internal because
+    // repertoire routes sit under the `/costumes` prefix, whose middleware
+    // classification cannot scope a specific target season.
     match state
         .ports
         .membership_repo()

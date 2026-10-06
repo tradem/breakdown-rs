@@ -4984,7 +4984,7 @@ paths:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
-          description: Caller holds no active costume role in the target season
+          description: Caller holds no active costume role in the target season or in any current season scope of the costume
         '404':
           content:
             application/problem+json:

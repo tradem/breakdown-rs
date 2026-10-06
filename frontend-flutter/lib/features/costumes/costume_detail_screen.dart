@@ -266,6 +266,11 @@ class _RepertoireSection extends ConsumerWidget {
     List<SeasonView> eligible,
     String Function(String) nameOf,
   ) async {
+    // Captured BEFORE the sheet opens (CodeRabbit #563 seam, same as
+    // `_DetailRow._confirmDelete`): a bounded reconcile can rebuild or
+    // unmount this section while the modal route is open — the confirmation
+    // callback must never touch the possibly-disposed WidgetRef.
+    final controller = ref.read(costumesControllerProvider(season.id).notifier);
     final picked = await showModalBottomSheet<String>(
       context: context,
       builder: (sheetContext) => SafeArea(
@@ -303,7 +308,6 @@ class _RepertoireSection extends ConsumerWidget {
       ),
     );
     if (picked == null || !context.mounted) return;
-    final controller = ref.read(costumesControllerProvider(season.id).notifier);
     // Handled: failures surface via the command-error provider.
     final addResult = await controller.addToSeason(
       costume: costume,
@@ -327,6 +331,10 @@ class _RepertoireSection extends ConsumerWidget {
     String name,
   ) async {
     final l10n = l10nOf(context);
+    // Captured BEFORE the dialog opens (CodeRabbit #563 seam, same as
+    // `_DetailRow._confirmDelete`): the confirmation callback must never
+    // touch the possibly-disposed WidgetRef after the await.
+    final controller = ref.read(costumesControllerProvider(season.id).notifier);
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
@@ -346,7 +354,6 @@ class _RepertoireSection extends ConsumerWidget {
       ),
     );
     if (confirmed != true || !context.mounted) return;
-    final controller = ref.read(costumesControllerProvider(season.id).notifier);
     // Handled: failures surface via the command-error provider.
     final removeResult = await controller.removeFromSeason(
       costume: costume,

@@ -102,9 +102,12 @@ class CostumeCacheDao {
     if (row.seasonIdsJson case final json? when json.isNotEmpty) {
       final decoded = jsonDecode(json);
       if (decoded is List) {
-        b.seasonIds.replace(
-          BuiltList<String>([for (final id in decoded) id as String]),
-        );
+        // Tolerant decode (CodeRabbit review): a corrupt stored value must
+        // not throw out of a `data/` read — non-string elements are dropped
+        // and a `FormatException` is caught by `readCached`
+        // (cache.read_failed), the same shape the NULL-from-older-cache
+        // case maps to.
+        b.seasonIds.replace(BuiltList<String>(decoded.whereType<String>()));
       }
     }
     assert(seasonId.isNotEmpty, 'season scope must be non-empty');
