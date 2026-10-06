@@ -24,12 +24,11 @@ Archive a completed change in the experimental workflow.
 
 1. **If no change name provided, prompt for selection**
 
-   Run `openspec list --json` to get available changes. Use the **AskUserQuestion tool** to let the user select.
+   Run `openspec list --json [--store <id>]` (pass the flag when a store is selected) to get available changes.
 
-   Show only active changes (not already archived).
-   Include the schema used for each change if available.
+   **Selection rule:** if the change is unambiguous from the conversation context (exactly one active change matches), state the inference and continue with it. Otherwise use the **AskUserQuestion tool** to let the user select — show only active changes (not already archived) and the schema used for each change if available.
 
-   **IMPORTANT**: Do NOT guess or auto-select a change. Always let the user choose.
+   **IMPORTANT**: Never silently guess. An inferred selection must be announced and is only valid when context identifies exactly one change.
 
 2. **Check artifact completion status**
 
@@ -71,7 +70,7 @@ Archive a completed change in the experimental workflow.
    - If changes needed: "Sync now (recommended)", "Archive without syncing"
    - If already synced: "Archive now", "Sync anyway", "Cancel"
 
-   If user chooses sync, use Task tool (subagent_type: "general-purpose", prompt: "Use Skill tool to invoke openspec-sync-specs for change '<name>'. Delta spec analysis: <include the analyzed delta spec summary>"). Proceed to archive regardless of choice.
+   If user chooses sync, use Task tool (subagent_type: "general-purpose", prompt: "Use Skill tool to invoke openspec-sync-specs for change '<name>'. Delta spec analysis: <include the analyzed delta spec summary>"). If the user selects "Cancel", STOP — do not archive; the change stays unarchived and may be synced later.
 
 5. **Perform the archive**
 

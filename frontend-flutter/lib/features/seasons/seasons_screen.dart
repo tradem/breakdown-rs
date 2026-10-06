@@ -14,6 +14,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../auth/auth_providers.dart';
+import '../../auth/membership/membership_providers.dart';
 import '../../core/problem_error.dart';
 import '../../data/cache/relative_time.dart';
 import '../../data/cache/seasons_cache_providers.dart';
@@ -244,8 +245,21 @@ class _SeasonCard extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final l10n = l10nOf(context);
+    final seasonId = switch (row) {
+      ProjectedSeasonRow(:final season) => season.id,
+      OptimisticSeasonRow(:final overlay) => overlay.id,
+    };
+    // Auto-dispose per season id; the card gate reads the resolved state
+    // without triggering a fetch for optimistic (not-yet-projected) rows.
+    final membership = ref.watch(currentMembershipProvider(seasonId));
+    final canArchive = membership.value?.hasActiveCostumeRoleInSeason == true;
     return switch (row) {
       ProjectedSeasonRow(:final season, :final metrics) => SeasonCard(
+        // The archive affordance mirrors the backend AUTHZ-GATE up front:
+        // offered only while the season-scoped membership RESOLVES to an
+        // active costume-dept role (a pending/erroring membership disables —
+        // never a denial narrative, D3) and only on a non-locked season.
+
         key: Key('season-${season.id}'),
         title: season.title ?? l10n.seasonsDefaultTitle(season.number),
         metadata: _metadataLine(metrics, l10n),
@@ -255,7 +269,7 @@ class _SeasonCard extends ConsumerWidget {
         // offered on a locked season.
         archived: season.archived,
         archivedBadge: season.archived ? l10n.seasonsArchivedBadge : null,
-        onArchive: season.archived
+        onArchive: season.archived || !canArchive
             ? null
             : () => ref
                   .read(seasonsControllerProvider.notifier)

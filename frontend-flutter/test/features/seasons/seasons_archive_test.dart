@@ -189,24 +189,31 @@ void main() {
     expect(find.textContaining('archiviert'), findsWidgets);
   });
 
-  testWidgets('golden: locked season card in German + English (light)', (
-    tester,
-  ) async {
-    const variants = [
-      (Locale('de'), 'seasons_archived_locked_de'),
-      (Locale('en'), 'seasons_archived_locked_en'),
-    ];
-    for (final (locale, name) in variants) {
-      await pumpScreen(
-        tester,
-        initialRows: [season(_kArchivedSeasonId, archived: true)],
-        locale: locale,
-      );
-      await expectLater(
-        find.byType(SeasonCard, skipOffstage: true),
-        matchesGoldenFile('goldens/$name.png'),
-      );
-    }
+  // One testWidgets per locale: flutter_test fails on timers pending at
+  // teardown, so each container (and its membership/reconcile timers) gets
+  // its own timer scope instead of leaking across locales.
+  testWidgets('golden: locked season card (light, German)', (tester) async {
+    await pumpScreen(
+      tester,
+      initialRows: [season(_kArchivedSeasonId, archived: true)],
+      locale: const Locale('de'),
+    );
+    await expectLater(
+      find.byType(SeasonCard, skipOffstage: true),
+      matchesGoldenFile('goldens/seasons_archived_locked_de.png'),
+    );
+  });
+
+  testWidgets('golden: locked season card (light, English)', (tester) async {
+    await pumpScreen(
+      tester,
+      initialRows: [season(_kArchivedSeasonId, archived: true)],
+      locale: const Locale('en'),
+    );
+    await expectLater(
+      find.byType(SeasonCard, skipOffstage: true),
+      matchesGoldenFile('goldens/seasons_archived_locked_en.png'),
+    );
   });
 
   testWidgets('golden: archive affordance menu (light, German)', (

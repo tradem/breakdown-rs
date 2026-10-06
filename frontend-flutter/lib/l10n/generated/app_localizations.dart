@@ -4351,7 +4351,7 @@ abstract class AppLocalizations {
   /// No description provided for @seasonsArchiveForbidden.
   ///
   /// In de, this message translates to:
-  /// **'Dafür fehlt Ihnen die aktive Kostüm-Rolle in dieser Staffel.'**
+  /// **'Dafür fehlt dir die aktive Kostüm-Rolle in dieser Staffel.'**
   String get seasonsArchiveForbidden;
 }
 

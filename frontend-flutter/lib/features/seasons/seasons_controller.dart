@@ -221,13 +221,19 @@ class SeasonsController extends _$SeasonsController {
     // pending state ('membership.pending'), not a denial; a resolved denial
     // is `domain.forbidden` — the same code the server renders, so the
     // client localizes one narrative.
-    final membership = await ref
-        .read(membershipFetchProvider(season.id).future)
-        .catchError(
-          (_) => const Left<ProblemError, SeasonMembershipDto>(
-            ProblemError(code: 'membership.pending', status: 403),
-          ),
-        );
+    Result<SeasonMembershipDto> membership;
+    try {
+      // Awaiting the fetch keeps the auto-dispose provider element alive for
+      // the duration of the await (the subscription is held by this read).
+      membership = await ref.read(membershipFetchProvider(season.id).future);
+    } on Object {
+      // Transport-level failure is a pending state, not a denial (the
+      // session-restore rule above); the cause surfaces in the trace of the
+      // provider, never collapsed into a wrong 403 narrative.
+      membership = const Left(
+        ProblemError(code: 'membership.pending', status: 403),
+      );
+    }
     final role = membership.match(
       (_) => null,
       (dto) => dto.hasActiveCostumeRoleInSeason,

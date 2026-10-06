@@ -519,20 +519,24 @@ async fn season_archive_round_trip_projects_flag_and_filters_list() -> Result<()
     let found = season_repo.find_by_series_and_number(series_id, 3).await?;
     assert_eq!(found.map(|s| s.id), Some(season_id));
 
-    // Redelivery: a repeated ArchiveSeason against the stale version is
-    // rejected (stream-version/concurrency conflict — the aggregate observes
-    // it before any second event could be appended).
+    // Idempotent-reject (issue #533): a repeat ArchiveSeason with the CURRENT
+    // version passes the stream-version guard and hits the aggregate's
+    // archived guard — the same `season.archived` conflict the wire renders.
     let result = season_cmd
         .archive(
             test_user(),
             ArchiveSeason {
                 id: season_id,
                 series_id: Some(series_id),
-                version: created_version,
+                version,
             },
         )
         .await;
-    assert!(result.is_err(), "repeat archive must not succeed silently");
+    assert!(matches!(
+        result,
+        Err(breakdown_core::error::DomainError::Conflict { code, .. })
+            if code.code == "season.archived"
+    ));
     Ok(())
 }
 

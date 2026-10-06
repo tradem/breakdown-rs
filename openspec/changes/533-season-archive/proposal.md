@@ -12,7 +12,7 @@ state (`shooting_day` has `wrapped_at`/`archived`, `costume_category` has
 blocks the planned costume-repertoire lifecycle (#534: an archived season keeps
 its costume bindings historically while active membership ends).
 
-## Decisions (resolved with the issue author on 2026-xx-xx)
+## Decisions (resolved with the issue author on 2026-10-06)
 
 1. **Idempotency:** Reject with 409 `season.archived` on repeat — consistent
    with `ArchiveCostumeCategory` and `ArchiveShootingDay` (idempotent-reject:

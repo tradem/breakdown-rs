@@ -19,7 +19,7 @@ This is an **agent-driven** operation - you will read delta specs and directly e
 
 1. **If no change name provided, prompt for selection**
 
-   Run `openspec list --json` to get available changes. Use the **AskUserQuestion tool** to let the user select.
+   Run `openspec list --json [--store <id>]` (pass the flag when a store is selected) to get available changes. Use the **AskUserQuestion tool** to let the user select.
 
    Show changes that have delta specs (under `specs/` directory).
 
@@ -50,7 +50,7 @@ This is an **agent-driven** operation - you will read delta specs and directly e
 
    a. **Read the delta spec** to understand the intended changes
 
-   b. **Read the main spec** at `openspec/specs/<capability>/spec.md` (may not exist yet)
+   b. **Read the main spec** — resolve the root from the store selection: with a selected store, read `<store-root>/specs/<capability>/spec.md`; without a store, read the nearest local `openspec/specs/<capability>/spec.md` (may not exist yet)
 
    c. **Apply changes intelligently**:
 
@@ -73,7 +73,7 @@ This is an **agent-driven** operation - you will read delta specs and directly e
       - Find the FROM requirement, rename to TO
 
    d. **Create new main spec** if capability doesn't exist yet:
-      - Create `openspec/specs/<capability>/spec.md`
+      - Create the main spec under the SAME root the delta specs were read from (selected `<store-root>/specs/…`, otherwise the nearest local `openspec/specs/…`)
       - Add Purpose section (can be brief, mark as TBD)
       - Add Requirements section with the ADDED requirements
 

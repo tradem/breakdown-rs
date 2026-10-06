@@ -144,7 +144,7 @@ class SeasonCard extends StatelessWidget {
       title,
       ?metadata,
       if (staleLabel != null) '$staleLabel (veraltet)',
-      if (archived) 'archiviert',
+      if (archived) ?archivedBadge,
     ];
     return parts.join(', ');
   }

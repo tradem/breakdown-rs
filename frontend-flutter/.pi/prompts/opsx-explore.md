@@ -90,7 +90,9 @@ You have full context of the OpenSpec system. Use it naturally, don't force it.
 
 At the start, quickly check what exists:
 ```bash
-openspec list --json
+# pass `--store <id>` when a store is selected (see Store selection);
+# without a store this reads the nearest local `openspec/` root.
+openspec list --json [--store <id>]
 ```
 
 This tells you:

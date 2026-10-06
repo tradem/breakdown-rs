@@ -22,7 +22,7 @@
 mod common;
 
 use api::auth::CurrentUser;
-use api::handlers::{RenameSeasonRequest, VersionRequest, archive_season};
+use api::handlers::{VersionRequest, archive_season};
 use api::problems::{Json, Path};
 use api::state::AppState;
 use axum::extract::State;
@@ -148,23 +148,4 @@ fn archived_conflict_maps_to_registered_season_archived_code() {
     // wire extension; `id` stays diagnostic (`extensions: &["id"]` in the
     // registry is the S-classification, asserted nowhere on the wire).
     let _ = id;
-}
-
-/// Rename on an archived season → the domain error maps to `season.archived`
-/// (covered at the domain level by season_aggregate tests; here the wire
-/// mapping is asserted, so the client branches on one stable code for the
-/// whole locked surface).
-#[test]
-fn rename_on_archived_season_maps_to_season_archived_code() {
-    let id = Uuid::now_v7();
-    let _ = RenameSeasonRequest {
-        title: Some("x".into()),
-        version: AggregateVersion(2),
-    };
-    let domain = DomainError::from(
-        breakdown_core::season::error::SeasonError::ArchivedCannotBeMutated { id },
-    );
-    let problem = api::problems::ApiError::from(domain).into_problem();
-    assert_eq!(problem.code, "season.archived");
-    assert_eq!(problem.status, 409);
 }

@@ -2602,5 +2602,5 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get seasonsArchiveForbidden =>
-      'Dafür fehlt Ihnen die aktive Kostüm-Rolle in dieser Staffel.';
+      'Dafür fehlt dir die aktive Kostüm-Rolle in dieser Staffel.';
 }
