@@ -48,7 +48,7 @@ class CacheDatabase extends _$CacheDatabase {
   CacheDatabase.connect(super.executor);
 
   @override
-  int get schemaVersion => 10;
+  int get schemaVersion => 11;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -167,6 +167,26 @@ class CacheDatabase extends _$CacheDatabase {
         // TTL-stamped seasons cache on every boot (TTL-compliant by
         // construction).
         await m.createTable(shellStateRows);
+      }
+      if (from < 11) {
+        // Issue #533 (v11): the season lifecycle flag mirrors
+        // `SeasonView.archived` (terminal archive state). Plain ADD COLUMN
+        // on a non-nullable column needs an explicit default (SQLite
+        // rejects a bare `NOT NULL` on populated tables) — existing rows
+        // read `archived = 0` (never archived), the next TTL
+        // snapshot-replace fills the authoritative flag. Guarded by table
+        // AND column presence, like the v9/v10 branches.
+        if (await _tableExists(m.database, 'season_cache_rows') &&
+            !(await _columnExists(
+              m.database,
+              'season_cache_rows',
+              'archived',
+            ))) {
+          await m.database.customStatement(
+            'ALTER TABLE season_cache_rows '
+            'ADD COLUMN archived BOOLEAN NOT NULL DEFAULT 0',
+          );
+        }
       }
       if (from < 10) {
         // Issue #543 (v10): the costume's single category moved from the

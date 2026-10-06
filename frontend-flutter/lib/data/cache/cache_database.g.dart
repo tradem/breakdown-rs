@@ -27,6 +27,20 @@ class $SeasonCacheRowsTable extends SeasonCacheRows
     type: DriftSqlType.int,
     requiredDuringInsert: true,
   );
+  static const VerificationMeta _archivedMeta = const VerificationMeta(
+    'archived',
+  );
+  @override
+  late final GeneratedColumn<bool> archived = GeneratedColumn<bool>(
+    'archived',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: true,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("archived" IN (0, 1))',
+    ),
+  );
   static const VerificationMeta _seriesIdMeta = const VerificationMeta(
     'seriesId',
   );
@@ -84,6 +98,7 @@ class $SeasonCacheRowsTable extends SeasonCacheRows
   List<GeneratedColumn> get $columns => [
     id,
     number,
+    archived,
     seriesId,
     title,
     updatedAt,
@@ -114,6 +129,14 @@ class $SeasonCacheRowsTable extends SeasonCacheRows
       );
     } else if (isInserting) {
       context.missing(_numberMeta);
+    }
+    if (data.containsKey('archived')) {
+      context.handle(
+        _archivedMeta,
+        archived.isAcceptableOrUnknown(data['archived']!, _archivedMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_archivedMeta);
     }
     if (data.containsKey('series_id')) {
       context.handle(
@@ -170,6 +193,10 @@ class $SeasonCacheRowsTable extends SeasonCacheRows
         DriftSqlType.int,
         data['${effectivePrefix}number'],
       )!,
+      archived: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}archived'],
+      )!,
       seriesId: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
         data['${effectivePrefix}series_id'],
@@ -206,6 +233,9 @@ class SeasonCacheRow extends DataClass implements Insertable<SeasonCacheRow> {
   /// Mirrors `SeasonView.number`.
   final int number;
 
+  /// Mirrors `SeasonView.archived` (issue #533 terminal lifecycle flag).
+  final bool archived;
+
   /// Mirrors `SeasonView.series_id` (opaque `SeriesId`).
   final String seriesId;
 
@@ -224,6 +254,7 @@ class SeasonCacheRow extends DataClass implements Insertable<SeasonCacheRow> {
   const SeasonCacheRow({
     required this.id,
     required this.number,
+    required this.archived,
     required this.seriesId,
     this.title,
     required this.updatedAt,
@@ -235,6 +266,7 @@ class SeasonCacheRow extends DataClass implements Insertable<SeasonCacheRow> {
     final map = <String, Expression>{};
     map['id'] = Variable<String>(id);
     map['number'] = Variable<int>(number);
+    map['archived'] = Variable<bool>(archived);
     map['series_id'] = Variable<String>(seriesId);
     if (!nullToAbsent || title != null) {
       map['title'] = Variable<String>(title);
@@ -249,6 +281,7 @@ class SeasonCacheRow extends DataClass implements Insertable<SeasonCacheRow> {
     return SeasonCacheRowsCompanion(
       id: Value(id),
       number: Value(number),
+      archived: Value(archived),
       seriesId: Value(seriesId),
       title: title == null && nullToAbsent
           ? const Value.absent()
@@ -267,6 +300,7 @@ class SeasonCacheRow extends DataClass implements Insertable<SeasonCacheRow> {
     return SeasonCacheRow(
       id: serializer.fromJson<String>(json['id']),
       number: serializer.fromJson<int>(json['number']),
+      archived: serializer.fromJson<bool>(json['archived']),
       seriesId: serializer.fromJson<String>(json['seriesId']),
       title: serializer.fromJson<String?>(json['title']),
       updatedAt: serializer.fromJson<DateTime>(json['updatedAt']),
@@ -280,6 +314,7 @@ class SeasonCacheRow extends DataClass implements Insertable<SeasonCacheRow> {
     return <String, dynamic>{
       'id': serializer.toJson<String>(id),
       'number': serializer.toJson<int>(number),
+      'archived': serializer.toJson<bool>(archived),
       'seriesId': serializer.toJson<String>(seriesId),
       'title': serializer.toJson<String?>(title),
       'updatedAt': serializer.toJson<DateTime>(updatedAt),
@@ -291,6 +326,7 @@ class SeasonCacheRow extends DataClass implements Insertable<SeasonCacheRow> {
   SeasonCacheRow copyWith({
     String? id,
     int? number,
+    bool? archived,
     String? seriesId,
     Value<String?> title = const Value.absent(),
     DateTime? updatedAt,
@@ -299,6 +335,7 @@ class SeasonCacheRow extends DataClass implements Insertable<SeasonCacheRow> {
   }) => SeasonCacheRow(
     id: id ?? this.id,
     number: number ?? this.number,
+    archived: archived ?? this.archived,
     seriesId: seriesId ?? this.seriesId,
     title: title.present ? title.value : this.title,
     updatedAt: updatedAt ?? this.updatedAt,
@@ -309,6 +346,7 @@ class SeasonCacheRow extends DataClass implements Insertable<SeasonCacheRow> {
     return SeasonCacheRow(
       id: data.id.present ? data.id.value : this.id,
       number: data.number.present ? data.number.value : this.number,
+      archived: data.archived.present ? data.archived.value : this.archived,
       seriesId: data.seriesId.present ? data.seriesId.value : this.seriesId,
       title: data.title.present ? data.title.value : this.title,
       updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
@@ -322,6 +360,7 @@ class SeasonCacheRow extends DataClass implements Insertable<SeasonCacheRow> {
     return (StringBuffer('SeasonCacheRow(')
           ..write('id: $id, ')
           ..write('number: $number, ')
+          ..write('archived: $archived, ')
           ..write('seriesId: $seriesId, ')
           ..write('title: $title, ')
           ..write('updatedAt: $updatedAt, ')
@@ -332,14 +371,23 @@ class SeasonCacheRow extends DataClass implements Insertable<SeasonCacheRow> {
   }
 
   @override
-  int get hashCode =>
-      Object.hash(id, number, seriesId, title, updatedAt, version, cachedAt);
+  int get hashCode => Object.hash(
+    id,
+    number,
+    archived,
+    seriesId,
+    title,
+    updatedAt,
+    version,
+    cachedAt,
+  );
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
       (other is SeasonCacheRow &&
           other.id == this.id &&
           other.number == this.number &&
+          other.archived == this.archived &&
           other.seriesId == this.seriesId &&
           other.title == this.title &&
           other.updatedAt == this.updatedAt &&
@@ -350,6 +398,7 @@ class SeasonCacheRow extends DataClass implements Insertable<SeasonCacheRow> {
 class SeasonCacheRowsCompanion extends UpdateCompanion<SeasonCacheRow> {
   final Value<String> id;
   final Value<int> number;
+  final Value<bool> archived;
   final Value<String> seriesId;
   final Value<String?> title;
   final Value<DateTime> updatedAt;
@@ -359,6 +408,7 @@ class SeasonCacheRowsCompanion extends UpdateCompanion<SeasonCacheRow> {
   const SeasonCacheRowsCompanion({
     this.id = const Value.absent(),
     this.number = const Value.absent(),
+    this.archived = const Value.absent(),
     this.seriesId = const Value.absent(),
     this.title = const Value.absent(),
     this.updatedAt = const Value.absent(),
@@ -369,6 +419,7 @@ class SeasonCacheRowsCompanion extends UpdateCompanion<SeasonCacheRow> {
   SeasonCacheRowsCompanion.insert({
     required String id,
     required int number,
+    required bool archived,
     required String seriesId,
     this.title = const Value.absent(),
     required DateTime updatedAt,
@@ -377,6 +428,7 @@ class SeasonCacheRowsCompanion extends UpdateCompanion<SeasonCacheRow> {
     this.rowid = const Value.absent(),
   }) : id = Value(id),
        number = Value(number),
+       archived = Value(archived),
        seriesId = Value(seriesId),
        updatedAt = Value(updatedAt),
        version = Value(version),
@@ -384,6 +436,7 @@ class SeasonCacheRowsCompanion extends UpdateCompanion<SeasonCacheRow> {
   static Insertable<SeasonCacheRow> custom({
     Expression<String>? id,
     Expression<int>? number,
+    Expression<bool>? archived,
     Expression<String>? seriesId,
     Expression<String>? title,
     Expression<DateTime>? updatedAt,
@@ -394,6 +447,7 @@ class SeasonCacheRowsCompanion extends UpdateCompanion<SeasonCacheRow> {
     return RawValuesInsertable({
       if (id != null) 'id': id,
       if (number != null) 'number': number,
+      if (archived != null) 'archived': archived,
       if (seriesId != null) 'series_id': seriesId,
       if (title != null) 'title': title,
       if (updatedAt != null) 'updated_at': updatedAt,
@@ -406,6 +460,7 @@ class SeasonCacheRowsCompanion extends UpdateCompanion<SeasonCacheRow> {
   SeasonCacheRowsCompanion copyWith({
     Value<String>? id,
     Value<int>? number,
+    Value<bool>? archived,
     Value<String>? seriesId,
     Value<String?>? title,
     Value<DateTime>? updatedAt,
@@ -416,6 +471,7 @@ class SeasonCacheRowsCompanion extends UpdateCompanion<SeasonCacheRow> {
     return SeasonCacheRowsCompanion(
       id: id ?? this.id,
       number: number ?? this.number,
+      archived: archived ?? this.archived,
       seriesId: seriesId ?? this.seriesId,
       title: title ?? this.title,
       updatedAt: updatedAt ?? this.updatedAt,
@@ -433,6 +489,9 @@ class SeasonCacheRowsCompanion extends UpdateCompanion<SeasonCacheRow> {
     }
     if (number.present) {
       map['number'] = Variable<int>(number.value);
+    }
+    if (archived.present) {
+      map['archived'] = Variable<bool>(archived.value);
     }
     if (seriesId.present) {
       map['series_id'] = Variable<String>(seriesId.value);
@@ -460,6 +519,7 @@ class SeasonCacheRowsCompanion extends UpdateCompanion<SeasonCacheRow> {
     return (StringBuffer('SeasonCacheRowsCompanion(')
           ..write('id: $id, ')
           ..write('number: $number, ')
+          ..write('archived: $archived, ')
           ..write('seriesId: $seriesId, ')
           ..write('title: $title, ')
           ..write('updatedAt: $updatedAt, ')
@@ -7550,6 +7610,7 @@ typedef $$SeasonCacheRowsTableCreateCompanionBuilder =
     SeasonCacheRowsCompanion Function({
       required String id,
       required int number,
+      required bool archived,
       required String seriesId,
       Value<String?> title,
       required DateTime updatedAt,
@@ -7561,6 +7622,7 @@ typedef $$SeasonCacheRowsTableUpdateCompanionBuilder =
     SeasonCacheRowsCompanion Function({
       Value<String> id,
       Value<int> number,
+      Value<bool> archived,
       Value<String> seriesId,
       Value<String?> title,
       Value<DateTime> updatedAt,
@@ -7585,6 +7647,11 @@ class $$SeasonCacheRowsTableFilterComposer
 
   ColumnFilters<int> get number => $composableBuilder(
     column: $table.number,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get archived => $composableBuilder(
+    column: $table.archived,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -7633,6 +7700,11 @@ class $$SeasonCacheRowsTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<bool> get archived => $composableBuilder(
+    column: $table.archived,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<String> get seriesId => $composableBuilder(
     column: $table.seriesId,
     builder: (column) => ColumnOrderings(column),
@@ -7673,6 +7745,9 @@ class $$SeasonCacheRowsTableAnnotationComposer
 
   GeneratedColumn<int> get number =>
       $composableBuilder(column: $table.number, builder: (column) => column);
+
+  GeneratedColumn<bool> get archived =>
+      $composableBuilder(column: $table.archived, builder: (column) => column);
 
   GeneratedColumn<String> get seriesId =>
       $composableBuilder(column: $table.seriesId, builder: (column) => column);
@@ -7729,6 +7804,7 @@ class $$SeasonCacheRowsTableTableManager
               ({
                 Value<String> id = const Value.absent(),
                 Value<int> number = const Value.absent(),
+                Value<bool> archived = const Value.absent(),
                 Value<String> seriesId = const Value.absent(),
                 Value<String?> title = const Value.absent(),
                 Value<DateTime> updatedAt = const Value.absent(),
@@ -7738,6 +7814,7 @@ class $$SeasonCacheRowsTableTableManager
               }) => SeasonCacheRowsCompanion(
                 id: id,
                 number: number,
+                archived: archived,
                 seriesId: seriesId,
                 title: title,
                 updatedAt: updatedAt,
@@ -7749,6 +7826,7 @@ class $$SeasonCacheRowsTableTableManager
               ({
                 required String id,
                 required int number,
+                required bool archived,
                 required String seriesId,
                 Value<String?> title = const Value.absent(),
                 required DateTime updatedAt,
@@ -7758,6 +7836,7 @@ class $$SeasonCacheRowsTableTableManager
               }) => SeasonCacheRowsCompanion.insert(
                 id: id,
                 number: number,
+                archived: archived,
                 seriesId: seriesId,
                 title: title,
                 updatedAt: updatedAt,

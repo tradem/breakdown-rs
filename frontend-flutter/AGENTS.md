@@ -71,6 +71,18 @@ a server-owned concern (API shape, error surface, auth), the backend wins.
     by the backend handler) or from the read DTO the user is acting on —
     never from a second projection lookup. The same hidden-coupling /
     projection-lag risk the backend rule exists to prevent applies here.
+- **Season lifecycle (issue #533):** a season carries a terminal
+  `archived` flag (`SeasonArchived`, `POST /v1/seasons/{id}/archive`). The
+  home list fetch passes `include_archived: true` so the badge is reachable:
+  a locked row renders the localized archived badge and drops its write
+  affordance (card menu) while the read affordance stays — the inventory of
+  an archived season stays readable by backend decision. The archive command
+  runs the same client-side AUTHZ-GATE mirror as the backend handler
+  (season costume-dept membership via the backend-computed predicate, awaited
+  before dispatch — a pending fetch disables, never denies), and the
+  rejection codes it localizes are the server's: 403 `domain.forbidden`,
+  409 `season.archived` (idempotent-reject) and
+  409 `concurrency.version-mismatch`.
 - **EventStorming mapping (ported):** Event → Command → Aggregate still
   applies as a *reading* tool for the client, but the client's生成 is the
   *command*, and its consumption is the *read DTO*. A "Create Season"

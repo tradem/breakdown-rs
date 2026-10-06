@@ -1,0 +1,611 @@
+{
+  "trackingSince": "2026-08-31T04:42:56.005Z",
+  "totalBytesSaved": 12888291,
+  "totalReadsIntercepted": 109,
+  "totalPreFlightErrorsCaught": 0,
+  "totalSqueezeBytesSaved": 0,
+  "totalSessionSeedCost": 0,
+  "totalSessionSeedSavings": 0,
+  "history": [
+    {
+      "timestamp": "2026-09-06T03:29:44.620Z",
+      "type": "read",
+      "path": "lib/auth/membership/capability.dart",
+      "bytesSaved": 25022
+    },
+    {
+      "timestamp": "2026-09-06T03:29:51.120Z",
+      "type": "read",
+      "path": "lib/auth/membership/capability.dart",
+      "bytesSaved": 11168
+    },
+    {
+      "timestamp": "2026-09-07T06:17:13.585Z",
+      "type": "read",
+      "path": "lib/features/photos/prepare.dart",
+      "bytesSaved": 78431
+    },
+    {
+      "timestamp": "2026-09-07T06:17:17.406Z",
+      "type": "read",
+      "path": "lib/features/photos/prepare.dart",
+      "bytesSaved": 42655
+    },
+    {
+      "timestamp": "2026-09-07T06:17:29.193Z",
+      "type": "read",
+      "path": "lib/features/photos/prepare.dart",
+      "bytesSaved": 123087
+    },
+    {
+      "timestamp": "2026-09-07T06:17:31.568Z",
+      "type": "read",
+      "path": "lib/features/photos/prepare.dart",
+      "bytesSaved": 59407
+    },
+    {
+      "timestamp": "2026-09-07T06:24:42.512Z",
+      "type": "read",
+      "path": "tool/run_coverage.sh",
+      "bytesSaved": 15232
+    },
+    {
+      "timestamp": "2026-09-08T06:10:05.156Z",
+      "type": "read",
+      "path": "lib/auth/active_block.dart",
+      "bytesSaved": 96066
+    },
+    {
+      "timestamp": "2026-09-08T06:10:43.626Z",
+      "type": "read",
+      "path": "lib/auth/token_store.dart",
+      "bytesSaved": 84162
+    },
+    {
+      "timestamp": "2026-09-08T06:16:46.458Z",
+      "type": "read",
+      "path": "lib/src/network/active_block_interceptor.dart",
+      "bytesSaved": 54102
+    },
+    {
+      "timestamp": "2026-09-08T13:52:15.574Z",
+      "type": "read",
+      "path": "lib/data/season_repository.dart",
+      "bytesSaved": 56813
+    },
+    {
+      "timestamp": "2026-09-08T13:52:15.595Z",
+      "type": "read",
+      "path": "lib/data/cache/seasons_cache_providers.dart",
+      "bytesSaved": 63850
+    },
+    {
+      "timestamp": "2026-09-08T13:53:21.302Z",
+      "type": "read",
+      "path": "vendor/breakdown_api/lib/src/model/ai_preview_payload_one_of.dart",
+      "bytesSaved": 7580
+    },
+    {
+      "timestamp": "2026-09-09T05:20:48.463Z",
+      "type": "read",
+      "path": "integration_test/gherkin/world/app_world.dart",
+      "bytesSaved": 49218
+    },
+    {
+      "timestamp": "2026-09-09T05:21:46.104Z",
+      "type": "read",
+      "path": "lib/data/photo_repository.dart",
+      "bytesSaved": 64925
+    },
+    {
+      "timestamp": "2026-09-09T05:21:52.444Z",
+      "type": "read",
+      "path": "integration_test/gherkin/steps/continuity_photo_steps.dart",
+      "bytesSaved": 22903
+    },
+    {
+      "timestamp": "2026-09-09T06:56:22.969Z",
+      "type": "read",
+      "path": "/home/digiwitcher/Projekte/repos/breakdown-rs/backend/crates/core/src/scene_shoot/aggregate.rs",
+      "bytesSaved": 1844
+    },
+    {
+      "timestamp": "2026-09-14T12:16:14.319Z",
+      "type": "read",
+      "path": "android/app/build.gradle.kts",
+      "bytesSaved": 30690
+    },
+    {
+      "timestamp": "2026-09-14T12:17:33.139Z",
+      "type": "read",
+      "path": "lib/data/settings/api_base_validation.dart",
+      "bytesSaved": 26896
+    },
+    {
+      "timestamp": "2026-09-14T13:27:44.960Z",
+      "type": "read",
+      "path": "lib/app.dart",
+      "bytesSaved": 31905
+    },
+    {
+      "timestamp": "2026-09-14T13:27:48.558Z",
+      "type": "read",
+      "path": "oidc-config.json",
+      "bytesSaved": 26512
+    },
+    {
+      "timestamp": "2026-09-14T15:11:51.990Z",
+      "type": "read",
+      "path": "lib/data/settings/api_base_validation.dart",
+      "bytesSaved": 13068
+    },
+    {
+      "timestamp": "2026-09-15T12:30:29.704Z",
+      "type": "read",
+      "path": "lib/app.dart",
+      "bytesSaved": 45774
+    },
+    {
+      "timestamp": "2026-09-15T14:19:40.047Z",
+      "type": "read",
+      "path": "lib/data/shooting_day_repository.dart",
+      "bytesSaved": 140674
+    },
+    {
+      "timestamp": "2026-09-15T14:19:40.090Z",
+      "type": "read",
+      "path": "lib/data/shooting_day_repository.dart",
+      "bytesSaved": 144798
+    },
+    {
+      "timestamp": "2026-09-15T17:12:11.525Z",
+      "type": "read",
+      "path": "lib/features/seasons/seasons_screen.dart",
+      "bytesSaved": 71488
+    },
+    {
+      "timestamp": "2026-09-15T17:44:09.551Z",
+      "type": "read",
+      "path": "/home/digiwitcher/Projekte/repos/breakdown-rs/docs/design/ui-ux-redesign-research-report.md",
+      "bytesSaved": 25590
+    },
+    {
+      "timestamp": "2026-09-16T14:23:27.475Z",
+      "type": "read",
+      "path": "/home/digiwitcher/Projekte/repos/breakdown-rs/frontend-flutter/lib/features/scene_shoots/scene_shoots_screen.dart",
+      "bytesSaved": 28907
+    },
+    {
+      "timestamp": "2026-09-16T14:23:27.476Z",
+      "type": "read",
+      "path": "/home/digiwitcher/Projekte/repos/breakdown-rs/frontend-flutter/lib/data/scene_shoot_repository.dart",
+      "bytesSaved": 28724
+    },
+    {
+      "timestamp": "2026-09-17T07:14:13.595Z",
+      "type": "read",
+      "path": "lib/features/seasons/setup/setup_wizard_state.dart",
+      "bytesSaved": 37581
+    },
+    {
+      "timestamp": "2026-09-17T07:14:16.622Z",
+      "type": "read",
+      "path": "/home/digiwitcher/Projekte/repos/breakdown-rs/frontend-flutter/integration_test/gherkin/world/app_world.dart",
+      "bytesSaved": 2296
+    },
+    {
+      "timestamp": "2026-09-17T10:14:03.456Z",
+      "type": "read",
+      "path": "lib/auth/season_membership_provider.dart",
+      "bytesSaved": 14263
+    },
+    {
+      "timestamp": "2026-09-17T10:14:08.427Z",
+      "type": "read",
+      "path": "vendor/breakdown_api/lib/src/model/season_membership_dto.dart",
+      "bytesSaved": 8668
+    },
+    {
+      "timestamp": "2026-09-17T10:48:42.007Z",
+      "type": "read",
+      "path": "lib/auth/membership/membership_providers.dart",
+      "bytesSaved": 42840
+    },
+    {
+      "timestamp": "2026-09-18T16:16:06.280Z",
+      "type": "read",
+      "path": "lib/features/seasons/setup/setup_wizard_state.dart",
+      "bytesSaved": 36380
+    },
+    {
+      "timestamp": "2026-09-18T16:16:06.312Z",
+      "type": "read",
+      "path": "lib/features/seasons/setup/widgets/wizard_blocks_step.dart",
+      "bytesSaved": 33800
+    },
+    {
+      "timestamp": "2026-09-18T16:20:04.937Z",
+      "type": "read",
+      "path": "lib/data/cache/cache_database.dart",
+      "bytesSaved": 52450
+    },
+    {
+      "timestamp": "2026-09-18T18:20:18.722Z",
+      "type": "read",
+      "path": "lib/data/episode_repository.dart",
+      "bytesSaved": 36972
+    },
+    {
+      "timestamp": "2026-09-22T04:52:47.767Z",
+      "type": "read",
+      "path": "vendor/breakdown_api/lib/src/model/add_costume_detail_request.dart",
+      "bytesSaved": 504345
+    },
+    {
+      "timestamp": "2026-09-22T04:53:41.708Z",
+      "type": "read",
+      "path": "lib/features/scene_shoots/scene_shoots_state.dart",
+      "bytesSaved": 168309
+    },
+    {
+      "timestamp": "2026-09-22T14:08:53.481Z",
+      "type": "read",
+      "path": "lib/app_config.dart",
+      "bytesSaved": 159299
+    },
+    {
+      "timestamp": "2026-09-24T04:27:23.471Z",
+      "type": "read",
+      "path": "vendor/breakdown_api/lib/src/model/ai_config_view.dart",
+      "bytesSaved": 45013
+    },
+    {
+      "timestamp": "2026-09-24T05:53:40.453Z",
+      "type": "read",
+      "path": "lib/features/app_info/info_dialog.dart",
+      "bytesSaved": 67855
+    },
+    {
+      "timestamp": "2026-09-24T06:01:41.586Z",
+      "type": "read",
+      "path": "lib/features/costumes/widgets/costumes_widgets.dart",
+      "bytesSaved": 266840
+    },
+    {
+      "timestamp": "2026-09-24T06:38:13.690Z",
+      "type": "read",
+      "path": "scripts/gen-app-icon.sh",
+      "bytesSaved": 280415
+    },
+    {
+      "timestamp": "2026-09-24T12:59:17.816Z",
+      "type": "read",
+      "path": "lib/features/app_info/info_dialog.dart",
+      "bytesSaved": 522368
+    },
+    {
+      "timestamp": "2026-09-24T12:59:44.086Z",
+      "type": "read",
+      "path": "lib/features/ai_import/import_jobs/import_submit_screen.dart",
+      "bytesSaved": 163316
+    },
+    {
+      "timestamp": "2026-09-25T04:55:45.951Z",
+      "type": "read",
+      "path": "lib/features/photos/widgets/photo_gallery.dart",
+      "bytesSaved": 205472
+    },
+    {
+      "timestamp": "2026-09-25T05:49:51.482Z",
+      "type": "read",
+      "path": "lib/app.dart",
+      "bytesSaved": 438193
+    },
+    {
+      "timestamp": "2026-09-25T11:02:16.063Z",
+      "type": "read",
+      "path": "/home/digiwitcher/Projekte/repos/breakdown-rs/frontend-flutter/lib/data/costume_repository.dart",
+      "bytesSaved": 9264
+    },
+    {
+      "timestamp": "2026-09-25T11:02:16.795Z",
+      "type": "read",
+      "path": "lib/features/costumes/costume_detail_screen.dart",
+      "bytesSaved": 433563
+    },
+    {
+      "timestamp": "2026-09-25T11:02:20.652Z",
+      "type": "read",
+      "path": "/home/digiwitcher/Projekte/repos/breakdown-rs/frontend-flutter/lib/features/shell/app_shell.dart",
+      "bytesSaved": 11181
+    },
+    {
+      "timestamp": "2026-09-25T11:02:20.653Z",
+      "type": "read",
+      "path": "/home/digiwitcher/Projekte/repos/breakdown-rs/frontend-flutter/lib/features/costumes/costumes_screen.dart",
+      "bytesSaved": 9338
+    },
+    {
+      "timestamp": "2026-09-25T11:02:20.653Z",
+      "type": "read",
+      "path": "/home/digiwitcher/Projekte/repos/breakdown-rs/frontend-flutter/lib/features/costumes/costumes_controller.dart",
+      "bytesSaved": 35851
+    },
+    {
+      "timestamp": "2026-09-25T11:02:20.653Z",
+      "type": "read",
+      "path": "/home/digiwitcher/Projekte/repos/breakdown-rs/frontend-flutter/lib/features/costumes/widgets/costumes_widgets.dart",
+      "bytesSaved": 5423
+    },
+    {
+      "timestamp": "2026-09-25T11:02:20.653Z",
+      "type": "read",
+      "path": "/home/digiwitcher/Projekte/repos/breakdown-rs/frontend-flutter/lib/features/costumes/costume_detail_screen.dart",
+      "bytesSaved": 29120
+    },
+    {
+      "timestamp": "2026-09-25T11:02:20.781Z",
+      "type": "read",
+      "path": "lib/data/costume_repository.dart",
+      "bytesSaved": 183426
+    },
+    {
+      "timestamp": "2026-09-25T13:12:16.500Z",
+      "type": "read",
+      "path": "lib/features/ai_import/ai_config/ai_config_screen.dart",
+      "bytesSaved": 461134
+    },
+    {
+      "timestamp": "2026-09-25T13:12:16.533Z",
+      "type": "read",
+      "path": "lib/features/ai_import/ai_config/ai_config_controller.dart",
+      "bytesSaved": 574269
+    },
+    {
+      "timestamp": "2026-09-25T13:12:16.575Z",
+      "type": "read",
+      "path": "lib/features/ai_import/import_jobs/import_submit_screen.dart",
+      "bytesSaved": 166431
+    },
+    {
+      "timestamp": "2026-09-25T13:12:21.567Z",
+      "type": "read",
+      "path": "/home/digiwitcher/Projekte/repos/breakdown-rs/frontend-flutter/lib/features/ai_import/ai_config/ai_config_state.dart",
+      "bytesSaved": 8236
+    },
+    {
+      "timestamp": "2026-09-25T13:12:21.567Z",
+      "type": "read",
+      "path": "/home/digiwitcher/Projekte/repos/breakdown-rs/frontend-flutter/lib/features/ai_import/ai_config/ai_config_controller.dart",
+      "bytesSaved": 28429
+    },
+    {
+      "timestamp": "2026-09-25T13:12:21.567Z",
+      "type": "read",
+      "path": "/home/digiwitcher/Projekte/repos/breakdown-rs/frontend-flutter/lib/features/ai_import/ai_config/ai_config_screen.dart",
+      "bytesSaved": 23659
+    },
+    {
+      "timestamp": "2026-09-25T13:12:21.567Z",
+      "type": "read",
+      "path": "/home/digiwitcher/Projekte/repos/breakdown-rs/frontend-flutter/lib/features/ai_import/import_jobs/import_submit_screen.dart",
+      "bytesSaved": 10516
+    },
+    {
+      "timestamp": "2026-09-25T13:12:21.568Z",
+      "type": "read",
+      "path": "/home/digiwitcher/Projekte/repos/breakdown-rs/frontend-flutter/test/features/ai_import/ai_config_screen_test.dart",
+      "bytesSaved": 33303
+    },
+    {
+      "timestamp": "2026-09-25T13:12:21.568Z",
+      "type": "read",
+      "path": "/home/digiwitcher/Projekte/repos/breakdown-rs/frontend-flutter/test/features/ai_import/import_submit_screen_test.dart",
+      "bytesSaved": 8984
+    },
+    {
+      "timestamp": "2026-09-25T13:18:17.303Z",
+      "type": "read",
+      "path": "lib/features/ai_import/import_jobs/import_state.dart",
+      "bytesSaved": 59190
+    },
+    {
+      "timestamp": "2026-09-25T13:18:17.320Z",
+      "type": "read",
+      "path": "lib/features/ai_import/import_jobs/import_submit_screen.dart",
+      "bytesSaved": 139654
+    },
+    {
+      "timestamp": "2026-09-25T13:18:17.347Z",
+      "type": "read",
+      "path": "lib/features/ai_import/ai_config/ai_config_screen.dart",
+      "bytesSaved": 81023
+    },
+    {
+      "timestamp": "2026-09-25T13:18:45.249Z",
+      "type": "read",
+      "path": "lib/features/ai_import/import_jobs/import_submit_screen.dart",
+      "bytesSaved": 55044
+    },
+    {
+      "timestamp": "2026-09-25T13:20:04.058Z",
+      "type": "read",
+      "path": "lib/features/ai_import/ai_config/ai_config_controller.dart",
+      "bytesSaved": 3610
+    },
+    {
+      "timestamp": "2026-09-25T13:25:04.347Z",
+      "type": "read",
+      "path": "lib/features/ai_import/import_jobs/import_submit_screen.dart",
+      "bytesSaved": 51319
+    },
+    {
+      "timestamp": "2026-09-25T13:25:08.656Z",
+      "type": "read",
+      "path": "lib/features/ai_import/import_jobs/import_submit_screen.dart",
+      "bytesSaved": 91332
+    },
+    {
+      "timestamp": "2026-09-25T14:27:19.109Z",
+      "type": "read",
+      "path": "lib/features/ai_import/ai_config/ai_config_screen.dart",
+      "bytesSaved": 614243
+    },
+    {
+      "timestamp": "2026-09-25T14:27:19.182Z",
+      "type": "read",
+      "path": "vendor/breakdown_api/lib/src/model/ai_config_view.dart",
+      "bytesSaved": 569866
+    },
+    {
+      "timestamp": "2026-09-25T14:27:19.212Z",
+      "type": "read",
+      "path": "vendor/breakdown_api/lib/src/model/update_ai_config_request.dart",
+      "bytesSaved": 612298
+    },
+    {
+      "timestamp": "2026-09-25T14:28:02.559Z",
+      "type": "read",
+      "path": "/home/digiwitcher/Projekte/repos/breakdown-rs/frontend-flutter/lib/data/ai_config_repository.dart",
+      "bytesSaved": 17284
+    },
+    {
+      "timestamp": "2026-09-25T14:28:02.559Z",
+      "type": "read",
+      "path": "/home/digiwitcher/Projekte/repos/breakdown-rs/frontend-flutter/lib/features/ai_import/ai_config/ai_config_controller.dart",
+      "bytesSaved": 29309
+    },
+    {
+      "timestamp": "2026-09-25T14:28:02.559Z",
+      "type": "read",
+      "path": "/home/digiwitcher/Projekte/repos/breakdown-rs/frontend-flutter/lib/features/ai_import/ai_config/ai_config_screen.dart",
+      "bytesSaved": 23453
+    },
+    {
+      "timestamp": "2026-09-25T14:28:02.559Z",
+      "type": "read",
+      "path": "/home/digiwitcher/Projekte/repos/breakdown-rs/frontend-flutter/lib/features/ai_import/ai_config/ai_config_state.dart",
+      "bytesSaved": 8236
+    },
+    {
+      "timestamp": "2026-09-25T14:28:09.564Z",
+      "type": "read",
+      "path": "/home/digiwitcher/Projekte/repos/breakdown-rs/backend/crates/infra/src/queries/ai_config.rs",
+      "bytesSaved": 5534
+    },
+    {
+      "timestamp": "2026-09-25T14:28:09.564Z",
+      "type": "read",
+      "path": "/home/digiwitcher/Projekte/repos/breakdown-rs/backend/crates/core/src/ai/aggregate.rs",
+      "bytesSaved": 4996
+    },
+    {
+      "timestamp": "2026-09-25T14:31:30.553Z",
+      "type": "read",
+      "path": "lib/features/ai_import/ai_config/ai_config_screen.dart",
+      "bytesSaved": 570029
+    },
+    {
+      "timestamp": "2026-09-25T14:31:30.554Z",
+      "type": "read",
+      "path": "lib/data/ai_config_repository.dart",
+      "bytesSaved": 661719
+    },
+    {
+      "timestamp": "2026-09-25T15:36:43.927Z",
+      "type": "read",
+      "path": "/home/digiwitcher/Projekte/repos/breakdown-rs/backend/crates/infra/src/ai/credentials.rs",
+      "bytesSaved": 1130
+    },
+    {
+      "timestamp": "2026-09-25T15:36:43.928Z",
+      "type": "read",
+      "path": "/home/digiwitcher/Projekte/repos/breakdown-rs/backend/crates/core/src/settings/ports.rs",
+      "bytesSaved": 3659
+    },
+    {
+      "timestamp": "2026-09-25T15:36:43.945Z",
+      "type": "read",
+      "path": "/home/digiwitcher/Projekte/repos/breakdown-rs/backend/crates/core/src/ai/ports.rs",
+      "bytesSaved": 6969
+    },
+    {
+      "timestamp": "2026-09-25T15:36:44.299Z",
+      "type": "read",
+      "path": "lib/data/ai_import_handoff_store.dart",
+      "bytesSaved": 124380
+    },
+    {
+      "timestamp": "2026-09-26T00:58:38.488Z",
+      "type": "read",
+      "path": "lib/features/photos/widgets/photo_gallery.dart",
+      "bytesSaved": 149417
+    },
+    {
+      "timestamp": "2026-09-27T04:53:06.365Z",
+      "type": "read",
+      "path": "/home/digiwitcher/Projekte/repos/breakdown-rs/backend/crates/core/src/ai/preview.rs",
+      "bytesSaved": 0
+    },
+    {
+      "timestamp": "2026-09-27T04:53:26.263Z",
+      "type": "read",
+      "path": "/home/digiwitcher/Projekte/repos/breakdown-rs/backend/crates/infra/src/ai/mapping.rs",
+      "bytesSaved": 5386
+    },
+    {
+      "timestamp": "2026-09-27T04:53:26.264Z",
+      "type": "read",
+      "path": "/home/digiwitcher/Projekte/repos/breakdown-rs/backend/crates/infra/src/ai/workers.rs",
+      "bytesSaved": 30056
+    },
+    {
+      "timestamp": "2026-09-27T06:43:55.536Z",
+      "type": "read",
+      "path": "/home/digiwitcher/Projekte/repos/breakdown-rs/frontend-flutter/lib/features/shell/app_shell.dart",
+      "bytesSaved": 11384
+    },
+    {
+      "timestamp": "2026-09-28T17:50:38.313Z",
+      "type": "read",
+      "path": "vendor/breakdown_api/lib/src/model/set_costume_category_request.dart",
+      "bytesSaved": 328098
+    },
+    {
+      "timestamp": "2026-09-28T17:54:10.497Z",
+      "type": "read",
+      "path": "lib/features/costume_categories/costume_categories_state.dart",
+      "bytesSaved": 60224
+    },
+    {
+      "timestamp": "2026-09-30T05:26:29.514Z",
+      "type": "read",
+      "path": "lib/features/scene_shoots/scene_shoots_screen.dart",
+      "bytesSaved": 153277
+    },
+    {
+      "timestamp": "2026-09-30T05:27:29.662Z",
+      "type": "read",
+      "path": "lib/features/costumes/costume_detail_screen.dart",
+      "bytesSaved": 434810
+    },
+    {
+      "timestamp": "2026-09-30T10:28:49.510Z",
+      "type": "read",
+      "path": "vendor/breakdown_api/lib/src/model/ai_import_preview_response.dart",
+      "bytesSaved": 416752
+    },
+    {
+      "timestamp": "2026-10-01T08:35:43.400Z",
+      "type": "read",
+      "path": "/home/digiwitcher/Projekte/repos/breakdown-rs/frontend-flutter/lib/features/reports/reports_screen.dart",
+      "bytesSaved": 17926
+    },
+    {
+      "timestamp": "2026-10-02T11:49:17.938Z",
+      "type": "read",
+      "path": "lib/features/reports/reports_index_state.dart",
+      "bytesSaved": 93777
+    }
+  ]
+}

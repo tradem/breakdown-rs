@@ -64,17 +64,21 @@ const realOidcConfig = AppConfig(
   defaultSeriesId: '',
 );
 
-SeasonView season(String id, {int number = 1, String? title, bool archived = false}) =>
-    SeasonView(
-      (b) => b
-        ..id = id
-        ..number = number
-        ..seriesId = 'series-1'
-        ..title = title
-        ..archived = archived
-        ..updatedAt = DateTime.utc(2026, 1, 1)
-        ..version = 1,
-    );
+SeasonView season(
+  String id, {
+  int number = 1,
+  String? title,
+  bool archived = false,
+}) => SeasonView(
+  (b) => b
+    ..id = id
+    ..number = number
+    ..seriesId = 'series-1'
+    ..title = title
+    ..archived = archived
+    ..updatedAt = DateTime.utc(2026, 1, 1)
+    ..version = 1,
+);
 
 /// Cached hierarchy row for seeding the season-card metrics
 /// (`redesign-seasons-home` widget tests).
@@ -143,9 +147,7 @@ class FakeSeasonRepository extends SeasonRepository {
     lastArchive = (id: id, version: version.version);
     final scripted = archiveResult;
     if (scripted != null) return Future.value(scripted);
-    return Future.value(
-      Right<ProblemError, int>(version.version + 1),
-    );
+    return Future.value(Right<ProblemError, int>(version.version + 1));
   }
 
   @override

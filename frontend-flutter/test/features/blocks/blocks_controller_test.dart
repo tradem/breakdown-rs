@@ -41,6 +41,7 @@ BlockView _block(String id, {int number = 1}) => BlockView(
 
 SeasonView _season() => SeasonView(
   (b) => b
+    ..archived = false
     ..id = 'season-1'
     ..number = 1
     ..seriesId = 'series-1'
@@ -183,6 +184,7 @@ void main() {
         ctx.repo.nextList = const Right([]);
         final other = SeasonView(
           (b) => b
+            ..archived = false
             ..id = 'season-9'
             ..number = 9
             ..seriesId = 'series-9'

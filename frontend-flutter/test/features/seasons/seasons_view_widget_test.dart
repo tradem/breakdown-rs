@@ -22,6 +22,7 @@ import 'package:frontend_flutter/src/network/api_client.dart';
 
 SeasonView _season(String id, {String? title}) => SeasonView(
   (b) => b
+    ..archived = false
     ..id = id
     ..number = 1
     ..seriesId = 'series-1'

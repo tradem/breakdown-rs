@@ -215,12 +215,23 @@ class SeasonsController extends _$SeasonsController {
       return const Left(error);
     }
     // AUTHZ-GATE (mirror of the handler-internal check over the same
-    // backend-computed membership predicate). Non-resolved membership is
-    // 'membership.pending' (disabled-with-spinner semantics of
-    // checkCapability), a resolved denial is `domain.forbidden` — the same
-    // code the server renders, so the client localizes one narrative.
-    final membership = ref.read(currentMembershipProvider(season.id));
-    final role = membership.asData?.value.hasActiveCostumeRoleInSeason;
+    // backend-computed membership predicate). The membership is AWAITED —
+    // like the session restore, a pending fetch resolves before the gate,
+    // never reads as denial-by-absence. A fetch [Left] (network/404) is a
+    // pending state ('membership.pending'), not a denial; a resolved denial
+    // is `domain.forbidden` — the same code the server renders, so the
+    // client localizes one narrative.
+    final membership = await ref
+        .read(membershipFetchProvider(season.id).future)
+        .catchError(
+          (_) => const Left<ProblemError, SeasonMembershipDto>(
+            ProblemError(code: 'membership.pending', status: 403),
+          ),
+        );
+    final role = membership.match(
+      (_) => null,
+      (dto) => dto.hasActiveCostumeRoleInSeason,
+    );
     if (role == null) {
       const error = ProblemError(
         code: 'membership.pending',

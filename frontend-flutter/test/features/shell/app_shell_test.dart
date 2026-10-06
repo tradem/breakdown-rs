@@ -381,6 +381,7 @@ void main() {
 
     final seasonDto = SeasonView(
       (b) => b
+        ..archived = false
         ..id = 'season-1'
         ..number = 1
         ..seriesId = 'series-1'

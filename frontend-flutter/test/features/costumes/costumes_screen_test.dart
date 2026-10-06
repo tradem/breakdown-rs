@@ -103,6 +103,7 @@ CharacterView _character(String id, {String name = 'Bea'}) => CharacterView(
 
 SeasonView _season() => SeasonView(
   (b) => b
+    ..archived = false
     ..id = 'season-1'
     ..number = 1
     ..seriesId = 'series-1'

@@ -59,8 +59,8 @@ void main() {
     //    in the seasons table (survival witness).
     final v5 = _ProbeDatabaseV5(NativeDatabase(file));
     await v5.customStatement(
-      "INSERT INTO season_cache_rows (id, number, series_id, updated_at, "
-      "version, cached_at) VALUES ('s1', 1, 'series-1', "
+      "INSERT INTO season_cache_rows (id, number, archived, series_id, "
+      "updated_at, version, cached_at) VALUES ('s1', 1, 0, 'series-1', "
       "'2026-01-01T00:00:00.000Z', 1, '2026-01-01T00:00:00.000Z')",
     );
     await v5.close();

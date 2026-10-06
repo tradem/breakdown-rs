@@ -13,6 +13,7 @@ import 'package:frontend_flutter/l10n/generated/app_localizations.dart';
 
 SeasonView _season(String id, {int number = 1, String? title}) => SeasonView(
   (b) => b
+    ..archived = false
     ..id = id
     ..number = number
     ..seriesId = 'series-1'
