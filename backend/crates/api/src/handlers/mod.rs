@@ -103,7 +103,7 @@ use breakdown_core::scene_shoot::ports::{
 use breakdown_core::scene_shoot::views::{
     AggregateSollIstReport, DispoRow, SceneShootView, ShootDayRow, SollIstReport,
 };
-use breakdown_core::season::commands::{CreateSeason, RenameSeason};
+use breakdown_core::season::commands::{ArchiveSeason, CreateSeason, RenameSeason};
 use breakdown_core::season::ports::{SeasonCommands, SeasonRepository};
 use breakdown_core::season::views::SeasonView;
 use breakdown_core::settings::commands::{
@@ -176,6 +176,10 @@ pub struct SeasonListParams {
     #[param(default = 0, minimum = 0)]
     pub offset: Option<i64>,
     pub series_id: Option<SeriesId>,
+    /// Issue #533: archived seasons are hidden by default; the explicit
+    /// opt-in returns them (read-only, still locked for writes).
+    #[param(default = false)]
+    pub include_archived: Option<bool>,
 }
 
 // ---------------------------------------------------------------------------
@@ -997,10 +1001,21 @@ pub async fn list_seasons<P: Ports>(
             state
                 .ports
                 .season_repo()
-                .list_by_series(series_id, limit, offset)
+                .list_by_series(
+                    series_id,
+                    params.include_archived.unwrap_or(false),
+                    limit,
+                    offset,
+                )
                 .await?
         }
-        None => state.ports.season_repo().list_all(limit, offset).await?,
+        None => {
+            state
+                .ports
+                .season_repo()
+                .list_all(params.include_archived.unwrap_or(false), limit, offset)
+                .await?
+        }
     };
     Ok((StatusCode::OK, Json(views)))
 }
@@ -1104,6 +1119,58 @@ pub async fn rename_season<P: Ports>(
         .ports
         .season_commands()
         .rename(current_user.sub.clone(), cmd)
+        .await?;
+    Ok((StatusCode::OK, Json(version)))
+}
+
+#[utoipa::path(
+    post,
+    path = "/seasons/{id}/archive",
+    params(("id" = Uuid, Path, description = "Season id")),
+    request_body = VersionRequest,
+    responses(
+        (status = 200, body = AggregateVersion),
+        (status = 403, body = ProblemDetails, description = "Caller has no active costume-dept role in the season"),
+        (status = 404, body = ProblemDetails, description = "Season not found"),
+        (status = 409, body = ProblemDetails, description = "Season already archived (idempotent-reject) or concurrency conflict"),
+    ),
+)]
+pub async fn archive_season<P: Ports>(
+    State(state): State<AppState<P>>,
+    current_user: CurrentUser,
+    Path(id): Path<Uuid>,
+    Json(req): Json<VersionRequest>,
+) -> ApiResult<AggregateVersion> {
+    let season = state.ports.season_repo().find_by_id(id).await?;
+
+    // AUTHZ-GATE: the route is middleware-classified `Authenticated` (it sits
+    // under the `/seasons` prefix), so the season-scoped membership is
+    // enforced HERE — the existing `has_active_costume_role_in_season`
+    // predicate, no new ADR-035-B2-disallowed `*_in_season` variant.
+    match state
+        .ports
+        .membership_repo()
+        .has_active_costume_role_in_season(SeasonId::from_uuid(season.id), current_user.sub.clone())
+        .await
+    {
+        Ok(true) => {}
+        Ok(false) => {
+            return Err(ApiError::Forbidden(
+                "no active costume-dept role in the season",
+            ));
+        }
+        Err(e) => return Err(e.into()),
+    }
+
+    let cmd = ArchiveSeason {
+        id,
+        series_id: Some(season.series_id),
+        version: req.version,
+    };
+    let version = state
+        .ports
+        .season_commands()
+        .archive(current_user.sub.clone(), cmd)
         .await?;
     Ok((StatusCode::OK, Json(version)))
 }
@@ -6678,6 +6745,10 @@ pub fn routes() -> Router<AppState<ProductionPorts>> {
         .route(
             "/seasons/{id}/name",
             routing::patch(rename_season::<ProductionPorts>),
+        )
+        .route(
+            "/seasons/{id}/archive",
+            routing::post(archive_season::<ProductionPorts>),
         )
         .route(
             "/blocks",

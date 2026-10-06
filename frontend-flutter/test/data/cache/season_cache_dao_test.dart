@@ -18,6 +18,7 @@ SeasonView _season(
   DateTime? updatedAt,
 }) => SeasonView(
   (b) => b
+    ..archived = false
     ..id = id
     ..number = number
     ..seriesId = 'series-1'

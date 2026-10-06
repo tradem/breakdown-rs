@@ -36,7 +36,7 @@ use breakdown_core::episode::ports::{EpisodeCommands, EpisodeRepository};
 use breakdown_core::scene::commands::CreateScene;
 use breakdown_core::scene::events::{SceneDetails, SceneSource};
 use breakdown_core::scene::ports::{SceneCommands, SceneRepository};
-use breakdown_core::season::commands::CreateSeason;
+use breakdown_core::season::commands::{ArchiveSeason, CreateSeason};
 use breakdown_core::season::ports::{SeasonCommands, SeasonRepository};
 use breakdown_core::shared::{BlockId, EpisodeId, SeasonId, SeriesId};
 use infra::event_store::{
@@ -433,11 +433,110 @@ async fn seasons_by_series_returns_data() -> Result<()> {
         .await?;
     await_proj(&pool, "projection_season", season_id).await;
 
-    let seasons = season_repo.list_by_series(series_id, 100, 0).await?;
+    let seasons = season_repo.list_by_series(series_id, false, 100, 0).await?;
     assert!(seasons.iter().any(|s| s.id == season_id));
+    assert!(seasons.iter().all(|s| !s.archived));
 
     let found = season_repo.find_by_series_and_number(series_id, 2).await?;
     assert_eq!(found.map(|s| s.id), Some(season_id));
+    Ok(())
+}
+
+/// Tier-4 season lifecycle (issue #533): `ArchiveSeason` via the production
+/// `SeasonCommandsImpl` adapter → `SeasonArchived` in SierraDB → projector
+/// catch-up sets `archived = true` in `projection_season`. The read model
+/// filters the row out of `list_all`/`list_by_series` by default and returns
+/// it with the explicit opt-in; the number-uniqueness lookup is untouched
+/// (an archived season still blocks its number). Redelivery of the archive
+/// command is an idempotent-reject (409 `season.archived`).
+#[tokio::test]
+async fn season_archive_round_trip_projects_flag_and_filters_list() -> Result<()> {
+    let (pool, cmd_svc, _pg_guard, _sierra_guard) = init().await?;
+    let series_id = SeriesId::new();
+    let season_repo = SeasonRepositoryImpl::new(pool.clone());
+    let season_cmd = SeasonCommandsImpl::new(cmd_svc);
+
+    let season_id = Uuid::now_v7();
+    let (_, created_version) = season_cmd
+        .create(
+            test_user(),
+            CreateSeason {
+                id: season_id,
+                series_id,
+                number: 3,
+                title: Some("Archivable".into()),
+            },
+        )
+        .await?;
+    await_proj(&pool, "projection_season", season_id).await;
+
+    let version = season_cmd
+        .archive(
+            test_user(),
+            ArchiveSeason {
+                id: season_id,
+                series_id: Some(series_id),
+                version: created_version,
+            },
+        )
+        .await?;
+    assert_eq!(
+        version.0,
+        created_version.0 + 1,
+        "archive bumps the version"
+    );
+
+    // Projector catch-up: archived flag flips to true (poll to v2).
+    let deadline = std::time::Instant::now() + Duration::from_secs(15);
+    let view = loop {
+        let view = season_repo.find_by_id(season_id).await?;
+        if view.archived || std::time::Instant::now() >= deadline {
+            break view;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    };
+    assert!(
+        view.archived,
+        "SeasonArchived must project the archived flag"
+    );
+    assert_eq!(view.version.0, 2);
+
+    // list_all/list_by_series: default excludes, explicit opt-in includes.
+    let default_list = season_repo.list_by_series(series_id, false, 100, 0).await?;
+    assert!(
+        !default_list.iter().any(|s| s.id == season_id),
+        "archived season hidden by default"
+    );
+    let opt_in = season_repo.list_by_series(series_id, true, 100, 0).await?;
+    assert!(opt_in.iter().any(|s| s.id == season_id));
+    let all = season_repo.list_all(false, 100, 0).await?;
+    assert!(!all.iter().any(|s| s.id == season_id));
+    let all_opt_in = season_repo.list_all(true, 100, 0).await?;
+    assert!(all_opt_in.iter().any(|s| s.id == season_id));
+
+    // Number uniqueness stays untouched (issue-#533 recorded decision):
+    // the uniqueness pre-check lookup still finds the archived season.
+    let found = season_repo.find_by_series_and_number(series_id, 3).await?;
+    assert_eq!(found.map(|s| s.id), Some(season_id));
+
+    // Idempotent-reject (issue #533): a repeat ArchiveSeason with the CURRENT
+    // version passes the stream-version guard and hits the aggregate's
+    // archived guard — the same `season.archived` conflict the wire renders.
+    let result = season_cmd
+        .archive(
+            test_user(),
+            ArchiveSeason {
+                id: season_id,
+                series_id: Some(series_id),
+                version,
+            },
+        )
+        .await;
+    assert!(matches!(
+        result,
+        Err(breakdown_core::error::DomainError::Conflict { code, .. })
+            if code.code == "season.archived"
+    ));
     Ok(())
 }
 

@@ -8,6 +8,8 @@ part of 'season_view.dart';
 
 class _$SeasonView extends SeasonView {
   @override
+  final bool archived;
+  @override
   final String id;
   @override
   final int number;
@@ -24,7 +26,8 @@ class _$SeasonView extends SeasonView {
       (SeasonViewBuilder()..update(updates))._build();
 
   _$SeasonView._(
-      {required this.id,
+      {required this.archived,
+      required this.id,
       required this.number,
       required this.seriesId,
       this.title,
@@ -42,6 +45,7 @@ class _$SeasonView extends SeasonView {
   bool operator ==(Object other) {
     if (identical(other, this)) return true;
     return other is SeasonView &&
+        archived == other.archived &&
         id == other.id &&
         number == other.number &&
         seriesId == other.seriesId &&
@@ -53,6 +57,7 @@ class _$SeasonView extends SeasonView {
   @override
   int get hashCode {
     var _$hash = 0;
+    _$hash = $jc(_$hash, archived.hashCode);
     _$hash = $jc(_$hash, id.hashCode);
     _$hash = $jc(_$hash, number.hashCode);
     _$hash = $jc(_$hash, seriesId.hashCode);
@@ -66,6 +71,7 @@ class _$SeasonView extends SeasonView {
   @override
   String toString() {
     return (newBuiltValueToStringHelper(r'SeasonView')
+          ..add('archived', archived)
           ..add('id', id)
           ..add('number', number)
           ..add('seriesId', seriesId)
@@ -78,6 +84,10 @@ class _$SeasonView extends SeasonView {
 
 class SeasonViewBuilder implements Builder<SeasonView, SeasonViewBuilder> {
   _$SeasonView? _$v;
+
+  bool? _archived;
+  bool? get archived => _$this._archived;
+  set archived(bool? archived) => _$this._archived = archived;
 
   String? _id;
   String? get id => _$this._id;
@@ -110,6 +120,7 @@ class SeasonViewBuilder implements Builder<SeasonView, SeasonViewBuilder> {
   SeasonViewBuilder get _$this {
     final $v = _$v;
     if ($v != null) {
+      _archived = $v.archived;
       _id = $v.id;
       _number = $v.number;
       _seriesId = $v.seriesId;
@@ -137,6 +148,8 @@ class SeasonViewBuilder implements Builder<SeasonView, SeasonViewBuilder> {
   _$SeasonView _build() {
     final _$result = _$v ??
         _$SeasonView._(
+          archived: BuiltValueNullFieldError.checkNotNull(
+              archived, r'SeasonView', 'archived'),
           id: BuiltValueNullFieldError.checkNotNull(id, r'SeasonView', 'id'),
           number: BuiltValueNullFieldError.checkNotNull(
               number, r'SeasonView', 'number'),

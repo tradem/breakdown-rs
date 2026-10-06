@@ -26,6 +26,7 @@ class SeasonCacheDao {
       SeasonCacheRowsCompanion.insert(
         id: view.id,
         number: view.number,
+        archived: view.archived,
         seriesId: view.seriesId,
         title: Value(view.title),
         updatedAt: view.updatedAt,
@@ -92,6 +93,7 @@ class SeasonCacheDao {
     (b) => b
       ..id = row.id
       ..number = row.number
+      ..archived = row.archived
       ..seriesId = row.seriesId
       ..title = row.title
       // Drift preserves the instant but decodes DateTime in local time,

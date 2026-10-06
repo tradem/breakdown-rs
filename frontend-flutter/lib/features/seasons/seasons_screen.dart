@@ -14,6 +14,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../auth/auth_providers.dart';
+import '../../auth/membership/membership_providers.dart';
 import '../../core/problem_error.dart';
 import '../../data/cache/relative_time.dart';
 import '../../data/cache/seasons_cache_providers.dart';
@@ -41,6 +42,10 @@ String createErrorCopy(ProblemError error, [AppLocalizations? catalog]) {
     'season.number-already-exists' ||
     'seasons.conflict' ||
     'season.conflict' => l10n.seasonsCreateConflict,
+    // Issue #533: the locked season / repeat-archive rejection shares the
+    // banner with the membership/forbidden narratives.
+    'season.archived' => l10n.seasonsArchivedError,
+    'domain.forbidden' || 'membership.pending' => l10n.seasonsArchiveForbidden,
     'authz.denied' || 'auth.session_required' => l10n.seasonsCreateAuth,
     _ when error.code.startsWith('transport.') => l10n.seasonsCreateNetwork,
     _ => l10n.seasonsCreateGeneric,
@@ -240,12 +245,37 @@ class _SeasonCard extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final l10n = l10nOf(context);
+    final seasonId = switch (row) {
+      ProjectedSeasonRow(:final season) => season.id,
+      OptimisticSeasonRow(:final overlay) => overlay.id,
+    };
+    // Auto-dispose per season id; the card gate reads the resolved state
+    // without triggering a fetch for optimistic (not-yet-projected) rows.
+    final membership = ref.watch(currentMembershipProvider(seasonId));
+    final canArchive = membership.value?.hasActiveCostumeRoleInSeason == true;
     return switch (row) {
       ProjectedSeasonRow(:final season, :final metrics) => SeasonCard(
+        // The archive affordance mirrors the backend AUTHZ-GATE up front:
+        // offered only while the season-scoped membership RESOLVES to an
+        // active costume-dept role (a pending/erroring membership disables —
+        // never a denial narrative, D3) and only on a non-locked season.
+
         key: Key('season-${season.id}'),
         title: season.title ?? l10n.seasonsDefaultTitle(season.number),
         metadata: _metadataLine(metrics, l10n),
         staleLabel: _staleLabel(ref, metrics, l10n),
+        // Issue #533: archived seasons keep the read affordance (inventory
+        // stays readable) and render the badge; the write affordance is not
+        // offered on a locked season.
+        archived: season.archived,
+        archivedBadge: season.archived ? l10n.seasonsArchivedBadge : null,
+        onArchive: season.archived || !canArchive
+            ? null
+            : () => ref
+                  .read(seasonsControllerProvider.notifier)
+                  .archive(season: season),
+        archiveTooltip: l10n.seasonsArchiveTooltip,
+        archiveLabel: l10n.seasonsArchiveCta,
         // Task 4.4 + spec `flutter-hierarchy-navigation`: the season-row
         // BlocksScreen push stays on the PLANEN tab's navigator (the
         // shell's hierarchy spine — the Season tab never hosts hierarchy

@@ -26,6 +26,21 @@ tag. Never edit a released entry afterwards.
 
 ### Added
 
+- **Season lifecycle — `ArchiveSeason` command + `SeasonArchived` event +
+  `archived` in `projection_season` (issue #533).** `POST
+  /v1/seasons/{id}/archive` (VersionRequest body) soft-archives a season:
+  terminal state — `RenameSeason` on an archived season is rejected with 409
+  `season.archived` (repeat archive is an idempotent-reject, same pattern as
+  `costume-category.archived`); the season's number stays reserved
+  (uniqueness untouched by decision) and its inventory (blocks/episodes/
+  shooting days) stays readable. Handler-internal AUTHZ-GATE reuses the
+  existing `has_active_costume_role_in_season` predicate (403
+  `domain.forbidden` on deny — no new `*_in_season` variant, ADR-035 B2).
+  Read model: migration `20261004000001_projection_season_archived`
+  (`archived BOOLEAN NOT NULL DEFAULT false`), projector handler,
+  `SeasonView.archived` on the wire, `list_seasons` defaults to excluding
+  archived seasons with an explicit `include_archived` opt-in.
+
 - **Season-/episode-scoped aggregated Soll-Ist report (issue #571, aggregation
   half).** Two new read-only routes — `GET /v1/seasons/{id}/report/soll-ist`
   and `GET /v1/episodes/{id}/report/soll-ist` — plus their `.pdf` twins.

@@ -708,5 +708,11 @@
   "aiImportClippyIdle1": "Wusstest du, dass „Klamotten“ umgangssprachlich Kleidung bedeutet? Der Name sitzt also doppelt.",
   "aiImportClippyIdle2": "Ich bin ein Kleiderbügel mit Ambitionen.",
   "aiImportClippyIdle3": "Häng dich nicht auf – ich bin ja da.",
-  "aiImportClippyDismissTooltip": "Karl Klammer ausblenden"
+  "aiImportClippyDismissTooltip": "Karl Klammer ausblenden",
+
+  "seasonsArchivedBadge": "Archiviert",
+  "seasonsArchiveTooltip": "Staffel-Aktionen",
+  "seasonsArchiveCta": "Staffel archivieren",
+  "seasonsArchivedError": "Die Staffel ist archiviert und kann nicht mehr geändert werden.",
+  "seasonsArchiveForbidden": "Dafür fehlt dir die aktive Kostüm-Rolle in dieser Staffel."
 }

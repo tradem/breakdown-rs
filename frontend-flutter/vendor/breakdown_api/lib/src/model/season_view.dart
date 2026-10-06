@@ -13,6 +13,7 @@ part 'season_view.g.dart';
 /// Complete season read model.  `updated_at` is sourced from the timestamp of the last applied `SeasonEvent`.
 ///
 /// Properties:
+/// * [archived] - Terminal lifecycle flag (issue #533): `true` once `SeasonArchived` was applied. Archived seasons keep number + inventory readable.
 /// * [id]
 /// * [number]
 /// * [seriesId] - Opaque identifier for a `Series` (a show run).  `SeriesId` is an opaque UUIDv7 value type introduced by the `introduce-season-block-episode-hierarchy` change. It is the seam for a future additive `Series` aggregate: every hierarchy entity (Season, Block, Episode) references it but no `Series` aggregate exists yet.
@@ -21,6 +22,10 @@ part 'season_view.g.dart';
 /// * [version] - Aggregate version for optimistic-locking round-trips.
 @BuiltValue()
 abstract class SeasonView implements Built<SeasonView, SeasonViewBuilder> {
+  /// Terminal lifecycle flag (issue #533): `true` once `SeasonArchived` was applied. Archived seasons keep number + inventory readable.
+  @BuiltValueField(wireName: r'archived')
+  bool get archived;
+
   @BuiltValueField(wireName: r'id')
   String get id;
 
@@ -64,6 +69,11 @@ class _$SeasonViewSerializer implements PrimitiveSerializer<SeasonView> {
     SeasonView object, {
     FullType specifiedType = FullType.unspecified,
   }) sync* {
+    yield r'archived';
+    yield serializers.serialize(
+      object.archived,
+      specifiedType: const FullType(bool),
+    );
     yield r'id';
     yield serializers.serialize(
       object.id,
@@ -121,6 +131,13 @@ class _$SeasonViewSerializer implements PrimitiveSerializer<SeasonView> {
       final key = serializedList[i] as String;
       final value = serializedList[i + 1];
       switch (key) {
+        case r'archived':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(bool),
+          ) as bool;
+          result.archived = valueDes;
+          break;
         case r'id':
           final valueDes = serializers.deserialize(
             value,

@@ -702,5 +702,11 @@
   "aiImportClippyIdle1": "Did you know 'Klamotten' colloquially means clothes? The name fits twice.",
   "aiImportClippyIdle2": "I'm a clothes hanger with ambition.",
   "aiImportClippyIdle3": "Don't hang around – I'm here for you.",
-  "aiImportClippyDismissTooltip": "Hide Karl Klammer"
+  "aiImportClippyDismissTooltip": "Hide Karl Klammer",
+
+  "seasonsArchivedBadge": "Archived",
+  "seasonsArchiveTooltip": "Season actions",
+  "seasonsArchiveCta": "Archive season",
+  "seasonsArchivedError": "The season is archived and can no longer be changed.",
+  "seasonsArchiveForbidden": "You have no active costume-dept role in this season."
 }

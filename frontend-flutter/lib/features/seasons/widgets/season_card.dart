@@ -30,6 +30,11 @@ class SeasonCard extends StatelessWidget {
     this.staleLabel,
     this.trailing,
     this.onTap,
+    this.archived = false,
+    this.archivedBadge,
+    this.onArchive,
+    this.archiveTooltip,
+    this.archiveLabel,
   });
 
   final String title;
@@ -48,25 +53,70 @@ class SeasonCard extends StatelessWidget {
 
   final VoidCallback? onTap;
 
+  /// Issue #533: the terminal lifecycle flag — renders the localized
+  /// [archivedBadge] and disables the write affordance.
+  final bool archived;
+
+  /// Localized badge copy for [archived] (caller resolves the catalog);
+  /// rendered in the subtitle row when [archived] is set.
+  final String? archivedBadge;
+
+  /// Archive affordance (card menu). Mirrors the shooting-day pattern:
+  /// offered only when [onArchive] is non-null **and** the season is not
+  /// already archived — a locked season has no write affordance to disable.
+  final VoidCallback? onArchive;
+
+  final String? archiveTooltip;
+
+  final String? archiveLabel;
+
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final hasStale = staleLabel != null;
     final supporting = metadata;
     Widget? subtitle;
-    if (supporting != null || hasStale) {
+    if (supporting != null || hasStale || archived) {
       subtitle = Row(
         children: [
           if (hasStale) ...[
             Icon(Icons.history, size: 16, color: scheme.tertiary),
             const SizedBox(width: 4),
           ],
+          if (archived) ...[
+            Icon(Icons.inventory_2, size: 16, color: scheme.outline),
+            const SizedBox(width: 4),
+          ],
           Flexible(
-            child: Text([?supporting, if (hasStale) staleLabel!].join('  ·  ')),
+            child: Text(
+              [
+                ?supporting,
+                if (hasStale) staleLabel!,
+                if (archived) ?archivedBadge,
+              ].join('  ·  '),
+            ),
           ),
         ],
       );
     }
+
+    // Card menu — only the archive entry exists today (there is no rename
+    // affordance on the home cards). Archiving supersedes affordance
+    // disabling server-side; the entry disappears on the locked state.
+    final menu = onArchive == null || archived
+        ? null
+        : PopupMenuButton<VoidCallback>(
+            tooltip: archiveTooltip,
+            icon: const Icon(Icons.more_vert),
+            onSelected: (action) => action(),
+            itemBuilder: (_) => [
+              PopupMenuItem(
+                key: const Key('season-archive-entry'),
+                value: onArchive,
+                child: Text(archiveLabel ?? ''),
+              ),
+            ],
+          );
 
     return Semantics(
       label: _semanticLabel,
@@ -82,7 +132,7 @@ class SeasonCard extends StatelessWidget {
         child: ListTile(
           title: Text(title),
           subtitle: subtitle,
-          trailing: trailing ?? const Icon(Icons.chevron_right),
+          trailing: trailing ?? menu ?? const Icon(Icons.chevron_right),
           onTap: onTap,
         ),
       ),
@@ -94,6 +144,7 @@ class SeasonCard extends StatelessWidget {
       title,
       ?metadata,
       if (staleLabel != null) '$staleLabel (veraltet)',
+      if (archived) ?archivedBadge,
     ];
     return parts.join(', ');
   }

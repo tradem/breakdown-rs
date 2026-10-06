@@ -16,6 +16,9 @@ pub enum SeasonError {
     #[error("Season not found: {id}")]
     NotFound { id: uuid::Uuid },
 
+    #[error("Season({id}) is archived and cannot be mutated")]
+    ArchivedCannotBeMutated { id: uuid::Uuid },
+
     #[error("version mismatch: expected {expected:?}, actual {actual:?}")]
     VersionMismatch {
         expected: AggregateVersion,

@@ -100,6 +100,21 @@ impl<'a> EntityEventHandler<SeasonAggregate, Transaction<'a, Postgres>> for Seas
                 .execute(&mut **ctx)
                 .await?;
             }
+            SeasonEvent::SeasonArchived { id, version } => {
+                let version = version.0 as i64;
+                sqlx::query(
+                    r#"
+                    UPDATE projection_season
+                    SET archived = true, version = $2, updated_at = $3
+                    WHERE id = $1
+                    "#,
+                )
+                .bind(id)
+                .bind(version)
+                .bind(updated_at)
+                .execute(&mut **ctx)
+                .await?;
+            }
         }
 
         Ok(())

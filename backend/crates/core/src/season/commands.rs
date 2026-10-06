@@ -36,8 +36,31 @@ impl kameo_es::CommandName for CreateSeason {
     }
 }
 
+/// Archive a season (terminal lifecycle state).
+///
+/// An archived season keeps its number reserved and its inventory readable;
+/// active write commands (`RenameSeason`) are rejected once archived. The
+/// flip side of the repertoire lifecycle (issue #534): costume bindings stay
+/// historically valid while active membership ends.
+///
+/// `series_id` is carried for the `EventMetadata` audit trail (the audit
+/// projector keys on `series_id`); it is resolved at the API edge from the
+/// season projection, never queried again by the command adapter.
+#[derive(Debug, Clone, serde::Deserialize, utoipa::ToSchema)]
+pub struct ArchiveSeason {
+    pub id: Uuid,
+    pub series_id: Option<SeriesId>,
+    pub version: AggregateVersion,
+}
+
 impl kameo_es::CommandName for RenameSeason {
     fn command_name() -> &'static str {
         "RenameSeason"
+    }
+}
+
+impl kameo_es::CommandName for ArchiveSeason {
+    fn command_name() -> &'static str {
+        "ArchiveSeason"
     }
 }

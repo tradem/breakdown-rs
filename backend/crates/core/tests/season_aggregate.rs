@@ -167,6 +167,123 @@ fn test_apply_updates_state() {
     assert_eq!(agg.version, AggregateVersion::INITIAL);
 }
 
+// --- ArchiveSeason (issue #533) -------------------------------------------
+
+/// ArchiveSeason emits exactly one event with the bumped version, and the
+/// subsequent apply sets the archived state.
+#[test]
+fn test_archive_season_success() {
+    let mut agg = create_season();
+    let events = agg
+        .handle(
+            ArchiveSeason {
+                id: agg.id,
+                series_id: Some(series_id()),
+                version: agg.version,
+            },
+            make_ctx(),
+        )
+        .unwrap();
+    assert_eq!(events.len(), 1, "ArchiveSeason emits exactly one event");
+    match &events[0] {
+        SeasonEvent::SeasonArchived { id, version } => {
+            assert_eq!(*id, agg.id);
+            assert_eq!(*version, AggregateVersion(2));
+        }
+        _ => panic!("Expected SeasonArchived"),
+    }
+    test_support::replay_events(&mut agg, events);
+    assert!(agg.archived, "apply() sets the archived state");
+    assert_eq!(agg.version, AggregateVersion(2), "version chain holds");
+}
+
+/// Redelivery of ArchiveSeason on an already-archived season is a no-op
+/// (idempotent-reject): no further event, terminal-state error.
+#[test]
+fn test_archive_season_redelivery_is_rejected() {
+    let mut agg = create_season();
+    let events = agg
+        .handle(
+            ArchiveSeason {
+                id: agg.id,
+                series_id: Some(series_id()),
+                version: agg.version,
+            },
+            make_ctx(),
+        )
+        .unwrap();
+    test_support::replay_events(&mut agg, events);
+
+    let result = agg.handle(
+        ArchiveSeason {
+            id: agg.id,
+            series_id: Some(series_id()),
+            version: agg.version,
+        },
+        make_ctx(),
+    );
+    assert!(result.is_err());
+    assert!(matches!(
+        result.unwrap_err(),
+        SeasonError::ArchivedCannotBeMutated { .. }
+    ));
+}
+
+/// RenameSeason is rejected once the season is archived (issue #533 lock).
+#[test]
+fn test_rename_season_rejected_when_archived() {
+    let mut agg = create_season();
+    let events = agg
+        .handle(
+            ArchiveSeason {
+                id: agg.id,
+                series_id: Some(series_id()),
+                version: agg.version,
+            },
+            make_ctx(),
+        )
+        .unwrap();
+    test_support::replay_events(&mut agg, events);
+
+    let result = agg.handle(
+        RenameSeason {
+            id: agg.id,
+            title: Some("After archive".into()),
+            series_id: Some(series_id()),
+            version: agg.version,
+        },
+        make_ctx(),
+    );
+    assert!(result.is_err());
+    assert!(matches!(
+        result.unwrap_err(),
+        SeasonError::ArchivedCannotBeMutated { .. }
+    ));
+}
+
+/// Version mismatch takes precedence: an ArchiveSeason with a stale version
+/// is a concurrency conflict, not an archive.
+#[test]
+fn test_archive_season_wrong_version() {
+    let agg = create_season();
+    let result = agg.handle(
+        ArchiveSeason {
+            id: agg.id,
+            series_id: Some(series_id()),
+            version: AggregateVersion(99),
+        },
+        make_ctx(),
+    );
+    assert!(result.is_err());
+    assert!(matches!(
+        result.unwrap_err(),
+        SeasonError::VersionMismatch {
+            expected: AggregateVersion(99),
+            actual: AggregateVersion::INITIAL,
+        }
+    ));
+}
+
 /// Verify that RenameSeason checks `!=` (not `==`) so passing the same
 /// title correctly returns an idempotency error.
 #[test]

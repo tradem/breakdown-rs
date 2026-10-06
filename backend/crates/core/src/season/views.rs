@@ -19,6 +19,9 @@ pub struct SeasonView {
     pub series_id: SeriesId,
     pub number: i32,
     pub title: Option<String>,
+    /// Terminal lifecycle flag (issue #533): `true` once `SeasonArchived` was
+    /// applied. Archived seasons keep number + inventory readable.
+    pub archived: bool,
     /// Aggregate version for optimistic-locking round-trips.
     pub version: AggregateVersion,
     pub updated_at: DateTime<Utc>,

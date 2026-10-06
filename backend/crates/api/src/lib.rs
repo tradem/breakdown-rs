@@ -49,6 +49,7 @@ use utoipa::OpenApi;
         handlers::get_season,
         handlers::get_season_membership,
         handlers::rename_season,
+        handlers::archive_season,
         handlers::create_block,
         handlers::get_block,
         handlers::get_block_audit,

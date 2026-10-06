@@ -174,6 +174,21 @@ class SeasonsViewController extends _$SeasonsViewController {
     }
     return res;
   }
+
+  /// Archive command with on-write-invalidate (issue #533): the projector
+  /// flips `archived` asynchronously — the follow-up refetch converges the
+  /// cache so the card transitions to the locked locked-state + badge.
+  Future<Result<int>> archiveSeason(String id, VersionRequest request) async {
+    final repo = ref.read(seasonRepositoryProvider);
+    final res = await repo.archive(id, request);
+    if (res.isRight()) {
+      ref.invalidate(seasonsListFetchProvider);
+      // Refetch boundary (issue #366 review): see createSeason.
+      ref.invalidate(seasonsCacheStaleProvider);
+      ref.invalidateSelf();
+    }
+    return res;
+  }
 }
 
 /// TTL-based cache staleness for the seasons projection (issue #366).

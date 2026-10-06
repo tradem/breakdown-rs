@@ -78,7 +78,7 @@ use breakdown_core::scene_shoot::commands::{
 };
 use breakdown_core::scene_shoot::ports::SceneShootCommands;
 use breakdown_core::season::aggregate::SeasonAggregate;
-use breakdown_core::season::commands::{CreateSeason, RenameSeason};
+use breakdown_core::season::commands::{ArchiveSeason, CreateSeason, RenameSeason};
 use breakdown_core::season::ports::SeasonCommands;
 use breakdown_core::settings::aggregate::SettingsAggregate;
 use breakdown_core::settings::commands::{
@@ -847,6 +847,26 @@ impl SeasonCommands for SeasonCommandsImpl {
         &self,
         actor: UserId,
         cmd: RenameSeason,
+    ) -> Result<AggregateVersion, DomainError> {
+        let id = cmd.id;
+        let version = cmd.version;
+        check_nonzero_version(version)?;
+        let series_id = cmd.series_id;
+        let result = SeasonAggregate::execute(&self.cmd_service, id, cmd)
+            .expected_version(ExpectedVersion::Exact(domain_to_stream_checked(version)?))
+            .metadata(EventMetadata {
+                actor: Some(actor),
+                provenance: Provenance::Human,
+                series_id,
+            })
+            .await;
+        map_version_only(result)
+    }
+
+    async fn archive(
+        &self,
+        actor: UserId,
+        cmd: ArchiveSeason,
     ) -> Result<AggregateVersion, DomainError> {
         let id = cmd.id;
         let version = cmd.version;

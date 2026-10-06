@@ -10,7 +10,7 @@ use uuid::Uuid;
 
 use crate::shared::{AggregateVersion, EventMetadata, SeriesId};
 
-use super::commands::{CreateSeason, RenameSeason};
+use super::commands::{ArchiveSeason, CreateSeason, RenameSeason};
 use super::error::SeasonError;
 use super::events::SeasonEvent;
 
@@ -25,6 +25,10 @@ pub struct SeasonAggregate {
     pub number: i32,
     pub title: Option<String>,
     pub version: AggregateVersion,
+    /// Terminal lifecycle state (issue #533): an archived season keeps its
+    /// number reserved and its inventory (blocks/episodes/days) readable, but
+    /// rejects further mutation (`RenameSeason`).
+    pub archived: bool,
 }
 
 impl Entity for SeasonAggregate {
@@ -57,6 +61,10 @@ impl Apply for SeasonAggregate {
             }
             SeasonEvent::SeasonRenamed { title, version, .. } => {
                 self.title = title;
+                self.version = version;
+            }
+            SeasonEvent::SeasonArchived { version, .. } => {
+                self.archived = true;
                 self.version = version;
             }
         }
@@ -92,6 +100,11 @@ impl Command<RenameSeason> for SeasonAggregate {
         cmd: RenameSeason,
         _ctx: Context<'_, Self>,
     ) -> Result<Vec<Self::Event>, Self::Error> {
+        // Archived-season lock (issue #533): the lifecycle state terminal — no
+        // further mutation, only reading stays possible.
+        if self.archived {
+            return Err(SeasonError::ArchivedCannotBeMutated { id: self.id });
+        }
         if cmd.version != self.version {
             return Err(SeasonError::VersionMismatch {
                 expected: cmd.version,
@@ -107,6 +120,33 @@ impl Command<RenameSeason> for SeasonAggregate {
         Ok(vec![SeasonEvent::SeasonRenamed {
             id: self.id,
             title: cmd.title,
+            version: new_version,
+        }])
+    }
+}
+
+impl Command<ArchiveSeason> for SeasonAggregate {
+    type Error = SeasonError;
+    fn handle(
+        &self,
+        cmd: ArchiveSeason,
+        _ctx: Context<'_, Self>,
+    ) -> Result<Vec<Self::Event>, Self::Error> {
+        if cmd.version != self.version {
+            return Err(SeasonError::VersionMismatch {
+                expected: cmd.version,
+                actual: self.version,
+            });
+        }
+        // Idempotent-reject: a season that is already archived stays archived
+        // and emits no further event (same behaviour as
+        // ArchiveCostumeCategory and ArchiveShootingDay).
+        if self.archived {
+            return Err(SeasonError::ArchivedCannotBeMutated { id: self.id });
+        }
+        let new_version = self.version.next();
+        Ok(vec![SeasonEvent::SeasonArchived {
+            id: self.id,
             version: new_version,
         }])
     }

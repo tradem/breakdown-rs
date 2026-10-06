@@ -8,7 +8,7 @@ use uuid::Uuid;
 use crate::error::DomainError;
 use crate::shared::{AggregateVersion, SeriesId, UserId};
 
-use super::commands::{CreateSeason, RenameSeason};
+use super::commands::{ArchiveSeason, CreateSeason, RenameSeason};
 use super::views::SeasonView;
 
 /// Async write port for the `SeasonAggregate`.
@@ -26,6 +26,12 @@ pub trait SeasonCommands: Send + Sync {
         actor: UserId,
         cmd: RenameSeason,
     ) -> Result<AggregateVersion, DomainError>;
+    /// Archive a season (terminal lifecycle state).
+    async fn archive(
+        &self,
+        actor: UserId,
+        cmd: ArchiveSeason,
+    ) -> Result<AggregateVersion, DomainError>;
 }
 
 /// Async read port returning flat `SeasonView` projections.
@@ -34,14 +40,22 @@ pub trait SeasonRepository: Send + Sync {
     async fn find_by_id(&self, id: Uuid) -> Result<SeasonView, DomainError>;
     /// List all seasons, ordered by number (deterministic `id` tiebreak).
     ///
-    /// The table stays small (a handful of rows per series), so — unlike the
-    /// episode/scene lists — no scope parameter is required; callers narrow
-    /// with [`SeasonRepository::list_by_series`] when they hold a series.
-    async fn list_all(&self, limit: i64, offset: i64) -> Result<Vec<SeasonView>, DomainError>;
+    /// Archived seasons are excluded unless `include_archived` is set
+    /// (issue #533 default-off read model).
+    async fn list_all(
+        &self,
+        include_archived: bool,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<SeasonView>, DomainError>;
     /// List seasons of a series, ordered by number.
+    ///
+    /// Archived seasons are excluded unless `include_archived` is set
+    /// (issue #533 default-off read model).
     async fn list_by_series(
         &self,
         series_id: SeriesId,
+        include_archived: bool,
         limit: i64,
         offset: i64,
     ) -> Result<Vec<SeasonView>, DomainError>;

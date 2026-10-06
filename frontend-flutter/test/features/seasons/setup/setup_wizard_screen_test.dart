@@ -72,6 +72,7 @@ BlockView _blockView(String id, {required int number, String? seasonId}) =>
 
 SeasonView _season(String id, int number, {String? title}) => SeasonView(
   (b) => b
+    ..archived = false
     ..id = id
     ..number = number
     ..seriesId = 'series-1'

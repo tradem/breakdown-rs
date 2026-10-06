@@ -84,3 +84,6 @@ backend/docs/architecture/arc42-typst/diagrams/
 # Python
 __pycache__/
 *.pyc
+
+# Local editor-plugin usage telemetry (never committed)
+**/.pi/plugins/*/stats.json

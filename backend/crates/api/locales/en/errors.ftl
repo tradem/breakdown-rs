@@ -244,6 +244,9 @@ problem-season-not-found =
 problem-season-number-already-exists =
     A season with this number already exists for this series.
 
+problem-season-archived =
+    The season is archived and can no longer be changed.
+
 problem-season-validation =
     The season request is not valid.
 

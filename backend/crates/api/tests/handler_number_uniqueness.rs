@@ -50,6 +50,7 @@ fn season_view(id: Uuid, series_id: SeriesId, number: i32) -> SeasonView {
         series_id,
         number,
         title: None,
+        archived: false,
         version: AggregateVersion::INITIAL,
         updated_at: Utc::now(),
     }
