@@ -31,6 +31,8 @@ import 'package:frontend_flutter/data/cache/clock.dart';
 import 'package:frontend_flutter/data/cache/costume_domains_cache_dao.dart';
 import 'package:frontend_flutter/data/cache/seasons_cache_providers.dart';
 import 'package:frontend_flutter/data/character_repository.dart';
+import 'package:frontend_flutter/data/cache/season_cache_dao.dart';
+import 'package:frontend_flutter/data/season_repository.dart';
 import 'package:frontend_flutter/data/costume_repository.dart';
 import 'package:frontend_flutter/domain/reconciliation/reconciliation_scheduler.dart';
 import 'package:frontend_flutter/features/blocks/blocks_controller.dart';
@@ -325,6 +327,12 @@ void main() {
         ),
         charactersListFetchProvider('season-1')
             .overrideWith((ref) async => Right(characters)),
+        // Issue #534: the costume editor's repertoire section reads the
+        // seasons projection — keep it off the production seam.
+        seasonRepositoryProvider.overrideWithValue(
+          SeasonRepository(BreakdownApi(), SeasonCacheDao(db)),
+        ),
+        seasonsListFetchProvider.overrideWith((ref) async => const Right([])),
         costumesListFetchProvider('season-1').overrideWith((ref) async {
           // Issue #544: a reconcile is only observable through this seam, so
           // count it — a 404 `costume-detail.not-found` must resync the list.

@@ -134,6 +134,19 @@ impl CostumeRepositoryImpl {
             });
         }
 
+        let season_ids = sqlx::query_scalar(
+            r#"
+            SELECT season_id
+            FROM projection_costume_season
+            WHERE costume_id = $1
+            ORDER BY season_id
+            "#,
+        )
+        .bind(view.id)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| DomainError::internal(e.to_string()))?;
+
         // Fully specified (no `..view` spread) so a deleted field is a
         // compile error, not a surviving mutant (issue #307).
         Ok(CostumeView {
@@ -146,6 +159,9 @@ impl CostumeRepositoryImpl {
             photos: enriched_photos,
             version: view.version,
             updated_at: view.updated_at,
+            // Repertoire (issue #534): the m:n rows of
+            // `projection_costume_season`, ordered deterministically.
+            season_ids,
         })
     }
     /// Batched counterpart of [`Self::enrich`] for a whole page of costumes.
@@ -264,6 +280,30 @@ impl CostumeRepositoryImpl {
                 });
         }
 
+        // Repertoire (issue #534): batched, one query for the whole page.
+        let season_rows = sqlx::query(
+            r#"
+            SELECT costume_id, season_id
+            FROM projection_costume_season
+            WHERE costume_id = ANY($1)
+            ORDER BY costume_id, season_id
+            "#,
+        )
+        .bind(&costume_ids)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| DomainError::internal(e.to_string()))?;
+
+        let mut seasons_by_costume: HashMap<Uuid, Vec<Uuid>> = HashMap::new();
+        for row in season_rows {
+            let costume_id: Uuid = row.try_get("costume_id").map_err(map_err)?;
+            let season_id: Uuid = row.try_get("season_id").map_err(map_err)?;
+            seasons_by_costume
+                .entry(costume_id)
+                .or_default()
+                .push(season_id);
+        }
+
         // Fully specified (no `..view` spread) so a deleted field is a
         // compile error instead of a silent fallback to the un-enriched
         // base view (mutation hardening, issue #585; same pattern as
@@ -280,6 +320,7 @@ impl CostumeRepositoryImpl {
                 photos: photos_by_costume.remove(&view.id).unwrap_or_default(),
                 version: view.version,
                 updated_at: view.updated_at,
+                season_ids: seasons_by_costume.remove(&view.id).unwrap_or_default(),
             })
             .collect())
     }
@@ -399,6 +440,9 @@ fn map_costume_row(row: sqlx::postgres::PgRow) -> Result<CostumeView, DomainErro
         updated_at: row
             .try_get::<DateTime<Utc>, _>("updated_at")
             .map_err(map_err)?,
+        // Filled by `enrich`/`enrich_many` (issue #534); the base row query
+        // carries no repertoire.
+        season_ids: Vec::new(),
     })
 }
 

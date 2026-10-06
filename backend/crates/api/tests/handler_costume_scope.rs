@@ -172,6 +172,7 @@ async fn seed_repertoire_costume(ports: &FakePorts, repertoire: &[SeasonId]) -> 
             photos: vec![],
             version: AggregateVersion::INITIAL,
             updated_at: Utc::now(),
+            season_ids: vec![],
         },
     );
     ports
@@ -223,6 +224,7 @@ async fn seed_scoped_costume(
             photos: vec![],
             version: AggregateVersion::INITIAL,
             updated_at: Utc::now(),
+            season_ids: vec![],
         },
     );
     ports

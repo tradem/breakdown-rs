@@ -631,6 +631,8 @@ async fn replay_captured_chain_through_projectors_round_trips() -> Result<()> {
             "series_id": chain.series_id,
             "number": 1,
             "title": "Staffel 1",
+            // #533 lifecycle flag: a fresh chain replays to `false`.
+            "archived": false,
             "version": 1,
             "projector_version": PROJECTOR_VERSION,
         }),

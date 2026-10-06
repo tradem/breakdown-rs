@@ -99,6 +99,8 @@ use utoipa::OpenApi;
         handlers::update_costume_detail,
         handlers::remove_costume_detail,
         handlers::set_costume_category,
+        handlers::add_costume_to_season,
+        handlers::remove_costume_from_season,
         handlers::create_costume_category,
         handlers::list_costume_categories,
         handlers::update_costume_category,

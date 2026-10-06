@@ -74,6 +74,7 @@ class CostumeCacheDao {
     photosJson: jsonEncode(
       _encodeBuiltList(view.photos, CostumePhotoView.serializer),
     ),
+    seasonIdsJson: Value(jsonEncode(view.seasonIds.toList())),
     updatedAt: view.updatedAt,
     version: view.version,
     cachedAt: cachedAt,
@@ -95,6 +96,17 @@ class CostumeCacheDao {
       )
       ..updatedAt = row.updatedAt.toUtc()
       ..version = row.version;
+    // Issue #534: the repertoire survives the cache. Pre-#534 rows carry
+    // NULL — the cache predates the field and maps to an empty list until
+    // the next TTL snapshot-replace fills it.
+    if (row.seasonIdsJson case final json? when json.isNotEmpty) {
+      final decoded = jsonDecode(json);
+      if (decoded is List) {
+        b.seasonIds.replace(
+          BuiltList<String>([for (final id in decoded) id as String]),
+        );
+      }
+    }
     assert(seasonId.isNotEmpty, 'season scope must be non-empty');
   });
 

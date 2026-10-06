@@ -158,6 +158,38 @@ class CostumeRepository extends BaseRepository {
     () => api.getHandlersApi().unassignCostume(id: id, versionRequest: request),
   );
 
+  /// Adds the costume to a season's repertoire (issue #534,
+  /// `POST /v1/costumes/{id}/seasons`). Idempotent on the server: a season
+  /// already in the repertoire is a no-op success with the unchanged
+  /// version. The response is the command acknowledgement (the new — or
+  /// unchanged — `AggregateVersion`); the projected row update is eventual
+  /// (optimistic overlay + bounded reconcile).
+  Future<Result<int>> addToSeason(
+    String id,
+    AddCostumeToSeasonRequest request,
+  ) => run(
+    () => api.getHandlersApi().addCostumeToSeason(
+      id: id,
+      addCostumeToSeasonRequest: request,
+    ),
+  );
+
+  /// Removes the costume from a season's repertoire (issue #534,
+  /// `DELETE /v1/costumes/{id}/seasons/{season_id}`). Idempotent mirror of
+  /// [addToSeason]: an absent season is a no-op success with the unchanged
+  /// version.
+  Future<Result<int>> removeFromSeason(
+    String id,
+    String seasonId,
+    VersionRequest request,
+  ) => run(
+    () => api.getHandlersApi().removeCostumeFromSeason(
+      id: id,
+      seasonId: seasonId,
+      versionRequest: request,
+    ),
+  );
+
   /// Sets (or clears) the costume's single category (issue #543,
   /// `POST /v1/costumes/{id}/category`). The backend response is the
   /// command acknowledgement (the new `AggregateVersion`); the projected
@@ -304,6 +336,19 @@ CostumeView applyCategoryOptimistic(
     ..categoryId = categoryId
     ..categoryName = categoryName,
 );
+
+/// Optimistic overlay edit for repertoire add (issue #534): appends the
+/// season when not yet present (a duplicate entry would desync the id-based
+/// keys until the projection swaps in behind the fence).
+CostumeView applyAddSeasonOptimistic(CostumeView row, String seasonId) =>
+    row.seasonIds.contains(seasonId)
+    ? row
+    : row.rebuild((b) => b..seasonIds.add(seasonId));
+
+/// Optimistic overlay edit for repertoire remove (issue #534): drops the
+/// season when present.
+CostumeView applyRemoveSeasonOptimistic(CostumeView row, String seasonId) =>
+    row.rebuild((b) => b..seasonIds.remove(seasonId));
 
 /// Version-fence clear condition (spec flutter-costumes-screen):
 /// the overlay is dropped ONLY when the refetched projection row satisfies

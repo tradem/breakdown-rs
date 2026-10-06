@@ -41,6 +41,40 @@ pub struct UpdateCostumeNotes {
     pub series_id: Option<SeriesId>,
     pub version: AggregateVersion,
 }
+/// Add the costume to a season's **repertoire** (issue #534).
+///
+/// The wardrobe lifecycle carries a costume from one season into the next,
+/// so the repertoire is real aggregate state (`seasons: Vec<SeasonId>`).
+/// Idempotent: adding a season already in the list is a state-based no-op
+/// that emits no event (issue #515 lesson, same pattern as
+/// `SetCostumeCategory`). `series_id` is carried for the `EventMetadata`
+/// audit trail (the audit projector keys on `series_id`); it is resolved at
+/// the API edge from the **target** season's projection, never queried again
+/// by the command adapter. The target season's existence and
+/// not-archived state are pre-checked at the API edge (404
+/// `season.not-found` / 409 `season.archived`) — the aggregate cannot
+/// validate cross-aggregate state.
+#[derive(Debug, Clone, serde::Deserialize, utoipa::ToSchema)]
+pub struct AddCostumeToSeason {
+    pub id: Uuid,
+    pub season_id: SeasonId,
+    pub series_id: Option<SeriesId>,
+    pub version: AggregateVersion,
+}
+/// Remove the costume from a season's repertoire (issue #534).
+///
+/// Idempotent: removing a season that is not in the list emits no event.
+/// An empty repertoire is legitimate — the authz scope then falls back to
+/// the character's season. `series_id` is carried for the `EventMetadata`
+/// audit trail, resolved at the API edge from the target season's
+/// projection.
+#[derive(Debug, Clone, serde::Deserialize, utoipa::ToSchema)]
+pub struct RemoveCostumeFromSeason {
+    pub id: Uuid,
+    pub season_id: SeasonId,
+    pub series_id: Option<SeriesId>,
+    pub version: AggregateVersion,
+}
 /// Bind the costume to a character.
 ///
 /// `series_id` is carried for the `EventMetadata` audit trail (the audit
@@ -168,6 +202,16 @@ impl kameo_es::CommandName for AssignCostumeToCharacter {
 impl kameo_es::CommandName for UnassignCostume {
     fn command_name() -> &'static str {
         "UnassignCostume"
+    }
+}
+impl kameo_es::CommandName for AddCostumeToSeason {
+    fn command_name() -> &'static str {
+        "AddCostumeToSeason"
+    }
+}
+impl kameo_es::CommandName for RemoveCostumeFromSeason {
+    fn command_name() -> &'static str {
+        "RemoveCostumeFromSeason"
     }
 }
 impl kameo_es::CommandName for AddDetail {

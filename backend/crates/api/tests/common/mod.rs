@@ -22,8 +22,9 @@ use breakdown_core::character::commands::{CreateCharacter, UpdateContactInfo, Up
 use breakdown_core::character::ports::{CharacterCommands, CharacterRepository};
 use breakdown_core::character::views::CharacterView;
 use breakdown_core::costume::commands::{
-    AddDetail, AssignCostumeToCharacter, CreateCostume, LinkPhoto, RemoveDetail,
-    SetCostumeCategory, UnassignCostume, UnlinkPhoto, UpdateCostumeDetail, UpdateCostumeNotes,
+    AddCostumeToSeason, AddDetail, AssignCostumeToCharacter, CreateCostume, LinkPhoto,
+    RemoveCostumeFromSeason, RemoveDetail, SetCostumeCategory, UnassignCostume, UnlinkPhoto,
+    UpdateCostumeDetail, UpdateCostumeNotes,
 };
 use breakdown_core::costume::ports::{CostumeCommands, CostumeRepository};
 use breakdown_core::costume::views::CostumeView;
@@ -307,6 +308,20 @@ impl CostumeCommands for FakeCostumeCommands {
         &self,
         _actor: UserId,
         _cmd: UnassignCostume,
+    ) -> Result<AggregateVersion, DomainError> {
+        Ok(AggregateVersion::INITIAL.next())
+    }
+    async fn add_to_season(
+        &self,
+        _actor: UserId,
+        _cmd: AddCostumeToSeason,
+    ) -> Result<AggregateVersion, DomainError> {
+        Ok(AggregateVersion::INITIAL.next())
+    }
+    async fn remove_from_season(
+        &self,
+        _actor: UserId,
+        _cmd: RemoveCostumeFromSeason,
     ) -> Result<AggregateVersion, DomainError> {
         Ok(AggregateVersion::INITIAL.next())
     }
@@ -1047,6 +1062,13 @@ fn sort_paginate_seasons(
 
 impl SeasonRepository for FakeSeasonRepo {
     async fn find_by_id(&self, id: Uuid) -> Result<SeasonView, DomainError> {
+        // A seeded season (the `seasons` map, #534: includes archived states)
+        // wins over the stub so handler tests can control `archived`.
+        if let Ok(seasons) = self.seasons.try_lock()
+            && let Some(view) = seasons.get(&id)
+        {
+            return Ok(view.clone());
+        }
         if self.season_exists {
             // Return a stub SeasonView so handlers can resolve series_id
             // for EventMetadata without a real projection.

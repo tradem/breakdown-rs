@@ -72,6 +72,12 @@ class CostumeCacheRows extends Table {
   /// reproduce the server order exactly, including `updated_at` ties.
   IntColumn get snapshotIndex => integer()();
 
+  /// JSON snapshot of `CostumeView.season_ids` (issue #534: the season
+  /// repertoire — m:n, list of season ids). Nullable for the pre-#534
+  /// upgrade path: existing rows read NULL = the cache predates the field
+  /// and the next TTL snapshot-replace fills it.
+  TextColumn get seasonIdsJson => text().nullable()();
+
   @override
   Set<Column<Object>> get primaryKey => {id};
 }

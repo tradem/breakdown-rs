@@ -83,6 +83,10 @@ const ADDITIVE_ALLOWLIST: &[(&str, &str)] = &[
     // the response shape).
     ("costume_view", "costume_view.category_id"),
     ("costume_view", "costume_view.category_name"),
+    // #534: the season repertoire as real aggregate state — additive
+    // `season_ids` array on `CostumeView` (default-identical empty list for
+    // every pre-#534 client; MINOR-additive on the response shape).
+    ("costume_view", "costume_view.season_ids"),
     // #546: ordered costume beats on `SceneView` — additive and
     // `#[serde(default)]`-backed (an empty list for every pre-#546 client;
     // MINOR-additive on the response shape).
@@ -286,6 +290,7 @@ fn sample_views() -> Vec<(&'static str, Value)> {
                 photos: vec![],
                 version: AggregateVersion(2),
                 updated_at: t,
+                season_ids: vec![],
             },
         ),
         snapshot(

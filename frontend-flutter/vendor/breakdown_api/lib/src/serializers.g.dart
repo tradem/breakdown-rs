@@ -9,6 +9,7 @@ part of 'serializers.dart';
 Serializers _$serializers = (Serializers().toBuilder()
       ..add($GDriveCredentialRequest.serializer)
       ..add(AddCostumeDetailRequest.serializer)
+      ..add(AddCostumeToSeasonRequest.serializer)
       ..add(AddNoteRequest.serializer)
       ..add(AddSceneCostumeBeatRequest.serializer)
       ..add(AggregateSollIstDiffRow.serializer)
@@ -174,6 +175,9 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..addBuilderFactory(
           const FullType(BuiltList, const [const FullType(CostumePhotoView)]),
           () => ListBuilder<CostumePhotoView>())
+      ..addBuilderFactory(
+          const FullType(BuiltList, const [const FullType(String)]),
+          () => ListBuilder<String>())
       ..addBuilderFactory(
           const FullType(BuiltList, const [const FullType(DocumentKind)]),
           () => ListBuilder<DocumentKind>())

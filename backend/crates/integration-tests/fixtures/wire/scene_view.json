@@ -2,6 +2,7 @@
   "assigned_characters": [
     "019e7044-8800-7005-8000-000000000005"
   ],
+  "costume_beats": [],
   "episode_id": "019e7044-8800-7003-8000-000000000003",
   "id": "019e7044-8800-7004-8000-000000000004",
   "is_schedule_set": true,
@@ -12,6 +13,7 @@
   "shooting_day_ids": [
     "019e7044-8800-7007-8000-000000000007"
   ],
+  "source": "Manual",
   "summary": "Eröffnungsszene",
   "updated_at": "2026-08-06T09:00:00Z",
   "version": 4

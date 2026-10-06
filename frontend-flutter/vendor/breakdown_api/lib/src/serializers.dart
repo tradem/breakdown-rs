@@ -17,6 +17,7 @@ import 'package:breakdown_api/src/date_serializer.dart';
 import 'package:breakdown_api/src/model/date.dart';
 
 import 'package:breakdown_api/src/model/add_costume_detail_request.dart';
+import 'package:breakdown_api/src/model/add_costume_to_season_request.dart';
 import 'package:breakdown_api/src/model/add_note_request.dart';
 import 'package:breakdown_api/src/model/add_scene_costume_beat_request.dart';
 import 'package:breakdown_api/src/model/aggregate_soll_ist_diff_row.dart';
@@ -157,6 +158,7 @@ part 'serializers.g.dart';
 
 @SerializersFor([
   AddCostumeDetailRequest,
+  AddCostumeToSeasonRequest,
   AddNoteRequest,
   AddSceneCostumeBeatRequest,
   AggregateSollIstDiffRow,

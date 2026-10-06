@@ -2458,6 +2458,22 @@ impl breakdown_core::costume::ports::CostumeCommands for FakeCostumeCommands {
         unexpected_command("unassign")
     }
 
+    async fn add_to_season(
+        &self,
+        _actor: UserId,
+        _command: breakdown_core::costume::commands::AddCostumeToSeason,
+    ) -> Result<Version, DomainError> {
+        unexpected_command("add_to_season")
+    }
+
+    async fn remove_from_season(
+        &self,
+        _actor: UserId,
+        _command: breakdown_core::costume::commands::RemoveCostumeFromSeason,
+    ) -> Result<Version, DomainError> {
+        unexpected_command("remove_from_season")
+    }
+
     async fn add_detail(
         &self,
         _actor: UserId,

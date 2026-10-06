@@ -167,6 +167,7 @@ async fn seed_costume_chain(ports: &FakePorts) -> (uuid::Uuid, SeasonId) {
             photos: vec![],
             version: AggregateVersion::INITIAL,
             updated_at: chrono::Utc::now(),
+            season_ids: vec![],
         },
     );
     (costume_id, sid)

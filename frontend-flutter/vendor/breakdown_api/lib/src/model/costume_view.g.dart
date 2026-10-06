@@ -22,6 +22,8 @@ class _$CostumeView extends CostumeView {
   @override
   final BuiltList<CostumePhotoView> photos;
   @override
+  final BuiltList<String> seasonIds;
+  @override
   final DateTime updatedAt;
   @override
   final int version;
@@ -37,6 +39,7 @@ class _$CostumeView extends CostumeView {
       required this.id,
       required this.notes,
       required this.photos,
+      required this.seasonIds,
       required this.updatedAt,
       required this.version})
       : super._();
@@ -58,6 +61,7 @@ class _$CostumeView extends CostumeView {
         id == other.id &&
         notes == other.notes &&
         photos == other.photos &&
+        seasonIds == other.seasonIds &&
         updatedAt == other.updatedAt &&
         version == other.version;
   }
@@ -72,6 +76,7 @@ class _$CostumeView extends CostumeView {
     _$hash = $jc(_$hash, id.hashCode);
     _$hash = $jc(_$hash, notes.hashCode);
     _$hash = $jc(_$hash, photos.hashCode);
+    _$hash = $jc(_$hash, seasonIds.hashCode);
     _$hash = $jc(_$hash, updatedAt.hashCode);
     _$hash = $jc(_$hash, version.hashCode);
     _$hash = $jf(_$hash);
@@ -88,6 +93,7 @@ class _$CostumeView extends CostumeView {
           ..add('id', id)
           ..add('notes', notes)
           ..add('photos', photos)
+          ..add('seasonIds', seasonIds)
           ..add('updatedAt', updatedAt)
           ..add('version', version))
         .toString();
@@ -128,6 +134,12 @@ class CostumeViewBuilder implements Builder<CostumeView, CostumeViewBuilder> {
       _$this._photos ??= ListBuilder<CostumePhotoView>();
   set photos(ListBuilder<CostumePhotoView>? photos) => _$this._photos = photos;
 
+  ListBuilder<String>? _seasonIds;
+  ListBuilder<String> get seasonIds =>
+      _$this._seasonIds ??= ListBuilder<String>();
+  set seasonIds(ListBuilder<String>? seasonIds) =>
+      _$this._seasonIds = seasonIds;
+
   DateTime? _updatedAt;
   DateTime? get updatedAt => _$this._updatedAt;
   set updatedAt(DateTime? updatedAt) => _$this._updatedAt = updatedAt;
@@ -150,6 +162,7 @@ class CostumeViewBuilder implements Builder<CostumeView, CostumeViewBuilder> {
       _id = $v.id;
       _notes = $v.notes;
       _photos = $v.photos.toBuilder();
+      _seasonIds = $v.seasonIds.toBuilder();
       _updatedAt = $v.updatedAt;
       _version = $v.version;
       _$v = null;
@@ -183,6 +196,7 @@ class CostumeViewBuilder implements Builder<CostumeView, CostumeViewBuilder> {
             notes: BuiltValueNullFieldError.checkNotNull(
                 notes, r'CostumeView', 'notes'),
             photos: photos.build(),
+            seasonIds: seasonIds.build(),
             updatedAt: BuiltValueNullFieldError.checkNotNull(
                 updatedAt, r'CostumeView', 'updatedAt'),
             version: BuiltValueNullFieldError.checkNotNull(
@@ -196,6 +210,8 @@ class CostumeViewBuilder implements Builder<CostumeView, CostumeViewBuilder> {
 
         _$failedField = 'photos';
         photos.build();
+        _$failedField = 'seasonIds';
+        seasonIds.build();
       } catch (e) {
         throw BuiltValueNestedFieldError(
             r'CostumeView', _$failedField, e.toString());

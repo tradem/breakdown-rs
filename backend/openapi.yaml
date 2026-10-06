@@ -10,6 +10,20 @@ components:
       - detail
       - version
       type: object
+    AddCostumeToSeasonRequest:
+      description: |-
+        Add a costume to a season's repertoire (issue #534). Idempotent: a season
+        already in the repertoire is a no-op success with the unchanged version.
+      properties:
+        season_id:
+          format: uuid
+          type: string
+        version:
+          $ref: '#/components/schemas/AggregateVersion'
+      required:
+      - season_id
+      - version
+      type: object
     AddNoteRequest:
       properties:
         body:
@@ -970,6 +984,18 @@ components:
           items:
             $ref: '#/components/schemas/CostumePhotoView'
           type: array
+        season_ids:
+          description: |-
+            The costume's season **repertoire** (issue #534): the seasons whose
+            costume streams the costume stands in, populated from
+            `projection_costume_season` by the enrich path. Ordered by
+            `season_id` (deterministic). Empty for a costume without a
+            repertoire binding — its scope then falls back to the character's
+            season.
+          items:
+            format: uuid
+            type: string
+          type: array
         updated_at:
           format: date-time
           type: string
@@ -983,6 +1009,7 @@ components:
       - photos
       - version
       - updated_at
+      - season_ids
       type: object
     CreateAiConfigRequest:
       properties:
@@ -4920,6 +4947,126 @@ paths:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
+      tags:
+      - handlers
+  /v1/costumes/{id}/seasons:
+    post:
+      description: |-
+        API-edge pre-checks for the cross-aggregate target-season state (the
+        aggregate cannot validate it): the season must exist (404
+        `season.not-found`) and must not be archived (409 `season.archived`,
+        #533 terminal-state semantics — an archived season rejects all further
+        mutations). The command itself is a state-based idempotent no-op when
+        the season is already in the repertoire (no event, unchanged version).
+      operationId: add_costume_to_season
+      parameters:
+      - description: Costume id
+        in: path
+        name: id
+        required: true
+        schema:
+          format: uuid
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddCostumeToSeasonRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AggregateVersion'
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Caller holds no active costume role in the target season
+        '404':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Costume or season not found
+        '409':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Target season is archived or version conflict
+        '422':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Validation error
+      summary: 'Add a costume to a season''s repertoire (issue #534).'
+      tags:
+      - handlers
+  /v1/costumes/{id}/seasons/{season_id}:
+    delete:
+      description: |-
+        Idempotent mirror of [`add_costume_to_season`]: a season that is not in
+        the repertoire is a no-op success with the unchanged version. Same
+        pre-checks: season exists (404), not archived (409 `season.archived`).
+        An empty repertoire is legitimate — the authz scope then falls back to
+        the character's season.
+      operationId: remove_costume_from_season
+      parameters:
+      - description: Costume id
+        in: path
+        name: id
+        required: true
+        schema:
+          format: uuid
+          type: string
+      - description: Season id
+        in: path
+        name: season_id
+        required: true
+        schema:
+          format: uuid
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VersionRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AggregateVersion'
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Caller holds no active costume role in the target season
+        '404':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Costume or season not found
+        '409':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Target season is archived or version conflict
+        '422':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Validation error
+      summary: 'Remove a costume from a season''s repertoire (issue #534).'
       tags:
       - handlers
   /v1/costumes/{id}/unassign:

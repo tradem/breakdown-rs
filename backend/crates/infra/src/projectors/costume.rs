@@ -154,6 +154,47 @@ impl<'a> EntityEventHandler<CostumeAggregate, Transaction<'a, Postgres>> for Cos
                     .await?;
                 }
             }
+            CostumeEvent::CostumeAddedToSeason {
+                id,
+                season_id,
+                version,
+            } => {
+                let version = version.0 as i64;
+                // Repertoire row (issue #534): the table is truly m:n now —
+                // one costume may hold several rows. Idempotent via the PK.
+                sqlx::query(
+                    r#"
+                    INSERT INTO projection_costume_season (costume_id, season_id)
+                    VALUES ($1, $2)
+                    ON CONFLICT (costume_id, season_id) DO NOTHING
+                    "#,
+                )
+                .bind(id)
+                .bind(season_id)
+                .execute(&mut **ctx)
+                .await?;
+
+                Self::touch_parent(ctx, id, version, updated_at).await?;
+            }
+            CostumeEvent::CostumeRemovedFromSeason {
+                id,
+                season_id,
+                version,
+            } => {
+                let version = version.0 as i64;
+                sqlx::query(
+                    r#"
+                    DELETE FROM projection_costume_season
+                    WHERE costume_id = $1 AND season_id = $2
+                    "#,
+                )
+                .bind(id)
+                .bind(season_id)
+                .execute(&mut **ctx)
+                .await?;
+
+                Self::touch_parent(ctx, id, version, updated_at).await?;
+            }
             CostumeEvent::CostumeNotesUpdated { id, notes, version } => {
                 let version = version.0 as i64;
                 sqlx::query(

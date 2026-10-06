@@ -63,6 +63,7 @@ async fn seed_costume(ports: &FakePorts, repertoire: &[SeasonId]) -> Uuid {
             photos: vec![],
             version: AggregateVersion::INITIAL,
             updated_at: Utc::now(),
+            season_ids: vec![],
         },
     );
     ports

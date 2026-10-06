@@ -26,6 +26,7 @@ import '../costume_categories/costume_categories_controller.dart';
 import '../photos/capture.dart';
 import '../photos/prepare.dart';
 import '../photos/widgets/photo_gallery.dart';
+import '../../data/cache/seasons_cache_providers.dart';
 import 'costumes_controller.dart';
 import 'costumes_state.dart';
 import 'widgets/costumes_widgets.dart';
@@ -150,6 +151,10 @@ class CostumeDetailPanel extends ConsumerWidget {
         // section ABOVE the details (details are pure description now).
         CostumeCategorySection(season: season, costume: costume),
         const Divider(height: 32),
+        // Issue #534: the season repertoire — the seasons whose costume
+        // streams the costume stands in (m:n over the wardrobe lifecycle).
+        _RepertoireSection(season: season, costume: costume),
+        const Divider(height: 32),
         // Identity is primary; notes are deliberately secondary.
         _DetailsSection(season: season, costume: costume),
         const Divider(height: 32),
@@ -171,6 +176,165 @@ class CostumeDetailPanel extends ConsumerWidget {
       if (c.id == costumeId) return c;
     }
     return null;
+  }
+}
+
+/// Repertoire section (issue #534): every season whose costume stream the
+/// costume stands in, plus the add-season picker and confirm-first removal.
+///
+/// // AUTHZ-GATE: the picker's confirm path runs the membership capability
+/// check (`assign_costumes`) inside the controller before any network call;
+/// the backend additionally authorizes the TARGET season's membership —
+/// that cross-season check is the server's alone (AGENTS.md S5: the client
+/// must not deny on the season union).
+class _RepertoireSection extends ConsumerWidget {
+  const _RepertoireSection({required this.season, required this.costume});
+
+  final SeasonView season;
+  final CostumeView costume;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    // Season names come from the seasons projection (read-DTO join, never
+    // aggregate reconstruction). The #533 default excludes archived
+    // seasons upstream, so the picker naturally offers only live seasons.
+    final seasons = ref.watch(seasonsView).rows;
+    final l10n = l10nOf(context);
+    final ids = costume.seasonIds;
+    String nameOf(String id) {
+      for (final s in seasons) {
+        if (s.id == id) {
+          return s.title ?? l10n.seasonsDefaultTitle(s.number);
+        }
+      }
+      // A repertoire season the projection does not know yet (dangling
+      // reference): render the raw id instead of hiding the row.
+      return id;
+    }
+
+    final eligible = [
+      for (final s in seasons)
+        if (!ids.contains(s.id)) s,
+    ];
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          l10n.costumeDetailRepertoire,
+          style: Theme.of(context).textTheme.titleMedium,
+          key: const Key('costume-repertoire-title'),
+        ),
+        const SizedBox(height: 4),
+        if (ids.isEmpty)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(0, 8, 0, 8),
+            child: Text(
+              l10n.costumeDetailRepertoireEmpty,
+              key: const Key('costume-repertoire-empty'),
+            ),
+          )
+        else
+          for (final id in ids)
+            ListTile(
+              key: Key('costume-repertoire-row-${costume.id}-$id'),
+              contentPadding: EdgeInsets.zero,
+              title: Text(nameOf(id)),
+              trailing: IconButton(
+                key: Key('costume-repertoire-remove-${costume.id}-$id'),
+                icon: const Icon(Icons.playlist_remove_outlined),
+                tooltip: l10n.costumeDetailRepertoireRemoveTooltip,
+                onPressed: costume.seasonIds.contains(id)
+                    ? () => _confirmRemove(context, ref, id, nameOf(id))
+                    : null,
+              ),
+            ),
+        FilledButton.tonal(
+          key: Key('costume-repertoire-add-${costume.id}'),
+          onPressed: eligible.isEmpty
+              ? null
+              : () => _pickSeason(context, ref, eligible, nameOf),
+          child: Text(l10n.costumeDetailRepertoireAdd),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _pickSeason(
+    BuildContext context,
+    WidgetRef ref,
+    List<SeasonView> eligible,
+    String Function(String) nameOf,
+  ) async {
+    final picked = await showModalBottomSheet<String>(
+      context: context,
+      builder: (sheetContext) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: Text(
+                l10nOf(sheetContext).costumeDetailRepertoirePick,
+                style: Theme.of(sheetContext).textTheme.titleMedium,
+              ),
+            ),
+            SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  for (final s in eligible)
+                    ListTile(
+                      key: Key('repertoire-pick-${s.id}'),
+                      title: Text(
+                        s.title ??
+                            l10nOf(sheetContext).seasonsDefaultTitle(s.number),
+                      ),
+                      trailing: s.id == season.id
+                          ? Text(l10nOf(sheetContext).costumeDetailRepertoire)
+                          : null,
+                      onTap: () => Navigator.of(sheetContext).pop(s.id),
+                    ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (picked == null || !context.mounted) return;
+    final controller = ref.read(costumesControllerProvider(season.id).notifier);
+    await controller.addToSeason(costume: costume, seasonId: picked);
+  }
+
+  Future<void> _confirmRemove(
+    BuildContext context,
+    WidgetRef ref,
+    String seasonId,
+    String name,
+  ) async {
+    final l10n = l10nOf(context);
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(l10n.costumeDetailRepertoireRemoveTitle),
+        content: Text(l10n.costumeDetailRepertoireRemoveMessage),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: Text(l10n.commonCancel),
+          ),
+          FilledButton(
+            key: Key('costume-repertoire-confirm-remove'),
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: Text(l10n.costumeDetailRepertoireRemoveTooltip),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !context.mounted) return;
+    final controller = ref.read(costumesControllerProvider(season.id).notifier);
+    await controller.removeFromSeason(costume: costume, seasonId: seasonId);
   }
 }
 

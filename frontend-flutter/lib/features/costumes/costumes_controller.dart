@@ -239,6 +239,15 @@ String costumeErrorCopy(AppLocalizations l10n, ProblemError error) =>
       // gone and that the list was refreshed — the bounded reconcile swaps
       // the projection in behind it.
       'costume-detail.not-found' => l10n.costumeErrorDetailNotFound,
+      // Issue #534: repertoire add/remove pre-checks. An archived season
+      // (#533 terminal state) accepts no further repertoire mutations —
+      // distinct narrative so the user understands the season, not the
+      // costume, is locked. A vanished target season answers 404.
+      'season.archived' => l10n.costumeErrorSeasonArchived,
+      'season.not-found' => l10n.costumeErrorSeasonNotFound,
+      // The repertoire AUTHZ-GATE answers with the server's generic
+      // season-scoped 403 (the same shape the archive route uses).
+      'domain.forbidden' => l10n.costumeErrorForbidden,
       _ when error.code.startsWith('transport.') =>
         l10n.costumeCategoryErrorNetwork,
       _ => l10n.costumeErrorGeneric(error.code),
@@ -993,6 +1002,158 @@ class CostumesController extends _$CostumesController {
         return Right<ProblemError, int>(version);
       },
     );
+  }
+
+  /// Adds the costume to a season's repertoire (issue #534).
+  ///
+  /// Idempotent against the freshest effective row (issue #515 lesson): a
+  /// season already in the repertoire no-ops client-side with the UNCHANGED
+  /// version — echoing it is exactly the server's ack, so no network call
+  /// is needed.
+  ///
+  /// Error surfaces: 409 `season.archived` (target season archived, blocked
+  /// at the API edge BEFORE dispatch), 404 `season.not-found`, 403
+  /// `domain.forbidden` (the server gates the TARGET season's costume role;
+  /// this client's session scope is the current season, so a cross-season
+  /// denial surfaces through the command-error banner) plus the classic
+  /// version-conflict 409 — all code-keyed, no silent discard.
+  ///
+  /// // AUTHZ-GATE: `assign_costumes` capability checked before any network
+  /// call. The backend handler additionally authorizes the TARGET season's
+  /// membership; the mirror here is the session/capability check this
+  /// client can resolve locally (the AGENTS.md S5 rule: never deny on the
+  /// season union client-side — the server owns the target-season check).
+  Future<Result<int>> addToSeason({
+    required CostumeView costume,
+    required String seasonId,
+  }) async {
+    if (await _resolveSession() == null) {
+      const error = ProblemError(code: 'auth.session_required', status: 403);
+      _setCommandError(CostumeCommandSurface.costume, error);
+      return const Left(error);
+    }
+    final effective = _freshestCostume(costume);
+    // Idempotent no-op against the FRESHEST state (Authorization-neutral:
+    // dispatches no mutating request, same rationale as [setCategory]).
+    if (effective.seasonIds.contains(seasonId)) {
+      return Right<ProblemError, int>(effective.version);
+    }
+    // AUTHZ-GATE: capability check before any network call.
+    final gate = await _assignGate();
+    if (_deny(CostumeCommandSurface.costume, gate) != null) {
+      return Left(ProblemError(code: (gate as GateDeny).code, status: 403));
+    }
+    final repo = ref.read(costumeRepositoryProvider);
+    final res = await repo.addToSeason(
+      effective.id,
+      AddCostumeToSeasonRequest(
+        (b) => b
+          ..seasonId = seasonId
+          ..version = _resolveVersion(costume.id, effective.version),
+      ),
+    );
+    return res.match(
+      (err) {
+        _setCommandError(CostumeCommandSurface.costume, err);
+        return Left<ProblemError, int>(err);
+      },
+      (version) {
+        ref.read(costumesCommandErrorProvider(this.seasonId).notifier).clear();
+        ref
+            .read(costumesOverlaysProvider(this.seasonId).notifier)
+            .add(
+              CostumeRowOverlay(
+                id: costume.id,
+                overlay: applyAddSeasonOptimistic(
+                  effective,
+                  seasonId,
+                ).rebuild((b) => b..version = version),
+                acknowledgedVersion: version,
+                status: OverlayStatus.acknowledged,
+              ),
+            );
+        _reconcile.ackReceived();
+        unawaited(reconcile());
+        return Right<ProblemError, int>(version);
+      },
+    );
+  }
+
+  /// Removes the costume from a season's repertoire (issue #534). Idempotent
+  /// mirror of [addToSeason]: an absent season no-ops client-side with the
+  /// unchanged version. An empty repertoire is legitimate.
+  ///
+  /// // AUTHZ-GATE: same seam as [addToSeason].
+  Future<Result<int>> removeFromSeason({
+    required CostumeView costume,
+    required String seasonId,
+  }) async {
+    if (await _resolveSession() == null) {
+      const error = ProblemError(code: 'auth.session_required', status: 403);
+      _setCommandError(CostumeCommandSurface.costume, error);
+      return const Left(error);
+    }
+    final effective = _freshestCostume(costume);
+    if (!effective.seasonIds.contains(seasonId)) {
+      return Right<ProblemError, int>(effective.version);
+    }
+    // AUTHZ-GATE: capability check before any network call.
+    final gate = await _assignGate();
+    if (_deny(CostumeCommandSurface.costume, gate) != null) {
+      return Left(ProblemError(code: (gate as GateDeny).code, status: 403));
+    }
+    final repo = ref.read(costumeRepositoryProvider);
+    final res = await repo.removeFromSeason(
+      effective.id,
+      seasonId,
+      VersionRequest(
+        (b) => b..version = _resolveVersion(costume.id, effective.version),
+      ),
+    );
+    return res.match(
+      (err) {
+        _setCommandError(CostumeCommandSurface.costume, err);
+        return Left<ProblemError, int>(err);
+      },
+      (version) {
+        ref.read(costumesCommandErrorProvider(this.seasonId).notifier).clear();
+        ref
+            .read(costumesOverlaysProvider(this.seasonId).notifier)
+            .add(
+              CostumeRowOverlay(
+                id: costume.id,
+                overlay: applyRemoveSeasonOptimistic(
+                  effective,
+                  seasonId,
+                ).rebuild((b) => b..version = version),
+                acknowledgedVersion: version,
+                status: OverlayStatus.acknowledged,
+              ),
+            );
+        _reconcile.ackReceived();
+        unawaited(reconcile());
+        return Right<ProblemError, int>(version);
+      },
+    );
+  }
+
+  /// The freshest state of one costume across the fence-held overlays and
+  /// the projection (repository pattern of `_setCategoryFresh`, without the
+  /// serialization chain): a command echo bumps the version, so the next
+  /// repertoire op in the same window must fence against it.
+  CostumeView _freshestCostume(CostumeView costume) {
+    var effective = costume;
+    for (final o in ref.read(costumesOverlaysProvider(seasonId))) {
+      if (o.id == costume.id && o.overlay.version >= effective.version) {
+        effective = o.overlay;
+      }
+    }
+    for (final row in ref.read(costumesViewProvider(seasonId)).rows) {
+      if (row.id == costume.id && row.version > effective.version) {
+        effective = row;
+      }
+    }
+    return effective;
   }
 
   /// Edits notes (PATCH, version echo). Optimistic-after-2xx on the row.

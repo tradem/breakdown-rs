@@ -1202,6 +1202,40 @@ class AppLocalizationsEn extends AppLocalizations {
       'Photos let the wardrobe team document costumes and track continuity. The system will ask for camera access next.';
 
   @override
+  String get costumeDetailRepertoire => 'Repertoire';
+
+  @override
+  String get costumeDetailRepertoireEmpty => 'Bound to no other season';
+
+  @override
+  String get costumeDetailRepertoireAdd => 'Add to season';
+
+  @override
+  String get costumeDetailRepertoireAddTooltip =>
+      'Add the costume to another season\'s repertoire';
+
+  @override
+  String get costumeDetailRepertoireRemoveTooltip => 'Remove from season';
+
+  @override
+  String get costumeDetailRepertoireRemoveTitle => 'Remove from season?';
+
+  @override
+  String get costumeDetailRepertoireRemoveMessage =>
+      'The costume disappears from this season\'s wardrobe. Its details and photos stay on the costume.';
+
+  @override
+  String get costumeDetailRepertoirePick => 'Pick a season';
+
+  @override
+  String get costumeErrorSeasonArchived =>
+      'That season is archived — its repertoire can no longer be changed.';
+
+  @override
+  String get costumeErrorSeasonNotFound =>
+      'That season no longer exists — the list was refreshed.';
+
+  @override
   String get costumeDetailNotNow => 'Not now';
 
   @override

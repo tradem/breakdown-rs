@@ -79,6 +79,7 @@ async fn seed_costume(
             photos: vec![],
             version: AggregateVersion::INITIAL,
             updated_at: Utc::now(),
+            season_ids: vec![],
         },
     );
     ports
