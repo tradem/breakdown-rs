@@ -221,19 +221,7 @@ class SeasonsController extends _$SeasonsController {
     // pending state ('membership.pending'), not a denial; a resolved denial
     // is `domain.forbidden` — the same code the server renders, so the
     // client localizes one narrative.
-    Result<SeasonMembershipDto> membership;
-    try {
-      // Awaiting the fetch keeps the auto-dispose provider element alive for
-      // the duration of the await (the subscription is held by this read).
-      membership = await ref.read(membershipFetchProvider(season.id).future);
-    } on Object {
-      // Transport-level failure is a pending state, not a denial (the
-      // session-restore rule above); the cause surfaces in the trace of the
-      // provider, never collapsed into a wrong 403 narrative.
-      membership = const Left(
-        ProblemError(code: 'membership.pending', status: 403),
-      );
-    }
+    final membership = await _membershipFor(season.id);
     final role = membership.match(
       (_) => null,
       (dto) => dto.hasActiveCostumeRoleInSeason,
@@ -273,6 +261,18 @@ class SeasonsController extends _$SeasonsController {
         return Right<ProblemError, int>(version);
       },
     );
+  }
+
+  /// The awaited season membership (AUTHZ-GATE source). Awaiting keeps the
+  /// auto-dispose provider element alive for the duration of the await; a
+  /// transport-level failure is a pending state, not a denial (the
+  /// session-restore rule), with the cause left in the provider's trace.
+  Future<Result<SeasonMembershipDto>> _membershipFor(String seasonId) async {
+    try {
+      return await ref.read(membershipFetchProvider(seasonId).future);
+    } on Object {
+      return const Left(ProblemError(code: 'membership.pending', status: 403));
+    }
   }
 
   /// Resolves the session for the AUTHZ-GATE; a restore failure is treated
