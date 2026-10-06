@@ -41,6 +41,10 @@ String createErrorCopy(ProblemError error, [AppLocalizations? catalog]) {
     'season.number-already-exists' ||
     'seasons.conflict' ||
     'season.conflict' => l10n.seasonsCreateConflict,
+    // Issue #533: the locked season / repeat-archive rejection shares the
+    // banner with the membership/forbidden narratives.
+    'season.archived' => l10n.seasonsArchivedError,
+    'domain.forbidden' || 'membership.pending' => l10n.seasonsArchiveForbidden,
     'authz.denied' || 'auth.session_required' => l10n.seasonsCreateAuth,
     _ when error.code.startsWith('transport.') => l10n.seasonsCreateNetwork,
     _ => l10n.seasonsCreateGeneric,
@@ -246,6 +250,18 @@ class _SeasonCard extends ConsumerWidget {
         title: season.title ?? l10n.seasonsDefaultTitle(season.number),
         metadata: _metadataLine(metrics, l10n),
         staleLabel: _staleLabel(ref, metrics, l10n),
+        // Issue #533: archived seasons keep the read affordance (inventory
+        // stays readable) and render the badge; the write affordance is not
+        // offered on a locked season.
+        archived: season.archived,
+        archivedBadge: season.archived ? l10n.seasonsArchivedBadge : null,
+        onArchive: season.archived
+            ? null
+            : () => ref
+                  .read(seasonsControllerProvider.notifier)
+                  .archive(season: season),
+        archiveTooltip: l10n.seasonsArchiveTooltip,
+        archiveLabel: l10n.seasonsArchiveCta,
         // Task 4.4 + spec `flutter-hierarchy-navigation`: the season-row
         // BlocksScreen push stays on the PLANEN tab's navigator (the
         // shell's hierarchy spine — the Season tab never hosts hierarchy

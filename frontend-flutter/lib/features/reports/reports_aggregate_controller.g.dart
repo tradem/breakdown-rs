@@ -405,7 +405,7 @@ final class ReportsAggregateControllerProvider
 }
 
 String _$reportsAggregateControllerHash() =>
-    r'ccb935852e7c310b3c4763a65c81ea3c2b80a034';
+    r'60458a8db3d471396a9704a54c7fbb063924b401';
 
 /// Aggregated Soll-Ist reports controller: the on-screen JSON aggregation
 /// plus user-initiated aggregate-PDF fetch/preview/share. Finality and day

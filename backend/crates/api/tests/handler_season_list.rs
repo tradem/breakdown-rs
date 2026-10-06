@@ -30,11 +30,16 @@ use api::state::AppState;
 mod common;
 
 fn season_view(id: Uuid, series_id: SeriesId, number: i32) -> SeasonView {
+    season_view_archived(id, series_id, number, false)
+}
+
+fn season_view_archived(id: Uuid, series_id: SeriesId, number: i32, archived: bool) -> SeasonView {
     SeasonView {
         id,
         series_id,
         number,
         title: None,
+        archived,
         version: AggregateVersion::INITIAL,
         updated_at: Utc::now(),
     }
@@ -45,6 +50,7 @@ fn list_params() -> SeasonListParams {
         limit: Some(50),
         offset: Some(0),
         series_id: None,
+        include_archived: None,
     }
 }
 
@@ -76,6 +82,36 @@ async fn list_seasons_returns_only_the_queried_series() {
     assert_eq!(views[1].number, 2);
 }
 
+// Issue #533: archived seasons hidden by default, opt-in `include_archived`
+// returns them.
+#[tokio::test]
+async fn list_seasons_hides_archived_by_default_and_returns_them_on_opt_in() {
+    let ports = common::FakePorts::default();
+    let series = SeriesId::new();
+    {
+        let mut seasons = ports.season_repo.seasons.lock().await;
+        let id = Uuid::now_v7();
+        seasons.insert(id, season_view(id, series, 1));
+        let id = Uuid::now_v7();
+        seasons.insert(id, season_view_archived(id, series, 2, true));
+    }
+    let state = AppState::new(ports);
+
+    let result = list_seasons(State(state.clone()), Query(list_params())).await;
+    let (status, Json(views)) = result.expect("handler should succeed");
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(views.len(), 1, "archived season must be hidden by default");
+    assert!(views.iter().all(|v| !v.archived));
+
+    let mut opt_in = list_params();
+    opt_in.include_archived = Some(true);
+    let result = list_seasons(State(state), Query(opt_in)).await;
+    let (status, Json(views)) = result.expect("handler should succeed");
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(views.len(), 2, "opt-in must return the archived season too");
+    assert!(views.iter().any(|v| v.archived));
+}
+
 #[tokio::test]
 async fn list_seasons_without_series_id_returns_all_series() {
     let ports = common::FakePorts::default();
@@ -104,11 +140,13 @@ async fn list_seasons_rejects_negative_pagination() {
             limit: Some(-1),
             offset: Some(0),
             series_id: None,
+            include_archived: None,
         },
         SeasonListParams {
             limit: Some(50),
             offset: Some(-5),
             series_id: None,
+            include_archived: None,
         },
     ] {
         let state = AppState::new(common::FakePorts::default());

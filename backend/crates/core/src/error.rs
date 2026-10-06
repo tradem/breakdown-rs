@@ -331,6 +331,10 @@ impl From<SeasonError> for DomainError {
                 resource: "season",
                 id,
             },
+            SeasonError::ArchivedCannotBeMutated { id } => DomainError::Conflict {
+                code: &crate::error_registry::SEASON_ARCHIVED,
+                reason: format!("season {id} is archived and cannot be mutated"),
+            },
             SeasonError::VersionMismatch { expected, actual } => DomainError::VersionConflict {
                 expected,
                 current: actual,

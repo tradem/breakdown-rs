@@ -1,0 +1,10 @@
+{
+  "code": "season.archived",
+  "detail": "Die Staffel ist archiviert und kann nicht mehr geändert werden.",
+  "extensions": {
+    "id": "00000000-0000-0000-0000-000000000001"
+  },
+  "status": 409,
+  "title": "Season is archived",
+  "type": "https://docs.breakdown.example/problems/season.archived"
+}

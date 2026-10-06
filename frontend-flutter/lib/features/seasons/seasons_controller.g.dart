@@ -77,7 +77,7 @@ final class SeasonsControllerProvider
   }
 }
 
-String _$seasonsControllerHash() => r'4fc5f5b25cd8f06a66d1d9444fa662eb2eec5de3';
+String _$seasonsControllerHash() => r'683fbcadb9ca85d8485ddde249671e2382699719';
 
 /// The first screen's controller — the reference pattern for every
 /// subsequent screen (AGENTS.md §9).

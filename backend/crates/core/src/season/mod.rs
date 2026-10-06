@@ -11,7 +11,7 @@ pub mod ports;
 pub mod views;
 
 pub use aggregate::SeasonAggregate;
-pub use commands::{CreateSeason, RenameSeason};
+pub use commands::{ArchiveSeason, CreateSeason, RenameSeason};
 pub use error::SeasonError;
 pub use events::SeasonEvent;
 pub use ports::{SeasonCommands, SeasonRepository};

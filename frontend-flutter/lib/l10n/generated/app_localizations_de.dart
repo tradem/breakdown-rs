@@ -2586,4 +2586,21 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get aiImportClippyDismissTooltip => 'Karl Klammer ausblenden';
+
+  @override
+  String get seasonsArchivedBadge => 'Archiviert';
+
+  @override
+  String get seasonsArchiveTooltip => 'Staffel-Aktionen';
+
+  @override
+  String get seasonsArchiveCta => 'Staffel archivieren';
+
+  @override
+  String get seasonsArchivedError =>
+      'Die Staffel ist archiviert und kann nicht mehr geändert werden.';
+
+  @override
+  String get seasonsArchiveForbidden =>
+      'Dafür fehlt Ihnen die aktive Kostüm-Rolle in dieser Staffel.';
 }

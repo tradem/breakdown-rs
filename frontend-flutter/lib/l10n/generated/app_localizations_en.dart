@@ -2559,4 +2559,21 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get aiImportClippyDismissTooltip => 'Hide Karl Klammer';
+
+  @override
+  String get seasonsArchivedBadge => 'Archived';
+
+  @override
+  String get seasonsArchiveTooltip => 'Season actions';
+
+  @override
+  String get seasonsArchiveCta => 'Archive season';
+
+  @override
+  String get seasonsArchivedError =>
+      'The season is archived and can no longer be changed.';
+
+  @override
+  String get seasonsArchiveForbidden =>
+      'You have no active costume-dept role in this season.';
 }

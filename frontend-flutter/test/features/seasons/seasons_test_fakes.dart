@@ -64,15 +64,17 @@ const realOidcConfig = AppConfig(
   defaultSeriesId: '',
 );
 
-SeasonView season(String id, {int number = 1, String? title}) => SeasonView(
-  (b) => b
-    ..id = id
-    ..number = number
-    ..seriesId = 'series-1'
-    ..title = title
-    ..updatedAt = DateTime.utc(2026, 1, 1)
-    ..version = 1,
-);
+SeasonView season(String id, {int number = 1, String? title, bool archived = false}) =>
+    SeasonView(
+      (b) => b
+        ..id = id
+        ..number = number
+        ..seriesId = 'series-1'
+        ..title = title
+        ..archived = archived
+        ..updatedAt = DateTime.utc(2026, 1, 1)
+        ..version = 1,
+    );
 
 /// Cached hierarchy row for seeding the season-card metrics
 /// (`redesign-seasons-home` widget tests).
@@ -108,6 +110,16 @@ class FakeSeasonRepository extends SeasonRepository {
   /// How many create commands reached the "network".
   int createCalls = 0;
 
+  /// Scripted outcome for [archive] (issue #533). `null` = success ack with
+  /// a bumped version.
+  Result<int>? archiveResult;
+
+  /// How many archive commands reached the "network".
+  int archiveCalls = 0;
+
+  /// The last archive payload (id + version echo assertable).
+  ({String id, int version})? lastArchive;
+
   /// The last request that reached the "network" (payload assertions).
   CreateSeasonRequest? lastCreateRequest;
 
@@ -123,6 +135,17 @@ class FakeSeasonRepository extends SeasonRepository {
     final scripted = clearCacheResult;
     if (scripted != null) return Future.value(scripted);
     return super.clearCache();
+  }
+
+  @override
+  Future<Result<int>> archive(String id, VersionRequest version) {
+    archiveCalls++;
+    lastArchive = (id: id, version: version.version);
+    final scripted = archiveResult;
+    if (scripted != null) return Future.value(scripted);
+    return Future.value(
+      Right<ProblemError, int>(version.version + 1),
+    );
   }
 
   @override

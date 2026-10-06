@@ -50,6 +50,16 @@ class SeasonRepository extends BaseRepository {
         api.getHandlersApi().renameSeason(id: id, renameSeasonRequest: request),
   );
 
+  /// Archives a season (terminal lifecycle state, issue #533).
+  ///
+  /// Backend rejections surface as [Left]: 403 `domain.forbidden` (no active
+  /// costume-dept role in the season), 409 `season.archived` (repeat archive
+  /// — idempotent-reject) or 409 `concurrency.version-mismatch` (stale
+  /// version echo).
+  Future<Result<int>> archive(String id, VersionRequest version) => run(
+    () => api.getHandlersApi().archiveSeason(id: id, versionRequest: version),
+  );
+
   // --- Cache-backed read path (Design Decision D1) -------------------------
 
   /// Single-entity fetch + cache: GET season, upsert on success, no mutation
@@ -94,10 +104,15 @@ class SeasonRepository extends BaseRepository {
   /// Paginates through every page (issue #385): the backend defaults to 50
   /// rows per page, and an unpaginated fetch would feed a partial page into
   /// the snapshot-replace, evicting valid cached rows past the first page.
+  ///
+  /// `include_archived: true` (issue #533): the badge and the locked
+  /// read-only affordance of an archived season are reachable — the rows
+  /// arrive read-only and the card disables its write affordance.
   Future<Result<List<SeasonView>>> fetchSeasonsList() =>
       fetchAllPages<SeasonView>(
-        ({required int limit, required int offset}) =>
-            api.getHandlersApi().listSeasons(limit: limit, offset: offset),
+        ({required int limit, required int offset}) => api
+            .getHandlersApi()
+            .listSeasons(limit: limit, offset: offset, includeArchived: true),
         dtoInvalidCode: 'season.dto_invalid',
       );
 

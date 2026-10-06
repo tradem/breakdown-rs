@@ -37,7 +37,7 @@ pub const PROBLEM_DOCS_BASE: &str = "https://docs.breakdown.example";
 /// Kept in sync with the `problem_codes!` invocation below by a compile-time
 /// assertion — adding or removing a code without deliberately updating this
 /// count fails the build (issue #232).
-const PROBLEM_CODE_COUNT: usize = 90;
+const PROBLEM_CODE_COUNT: usize = 91;
 
 /// One registered problem code (ADR-031 D2/D4).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -335,6 +335,17 @@ problem_codes! {
         status: 409,
         title: "Season number already exists",
         extensions: &[],
+    },
+
+    /// Conflict: the season is already archived (terminal lifecycle state,
+    /// issue #533). Covers both a repeated `ArchiveSeason` (idempotent-reject,
+    /// same pattern as `costume-category.archived`) and any further mutation
+    /// (`RenameSeason`) of an archived season.
+    SEASON_ARCHIVED {
+        code: "season.archived",
+        status: 409,
+        title: "Season is archived",
+        extensions: &["id"],
     },
 
 

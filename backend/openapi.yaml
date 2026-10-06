@@ -2319,6 +2319,11 @@ components:
 
         `updated_at` is sourced from the timestamp of the last applied `SeasonEvent`.
       properties:
+        archived:
+          description: |-
+            Terminal lifecycle flag (issue #533): `true` once `SeasonArchived` was
+            applied. Archived seasons keep number + inventory readable.
+          type: boolean
         id:
           format: uuid
           type: string
@@ -2341,6 +2346,7 @@ components:
       - id
       - series_id
       - number
+      - archived
       - version
       - updated_at
       type: object
@@ -5787,6 +5793,17 @@ paths:
           oneOf:
           - $ref: '#/components/schemas/SeriesId'
           - type: 'null'
+      - description: |-
+          Issue #533: archived seasons are hidden by default; the explicit
+          opt-in returns them (read-only, still locked for writes).
+        in: query
+        name: include_archived
+        required: false
+        schema:
+          default: false
+          type:
+          - boolean
+          - 'null'
       responses:
         '200':
           content:
@@ -5860,6 +5877,49 @@ paths:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
+      tags:
+      - handlers
+  /v1/seasons/{id}/archive:
+    post:
+      operationId: archive_season
+      parameters:
+      - description: Season id
+        in: path
+        name: id
+        required: true
+        schema:
+          format: uuid
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VersionRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AggregateVersion'
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Caller has no active costume-dept role in the season
+        '404':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Season not found
+        '409':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Season already archived (idempotent-reject) or concurrency conflict
       tags:
       - handlers
   /v1/seasons/{id}/membership:
@@ -7441,6 +7501,12 @@ x-code-registry:
   status: 409
   title: Season number already exists
   type: https://docs.breakdown.example/problems/season.number-already-exists
+- code: season.archived
+  extensions:
+  - id
+  status: 409
+  title: Season is archived
+  type: https://docs.breakdown.example/problems/season.archived
 - code: block.validation
   extensions: []
   status: 422

@@ -197,6 +197,7 @@ fn sample_views() -> Vec<(&'static str, Value)> {
                 series_id: SeriesId(fixed_uuid(10)),
                 number: 1,
                 title: Some("Staffel 1".to_string()),
+                archived: false,
                 version: AggregateVersion(3),
                 updated_at: t,
             },

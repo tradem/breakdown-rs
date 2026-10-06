@@ -222,9 +222,9 @@ impl<'a> EntityEventHandler<SeasonAggregate, Transaction<'a, Postgres>> for Seas
         event: Event<SeasonEvent, EventMetadata>,
     ) -> Result<(), Self::Error> {
         let entity_id = match &event.data {
-            SeasonEvent::SeasonCreated { id, .. } | SeasonEvent::SeasonRenamed { id, .. } => {
-                id.to_string()
-            }
+            SeasonEvent::SeasonCreated { id, .. }
+            | SeasonEvent::SeasonRenamed { id, .. }
+            | SeasonEvent::SeasonArchived { id, .. } => id.to_string(),
         };
         let event_type = event.data.event_type().to_string();
         let (actor, provenance, series_id) = extract_metadata(&event);

@@ -23,6 +23,13 @@ pub enum SeasonEvent {
         title: Option<String>,
         version: AggregateVersion,
     },
+    /// The season is finished being produced (terminal lifecycle state).
+    ///
+    /// The season's number stays reserved (the (series_id, number) unique
+    /// index is untouched by design, issue #533) and its inventory (blocks,
+    /// episodes, shooting days) stays readable — only the season itself is
+    /// locked against further mutation.
+    SeasonArchived { id: Uuid, version: AggregateVersion },
 }
 
 impl kameo_es::EventType for SeasonEvent {
@@ -30,6 +37,7 @@ impl kameo_es::EventType for SeasonEvent {
         match self {
             Self::SeasonCreated { .. } => "SeasonCreated",
             Self::SeasonRenamed { .. } => "SeasonRenamed",
+            Self::SeasonArchived { .. } => "SeasonArchived",
         }
     }
 }

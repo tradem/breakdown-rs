@@ -10,6 +10,7 @@ import 'package:fpdart/fpdart.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../../auth/auth_providers.dart';
+import '../../auth/membership/membership_providers.dart';
 import '../../core/problem_error.dart';
 import '../../core/result.dart';
 import '../../data/cache/seasons_cache_providers.dart';
@@ -184,6 +185,75 @@ class SeasonsController extends _$SeasonsController {
         // projector lag (Riverpod async state surfaces progress instead).
         unawaited(reconcile());
         return Right<ProblemError, IdVersionResponse>(res);
+      },
+    );
+  }
+
+  /// Archives a season (issue #533 — terminal lifecycle state).
+  ///
+  /// AUTHZ-GATE: the backend `archive_season` handler is middleware-classified
+  /// `Authenticated` and enforces the season-scoped costume-dept membership
+  /// INSIDE the handler (403 on deny). The client mirrors that gate here —
+  /// `membership.hasActiveCostumeRoleInSeason` (the backend-computed
+  /// predicate the client must NOT re-implement) is checked before any
+  /// network call; a null membership (still loading) disables, never denies.
+  ///
+  /// Rejections surface keyed on their stable code: 403 `domain.forbidden`,
+  /// 409 `season.archived` (repeat archive — idempotent-reject) or 409
+  /// `concurrency.version-mismatch` (stale version echo). Success triggers
+  /// the bounded refetch so the card transitions into the locked state.
+  Future<Result<int>> archive({required SeasonView season}) async {
+    final AuthSession? session;
+    session = await _resolveSession();
+    if (session == null) {
+      const error = ProblemError(
+        code: 'authz.denied',
+        title: 'An authenticated session is required to archive seasons',
+        status: 403,
+      );
+      ref.read(seasonCommandErrorProvider.notifier).set(error);
+      return const Left(error);
+    }
+    // AUTHZ-GATE (mirror of the handler-internal check over the same
+    // backend-computed membership predicate). Non-resolved membership is
+    // 'membership.pending' (disabled-with-spinner semantics of
+    // checkCapability), a resolved denial is `domain.forbidden` — the same
+    // code the server renders, so the client localizes one narrative.
+    final membership = ref.read(currentMembershipProvider(season.id));
+    final role = membership.asData?.value.hasActiveCostumeRoleInSeason;
+    if (role == null) {
+      const error = ProblemError(
+        code: 'membership.pending',
+        title: 'Season membership still resolving',
+        status: 403,
+      );
+      ref.read(seasonCommandErrorProvider.notifier).set(error);
+      return Left(error);
+    }
+    if (!role) {
+      const error = ProblemError(
+        code: 'domain.forbidden',
+        title: 'No active costume-dept role in this season',
+        status: 403,
+      );
+      ref.read(seasonCommandErrorProvider.notifier).set(error);
+      return Left(error);
+    }
+    final repo = ref.read(seasonRepositoryProvider);
+    final res = await repo.archive(
+      season.id,
+      VersionRequest((b) => b..version = season.version),
+    );
+    return res.match(
+      (err) {
+        ref.read(seasonCommandErrorProvider.notifier).set(err);
+        return Left<ProblemError, int>(err);
+      },
+      (version) {
+        ref.read(seasonCommandErrorProvider.notifier).clear();
+        _reconcile.ackReceived();
+        unawaited(reconcile());
+        return Right<ProblemError, int>(version);
       },
     );
   }

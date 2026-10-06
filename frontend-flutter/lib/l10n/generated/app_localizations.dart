@@ -4323,6 +4323,36 @@ abstract class AppLocalizations {
   /// In de, this message translates to:
   /// **'Karl Klammer ausblenden'**
   String get aiImportClippyDismissTooltip;
+
+  /// No description provided for @seasonsArchivedBadge.
+  ///
+  /// In de, this message translates to:
+  /// **'Archiviert'**
+  String get seasonsArchivedBadge;
+
+  /// No description provided for @seasonsArchiveTooltip.
+  ///
+  /// In de, this message translates to:
+  /// **'Staffel-Aktionen'**
+  String get seasonsArchiveTooltip;
+
+  /// No description provided for @seasonsArchiveCta.
+  ///
+  /// In de, this message translates to:
+  /// **'Staffel archivieren'**
+  String get seasonsArchiveCta;
+
+  /// No description provided for @seasonsArchivedError.
+  ///
+  /// In de, this message translates to:
+  /// **'Die Staffel ist archiviert und kann nicht mehr geändert werden.'**
+  String get seasonsArchivedError;
+
+  /// No description provided for @seasonsArchiveForbidden.
+  ///
+  /// In de, this message translates to:
+  /// **'Dafür fehlt Ihnen die aktive Kostüm-Rolle in dieser Staffel.'**
+  String get seasonsArchiveForbidden;
 }
 
 class _AppLocalizationsDelegate

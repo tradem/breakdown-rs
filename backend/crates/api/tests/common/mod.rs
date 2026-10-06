@@ -64,7 +64,7 @@ use breakdown_core::scene_shoot::ports::{
 use breakdown_core::scene_shoot::views::{
     AggregateSollIstReport, DispoRow, SceneShootView, ShootDayRow, SollIstReport,
 };
-use breakdown_core::season::commands::{CreateSeason, RenameSeason};
+use breakdown_core::season::commands::{ArchiveSeason, CreateSeason, RenameSeason};
 use breakdown_core::season::ports::{SeasonCommands, SeasonRepository};
 use breakdown_core::season::views::SeasonView;
 use breakdown_core::settings::commands::{
@@ -407,6 +407,13 @@ impl SeasonCommands for FakeSeasonCommands {
         &self,
         _actor: UserId,
         _cmd: RenameSeason,
+    ) -> Result<AggregateVersion, DomainError> {
+        Ok(AggregateVersion::INITIAL.next())
+    }
+    async fn archive(
+        &self,
+        _actor: UserId,
+        _cmd: ArchiveSeason,
     ) -> Result<AggregateVersion, DomainError> {
         Ok(AggregateVersion::INITIAL.next())
     }
@@ -1048,6 +1055,7 @@ impl SeasonRepository for FakeSeasonRepo {
                 series_id: SeriesId::from_uuid(Uuid::now_v7()),
                 number: 1,
                 title: None,
+                archived: false,
                 version: AggregateVersion::INITIAL,
                 updated_at: chrono::Utc::now(),
             })
@@ -1059,19 +1067,33 @@ impl SeasonRepository for FakeSeasonRepo {
             })
         }
     }
-    async fn list_all(&self, limit: i64, offset: i64) -> Result<Vec<SeasonView>, DomainError> {
-        let all = self.seasons.lock().await;
-        Ok(sort_paginate_seasons(all.values().cloned(), limit, offset))
-    }
-    async fn list_by_series(
+    async fn list_all(
         &self,
-        series_id: SeriesId,
+        include_archived: bool,
         limit: i64,
         offset: i64,
     ) -> Result<Vec<SeasonView>, DomainError> {
         let all = self.seasons.lock().await;
         Ok(sort_paginate_seasons(
-            all.values().filter(|s| s.series_id == series_id).cloned(),
+            all.values()
+                .filter(|s| include_archived || !s.archived)
+                .cloned(),
+            limit,
+            offset,
+        ))
+    }
+    async fn list_by_series(
+        &self,
+        series_id: SeriesId,
+        include_archived: bool,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<SeasonView>, DomainError> {
+        let all = self.seasons.lock().await;
+        Ok(sort_paginate_seasons(
+            all.values()
+                .filter(|s| s.series_id == series_id && (include_archived || !s.archived))
+                .cloned(),
             limit,
             offset,
         ))
