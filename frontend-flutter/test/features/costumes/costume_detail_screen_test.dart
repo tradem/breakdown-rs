@@ -1244,6 +1244,12 @@ void main() {
           find.byKey(const Key('costume-repertoire-row-c-1-season-2')),
           findsOneWidget,
         );
+        // Handled-result confirmation (breakdown_lints discard_result): the
+        // screen must consume the command Result, not just await it.
+        expect(
+          find.byKey(const Key('costume-repertoire-saved-c-1')),
+          findsOneWidget,
+        );
       },
     );
 
@@ -1266,6 +1272,10 @@ void main() {
       expect(repo.removeFromSeasonCalls, 1);
       expect(repo.lastRemoveFromSeasonId, 'season-2');
       expect(repo.lastRemoveFromSeasonVersion, 1);
+      expect(
+        find.byKey(const Key('costume-repertoire-removed-c-1')),
+        findsOneWidget,
+      );
     });
 
     testWidgets('denial: capability missing → zero network calls (gate '

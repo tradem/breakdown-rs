@@ -304,7 +304,20 @@ class _RepertoireSection extends ConsumerWidget {
     );
     if (picked == null || !context.mounted) return;
     final controller = ref.read(costumesControllerProvider(season.id).notifier);
-    await controller.addToSeason(costume: costume, seasonId: picked);
+    // Handled: failures surface via the command-error provider.
+    final addResult = await controller.addToSeason(
+      costume: costume,
+      seasonId: picked,
+    );
+    final saved = addResult.match((_) => false, (_) => true);
+    if (saved && context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          key: Key('costume-repertoire-saved-${costume.id}'),
+          content: Text(l10nOf(context).costumeDetailRepertoireSaved),
+        ),
+      );
+    }
   }
 
   Future<void> _confirmRemove(
@@ -334,7 +347,20 @@ class _RepertoireSection extends ConsumerWidget {
     );
     if (confirmed != true || !context.mounted) return;
     final controller = ref.read(costumesControllerProvider(season.id).notifier);
-    await controller.removeFromSeason(costume: costume, seasonId: seasonId);
+    // Handled: failures surface via the command-error provider.
+    final removeResult = await controller.removeFromSeason(
+      costume: costume,
+      seasonId: seasonId,
+    );
+    final saved = removeResult.match((_) => false, (_) => true);
+    if (saved && context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          key: Key('costume-repertoire-removed-${costume.id}'),
+          content: Text(l10nOf(context).costumeDetailRepertoireRemoved),
+        ),
+      );
+    }
   }
 }
 

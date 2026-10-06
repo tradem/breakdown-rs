@@ -338,6 +338,8 @@
   "costumeDetailRepertoireRemoveTitle": "Aus Staffel entfernen?",
   "costumeDetailRepertoireRemoveMessage": "Das Kostüm verschwindet aus dem Garderoben-Bestand dieser Staffel. Details und Fotos bleiben am Kostüm.",
   "costumeDetailRepertoirePick": "Staffel wählen",
+  "costumeDetailRepertoireSaved": "Staffel zum Repertoire hinzugefügt.",
+  "costumeDetailRepertoireRemoved": "Das Kostüm wurde aus dem Staffel-Repertoire entfernt.",
   "costumeErrorSeasonArchived": "Diese Staffel ist archiviert – ihr Repertoire kann nicht mehr geändert werden.",
   "costumeErrorSeasonNotFound": "Diese Staffel existiert nicht mehr – die Liste wurde aktualisiert.",
   "costumeDetailNotNow": "Später",

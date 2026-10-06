@@ -1228,6 +1228,13 @@ class AppLocalizationsEn extends AppLocalizations {
   String get costumeDetailRepertoirePick => 'Pick a season';
 
   @override
+  String get costumeDetailRepertoireSaved => 'Season added to the repertoire.';
+
+  @override
+  String get costumeDetailRepertoireRemoved =>
+      'The costume left the season\'s repertoire.';
+
+  @override
   String get costumeErrorSeasonArchived =>
       'That season is archived — its repertoire can no longer be changed.';
 

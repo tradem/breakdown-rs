@@ -1246,6 +1246,14 @@ class AppLocalizationsDe extends AppLocalizations {
   String get costumeDetailRepertoirePick => 'Staffel wählen';
 
   @override
+  String get costumeDetailRepertoireSaved =>
+      'Staffel zum Repertoire hinzugefügt.';
+
+  @override
+  String get costumeDetailRepertoireRemoved =>
+      'Das Kostüm wurde aus dem Staffel-Repertoire entfernt.';
+
+  @override
   String get costumeErrorSeasonArchived =>
       'Diese Staffel ist archiviert – ihr Repertoire kann nicht mehr geändert werden.';
 

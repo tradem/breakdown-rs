@@ -2098,6 +2098,18 @@ abstract class AppLocalizations {
   /// **'Staffel wählen'**
   String get costumeDetailRepertoirePick;
 
+  /// No description provided for @costumeDetailRepertoireSaved.
+  ///
+  /// In de, this message translates to:
+  /// **'Staffel zum Repertoire hinzugefügt.'**
+  String get costumeDetailRepertoireSaved;
+
+  /// No description provided for @costumeDetailRepertoireRemoved.
+  ///
+  /// In de, this message translates to:
+  /// **'Das Kostüm wurde aus dem Staffel-Repertoire entfernt.'**
+  String get costumeDetailRepertoireRemoved;
+
   /// No description provided for @costumeErrorSeasonArchived.
   ///
   /// In de, this message translates to:

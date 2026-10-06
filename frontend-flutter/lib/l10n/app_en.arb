@@ -332,6 +332,8 @@
   "costumeDetailRepertoireRemoveTitle": "Remove from season?",
   "costumeDetailRepertoireRemoveMessage": "The costume disappears from this season's wardrobe. Its details and photos stay on the costume.",
   "costumeDetailRepertoirePick": "Pick a season",
+  "costumeDetailRepertoireSaved": "Season added to the repertoire.",
+  "costumeDetailRepertoireRemoved": "The costume left the season's repertoire.",
   "costumeErrorSeasonArchived": "That season is archived — its repertoire can no longer be changed.",
   "costumeErrorSeasonNotFound": "That season no longer exists — the list was refreshed.",
   "costumeDetailNotNow": "Not now",
