@@ -10,7 +10,7 @@
 use kameo_es::{Apply, Command, Context, Entity, Metadata};
 use uuid::Uuid;
 
-use crate::shared::{AggregateVersion, CostumeCategoryId, EventMetadata};
+use crate::shared::{AggregateVersion, CostumeCategoryId, EventMetadata, SeasonId};
 
 use super::commands::*;
 use super::error::CostumeError;
@@ -26,6 +26,13 @@ pub struct CostumeAggregate {
     /// (`CostumeCreated`/`DetailAdded` with categorized details) derive this
     /// state via the first-wins replay rule.
     pub category_id: Option<CostumeCategoryId>,
+    /// The costume's season **repertoire** (issue #534): the seasons whose
+    /// costume streams the costume stands in. m:n over the lifetime — the
+    /// wardrobe carries a costume from one season into the next. Seeded from
+    /// `CostumeCreated.season_id` (empty for legacy events without the
+    /// field) and maintained by `CostumeAddedToSeason`/
+    /// `CostumeRemovedFromSeason`. Ordered by binding time; no duplicates.
+    pub seasons: Vec<SeasonId>,
     pub notes: String,
     pub details: Vec<CostumeDetail>,
     pub photos: Vec<Uuid>,
@@ -63,7 +70,7 @@ impl Apply for CostumeAggregate {
             CostumeEvent::CostumeCreated {
                 id,
                 character_id,
-                season_id: _,
+                season_id,
                 notes,
                 details,
                 photos,
@@ -72,6 +79,10 @@ impl Apply for CostumeAggregate {
                 self.id = id;
                 self.character_id = character_id;
                 self.category_id = derive_category_id(&details);
+                // Repertoire (issue #534): the created costume's season is
+                // its first repertoire binding. Legacy events replay with
+                // `season_id = None` and start with an empty list.
+                self.seasons = season_id.map(SeasonId).into_iter().collect();
                 self.notes = notes;
                 self.details = details;
                 self.photos = photos;
@@ -91,6 +102,25 @@ impl Apply for CostumeAggregate {
             }
             CostumeEvent::CostumeUnassigned { version, .. } => {
                 self.character_id = None;
+                self.version = version;
+            }
+            CostumeEvent::CostumeAddedToSeason {
+                season_id, version, ..
+            } => {
+                // Keep the list duplicate-free; events are only emitted for
+                // seasons not already present, so the guard is a replay
+                // formality.
+                let season_id = SeasonId(season_id);
+                if !self.seasons.contains(&season_id) {
+                    self.seasons.push(season_id);
+                }
+                self.version = version;
+            }
+            CostumeEvent::CostumeRemovedFromSeason {
+                season_id, version, ..
+            } => {
+                let season_id = SeasonId(season_id);
+                self.seasons.retain(|s| *s != season_id);
                 self.version = version;
             }
             CostumeEvent::DetailAdded {
@@ -245,6 +275,65 @@ impl Command<UnassignCostume> for CostumeAggregate {
         }
         Ok(vec![CostumeEvent::CostumeUnassigned {
             id: self.id,
+            version: self.version.next(),
+        }])
+    }
+}
+
+impl Command<AddCostumeToSeason> for CostumeAggregate {
+    type Error = CostumeError;
+    fn handle(
+        &self,
+        cmd: AddCostumeToSeason,
+        _ctx: Context<'_, Self>,
+    ) -> Result<Vec<Self::Event>, Self::Error> {
+        if cmd.version != self.version {
+            return Err(CostumeError::VersionMismatch {
+                expected: cmd.version,
+                actual: self.version,
+            });
+        }
+        // State-based no-op (issue #515 precedent, same pattern as
+        // `SetCostumeCategory`): adding a season the costume already stands
+        // in emits no event — the re-dispatched command is an idempotent
+        // success and the caller's version fence still matches. The target
+        // season's existence and not-archived state are cross-aggregate
+        // invariants pre-checked at the API edge (404 `season.not-found` /
+        // 409 `season.archived`); the aggregate cannot validate them.
+        if self.seasons.contains(&cmd.season_id) {
+            return Ok(vec![]);
+        }
+        Ok(vec![CostumeEvent::CostumeAddedToSeason {
+            id: self.id,
+            season_id: cmd.season_id.0,
+            version: self.version.next(),
+        }])
+    }
+}
+
+impl Command<RemoveCostumeFromSeason> for CostumeAggregate {
+    type Error = CostumeError;
+    fn handle(
+        &self,
+        cmd: RemoveCostumeFromSeason,
+        _ctx: Context<'_, Self>,
+    ) -> Result<Vec<Self::Event>, Self::Error> {
+        if cmd.version != self.version {
+            return Err(CostumeError::VersionMismatch {
+                expected: cmd.version,
+                actual: self.version,
+            });
+        }
+        // Idempotent mirror of `AddCostumeToSeason`: removing a season that
+        // is not in the repertoire emits no event. An empty repertoire is a
+        // legitimate state — the authz scope then falls back to the
+        // character's season (`costume_season_scopes`).
+        if !self.seasons.contains(&cmd.season_id) {
+            return Ok(vec![]);
+        }
+        Ok(vec![CostumeEvent::CostumeRemovedFromSeason {
+            id: self.id,
+            season_id: cmd.season_id.0,
             version: self.version.next(),
         }])
     }

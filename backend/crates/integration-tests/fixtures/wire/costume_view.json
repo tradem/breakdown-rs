@@ -1,9 +1,9 @@
 {
+  "category_id": null,
+  "category_name": null,
   "character_id": "019e7044-8800-7005-8000-000000000005",
   "details": [
     {
-      "category_id": null,
-      "category_name": null,
       "id": "019e7044-8800-7009-8000-000000000009",
       "subject": "Jacke",
       "text": "Rote Lederjacke"
@@ -12,6 +12,7 @@
   "id": "019e7044-8800-7006-8000-000000000006",
   "notes": "Rote Lederjacke",
   "photos": [],
+  "season_ids": [],
   "updated_at": "2026-08-06T09:00:00Z",
   "version": 2
 }

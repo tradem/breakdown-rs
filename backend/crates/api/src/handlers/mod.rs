@@ -46,8 +46,9 @@ use breakdown_core::character::events::{CharacterMeasurements, ContactInfo};
 use breakdown_core::character::ports::{CharacterCommands, CharacterRepository};
 use breakdown_core::character::views::CharacterView;
 use breakdown_core::costume::commands::{
-    AddDetail, AssignCostumeToCharacter, CreateCostume, LinkPhoto, RemoveDetail,
-    SetCostumeCategory, UnassignCostume, UnlinkPhoto, UpdateCostumeDetail, UpdateCostumeNotes,
+    AddCostumeToSeason, AddDetail, AssignCostumeToCharacter, CreateCostume, LinkPhoto,
+    RemoveCostumeFromSeason, RemoveDetail, SetCostumeCategory, UnassignCostume, UnlinkPhoto,
+    UpdateCostumeDetail, UpdateCostumeNotes,
 };
 use breakdown_core::costume::events::CostumeDetail;
 use breakdown_core::costume::ports::{CostumeCommands, CostumeRepository};
@@ -63,7 +64,7 @@ use breakdown_core::episode::views::EpisodeView;
 use breakdown_core::error::DomainError;
 use breakdown_core::error_registry::{
     BLOCK_NUMBER_ALREADY_EXISTS, COSTUME_CATEGORY_ARCHIVED, EPISODE_NUMBER_ALREADY_EXISTS,
-    MEMBERSHIP_NOT_FOUND, SCENE_SHOOT_PAIR_ALREADY_EXISTS, SEASON_NOT_FOUND,
+    MEMBERSHIP_NOT_FOUND, SCENE_SHOOT_PAIR_ALREADY_EXISTS, SEASON_ARCHIVED, SEASON_NOT_FOUND,
     SEASON_NUMBER_ALREADY_EXISTS,
 };
 use breakdown_core::membership::policy::{Action, PolicyDecision, SeasonAuthContext};
@@ -260,6 +261,14 @@ pub struct UpdateCostumeDetailRequest {
 #[derive(Debug, Clone, Deserialize, ToSchema)]
 pub struct SetCostumeCategoryRequest {
     pub category_id: Option<Uuid>,
+    pub version: AggregateVersion,
+}
+
+/// Add a costume to a season's repertoire (issue #534). Idempotent: a season
+/// already in the repertoire is a no-op success with the unchanged version.
+#[derive(Debug, Clone, Deserialize, ToSchema)]
+pub struct AddCostumeToSeasonRequest {
+    pub season_id: Uuid,
     pub version: AggregateVersion,
 }
 
@@ -2682,6 +2691,181 @@ pub async fn set_costume_category<P: Ports>(
                 id,
                 category_id: None,
                 series_id,
+                version: req.version,
+            },
+        )
+        .await?;
+    Ok((StatusCode::OK, Json(version)))
+}
+
+/// Add a costume to a season's repertoire (issue #534).
+///
+/// API-edge pre-checks for the cross-aggregate target-season state (the
+/// aggregate cannot validate it): the season must exist (404
+/// `season.not-found`) and must not be archived (409 `season.archived`,
+/// #533 terminal-state semantics — an archived season rejects all further
+/// mutations). The command itself is a state-based idempotent no-op when
+/// the season is already in the repertoire (no event, unchanged version).
+#[utoipa::path(
+    post,
+    path = "/costumes/{id}/seasons",
+    params(("id" = Uuid, Path, description = "Costume id")),
+    request_body = AddCostumeToSeasonRequest,
+    responses(
+        (status = 200, body = AggregateVersion),
+        (status = 403, body = ProblemDetails, description = "Caller holds no active costume role in the target season or in any current season scope of the costume"),
+        (status = 404, body = ProblemDetails, description = "Costume or season not found"),
+        (status = 409, body = ProblemDetails, description = "Target season is archived or version conflict"),
+        (status = 422, body = ProblemDetails, description = "Validation error"),
+    ),
+)]
+pub async fn add_costume_to_season<P: Ports>(
+    State(state): State<AppState<P>>,
+    current_user: CurrentUser,
+    Path(id): Path<Uuid>,
+    Json(req): Json<AddCostumeToSeasonRequest>,
+) -> ApiResult<AggregateVersion> {
+    // The costume must exist and be UNDER THE CALLER'S CONTROL before it can
+    // be extended (CodeRabbit review): without the costume-scope gate a
+    // caller holding a costume role in season B could pull a costume whose
+    // scopes live entirely in season A into B's repertoire — and B then
+    // becomes one of the costume's authorization scopes, opening the
+    // any-scope gates (photos, details, category) with the caller's B role.
+    // A costume with no scope at all answers 422, exactly like every other
+    // `authorize_costume_scoped` consumer.
+    let costume = state.ports.costume_repo().find_by_id(id).await?;
+
+    // AUTHZ-GATE (costume scope, ANY semantics): the caller must hold an
+    // active costume role in at least ONE current scope of the costume
+    // (character season ∪ repertoire). Lookup failures propagate as a
+    // server error — never as an empty scope set (issue #537).
+    authorize_costume_scoped(
+        &state,
+        &costume,
+        current_user.sub.clone(),
+        "costume repertoire add requires a costume role in a season scope of the costume",
+    )
+    .await?;
+
+    let season = state.ports.season_repo().find_by_id(req.season_id).await?;
+
+    // AUTHZ-GATE (target season): the mutation acts on the **target**
+    // season's repertoire, so the caller must hold an active costume-dept
+    // role in that season — the existing predicate, no new
+    // ADR-035-B2-disallowed `*_in_season` variant. Handler-internal because
+    // repertoire routes sit under the `/costumes` prefix, whose middleware
+    // classification cannot scope a specific target season.
+    match state
+        .ports
+        .membership_repo()
+        .has_active_costume_role_in_season(SeasonId::from_uuid(season.id), current_user.sub.clone())
+        .await
+    {
+        Ok(true) => {}
+        Ok(false) => {
+            return Err(ApiError::Forbidden(
+                "no active costume-dept role in the target season",
+            ));
+        }
+        Err(e) => return Err(e.into()),
+    }
+
+    // Pre-check: the target season is terminal (#533) — further mutations
+    // rejected, including repertoire additions.
+    if season.archived {
+        return Err(ApiError::Domain(DomainError::Conflict {
+            code: &SEASON_ARCHIVED,
+            reason: format!("season {} is archived", season.id),
+        }));
+    }
+
+    let version = state
+        .ports
+        .costume_commands()
+        .add_to_season(
+            current_user.sub.clone(),
+            AddCostumeToSeason {
+                id,
+                season_id: SeasonId::from_uuid(season.id),
+                // Audit metadata from the target season's projection (the
+                // only legitimate read-model consumer — CQRS boundary).
+                series_id: Some(season.series_id),
+                version: req.version,
+            },
+        )
+        .await?;
+    Ok((StatusCode::OK, Json(version)))
+}
+
+/// Remove a costume from a season's repertoire (issue #534).
+///
+/// Idempotent mirror of [`add_costume_to_season`]: a season that is not in
+/// the repertoire is a no-op success with the unchanged version. Same
+/// pre-checks: season exists (404), not archived (409 `season.archived`).
+/// An empty repertoire is legitimate — the authz scope then falls back to
+/// the character's season.
+#[utoipa::path(
+    delete,
+    path = "/costumes/{id}/seasons/{season_id}",
+    params(
+        ("id" = Uuid, Path, description = "Costume id"),
+        ("season_id" = Uuid, Path, description = "Season id")
+    ),
+    request_body = VersionRequest,
+    responses(
+        (status = 200, body = AggregateVersion),
+        (status = 403, body = ProblemDetails, description = "Caller holds no active costume role in the target season"),
+        (status = 404, body = ProblemDetails, description = "Costume or season not found"),
+        (status = 409, body = ProblemDetails, description = "Target season is archived or version conflict"),
+        (status = 422, body = ProblemDetails, description = "Validation error"),
+    ),
+)]
+pub async fn remove_costume_from_season<P: Ports>(
+    State(state): State<AppState<P>>,
+    current_user: CurrentUser,
+    Path((id, season_id)): Path<(Uuid, Uuid)>,
+    Json(req): Json<VersionRequest>,
+) -> ApiResult<AggregateVersion> {
+    // No costume existence pre-fetch: the aggregate load below answers an
+    // unknown costume with 404 `costume.not-found` — the authz gate keys on
+    // the target season, not on the costume.
+    let season = state.ports.season_repo().find_by_id(season_id).await?;
+
+    // AUTHZ-GATE: identical seam to `add_costume_to_season` — the mutation
+    // acts on the target season's repertoire, so the costume role is
+    // required in that season. Handler-internal (repertoire routes sit
+    // under `/costumes`).
+    match state
+        .ports
+        .membership_repo()
+        .has_active_costume_role_in_season(SeasonId::from_uuid(season.id), current_user.sub.clone())
+        .await
+    {
+        Ok(true) => {}
+        Ok(false) => {
+            return Err(ApiError::Forbidden(
+                "no active costume-dept role in the target season",
+            ));
+        }
+        Err(e) => return Err(e.into()),
+    }
+
+    if season.archived {
+        return Err(ApiError::Domain(DomainError::Conflict {
+            code: &SEASON_ARCHIVED,
+            reason: format!("season {} is archived", season.id),
+        }));
+    }
+
+    let version = state
+        .ports
+        .costume_commands()
+        .remove_from_season(
+            current_user.sub.clone(),
+            RemoveCostumeFromSeason {
+                id,
+                season_id: SeasonId::from_uuid(season.id),
+                series_id: Some(season.series_id),
                 version: req.version,
             },
         )
@@ -6899,6 +7083,14 @@ pub fn routes() -> Router<AppState<ProductionPorts>> {
         .route(
             "/costumes/{id}/category",
             routing::post(set_costume_category::<ProductionPorts>),
+        )
+        .route(
+            "/costumes/{id}/seasons",
+            routing::post(add_costume_to_season::<ProductionPorts>),
+        )
+        .route(
+            "/costumes/{id}/seasons/{season_id}",
+            routing::delete(remove_costume_from_season::<ProductionPorts>),
         )
         .route(
             "/costumes/{id}/unassign",

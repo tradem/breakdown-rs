@@ -40,8 +40,9 @@ use breakdown_core::character::commands::{CreateCharacter, UpdateContactInfo, Up
 use breakdown_core::character::ports::CharacterCommands;
 use breakdown_core::costume::aggregate::CostumeAggregate;
 use breakdown_core::costume::commands::{
-    AddDetail, AssignCostumeToCharacter, CreateCostume, LinkPhoto, RemoveDetail,
-    SetCostumeCategory, UnassignCostume, UnlinkPhoto, UpdateCostumeDetail, UpdateCostumeNotes,
+    AddCostumeToSeason, AddDetail, AssignCostumeToCharacter, CreateCostume, LinkPhoto,
+    RemoveCostumeFromSeason, RemoveDetail, SetCostumeCategory, UnassignCostume, UnlinkPhoto,
+    UpdateCostumeDetail, UpdateCostumeNotes,
 };
 use breakdown_core::costume::ports::CostumeCommands;
 use breakdown_core::costume_category::aggregate::CostumeCategoryAggregate;
@@ -675,6 +676,62 @@ impl CostumeCommands for CostumeCommandsImpl {
             })
             .await;
         map_version_only(result)
+    }
+
+    async fn add_to_season(
+        &self,
+        actor: UserId,
+        cmd: AddCostumeToSeason,
+    ) -> Result<AggregateVersion, DomainError> {
+        let id = cmd.id;
+        let version = cmd.version;
+        check_nonzero_version(version)?;
+        // `series_id` is audit metadata resolved at the API edge from the
+        // target season's projection (CQRS boundary: no read-model lookup
+        // here) and is never allowed to block the command.
+        let series_id = cmd.series_id;
+        let result = CostumeAggregate::execute(&self.cmd_service, id, cmd)
+            .expected_version(ExpectedVersion::Exact(domain_to_stream_checked(version)?))
+            .metadata(EventMetadata {
+                actor: Some(actor),
+                provenance: Provenance::Human,
+                series_id,
+            })
+            .await;
+        // Issue #534 state-based no-op: re-adding a season already in the
+        // repertoire emits NO event — `ExecuteResult::Executed(vec![])`,
+        // which `map_version_only` would turn into a 409. The version fence
+        // matched, so the aggregate is exactly at the caller's version: this
+        // is a success and the version is unchanged (issue #515 lesson).
+        match result {
+            Ok(ExecuteResult::Executed(events)) if events.is_empty() => Ok(version),
+            other => map_version_only(other),
+        }
+    }
+
+    async fn remove_from_season(
+        &self,
+        actor: UserId,
+        cmd: RemoveCostumeFromSeason,
+    ) -> Result<AggregateVersion, DomainError> {
+        let id = cmd.id;
+        let version = cmd.version;
+        check_nonzero_version(version)?;
+        let series_id = cmd.series_id;
+        let result = CostumeAggregate::execute(&self.cmd_service, id, cmd)
+            .expected_version(ExpectedVersion::Exact(domain_to_stream_checked(version)?))
+            .metadata(EventMetadata {
+                actor: Some(actor),
+                provenance: Provenance::Human,
+                series_id,
+            })
+            .await;
+        // Idempotent mirror of `add_to_season`: removing a season that is
+        // not in the repertoire emits no event.
+        match result {
+            Ok(ExecuteResult::Executed(events)) if events.is_empty() => Ok(version),
+            other => map_version_only(other),
+        }
     }
 
     async fn add_detail(

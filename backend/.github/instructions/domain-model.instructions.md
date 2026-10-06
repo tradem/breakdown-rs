@@ -83,4 +83,14 @@ rename propagation targets `projection_costume.category_name`. The command API l
 apart from a validation failure). `DetailUpdated` carries the **full** detail, not a patch, and the
 projector reuses the `DetailAdded` upsert (no migration). Both detail routes are handler-internal
 `AUTHZ-GATE`s over `authorize_costume_scoped`, like the photo handlers and `POST /costumes/{id}/category`.
+Since #534 the repertoire is **real aggregate state** (`CostumeAggregate.seasons`, seeded from
+`CostumeCreated.season_id`, legacy events replay to an empty list): `POST /costumes/{id}/seasons` and
+`DELETE /costumes/{id}/seasons/{season_id}` dispatch `AddCostumeToSeason`/`RemoveCostumeFromSeason` —
+both are state-based idempotent no-ops (no event on repeat/absent), gated handler-internally by an
+AUTHZ-GATE on the **target** season (existing `has_active_costume_role_in_season`, no new
+`*_in_season` predicate, ADR-035 B2), and pre-checked at the API edge for existence (404
+`season.not-found`) and archived state (409 `season.archived`, #533 terminal semantics — an
+archived season rejects all further repertoire mutations). `projection_costume_season` is now truly
+m:n: the projector INSERTs on add and DELETEs on remove; `CostumeView.season_ids` carries the
+repertoire on the wire.
 

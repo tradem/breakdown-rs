@@ -26,6 +26,29 @@ tag. Never edit a released entry afterwards.
 
 ### Added
 
+- **Costume season repertoire as real aggregate state — `AddCostumeToSeason`/
+  `RemoveCostumeFromSeason` (issue #534).** `CostumeAggregate` carries
+  `seasons: Vec<SeasonId>`: the wardrobe lifecycle carries a costume from one
+  season into the next, so the repertoire is m:n over the costume's lifetime.
+  `CostumeCreated` seeds the list from its `season_id` (legacy pre-#453 events
+  replay to an empty list via `serde(default)` — no panic, no repertoire row).
+  Both new commands are **state-based idempotent no-ops** (issue #515 lesson):
+  re-adding a present season / removing an absent one emits NO event and keeps
+  the caller's version fence valid. API: `POST /v1/costumes/{id}/seasons`
+  (`AddCostumeToSeasonRequest` body) and
+  `DELETE /v1/costumes/{id}/seasons/{season_id}` (`VersionRequest` body), both
+  returning the new aggregate version. Handler-internal AUTHZ-GATE on the
+  **target** season reusing the existing `has_active_costume_role_in_season`
+  predicate (403 `domain.forbidden` — no new `*_in_season` variant, ADR-035
+  B2). API-edge pre-checks: the target season must exist (404
+  `season.not-found`) and must not be archived (409 `season.archived`, #533
+  terminal-state semantics). Projector: `projection_costume_season` becomes
+  truly m:n — `CostumeAddedToSeason` INSERTs (PK-guarded),
+  `CostumeRemovedFromSeason` DELETEs; `CostumeView.season_ids` (additive,
+  allowlisted in the wire fixtures) exposes the repertoire, and the costume's
+  authz scopes now include every repertoire season automatically through
+  `costume_season_scopes`.
+
 - **Season lifecycle — `ArchiveSeason` command + `SeasonArchived` event +
   `archived` in `projection_season` (issue #533).** `POST
   /v1/seasons/{id}/archive` (VersionRequest body) soft-archives a season:
@@ -112,6 +135,11 @@ tag. Never edit a released entry afterwards.
   chunk (the heading is that scene's heading).
 
 ### Changed
+- **Version bumps (issue `#534`).** `core 0.19.0 → 0.20.0` (new repertoire
+  commands/events, `CostumeCommands` port methods, `CostumeView.season_ids`),
+  `infra 0.23.0 → 0.24.0` (command-adapter methods, projector INSERT/DELETE
+  handlers, read-model enrich), `api 0.17.0 → 0.18.0` (new repertoire routes;
+  repins core/infra); test-support crates re-pinned in lockstep.
 - **Version bumps (issue `#537`).** `api 0.16.0 → 0.16.1` — behavior fix on
   the membership-gate predicate-error surface (500 instead of swallowed
   403), no new public API (the gate helpers are crate-private); `core` and

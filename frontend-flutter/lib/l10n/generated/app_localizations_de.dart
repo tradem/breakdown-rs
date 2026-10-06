@@ -1219,6 +1219,49 @@ class AppLocalizationsDe extends AppLocalizations {
       'Fotos helfen dem Garderobenteam, Kostüme zu dokumentieren und Kontinuität zu verfolgen. Als Nächstes fragt das System nach dem Kamera-Zugriff.';
 
   @override
+  String get costumeDetailRepertoire => 'Repertoire';
+
+  @override
+  String get costumeDetailRepertoireEmpty =>
+      'In keiner weiteren Staffel gelistet';
+
+  @override
+  String get costumeDetailRepertoireAdd => 'Zu Staffel hinzufügen';
+
+  @override
+  String get costumeDetailRepertoireAddTooltip =>
+      'Das Kostüm zum Repertoire einer anderen Staffel hinzufügen';
+
+  @override
+  String get costumeDetailRepertoireRemoveTooltip => 'Aus Staffel entfernen';
+
+  @override
+  String get costumeDetailRepertoireRemoveTitle => 'Aus Staffel entfernen?';
+
+  @override
+  String get costumeDetailRepertoireRemoveMessage =>
+      'Das Kostüm verschwindet aus dem Garderoben-Bestand dieser Staffel. Details und Fotos bleiben am Kostüm.';
+
+  @override
+  String get costumeDetailRepertoirePick => 'Staffel wählen';
+
+  @override
+  String get costumeDetailRepertoireSaved =>
+      'Staffel zum Repertoire hinzugefügt.';
+
+  @override
+  String get costumeDetailRepertoireRemoved =>
+      'Das Kostüm wurde aus dem Staffel-Repertoire entfernt.';
+
+  @override
+  String get costumeErrorSeasonArchived =>
+      'Diese Staffel ist archiviert – ihr Repertoire kann nicht mehr geändert werden.';
+
+  @override
+  String get costumeErrorSeasonNotFound =>
+      'Diese Staffel existiert nicht mehr – die Liste wurde aktualisiert.';
+
+  @override
   String get costumeDetailNotNow => 'Später';
 
   @override

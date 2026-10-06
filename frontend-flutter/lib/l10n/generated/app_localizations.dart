@@ -2050,6 +2050,78 @@ abstract class AppLocalizations {
   /// **'Fotos helfen dem Garderobenteam, Kostüme zu dokumentieren und Kontinuität zu verfolgen. Als Nächstes fragt das System nach dem Kamera-Zugriff.'**
   String get costumeDetailPromptBody;
 
+  /// No description provided for @costumeDetailRepertoire.
+  ///
+  /// In de, this message translates to:
+  /// **'Repertoire'**
+  String get costumeDetailRepertoire;
+
+  /// No description provided for @costumeDetailRepertoireEmpty.
+  ///
+  /// In de, this message translates to:
+  /// **'In keiner weiteren Staffel gelistet'**
+  String get costumeDetailRepertoireEmpty;
+
+  /// No description provided for @costumeDetailRepertoireAdd.
+  ///
+  /// In de, this message translates to:
+  /// **'Zu Staffel hinzufügen'**
+  String get costumeDetailRepertoireAdd;
+
+  /// No description provided for @costumeDetailRepertoireAddTooltip.
+  ///
+  /// In de, this message translates to:
+  /// **'Das Kostüm zum Repertoire einer anderen Staffel hinzufügen'**
+  String get costumeDetailRepertoireAddTooltip;
+
+  /// No description provided for @costumeDetailRepertoireRemoveTooltip.
+  ///
+  /// In de, this message translates to:
+  /// **'Aus Staffel entfernen'**
+  String get costumeDetailRepertoireRemoveTooltip;
+
+  /// No description provided for @costumeDetailRepertoireRemoveTitle.
+  ///
+  /// In de, this message translates to:
+  /// **'Aus Staffel entfernen?'**
+  String get costumeDetailRepertoireRemoveTitle;
+
+  /// No description provided for @costumeDetailRepertoireRemoveMessage.
+  ///
+  /// In de, this message translates to:
+  /// **'Das Kostüm verschwindet aus dem Garderoben-Bestand dieser Staffel. Details und Fotos bleiben am Kostüm.'**
+  String get costumeDetailRepertoireRemoveMessage;
+
+  /// No description provided for @costumeDetailRepertoirePick.
+  ///
+  /// In de, this message translates to:
+  /// **'Staffel wählen'**
+  String get costumeDetailRepertoirePick;
+
+  /// No description provided for @costumeDetailRepertoireSaved.
+  ///
+  /// In de, this message translates to:
+  /// **'Staffel zum Repertoire hinzugefügt.'**
+  String get costumeDetailRepertoireSaved;
+
+  /// No description provided for @costumeDetailRepertoireRemoved.
+  ///
+  /// In de, this message translates to:
+  /// **'Das Kostüm wurde aus dem Staffel-Repertoire entfernt.'**
+  String get costumeDetailRepertoireRemoved;
+
+  /// No description provided for @costumeErrorSeasonArchived.
+  ///
+  /// In de, this message translates to:
+  /// **'Diese Staffel ist archiviert – ihr Repertoire kann nicht mehr geändert werden.'**
+  String get costumeErrorSeasonArchived;
+
+  /// No description provided for @costumeErrorSeasonNotFound.
+  ///
+  /// In de, this message translates to:
+  /// **'Diese Staffel existiert nicht mehr – die Liste wurde aktualisiert.'**
+  String get costumeErrorSeasonNotFound;
+
   /// No description provided for @costumeDetailNotNow.
   ///
   /// In de, this message translates to:

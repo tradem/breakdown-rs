@@ -20,6 +20,8 @@ export '../../data/costume_repository.dart'
         applyUpdateDetailOptimistic,
         applyRemoveDetailOptimistic,
         applyCategoryOptimistic,
+        applyAddSeasonOptimistic,
+        applyRemoveSeasonOptimistic,
         shouldClearCostumeOverlay,
         mergeCostumeOverlays;
 

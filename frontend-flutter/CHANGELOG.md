@@ -19,6 +19,14 @@ releases are cut as `vX.Y.Z` tags (`v<build-name>`, enforced by
 
 ## [Unreleased]
 
+- **Version bump:** `0.4.0-alpha.4+55 → 0.4.0-alpha.5+56` — costume
+  season-repertoire management on the costume detail panel (issue #534,
+  PR #595): vendor client reload (`addCostumeToSeason`/
+  `removeCostumeFromSeason`, `CostumeView.seasonIds`), repertoire
+  section, Drift cache column `season_ids_json` (schema v12), ARB copy
+  de/en, widget tests + regenerated detail golden. Play `versionCode`
+  `+N` stays strictly monotonic.
+
 - **Version bump:** `0.3.0+51 → 0.4.0-alpha.1+52` — opening of the
   0.4.0 alpha line for the multi-episode AI script import backend
   (issue #581 backend in PR #584). Same convention as the pre-0.3.x

@@ -57,6 +57,25 @@ pub enum CostumeEvent {
         id: Uuid,
         version: AggregateVersion,
     },
+    /// The costume entered another season's **repertoire** (issue #534):
+    /// the wardrobe lifecycle carries a costume from one season into the
+    /// next, so a costume may stand in several seasons' repertoires over
+    /// its lifetime. Idempotent at the aggregate: re-adding a season already
+    /// in the list is a state-based no-op that emits no event.
+    CostumeAddedToSeason {
+        id: Uuid,
+        season_id: Uuid,
+        version: AggregateVersion,
+    },
+    /// The costume left a season's repertoire (issue #534). Idempotent at
+    /// the aggregate: removing a season that is not in the list emits no
+    /// event. An empty repertoire is a legitimate state — the authz scope
+    /// then falls back to the character's season.
+    CostumeRemovedFromSeason {
+        id: Uuid,
+        season_id: Uuid,
+        version: AggregateVersion,
+    },
     DetailAdded {
         id: Uuid,
         detail: CostumeDetail,
@@ -103,6 +122,8 @@ impl kameo_es::EventType for CostumeEvent {
             Self::CostumeNotesUpdated { .. } => "CostumeNotesUpdated",
             Self::CostumeAssignedToCharacter { .. } => "CostumeAssignedToCharacter",
             Self::CostumeUnassigned { .. } => "CostumeUnassigned",
+            Self::CostumeAddedToSeason { .. } => "CostumeAddedToSeason",
+            Self::CostumeRemovedFromSeason { .. } => "CostumeRemovedFromSeason",
             Self::DetailAdded { .. } => "DetailAdded",
             Self::DetailUpdated { .. } => "DetailUpdated",
             Self::DetailRemoved { .. } => "DetailRemoved",

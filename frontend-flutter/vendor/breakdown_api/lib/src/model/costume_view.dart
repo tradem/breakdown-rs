@@ -23,6 +23,7 @@ part 'costume_view.g.dart';
 /// * [id]
 /// * [notes]
 /// * [photos]
+/// * [seasonIds] - The costume's season **repertoire** (issue #534): the seasons whose costume streams the costume stands in, populated from `projection_costume_season` by the enrich path. Ordered by `season_id` (deterministic). Empty for a costume without a repertoire binding — its scope then falls back to the character's season.
 /// * [updatedAt]
 /// * [version] - Aggregate version for optimistic-locking round-trips.
 @BuiltValue()
@@ -49,6 +50,10 @@ abstract class CostumeView implements Built<CostumeView, CostumeViewBuilder> {
 
   @BuiltValueField(wireName: r'photos')
   BuiltList<CostumePhotoView> get photos;
+
+  /// The costume's season **repertoire** (issue #534): the seasons whose costume streams the costume stands in, populated from `projection_costume_season` by the enrich path. Ordered by `season_id` (deterministic). Empty for a costume without a repertoire binding — its scope then falls back to the character's season.
+  @BuiltValueField(wireName: r'season_ids')
+  BuiltList<String> get seasonIds;
 
   @BuiltValueField(wireName: r'updated_at')
   DateTime get updatedAt;
@@ -120,6 +125,11 @@ class _$CostumeViewSerializer implements PrimitiveSerializer<CostumeView> {
     yield serializers.serialize(
       object.photos,
       specifiedType: const FullType(BuiltList, [FullType(CostumePhotoView)]),
+    );
+    yield r'season_ids';
+    yield serializers.serialize(
+      object.seasonIds,
+      specifiedType: const FullType(BuiltList, [FullType(String)]),
     );
     yield r'updated_at';
     yield serializers.serialize(
@@ -209,6 +219,13 @@ class _$CostumeViewSerializer implements PrimitiveSerializer<CostumeView> {
                 const FullType(BuiltList, [FullType(CostumePhotoView)]),
           ) as BuiltList<CostumePhotoView>;
           result.photos.replace(valueDes);
+          break;
+        case r'season_ids':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(BuiltList, [FullType(String)]),
+          ) as BuiltList<String>;
+          result.seasonIds.replace(valueDes);
           break;
         case r'updated_at':
           final valueDes = serializers.deserialize(

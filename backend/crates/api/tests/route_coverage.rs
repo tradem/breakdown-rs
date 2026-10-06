@@ -87,7 +87,7 @@ fn api_routes_are_behind_auth_middleware() {
     //  patterns, not method-verb pairs.)
     assert_eq!(
         api.len(),
-        88,
+        90,
         "number of API route path patterns has changed — \
          see doc comment above for update instructions"
     );
@@ -240,6 +240,15 @@ fn api_routes_have_deliberate_authorization_requirement() {
         // Issue #543: middleware-gated `BlockMember`, but the handler performs
         // an additional internal costume-role gate (// AUTHZ-GATE:, ANY scope).
         ("/costumes/{id}/category", Requirement::BlockMember),
+        // Issue #534: repertoire add/remove. Middleware-gated `BlockMember`,
+        // but the handler performs an additional internal costume-role gate
+        // on the TARGET season (// AUTHZ-GATE:) — the middleware cannot know
+        // the season the repertoire mutation acts on.
+        ("/costumes/{id}/seasons", Requirement::BlockMember),
+        (
+            "/costumes/{id}/seasons/{season_id}",
+            Requirement::BlockMember,
+        ),
         // Costume categories — id-based PATCH/archive needs membership
         ("/costume-categories/{id}", Requirement::BlockMember),
         ("/costume-categories/{id}/archive", Requirement::BlockMember),

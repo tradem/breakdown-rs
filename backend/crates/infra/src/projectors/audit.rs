@@ -551,6 +551,8 @@ impl<'a> EntityEventHandler<CostumeAggregate, Transaction<'a, Postgres>> for Cos
             | CostumeEvent::CostumeNotesUpdated { id, .. }
             | CostumeEvent::CostumeAssignedToCharacter { id, .. }
             | CostumeEvent::CostumeUnassigned { id, .. }
+            | CostumeEvent::CostumeAddedToSeason { id, .. }
+            | CostumeEvent::CostumeRemovedFromSeason { id, .. }
             | CostumeEvent::DetailAdded { id, .. }
             | CostumeEvent::DetailUpdated { id, .. }
             | CostumeEvent::DetailRemoved { id, .. }

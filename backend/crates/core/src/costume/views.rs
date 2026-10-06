@@ -57,4 +57,11 @@ pub struct CostumeView {
     /// Aggregate version for optimistic-locking round-trips.
     pub version: AggregateVersion,
     pub updated_at: DateTime<Utc>,
+    /// The costume's season **repertoire** (issue #534): the seasons whose
+    /// costume streams the costume stands in, populated from
+    /// `projection_costume_season` by the enrich path. Ordered by
+    /// `season_id` (deterministic). Empty for a costume without a
+    /// repertoire binding — its scope then falls back to the character's
+    /// season.
+    pub season_ids: Vec<Uuid>,
 }

@@ -10,8 +10,9 @@ use crate::error::DomainError;
 use crate::shared::{AggregateVersion, SeasonId, UserId};
 
 use super::commands::{
-    AddDetail, AssignCostumeToCharacter, CreateCostume, LinkPhoto, RemoveDetail,
-    SetCostumeCategory, UnassignCostume, UnlinkPhoto, UpdateCostumeDetail, UpdateCostumeNotes,
+    AddCostumeToSeason, AddDetail, AssignCostumeToCharacter, CreateCostume, LinkPhoto,
+    RemoveCostumeFromSeason, RemoveDetail, SetCostumeCategory, UnassignCostume, UnlinkPhoto,
+    UpdateCostumeDetail, UpdateCostumeNotes,
 };
 use super::views::CostumeView;
 
@@ -37,6 +38,23 @@ pub trait CostumeCommands: Send + Sync {
         &self,
         actor: UserId,
         cmd: UnassignCostume,
+    ) -> Result<AggregateVersion, DomainError>;
+    /// Add the costume to a season's repertoire (issue #534). Idempotent:
+    /// the adapter maps the aggregate's no-event repeat dispatch to an
+    /// unchanged-version success. Season existence / archived state are
+    /// pre-checked at the API edge.
+    async fn add_to_season(
+        &self,
+        actor: UserId,
+        cmd: AddCostumeToSeason,
+    ) -> Result<AggregateVersion, DomainError>;
+    /// Remove the costume from a season's repertoire (issue #534). Idempotent
+    /// mirror of [`Self::add_to_season`]: a not-present season is a no-event
+    /// success with the unchanged version.
+    async fn remove_from_season(
+        &self,
+        actor: UserId,
+        cmd: RemoveCostumeFromSeason,
     ) -> Result<AggregateVersion, DomainError>;
     async fn add_detail(
         &self,

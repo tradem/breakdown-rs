@@ -1144,3 +1144,252 @@ async fn costume_created_without_season_still_projects() -> Result<()> {
 
     Ok(())
 }
+
+// ---------------------------------------------------------------------------
+
+/// Issue #534: the repertoire becomes real aggregate state and
+/// `projection_costume_season` becomes truly m:n. A costume carried from
+/// season 1 into season 2 is visible in BOTH season streams; removing it
+/// from season 1 leaves it only in season 2. `CostumeView.season_ids`
+/// mirrors the rows through the enrich path.
+#[tokio::test]
+async fn costume_repertoire_spans_two_seasons_and_removal_leaves_one() -> Result<()> {
+    let (pool, _pg) = crate::fixtures::spawn_postgres().await?;
+    let (redis_client, _sierra_conn, _sierra) = crate::fixtures::spawn_sierradb().await?;
+
+    let _costume_ref = infra::projectors::spawn_costume_projector(
+        pool.clone(),
+        Arc::clone(&redis_client),
+        infra::projectors::ProjectorFlushConfig::test_profile(),
+    )
+    .await?;
+
+    let costume_repo = infra::queries::CostumeRepositoryImpl::new(pool.clone());
+    let season1 = Uuid::now_v7();
+    let season2 = Uuid::now_v7();
+    let costume_id = Uuid::now_v7();
+    let stream_id = format!("costume-{}", costume_id);
+
+    // Costume built for season 1.
+    eappend_event(
+        Arc::clone(&redis_client),
+        &stream_id,
+        "CostumeCreated",
+        "EMPTY",
+        &breakdown_core::costume::events::CostumeEvent::CostumeCreated {
+            id: costume_id,
+            character_id: None,
+            season_id: Some(season1),
+            notes: "Repertoire Costume".into(),
+            details: vec![],
+            photos: vec![],
+            version: AggregateVersion::INITIAL,
+        },
+    )
+    .await?;
+
+    // Carried over into season 2 (CostumeAddedToSeason, v1 -> v2).
+    eappend_event(
+        Arc::clone(&redis_client),
+        &stream_id,
+        "CostumeAddedToSeason",
+        "0",
+        &breakdown_core::costume::events::CostumeEvent::CostumeAddedToSeason {
+            id: costume_id,
+            season_id: season2,
+            version: AggregateVersion(2),
+        },
+    )
+    .await?;
+
+    // Visible in BOTH season streams; the view lists both seasons.
+    await_proj_row(
+        || {
+            let c_repo = costume_repo.clone();
+            let expected = (season1, season2, costume_id);
+            Box::pin(async move {
+                let Ok(v) = c_repo.costume_with_details_photos(expected.2).await else {
+                    return false;
+                };
+                v.season_ids == vec![expected.0, expected.1]
+            })
+        },
+        "costume in both season streams",
+    )
+    .await?;
+
+    let in_s1 = costume_repo
+        .list_by_season(SeasonId(season1), 50, 0)
+        .await?;
+    let in_s2 = costume_repo
+        .list_by_season(SeasonId(season2), 50, 0)
+        .await?;
+    assert_eq!(in_s1.len(), 1, "costume visible in season 1");
+    assert_eq!(in_s2.len(), 1, "costume visible in season 2");
+
+    // Season 1 wrapped: the wardrobe carries the costume back (removal,
+    // v2 -> v3) — it stays only in season 2.
+    eappend_event(
+        Arc::clone(&redis_client),
+        &stream_id,
+        "CostumeRemovedFromSeason",
+        "1",
+        &breakdown_core::costume::events::CostumeEvent::CostumeRemovedFromSeason {
+            id: costume_id,
+            season_id: season1,
+            version: AggregateVersion(3),
+        },
+    )
+    .await?;
+
+    await_proj_row(
+        || {
+            let c_repo = costume_repo.clone();
+            let expected = (season2, costume_id);
+            Box::pin(async move {
+                let Ok(v) = c_repo.costume_with_details_photos(expected.1).await else {
+                    return false;
+                };
+                v.season_ids == vec![expected.0]
+            })
+        },
+        "costume only in season 2",
+    )
+    .await?;
+
+    let in_s1 = costume_repo
+        .list_by_season(SeasonId(season1), 50, 0)
+        .await?;
+    let in_s2 = costume_repo
+        .list_by_season(SeasonId(season2), 50, 0)
+        .await?;
+    assert!(
+        in_s1.iter().all(|v| v.id != costume_id),
+        "season 1 must no longer list the costume"
+    );
+    assert_eq!(in_s2.len(), 1, "season 2 keeps the costume");
+
+    Ok(())
+}
+
+/// Issue #534 replay compatibility, DELETE path: a legacy costume stream
+/// (no `season_id` at all) that later gains repertoire events still
+/// projects — the DELETE of a never-inserted row affects 0 rows and the
+/// version guard still advances.
+#[tokio::test]
+async fn costume_repertoire_events_on_legacy_stream_project() -> Result<()> {
+    let (pool, _pg) = crate::fixtures::spawn_postgres().await?;
+    let (redis_client, _sierra_conn, _sierra) = crate::fixtures::spawn_sierradb().await?;
+
+    let _costume_ref = infra::projectors::spawn_costume_projector(
+        pool.clone(),
+        Arc::clone(&redis_client),
+        infra::projectors::ProjectorFlushConfig::test_profile(),
+    )
+    .await?;
+
+    let costume_repo = infra::queries::CostumeRepositoryImpl::new(pool.clone());
+    let season1 = Uuid::now_v7();
+    let costume_id = Uuid::now_v7();
+    let stream_id = format!("costume-{}", costume_id);
+
+    // Pre-#453 `CostumeCreated` (no `season_id`) — CBOR bytes for UUIDs.
+    let legacy_cbor = ciborium::value::Value::Map(vec![(
+        ciborium::value::Value::Text("CostumeCreated".into()),
+        ciborium::value::Value::Map(vec![
+            (
+                ciborium::value::Value::Text("id".into()),
+                ciborium::value::Value::Bytes(costume_id.as_bytes().to_vec()),
+            ),
+            (
+                ciborium::value::Value::Text("character_id".into()),
+                ciborium::value::Value::Null,
+            ),
+            (
+                ciborium::value::Value::Text("notes".into()),
+                ciborium::value::Value::Text("Legacy costume".into()),
+            ),
+            (
+                ciborium::value::Value::Text("details".into()),
+                ciborium::value::Value::Array(vec![]),
+            ),
+            (
+                ciborium::value::Value::Text("photos".into()),
+                ciborium::value::Value::Array(vec![]),
+            ),
+            (
+                ciborium::value::Value::Text("version".into()),
+                ciborium::value::Value::Integer(1.into()),
+            ),
+        ]),
+    )]);
+
+    eappend_event(
+        Arc::clone(&redis_client),
+        &stream_id,
+        "CostumeCreated",
+        "EMPTY",
+        &legacy_cbor,
+    )
+    .await?;
+
+    await_proj_row(
+        || {
+            let c_repo = costume_repo.clone();
+            Box::pin(async move { c_repo.find_by_id(costume_id).await.is_ok() })
+        },
+        "costume",
+    )
+    .await?;
+
+    // Repertoire events on top of the legacy stream: add, then remove the
+    // same season — final state: empty repertoire, version 3.
+    eappend_event(
+        Arc::clone(&redis_client),
+        &stream_id,
+        "CostumeAddedToSeason",
+        "0",
+        &breakdown_core::costume::events::CostumeEvent::CostumeAddedToSeason {
+            id: costume_id,
+            season_id: season1,
+            version: AggregateVersion(2),
+        },
+    )
+    .await?;
+    eappend_event(
+        Arc::clone(&redis_client),
+        &stream_id,
+        "CostumeRemovedFromSeason",
+        "1",
+        &breakdown_core::costume::events::CostumeEvent::CostumeRemovedFromSeason {
+            id: costume_id,
+            season_id: season1,
+            version: AggregateVersion(3),
+        },
+    )
+    .await?;
+
+    await_proj_row(
+        || {
+            let c_repo = costume_repo.clone();
+            Box::pin(async move {
+                let Ok(v) = c_repo.costume_with_details_photos(costume_id).await else {
+                    return false;
+                };
+                v.version == AggregateVersion(3) && v.season_ids.is_empty()
+            })
+        },
+        "legacy stream repertoire settled",
+    )
+    .await?;
+
+    let listed = costume_repo
+        .list_by_season(SeasonId(season1), 50, 0)
+        .await?;
+    assert!(
+        listed.iter().all(|v| v.id != costume_id),
+        "removed repertoire row must leave the season stream"
+    );
+
+    Ok(())
+}

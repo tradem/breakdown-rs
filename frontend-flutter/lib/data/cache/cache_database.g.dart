@@ -3171,6 +3171,17 @@ class $CostumeCacheRowsTable extends CostumeCacheRows
     type: DriftSqlType.int,
     requiredDuringInsert: true,
   );
+  static const VerificationMeta _seasonIdsJsonMeta = const VerificationMeta(
+    'seasonIdsJson',
+  );
+  @override
+  late final GeneratedColumn<String> seasonIdsJson = GeneratedColumn<String>(
+    'season_ids_json',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
   @override
   List<GeneratedColumn> get $columns => [
     id,
@@ -3185,6 +3196,7 @@ class $CostumeCacheRowsTable extends CostumeCacheRows
     version,
     cachedAt,
     snapshotIndex,
+    seasonIdsJson,
   ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -3297,6 +3309,15 @@ class $CostumeCacheRowsTable extends CostumeCacheRows
     } else if (isInserting) {
       context.missing(_snapshotIndexMeta);
     }
+    if (data.containsKey('season_ids_json')) {
+      context.handle(
+        _seasonIdsJsonMeta,
+        seasonIdsJson.isAcceptableOrUnknown(
+          data['season_ids_json']!,
+          _seasonIdsJsonMeta,
+        ),
+      );
+    }
     return context;
   }
 
@@ -3354,6 +3375,10 @@ class $CostumeCacheRowsTable extends CostumeCacheRows
         DriftSqlType.int,
         data['${effectivePrefix}snapshot_index'],
       )!,
+      seasonIdsJson: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}season_ids_json'],
+      ),
     );
   }
 
@@ -3407,6 +3432,12 @@ class CostumeCacheRow extends DataClass implements Insertable<CostumeCacheRow> {
   /// order without `ORDER BY`, so the snapshot index is persisted to
   /// reproduce the server order exactly, including `updated_at` ties.
   final int snapshotIndex;
+
+  /// JSON snapshot of `CostumeView.season_ids` (issue #534: the season
+  /// repertoire — m:n, list of season ids). Nullable for the pre-#534
+  /// upgrade path: existing rows read NULL = the cache predates the field
+  /// and the next TTL snapshot-replace fills it.
+  final String? seasonIdsJson;
   const CostumeCacheRow({
     required this.id,
     required this.seasonId,
@@ -3420,6 +3451,7 @@ class CostumeCacheRow extends DataClass implements Insertable<CostumeCacheRow> {
     required this.version,
     required this.cachedAt,
     required this.snapshotIndex,
+    this.seasonIdsJson,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -3442,6 +3474,9 @@ class CostumeCacheRow extends DataClass implements Insertable<CostumeCacheRow> {
     map['version'] = Variable<int>(version);
     map['cached_at'] = Variable<DateTime>(cachedAt);
     map['snapshot_index'] = Variable<int>(snapshotIndex);
+    if (!nullToAbsent || seasonIdsJson != null) {
+      map['season_ids_json'] = Variable<String>(seasonIdsJson);
+    }
     return map;
   }
 
@@ -3465,6 +3500,9 @@ class CostumeCacheRow extends DataClass implements Insertable<CostumeCacheRow> {
       version: Value(version),
       cachedAt: Value(cachedAt),
       snapshotIndex: Value(snapshotIndex),
+      seasonIdsJson: seasonIdsJson == null && nullToAbsent
+          ? const Value.absent()
+          : Value(seasonIdsJson),
     );
   }
 
@@ -3486,6 +3524,7 @@ class CostumeCacheRow extends DataClass implements Insertable<CostumeCacheRow> {
       version: serializer.fromJson<int>(json['version']),
       cachedAt: serializer.fromJson<DateTime>(json['cachedAt']),
       snapshotIndex: serializer.fromJson<int>(json['snapshotIndex']),
+      seasonIdsJson: serializer.fromJson<String?>(json['seasonIdsJson']),
     );
   }
   @override
@@ -3504,6 +3543,7 @@ class CostumeCacheRow extends DataClass implements Insertable<CostumeCacheRow> {
       'version': serializer.toJson<int>(version),
       'cachedAt': serializer.toJson<DateTime>(cachedAt),
       'snapshotIndex': serializer.toJson<int>(snapshotIndex),
+      'seasonIdsJson': serializer.toJson<String?>(seasonIdsJson),
     };
   }
 
@@ -3520,6 +3560,7 @@ class CostumeCacheRow extends DataClass implements Insertable<CostumeCacheRow> {
     int? version,
     DateTime? cachedAt,
     int? snapshotIndex,
+    Value<String?> seasonIdsJson = const Value.absent(),
   }) => CostumeCacheRow(
     id: id ?? this.id,
     seasonId: seasonId ?? this.seasonId,
@@ -3533,6 +3574,9 @@ class CostumeCacheRow extends DataClass implements Insertable<CostumeCacheRow> {
     version: version ?? this.version,
     cachedAt: cachedAt ?? this.cachedAt,
     snapshotIndex: snapshotIndex ?? this.snapshotIndex,
+    seasonIdsJson: seasonIdsJson.present
+        ? seasonIdsJson.value
+        : this.seasonIdsJson,
   );
   CostumeCacheRow copyWithCompanion(CostumeCacheRowsCompanion data) {
     return CostumeCacheRow(
@@ -3560,6 +3604,9 @@ class CostumeCacheRow extends DataClass implements Insertable<CostumeCacheRow> {
       snapshotIndex: data.snapshotIndex.present
           ? data.snapshotIndex.value
           : this.snapshotIndex,
+      seasonIdsJson: data.seasonIdsJson.present
+          ? data.seasonIdsJson.value
+          : this.seasonIdsJson,
     );
   }
 
@@ -3577,7 +3624,8 @@ class CostumeCacheRow extends DataClass implements Insertable<CostumeCacheRow> {
           ..write('updatedAt: $updatedAt, ')
           ..write('version: $version, ')
           ..write('cachedAt: $cachedAt, ')
-          ..write('snapshotIndex: $snapshotIndex')
+          ..write('snapshotIndex: $snapshotIndex, ')
+          ..write('seasonIdsJson: $seasonIdsJson')
           ..write(')'))
         .toString();
   }
@@ -3596,6 +3644,7 @@ class CostumeCacheRow extends DataClass implements Insertable<CostumeCacheRow> {
     version,
     cachedAt,
     snapshotIndex,
+    seasonIdsJson,
   );
   @override
   bool operator ==(Object other) =>
@@ -3612,7 +3661,8 @@ class CostumeCacheRow extends DataClass implements Insertable<CostumeCacheRow> {
           other.updatedAt == this.updatedAt &&
           other.version == this.version &&
           other.cachedAt == this.cachedAt &&
-          other.snapshotIndex == this.snapshotIndex);
+          other.snapshotIndex == this.snapshotIndex &&
+          other.seasonIdsJson == this.seasonIdsJson);
 }
 
 class CostumeCacheRowsCompanion extends UpdateCompanion<CostumeCacheRow> {
@@ -3628,6 +3678,7 @@ class CostumeCacheRowsCompanion extends UpdateCompanion<CostumeCacheRow> {
   final Value<int> version;
   final Value<DateTime> cachedAt;
   final Value<int> snapshotIndex;
+  final Value<String?> seasonIdsJson;
   final Value<int> rowid;
   const CostumeCacheRowsCompanion({
     this.id = const Value.absent(),
@@ -3642,6 +3693,7 @@ class CostumeCacheRowsCompanion extends UpdateCompanion<CostumeCacheRow> {
     this.version = const Value.absent(),
     this.cachedAt = const Value.absent(),
     this.snapshotIndex = const Value.absent(),
+    this.seasonIdsJson = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   CostumeCacheRowsCompanion.insert({
@@ -3657,6 +3709,7 @@ class CostumeCacheRowsCompanion extends UpdateCompanion<CostumeCacheRow> {
     required int version,
     required DateTime cachedAt,
     required int snapshotIndex,
+    this.seasonIdsJson = const Value.absent(),
     this.rowid = const Value.absent(),
   }) : id = Value(id),
        seasonId = Value(seasonId),
@@ -3680,6 +3733,7 @@ class CostumeCacheRowsCompanion extends UpdateCompanion<CostumeCacheRow> {
     Expression<int>? version,
     Expression<DateTime>? cachedAt,
     Expression<int>? snapshotIndex,
+    Expression<String>? seasonIdsJson,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
@@ -3695,6 +3749,7 @@ class CostumeCacheRowsCompanion extends UpdateCompanion<CostumeCacheRow> {
       if (version != null) 'version': version,
       if (cachedAt != null) 'cached_at': cachedAt,
       if (snapshotIndex != null) 'snapshot_index': snapshotIndex,
+      if (seasonIdsJson != null) 'season_ids_json': seasonIdsJson,
       if (rowid != null) 'rowid': rowid,
     });
   }
@@ -3712,6 +3767,7 @@ class CostumeCacheRowsCompanion extends UpdateCompanion<CostumeCacheRow> {
     Value<int>? version,
     Value<DateTime>? cachedAt,
     Value<int>? snapshotIndex,
+    Value<String?>? seasonIdsJson,
     Value<int>? rowid,
   }) {
     return CostumeCacheRowsCompanion(
@@ -3727,6 +3783,7 @@ class CostumeCacheRowsCompanion extends UpdateCompanion<CostumeCacheRow> {
       version: version ?? this.version,
       cachedAt: cachedAt ?? this.cachedAt,
       snapshotIndex: snapshotIndex ?? this.snapshotIndex,
+      seasonIdsJson: seasonIdsJson ?? this.seasonIdsJson,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -3770,6 +3827,9 @@ class CostumeCacheRowsCompanion extends UpdateCompanion<CostumeCacheRow> {
     if (snapshotIndex.present) {
       map['snapshot_index'] = Variable<int>(snapshotIndex.value);
     }
+    if (seasonIdsJson.present) {
+      map['season_ids_json'] = Variable<String>(seasonIdsJson.value);
+    }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
     }
@@ -3791,6 +3851,7 @@ class CostumeCacheRowsCompanion extends UpdateCompanion<CostumeCacheRow> {
           ..write('version: $version, ')
           ..write('cachedAt: $cachedAt, ')
           ..write('snapshotIndex: $snapshotIndex, ')
+          ..write('seasonIdsJson: $seasonIdsJson, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -9143,6 +9204,7 @@ typedef $$CostumeCacheRowsTableCreateCompanionBuilder =
       required int version,
       required DateTime cachedAt,
       required int snapshotIndex,
+      Value<String?> seasonIdsJson,
       Value<int> rowid,
     });
 typedef $$CostumeCacheRowsTableUpdateCompanionBuilder =
@@ -9159,6 +9221,7 @@ typedef $$CostumeCacheRowsTableUpdateCompanionBuilder =
       Value<int> version,
       Value<DateTime> cachedAt,
       Value<int> snapshotIndex,
+      Value<String?> seasonIdsJson,
       Value<int> rowid,
     });
 
@@ -9228,6 +9291,11 @@ class $$CostumeCacheRowsTableFilterComposer
 
   ColumnFilters<int> get snapshotIndex => $composableBuilder(
     column: $table.snapshotIndex,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get seasonIdsJson => $composableBuilder(
+    column: $table.seasonIdsJson,
     builder: (column) => ColumnFilters(column),
   );
 }
@@ -9300,6 +9368,11 @@ class $$CostumeCacheRowsTableOrderingComposer
     column: $table.snapshotIndex,
     builder: (column) => ColumnOrderings(column),
   );
+
+  ColumnOrderings<String> get seasonIdsJson => $composableBuilder(
+    column: $table.seasonIdsJson,
+    builder: (column) => ColumnOrderings(column),
+  );
 }
 
 class $$CostumeCacheRowsTableAnnotationComposer
@@ -9358,6 +9431,11 @@ class $$CostumeCacheRowsTableAnnotationComposer
     column: $table.snapshotIndex,
     builder: (column) => column,
   );
+
+  GeneratedColumn<String> get seasonIdsJson => $composableBuilder(
+    column: $table.seasonIdsJson,
+    builder: (column) => column,
+  );
 }
 
 class $$CostumeCacheRowsTableTableManager
@@ -9409,6 +9487,7 @@ class $$CostumeCacheRowsTableTableManager
                 Value<int> version = const Value.absent(),
                 Value<DateTime> cachedAt = const Value.absent(),
                 Value<int> snapshotIndex = const Value.absent(),
+                Value<String?> seasonIdsJson = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => CostumeCacheRowsCompanion(
                 id: id,
@@ -9423,6 +9502,7 @@ class $$CostumeCacheRowsTableTableManager
                 version: version,
                 cachedAt: cachedAt,
                 snapshotIndex: snapshotIndex,
+                seasonIdsJson: seasonIdsJson,
                 rowid: rowid,
               ),
           createCompanionCallback:
@@ -9439,6 +9519,7 @@ class $$CostumeCacheRowsTableTableManager
                 required int version,
                 required DateTime cachedAt,
                 required int snapshotIndex,
+                Value<String?> seasonIdsJson = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => CostumeCacheRowsCompanion.insert(
                 id: id,
@@ -9453,6 +9534,7 @@ class $$CostumeCacheRowsTableTableManager
                 version: version,
                 cachedAt: cachedAt,
                 snapshotIndex: snapshotIndex,
+                seasonIdsJson: seasonIdsJson,
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0

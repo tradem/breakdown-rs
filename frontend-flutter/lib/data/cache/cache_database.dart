@@ -48,7 +48,7 @@ class CacheDatabase extends _$CacheDatabase {
   CacheDatabase.connect(super.executor);
 
   @override
-  int get schemaVersion => 11;
+  int get schemaVersion => 12;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -186,6 +186,24 @@ class CacheDatabase extends _$CacheDatabase {
             'ALTER TABLE season_cache_rows '
             'ADD COLUMN archived BOOLEAN NOT NULL DEFAULT 0',
           );
+        }
+      }
+      if (from < 12) {
+        // Issue #534 (v12): the costume repertoire becomes real aggregate
+        // state and `CostumeView` gains `season_ids`. Plain ADD COLUMN on a
+        // NULLABLE text column (same shape as the v9/v10 branches):
+        // existing rows read `season_ids_json = NULL` — the cache predates
+        // the field, the DAO maps NULL to an empty list and the next TTL
+        // snapshot-replace fills the repertoire. Guarded by table AND
+        // column presence (an upgrade landing on a fresh create path
+        // already carries the column).
+        if (await _tableExists(m.database, 'costume_cache_rows') &&
+            !(await _columnExists(
+              m.database,
+              'costume_cache_rows',
+              'season_ids_json',
+            ))) {
+          await m.addColumn(costumeCacheRows, costumeCacheRows.seasonIdsJson);
         }
       }
       if (from < 10) {

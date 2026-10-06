@@ -35,6 +35,8 @@ import 'package:frontend_flutter/data/character_repository.dart';
 import 'package:frontend_flutter/data/costume_category_repository.dart';
 import 'package:frontend_flutter/data/costume_repository.dart';
 import 'package:frontend_flutter/data/photo_repository.dart';
+import 'package:frontend_flutter/data/cache/season_cache_dao.dart';
+import 'package:frontend_flutter/data/season_repository.dart';
 import 'package:frontend_flutter/domain/reconciliation/reconciliation_scheduler.dart';
 import 'package:frontend_flutter/features/characters/characters_controller.dart';
 import 'package:frontend_flutter/features/costume_categories/costume_categories_controller.dart';
@@ -60,6 +62,8 @@ CostumeView _costume(
   int version = 1,
   String notes = 'Linen suit',
   List<CostumeDetailView> details = const [],
+  // Issue #534: the season repertoire (m:n) on the row.
+  List<String> seasonIds = const [],
 }) => CostumeView(
   (b) => b
     ..id = id
@@ -70,6 +74,7 @@ CostumeView _costume(
     ..notes = notes
     ..details.replace(BuiltList<CostumeDetailView>(details))
     ..photos.replace(BuiltList<CostumePhotoView>())
+    ..seasonIds.replace(BuiltList<String>(seasonIds))
     ..updatedAt = DateTime.utc(2026, 1, 1)
     ..version = version,
 );
@@ -316,6 +321,41 @@ class _FakeCostumeRepository extends CostumeRepository {
     return Future.value(const Right(2));
   }
 
+  /// Issue #534: the repertoire command capture (calls + echoes).
+  int addToSeasonCalls = 0;
+  int removeFromSeasonCalls = 0;
+  String? lastAddToSeasonId;
+  int? lastAddToSeasonVersion;
+  String? lastRemoveFromSeasonId;
+  int? lastRemoveFromSeasonVersion;
+
+  @override
+  Future<Result<int>> addToSeason(
+    String id,
+    AddCostumeToSeasonRequest request,
+  ) {
+    addToSeasonCalls++;
+    lastAddToSeasonId = request.seasonId;
+    lastAddToSeasonVersion = request.version;
+    final scripted = nextWrite;
+    if (scripted != null) return Future.value(scripted);
+    return Future.value(const Right(2));
+  }
+
+  @override
+  Future<Result<int>> removeFromSeason(
+    String id,
+    String seasonId,
+    VersionRequest request,
+  ) {
+    removeFromSeasonCalls++;
+    lastRemoveFromSeasonId = seasonId;
+    lastRemoveFromSeasonVersion = request.version;
+    final scripted = nextWrite;
+    if (scripted != null) return Future.value(scripted);
+    return Future.value(const Right(2));
+  }
+
   /// Scripted row for `GET /v1/costumes/{id}` (`getAndCache`), plus a call
   /// counter. The screen fetches the enriched single row on open and after
   /// gallery-affecting commands, because the rendered row may be the
@@ -464,6 +504,9 @@ void main() {
       'assign_costumes',
       'upload_continuity_photos',
     ],
+    // Issue #534: the seasons projection the repertoire section joins
+    // against (names + picker eligibility).
+    List<SeasonView> seasons = const [],
   }) async {
     db = CacheDatabase(NativeDatabase.memory());
     addTearDown(db.close);
@@ -518,6 +561,14 @@ void main() {
             .overrideWith((ref) async => Right(characters)),
         costumeCategoriesListFetchProvider('season-1')
             .overrideWith((ref) async => Right(categories)),
+        // Issue #534: the repertoire section reads the seasons projection
+        // (names + picker eligibility). The season repository override
+        // keeps SeasonsViewController/s TTL staleness fixated on the test
+        // database — the fetch seam supplies the authoritative rows.
+        seasonRepositoryProvider.overrideWithValue(
+          SeasonRepository(BreakdownApi(), SeasonCacheDao(db)),
+        ),
+        seasonsListFetchProvider.overrideWith((ref) async => Right(seasons)),
       ],
     );
     addTearDown(container.dispose);
@@ -1135,6 +1186,146 @@ void main() {
     });
   });
 
+  group('CostumeDetailScreen repertoire (issue #534)', () {
+    final s1 = _season();
+    SeasonView s2() => SeasonView(
+      (b) => b
+        ..archived = false
+        ..id = 'season-2'
+        ..number = 2
+        ..seriesId = 'series-1'
+        ..title = 'Season Two'
+        ..updatedAt = DateTime.utc(2026, 1, 1)
+        ..version = 1,
+    );
+
+    testWidgets('repertoire rows render resolved season names', (tester) async {
+      await setupContainer(
+        costume: _costume('c-1', seasonIds: ['season-2']),
+        seasons: [s1, s2()],
+      );
+      await pumpDetail(tester, 'c-1');
+      expect(
+        find.byKey(const Key('costume-repertoire-row-c-1-season-2')),
+        findsOneWidget,
+      );
+      expect(find.text('Season Two'), findsOneWidget);
+      // Only the repertoire row — the picker button is present but no
+      // remove affordance for a season outside the repertoire.
+      expect(
+        find.byKey(const Key('costume-repertoire-remove-c-1-season-2')),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets(
+      'add: picker submit dispatches id + version echo, overlay row',
+      (tester) async {
+        await setupContainer(costume: _costume('c-1'), seasons: [s2()]);
+        await pumpDetail(tester, 'c-1');
+        await tester.tap(find.byKey(const Key('costume-repertoire-add-c-1')));
+        // Let the modal route's entrance animation settle before picking.
+        await _pumpFrames(tester, n: 24);
+        // The sheet renders at the bottom edge; the tile can sit just below
+        // the viewport bottom in the 1200px test surface — scroll it into
+        // view before tapping (same affordance a tall list needs on-device).
+        await tester.ensureVisible(
+          find.byKey(const Key('repertoire-pick-season-2')),
+        );
+        await _pumpFrames(tester);
+        await tester.tap(find.byKey(const Key('repertoire-pick-season-2')));
+        await _pumpFrames(tester, n: 24);
+        expect(repo.addToSeasonCalls, 1);
+        expect(repo.lastAddToSeasonId, 'season-2');
+        // Optimistic-concurrency: the request echoes the pre-command version.
+        expect(repo.lastAddToSeasonVersion, 1);
+        // The optimistic overlay renders the added season immediately.
+        expect(
+          find.byKey(const Key('costume-repertoire-row-c-1-season-2')),
+          findsOneWidget,
+        );
+        // Handled-result confirmation (breakdown_lints discard_result): the
+        // screen must consume the command Result, not just await it.
+        expect(
+          find.byKey(const Key('costume-repertoire-saved-c-1')),
+          findsOneWidget,
+        );
+      },
+    );
+
+    testWidgets('remove: confirm dialog dispatches id + version echo', (
+      tester,
+    ) async {
+      await setupContainer(
+        costume: _costume('c-1', seasonIds: ['season-1', 'season-2']),
+        seasons: [s1, s2()],
+      );
+      await pumpDetail(tester, 'c-1');
+      await tester.tap(
+        find.byKey(const Key('costume-repertoire-remove-c-1-season-2')),
+      );
+      await _pumpFrames(tester);
+      await tester.tap(
+        find.byKey(const Key('costume-repertoire-confirm-remove')),
+      );
+      await _pumpFrames(tester, n: 12);
+      expect(repo.removeFromSeasonCalls, 1);
+      expect(repo.lastRemoveFromSeasonId, 'season-2');
+      expect(repo.lastRemoveFromSeasonVersion, 1);
+      expect(
+        find.byKey(const Key('costume-repertoire-removed-c-1')),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('denial: capability missing → zero network calls (gate '
+        'short-circuit)', (tester) async {
+      await setupContainer(
+        costume: _costume('c-1'),
+        seasons: [s2()],
+        capabilities: const [],
+      );
+      await pumpDetail(tester, 'c-1');
+      await tester.tap(find.byKey(const Key('costume-repertoire-add-c-1')));
+      await _pumpFrames(tester, n: 24);
+      await tester.ensureVisible(
+        find.byKey(const Key('repertoire-pick-season-2')),
+      );
+      await _pumpFrames(tester);
+      await tester.tap(find.byKey(const Key('repertoire-pick-season-2')));
+      await _pumpFrames(tester, n: 24);
+      expect(repo.addToSeasonCalls, 0);
+      // The client-side AUTHZ-GATE denial carries the localized 403 copy.
+      expect(find.byKey(const Key('costume-detail-error')), findsOneWidget);
+    });
+
+    test('controller no-op: a season already in the repertoire dispatches '
+        'nothing and echoes the unchanged version', () async {
+      await setupContainer(
+        costume: _costume('c-1', seasonIds: ['season-2']),
+        seasons: [s1, s2()],
+      );
+      final costume = _costume('c-1', seasonIds: ['season-2']);
+      final controller = container.read(
+        costumesControllerProvider('season-1').notifier,
+      );
+      final res = await controller.addToSeason(
+        costume: costume,
+        seasonId: 'season-2',
+      );
+      expect(res, const Right(1));
+      expect(repo.addToSeasonCalls, 0);
+      final res2 = await controller.removeFromSeason(
+        costume: costume,
+        seasonId: 'season-3',
+      );
+      expect(res2, const Right(1));
+      expect(repo.removeFromSeasonCalls, 0);
+      // ProviderContainer.dispose() returns void — never awaited.
+      container.dispose();
+    });
+  });
+
   group('CostumeDetailScreen capture + command flows (8.3)', () {
     Future<void> setupFlow({
       List<String> capabilities = const [
@@ -1199,6 +1390,12 @@ void main() {
               .overrideWith((ref) async => Right([_character('ch-1')])),
           costumeCategoriesListFetchProvider('season-1')
               .overrideWith((ref) async => const Right([])),
+          // Issue #534: keep the repertoire section's seasons projection off
+          // the production seam (same tolerance as setupContainer).
+          seasonRepositoryProvider.overrideWithValue(
+            SeasonRepository(BreakdownApi(), SeasonCacheDao(db)),
+          ),
+          seasonsListFetchProvider.overrideWith((ref) async => const Right([])),
         ],
       );
       addTearDown(container.dispose);

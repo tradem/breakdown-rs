@@ -239,6 +239,33 @@ fn test_all_mutating_commands_reject_stale_version_as_version_mismatch() {
         ),
         stale,
     );
+    // Issue #534: the repertoire commands join the exhaustive guard — a
+    // stale version must be a VersionMismatch (409
+    // `concurrency.version-mismatch`), never a generic 422.
+    assert_stale_version_rejected(
+        agg.handle(
+            AddCostumeToSeason {
+                id: agg.id,
+                season_id: SeasonId::new(),
+                series_id: Some(series_id()),
+                version: stale,
+            },
+            make_ctx(),
+        ),
+        stale,
+    );
+    assert_stale_version_rejected(
+        agg.handle(
+            RemoveCostumeFromSeason {
+                id: agg.id,
+                season_id: SeasonId::new(),
+                series_id: Some(series_id()),
+                version: stale,
+            },
+            make_ctx(),
+        ),
+        stale,
+    );
 }
 
 #[test]
@@ -821,6 +848,7 @@ fn test_costume_view_serialises_category_and_detail_is_pure_description() {
             text: "Knöpfe vorne".into(),
         }],
         photos: vec![],
+        season_ids: vec![],
         version: AggregateVersion(1),
         updated_at: chrono::Utc::now(),
     };
@@ -1391,4 +1419,278 @@ fn test_apply_costume_category_set_mutates_state() {
     );
     assert!(agg.category_id.is_none(), "apply(None) must clear");
     assert_eq!(agg.version, AggregateVersion(2));
+}
+
+// ---------------------------------------------------------------------------
+// Season repertoire as real aggregate state (issue #534)
+// ---------------------------------------------------------------------------
+
+fn make_costume_in_season(season_id: Option<SeasonId>) -> CostumeAggregate {
+    let agg = CostumeAggregate::default();
+    let events = agg
+        .handle(
+            CreateCostume {
+                id: Uuid::now_v7(),
+                season_id,
+                series_id: Some(series_id()),
+            },
+            make_ctx(),
+        )
+        .unwrap();
+    let mut applied = CostumeAggregate::default();
+    test_support::replay_events(&mut applied, events);
+    applied
+}
+
+#[test]
+fn test_costume_created_initializes_repertoire_from_season_id() {
+    let season = SeasonId::new();
+    let agg = make_costume_in_season(Some(season));
+    assert_eq!(agg.seasons, vec![season]);
+    assert_eq!(agg.version, AggregateVersion::INITIAL);
+    // No repertoire season on create (legacy stream shape) → empty list.
+    let bare = make_costume_in_season(None);
+    assert!(bare.seasons.is_empty());
+}
+
+#[test]
+fn test_add_costume_to_season_success() {
+    let agg = make_costume_in_season(None);
+    let season = SeasonId::new();
+    let events = agg
+        .handle(
+            AddCostumeToSeason {
+                id: agg.id,
+                season_id: season,
+                series_id: Some(series_id()),
+                version: agg.version,
+            },
+            make_ctx(),
+        )
+        .unwrap();
+    assert_eq!(events.len(), 1);
+    match &events[0] {
+        CostumeEvent::CostumeAddedToSeason {
+            id,
+            season_id: sid,
+            version,
+        } => {
+            assert_eq!(*id, agg.id);
+            assert_eq!(*sid, season.0);
+            assert_eq!(*version, agg.version.next());
+        }
+        other => panic!("expected CostumeAddedToSeason, got {other:?}"),
+    }
+    let mut replayed = CostumeAggregate::default();
+    test_support::replay_events(&mut replayed, events);
+    assert_eq!(replayed.seasons, vec![season]);
+    assert_eq!(replayed.version, agg.version.next());
+}
+
+#[test]
+fn test_add_costume_to_season_idempotent_no_event() {
+    // Issue #515 lesson: an already-present season is a state-based no-op —
+    // Ok(vec![]) (no event, no version bump), NOT an error and NOT a new
+    // event. The adapter maps this to an unchanged-version success.
+    let season = SeasonId::new();
+    let agg = make_costume_in_season(Some(season));
+    let result = agg.handle(
+        AddCostumeToSeason {
+            id: agg.id,
+            season_id: season,
+            series_id: Some(series_id()),
+            version: agg.version,
+        },
+        make_ctx(),
+    );
+    assert_eq!(result.unwrap(), Vec::<CostumeEvent>::new());
+}
+
+#[test]
+fn test_add_second_season_extends_repertoire() {
+    // The m:n lifecycle: costume built for season 1, carried into season 2 —
+    // both repertoire entries coexist.
+    let s1 = SeasonId::new();
+    let s2 = SeasonId::new();
+    let agg = make_costume_in_season(Some(s1));
+    let events = agg
+        .handle(
+            AddCostumeToSeason {
+                id: agg.id,
+                season_id: s2,
+                series_id: Some(series_id()),
+                version: agg.version,
+            },
+            make_ctx(),
+        )
+        .unwrap();
+    // Delta-replay: the add event applies ONTO the existing state (the
+    // repertoire already holds `s1` from `CostumeCreated`).
+    let mut replayed = agg.clone();
+    test_support::replay_events(&mut replayed, events);
+    assert_eq!(replayed.seasons, vec![s1, s2]);
+}
+
+#[test]
+fn test_remove_costume_from_season_success() {
+    let s1 = SeasonId::new();
+    let s2 = SeasonId::new();
+    let agg = make_costume_in_season(Some(s1));
+    let events = agg
+        .handle(
+            AddCostumeToSeason {
+                id: agg.id,
+                season_id: s2,
+                series_id: Some(series_id()),
+                version: agg.version,
+            },
+            make_ctx(),
+        )
+        .unwrap();
+    let mut with_two = agg.clone();
+    test_support::replay_events(&mut with_two, events);
+
+    let remove_events = with_two
+        .handle(
+            RemoveCostumeFromSeason {
+                id: with_two.id,
+                season_id: s1,
+                series_id: Some(series_id()),
+                version: with_two.version,
+            },
+            make_ctx(),
+        )
+        .unwrap();
+    assert_eq!(remove_events.len(), 1);
+    match &remove_events[0] {
+        CostumeEvent::CostumeRemovedFromSeason {
+            id,
+            season_id: sid,
+            version,
+        } => {
+            assert_eq!(*id, with_two.id);
+            assert_eq!(*sid, s1.0);
+            assert_eq!(*version, with_two.version.next());
+        }
+        other => panic!("expected CostumeRemovedFromSeason, got {other:?}"),
+    }
+    let mut replayed = with_two.clone();
+    test_support::replay_events(&mut replayed, remove_events);
+    assert_eq!(replayed.seasons, vec![s2]);
+}
+
+#[test]
+fn test_remove_costume_from_season_idempotent_no_event() {
+    // Removing a season that is not in the repertoire is the mirror no-op.
+    let agg = make_costume_in_season(Some(SeasonId::new()));
+    let result = agg.handle(
+        RemoveCostumeFromSeason {
+            id: agg.id,
+            season_id: SeasonId::new(),
+            series_id: Some(series_id()),
+            version: agg.version,
+        },
+        make_ctx(),
+    );
+    assert_eq!(result.unwrap(), Vec::<CostumeEvent>::new());
+}
+
+#[test]
+fn test_remove_last_season_allowed_empty_repertoire() {
+    // Decision (issue #534 discussion): an empty repertoire is legitimate —
+    // the authz scope falls back to the character's season. No special case
+    // blocks removing the final entry.
+    let s1 = SeasonId::new();
+    let agg = make_costume_in_season(Some(s1));
+    let events = agg
+        .handle(
+            RemoveCostumeFromSeason {
+                id: agg.id,
+                season_id: s1,
+                series_id: Some(series_id()),
+                version: agg.version,
+            },
+            make_ctx(),
+        )
+        .unwrap();
+    let mut replayed = CostumeAggregate::default();
+    test_support::replay_events(&mut replayed, events);
+    assert!(replayed.seasons.is_empty());
+}
+
+#[test]
+fn test_repertoire_version_chain() {
+    // Each repertoire mutation bumps the aggregate version exactly once —
+    // the optimistic-concurrency fence stays intact across the lifecycle.
+    let s1 = SeasonId::new();
+    let s2 = SeasonId::new();
+    let agg = make_costume_in_season(Some(s1));
+    assert_eq!(agg.version, AggregateVersion::INITIAL);
+
+    let events = agg
+        .handle(
+            AddCostumeToSeason {
+                id: agg.id,
+                season_id: s2,
+                series_id: Some(series_id()),
+                version: agg.version,
+            },
+            make_ctx(),
+        )
+        .unwrap();
+    let mut v2 = agg.clone();
+    test_support::replay_events(&mut v2, events);
+    assert_eq!(v2.version, AggregateVersion::INITIAL.next());
+
+    let events = v2
+        .handle(
+            RemoveCostumeFromSeason {
+                id: v2.id,
+                season_id: s1,
+                series_id: Some(series_id()),
+                version: v2.version,
+            },
+            make_ctx(),
+        )
+        .unwrap();
+    let mut v3 = v2.clone();
+    test_support::replay_events(&mut v3, events);
+    assert_eq!(v3.version, AggregateVersion::INITIAL.next().next());
+    assert_eq!(v3.seasons, vec![s2]);
+}
+
+#[test]
+fn test_legacy_created_event_without_season_id_replays_to_empty_repertoire() {
+    // Replay compatibility (issue #534): pre-#453 `CostumeCreated` events
+    // carry no `season_id`; `serde(default)` must deserialize them as `None`
+    // without panic, and the repertoire starts empty.
+    let json = serde_json::json!({
+        "type": "CostumeCreated",
+        "id": Uuid::now_v7(),
+        "character_id": null,
+        "notes": "",
+        "details": [],
+        "photos": [],
+        "version": 1
+    });
+    // The event enum serializes externally tagged; deserialize via the
+    // variant's shape: serde for enum-with-named-fields in JSON uses
+    // {"CostumeCreated": {...}} when externally tagged.
+    let tagged = serde_json::json!({
+        "CostumeCreated": json
+    });
+    let event: CostumeEvent =
+        serde_json::from_value(tagged).expect("legacy event must deserialize");
+    match event {
+        CostumeEvent::CostumeCreated {
+            season_id, version, ..
+        } => {
+            assert_eq!(season_id, None);
+            assert_eq!(version, AggregateVersion(1));
+        }
+        other => panic!("expected CostumeCreated, got {other:?}"),
+    }
+    let mut agg = CostumeAggregate::default();
+    test_support::replay_events(&mut agg, vec![event]);
+    assert!(agg.seasons.is_empty(), "no panic, empty repertoire");
 }
