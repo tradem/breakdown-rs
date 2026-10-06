@@ -44,8 +44,14 @@ SCAN_DIRS=(
 # membership check. Files with no gated calls at all are ignored.
 has_gate() {
   local file="$1"
-  grep -q 'AUTHZ-GATE' "$file" &&
-    grep -q 'currentMembershipProvider' "$file"
+  grep -q 'AUTHZ-GATE' "$file" && {
+    # Issue #535: the series-scoped costume-photo gate reads
+    # `seriesMembershipForSeasonProvider` (the backend-computed
+    # `has_active_costume_role_in_series`); accept it alongside the
+    # season provider.
+    grep -q 'currentMembershipProvider' "$file" ||
+      grep -q 'seriesMembershipForSeasonProvider' "$file"
+  }
 }
 
 # True when the file calls a gated endpoint on a NON-comment line (doc

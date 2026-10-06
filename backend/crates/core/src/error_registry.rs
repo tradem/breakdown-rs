@@ -37,7 +37,7 @@ pub const PROBLEM_DOCS_BASE: &str = "https://docs.breakdown.example";
 /// Kept in sync with the `problem_codes!` invocation below by a compile-time
 /// assertion — adding or removing a code without deliberately updating this
 /// count fails the build (issue #232).
-const PROBLEM_CODE_COUNT: usize = 91;
+const PROBLEM_CODE_COUNT: usize = 92;
 
 /// One registered problem code (ADR-031 D2/D4).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -520,6 +520,19 @@ problem_codes! {
         code: "costume.validation",
         status: 422,
         title: "Costume validation failed",
+        extensions: &[],
+    },
+
+    /// The costume exists but has neither a character it is assigned to nor
+    /// a repertoire season it stands in — its owning container (series)
+    /// cannot be resolved, so the scoped photo authorization cannot even run
+    /// (issue #535). Not `costume.not-found` (the costume itself exists) and
+    /// not `costume.validation` (nothing about the request was malformed):
+    /// a distinct 422 so the client can reconcile via refetch.
+    COSTUME_CONTAINER_UNRESOLVED {
+        code: "costume.container-unresolved",
+        status: 422,
+        title: "Costume has no resolvable container",
         extensions: &[],
     },
 

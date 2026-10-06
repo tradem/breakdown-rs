@@ -63,9 +63,9 @@ use breakdown_core::episode::ports::{EpisodeCommands, EpisodeRepository};
 use breakdown_core::episode::views::EpisodeView;
 use breakdown_core::error::DomainError;
 use breakdown_core::error_registry::{
-    BLOCK_NUMBER_ALREADY_EXISTS, COSTUME_CATEGORY_ARCHIVED, EPISODE_NUMBER_ALREADY_EXISTS,
-    MEMBERSHIP_NOT_FOUND, SCENE_SHOOT_PAIR_ALREADY_EXISTS, SEASON_ARCHIVED, SEASON_NOT_FOUND,
-    SEASON_NUMBER_ALREADY_EXISTS,
+    BLOCK_NUMBER_ALREADY_EXISTS, COSTUME_CATEGORY_ARCHIVED, COSTUME_CONTAINER_UNRESOLVED,
+    EPISODE_NUMBER_ALREADY_EXISTS, MEMBERSHIP_NOT_FOUND, SCENE_SHOOT_PAIR_ALREADY_EXISTS,
+    SEASON_ARCHIVED, SEASON_NOT_FOUND, SEASON_NUMBER_ALREADY_EXISTS,
 };
 use breakdown_core::membership::policy::{Action, PolicyDecision, SeasonAuthContext};
 use breakdown_core::membership::views::MembershipView;
@@ -822,19 +822,20 @@ async fn membership_gate_any<P: Ports>(
 }
 
 /// AUTHZ-GATE seam for costume handlers performing privileged, season-scoped
-/// actions on a costume the middleware alone cannot scope (issue #543; before
-/// that, the three photo handlers `upload_costume_photo`,
-/// `get_costume_photo_bytes`, `delete_costume_photo` — issue #532). Authorize
-/// the caller against **any** season scope the costume belongs to, and return
-/// that season.
+/// actions on a costume the middleware alone cannot scope (issue #543).
+/// Authorize the caller against **any** season scope the costume belongs to,
+/// and return that season.
 ///
-/// All three photo handlers (`upload_costume_photo`,
-/// `get_costume_photo_bytes`, `delete_costume_photo`) route their
-/// handler-internal authorization through this one function. Before issue
-/// #532 they only ever looked at the character's season, so a costume that
-/// carries a repertoire season (which the client always sets, issue #453) was
-/// rejected as "unassigned" even though the server already knew the season —
-/// a lookup omission, not a feature.
+/// Before issue #532 the photo handlers only ever looked at the character's
+/// season, so a costume that carries a repertoire season (which the client
+/// always sets, issue #453) was rejected as "unassigned" even though the
+/// server already knew the season — a lookup omission, not a feature.
+/// As of issue #535 (ADR-035 B2/S2) the **photo** path no longer routes
+/// through this helper: those three handlers gate series-wide via
+/// [`authorize_costume_in_series`]. What remains here are the genuinely
+/// season-scoped costume operations — detail editing (#543/#544),
+/// `set_costume_category` (season-match invariant) and the repertoire
+/// commands' **target-season** gate (#534, #533 terminal semantics).
 ///
 /// The ANY semantics are required because the repertoire binding is m:n: a
 /// costume may stand in several seasons' repertoires, and holding the costume
@@ -868,6 +869,54 @@ async fn authorize_costume_scoped<P: Ports>(
         ));
     }
     membership_gate_any(state, scopes, user_id, denial).await
+}
+
+/// AUTHZ-GATE seam for the three costume-photo handlers
+/// (`upload_costume_photo`, `get_costume_photo_bytes`, `delete_costume_photo`)
+/// as of issue #535 (ADR-035 B2/S2): resolve the **series** that owns
+/// `costume` and require a costume-department role in any active block of
+/// that series.
+///
+/// This is the documented authorization-boundary **widening** (deliberate,
+/// reviewed in the issue): whoever holds a costume-dept role anywhere in the
+/// series can afterwards read/write the photos of all costumes in that
+/// series — not only those of their own season. The costume department is
+/// institutionally a cross-season domain (the `any active block` semantics of
+/// the existing predicates), and a carried-over costume would otherwise be
+/// unmanageable for the wardrobe team that brought it into its new season.
+/// The season union (`costume_season_scopes`) must **not** be re-introduced
+/// here as an authorization input.
+///
+/// The series resolution is the best-effort [`series_id_for_costume`] lookup
+/// at the API edge (the only legitimate read-model consumer per the CQRS
+/// boundary hard rule). A costume with neither a character nor a repertoire
+/// season cannot name a container at all → 422
+/// `costume.container-unresolved` (registered problem code, issue #535).
+///
+/// Error behavior follows the issue #537 doctrine: `Ok(true)` passes,
+/// `Ok(false)` is a genuine 403 ([denial]), and a failed predicate lookup
+/// fails closed as a 500 — never a masquerading 403 ([`membership_gate`]).
+async fn authorize_costume_in_series<P: Ports>(
+    state: &AppState<P>,
+    costume: &CostumeView,
+    user_id: UserId,
+    denial: &'static str,
+) -> Result<(), ApiError> {
+    let series_id = series_id_for_costume(state, costume.id).await?;
+    let Some(series_id) = series_id else {
+        return Err(ApiError::Domain(DomainError::Validation {
+            code: &COSTUME_CONTAINER_UNRESOLVED,
+            reason: "costume has no assigned character and no season repertoire — cannot determine its series".into(),
+        }));
+    };
+    membership_gate(
+        state
+            .ports
+            .membership_repo()
+            .has_active_costume_role_in_series(series_id, user_id),
+        || ApiError::Forbidden(denial),
+    )
+    .await
 }
 
 #[utoipa::path(
@@ -1060,6 +1109,60 @@ fn derive_capabilities(has_active_costume_role_in_season: bool) -> Vec<String> {
     } else {
         Vec::new()
     }
+}
+
+/// Series membership DTO — the series-level counterpart of
+/// [`SeasonMembershipDto`] for the client-side AUTHZ-GATE mirror of the
+/// costume-photo policy (issue #535, ADR-035 B2/S2: photos authorize
+/// series-wide, so the client needs a series-level, backend-computed signal).
+///
+/// `has_active_costume_role_in_series` is the backend-computed predicate the
+/// client must NOT re-implement (CQRS-boundary rule). `capabilities` reuses
+/// the same v1 mapping; the photo gates read the predicate field directly.
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct SeriesMembershipDto {
+    pub series_id: Uuid,
+    pub has_active_costume_role_in_series: bool,
+    #[schema(value_type = Vec<String>)]
+    pub capabilities: Vec<String>,
+}
+
+#[utoipa::path(
+    get,
+    path = "/series/{id}/membership",
+    params(("id" = Uuid, Path, description = "Series id")),
+    responses(
+        (status = 200, body = SeriesMembershipDto, description = "Membership of the authenticated caller in the series"),
+        (status = 401, body = ProblemDetails, description = "Authentication required"),
+    ),
+)]
+pub async fn get_series_membership<P: Ports>(
+    State(state): State<AppState<P>>,
+    current_user: CurrentUser,
+    Path(id): Path<Uuid>,
+) -> ApiResult<SeriesMembershipDto> {
+    // No existence check by design: `SeriesId` is an opaque UUIDv7 tenancy
+    // seam with no aggregate and no projection of its own (ADR-035 D1/B5) —
+    // the membership predicate itself is the only queryable fact. An unknown
+    // series yields `false`, which the client gate treats identically to a
+    // denial by the server (which stays authoritative).
+
+    // Backend-computed membership predicate — the single source of truth for
+    // the client-side AUTHZ-GATE (issue #535).
+    let has_role = state
+        .ports
+        .membership_repo()
+        .has_active_costume_role_in_series(SeriesId::from_uuid(id), current_user.sub.clone())
+        .await?;
+
+    Ok((
+        StatusCode::OK,
+        Json(SeriesMembershipDto {
+            series_id: id,
+            has_active_costume_role_in_series: has_role,
+            capabilities: derive_capabilities(has_role),
+        }),
+    ))
 }
 
 #[utoipa::path(
@@ -3392,18 +3495,21 @@ pub async fn upload_costume_photo<P: Ports>(
         ));
     }
 
-    // Fetch the costume to resolve its season scopes for authorization.
+    // Fetch the costume to resolve its owning series for authorization.
     let costume = state.ports.costume_repo().find_by_id(costume_id).await?;
 
-    // AUTHZ-GATE: authorize_season — handler-internal auth gate (see AGENTS.md),
-    // against ANY scope of the costume (character season ∪ repertoire seasons,
-    // issue #532). An unassigned costume in the season's repertoire is allowed;
-    // only a costume with no scope at all stays a 422.
-    let _season_id = authorize_costume_scoped(
+    // AUTHZ-GATE: authorize_costume_in_series — handler-internal auth gate
+    // (see AGENTS.md). Since issue #535 (ADR-035 B2/S2) the photo policy is
+    // **series-scoped**: a costume-dept role in any active block of the
+    // costume's owning series authorizes the upload (deliberate boundary
+    // widening, documented in the security architecture). An unassigned
+    // costume reachable via its repertoire is allowed; a costume with no
+    // resolvable container answers 422 `costume.container-unresolved`.
+    authorize_costume_in_series(
         &state,
         &costume,
         current_user.sub.clone(),
-        "not authorized to upload photos in this season",
+        "not authorized to upload photos in this series",
     )
     .await?;
 
@@ -3558,16 +3664,17 @@ pub async fn get_costume_photo_bytes<P: Ports>(
     Path((costume_id, photo_id)): Path<(Uuid, Uuid)>,
     Query(query): Query<PhotoBytesQuery>,
 ) -> Result<(StatusCode, axum::http::HeaderMap, Vec<u8>), ApiError> {
-    // Fetch the costume to resolve its season scopes for authorization.
+    // Fetch the costume to resolve its owning series for authorization.
     let costume = state.ports.costume_repo().find_by_id(costume_id).await?;
 
-    // AUTHZ-GATE: authorize_season — handler-internal auth gate (see AGENTS.md),
-    // against ANY scope of the costume (issue #532 — same seam as upload/delete).
-    let _season_id = authorize_costume_scoped(
+    // AUTHZ-GATE: authorize_costume_in_series — handler-internal auth gate
+    // (see AGENTS.md). Series-scoped photo policy as of issue #535
+    // (ADR-035 B2/S2) — same seam as upload/delete.
+    authorize_costume_in_series(
         &state,
         &costume,
         current_user.sub.clone(),
-        "not authorized to download photos in this season",
+        "not authorized to download photos in this series",
     )
     .await?;
 
@@ -3644,16 +3751,17 @@ pub async fn delete_costume_photo<P: Ports>(
     current_user: CurrentUser,
     Path((costume_id, photo_id)): Path<(Uuid, Uuid)>,
 ) -> ApiResult<()> {
-    // Fetch the costume to resolve its season scopes for authorization.
+    // Fetch the costume to resolve its owning series for authorization.
     let costume = state.ports.costume_repo().find_by_id(costume_id).await?;
 
-    // AUTHZ-GATE: authorize_season — handler-internal auth gate (see AGENTS.md),
-    // against ANY scope of the costume (issue #532 — same seam as upload/bytes).
-    let _season_id = authorize_costume_scoped(
+    // AUTHZ-GATE: authorize_costume_in_series — handler-internal auth gate
+    // (see AGENTS.md). Series-scoped photo policy as of issue #535
+    // (ADR-035 B2/S2) — same seam as upload/bytes.
+    authorize_costume_in_series(
         &state,
         &costume,
         current_user.sub.clone(),
-        "not authorized to delete photos in this season",
+        "not authorized to delete photos in this series",
     )
     .await?;
 
@@ -6925,6 +7033,10 @@ pub fn routes() -> Router<AppState<ProductionPorts>> {
         .route(
             "/seasons/{id}/membership",
             routing::get(get_season_membership::<ProductionPorts>),
+        )
+        .route(
+            "/series/{id}/membership",
+            routing::get(get_series_membership::<ProductionPorts>),
         )
         .route(
             "/seasons/{id}/name",

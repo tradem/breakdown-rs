@@ -1285,28 +1285,46 @@ class _PhotosSectionState extends ConsumerState<_PhotosSection> {
 
   @override
   Widget build(BuildContext context) {
-    final membership = ref.watch(currentMembershipProvider(widget.season.id));
-    final canUpload = switch (membership) {
-      AsyncData(:final value) => value.canUploadContinuityPhotos,
+    // Issue #535: the costume-photo policy is **series-scoped** server-side
+    // (ADR-035 B2/S2), so the widget gate mirrors the backend-computed series
+    // predicate (`has_active_costume_role_in_series` via
+    // [seriesMembershipForSeasonProvider], resolved through this screen's
+    // season → series link) — NOT the season capability: a role in another
+    // season of the same series grants photo access, and denying on the
+    // season union would block flows the server permits.
+    final membership = ref.watch(
+      seriesMembershipForSeasonProvider(widget.season.id),
+    );
+    final hasSeriesRole = switch (membership) {
+      AsyncData(:final value) => value.match(
+        (_) => false,
+        (dto) => dto.hasActiveCostumeRoleInSeries,
+      ),
       _ => false,
     };
     final denied = switch (membership) {
-      AsyncData(:final value) => !value.canUploadContinuityPhotos,
+      AsyncData(:final value) => value.match(
+        (_) => false,
+        (dto) => !dto.hasActiveCostumeRoleInSeries,
+      ),
       _ => false,
     };
-    // Photo affordances are gated on the membership capability only. The
-    // costume's season *scope* is the server's call (issue #532): an
-    // unassigned costume that stands in the season's repertoire (which is how
-    // the client creates every costume, issue #453) CAN manage photos, so no
-    // client-side character-assignment gate remains here. A costume with no
-    // scope at all is rejected by the server with `domain.validation`, which
-    // surfaces through the photo command-error copy.
-    final canManagePhotos = canUpload;
+    // Photo affordances are gated on the backend-computed series predicate
+    // only. The costume's series *resolution* is the server's call (issue
+    // #532): an unassigned costume that stands in a repertoire season (which
+    // is how the client creates every costume, issue #453) CAN manage photos,
+    // so no client-side character-assignment gate remains here. A costume
+    // with no resolvable container is rejected by the server with 422
+    // `costume.container-unresolved`, which surfaces through the photo
+    // command-error copy.
+    final canManagePhotos = hasSeriesRole;
     // Do not construct the network-backed photo repository while the
     // capability is denied or still pending. This keeps the overview's
     // inline editor renderable during membership resolution and enforces the
     // client-side photo gate before any bytes request.
-    final repo = canUpload ? ref.watch(costumePhotoRepositoryProvider) : null;
+    final repo = hasSeriesRole
+        ? ref.watch(costumePhotoRepositoryProvider)
+        : null;
     final lru = ref.watch(photoBytesLruProvider);
 
     return Column(

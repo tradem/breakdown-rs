@@ -118,6 +118,7 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..add(SeasonMembershipDto.serializer)
       ..add(SeasonView.serializer)
       ..add(SerializedNote.serializer)
+      ..add(SeriesMembershipDto.serializer)
       ..add(SetActualOrderRequest.serializer)
       ..add(SetCostumeCategoryRequest.serializer)
       ..add(SettingsView.serializer)
@@ -225,6 +226,9 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..addBuilderFactory(
           const FullType(BuiltList, const [const FullType(SollIstDiffRow)]),
           () => ListBuilder<SollIstDiffRow>())
+      ..addBuilderFactory(
+          const FullType(BuiltList, const [const FullType(String)]),
+          () => ListBuilder<String>())
       ..addBuilderFactory(
           const FullType(BuiltList, const [const FullType(String)]),
           () => ListBuilder<String>())

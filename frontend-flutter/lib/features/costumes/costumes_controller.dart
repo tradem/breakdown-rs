@@ -342,16 +342,22 @@ class CostumesController extends _$CostumesController {
   }
 
   /// Client-side AUTHZ-GATE for photo commands (upload/delete): the
-  /// season-scoped photo policy mirror (`upload_continuity_photos`).
+  /// **series-scoped** photo policy mirror (issue #535, ADR-035 B2/S2) —
+  /// the backend-computed `has_active_costume_role_in_series` predicate,
+  /// resolved through the screen's season → series link. A client-side
+  /// denial short-circuits with the localized 403 narrative and never
+  /// issues the request.
   Future<GateDecision> _photoGate() async {
     final session = await _resolveSession();
     if (session == null) return const GateDeny('auth.session_required');
     GateDecision gate;
     try {
-      final res = await ref.read(membershipFetchProvider(seasonId).future);
+      final res = await ref.read(
+        seriesMembershipForSeasonProvider(seasonId).future,
+      );
       gate = res.match(
         (_) => const GateDeny('membership.pending'),
-        (dto) => checkPhotoCapability(dto),
+        checkCostumePhotoCapability,
       );
     } on Object {
       gate = const GateDeny('membership.pending');
@@ -1206,12 +1212,14 @@ class CostumesController extends _$CostumesController {
   /// Returns the Gallery ack; the screen reconciles via the costume refetch
   /// + [PhotoRepository.watch].
   ///
-  /// // AUTHZ-GATE: season-scoped photo policy checked before the call. The
-  /// season *scope* of the costume is the server's call (issue #532): an
-  /// unassigned costume in the season's repertoire is uploadable, so the
-  /// client no longer pre-denies a `null` character binding (issue #513's
-  /// client mirror). The server's `domain.validation` for a costume with no
-  /// scope at all renders through [photoErrorCopy].
+  /// // AUTHZ-GATE: **series-scoped** photo policy checked before the call
+  /// (issue #535, ADR-035 B2/S2 — the mirror reads the backend-computed
+  /// `has_active_costume_role_in_series`). The costume's owning series is
+  /// resolved server-side (issue #532): an unassigned costume in the
+  /// repertoire is uploadable, so the client no longer pre-denies a `null`
+  /// character binding (issue #513's client mirror). The server's
+  /// `costume.container-unresolved` for a costume with no resolvable
+  /// container renders through [photoErrorCopy].
   Future<Result<PhotoView>> uploadPhoto({
     required String costumeId,
     required Uint8ListBytes bytes,
@@ -1240,9 +1248,9 @@ class CostumesController extends _$CostumesController {
   /// Deletes a costume photo (confirm-first in the UI; 204 → optimistic
   /// removal + reconcile).
   ///
-  /// // AUTHZ-GATE: season-scoped photo policy checked before the call; the
-  /// costume's season *scope* is resolved by the server (issue #532) for the
-  /// same reason as [uploadPhoto].
+  /// // AUTHZ-GATE: **series-scoped** photo policy checked before the call
+  /// (issue #535); the costume's owning series is resolved by the server
+  /// (issue #532) for the same reason as [uploadPhoto].
   Future<Result<void>> deletePhoto({
     required String costumeId,
     required String photoId,

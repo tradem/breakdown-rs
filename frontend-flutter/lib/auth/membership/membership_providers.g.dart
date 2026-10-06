@@ -123,6 +123,143 @@ final class MembershipFetchFamily extends $Family
   String toString() => r'membershipFetchProvider';
 }
 
+/// The series-level membership fetch (issue #535) — the client-side
+/// AUTHZ-GATE source for the **series-scoped costume-photo policy**
+/// (ADR-035 B2/S2). Keyed by [seasonId]: the season's owning series is
+/// resolved through the season projection (the season → series link is the
+/// only way a season-scoped screen can name the tenant; D1 read path —
+/// Drift cache first, network GET `/v1/seasons/{id}` + upsert on miss),
+/// then `GET /v1/series/{seriesId}/membership` answers the predicate.
+///
+/// Dev-auth mode short-circuits to the permissive (or overridden-denial)
+/// series membership without any network call.
+
+@ProviderFor(seriesMembershipForSeason)
+final seriesMembershipForSeasonProvider = SeriesMembershipForSeasonFamily._();
+
+/// The series-level membership fetch (issue #535) — the client-side
+/// AUTHZ-GATE source for the **series-scoped costume-photo policy**
+/// (ADR-035 B2/S2). Keyed by [seasonId]: the season's owning series is
+/// resolved through the season projection (the season → series link is the
+/// only way a season-scoped screen can name the tenant; D1 read path —
+/// Drift cache first, network GET `/v1/seasons/{id}` + upsert on miss),
+/// then `GET /v1/series/{seriesId}/membership` answers the predicate.
+///
+/// Dev-auth mode short-circuits to the permissive (or overridden-denial)
+/// series membership without any network call.
+
+final class SeriesMembershipForSeasonProvider
+    extends
+        $FunctionalProvider<
+          AsyncValue<Result<SeriesMembershipDto>>,
+          Result<SeriesMembershipDto>,
+          FutureOr<Result<SeriesMembershipDto>>
+        >
+    with
+        $FutureModifier<Result<SeriesMembershipDto>>,
+        $FutureProvider<Result<SeriesMembershipDto>> {
+  /// The series-level membership fetch (issue #535) — the client-side
+  /// AUTHZ-GATE source for the **series-scoped costume-photo policy**
+  /// (ADR-035 B2/S2). Keyed by [seasonId]: the season's owning series is
+  /// resolved through the season projection (the season → series link is the
+  /// only way a season-scoped screen can name the tenant; D1 read path —
+  /// Drift cache first, network GET `/v1/seasons/{id}` + upsert on miss),
+  /// then `GET /v1/series/{seriesId}/membership` answers the predicate.
+  ///
+  /// Dev-auth mode short-circuits to the permissive (or overridden-denial)
+  /// series membership without any network call.
+  SeriesMembershipForSeasonProvider._({
+    required SeriesMembershipForSeasonFamily super.from,
+    required String super.argument,
+  }) : super(
+         retry: null,
+         name: r'seriesMembershipForSeasonProvider',
+         isAutoDispose: true,
+         dependencies: null,
+         $allTransitiveDependencies: null,
+       );
+
+  @override
+  String debugGetCreateSourceHash() => _$seriesMembershipForSeasonHash();
+
+  @override
+  String toString() {
+    return r'seriesMembershipForSeasonProvider'
+        ''
+        '($argument)';
+  }
+
+  @$internal
+  @override
+  $FutureProviderElement<Result<SeriesMembershipDto>> $createElement(
+    $ProviderPointer pointer,
+  ) => $FutureProviderElement(pointer);
+
+  @override
+  FutureOr<Result<SeriesMembershipDto>> create(Ref ref) {
+    final argument = this.argument as String;
+    return seriesMembershipForSeason(ref, argument);
+  }
+
+  @override
+  bool operator ==(Object other) {
+    return other is SeriesMembershipForSeasonProvider &&
+        other.argument == argument;
+  }
+
+  @override
+  int get hashCode {
+    return argument.hashCode;
+  }
+}
+
+String _$seriesMembershipForSeasonHash() =>
+    r'07b308378df00c52dc0b32212d4322b23f031d84';
+
+/// The series-level membership fetch (issue #535) — the client-side
+/// AUTHZ-GATE source for the **series-scoped costume-photo policy**
+/// (ADR-035 B2/S2). Keyed by [seasonId]: the season's owning series is
+/// resolved through the season projection (the season → series link is the
+/// only way a season-scoped screen can name the tenant; D1 read path —
+/// Drift cache first, network GET `/v1/seasons/{id}` + upsert on miss),
+/// then `GET /v1/series/{seriesId}/membership` answers the predicate.
+///
+/// Dev-auth mode short-circuits to the permissive (or overridden-denial)
+/// series membership without any network call.
+
+final class SeriesMembershipForSeasonFamily extends $Family
+    with
+        $FunctionalFamilyOverride<
+          FutureOr<Result<SeriesMembershipDto>>,
+          String
+        > {
+  SeriesMembershipForSeasonFamily._()
+    : super(
+        retry: null,
+        name: r'seriesMembershipForSeasonProvider',
+        dependencies: null,
+        $allTransitiveDependencies: null,
+        isAutoDispose: true,
+      );
+
+  /// The series-level membership fetch (issue #535) — the client-side
+  /// AUTHZ-GATE source for the **series-scoped costume-photo policy**
+  /// (ADR-035 B2/S2). Keyed by [seasonId]: the season's owning series is
+  /// resolved through the season projection (the season → series link is the
+  /// only way a season-scoped screen can name the tenant; D1 read path —
+  /// Drift cache first, network GET `/v1/seasons/{id}` + upsert on miss),
+  /// then `GET /v1/series/{seriesId}/membership` answers the predicate.
+  ///
+  /// Dev-auth mode short-circuits to the permissive (or overridden-denial)
+  /// series membership without any network call.
+
+  SeriesMembershipForSeasonProvider call(String seasonId) =>
+      SeriesMembershipForSeasonProvider._(argument: seasonId, from: this);
+
+  @override
+  String toString() => r'seriesMembershipForSeasonProvider';
+}
+
 /// The client-side AUTHZ-GATE source (D2/D3).
 ///
 /// `currentMembershipProvider(seasonId)` exposes an

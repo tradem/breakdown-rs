@@ -7,23 +7,34 @@ import 'package:breakdown_api/breakdown_api.dart';
 
 import 'membership/capability.dart';
 
-/// Shared client-side capability gate mirroring the season-scoped photo
-/// policy (flutter-costume-domains Task 2.1).
+/// Shared client-side capability gate mirroring the backend authorization
+/// policies (flutter-costume-domains Task 2.1; series-level photo policy
+/// since issue #535).
 ///
 /// Every photo upload, bytes fetch and delete — and every costume assign /
-/// unassign command — runs [checkCapability] BEFORE the network call,
-/// annotated with a `// AUTHZ-GATE:` comment at the dispatch site. A
-/// client-side denial renders a localized 403 narrative and never issues
-/// the request (provable in tests by a fake repository call count of zero).
+/// unassign command — runs a check BEFORE the network call, annotated with
+/// a `// AUTHZ-GATE:` comment at the dispatch site. A client-side denial
+/// renders a localized 403 narrative and never issues the request (provable
+/// in tests by a fake repository call count of zero).
 ///
 /// The server remains authoritative and re-checks authorization on every
 /// gated handler — a client `true` is a gate decision only (AGENTS.md §5).
 ///
-/// v1 capability set (both derived server-side from
+/// **Two scopes, two gates (issue #535):**
+/// * **Costume photos** (`/costumes/{id}/photos*`) authorize **series-wide**
+///   server-side (`has_active_costume_role_in_series`, ADR-035 B2/S2) — the
+///   mirror reads the backend-computed series predicate from
+///   `SeriesMembershipDto` via [checkCostumePhotoCapability].
+/// * **Continuity photos** (scene-shoot bound) stay **season-scoped**
+///   server-side (`has_active_costume_role_in_season` via the
+///   shooting_day → episode → block → season chain) — the mirror keeps the
+///   season DTO via [checkContinuityCapability].
+///
+/// v1 capability set (season DTO, derived server-side from
 /// `has_active_costume_role_in_season`):
 /// * `assign_costumes` — costume assign/unassign, scene-character binding.
-/// * `upload_continuity_photos` — photo upload/bytes/delete (season-scoped
-///   photo policy mirror, D3).
+/// * `upload_continuity_photos` — continuity photos (season-scoped policy
+///   mirror, D3).
 enum GatedCapability {
   assignCostumes('assign_costumes'),
   uploadPhotos('upload_continuity_photos'),
@@ -87,8 +98,23 @@ GateDecision checkCapability(
   }
 }
 
-/// Convenience: photo upload/bytes/delete gate (season-scoped photo policy).
-GateDecision checkPhotoCapability(SeasonMembershipDto? membership) =>
+/// Convenience: costume photo upload/bytes/delete gate — **series-scoped**
+/// photo policy mirror (issue #535, ADR-035 B2/S2). Reads the
+/// backend-computed series predicate directly (exactly the
+/// `canViewReports` pattern); a client `true` is a gate decision only, the
+/// server re-checks on every gated handler.
+GateDecision checkCostumePhotoCapability(SeriesMembershipDto? membership) {
+  if (membership == null) return const GateDeny('membership.pending');
+  return membership.hasActiveCostumeRoleInSeries
+      ? const GateAllow()
+      : const GateDeny('photo.forbidden');
+}
+
+/// Convenience: **continuity photo** gate (scene-shoot bound) — stays
+/// season-scoped (the server's continuity-photo handlers gate on the
+/// season predicate via the shooting_day → episode → block → season
+/// chain), so the mirror reads the season DTO.
+GateDecision checkContinuityCapability(SeasonMembershipDto? membership) =>
     checkCapability(
       membership,
       GatedCapability.uploadPhotos,

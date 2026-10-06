@@ -122,6 +122,7 @@ import 'package:breakdown_api/src/model/script_context.dart';
 import 'package:breakdown_api/src/model/season_membership_dto.dart';
 import 'package:breakdown_api/src/model/season_view.dart';
 import 'package:breakdown_api/src/model/serialized_note.dart';
+import 'package:breakdown_api/src/model/series_membership_dto.dart';
 import 'package:breakdown_api/src/model/set_actual_order_request.dart';
 import 'package:breakdown_api/src/model/set_costume_category_request.dart';
 import 'package:breakdown_api/src/model/settings_view.dart';
@@ -264,6 +265,7 @@ part 'serializers.g.dart';
   SeasonMembershipDto,
   SeasonView,
   SerializedNote,
+  SeriesMembershipDto,
   SetActualOrderRequest,
   SetCostumeCategoryRequest,
   SettingsView,

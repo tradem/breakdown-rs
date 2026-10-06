@@ -587,6 +587,10 @@ pub struct FakeMembershipRepo {
     /// tests exercise the allow/deny branches of the series-scoped audit gate
     /// (issue #342). `None` = resolve from seeded data.
     pub series_membership_override: Arc<Mutex<Option<Result<bool, DomainError>>>>,
+    /// Configurable outcome of `has_active_costume_role_in_series` — lets
+    /// handler tests exercise the allow/deny/error branches of the series-scoped
+    /// photo gate (issue #535). `None` = resolve from seeded data.
+    pub series_costume_role_override: Arc<Mutex<Option<Result<bool, DomainError>>>>,
 }
 
 #[allow(dead_code)]
@@ -784,6 +788,31 @@ impl MembershipRepository for FakeMembershipRepo {
         Ok(rows.iter().any(|(block_id, row_user, _, state)| {
             row_user == &user_id
                 && *state == MembershipStateKind::Active
+                && scopes
+                    .get(block_id)
+                    .is_some_and(|(_, series)| series == &series_id)
+        }))
+    }
+
+    async fn has_active_costume_role_in_series(
+        &self,
+        series_id: SeriesId,
+        user_id: UserId,
+    ) -> Result<bool, DomainError> {
+        if let Some(result) = self.series_costume_role_override.lock().await.clone() {
+            return result;
+        }
+        // Series-scoped costume-role allowlist over the seeded rows (issue
+        // #535): the photo-gate predicate. Unscoped rows never match.
+        let rows = self.rows().await;
+        let scopes = self.scopes.lock().await;
+        Ok(rows.iter().any(|(block_id, row_user, role, state)| {
+            row_user == &user_id
+                && *state == MembershipStateKind::Active
+                && matches!(
+                    role,
+                    Role::CostumeDesigner | Role::WardrobeSupervisor | Role::CostumeAssistant
+                )
                 && scopes
                     .get(block_id)
                     .is_some_and(|(_, series)| series == &series_id)

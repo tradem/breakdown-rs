@@ -274,7 +274,11 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get photoErrorForbidden =>
-      'You need an active costume role in this season to manage photos.';
+      'You need an active costume role in this production to manage photos.';
+
+  @override
+  String get photoErrorContainerUnresolved =>
+      'This costume has no resolvable container — refresh the costume list and try again.';
 
   @override
   String get photoErrorNetwork =>

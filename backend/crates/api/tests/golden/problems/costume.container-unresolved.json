@@ -1,0 +1,7 @@
+{
+  "code": "costume.container-unresolved",
+  "detail": "Das Kostüm hat weder einen zugeordneten Charakter noch eine Requisitensaison — sein zugehöriger Container kann nicht ermittelt werden. Laden Sie die Kostümliste neu und versuchen Sie es erneut.",
+  "status": 422,
+  "title": "Costume has no resolvable container",
+  "type": "https://docs.breakdown.example/problems/costume.container-unresolved"
+}

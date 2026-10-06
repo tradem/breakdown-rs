@@ -39,9 +39,11 @@ use breakdown_core::character::category::CharacterCategory;
 use breakdown_core::character::views::CharacterView;
 use breakdown_core::costume::CostumeView;
 use breakdown_core::error::DomainError;
+use breakdown_core::membership::Role;
 use breakdown_core::photo::ports::PhotoStorage;
+use breakdown_core::season::views::SeasonView;
 use breakdown_core::shared::{
-    AggregateVersion, BlockId, PhotoId, PhotoVariant, SeasonId, SeriesId,
+    AggregateVersion, BlockId, PhotoId, PhotoVariant, SeasonId, SeriesId, UserId,
 };
 use chrono::Utc;
 use common::FakePorts;
@@ -148,17 +150,23 @@ async fn create_costume_without_season_still_dispatches() {
 }
 
 // ---------------------------------------------------------------------------
-// Costume photo scope resolution (issue #532)
+// Costume photo scope resolution (issue #535, ADR-035 B2/S2)
 //
-// The photo handlers resolve a costume's season scopes as
-// `character season ∪ repertoire seasons` and authorize against ANY of them.
-// A costume the client created with a repertoire season (issue #453) is
-// unassigned by design and must still be uploadable/readable/deletable.
+// Since #535 the photo handlers authorize **series-wide**: the costume's
+// owning series is resolved (character season ∪ repertoire → series) and a
+// costume-dept role in any active block of it authorizes. The season union
+// below is only the means to determine *which* series — it is no longer an
+// authorization boundary. Pre-#535 the handlers checked the season predicate
+// per scope; those season-union assertions are superseded by the series
+// policy (deliberate widening, see the security architecture).
 // ---------------------------------------------------------------------------
 
 /// An **unassigned** costume bound to [repertoire] — the client case from
 /// issue #532: `repo.create(seasonId)` never assigns a character.
-async fn seed_repertoire_costume(ports: &FakePorts, repertoire: &[SeasonId]) -> Uuid {
+async fn seed_repertoire_costume_with_series(
+    ports: &FakePorts,
+    repertoire: &[(SeasonId, SeriesId)],
+) -> Uuid {
     let costume_id = Uuid::now_v7();
     ports.costume_repo.costumes.lock().await.insert(
         costume_id,
@@ -180,8 +188,44 @@ async fn seed_repertoire_costume(ports: &FakePorts, repertoire: &[SeasonId]) -> 
         .repertoire
         .lock()
         .await
-        .insert(costume_id, repertoire.to_vec());
+        .insert(costume_id, repertoire.iter().map(|(s, _)| *s).collect());
+    let mut seasons = ports.season_repo.seasons.lock().await;
+    for (idx, (season_id, series_id)) in repertoire.iter().enumerate() {
+        seasons.insert(
+            season_id.0,
+            SeasonView {
+                id: season_id.0,
+                series_id: *series_id,
+                number: idx as i32 + 1,
+                title: None,
+                archived: false,
+                version: AggregateVersion::INITIAL,
+                updated_at: Utc::now(),
+            },
+        );
+    }
     costume_id
+}
+
+/// Seed an active costume-dept membership of [role] in a block of
+/// [season_id] / [series_id].
+async fn seed_series_member(
+    ports: &FakePorts,
+    season_id: SeasonId,
+    series_id: SeriesId,
+    role: Role,
+    user: &str,
+) {
+    ports
+        .membership_repo
+        .seed_active(
+            BlockId::new(),
+            UserId::from_sub(user),
+            role,
+            season_id,
+            series_id,
+        )
+        .await;
 }
 
 fn jpeg_headers() -> axum::http::HeaderMap {
@@ -191,11 +235,13 @@ fn jpeg_headers() -> axum::http::HeaderMap {
 }
 
 /// An assigned costume whose character lives in [character_season], plus a
-/// repertoire binding in [repertoire] — pins the union semantics.
+/// repertoire binding in [repertoire] — the repertoire now only serves the
+/// series resolution, not the authorization (issue #535).
 async fn seed_scoped_costume(
     ports: &FakePorts,
     character_season: SeasonId,
-    repertoire: &[SeasonId],
+    character_series: SeriesId,
+    repertoire: &[(SeasonId, SeriesId)],
 ) -> Uuid {
     let costume_id = Uuid::now_v7();
     let character_id = Uuid::now_v7();
@@ -232,7 +278,36 @@ async fn seed_scoped_costume(
         .repertoire
         .lock()
         .await
-        .insert(costume_id, repertoire.to_vec());
+        .insert(costume_id, repertoire.iter().map(|(s, _)| *s).collect());
+    let character_saison_view = SeasonView {
+        id: character_season.0,
+        series_id: character_series,
+        number: 1,
+        title: None,
+        archived: false,
+        version: AggregateVersion::INITIAL,
+        updated_at: Utc::now(),
+    };
+    ports
+        .season_repo
+        .seasons
+        .lock()
+        .await
+        .insert(character_season.0, character_saison_view);
+    for (idx, (season_id, series_id)) in repertoire.iter().enumerate() {
+        ports.season_repo.seasons.lock().await.insert(
+            season_id.0,
+            SeasonView {
+                id: season_id.0,
+                series_id: *series_id,
+                number: (idx as i32) + 2,
+                title: None,
+                archived: false,
+                version: AggregateVersion::INITIAL,
+                updated_at: Utc::now(),
+            },
+        );
+    }
     costume_id
 }
 
@@ -240,8 +315,9 @@ async fn seed_scoped_costume(
 async fn upload_costume_photo_allows_unassigned_costume_in_repertoire() {
     let ports = FakePorts::default();
     let season = SeasonId::new();
-    let costume_id = seed_repertoire_costume(&ports, &[season]).await;
-    *ports.membership_repo.costume_role_override.lock().await = Some(Ok(true));
+    let series = SeriesId::new();
+    let costume_id = seed_repertoire_costume_with_series(&ports, &[(season, series)]).await;
+    seed_series_member(&ports, season, series, Role::CostumeDesigner, USER).await;
     let state = AppState::new(ports);
 
     let result = upload_costume_photo::<FakePorts>(
@@ -261,8 +337,9 @@ async fn upload_costume_photo_allows_unassigned_costume_in_repertoire() {
 async fn get_costume_photo_bytes_allows_unassigned_costume_in_repertoire() {
     let ports = FakePorts::default();
     let season = SeasonId::new();
-    let costume_id = seed_repertoire_costume(&ports, &[season]).await;
-    *ports.membership_repo.costume_role_override.lock().await = Some(Ok(true));
+    let series = SeriesId::new();
+    let costume_id = seed_repertoire_costume_with_series(&ports, &[(season, series)]).await;
+    seed_series_member(&ports, season, series, Role::CostumeDesigner, USER).await;
     let photo_id = Uuid::now_v7();
     ports
         .photo_storage
@@ -295,8 +372,9 @@ async fn get_costume_photo_bytes_allows_unassigned_costume_in_repertoire() {
 async fn delete_costume_photo_allows_unassigned_costume_in_repertoire() {
     let ports = FakePorts::default();
     let season = SeasonId::new();
-    let costume_id = seed_repertoire_costume(&ports, &[season]).await;
-    *ports.membership_repo.costume_role_override.lock().await = Some(Ok(true));
+    let series = SeriesId::new();
+    let costume_id = seed_repertoire_costume_with_series(&ports, &[(season, series)]).await;
+    seed_series_member(&ports, season, series, Role::CostumeDesigner, USER).await;
     let photo_id = Uuid::now_v7();
     let state = AppState::new(ports);
 
@@ -308,41 +386,120 @@ async fn delete_costume_photo_allows_unassigned_costume_in_repertoire() {
     assert_eq!(status, StatusCode::NO_CONTENT);
 }
 
-/// The union semantics: the character's season denies, the repertoire season
-/// allows — the ANY check authorizes (issue #532).
+/// A costume whose character lives in a different series than its repertoire
+/// season resolves to the character's series (first resolution arm); the
+/// series gate authorizes from a role in THAT series.
 #[tokio::test]
-async fn upload_costume_photo_authorizes_via_repertoire_when_character_season_denies() {
+async fn upload_costume_photo_authorizes_via_characters_series() {
     let ports = FakePorts::default();
     let character_season = SeasonId::new();
     let repertoire_season = SeasonId::new();
-    let costume_id = seed_scoped_costume(&ports, character_season, &[repertoire_season]).await;
-    {
-        let mut by_season = ports.membership_repo.costume_role_by_season.lock().await;
-        by_season.insert(character_season.0, Ok(false));
-        by_season.insert(repertoire_season.0, Ok(true));
-    }
+    let series = SeriesId::new();
+    let other_series = SeriesId::new();
+    let costume_id = seed_scoped_costume(
+        &ports,
+        character_season,
+        series,
+        &[(repertoire_season, other_series)],
+    )
+    .await;
+    seed_series_member(
+        &ports,
+        character_season,
+        series,
+        Role::WardrobeSupervisor,
+        USER,
+    )
+    .await;
     let state = AppState::new(ports);
 
-    let result = upload_costume_photo::<FakePorts>(
+    let (status, Json(_)) = upload_costume_photo::<FakePorts>(
         State(state),
         dummy_user(),
         Path(costume_id),
         jpeg_headers(),
         Bytes::from_static(b"fake-image-data"),
     )
-    .await;
+    .await
+    .expect("a role in the character's series must authorize the upload");
 
-    let (status, Json(_)) = result.expect("repertoire season must authorize the upload");
     assert_eq!(status, StatusCode::CREATED);
 }
 
-/// A costume with **no** scope at all (unassigned, not in any repertoire) is
-/// still rejected — the fix is a lookup, not a blanket permission.
+/// THE DOCUMENTED BEHAVIOR CHANGE (issue #535, explicit regression test in the
+/// issue): a caller whose only costume-dept role lives in season B of the
+/// same series can now manage photos of a costume standing in season A of
+/// that series. Pre-#535 this was a 403 (the season union denied); under the
+/// series policy it must be 2xx.
+#[tokio::test]
+async fn upload_costume_photo_allows_role_in_other_season_of_same_series() {
+    let ports = FakePorts::default();
+    let season_a = SeasonId::new();
+    let season_b = SeasonId::new();
+    let series = SeriesId::new();
+    let costume_id = seed_repertoire_costume_with_series(&ports, &[(season_a, series)]).await;
+    // Role ONLY in season B of the same series — no season-A membership.
+    seed_series_member(&ports, season_b, series, Role::CostumeDesigner, USER).await;
+    let state = AppState::new(ports);
+
+    let (status, Json(_)) = upload_costume_photo::<FakePorts>(
+        State(state),
+        dummy_user(),
+        Path(costume_id),
+        jpeg_headers(),
+        Bytes::from_static(b"fake-image-data"),
+    )
+    .await
+    .expect("a costume-dept role in another season of the same series must authorize");
+
+    assert_eq!(status, StatusCode::CREATED);
+}
+
+/// Same broadening, negative control: a role in a **different series** must
+/// stay a 403 — the tenant boundary does not move up with the predicate.
+#[tokio::test]
+async fn upload_costume_photo_denies_role_in_foreign_series() {
+    let ports = FakePorts::default();
+    let season = SeasonId::new();
+    let home_series = SeriesId::new();
+    let foreign_series = SeriesId::new();
+    let costume_id = seed_repertoire_costume_with_series(&ports, &[(season, home_series)]).await;
+    let foreign_season = SeasonId::new();
+    seed_series_member(
+        &ports,
+        foreign_season,
+        foreign_series,
+        Role::CostumeDesigner,
+        USER,
+    )
+    .await;
+    let state = AppState::new(ports);
+
+    let problem = upload_costume_photo::<FakePorts>(
+        State(state),
+        dummy_user(),
+        Path(costume_id),
+        jpeg_headers(),
+        Bytes::from_static(b"fake-image-data"),
+    )
+    .await
+    .expect_err("a role in another series must not authorize")
+    .into_problem();
+
+    assert_eq!(problem.status, StatusCode::FORBIDDEN);
+    assert_eq!(problem.code, "domain.forbidden");
+}
+
+/// A costume with **no** scope at all (unassigned, not in any repertoire)
+/// cannot name its owning series → 422 `costume.container-unresolved`
+/// (registered problem code, issue #535).
 #[tokio::test]
 async fn upload_costume_photo_rejects_costume_without_any_scope() {
     let ports = FakePorts::default();
-    let costume_id = seed_repertoire_costume(&ports, &[]).await;
-    *ports.membership_repo.costume_role_override.lock().await = Some(Ok(true));
+    let season = SeasonId::new();
+    let series = SeriesId::new();
+    let costume_id = seed_repertoire_costume_with_series(&ports, &[]).await;
+    seed_series_member(&ports, season, series, Role::CostumeDesigner, USER).await;
     let state = AppState::new(ports);
 
     let problem = upload_costume_photo::<FakePorts>(
@@ -357,16 +514,17 @@ async fn upload_costume_photo_rejects_costume_without_any_scope() {
     .into_problem();
 
     assert_eq!(problem.status, StatusCode::UNPROCESSABLE_ENTITY);
-    assert_eq!(problem.code, "domain.validation");
+    assert_eq!(problem.code, "costume.container-unresolved");
 }
 
-/// Scopes exist but none authorizes → 403, not 422.
+/// Scopes exist but the caller holds no costume-dept role in the owning
+/// series → 403, not 422.
 #[tokio::test]
 async fn upload_costume_photo_denies_when_no_scope_authorizes() {
     let ports = FakePorts::default();
     let season = SeasonId::new();
-    let costume_id = seed_repertoire_costume(&ports, &[season]).await;
-    *ports.membership_repo.costume_role_override.lock().await = Some(Ok(false));
+    let series = SeriesId::new();
+    let costume_id = seed_repertoire_costume_with_series(&ports, &[(season, series)]).await;
     let state = AppState::new(ports);
 
     let problem = upload_costume_photo::<FakePorts>(
@@ -387,15 +545,19 @@ async fn upload_costume_photo_denies_when_no_scope_authorizes() {
 /// A failing membership lookup must fail **closed** (no access) but must not
 /// masquerade as a permission error: `unwrap_or(false)` would turn a database
 /// outage into a 403 that neither the caller nor an operator can explain
-/// (CodeRabbit review on issue #532). The predicate's only production error is
+/// (issue #537 doctrine). The predicate's only production error is
 /// `DomainError::Internal` → 500.
 #[tokio::test]
 async fn upload_costume_photo_reports_lookup_failure_as_server_error() {
     let ports = FakePorts::default();
     let season = SeasonId::new();
-    let costume_id = seed_repertoire_costume(&ports, &[season]).await;
-    *ports.membership_repo.costume_role_override.lock().await =
-        Some(Err(DomainError::internal("membership table unavailable")));
+    let series = SeriesId::new();
+    let costume_id = seed_repertoire_costume_with_series(&ports, &[(season, series)]).await;
+    *ports
+        .membership_repo
+        .series_costume_role_override
+        .lock()
+        .await = Some(Err(DomainError::internal("membership table unavailable")));
     let photo_commands = ports.photo_commands.clone();
     let state = AppState::new(ports);
 
@@ -416,26 +578,27 @@ async fn upload_costume_photo_reports_lookup_failure_as_server_error() {
     assert_eq!(problem.status, StatusCode::INTERNAL_SERVER_ERROR);
 }
 
-/// One failing scope must not sink the gate when another scope authorizes —
-/// the lookup error is logged, not propagated (the ANY semantics survive an
-/// infrastructure hiccup on an unrelated season).
+/// The series gate is a **single** series-typed predicate (ADR-035 B2/S2) —
+/// an infra hiccup resolving ONE potential scope no longer exists as a
+/// branch, so unlike the pre-#535 multi-scope ANY gate there is no
+/// "other scope wins despite a lookup failure" path: the series lookup is
+/// best-effort and a series resolution failure for a scopeless costume
+/// answers 422 `costume.container-unresolved`. Pinned negatively: the
+/// old per-season lookup-error propagation must NOT resurface.
 #[tokio::test]
-async fn upload_costume_photo_authorizes_via_other_scope_despite_lookup_failure() {
+async fn upload_costume_photo_scopeless_costume_collapses_to_container_unresolved() {
     let ports = FakePorts::default();
-    let character_season = SeasonId::new();
-    let repertoire_season = SeasonId::new();
-    let costume_id = seed_scoped_costume(&ports, character_season, &[repertoire_season]).await;
-    {
-        let mut by_season = ports.membership_repo.costume_role_by_season.lock().await;
-        by_season.insert(
-            character_season.0,
-            Err(DomainError::internal("block projection unavailable")),
-        );
-        by_season.insert(repertoire_season.0, Ok(true));
-    }
+    let costume_id = seed_repertoire_costume_with_series(&ports, &[]).await;
+    // Even a permissive costume-role override must not rescue the missing
+    // container — the gate never reaches a predicate for this costume.
+    *ports
+        .membership_repo
+        .series_costume_role_override
+        .lock()
+        .await = Some(Ok(true));
     let state = AppState::new(ports);
 
-    let (status, Json(_)) = upload_costume_photo::<FakePorts>(
+    let problem = upload_costume_photo::<FakePorts>(
         State(state),
         dummy_user(),
         Path(costume_id),
@@ -443,7 +606,8 @@ async fn upload_costume_photo_authorizes_via_other_scope_despite_lookup_failure(
         Bytes::from_static(b"fake-image-data"),
     )
     .await
-    .expect("an authorizing scope must win even if another lookup would fail");
+    .expect_err("no container → no authorization, even with a permissive predicate")
+    .into_problem();
 
-    assert_eq!(status, StatusCode::CREATED);
+    assert_eq!(problem.code, "costume.container-unresolved");
 }

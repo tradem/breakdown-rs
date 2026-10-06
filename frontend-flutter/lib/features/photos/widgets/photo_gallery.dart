@@ -428,6 +428,9 @@ String photoErrorCopy(AppLocalizations l10n, ProblemError error) =>
       'photo.too_large' => l10n.photoErrorTooLarge,
       'photo.unsupported_media_type' => l10n.photoErrorUnsupported,
       'photo.forbidden' || 'authz.denied' => l10n.photoErrorForbidden,
+      // Issue #535: the costume's owning series could not be resolved (no
+      // character, no repertoire) — the server answers 422 with this code.
+      'costume.container-unresolved' => l10n.photoErrorContainerUnresolved,
       _ when error.code.startsWith('transport.') => l10n.photoErrorNetwork,
       _ => l10n.photoErrorGeneric(error.code),
     };

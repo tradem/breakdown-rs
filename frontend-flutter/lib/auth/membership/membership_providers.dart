@@ -9,7 +9,9 @@ import 'package:built_collection/built_collection.dart';
 import 'package:fpdart/fpdart.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
+import '../../core/problem_error.dart';
 import '../../core/result.dart';
+import '../../data/cache/seasons_cache_providers.dart';
 import '../../src/network/api_client.dart';
 import '../auth_providers.dart';
 import 'capability.dart';
@@ -29,6 +31,16 @@ SeasonMembershipDto devAuthMembership(String seasonId) => SeasonMembershipDto(
     ..capabilities.replace(Capability.values.map((c) => c.wireName)),
 );
 
+/// The series-level permissive membership for dev-auth mode (issue #535):
+/// mirrors [devAuthMembership] one scope up.
+SeriesMembershipDto devAuthSeriesMembership(String seriesId) =>
+    SeriesMembershipDto(
+      (b) => b
+        ..seriesId = seriesId
+        ..hasActiveCostumeRoleInSeries = true
+        ..capabilities.replace(Capability.values.map((c) => c.wireName)),
+    );
+
 /// The capability-less denial membership for the Gherkin viewer-role scenario
 /// (issue #368): every client-side AUTHZ-GATE resolves to a denial, and the
 /// gate fires before any network call (AGENTS.md §5, D6). Test-support only —
@@ -38,6 +50,17 @@ SeasonMembershipDto devAuthDeniedMembership(String seasonId) =>
       (b) => b
         ..seasonId = seasonId
         ..hasActiveCostumeRoleInSeason = false
+        ..capabilities.replace(BuiltList<String>()),
+    );
+
+/// The series-level denial membership for the Gherkin viewer-role scenario
+/// (issue #535): the series-scoped costume-photo gate resolves to a denial
+/// without any network call.
+SeriesMembershipDto devAuthDeniedSeriesMembership(String seriesId) =>
+    SeriesMembershipDto(
+      (b) => b
+        ..seriesId = seriesId
+        ..hasActiveCostumeRoleInSeries = false
         ..capabilities.replace(BuiltList<String>()),
     );
 
@@ -67,6 +90,51 @@ Future<Result<SeasonMembershipDto>> membershipFetch(
     BreakdownApi(dio: ref.watch(apiDioProvider)),
   );
   return repo.fetch(seasonId);
+}
+
+/// The series-level membership fetch (issue #535) — the client-side
+/// AUTHZ-GATE source for the **series-scoped costume-photo policy**
+/// (ADR-035 B2/S2). Keyed by [seasonId]: the season's owning series is
+/// resolved through the season projection (the season → series link is the
+/// only way a season-scoped screen can name the tenant; D1 read path —
+/// Drift cache first, network GET `/v1/seasons/{id}` + upsert on miss),
+/// then `GET /v1/series/{seriesId}/membership` answers the predicate.
+///
+/// Dev-auth mode short-circuits to the permissive (or overridden-denial)
+/// series membership without any network call.
+@Riverpod(keepAlive: false)
+Future<Result<SeriesMembershipDto>> seriesMembershipForSeason(
+  Ref ref,
+  String seasonId,
+) async {
+  final config = ref.watch(appConfigProvider);
+  if (config.devAuthMode) {
+    if (DebugMembershipOverride.deniesAll) {
+      return Right(devAuthDeniedSeriesMembership(seasonId));
+    }
+    return Right(devAuthSeriesMembership(seasonId));
+  }
+  // Resolve the season's series via the D1 read path.
+  final seasonRepo = ref.watch(seasonRepositoryProvider);
+  final seasons = await seasonRepo.readCached();
+  SeasonView? cached;
+  if (seasons.isRight()) {
+    for (final row in seasons.getOrElse((_) => const <SeasonView>[])) {
+      if (row.id == seasonId) {
+        cached = row;
+        break;
+      }
+    }
+  }
+  final season = cached != null
+      ? Right<ProblemError, SeasonView>(cached)
+      : await seasonRepo.getAndCache(seasonId);
+  return season.match(
+    (err) => Left(err),
+    (view) =>
+        MembershipRepository(BreakdownApi(dio: ref.watch(apiDioProvider)))
+            .fetchSeries(view.seriesId),
+  );
 }
 
 /// The client-side AUTHZ-GATE source (D2/D3).

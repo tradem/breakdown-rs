@@ -682,9 +682,11 @@ class SceneShootsController extends _$SceneShootsController {
 
   /// Client-side AUTHZ-GATE for continuity commands (link/list/unlink):
   /// the `upload_continuity_photos` capability is checked BEFORE any
-  /// network call. A denial short-circuits with the localized 403
-  /// narrative and never issues the request (provable by a fake repo call
-  /// count of zero).
+  /// network call. Continuity photos stay **season-scoped** server-side
+  /// (issue #535: only the costume-photo policy moved to series level), so
+  /// this gate keeps the season DTO. A denial short-circuits with the
+  /// localized 403 narrative and never issues the request (provable by a
+  /// fake repo call count of zero).
   Future<GateDecision> _continuityGate() async {
     final session = await _resolveSession();
     if (session == null) return const GateDeny('auth.session_required');
@@ -695,7 +697,7 @@ class SceneShootsController extends _$SceneShootsController {
       );
       gate = res.match(
         (_) => const GateDeny('membership.pending'),
-        (dto) => checkPhotoCapability(dto),
+        checkContinuityCapability,
       );
     } on Object {
       gate = const GateDeny('membership.pending');

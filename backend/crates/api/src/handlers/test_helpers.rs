@@ -489,6 +489,28 @@ impl MembershipRepository for FakeMembershipRepo {
         }))
     }
 
+    async fn has_active_costume_role_in_series(
+        &self,
+        series_id: SeriesId,
+        user_id: UserId,
+    ) -> Result<bool, DomainError> {
+        // Series-scoped costume-role allowlist over the seeded rows (issue
+        // #535): the photo-gate predicate, resolvable from `seed_active`.
+        let rows = self.rows().await;
+        let scopes = self.scopes.lock().await;
+        Ok(rows.iter().any(|(block_id, row_user, role, state)| {
+            row_user == &user_id
+                && *state == MembershipStateKind::Active
+                && matches!(
+                    role,
+                    Role::CostumeDesigner | Role::WardrobeSupervisor | Role::CostumeAssistant
+                )
+                && scopes
+                    .get(block_id)
+                    .is_some_and(|(_, series)| series == &series_id)
+        }))
+    }
+
     async fn has_active_costume_role_in_season(
         &self,
         season_id: SeasonId,

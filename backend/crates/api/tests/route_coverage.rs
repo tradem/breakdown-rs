@@ -87,7 +87,7 @@ fn api_routes_are_behind_auth_middleware() {
     //  patterns, not method-verb pairs.)
     assert_eq!(
         api.len(),
-        90,
+        91,
         "number of API route path patterns has changed — \
          see doc comment above for update instructions"
     );
@@ -122,6 +122,9 @@ fn api_routes_have_deliberate_authorization_requirement() {
         ("/seasons", Requirement::Authenticated),
         ("/seasons/{id}", Requirement::Authenticated),
         ("/seasons/{id}/membership", Requirement::Authenticated),
+        // Series — the series-level membership self-check (issue #535):
+        // tenant-level data, no privileged action in the handler.
+        ("/series/{id}/membership", Requirement::Authenticated),
         ("/seasons/{id}/name", Requirement::Authenticated),
         ("/seasons/{id}/archive", Requirement::Authenticated),
         (

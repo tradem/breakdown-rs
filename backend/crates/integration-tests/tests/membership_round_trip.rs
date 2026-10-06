@@ -1369,3 +1369,228 @@ async fn ops_role_gate_round_trips_through_real_sql() -> Result<()> {
 
     Ok(())
 }
+
+/// Tier-4: `has_active_costume_role_in_series` — the series-level predicate
+/// behind the costume-photo gate as of issue #535 (ADR-035 B2/S2).
+///
+/// The truth table mirrors the season-scoped predicate one level up:
+/// a costume-dept role in **any** active block of the series authorizes —
+/// in particular a role in a *different season* of the same series (the
+/// documented #535 widening) — while pending invitees, removed members,
+/// non-costume roles and memberships of a *foreign* series stay denied.
+#[tokio::test]
+async fn costume_role_in_series_allowlist_round_trips_through_real_sql() -> Result<()> {
+    let (pool, cmd_svc, _pg, _sierra) = init_membership().await?;
+    let membership = MembershipCommandsImpl::new(cmd_svc.clone());
+    let blocks = BlockCommandsImpl::new(cmd_svc);
+    let repo = MembershipRepositoryImpl::new(pool.clone());
+
+    let series_id = test_series_id();
+    let season_a = SeasonId::new();
+    let season_b = SeasonId::new();
+    let foreign_series = test_series_id();
+
+    let designer = UserId::from_sub("series-designer");
+    let assistant = UserId::from_sub("series-assistant");
+    let cross_season = UserId::from_sub("series-cross-season");
+    let pending = UserId::from_sub("series-pending");
+    let removed = UserId::from_sub("series-removed");
+    let stranger = UserId::from_sub("series-stranger");
+
+    // (1) Active costume-dept role in a block of season A → authorized.
+    seed_block_with_owner(
+        &blocks,
+        &membership,
+        &pool,
+        &repo,
+        season_a,
+        series_id,
+        designer.clone(),
+        Role::CostumeDesigner,
+        1,
+    )
+    .await?;
+    assert!(
+        in_series_costume(&repo, series_id, designer.clone()).await?,
+        "an active costume_designer in the series must be authorized"
+    );
+
+    // (2) Active costume-dept role in a block of season B (same series) →
+    //     also authorized: the predicate is series-typed, the warm-up crew
+    //     cross-season block carries the same grant.
+    seed_block_with_owner(
+        &blocks,
+        &membership,
+        &pool,
+        &repo,
+        season_b,
+        series_id,
+        cross_season.clone(),
+        Role::WardrobeSupervisor,
+        2,
+    )
+    .await?;
+    assert!(
+        in_series_costume(&repo, series_id, cross_season.clone()).await?,
+        "an active wardrobe_supervisor in another season of the same series must be authorized (issue #535 widening)"
+    );
+
+    // (3) costume_assistant in a second block of season A → authorized.
+    seed_block_with_owner(
+        &blocks,
+        &membership,
+        &pool,
+        &repo,
+        season_a,
+        series_id,
+        assistant.clone(),
+        Role::CostumeAssistant,
+        3,
+    )
+    .await?;
+    assert!(
+        in_series_costume(&repo, series_id, assistant.clone()).await?,
+        "an active costume_assistant in the series must be authorized"
+    );
+
+    // (4) Pending invitee: invited with a costume role, never accepted → denied.
+    let invite_block = seed_block_with_owner(
+        &blocks,
+        &membership,
+        &pool,
+        &repo,
+        season_a,
+        series_id,
+        designer.clone(),
+        Role::CostumeDesigner,
+        4,
+    )
+    .await?;
+    membership
+        .invite(
+            designer.clone(),
+            InviteMember {
+                block_id: invite_block,
+                series_id,
+                user_id: pending.clone(),
+                role: Role::CostumeDesigner,
+            },
+        )
+        .await
+        .map_err(|e| anyhow!(e.to_string()))?;
+    await_member_state(
+        &repo,
+        invite_block,
+        pending.clone(),
+        MembershipStateKind::Pending,
+    )
+    .await?;
+    assert!(
+        !in_series_costume(&repo, series_id, pending.clone()).await?,
+        "a pending invitee must not be authorized"
+    );
+
+    // (5) After acceptance the invitee is active → authorized.
+    membership
+        .accept_invitation(
+            pending.clone(),
+            AcceptInvitation {
+                block_id: invite_block,
+                series_id,
+                user_id: pending.clone(),
+            },
+        )
+        .await
+        .map_err(|e| anyhow!(e.to_string()))?;
+    await_member_state(
+        &repo,
+        invite_block,
+        pending.clone(),
+        MembershipStateKind::Active,
+    )
+    .await?;
+    assert!(
+        in_series_costume(&repo, series_id, pending.clone()).await?,
+        "an accepted invitee must be authorized"
+    );
+
+    // (6) Removal revokes access immediately.
+    membership
+        .invite(
+            designer.clone(),
+            InviteMember {
+                block_id: invite_block,
+                series_id,
+                user_id: removed.clone(),
+                role: Role::CostumeAssistant,
+            },
+        )
+        .await
+        .map_err(|e| anyhow!(e.to_string()))?;
+    membership
+        .accept_invitation(
+            removed.clone(),
+            AcceptInvitation {
+                block_id: invite_block,
+                series_id,
+                user_id: removed.clone(),
+            },
+        )
+        .await
+        .map_err(|e| anyhow!(e.to_string()))?;
+    await_member_state(
+        &repo,
+        invite_block,
+        removed.clone(),
+        MembershipStateKind::Active,
+    )
+    .await?;
+    membership
+        .remove_member(
+            designer.clone(),
+            RemoveMember {
+                block_id: invite_block,
+                series_id,
+                user_id: removed.clone(),
+            },
+        )
+        .await
+        .map_err(|e| anyhow!(e.to_string()))?;
+    await_member_absent(&repo, invite_block, removed.clone()).await?;
+    assert!(
+        !in_series_costume(&repo, series_id, removed.clone()).await?,
+        "a removed member must lose access"
+    );
+
+    // (7) A *foreign* series → denied (the tenant boundary stays).
+    seed_block_with_owner(
+        &blocks,
+        &membership,
+        &pool,
+        &repo,
+        SeasonId::new(),
+        foreign_series,
+        stranger.clone(),
+        Role::CostumeDesigner,
+        1,
+    )
+    .await?;
+    assert!(
+        !in_series_costume(&repo, series_id, stranger.clone()).await?,
+        "a costume role in another series must not authorize this series"
+    );
+
+    Ok(())
+}
+
+/// `has_active_costume_role_in_series` with the `DomainError` mapped into
+/// `anyhow` (test ergonomics).
+async fn in_series_costume(
+    repo: &MembershipRepositoryImpl,
+    series_id: SeriesId,
+    user_id: UserId,
+) -> Result<bool> {
+    repo.has_active_costume_role_in_series(series_id, user_id)
+        .await
+        .map_err(|e| anyhow!(e.to_string()))
+}

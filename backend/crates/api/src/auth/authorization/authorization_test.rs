@@ -301,6 +301,17 @@ impl MembershipRepository for MockSeasonMembershipRepo {
             .await
     }
 
+    async fn has_active_costume_role_in_series(
+        &self,
+        _series_id: SeriesId,
+        user_id: UserId,
+    ) -> Result<bool, DomainError> {
+        // Mirror the costume-role mock behaviour: this repo is keyed on the
+        // ok/result/err triple, not on the tenant dimension.
+        self.has_active_costume_role_in_season(SeasonId::new(), user_id)
+            .await
+    }
+
     async fn has_active_costume_role_in_season(
         &self,
         _season_id: SeasonId,

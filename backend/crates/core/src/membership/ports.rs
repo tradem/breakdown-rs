@@ -91,8 +91,34 @@ pub trait MembershipRepository: Send + Sync {
         user_id: UserId,
     ) -> Result<bool, DomainError>;
 
+    /// Check whether `user_id` holds any costume-dept role in **any** active
+    /// block of the **series** `series_id` — the series-level analogue of
+    /// [`Self::has_active_costume_role_in_season`], typed by the
+    /// authorization level, not by a production-form-specific container
+    /// (ADR-035 B2/S2).
+    ///
+    /// This is the photo-gate predicate as of issue #535: a costume-dept role
+    /// (`costume_designer`, `wardrobe_supervisor`, `costume_assistant`) in any
+    /// active block of the owning series authorizes costume-photo access
+    /// **series-wide** — a deliberate authorization-boundary widening, so a
+    /// wardrobe team that works across seasons of one production can manage
+    /// the costumes it carries between them. Unlike
+    /// [`Self::has_active_membership_in_series`] it is *not* role-agnostic:
+    /// photos are a costume-department artefact, so the role filter of the
+    /// season-scoped predicate is carried over unchanged.
+    async fn has_active_costume_role_in_series(
+        &self,
+        series_id: SeriesId,
+        user_id: UserId,
+    ) -> Result<bool, DomainError>;
+
     /// Check whether `user_id` holds any costume-dept role in any active
-    /// block of `season_id` (for season-scoped costume-photo authorization).
+    /// block of `season_id` (for season-scoped costume authorization).
+    ///
+    /// As of issue #535 the *photo* path no longer calls this predicate (ADR-035
+    /// B2/S2 moved that boundary to [`Self::has_active_costume_role_in_series`]);
+    /// the genuinely season-scoped costume operations keep it (target-season
+    /// repertoire gates, category season-match).
     ///
     /// Costume-dept roles are `costume_designer`, `wardrobe_supervisor`,
     /// and `costume_assistant`.

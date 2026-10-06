@@ -265,7 +265,12 @@ pub fn requirement_for(path: &str) -> Requirement {
     // the requirement classification is version-independent (a future `/v2`
     // inherits the same policy until a route is deliberately reclassified).
     let path = path.strip_prefix("/v1").unwrap_or(path);
-    if path.starts_with("/seasons") || path.starts_with("/settings") {
+    // `/series/*` is the series-level counterpart of `/seasons/*` (issue
+    // #535): the membership self-check is tenant-level data the middleware's
+    // `X-Active-Block` scope says nothing about, so it needs only an
+    // authenticated caller (the handler carries no privileged action).
+    if path.starts_with("/seasons") || path.starts_with("/series") || path.starts_with("/settings")
+    {
         return Requirement::Authenticated;
     }
     // `/blocks` covers both `POST` (create + owner bootstrap) and `GET`

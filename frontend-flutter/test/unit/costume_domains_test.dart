@@ -143,6 +143,13 @@ SeasonMembershipDto _membership(List<String> caps) => SeasonMembershipDto(
     ..capabilities.replace(caps),
 );
 
+SeriesMembershipDto _seriesMembership(bool hasRole) => SeriesMembershipDto(
+  (b) => b
+    ..seriesId = 'series-1'
+    ..hasActiveCostumeRoleInSeries = hasRole
+    ..capabilities.replace(const <String>[]),
+);
+
 void main() {
   group('CostumeCacheDao', () {
     test('snapshot-replace is scoped to the season', () async {
@@ -334,14 +341,22 @@ void main() {
     });
   });
 
-  group('Membership gate (Task 2.2)', () {
+  group('Membership gate (Task 2.2; series photo policy since #535)', () {
     test('allows per capability set', () {
       expect(
         checkAssignCapability(_membership(['assign_costumes'])),
         isA<GateAllow>(),
       );
+      // Continuity photos stay season-scoped (issue #535: only the
+      // costume-photo policy moved to series level).
       expect(
-        checkPhotoCapability(_membership(['upload_continuity_photos'])),
+        checkContinuityCapability(_membership(['upload_continuity_photos'])),
+        isA<GateAllow>(),
+      );
+      // Costume photos read the backend-computed SERIES predicate
+      // (has_active_costume_role_in_series, ADR-035 B2/S2).
+      expect(
+        checkCostumePhotoCapability(_seriesMembership(true)),
         isA<GateAllow>(),
       );
     });
@@ -350,13 +365,19 @@ void main() {
       final deny = checkAssignCapability(_membership([]));
       expect(deny, isA<GateDeny>());
       expect((deny as GateDeny).code, 'costume.forbidden');
-      final photoDeny = checkPhotoCapability(_membership(['assign_costumes']));
+      final photoDeny = checkCostumePhotoCapability(_seriesMembership(false));
       expect((photoDeny as GateDeny).code, 'photo.forbidden');
+      final continuityDeny = checkContinuityCapability(
+        _membership(['assign_costumes']),
+      );
+      expect((continuityDeny as GateDeny).code, 'photo.forbidden');
     });
 
     test('null membership is pending (never a resolved denial)', () {
       final pending = checkAssignCapability(null);
       expect((pending as GateDeny).code, 'membership.pending');
+      final seriesPending = checkCostumePhotoCapability(null);
+      expect((seriesPending as GateDeny).code, 'membership.pending');
     });
   });
 
