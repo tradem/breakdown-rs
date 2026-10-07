@@ -360,13 +360,16 @@ class CostumesController extends _$CostumesController {
     GateDecision gate;
     try {
       final res = await ref.read(
-        seriesMembershipForCostumeProvider(costume).future,
+        seriesMembershipForCostumeProvider(costumeMembershipScope(costume))
+            .future,
       );
       gate = res.match((_) {
         // Retry-ability: drop the failed result so a subsequent
         // command re-executes the fetch (the retained Left would
         // otherwise be replayed as a permanent pending).
-        ref.invalidate(seriesMembershipForCostumeProvider(costume));
+        ref.invalidate(
+          seriesMembershipForCostumeProvider(costumeMembershipScope(costume)),
+        );
         return const GateDeny('membership.pending');
       }, checkCostumePhotoCapability);
     } on Object {

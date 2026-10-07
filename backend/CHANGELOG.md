@@ -30,8 +30,8 @@ tag. Never edit a released entry afterwards.
   (issue #535, ADR-035 B2/S2).** The costume-photo gate moves off the
   season-typed predicate: the three photo handlers (`upload_costume_photo`,
   `get_costume_photo_bytes`, `delete_costume_photo`) now resolve the costume's
-  owning **series** (character season ∪ repertoire → series, best-effort at
-  the API edge; a costume with neither answers 422
+  owning **series** (character season ∪ repertoire → series, strict at the
+  API edge — lookup failures answer 500; a costume with neither answers 422
   `costume.container-unresolved`, new registered problem code + Fluent text)
   and require a costume-dept role (`costume_designer`, `wardrobe_supervisor`,
   `costume_assistant`) in any active block of that series. This is a

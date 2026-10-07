@@ -125,7 +125,7 @@ final class MembershipFetchFamily extends $Family
 
 /// The series-level membership fetch for a **costume** (issue #535 review):
 /// the client-side AUTHZ-GATE source for the **series-scoped costume-photo
-/// policy** (ADR-035 B2/S2), keyed by the costume itself — mirroring the
+/// policy** (ADR-035 B2/S2), keyed by [costumeMembershipScope] — mirroring the
 /// server's resolution (character-first, repertoire fallback, unassigned
 /// costume → first repertoire season, no resolvable container → error),
 /// NOT the currently open season: a carried-over costume opened through a
@@ -151,7 +151,7 @@ final seriesMembershipForCostumeProvider = SeriesMembershipForCostumeFamily._();
 
 /// The series-level membership fetch for a **costume** (issue #535 review):
 /// the client-side AUTHZ-GATE source for the **series-scoped costume-photo
-/// policy** (ADR-035 B2/S2), keyed by the costume itself — mirroring the
+/// policy** (ADR-035 B2/S2), keyed by [costumeMembershipScope] — mirroring the
 /// server's resolution (character-first, repertoire fallback, unassigned
 /// costume → first repertoire season, no resolvable container → error),
 /// NOT the currently open season: a carried-over costume opened through a
@@ -184,7 +184,7 @@ final class SeriesMembershipForCostumeProvider
         $FutureProvider<Result<SeriesMembershipDto>> {
   /// The series-level membership fetch for a **costume** (issue #535 review):
   /// the client-side AUTHZ-GATE source for the **series-scoped costume-photo
-  /// policy** (ADR-035 B2/S2), keyed by the costume itself — mirroring the
+  /// policy** (ADR-035 B2/S2), keyed by [costumeMembershipScope] — mirroring the
   /// server's resolution (character-first, repertoire fallback, unassigned
   /// costume → first repertoire season, no resolvable container → error),
   /// NOT the currently open season: a carried-over costume opened through a
@@ -206,7 +206,7 @@ final class SeriesMembershipForCostumeProvider
   /// series membership without any network call.
   SeriesMembershipForCostumeProvider._({
     required SeriesMembershipForCostumeFamily super.from,
-    required CostumeView super.argument,
+    required CostumeMembershipScope super.argument,
   }) : super(
          retry: null,
          name: r'seriesMembershipForCostumeProvider',
@@ -233,7 +233,7 @@ final class SeriesMembershipForCostumeProvider
 
   @override
   FutureOr<Result<SeriesMembershipDto>> create(Ref ref) {
-    final argument = this.argument as CostumeView;
+    final argument = this.argument as CostumeMembershipScope;
     return seriesMembershipForCostume(ref, argument);
   }
 
@@ -250,11 +250,11 @@ final class SeriesMembershipForCostumeProvider
 }
 
 String _$seriesMembershipForCostumeHash() =>
-    r'475ccc6f434e7afbd4a4f80b6161b1000d6f4b50';
+    r'd59933a0113335d72b1d5952117e806a5bc7ea7f';
 
 /// The series-level membership fetch for a **costume** (issue #535 review):
 /// the client-side AUTHZ-GATE source for the **series-scoped costume-photo
-/// policy** (ADR-035 B2/S2), keyed by the costume itself — mirroring the
+/// policy** (ADR-035 B2/S2), keyed by [costumeMembershipScope] — mirroring the
 /// server's resolution (character-first, repertoire fallback, unassigned
 /// costume → first repertoire season, no resolvable container → error),
 /// NOT the currently open season: a carried-over costume opened through a
@@ -279,7 +279,7 @@ final class SeriesMembershipForCostumeFamily extends $Family
     with
         $FunctionalFamilyOverride<
           FutureOr<Result<SeriesMembershipDto>>,
-          CostumeView
+          CostumeMembershipScope
         > {
   SeriesMembershipForCostumeFamily._()
     : super(
@@ -292,7 +292,7 @@ final class SeriesMembershipForCostumeFamily extends $Family
 
   /// The series-level membership fetch for a **costume** (issue #535 review):
   /// the client-side AUTHZ-GATE source for the **series-scoped costume-photo
-  /// policy** (ADR-035 B2/S2), keyed by the costume itself — mirroring the
+  /// policy** (ADR-035 B2/S2), keyed by [costumeMembershipScope] — mirroring the
   /// server's resolution (character-first, repertoire fallback, unassigned
   /// costume → first repertoire season, no resolvable container → error),
   /// NOT the currently open season: a carried-over costume opened through a
@@ -313,8 +313,8 @@ final class SeriesMembershipForCostumeFamily extends $Family
   /// Dev-auth mode short-circuits to the permissive (or overridden-denial)
   /// series membership without any network call.
 
-  SeriesMembershipForCostumeProvider call(CostumeView costume) =>
-      SeriesMembershipForCostumeProvider._(argument: costume, from: this);
+  SeriesMembershipForCostumeProvider call(CostumeMembershipScope scope) =>
+      SeriesMembershipForCostumeProvider._(argument: scope, from: this);
 
   @override
   String toString() => r'seriesMembershipForCostumeProvider';

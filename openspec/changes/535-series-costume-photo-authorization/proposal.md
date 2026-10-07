@@ -45,9 +45,13 @@ production-form-specific container, and #535 is the S2 enforcement change.
 - **infra:** SQL impl (membership ⋈ block on `series_id`, costume-role role
   set, active) mirroring `has_active_membership_in_series`.
 - **api:** `GET /series/{id}/membership` (`SeriesMembershipDto`);
-  `authorize_costume_in_series` gate helper (best-effort
+  `authorize_costume_in_series` gate helper (strict
   `series_id_for_costume` resolution at the API edge — the only legitimate
-  read-model consumer); the three photo handlers migrate; `openapi.yaml`
+  read-model consumer: resolution is REQUIRED for photo authorization, a
+  lookup failure is a 500, and only a costume with neither character nor
+  repertoire answers 422 `costume.container-unresolved`; the best-effort
+  audit-metadata rule does NOT apply to this authorization lookup); the
+  three photo handlers migrate; `openapi.yaml`
   regenerated; route-coverage inventory updated.
 - **infra integration tests:** Tier-4 predicate round-trip in
   `membership_round_trip.rs` (same-series different-season allow, foreign

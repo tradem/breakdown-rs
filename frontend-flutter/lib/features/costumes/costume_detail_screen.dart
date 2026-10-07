@@ -1295,7 +1295,7 @@ class _PhotosSectionState extends ConsumerState<_PhotosSection> {
     // block flows the server permits.
     final costumeView = _detail ?? widget.costume;
     final membership = ref.watch(
-      seriesMembershipForCostumeProvider(costumeView),
+      seriesMembershipForCostumeProvider(costumeMembershipScope(costumeView)),
     );
     final hasSeriesRole = switch (membership) {
       AsyncData(:final value) => value.match(
@@ -1366,8 +1366,11 @@ class _PhotosSectionState extends ConsumerState<_PhotosSection> {
         if (fetchFailed)
           TextButton(
             key: Key('photo-membership-retry-${widget.costume.id}'),
-            onPressed: () =>
-                ref.invalidate(seriesMembershipForCostumeProvider(costumeView)),
+            onPressed: () => ref.invalidate(
+              seriesMembershipForCostumeProvider(
+                costumeMembershipScope(costumeView),
+              ),
+            ),
             child: Text(l10nOf(context).commonRetry),
           ),
         if (repo != null)

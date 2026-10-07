@@ -581,10 +581,13 @@ async fn upload_costume_photo_reports_lookup_failure_as_server_error() {
 /// The series gate is a **single** series-typed predicate (ADR-035 B2/S2) —
 /// an infra hiccup resolving ONE potential scope no longer exists as a
 /// branch, so unlike the pre-#535 multi-scope ANY gate there is no
-/// "other scope wins despite a lookup failure" path: the series lookup is
-/// best-effort and a series resolution failure for a scopeless costume
-/// answers 422 `costume.container-unresolved`. Pinned negatively: the
-/// old per-season lookup-error propagation must NOT resurface.
+/// "other scope wins despite a lookup failure" path. Since the strict
+/// resolver (issue #535 review) a series lookup FAILURE propagates as 500
+/// (pinned by the next test); only a genuinely ABSENT container — empty
+/// repertoire, no character, a projection miss rather than an outage —
+/// answers 422 `costume.container-unresolved`. Pinned negatively: the old
+/// per-season lookup-error propagation must NOT resurface for a
+/// projection miss.
 #[tokio::test]
 async fn upload_costume_photo_scopeless_costume_collapses_to_container_unresolved() {
     let ports = FakePorts::default();

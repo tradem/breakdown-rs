@@ -93,9 +93,36 @@ Future<Result<SeasonMembershipDto>> membershipFetch(
   return repo.fetch(seasonId);
 }
 
+/// The STABLE provider key for [seriesMembershipForCostume] (issue #535
+/// review): only the inputs the series resolution actually depends on — the
+/// costume id and its container candidates (character ∪ repertoire). NOT the
+/// full [CostumeView]: a detail reload after every photo command produces a
+/// new view (bumped `version`, refreshed `photos`), and keying on it would
+/// re-run the character/season/membership chain per command.
+///
+/// The key is a Dart record of SCALAR fields (structural `==`), so the
+/// generated family dedupes correctly across detail reloads. NOTE: no list
+/// fields — a fresh `List` would break record equality by identity.
+typedef CostumeMembershipScope = ({
+  String costumeId,
+  String? characterId,
+  // First repertoire season (season_id-ordered server-side) — the only
+  // repertoire input the resolution uses (deterministic first-season
+  // pick). `null` = no repertoire binding.
+  String? repertoireSeasonId,
+});
+
+CostumeMembershipScope costumeMembershipScope(CostumeView costume) => (
+  costumeId: costume.id,
+  characterId: costume.characterId,
+  repertoireSeasonId: costume.seasonIds.isEmpty
+      ? null
+      : costume.seasonIds.first,
+);
+
 /// The series-level membership fetch for a **costume** (issue #535 review):
 /// the client-side AUTHZ-GATE source for the **series-scoped costume-photo
-/// policy** (ADR-035 B2/S2), keyed by the costume itself — mirroring the
+/// policy** (ADR-035 B2/S2), keyed by [costumeMembershipScope] — mirroring the
 /// server's resolution (character-first, repertoire fallback, unassigned
 /// costume → first repertoire season, no resolvable container → error),
 /// NOT the currently open season: a carried-over costume opened through a
@@ -118,17 +145,21 @@ Future<Result<SeasonMembershipDto>> membershipFetch(
 @Riverpod(keepAlive: false)
 Future<Result<SeriesMembershipDto>> seriesMembershipForCostume(
   Ref ref,
-  CostumeView costume,
+  CostumeMembershipScope scope,
 ) async {
   final config = ref.watch(appConfigProvider);
   if (config.devAuthMode) {
+    // Dev-auth short-circuit: no resolution runs, so there is no real series
+    // id — use the documented placeholder (never a costume id, which would
+    // poison the DTO's `seriesId` field with a costume identifier).
+    const devSeriesId = 'dev-auth-series';
     if (DebugMembershipOverride.deniesAll) {
-      return Right(devAuthDeniedSeriesMembership(costume.id));
+      return Right(devAuthDeniedSeriesMembership(devSeriesId));
     }
-    return Right(devAuthSeriesMembership(costume.id));
+    return Right(devAuthSeriesMembership(devSeriesId));
   }
   // Mirror the server's character-first resolution (issue #535 review).
-  final characterId = costume.characterId;
+  final characterId = scope.characterId;
   if (characterId != null) {
     try {
       final response = await BreakdownApi(dio: ref.watch(apiDioProvider))
@@ -145,12 +176,12 @@ Future<Result<SeriesMembershipDto>> seriesMembershipForCostume(
   }
   // Unassigned costume: the repertoire fallback — the DTO's `season_ids`
   // are ordered by `season_id` server-side, matching the server's
-  // deterministic first-season pick.
-  final repertoire = costume.seasonIds.toList();
-  if (repertoire.isEmpty) {
+  // deterministic first-season pick (carried in the scope key).
+  final repertoireSeason = scope.repertoireSeasonId;
+  if (repertoireSeason == null) {
     return const Left(ProblemError(code: 'costume.container-unresolved'));
   }
-  return _seriesMembershipForSeason(ref, repertoire.first);
+  return _seriesMembershipForSeason(ref, repertoireSeason);
 }
 
 /// Season → series membership resolution via the D1 read path (Drift cache
