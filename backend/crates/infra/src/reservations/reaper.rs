@@ -181,12 +181,25 @@ async fn run_reaper_pass_locked(
     let mut consumed = 0usize;
     let mut released = 0usize;
     let mut skipped = 0usize;
+    let mut failed = 0usize;
 
     for (key, claimed_aggregate) in &candidates {
-        match reap_claim(store, key, *claimed_aggregate, config.claim_ttl_secs).await? {
-            ReapDisposition::Consumed => consumed += 1,
-            ReapDisposition::Released => released += 1,
-            ReapDisposition::Skipped => skipped += 1,
+        // Per-candidate isolation (CodeRabbit review, ADR-036 §3.2): one bad
+        // claim (e.g. an unparsable lifecycle payload) must not abort the
+        // whole pass — later candidates stay reachable, and the failed one is
+        // retried on the next interval by the same CAS rules.
+        match reap_claim(store, key, *claimed_aggregate, config.claim_ttl_secs).await {
+            Ok(ReapDisposition::Consumed) => consumed += 1,
+            Ok(ReapDisposition::Released) => released += 1,
+            Ok(ReapDisposition::Skipped) => skipped += 1,
+            Err(failure) => {
+                failed += 1;
+                tracing::error!(
+                    key,
+                    aggregate = %claimed_aggregate,
+                    "reservation reaper: candidate failed; continuing with remaining candidates (ADR-036 §3.2): {failure}",
+                );
+            }
         }
     }
 
@@ -195,6 +208,7 @@ async fn run_reaper_pass_locked(
         consumed,
         released,
         skipped,
+        failed,
         "reservation reaper pass completed (ADR-036 §3.2)",
     );
     Ok(())

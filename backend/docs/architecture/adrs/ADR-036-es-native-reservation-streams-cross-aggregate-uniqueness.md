@@ -53,10 +53,16 @@ disturbed), one stream per invariant key:
 
 | Invariant | Reservation stream id | Key payload |
 |---|---|---|
-| Episode numbering | `reservation-epnum-{series_id}-{number}` | `{ aggregate_id }` |
-| Season numbering | `reservation-seasnum-{series_id}-{number}` | `{ aggregate_id }` |
-| Block numbering | `reservation-blocknum-{series_id}-{number}` | `{ aggregate_id }` |
-| SceneShoot pair | `reservation-sspair-{scene_id}-{day_id}` | `{ aggregate_id }` |
+| Episode numbering | `reservation-epnum-{series_simple}-{number}` | `{ aggregate_id }` |
+| Season numbering | `reservation-seasnum-{series_simple}-{number}` | `{ aggregate_id }` |
+| Block numbering | `reservation-blocknum-{series_simple}-{number}` | `{ aggregate_id }` |
+| SceneShoot pair | `reservation-sspair-{pair_hash24}` | `{ aggregate_id }` |
+
+`{series_simple}` is the compact (dash-less, 32-char) `Uuid::simple()` hex
+form of the tenant-scoped series id; `{pair_hash24}` is a truncated SHA-256
+over `(scene_id, shooting_day_id)` (12 bytes = 24 hex chars) — SierraDB caps
+stream ids at 64 characters, so the dashed 36-char UUID forms and the raw
+pair would overflow. Key payloads are unchanged.
 
 Keys carry the tenant-scoped container id first (ADR-035 B4 — today the tenant
 seam is `series_id`; the `Project` rename change renames the stream ids with
@@ -87,9 +93,15 @@ envelope convention; event names `ReservationReserved`, `ReservationReleased`,
    - `ReservationReserved { aggregate_id == ours }` → the claim is our own
      retry's (crash between reserve and aggregate append; idempotent AI-apply
      recovery, mirroring issue #182) → proceed holding it.
-   - `ReservationReserved { other }` / `ReservationConsumed` → `DomainError::
-     Conflict` with the invariant's registered problem code → 409 before any
-     aggregate append.
+   - `ReservationConsumed { aggregate_id == ours }` → the reaper consumed our
+     claim after the aggregate was realized (it can run between a crashed
+     attempt and its worker re-drive) → proceed holding it the same way; the
+     consumed key stays non-releasable (§3.2: the reaper only ever acts on
+     `Reserved` claims), and §3.3's holder-convergent retry guarantee extends
+     across consumption.
+   - `ReservationReserved { other }` / `ReservationConsumed { other }` →
+     `DomainError::Conflict` with the invariant's registered problem code →
+     409 before any aggregate append.
 
 The winner's `stream_version` (its own `ReservationReserved` event) is the
 release token.

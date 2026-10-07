@@ -340,7 +340,23 @@ impl ReservationStore {
                 _ => Ok(ClaimObstacle::Permanent),
             },
             EVENT_NAME_RELEASED => Ok(ClaimObstacle::Claimable(last.stream_version)),
-            EVENT_NAME_CONSUMED => Ok(ClaimObstacle::Permanent),
+            EVENT_NAME_CONSUMED => match decode_lifecycle(&last.payload, stream_id)? {
+                // The reaper marked the claim realized — the key is owned by
+                // the consuming aggregate forever. A RETRY of the SAME
+                // aggregate (AI-apply crash recovery, issue #182 mirror: the
+                // reaper can consume the claim between a crashed attempt and
+                // its worker re-drive) must pass through, exactly like the
+                // OwnedBySelf branch above; it stays non-releasable (the
+                // reaper only acts on LifecycleVariant::Reserved).
+                ReservationEvent::Consumed {
+                    aggregate_id: holder,
+                } if holder == aggregate_id => Ok(ClaimObstacle::OwnedBySelf(ReservationClaim {
+                    key: stream_key(stream_id),
+                    aggregate_id,
+                    claim_version: last.stream_version,
+                })),
+                _ => Ok(ClaimObstacle::Permanent),
+            },
             other => {
                 // Unknown lifecycle event on a reservation stream: never
                 // claim past an unknown — conservative.

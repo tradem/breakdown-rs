@@ -756,8 +756,9 @@ before it can produce an unprojectable 2xx aggregate:
 
 - Registers covered by reservation claims: `reservation-epnum-*`,
   `reservation-seasnum-*`, `reservation-blocknum-*` (tenant-scoped compact
-  series id + number) and `reservation-sspair-*` (128-bit truncated
-  SHA-256 of the pair). The authoritative claim state lives in SierraDB;
+  series id + number) and `reservation-sspair-*` (96-bit truncated
+  SHA-256 of the pair, 24 hex chars). The authoritative claim state lives
+  in SierraDB;
   `projection_number_reservation` (migration `20261007000001`) is an
   observability/candidate mirror ONLY.
 - The API composition root spawns the `reservation` projector alongside the
