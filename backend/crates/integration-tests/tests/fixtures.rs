@@ -72,7 +72,26 @@ pub async fn spawn_postgres() -> Result<(PgPool, ContainerAsync<PostgresImage>)>
     Ok((pool, container))
 }
 
+/// Builds the Postgres container request.
+///
+/// Honors `POSTGRES_IMAGE` (the CI workflow exports and pre-pulls this exact
+/// image with retries — e.g. `docker.io/postgres:16-alpine`), so the test
+/// pull is a cache hit instead of a live Docker Hub dependency (the
+/// transient "failed to pull the image ... bytes remaining on stream" CI
+/// failure of this test was exactly that: the testcontainers-modules
+/// default tag `11-alpine` was never pre-pulled). Repo prefix like
+/// `docker.io/` is normalized away — the fixture keeps the module's default
+/// `postgres` repository and overrides only the tag.
+/// Local default stays the module default (`postgres:11-alpine`).
 pub fn build_postgres_container_request() -> ContainerRequest<PostgresImage> {
+    let tag = env::var("POSTGRES_IMAGE").ok().and_then(|image| {
+        let image = image.trim();
+        let tag = image.rsplit(':').next()?;
+        // The module default tag must stay overridable but sane; accept
+        // anything that looks like a plain tag (no `/` → not a repo).
+        (!tag.is_empty() && !tag.contains('/') && image.contains(':')).then(|| tag.to_owned())
+    });
+
     let image = PostgresImage::default();
 
     let base = if env::var("TESTCONTAINERS_REUSE")
@@ -82,6 +101,10 @@ pub fn build_postgres_container_request() -> ContainerRequest<PostgresImage> {
         image.with_reuse(ReuseDirective::Always)
     } else {
         image.into()
+    };
+    let base = match tag {
+        Some(tag) => base.with_tag(tag),
+        None => base,
     };
     // Allow enough connections for many projectors to hold long-lived
     // transactions simultaneously + concurrent test queries.
