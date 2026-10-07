@@ -30,9 +30,13 @@ needed, or is its provenance transitively implied?
 
 Key facts that shape the decision:
 
-- **The pair is immutable.** `(scene_id, shooting_day_id)` is the stream
-  identity of a `SceneShoot`; it is set once by `PlanSceneShoot` and never
-  mutated (pair-uniqueness enforced, no re-association command exists).
+- **The pair is immutable.** Every `SceneShoot` is bound to exactly one
+  `(scene_id, shooting_day_id)` pair — the **pair-uniqueness key** (enforced
+  ES-natively via the `reservation-sspair-{scene}-{day}` reservation key,
+  ADR-036) — set once by `PlanSceneShoot` and never mutated (no
+  re-association command exists). The event stream itself is keyed by the
+  aggregate's `SceneShootId` (`kameo_es::Entity::ID`); the pair selects the
+  stream (exactly one stream per pair) but is not the stream key.
 - **Scene provenance is immutable.** `SceneCreated.source` is set once at
   creation; there is no "update source" event, so a scene's provenance never
   changes after the fact.
@@ -54,12 +58,19 @@ Key facts that shape the decision:
   not the model. The authoritative content provenance lives first-class on
   the scene; the import batch remains reconstructable via
   `ai_import.projection_ai_import_mapping` and the job records.
-- **EU AI Act (Regulation (EU) 2024/1689) reading.** The deployer duties the
-  app answers to (Art. 50(1) interaction-point disclosure, permanent marking
-  of AI-derived results in read surfaces, human review before effect) are
-  satisfied by the #517 disclosures, the scene/day provenance badges, and
-  the preview→apply review step. Art. 50(2) machine-readable marking of raw
-  model outputs rests with the provider, not the deployer. None of these
+- **EU AI Act (Regulation (EU) 2024/1689) reading — application controls,
+  not a compliance opinion.** The #517 disclosures, the scene/day provenance
+  badges, and the preview→apply review step are **application-level
+  transparency controls** this app implements as good practice; they are
+  not, by themselves, proof of legal compliance. Duty mapping (as best
+  understood today; not legal advice): **Art. 4** (AI literacy) bears on
+  *providers and deployers* of AI systems; **Art. 50(1)** (inform natural
+  persons interacting with the system) and **Art. 50(2)** (machine-readable
+  marking of synthetic outputs) are *provider-side* duties for the
+  configured third-party LLM; deployer-side Art. 50 disclosure duties attach
+  only to specific content categories (deep fakes, emotion recognition,
+  public-interest synthetic text) — the app's internal, structured schedule
+  data falls under none of them. **Conclusion unchanged:** none of these
   duties requires per-row planner attribution ("the model planned this
   shoot row") on internal report rows.
 

@@ -168,8 +168,10 @@ tag. Never edit a released entry afterwards.
   `(scene_id, shooting_day_id)` pair. Forensic "who planned this row"
   questions route through the audit layer (`projection_audit` records the
   human reviewer; import batches remain correlated via
-  `ai_import.projection_ai_import_mapping`); the EU AI Act deployer duties
-  are already met by the #517 disclosures and scene/day badges, so no
+  `ai_import.projection_ai_import_mapping`); the app's #517 disclosures and
+  badges serve EU AI Act transparency at the application level (Art. 4
+  bears on providers and deployers, Art. 50(1)/(2) rest with the model
+  provider — no per-row planner attribution required), so no
   projector migration, OpenAPI change, or Dart regen. The additive
   `SceneShootSource` option stays documented in ADR-037 as the
   only-opening case. Index fix: ADR README table now lists ADR-036 too

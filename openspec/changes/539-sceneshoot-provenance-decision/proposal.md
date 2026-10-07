@@ -17,8 +17,9 @@ pattern.
 
 **Option A+ — derive via pair join, no code change.** A SceneShoot's
 provenance is the provenance of its scene (`SceneCreated.source`); the
-derivation is stable by construction because both the pair (stream identity)
-and scene provenance (set once, no update event) are immutable. Two
+derivation is stable by construction because both the pair
+(pair-uniqueness key; set once, no re-association command) and scene
+provenance (set once, no update event) are immutable. Two
 additional rationale layers agreed in the decision handshake:
 
 1. **Audit reconstruction suffices** for forensic questions: the AI import
@@ -27,10 +28,13 @@ additional rationale layers agreed in the decision handshake:
    authoritative content provenance lives first-class on the scene, and
    `ai_import.projection_ai_import_mapping` + job records allow correlating
    the import batch.
-2. **EU AI Act does not require per-row planner attribution** (Art. 4/50
-   duties are satisfied by the interaction-point disclosures, the
-   scene/day provenance badges, and the preview-before-apply review step;
-   Art. 50(2) marking rests with the provider).
+2. **EU AI Act does not require per-row planner attribution.** The #517
+   disclosures, scene/day provenance badges, and the preview-before-apply
+   review step are application-level transparency controls (good practice,
+   not a compliance opinion). Duty mapping: Art. 4 bears on providers and
+   deployers; Art. 50(1)/(2) rest with the model provider; deployer-side
+   Art. 50 disclosures cover only specific content categories the internal
+   schedule data does not fall under.
 
 Option B stays documented in the ADR as the only-opening case (if a future
 requirement ever needs "who planned this shoot row — import or human"), with
@@ -50,7 +54,7 @@ its drift risk spelled out (manual scene planned onto an AI-imported day).
 - [x] Explicit ADR-lite decision: **derive via the pair join (no-op)** —
       recorded in ADR-037 with the pair/scene-immutability argument, the
       audit-reconstruction layer, and the EU AI Act reading.
-- [ ] Additive path (projector migration + OpenAPI + Dart regen): **not
+- [x] Additive path (projector migration + OpenAPI + Dart regen): **not
       taken** — documented as the only-opening case instead (AC satisfied by
       the explicit decision itself; the AC's "if additive" branch is void).
 
