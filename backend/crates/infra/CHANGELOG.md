@@ -32,6 +32,36 @@ commits (ADR-020 D5).
 - Tier-4 round-trip test `aggregate_soll_ist_report_episode_and_season_scopes`
   (scopes, finality rule, archived exclusion, reshot semantics).
 
+## [0.26.0] - Unreleased
+
+### Added — ES-native reservation streams: atomic cross-aggregate uniqueness at the write boundary (ADR-036, issue #586)
+
+- `infra::reservations` (new module): atomic uniqueness claims for the four
+  #404 invariants — episode/season/block numbering `(series_id, number)` and
+  scene_shoot pair-uniqueness `(scene_id, shooting_day_id)` — on synthetic
+  SierraDB streams (`reservation-*`, category `reservation`). `ReservationStore::reserve`
+  appends `ReservationReserved` with `ExpectedVersion::Empty`; a competing
+  claim fails the version condition in the event store and surfaces the
+  invariant's registered 409 BEFORE any aggregate append. After a
+  `ReservationReleased` the key is re-claimable via CAS; a claim held by the
+  same `aggregate_id` is recovered instead of conflicted (idempotent AI-apply
+  crash recovery, issue #182 mirror).
+- Command adapters (season/block/episode `create`, scene_shoot `plan`) now
+  claim → append → compensate: a handle-rejected command releases inline;
+  unknown append state (version conflict / database error) leaves the claim
+  to the reaper — the reaper probes the event store (never a projection), so
+  projector lag can never cause a false release (ADR-036 §3.2).
+- `ReservationProjector` + `projection_number_reservation` (migration
+  `20261007000001`): claim-lifecycle mirror for observability and reaper
+  candidate selection. `spawn_reservation_projector` in the composition root.
+- `infra::reservations::reaper`: periodic crash-orphan compensation worker
+  (`RESERVATION_REAPER_ENABLED`, `RESERVATION_REAPER_INTERVAL_SECS`,
+  `RESERVATION_CLAIM_TTL_SECS`, `RESERVATION_REAPER_BATCH_SIZE`), released
+  realized claims (`ReservationConsumed`) and crash orphans
+  (`ReservationReleased`), advisory-lock-single-flight.
+- The four #404 projector savepoint-skips stay as documented backstop; the
+  projection unique constraints remain the last authority.
+
 ## [0.21.0] - Unreleased
 
 ### Added — AI apply creates episodes for draft episode groups (issue #581)

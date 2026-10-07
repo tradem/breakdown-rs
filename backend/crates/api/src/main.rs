@@ -363,6 +363,15 @@ async fn main() -> Result<()> {
         infra::projectors::ProjectorFlushConfig::default(),
     )
     .await?;
+    // ADR-036: claim-lifecycle projection for the `reservation` category
+    // (observability + reaper candidate selection only; the event store holds
+    // the authoritative claim state).
+    let _reservation_projector = infra::projectors::spawn_reservation_projector(
+        pool.clone(),
+        Arc::clone(&redis_client),
+        infra::projectors::ProjectorFlushConfig::default(),
+    )
+    .await?;
     // The photo read model (`projection_photo` + `projection_photo_variant`)
     // is written ONLY by this projector. Without it the upload path still
     // returns 201 and the thumbnail saga still generates variants, but the
@@ -459,6 +468,19 @@ async fn main() -> Result<()> {
     } else {
         info!("AI payload storage not configured — skipping AI payload GC scheduler");
     }
+
+    // --- Spawn the reservation reaper (ADR-036 §3.2) ---
+    // Required companion of the reservation streams: releases crash-orphan
+    // claims after the claim TTL and consumes realized ones. Disabled only
+    // via `RESERVATION_REAPER_ENABLED=false` (documented runbook risk: an
+    // orphaned claim blocks its key until the reaper runs).
+    infra::reservations::reaper::spawn_reaper(
+        pool.clone(),
+        infra::reservations::store::ReservationStore::new(kameo_es::ConnectionPool::from(
+            cmd_service.conn(),
+        )),
+    );
+    info!("reservation reaper spawned (ADR-036 §3.2)");
 
     // --- Report archival (staging + external + worker + triggers) ---
     let report_archival_queue = PgReportArchivalQueue::new(pool.clone());

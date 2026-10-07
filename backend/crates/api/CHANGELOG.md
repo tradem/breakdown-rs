@@ -16,6 +16,18 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
+## [0.19.1] - Unreleased
+
+### Fixed — episode/season/block numbering + scene-shoot pair uniqueness enforced at the write boundary (ADR-036, issue #586)
+
+- The advisory API-edge 409 pre-checks keep their exact problem codes; the
+  underlying race window (two concurrent creates with the same key could both
+  win 2xx with one unprojectable event) is closed infra-side via reservation
+  streams — a racing command now answers the same registered 409 before
+  touching its aggregate stream. No wire change (no new problem codes, no new
+  routes); version bumped for the `infra` re-pin (0.26.0).
+
+
 ## [0.16.0] - Unreleased
 
 ### Added — aggregated Soll-Ist report routes (issue #571)
