@@ -551,8 +551,14 @@ abstract class AppLocalizations {
   /// No description provided for @photoErrorForbidden.
   ///
   /// In de, this message translates to:
-  /// **'Du benötigst eine aktive Kostüm-Rolle in dieser Staffel, um Fotos zu verwalten.'**
+  /// **'Du benötigst eine aktive Kostüm-Rolle in dieser Produktion, um Fotos zu verwalten.'**
   String get photoErrorForbidden;
+
+  /// No description provided for @photoErrorContainerUnresolved.
+  ///
+  /// In de, this message translates to:
+  /// **'Für dieses Kostüm kann kein zugehöriger Container ermittelt werden — lade die Kostümliste neu und versuch es erneut.'**
+  String get photoErrorContainerUnresolved;
 
   /// No description provided for @photoErrorNetwork.
   ///

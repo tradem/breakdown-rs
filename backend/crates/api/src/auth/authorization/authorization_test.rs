@@ -144,6 +144,12 @@ fn block_scoped_paths_default_to_block_member() {
         // Costume categories (non-season-scoped)
         "/costume-categories/00000000-0000-7000-8000-000000000000",
         "/costume-categories/00000000-0000-7000-8000-000000000000/archive",
+        // Series routes other than the membership self-check keep the default
+        // `BlockMember` policy (issue #535 review): the middleware exception
+        // is deliberately narrow — exactly `/series/{id}/membership`.
+        "/series",
+        "/series/00000000-0000-7000-8000-000000000000",
+        "/series/00000000-0000-7000-8000-000000000000/something-else",
     ];
 
     for path in block_scoped {
@@ -180,6 +186,11 @@ fn allowlist_paths_map_to_authenticated_only() {
         // Continuity photos (season-scoped handler-internal gate, issue #333)
         "/shooting-days/00000000-0000-7000-8000-000000000000/scenes/00000000-0000-7000-8000-000000000000/scene-shoots/00000000-0000-7000-8000-000000000000/continuity-photos",
         "/shooting-days/00000000-0000-7000-8000-000000000000/scenes/00000000-0000-7000-8000-000000000000/scene-shoots/00000000-0000-7000-8000-000000000000/continuity-photos/00000000-0000-7000-8000-000000000000",
+        // Series membership self-check (issue #535): the ONLY `/series` route
+        // with a middleware exception — classified narrowly so future
+        // `/series/*` routes cannot silently inherit `Authenticated`.
+        "/series/00000000-0000-7000-8000-000000000000/membership",
+        "/v1/series/00000000-0000-7000-8000-000000000000/membership",
         // JSON report routes (issue #333): authenticated-only, same
         // handler-internal season gate as their PDF twins.
         "/shooting-days/00000000-0000-7000-8000-000000000000/report/dispo",
@@ -291,6 +302,17 @@ impl MembershipRepository for MockSeasonMembershipRepo {
         Ok(false)
     }
     async fn has_active_membership_in_series(
+        &self,
+        _series_id: SeriesId,
+        user_id: UserId,
+    ) -> Result<bool, DomainError> {
+        // Mirror the costume-role mock behaviour: this repo is keyed on the
+        // ok/result/err triple, not on the tenant dimension.
+        self.has_active_costume_role_in_season(SeasonId::new(), user_id)
+            .await
+    }
+
+    async fn has_active_costume_role_in_series(
         &self,
         _series_id: SeriesId,
         user_id: UserId,

@@ -2399,6 +2399,31 @@ components:
         Episode) references it but no `Series` aggregate exists yet.
       format: uuid
       type: string
+    SeriesMembershipDto:
+      description: |-
+        Series membership DTO — the series-level counterpart of
+        [`SeasonMembershipDto`] for the client-side AUTHZ-GATE mirror of the
+        costume-photo policy (issue #535, ADR-035 B2/S2: photos authorize
+        series-wide, so the client needs a series-level, backend-computed signal).
+
+        `has_active_costume_role_in_series` is the backend-computed predicate the
+        client must NOT re-implement (CQRS-boundary rule). `capabilities` reuses
+        the same v1 mapping; the photo gates read the predicate field directly.
+      properties:
+        capabilities:
+          items:
+            type: string
+          type: array
+        has_active_costume_role_in_series:
+          type: boolean
+        series_id:
+          format: uuid
+          type: string
+      required:
+      - series_id
+      - has_active_costume_role_in_series
+      - capabilities
+      type: object
     SetActualOrderRequest:
       properties:
         actual_order:
@@ -6281,6 +6306,32 @@ paths:
           description: Validation error
       tags:
       - handlers
+  /v1/series/{id}/membership:
+    get:
+      operationId: get_series_membership
+      parameters:
+      - description: Series id
+        in: path
+        name: id
+        required: true
+        schema:
+          format: uuid
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SeriesMembershipDto'
+          description: Membership of the authenticated caller in the series
+        '401':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Authentication required
+      tags:
+      - handlers
   /v1/settings/credentials:
     post:
       operationId: create_credential
@@ -7761,6 +7812,11 @@ x-code-registry:
   status: 422
   title: Costume validation failed
   type: https://docs.breakdown.example/problems/costume.validation
+- code: costume.container-unresolved
+  extensions: []
+  status: 422
+  title: Costume has no resolvable container
+  type: https://docs.breakdown.example/problems/costume.container-unresolved
 - code: costume-detail.not-found
   extensions:
   - id

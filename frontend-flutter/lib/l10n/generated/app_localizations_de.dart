@@ -278,7 +278,11 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get photoErrorForbidden =>
-      'Du benötigst eine aktive Kostüm-Rolle in dieser Staffel, um Fotos zu verwalten.';
+      'Du benötigst eine aktive Kostüm-Rolle in dieser Produktion, um Fotos zu verwalten.';
+
+  @override
+  String get photoErrorContainerUnresolved =>
+      'Für dieses Kostüm kann kein zugehöriger Container ermittelt werden — lade die Kostümliste neu und versuch es erneut.';
 
   @override
   String get photoErrorNetwork =>

@@ -109,6 +109,7 @@ async fn get_season_membership_returns_empty_capabilities_for_non_member() {
             costume_role_by_season: Default::default(),
             report_archive_role_override: Default::default(),
             series_membership_override: Default::default(),
+            series_costume_role_override: Default::default(),
         },
         ..Default::default()
     };

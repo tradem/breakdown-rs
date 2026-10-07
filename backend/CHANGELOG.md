@@ -26,6 +26,32 @@ tag. Never edit a released entry afterwards.
 
 ### Added
 
+- **Series-level costume-photo authorization — `has_active_costume_role_in_series`
+  (issue #535, ADR-035 B2/S2).** The costume-photo gate moves off the
+  season-typed predicate: the three photo handlers (`upload_costume_photo`,
+  `get_costume_photo_bytes`, `delete_costume_photo`) now resolve the costume's
+  owning **series** (character season ∪ repertoire → series, strict at the
+  API edge — lookup failures answer 500; a costume with neither answers 422
+  `costume.container-unresolved`, new registered problem code + Fluent text)
+  and require a costume-dept role (`costume_designer`, `wardrobe_supervisor`,
+  `costume_assistant`) in any active block of that series. This is a
+  **deliberate authorization-boundary widening**: photo access is series-wide,
+  a wardrobe team's role carries across seasons of the same production; the
+  documented-behavior-change regression test pins it (role only in season B
+  → photos of a season-A costume in the same series → 2xx; role in a
+  different series → 403). The genuinely season-scoped costume operations
+  (detail editing, category season-match, repertoire target season,
+  continuity photos, reports) keep the grandfathered
+  `has_active_costume_role_in_season`; no new `*_in_season` predicate was
+  added (ADR-035 B2). Client gate mirror: the gated photo flows check the
+  backend-computed series predicate before any network call (frontend
+  AGENTS §5), served by the new `GET /v1/series/{id}/membership`
+  (`SeriesMembershipDto`). Crates: `core` 0.21.0 (new port method + registry
+  entry), `infra` 0.25.0 (SQL impl), `api` 0.19.0 (route, DTO, gate).
+  `docs/security/security-architecture.md` documents the predicate, the
+  widening rationale, and the relationship to the role-agnostic
+  `has_active_membership_in_series`.
+
 - **Costume season repertoire as real aggregate state — `AddCostumeToSeason`/
   `RemoveCostumeFromSeason` (issue #534).** `CostumeAggregate` carries
   `seasons: Vec<SeasonId>`: the wardrobe lifecycle carries a costume from one

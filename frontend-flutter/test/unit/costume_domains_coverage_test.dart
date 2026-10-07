@@ -604,7 +604,11 @@ void main() {
       );
       expect(checkAssignCapability(null), isA<GateDeny>());
       expect(
-        (checkPhotoCapability(null) as GateDeny).code,
+        (checkContinuityCapability(null) as GateDeny).code,
+        'membership.pending',
+      );
+      expect(
+        (checkCostumePhotoCapability(null) as GateDeny).code,
         'membership.pending',
       );
     });

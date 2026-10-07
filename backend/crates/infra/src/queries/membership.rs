@@ -121,6 +121,32 @@ impl MembershipRepository for MembershipRepositoryImpl {
         Ok(row.is_some())
     }
 
+    async fn has_active_costume_role_in_series(
+        &self,
+        series_id: SeriesId,
+        user_id: UserId,
+    ) -> Result<bool, DomainError> {
+        let row: Option<(String,)> = sqlx::query_as(
+            r#"
+            SELECT m.role
+            FROM projection_membership m
+            JOIN projection_block b ON b.id = m.block_id
+            WHERE m.user_id = $1
+              AND b.series_id = $2
+              AND m.role IN ('costume_designer', 'wardrobe_supervisor', 'costume_assistant')
+              AND m.state = 'active'
+            LIMIT 1
+            "#,
+        )
+        .bind(user_id.as_str())
+        .bind(series_id.0)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| DomainError::internal(e.to_string()))?;
+
+        Ok(row.is_some())
+    }
+
     async fn has_active_costume_role_in_season(
         &self,
         season_id: SeasonId,

@@ -9,14 +9,16 @@ import 'package:fpdart/fpdart.dart';
 import '../../core/problem_error.dart';
 import '../../core/result.dart';
 
-/// Reads the season-scoped membership projection that backs the
-/// client-side AUTHZ-GATE (D2 — one endpoint, no cross-projection
-/// reconstruction; CQRS-boundary rule, AGENTS.md §1).
+/// Reads the season-scoped and series-scoped membership projections that
+/// back the client-side AUTHZ-GATE (D2 — one endpoint per scope, no
+/// cross-projection reconstruction; CQRS-boundary rule, AGENTS.md §1).
 ///
 /// Consumes the generated `breakdown_api` client (AGENTS.md §3 — never
 /// hand-type responses). The mirror DTO that predated the backend route was
 /// deleted once `GET /v1/seasons/{seasonId}/membership` landed in
-/// `backend/openapi.yaml` (issue #311) and the client was regenerated.
+/// `backend/openapi.yaml` (issue #311) and the client was regenerated. The
+/// series-level twin landed with issue #535 (ADR-035 B2/S2 — the
+/// costume-photo policy is series-wide).
 class MembershipRepository {
   const MembershipRepository(this._api);
 
@@ -44,6 +46,25 @@ class MembershipRepository {
       // code (e.g. `season.not_found`); transport failures surface under the
       // `transport.*` pseudo-namespace. Both are error states for the
       // provider (D3) — neither is a resolved denial.
+      return Left(problemErrorFromDio(e));
+    }
+  }
+
+  /// Fetches the series-level membership DTO for [seriesId] (issue #535).
+  ///
+  /// Same no-throw contract as [fetch]: every failure is a
+  /// `Left(ProblemError)` carrying the backend's stable `code`.
+  Future<Result<SeriesMembershipDto>> fetchSeries(String seriesId) async {
+    try {
+      final response = await _api.getHandlersApi().getSeriesMembership(
+        id: seriesId,
+      );
+      final dto = response.data;
+      if (dto == null) {
+        return const Left(ProblemError(code: 'membership.dto_invalid'));
+      }
+      return Right(dto);
+    } on DioException catch (e) {
       return Left(problemErrorFromDio(e));
     }
   }

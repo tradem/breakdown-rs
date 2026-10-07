@@ -127,9 +127,9 @@ block-scoped, never open.
 | Path(s) | Requirement | Why safe |
 |---|---|---|
 | `/swagger-ui`, `/api-docs` | public | Docs only. Implemented as a **path-check inside the middleware**, *not* by omitting the layer — the middleware still runs on every request. (`authorization.rs::authorize_middleware`, `auth/mod.rs::auth_middleware`) |
-| `/seasons`, `/settings`, `/blocks` (create/list) | `Authenticated` | No existing block membership can be required: creating a block bootstraps its owner; listing by season needs no block scope. |
+| `/seasons`, `/series/{id}/membership` (issue #535), `/settings`, `/blocks` (create/list) | `Authenticated` | No existing block membership can be required: creating a block bootstraps its owner; listing by season needs no block scope. The series-membership self-check is tenant-level data the `X-Active-Block` scope says nothing about (it backstops the client-side AUTHZ-GATE mirror); the handler itself performs no privileged action. |
 | `/settings/{id}` (`GET`/`DELETE`), `/settings/{id}/gdrive` (`PATCH`) (issue #555) | `Authenticated` + handler gates | Integration-level credentials, not season-scoped (ADR-028), so the middleware cannot gate them. Every handler enforces the credential role (`has_active_credential_role`) *and* per-binding ownership (`projection_settings.owner == caller`) with `// AUTHZ-GATE:` comments — 403 `settings.forbidden` for the role denial, 403 `settings.binding-forbidden` for a foreign or legacy unknown-owner binding. Ownership is checked before any Vault write or command dispatch, so a non-owner can neither read the `vault_key_id` nor rotate/destroy another user's secret. |
-| `/costumes/{id}/photos*` | `Authenticated` + handler gate | Handler internally calls `SeasonPhotoAccessPolicy::authorize_season` (costume-dept role in an active block of the season) and returns `403` on denial. Marked with `// AUTHZ-GATE:` comments — reviewers grep for them. |
+| `/costumes/{id}/photos*` (issue #535) | `Authenticated` + handler gate | Handler internally resolves the costume's owning **series** (strict, `series_id_for_costume_strict` — lookup failures answer 500) and calls `has_active_costume_role_in_series` — a costume-dept role (`costume_designer`, `wardrobe_supervisor`, `costume_assistant`) in any active block of the series authorizes, **series-wide**. Returns `403` on denial, `422 costume.container-unresolved` when the costume has neither character nor repertoire (no resolvable container). Marked with `// AUTHZ-GATE:` comments — reviewers grep for them. See [Costume-photo authorization level (issue #535)](#costume-photo-authorization-level-issue-535). |
 | `/blocks/{id}/members/accept` | `Authenticated` | The invitee is *not yet* a member (that is the point). The domain command `AcceptInvitation` binds `user_id` to the authenticated `sub`, so a caller can only accept their own invitation. |
 | `/ai-import*`, `/report/*.pdf`, `/report/archive` | `Authenticated` + handler gates | Each handler performs season-scoped internal authorization (costume-dept membership / credential role) with `// AUTHZ-GATE:` comments. |
 | `/audit` (series-scoped journal) | `Authenticated` + handler gate | The journal is filtered by the `series_id` **query parameter**, so the caller's active block (`X-Active-Block`) is unrelated to the series being read — a middleware `BlockMember` check would give false assurance. `requirement_for` therefore classifies the route `Authenticated` and `get_audit_history` verifies `MembershipRepository::has_active_membership_in_series` itself, returning `403` on denial (issue #342). Its block-scoped twin `/blocks/{id}/audit` stays `BlockMember`. |
@@ -171,10 +171,52 @@ membership_gate(
 
 `Ok(false)` is a genuine deny (403 with the site's reason); `Err(_)` still
 grants nothing — the fail-closed semantics are intentional — but the outage
-becomes traceable. Multi-scope gates (costume authorization) use
-`membership_gate_any` under `authorize_costume_scoped`. The ast-grep rule
+becomes traceable. Multi-scope gates (season-scoped costume operations:
+detail editing, category, repertoire target season) use `membership_gate_any`
+under `authorize_costume_scoped`. The ast-grep rule
 `backend/rules/membership-gate.yml` forbids the pre-#537
 `.unwrap_or(false)` pattern in production code.
+
+### Costume-photo authorization level (issue #535)
+
+ADR-035 **B2** (normative): authorization predicates are typed by the
+*authorization level*, never by a production-form-specific container — and
+since #535 the costume-photo gate is typed at the **series/project level**
+(`MembershipRepository::has_active_costume_role_in_series`):
+
+- **Predicate + role set.** Same three costume-department roles as the
+  season-scoped predicate (`costume_designer`, `wardrobe_supervisor`,
+  `costume_assistant`), one level up — the SQL joins
+  `projection_membership ⋈ projection_block ON b.series_id` instead of
+  `b.season_id`.
+- **Scope widening (deliberate, reviewed).** Pre-#535 the gate checked the
+  season union (character season ∪ repertoire seasons, `authorize_costume_scoped`)
+  per season. Under the series policy, whoever holds a costume-dept role
+  *anywhere in the series* can read and manage the photos of **all** costumes
+  in that series — including costumes standing in seasons they have no season
+  role for. This is defensible because the costume department is
+  institutionally a cross-season domain (the `any active block` semantics of
+  the existing predicates, the m:n repertoire of #453/#534) and because a
+  carried-over costume would otherwise be unmanageable for the wardrobe team
+  that brought it in. It is a boundary shift, **not** a mechanical re-bend —
+  hence its place in this document.
+- **Why the photo gate and not the journal predicate.**
+  `has_active_membership_in_series` (the `/audit` gate) stays deliberately
+  **role-agnostic** — the audit journal is an operational record of the whole
+  production. Photos are a costume-department artefact, so the photo predicate
+  keeps the costume-role allowlist even at series level.
+- **Domain vs authorization scope.** The costume's repertoire remains its
+  *domain* scope — it decides which seasons list the costume and which series
+  the costume resolves to. Only the *authorization* level moved up. The
+  season union must not be re-introduced as an authorization input, and the
+  client gate must not deny on it (AGENTS rule; the client mirrors the series
+  predicate via `GET /v1/series/{id}/membership`).
+- **Season-scoped gates remain.** Genuinely season-scoped costume operations
+  (detail editing #543/#544, `set_costume_category` season-match invariant #543,
+  repertoire add/remove on the **target** season #534/#533, continuity photos,
+  reports) keep the season-typed predicate `has_active_costume_role_in_season`;
+  ADR-035 B2 forbids *adding* new `*_in_season` predicates, not keeping this
+  grandfathered one.
 
 ## Membership projection encoding (role / state)
 
@@ -301,6 +343,7 @@ tracked individually so this pyramid can be driven to all-green.
 | Fail-closed policy evaluation | `crates/api/src/auth/authorization.rs::authorize_middleware` (`tokio::task::spawn` + `unwrap_or(Deny)`) |
 | Membership policy (block-scoped) | `crates/api/src/auth/authorization.rs::MembershipAuthorizationPolicy` |
 | Season-scoped photo policy | `crates/api/src/auth/authorization.rs::SeasonPhotoAccessPolicy` (+ `// AUTHZ-GATE:` markers on handlers) |
+| Series-scoped costume-photo policy (issue #535) | `crates/api/src/handlers/mod.rs::authorize_costume_in_series` + `crates/infra/src/queries/membership.rs::has_active_costume_role_in_series` (+ `// AUTHZ-GATE:` markers on the three photo handlers) |
 | Middleware layering | `crates/api/src/routes/mod.rs` |
 | Static-SQL rule + safe patterns | `docs/security/README.md`; enforced by `no-string-interpolation-sql` job |
 | Postgres least-privilege roles | `scripts/postgres-init-roles.sh`, `crates/api/src/main.rs` |

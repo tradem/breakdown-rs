@@ -587,6 +587,10 @@ pub struct FakeMembershipRepo {
     /// tests exercise the allow/deny branches of the series-scoped audit gate
     /// (issue #342). `None` = resolve from seeded data.
     pub series_membership_override: Arc<Mutex<Option<Result<bool, DomainError>>>>,
+    /// Configurable outcome of `has_active_costume_role_in_series` — lets
+    /// handler tests exercise the allow/deny/error branches of the series-scoped
+    /// photo gate (issue #535). `None` = resolve from seeded data.
+    pub series_costume_role_override: Arc<Mutex<Option<Result<bool, DomainError>>>>,
 }
 
 #[allow(dead_code)]
@@ -790,6 +794,31 @@ impl MembershipRepository for FakeMembershipRepo {
         }))
     }
 
+    async fn has_active_costume_role_in_series(
+        &self,
+        series_id: SeriesId,
+        user_id: UserId,
+    ) -> Result<bool, DomainError> {
+        if let Some(result) = self.series_costume_role_override.lock().await.clone() {
+            return result;
+        }
+        // Series-scoped costume-role allowlist over the seeded rows (issue
+        // #535): the photo-gate predicate. Unscoped rows never match.
+        let rows = self.rows().await;
+        let scopes = self.scopes.lock().await;
+        Ok(rows.iter().any(|(block_id, row_user, role, state)| {
+            row_user == &user_id
+                && *state == MembershipStateKind::Active
+                && matches!(
+                    role,
+                    Role::CostumeDesigner | Role::WardrobeSupervisor | Role::CostumeAssistant
+                )
+                && scopes
+                    .get(block_id)
+                    .is_some_and(|(_, series)| series == &series_id)
+        }))
+    }
+
     async fn has_active_costume_role_in_season(
         &self,
         season_id: SeasonId,
@@ -946,6 +975,10 @@ pub struct FakeCostumeRepo {
     /// read by issue #532). Unseeded costumes have an empty repertoire, which
     /// is the pre-repertoire / no-scope case.
     pub repertoire: Arc<Mutex<HashMap<Uuid, Vec<SeasonId>>>>,
+    /// When `Some`, `repertoire_seasons` returns this error (issue #535
+    /// review): the strict photo-gate resolver must propagate it as a 500,
+    /// never as a 422 `costume.container-unresolved`.
+    pub repertoire_error: Arc<Mutex<Option<DomainError>>>,
 }
 
 impl CostumeRepository for FakeCostumeRepo {
@@ -979,6 +1012,9 @@ impl CostumeRepository for FakeCostumeRepo {
         Err(DomainError::not_found("costume"))
     }
     async fn repertoire_seasons(&self, costume_id: Uuid) -> Result<Vec<SeasonId>, DomainError> {
+        if let Some(err) = self.repertoire_error.lock().await.clone() {
+            return Err(err);
+        }
         Ok(self
             .repertoire
             .lock()

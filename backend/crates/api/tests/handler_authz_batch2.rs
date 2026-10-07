@@ -213,8 +213,14 @@ async fn upload_costume_photo_denies_non_member() {
 async fn upload_costume_photo_returns_201_despite_projection_lag() {
     let ports = FakePorts::default();
     let (costume_id, _sid) = seed_costume_chain(&ports).await;
-    // Authorize the caller (the handler-internal AUTHZ-GATE must pass).
-    *ports.membership_repo.costume_role_override.lock().await = Some(Ok(true));
+    // Authorize the caller (the handler-internal AUTHZ-GATE must pass —
+    // issue #535: the photo path is series-scoped, so the series predicate
+    // is pinned instead of the season override).
+    *ports
+        .membership_repo
+        .series_costume_role_override
+        .lock()
+        .await = Some(Ok(true));
     // Keep a handle on the photo-command spy before `ports` is moved into the state.
     let photo_commands = ports.photo_commands.clone();
     let state = app_state(ports);

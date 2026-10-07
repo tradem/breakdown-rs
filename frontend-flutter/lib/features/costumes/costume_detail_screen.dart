@@ -1285,28 +1285,57 @@ class _PhotosSectionState extends ConsumerState<_PhotosSection> {
 
   @override
   Widget build(BuildContext context) {
-    final membership = ref.watch(currentMembershipProvider(widget.season.id));
-    final canUpload = switch (membership) {
-      AsyncData(:final value) => value.canUploadContinuityPhotos,
+    // Issue #535: the costume-photo policy is **series-scoped** server-side
+    // (ADR-035 B2/S2), so the widget gate mirrors the backend-computed series
+    // predicate (`has_active_costume_role_in_series`) — and resolves the
+    // membership from the COSTUME (character-first ∪ repertoire, issue #535
+    // review), NOT from this screen's open season: a carried-over costume
+    // opened through a repertoire season of a different series gates on its
+    // own series, exactly like the server. Denying on the season union would
+    // block flows the server permits.
+    final costumeView = _detail ?? widget.costume;
+    final membership = ref.watch(
+      seriesMembershipForCostumeProvider(costumeMembershipScope(costumeView)),
+    );
+    final hasSeriesRole = switch (membership) {
+      AsyncData(:final value) => value.match(
+        (_) => false,
+        (dto) => dto.hasActiveCostumeRoleInSeries,
+      ),
       _ => false,
     };
     final denied = switch (membership) {
-      AsyncData(:final value) => !value.canUploadContinuityPhotos,
+      AsyncData(:final value) => value.match(
+        (_) => false,
+        (dto) => !dto.hasActiveCostumeRoleInSeries,
+      ),
       _ => false,
     };
-    // Photo affordances are gated on the membership capability only. The
-    // costume's season *scope* is the server's call (issue #532): an
-    // unassigned costume that stands in the season's repertoire (which is how
-    // the client creates every costume, issue #453) CAN manage photos, so no
-    // client-side character-assignment gate remains here. A costume with no
-    // scope at all is rejected by the server with `domain.validation`, which
-    // surfaces through the photo command-error copy.
-    final canManagePhotos = canUpload;
+    // Issue #535 review: a failed membership fetch must be RECOVERABLE — the
+    // fetch result is retained while watched, and pull-to-refresh only
+    // refreshes costumes. A retry affordance invalidates the provider so the
+    // next build re-executes the season/character + membership chain.
+    final fetchFailed = switch (membership) {
+      AsyncData(:final value) => value.isLeft(),
+      AsyncError() => true,
+      _ => false,
+    };
+    // Photo affordances are gated on the backend-computed series predicate
+    // only. The costume's series *resolution* is the server's call (issue
+    // #532): an unassigned costume that stands in a repertoire season (which
+    // is how the client creates every costume, issue #453) CAN manage photos,
+    // so no client-side character-assignment gate remains here. A costume
+    // with no resolvable container is rejected by the server with 422
+    // `costume.container-unresolved`, which surfaces through the photo
+    // command-error copy.
+    final canManagePhotos = hasSeriesRole;
     // Do not construct the network-backed photo repository while the
     // capability is denied or still pending. This keeps the overview's
     // inline editor renderable during membership resolution and enforces the
     // client-side photo gate before any bytes request.
-    final repo = canUpload ? ref.watch(costumePhotoRepositoryProvider) : null;
+    final repo = hasSeriesRole
+        ? ref.watch(costumePhotoRepositoryProvider)
+        : null;
     final lru = ref.watch(photoBytesLruProvider);
 
     return Column(
@@ -1333,6 +1362,16 @@ class _PhotosSectionState extends ConsumerState<_PhotosSection> {
           Text(
             l10nOf(context).photoErrorForbidden,
             key: const Key('photo-denied-narrative'),
+          ),
+        if (fetchFailed)
+          TextButton(
+            key: Key('photo-membership-retry-${widget.costume.id}'),
+            onPressed: () => ref.invalidate(
+              seriesMembershipForCostumeProvider(
+                costumeMembershipScope(costumeView),
+              ),
+            ),
+            child: Text(l10nOf(context).commonRetry),
           ),
         if (repo != null)
           PhotoGallery(
@@ -1504,7 +1543,7 @@ class _PhotosSectionState extends ConsumerState<_PhotosSection> {
         final uploadResult = await ref
             .read(costumesControllerProvider(widget.season.id).notifier)
             .uploadPhoto(
-              costumeId: widget.costume.id,
+              costume: _detail ?? widget.costume,
               bytes: Uint8ListBytes(bytes),
               contentType: contentType,
             );
@@ -1542,7 +1581,10 @@ class _PhotosSectionState extends ConsumerState<_PhotosSection> {
               // Handled: failures surface via the command-error provider.
               final deleteResult = await ref
                   .read(costumesControllerProvider(widget.season.id).notifier)
-                  .deletePhoto(costumeId: widget.costume.id, photoId: photoId);
+                  .deletePhoto(
+                    costume: _detail ?? widget.costume,
+                    photoId: photoId,
+                  );
               deleteResult.match<void>((_) {}, (_) {});
               // Close the dialog BEFORE the reload: _loadDetail awaits a network
               // read, and while the dialog stays open the (still enabled) delete

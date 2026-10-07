@@ -135,6 +135,14 @@ SeasonMembershipDto _membership(List<String> caps) => SeasonMembershipDto(
     ..capabilities.replace(caps),
 );
 
+/// The series-level membership the costume-photo gate reads (issue #535).
+SeriesMembershipDto _seriesMembership(bool hasRole) => SeriesMembershipDto(
+  (b) => b
+    ..seriesId = 'series-1'
+    ..hasActiveCostumeRoleInSeries = hasRole
+    ..capabilities.replace(const <String>[]),
+);
+
 class _FakeCostumeRepository extends CostumeRepository {
   _FakeCostumeRepository(super.api, super.cache);
 
@@ -281,6 +289,7 @@ void main() {
   late _FakeCostumeRepository repo;
   late ValueNotifier<Result<List<CostumeView>>> holder;
   late ValueNotifier<Result<SeasonMembershipDto>> membershipHolder;
+  late ValueNotifier<Result<SeriesMembershipDto>> seriesMembershipHolder;
   late ManualReconciliationScheduler scheduler;
   late ProviderContainer container;
   int listFetchCalls = 0;
@@ -300,6 +309,13 @@ void main() {
     );
     membershipHolder = ValueNotifier<Result<SeasonMembershipDto>>(
       Right(_membership(capabilities)),
+    );
+    seriesMembershipHolder = ValueNotifier<Result<SeriesMembershipDto>>(
+      // Issue #535 test parity: the series photo gate is permissive exactly
+      // when the season capability set carried the photo capability.
+      Right(
+        _seriesMembership(capabilities.contains('upload_continuity_photos')),
+      ),
     );
     scheduler = ManualReconciliationScheduler();
     container = ProviderContainer(
@@ -322,6 +338,12 @@ void main() {
         ),
         membershipFetchProvider('season-1')
             .overrideWith((ref) async => membershipHolder.value),
+        // Family-level override (issue #535 review): the costume-keyed series
+        // gate answers from the holder — this file does not exercise the
+        // photo gate, so the value only exists for fixture parity.
+        seriesMembershipForCostumeProvider.overrideWith(
+          (ref, costume) async => seriesMembershipHolder.value,
+        ),
         characterRepositoryProvider.overrideWithValue(
           CharacterRepository(BreakdownApi(), CharacterCacheDao(db)),
         ),

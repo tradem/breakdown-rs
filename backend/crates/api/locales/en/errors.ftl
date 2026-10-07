@@ -106,6 +106,9 @@ problem-costume-not-found =
 problem-costume-validation =
     The costume request is not valid.
 
+problem-costume-container-unresolved =
+    The costume has neither an assigned character nor a repertoire season — its owning container cannot be determined. Refetch the costume list and retry.
+
 problem-domain-conflict =
     The operation conflicts with the current state.
 

@@ -342,17 +342,36 @@ class CostumesController extends _$CostumesController {
   }
 
   /// Client-side AUTHZ-GATE for photo commands (upload/delete): the
-  /// season-scoped photo policy mirror (`upload_continuity_photos`).
-  Future<GateDecision> _photoGate() async {
+  /// **series-scoped** photo policy mirror (issue #535, ADR-035 B2/S2) —
+  /// the backend-computed `has_active_costume_role_in_series` predicate,
+  /// resolved from the COSTUME (character-first ∪ repertoire — issue #535
+  /// review), not from the currently open season: a carried-over costume
+  /// opened through a foreign repertoire season gates on its own series.
+  /// A client-side denial short-circuits with the localized 403 narrative
+  /// and never issues the request.
+  ///
+  /// A failed membership fetch is `membership.pending` (D3) — and the
+  /// provider is invalidated so the NEXT command attempt re-executes the
+  /// fetch instead of replaying the cached failure (issue #535 review:
+  /// retry-ability).
+  Future<GateDecision> _photoGate(CostumeView costume) async {
     final session = await _resolveSession();
     if (session == null) return const GateDeny('auth.session_required');
     GateDecision gate;
     try {
-      final res = await ref.read(membershipFetchProvider(seasonId).future);
-      gate = res.match(
-        (_) => const GateDeny('membership.pending'),
-        (dto) => checkPhotoCapability(dto),
+      final res = await ref.read(
+        seriesMembershipForCostumeProvider(costumeMembershipScope(costume))
+            .future,
       );
+      gate = res.match((_) {
+        // Retry-ability: drop the failed result so a subsequent
+        // command re-executes the fetch (the retained Left would
+        // otherwise be replayed as a permanent pending).
+        ref.invalidate(
+          seriesMembershipForCostumeProvider(costumeMembershipScope(costume)),
+        );
+        return const GateDeny('membership.pending');
+      }, checkCostumePhotoCapability);
     } on Object {
       gate = const GateDeny('membership.pending');
     }
@@ -1206,24 +1225,25 @@ class CostumesController extends _$CostumesController {
   /// Returns the Gallery ack; the screen reconciles via the costume refetch
   /// + [PhotoRepository.watch].
   ///
-  /// // AUTHZ-GATE: season-scoped photo policy checked before the call. The
-  /// season *scope* of the costume is the server's call (issue #532): an
-  /// unassigned costume in the season's repertoire is uploadable, so the
-  /// client no longer pre-denies a `null` character binding (issue #513's
-  /// client mirror). The server's `domain.validation` for a costume with no
-  /// scope at all renders through [photoErrorCopy].
+  /// // AUTHZ-GATE: **series-scoped** photo policy checked before the call
+  /// (issue #535, ADR-035 B2/S2 — the mirror reads the backend-computed
+  /// `has_active_costume_role_in_series` for the costume's OWN series,
+  /// resolved character-first ∪ repertoire — issue #535 review). The
+  /// server re-resolves and re-checks authoritatively. The server's
+  /// `costume.container-unresolved` for a costume with no resolvable
+  /// container renders through [photoErrorCopy].
   Future<Result<PhotoView>> uploadPhoto({
-    required String costumeId,
+    required CostumeView costume,
     required Uint8ListBytes bytes,
     required String contentType,
   }) async {
     // AUTHZ-GATE: photo capability checked before any network call.
-    final gate = await _photoGate();
+    final gate = await _photoGate(costume);
     if (_deny(CostumeCommandSurface.photo, gate) != null) {
       return Left(ProblemError(code: (gate as GateDeny).code, status: 403));
     }
     final repo = ref.read(costumePhotoRepositoryProvider);
-    final res = await repo.upload(costumeId, bytes.bytes, contentType);
+    final res = await repo.upload(costume.id, bytes.bytes, contentType);
     return res.match(
       (err) {
         _setCommandError(CostumeCommandSurface.photo, err);
@@ -1240,20 +1260,20 @@ class CostumesController extends _$CostumesController {
   /// Deletes a costume photo (confirm-first in the UI; 204 → optimistic
   /// removal + reconcile).
   ///
-  /// // AUTHZ-GATE: season-scoped photo policy checked before the call; the
-  /// costume's season *scope* is resolved by the server (issue #532) for the
-  /// same reason as [uploadPhoto].
+  /// // AUTHZ-GATE: **series-scoped** photo policy checked before the call
+  /// (issue #535); the costume's owning series is resolved character-first
+  /// ∪ repertoire (issue #535 review) for the same reason as [uploadPhoto].
   Future<Result<void>> deletePhoto({
-    required String costumeId,
+    required CostumeView costume,
     required String photoId,
   }) async {
     // AUTHZ-GATE: photo capability checked before any network call.
-    final gate = await _photoGate();
+    final gate = await _photoGate(costume);
     if (_deny(CostumeCommandSurface.photo, gate) != null) {
       return Left(ProblemError(code: (gate as GateDeny).code, status: 403));
     }
     final repo = ref.read(costumePhotoRepositoryProvider);
-    final res = await repo.delete(costumeId, photoId);
+    final res = await repo.delete(costume.id, photoId);
     return res.match(
       (err) {
         _setCommandError(CostumeCommandSurface.photo, err);

@@ -106,6 +106,9 @@ problem-costume-not-found =
 problem-costume-validation =
     Die Kostüm-Anfrage ist nicht gültig.
 
+problem-costume-container-unresolved =
+    Das Kostüm hat weder einen zugeordneten Charakter noch eine Repertoire-Staffel — sein zugehöriger Container kann nicht ermittelt werden. Laden Sie die Kostümliste neu und versuchen Sie es erneut.
+
 problem-domain-conflict =
     Der Vorgang steht im Konflikt mit dem aktuellen Zustand.
 

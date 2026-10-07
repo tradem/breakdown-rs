@@ -120,6 +120,7 @@ export 'package:breakdown_api/src/model/script_context.dart';
 export 'package:breakdown_api/src/model/season_membership_dto.dart';
 export 'package:breakdown_api/src/model/season_view.dart';
 export 'package:breakdown_api/src/model/serialized_note.dart';
+export 'package:breakdown_api/src/model/series_membership_dto.dart';
 export 'package:breakdown_api/src/model/set_actual_order_request.dart';
 export 'package:breakdown_api/src/model/set_costume_category_request.dart';
 export 'package:breakdown_api/src/model/settings_view.dart';
