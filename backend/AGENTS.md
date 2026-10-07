@@ -31,7 +31,7 @@ You are the primary coding agent for `breakdown-rs` – a collaborative costume 
 - **`crates/api`:** Axum web server — HTTP → Core Commands (Write) / Infrastructure Queries (Read).
 
 **Domain map (production hierarchy, ADR: introduce-season-block-episode-hierarchy):**
-`Series` (opaque `SeriesId` seam, no aggregate yet) → `Season` → `Block` → `Episode` → `Scene`; `Character` scoped to a Season, `Costume` bound to a Character. Core modules: `season`, `block`, `episode`, `scene`, `scene_shoot`, `shooting_day`, `character`, `costume`, `costume_category`, `shared`. The `calculation` context was removed — do not reintroduce it.
+`Project` (opaque `ProjectId` seam, no aggregate yet; renamed from `Series`/`SeriesId` by issue #591) → `Season` → `Block` → `Episode` → `Scene`; `Character` scoped to a Season, `Costume` bound to a Character. Core modules: `season`, `block`, `episode`, `scene`, `scene_shoot`, `shooting_day`, `character`, `costume`, `costume_category`, `shared`. The `calculation` context was removed — do not reintroduce it.
 Aggregate details and invariants (`shooting_day`/`wrapped_at`, `scene_shoot` lifecycle & pair-uniqueness, `costume_category` seeding saga, `photo` bounded context with sagas) → long form: `.github/instructions/domain-model.instructions.md` and `.github/instructions/photo-context.instructions.md`
 
 ## 3. Workflow & Best Practices

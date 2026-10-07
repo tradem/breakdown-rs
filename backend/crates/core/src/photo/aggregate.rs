@@ -338,7 +338,7 @@ mod tests {
 
         let cmd = DeletePhoto {
             id: photo.id,
-            series_id: None,
+            project_id: None,
             version: AggregateVersion::INITIAL,
         };
 
@@ -359,7 +359,7 @@ mod tests {
             id: photo.id,
             variant: PhotoVariant::Original,
             size_bytes: 0,
-            series_id: None,
+            project_id: None,
             version: AggregateVersion::INITIAL,
         };
 
@@ -383,7 +383,7 @@ mod tests {
             id: photo.id,
             new_size: 2048,
             rotated: false,
-            series_id: None,
+            project_id: None,
             version: AggregateVersion::INITIAL,
         };
 
@@ -406,7 +406,7 @@ mod tests {
             id: photo.id,
             variant: PhotoVariant::Thumb,
             size_bytes: 0,
-            series_id: None,
+            project_id: None,
             version: AggregateVersion::INITIAL,
         };
 

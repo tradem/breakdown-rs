@@ -14,12 +14,12 @@ use uuid::Uuid;
 /// Cross-cutting metadata attached to every event-sourced command.
 ///
 /// `EventMetadata` captures *who* triggered each event (`actor`), *how*
-/// (`provenance`), and *where* (`series_id` for tenant scoping). Every
+/// (`provenance`), and *where* (`project_id` for tenant scoping). Every
 /// aggregate's `Entity::Metadata` is set to this shared type so the audit
-/// projector can extract actor/provenance/series uniformly.
+/// projector can extract actor/provenance/project uniformly.
 ///
 /// Pre-existing events of formerly `()`-aggregates carry `provenance = System`,
-/// `actor = None`, `series_id = None` (honest state, no fabrication).
+/// `actor = None`, `project_id = None` (honest state, no fabrication).
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EventMetadata {
     /// The authenticated OIDC `sub` claim, if dispatched by a human actor.
@@ -27,7 +27,15 @@ pub struct EventMetadata {
     /// Discriminates human-initiated, saga-initiated, and system-initiated commands.
     pub provenance: Provenance,
     /// Denormalized tenant key — populated by command adapters at dispatch time.
-    pub series_id: Option<SeriesId>,
+    ///
+    /// `#[serde(rename = "series_id")]` is **load-bearing, not cosmetic**
+    /// (issue #591, layer 2). This type is the metadata of *every* persisted
+    /// event, so the serialized key cannot change: ADR-002 forbids rewriting
+    /// history, and a rename here would make every already-stored event
+    /// un-deserializable — surfacing as a projector dying with SQLSTATE 22 and
+    /// dead-lettering via the #37 path rather than as a compile error.
+    #[serde(rename = "series_id")]
+    pub project_id: Option<ProjectId>,
 }
 
 /// Discriminates who/what initiated a command.
@@ -96,20 +104,36 @@ impl std::str::FromStr for UserId {
     }
 }
 
-/// Opaque identifier for a `Series` (a show run).
+/// Opaque identifier for a `Project` — the tenant-level production container.
 ///
-/// `SeriesId` is an opaque UUIDv7 value type introduced by the
-/// `introduce-season-block-episode-hierarchy` change. It is the seam for a
-/// future additive `Series` aggregate: every hierarchy entity (Season, Block,
-/// Episode) references it but no `Series` aggregate exists yet.
+/// `ProjectId` is an opaque UUIDv7 value type introduced by the
+/// `introduce-season-block-episode-hierarchy` change and renamed from
+/// `SeriesId` by issue #591 (ADR-035 D1/S1). The rename is **1:1**: the
+/// position, the UUIDv7 values and the tenant boundary are unchanged (ADR-035
+/// B1) — only the production-form-specific *word* is gone, so the container no
+/// longer claims to be a TV show.
+///
+/// It remains a seam rather than an aggregate: every hierarchy entity
+/// (Season, Block, Episode) references it, but no `Project` aggregate exists
+/// yet. The children below it stay `Season`/`Block`/`Episode` until a second
+/// production form actually lands (ADR-035 D2/D3).
+///
+/// **Wire compatibility (issue #591, layers 2 and 3 explicitly out of the
+/// rename).** The *type* is `#[serde(transparent)]` over `Uuid`, so a field
+/// typed `ProjectId` still serializes as a bare UUID string — the JSON value is
+/// unchanged by this rename. What deliberately keeps the old spelling is the
+/// **field name** on persisted payloads: event fields and read-model view
+/// fields carry `#[serde(rename = "series_id")]`, and the projection columns and
+/// OpenAPI fields keep `project_id` until the dedicated layer-3 change (a
+/// breaking ADR-021 `/v2` migration).
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, ToSchema,
 )]
 #[serde(transparent)]
-pub struct SeriesId(pub Uuid);
+pub struct ProjectId(pub Uuid);
 
-impl SeriesId {
-    /// Create a new UUIDv7 `SeriesId`.
+impl ProjectId {
+    /// Create a new UUIDv7 `ProjectId`.
     pub fn new() -> Self {
         Self(Uuid::now_v7())
     }
@@ -120,7 +144,7 @@ impl SeriesId {
     }
 }
 
-impl Default for SeriesId {
+impl Default for ProjectId {
     fn default() -> Self {
         Self::new()
     }

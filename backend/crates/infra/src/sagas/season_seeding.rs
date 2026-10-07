@@ -26,7 +26,7 @@ use breakdown_core::costume_category::commands::CreateCostumeCategory;
 use breakdown_core::costume_category::ports::CostumeCategoryRepository;
 use breakdown_core::season::aggregate::SeasonAggregate;
 use breakdown_core::season::events::SeasonEvent;
-use breakdown_core::shared::{EventMetadata, LexicalSortKey, Provenance, SeasonId, SeriesId};
+use breakdown_core::shared::{EventMetadata, LexicalSortKey, ProjectId, Provenance, SeasonId};
 use kameo_es::command_service::{CommandService, ExecuteExt};
 use kameo_es::event_handler::{
     EntityEventHandler, EventHandler, EventHandlerError, EventHandlerStreamBuilder, EventProcessor,
@@ -84,7 +84,7 @@ pub fn load_default_costume_categories() -> Vec<String> {
 /// Dispatches `CreateCostumeCategory` commands directly via
 /// `CostumeCategoryAggregate::execute` (no trait adapter needed).
 ///
-/// `series_id` is taken directly from the `SeasonCreated` event rather than
+/// `project_id` is taken directly from the `SeasonCreated` event rather than
 /// queried from the season projection — a saga must react to event data, not
 /// read-model state (avoids coupling to projector presence / lag).
 #[derive(Clone, Debug)]
@@ -108,13 +108,13 @@ impl SeasonSeedingSaga {
     }
 
     /// Idempotently seed one category per seed entry for `season_id`.
-    async fn seed_for_season(&self, season_id: SeasonId, series_id: SeriesId) -> Result<()> {
+    async fn seed_for_season(&self, season_id: SeasonId, project_id: ProjectId) -> Result<()> {
         seed_season(
             &self.cmd_service,
             &self.repo,
             &self.seed,
             season_id,
-            series_id,
+            project_id,
         )
         .await
     }
@@ -129,7 +129,7 @@ pub async fn seed_season<R>(
     repo: &R,
     seed: &[String],
     season_id: SeasonId,
-    series_id: SeriesId,
+    project_id: ProjectId,
 ) -> Result<()>
 where
     R: CostumeCategoryRepository,
@@ -147,7 +147,7 @@ where
         let cmd = CreateCostumeCategory {
             id,
             season_id,
-            series_id: Some(series_id),
+            project_id: Some(project_id),
             name: name.clone(),
             order_key: LexicalSortKey::from_static(order_key),
         };
@@ -156,7 +156,7 @@ where
             .metadata(EventMetadata {
                 actor: None,
                 provenance: Provenance::Saga("SeasonSeedingSaga".to_string()),
-                series_id: Some(series_id),
+                project_id: Some(project_id),
             })
             .await;
         map_executed(id, result).map_err(|e| anyhow::anyhow!("{e}"))?;
@@ -175,8 +175,8 @@ impl EntityEventHandler<SeasonAggregate, ()> for SeasonSeedingSaga {
         _id: Uuid,
         event: Event<SeasonEvent, EventMetadata>,
     ) -> Result<(), Self::Error> {
-        if let SeasonEvent::SeasonCreated { id, series_id, .. } = event.data {
-            self.seed_for_season(SeasonId(id), series_id).await?;
+        if let SeasonEvent::SeasonCreated { id, project_id, .. } = event.data {
+            self.seed_for_season(SeasonId(id), project_id).await?;
         }
         Ok(())
     }

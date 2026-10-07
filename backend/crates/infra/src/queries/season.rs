@@ -7,7 +7,7 @@ use breakdown_core::error::DomainError;
 use breakdown_core::error_registry::SEASON_NOT_FOUND;
 use breakdown_core::season::ports::SeasonRepository;
 use breakdown_core::season::views::SeasonView;
-use breakdown_core::shared::{AggregateVersion, SeriesId};
+use breakdown_core::shared::{AggregateVersion, ProjectId};
 use chrono::{DateTime, Utc};
 use sqlx::{PgPool, Row};
 use uuid::Uuid;
@@ -71,9 +71,9 @@ impl SeasonRepository for SeasonRepositoryImpl {
         rows.into_iter().map(map_season_row).collect()
     }
 
-    async fn list_by_series(
+    async fn list_by_project(
         &self,
-        series_id: SeriesId,
+        project_id: ProjectId,
         include_archived: bool,
         limit: i64,
         offset: i64,
@@ -87,7 +87,7 @@ impl SeasonRepository for SeasonRepositoryImpl {
             LIMIT $3 OFFSET $4
             "#,
         )
-        .bind(series_id.0)
+        .bind(project_id.0)
         .bind(include_archived)
         .bind(limit)
         .bind(offset)
@@ -98,9 +98,9 @@ impl SeasonRepository for SeasonRepositoryImpl {
         rows.into_iter().map(map_season_row).collect()
     }
 
-    async fn find_by_series_and_number(
+    async fn find_by_project_and_number(
         &self,
-        series_id: SeriesId,
+        project_id: ProjectId,
         number: i32,
     ) -> Result<Option<SeasonView>, DomainError> {
         let row = sqlx::query(
@@ -111,7 +111,7 @@ impl SeasonRepository for SeasonRepositoryImpl {
             LIMIT 1
             "#,
         )
-        .bind(series_id.0)
+        .bind(project_id.0)
         .bind(number)
         .fetch_optional(&self.pool)
         .await
@@ -127,7 +127,7 @@ impl SeasonRepository for SeasonRepositoryImpl {
 fn map_season_row(row: sqlx::postgres::PgRow) -> Result<SeasonView, DomainError> {
     Ok(SeasonView {
         id: row.try_get("id").map_err(map_err)?,
-        series_id: SeriesId(row.try_get("series_id").map_err(map_err)?),
+        project_id: ProjectId(row.try_get("series_id").map_err(map_err)?),
         number: row.try_get("number").map_err(map_err)?,
         title: row.try_get("title").map_err(map_err)?,
         archived: row.try_get("archived").map_err(map_err)?,

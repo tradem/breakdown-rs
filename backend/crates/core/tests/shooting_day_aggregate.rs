@@ -13,14 +13,14 @@
     clippy::dbg_macro
 )]
 use breakdown_core::shared::{
-    AggregateVersion, EpisodeId, LexicalSortKey, SeriesId, ShootingDayId,
+    AggregateVersion, EpisodeId, LexicalSortKey, ProjectId, ShootingDayId,
 };
 use breakdown_core::shooting_day::*;
 use kameo_es::Command;
 use test_support::make_ctx;
 
-fn series_id() -> SeriesId {
-    SeriesId::new()
+fn project_id() -> ProjectId {
+    ProjectId::new()
 }
 
 fn create_day(order_key: &str) -> ShootingDayAggregate {
@@ -32,7 +32,7 @@ fn create_day(order_key: &str) -> ShootingDayAggregate {
             CreateShootingDay {
                 id,
                 episode_id,
-                series_id: Some(series_id()),
+                project_id: Some(project_id()),
                 label: Some("Tag 1".into()),
                 order_key: LexicalSortKey::new(order_key).unwrap(),
                 date: None,
@@ -52,7 +52,7 @@ fn test_create_shooting_day_success() {
         CreateShootingDay {
             id: ShootingDayId::new(),
             episode_id: EpisodeId::new(),
-            series_id: Some(series_id()),
+            project_id: Some(project_id()),
             label: Some("Tag 1".into()),
             order_key: LexicalSortKey::new("a").unwrap(),
             date: Some(chrono::NaiveDate::from_ymd_opt(2026, 1, 2).unwrap()),
@@ -80,7 +80,7 @@ fn test_rename_preserves_order_key() {
             RenameShootingDay {
                 id: agg.id,
                 label: Some("Renamed".into()),
-                series_id: Some(series_id()),
+                project_id: Some(project_id()),
                 version: agg.version,
             },
             make_ctx(),
@@ -100,7 +100,7 @@ fn test_reschedule_sets_and_clears_date() {
             RescheduleShootingDay {
                 id: agg.id,
                 date: Some(date),
-                series_id: Some(series_id()),
+                project_id: Some(project_id()),
                 version: agg.version,
             },
             make_ctx(),
@@ -114,7 +114,7 @@ fn test_reschedule_sets_and_clears_date() {
             RescheduleShootingDay {
                 id: agg.id,
                 date: None,
-                series_id: Some(series_id()),
+                project_id: Some(project_id()),
                 version: agg.version,
             },
             make_ctx(),
@@ -137,7 +137,7 @@ fn test_reorder_with_midpoint_emits_single_event_between_siblings() {
             ReorderShootingDay {
                 id: agg.id,
                 order_key: mid.clone(),
-                series_id: Some(series_id()),
+                project_id: Some(project_id()),
                 version: agg.version,
             },
             make_ctx(),
@@ -160,7 +160,7 @@ fn test_archive_is_terminal_and_blocks_mutations() {
         .handle(
             ArchiveShootingDay {
                 id: agg.id,
-                series_id: Some(series_id()),
+                project_id: Some(project_id()),
                 version: agg.version,
             },
             make_ctx(),
@@ -176,7 +176,7 @@ fn test_archive_is_terminal_and_blocks_mutations() {
             RenameShootingDay {
                 id: agg.id,
                 label: Some("x".into()),
-                series_id: Some(series_id()),
+                project_id: Some(project_id()),
                 version: agg.version,
             },
             make_ctx(),
@@ -188,7 +188,7 @@ fn test_archive_is_terminal_and_blocks_mutations() {
             RescheduleShootingDay {
                 id: agg.id,
                 date: None,
-                series_id: Some(series_id()),
+                project_id: Some(project_id()),
                 version: agg.version,
             },
             make_ctx(),
@@ -200,7 +200,7 @@ fn test_archive_is_terminal_and_blocks_mutations() {
             ReorderShootingDay {
                 id: agg.id,
                 order_key: LexicalSortKey::new("z").unwrap(),
-                series_id: Some(series_id()),
+                project_id: Some(project_id()),
                 version: agg.version,
             },
             make_ctx(),
@@ -213,7 +213,7 @@ fn test_archive_is_terminal_and_blocks_mutations() {
         agg.handle(
             ArchiveShootingDay {
                 id: agg.id,
-                series_id: Some(series_id()),
+                project_id: Some(project_id()),
                 version: agg.version,
             },
             make_ctx(),
@@ -231,7 +231,7 @@ fn test_version_mismatch_rejected() {
             RenameShootingDay {
                 id: agg.id,
                 label: Some("x".into()),
-                series_id: Some(series_id()),
+                project_id: Some(project_id()),
                 version: wrong,
             },
             make_ctx(),
@@ -296,7 +296,7 @@ fn test_ensure_open_rejects_wrapped_day() {
         .handle(
             WrapShootingDay {
                 id: state.id,
-                series_id: Some(series_id()),
+                project_id: Some(project_id()),
                 version: state.version,
             },
             make_ctx(),
@@ -320,7 +320,7 @@ fn test_wrap_sets_wrapped_at() {
         .handle(
             WrapShootingDay {
                 id: state.id,
-                series_id: Some(series_id()),
+                project_id: Some(project_id()),
                 version,
             },
             make_ctx(),
@@ -348,7 +348,7 @@ fn test_wrap_is_idempotent() {
         .handle(
             WrapShootingDay {
                 id: state.id,
-                series_id: Some(series_id()),
+                project_id: Some(project_id()),
                 version: state.version,
             },
             make_ctx(),
@@ -363,7 +363,7 @@ fn test_wrap_is_idempotent() {
         .handle(
             WrapShootingDay {
                 id: state.id,
-                series_id: Some(series_id()),
+                project_id: Some(project_id()),
                 version: state.version,
             },
             make_ctx(),
@@ -382,7 +382,7 @@ fn test_wrap_does_not_block_archive() {
         .handle(
             WrapShootingDay {
                 id: state.id,
-                series_id: Some(series_id()),
+                project_id: Some(project_id()),
                 version: state.version,
             },
             make_ctx(),
@@ -396,7 +396,7 @@ fn test_wrap_does_not_block_archive() {
         .handle(
             ArchiveShootingDay {
                 id: state.id,
-                series_id: Some(series_id()),
+                project_id: Some(project_id()),
                 version: state.version,
             },
             make_ctx(),
@@ -416,7 +416,7 @@ fn test_wrap_rejects_version_mismatch() {
         .handle(
             WrapShootingDay {
                 id: state.id,
-                series_id: Some(series_id()),
+                project_id: Some(project_id()),
                 version: wrong_version,
             },
             make_ctx(),

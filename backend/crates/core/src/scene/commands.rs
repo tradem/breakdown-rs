@@ -7,12 +7,12 @@
 use uuid::Uuid;
 
 use super::events::{SceneDetails, SceneSource, default_scene_source};
-use crate::shared::{AggregateVersion, EpisodeId, SeriesId, ShootingDayId};
+use crate::shared::{AggregateVersion, EpisodeId, ProjectId, ShootingDayId};
 
 /// Create a scene within an episode.
 ///
-/// `series_id` is carried for the `EventMetadata` audit trail (the audit
-/// projector keys on `series_id`); it is resolved at the API edge from the
+/// `project_id` is carried for the `EventMetadata` audit trail (the audit
+/// projector keys on `project_id`); it is resolved at the API edge from the
 /// episode projection, never queried again by the command adapter.
 ///
 /// `source` records the scene's provenance: the REST handler passes `Manual`,
@@ -23,7 +23,9 @@ use crate::shared::{AggregateVersion, EpisodeId, SeriesId, ShootingDayId};
 pub struct CreateScene {
     pub id: Uuid,
     pub episode_id: EpisodeId,
-    pub series_id: Option<SeriesId>,
+    #[schema(rename = "series_id")]
+    // wire name pinned: layer 3 (OpenAPI field rename) is a breaking ADR-021 change, deferred
+    pub project_id: Option<ProjectId>,
     pub details: SceneDetails,
     #[serde(default = "default_scene_source")]
     pub source: SceneSource,
@@ -31,40 +33,46 @@ pub struct CreateScene {
 
 /// Update a scene's details.
 ///
-/// `series_id` is carried for the `EventMetadata` audit trail (the audit
-/// projector keys on `series_id`); it is resolved at the API edge from the
+/// `project_id` is carried for the `EventMetadata` audit trail (the audit
+/// projector keys on `project_id`); it is resolved at the API edge from the
 /// scene projection, never queried again by the command adapter.
 #[derive(Debug, Clone, serde::Deserialize, utoipa::ToSchema)]
 pub struct UpdateSceneDetails {
     pub id: Uuid,
     pub details: SceneDetails,
-    pub series_id: Option<SeriesId>,
+    #[schema(rename = "series_id")]
+    // wire name pinned: layer 3 (OpenAPI field rename) is a breaking ADR-021 change, deferred
+    pub project_id: Option<ProjectId>,
     pub version: AggregateVersion,
 }
 
 /// Assign a character to a scene.
 ///
-/// `series_id` is carried for the `EventMetadata` audit trail (the audit
-/// projector keys on `series_id`); it is resolved at the API edge from the
+/// `project_id` is carried for the `EventMetadata` audit trail (the audit
+/// projector keys on `project_id`); it is resolved at the API edge from the
 /// scene projection, never queried again by the command adapter.
 #[derive(Debug, Clone, serde::Deserialize, utoipa::ToSchema)]
 pub struct AssignCharacter {
     pub id: Uuid,
     pub character_id: Uuid,
-    pub series_id: Option<SeriesId>,
+    #[schema(rename = "series_id")]
+    // wire name pinned: layer 3 (OpenAPI field rename) is a breaking ADR-021 change, deferred
+    pub project_id: Option<ProjectId>,
     pub version: AggregateVersion,
 }
 
 /// Remove a character from a scene.
 ///
-/// `series_id` is carried for the `EventMetadata` audit trail (the audit
-/// projector keys on `series_id`); it is resolved at the API edge from the
+/// `project_id` is carried for the `EventMetadata` audit trail (the audit
+/// projector keys on `project_id`); it is resolved at the API edge from the
 /// scene projection, never queried again by the command adapter.
 #[derive(Debug, Clone, serde::Deserialize, utoipa::ToSchema)]
 pub struct RemoveCharacter {
     pub id: Uuid,
     pub character_id: Uuid,
-    pub series_id: Option<SeriesId>,
+    #[schema(rename = "series_id")]
+    // wire name pinned: layer 3 (OpenAPI field rename) is a breaking ADR-021 change, deferred
+    pub project_id: Option<ProjectId>,
     pub version: AggregateVersion,
 }
 
@@ -74,8 +82,8 @@ pub struct RemoveCharacter {
 /// `0` when none exist) — never client-supplied: a client-chosen order is a
 /// race. The character must already be in `assigned_characters`.
 ///
-/// `series_id` is carried for the `EventMetadata` audit trail (the audit
-/// projector keys on `series_id`); it is resolved at the API edge from the
+/// `project_id` is carried for the `EventMetadata` audit trail (the audit
+/// projector keys on `project_id`); it is resolved at the API edge from the
 /// scene projection, never queried again by the command adapter.
 #[derive(Debug, Clone, serde::Deserialize, utoipa::ToSchema)]
 pub struct AddCostumeBeat {
@@ -84,7 +92,9 @@ pub struct AddCostumeBeat {
     pub costume_id: Uuid,
     /// Optional free-text cue for the wardrobe crew ("nach dem Telefonat").
     pub note: Option<String>,
-    pub series_id: Option<SeriesId>,
+    #[schema(rename = "series_id")]
+    // wire name pinned: layer 3 (OpenAPI field rename) is a breaking ADR-021 change, deferred
+    pub project_id: Option<ProjectId>,
     pub version: AggregateVersion,
 }
 
@@ -93,8 +103,8 @@ pub struct AddCostumeBeat {
 /// Never changes `order` (reordering is remove + add, which keeps the event
 /// history legible); `BeatNotFound` if no beat exists at that position.
 ///
-/// `series_id` is carried for the `EventMetadata` audit trail (the audit
-/// projector keys on `series_id`); it is resolved at the API edge from the
+/// `project_id` is carried for the `EventMetadata` audit trail (the audit
+/// projector keys on `project_id`); it is resolved at the API edge from the
 /// scene projection, never queried again by the command adapter.
 #[derive(Debug, Clone, serde::Deserialize, utoipa::ToSchema)]
 pub struct UpdateCostumeBeat {
@@ -103,7 +113,9 @@ pub struct UpdateCostumeBeat {
     pub order: u32,
     pub costume_id: Uuid,
     pub note: Option<String>,
-    pub series_id: Option<SeriesId>,
+    #[schema(rename = "series_id")]
+    // wire name pinned: layer 3 (OpenAPI field rename) is a breaking ADR-021 change, deferred
+    pub project_id: Option<ProjectId>,
     pub version: AggregateVersion,
 }
 
@@ -111,15 +123,17 @@ pub struct UpdateCostumeBeat {
 /// beat, `None` removes all beats of the character (= “no costume in this
 /// scene”, the first-class empty state).
 ///
-/// `series_id` is carried for the `EventMetadata` audit trail (the audit
-/// projector keys on `series_id`); it is resolved at the API edge from the
+/// `project_id` is carried for the `EventMetadata` audit trail (the audit
+/// projector keys on `project_id`); it is resolved at the API edge from the
 /// scene projection, never queried again by the command adapter.
 #[derive(Debug, Clone, serde::Deserialize, utoipa::ToSchema)]
 pub struct RemoveCostumeBeat {
     pub id: Uuid,
     pub character_id: Uuid,
     pub order: Option<u32>,
-    pub series_id: Option<SeriesId>,
+    #[schema(rename = "series_id")]
+    // wire name pinned: layer 3 (OpenAPI field rename) is a breaking ADR-021 change, deferred
+    pub project_id: Option<ProjectId>,
     pub version: AggregateVersion,
 }
 
@@ -161,27 +175,31 @@ impl kameo_es::CommandName for RemoveCostumeBeat {
 
 /// Schedule a scene on a shooting day.
 ///
-/// `series_id` is carried for the `EventMetadata` audit trail (the audit
-/// projector keys on `series_id`); it is resolved at the API edge from the
+/// `project_id` is carried for the `EventMetadata` audit trail (the audit
+/// projector keys on `project_id`); it is resolved at the API edge from the
 /// shooting-day projection, never queried again by the command adapter.
 #[derive(Debug, Clone, serde::Deserialize, utoipa::ToSchema)]
 pub struct ScheduleSceneOnShootingDay {
     pub id: Uuid,
     pub shooting_day_id: ShootingDayId,
-    pub series_id: Option<SeriesId>,
+    #[schema(rename = "series_id")]
+    // wire name pinned: layer 3 (OpenAPI field rename) is a breaking ADR-021 change, deferred
+    pub project_id: Option<ProjectId>,
     pub version: AggregateVersion,
 }
 
 /// Unschedule a scene from a shooting day.
 ///
-/// `series_id` is carried for the `EventMetadata` audit trail (the audit
-/// projector keys on `series_id`); it is resolved at the API edge from the
+/// `project_id` is carried for the `EventMetadata` audit trail (the audit
+/// projector keys on `project_id`); it is resolved at the API edge from the
 /// shooting-day projection, never queried again by the command adapter.
 #[derive(Debug, Clone, serde::Deserialize, utoipa::ToSchema)]
 pub struct UnscheduleSceneFromShootingDay {
     pub id: Uuid,
     pub shooting_day_id: ShootingDayId,
-    pub series_id: Option<SeriesId>,
+    #[schema(rename = "series_id")]
+    // wire name pinned: layer 3 (OpenAPI field rename) is a breaking ADR-021 change, deferred
+    pub project_id: Option<ProjectId>,
     pub version: AggregateVersion,
 }
 

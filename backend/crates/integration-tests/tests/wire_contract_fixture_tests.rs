@@ -56,7 +56,8 @@ use breakdown_core::scene::events::SceneSource;
 use breakdown_core::scene::views::SceneView;
 use breakdown_core::season::views::SeasonView;
 use breakdown_core::shared::{
-    AggregateVersion, BlockId, EpisodeId, LexicalSortKey, SeasonId, SeriesId, ShootingDayId, UserId,
+    AggregateVersion, BlockId, EpisodeId, LexicalSortKey, ProjectId, SeasonId, ShootingDayId,
+    UserId,
 };
 use breakdown_core::shooting_day::events::ShootingDaySource;
 use breakdown_core::shooting_day::views::ShootingDayView;
@@ -198,7 +199,7 @@ fn sample_views() -> Vec<(&'static str, Value)> {
             "season_view",
             &SeasonView {
                 id: season_id,
-                series_id: SeriesId(fixed_uuid(10)),
+                project_id: ProjectId(fixed_uuid(10)),
                 number: 1,
                 title: Some("Staffel 1".to_string()),
                 archived: false,
@@ -211,7 +212,7 @@ fn sample_views() -> Vec<(&'static str, Value)> {
             &BlockView {
                 id: block_id,
                 season_id: SeasonId(season_id),
-                series_id: SeriesId(fixed_uuid(10)),
+                project_id: ProjectId(fixed_uuid(10)),
                 number: 1,
                 start_date: None,
                 end_date: None,
@@ -224,7 +225,7 @@ fn sample_views() -> Vec<(&'static str, Value)> {
             &EpisodeView {
                 id: episode_id,
                 block_id: BlockId(block_id),
-                series_id: SeriesId(fixed_uuid(10)),
+                project_id: ProjectId(fixed_uuid(10)),
                 number: 1,
                 name: Some("Episode 1".to_string()),
                 version: AggregateVersion(1),

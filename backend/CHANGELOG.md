@@ -161,6 +161,60 @@ tag. Never edit a released entry afterwards.
   chunk (the heading is that scene's heading).
 
 ### Changed
+- **`SeriesId` → `ProjectId`: the tenant-level container is now a `Project`
+  (issue `#591`, ADR-035 D1/S1 — layers 1 and 2 only).** The tenancy seam is
+  renamed from the TV-shaped `Series` to the production-neutral `Project`
+  (ADR-035 B1): same UUIDv7 values, same tenant boundary, 1:1 rename — not a
+  new level above it. `core::shared` exposes `ProjectId`; **no `SeriesId`
+  alias was kept** (`core` is an internal workspace crate with no out-of-tree
+  consumers, so an alias would protect nobody), and a new ast-grep rule
+  (`backend/rules/no-stale-series-id.yml`, wired into the `error-hygiene` CI
+  job and the pre-commit hook over *all* Rust files) now fails on any stale
+  `SeriesId`. The four `pub` trait methods follow ADR-035 B3/S2's naming
+  (`AuditRepository::list_by_series` → `list_by_project`,
+  `has_active_membership_in_series`/`has_active_costume_role_in_series` →
+  `…_in_project`, `find_by_series_and_number` → `find_by_project_and_number`).
+
+  **The persisted event payloads and the wire contract are unchanged by
+  design** — layer 3 is explicitly out of scope and stays open:
+  - event fields (`SeasonCreated`, `BlockCreated`, `EpisodeCreated`) and
+    `EventMetadata.project_id` carry `#[serde(rename = "series_id")]`;
+  - projection columns (`projection_season/_block/_episode.series_id`,
+    `projection_audit.series_id`) and the 32 OpenAPI fields, including the
+    `?series_id=` query parameters, keep that spelling;
+  - the only OpenAPI delta is the **schema name** `SeriesId` → `ProjectId`,
+    which is wire-neutral (both render `type: string, format: uuid`) and
+    leaves the generated Dart client's `seriesId` accessor untouched. The
+    regen diff is doc-comment-only.
+
+  **The non-obvious hazard this change had to route around** (worth recording,
+  because the obvious fix is actively harmful): the tempting
+  `#[serde(rename = "project_id", alias = "series_id")]` reads old events
+  correctly and therefore *looks* safe, but
+  `projection_audit.event_key` is derived from the **re-serialized** payload
+  (`write_audit_row`), so an alias changes the key and silently **duplicates
+  every pre-rename audit row** on any replay — no compile error, no
+  dead-letter, no failing test. Pinning the wire key keeps `event_key`
+  byte-stable. Pinned by `crates/integration-tests/tests/project_id_rename_replay.rs`
+  (tier-4: hand-built pre-rename CBOR `EAPPEND`ed straight into SierraDB,
+  replayed through the real season projector and audit projector, asserting
+  exactly one audit row on redelivery).
+- **Version bumps (issue `#591`).** `core 0.21.0 → 0.22.0` (`SeriesId` removed,
+  `ProjectId` added; four `pub` trait methods renamed),
+  `infra 0.26.0 → 0.27.0` (repository/port impls renamed; repins core),
+  `api 0.19.1 → 0.20.0` (handler helpers + request DTO field renames; repins
+  core/infra); `architecture` re-pins `core`/`infra`/`api`. MINOR on all three
+  per ADR-020 D2 — the rename is a `pub`-API break, and MINOR is this repo's
+  breaking slot (0.x semver); the change is invisible outside the monorepo.
+- **ADR-035 amended (issue `#591`).** S1 marked **RESOLVED**; the **B5 outcome
+  is recorded**: layer 3 (projection columns + the 32 OpenAPI fields) remains
+  deliberately unmoved and is now a named follow-up requiring its own ADR —
+  a breaking ADR-021 `/v2` path version with an 8-week dual-serve window, a
+  column/index migration and a Dart regen. Two further traps are documented in
+  the ADR: `utoipa` derives schema property names from the **Rust field name**
+  (so a renamed field silently renames the OpenAPI field — every wire-visible
+  struct now carries an explicit `#[schema(rename = "series_id")]` /
+  `#[param(rename = "series_id")]`), and the `event_key` hazard above.
 - **ADR-037: SceneShoot AI provenance derives via the pair join — no
   first-class field (issue `#539`, follow-up to `#517`).** Decision record
   only, no code change: the provenance of a `SceneShoot` is the provenance of

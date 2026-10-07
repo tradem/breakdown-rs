@@ -16,8 +16,8 @@
 //! against SierraDB and maps the reply back to `DomainError`.
 //!
 //! Adapters are write-side only: they never query read-model projections.
-//! The `series_id` for the `EventMetadata` audit trail (the audit projector
-//! keys on `series_id`) is carried directly on each command struct and
+//! The `project_id` for the `EventMetadata` audit trail (the audit projector
+//! keys on `project_id`) is carried directly on each command struct and
 //! resolved at the API edge by the handlers (the read-model boundary).
 //!
 //! ## Provenance conventions
@@ -179,13 +179,13 @@ impl SceneCommands for SceneCommandsImpl {
         cmd: CreateScene,
     ) -> Result<(Uuid, AggregateVersion), DomainError> {
         let id = cmd.id;
-        let series_id = cmd.series_id;
+        let project_id = cmd.project_id;
         let result = SceneAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Empty)
             .metadata(EventMetadata {
                 actor: Some(actor),
                 provenance: Provenance::Human,
-                series_id,
+                project_id,
             })
             .await;
         map_executed(id, result)
@@ -199,13 +199,13 @@ impl SceneCommands for SceneCommandsImpl {
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
-        let series_id = cmd.series_id;
+        let project_id = cmd.project_id;
         let result = SceneAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Exact(domain_to_stream_checked(version)?))
             .metadata(EventMetadata {
                 actor: Some(actor),
                 provenance: Provenance::Human,
-                series_id,
+                project_id,
             })
             .await;
         map_version_only(result)
@@ -219,13 +219,13 @@ impl SceneCommands for SceneCommandsImpl {
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
-        let series_id = cmd.series_id;
+        let project_id = cmd.project_id;
         let result = SceneAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Exact(domain_to_stream_checked(version)?))
             .metadata(EventMetadata {
                 actor: Some(actor),
                 provenance: Provenance::Human,
-                series_id,
+                project_id,
             })
             .await;
         map_version_only(result)
@@ -239,13 +239,13 @@ impl SceneCommands for SceneCommandsImpl {
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
-        let series_id = cmd.series_id;
+        let project_id = cmd.project_id;
         let result = SceneAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Exact(domain_to_stream_checked(version)?))
             .metadata(EventMetadata {
                 actor: Some(actor),
                 provenance: Provenance::Human,
-                series_id,
+                project_id,
             })
             .await;
         map_version_only(result)
@@ -259,13 +259,13 @@ impl SceneCommands for SceneCommandsImpl {
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
-        let series_id = cmd.series_id;
+        let project_id = cmd.project_id;
         let result = SceneAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Exact(domain_to_stream_checked(version)?))
             .metadata(EventMetadata {
                 actor: Some(actor),
                 provenance: Provenance::Human,
-                series_id,
+                project_id,
             })
             .await;
         map_version_only(result)
@@ -279,13 +279,13 @@ impl SceneCommands for SceneCommandsImpl {
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
-        let series_id = cmd.series_id;
+        let project_id = cmd.project_id;
         let result = SceneAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Exact(domain_to_stream_checked(version)?))
             .metadata(EventMetadata {
                 actor: Some(actor),
                 provenance: Provenance::Human,
-                series_id,
+                project_id,
             })
             .await;
         map_version_only(result)
@@ -299,13 +299,13 @@ impl SceneCommands for SceneCommandsImpl {
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
-        let series_id = cmd.series_id;
+        let project_id = cmd.project_id;
         let result = SceneAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Exact(domain_to_stream_checked(version)?))
             .metadata(EventMetadata {
                 actor: Some(actor),
                 provenance: Provenance::Human,
-                series_id,
+                project_id,
             })
             .await;
         map_version_only(result)
@@ -319,13 +319,13 @@ impl SceneCommands for SceneCommandsImpl {
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
-        let series_id = cmd.series_id;
+        let project_id = cmd.project_id;
         let result = SceneAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Exact(domain_to_stream_checked(version)?))
             .metadata(EventMetadata {
                 actor: Some(actor),
                 provenance: Provenance::Human,
-                series_id,
+                project_id,
             })
             .await;
         map_version_only(result)
@@ -339,13 +339,13 @@ impl SceneCommands for SceneCommandsImpl {
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
-        let series_id = cmd.series_id;
+        let project_id = cmd.project_id;
         let result = SceneAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Exact(domain_to_stream_checked(version)?))
             .metadata(EventMetadata {
                 actor: Some(actor),
                 provenance: Provenance::Human,
-                series_id,
+                project_id,
             })
             .await;
         map_version_only(result)
@@ -381,13 +381,13 @@ impl ShootingDayCommands for ShootingDayCommandsImpl {
         cmd: CreateShootingDay,
     ) -> Result<(ShootingDayId, AggregateVersion), DomainError> {
         let id = cmd.id;
-        let series_id = cmd.series_id;
+        let project_id = cmd.project_id;
         let result = ShootingDayAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Empty)
             .metadata(EventMetadata {
                 actor: Some(actor),
                 provenance: Provenance::Human,
-                series_id,
+                project_id,
             })
             .await;
         map_executed(id, result)
@@ -401,13 +401,13 @@ impl ShootingDayCommands for ShootingDayCommandsImpl {
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
-        let series_id = cmd.series_id;
+        let project_id = cmd.project_id;
         let result = ShootingDayAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Exact(domain_to_stream_checked(version)?))
             .metadata(EventMetadata {
                 actor: Some(actor),
                 provenance: Provenance::Human,
-                series_id,
+                project_id,
             })
             .await;
         map_version_only(result)
@@ -421,13 +421,13 @@ impl ShootingDayCommands for ShootingDayCommandsImpl {
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
-        let series_id = cmd.series_id;
+        let project_id = cmd.project_id;
         let result = ShootingDayAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Exact(domain_to_stream_checked(version)?))
             .metadata(EventMetadata {
                 actor: Some(actor),
                 provenance: Provenance::Human,
-                series_id,
+                project_id,
             })
             .await;
         map_version_only(result)
@@ -441,13 +441,13 @@ impl ShootingDayCommands for ShootingDayCommandsImpl {
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
-        let series_id = cmd.series_id;
+        let project_id = cmd.project_id;
         let result = ShootingDayAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Exact(domain_to_stream_checked(version)?))
             .metadata(EventMetadata {
                 actor: Some(actor),
                 provenance: Provenance::Human,
-                series_id,
+                project_id,
             })
             .await;
         map_version_only(result)
@@ -461,13 +461,13 @@ impl ShootingDayCommands for ShootingDayCommandsImpl {
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
-        let series_id = cmd.series_id;
+        let project_id = cmd.project_id;
         let result = ShootingDayAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Exact(domain_to_stream_checked(version)?))
             .metadata(EventMetadata {
                 actor: Some(actor),
                 provenance: Provenance::Human,
-                series_id,
+                project_id,
             })
             .await;
         map_version_only(result)
@@ -486,13 +486,13 @@ impl ShootingDayCommands for ShootingDayCommandsImpl {
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
-        let series_id = cmd.series_id;
+        let project_id = cmd.project_id;
         let result = ShootingDayAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Exact(domain_to_stream_checked(version)?))
             .metadata(EventMetadata {
                 actor: Some(actor),
                 provenance: Provenance::Human,
-                series_id,
+                project_id,
             })
             .await;
         map_version_only(result)
@@ -524,7 +524,7 @@ impl SettingsCommands for SettingsCommandsImpl {
             .metadata(EventMetadata {
                 actor: Some(actor),
                 provenance: Provenance::Human,
-                series_id: None,
+                project_id: None,
             })
             .await;
         map_executed(id, result)
@@ -543,7 +543,7 @@ impl SettingsCommands for SettingsCommandsImpl {
             .metadata(EventMetadata {
                 actor: Some(actor),
                 provenance: Provenance::Human,
-                series_id: None,
+                project_id: None,
             })
             .await;
         map_version_only(result)
@@ -562,7 +562,7 @@ impl SettingsCommands for SettingsCommandsImpl {
             .metadata(EventMetadata {
                 actor: Some(actor),
                 provenance: Provenance::Human,
-                series_id: None,
+                project_id: None,
             })
             .await;
         map_version_only(result)
@@ -588,13 +588,13 @@ impl CharacterCommands for CharacterCommandsImpl {
         cmd: CreateCharacter,
     ) -> Result<(Uuid, AggregateVersion), DomainError> {
         let id = cmd.id;
-        let series_id = cmd.series_id;
+        let project_id = cmd.project_id;
         let result = CharacterAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Empty)
             .metadata(EventMetadata {
                 actor: Some(actor),
                 provenance: Provenance::Human,
-                series_id,
+                project_id,
             })
             .await;
         map_executed(id, result)
@@ -608,13 +608,13 @@ impl CharacterCommands for CharacterCommandsImpl {
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
-        let series_id = cmd.series_id;
+        let project_id = cmd.project_id;
         let result = CharacterAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Exact(domain_to_stream_checked(version)?))
             .metadata(EventMetadata {
                 actor: Some(actor),
                 provenance: Provenance::Human,
-                series_id,
+                project_id,
             })
             .await;
         map_version_only(result)
@@ -628,13 +628,13 @@ impl CharacterCommands for CharacterCommandsImpl {
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
-        let series_id = cmd.series_id;
+        let project_id = cmd.project_id;
         let result = CharacterAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Exact(domain_to_stream_checked(version)?))
             .metadata(EventMetadata {
                 actor: Some(actor),
                 provenance: Provenance::Human,
-                series_id,
+                project_id,
             })
             .await;
         map_version_only(result)
@@ -663,13 +663,13 @@ impl CostumeCommands for CostumeCommandsImpl {
         // The series is not a costume attribute — it is audit metadata only,
         // resolved at the API edge from the repertoire season's projection
         // (issue #453). A costume created without a season carries `None`.
-        let series_id = cmd.series_id;
+        let project_id = cmd.project_id;
         let result = CostumeAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Empty)
             .metadata(EventMetadata {
                 actor: Some(actor),
                 provenance: Provenance::Human,
-                series_id,
+                project_id,
             })
             .await;
         map_executed(id, result)
@@ -683,13 +683,13 @@ impl CostumeCommands for CostumeCommandsImpl {
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
-        let series_id = cmd.series_id;
+        let project_id = cmd.project_id;
         let result = CostumeAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Exact(domain_to_stream_checked(version)?))
             .metadata(EventMetadata {
                 actor: Some(actor),
                 provenance: Provenance::Human,
-                series_id,
+                project_id,
             })
             .await;
         map_version_only(result)
@@ -703,13 +703,13 @@ impl CostumeCommands for CostumeCommandsImpl {
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
-        let series_id = cmd.series_id;
+        let project_id = cmd.project_id;
         let result = CostumeAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Exact(domain_to_stream_checked(version)?))
             .metadata(EventMetadata {
                 actor: Some(actor),
                 provenance: Provenance::Human,
-                series_id,
+                project_id,
             })
             .await;
         map_version_only(result)
@@ -723,13 +723,13 @@ impl CostumeCommands for CostumeCommandsImpl {
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
-        let series_id = cmd.series_id;
+        let project_id = cmd.project_id;
         let result = CostumeAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Exact(domain_to_stream_checked(version)?))
             .metadata(EventMetadata {
                 actor: Some(actor),
                 provenance: Provenance::Human,
-                series_id,
+                project_id,
             })
             .await;
         map_version_only(result)
@@ -743,16 +743,16 @@ impl CostumeCommands for CostumeCommandsImpl {
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
-        // `series_id` is audit metadata resolved at the API edge from the
+        // `project_id` is audit metadata resolved at the API edge from the
         // target season's projection (CQRS boundary: no read-model lookup
         // here) and is never allowed to block the command.
-        let series_id = cmd.series_id;
+        let project_id = cmd.project_id;
         let result = CostumeAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Exact(domain_to_stream_checked(version)?))
             .metadata(EventMetadata {
                 actor: Some(actor),
                 provenance: Provenance::Human,
-                series_id,
+                project_id,
             })
             .await;
         // Issue #534 state-based no-op: re-adding a season already in the
@@ -774,13 +774,13 @@ impl CostumeCommands for CostumeCommandsImpl {
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
-        let series_id = cmd.series_id;
+        let project_id = cmd.project_id;
         let result = CostumeAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Exact(domain_to_stream_checked(version)?))
             .metadata(EventMetadata {
                 actor: Some(actor),
                 provenance: Provenance::Human,
-                series_id,
+                project_id,
             })
             .await;
         // Idempotent mirror of `add_to_season`: removing a season that is
@@ -799,13 +799,13 @@ impl CostumeCommands for CostumeCommandsImpl {
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
-        let series_id = cmd.series_id;
+        let project_id = cmd.project_id;
         let result = CostumeAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Exact(domain_to_stream_checked(version)?))
             .metadata(EventMetadata {
                 actor: Some(actor),
                 provenance: Provenance::Human,
-                series_id,
+                project_id,
             })
             .await;
         map_version_only(result)
@@ -819,16 +819,16 @@ impl CostumeCommands for CostumeCommandsImpl {
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
-        // `series_id` is audit metadata resolved at the API edge (CQRS
+        // `project_id` is audit metadata resolved at the API edge (CQRS
         // boundary: no read-model lookup here) and is never allowed to
         // block the command.
-        let series_id = cmd.series_id;
+        let project_id = cmd.project_id;
         let result = CostumeAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Exact(domain_to_stream_checked(version)?))
             .metadata(EventMetadata {
                 actor: Some(actor),
                 provenance: Provenance::Human,
-                series_id,
+                project_id,
             })
             .await;
         map_version_only(result)
@@ -842,13 +842,13 @@ impl CostumeCommands for CostumeCommandsImpl {
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
-        let series_id = cmd.series_id;
+        let project_id = cmd.project_id;
         let result = CostumeAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Exact(domain_to_stream_checked(version)?))
             .metadata(EventMetadata {
                 actor: Some(actor),
                 provenance: Provenance::Human,
-                series_id,
+                project_id,
             })
             .await;
         map_version_only(result)
@@ -862,13 +862,13 @@ impl CostumeCommands for CostumeCommandsImpl {
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
-        let series_id = cmd.series_id;
+        let project_id = cmd.project_id;
         let result = CostumeAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Exact(domain_to_stream_checked(version)?))
             .metadata(EventMetadata {
                 actor: Some(actor),
                 provenance: Provenance::Human,
-                series_id,
+                project_id,
             })
             .await;
         // Issue #543 state-based no-op: the aggregate emits NO event when the
@@ -893,13 +893,13 @@ impl CostumeCommands for CostumeCommandsImpl {
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
-        let series_id = cmd.series_id;
+        let project_id = cmd.project_id;
         let result = CostumeAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Exact(domain_to_stream_checked(version)?))
             .metadata(EventMetadata {
                 actor: Some(actor),
                 provenance: Provenance::Human,
-                series_id,
+                project_id,
             })
             .await;
         map_version_only(result)
@@ -913,13 +913,13 @@ impl CostumeCommands for CostumeCommandsImpl {
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
-        let series_id = cmd.series_id;
+        let project_id = cmd.project_id;
         let result = CostumeAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Exact(domain_to_stream_checked(version)?))
             .metadata(EventMetadata {
                 actor: Some(actor),
                 provenance: Provenance::Human,
-                series_id,
+                project_id,
             })
             .await;
         map_version_only(result)
@@ -930,7 +930,7 @@ impl CostumeCommands for CostumeCommandsImpl {
 #[derive(Clone, Debug)]
 pub struct SeasonCommandsImpl {
     cmd_service: CommandService,
-    /// ADR-036: `(series_id, number)` claim store; built from the same pooled
+    /// ADR-036: `(project_id, number)` claim store; built from the same pooled
     /// SierraDB connection the CommandService dispatches over.
     reservations: ReservationStore,
 }
@@ -951,10 +951,10 @@ impl SeasonCommands for SeasonCommandsImpl {
         cmd: CreateSeason,
     ) -> Result<(Uuid, AggregateVersion), DomainError> {
         let id = cmd.id;
-        let series_id = Some(cmd.series_id);
+        let project_id = Some(cmd.project_id);
         let claim = reserve_create_claim(
             &self.reservations,
-            &season_number_key(cmd.series_id.0, cmd.number),
+            &season_number_key(cmd.project_id.0, cmd.number),
             id,
             DomainError::Conflict {
                 code: &SEASON_NUMBER_ALREADY_EXISTS,
@@ -967,7 +967,7 @@ impl SeasonCommands for SeasonCommandsImpl {
             .metadata(EventMetadata {
                 actor: Some(actor),
                 provenance: Provenance::Human,
-                series_id,
+                project_id,
             })
             .await;
         compensate_create_claim(&self.reservations, &claim, &result).await;
@@ -982,13 +982,13 @@ impl SeasonCommands for SeasonCommandsImpl {
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
-        let series_id = cmd.series_id;
+        let project_id = cmd.project_id;
         let result = SeasonAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Exact(domain_to_stream_checked(version)?))
             .metadata(EventMetadata {
                 actor: Some(actor),
                 provenance: Provenance::Human,
-                series_id,
+                project_id,
             })
             .await;
         map_version_only(result)
@@ -1002,13 +1002,13 @@ impl SeasonCommands for SeasonCommandsImpl {
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
-        let series_id = cmd.series_id;
+        let project_id = cmd.project_id;
         let result = SeasonAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Exact(domain_to_stream_checked(version)?))
             .metadata(EventMetadata {
                 actor: Some(actor),
                 provenance: Provenance::Human,
-                series_id,
+                project_id,
             })
             .await;
         map_version_only(result)
@@ -1019,7 +1019,7 @@ impl SeasonCommands for SeasonCommandsImpl {
 #[derive(Clone, Debug)]
 pub struct BlockCommandsImpl {
     cmd_service: CommandService,
-    /// ADR-036: `(series_id, number)` claim store.
+    /// ADR-036: `(project_id, number)` claim store.
     reservations: ReservationStore,
 }
 
@@ -1039,10 +1039,10 @@ impl BlockCommands for BlockCommandsImpl {
         cmd: CreateBlock,
     ) -> Result<(Uuid, AggregateVersion), DomainError> {
         let id = cmd.id;
-        let series_id = Some(cmd.series_id);
+        let project_id = Some(cmd.project_id);
         let claim = reserve_create_claim(
             &self.reservations,
-            &block_number_key(cmd.series_id.0, cmd.number),
+            &block_number_key(cmd.project_id.0, cmd.number),
             id,
             DomainError::Conflict {
                 code: &BLOCK_NUMBER_ALREADY_EXISTS,
@@ -1055,7 +1055,7 @@ impl BlockCommands for BlockCommandsImpl {
             .metadata(EventMetadata {
                 actor: Some(actor),
                 provenance: Provenance::Human,
-                series_id,
+                project_id,
             })
             .await;
         compensate_create_claim(&self.reservations, &claim, &result).await;
@@ -1070,13 +1070,13 @@ impl BlockCommands for BlockCommandsImpl {
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
-        let series_id = cmd.series_id;
+        let project_id = cmd.project_id;
         let result = BlockAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Exact(domain_to_stream_checked(version)?))
             .metadata(EventMetadata {
                 actor: Some(actor),
                 provenance: Provenance::Human,
-                series_id,
+                project_id,
             })
             .await;
         map_version_only(result)
@@ -1087,7 +1087,7 @@ impl BlockCommands for BlockCommandsImpl {
 #[derive(Clone, Debug)]
 pub struct EpisodeCommandsImpl {
     cmd_service: CommandService,
-    /// ADR-036: `(series_id, number)` claim store — this closes the
+    /// ADR-036: `(project_id, number)` claim store — this closes the
     /// pre-check-to-append race on BOTH write paths (manual `POST /episodes`
     /// and the AI-apply worker call `EpisodeCommands::create`).
     reservations: ReservationStore,
@@ -1109,10 +1109,10 @@ impl EpisodeCommands for EpisodeCommandsImpl {
         cmd: CreateEpisode,
     ) -> Result<(Uuid, AggregateVersion), DomainError> {
         let id = cmd.id;
-        let series_id = Some(cmd.series_id);
+        let project_id = Some(cmd.project_id);
         let claim = reserve_create_claim(
             &self.reservations,
-            &episode_number_key(cmd.series_id.0, cmd.number),
+            &episode_number_key(cmd.project_id.0, cmd.number),
             id,
             DomainError::Conflict {
                 code: &EPISODE_NUMBER_ALREADY_EXISTS,
@@ -1125,7 +1125,7 @@ impl EpisodeCommands for EpisodeCommandsImpl {
             .metadata(EventMetadata {
                 actor: Some(actor),
                 provenance: Provenance::Human,
-                series_id,
+                project_id,
             })
             .await;
         compensate_create_claim(&self.reservations, &claim, &result).await;
@@ -1140,13 +1140,13 @@ impl EpisodeCommands for EpisodeCommandsImpl {
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
-        let series_id = cmd.series_id;
+        let project_id = cmd.project_id;
         let result = EpisodeAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Exact(domain_to_stream_checked(version)?))
             .metadata(EventMetadata {
                 actor: Some(actor),
                 provenance: Provenance::Human,
-                series_id,
+                project_id,
             })
             .await;
         map_version_only(result)
@@ -1158,7 +1158,7 @@ impl EpisodeCommands for EpisodeCommandsImpl {
 /// Every command is dispatched with `ExpectedVersion::Any` (the aggregate
 /// enforces invitation/role/membership invariants itself) and carries the
 /// authenticated `actor` as `kameo_es` command `Metadata` for audit (Decision 6).
-/// The `series_id` is resolved from the targeted block's season.
+/// The `project_id` is resolved from the targeted block's season.
 #[derive(Clone, Debug)]
 pub struct MembershipCommandsImpl {
     cmd_service: CommandService,
@@ -1173,13 +1173,13 @@ impl MembershipCommandsImpl {
 #[async_trait]
 impl MembershipCommands for MembershipCommandsImpl {
     async fn invite(&self, actor: UserId, cmd: InviteMember) -> Result<(), DomainError> {
-        let series_id = Some(cmd.series_id);
+        let project_id = Some(cmd.project_id);
         let result = BlockMembership::execute(&self.cmd_service, cmd.block_id.0, cmd)
             .expected_version(ExpectedVersion::Any)
             .metadata(EventMetadata {
                 actor: Some(actor),
                 provenance: Provenance::Human,
-                series_id,
+                project_id,
             })
             .await;
         let _ = map_executed_result(Uuid::nil(), result)?;
@@ -1191,13 +1191,13 @@ impl MembershipCommands for MembershipCommandsImpl {
         actor: UserId,
         cmd: AcceptInvitation,
     ) -> Result<(), DomainError> {
-        let series_id = Some(cmd.series_id);
+        let project_id = Some(cmd.project_id);
         let result = BlockMembership::execute(&self.cmd_service, cmd.block_id.0, cmd)
             .expected_version(ExpectedVersion::Any)
             .metadata(EventMetadata {
                 actor: Some(actor),
                 provenance: Provenance::Human,
-                series_id,
+                project_id,
             })
             .await;
         let _ = map_executed_result(Uuid::nil(), result)?;
@@ -1205,13 +1205,13 @@ impl MembershipCommands for MembershipCommandsImpl {
     }
 
     async fn grant_role(&self, actor: UserId, cmd: GrantRole) -> Result<(), DomainError> {
-        let series_id = Some(cmd.series_id);
+        let project_id = Some(cmd.project_id);
         let result = BlockMembership::execute(&self.cmd_service, cmd.block_id.0, cmd)
             .expected_version(ExpectedVersion::Any)
             .metadata(EventMetadata {
                 actor: Some(actor),
                 provenance: Provenance::Human,
-                series_id,
+                project_id,
             })
             .await;
         let _ = map_executed_result(Uuid::nil(), result)?;
@@ -1219,13 +1219,13 @@ impl MembershipCommands for MembershipCommandsImpl {
     }
 
     async fn remove_member(&self, actor: UserId, cmd: RemoveMember) -> Result<(), DomainError> {
-        let series_id = Some(cmd.series_id);
+        let project_id = Some(cmd.project_id);
         let result = BlockMembership::execute(&self.cmd_service, cmd.block_id.0, cmd)
             .expected_version(ExpectedVersion::Any)
             .metadata(EventMetadata {
                 actor: Some(actor),
                 provenance: Provenance::Human,
-                series_id,
+                project_id,
             })
             .await;
         let _ = map_executed_result(Uuid::nil(), result)?;
@@ -1233,13 +1233,13 @@ impl MembershipCommands for MembershipCommandsImpl {
     }
 
     async fn leave_block(&self, actor: UserId, cmd: LeaveBlock) -> Result<(), DomainError> {
-        let series_id = Some(cmd.series_id);
+        let project_id = Some(cmd.project_id);
         let result = BlockMembership::execute(&self.cmd_service, cmd.block_id.0, cmd)
             .expected_version(ExpectedVersion::Any)
             .metadata(EventMetadata {
                 actor: Some(actor),
                 provenance: Provenance::Human,
-                series_id,
+                project_id,
             })
             .await;
         let _ = map_executed_result(Uuid::nil(), result)?;
@@ -1247,13 +1247,13 @@ impl MembershipCommands for MembershipCommandsImpl {
     }
 
     async fn bootstrap_owner(&self, actor: UserId, cmd: BootstrapOwner) -> Result<(), DomainError> {
-        let series_id = Some(cmd.series_id);
+        let project_id = Some(cmd.project_id);
         let result = BlockMembership::execute(&self.cmd_service, cmd.block_id.0, cmd)
             .expected_version(ExpectedVersion::Any)
             .metadata(EventMetadata {
                 actor: Some(actor),
                 provenance: Provenance::Human,
-                series_id,
+                project_id,
             })
             .await;
         let _ = map_executed_result(Uuid::nil(), result)?;
@@ -1280,13 +1280,13 @@ impl CostumeCategoryCommands for CostumeCategoryCommandsImpl {
         cmd: CreateCostumeCategory,
     ) -> Result<(Uuid, AggregateVersion), DomainError> {
         let id = cmd.id;
-        let series_id = cmd.series_id;
+        let project_id = cmd.project_id;
         let result = CostumeCategoryAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Empty)
             .metadata(EventMetadata {
                 actor: Some(actor),
                 provenance: Provenance::Human,
-                series_id,
+                project_id,
             })
             .await;
         map_executed(id, result)
@@ -1300,13 +1300,13 @@ impl CostumeCategoryCommands for CostumeCategoryCommandsImpl {
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
-        let series_id = cmd.series_id;
+        let project_id = cmd.project_id;
         let result = CostumeCategoryAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Exact(domain_to_stream_checked(version)?))
             .metadata(EventMetadata {
                 actor: Some(actor),
                 provenance: Provenance::Human,
-                series_id,
+                project_id,
             })
             .await;
         map_version_only(result)
@@ -1320,13 +1320,13 @@ impl CostumeCategoryCommands for CostumeCategoryCommandsImpl {
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
-        let series_id = cmd.series_id;
+        let project_id = cmd.project_id;
         let result = CostumeCategoryAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Exact(domain_to_stream_checked(version)?))
             .metadata(EventMetadata {
                 actor: Some(actor),
                 provenance: Provenance::Human,
-                series_id,
+                project_id,
             })
             .await;
         map_version_only(result)
@@ -1340,13 +1340,13 @@ impl CostumeCategoryCommands for CostumeCategoryCommandsImpl {
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
-        let series_id = cmd.series_id;
+        let project_id = cmd.project_id;
         let result = CostumeCategoryAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Exact(domain_to_stream_checked(version)?))
             .metadata(EventMetadata {
                 actor: Some(actor),
                 provenance: Provenance::Human,
-                series_id,
+                project_id,
             })
             .await;
         map_version_only(result)
@@ -1373,13 +1373,13 @@ impl PhotoCommands for PhotoCommandsImpl {
         cmd: UploadPhoto,
     ) -> Result<AggregateVersion, DomainError> {
         let id = cmd.id;
-        let series_id = cmd.series_id;
+        let project_id = cmd.project_id;
         let result = PhotoAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Empty)
             .metadata(EventMetadata {
                 actor: Some(actor),
                 provenance: Provenance::Human,
-                series_id,
+                project_id,
             })
             .await;
         map_version_only(result)
@@ -1393,13 +1393,13 @@ impl PhotoCommands for PhotoCommandsImpl {
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
-        let series_id = cmd.series_id;
+        let project_id = cmd.project_id;
         let result = PhotoAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Exact(domain_to_stream_checked(version)?))
             .metadata(EventMetadata {
                 actor: Some(actor),
                 provenance: Provenance::Human,
-                series_id,
+                project_id,
             })
             .await;
         map_version_only(result)
@@ -1413,13 +1413,13 @@ impl PhotoCommands for PhotoCommandsImpl {
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
-        let series_id = cmd.series_id;
+        let project_id = cmd.project_id;
         let result = PhotoAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Exact(domain_to_stream_checked(version)?))
             .metadata(EventMetadata {
                 actor: Some(actor),
                 provenance: Provenance::Human,
-                series_id,
+                project_id,
             })
             .await;
         map_version_only(result)
@@ -1433,13 +1433,13 @@ impl PhotoCommands for PhotoCommandsImpl {
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
-        let series_id = cmd.series_id;
+        let project_id = cmd.project_id;
         let result = PhotoAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Exact(domain_to_stream_checked(version)?))
             .metadata(EventMetadata {
                 actor: Some(actor),
                 provenance: Provenance::Human,
-                series_id,
+                project_id,
             })
             .await;
         map_version_only(result)
@@ -1453,13 +1453,13 @@ impl PhotoCommands for PhotoCommandsImpl {
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
-        let series_id = cmd.series_id;
+        let project_id = cmd.project_id;
         let result = PhotoAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Exact(domain_to_stream_checked(version)?))
             .metadata(EventMetadata {
                 actor: Some(actor),
                 provenance: Provenance::Human,
-                series_id,
+                project_id,
             })
             .await;
         map_version_only(result)
@@ -1530,7 +1530,7 @@ impl SceneShootCommands for SceneShootCommandsImpl {
         cmd: PlanSceneShoot,
     ) -> Result<(SceneShootId, AggregateVersion), DomainError> {
         let id = cmd.id;
-        let series_id = cmd.series_id;
+        let project_id = cmd.project_id;
         let claim = reserve_create_claim(
             &self.reservations,
             &scene_shoot_pair_key(cmd.scene_id, cmd.shooting_day_id.0),
@@ -1546,7 +1546,7 @@ impl SceneShootCommands for SceneShootCommandsImpl {
             .metadata(EventMetadata {
                 actor: Some(actor),
                 provenance: Provenance::Human,
-                series_id,
+                project_id,
             })
             .await;
         compensate_create_claim(&self.reservations, &claim, &result).await;
@@ -1561,13 +1561,13 @@ impl SceneShootCommands for SceneShootCommandsImpl {
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
-        let series_id = cmd.series_id;
+        let project_id = cmd.project_id;
         let result = SceneShootAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Exact(domain_to_stream_checked(version)?))
             .metadata(EventMetadata {
                 actor: Some(actor),
                 provenance: Provenance::Human,
-                series_id,
+                project_id,
             })
             .await;
         map_version_only(result)
@@ -1585,13 +1585,13 @@ impl SceneShootCommands for SceneShootCommandsImpl {
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
-        let series_id = cmd.series_id;
+        let project_id = cmd.project_id;
         let result = SceneShootAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Exact(domain_to_stream_checked(version)?))
             .metadata(EventMetadata {
                 actor: Some(actor),
                 provenance: Provenance::Human,
-                series_id,
+                project_id,
             })
             .await;
         map_version_only(result)
@@ -1609,13 +1609,13 @@ impl SceneShootCommands for SceneShootCommandsImpl {
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
-        let series_id = cmd.series_id;
+        let project_id = cmd.project_id;
         let result = SceneShootAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Exact(domain_to_stream_checked(version)?))
             .metadata(EventMetadata {
                 actor: Some(actor),
                 provenance: Provenance::Human,
-                series_id,
+                project_id,
             })
             .await;
         map_version_only(result)
@@ -1633,13 +1633,13 @@ impl SceneShootCommands for SceneShootCommandsImpl {
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
-        let series_id = cmd.series_id;
+        let project_id = cmd.project_id;
         let result = SceneShootAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Exact(domain_to_stream_checked(version)?))
             .metadata(EventMetadata {
                 actor: Some(actor),
                 provenance: Provenance::Human,
-                series_id,
+                project_id,
             })
             .await;
         map_version_only(result)
@@ -1657,13 +1657,13 @@ impl SceneShootCommands for SceneShootCommandsImpl {
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
-        let series_id = cmd.series_id;
+        let project_id = cmd.project_id;
         let result = SceneShootAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Exact(domain_to_stream_checked(version)?))
             .metadata(EventMetadata {
                 actor: Some(actor),
                 provenance: Provenance::Human,
-                series_id,
+                project_id,
             })
             .await;
         map_version_only(result)
@@ -1679,13 +1679,13 @@ impl SceneShootCommands for SceneShootCommandsImpl {
         let _day_lock = self.finality_gate.lock_day(cmd.shooting_day_id).await?;
         self.ensure_day_open(cmd.shooting_day_id).await?;
         let id = cmd.id;
-        let series_id = cmd.series_id;
+        let project_id = cmd.project_id;
         let result = SceneShootAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Any)
             .metadata(EventMetadata {
                 actor: Some(actor),
                 provenance: Provenance::Human,
-                series_id,
+                project_id,
             })
             .await;
         map_version_only(result)
@@ -1703,13 +1703,13 @@ impl SceneShootCommands for SceneShootCommandsImpl {
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
-        let series_id = cmd.series_id;
+        let project_id = cmd.project_id;
         let result = SceneShootAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Exact(domain_to_stream_checked(version)?))
             .metadata(EventMetadata {
                 actor: Some(actor),
                 provenance: Provenance::Human,
-                series_id,
+                project_id,
             })
             .await;
         map_version_only(result)
@@ -1727,13 +1727,13 @@ impl SceneShootCommands for SceneShootCommandsImpl {
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
-        let series_id = cmd.series_id;
+        let project_id = cmd.project_id;
         let result = SceneShootAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Exact(domain_to_stream_checked(version)?))
             .metadata(EventMetadata {
                 actor: Some(actor),
                 provenance: Provenance::Human,
-                series_id,
+                project_id,
             })
             .await;
         map_version_only(result)
@@ -1747,13 +1747,13 @@ impl SceneShootCommands for SceneShootCommandsImpl {
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
-        let series_id = cmd.series_id;
+        let project_id = cmd.project_id;
         let result = SceneShootAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Exact(domain_to_stream_checked(version)?))
             .metadata(EventMetadata {
                 actor: Some(actor),
                 provenance: Provenance::Human,
-                series_id,
+                project_id,
             })
             .await;
         map_version_only(result)
@@ -1767,13 +1767,13 @@ impl SceneShootCommands for SceneShootCommandsImpl {
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
-        let series_id = cmd.series_id;
+        let project_id = cmd.project_id;
         let result = SceneShootAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Exact(domain_to_stream_checked(version)?))
             .metadata(EventMetadata {
                 actor: Some(actor),
                 provenance: Provenance::Human,
-                series_id,
+                project_id,
             })
             .await;
         map_version_only(result)
@@ -1931,7 +1931,7 @@ impl AiConfigCommands for AiConfigCommandsImpl {
             .metadata(EventMetadata {
                 actor: Some(actor),
                 provenance: Provenance::Human,
-                series_id: None,
+                project_id: None,
             })
             .await;
         map_executed(id, result)
@@ -1950,7 +1950,7 @@ impl AiConfigCommands for AiConfigCommandsImpl {
             .metadata(EventMetadata {
                 actor: Some(actor),
                 provenance: Provenance::Human,
-                series_id: None,
+                project_id: None,
             })
             .await;
         map_version_only(result)
@@ -1969,7 +1969,7 @@ impl AiConfigCommands for AiConfigCommandsImpl {
             .metadata(EventMetadata {
                 actor: Some(actor),
                 provenance: Provenance::Human,
-                series_id: None,
+                project_id: None,
             })
             .await;
         map_version_only(result)

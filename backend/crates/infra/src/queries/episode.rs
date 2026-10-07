@@ -7,7 +7,7 @@ use breakdown_core::episode::ports::EpisodeRepository;
 use breakdown_core::episode::views::EpisodeView;
 use breakdown_core::error::DomainError;
 use breakdown_core::error_registry::EPISODE_NOT_FOUND;
-use breakdown_core::shared::{AggregateVersion, BlockId, SeriesId};
+use breakdown_core::shared::{AggregateVersion, BlockId, ProjectId};
 use chrono::{DateTime, Utc};
 use sqlx::{PgPool, Row};
 use uuid::Uuid;
@@ -71,9 +71,9 @@ impl EpisodeRepository for EpisodeRepositoryImpl {
         rows.into_iter().map(map_episode_row).collect()
     }
 
-    async fn list_by_series(
+    async fn list_by_project(
         &self,
-        series_id: SeriesId,
+        project_id: ProjectId,
         limit: i64,
         offset: i64,
     ) -> Result<Vec<EpisodeView>, DomainError> {
@@ -86,7 +86,7 @@ impl EpisodeRepository for EpisodeRepositoryImpl {
             LIMIT $2 OFFSET $3
             "#,
         )
-        .bind(series_id.0)
+        .bind(project_id.0)
         .bind(limit)
         .bind(offset)
         .fetch_all(&self.pool)
@@ -96,9 +96,9 @@ impl EpisodeRepository for EpisodeRepositoryImpl {
         rows.into_iter().map(map_episode_row).collect()
     }
 
-    async fn find_by_series_and_number(
+    async fn find_by_project_and_number(
         &self,
-        series_id: SeriesId,
+        project_id: ProjectId,
         number: i32,
     ) -> Result<Option<EpisodeView>, DomainError> {
         let row = sqlx::query(
@@ -109,7 +109,7 @@ impl EpisodeRepository for EpisodeRepositoryImpl {
             LIMIT 1
             "#,
         )
-        .bind(series_id.0)
+        .bind(project_id.0)
         .bind(number)
         .fetch_optional(&self.pool)
         .await
@@ -126,7 +126,7 @@ fn map_episode_row(row: sqlx::postgres::PgRow) -> Result<EpisodeView, DomainErro
     Ok(EpisodeView {
         id: row.try_get("id").map_err(map_err)?,
         block_id: BlockId(row.try_get("block_id").map_err(map_err)?),
-        series_id: SeriesId(row.try_get("series_id").map_err(map_err)?),
+        project_id: ProjectId(row.try_get("series_id").map_err(map_err)?),
         number: row.try_get("number").map_err(map_err)?,
         name: row.try_get("name").map_err(map_err)?,
         version: AggregateVersion(row.try_get::<i64, _>("version").map_err(map_err)? as u64),

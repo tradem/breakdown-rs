@@ -35,7 +35,7 @@ use breakdown_core::error_registry::{SCENE_CHARACTER_ALREADY_ASSIGNED, SCENE_VAL
 use breakdown_core::scene::commands::{AddCostumeBeat, AssignCharacter, CreateScene};
 use breakdown_core::scene::events::{SceneDetails, SceneSource};
 use breakdown_core::scene::ports::SceneCommands;
-use breakdown_core::shared::{AggregateVersion, BlockId, EpisodeId, SeasonId, SeriesId, UserId};
+use breakdown_core::shared::{AggregateVersion, BlockId, EpisodeId, ProjectId, SeasonId, UserId};
 
 #[cfg(test)]
 #[path = "worker_mutation_tests.rs"]
@@ -756,7 +756,7 @@ struct ReservedSceneDraft {
     draft_ref: String,
     candidate_id: Uuid,
     episode_id: EpisodeId,
-    series_id: Option<SeriesId>,
+    project_id: Option<ProjectId>,
     details: SceneDetails,
 }
 
@@ -769,7 +769,7 @@ struct ReservedEpisodeDraft {
     /// The draft episode group's stable ref (`ep:<n>` / `ep-t:<title>`).
     episode_ref: String,
     block_id: BlockId,
-    series_id: SeriesId,
+    project_id: ProjectId,
     number: i32,
     name: Option<String>,
 }
@@ -934,7 +934,7 @@ fn ordinal_of(index: usize) -> Result<i32, DomainError> {
     })
 }
 
-/// Reviewed script apply request. `episode_id`, `season_id`, `series_id` and
+/// Reviewed script apply request. `episode_id`, `season_id`, `project_id` and
 /// `block_id` are resolved by the API edge from the target episode / job block
 /// and are never looked up by this write-side worker (CQRS boundary, AGENTS.md
 /// §1). Figures and costumes are season-scoped aggregates, so the season
@@ -947,7 +947,7 @@ pub struct ApplyScriptRequest<'a> {
     pub decisions: &'a [ApplyMapping],
     pub episode_id: EpisodeId,
     pub season_id: SeasonId,
-    pub series_id: Option<SeriesId>,
+    pub project_id: Option<ProjectId>,
     /// Parent of episodes a group creates (issue #581) — the job's block,
     /// resolved at the API edge.
     pub block_id: BlockId,
@@ -969,7 +969,7 @@ pub struct UuidVersion {
 struct BeatDispatch<'a> {
     actor: UserId,
     preview_id: AiImportJobId,
-    series_id: Option<SeriesId>,
+    project_id: Option<ProjectId>,
     /// The scene aggregate the beat mutates — the stream whose version the
     /// row's mapping rows jointly track.
     scene_id: Uuid,
@@ -1001,7 +1001,7 @@ where
             decisions,
             episode_id,
             season_id,
-            series_id,
+            project_id,
             block_id,
             episode_groups,
             telemetry,
@@ -1016,7 +1016,7 @@ where
             preview,
             &decisions,
             episode_id,
-            series_id,
+            project_id,
             preview_id,
             &episode_groups,
         )
@@ -1054,7 +1054,7 @@ where
                     // A missing series is an API-edge contract violation,
                     // surfaced as a validation failure instead of an episode
                     // without a series.
-                    let Some(series_id) = series_id else {
+                    let Some(project_id) = project_id else {
                         return Err(DomainError::validation(
                             "apply cannot create an episode without a series context",
                         ));
@@ -1069,7 +1069,7 @@ where
                                         preview_id,
                                         episode_ref: episode_ref.clone(),
                                         block_id,
-                                        series_id,
+                                        project_id,
                                         number: *number,
                                         name: name.clone(),
                                     },
@@ -1085,7 +1085,7 @@ where
                 }
             };
             let scene = self
-                .apply_scene_row(actor.clone(), preview_id, row_episode_id, series_id, row)
+                .apply_scene_row(actor.clone(), preview_id, row_episode_id, project_id, row)
                 .await?;
             result.applied.push(scene);
 
@@ -1095,7 +1095,7 @@ where
                         actor.clone(),
                         preview_id,
                         season_id,
-                        series_id,
+                        project_id,
                         character,
                         &mut figures,
                     )
@@ -1147,7 +1147,7 @@ where
                 scene_version = self
                     .assign_figure_to_scene(
                         actor.clone(),
-                        series_id,
+                        project_id,
                         scene.aggregate_id,
                         resolved.aggregate_id,
                         scene_version,
@@ -1198,7 +1198,7 @@ where
                             CostumeDispatch {
                                 preview_id,
                                 season_id,
-                                series_id,
+                                project_id,
                                 row,
                                 costume,
                                 character_id,
@@ -1230,7 +1230,7 @@ where
                         .apply_costume_beat(BeatDispatch {
                             actor: actor.clone(),
                             preview_id,
-                            series_id,
+                            project_id,
                             scene_id: scene.aggregate_id,
                             character_id,
                             costume,
@@ -1285,7 +1285,7 @@ where
     ) -> Result<Vec<ApplyMapping>, DomainError> {
         // Read the idempotency projection (non-audit): this is what lets a
         // retried apply skip the rows it already finished. Derived audit context
-        // (`series_id`, `season_id`) comes from the API-edge request, never here.
+        // (`project_id`, `season_id`) comes from the API-edge request, never here.
         let confirmed: HashMap<String, AiImportMapping> = self
             .mappings
             .list_by_preview(preview_id) // ast-grep-ignore: cqrs-boundary
@@ -1329,7 +1329,7 @@ where
         actor: UserId,
         preview_id: AiImportJobId,
         episode_id: EpisodeId,
-        series_id: Option<SeriesId>,
+        project_id: Option<ProjectId>,
         row: &SceneApplyPlan,
     ) -> Result<UuidVersion, DomainError> {
         let draft_ref = row.draft_ref.clone();
@@ -1367,7 +1367,7 @@ where
                     draft_ref,
                     candidate_id,
                     episode_id,
-                    series_id,
+                    project_id,
                     details,
                 },
             )
@@ -1392,7 +1392,7 @@ where
                                 PRIMARY_ORDINAL,
                             ),
                             episode_id,
-                            series_id,
+                            project_id,
                             details,
                         },
                     )
@@ -1435,7 +1435,7 @@ where
         actor: UserId,
         preview_id: AiImportJobId,
         season_id: SeasonId,
-        series_id: Option<SeriesId>,
+        project_id: Option<ProjectId>,
         character: &CharacterApplyPlan,
         figures: &mut HashMap<String, Figure>,
     ) -> Result<bool, DomainError> {
@@ -1479,7 +1479,7 @@ where
                 CreateCharacter {
                     id: row.aggregate_id,
                     season_id,
-                    series_id,
+                    project_id,
                     // Verbatim: the script's own wording is the figure's name.
                     // `character_identity` is a matching key, never a value.
                     name: character.name.clone(),
@@ -1532,7 +1532,7 @@ where
         let CostumeDispatch {
             preview_id,
             season_id,
-            series_id,
+            project_id,
             row,
             costume,
             character_id,
@@ -1589,7 +1589,7 @@ where
                         // (spec `costume-character-binding`) requires it to appear
                         // in the season's wardrobe overview.
                         season_id: Some(season_id),
-                        series_id,
+                        project_id,
                     },
                 )
                 .await;
@@ -1613,7 +1613,7 @@ where
                     UpdateCostumeNotes {
                         id,
                         notes: costume.description.clone(),
-                        series_id,
+                        project_id,
                         version,
                     },
                 )
@@ -1649,7 +1649,7 @@ where
                         AssignCostumeToCharacter {
                             id,
                             character_id,
-                            series_id,
+                            project_id,
                             version,
                         },
                     )
@@ -1685,7 +1685,7 @@ where
     async fn assign_figure_to_scene(
         &self,
         actor: UserId,
-        series_id: Option<SeriesId>,
+        project_id: Option<ProjectId>,
         scene_id: Uuid,
         character_id: Uuid,
         version: AggregateVersion,
@@ -1697,7 +1697,7 @@ where
                 AssignCharacter {
                     id: scene_id,
                     character_id,
-                    series_id,
+                    project_id,
                     version,
                 },
             )
@@ -1731,7 +1731,7 @@ where
         let BeatDispatch {
             actor,
             preview_id,
-            series_id,
+            project_id,
             scene_id,
             character_id,
             costume,
@@ -1781,7 +1781,7 @@ where
                 // The extracted description lives on the costume's notes;
                 // a beat note is a crew cue the extraction does not produce.
                 note: None,
-                series_id,
+                project_id,
                 version,
             }
         };
@@ -1882,7 +1882,7 @@ where
             preview_id,
             episode_ref,
             block_id,
-            series_id,
+            project_id,
             number,
             name,
         } = draft;
@@ -1927,7 +1927,7 @@ where
                     CreateEpisode {
                         id,
                         block_id,
-                        series_id,
+                        project_id,
                         number,
                         name,
                     },
@@ -1966,7 +1966,7 @@ where
             draft_ref,
             candidate_id,
             episode_id,
-            series_id,
+            project_id,
             details,
         } = draft;
         let reservation = self
@@ -1987,7 +1987,7 @@ where
                     CreateScene {
                         id,
                         episode_id,
-                        series_id,
+                        project_id,
                         details,
                         // AI-provenance for the script import (issue #517):
                         // the document id is the import job id, the draft_ref
@@ -2026,7 +2026,7 @@ struct CostumeDispatch<'a> {
     /// Resolved by the API edge; the write side never looks a season up (CQRS
     /// boundary) and a `Costume` carries no scope of its own.
     season_id: SeasonId,
-    series_id: Option<SeriesId>,
+    project_id: Option<ProjectId>,
     row: &'a SceneApplyPlan,
     costume: &'a CostumeApplyPlan,
     /// The figure this row's costume binds to, created or resolved above.

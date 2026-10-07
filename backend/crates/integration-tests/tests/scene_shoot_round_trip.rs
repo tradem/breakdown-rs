@@ -493,7 +493,7 @@ async fn wrapped_shooting_day_flips_report_final() -> Result<()> {
 use breakdown_core::block::events::BlockEvent;
 use breakdown_core::episode::events::EpisodeEvent;
 use breakdown_core::season::events::SeasonEvent;
-use breakdown_core::shared::{BlockId, EpisodeId, SeasonId, SeriesId};
+use breakdown_core::shared::{BlockId, EpisodeId, ProjectId, SeasonId};
 
 /// Poll an `EXISTS` probe until true, or fail after deadline.
 ///
@@ -565,7 +565,7 @@ async fn aggregate_soll_ist_report_episode_and_season_scopes() -> Result<()> {
     let ss_repo = SceneShootRepositoryImpl::new(pool.clone());
 
     // Hierarchy: one series, one season, one block, two episodes.
-    let series_id = SeriesId::new();
+    let project_id = ProjectId::new();
     let season_id = SeasonId::new();
     let block_id = BlockId::new();
     let ep1 = EpisodeId::new();
@@ -578,7 +578,7 @@ async fn aggregate_soll_ist_report_episode_and_season_scopes() -> Result<()> {
         "EMPTY",
         &encode(&SeasonEvent::SeasonCreated {
             id: season_id.0,
-            series_id,
+            project_id,
             number: 1,
             title: Some("Agg Season".into()),
             version: AggregateVersion::INITIAL,
@@ -600,7 +600,7 @@ async fn aggregate_soll_ist_report_episode_and_season_scopes() -> Result<()> {
         &encode(&BlockEvent::BlockCreated {
             id: block_id.0,
             season_id,
-            series_id,
+            project_id,
             number: 1,
             start_date: None,
             end_date: None,
@@ -624,7 +624,7 @@ async fn aggregate_soll_ist_report_episode_and_season_scopes() -> Result<()> {
             &encode(&EpisodeEvent::EpisodeCreated {
                 id: id.0,
                 block_id,
-                series_id,
+                project_id,
                 number,
                 name: Some("Agg Episode".into()),
                 version: AggregateVersion::INITIAL,

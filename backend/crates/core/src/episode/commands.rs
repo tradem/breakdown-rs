@@ -6,29 +6,33 @@
 
 use uuid::Uuid;
 
-use crate::shared::{AggregateVersion, BlockId, SeriesId};
+use crate::shared::{AggregateVersion, BlockId, ProjectId};
 
 /// Create a new episode within a block.
 #[derive(Debug, Clone, serde::Deserialize, utoipa::ToSchema)]
 pub struct CreateEpisode {
     pub id: Uuid,
     pub block_id: BlockId,
-    /// Denormalized series reference (immutable for an Episode).
-    pub series_id: SeriesId,
+    /// Denormalized project reference (immutable for an Episode).
+    #[schema(rename = "series_id")]
+    // wire name pinned: layer 3 (OpenAPI field rename) is a breaking ADR-021 change, deferred
+    pub project_id: ProjectId,
     pub number: i32,
     pub name: Option<String>,
 }
 
 /// Rename an episode (optional name may be cleared by passing `None`).
 ///
-/// `series_id` is carried for the `EventMetadata` audit trail (the audit
-/// projector keys on `series_id`); it is resolved at the API edge from the
+/// `project_id` is carried for the `EventMetadata` audit trail (the audit
+/// projector keys on `project_id`); it is resolved at the API edge from the
 /// episode projection, never queried again by the command adapter.
 #[derive(Debug, Clone, serde::Deserialize, utoipa::ToSchema)]
 pub struct RenameEpisode {
     pub id: Uuid,
     pub name: Option<String>,
-    pub series_id: Option<SeriesId>,
+    #[schema(rename = "series_id")]
+    // wire name pinned: layer 3 (OpenAPI field rename) is a breaking ADR-021 change, deferred
+    pub project_id: Option<ProjectId>,
     pub version: AggregateVersion,
 }
 

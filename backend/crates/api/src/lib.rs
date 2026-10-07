@@ -236,7 +236,7 @@ use utoipa::OpenApi;
         breakdown_core::shared::AggregateVersion,
         breakdown_core::shared::EpisodeId,
         breakdown_core::shared::SeasonId,
-        breakdown_core::shared::SeriesId,
+        breakdown_core::shared::ProjectId,
         breakdown_core::shared::BlockId,
         breakdown_core::shared::ShootingDayId,
         breakdown_core::shared::LexicalSortKey,

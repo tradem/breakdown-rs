@@ -17,7 +17,7 @@ part 'block_view.g.dart';
 /// * [id]
 /// * [number]
 /// * [seasonId] - Opaque identifier for a `Season` aggregate.
-/// * [seriesId] - Opaque identifier for a `Series` (a show run).  `SeriesId` is an opaque UUIDv7 value type introduced by the `introduce-season-block-episode-hierarchy` change. It is the seam for a future additive `Series` aggregate: every hierarchy entity (Season, Block, Episode) references it but no `Series` aggregate exists yet.
+/// * [seriesId] - The tenant-level production container this block belongs to.
 /// * [startDate]
 /// * [updatedAt]
 /// * [version] - Aggregate version for optimistic-locking round-trips.
@@ -36,7 +36,7 @@ abstract class BlockView implements Built<BlockView, BlockViewBuilder> {
   @BuiltValueField(wireName: r'season_id')
   String get seasonId;
 
-  /// Opaque identifier for a `Series` (a show run).  `SeriesId` is an opaque UUIDv7 value type introduced by the `introduce-season-block-episode-hierarchy` change. It is the seam for a future additive `Series` aggregate: every hierarchy entity (Season, Block, Episode) references it but no `Series` aggregate exists yet.
+  /// The tenant-level production container this block belongs to.
   @BuiltValueField(wireName: r'series_id')
   String get seriesId;
 

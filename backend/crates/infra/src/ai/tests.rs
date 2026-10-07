@@ -1549,7 +1549,7 @@ impl ScheduleApplyFixture {
                 actor: UserId::from_sub("schedule-test-user"),
                 preview_id: self.preview_id,
                 preview: &self.preview,
-                series_id: None,
+                project_id: None,
             })
             .await
     }
@@ -1935,7 +1935,7 @@ async fn apply_retry_is_a_noop_for_confirmed_mappings() {
             decisions: &[decision],
             episode_id: breakdown_core::shared::EpisodeId::new(),
             season_id: breakdown_core::shared::SeasonId::new(),
-            series_id: None,
+            project_id: None,
             // Single-episode flow fixtures: no group targets, no episode creation (issue #581).
             block_id: breakdown_core::shared::BlockId::new(),
             episode_groups: Vec::new(),
@@ -1960,7 +1960,7 @@ async fn apply_retry_is_a_noop_for_confirmed_mappings() {
             decisions: &[],
             episode_id: breakdown_core::shared::EpisodeId::new(),
             season_id: breakdown_core::shared::SeasonId::new(),
-            series_id: None,
+            project_id: None,
             // Single-episode flow fixtures: no group targets, no episode creation (issue #581).
             block_id: breakdown_core::shared::BlockId::new(),
             episode_groups: Vec::new(),
@@ -2044,7 +2044,7 @@ async fn apply_script_concurrent_applies_create_one_scene_per_draft() {
                     decisions: &decisions,
                     episode_id,
                     season_id: breakdown_core::shared::SeasonId::new(),
-                    series_id: None,
+                    project_id: None,
                     // Single-episode flow fixtures: no group targets, no episode creation (issue #581).
                     block_id: breakdown_core::shared::BlockId::new(),
                     episode_groups: Vec::new(),
@@ -2190,7 +2190,7 @@ async fn script_pdf_round_trip_reaches_scene_apply() {
             decisions: &[decision],
             episode_id: breakdown_core::shared::EpisodeId::new(),
             season_id: breakdown_core::shared::SeasonId::new(),
-            series_id: None,
+            project_id: None,
             // Single-episode flow fixtures: no group targets, no episode creation (issue #581).
             block_id: breakdown_core::shared::BlockId::new(),
             episode_groups: Vec::new(),
@@ -2537,7 +2537,7 @@ struct ScriptApplyFixture {
     season_id: breakdown_core::shared::SeasonId,
     /// Series context the fixture apply carries (issue #581): a group mapped
     /// to a NEW episode needs it for `CreateEpisode`.
-    series_id: breakdown_core::shared::SeriesId,
+    project_id: breakdown_core::shared::ProjectId,
     block_id: breakdown_core::shared::BlockId,
 }
 
@@ -2567,7 +2567,7 @@ impl ScriptApplyFixture {
             preview_id: AiImportJobId::new(),
             episode_id: breakdown_core::shared::EpisodeId::new(),
             season_id: breakdown_core::shared::SeasonId::new(),
-            series_id: breakdown_core::shared::SeriesId::new(),
+            project_id: breakdown_core::shared::ProjectId::new(),
             block_id: breakdown_core::shared::BlockId::new(),
         }
     }
@@ -2607,7 +2607,7 @@ impl ScriptApplyFixture {
                 decisions,
                 episode_id: self.episode_id,
                 season_id: self.season_id,
-                series_id: Some(self.series_id),
+                project_id: Some(self.project_id),
                 block_id: self.block_id,
                 episode_groups,
                 telemetry: None,
@@ -2628,7 +2628,7 @@ impl ScriptApplyFixture {
                 decisions,
                 episode_id: self.episode_id,
                 season_id: self.season_id,
-                series_id: None,
+                project_id: None,
                 // Single-episode flow fixtures: no group targets, no episode
                 // creation (issue #581).
                 block_id: self.block_id,

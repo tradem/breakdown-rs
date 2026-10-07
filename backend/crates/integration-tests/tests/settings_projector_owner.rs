@@ -83,7 +83,7 @@ fn actor_metadata(sub: &str) -> Metadata<EventMetadata> {
         data: Some(EventMetadata {
             actor: Some(UserId::from_sub(sub)),
             provenance: Provenance::Human,
-            series_id: None,
+            project_id: None,
         }),
         ..Default::default()
     }

@@ -28,7 +28,7 @@ use uuid::Uuid;
 use api::handlers::get_season_membership;
 use api::state::AppState;
 use breakdown_core::membership::Role;
-use breakdown_core::shared::{BlockId, SeasonId, SeriesId, UserId};
+use breakdown_core::shared::{BlockId, ProjectId, SeasonId, UserId};
 use common::*;
 
 #[tokio::test]
@@ -71,7 +71,7 @@ async fn get_season_membership_returns_capabilities_for_active_member() {
             UserId::from_sub("user-1"),
             Role::CostumeDesigner,
             SeasonId::from_uuid(id),
-            SeriesId::new(),
+            ProjectId::new(),
         )
         .await;
     let (_status, Json(dto)) = get_season_membership::<FakePorts>(

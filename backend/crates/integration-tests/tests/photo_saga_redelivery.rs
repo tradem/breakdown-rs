@@ -36,7 +36,7 @@ use breakdown_core::photo::events::PhotoEvent;
 use breakdown_core::photo::ports::{PhotoCommands, PhotoRepository, PhotoStorage};
 use breakdown_core::photo::views::PhotoView;
 use breakdown_core::shared::{
-    AggregateVersion, EventMetadata, PhotoId, PhotoVariant, Provenance, SeriesId, VariantStatus,
+    AggregateVersion, EventMetadata, PhotoId, PhotoVariant, ProjectId, Provenance, VariantStatus,
 };
 use fixtures::{build_storage, spawn_garage, spawn_postgres, spawn_sierradb};
 use infra::photo::repository::PhotoRepositoryImpl;
@@ -160,7 +160,7 @@ fn uploaded_event(
     content_type: &str,
     size_bytes: u64,
     binding: PhotoBinding,
-    series_id: Option<SeriesId>,
+    project_id: Option<ProjectId>,
 ) -> Event<PhotoEvent, EventMetadata> {
     Event {
         id: Uuid::now_v7(),
@@ -189,7 +189,7 @@ fn uploaded_event(
             data: Some(EventMetadata {
                 actor: None,
                 provenance: Provenance::Saga("photo_saga_redelivery_test".to_string()),
-                series_id,
+                project_id,
             }),
         },
         timestamp: chrono::Utc::now(),
@@ -253,7 +253,7 @@ async fn thumbnail_saga_redelivery_is_idempotent_and_converges() -> Result<()> {
     let binding = PhotoBinding::Costume {
         costume_id: Uuid::now_v7(),
     };
-    let series_id = Some(SeriesId::new());
+    let project_id = Some(ProjectId::new());
     let _uploaded_version = photo_commands
         .upload(
             test_user(),
@@ -262,7 +262,7 @@ async fn thumbnail_saga_redelivery_is_idempotent_and_converges() -> Result<()> {
                 content_type: content_type.clone(),
                 size_bytes: TINY_JPEG.len() as u64,
                 binding: binding.clone(),
-                series_id,
+                project_id,
             },
         )
         .await?;
@@ -272,7 +272,7 @@ async fn thumbnail_saga_redelivery_is_idempotent_and_converges() -> Result<()> {
         &content_type,
         TINY_JPEG.len() as u64,
         binding,
-        series_id,
+        project_id,
     );
     let mut saga = PhotoThumbnailSaga::new(cmd_service.clone(), storage.clone());
 

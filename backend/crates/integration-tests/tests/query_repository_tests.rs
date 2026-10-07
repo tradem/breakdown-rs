@@ -38,7 +38,7 @@ use breakdown_core::scene::events::{SceneDetails, SceneSource};
 use breakdown_core::scene::ports::{SceneCommands, SceneRepository};
 use breakdown_core::season::commands::{ArchiveSeason, CreateSeason};
 use breakdown_core::season::ports::{SeasonCommands, SeasonRepository};
-use breakdown_core::shared::{BlockId, EpisodeId, SeasonId, SeriesId};
+use breakdown_core::shared::{BlockId, EpisodeId, ProjectId, SeasonId};
 use infra::event_store::{
     BlockCommandsImpl, CharacterCommandsImpl, CostumeCommandsImpl, EpisodeCommandsImpl,
     SceneCommandsImpl, SeasonCommandsImpl,
@@ -216,7 +216,7 @@ async fn scenes_by_episode_returns_data() -> Result<()> {
     let cmd = CreateScene {
         id: scene_id,
         episode_id,
-        series_id: Some(SeriesId::new()),
+        project_id: Some(ProjectId::new()),
         details: SceneDetails {
             scene_number: Some(1),
             location: Some("A".into()),
@@ -256,7 +256,7 @@ async fn characters_by_season_returns_data() -> Result<()> {
     let cmd = CreateCharacter {
         id: char_id,
         season_id,
-        series_id: Some(SeriesId::new()),
+        project_id: Some(ProjectId::new()),
         name: "Heroin".into(),
         category: CharacterCategory::MainCast,
     };
@@ -294,7 +294,7 @@ async fn costumes_by_season_returns_data() -> Result<()> {
             CreateCharacter {
                 id: char_id,
                 season_id,
-                series_id: Some(SeriesId::new()),
+                project_id: Some(ProjectId::new()),
                 name: "Wearer".into(),
                 category: CharacterCategory::MainCast,
             },
@@ -309,7 +309,7 @@ async fn costumes_by_season_returns_data() -> Result<()> {
             CreateCostume {
                 id: costume_id,
                 season_id: Some(season_id),
-                series_id: None,
+                project_id: None,
             },
         )
         .await?;
@@ -321,7 +321,7 @@ async fn costumes_by_season_returns_data() -> Result<()> {
             AssignCostumeToCharacter {
                 id: costume_id,
                 character_id: char_id,
-                series_id: None,
+                project_id: None,
                 version: ver,
             },
         )
@@ -351,7 +351,7 @@ async fn costumes_with_details_returns_data() -> Result<()> {
     let cmd = CreateCostume {
         id: costume_id,
         season_id: None,
-        series_id: None,
+        project_id: None,
     };
     let (_id, ver) = costume_cmd.create(test_user(), cmd).await?;
 
@@ -370,7 +370,7 @@ async fn costumes_with_details_returns_data() -> Result<()> {
                     category_id: None,
                     text: "Sleeve".into(),
                 },
-                series_id: None,
+                project_id: None,
                 version: ver,
             },
         )
@@ -415,7 +415,7 @@ async fn costumes_with_details_returns_data() -> Result<()> {
 #[tokio::test]
 async fn seasons_by_series_returns_data() -> Result<()> {
     let (pool, cmd_svc, _pg_guard, _sierra_guard) = init().await?;
-    let series_id = SeriesId::new();
+    let project_id = ProjectId::new();
     let season_repo = SeasonRepositoryImpl::new(pool.clone());
     let season_cmd = SeasonCommandsImpl::new(cmd_svc);
 
@@ -425,7 +425,7 @@ async fn seasons_by_series_returns_data() -> Result<()> {
             test_user(),
             CreateSeason {
                 id: season_id,
-                series_id,
+                project_id,
                 number: 2,
                 title: Some("S2".into()),
             },
@@ -433,11 +433,15 @@ async fn seasons_by_series_returns_data() -> Result<()> {
         .await?;
     await_proj(&pool, "projection_season", season_id).await;
 
-    let seasons = season_repo.list_by_series(series_id, false, 100, 0).await?;
+    let seasons = season_repo
+        .list_by_project(project_id, false, 100, 0)
+        .await?;
     assert!(seasons.iter().any(|s| s.id == season_id));
     assert!(seasons.iter().all(|s| !s.archived));
 
-    let found = season_repo.find_by_series_and_number(series_id, 2).await?;
+    let found = season_repo
+        .find_by_project_and_number(project_id, 2)
+        .await?;
     assert_eq!(found.map(|s| s.id), Some(season_id));
     Ok(())
 }
@@ -445,14 +449,14 @@ async fn seasons_by_series_returns_data() -> Result<()> {
 /// Tier-4 season lifecycle (issue #533): `ArchiveSeason` via the production
 /// `SeasonCommandsImpl` adapter → `SeasonArchived` in SierraDB → projector
 /// catch-up sets `archived = true` in `projection_season`. The read model
-/// filters the row out of `list_all`/`list_by_series` by default and returns
+/// filters the row out of `list_all`/`list_by_project` by default and returns
 /// it with the explicit opt-in; the number-uniqueness lookup is untouched
 /// (an archived season still blocks its number). Redelivery of the archive
 /// command is an idempotent-reject (409 `season.archived`).
 #[tokio::test]
 async fn season_archive_round_trip_projects_flag_and_filters_list() -> Result<()> {
     let (pool, cmd_svc, _pg_guard, _sierra_guard) = init().await?;
-    let series_id = SeriesId::new();
+    let project_id = ProjectId::new();
     let season_repo = SeasonRepositoryImpl::new(pool.clone());
     let season_cmd = SeasonCommandsImpl::new(cmd_svc);
 
@@ -462,7 +466,7 @@ async fn season_archive_round_trip_projects_flag_and_filters_list() -> Result<()
             test_user(),
             CreateSeason {
                 id: season_id,
-                series_id,
+                project_id,
                 number: 3,
                 title: Some("Archivable".into()),
             },
@@ -475,7 +479,7 @@ async fn season_archive_round_trip_projects_flag_and_filters_list() -> Result<()
             test_user(),
             ArchiveSeason {
                 id: season_id,
-                series_id: Some(series_id),
+                project_id: Some(project_id),
                 version: created_version,
             },
         )
@@ -501,13 +505,17 @@ async fn season_archive_round_trip_projects_flag_and_filters_list() -> Result<()
     );
     assert_eq!(view.version.0, 2);
 
-    // list_all/list_by_series: default excludes, explicit opt-in includes.
-    let default_list = season_repo.list_by_series(series_id, false, 100, 0).await?;
+    // list_all/list_by_project: default excludes, explicit opt-in includes.
+    let default_list = season_repo
+        .list_by_project(project_id, false, 100, 0)
+        .await?;
     assert!(
         !default_list.iter().any(|s| s.id == season_id),
         "archived season hidden by default"
     );
-    let opt_in = season_repo.list_by_series(series_id, true, 100, 0).await?;
+    let opt_in = season_repo
+        .list_by_project(project_id, true, 100, 0)
+        .await?;
     assert!(opt_in.iter().any(|s| s.id == season_id));
     let all = season_repo.list_all(false, 100, 0).await?;
     assert!(!all.iter().any(|s| s.id == season_id));
@@ -516,7 +524,9 @@ async fn season_archive_round_trip_projects_flag_and_filters_list() -> Result<()
 
     // Number uniqueness stays untouched (issue-#533 recorded decision):
     // the uniqueness pre-check lookup still finds the archived season.
-    let found = season_repo.find_by_series_and_number(series_id, 3).await?;
+    let found = season_repo
+        .find_by_project_and_number(project_id, 3)
+        .await?;
     assert_eq!(found.map(|s| s.id), Some(season_id));
 
     // Idempotent-reject (issue #533): a repeat ArchiveSeason with the CURRENT
@@ -527,7 +537,7 @@ async fn season_archive_round_trip_projects_flag_and_filters_list() -> Result<()
             test_user(),
             ArchiveSeason {
                 id: season_id,
-                series_id: Some(series_id),
+                project_id: Some(project_id),
                 version,
             },
         )
@@ -544,7 +554,7 @@ async fn season_archive_round_trip_projects_flag_and_filters_list() -> Result<()
 async fn blocks_by_season_returns_data() -> Result<()> {
     let (pool, cmd_svc, _pg_guard, _sierra_guard) = init().await?;
     let season_id = SeasonId::new();
-    let series_id = SeriesId::new();
+    let project_id = ProjectId::new();
     let block_repo = BlockRepositoryImpl::new(pool.clone());
     let block_cmd = BlockCommandsImpl::new(cmd_svc);
 
@@ -555,7 +565,7 @@ async fn blocks_by_season_returns_data() -> Result<()> {
             CreateBlock {
                 id: block_id,
                 season_id,
-                series_id,
+                project_id,
                 number: 4,
                 start_date: None,
                 end_date: None,
@@ -573,7 +583,7 @@ async fn blocks_by_season_returns_data() -> Result<()> {
 async fn episodes_by_series_returns_data() -> Result<()> {
     let (pool, cmd_svc, _pg_guard, _sierra_guard) = init().await?;
     let block_id = BlockId::new();
-    let series_id = SeriesId::new();
+    let project_id = ProjectId::new();
     let episode_repo = EpisodeRepositoryImpl::new(pool.clone());
     let episode_cmd = EpisodeCommandsImpl::new(cmd_svc);
 
@@ -584,7 +594,7 @@ async fn episodes_by_series_returns_data() -> Result<()> {
             CreateEpisode {
                 id: episode_id,
                 block_id,
-                series_id,
+                project_id,
                 number: 9,
                 name: Some("E9".into()),
             },
@@ -592,10 +602,12 @@ async fn episodes_by_series_returns_data() -> Result<()> {
         .await?;
     await_proj(&pool, "projection_episode", episode_id).await;
 
-    let episodes = episode_repo.list_by_series(series_id, 100, 0).await?;
+    let episodes = episode_repo.list_by_project(project_id, 100, 0).await?;
     assert!(episodes.iter().any(|e| e.id == episode_id));
 
-    let found = episode_repo.find_by_series_and_number(series_id, 9).await?;
+    let found = episode_repo
+        .find_by_project_and_number(project_id, 9)
+        .await?;
     assert_eq!(found.map(|e| e.id), Some(episode_id));
     Ok(())
 }
@@ -614,7 +626,7 @@ async fn character_measurements_persist() -> Result<()> {
             CreateCharacter {
                 id: char_id,
                 season_id,
-                series_id: Some(SeriesId::new()),
+                project_id: Some(ProjectId::new()),
                 name: "Measured".into(),
                 category: CharacterCategory::Guest,
             },
@@ -632,7 +644,7 @@ async fn character_measurements_persist() -> Result<()> {
                     weight: Some(Decimal::from(75)),
                     ..Default::default()
                 },
-                series_id: Some(SeriesId::new()),
+                project_id: Some(ProjectId::new()),
                 version: ver,
             },
         )

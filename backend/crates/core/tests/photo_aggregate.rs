@@ -12,12 +12,12 @@
     clippy::dbg_macro
 )]
 use breakdown_core::photo::*;
-use breakdown_core::shared::{AggregateVersion, PhotoId, PhotoVariant, SeriesId, VariantStatus};
+use breakdown_core::shared::{AggregateVersion, PhotoId, PhotoVariant, ProjectId, VariantStatus};
 use kameo_es::{Apply, Command};
 use test_support::make_ctx;
 
-fn series_id() -> SeriesId {
-    SeriesId::new()
+fn project_id() -> ProjectId {
+    ProjectId::new()
 }
 
 fn make_uploaded_photo() -> PhotoAggregate {
@@ -26,7 +26,7 @@ fn make_uploaded_photo() -> PhotoAggregate {
         .handle(
             UploadPhoto {
                 id: PhotoId::new(),
-                series_id: Some(series_id()),
+                project_id: Some(project_id()),
                 content_type: "image/jpeg".into(),
                 size_bytes: 1024 * 1024,
                 binding: PhotoBinding::default(),
@@ -45,7 +45,7 @@ fn test_upload_emits_photo_uploaded_with_pending_variants() {
     let result = PhotoAggregate::default().handle(
         UploadPhoto {
             id,
-            series_id: Some(series_id()),
+            project_id: Some(project_id()),
             content_type: "image/jpeg".into(),
             size_bytes: 5000,
             binding: PhotoBinding::default(),
@@ -84,7 +84,7 @@ fn test_normalize_original_success() {
             NormalizeOriginal {
                 id: agg.id,
                 new_size: 900000,
-                series_id: Some(series_id()),
+                project_id: Some(project_id()),
                 rotated: true,
                 version: agg.version,
             },
@@ -114,7 +114,7 @@ fn test_generate_variant_success() {
             GenerateVariant {
                 id: agg.id,
                 variant: PhotoVariant::Thumb,
-                series_id: Some(series_id()),
+                project_id: Some(project_id()),
                 size_bytes: 50000,
                 version,
             },
@@ -145,7 +145,7 @@ fn test_generate_variant_tolerates_stale_version_after_advance() {
             NormalizeOriginal {
                 id: agg.id,
                 new_size: 500,
-                series_id: Some(series_id()),
+                project_id: Some(project_id()),
                 rotated: false,
                 version: agg.version,
             },
@@ -161,7 +161,7 @@ fn test_generate_variant_tolerates_stale_version_after_advance() {
             GenerateVariant {
                 id: agg.id,
                 variant: PhotoVariant::Thumb,
-                series_id: Some(series_id()),
+                project_id: Some(project_id()),
                 size_bytes: 100,
                 version: AggregateVersion::INITIAL,
             },
@@ -190,7 +190,7 @@ fn test_generate_variant_idempotent_when_already_ready() {
             GenerateVariant {
                 id: agg.id,
                 variant: PhotoVariant::Thumb,
-                series_id: Some(series_id()),
+                project_id: Some(project_id()),
                 size_bytes: 50000,
                 version: agg.version,
             },
@@ -212,7 +212,7 @@ fn test_generate_variant_idempotent_when_already_ready() {
             GenerateVariant {
                 id: agg.id,
                 variant: PhotoVariant::Thumb,
-                series_id: Some(series_id()),
+                project_id: Some(project_id()),
                 size_bytes: 50000,
                 version: version_before,
             },
@@ -235,7 +235,7 @@ fn test_normalize_original_idempotent_when_already_ready() {
             NormalizeOriginal {
                 id: agg.id,
                 new_size: 900000,
-                series_id: Some(series_id()),
+                project_id: Some(project_id()),
                 rotated: true,
                 version: agg.version,
             },
@@ -251,7 +251,7 @@ fn test_normalize_original_idempotent_when_already_ready() {
             NormalizeOriginal {
                 id: agg.id,
                 new_size: 900000,
-                series_id: Some(series_id()),
+                project_id: Some(project_id()),
                 rotated: true,
                 version: AggregateVersion::INITIAL,
             },
@@ -273,7 +273,7 @@ fn test_mark_variant_failed() {
                 id: agg.id,
                 variant: PhotoVariant::Thumb,
                 error: "OOM".into(),
-                series_id: Some(series_id()),
+                project_id: Some(project_id()),
                 version: agg.version,
             },
             make_ctx(),
@@ -296,7 +296,7 @@ fn test_delete_photo_success() {
     let result = agg.handle(
         DeletePhoto {
             id: agg.id,
-            series_id: Some(series_id()),
+            project_id: Some(project_id()),
             version: agg.version,
         },
         make_ctx(),
@@ -313,7 +313,7 @@ fn test_delete_photo_wrong_version() {
     let result = agg.handle(
         DeletePhoto {
             id: agg.id,
-            series_id: Some(series_id()),
+            project_id: Some(project_id()),
             version: AggregateVersion(99),
         },
         make_ctx(),

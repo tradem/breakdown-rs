@@ -61,8 +61,8 @@ use breakdown_core::scene::events::{SceneDetails, SceneEvent, SceneSource};
 use breakdown_core::scene_shoot::events::SceneShootEvent;
 use breakdown_core::season::events::SeasonEvent;
 use breakdown_core::shared::{
-    AggregateVersion, BlockId, EpisodeId, EventMetadata, LexicalSortKey, Provenance, SceneShootId,
-    SceneShootStatus, SeasonId, SeriesId, ShootingDayId, UserId,
+    AggregateVersion, BlockId, EpisodeId, EventMetadata, LexicalSortKey, ProjectId, Provenance,
+    SceneShootId, SceneShootStatus, SeasonId, ShootingDayId, UserId,
 };
 use breakdown_core::shooting_day::events::{ShootingDayEvent, ShootingDaySource};
 use chrono::{DateTime, TimeZone, Utc};
@@ -98,7 +98,7 @@ struct EventFixture {
     timestamp: DateTime<Utc>,
     stream_version: u64,
     projector_version: i64,
-    /// The event-envelope metadata (actor / provenance / series_id) exactly
+    /// The event-envelope metadata (actor / provenance / project_id) exactly
     /// as captured — replayed alongside the payload so drift in the metadata
     /// shape is detected too (ADR-020 D4).
     metadata: Value,
@@ -143,7 +143,7 @@ struct SampleChain {
     episode_id: Uuid,
     scene_id: Uuid,
     character_id: Uuid,
-    series_id: Uuid,
+    project_id: Uuid,
     costume_id: Uuid,
     shooting_day_id: Uuid,
     category_id: Uuid,
@@ -193,12 +193,12 @@ fn sample_chain() -> SampleChain {
     let shooting_day_id = fixed_uuid(7);
     let category_id = fixed_uuid(8);
     let scene_shoot_id = fixed_uuid(9);
-    let series_id = SeriesId(fixed_uuid(10));
+    let project_id = ProjectId(fixed_uuid(10));
 
     SampleChain {
         season: SeasonEvent::SeasonCreated {
             id: season_id,
-            series_id,
+            project_id,
             number: 1,
             title: Some("Staffel 1".to_string()),
             version: AggregateVersion(1),
@@ -206,7 +206,7 @@ fn sample_chain() -> SampleChain {
         block: BlockEvent::BlockCreated {
             id: block_id,
             season_id: SeasonId(season_id),
-            series_id,
+            project_id,
             number: 1,
             start_date: None,
             end_date: None,
@@ -215,7 +215,7 @@ fn sample_chain() -> SampleChain {
         episode: EpisodeEvent::EpisodeCreated {
             id: episode_id,
             block_id: BlockId(block_id),
-            series_id,
+            project_id,
             number: 1,
             name: Some("Block 1 Episode 1".to_string()),
             version: AggregateVersion(1),
@@ -293,7 +293,7 @@ fn sample_chain() -> SampleChain {
         episode_id,
         scene_id,
         character_id,
-        series_id: series_id.0,
+        project_id: project_id.0,
         costume_id,
         shooting_day_id,
         category_id,
@@ -305,12 +305,12 @@ fn sample_chain() -> SampleChain {
 fn sample_fixtures(chain: &SampleChain) -> Result<Vec<(&'static str, EventFixture)>> {
     let t = chain.timestamp;
     // The fixture envelope captures the full EventMetadata (actor,
-    // provenance, tenant series_id) — the replay deserializes it back and
+    // provenance, tenant project_id) — the replay deserializes it back and
     // feeds it to the projectors, so metadata drift is a contract failure.
     let metadata = EventMetadata {
         actor: Some(UserId::from_sub("fixture-owner")),
         provenance: Provenance::Human,
-        series_id: Some(SeriesId(chain.series_id)),
+        project_id: Some(ProjectId(chain.project_id)),
     };
     Ok(vec![
         (
@@ -429,7 +429,7 @@ fn captured_event_fixtures_still_deserialize() {
         );
         // The serde gate: deserialize the wire snapshot (payload AND envelope
         // metadata) into the current types. Drift in the event enum or in
-        // EventMetadata (actor / provenance / series_id) fails here.
+        // EventMetadata (actor / provenance / project_id) fails here.
         serde_json::from_value::<EventMetadata>(on_disk.metadata.clone())
             .expect("EventMetadata must deserialize");
         let _: () = match *name {
@@ -628,7 +628,7 @@ async fn replay_captured_chain_through_projectors_round_trips() -> Result<()> {
         season_fx.aggregate_id,
         json!({
             "id": season_fx.aggregate_id,
-            "series_id": chain.series_id,
+            "series_id": chain.project_id,
             "number": 1,
             "title": "Staffel 1",
             // #533 lifecycle flag: a fresh chain replays to `false`.
@@ -647,7 +647,7 @@ async fn replay_captured_chain_through_projectors_round_trips() -> Result<()> {
         json!({
             "id": block_fx.aggregate_id,
             "season_id": season_fx.aggregate_id,
-            "series_id": chain.series_id,
+            "series_id": chain.project_id,
             "number": 1,
             "start_date": null,
             "end_date": null,
@@ -665,7 +665,7 @@ async fn replay_captured_chain_through_projectors_round_trips() -> Result<()> {
         json!({
             "id": episode_fx.aggregate_id,
             "block_id": block_fx.aggregate_id,
-            "series_id": chain.series_id,
+            "series_id": chain.project_id,
             "number": 1,
             "name": "Block 1 Episode 1",
             "version": 1,

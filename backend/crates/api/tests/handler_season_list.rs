@@ -12,7 +12,7 @@
 //! Integration tests for `GET /seasons` (issue #377).
 //!
 //! The seasons list returns every season, optionally narrowed to one series
-//! via `series_id` — unlike the episode/scene lists, no scope parameter is
+//! via `project_id` — unlike the episode/scene lists, no scope parameter is
 //! required, so the client's parameterless `fetchSeasonsList()` reconciliation
 //! seam confirms a created id regardless of the series it was filed under.
 
@@ -20,7 +20,7 @@ use api::problems::{Json, Query};
 use axum::extract::State;
 use axum::http::StatusCode;
 use breakdown_core::season::views::SeasonView;
-use breakdown_core::shared::{AggregateVersion, SeriesId};
+use breakdown_core::shared::{AggregateVersion, ProjectId};
 use chrono::Utc;
 use uuid::Uuid;
 
@@ -29,14 +29,19 @@ use api::state::AppState;
 
 mod common;
 
-fn season_view(id: Uuid, series_id: SeriesId, number: i32) -> SeasonView {
-    season_view_archived(id, series_id, number, false)
+fn season_view(id: Uuid, project_id: ProjectId, number: i32) -> SeasonView {
+    season_view_archived(id, project_id, number, false)
 }
 
-fn season_view_archived(id: Uuid, series_id: SeriesId, number: i32, archived: bool) -> SeasonView {
+fn season_view_archived(
+    id: Uuid,
+    project_id: ProjectId,
+    number: i32,
+    archived: bool,
+) -> SeasonView {
     SeasonView {
         id,
-        series_id,
+        project_id,
         number,
         title: None,
         archived,
@@ -49,7 +54,7 @@ fn list_params() -> SeasonListParams {
     SeasonListParams {
         limit: Some(50),
         offset: Some(0),
-        series_id: None,
+        project_id: None,
         include_archived: None,
     }
 }
@@ -57,8 +62,8 @@ fn list_params() -> SeasonListParams {
 #[tokio::test]
 async fn list_seasons_returns_only_the_queried_series() {
     let ports = common::FakePorts::default();
-    let series_a = SeriesId::new();
-    let series_b = SeriesId::new();
+    let series_a = ProjectId::new();
+    let series_b = ProjectId::new();
     {
         let mut seasons = ports.season_repo.seasons.lock().await;
         let id = Uuid::now_v7();
@@ -70,14 +75,14 @@ async fn list_seasons_returns_only_the_queried_series() {
     }
     let state = AppState::new(ports);
     let mut params = list_params();
-    params.series_id = Some(series_a);
+    params.project_id = Some(series_a);
 
     let result = list_seasons(State(state), Query(params)).await;
     let (status, Json(views)) = result.expect("handler should succeed");
 
     assert_eq!(status, StatusCode::OK);
     assert_eq!(views.len(), 2);
-    assert!(views.iter().all(|v| v.series_id == series_a));
+    assert!(views.iter().all(|v| v.project_id == series_a));
     assert_eq!(views[0].number, 1);
     assert_eq!(views[1].number, 2);
 }
@@ -87,7 +92,7 @@ async fn list_seasons_returns_only_the_queried_series() {
 #[tokio::test]
 async fn list_seasons_hides_archived_by_default_and_returns_them_on_opt_in() {
     let ports = common::FakePorts::default();
-    let series = SeriesId::new();
+    let series = ProjectId::new();
     {
         let mut seasons = ports.season_repo.seasons.lock().await;
         let id = Uuid::now_v7();
@@ -115,8 +120,8 @@ async fn list_seasons_hides_archived_by_default_and_returns_them_on_opt_in() {
 #[tokio::test]
 async fn list_seasons_without_series_id_returns_all_series() {
     let ports = common::FakePorts::default();
-    let series_a = SeriesId::new();
-    let series_b = SeriesId::new();
+    let series_a = ProjectId::new();
+    let series_b = ProjectId::new();
     {
         let mut seasons = ports.season_repo.seasons.lock().await;
         let id = Uuid::now_v7();
@@ -139,13 +144,13 @@ async fn list_seasons_rejects_negative_pagination() {
         SeasonListParams {
             limit: Some(-1),
             offset: Some(0),
-            series_id: None,
+            project_id: None,
             include_archived: None,
         },
         SeasonListParams {
             limit: Some(50),
             offset: Some(-5),
-            series_id: None,
+            project_id: None,
             include_archived: None,
         },
     ] {

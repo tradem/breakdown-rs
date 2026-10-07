@@ -44,7 +44,7 @@ use breakdown_core::scene_shoot::ports::SceneShootCommands;
 use breakdown_core::season::commands::CreateSeason;
 use breakdown_core::season::ports::{SeasonCommands, SeasonRepository};
 use breakdown_core::shared::{
-    BlockId, CostumeCategoryId, EpisodeId, LexicalSortKey, SceneShootId, SeasonId, SeriesId,
+    BlockId, CostumeCategoryId, EpisodeId, LexicalSortKey, ProjectId, SceneShootId, SeasonId,
     ShootingDayId,
 };
 use breakdown_core::shooting_day::commands::{CreateShootingDay, WrapShootingDay};
@@ -63,13 +63,13 @@ fn test_user() -> breakdown_core::shared::UserId {
 /// references season_id / episode_id.
 async fn seed_season(pool: &sqlx::PgPool, cmd_svc: &CommandService) -> (uuid::Uuid, uuid::Uuid) {
     // Create a season.
-    let series_id = uuid::Uuid::now_v7();
+    let project_id = uuid::Uuid::now_v7();
     let season_id = uuid::Uuid::now_v7();
     {
         let season_cmd = infra::event_store::SeasonCommandsImpl::new(cmd_svc.clone());
         let cmd = CreateSeason {
             id: season_id,
-            series_id: SeriesId(series_id),
+            project_id: ProjectId(project_id),
             number: 1,
             title: Some("Test Season".into()),
         };
@@ -79,7 +79,7 @@ async fn seed_season(pool: &sqlx::PgPool, cmd_svc: &CommandService) -> (uuid::Uu
             .expect("season_create");
     }
     await_proj(pool, "projection_season", season_id).await;
-    (season_id, series_id)
+    (season_id, project_id)
 }
 
 /// Seed a season + episode hierarchy, returning (season_id, episode_id).
@@ -87,8 +87,8 @@ async fn seed_season_and_episode(
     pool: &sqlx::PgPool,
     cmd_svc: &CommandService,
 ) -> (uuid::Uuid, uuid::Uuid) {
-    let (season_id, series_id) = seed_season(pool, cmd_svc).await;
-    // Create an episode.  The episode command stores block_id + series_id
+    let (season_id, project_id) = seed_season(pool, cmd_svc).await;
+    // Create an episode.  The episode command stores block_id + project_id
     // directly — no cross-reference validation is performed by the command
     // adapter.
     let episode_id = uuid::Uuid::now_v7();
@@ -97,7 +97,7 @@ async fn seed_season_and_episode(
         let cmd = CreateEpisode {
             id: episode_id,
             block_id: BlockId(season_id),
-            series_id: SeriesId(series_id),
+            project_id: ProjectId(project_id),
             number: 1,
             name: Some("Test Episode".into()),
         };
@@ -269,7 +269,7 @@ async fn scene_create() -> Result<()> {
     let cmd = breakdown_core::scene::commands::CreateScene {
         id: scene_id,
         episode_id,
-        series_id: Some(SeriesId::new()),
+        project_id: Some(ProjectId::new()),
         details: SceneDetails {
             scene_number: Some(42),
             location: Some("Berlin".into()),
@@ -306,7 +306,7 @@ async fn scene_update_details() -> Result<()> {
     let cmd = breakdown_core::scene::commands::CreateScene {
         id: scene_id,
         episode_id,
-        series_id: Some(SeriesId::new()),
+        project_id: Some(ProjectId::new()),
         details: SceneDetails {
             scene_number: Some(1),
             location: Some("A".into()),
@@ -333,7 +333,7 @@ async fn scene_update_details() -> Result<()> {
                     summary: None,
                     script_day: None,
                 },
-                series_id: Some(SeriesId::new()),
+                project_id: Some(ProjectId::new()),
                 version: ver,
             },
         )
@@ -364,7 +364,7 @@ async fn scene_assign_remove_character() -> Result<()> {
     let cmd = breakdown_core::scene::commands::CreateScene {
         id: scene_id,
         episode_id,
-        series_id: Some(SeriesId::new()),
+        project_id: Some(ProjectId::new()),
         details: SceneDetails {
             scene_number: Some(1),
             location: None,
@@ -384,7 +384,7 @@ async fn scene_assign_remove_character() -> Result<()> {
             AssignCharacter {
                 id: scene_id,
                 character_id: char_id,
-                series_id: Some(SeriesId::new()),
+                project_id: Some(ProjectId::new()),
                 version: ver,
             },
         )
@@ -402,7 +402,7 @@ async fn scene_assign_remove_character() -> Result<()> {
             breakdown_core::scene::commands::RemoveCharacter {
                 id: scene_id,
                 character_id: char_id,
-                series_id: Some(SeriesId::new()),
+                project_id: Some(ProjectId::new()),
                 version: ver2,
             },
         )
@@ -422,7 +422,7 @@ async fn scene_assign_remove_character() -> Result<()> {
 #[tokio::test]
 async fn character_create() -> Result<()> {
     let (pool, cmd_svc, _pg, _sierra) = init().await?;
-    let (season_id, _series_id) = seed_season(&pool, &cmd_svc).await;
+    let (season_id, _project_id) = seed_season(&pool, &cmd_svc).await;
     let char_cmd = infra::event_store::CharacterCommandsImpl::new(cmd_svc);
     let char_repo = infra::queries::CharacterRepositoryImpl::new(pool.clone());
 
@@ -431,7 +431,7 @@ async fn character_create() -> Result<()> {
     let cmd = CreateCharacter {
         id: char_id,
         season_id: SeasonId(season_id),
-        series_id: Some(SeriesId::new()),
+        project_id: Some(ProjectId::new()),
         name: "Hero".into(),
         category: CharacterCategory::MainCast,
     };
@@ -450,7 +450,7 @@ async fn character_create() -> Result<()> {
 #[tokio::test]
 async fn character_update_measurements() -> Result<()> {
     let (pool, cmd_svc, _pg, _sierra) = init().await?;
-    let (season_id, _series_id) = seed_season(&pool, &cmd_svc).await;
+    let (season_id, _project_id) = seed_season(&pool, &cmd_svc).await;
     let char_cmd = infra::event_store::CharacterCommandsImpl::new(cmd_svc);
     let char_repo = infra::queries::CharacterRepositoryImpl::new(pool.clone());
 
@@ -459,7 +459,7 @@ async fn character_update_measurements() -> Result<()> {
     let cmd = CreateCharacter {
         id: char_id,
         season_id: SeasonId(season_id),
-        series_id: Some(SeriesId::new()),
+        project_id: Some(ProjectId::new()),
         name: "Test".into(),
         category: CharacterCategory::Guest,
     };
@@ -476,7 +476,7 @@ async fn character_update_measurements() -> Result<()> {
                     weight: Some(Decimal::from(75)),
                     ..Default::default()
                 },
-                series_id: Some(SeriesId::new()),
+                project_id: Some(ProjectId::new()),
                 version: ver,
             },
         )
@@ -492,7 +492,7 @@ async fn character_update_measurements() -> Result<()> {
 #[tokio::test]
 async fn character_update_contact_info() -> Result<()> {
     let (pool, cmd_svc, _pg, _sierra) = init().await?;
-    let (season_id, _series_id) = seed_season(&pool, &cmd_svc).await;
+    let (season_id, _project_id) = seed_season(&pool, &cmd_svc).await;
     let char_cmd = infra::event_store::CharacterCommandsImpl::new(cmd_svc);
     let char_repo = infra::queries::CharacterRepositoryImpl::new(pool.clone());
 
@@ -501,7 +501,7 @@ async fn character_update_contact_info() -> Result<()> {
     let cmd = CreateCharacter {
         id: char_id,
         season_id: SeasonId(season_id),
-        series_id: Some(SeriesId::new()),
+        project_id: Some(ProjectId::new()),
         name: "Test".into(),
         category: CharacterCategory::Guest,
     };
@@ -517,7 +517,7 @@ async fn character_update_contact_info() -> Result<()> {
                     email: Some("test@example.com".into()),
                     phone: Some("+49-123".into()),
                 },
-                series_id: Some(SeriesId::new()),
+                project_id: Some(ProjectId::new()),
                 version: ver,
             },
         )
@@ -544,7 +544,7 @@ async fn costume_create() -> Result<()> {
     let cmd = CreateCostume {
         id: costume_id,
         season_id: None,
-        series_id: None,
+        project_id: None,
     };
 
     let (rid, rv) = costume_cmd.create(test_user(), cmd).await?;
@@ -570,7 +570,7 @@ async fn costume_notes() -> Result<()> {
     let cmd = CreateCostume {
         id: costume_id,
         season_id: None,
-        series_id: None,
+        project_id: None,
     };
     let (_id, ver) = costume_cmd.create(test_user(), cmd).await?;
     await_proj(&pool, "projection_costume", costume_id).await;
@@ -581,7 +581,7 @@ async fn costume_notes() -> Result<()> {
             breakdown_core::costume::commands::UpdateCostumeNotes {
                 id: costume_id,
                 notes: "Blue dress".into(),
-                series_id: None,
+                project_id: None,
                 version: ver,
             },
         )
@@ -614,7 +614,7 @@ async fn costume_set_category_noop_redelivery_succeeds() -> Result<()> {
             CreateCostume {
                 id: costume_id,
                 season_id: None,
-                series_id: None,
+                project_id: None,
             },
         )
         .await?;
@@ -625,7 +625,7 @@ async fn costume_set_category_noop_redelivery_succeeds() -> Result<()> {
             SetCostumeCategory {
                 id: costume_id,
                 category_id: Some(category_id),
-                series_id: None,
+                project_id: None,
                 version: ver,
             },
         )
@@ -640,7 +640,7 @@ async fn costume_set_category_noop_redelivery_succeeds() -> Result<()> {
             SetCostumeCategory {
                 id: costume_id,
                 category_id: Some(category_id),
-                series_id: None,
+                project_id: None,
                 version: ver2,
             },
         )
@@ -669,7 +669,7 @@ async fn costume_set_category_clear_empty_succeeds() -> Result<()> {
             CreateCostume {
                 id: costume_id,
                 season_id: None,
-                series_id: None,
+                project_id: None,
             },
         )
         .await?;
@@ -680,7 +680,7 @@ async fn costume_set_category_clear_empty_succeeds() -> Result<()> {
             SetCostumeCategory {
                 id: costume_id,
                 category_id: None,
-                series_id: None,
+                project_id: None,
                 version: ver,
             },
         )
@@ -699,7 +699,7 @@ async fn costume_set_category_clear_empty_succeeds() -> Result<()> {
 #[tokio::test]
 async fn costume_assign_unassign() -> Result<()> {
     let (pool, cmd_svc, _pg, _sierra) = init().await?;
-    let (season_id, _series_id) = seed_season(&pool, &cmd_svc).await;
+    let (season_id, _project_id) = seed_season(&pool, &cmd_svc).await;
     let costume_cmd = infra::event_store::CostumeCommandsImpl::new(cmd_svc.clone());
     let char_cmd = infra::event_store::CharacterCommandsImpl::new(cmd_svc);
     let costume_repo = infra::queries::CostumeRepositoryImpl::new(pool.clone());
@@ -719,7 +719,7 @@ async fn costume_assign_unassign() -> Result<()> {
             CreateCharacter {
                 id: char_id,
                 season_id: SeasonId(season_id),
-                series_id: Some(SeriesId::new()),
+                project_id: Some(ProjectId::new()),
                 name: "Wearer".into(),
                 category: CharacterCategory::Guest,
             },
@@ -730,7 +730,7 @@ async fn costume_assign_unassign() -> Result<()> {
     let cmd = CreateCostume {
         id: costume_id,
         season_id: None,
-        series_id: None,
+        project_id: None,
     };
     let (_id, ver) = costume_cmd.create(test_user(), cmd).await?;
     await_proj(&pool, "projection_costume", costume_id).await;
@@ -741,7 +741,7 @@ async fn costume_assign_unassign() -> Result<()> {
             AssignCostumeToCharacter {
                 id: costume_id,
                 character_id: char_id,
-                series_id: None,
+                project_id: None,
                 version: ver,
             },
         )
@@ -759,7 +759,7 @@ async fn costume_assign_unassign() -> Result<()> {
             test_user(),
             breakdown_core::costume::commands::UnassignCostume {
                 id: costume_id,
-                series_id: None,
+                project_id: None,
                 version: ver2,
             },
         )
@@ -789,7 +789,7 @@ async fn costume_detail_add_remove() -> Result<()> {
     let cmd = CreateCostume {
         id: costume_id,
         season_id: None,
-        series_id: None,
+        project_id: None,
     };
     let (_id, ver) = costume_cmd.create(test_user(), cmd).await?;
     await_proj(&pool, "projection_costume", costume_id).await;
@@ -805,7 +805,7 @@ async fn costume_detail_add_remove() -> Result<()> {
                     category_id: None,
                     text: "Red lining".into(),
                 },
-                series_id: None,
+                project_id: None,
                 version: ver,
             },
         )
@@ -822,7 +822,7 @@ async fn costume_detail_add_remove() -> Result<()> {
             breakdown_core::costume::commands::RemoveDetail {
                 id: costume_id,
                 detail_id,
-                series_id: None,
+                project_id: None,
                 version: ver2,
             },
         )
@@ -852,7 +852,7 @@ async fn costume_photo_link_unlink() -> Result<()> {
     let cmd = CreateCostume {
         id: costume_id,
         season_id: None,
-        series_id: None,
+        project_id: None,
     };
     let (_id, ver) = costume_cmd.create(test_user(), cmd).await?;
     await_proj(&pool, "projection_costume", costume_id).await;
@@ -863,7 +863,7 @@ async fn costume_photo_link_unlink() -> Result<()> {
             breakdown_core::costume::commands::LinkPhoto {
                 id: costume_id,
                 photo_id,
-                series_id: None,
+                project_id: None,
                 version: ver,
             },
         )
@@ -880,7 +880,7 @@ async fn costume_photo_link_unlink() -> Result<()> {
             breakdown_core::costume::commands::UnlinkPhoto {
                 id: costume_id,
                 photo_id,
-                series_id: None,
+                project_id: None,
                 version: ver2,
             },
         )
@@ -903,10 +903,10 @@ async fn season_create() -> Result<()> {
     let season_repo = infra::queries::SeasonRepositoryImpl::new(pool.clone());
 
     let season_id = Uuid::now_v7();
-    let series_id = SeriesId::new();
+    let project_id = ProjectId::new();
     let cmd = CreateSeason {
         id: season_id,
-        series_id,
+        project_id,
         number: 1,
         title: Some("Season One".into()),
     };
@@ -931,11 +931,11 @@ async fn block_create() -> Result<()> {
 
     let block_id = Uuid::now_v7();
     let season_id = SeasonId::new();
-    let series_id = SeriesId::new();
+    let project_id = ProjectId::new();
     let cmd = CreateBlock {
         id: block_id,
         season_id,
-        series_id,
+        project_id,
         number: 3,
         start_date: None,
         end_date: None,
@@ -959,11 +959,11 @@ async fn episode_create() -> Result<()> {
 
     let episode_id = Uuid::now_v7();
     let block_id = BlockId::new();
-    let series_id = SeriesId::new();
+    let project_id = ProjectId::new();
     let cmd = CreateEpisode {
         id: episode_id,
         block_id,
-        series_id,
+        project_id,
         number: 7,
         name: Some("Pilot".into()),
     };
@@ -1003,7 +1003,7 @@ async fn scene_shoot_start_rejected_on_wrapped_day_write_side() -> Result<()> {
             CreateScene {
                 id: scene_id,
                 episode_id,
-                series_id: Some(SeriesId::new()),
+                project_id: Some(ProjectId::new()),
                 details: SceneDetails {
                     scene_number: Some(1),
                     location: None,
@@ -1029,7 +1029,7 @@ async fn scene_shoot_start_rejected_on_wrapped_day_write_side() -> Result<()> {
             CreateShootingDay {
                 id: day_id,
                 episode_id,
-                series_id: Some(SeriesId::new()),
+                project_id: Some(ProjectId::new()),
                 label: Some("Day 1".into()),
                 order_key: LexicalSortKey::new("a")?,
                 date: None,
@@ -1051,7 +1051,7 @@ async fn scene_shoot_start_rejected_on_wrapped_day_write_side() -> Result<()> {
                 id: shoot_id,
                 scene_id,
                 shooting_day_id: day_id,
-                series_id: Some(SeriesId::new()),
+                project_id: Some(ProjectId::new()),
                 planned_order: LexicalSortKey::new("a")?,
             },
         )
@@ -1063,7 +1063,7 @@ async fn scene_shoot_start_rejected_on_wrapped_day_write_side() -> Result<()> {
             test_user(),
             WrapShootingDay {
                 id: day_id,
-                series_id: Some(SeriesId::new()),
+                project_id: Some(ProjectId::new()),
                 version: day_version,
             },
         )
@@ -1078,7 +1078,7 @@ async fn scene_shoot_start_rejected_on_wrapped_day_write_side() -> Result<()> {
                 id: shoot_id,
                 shooting_day_id: day_id,
                 start_dt: chrono::Utc::now(),
-                series_id: Some(SeriesId::new()),
+                project_id: Some(ProjectId::new()),
                 version: shoot_version,
             },
         )

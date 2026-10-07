@@ -77,7 +77,7 @@ async fn seed_day(
 }
 
 /// Seed a scene (plus its episode) so the plan handler can resolve
-/// `series_id` at the API edge. Returns `(scene_id,)`.
+/// `project_id` at the API edge. Returns `(scene_id,)`.
 async fn seed_scene_with_episode(ports: &FakePorts) -> Uuid {
     let scene_id = Uuid::now_v7();
     let episode_id = EpisodeId::new();
@@ -86,7 +86,7 @@ async fn seed_scene_with_episode(ports: &FakePorts) -> Uuid {
         EpisodeView {
             id: episode_id.0,
             block_id: breakdown_core::shared::BlockId::new(),
-            series_id: breakdown_core::shared::SeriesId::new(),
+            project_id: breakdown_core::shared::ProjectId::new(),
             number: 1,
             name: Some("Episode 1".into()),
             version: AggregateVersion::INITIAL,
@@ -116,7 +116,7 @@ async fn seed_scene_with_episode(ports: &FakePorts) -> Uuid {
 }
 
 /// Seed a scene-shoot projection associated with the given day (and scene,
-/// so `series_id` resolution at the API edge succeeds).
+/// so `project_id` resolution at the API edge succeeds).
 async fn seed_scene_shoot(
     ports: &FakePorts,
     shoot_id: SceneShootId,

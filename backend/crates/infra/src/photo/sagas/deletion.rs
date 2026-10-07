@@ -84,7 +84,7 @@ impl EntityEventHandler<CostumeAggregate, ()> for PhotoDeletionSaga {
                     // Fetch the current version to dispatch delete with the
                     // correct expected version. This read-model lookup is a
                     // concurrency guard (ExpectedVersion::Exact for
-                    // DeletePhoto), NOT audit-context resolution — series_id
+                    // DeletePhoto), NOT audit-context resolution — project_id
                     // below comes from the event data. (Suppression directive
                     // on the find_by_id line below.)
                     let photo_id = PhotoId::from_uuid(photo_id);
@@ -102,7 +102,7 @@ impl EntityEventHandler<CostumeAggregate, ()> for PhotoDeletionSaga {
                     // (populated by the Link/UnlinkPhoto command at the API
                     // edge), never from a read-model projection. Missing
                     // metadata yields None — same tolerant best-effort path.
-                    let series_id = event.metadata.data.as_ref().and_then(|m| m.series_id);
+                    let project_id = event.metadata.data.as_ref().and_then(|m| m.project_id);
                     let stream_version =
                         crate::event_store::domain_to_stream(version).ok_or_else(|| {
                             anyhow::anyhow!(
@@ -114,7 +114,7 @@ impl EntityEventHandler<CostumeAggregate, ()> for PhotoDeletionSaga {
                         photo_id,
                         DeletePhoto {
                             id: photo_id,
-                            series_id,
+                            project_id,
                             version,
                         },
                     )
@@ -122,7 +122,7 @@ impl EntityEventHandler<CostumeAggregate, ()> for PhotoDeletionSaga {
                     .metadata(EventMetadata {
                         actor: None,
                         provenance: Provenance::Saga("PhotoDeletionSaga".to_string()),
-                        series_id,
+                        project_id,
                     })
                     .await;
                     map_version_only(result).map_err(|e| anyhow::anyhow!("{e}"))?;

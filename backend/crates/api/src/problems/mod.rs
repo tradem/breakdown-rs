@@ -975,7 +975,7 @@ mod tests {
     // (`Json`/`Query`/`Path`) from regressing to axum's plain-text 422/400
     // rejections.
 
-    /// Mirror of the wire `CreateSeasonRequest` shape: `series_id` is an
+    /// Mirror of the wire `CreateSeasonRequest` shape: `project_id` is an
     /// opaque `Uuid`, so an empty/`""` value is *parseable JSON but an
     /// invalid UUID* — the exact misconfiguration the issue observed
     /// shipping as a blind 422.
@@ -985,7 +985,11 @@ mod tests {
     #[derive(serde::Deserialize)]
     #[allow(dead_code)]
     struct SeasonCreateLike {
-        series_id: Uuid,
+        // Mirrors the real `CreateSeasonRequest` wire shape: the Rust field is
+        // `project_id` while the JSON key stays `series_id` (issue #591,
+        // layer 3 deferred).
+        #[serde(rename = "series_id")]
+        project_id: Uuid,
         number: i32,
     }
 
@@ -1110,7 +1114,7 @@ mod tests {
         assert_eq!(resp.status(), StatusCode::UNSUPPORTED_MEDIA_TYPE);
         assert_problem(resp, "http.unsupported-media-type").await;
 
-        // Parseable JSON whose `series_id` is not a UUID (the issue #467
+        // Parseable JSON whose `project_id` is not a UUID (the issue #467
         // observation: an empty env `DEFAULT_SERIES_ID`) → STILL a problem
         // document (422 `domain.validation`), never plain text. The
         // actionable root cause is fixed client-side (fail-fast guard);

@@ -326,7 +326,7 @@ problem_codes! {
         extensions: &["id"],
     },
 
-    /// Conflict: another season of the same series already uses this number
+    /// Conflict: another season of the same project already uses this number
     /// (issue #404). Backs the API-edge pre-check (advisory); the projection
     /// unique index `idx_projection_season_series_number` stays authoritative
     /// against races.
@@ -364,7 +364,7 @@ problem_codes! {
         extensions: &["id"],
     },
 
-    /// Conflict: another block of the same series already uses this number
+    /// Conflict: another block of the same project already uses this number
     /// (issue #404). Backs the API-edge pre-check (advisory); the projection
     /// unique index `idx_projection_block_series_number` stays authoritative
     /// against races.
@@ -391,7 +391,7 @@ problem_codes! {
         extensions: &["id"],
     },
 
-    /// Conflict: another episode of the same series already uses this number
+    /// Conflict: another episode of the same project already uses this number
     /// (issue #404). Backs the API-edge pre-check (advisory); the projection
     /// unique index `idx_projection_episode_series_number` stays authoritative
     /// against races.
@@ -524,7 +524,7 @@ problem_codes! {
     },
 
     /// The costume exists but has neither a character it is assigned to nor
-    /// a repertoire season it stands in — its owning container (series)
+    /// a repertoire season it stands in — its owning container (project)
     /// cannot be resolved, so the scoped photo authorization cannot even run
     /// (issue #535). Not `costume.not-found` (the costume itself exists) and
     /// not `costume.validation` (nothing about the request was malformed):

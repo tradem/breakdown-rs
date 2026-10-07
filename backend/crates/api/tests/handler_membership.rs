@@ -171,7 +171,7 @@ async fn list_members_returns_projection_views() {
             offset: Some(0),
             episode_id: None,
             season_id: None,
-            series_id: None,
+            project_id: None,
         }),
     )
     .await;

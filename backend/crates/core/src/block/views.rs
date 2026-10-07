@@ -8,7 +8,7 @@ use serde::Serialize;
 use utoipa::ToSchema;
 use uuid::Uuid;
 
-use crate::shared::{AggregateVersion, SeasonId, SeriesId};
+use crate::shared::{AggregateVersion, ProjectId, SeasonId};
 
 /// Complete block read model.
 ///
@@ -17,7 +17,9 @@ use crate::shared::{AggregateVersion, SeasonId, SeriesId};
 pub struct BlockView {
     pub id: Uuid,
     pub season_id: SeasonId,
-    pub series_id: SeriesId,
+    /// The tenant-level production container this block belongs to.
+    #[serde(rename = "series_id")] // wire name pinned; see the type-level note on ProjectId
+    pub project_id: ProjectId,
     pub number: i32,
     // value_type must carry `Option` nullability (issue #423) — a bare
     // `value_type = String` override drops `Option`'s nullable flag.

@@ -110,6 +110,13 @@ if [ -n "$STAGED_RS_FILES" ]; then
         if [ -n "$TEST_FILES" ]; then
             echo "$TEST_FILES" | xargs -r ast-grep scan -r rules/uuid-v7-only.yml
         fi
+        # Stale `SeriesId` after the `ProjectId` rename (issue #591). Scoped to
+        # EVERY staged Rust file, not just production ones: the term must not
+        # survive in tests or fuzz targets either, since a test fixture naming
+        # the old container is what reintroduces it into new code.
+        if [ -n "$STAGED_RS_FILES" ]; then
+            echo "$STAGED_RS_FILES" | xargs -r ast-grep scan -r rules/no-stale-series-id.yml
+        fi
         # UUIDv7-only rule also applies to test_helpers.rs files.
         HELPER_FILES=$(echo "$STAGED_RS_FILES" | grep -E '(test_helpers\.rs$|/test_helpers/.*\.rs$)' || true)
         if [ -n "$HELPER_FILES" ]; then

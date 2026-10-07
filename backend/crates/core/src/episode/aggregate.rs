@@ -8,7 +8,7 @@
 use kameo_es::{Apply, Command, Context, Entity, Metadata};
 use uuid::Uuid;
 
-use crate::shared::{AggregateVersion, BlockId, EventMetadata, SeriesId};
+use crate::shared::{AggregateVersion, BlockId, EventMetadata, ProjectId};
 
 use super::commands::{CreateEpisode, RenameEpisode};
 use super::error::EpisodeError;
@@ -17,14 +17,14 @@ use super::events::EpisodeEvent;
 /// State persisted by the Episode aggregate.
 ///
 /// An Episode is scoped to exactly one `BlockId` and is the work-unit scope
-/// for Scenes. Its `series_id` is denormalized (immutable for the
-/// Episode's lifetime) so the series-global `(series_id, number)` numbering
+/// for Scenes. Its `project_id` is denormalized (immutable for the
+/// Episode's lifetime) so the project-global `(project_id, number)` numbering
 /// unique index can be enforced directly in the projection.
 #[derive(Debug, Clone, Default)]
 pub struct EpisodeAggregate {
     pub id: Uuid,
     pub block_id: BlockId,
-    pub series_id: SeriesId,
+    pub project_id: ProjectId,
     pub number: i32,
     pub name: Option<String>,
     pub version: AggregateVersion,
@@ -48,14 +48,14 @@ impl Apply for EpisodeAggregate {
             EpisodeEvent::EpisodeCreated {
                 id,
                 block_id,
-                series_id,
+                project_id,
                 number,
                 name,
                 version,
             } => {
                 self.id = id;
                 self.block_id = block_id;
-                self.series_id = series_id;
+                self.project_id = project_id;
                 self.number = number;
                 self.name = name;
                 self.version = version;
@@ -80,7 +80,7 @@ impl Command<CreateEpisode> for EpisodeAggregate {
         Ok(vec![EpisodeEvent::EpisodeCreated {
             id: cmd.id,
             block_id: cmd.block_id,
-            series_id: cmd.series_id,
+            project_id: cmd.project_id,
             number: cmd.number,
             name: cmd.name,
             version: AggregateVersion::INITIAL,

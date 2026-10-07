@@ -447,7 +447,7 @@ components:
           type: array
         series_id:
           oneOf:
-          - $ref: '#/components/schemas/SeriesId'
+          - $ref: '#/components/schemas/ProjectId'
           - type: 'null'
       required:
       - episode_id
@@ -589,7 +589,7 @@ components:
         One row of the audit journal: who (`actor`) did what (`event_type` on
         `entity_type`/`entity_id`) when (`occurred_at`), with the event `payload`.
 
-        `series_id` is the tenant dimension prepared for per-`SeriesId` tenancy
+        `series_id` is the tenant dimension prepared for per-`ProjectId` tenancy
         (decision 9.2) and is `NULL` in v1. `payload` is the raw event serialized
         as JSON (generic, so any context's events fit the same row).
       properties:
@@ -650,7 +650,8 @@ components:
         season_id:
           $ref: '#/components/schemas/SeasonId'
         series_id:
-          $ref: '#/components/schemas/SeriesId'
+          $ref: '#/components/schemas/ProjectId'
+          description: The tenant-level production container this block belongs to.
         start_date:
           type:
           - string
@@ -1052,7 +1053,7 @@ components:
         season_id:
           $ref: '#/components/schemas/SeasonId'
         series_id:
-          $ref: '#/components/schemas/SeriesId'
+          $ref: '#/components/schemas/ProjectId'
         start_date:
           format: date
           type:
@@ -1095,7 +1096,7 @@ components:
 
         `season_id` is the optional repertoire season: when present, the costume
         joins that season's costume stream while unassigned. The API edge resolves
-        the `series_id` audit metadata from the season projection (404 on an
+        the `project_id` audit metadata from the season projection (404 on an
         unknown season).
       properties:
         season_id:
@@ -1129,7 +1130,7 @@ components:
           format: int32
           type: integer
         series_id:
-          $ref: '#/components/schemas/SeriesId'
+          $ref: '#/components/schemas/ProjectId'
       required:
       - block_id
       - series_id
@@ -1151,7 +1152,7 @@ components:
           format: int32
           type: integer
         series_id:
-          $ref: '#/components/schemas/SeriesId'
+          $ref: '#/components/schemas/ProjectId'
         title:
           type:
           - string
@@ -1396,7 +1397,7 @@ components:
         The reviewer's decision for ONE episode group of a preview (issue #581):
         apply the group's rows to an existing episode, or create a new one. The
         number comes from the document's `Ep.:` marker; the API edge pre-checks it
-        against the series' existing episodes (409 `episode.number-already-exists`,
+        against the project's existing episodes (409 `episode.number-already-exists`,
         #404 doctrine).
       oneOf:
       - properties:
@@ -1445,7 +1446,8 @@ components:
           format: int32
           type: integer
         series_id:
-          $ref: '#/components/schemas/SeriesId'
+          $ref: '#/components/schemas/ProjectId'
+          description: The tenant-level production container this episode belongs to.
         updated_at:
           format: date-time
           type: string
@@ -1897,6 +1899,32 @@ components:
       - detail
       - trace_id
       type: object
+    ProjectId:
+      description: |-
+        Opaque identifier for a `Project` — the tenant-level production container.
+
+        `ProjectId` is an opaque UUIDv7 value type introduced by the
+        `introduce-season-block-episode-hierarchy` change and renamed from
+        `SeriesId` by issue #591 (ADR-035 D1/S1). The rename is **1:1**: the
+        position, the UUIDv7 values and the tenant boundary are unchanged (ADR-035
+        B1) — only the production-form-specific *word* is gone, so the container no
+        longer claims to be a TV show.
+
+        It remains a seam rather than an aggregate: every hierarchy entity
+        (Season, Block, Episode) references it, but no `Project` aggregate exists
+        yet. The children below it stay `Season`/`Block`/`Episode` until a second
+        production form actually lands (ADR-035 D2/D3).
+
+        **Wire compatibility (issue #591, layers 2 and 3 explicitly out of the
+        rename).** The *type* is `#[serde(transparent)]` over `Uuid`, so a field
+        typed `ProjectId` still serializes as a bare UUID string — the JSON value is
+        unchanged by this rename. What deliberately keeps the old spelling is the
+        **field name** on persisted payloads: event fields and read-model view
+        fields carry `#[serde(rename = "series_id")]`, and the projection columns and
+        OpenAPI fields keep `project_id` until the dedicated layer-3 change (a
+        breaking ADR-021 `/v2` migration).
+      format: uuid
+      type: string
     ProjectorHealthSnapshot:
       description: 'Aggregate response of the projector-health read (issue #409).'
       properties:
@@ -2358,7 +2386,8 @@ components:
           format: int32
           type: integer
         series_id:
-          $ref: '#/components/schemas/SeriesId'
+          $ref: '#/components/schemas/ProjectId'
+          description: The tenant-level production container this season belongs to.
         title:
           type:
           - string
@@ -2389,16 +2418,6 @@ components:
       - id
       - body
       type: object
-    SeriesId:
-      description: |-
-        Opaque identifier for a `Series` (a show run).
-
-        `SeriesId` is an opaque UUIDv7 value type introduced by the
-        `introduce-season-block-episode-hierarchy` change. It is the seam for a
-        future additive `Series` aggregate: every hierarchy entity (Season, Block,
-        Episode) references it but no `Series` aggregate exists yet.
-      format: uuid
-      type: string
     SeriesMembershipDto:
       description: |-
         Series membership DTO — the series-level counterpart of
@@ -2406,7 +2425,7 @@ components:
         costume-photo policy (issue #535, ADR-035 B2/S2: photos authorize
         series-wide, so the client needs a series-level, backend-computed signal).
 
-        `has_active_costume_role_in_series` is the backend-computed predicate the
+        `has_active_costume_role_in_project` is the backend-computed predicate the
         client must NOT re-implement (CQRS-boundary rule). `capabilities` reuses
         the same v1 mapping; the photo gates read the predicate field directly.
       properties:
@@ -3116,7 +3135,7 @@ paths:
         required: false
         schema:
           oneOf:
-          - $ref: '#/components/schemas/SeriesId'
+          - $ref: '#/components/schemas/ProjectId'
           - type: 'null'
       responses:
         '200':
@@ -3316,7 +3335,7 @@ paths:
         required: false
         schema:
           oneOf:
-          - $ref: '#/components/schemas/SeriesId'
+          - $ref: '#/components/schemas/ProjectId'
           - type: 'null'
       responses:
         '200':
@@ -3569,7 +3588,7 @@ paths:
       - handlers
   /v1/audit:
     get:
-      description: Audit journal entries of a series, newest first. Requires the series_id query parameter (400 otherwise).
+      description: Audit journal entries of a series, newest first. Requires the project_id query parameter (400 otherwise).
       operationId: get_audit_history
       parameters:
       - in: query
@@ -3609,7 +3628,7 @@ paths:
         required: false
         schema:
           oneOf:
-          - $ref: '#/components/schemas/SeriesId'
+          - $ref: '#/components/schemas/ProjectId'
           - type: 'null'
       responses:
         '200':
@@ -3625,7 +3644,7 @@ paths:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
-          description: Missing series_id query parameter
+          description: Missing project_id query parameter
         '403':
           content:
             application/problem+json:
@@ -3682,7 +3701,7 @@ paths:
         required: false
         schema:
           oneOf:
-          - $ref: '#/components/schemas/SeriesId'
+          - $ref: '#/components/schemas/ProjectId'
           - type: 'null'
       responses:
         '200':
@@ -3801,7 +3820,7 @@ paths:
         required: false
         schema:
           oneOf:
-          - $ref: '#/components/schemas/SeriesId'
+          - $ref: '#/components/schemas/ProjectId'
           - type: 'null'
       responses:
         '200':
@@ -3875,7 +3894,7 @@ paths:
         required: false
         schema:
           oneOf:
-          - $ref: '#/components/schemas/SeriesId'
+          - $ref: '#/components/schemas/ProjectId'
           - type: 'null'
       responses:
         '200':
@@ -4234,7 +4253,7 @@ paths:
         required: false
         schema:
           oneOf:
-          - $ref: '#/components/schemas/SeriesId'
+          - $ref: '#/components/schemas/ProjectId'
           - type: 'null'
       responses:
         '200':
@@ -4483,7 +4502,7 @@ paths:
         required: false
         schema:
           oneOf:
-          - $ref: '#/components/schemas/SeriesId'
+          - $ref: '#/components/schemas/ProjectId'
           - type: 'null'
       responses:
         '200':
@@ -5132,7 +5151,7 @@ paths:
       - handlers
   /v1/episodes:
     get:
-      description: Lists episodes of a series, or of a single block when block_id is given. Requires series_id unless block_id is present (400 otherwise).
+      description: Lists episodes of a series, or of a single block when block_id is given. Requires project_id unless block_id is present (400 otherwise).
       operationId: list_episodes
       parameters:
       - in: query
@@ -5158,7 +5177,7 @@ paths:
         required: false
         schema:
           oneOf:
-          - $ref: '#/components/schemas/SeriesId'
+          - $ref: '#/components/schemas/ProjectId'
           - type: 'null'
       - in: query
         name: block_id
@@ -5180,7 +5199,7 @@ paths:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
-          description: Missing series_id query parameter
+          description: Missing project_id query parameter
       tags:
       - handlers
     post:
@@ -5508,7 +5527,7 @@ paths:
         required: false
         schema:
           oneOf:
-          - $ref: '#/components/schemas/SeriesId'
+          - $ref: '#/components/schemas/ProjectId'
           - type: 'null'
       responses:
         '200':
@@ -5935,7 +5954,7 @@ paths:
       - handlers
   /v1/seasons:
     get:
-      description: Lists seasons, optionally narrowed to one series via series_id. The table stays small, so — unlike the episode/scene lists — no scope parameter is required.
+      description: Lists seasons, optionally narrowed to one series via project_id. The table stays small, so — unlike the episode/scene lists — no scope parameter is required.
       operationId: list_seasons
       parameters:
       - in: query
@@ -5963,7 +5982,7 @@ paths:
         required: false
         schema:
           oneOf:
-          - $ref: '#/components/schemas/SeriesId'
+          - $ref: '#/components/schemas/ProjectId'
           - type: 'null'
       - description: |-
           Issue #533: archived seasons are hidden by default; the explicit

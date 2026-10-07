@@ -14,13 +14,13 @@
 )]
 use breakdown_core::scene::events::SceneSource;
 use breakdown_core::scene::*;
-use breakdown_core::shared::{AggregateVersion, EpisodeId, SeriesId, ShootingDayId};
+use breakdown_core::shared::{AggregateVersion, EpisodeId, ProjectId, ShootingDayId};
 use kameo_es::Command;
 use test_support::make_ctx;
 use uuid::Uuid;
 
-fn series_id() -> SeriesId {
-    SeriesId::new()
+fn project_id() -> ProjectId {
+    ProjectId::new()
 }
 
 fn create_scene() -> SceneAggregate {
@@ -37,7 +37,7 @@ fn create_scene() -> SceneAggregate {
         CreateScene {
             id: Uuid::now_v7(),
             episode_id,
-            series_id: Some(series_id()),
+            project_id: Some(project_id()),
             details: details.clone(),
             source: SceneSource::Manual,
         },
@@ -50,7 +50,7 @@ fn create_scene() -> SceneAggregate {
             CreateScene {
                 id: Uuid::now_v7(),
                 episode_id,
-                series_id: Some(series_id()),
+                project_id: Some(project_id()),
                 details,
                 source: SceneSource::Manual,
             },
@@ -76,7 +76,7 @@ fn test_create_scene_success() {
         CreateScene {
             id: Uuid::now_v7(),
             episode_id,
-            series_id: Some(series_id()),
+            project_id: Some(project_id()),
             details,
             source: SceneSource::Manual,
         },
@@ -117,7 +117,7 @@ fn test_update_scene_details_success() {
         UpdateSceneDetails {
             id: agg.id,
             details: details.clone(),
-            series_id: Some(series_id()),
+            project_id: Some(project_id()),
             version: agg.version,
         },
         make_ctx(),
@@ -133,7 +133,7 @@ fn test_update_scene_details_idempotency() {
         UpdateSceneDetails {
             id: agg.id,
             details: agg.details.clone(),
-            series_id: Some(series_id()),
+            project_id: Some(project_id()),
             version: agg.version,
         },
         make_ctx(),
@@ -155,7 +155,7 @@ fn test_update_scene_details_wrong_version() {
                 scene_number: Some(99),
                 ..Default::default()
             },
-            series_id: Some(series_id()),
+            project_id: Some(project_id()),
             version: AggregateVersion(99),
         },
         make_ctx(),
@@ -190,7 +190,7 @@ fn test_all_mutating_commands_reject_stale_version_as_version_mismatch() {
                     scene_number: Some(99),
                     ..Default::default()
                 },
-                series_id: Some(series_id()),
+                project_id: Some(project_id()),
                 version: stale,
             },
             make_ctx(),
@@ -199,7 +199,7 @@ fn test_all_mutating_commands_reject_stale_version_as_version_mismatch() {
             AssignCharacter {
                 id: agg.id,
                 character_id,
-                series_id: Some(series_id()),
+                project_id: Some(project_id()),
                 version: stale,
             },
             make_ctx(),
@@ -208,7 +208,7 @@ fn test_all_mutating_commands_reject_stale_version_as_version_mismatch() {
             RemoveCharacter {
                 id: agg.id,
                 character_id,
-                series_id: Some(series_id()),
+                project_id: Some(project_id()),
                 version: stale,
             },
             make_ctx(),
@@ -217,7 +217,7 @@ fn test_all_mutating_commands_reject_stale_version_as_version_mismatch() {
             ScheduleSceneOnShootingDay {
                 id: agg.id,
                 shooting_day_id,
-                series_id: Some(series_id()),
+                project_id: Some(project_id()),
                 version: stale,
             },
             make_ctx(),
@@ -226,7 +226,7 @@ fn test_all_mutating_commands_reject_stale_version_as_version_mismatch() {
             UnscheduleSceneFromShootingDay {
                 id: agg.id,
                 shooting_day_id,
-                series_id: Some(series_id()),
+                project_id: Some(project_id()),
                 version: stale,
             },
             make_ctx(),
@@ -251,7 +251,7 @@ fn test_assign_character_success() {
             AssignCharacter {
                 id: agg.id,
                 character_id: char_id,
-                series_id: Some(series_id()),
+                project_id: Some(project_id()),
                 version: agg.version,
             },
             make_ctx(),
@@ -271,7 +271,7 @@ fn test_assign_character_conflict() {
             AssignCharacter {
                 id: agg.id,
                 character_id: char_id,
-                series_id: Some(series_id()),
+                project_id: Some(project_id()),
                 version: agg.version,
             },
             make_ctx(),
@@ -282,7 +282,7 @@ fn test_assign_character_conflict() {
         AssignCharacter {
             id: agg.id,
             character_id: char_id,
-            series_id: Some(series_id()),
+            project_id: Some(project_id()),
             version: agg.version,
         },
         make_ctx(),
@@ -303,7 +303,7 @@ fn test_remove_character_success() {
             AssignCharacter {
                 id: agg.id,
                 character_id: char_id,
-                series_id: Some(series_id()),
+                project_id: Some(project_id()),
                 version: agg.version,
             },
             make_ctx(),
@@ -315,7 +315,7 @@ fn test_remove_character_success() {
             RemoveCharacter {
                 id: agg.id,
                 character_id: char_id,
-                series_id: Some(series_id()),
+                project_id: Some(project_id()),
                 version: agg.version,
             },
             make_ctx(),
@@ -333,7 +333,7 @@ fn test_remove_character_not_assigned() {
         RemoveCharacter {
             id: agg.id,
             character_id: Uuid::now_v7(),
-            series_id: Some(series_id()),
+            project_id: Some(project_id()),
             version: agg.version,
         },
         make_ctx(),
@@ -354,7 +354,7 @@ fn test_schedule_scene_double_schedule_is_state_idempotent() {
             ScheduleSceneOnShootingDay {
                 id: agg.id,
                 shooting_day_id: day,
-                series_id: Some(series_id()),
+                project_id: Some(project_id()),
                 version: agg.version,
             },
             make_ctx(),
@@ -370,7 +370,7 @@ fn test_schedule_scene_double_schedule_is_state_idempotent() {
     let cmd = ScheduleSceneOnShootingDay {
         id: agg.id,
         shooting_day_id: day,
-        series_id: Some(series_id()),
+        project_id: Some(project_id()),
         version: agg.version,
     };
     assert!(
@@ -395,7 +395,7 @@ fn test_schedule_scene_double_schedule_is_state_idempotent() {
             &ScheduleSceneOnShootingDay {
                 id: agg.id,
                 shooting_day_id: other_day,
-                series_id: Some(series_id()),
+                project_id: Some(project_id()),
                 version: agg.version,
             },
             make_ctx()
@@ -412,7 +412,7 @@ fn test_unschedule_not_scheduled_rejected() {
         UnscheduleSceneFromShootingDay {
             id: agg.id,
             shooting_day_id: day,
-            series_id: Some(series_id()),
+            project_id: Some(project_id()),
             version: agg.version,
         },
         make_ctx(),
@@ -432,7 +432,7 @@ fn test_unschedule_removes_link() {
             ScheduleSceneOnShootingDay {
                 id: agg.id,
                 shooting_day_id: day,
-                series_id: Some(series_id()),
+                project_id: Some(project_id()),
                 version: agg.version,
             },
             make_ctx(),
@@ -444,7 +444,7 @@ fn test_unschedule_removes_link() {
             UnscheduleSceneFromShootingDay {
                 id: agg.id,
                 shooting_day_id: day,
-                series_id: Some(series_id()),
+                project_id: Some(project_id()),
                 version: agg.version,
             },
             make_ctx(),
@@ -466,7 +466,7 @@ fn test_summary_round_trips_through_update_guard() {
                     summary: Some(summary.clone()),
                     ..agg.details.clone()
                 },
-                series_id: Some(series_id()),
+                project_id: Some(project_id()),
                 version: agg.version,
             },
             make_ctx(),
@@ -480,7 +480,7 @@ fn test_summary_round_trips_through_update_guard() {
         UpdateSceneDetails {
             id: agg.id,
             details: agg.details.clone(),
-            series_id: Some(series_id()),
+            project_id: Some(project_id()),
             version: agg.version,
         },
         make_ctx(),
@@ -503,7 +503,7 @@ fn test_script_day_round_trips_through_update_guard() {
                     script_day: Some(script_day.clone()),
                     ..agg.details.clone()
                 },
-                series_id: Some(series_id()),
+                project_id: Some(project_id()),
                 version: agg.version,
             },
             make_ctx(),
@@ -517,7 +517,7 @@ fn test_script_day_round_trips_through_update_guard() {
         UpdateSceneDetails {
             id: agg.id,
             details: agg.details.clone(),
-            series_id: Some(series_id()),
+            project_id: Some(project_id()),
             version: agg.version,
         },
         make_ctx(),
@@ -541,7 +541,7 @@ fn scene_with_character() -> SceneAggregate {
         AssignCharacter {
             id: agg.id,
             character_id,
-            series_id: Some(series_id()),
+            project_id: Some(project_id()),
             version: agg.version,
         },
         make_ctx(),
@@ -558,7 +558,7 @@ fn add_beat(agg: &mut SceneAggregate, character_id: Uuid, costume_id: Uuid, note
                 character_id,
                 costume_id,
                 note,
-                series_id: Some(series_id()),
+                project_id: Some(project_id()),
                 version: agg.version,
             },
             make_ctx(),
@@ -594,7 +594,7 @@ fn test_add_beat_for_character_not_in_scene_rejected() {
             character_id: stranger,
             costume_id: Uuid::now_v7(),
             note: None,
-            series_id: Some(series_id()),
+            project_id: Some(project_id()),
             version: agg.version,
         },
         make_ctx(),
@@ -617,7 +617,7 @@ fn test_add_beat_rejects_stale_version() {
             character_id,
             costume_id: Uuid::now_v7(),
             note: None,
-            series_id: Some(series_id()),
+            project_id: Some(project_id()),
             version: AggregateVersion::INITIAL, // stale: agg.version is INITIAL.next()
         },
         make_ctx(),
@@ -637,7 +637,7 @@ fn test_consecutive_identical_beat_guard() {
             character_id,
             costume_id: costume,
             note: None,
-            series_id: Some(series_id()),
+            project_id: Some(project_id()),
             version: agg.version,
         },
         make_ctx(),
@@ -669,7 +669,7 @@ fn test_update_beat_edits_in_place_and_never_renumbers() {
                 order: 0,
                 costume_id: new_costume,
                 note: Some("geändert".into()),
-                series_id: Some(series_id()),
+                project_id: Some(project_id()),
                 version: agg.version,
             },
             make_ctx(),
@@ -691,7 +691,7 @@ fn test_update_beat_not_found() {
             order: 3,
             costume_id: Uuid::now_v7(),
             note: None,
-            series_id: Some(series_id()),
+            project_id: Some(project_id()),
             version: agg.version,
         },
         make_ctx(),
@@ -721,7 +721,7 @@ fn test_remove_middle_beat_keeps_surviving_orders_untouched() {
                 id: agg.id,
                 character_id,
                 order: Some(1),
-                series_id: Some(series_id()),
+                project_id: Some(project_id()),
                 version: agg.version,
             },
             make_ctx(),
@@ -746,7 +746,7 @@ fn test_remove_beat_not_found() {
             id: agg.id,
             character_id,
             order: Some(0),
-            series_id: Some(series_id()),
+            project_id: Some(project_id()),
             version: agg.version,
         },
         make_ctx(),
@@ -766,7 +766,7 @@ fn test_clear_all_beats_of_character() {
                 id: agg.id,
                 character_id,
                 order: None,
-                series_id: Some(series_id()),
+                project_id: Some(project_id()),
                 version: agg.version,
             },
             make_ctx(),
@@ -785,7 +785,7 @@ fn test_clear_all_with_no_beats_is_a_validation_error() {
             id: agg.id,
             character_id,
             order: None,
-            series_id: Some(series_id()),
+            project_id: Some(project_id()),
             version: agg.version,
         },
         make_ctx(),
@@ -816,7 +816,7 @@ fn test_legacy_scene_without_beats_replays_with_empty_beats() {
             CreateScene {
                 id: Uuid::now_v7(),
                 episode_id: EpisodeId::new(),
-                series_id: Some(series_id()),
+                project_id: Some(project_id()),
                 details: SceneDetails::default(),
                 source: SceneSource::Manual,
             },
@@ -854,7 +854,7 @@ fn test_remove_character_clears_beats_first() {
             RemoveCharacter {
                 id: agg.id,
                 character_id,
-                series_id: Some(series_id()),
+                project_id: Some(project_id()),
                 version: agg.version,
             },
             make_ctx(),
@@ -888,7 +888,7 @@ fn test_remove_character_without_beats_emits_one_event() {
             RemoveCharacter {
                 id: agg.id,
                 character_id,
-                series_id: Some(series_id()),
+                project_id: Some(project_id()),
                 version: agg.version,
             },
             make_ctx(),
@@ -907,7 +907,7 @@ fn test_clear_all_without_beats_is_beat_not_found_code() {
             id: agg.id,
             character_id,
             order: None,
-            series_id: Some(series_id()),
+            project_id: Some(project_id()),
             version: agg.version,
         },
         make_ctx(),

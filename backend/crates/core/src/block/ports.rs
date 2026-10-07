@@ -6,7 +6,7 @@
 use uuid::Uuid;
 
 use crate::error::DomainError;
-use crate::shared::{AggregateVersion, SeasonId, SeriesId, UserId};
+use crate::shared::{AggregateVersion, ProjectId, SeasonId, UserId};
 
 use super::commands::{CreateBlock, UpdateBlockTimeSpan};
 use super::views::BlockView;
@@ -39,10 +39,10 @@ pub trait BlockRepository: Send + Sync {
         limit: i64,
         offset: i64,
     ) -> Result<Vec<BlockView>, DomainError>;
-    /// Look up a block by its series-global number (for the 409 pre-check).
-    async fn find_by_series_and_number(
+    /// Look up a block by its project-global number (for the 409 pre-check).
+    async fn find_by_project_and_number(
         &self,
-        series_id: SeriesId,
+        project_id: ProjectId,
         number: i32,
     ) -> Result<Option<BlockView>, DomainError>;
 }

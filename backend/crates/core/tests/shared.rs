@@ -184,8 +184,8 @@ fn default_is_initial() {
 }
 
 #[test]
-fn series_id_is_uuidv7() {
-    let id = SeriesId::new();
+fn project_id_is_uuidv7() {
+    let id = ProjectId::new();
     assert_ne!(id.0, uuid::Uuid::nil());
 }
 
@@ -208,9 +208,9 @@ fn episode_id_is_uuidv7() {
 }
 
 #[test]
-fn series_id_from_uuid_preserves_value() {
+fn project_id_from_uuid_preserves_value() {
     let raw = uuid::Uuid::now_v7();
-    assert_eq!(SeriesId::from_uuid(raw).0, raw);
+    assert_eq!(ProjectId::from_uuid(raw).0, raw);
 }
 
 #[test]

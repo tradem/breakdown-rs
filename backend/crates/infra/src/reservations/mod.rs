@@ -5,7 +5,7 @@
 
 //! ES-native reservation streams (ADR-036, issue #586): atomic
 //! cross-aggregate uniqueness at the write boundary for the four #404
-//! invariants — episode/season/block numbering `(series_id, number)` and
+//! invariants — episode/season/block numbering `(project_id, number)` and
 //! scene_shoot pair-uniqueness `(scene_id, shooting_day_id)` — on synthetic
 //! SierraDB streams (`reservation-*`, category `reservation`).
 //!

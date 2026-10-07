@@ -7,15 +7,17 @@
 use chrono::NaiveDate;
 use uuid::Uuid;
 
-use crate::shared::{AggregateVersion, SeasonId, SeriesId};
+use crate::shared::{AggregateVersion, ProjectId, SeasonId};
 
 /// Create a new block within a season.
 #[derive(Debug, Clone, serde::Deserialize, utoipa::ToSchema)]
 pub struct CreateBlock {
     pub id: Uuid,
     pub season_id: SeasonId,
-    /// Denormalized series reference (immutable for a Block).
-    pub series_id: SeriesId,
+    /// Denormalized project reference (immutable for a Block).
+    #[schema(rename = "series_id")]
+    // wire name pinned: layer 3 (OpenAPI field rename) is a breaking ADR-021 change, deferred
+    pub project_id: ProjectId,
     pub number: i32,
     // value_type must carry `Option` nullability (issue #423) — a bare
     // `value_type = String` override drops `Option`'s nullable flag.
@@ -27,8 +29,8 @@ pub struct CreateBlock {
 
 /// Update a block's (optional) time span.
 ///
-/// `series_id` is carried for the `EventMetadata` audit trail (the audit
-/// projector keys on `series_id`); it is resolved at the API edge from the
+/// `project_id` is carried for the `EventMetadata` audit trail (the audit
+/// projector keys on `project_id`); it is resolved at the API edge from the
 /// block projection, never queried again by the command adapter.
 #[derive(Debug, Clone, serde::Deserialize, utoipa::ToSchema)]
 pub struct UpdateBlockTimeSpan {
@@ -37,7 +39,9 @@ pub struct UpdateBlockTimeSpan {
     pub start_date: Option<NaiveDate>,
     #[schema(value_type = Option<String>)]
     pub end_date: Option<NaiveDate>,
-    pub series_id: Option<SeriesId>,
+    #[schema(rename = "series_id")]
+    // wire name pinned: layer 3 (OpenAPI field rename) is a breaking ADR-021 change, deferred
+    pub project_id: Option<ProjectId>,
     pub version: AggregateVersion,
 }
 

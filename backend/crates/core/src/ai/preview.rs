@@ -13,7 +13,7 @@ use crate::error::DomainError;
 use crate::scene::commands::{CreateScene, UpdateSceneDetails};
 use crate::scene::events::{SceneDetails, SceneSource};
 use crate::scene::views::SceneView;
-use crate::shared::{AggregateVersion, BlockId, EpisodeId, SeriesId};
+use crate::shared::{AggregateVersion, BlockId, EpisodeId, ProjectId};
 
 /// A bounded section of extracted script text beginning at an INT./EXT.
 /// heading. The chunker retains the heading and body so the LLM receives
@@ -590,7 +590,7 @@ pub enum SceneApplyCommand {
 /// The reviewer's decision for ONE episode group of a preview (issue #581):
 /// apply the group's rows to an existing episode, or create a new one. The
 /// number comes from the document's `Ep.:` marker; the API edge pre-checks it
-/// against the series' existing episodes (409 `episode.number-already-exists`,
+/// against the project's existing episodes (409 `episode.number-already-exists`,
 /// #404 doctrine).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -798,7 +798,7 @@ pub fn plan_scene_apply(
     preview: &ScriptContext,
     mappings: &[ApplyMapping],
     episode_id: EpisodeId,
-    series_id: Option<SeriesId>,
+    project_id: Option<ProjectId>,
     preview_id: AiImportJobId,
     episode_groups: &[EpisodeGroupPlan],
 ) -> Result<ScriptApplyPlan, ApplyGateError> {
@@ -847,7 +847,7 @@ pub fn plan_scene_apply(
                     PlannedEpisode::Existing(episode_id) => *episode_id,
                     PlannedEpisode::New { .. } => episode_id,
                 },
-                series_id,
+                project_id,
                 details,
                 // Planned by the AI apply, so the provenance is AI-extracted;
                 // the document id is the import job id, the draft ref the
@@ -864,7 +864,7 @@ pub fn plan_scene_apply(
             } => SceneApplyCommand::Update(UpdateSceneDetails {
                 id: aggregate_id,
                 details,
-                series_id,
+                project_id,
                 version,
             }),
         };

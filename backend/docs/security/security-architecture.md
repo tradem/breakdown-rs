@@ -23,8 +23,13 @@ future PRs that touch these areas must keep this page in sync.
 
 ### Tenancy
 
-- **Single-tenant v1.** The tenancy seam is the opaque `SeriesId`
-  (`crates/core/src/shared.rs`); multi-tenancy is deferred — see the
+- **Single-tenant v1.** The tenancy seam is the opaque `ProjectId`
+  (`crates/core/src/shared.rs`), renamed from `SeriesId` by issue #591
+  (ADR-035 D1/S1) — a 1:1 rename of the *term*, not a change of the tenant
+  boundary: same UUIDv7 values, same seam, no multi-tenancy change
+  (ADR-035 B1). The projection columns and the OpenAPI field names still spell
+  it `series_id`; that is a wire-layer detail of the deferred layer-3
+  migration, not a second container. Multi-tenancy itself is deferred — see the
   `api-authorization` spec (`openspec/specs/api-authorization/spec.md`).
 
 ### Identity trust root

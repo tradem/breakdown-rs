@@ -195,6 +195,28 @@ own ADR:
   them. The rename is deliberately *not* bundled here: the event store already
   holds events that must replay unchanged.
 
+  **B5 outcome after issue #591 (2026-10-07): still in force, deliberately.**
+  #591 covered layers 1 and 2 and left every persisted and published spelling
+  on `series_id`:
+  - **projection columns** `series_id` (`projection_season/_block/_episode`,
+    `projection_audit`) — untouched, no migration;
+  - **OpenAPI fields** `series_id`, including the `?series_id=` query
+    parameters — untouched; the only OpenAPI delta is the *schema name*
+    `SeriesId` → `ProjectId`, which is wire-neutral (both render as
+    `type: string, format: uuid`) and leaves the generated Dart client's
+    `seriesId` accessor unchanged;
+  - **event payload fields and `EventMetadata`** — untouched via
+    `#[serde(rename = "series_id")]`, for the `event_key` reason above.
+
+  Renaming the projection columns and the 32 OpenAPI fields therefore remains
+  **open work**, and it is a *breaking* change: per ADR-021 D2/D3 it needs a
+  `/v2` path version, an 8-week concurrent `/v1`+`/v2` deprecation window
+  (D4), a column/index migration, and a `regen-client.sh` diff. That is a
+  second subsystem (wire + storage) and a second contract change — the size
+  gate, which is why it was not folded into #591. It should be its own change
+  with its own ADR; until it lands, **B5 is unchanged and new code must keep
+  the `series_id` spelling on those surfaces.**
+
 Configurable **below** `Project`:
 
 - **C1** which containers exist (season/block/episode vs unit vs run);
@@ -232,6 +254,33 @@ container model behind them is not.
   Whether #591 covers layer 3 or stops after layers 1 — 2 is a decision for that
   issue; the outcome updates **B5** below. What is normative here: the
   rename must never be a single undifferentiated sweep across the three.
+
+  **RESOLVED by issue #591 (2026-10-07).** #591 shipped layers **1 and 2**
+  only and did **not** touch layer 3 — see the **B5 outcome** below. Two
+  consequences that were *not* visible when this ADR was written:
+  1. **Layer 1 needs no compatibility alias.** `core` is an internal
+     workspace crate with no out-of-tree consumers, so `SeriesId` was removed
+     outright rather than kept as a `pub type` alias; a new ast-grep rule
+     (`backend/rules/no-stale-series-id.yml`) now fails CI on any stale
+     reference.
+  2. **Layer 2 must pin the wire key, not alias it.** The obvious-looking
+     `#[serde(rename = "project_id", alias = "series_id")]` is **unsafe
+     here**, and the reason is specific to this codebase:
+     `projection_audit.event_key` is derived from the **re-serialized** event
+     (`write_audit_row`: `format!("{entity_type}:{entity_id}:{event_type}:{payload}")`),
+     and `ON CONFLICT (event_key) DO NOTHING` is what makes projector
+     redelivery idempotent. An alias reads old events correctly — so it looks
+     right — but re-serializes them under a different key, which silently
+     **duplicates every pre-rename audit row** on replay. No compile error,
+     no dead-letter, no failing test. The shipped shape is therefore
+     `#[serde(rename = "series_id")]` on a field named `project_id`: byte-
+     identical re-serialization, stable `event_key`. Pinned by
+     `crates/integration-tests/tests/project_id_rename_replay.rs`.
+  A second, smaller trap in the same layer: `utoipa` derives schema property
+  names from the **Rust field name**, so a renamed field silently renames the
+  OpenAPI field — i.e. layer 3 leaking into a layer-1/2 PR. Every wire-visible
+  struct therefore carries an explicit `#[schema(rename = "series_id")]` (or
+  `#[param(rename = "series_id")]` for query params) alongside the serde pin.
 - **S2 — Authorization seam.** `has_active_costume_role_in_project(
   project_id, user_id)` is the shape (the 0.4.x #535 work). Same role set as
   today's season-typed predicate (`costume_designer`, `wardrobe_supervisor`,
@@ -357,6 +406,8 @@ container model behind them is not.
 - **Not touched, deliberately.** `docs/security/security-architecture.md` §1
   ("the tenancy seam is the opaque `SeriesId`") is *accurate for today's
   code* and is corrected by S1's rename change, not by this ADR (B5).
+  **Corrected by issue #591** — §1 now names `ProjectId` as the tenancy seam
+  (same boundary, same values; ADR-035 B1).
 - **No code.** This ADR is rationale + boundary + seams. The first code change
   it prescribes is #535's `has_active_costume_role_in_project`; the rename
   (S1) is a separate, later change (issue #591).

@@ -10,7 +10,7 @@
 //!
 //! The aggregate-level invariants are covered by the `core` tests
 //! (`scene_aggregate.rs`); this file pins the HTTP surface: 200 echo, the
-//! 404 audit-resolution gate (`series_id_for_scene`), and the 422
+//! 404 audit-resolution gate (`project_id_for_scene`), and the 422
 //! problem-code mapping of the new aggregate errors.
 
 #![allow(
@@ -94,7 +94,7 @@ async fn add_scene_costume_beat_returns_200_version() {
 
 #[tokio::test]
 async fn add_scene_costume_beat_unknown_scene_is_404_scene_not_found() {
-    // The audit resolution (`series_id_for_scene`) runs before dispatch: an
+    // The audit resolution (`project_id_for_scene`) runs before dispatch: an
     // unknown scene must not reach the aggregate.
     let state = AppState::new(common::FakePorts::default());
 

@@ -49,7 +49,7 @@ use breakdown_core::ai::{
 use breakdown_core::block::BlockView;
 use breakdown_core::episode::views::EpisodeView;
 use breakdown_core::membership::Role;
-use breakdown_core::shared::{AggregateVersion, BlockId, EpisodeId, SeasonId, SeriesId, UserId};
+use breakdown_core::shared::{AggregateVersion, BlockId, EpisodeId, ProjectId, SeasonId, UserId};
 use chrono::Utc;
 use common::FakePorts;
 use infra::ai::AiPreviewStore;
@@ -77,13 +77,13 @@ fn state(ports: FakePorts) -> AppState<FakePorts> {
 /// (issue #348).
 async fn seed_ai_block_access(ports: &FakePorts, block_id: BlockId) {
     let season_id = SeasonId::new();
-    let series_id = SeriesId::new();
+    let project_id = ProjectId::new();
     ports.block_repo.blocks.lock().await.insert(
         block_id.0,
         BlockView {
             id: block_id.0,
             season_id,
-            series_id,
+            project_id,
             number: 1,
             start_date: None,
             end_date: None,
@@ -98,7 +98,7 @@ async fn seed_ai_block_access(ports: &FakePorts, block_id: BlockId) {
             UserId::from_sub(TEST_SUB),
             Role::CostumeDesigner,
             season_id,
-            series_id,
+            project_id,
         )
         .await;
 }
@@ -533,7 +533,7 @@ async fn apply_ai_import_drives_the_script_worker_through_the_ports_seam() {
         Path(job_id),
         Json(ApplyAiImportRequest {
             episode_id: EpisodeId::new(),
-            series_id: None,
+            project_id: None,
             mappings: vec![
                 ApplyMapping {
                     draft_ref: "scene-0".to_owned(),
@@ -608,7 +608,7 @@ async fn apply_ai_import_rejects_an_episode_from_another_block() {
         Path(job_id),
         Json(ApplyAiImportRequest {
             episode_id: EpisodeId::new(),
-            series_id: None,
+            project_id: None,
             mappings: vec![ApplyMapping {
                 draft_ref: "scene-0".to_owned(),
                 decision: ApplyMappingDecision::Create,
@@ -660,7 +660,7 @@ async fn apply_ai_import_rejects_accept_as_is_with_a_nonzero_edit_distance() {
         Path(job_id),
         Json(ApplyAiImportRequest {
             episode_id: EpisodeId::new(),
-            series_id: None,
+            project_id: None,
             mappings: vec![ApplyMapping {
                 draft_ref: "scene-0".to_owned(),
                 decision: ApplyMappingDecision::Create,
@@ -1234,7 +1234,7 @@ fn jobs_query(limit: Option<i64>, offset: Option<i64>) -> Query<ListParams> {
         offset,
         episode_id: None,
         season_id: None,
-        series_id: None,
+        project_id: None,
     })
 }
 
@@ -1269,7 +1269,7 @@ async fn seed_denied_block(ports: &FakePorts) -> BlockId {
         BlockView {
             id: block_id.0,
             season_id: SeasonId::new(),
-            series_id: SeriesId::new(),
+            project_id: ProjectId::new(),
             number: 1,
             start_date: None,
             end_date: None,
@@ -1716,7 +1716,7 @@ async fn apply_ai_import_rejects_an_episode_group_the_preview_does_not_carry() {
         Path(job_id),
         Json(ApplyAiImportRequest {
             episode_id: EpisodeId::new(),
-            series_id: None,
+            project_id: None,
             mappings: vec![ApplyMapping {
                 draft_ref: "scene-0".to_owned(),
                 decision: ApplyMappingDecision::Create,
@@ -1743,11 +1743,11 @@ async fn apply_ai_import_prechecks_a_taken_episode_number_with_409() {
     // Seed the apply's target episode (pinned into the job's block) and a
     // sibling of the SAME series already using number 7 — the number the
     // create group wants.
-    let series_id = SeriesId::from_uuid(Uuid::now_v7());
+    let project_id = ProjectId::from_uuid(Uuid::now_v7());
     let target = EpisodeView {
         id: Uuid::now_v7(),
         block_id,
-        series_id,
+        project_id,
         number: 1,
         name: None,
         version: AggregateVersion::INITIAL,
@@ -1756,7 +1756,7 @@ async fn apply_ai_import_prechecks_a_taken_episode_number_with_409() {
     let taken = EpisodeView {
         id: Uuid::now_v7(),
         block_id,
-        series_id,
+        project_id,
         number: 7,
         name: None,
         version: AggregateVersion::INITIAL,
@@ -1781,7 +1781,7 @@ async fn apply_ai_import_prechecks_a_taken_episode_number_with_409() {
         Path(job_id),
         Json(ApplyAiImportRequest {
             episode_id: EpisodeId::from_uuid(target.id),
-            series_id: None,
+            project_id: None,
             mappings: vec![ApplyMapping {
                 draft_ref: "scene-0".to_owned(),
                 decision: ApplyMappingDecision::Create,
@@ -1812,11 +1812,11 @@ async fn apply_ai_import_creates_an_episode_for_a_free_group_number() {
     let block_id = BlockId::from_uuid(Uuid::now_v7());
     seed_ai_block_access(&ports, block_id).await;
     let job_id = seed_episode_grouped_script_job(&ports, Some(block_id), 1).await;
-    let series_id = SeriesId::from_uuid(Uuid::now_v7());
+    let project_id = ProjectId::from_uuid(Uuid::now_v7());
     let target = EpisodeView {
         id: Uuid::now_v7(),
         block_id,
-        series_id,
+        project_id,
         number: 1,
         name: None,
         version: AggregateVersion::INITIAL,
@@ -1835,7 +1835,7 @@ async fn apply_ai_import_creates_an_episode_for_a_free_group_number() {
         Path(job_id),
         Json(ApplyAiImportRequest {
             episode_id: EpisodeId::from_uuid(target.id),
-            series_id: None,
+            project_id: None,
             mappings: vec![ApplyMapping {
                 draft_ref: "scene-0".to_owned(),
                 decision: ApplyMappingDecision::Create,
@@ -1854,7 +1854,7 @@ async fn apply_ai_import_creates_an_episode_for_a_free_group_number() {
     assert_eq!(created.len(), 1);
     assert_eq!(created[0].number, 7);
     assert_eq!(created[0].block_id, block_id);
-    assert_eq!(created[0].series_id, series_id);
+    assert_eq!(created[0].project_id, project_id);
 }
 
 #[tokio::test]
@@ -1876,7 +1876,7 @@ async fn apply_ai_import_rejects_more_episode_groups_than_the_preview_carries() 
         Path(job_id),
         Json(ApplyAiImportRequest {
             episode_id: EpisodeId::new(),
-            series_id: None,
+            project_id: None,
             mappings: vec![ApplyMapping {
                 draft_ref: "scene-0".to_owned(),
                 decision: ApplyMappingDecision::Create,

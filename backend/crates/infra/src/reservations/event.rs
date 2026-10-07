@@ -130,16 +130,16 @@ impl ReservationKind {
 ///   SHA-256 (12 bytes = 24 hex chars) — a birthday collision would need
 ///   ~2^48 concurrently-planned pairs to matter, far beyond anything this
 ///   domain models, and a collision errs conservative (one extra 409).
-pub fn episode_number_key(series_id: Uuid, number: i32) -> String {
-    format!("epnum-{}-{number}", uuid_simple(series_id))
+pub fn episode_number_key(project_id: Uuid, number: i32) -> String {
+    format!("epnum-{}-{number}", uuid_simple(project_id))
 }
 
-pub fn season_number_key(series_id: Uuid, number: i32) -> String {
-    format!("seasnum-{}-{number}", uuid_simple(series_id))
+pub fn season_number_key(project_id: Uuid, number: i32) -> String {
+    format!("seasnum-{}-{number}", uuid_simple(project_id))
 }
 
-pub fn block_number_key(series_id: Uuid, number: i32) -> String {
-    format!("blocknum-{}-{number}", uuid_simple(series_id))
+pub fn block_number_key(project_id: Uuid, number: i32) -> String {
+    format!("blocknum-{}-{number}", uuid_simple(project_id))
 }
 
 pub fn scene_shoot_pair_key(scene_id: Uuid, shooting_day_id: Uuid) -> String {

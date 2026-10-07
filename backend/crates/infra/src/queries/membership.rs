@@ -10,7 +10,7 @@ use breakdown_core::error::DomainError;
 use breakdown_core::membership::Role;
 use breakdown_core::membership::ports::MembershipRepository;
 use breakdown_core::membership::views::{MembershipStateKind, MembershipView};
-use breakdown_core::shared::{BlockId, SeasonId, SeriesId, UserId};
+use breakdown_core::shared::{BlockId, ProjectId, SeasonId, UserId};
 use sqlx::{PgPool, Row};
 
 use async_trait::async_trait;
@@ -90,9 +90,9 @@ impl MembershipRepository for MembershipRepositoryImpl {
             .is_some_and(|m| matches!(m.state, MembershipStateKind::Active)))
     }
 
-    async fn has_active_membership_in_series(
+    async fn has_active_membership_in_project(
         &self,
-        series_id: SeriesId,
+        project_id: ProjectId,
         user_id: UserId,
     ) -> Result<bool, DomainError> {
         // Tenant scope is resolved along the production hierarchy
@@ -113,7 +113,7 @@ impl MembershipRepository for MembershipRepositoryImpl {
             "#,
         )
         .bind(user_id.as_str())
-        .bind(series_id.0)
+        .bind(project_id.0)
         .fetch_optional(&self.pool)
         .await
         .map_err(|e| DomainError::internal(e.to_string()))?;
@@ -121,9 +121,9 @@ impl MembershipRepository for MembershipRepositoryImpl {
         Ok(row.is_some())
     }
 
-    async fn has_active_costume_role_in_series(
+    async fn has_active_costume_role_in_project(
         &self,
-        series_id: SeriesId,
+        project_id: ProjectId,
         user_id: UserId,
     ) -> Result<bool, DomainError> {
         let row: Option<(String,)> = sqlx::query_as(
@@ -139,7 +139,7 @@ impl MembershipRepository for MembershipRepositoryImpl {
             "#,
         )
         .bind(user_id.as_str())
-        .bind(series_id.0)
+        .bind(project_id.0)
         .fetch_optional(&self.pool)
         .await
         .map_err(|e| DomainError::internal(e.to_string()))?;

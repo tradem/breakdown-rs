@@ -43,7 +43,7 @@ use breakdown_core::membership::Role;
 use breakdown_core::photo::ports::PhotoStorage;
 use breakdown_core::season::views::SeasonView;
 use breakdown_core::shared::{
-    AggregateVersion, BlockId, PhotoId, PhotoVariant, SeasonId, SeriesId, UserId,
+    AggregateVersion, BlockId, PhotoId, PhotoVariant, ProjectId, SeasonId, UserId,
 };
 use chrono::Utc;
 use common::FakePorts;
@@ -55,11 +55,11 @@ fn dummy_user() -> CurrentUser {
     CurrentUser::dummy(USER)
 }
 
-fn block_view(id: Uuid, season_id: SeasonId, series_id: SeriesId) -> BlockView {
+fn block_view(id: Uuid, season_id: SeasonId, project_id: ProjectId) -> BlockView {
     BlockView {
         id,
         season_id,
-        series_id,
+        project_id,
         number: 1,
         start_date: None,
         end_date: None,
@@ -72,7 +72,7 @@ fn block_view(id: Uuid, season_id: SeasonId, series_id: SeriesId) -> BlockView {
 async fn create_costume_accepts_repertoire_season_of_active_block() {
     let ports = FakePorts::default();
     let season = SeasonId::new();
-    let series = SeriesId::new();
+    let series = ProjectId::new();
     let active_block = BlockId::new();
     ports
         .block_repo
@@ -103,7 +103,7 @@ async fn create_costume_rejects_cross_block_season_with_season_not_found() {
     let ports = FakePorts::default();
     let active_season = SeasonId::new();
     let other_season = SeasonId::new();
-    let series = SeriesId::new();
+    let series = ProjectId::new();
     let active_block = BlockId::new();
     ports.block_repo.blocks.lock().await.insert(
         active_block.0,
@@ -165,7 +165,7 @@ async fn create_costume_without_season_still_dispatches() {
 /// issue #532: `repo.create(seasonId)` never assigns a character.
 async fn seed_repertoire_costume_with_series(
     ports: &FakePorts,
-    repertoire: &[(SeasonId, SeriesId)],
+    repertoire: &[(SeasonId, ProjectId)],
 ) -> Uuid {
     let costume_id = Uuid::now_v7();
     ports.costume_repo.costumes.lock().await.insert(
@@ -190,12 +190,12 @@ async fn seed_repertoire_costume_with_series(
         .await
         .insert(costume_id, repertoire.iter().map(|(s, _)| *s).collect());
     let mut seasons = ports.season_repo.seasons.lock().await;
-    for (idx, (season_id, series_id)) in repertoire.iter().enumerate() {
+    for (idx, (season_id, project_id)) in repertoire.iter().enumerate() {
         seasons.insert(
             season_id.0,
             SeasonView {
                 id: season_id.0,
-                series_id: *series_id,
+                project_id: *project_id,
                 number: idx as i32 + 1,
                 title: None,
                 archived: false,
@@ -208,11 +208,11 @@ async fn seed_repertoire_costume_with_series(
 }
 
 /// Seed an active costume-dept membership of [role] in a block of
-/// [season_id] / [series_id].
+/// [season_id] / [project_id].
 async fn seed_series_member(
     ports: &FakePorts,
     season_id: SeasonId,
-    series_id: SeriesId,
+    project_id: ProjectId,
     role: Role,
     user: &str,
 ) {
@@ -223,7 +223,7 @@ async fn seed_series_member(
             UserId::from_sub(user),
             role,
             season_id,
-            series_id,
+            project_id,
         )
         .await;
 }
@@ -240,8 +240,8 @@ fn jpeg_headers() -> axum::http::HeaderMap {
 async fn seed_scoped_costume(
     ports: &FakePorts,
     character_season: SeasonId,
-    character_series: SeriesId,
-    repertoire: &[(SeasonId, SeriesId)],
+    character_series: ProjectId,
+    repertoire: &[(SeasonId, ProjectId)],
 ) -> Uuid {
     let costume_id = Uuid::now_v7();
     let character_id = Uuid::now_v7();
@@ -281,7 +281,7 @@ async fn seed_scoped_costume(
         .insert(costume_id, repertoire.iter().map(|(s, _)| *s).collect());
     let character_saison_view = SeasonView {
         id: character_season.0,
-        series_id: character_series,
+        project_id: character_series,
         number: 1,
         title: None,
         archived: false,
@@ -294,12 +294,12 @@ async fn seed_scoped_costume(
         .lock()
         .await
         .insert(character_season.0, character_saison_view);
-    for (idx, (season_id, series_id)) in repertoire.iter().enumerate() {
+    for (idx, (season_id, project_id)) in repertoire.iter().enumerate() {
         ports.season_repo.seasons.lock().await.insert(
             season_id.0,
             SeasonView {
                 id: season_id.0,
-                series_id: *series_id,
+                project_id: *project_id,
                 number: (idx as i32) + 2,
                 title: None,
                 archived: false,
@@ -315,7 +315,7 @@ async fn seed_scoped_costume(
 async fn upload_costume_photo_allows_unassigned_costume_in_repertoire() {
     let ports = FakePorts::default();
     let season = SeasonId::new();
-    let series = SeriesId::new();
+    let series = ProjectId::new();
     let costume_id = seed_repertoire_costume_with_series(&ports, &[(season, series)]).await;
     seed_series_member(&ports, season, series, Role::CostumeDesigner, USER).await;
     let state = AppState::new(ports);
@@ -337,7 +337,7 @@ async fn upload_costume_photo_allows_unassigned_costume_in_repertoire() {
 async fn get_costume_photo_bytes_allows_unassigned_costume_in_repertoire() {
     let ports = FakePorts::default();
     let season = SeasonId::new();
-    let series = SeriesId::new();
+    let series = ProjectId::new();
     let costume_id = seed_repertoire_costume_with_series(&ports, &[(season, series)]).await;
     seed_series_member(&ports, season, series, Role::CostumeDesigner, USER).await;
     let photo_id = Uuid::now_v7();
@@ -372,7 +372,7 @@ async fn get_costume_photo_bytes_allows_unassigned_costume_in_repertoire() {
 async fn delete_costume_photo_allows_unassigned_costume_in_repertoire() {
     let ports = FakePorts::default();
     let season = SeasonId::new();
-    let series = SeriesId::new();
+    let series = ProjectId::new();
     let costume_id = seed_repertoire_costume_with_series(&ports, &[(season, series)]).await;
     seed_series_member(&ports, season, series, Role::CostumeDesigner, USER).await;
     let photo_id = Uuid::now_v7();
@@ -394,8 +394,8 @@ async fn upload_costume_photo_authorizes_via_characters_series() {
     let ports = FakePorts::default();
     let character_season = SeasonId::new();
     let repertoire_season = SeasonId::new();
-    let series = SeriesId::new();
-    let other_series = SeriesId::new();
+    let series = ProjectId::new();
+    let other_series = ProjectId::new();
     let costume_id = seed_scoped_costume(
         &ports,
         character_season,
@@ -436,7 +436,7 @@ async fn upload_costume_photo_allows_role_in_other_season_of_same_series() {
     let ports = FakePorts::default();
     let season_a = SeasonId::new();
     let season_b = SeasonId::new();
-    let series = SeriesId::new();
+    let series = ProjectId::new();
     let costume_id = seed_repertoire_costume_with_series(&ports, &[(season_a, series)]).await;
     // Role ONLY in season B of the same series — no season-A membership.
     seed_series_member(&ports, season_b, series, Role::CostumeDesigner, USER).await;
@@ -461,8 +461,8 @@ async fn upload_costume_photo_allows_role_in_other_season_of_same_series() {
 async fn upload_costume_photo_denies_role_in_foreign_series() {
     let ports = FakePorts::default();
     let season = SeasonId::new();
-    let home_series = SeriesId::new();
-    let foreign_series = SeriesId::new();
+    let home_series = ProjectId::new();
+    let foreign_series = ProjectId::new();
     let costume_id = seed_repertoire_costume_with_series(&ports, &[(season, home_series)]).await;
     let foreign_season = SeasonId::new();
     seed_series_member(
@@ -497,7 +497,7 @@ async fn upload_costume_photo_denies_role_in_foreign_series() {
 async fn upload_costume_photo_rejects_costume_without_any_scope() {
     let ports = FakePorts::default();
     let season = SeasonId::new();
-    let series = SeriesId::new();
+    let series = ProjectId::new();
     let costume_id = seed_repertoire_costume_with_series(&ports, &[]).await;
     seed_series_member(&ports, season, series, Role::CostumeDesigner, USER).await;
     let state = AppState::new(ports);
@@ -523,7 +523,7 @@ async fn upload_costume_photo_rejects_costume_without_any_scope() {
 async fn upload_costume_photo_denies_when_no_scope_authorizes() {
     let ports = FakePorts::default();
     let season = SeasonId::new();
-    let series = SeriesId::new();
+    let series = ProjectId::new();
     let costume_id = seed_repertoire_costume_with_series(&ports, &[(season, series)]).await;
     let state = AppState::new(ports);
 
@@ -551,7 +551,7 @@ async fn upload_costume_photo_denies_when_no_scope_authorizes() {
 async fn upload_costume_photo_reports_lookup_failure_as_server_error() {
     let ports = FakePorts::default();
     let season = SeasonId::new();
-    let series = SeriesId::new();
+    let series = ProjectId::new();
     let costume_id = seed_repertoire_costume_with_series(&ports, &[(season, series)]).await;
     *ports
         .membership_repo

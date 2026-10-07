@@ -8,7 +8,7 @@ use serde::Serialize;
 use utoipa::ToSchema;
 use uuid::Uuid;
 
-use crate::shared::{AggregateVersion, BlockId, SeriesId};
+use crate::shared::{AggregateVersion, BlockId, ProjectId};
 
 /// Complete episode read model.
 ///
@@ -17,7 +17,9 @@ use crate::shared::{AggregateVersion, BlockId, SeriesId};
 pub struct EpisodeView {
     pub id: Uuid,
     pub block_id: BlockId,
-    pub series_id: SeriesId,
+    /// The tenant-level production container this episode belongs to.
+    #[serde(rename = "series_id")] // wire name pinned; see the type-level note on ProjectId
+    pub project_id: ProjectId,
     pub number: i32,
     pub name: Option<String>,
     /// Aggregate version for optimistic-locking round-trips.

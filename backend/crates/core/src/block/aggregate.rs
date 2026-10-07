@@ -9,7 +9,7 @@ use chrono::NaiveDate;
 use kameo_es::{Apply, Command, Context, Entity, Metadata};
 use uuid::Uuid;
 
-use crate::shared::{AggregateVersion, EventMetadata, SeasonId, SeriesId};
+use crate::shared::{AggregateVersion, EventMetadata, ProjectId, SeasonId};
 
 use super::commands::{CreateBlock, UpdateBlockTimeSpan};
 use super::error::BlockError;
@@ -18,14 +18,14 @@ use super::events::BlockEvent;
 /// State persisted by the Block aggregate.
 ///
 /// A Block is scoped to exactly one `SeasonId` and groups Episodes. Its
-/// `series_id` is denormalized (immutable for the Block's lifetime) so the
-/// series-global `(series_id, number)` numbering unique index can be enforced
+/// `project_id` is denormalized (immutable for the Block's lifetime) so the
+/// project-global `(project_id, number)` numbering unique index can be enforced
 /// directly in the projection.
 #[derive(Debug, Clone, Default)]
 pub struct BlockAggregate {
     pub id: Uuid,
     pub season_id: SeasonId,
-    pub series_id: SeriesId,
+    pub project_id: ProjectId,
     pub number: i32,
     pub start_date: Option<NaiveDate>,
     pub end_date: Option<NaiveDate>,
@@ -50,7 +50,7 @@ impl Apply for BlockAggregate {
             BlockEvent::BlockCreated {
                 id,
                 season_id,
-                series_id,
+                project_id,
                 number,
                 start_date,
                 end_date,
@@ -58,7 +58,7 @@ impl Apply for BlockAggregate {
             } => {
                 self.id = id;
                 self.season_id = season_id;
-                self.series_id = series_id;
+                self.project_id = project_id;
                 self.number = number;
                 self.start_date = start_date;
                 self.end_date = end_date;
@@ -90,7 +90,7 @@ impl Command<CreateBlock> for BlockAggregate {
         Ok(vec![BlockEvent::BlockCreated {
             id: cmd.id,
             season_id: cmd.season_id,
-            series_id: cmd.series_id,
+            project_id: cmd.project_id,
             number: cmd.number,
             start_date: cmd.start_date,
             end_date: cmd.end_date,

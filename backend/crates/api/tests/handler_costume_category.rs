@@ -33,7 +33,7 @@ use breakdown_core::character::views::CharacterView;
 use breakdown_core::costume::CostumeView;
 use breakdown_core::costume_category::views::CostumeCategoryView;
 use breakdown_core::shared::{
-    AggregateVersion, CostumeCategoryId, LexicalSortKey, SeasonId, SeriesId, UserId,
+    AggregateVersion, CostumeCategoryId, LexicalSortKey, ProjectId, SeasonId, UserId,
 };
 use chrono::Utc;
 use common::FakePorts;
@@ -329,4 +329,4 @@ async fn set_costume_category_none_clears_without_a_category_lookup() {
 
 // Silence unused warnings for helpers only used in some configurations.
 #[allow(dead_code)]
-fn _touch(_u: &UserId, _s: &SeriesId) {}
+fn _touch(_u: &UserId, _s: &ProjectId) {}

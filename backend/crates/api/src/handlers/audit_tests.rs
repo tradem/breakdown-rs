@@ -27,7 +27,7 @@ async fn get_block_audit_returns_journal_entries_for_block() {
         entity_id: block_id.0.to_string(),
         event_type: "OwnerBootstrapped".to_string(),
         block_id: Some(block_id),
-        series_id: None,
+        project_id: None,
         actor: Some(UserId::from_sub("user-1")),
         payload: json!({ "role": "costume_assistant" }),
         occurred_at: Utc::now(),
@@ -41,7 +41,7 @@ async fn get_block_audit_returns_journal_entries_for_block() {
             offset: Some(0),
             episode_id: None,
             season_id: None,
-            series_id: None,
+            project_id: None,
         }),
     )
     .await;

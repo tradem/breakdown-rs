@@ -14,7 +14,7 @@ applyTo:
 # Production hierarchy (ADR: introduce-season-block-episode-hierarchy; strategy: ADR-035)
 
 The domain models a four-level production hierarchy:
-`Series` (opaque `SeriesId` only — no aggregate yet) → `Season` → `Block` → `Episode` → `Scene`.
+`Project` (opaque `ProjectId` only — no aggregate yet) → `Season` → `Block` → `Episode` → `Scene`.
 **ADR-035** (issue #531) records the strategic direction for this chain and binds new work:
 the container target is **`Project`** (a 1:1 rename of the `Series` term — it dissolves
 together with the `Season` term, it is *not* a new level above it), and the container chain
@@ -22,9 +22,27 @@ together with the `Season` term, it is *not* a new level above it), and the cont
 boundary: authorization predicates are typed by the *authorization level*, never by a
 production-form-specific container — **no new `*_in_season` predicate may be added**
 (B2), and cross-aggregate uniqueness keys are prefixed with the tenant id, not `series_id`
-(B4). No schema or wire change follows from that ADR (B5); `SeriesId` stays until the
-dedicated rename change. Read it before adding a container-scoped authorization predicate
-or a uniqueness constraint.
+(B4). No schema or wire change follows from that ADR (B5). Read it before adding a container-scoped
+authorization predicate or a uniqueness constraint.
+
+**The rename landed (issue #591, ADR-035 D1/S1).** `core::shared` now exposes `ProjectId`
+(no `SeriesId` alias — internal workspace crate, nothing out-of-tree to protect), and the
+ast-grep rule `backend/rules/no-stale-series-id.yml` fails CI on any stale `SeriesId`. The
+rename was **layers 1–2 only** and deliberately left two things spelled `series_id`: the
+**persisted** wire keys (event payload fields and `EventMetadata`, pinned with
+`#[serde(rename = "series_id")]`) and the **projection columns / OpenAPI fields**. Reasons
+worth knowing before touching either:
+- **Persisted keys may not move (ADR-002).** The store already holds events under `series_id`;
+  a rename surfaces as a projector dying on deserialization (SQLSTATE 22, #37 dead-letter),
+  not a compile error. Do **not** "fix" this with `#[serde(rename = "project_id", alias =
+  "series_id")]`: it reads old events correctly but re-serializes them under a *different* key,
+  and `projection_audit.event_key` is built from the **re-serialized** payload
+  (`write_audit_row`), so every replay would silently duplicate every pre-rename audit row.
+  Regression test: `crates/integration-tests/tests/project_id_rename_replay.rs`.
+- **Projection columns / OpenAPI fields are layer 3** — a breaking ADR-021 change needing its
+  own `/v2` path version + 8-week window. Until then the SQL stays `series_id`
+  (`row.try_get("series_id")`) and the JSON key stays `series_id`; only the utoipa *schema
+  name* moved (`SeriesId` → `ProjectId`, wire-neutral: both `type: string, format: uuid`).
 `Character` is scoped to a `Season` (`Character.season_id`). `Costume` is **not**
 scope-free: since #453 it carries a season **repertoire** (`projection_costume_season`,
 PK `(costume_id, season_id)` — m:n by construction, the wardrobe lifecycle carries a costume
@@ -61,7 +79,7 @@ append-only with mutable bodies (`SceneShootNote`), and continuity photos link v
 and Soll-Ist (diff with moved/missing/skipped/reshot flags + `final` from `wrapped_at`). Since #571 the same port additionally serves two **aggregated** Soll-Ist reports — `season_soll_ist_report(SeasonId)` / `episode_soll_ist_report(EpisodeId)` at `GET /v1/seasons/{id}/report/soll-ist` (+ `/v1/episodes/{id}/...`) and their `.pdf` twins (`ReportKind::SeasonSollIst`/`EpisodeSollIst`, own Typst templates, never archivable). Rows are one per scene × non-archived shooting day within the scope (day id + label attached, ordered by day `order_key`); `is_final` and the day counts are server-derived (`≥1` non-archived day AND all wrapped; zero days ⇒ `200` empty, never vacuously final); authz reuses the day reports' handler-internal `has_active_costume_role_in_season` gate.
 The projector uses version guards (`WHERE version < $N`) to ensure event-redelivery idempotency.
 `season` is the production-scope aggregate (`SeasonAggregate`, category `"season"`). It carries `series_id`, `number` (series-global uniqueness, `idx_projection_season_series_number` as authoritative backstop + API-edge 409 pre-check + — since ADR-036 / issue #586 — an atomic write-boundary reservation claim on the synthetic `reservation-seasnum-{series}-{n}` stream, like all four migrated cross-aggregate invariants), an optional `title`, an `archived` flag, and a version. The archived season's reservation/stays-reserved semantics are unchanged: the claim simply keeps the key blocked (the reaper consumes it once the aggregate exists). Lifecycle (issue #533): `ArchiveSeason` (`POST /v1/seasons/{id}/archive`, `SeasonArchived`) is the **terminal** state — an archived season rejects `RenameSeason` with 409 `season.archived` (repeat archive is an idempotent-reject, same pattern as `costume_category`), while its **number stays reserved** (uniqueness untouched — the number is historical identity) and its **inventory (blocks/episodes/shooting days) stays readable** (no cascade by decision). The archive handler carries the season-scoped AUTHZ-GATE reusing the existing `has_active_costume_role_in_season` predicate (no new ADR-035-B2 disallowed `*_in_season` variant). Read model: `projection_season.archived` (migration `20261004000001`), `SeasonView.archived` on the wire, `list_seasons` defaults to excluding archived seasons with an explicit `include_archived` opt-in.
-`SeriesId` is an opaque UUIDv7 seam for a future additive `Series` aggregate — hierarchy entities reference it but no `Series` aggregate exists yet.
+`ProjectId` is an opaque UUIDv7 seam for a future additive `Project` aggregate — hierarchy entities reference it but no `Project` aggregate exists yet.
 `costume_category` is a **season-scoped vocabulary** aggregate (`CostumeCategory`, category `"costume_category"`)
 that classifies **costumes** (n:1 per costume, optional — issue #543; e.g. Oberteil/Unterteil/Schuhe). It carries `season_id`, `name`, a
 `LexicalSortKey` order_key, an `archived` flag, and a version. Seeding is a projector-driven **saga**:

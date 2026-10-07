@@ -337,10 +337,10 @@ pub fn requirement_for(path: &str) -> Requirement {
         return Requirement::Authenticated;
     }
     // The series-scoped audit journal (`GET /audit`) is **not** block-scoped:
-    // it is filtered by the `series_id` **query parameter**, so the caller's
+    // it is filtered by the `project_id` **query parameter**, so the caller's
     // active block (`X-Active-Block`) says nothing about the series whose
     // journal is requested. The handler therefore performs the membership
-    // check itself (`MembershipRepository::has_active_membership_in_series`,
+    // check itself (`MembershipRepository::has_active_membership_in_project`,
     // `// AUTHZ-GATE:`) and returns `403` on denial (issue #342). Classified
     // `Authenticated` like the other handler-gated route families above.
     if path == "/audit" {

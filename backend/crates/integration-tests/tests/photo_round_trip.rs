@@ -39,14 +39,14 @@ use kameo_es::command_service::CommandService;
 
 /// Seed a Season into projection_season.
 async fn seed_season(pool: &sqlx::PgPool) -> Result<breakdown_core::shared::SeasonId> {
-    let series_id = Uuid::now_v7();
+    let project_id = Uuid::now_v7();
     let season_id = Uuid::now_v7();
     sqlx::query(
         r#"INSERT INTO projection_season (id, series_id, number, title, version, updated_at)
            VALUES ($1, $2, 1, 'Season 1', 1, now())"#,
     )
     .bind(season_id)
-    .bind(series_id)
+    .bind(project_id)
     .execute(pool)
     .await?;
     Ok(breakdown_core::shared::SeasonId(season_id))
@@ -222,7 +222,7 @@ async fn photo_upload_then_delete_round_trip() -> Result<()> {
                 content_type: content_type.clone(),
                 size_bytes: image_bytes.len() as u64,
                 binding: breakdown_core::photo::binding::PhotoBinding::Costume { costume_id },
-                series_id: Some(breakdown_core::shared::SeriesId::new()),
+                project_id: Some(breakdown_core::shared::ProjectId::new()),
             },
         )
         .await?;
@@ -256,7 +256,7 @@ async fn photo_upload_then_delete_round_trip() -> Result<()> {
             test_user(),
             breakdown_core::photo::commands::DeletePhoto {
                 id: photo_id,
-                series_id: None,
+                project_id: None,
                 version: settled.version,
             },
         )

@@ -7,7 +7,7 @@ use breakdown_core::block::ports::BlockRepository;
 use breakdown_core::block::views::BlockView;
 use breakdown_core::error::DomainError;
 use breakdown_core::error_registry::BLOCK_NOT_FOUND;
-use breakdown_core::shared::{AggregateVersion, SeasonId, SeriesId};
+use breakdown_core::shared::{AggregateVersion, ProjectId, SeasonId};
 use chrono::{DateTime, Utc};
 use sqlx::{PgPool, Row};
 use uuid::Uuid;
@@ -71,9 +71,9 @@ impl BlockRepository for BlockRepositoryImpl {
         rows.into_iter().map(map_block_row).collect()
     }
 
-    async fn find_by_series_and_number(
+    async fn find_by_project_and_number(
         &self,
-        series_id: SeriesId,
+        project_id: ProjectId,
         number: i32,
     ) -> Result<Option<BlockView>, DomainError> {
         let row = sqlx::query(
@@ -84,7 +84,7 @@ impl BlockRepository for BlockRepositoryImpl {
             LIMIT 1
             "#,
         )
-        .bind(series_id.0)
+        .bind(project_id.0)
         .bind(number)
         .fetch_optional(&self.pool)
         .await
@@ -101,7 +101,7 @@ fn map_block_row(row: sqlx::postgres::PgRow) -> Result<BlockView, DomainError> {
     Ok(BlockView {
         id: row.try_get("id").map_err(map_err)?,
         season_id: SeasonId(row.try_get("season_id").map_err(map_err)?),
-        series_id: SeriesId(row.try_get("series_id").map_err(map_err)?),
+        project_id: ProjectId(row.try_get("series_id").map_err(map_err)?),
         number: row.try_get("number").map_err(map_err)?,
         start_date: row.try_get("start_date").map_err(map_err)?,
         end_date: row.try_get("end_date").map_err(map_err)?,

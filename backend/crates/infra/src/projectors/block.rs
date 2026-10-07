@@ -37,7 +37,7 @@ impl<'a> EntityEventHandler<BlockAggregate, Transaction<'a, Postgres>> for Block
             BlockEvent::BlockCreated {
                 id,
                 season_id,
-                series_id,
+                project_id,
                 number,
                 start_date,
                 end_date,
@@ -68,7 +68,7 @@ impl<'a> EntityEventHandler<BlockAggregate, Transaction<'a, Postgres>> for Block
                 )
                 .bind(id)
                 .bind(season_id.0)
-                .bind(series_id.0)
+                .bind(project_id.0)
                 .bind(number)
                 .bind(start_date)
                 .bind(end_date)
