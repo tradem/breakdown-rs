@@ -975,6 +975,10 @@ pub struct FakeCostumeRepo {
     /// read by issue #532). Unseeded costumes have an empty repertoire, which
     /// is the pre-repertoire / no-scope case.
     pub repertoire: Arc<Mutex<HashMap<Uuid, Vec<SeasonId>>>>,
+    /// When `Some`, `repertoire_seasons` returns this error (issue #535
+    /// review): the strict photo-gate resolver must propagate it as a 500,
+    /// never as a 422 `costume.container-unresolved`.
+    pub repertoire_error: Arc<Mutex<Option<DomainError>>>,
 }
 
 impl CostumeRepository for FakeCostumeRepo {
@@ -1008,6 +1012,9 @@ impl CostumeRepository for FakeCostumeRepo {
         Err(DomainError::not_found("costume"))
     }
     async fn repertoire_seasons(&self, costume_id: Uuid) -> Result<Vec<SeasonId>, DomainError> {
+        if let Some(err) = self.repertoire_error.lock().await.clone() {
+            return Err(err);
+        }
         Ok(self
             .repertoire
             .lock()

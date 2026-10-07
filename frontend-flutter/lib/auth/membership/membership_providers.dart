@@ -6,6 +6,7 @@
 
 import 'package:breakdown_api/breakdown_api.dart';
 import 'package:built_collection/built_collection.dart';
+import 'package:dio/dio.dart';
 import 'package:fpdart/fpdart.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
@@ -92,29 +93,76 @@ Future<Result<SeasonMembershipDto>> membershipFetch(
   return repo.fetch(seasonId);
 }
 
-/// The series-level membership fetch (issue #535) — the client-side
-/// AUTHZ-GATE source for the **series-scoped costume-photo policy**
-/// (ADR-035 B2/S2). Keyed by [seasonId]: the season's owning series is
-/// resolved through the season projection (the season → series link is the
-/// only way a season-scoped screen can name the tenant; D1 read path —
-/// Drift cache first, network GET `/v1/seasons/{id}` + upsert on miss),
-/// then `GET /v1/series/{seriesId}/membership` answers the predicate.
+/// The series-level membership fetch for a **costume** (issue #535 review):
+/// the client-side AUTHZ-GATE source for the **series-scoped costume-photo
+/// policy** (ADR-035 B2/S2), keyed by the costume itself — mirroring the
+/// server's resolution (character-first, repertoire fallback, unassigned
+/// costume → first repertoire season, no resolvable container → error),
+/// NOT the currently open season: a carried-over costume opened through a
+/// repertoire season of a different series must gate on the costume's own
+/// series, or the client would deny callers the server permits (and vice
+/// versa).
+///
+/// Resolution order (mirror of `series_id_for_costume_strict`, api edge):
+/// 1. `characterId != null` → `GET /v1/characters/{id}` → the character's
+///    season → the season's series (D1 read path).
+/// 2. else `seasonIds` (repertoire, ordered by `season_id` server-side) →
+///    first season → the season's series (same deterministic first-season
+///    pick the server makes).
+/// 3. else — no character, no repertoire — `Left('costume.container-unresolved')`:
+///    the gate stays pending-disabled; the server would answer 422 with the
+///    same code (the photo affordances never render as a 403 narrative).
 ///
 /// Dev-auth mode short-circuits to the permissive (or overridden-denial)
 /// series membership without any network call.
 @Riverpod(keepAlive: false)
-Future<Result<SeriesMembershipDto>> seriesMembershipForSeason(
+Future<Result<SeriesMembershipDto>> seriesMembershipForCostume(
   Ref ref,
-  String seasonId,
+  CostumeView costume,
 ) async {
   final config = ref.watch(appConfigProvider);
   if (config.devAuthMode) {
     if (DebugMembershipOverride.deniesAll) {
-      return Right(devAuthDeniedSeriesMembership(seasonId));
+      return Right(devAuthDeniedSeriesMembership(costume.id));
     }
-    return Right(devAuthSeriesMembership(seasonId));
+    return Right(devAuthSeriesMembership(costume.id));
   }
-  // Resolve the season's series via the D1 read path.
+  // Mirror the server's character-first resolution (issue #535 review).
+  final characterId = costume.characterId;
+  if (characterId != null) {
+    try {
+      final response = await BreakdownApi(dio: ref.watch(apiDioProvider))
+          .getHandlersApi()
+          .getCharacter(id: characterId);
+      final character = response.data;
+      if (character == null) {
+        return const Left(ProblemError(code: 'character.dto_invalid'));
+      }
+      return await _seriesMembershipForSeason(ref, character.seasonId);
+    } on DioException catch (e) {
+      return Left(problemErrorFromDio(e));
+    }
+  }
+  // Unassigned costume: the repertoire fallback — the DTO's `season_ids`
+  // are ordered by `season_id` server-side, matching the server's
+  // deterministic first-season pick.
+  final repertoire = costume.seasonIds.toList();
+  if (repertoire.isEmpty) {
+    return const Left(ProblemError(code: 'costume.container-unresolved'));
+  }
+  return _seriesMembershipForSeason(ref, repertoire.first);
+}
+
+/// Season → series membership resolution via the D1 read path (Drift cache
+/// first, network GET `/v1/seasons/{id}` + upsert on miss), then
+/// `GET /v1/series/{seriesId}/membership`. Shared by
+/// [seriesMembershipForCostume] (character season and repertoire seasons
+/// alike — the character's season may be a *different* season than the open
+/// one, so the costume-keyed gate cannot shortcut through the open screen).
+Future<Result<SeriesMembershipDto>> _seriesMembershipForSeason(
+  Ref ref,
+  String seasonId,
+) async {
   final seasonRepo = ref.watch(seasonRepositoryProvider);
   final seasons = await seasonRepo.readCached();
   SeasonView? cached;

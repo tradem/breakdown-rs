@@ -123,32 +123,56 @@ final class MembershipFetchFamily extends $Family
   String toString() => r'membershipFetchProvider';
 }
 
-/// The series-level membership fetch (issue #535) — the client-side
-/// AUTHZ-GATE source for the **series-scoped costume-photo policy**
-/// (ADR-035 B2/S2). Keyed by [seasonId]: the season's owning series is
-/// resolved through the season projection (the season → series link is the
-/// only way a season-scoped screen can name the tenant; D1 read path —
-/// Drift cache first, network GET `/v1/seasons/{id}` + upsert on miss),
-/// then `GET /v1/series/{seriesId}/membership` answers the predicate.
+/// The series-level membership fetch for a **costume** (issue #535 review):
+/// the client-side AUTHZ-GATE source for the **series-scoped costume-photo
+/// policy** (ADR-035 B2/S2), keyed by the costume itself — mirroring the
+/// server's resolution (character-first, repertoire fallback, unassigned
+/// costume → first repertoire season, no resolvable container → error),
+/// NOT the currently open season: a carried-over costume opened through a
+/// repertoire season of a different series must gate on the costume's own
+/// series, or the client would deny callers the server permits (and vice
+/// versa).
+///
+/// Resolution order (mirror of `series_id_for_costume_strict`, api edge):
+/// 1. `characterId != null` → `GET /v1/characters/{id}` → the character's
+///    season → the season's series (D1 read path).
+/// 2. else `seasonIds` (repertoire, ordered by `season_id` server-side) →
+///    first season → the season's series (same deterministic first-season
+///    pick the server makes).
+/// 3. else — no character, no repertoire — `Left('costume.container-unresolved')`:
+///    the gate stays pending-disabled; the server would answer 422 with the
+///    same code (the photo affordances never render as a 403 narrative).
 ///
 /// Dev-auth mode short-circuits to the permissive (or overridden-denial)
 /// series membership without any network call.
 
-@ProviderFor(seriesMembershipForSeason)
-final seriesMembershipForSeasonProvider = SeriesMembershipForSeasonFamily._();
+@ProviderFor(seriesMembershipForCostume)
+final seriesMembershipForCostumeProvider = SeriesMembershipForCostumeFamily._();
 
-/// The series-level membership fetch (issue #535) — the client-side
-/// AUTHZ-GATE source for the **series-scoped costume-photo policy**
-/// (ADR-035 B2/S2). Keyed by [seasonId]: the season's owning series is
-/// resolved through the season projection (the season → series link is the
-/// only way a season-scoped screen can name the tenant; D1 read path —
-/// Drift cache first, network GET `/v1/seasons/{id}` + upsert on miss),
-/// then `GET /v1/series/{seriesId}/membership` answers the predicate.
+/// The series-level membership fetch for a **costume** (issue #535 review):
+/// the client-side AUTHZ-GATE source for the **series-scoped costume-photo
+/// policy** (ADR-035 B2/S2), keyed by the costume itself — mirroring the
+/// server's resolution (character-first, repertoire fallback, unassigned
+/// costume → first repertoire season, no resolvable container → error),
+/// NOT the currently open season: a carried-over costume opened through a
+/// repertoire season of a different series must gate on the costume's own
+/// series, or the client would deny callers the server permits (and vice
+/// versa).
+///
+/// Resolution order (mirror of `series_id_for_costume_strict`, api edge):
+/// 1. `characterId != null` → `GET /v1/characters/{id}` → the character's
+///    season → the season's series (D1 read path).
+/// 2. else `seasonIds` (repertoire, ordered by `season_id` server-side) →
+///    first season → the season's series (same deterministic first-season
+///    pick the server makes).
+/// 3. else — no character, no repertoire — `Left('costume.container-unresolved')`:
+///    the gate stays pending-disabled; the server would answer 422 with the
+///    same code (the photo affordances never render as a 403 narrative).
 ///
 /// Dev-auth mode short-circuits to the permissive (or overridden-denial)
 /// series membership without any network call.
 
-final class SeriesMembershipForSeasonProvider
+final class SeriesMembershipForCostumeProvider
     extends
         $FunctionalProvider<
           AsyncValue<Result<SeriesMembershipDto>>,
@@ -158,33 +182,45 @@ final class SeriesMembershipForSeasonProvider
     with
         $FutureModifier<Result<SeriesMembershipDto>>,
         $FutureProvider<Result<SeriesMembershipDto>> {
-  /// The series-level membership fetch (issue #535) — the client-side
-  /// AUTHZ-GATE source for the **series-scoped costume-photo policy**
-  /// (ADR-035 B2/S2). Keyed by [seasonId]: the season's owning series is
-  /// resolved through the season projection (the season → series link is the
-  /// only way a season-scoped screen can name the tenant; D1 read path —
-  /// Drift cache first, network GET `/v1/seasons/{id}` + upsert on miss),
-  /// then `GET /v1/series/{seriesId}/membership` answers the predicate.
+  /// The series-level membership fetch for a **costume** (issue #535 review):
+  /// the client-side AUTHZ-GATE source for the **series-scoped costume-photo
+  /// policy** (ADR-035 B2/S2), keyed by the costume itself — mirroring the
+  /// server's resolution (character-first, repertoire fallback, unassigned
+  /// costume → first repertoire season, no resolvable container → error),
+  /// NOT the currently open season: a carried-over costume opened through a
+  /// repertoire season of a different series must gate on the costume's own
+  /// series, or the client would deny callers the server permits (and vice
+  /// versa).
+  ///
+  /// Resolution order (mirror of `series_id_for_costume_strict`, api edge):
+  /// 1. `characterId != null` → `GET /v1/characters/{id}` → the character's
+  ///    season → the season's series (D1 read path).
+  /// 2. else `seasonIds` (repertoire, ordered by `season_id` server-side) →
+  ///    first season → the season's series (same deterministic first-season
+  ///    pick the server makes).
+  /// 3. else — no character, no repertoire — `Left('costume.container-unresolved')`:
+  ///    the gate stays pending-disabled; the server would answer 422 with the
+  ///    same code (the photo affordances never render as a 403 narrative).
   ///
   /// Dev-auth mode short-circuits to the permissive (or overridden-denial)
   /// series membership without any network call.
-  SeriesMembershipForSeasonProvider._({
-    required SeriesMembershipForSeasonFamily super.from,
-    required String super.argument,
+  SeriesMembershipForCostumeProvider._({
+    required SeriesMembershipForCostumeFamily super.from,
+    required CostumeView super.argument,
   }) : super(
          retry: null,
-         name: r'seriesMembershipForSeasonProvider',
+         name: r'seriesMembershipForCostumeProvider',
          isAutoDispose: true,
          dependencies: null,
          $allTransitiveDependencies: null,
        );
 
   @override
-  String debugGetCreateSourceHash() => _$seriesMembershipForSeasonHash();
+  String debugGetCreateSourceHash() => _$seriesMembershipForCostumeHash();
 
   @override
   String toString() {
-    return r'seriesMembershipForSeasonProvider'
+    return r'seriesMembershipForCostumeProvider'
         ''
         '($argument)';
   }
@@ -197,13 +233,13 @@ final class SeriesMembershipForSeasonProvider
 
   @override
   FutureOr<Result<SeriesMembershipDto>> create(Ref ref) {
-    final argument = this.argument as String;
-    return seriesMembershipForSeason(ref, argument);
+    final argument = this.argument as CostumeView;
+    return seriesMembershipForCostume(ref, argument);
   }
 
   @override
   bool operator ==(Object other) {
-    return other is SeriesMembershipForSeasonProvider &&
+    return other is SeriesMembershipForCostumeProvider &&
         other.argument == argument;
   }
 
@@ -213,51 +249,75 @@ final class SeriesMembershipForSeasonProvider
   }
 }
 
-String _$seriesMembershipForSeasonHash() =>
-    r'07b308378df00c52dc0b32212d4322b23f031d84';
+String _$seriesMembershipForCostumeHash() =>
+    r'475ccc6f434e7afbd4a4f80b6161b1000d6f4b50';
 
-/// The series-level membership fetch (issue #535) — the client-side
-/// AUTHZ-GATE source for the **series-scoped costume-photo policy**
-/// (ADR-035 B2/S2). Keyed by [seasonId]: the season's owning series is
-/// resolved through the season projection (the season → series link is the
-/// only way a season-scoped screen can name the tenant; D1 read path —
-/// Drift cache first, network GET `/v1/seasons/{id}` + upsert on miss),
-/// then `GET /v1/series/{seriesId}/membership` answers the predicate.
+/// The series-level membership fetch for a **costume** (issue #535 review):
+/// the client-side AUTHZ-GATE source for the **series-scoped costume-photo
+/// policy** (ADR-035 B2/S2), keyed by the costume itself — mirroring the
+/// server's resolution (character-first, repertoire fallback, unassigned
+/// costume → first repertoire season, no resolvable container → error),
+/// NOT the currently open season: a carried-over costume opened through a
+/// repertoire season of a different series must gate on the costume's own
+/// series, or the client would deny callers the server permits (and vice
+/// versa).
+///
+/// Resolution order (mirror of `series_id_for_costume_strict`, api edge):
+/// 1. `characterId != null` → `GET /v1/characters/{id}` → the character's
+///    season → the season's series (D1 read path).
+/// 2. else `seasonIds` (repertoire, ordered by `season_id` server-side) →
+///    first season → the season's series (same deterministic first-season
+///    pick the server makes).
+/// 3. else — no character, no repertoire — `Left('costume.container-unresolved')`:
+///    the gate stays pending-disabled; the server would answer 422 with the
+///    same code (the photo affordances never render as a 403 narrative).
 ///
 /// Dev-auth mode short-circuits to the permissive (or overridden-denial)
 /// series membership without any network call.
 
-final class SeriesMembershipForSeasonFamily extends $Family
+final class SeriesMembershipForCostumeFamily extends $Family
     with
         $FunctionalFamilyOverride<
           FutureOr<Result<SeriesMembershipDto>>,
-          String
+          CostumeView
         > {
-  SeriesMembershipForSeasonFamily._()
+  SeriesMembershipForCostumeFamily._()
     : super(
         retry: null,
-        name: r'seriesMembershipForSeasonProvider',
+        name: r'seriesMembershipForCostumeProvider',
         dependencies: null,
         $allTransitiveDependencies: null,
         isAutoDispose: true,
       );
 
-  /// The series-level membership fetch (issue #535) — the client-side
-  /// AUTHZ-GATE source for the **series-scoped costume-photo policy**
-  /// (ADR-035 B2/S2). Keyed by [seasonId]: the season's owning series is
-  /// resolved through the season projection (the season → series link is the
-  /// only way a season-scoped screen can name the tenant; D1 read path —
-  /// Drift cache first, network GET `/v1/seasons/{id}` + upsert on miss),
-  /// then `GET /v1/series/{seriesId}/membership` answers the predicate.
+  /// The series-level membership fetch for a **costume** (issue #535 review):
+  /// the client-side AUTHZ-GATE source for the **series-scoped costume-photo
+  /// policy** (ADR-035 B2/S2), keyed by the costume itself — mirroring the
+  /// server's resolution (character-first, repertoire fallback, unassigned
+  /// costume → first repertoire season, no resolvable container → error),
+  /// NOT the currently open season: a carried-over costume opened through a
+  /// repertoire season of a different series must gate on the costume's own
+  /// series, or the client would deny callers the server permits (and vice
+  /// versa).
+  ///
+  /// Resolution order (mirror of `series_id_for_costume_strict`, api edge):
+  /// 1. `characterId != null` → `GET /v1/characters/{id}` → the character's
+  ///    season → the season's series (D1 read path).
+  /// 2. else `seasonIds` (repertoire, ordered by `season_id` server-side) →
+  ///    first season → the season's series (same deterministic first-season
+  ///    pick the server makes).
+  /// 3. else — no character, no repertoire — `Left('costume.container-unresolved')`:
+  ///    the gate stays pending-disabled; the server would answer 422 with the
+  ///    same code (the photo affordances never render as a 403 narrative).
   ///
   /// Dev-auth mode short-circuits to the permissive (or overridden-denial)
   /// series membership without any network call.
 
-  SeriesMembershipForSeasonProvider call(String seasonId) =>
-      SeriesMembershipForSeasonProvider._(argument: seasonId, from: this);
+  SeriesMembershipForCostumeProvider call(CostumeView costume) =>
+      SeriesMembershipForCostumeProvider._(argument: costume, from: this);
 
   @override
-  String toString() => r'seriesMembershipForSeasonProvider';
+  String toString() => r'seriesMembershipForCostumeProvider';
 }
 
 /// The client-side AUTHZ-GATE source (D2/D3).

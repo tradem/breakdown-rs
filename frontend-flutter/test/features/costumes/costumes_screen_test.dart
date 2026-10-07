@@ -338,8 +338,12 @@ void main() {
         ),
         membershipFetchProvider('season-1')
             .overrideWith((ref) async => membershipHolder.value),
-        seriesMembershipForSeasonProvider('season-1')
-            .overrideWith((ref) async => seriesMembershipHolder.value),
+        // Family-level override (issue #535 review): the costume-keyed series
+        // gate answers from the holder — this file does not exercise the
+        // photo gate, so the value only exists for fixture parity.
+        seriesMembershipForCostumeProvider.overrideWith(
+          (ref, costume) async => seriesMembershipHolder.value,
+        ),
         characterRepositoryProvider.overrideWithValue(
           CharacterRepository(BreakdownApi(), CharacterCacheDao(db)),
         ),

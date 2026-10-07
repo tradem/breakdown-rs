@@ -611,3 +611,35 @@ async fn upload_costume_photo_scopeless_costume_collapses_to_container_unresolve
 
     assert_eq!(problem.code, "costume.container-unresolved");
 }
+
+/// A repertoire lookup **failure** during the gate's series resolution is an
+/// infrastructure outage, not a projection miss: the strict resolver
+/// (issue #535 review, #537 doctrine) propagates it as a 500 — never as the
+/// misleading 422 `costume.container-unresolved` that would tell the client
+/// to refetch during an outage. Fail-closed is unchanged.
+#[tokio::test]
+async fn upload_costume_photo_reports_repertoire_lookup_failure_as_server_error() {
+    let ports = FakePorts::default();
+    let costume_id = seed_repertoire_costume_with_series(&ports, &[]).await;
+    *ports.costume_repo.repertoire_error.lock().await = Some(DomainError::internal(
+        "projection_costume_season unavailable",
+    ));
+    let photo_commands = ports.photo_commands.clone();
+    let state = AppState::new(ports);
+
+    let problem = upload_costume_photo::<FakePorts>(
+        State(state),
+        dummy_user(),
+        Path(costume_id),
+        jpeg_headers(),
+        Bytes::from_static(b"fake-image-data"),
+    )
+    .await
+    .expect_err("a failing series resolver must never authorize")
+    .into_problem();
+
+    // Fail closed: nothing was written.
+    assert!(photo_commands.uploads.lock().await.is_empty());
+    assert_eq!(problem.status, StatusCode::INTERNAL_SERVER_ERROR);
+    assert_ne!(problem.code, "costume.container-unresolved");
+}

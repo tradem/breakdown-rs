@@ -519,6 +519,10 @@ void main() {
     // Issue #534: the seasons projection the repertoire section joins
     // against (names + picker eligibility).
     List<SeasonView> seasons = const [],
+    // Issue #535 review: the series predicate is an INDEPENDENT fixture
+    // input — `null` keeps the old capability parity, an explicit value
+    // controls the series gate without coupling it to the season fixture.
+    bool? hasSeriesRole,
   }) async {
     db = CacheDatabase(NativeDatabase.memory());
     addTearDown(db.close);
@@ -529,10 +533,13 @@ void main() {
       Right(_membership(capabilities)),
     );
     seriesMembershipHolder = ValueNotifier<Result<SeriesMembershipDto>>(
-      // Issue #535 test parity: the series photo gate is permissive exactly
-      // when the season capability set carried the photo capability.
+      // Issue #535 test parity, DECOUPLED per the #535 review: the series
+      // role defaults to the old capability parity but can be pinned
+      // independently of the season capability set.
       Right(
-        _seriesMembership(capabilities.contains('upload_continuity_photos')),
+        _seriesMembership(
+          hasSeriesRole ?? capabilities.contains('upload_continuity_photos'),
+        ),
       ),
     );
     container = ProviderContainer(
@@ -559,8 +566,12 @@ void main() {
         ),
         membershipFetchProvider('season-1')
             .overrideWith((ref) async => membershipHolder.value),
-        seriesMembershipForSeasonProvider('season-1')
-            .overrideWith((ref) async => seriesMembershipHolder.value),
+        // Family-level override (issue #535 review): the costume-keyed series
+        // gate answers from the holder regardless of the costume instance —
+        // tests pin the PREDICATE, not the resolution internals.
+        seriesMembershipForCostumeProvider.overrideWith(
+          (ref, costume) async => seriesMembershipHolder.value,
+        ),
         // The variant watch is irrelevant to these assertions; stub
         // it closed so no backoff timers outlive the widget tree.
         costumePhotoWatchProvider(
@@ -1380,8 +1391,9 @@ void main() {
           ),
           membershipFetchProvider('season-1')
               .overrideWith((ref) async => membershipHolder.value),
-          seriesMembershipForSeasonProvider('season-1')
-              .overrideWith((ref) async => seriesMembershipHolder.value),
+          seriesMembershipForCostumeProvider.overrideWith(
+            (ref, costume) async => seriesMembershipHolder.value,
+          ),
           imagePickerProvider.overrideWithValue(flowPicker),
           // Isolates never complete headless: run the pure core inline.
           preparePhotoProvider.overrideWith(
@@ -1634,7 +1646,7 @@ void main() {
         final result = await container
             .read(costumesControllerProvider('season-1').notifier)
             .uploadPhoto(
-              costumeId: 'c-1',
+              costume: _costume('c-1'),
               bytes: Uint8ListBytes(Uint8List.fromList(const [1, 2, 3])),
               contentType: 'image/jpeg',
             );
@@ -1642,6 +1654,39 @@ void main() {
         expect(failure?.code, 'photo.forbidden');
         expect(failure?.status, 403);
         expect(photos.uploadCalls, 0);
+      },
+    );
+
+    testWidgets(
+      'series role WITHOUT a current-season costume role or photo capability '
+      'authorizes the upload (fixture decoupling regression, #535 review)',
+      (tester) async {
+        // Issue #535 review: the fixture's series role used to be DERIVED
+        // from the season capability set, so a regression re-coupling the
+        // photo gate to the season capabilities (e.g. re-checking
+        // `upload_continuity_photos` alongside the series predicate) would
+        // have passed the deny test. This test pins the INDEPENDENT input:
+        // no season role, no season photo capability — only the series
+        // predicate — and the upload must be dispatched.
+        await setupContainer(
+          costume: _costume('c-1'),
+          capabilities: const [], // no season role, no photo capability
+          hasSeriesRole: true,
+        );
+        await pumpDetail(tester, 'c-1');
+        // The season-scoped 403 narrative must NOT render for photos.
+        expect(find.byKey(const Key('photo-denied-narrative')), findsNothing);
+        ProblemError? failure;
+        final result = await container
+            .read(costumesControllerProvider('season-1').notifier)
+            .uploadPhoto(
+              costume: _costume('c-1'),
+              bytes: Uint8ListBytes(Uint8List.fromList(const [1, 2, 3])),
+              contentType: 'image/jpeg',
+            );
+        result.match((e) => failure = e, (_) {});
+        expect(failure, isNull);
+        expect(photos.uploadCalls, 1);
       },
     );
 
@@ -1659,11 +1704,24 @@ void main() {
         );
         await pumpDetail(tester, 'c-1');
         expect(find.byKey(const Key('photo-denied-narrative')), findsNothing);
+        // Issue #535 review: a failed fetch is recoverable — the section
+        // offers a retry affordance (invalidating the provider re-executes
+        // the season/character + membership chain on the next build).
+        expect(
+          find.byKey(const Key('photo-membership-retry-c-1')),
+          findsOneWidget,
+        );
+        await tester.tap(find.byKey(const Key('photo-membership-retry-c-1')));
+        await tester.pump();
+        expect(
+          find.byKey(const Key('photo-membership-retry-c-1')),
+          findsOneWidget,
+        );
         ProblemError? failure;
         final result = await container
             .read(costumesControllerProvider('season-1').notifier)
             .uploadPhoto(
-              costumeId: 'c-1',
+              costume: _costume('c-1'),
               bytes: Uint8ListBytes(Uint8List.fromList(const [1, 2, 3])),
               contentType: 'image/jpeg',
             );
@@ -1702,7 +1760,7 @@ void main() {
         final result = await container
             .read(costumesControllerProvider('season-1').notifier)
             .uploadPhoto(
-              costumeId: 'c-1',
+              costume: _costume('c-1'),
               bytes: Uint8ListBytes(Uint8List.fromList(const [1, 2, 3])),
               contentType: 'image/jpeg',
             );
@@ -1762,7 +1820,7 @@ void main() {
         ProblemError? failure;
         final result = await container
             .read(costumesControllerProvider('season-1').notifier)
-            .deletePhoto(costumeId: 'c-1', photoId: 'p-1');
+            .deletePhoto(costume: _costume('c-1'), photoId: 'p-1');
         result.match((e) => failure = e, (_) {});
         expect(failure, isNull);
         expect(photos.deleteCalls, 1);
@@ -1788,7 +1846,7 @@ void main() {
         final result = await container
             .read(costumesControllerProvider('season-1').notifier)
             .uploadPhoto(
-              costumeId: 'c-1',
+              costume: _costume('c-1'),
               bytes: Uint8ListBytes(Uint8List.fromList(const [1, 2, 3])),
               contentType: 'image/jpeg',
             );
@@ -1820,7 +1878,9 @@ void main() {
         final result = await container
             .read(costumesControllerProvider('season-1').notifier)
             .uploadPhoto(
-              costumeId: 'c-unknown', // absent from overlays + projection
+              costume: _costume(
+                'c-unknown',
+              ), // absent from overlays + projection
               bytes: Uint8ListBytes(Uint8List.fromList(const [1, 2, 3])),
               contentType: 'image/jpeg',
             );

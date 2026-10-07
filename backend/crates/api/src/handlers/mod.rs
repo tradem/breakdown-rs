@@ -627,7 +627,15 @@ async fn ensure_execution_open<P: Ports>(
 /// `Ok(None)` when the costume is neither assigned to a character nor bound to
 /// any season's repertoire (mirrors the pre-migration adapter semantics);
 /// hard-404 when the costume itself is missing.
-async fn series_id_for_costume<P: Ports>(
+/// Costume → series resolution, **strict** (issue #535 review): repertoire
+/// and season lookup failures propagate with `?` instead of collapsing to
+/// `Ok(None)`. The photo AUTHZ-GATE uses this variant so a database outage
+/// answers 500 — never the misleading 422 `costume.container-unresolved`
+/// (issue #537 doctrine: infrastructure failures must not surface as
+/// domain/permission answers). The best-effort [`series_id_for_costume`]
+/// wrapper keeps this for audit metadata, where the hard rule is the
+/// opposite: metadata must never block command processing.
+async fn series_id_for_costume_strict<P: Ports>(
     state: &AppState<P>,
     costume_id: Uuid,
 ) -> Result<Option<SeriesId>, ApiError> {
@@ -646,41 +654,40 @@ async fn series_id_for_costume<P: Ports>(
         // stand in a season's repertoire (`projection_costume_season`,
         // issue #453), and that season resolves the series. The binding is
         // m:n, so the *first* season in the repository's deterministic order
-        // is used — the audit metadata only needs one valid series.
-        // Best-effort by design: a projection miss narrows the metadata to
-        // `None` instead of blocking the command (hard rule "audit metadata
-        // must never block command processing").
+        // is used (mirrored by the client gate, issue #535 review).
         None => {
-            let seasons = match state
+            let seasons = state
                 .ports
                 .costume_repo()
                 .repertoire_seasons(costume_id)
-                .await
-            {
-                Ok(seasons) => seasons,
-                Err(err) => {
-                    tracing::warn!(
-                        error = %err,
-                        costume_id = %costume_id,
-                        "repertoire lookup failed; continuing without series_id (issue #532)"
-                    );
-                    return Ok(None);
-                }
-            };
+                .await?;
             let Some(season_id) = seasons.into_iter().next() else {
                 return Ok(None);
             };
-            match state.ports.season_repo().find_by_id(season_id.0).await {
-                Ok(season) => Ok(Some(season.series_id)),
-                Err(err) => {
-                    tracing::warn!(
-                        error = %err,
-                        season_id = %season_id.0,
-                        "season lookup failed; continuing without series_id (issue #532)"
-                    );
-                    Ok(None)
-                }
-            }
+            let season = state.ports.season_repo().find_by_id(season_id.0).await?;
+            Ok(Some(season.series_id))
+        }
+    }
+}
+
+/// Best-effort costume → series resolution for **audit metadata** (the
+/// command `series_id` field): identical to [`series_id_for_costume_strict`]
+/// but a lookup failure narrows to `Ok(None)` instead of failing the
+/// request — audit metadata must never block command processing (hard
+/// rule). The photo gate uses the strict variant directly.
+async fn series_id_for_costume<P: Ports>(
+    state: &AppState<P>,
+    costume_id: Uuid,
+) -> Result<Option<SeriesId>, ApiError> {
+    match series_id_for_costume_strict(state, costume_id).await {
+        Ok(series_id) => Ok(series_id),
+        Err(err) => {
+            tracing::warn!(
+                error = ?err,
+                costume_id = %costume_id,
+                "series lookup failed; continuing without series_id (best-effort audit metadata, issue #532)"
+            );
+            Ok(None)
         }
     }
 }
@@ -887,11 +894,16 @@ async fn authorize_costume_scoped<P: Ports>(
 /// The season union (`costume_season_scopes`) must **not** be re-introduced
 /// here as an authorization input.
 ///
-/// The series resolution is the best-effort [`series_id_for_costume`] lookup
-/// at the API edge (the only legitimate read-model consumer per the CQRS
-/// boundary hard rule). A costume with neither a character nor a repertoire
-/// season cannot name a container at all → 422
+/// The series resolution is the **strict** [`series_id_for_costume_strict`]
+/// lookup at the API edge (the only legitimate read-model consumer per the
+/// CQRS boundary hard rule): repertoire/season lookup *failures* propagate
+/// as 500 (issue #537 doctrine — an infrastructure outage must not surface
+/// as a domain answer), while a costume with neither a character nor a
+/// repertoire season genuinely cannot name a container at all → 422
 /// `costume.container-unresolved` (registered problem code, issue #535).
+/// The resolved [`SeriesId`] is returned so the photo handlers can carry
+/// it into the command's audit metadata — one resolution, shared by gate
+/// and command.
 ///
 /// Error behavior follows the issue #537 doctrine: `Ok(true)` passes,
 /// `Ok(false)` is a genuine 403 ([denial]), and a failed predicate lookup
@@ -901,9 +913,8 @@ async fn authorize_costume_in_series<P: Ports>(
     costume: &CostumeView,
     user_id: UserId,
     denial: &'static str,
-) -> Result<(), ApiError> {
-    let series_id = series_id_for_costume(state, costume.id).await?;
-    let Some(series_id) = series_id else {
+) -> Result<SeriesId, ApiError> {
+    let Some(series_id) = series_id_for_costume_strict(state, costume.id).await? else {
         return Err(ApiError::Domain(DomainError::Validation {
             code: &COSTUME_CONTAINER_UNRESOLVED,
             reason: "costume has no assigned character and no season repertoire — cannot determine its series".into(),
@@ -916,7 +927,8 @@ async fn authorize_costume_in_series<P: Ports>(
             .has_active_costume_role_in_series(series_id, user_id),
         || ApiError::Forbidden(denial),
     )
-    .await
+    .await?;
+    Ok(series_id)
 }
 
 #[utoipa::path(
@@ -3504,8 +3516,10 @@ pub async fn upload_costume_photo<P: Ports>(
     // costume's owning series authorizes the upload (deliberate boundary
     // widening, documented in the security architecture). An unassigned
     // costume reachable via its repertoire is allowed; a costume with no
-    // resolvable container answers 422 `costume.container-unresolved`.
-    authorize_costume_in_series(
+    // resolvable container answers 422 `costume.container-unresolved`. The
+    // gate returns the resolved series so the commands below reuse ONE
+    // resolution for their audit metadata (no second best-effort walk).
+    let series_id = authorize_costume_in_series(
         &state,
         &costume,
         current_user.sub.clone(),
@@ -3531,7 +3545,6 @@ pub async fn upload_costume_photo<P: Ports>(
 
     // Dispatch UploadPhoto command; the returned version is the only
     // read-side echo needed to build the response (issue #514).
-    let series_id = series_id_for_costume(&state, costume_id).await?;
     let photo_version = state
         .ports
         .photo_commands()
@@ -3542,7 +3555,7 @@ pub async fn upload_costume_photo<P: Ports>(
                 content_type: content_type.clone(),
                 size_bytes,
                 binding: PhotoBinding::Costume { costume_id },
-                series_id,
+                series_id: Some(series_id),
             },
         )
         .await
@@ -3552,7 +3565,6 @@ pub async fn upload_costume_photo<P: Ports>(
         })?;
 
     // Dispatch LinkPhoto command on the costume aggregate.
-    let series_id = series_id_for_costume(&state, costume_id).await?;
     let version = costume.version;
     state
         .ports
@@ -3562,7 +3574,7 @@ pub async fn upload_costume_photo<P: Ports>(
             LinkPhoto {
                 id: costume_id,
                 photo_id: photo_id.0,
-                series_id,
+                series_id: Some(series_id),
                 version,
             },
         )
@@ -3756,8 +3768,9 @@ pub async fn delete_costume_photo<P: Ports>(
 
     // AUTHZ-GATE: authorize_costume_in_series — handler-internal auth gate
     // (see AGENTS.md). Series-scoped photo policy as of issue #535
-    // (ADR-035 B2/S2) — same seam as upload/bytes.
-    authorize_costume_in_series(
+    // (ADR-035 B2/S2) — same seam as upload/bytes. The resolved series is
+    // reused as the command's audit metadata.
+    let series_id = authorize_costume_in_series(
         &state,
         &costume,
         current_user.sub.clone(),
@@ -3766,7 +3779,6 @@ pub async fn delete_costume_photo<P: Ports>(
     .await?;
 
     // Dispatch UnlinkPhoto on the costume aggregate.
-    let series_id = series_id_for_costume(&state, costume_id).await?;
     state
         .ports
         .costume_commands()
@@ -3775,7 +3787,7 @@ pub async fn delete_costume_photo<P: Ports>(
             UnlinkPhoto {
                 id: costume_id,
                 photo_id,
-                series_id,
+                series_id: Some(series_id),
                 version: costume.version,
             },
         )
