@@ -309,6 +309,33 @@ impl ReservationStore {
             .is_some())
     }
 
+    /// Reaper's realized-key check: the claimed aggregate's FIRST persisted
+    /// event (version 0 — the create event; numbering/pair fields are
+    /// immutable afterwards). The reaper compares this against the claim key
+    /// before marking a claim consumed — the mere existence of the aggregate
+    /// stream does NOT prove the claim became true: a re-driven attempt may
+    /// claim a DIFFERENT key under the same derived aggregate id (changed
+    /// episode-group target), and consuming that phantom would block a key no
+    /// aggregate owns.
+    ///
+    /// `None` = no aggregate events at all, or a stream whose first event is
+    /// not the expected create event (undecidable — conservative, retried
+    /// next pass).
+    pub async fn first_aggregate_event(
+        &self,
+        kind: ReservationKind,
+        aggregate_id: Uuid,
+    ) -> Result<Option<Event>, DomainError> {
+        let aggregate_stream = format!("{}-{}", kind.aggregate_category(), aggregate_id);
+        let mut connection = self.pool.get();
+        let batch = connection
+            .escan(&aggregate_stream, 0, None, Some(1))
+            .await
+            .map_err(SierraError::from)
+            .map_err(sierra_error)?;
+        Ok(batch.events.into_iter().next())
+    }
+
     /// Classifies the stream state for a failed claim attempt, from the event
     /// store itself (never a projection — ADR-036 §3.2).
     async fn claim_obstacle(
@@ -456,7 +483,7 @@ fn sierra_error(err: SierraError) -> DomainError {
 /// CBOR payload decode helper: an unparsable lifecycle payload is permanent
 /// data corruption, surfaced as `DomainError::Internal` with an error log
 /// rather than entering any retry loop.
-fn decode_lifecycle<T: DeserializeOwned>(
+pub(super) fn decode_lifecycle<T: DeserializeOwned>(
     payload: &[u8],
     stream_id: &str,
 ) -> Result<T, DomainError> {

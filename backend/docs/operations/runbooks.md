@@ -768,7 +768,8 @@ before it can produce an unprojectable 2xx aggregate:
 
 | Situation | Stream state | Resolution |
 |---|---|---|
-| Normal create | `Reserved` then reaper marks `Consumed` once the aggregate stream exists | none — number owned forever (matches #533 semantics: numbers are historical identity) |
+| Normal create | `Reserved` then reaper marks `Consumed` once the aggregate stream exists AND its persisted create event's key matches the claim key | none — number owned forever (matches #533 semantics: numbers are historical identity) |
+| Mismatched re-drive (a re-driven attempt claimed a different key under the same derived aggregate id; the aggregate's create event carries a different key) | `Reserved`, aggregate stream exists but does not realize the claim key | reaper RELEASES the phantom claim — the key becomes claimable again (consuming would block a number no aggregate owns); logged as warn |
 | Aggregate create rejected BEFORE any append (domain handle error) | `Reserved` → command appends `Released` inline (CAS) | key claimable again immediately |
 | Crash between reserve and aggregate append | `Reserved`, aggregate stream absent | reaper (claim TTL, default 600 s) appends `Released`; key claimable again |
 | Unknown append state (database error / version conflict) after reserve | `Reserved` | reaper decides by probing the aggregate stream — exists ⇒ `Consumed`, absent ⇒ `Released`; NEVER released by the command itself |

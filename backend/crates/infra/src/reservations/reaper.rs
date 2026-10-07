@@ -34,8 +34,15 @@ use std::time::Duration;
 use sqlx::PgPool;
 use uuid::Uuid;
 
-use super::event::ReservationKind;
-use super::store::{LifecycleVariant, ReservationStore, StreamState};
+use breakdown_core::block::events::BlockEvent;
+use breakdown_core::episode::events::EpisodeEvent;
+use breakdown_core::scene_shoot::events::SceneShootEvent;
+use breakdown_core::season::events::SeasonEvent;
+
+use super::event::{
+    ReservationKind, block_number_key, episode_number_key, scene_shoot_pair_key, season_number_key,
+};
+use super::store::{LifecycleVariant, ReservationStore, StreamState, decode_lifecycle};
 
 /// Reaper configuration (env; documented with the other env contract in
 /// `AGENTS.md`-adjacent docs and the runbook). Default TTL 600 s: the
@@ -259,18 +266,59 @@ async fn reap_claim(
         .aggregate_stream_exists(kind, claimed_aggregate)
         .await?
     {
-        // Realized claim: the aggregate owns the key for good — mark so the
-        // reaper stops reconsidering it (and future reserves still 409).
-        store
-            .consume(key, claimed_aggregate, state.stream_version)
-            .await?;
-        tracing::info!(
-            key,
-            aggregate = %claimed_aggregate,
-            kind = kind.as_str(),
-            "reservation claim consumed: aggregate stream exists (ADR-036 §3.2)",
-        );
-        Ok(ReapDisposition::Consumed)
+        // The aggregate exists — but the claim only became TRUE if the
+        // aggregate's persisted create event carries the claimed key's
+        // (series_id, number) / pair (CodeRabbit review: a re-driven attempt
+        // can claim a DIFFERENT key under the same derived aggregate id —
+        // changed episode-group target — and consuming that phantom would
+        // block a key no aggregate owns).
+        match verify_realized_key(store, kind, key, claimed_aggregate).await? {
+            RealizedKey::Matches => {
+                // Realized claim: the aggregate owns the key for good — mark
+                // so the reaper stops reconsidering it (and future reserves
+                // still 409).
+                store
+                    .consume(key, claimed_aggregate, state.stream_version)
+                    .await?;
+                tracing::info!(
+                    key,
+                    aggregate = %claimed_aggregate,
+                    kind = kind.as_str(),
+                    "reservation claim consumed: aggregate stream exists and its create event matches the claim key (ADR-036 §3.2)",
+                );
+                Ok(ReapDisposition::Consumed)
+            }
+            RealizedKey::Mismatch => {
+                // The claimed aggregate never realized THIS key (its persisted
+                // create event carries a different key; numbering/pair fields
+                // are immutable, so the first event decides). The claim is a
+                // phantom: release it — the key becomes claimable again, and
+                // its true owner will claim-and-append with a fresh aggregate.
+                // Consuming here would block the key forever.
+                store
+                    .release(key, claimed_aggregate, state.stream_version)
+                    .await?;
+                tracing::warn!(
+                    key,
+                    aggregate = %claimed_aggregate,
+                    kind = kind.as_str(),
+                    "reservation claim released: claimed aggregate's persisted create event does not match the claim key (mismatched re-drive) (ADR-036 §3.2)",
+                );
+                Ok(ReapDisposition::Released)
+            }
+            RealizedKey::Undecidable => {
+                // No events on the aggregate stream, or a first event that is
+                // not the expected create event — never consume/release past
+                // an undecidable; the next pass re-checks.
+                tracing::warn!(
+                    key,
+                    aggregate = %claimed_aggregate,
+                    kind = kind.as_str(),
+                    "reservation claim: aggregate stream exists but its first event is undecidable; skipping (ADR-036 §3.2)",
+                );
+                Ok(ReapDisposition::Skipped)
+            }
+        }
     } else {
         // Crash orphan: nothing ever appended the aggregate — release.
         store
@@ -284,6 +332,92 @@ async fn reap_claim(
         );
         Ok(ReapDisposition::Released)
     }
+}
+
+/// Whether the claimed aggregate's persisted create event realizes the
+/// claim key (CodeRabbit review on this PR): the mere existence of the
+/// aggregate stream does not — a re-driven attempt may claim a different
+/// key under the same derived aggregate id.
+enum RealizedKey {
+    /// First persisted event's key equals the claim key → consume.
+    Matches,
+    /// The aggregate exists but carries a different key → the claim is a
+    /// phantom → release.
+    Mismatch,
+    /// No events / unexpected first event shape → conservative skip.
+    Undecidable,
+}
+
+/// Reads the claimed aggregate's FIRST persisted event (version 0 — the
+/// create event; numbering/pair fields are immutable afterwards) and derives
+/// the key it realizes, using the same key builders that built the claim.
+async fn verify_realized_key(
+    store: &ReservationStore,
+    kind: ReservationKind,
+    key: &str,
+    aggregate_id: uuid::Uuid,
+) -> Result<RealizedKey, anyhow::Error> {
+    let Some(first) = store.first_aggregate_event(kind, aggregate_id).await? else {
+        return Ok(RealizedKey::Undecidable);
+    };
+    if first.stream_version != 0 {
+        return Ok(RealizedKey::Undecidable);
+    }
+
+    let realized = match kind {
+        ReservationKind::EpisodeNumber => {
+            if first.event_name != "EpisodeCreated" {
+                return Ok(RealizedKey::Undecidable);
+            }
+            match decode_lifecycle::<EpisodeEvent>(&first.payload, &first.stream_id)? {
+                EpisodeEvent::EpisodeCreated {
+                    series_id, number, ..
+                } => episode_number_key(series_id.0, number),
+                _ => return Ok(RealizedKey::Undecidable),
+            }
+        }
+        ReservationKind::SeasonNumber => {
+            if first.event_name != "SeasonCreated" {
+                return Ok(RealizedKey::Undecidable);
+            }
+            match decode_lifecycle::<SeasonEvent>(&first.payload, &first.stream_id)? {
+                SeasonEvent::SeasonCreated {
+                    series_id, number, ..
+                } => season_number_key(series_id.0, number),
+                _ => return Ok(RealizedKey::Undecidable),
+            }
+        }
+        ReservationKind::BlockNumber => {
+            if first.event_name != "BlockCreated" {
+                return Ok(RealizedKey::Undecidable);
+            }
+            match decode_lifecycle::<BlockEvent>(&first.payload, &first.stream_id)? {
+                BlockEvent::BlockCreated {
+                    series_id, number, ..
+                } => block_number_key(series_id.0, number),
+                _ => return Ok(RealizedKey::Undecidable),
+            }
+        }
+        ReservationKind::SceneShootPair => {
+            if first.event_name != "SceneShootPlanned" {
+                return Ok(RealizedKey::Undecidable);
+            }
+            match decode_lifecycle::<SceneShootEvent>(&first.payload, &first.stream_id)? {
+                SceneShootEvent::SceneShootPlanned {
+                    scene_id,
+                    shooting_day_id,
+                    ..
+                } => scene_shoot_pair_key(scene_id, shooting_day_id.0),
+                _ => return Ok(RealizedKey::Undecidable),
+            }
+        }
+    };
+
+    Ok(if realized == key {
+        RealizedKey::Matches
+    } else {
+        RealizedKey::Mismatch
+    })
 }
 
 /// TTL re-verification against the authoritative claim timestamp.

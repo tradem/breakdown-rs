@@ -584,6 +584,113 @@ async fn reaper_releases_a_crash_orphan() -> Result<()> {
     Ok(())
 }
 
+/// A claimed aggregate whose persisted create event does NOT match the claim
+/// key (CodeRabbit review on this PR) must NOT be consumed — the claim is a
+/// phantom (a re-driven attempt claimed a different key under the same
+/// derived aggregate id) and is RELEASED: the key becomes claimable again
+/// and a competitor create succeeds (ADR-036 §3.2 realized-key check).
+#[tokio::test(flavor = "multi_thread")]
+async fn reaper_releases_a_claim_whose_aggregate_carries_a_different_key() -> Result<()> {
+    let (pool, sierra_client, _pg, _sierra) = init().await?;
+
+    let series_id = Uuid::now_v7();
+    let stuck_id = Uuid::now_v7();
+    let claimed_number = 80;
+    let realized_number = 81; // the pre-seeded aggregate carries a DIFFERENT number
+    let key = episode_key(series_id, claimed_number);
+
+    // Pre-seed the claimed aggregate's stream with a create event whose
+    // number does NOT match the claim key.
+    {
+        let mut conn = sierra_client.get_multiplexed_async_connection().await?;
+        let payload = encode_event(&EpisodeEvent::EpisodeCreated {
+            id: stuck_id,
+            block_id: BlockId(Uuid::now_v7()),
+            series_id: SeriesId(series_id),
+            number: realized_number,
+            name: None,
+            version: AggregateVersion(1),
+        })?;
+        let now_ms = Utc::now().timestamp_millis();
+        let _: redis::Value = redis::cmd("EAPPEND")
+            .arg(format!("episode-{}", stuck_id))
+            .arg("EpisodeCreated")
+            .arg("EXPECTED_VERSION")
+            .arg("EMPTY")
+            .arg("PAYLOAD")
+            .arg(payload)
+            .arg("TIMESTAMP")
+            .arg(now_ms.to_string().as_bytes())
+            .query_async(&mut conn)
+            .await?;
+    }
+
+    // Claim key 80 for the aggregate that actually carries number 81.
+    {
+        let store = store_for(&sierra_client).await?;
+        store
+            .reserve(
+                &key,
+                stuck_id,
+                DomainError::Conflict {
+                    code: &breakdown_core::error_registry::EPISODE_NUMBER_ALREADY_EXISTS,
+                    reason: "episode number already taken".into(),
+                },
+            )
+            .await?;
+    }
+    await_reservation_state(&pool, &key, "reserved").await?;
+
+    // Reaper pass (TTL 0): the realized-key check must find the mismatch and
+    // RELEASE — never consume.
+    let config = infra::reservations::reaper::ReaperConfig {
+        enabled: true,
+        interval_secs: 300,
+        claim_ttl_secs: 0,
+        batch_size: 200,
+    };
+    let deadline = std::time::Instant::now() + PROJECTION_DEADLINE;
+    loop {
+        let pass_store = store_for(&sierra_client).await?;
+        run_reaper_pass(&pool, &pass_store, &config).await?;
+        let state: Option<String> = sqlx::query_scalar(
+            "SELECT state FROM projection_number_reservation WHERE reservation_key = $1",
+        )
+        .bind(&key)
+        .fetch_optional(&pool)
+        .await?;
+        if state.as_deref() == Some("released") {
+            break;
+        }
+        if std::time::Instant::now() > deadline {
+            anyhow::bail!(
+                "reaper must release (never consume) a claim whose aggregate carries a different key (last state {state:?})"
+            );
+        }
+        tokio::time::sleep(POLL_INTERVAL).await;
+    }
+
+    // A competitor can now claim (and create) the released number.
+    let competitor_id = Uuid::now_v7();
+    let episodes = infra::event_store::EpisodeCommandsImpl::new(
+        kameo_es::command_service::CommandService::new(
+            sierra_client.get_multiplexed_async_connection().await?,
+        ),
+    );
+    let competitor_create = episodes
+        .create(
+            test_user(),
+            create_episode_cmd(competitor_id, Uuid::now_v7(), series_id, claimed_number),
+        )
+        .await;
+    assert!(
+        competitor_create.is_ok(),
+        "after the phantom release the competitor create must succeed: {competitor_create:?}"
+    );
+
+    Ok(())
+}
+
 // ---------------------------------------------------------------------------
 // 4. Season / bloglockcoverage: the same guarantee for the sibling invariants
 // ---------------------------------------------------------------------------

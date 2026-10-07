@@ -128,10 +128,21 @@ paths exist:
    orphaned) treats every claim older than the TTL as a candidate and resolves
    it **against the event store itself** (never projections, so projector lag
    cannot cause a false release):
-   - probe the claimed aggregate's stream (`esver`): version > 0 → the number
-     is legitimately taken from here to eternity (numbers/pairs are not
-     releaseable in today's domain — there are no delete commands; #533 keeps
-     archived seasons' numbers reserved) → append `ReservationConsumed`;
+   - probe the claimed aggregate's stream (`esver`), then — CodeRabbit
+     follow-up on this PR — **verify the realized key**: read the aggregate's
+     FIRST persisted event (version 0; numbering/pair fields are immutable
+     afterwards) and derive the key it realizes with the same key builders:
+     - realized key == claim key → the number is legitimately taken from here
+       to eternity (numbers/pairs are not releaseable in today's domain —
+       there are no delete commands; #533 keeps archived seasons' numbers
+       reserved) → append `ReservationConsumed`;
+     - realized key ≠ claim key → the claim is a PHANTOM (a re-driven attempt
+       can claim a different key under the same derived aggregate id — a
+       changed episode-group target; the aggregate append then failed with
+       `VersionConflict`) → append `ReservationReleased`: consuming would
+       block a key no aggregate owns;
+     - undecidable (no events, or a first event that is not the expected
+       create event) → skip, re-checked next pass;
    - version absent → orphaned claim → append `ReservationReleased` (CAS on
      the observed stream version; a lost race is retried next pass).
 
