@@ -45,6 +45,10 @@ SIERRADB_URL=redis://127.0.0.1:9090/?protocol=resp3 \
 cargo run --bin api
 ```
 
+Reservation-claim machinery (ADR-036) needs no extra env for local dev: the
+`reservation` projector and the reaper spawn with their defaults
+(`RESERVATION_REAPER_ENABLED=true`, TTL 600 s, interval 300 s).
+
 `main.rs` uses a **two-pool Postgres architecture**:
 1. A short-lived migrator pool (`MIGRATOR_DATABASE_URL`, defaults to `DATABASE_URL`)
    runs `sqlx::migrate!("../infra/migrations")` at boot (DDL rights).

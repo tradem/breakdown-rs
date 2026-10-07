@@ -96,10 +96,67 @@ use breakdown_core::shooting_day::commands::{
 };
 use breakdown_core::shooting_day::error::ShootingDayError;
 use breakdown_core::shooting_day::ports::ShootingDayCommands;
+use kameo_es::ConnectionPool;
 use kameo_es::command_service::{CommandService, ExecuteExt, ExecuteResult};
 use kameo_es::error::ExecuteError;
 use sierradb_client::{CurrentVersion, ExpectedVersion};
 use uuid::Uuid;
+
+use crate::reservations::event::{
+    block_number_key, episode_number_key, scene_shoot_pair_key, season_number_key,
+};
+use crate::reservations::store::{ReservationClaim, ReservationStore};
+
+// ADR-036: the four migrated invariants share their registered problem codes
+// between the API-edge advisory pre-check (handlers) and this atomic
+// write-boundary reservation — one stable branch per client code.
+use breakdown_core::error_registry::{
+    BLOCK_NUMBER_ALREADY_EXISTS, EPISODE_NUMBER_ALREADY_EXISTS, SCENE_SHOOT_PAIR_ALREADY_EXISTS,
+    SEASON_NUMBER_ALREADY_EXISTS,
+};
+
+/// ADR-036 §3.1/§3.2 — compensation policy for claimed creates.
+///
+/// - `ExecuteError::Handle` (the aggregate rejected the command BEFORE any
+///   append): nothing reached the aggregate stream — release the claim inline
+///   (best-effort CAS; a failed release is logged and the reaper owns the
+///   orphan, §3.2).
+/// - `IncorrectExpectedVersion` (the aggregate stream exists → the claim may
+///   already be realized) or any database failure (append state unknown):
+///   releasing locally could open a still-owned key and re-widen the exact
+///   race this ADR closes — the claim stays held and the reaper resolves it
+///   by probing the event store (§3.2).
+///
+/// Never masks the original error; the create failure propagates unchanged.
+async fn compensate_create_claim<ResultValue, Err>(
+    store: &ReservationStore,
+    claim: &ReservationClaim,
+    result: &Result<ResultValue, ExecuteError<Err>>,
+) {
+    if let Err(ExecuteError::Handle(_)) = result
+        && let Err(release_err) = store
+            .release(&claim.key, claim.aggregate_id, claim.claim_version)
+            .await
+    {
+        tracing::warn!(
+            key = %claim.key,
+            release_error = %release_err,
+            "reservation release failed after handle-rejected create; the reaper will release the orphan claim (ADR-036 §3.1)",
+        );
+    }
+}
+
+/// ADR-036 §2 — reserve the create key for a reservation-protected create
+/// command. The returned claim must accompany the aggregate append so a
+/// failed create can release its claim.
+async fn reserve_create_claim(
+    store: &ReservationStore,
+    key: &str,
+    aggregate_id: Uuid,
+    conflict: DomainError,
+) -> Result<ReservationClaim, DomainError> {
+    store.reserve(key, aggregate_id, conflict).await
+}
 
 use async_trait::async_trait;
 
@@ -873,11 +930,17 @@ impl CostumeCommands for CostumeCommandsImpl {
 #[derive(Clone, Debug)]
 pub struct SeasonCommandsImpl {
     cmd_service: CommandService,
+    /// ADR-036: `(series_id, number)` claim store; built from the same pooled
+    /// SierraDB connection the CommandService dispatches over.
+    reservations: ReservationStore,
 }
 
 impl SeasonCommandsImpl {
     pub fn new(cmd_service: CommandService) -> Self {
-        Self { cmd_service }
+        Self {
+            reservations: ReservationStore::new(ConnectionPool::from(cmd_service.conn())),
+            cmd_service,
+        }
     }
 }
 
@@ -889,6 +952,16 @@ impl SeasonCommands for SeasonCommandsImpl {
     ) -> Result<(Uuid, AggregateVersion), DomainError> {
         let id = cmd.id;
         let series_id = Some(cmd.series_id);
+        let claim = reserve_create_claim(
+            &self.reservations,
+            &season_number_key(cmd.series_id.0, cmd.number),
+            id,
+            DomainError::Conflict {
+                code: &SEASON_NUMBER_ALREADY_EXISTS,
+                reason: "season number already taken".into(),
+            },
+        )
+        .await?;
         let result = SeasonAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Empty)
             .metadata(EventMetadata {
@@ -897,6 +970,7 @@ impl SeasonCommands for SeasonCommandsImpl {
                 series_id,
             })
             .await;
+        compensate_create_claim(&self.reservations, &claim, &result).await;
         map_executed(id, result)
     }
 
@@ -945,11 +1019,16 @@ impl SeasonCommands for SeasonCommandsImpl {
 #[derive(Clone, Debug)]
 pub struct BlockCommandsImpl {
     cmd_service: CommandService,
+    /// ADR-036: `(series_id, number)` claim store.
+    reservations: ReservationStore,
 }
 
 impl BlockCommandsImpl {
     pub fn new(cmd_service: CommandService) -> Self {
-        Self { cmd_service }
+        Self {
+            reservations: ReservationStore::new(ConnectionPool::from(cmd_service.conn())),
+            cmd_service,
+        }
     }
 }
 
@@ -961,6 +1040,16 @@ impl BlockCommands for BlockCommandsImpl {
     ) -> Result<(Uuid, AggregateVersion), DomainError> {
         let id = cmd.id;
         let series_id = Some(cmd.series_id);
+        let claim = reserve_create_claim(
+            &self.reservations,
+            &block_number_key(cmd.series_id.0, cmd.number),
+            id,
+            DomainError::Conflict {
+                code: &BLOCK_NUMBER_ALREADY_EXISTS,
+                reason: "block number already taken".into(),
+            },
+        )
+        .await?;
         let result = BlockAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Empty)
             .metadata(EventMetadata {
@@ -969,6 +1058,7 @@ impl BlockCommands for BlockCommandsImpl {
                 series_id,
             })
             .await;
+        compensate_create_claim(&self.reservations, &claim, &result).await;
         map_executed(id, result)
     }
 
@@ -997,11 +1087,18 @@ impl BlockCommands for BlockCommandsImpl {
 #[derive(Clone, Debug)]
 pub struct EpisodeCommandsImpl {
     cmd_service: CommandService,
+    /// ADR-036: `(series_id, number)` claim store — this closes the
+    /// pre-check-to-append race on BOTH write paths (manual `POST /episodes`
+    /// and the AI-apply worker call `EpisodeCommands::create`).
+    reservations: ReservationStore,
 }
 
 impl EpisodeCommandsImpl {
     pub fn new(cmd_service: CommandService) -> Self {
-        Self { cmd_service }
+        Self {
+            reservations: ReservationStore::new(ConnectionPool::from(cmd_service.conn())),
+            cmd_service,
+        }
     }
 }
 
@@ -1013,6 +1110,16 @@ impl EpisodeCommands for EpisodeCommandsImpl {
     ) -> Result<(Uuid, AggregateVersion), DomainError> {
         let id = cmd.id;
         let series_id = Some(cmd.series_id);
+        let claim = reserve_create_claim(
+            &self.reservations,
+            &episode_number_key(cmd.series_id.0, cmd.number),
+            id,
+            DomainError::Conflict {
+                code: &EPISODE_NUMBER_ALREADY_EXISTS,
+                reason: "episode number already taken".into(),
+            },
+        )
+        .await?;
         let result = EpisodeAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Empty)
             .metadata(EventMetadata {
@@ -1021,6 +1128,7 @@ impl EpisodeCommands for EpisodeCommandsImpl {
                 series_id,
             })
             .await;
+        compensate_create_claim(&self.reservations, &claim, &result).await;
         map_executed(id, result)
     }
 
@@ -1365,6 +1473,8 @@ pub struct SceneShootCommandsImpl {
     /// [probe → append] critical section of every frozen command against the
     /// day's `WrapShootingDay` append.
     finality_gate: crate::event_store::WrapFinalityGate,
+    /// ADR-036: `(scene_id, shooting_day_id)` pair claim store.
+    reservations: ReservationStore,
 }
 
 impl SceneShootCommandsImpl {
@@ -1373,6 +1483,7 @@ impl SceneShootCommandsImpl {
         finality_gate: crate::event_store::WrapFinalityGate,
     ) -> Self {
         Self {
+            reservations: ReservationStore::new(ConnectionPool::from(cmd_service.conn())),
             cmd_service,
             finality_gate,
         }
@@ -1420,6 +1531,16 @@ impl SceneShootCommands for SceneShootCommandsImpl {
     ) -> Result<(SceneShootId, AggregateVersion), DomainError> {
         let id = cmd.id;
         let series_id = cmd.series_id;
+        let claim = reserve_create_claim(
+            &self.reservations,
+            &scene_shoot_pair_key(cmd.scene_id, cmd.shooting_day_id.0),
+            id.0,
+            DomainError::Conflict {
+                code: &SCENE_SHOOT_PAIR_ALREADY_EXISTS,
+                reason: "scene is already scheduled on this shooting day".into(),
+            },
+        )
+        .await?;
         let result = SceneShootAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Empty)
             .metadata(EventMetadata {
@@ -1428,6 +1549,7 @@ impl SceneShootCommands for SceneShootCommandsImpl {
                 series_id,
             })
             .await;
+        compensate_create_claim(&self.reservations, &claim, &result).await;
         map_executed(id, result)
     }
 

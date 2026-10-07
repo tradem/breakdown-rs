@@ -744,3 +744,69 @@ LIMIT 20;
 **Detection:** legacy costumes showing "uncategorised" although their details
 carried categories is the symptom of a not-yet-replayed deployment; run the
 procedure above (or leave the state if uncategorised tiles are acceptable).
+
+## 12. Reservation claim health (ADR-036 / issue #586)
+
+Since ADR-036 the four cross-aggregate uniqueness invariants (episode/season/
+block numbering `(series_id, number)` and scene_shoot pair-uniqueness) are
+additionally protected at the write boundary: each create command atomically
+claims a synthetic `reservation-*` SierraDB stream before appending to its
+aggregate stream, so the protection closes the advisory-pre-check race window
+before it can produce an unprojectable 2xx aggregate:
+
+- Registers covered by reservation claims: `reservation-epnum-*`,
+  `reservation-seasnum-*`, `reservation-blocknum-*` (tenant-scoped compact
+  series id + number) and `reservation-sspair-*` (96-bit truncated
+  SHA-256 of the pair, 24 hex chars). The authoritative claim state lives
+  in SierraDB;
+  `projection_number_reservation` (migration `20261007000001`) is an
+  observability/candidate mirror ONLY.
+- The API composition root spawns the `reservation` projector alongside the
+  domain projectors and the reaper worker once per API process.
+
+### What can block a key (and who resolves it)
+
+| Situation | Stream state | Resolution |
+|---|---|---|
+| Normal create | `Reserved` then reaper marks `Consumed` once the aggregate stream exists AND its persisted create event's key matches the claim key | none — number owned forever (matches #533 semantics: numbers are historical identity) |
+| Mismatched re-drive (a re-driven attempt claimed a different key under the same derived aggregate id; the aggregate's create event carries a different key) | `Reserved`, aggregate stream exists but does not realize the claim key | reaper RELEASES the phantom claim — the key becomes claimable again (consuming would block a number no aggregate owns); logged as warn |
+| Aggregate create rejected BEFORE any append (domain handle error) | `Reserved` → command appends `Released` inline (CAS) | key claimable again immediately |
+| Crash between reserve and aggregate append | `Reserved`, aggregate stream absent | reaper (claim TTL, default 600 s) appends `Released`; key claimable again |
+| Unknown append state (database error / version conflict) after reserve | `Reserved` | reaper decides by probing the aggregate stream — exists ⇒ `Consumed`, absent ⇒ `Released`; NEVER released by the command itself |
+
+Race semantics: every resolution append is CAS-guarded on the observed
+stream version; a lost CAS is a no-op. The reaper is advisory-lock
+single-flight (`pg_try_advisory_lock('RESERVATION_REAPER')`).
+
+### Health checks
+
+```sql
+-- Claims currently held (candidate view; TTL default 600 s):
+SELECT kind, count(*) FILTER (WHERE state = 'reserved') AS reserved,
+       count(*) FILTER (WHERE state = 'consumed') AS consumed,
+       count(*) FILTER (WHERE state = 'released') AS released
+FROM projection_number_reservation GROUP BY kind;
+
+-- A claim that has been reserved FAR past the TTL may hint at a missing or
+-- stuck reaper (reaper disabled? reaper pass crashing?):
+SELECT reservation_key, aggregate_id, reserved_at
+FROM projection_number_reservation
+WHERE state = 'reserved'
+    AND reserved_at < now() - interval '1 hour'
+ORDER BY reserved_at;
+```
+
+Environment: `RESERVATION_REAPER_ENABLED` (default `true`),
+`RESERVATION_REAPER_INTERVAL_SECS` (default `300`),
+`RESERVATION_CLAIM_TTL_SECS` (default `600`),
+`RESERVATION_REAPER_BATCH_SIZE` (default `200`).
+
+**Risk note:** running a production API with
+`RESERVATION_REAPER_ENABLED=false` means a crash between reserve and append
+blocks that key (e.g. episode number 3 of a series) until the reaper runs —
+don't disable it without a written plan for manual `Released` appends.
+
+The four #404 projection unique indexes stay the last authority; the
+projector savepoint-skips continue to log the same warn as before (they are
+now expected to see approximately zero duplicates because the claim closes
+the pre-check-to-append race at the write boundary).

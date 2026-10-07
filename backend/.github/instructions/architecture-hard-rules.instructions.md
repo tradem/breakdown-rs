@@ -83,10 +83,10 @@ read model (dispo/soll-ist reports) never updates.
 
 | Invariant | Projection constraint | Status |
 |---|---|---|
-| SceneShoot pair-uniqueness `(scene_id, shooting_day_id)` | `uq_projection_scene_shoot_pair` | closed: API-edge 409 (`scene-shoot.pair-already-exists`) + projector savepoint-skip |
-| Season numbering `(series_id, number)` | `idx_projection_season_series_number` | closed: API-edge 409 (`season.number-already-exists`) + projector savepoint-skip |
-| Block numbering `(series_id, number)` | `idx_projection_block_series_number` | closed: API-edge 409 (`block.number-already-exists`) + projector savepoint-skip (same class, fixed with #404) |
-| Episode numbering `(series_id, number)` | `idx_projection_episode_series_number` | closed: API-edge 409 (`episode.number-already-exists`) + projector savepoint-skip (same class, fixed with #404) |
+| SceneShoot pair-uniqueness `(scene_id, shooting_day_id)` | `uq_projection_scene_shoot_pair` | closed: API-edge 409 (`scene-shoot.pair-already-exists`) + projector savepoint-skip + ADR-036 reservation claim (`sspair-{sha256-24}` key) |
+| Season numbering `(series_id, number)` | `idx_projection_season_series_number` | closed: API-edge 409 (`season.number-already-exists`) + projector savepoint-skip + ADR-036 reservation claim (`seasnum-{series}-{n}` key) |
+| Block numbering `(series_id, number)` | `idx_projection_block_series_number` | closed: API-edge 409 (`block.number-already-exists`) + projector savepoint-skip + ADR-036 reservation claim (`blocknum-{series}-{n}` key) |
+| Episode numbering `(series_id, number)` | `idx_projection_episode_series_number` | closed: API-edge 409 (`episode.number-already-exists`) + projector savepoint-skip + ADR-036 reservation claim (`epnum-{series}-{n}` key; BOTH write paths — manual `POST /episodes` and the AI-apply worker — go through `EpisodeCommands::create`) |
 
 The projector skip lives in `crates/infra/src/projectors/invariant_skip.rs`: a 23505 on
 exactly these constraints is a *permanent* violation, isolated in a SAVEPOINT (a failed
@@ -124,14 +124,24 @@ ai_import — job queues are a Postgres strength, not an ES deficiency),
 projector version guards (`WHERE version < $N` — standard at-least-once
 idempotency).
 
-**ES-native alternative (design follow-up, ADR-worthy — do not adopt ad hoc):**
-reservation streams. The command first writes a reservation event to a
-synthetic key stream (`scene_shoot_pair:{hash(scene_id, day_id)}`,
-`season_number:{series_id}:{n}`) with `ExpectedVersion::Empty`; a competing
-command fails the version condition **in the event store** and maps to a clean
-409 *before* touching the aggregate stream. Uses only per-stream concurrency
-(SierraDB-capable). Trade-offs: reservation release/compensation on
-delete/archive, one extra stream per entity.
+**Reservation-stream layer (shipped, ADR-036 + issue #586):** the exact race
+window the doctrine still accepted — two commands passing the advisory
+pre-check before either projection row exists — is closed at the write
+boundary for the four invariants above: the command adapter claims a
+synthetic `reservation-*` SierraDB stream (`ExpectedVersion::Empty`) BEFORE
+the aggregate append; a competing claim fails the version condition in the
+event store (`WrongVer`) and answers the invariant's registered 409 with
+**no losing aggregate event** (the claim projector mirrors the lifecycle for
+observability/reaper candidate selection; the reaper releases crash orphans
+and consumes realized claims — always against the event store, never
+projections). Compensation policy: release inline ONLY on "rejected before
+any append" (`ExecuteError::Handle`) — never on unknown append state (version
+conflict ⇒ aggregate exists; database ⇒ undecidable) — that is the reaper's
+job, so projector lag can never cause a false release. The four
+savepoint-skips stay as last-line backstop. →
+`docs/architecture/adrs/ADR-036-es-native-reservation-streams-cross-aggregate-uniqueness.md`,
+runbooks "Reservation claim health (ADR-036)". Do not migrate NEW invariants
+without covering the same three layers.
 
 ## No panics in production code (hard rule)
 

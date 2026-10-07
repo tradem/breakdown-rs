@@ -21,6 +21,7 @@ mod episode;
 pub mod health;
 mod invariant_skip;
 mod membership;
+mod reservation;
 mod scene;
 mod scene_shoot;
 mod season;
@@ -47,6 +48,7 @@ pub use costume_category::CostumeCategoryProjector;
 pub use episode::EpisodeProjector;
 pub use health::ProjectorHealthRepository;
 pub use membership::MembershipProjector;
+pub use reservation::ReservationProjector;
 pub use scene::SceneProjector;
 pub use scene_shoot::SceneShootProjector;
 pub use season::SeasonProjector;
@@ -195,6 +197,12 @@ type SettingsAuditProcessor = PostgresProcessor<(SettingsAggregate,), SettingsAu
 // (Already re-exported via the block above; left here for clarity.)
 type ShootingDayProcessor = PostgresProcessor<(ShootingDayAggregate,), ShootingDayProjector>;
 type PhotoProcessor = PostgresProcessor<(PhotoAggregate,), PhotoProjector>;
+
+/// ADR-036: claim-lifecycle projector for the synthetic `reservation`
+/// category (observability + reaper candidate selection). The aggregate
+/// pseudo-entity lives in `crate::reservations::event::ReservationEntity`.
+type ReservationProcessor =
+    PostgresProcessor<(crate::reservations::event::ReservationEntity,), ReservationProjector>;
 
 /// Spawn a supervised projector subscription loop.
 ///
@@ -458,6 +466,36 @@ pub async fn spawn_episode_projector(
 }
 
 /// Spawn the membership projector actor and start its SierraDB subscription loop.
+/// Spawn the reservation-claim projector actor (ADR-036): mirrors the claim
+/// lifecycle of the `reservation` category streams into
+/// `projection_number_reservation` (observability + reaper candidate
+/// selection only; the event store holds the authoritative claim state).
+pub async fn spawn_reservation_projector(
+    pool: PgPool,
+    redis_client: Arc<RedisClient>,
+    config: ProjectorFlushConfig,
+) -> Result<ActorRef<ReservationProcessor>> {
+    let conn = redis_client.get_multiplexed_async_connection().await?;
+    let processor = config.apply(
+        ReservationProcessor::new(
+            pool.clone(),
+            conn,
+            CHECKPOINTS_TABLE,
+            crate::reservations::event::RESERVATION_CATEGORY,
+            ReservationProjector,
+        )
+        .await?,
+    );
+    let actor_ref = ReservationProcessor::spawn(processor);
+    run_projection_stream!(
+        crate::reservations::event::ReservationEntity,
+        crate::reservations::event::RESERVATION_CATEGORY,
+        redis_client,
+        actor_ref.clone()
+    )?;
+    Ok(actor_ref)
+}
+
 pub async fn spawn_membership_projector(
     pool: PgPool,
     redis_client: Arc<RedisClient>,

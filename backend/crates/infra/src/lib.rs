@@ -30,6 +30,7 @@ pub mod photo;
 pub mod projectors;
 pub mod queries;
 pub mod reporting;
+pub mod reservations;
 pub mod sagas;
 pub mod tls;
 pub mod vault;
