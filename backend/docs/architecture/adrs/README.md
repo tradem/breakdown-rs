@@ -64,6 +64,8 @@ and their consequences.
 | [033](ADR-033-flutter-client-versioning.md) | Flutter Client Versioning & Release Mechanics | Accepted | 2026-09-04 | Tobias Rademacher (@tradem); Muse Spark (opencode-go) |
 | [034](ADR-034-flutter-app-localization-gen-l10n.md) | Flutter App Localization with the Official gen-l10n Pipeline | Accepted | 2026-09-04 | Tobias Rademacher (@tradem); glm-5.3 (neuralwatt) |
 | [035](ADR-035-production-kind-flexible-hierarchy.md) | Production-Kind-Flexible Hierarchy — `Project` as the Container Target | Accepted | 2026-10-05 | Tobias Rademacher (@tradem); space-bunny-free (opencode-go) |
+| [036](ADR-036-es-native-reservation-streams-cross-aggregate-uniqueness.md) | ES-native Reservation Streams for Cross-Aggregate Uniqueness | Accepted | 2026-10-07 | Tobias Rademacher (@tradem); glm-5.3 (neuralwatt); glm-5.3-flash (opencode-go) |
+| [037](ADR-037-sceneshoot-provenance-pair-join-derivation.md) | SceneShoot AI Provenance — Derive via the Pair Join, No First-Class Field | Accepted | 2026-10-07 | Tobias Rademacher (@tradem); glm-5.3-flash (opencode-go) |
 
 ## Creating a New ADR
 

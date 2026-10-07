@@ -161,6 +161,21 @@ tag. Never edit a released entry afterwards.
   chunk (the heading is that scene's heading).
 
 ### Changed
+- **ADR-037: SceneShoot AI provenance derives via the pair join — no
+  first-class field (issue `#539`, follow-up to `#517`).** Decision record
+  only, no code change: the provenance of a `SceneShoot` is the provenance of
+  its scene (`SceneCreated.source`), derived via the immutable
+  `(scene_id, shooting_day_id)` pair. Forensic "who planned this row"
+  questions route through the audit layer (`projection_audit` records the
+  human reviewer; import batches remain correlated via
+  `ai_import.projection_ai_import_mapping`); the app's #517 disclosures and
+  badges serve EU AI Act transparency at the application level (Art. 4
+  bears on providers and deployers, Art. 50(1)/(2) rest with the model
+  provider — no per-row planner attribution required), so no
+  projector migration, OpenAPI change, or Dart regen. The additive
+  `SceneShootSource` option stays documented in ADR-037 as the
+  only-opening case. Index fix: ADR README table now lists ADR-036 too
+  (merged without an index row).
 - **Version bumps (issue `#534`).** `core 0.19.0 → 0.20.0` (new repertoire
   commands/events, `CostumeCommands` port methods, `CostumeView.season_ids`),
   `infra 0.23.0 → 0.24.0` (command-adapter methods, projector INSERT/DELETE
