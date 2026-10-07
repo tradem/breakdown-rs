@@ -54,11 +54,15 @@ commits (ADR-020 D5).
 - `ReservationProjector` + `projection_number_reservation` (migration
   `20261007000001`): claim-lifecycle mirror for observability and reaper
   candidate selection. `spawn_reservation_projector` in the composition root.
-- `infra::reservations::reaper`: periodic crash-orphan compensation worker
+- `infra::reservations::reaper`: periodic claim-compensation worker
   (`RESERVATION_REAPER_ENABLED`, `RESERVATION_REAPER_INTERVAL_SECS`,
-  `RESERVATION_CLAIM_TTL_SECS`, `RESERVATION_REAPER_BATCH_SIZE`), released
-  realized claims (`ReservationConsumed`) and crash orphans
-  (`ReservationReleased`), advisory-lock-single-flight.
+  `RESERVATION_CLAIM_TTL_SECS`, `RESERVATION_REAPER_BATCH_SIZE`), advisory-
+  lock-single-flight. It consumes realized claims whose aggregate's first
+  persisted create event matches the claim key (`ReservationConsumed`), and
+  releases both crash orphans and mismatched phantom claims
+  (`ReservationReleased` — a re-driven attempt can claim a different key
+  under the same derived aggregate id; the reaper verifies the realized key
+  against the claimed aggregate's create event before consuming).
 - The four #404 projector savepoint-skips stay as documented backstop; the
   projection unique constraints remain the last authority.
 
