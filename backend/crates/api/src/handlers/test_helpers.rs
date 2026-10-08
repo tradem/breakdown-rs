@@ -59,7 +59,7 @@ use breakdown_core::season::commands::{CreateSeason, RenameSeason};
 use breakdown_core::season::ports::{SeasonCommands, SeasonRepository};
 use breakdown_core::season::views::SeasonView;
 use breakdown_core::shared::{
-    AggregateVersion, BlockId, EpisodeId, PhotoId, PhotoVariant, SceneShootId, SeasonId, SeriesId,
+    AggregateVersion, BlockId, EpisodeId, PhotoId, PhotoVariant, SceneShootId, SeasonId, ProjectId,
     ShootingDayId,
 };
 use breakdown_core::shooting_day::commands::WrapShootingDay;
@@ -79,7 +79,7 @@ use breakdown_core::membership::commands::{
 };
 use breakdown_core::membership::ports::{MembershipCommands, MembershipRepository};
 use breakdown_core::membership::{MembershipStateKind, MembershipView, Role};
-use breakdown_core::shared::{SeriesId, UserId};
+use breakdown_core::shared::{ProjectId, UserId};
 use chrono::{DateTime, Utc};
 use std::collections::HashSet;
 
@@ -310,7 +310,7 @@ impl MembershipCommands for FakeMembershipCommands {
 ///
 /// `members` holds `(block_id, user_id)` pairs meaning an *active*
 /// `CostumeAssistant`; `detailed` holds role/state-distinct rows and `scopes`
-/// attributes blocks to a `(season_id, series_id)` scope. The
+/// attributes blocks to a `(season_id, project_id)` scope. The
 /// `series_membership_override` keeps precedence for error-injection tests.
 /// With no override and no matching seed row the predicates fail closed
 /// (`Ok(false)`) — like the production SQL — so these fakes can no longer
@@ -321,8 +321,8 @@ pub(crate) struct FakeMembershipRepo {
     /// Role/state-distinct membership rows (see the struct docs).
     pub(crate) detailed: Arc<Mutex<HashMap<(BlockId, UserId), (Role, MembershipStateKind)>>>,
     /// Block → (season, series) scope attribution (see the struct docs).
-    pub(crate) scopes: Arc<Mutex<HashMap<BlockId, (SeasonId, SeriesId)>>>,
-    /// Configurable outcome of `has_active_membership_in_series` — lets
+    pub(crate) scopes: Arc<Mutex<HashMap<BlockId, (SeasonId, ProjectId)>>>,
+    /// Configurable outcome of `has_active_membership_in_project` — lets
     /// handler tests exercise the allow/deny branches of the series-scoped
     /// audit gate (issue #342). `None` = resolve from seeded data.
     pub(crate) series_membership_override: Arc<Mutex<Option<Result<bool, DomainError>>>>,
@@ -337,13 +337,13 @@ impl FakeMembershipRepo {
         user_id: UserId,
         role: Role,
         season_id: SeasonId,
-        series_id: SeriesId,
+        project_id: ProjectId,
     ) {
         self.detailed
             .lock()
             .await
             .insert((block_id, user_id), (role, MembershipStateKind::Active));
-        self.scopes.lock().await.insert(block_id, (season_id, series_id));
+        self.scopes.lock().await.insert(block_id, (season_id, project_id));
     }
 
     /// Every known row as `(block_id, user_id, role, state)`: the `members`
@@ -468,9 +468,9 @@ impl MembershipRepository for FakeMembershipRepo {
         Ok(self.members.lock().await.contains(&(block_id, user_id)))
     }
 
-    async fn has_active_membership_in_series(
+    async fn has_active_membership_in_project(
         &self,
-        series_id: SeriesId,
+        project_id: ProjectId,
         user_id: UserId,
     ) -> Result<bool, DomainError> {
         if let Some(result) = self.series_membership_override.lock().await.clone() {
@@ -485,13 +485,13 @@ impl MembershipRepository for FakeMembershipRepo {
                 && *state == MembershipStateKind::Active
                 && scopes
                     .get(block_id)
-                    .is_some_and(|(_, series)| series == &series_id)
+                    .is_some_and(|(_, series)| series == &project_id)
         }))
     }
 
-    async fn has_active_costume_role_in_series(
+    async fn has_active_costume_role_in_project(
         &self,
-        series_id: SeriesId,
+        project_id: ProjectId,
         user_id: UserId,
     ) -> Result<bool, DomainError> {
         // Series-scoped costume-role allowlist over the seeded rows (issue
@@ -507,7 +507,7 @@ impl MembershipRepository for FakeMembershipRepo {
                 )
                 && scopes
                     .get(block_id)
-                    .is_some_and(|(_, series)| series == &series_id)
+                    .is_some_and(|(_, series)| series == &project_id)
         }))
     }
 
@@ -703,17 +703,17 @@ impl SeasonRepository for FakeSeasonRepo {
     async fn list_all(&self, _limit: i64, _offset: i64) -> Result<Vec<SeasonView>, DomainError> {
         Ok(Vec::new())
     }
-    async fn list_by_series(
+    async fn list_by_project(
         &self,
-        _series_id: SeriesId,
+        _project_id: ProjectId,
         _limit: i64,
         _offset: i64,
     ) -> Result<Vec<SeasonView>, DomainError> {
         Ok(Vec::new())
     }
-    async fn find_by_series_and_number(
+    async fn find_by_project_and_number(
         &self,
-        _series_id: SeriesId,
+        _project_id: ProjectId,
         _number: i32,
     ) -> Result<Option<SeasonView>, DomainError> {
         Ok(None)
@@ -735,9 +735,9 @@ impl BlockRepository for FakeBlockRepo {
     ) -> Result<Vec<BlockView>, DomainError> {
         Ok(Vec::new())
     }
-    async fn find_by_series_and_number(
+    async fn find_by_project_and_number(
         &self,
-        _series_id: SeriesId,
+        _project_id: ProjectId,
         _number: i32,
     ) -> Result<Option<BlockView>, DomainError> {
         Ok(None)
@@ -759,17 +759,17 @@ impl EpisodeRepository for FakeEpisodeRepo {
     ) -> Result<Vec<EpisodeView>, DomainError> {
         Ok(Vec::new())
     }
-    async fn list_by_series(
+    async fn list_by_project(
         &self,
-        _series_id: SeriesId,
+        _project_id: ProjectId,
         _limit: i64,
         _offset: i64,
     ) -> Result<Vec<EpisodeView>, DomainError> {
         Ok(Vec::new())
     }
-    async fn find_by_series_and_number(
+    async fn find_by_project_and_number(
         &self,
-        _series_id: SeriesId,
+        _project_id: ProjectId,
         _number: i32,
     ) -> Result<Option<EpisodeView>, DomainError> {
         Ok(None)

@@ -10,7 +10,7 @@ import 'package:built_value/serializer.dart';
 
 part 'create_costume_request.g.dart';
 
-/// Create-costume payload (issue #453).  `season_id` is the optional repertoire season: when present, the costume joins that season's costume stream while unassigned. The API edge resolves the `series_id` audit metadata from the season projection (404 on an unknown season).
+/// Create-costume payload (issue #453).  `season_id` is the optional repertoire season: when present, the costume joins that season's costume stream while unassigned. The API edge resolves the `project_id` audit metadata from the season projection (404 on an unknown season).
 ///
 /// Properties:
 /// * [seasonId] - Opaque identifier for a `Season` aggregate.

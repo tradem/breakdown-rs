@@ -9,7 +9,7 @@ use chrono::{DateTime, Utc};
 use uuid::Uuid;
 
 use crate::shared::{
-    AggregateVersion, LexicalSortKey, PhotoId, SceneShootId, SeriesId, ShootingDayId, UserId,
+    AggregateVersion, LexicalSortKey, PhotoId, ProjectId, SceneShootId, ShootingDayId, UserId,
 };
 
 /// Plan a new `SceneShoot` for the given (scene, shooting_day) pair.
@@ -18,15 +18,17 @@ use crate::shared::{
 /// `PlanSceneShoot` for an existing non-empty `(scene_id, shooting_day_id)`
 /// pair is rejected with `PairAlreadyExists`.
 ///
-/// `series_id` is carried for the `EventMetadata` audit trail (the audit
-/// projector keys on `series_id`); it is resolved at the API edge from the
+/// `project_id` is carried for the `EventMetadata` audit trail (the audit
+/// projector keys on `project_id`); it is resolved at the API edge from the
 /// scene projection, never queried again by the command adapter.
 #[derive(Debug, Clone, serde::Deserialize, utoipa::ToSchema)]
 pub struct PlanSceneShoot {
     pub id: SceneShootId,
     pub scene_id: Uuid,
     pub shooting_day_id: ShootingDayId,
-    pub series_id: Option<SeriesId>,
+    #[schema(rename = "series_id")]
+    // wire name pinned: layer 3 (OpenAPI field rename) is a breaking ADR-021 change, deferred
+    pub project_id: Option<ProjectId>,
     pub planned_order: LexicalSortKey,
 }
 
@@ -35,14 +37,16 @@ pub struct PlanSceneShoot {
 /// Rejected with `PlannedOrderFrozen` if execution data has been recorded
 /// (`actual_order` or `start_dt` is set).
 ///
-/// `series_id` is carried for the `EventMetadata` audit trail (the audit
-/// projector keys on `series_id`); it is resolved at the API edge from the
+/// `project_id` is carried for the `EventMetadata` audit trail (the audit
+/// projector keys on `project_id`); it is resolved at the API edge from the
 /// scene-shoot projection, never queried again by the command adapter.
 #[derive(Debug, Clone, serde::Deserialize, utoipa::ToSchema)]
 pub struct ReplanSceneShoot {
     pub id: SceneShootId,
     pub planned_order: LexicalSortKey,
-    pub series_id: Option<SeriesId>,
+    #[schema(rename = "series_id")]
+    // wire name pinned: layer 3 (OpenAPI field rename) is a breaking ADR-021 change, deferred
+    pub project_id: Option<ProjectId>,
     pub version: AggregateVersion,
 }
 
@@ -57,15 +61,17 @@ pub struct ReplanSceneShoot {
 /// the aggregate rejects a `shooting_day_id` that does not match its own
 /// association.
 ///
-/// `series_id` is carried for the `EventMetadata` audit trail (the audit
-/// projector keys on `series_id`); it is resolved at the API edge from the
+/// `project_id` is carried for the `EventMetadata` audit trail (the audit
+/// projector keys on `project_id`); it is resolved at the API edge from the
 /// scene-shoot projection, never queried again by the command adapter.
 #[derive(Debug, Clone, serde::Deserialize, utoipa::ToSchema)]
 pub struct StartSceneShoot {
     pub id: SceneShootId,
     pub shooting_day_id: ShootingDayId,
     pub start_dt: DateTime<Utc>,
-    pub series_id: Option<SeriesId>,
+    #[schema(rename = "series_id")]
+    // wire name pinned: layer 3 (OpenAPI field rename) is a breaking ADR-021 change, deferred
+    pub project_id: Option<ProjectId>,
     pub version: AggregateVersion,
 }
 
@@ -77,15 +83,17 @@ pub struct StartSceneShoot {
 /// This is an **execution transition** (frozen on a wrapped shooting day):
 /// see [`StartSceneShoot`] for the write-side enforcement contract.
 ///
-/// `series_id` is carried for the `EventMetadata` audit trail (the audit
-/// projector keys on `series_id`); it is resolved at the API edge from the
+/// `project_id` is carried for the `EventMetadata` audit trail (the audit
+/// projector keys on `project_id`); it is resolved at the API edge from the
 /// scene-shoot projection, never queried again by the command adapter.
 #[derive(Debug, Clone, serde::Deserialize, utoipa::ToSchema)]
 pub struct SetActualOrder {
     pub id: SceneShootId,
     pub shooting_day_id: ShootingDayId,
     pub actual_order: LexicalSortKey,
-    pub series_id: Option<SeriesId>,
+    #[schema(rename = "series_id")]
+    // wire name pinned: layer 3 (OpenAPI field rename) is a breaking ADR-021 change, deferred
+    pub project_id: Option<ProjectId>,
     pub version: AggregateVersion,
 }
 
@@ -94,15 +102,17 @@ pub struct SetActualOrder {
 /// This is an **execution transition** (frozen on a wrapped shooting day):
 /// see [`StartSceneShoot`] for the write-side enforcement contract.
 ///
-/// `series_id` is carried for the `EventMetadata` audit trail (the audit
-/// projector keys on `series_id`); it is resolved at the API edge from the
+/// `project_id` is carried for the `EventMetadata` audit trail (the audit
+/// projector keys on `project_id`); it is resolved at the API edge from the
 /// scene-shoot projection, never queried again by the command adapter.
 #[derive(Debug, Clone, serde::Deserialize, utoipa::ToSchema)]
 pub struct FinishSceneShoot {
     pub id: SceneShootId,
     pub shooting_day_id: ShootingDayId,
     pub end_dt: DateTime<Utc>,
-    pub series_id: Option<SeriesId>,
+    #[schema(rename = "series_id")]
+    // wire name pinned: layer 3 (OpenAPI field rename) is a breaking ADR-021 change, deferred
+    pub project_id: Option<ProjectId>,
     pub version: AggregateVersion,
 }
 
@@ -111,14 +121,16 @@ pub struct FinishSceneShoot {
 /// This is an **execution transition** (frozen on a wrapped shooting day):
 /// see [`StartSceneShoot`] for the write-side enforcement contract.
 ///
-/// `series_id` is carried for the `EventMetadata` audit trail (the audit
-/// projector keys on `series_id`); it is resolved at the API edge from the
+/// `project_id` is carried for the `EventMetadata` audit trail (the audit
+/// projector keys on `project_id`); it is resolved at the API edge from the
 /// scene-shoot projection, never queried again by the command adapter.
 #[derive(Debug, Clone, serde::Deserialize, utoipa::ToSchema)]
 pub struct SkipSceneShoot {
     pub id: SceneShootId,
     pub shooting_day_id: ShootingDayId,
-    pub series_id: Option<SeriesId>,
+    #[schema(rename = "series_id")]
+    // wire name pinned: layer 3 (OpenAPI field rename) is a breaking ADR-021 change, deferred
+    pub project_id: Option<ProjectId>,
     pub version: AggregateVersion,
 }
 
@@ -127,8 +139,8 @@ pub struct SkipSceneShoot {
 /// This is an **execution-context mutation** (frozen on a wrapped shooting
 /// day): see [`StartSceneShoot`] for the write-side enforcement contract.
 ///
-/// `series_id` is carried for the `EventMetadata` audit trail (the audit
-/// projector keys on `series_id`); it is resolved at the API edge from the
+/// `project_id` is carried for the `EventMetadata` audit trail (the audit
+/// projector keys on `project_id`); it is resolved at the API edge from the
 /// scene-shoot projection, never queried again by the command adapter.
 #[derive(Debug, Clone, serde::Deserialize, utoipa::ToSchema)]
 pub struct AddSceneShootNote {
@@ -136,7 +148,9 @@ pub struct AddSceneShootNote {
     pub shooting_day_id: ShootingDayId,
     pub note_id: Uuid,
     pub body: String,
-    pub series_id: Option<SeriesId>,
+    #[schema(rename = "series_id")]
+    // wire name pinned: layer 3 (OpenAPI field rename) is a breaking ADR-021 change, deferred
+    pub project_id: Option<ProjectId>,
     pub author: Option<UserId>,
 }
 
@@ -145,8 +159,8 @@ pub struct AddSceneShootNote {
 /// This is an **execution-context mutation** (frozen on a wrapped shooting
 /// day): see [`StartSceneShoot`] for the write-side enforcement contract.
 ///
-/// `series_id` is carried for the `EventMetadata` audit trail (the audit
-/// projector keys on `series_id`); it is resolved at the API edge from the
+/// `project_id` is carried for the `EventMetadata` audit trail (the audit
+/// projector keys on `project_id`); it is resolved at the API edge from the
 /// scene-shoot projection, never queried again by the command adapter.
 #[derive(Debug, Clone, serde::Deserialize, utoipa::ToSchema)]
 pub struct UpdateSceneShootNote {
@@ -154,7 +168,9 @@ pub struct UpdateSceneShootNote {
     pub shooting_day_id: ShootingDayId,
     pub note_id: Uuid,
     pub body: String,
-    pub series_id: Option<SeriesId>,
+    #[schema(rename = "series_id")]
+    // wire name pinned: layer 3 (OpenAPI field rename) is a breaking ADR-021 change, deferred
+    pub project_id: Option<ProjectId>,
     pub version: AggregateVersion,
 }
 
@@ -163,41 +179,47 @@ pub struct UpdateSceneShootNote {
 /// This is an **execution-context mutation** (frozen on a wrapped shooting
 /// day): see [`StartSceneShoot`] for the write-side enforcement contract.
 ///
-/// `series_id` is carried for the `EventMetadata` audit trail (the audit
-/// projector keys on `series_id`); it is resolved at the API edge from the
+/// `project_id` is carried for the `EventMetadata` audit trail (the audit
+/// projector keys on `project_id`); it is resolved at the API edge from the
 /// scene-shoot projection, never queried again by the command adapter.
 #[derive(Debug, Clone, serde::Deserialize, utoipa::ToSchema)]
 pub struct RemoveSceneShootNote {
     pub id: SceneShootId,
     pub shooting_day_id: ShootingDayId,
     pub note_id: Uuid,
-    pub series_id: Option<SeriesId>,
+    #[schema(rename = "series_id")]
+    // wire name pinned: layer 3 (OpenAPI field rename) is a breaking ADR-021 change, deferred
+    pub project_id: Option<ProjectId>,
     pub version: AggregateVersion,
 }
 
 /// Link a continuity photo to this scene shoot.
 ///
-/// `series_id` is carried for the `EventMetadata` audit trail (the audit
-/// projector keys on `series_id`); it is resolved at the API edge from the
+/// `project_id` is carried for the `EventMetadata` audit trail (the audit
+/// projector keys on `project_id`); it is resolved at the API edge from the
 /// scene-shoot projection, never queried again by the command adapter.
 #[derive(Debug, Clone, serde::Deserialize, utoipa::ToSchema)]
 pub struct LinkContinuityPhoto {
     pub id: SceneShootId,
     pub photo_id: PhotoId,
-    pub series_id: Option<SeriesId>,
+    #[schema(rename = "series_id")]
+    // wire name pinned: layer 3 (OpenAPI field rename) is a breaking ADR-021 change, deferred
+    pub project_id: Option<ProjectId>,
     pub version: AggregateVersion,
 }
 
 /// Unlink a continuity photo from this scene shoot.
 ///
-/// `series_id` is carried for the `EventMetadata` audit trail (the audit
-/// projector keys on `series_id`); it is resolved at the API edge from the
+/// `project_id` is carried for the `EventMetadata` audit trail (the audit
+/// projector keys on `project_id`); it is resolved at the API edge from the
 /// scene-shoot projection, never queried again by the command adapter.
 #[derive(Debug, Clone, serde::Deserialize, utoipa::ToSchema)]
 pub struct UnlinkContinuityPhoto {
     pub id: SceneShootId,
     pub photo_id: PhotoId,
-    pub series_id: Option<SeriesId>,
+    #[schema(rename = "series_id")]
+    // wire name pinned: layer 3 (OpenAPI field rename) is a breaking ADR-021 change, deferred
+    pub project_id: Option<ProjectId>,
     pub version: AggregateVersion,
 }
 

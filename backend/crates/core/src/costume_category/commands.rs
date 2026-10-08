@@ -6,57 +6,65 @@
 
 use uuid::Uuid;
 
-use crate::shared::{AggregateVersion, LexicalSortKey, SeasonId, SeriesId};
+use crate::shared::{AggregateVersion, LexicalSortKey, ProjectId, SeasonId};
 
 /// Create a season-scoped costume category with an externally supplied UUIDv7 id.
 ///
-/// `series_id` is carried for the `EventMetadata` audit trail (the audit
-/// projector keys on `series_id`); it is resolved at the API edge from the
+/// `project_id` is carried for the `EventMetadata` audit trail (the audit
+/// projector keys on `project_id`); it is resolved at the API edge from the
 /// season projection, never queried again by the command adapter.
 #[derive(Debug, Clone, serde::Deserialize, utoipa::ToSchema)]
 pub struct CreateCostumeCategory {
     pub id: Uuid,
     pub season_id: SeasonId,
-    pub series_id: Option<SeriesId>,
+    #[schema(rename = "series_id")]
+    // wire name pinned: layer 3 (OpenAPI field rename) is a breaking ADR-021 change, deferred
+    pub project_id: Option<ProjectId>,
     pub name: String,
     pub order_key: LexicalSortKey,
 }
 
 /// Rename a costume category.
 ///
-/// `series_id` is carried for the `EventMetadata` audit trail (the audit
-/// projector keys on `series_id`); it is resolved at the API edge from the
+/// `project_id` is carried for the `EventMetadata` audit trail (the audit
+/// projector keys on `project_id`); it is resolved at the API edge from the
 /// category projection, never queried again by the command adapter.
 #[derive(Debug, Clone, serde::Deserialize, utoipa::ToSchema)]
 pub struct RenameCostumeCategory {
     pub id: Uuid,
     pub name: String,
-    pub series_id: Option<SeriesId>,
+    #[schema(rename = "series_id")]
+    // wire name pinned: layer 3 (OpenAPI field rename) is a breaking ADR-021 change, deferred
+    pub project_id: Option<ProjectId>,
     pub version: AggregateVersion,
 }
 
 /// Reorder a costume category.
 ///
-/// `series_id` is carried for the `EventMetadata` audit trail (the audit
-/// projector keys on `series_id`); it is resolved at the API edge from the
+/// `project_id` is carried for the `EventMetadata` audit trail (the audit
+/// projector keys on `project_id`); it is resolved at the API edge from the
 /// category projection, never queried again by the command adapter.
 #[derive(Debug, Clone, serde::Deserialize, utoipa::ToSchema)]
 pub struct ReorderCostumeCategory {
     pub id: Uuid,
     pub order_key: LexicalSortKey,
-    pub series_id: Option<SeriesId>,
+    #[schema(rename = "series_id")]
+    // wire name pinned: layer 3 (OpenAPI field rename) is a breaking ADR-021 change, deferred
+    pub project_id: Option<ProjectId>,
     pub version: AggregateVersion,
 }
 
 /// Archive a costume category.
 ///
-/// `series_id` is carried for the `EventMetadata` audit trail (the audit
-/// projector keys on `series_id`); it is resolved at the API edge from the
+/// `project_id` is carried for the `EventMetadata` audit trail (the audit
+/// projector keys on `project_id`); it is resolved at the API edge from the
 /// category projection, never queried again by the command adapter.
 #[derive(Debug, Clone, serde::Deserialize, utoipa::ToSchema)]
 pub struct ArchiveCostumeCategory {
     pub id: Uuid,
-    pub series_id: Option<SeriesId>,
+    #[schema(rename = "series_id")]
+    // wire name pinned: layer 3 (OpenAPI field rename) is a breaking ADR-021 change, deferred
+    pub project_id: Option<ProjectId>,
     pub version: AggregateVersion,
 }
 

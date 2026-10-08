@@ -32,7 +32,7 @@ use axum::extract::State;
 use axum::http::StatusCode;
 use breakdown_core::episode::EpisodeView;
 use breakdown_core::shared::{
-    AggregateVersion, BlockId, EpisodeId, LexicalSortKey, SeriesId, ShootingDayId,
+    AggregateVersion, BlockId, EpisodeId, LexicalSortKey, ProjectId, ShootingDayId,
 };
 use breakdown_core::shooting_day::ShootingDayView;
 use chrono::NaiveDate;
@@ -43,7 +43,7 @@ fn dummy_user() -> CurrentUser {
 }
 
 /// Seed the minimal chain `update_shooting_day` resolves at the API edge:
-/// shooting_day → episode (carries `series_id` for the audit trail).
+/// shooting_day → episode (carries `project_id` for the audit trail).
 async fn seed_shooting_day_chain(ports: &FakePorts) -> ShootingDayId {
     let sd_id = ShootingDayId::new();
     let ep_id = EpisodeId::new();
@@ -52,7 +52,7 @@ async fn seed_shooting_day_chain(ports: &FakePorts) -> ShootingDayId {
         EpisodeView {
             id: ep_id.0,
             block_id: BlockId::new(),
-            series_id: SeriesId::new(),
+            project_id: ProjectId::new(),
             number: 1,
             name: Some("Episode 1".into()),
             version: AggregateVersion::INITIAL,

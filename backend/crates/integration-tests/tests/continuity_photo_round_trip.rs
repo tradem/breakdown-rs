@@ -139,7 +139,7 @@ async fn seed_parents(pool: &sqlx::PgPool, scene_id: Uuid, day_id: ShootingDayId
     .await?;
 
     // episode (required so the scene_shoot projector can resolve the parent
-    // chain — the saga now takes series_id from event metadata, not the
+    // chain — the saga now takes project_id from event metadata, not the
     // projection)
     sqlx::query(
         r#"INSERT INTO projection_episode
@@ -149,7 +149,7 @@ async fn seed_parents(pool: &sqlx::PgPool, scene_id: Uuid, day_id: ShootingDayId
     )
     .bind(ep)
     .bind(ep) // block_id = same id re-used as opaque value
-    .bind(ep) // series_id = same id re-used as opaque value
+    .bind(ep) // project_id = same id re-used as opaque value
     .execute(pool)
     .await?;
 
@@ -286,7 +286,7 @@ async fn continuity_photo_upload_projection() -> Result<()> {
                     scene_shoot_id: shoot_id,
                     costume_id: None,
                 },
-                series_id: Some(breakdown_core::shared::SeriesId::new()),
+                project_id: Some(breakdown_core::shared::ProjectId::new()),
             },
         )
         .await?;
@@ -430,7 +430,7 @@ async fn continuity_photo_delete_on_zero_refcount() -> Result<()> {
                     scene_shoot_id: shoot_id,
                     costume_id: None,
                 },
-                series_id: Some(breakdown_core::shared::SeriesId::new()),
+                project_id: Some(breakdown_core::shared::ProjectId::new()),
             },
         )
         .await?;

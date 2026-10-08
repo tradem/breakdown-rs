@@ -41,6 +41,7 @@ on:
       - "backend/rules-tests/**"
       - "backend/scripts/**"
       - "backend/sgconfig.yml"
+      - "backend/git-hooks/pre-commit"
       - ".gitleaks.toml"
       - ".github/workflows/architecture-checks.yml"
   workflow_dispatch:
@@ -264,7 +265,21 @@ jobs:
           # the S2 enforcement.
           test -d crates/api/src/problems
           ast-grep scan -r rules/s2-extension-ban.yml crates/api/src/problems
-          echo "OK: no discarded results / ungated test helpers / UUIDv4 / bare panic allows / no S2 extensions / dishonest value_type overrides / swallowed membership-predicate errors found"
+          # Stale `SeriesId` after the `ProjectId` rename (issue #591,
+          # ADR-035 D1/S1) — the tenant container is a `Project` and no
+          # compatibility alias exists. Scoped to EVERY Rust file (production
+          # AND test/fuzz targets): the rename is final, and a test fixture
+          # naming the old container is how it would creep back in. The rule
+          # does not touch lowercase `series_id` — the projection columns,
+          # OpenAPI fields and pinned event serde keys keep that spelling
+          # until the layer-3 ADR-021 `/v2` migration.
+          test -f rules/no-stale-series-id.yml
+          mapfile -t ALL_RS_FILES < <(find crates -name '*.rs' \
+            ! -path '*/.ast-bro/*' -print)
+          if [ "${#ALL_RS_FILES[@]}" -gt 0 ]; then
+            ast-grep scan -r rules/no-stale-series-id.yml "${ALL_RS_FILES[@]}"
+          fi
+          echo "OK: no discarded results / ungated test helpers / UUIDv4 / bare panic allows / no S2 extensions / dishonest value_type overrides / swallowed membership-predicate errors / stale SeriesId references found"
 
   problem-code-registry:
     name: Problem-code registry (every code registered via the macro)

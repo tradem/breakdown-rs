@@ -17,7 +17,7 @@ use breakdown_core::scene::ports::SceneCommands;
 use breakdown_core::scene_shoot::commands::PlanSceneShoot;
 use breakdown_core::scene_shoot::ports::SceneShootCommands;
 use breakdown_core::shared::{
-    AggregateVersion, EpisodeId, LexicalSortKey, SceneShootId, SeriesId, ShootingDayId, UserId,
+    AggregateVersion, EpisodeId, LexicalSortKey, ProjectId, SceneShootId, ShootingDayId, UserId,
 };
 use breakdown_core::shooting_day::commands::CreateShootingDay;
 use breakdown_core::shooting_day::events::ShootingDaySource;
@@ -25,13 +25,13 @@ use breakdown_core::shooting_day::ports::ShootingDayCommands;
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
-/// Reviewed schedule-side apply request. `series_id` is supplied by the API
+/// Reviewed schedule-side apply request. `project_id` is supplied by the API
 /// edge and is never looked up by this write-side worker.
 pub struct ScheduleApplyRequest<'a> {
     pub actor: UserId,
     pub preview_id: AiImportJobId,
     pub preview: &'a MergedPreview,
-    pub series_id: Option<SeriesId>,
+    pub project_id: Option<ProjectId>,
 }
 
 pub struct ScheduleApplyWorker<SC, SD, SS, M> {
@@ -100,7 +100,7 @@ where
                                 episode_id: merged.scene.episode_id,
                                 label: row.shooting_day_label.clone(),
                                 date: row.date,
-                                series_id: request.series_id,
+                                project_id: request.project_id,
                             },
                         )
                         .await?;
@@ -115,7 +115,7 @@ where
                 // Read the idempotency projection (non-audit): the spec requires
                 // the mapping lookup so a retried apply dispatches Update…
                 // instead of duplicating a scene shoot. Not audit-context
-                // resolution — series_id comes from the API edge request.
+                // resolution — project_id comes from the API edge request.
                 // (Suppression directive on the find line below.)
                 //
                 // Only a *confirmed* mapping ends the work for this row. A
@@ -198,7 +198,7 @@ where
                         request.actor.clone(),
                         merged.scene.id,
                         day.id,
-                        request.series_id,
+                        request.project_id,
                         scene_version,
                     )
                     .await?;
@@ -216,7 +216,7 @@ where
                                 id: scene_shoot_id,
                                 scene_id: merged.scene.id,
                                 shooting_day_id: day.id,
-                                series_id: request.series_id,
+                                project_id: request.project_id,
                                 planned_order,
                             },
                         )
@@ -261,7 +261,7 @@ where
         actor: UserId,
         scene_id: Uuid,
         shooting_day_id: ShootingDayId,
-        series_id: Option<SeriesId>,
+        project_id: Option<ProjectId>,
         version: AggregateVersion,
     ) -> Result<AggregateVersion, DomainError> {
         self.scene_commands
@@ -270,7 +270,7 @@ where
                 ScheduleSceneOnShootingDay {
                     id: scene_id,
                     shooting_day_id,
-                    series_id,
+                    project_id,
                     version,
                 },
             )
@@ -280,7 +280,7 @@ where
     async fn resolve_day(&self, actor: UserId, draft: DayDraft) -> Result<AppliedDay, DomainError> {
         // Read the idempotency projection (non-audit): a retried apply must
         // reuse the previously created shooting day instead of creating a
-        // duplicate. series_id comes from the API edge request, not this read.
+        // duplicate. project_id comes from the API edge request, not this read.
         // (Suppression directive on the find line below.)
         //
         // A *reserved* mapping is not a finished day: the previous attempt
@@ -340,7 +340,7 @@ where
                     CreateShootingDay {
                         id,
                         episode_id: draft.episode_id,
-                        series_id: draft.series_id,
+                        project_id: draft.project_id,
                         label: draft.label,
                         order_key,
                         date: draft.date,
@@ -459,7 +459,7 @@ struct DayDraft {
     episode_id: EpisodeId,
     label: Option<String>,
     date: Option<chrono::NaiveDate>,
-    series_id: Option<SeriesId>,
+    project_id: Option<ProjectId>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

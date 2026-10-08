@@ -40,7 +40,7 @@ use breakdown_core::character::CharacterView;
 use breakdown_core::costume::CostumeView;
 use breakdown_core::episode::EpisodeView;
 use breakdown_core::shared::{
-    AggregateVersion, BlockId, EpisodeId, PhotoId, PhotoVariant, SceneShootId, SeasonId, SeriesId,
+    AggregateVersion, BlockId, EpisodeId, PhotoId, PhotoVariant, ProjectId, SceneShootId, SeasonId,
     ShootingDayId, UserId, VariantStatus,
 };
 use breakdown_core::shooting_day::ShootingDayView;
@@ -77,8 +77,8 @@ fn scene_shoot_id() -> SceneShootId {
     SceneShootId::new()
 }
 
-fn series_id() -> SeriesId {
-    SeriesId::new()
+fn project_id() -> ProjectId {
+    ProjectId::new()
 }
 
 /// Build an `AppState` with the given ports.
@@ -97,7 +97,7 @@ async fn seed_shooting_day_chain(ports: &FakePorts) -> (ShootingDayId, SeasonId)
         bl_id.0,
         BlockView {
             id: bl_id.0,
-            series_id: series_id(),
+            project_id: project_id(),
             season_id: sid,
             number: 1,
             start_date: None,
@@ -111,7 +111,7 @@ async fn seed_shooting_day_chain(ports: &FakePorts) -> (ShootingDayId, SeasonId)
         EpisodeView {
             id: ep_id.0,
             block_id: bl_id,
-            series_id: series_id(),
+            project_id: project_id(),
             number: 1,
             name: Some("Episode 1".into()),
             version: AggregateVersion::INITIAL,
@@ -887,7 +887,7 @@ async fn get_audit_history_requires_series_id() {
     let ports = FakePorts::default();
     let state = app_state(ports);
 
-    // Omit series_id from query params — require_series should reject.
+    // Omit project_id from query params — require_series should reject.
     let result = api::handlers::get_audit_history::<FakePorts>(
         State(state),
         dummy_user(),
@@ -896,7 +896,7 @@ async fn get_audit_history_requires_series_id() {
             offset: None,
             episode_id: None,
             season_id: None,
-            series_id: None,
+            project_id: None,
         }),
     )
     .await;
@@ -913,14 +913,14 @@ async fn get_audit_history_requires_series_id() {
 // P2.4b — Series-scoped audit AUTHZ-GATE (issue #342)
 // ---------------------------------------------------------------------------
 
-/// Build `ListParams` carrying only a `series_id`.
-fn audit_params(sid: SeriesId) -> ListParams {
+/// Build `ListParams` carrying only a `project_id`.
+fn audit_params(sid: ProjectId) -> ListParams {
     ListParams {
         limit: Some(50),
         offset: Some(0),
         episode_id: None,
         season_id: None,
-        series_id: Some(sid),
+        project_id: Some(sid),
     }
 }
 
@@ -940,7 +940,7 @@ async fn get_audit_history_denies_caller_without_series_membership() {
     let result = api::handlers::get_audit_history::<FakePorts>(
         State(state),
         dummy_user(),
-        Query(audit_params(series_id())),
+        Query(audit_params(project_id())),
     )
     .await;
 
@@ -971,7 +971,7 @@ async fn get_audit_history_predicate_error_is_500_fail_closed() {
     let result = api::handlers::get_audit_history::<FakePorts>(
         State(state),
         dummy_user(),
-        Query(audit_params(series_id())),
+        Query(audit_params(project_id())),
     )
     .await;
 
@@ -993,7 +993,7 @@ async fn get_audit_history_returns_series_journal_for_series_member() {
         .lock()
         .await = Some(Ok(true));
 
-    let sid = series_id();
+    let sid = project_id();
     let other_series = Uuid::now_v7();
     ports
         .audit_repo
@@ -1006,7 +1006,7 @@ async fn get_audit_history_returns_series_journal_for_series_member() {
             entity_id: Uuid::now_v7().to_string(),
             event_type: "SeasonCreated".to_string(),
             block_id: None,
-            series_id: Some(sid.0),
+            project_id: Some(sid.0),
             actor: Some(breakdown_core::shared::UserId::from_sub(USER)),
             payload: serde_json::json!({ "number": 1 }),
             occurred_at: chrono::Utc::now(),
@@ -1023,7 +1023,7 @@ async fn get_audit_history_returns_series_journal_for_series_member() {
             entity_id: Uuid::now_v7().to_string(),
             event_type: "SeasonCreated".to_string(),
             block_id: None,
-            series_id: Some(other_series),
+            project_id: Some(other_series),
             actor: Some(breakdown_core::shared::UserId::from_sub("other-user")),
             payload: serde_json::json!({ "number": 2 }),
             occurred_at: chrono::Utc::now(),
@@ -1040,7 +1040,7 @@ async fn get_audit_history_returns_series_journal_for_series_member() {
 
     assert_eq!(status, axum::http::StatusCode::OK);
     assert_eq!(entries.len(), 1);
-    assert_eq!(entries[0].series_id, Some(sid.0));
+    assert_eq!(entries[0].project_id, Some(sid.0));
 }
 
 // ---------------------------------------------------------------------------

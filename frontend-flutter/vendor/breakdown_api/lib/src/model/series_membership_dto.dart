@@ -11,7 +11,7 @@ import 'package:built_value/serializer.dart';
 
 part 'series_membership_dto.g.dart';
 
-/// Series membership DTO — the series-level counterpart of [`SeasonMembershipDto`] for the client-side AUTHZ-GATE mirror of the costume-photo policy (issue #535, ADR-035 B2/S2: photos authorize series-wide, so the client needs a series-level, backend-computed signal).  `has_active_costume_role_in_series` is the backend-computed predicate the client must NOT re-implement (CQRS-boundary rule). `capabilities` reuses the same v1 mapping; the photo gates read the predicate field directly.
+/// Series membership DTO — the series-level counterpart of [`SeasonMembershipDto`] for the client-side AUTHZ-GATE mirror of the costume-photo policy (issue #535, ADR-035 B2/S2: photos authorize series-wide, so the client needs a series-level, backend-computed signal).  `has_active_costume_role_in_project` is the backend-computed predicate the client must NOT re-implement (CQRS-boundary rule). `capabilities` reuses the same v1 mapping; the photo gates read the predicate field directly.
 ///
 /// Properties:
 /// * [capabilities]

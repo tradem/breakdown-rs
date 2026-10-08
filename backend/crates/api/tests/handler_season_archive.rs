@@ -30,7 +30,7 @@ use axum::http::StatusCode;
 use breakdown_core::error::DomainError;
 use breakdown_core::error_registry::SEASON_NOT_FOUND;
 use breakdown_core::season::views::SeasonView;
-use breakdown_core::shared::{AggregateVersion, SeriesId};
+use breakdown_core::shared::{AggregateVersion, ProjectId};
 use chrono::Utc;
 use common::FakePorts;
 use uuid::Uuid;
@@ -41,10 +41,10 @@ fn dummy_user() -> CurrentUser {
     CurrentUser::dummy(USER)
 }
 
-fn season_view(id: Uuid, series_id: SeriesId, number: i32) -> SeasonView {
+fn season_view(id: Uuid, project_id: ProjectId, number: i32) -> SeasonView {
     SeasonView {
         id,
-        series_id,
+        project_id,
         number,
         title: None,
         archived: false,
@@ -62,7 +62,7 @@ async fn archive_season_returns_200_with_bumped_version() {
         .seasons
         .lock()
         .await
-        .insert(id, season_view(id, SeriesId::new(), 1));
+        .insert(id, season_view(id, ProjectId::new(), 1));
     *ports.membership_repo.costume_role_override.lock().await = Some(Ok(true));
     let state = AppState::new(ports);
 
@@ -90,7 +90,7 @@ async fn archive_season_denied_without_costume_role() {
         .seasons
         .lock()
         .await
-        .insert(id, season_view(id, SeriesId::new(), 1));
+        .insert(id, season_view(id, ProjectId::new(), 1));
     *ports.membership_repo.costume_role_override.lock().await = Some(Ok(false));
     let state = AppState::new(ports);
 

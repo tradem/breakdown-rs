@@ -7,7 +7,7 @@ use chrono::NaiveDate;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::shared::{AggregateVersion, SeasonId, SeriesId};
+use crate::shared::{AggregateVersion, ProjectId, SeasonId};
 
 /// Events emitted by the `BlockAggregate`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -15,10 +15,16 @@ pub enum BlockEvent {
     BlockCreated {
         id: Uuid,
         season_id: SeasonId,
-        /// Denormalized from `season_id` (`Series` reference is immutable for a
-        /// Block, so write-once is safe) — needed directly for the series-
-        /// global numbering unique index (ADR: decision 3, parity with Episode).
-        series_id: SeriesId,
+        /// Denormalized from `season_id` (the project reference is immutable for
+        /// a Block, so write-once is safe) — needed directly for the
+        /// project-global numbering unique index (ADR: decision 3, parity with
+        /// Episode).
+        ///
+        /// `#[serde(rename = "series_id")]` pins the persisted key (issue #591,
+        /// layer 2): stored `BlockCreated` events already use `project_id` and
+        /// ADR-002 forbids rewriting history.
+        #[serde(rename = "series_id")]
+        project_id: ProjectId,
         number: i32,
         start_date: Option<NaiveDate>,
         end_date: Option<NaiveDate>,

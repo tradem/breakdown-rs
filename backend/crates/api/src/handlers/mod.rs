@@ -116,7 +116,7 @@ use breakdown_core::settings::ports::{
 use breakdown_core::settings::views::{CredentialBindingState, SettingsView};
 use breakdown_core::shared::{
     AggregateVersion, BlockId, CostumeCategoryId, EpisodeId, LexicalSortKey, PhotoId, PhotoVariant,
-    SceneShootId, SeasonId, SeriesId, ShootingDayId, UserId, VariantStatus,
+    ProjectId, SceneShootId, SeasonId, ShootingDayId, UserId, VariantStatus,
 };
 use breakdown_core::shooting_day::commands::{
     ArchiveShootingDay, CreateShootingDay, RenameShootingDay, ReorderShootingDay,
@@ -151,7 +151,7 @@ pub struct IdVersionResponse {
 /// Query parameters for paginated list endpoints.
 ///
 /// `episode_id` scopes Scene lists; `season_id` scopes Character/Block/Episode/Costume lists;
-/// `series_id` scopes Episode lists (seasons take the dedicated
+/// `project_id` scopes Episode lists (seasons take the dedicated
 /// `SeasonListParams` below, issue #377 review).
 #[derive(Debug, Clone, Deserialize, IntoParams)]
 pub struct ListParams {
@@ -161,7 +161,9 @@ pub struct ListParams {
     pub offset: Option<i64>,
     pub episode_id: Option<EpisodeId>,
     pub season_id: Option<SeasonId>,
-    pub series_id: Option<SeriesId>,
+    #[param(rename = "series_id")]
+    // query-param name pinned: layer 3 is a breaking ADR-021 change, deferred
+    pub project_id: Option<ProjectId>,
 }
 
 /// Query parameters for the seasons list (issue #377 review).
@@ -176,7 +178,9 @@ pub struct SeasonListParams {
     pub limit: Option<i64>,
     #[param(default = 0, minimum = 0)]
     pub offset: Option<i64>,
-    pub series_id: Option<SeriesId>,
+    #[param(rename = "series_id")]
+    // query-param name pinned: layer 3 is a breaking ADR-021 change, deferred
+    pub project_id: Option<ProjectId>,
     /// Issue #533: archived seasons are hidden by default; the explicit
     /// opt-in returns them (read-only, still locked for writes).
     #[param(default = false)]
@@ -204,7 +208,7 @@ pub struct CreateCharacterRequest {
 ///
 /// `season_id` is the optional repertoire season: when present, the costume
 /// joins that season's costume stream while unassigned. The API edge resolves
-/// the `series_id` audit metadata from the season projection (404 on an
+/// the `project_id` audit metadata from the season projection (404 on an
 /// unknown season).
 #[derive(Debug, Clone, Deserialize, ToSchema)]
 pub struct CreateCostumeRequest {
@@ -274,7 +278,9 @@ pub struct AddCostumeToSeasonRequest {
 
 #[derive(Debug, Clone, Deserialize, ToSchema)]
 pub struct CreateSeasonRequest {
-    pub series_id: SeriesId,
+    #[schema(rename = "series_id")]
+    // wire field pinned: layer 3 is a breaking ADR-021 change, deferred
+    pub project_id: ProjectId,
     pub number: i32,
     pub title: Option<String>,
 }
@@ -282,7 +288,9 @@ pub struct CreateSeasonRequest {
 #[derive(Debug, Clone, Deserialize, ToSchema)]
 pub struct CreateBlockRequest {
     pub season_id: SeasonId,
-    pub series_id: SeriesId,
+    #[schema(rename = "series_id")]
+    // wire field pinned: layer 3 is a breaking ADR-021 change, deferred
+    pub project_id: ProjectId,
     pub number: i32,
     pub start_date: Option<chrono::NaiveDate>,
     pub end_date: Option<chrono::NaiveDate>,
@@ -291,7 +299,9 @@ pub struct CreateBlockRequest {
 #[derive(Debug, Clone, Deserialize, ToSchema)]
 pub struct CreateEpisodeRequest {
     pub block_id: BlockId,
-    pub series_id: SeriesId,
+    #[schema(rename = "series_id")]
+    // wire field pinned: layer 3 is a breaking ADR-021 change, deferred
+    pub project_id: ProjectId,
     pub number: i32,
     pub name: Option<String>,
 }
@@ -497,75 +507,75 @@ fn require_season(params: &ListParams) -> Result<SeasonId, ApiError> {
         .ok_or(ApiError::BadQueryParam("season_id is required"))
 }
 
-/// Required `series_id` query parameter (`http.bad-query-param`, 400).
-fn require_series(series_id: Option<SeriesId>) -> Result<SeriesId, ApiError> {
-    series_id.ok_or(ApiError::BadQueryParam("series_id is required"))
+/// Required `project_id` query parameter (`http.bad-query-param`, 400).
+fn require_series(project_id: Option<ProjectId>) -> Result<ProjectId, ApiError> {
+    project_id.ok_or(ApiError::BadQueryParam("series_id is required"))
 }
 
-/// Resolve the `series_id` for a scene at the API edge (scene → episode → series).
+/// Resolve the `project_id` for a scene at the API edge (scene → episode → series).
 ///
-/// Handlers are the legitimate read-model boundary: the `series_id` is carried
+/// Handlers are the legitimate read-model boundary: the `project_id` is carried
 /// into the command for the `EventMetadata` audit trail and must never be
 /// re-queried by the command adapter (CQRS, issue #147). A missing parent
 /// projection is a genuine 404 — the entity cannot exist without it.
-async fn series_id_for_scene<P: Ports>(
+async fn project_id_for_scene<P: Ports>(
     state: &AppState<P>,
     scene_id: Uuid,
-) -> Result<SeriesId, ApiError> {
+) -> Result<ProjectId, ApiError> {
     let scene = state.ports.scene_repo().find_by_id(scene_id).await?;
     let episode = state
         .ports
         .episode_repo()
         .find_by_id(scene.episode_id.0)
         .await?;
-    Ok(episode.series_id)
+    Ok(episode.project_id)
 }
 
-/// Resolve the `series_id` for a shooting day (shooting_day → episode → series).
-async fn series_id_for_shooting_day<P: Ports>(
+/// Resolve the `project_id` for a shooting day (shooting_day → episode → series).
+async fn project_id_for_shooting_day<P: Ports>(
     state: &AppState<P>,
     day_id: ShootingDayId,
-) -> Result<SeriesId, ApiError> {
+) -> Result<ProjectId, ApiError> {
     let day = state.ports.shooting_day_repo().find_by_id(day_id).await?;
     let episode = state
         .ports
         .episode_repo()
         .find_by_id(day.episode_id.0)
         .await?;
-    Ok(episode.series_id)
+    Ok(episode.project_id)
 }
 
-/// Resolve the `series_id` for a character (character → season → series).
-async fn series_id_for_character<P: Ports>(
+/// Resolve the `project_id` for a character (character → season → series).
+async fn project_id_for_character<P: Ports>(
     state: &AppState<P>,
     character_id: Uuid,
-) -> Result<SeriesId, ApiError> {
+) -> Result<ProjectId, ApiError> {
     let ch = state
         .ports
         .character_repo()
         .find_by_id(character_id)
         .await?;
     let season = state.ports.season_repo().find_by_id(ch.season_id.0).await?;
-    Ok(season.series_id)
+    Ok(season.project_id)
 }
 
-/// Resolve the `series_id` for a costume category (category → season → series).
-async fn series_id_for_costume_category<P: Ports>(
+/// Resolve the `project_id` for a costume category (category → season → series).
+async fn project_id_for_costume_category<P: Ports>(
     state: &AppState<P>,
     category_id: Uuid,
-) -> Result<SeriesId, ApiError> {
+) -> Result<ProjectId, ApiError> {
     let cc = state
         .ports
         .costume_category_repo()
         .find_by_id(category_id)
         .await?;
     let season = state.ports.season_repo().find_by_id(cc.season_id.0).await?;
-    Ok(season.series_id)
+    Ok(season.project_id)
 }
 
 /// Load the scene-shoot projection at the API edge, validate that the route
 /// `day_id` matches the scene shoot's stored `shooting_day_id` association,
-/// and resolve the owning `series_id` (scene_shoot → scene → episode → series).
+/// and resolve the owning `project_id` (scene_shoot → scene → episode → series).
 ///
 /// The association check (PR #389 review): the seven execution handlers gate
 /// the route `day_id`, then dispatch commands by the globally unique
@@ -578,7 +588,7 @@ async fn scene_shoot_context<P: Ports>(
     state: &AppState<P>,
     day_id: ShootingDayId,
     shoot_id: SceneShootId,
-) -> Result<SeriesId, ApiError> {
+) -> Result<ProjectId, ApiError> {
     let ss = state.ports.scene_shoot_repo().find_by_id(shoot_id).await?;
     if ss.shooting_day_id != day_id {
         return Err(ApiError::NotFound(
@@ -591,7 +601,7 @@ async fn scene_shoot_context<P: Ports>(
         .episode_repo()
         .find_by_id(scene.episode_id.0)
         .await?;
-    Ok(episode.series_id)
+    Ok(episode.project_id)
 }
 
 /// Wrap-finality gate (issue #376): execution transitions on a wrapped
@@ -620,7 +630,7 @@ async fn ensure_execution_open<P: Ports>(
     Ok(())
 }
 
-/// Resolve the (optional) `series_id` for a costume
+/// Resolve the (optional) `project_id` for a costume
 /// (costume → character(opt) → season → series, with the repertoire as the
 /// fallback for an unassigned costume).
 ///
@@ -632,13 +642,13 @@ async fn ensure_execution_open<P: Ports>(
 /// `Ok(None)`. The photo AUTHZ-GATE uses this variant so a database outage
 /// answers 500 — never the misleading 422 `costume.container-unresolved`
 /// (issue #537 doctrine: infrastructure failures must not surface as
-/// domain/permission answers). The best-effort [`series_id_for_costume`]
+/// domain/permission answers). The best-effort [`project_id_for_costume`]
 /// wrapper keeps this for audit metadata, where the hard rule is the
 /// opposite: metadata must never block command processing.
-async fn series_id_for_costume_strict<P: Ports>(
+async fn project_id_for_costume_strict<P: Ports>(
     state: &AppState<P>,
     costume_id: Uuid,
-) -> Result<Option<SeriesId>, ApiError> {
+) -> Result<Option<ProjectId>, ApiError> {
     let costume = state.ports.costume_repo().find_by_id(costume_id).await?;
     match costume.character_id {
         Some(character_id) => {
@@ -648,7 +658,7 @@ async fn series_id_for_costume_strict<P: Ports>(
                 .find_by_id(character_id)
                 .await?;
             let season = state.ports.season_repo().find_by_id(ch.season_id.0).await?;
-            Ok(Some(season.series_id))
+            Ok(Some(season.project_id))
         }
         // Repertoire fallback (issue #532): an unassigned costume can still
         // stand in a season's repertoire (`projection_costume_season`,
@@ -665,27 +675,27 @@ async fn series_id_for_costume_strict<P: Ports>(
                 return Ok(None);
             };
             let season = state.ports.season_repo().find_by_id(season_id.0).await?;
-            Ok(Some(season.series_id))
+            Ok(Some(season.project_id))
         }
     }
 }
 
 /// Best-effort costume → series resolution for **audit metadata** (the
-/// command `series_id` field): identical to [`series_id_for_costume_strict`]
+/// command `project_id` field): identical to [`project_id_for_costume_strict`]
 /// but a lookup failure narrows to `Ok(None)` instead of failing the
 /// request — audit metadata must never block command processing (hard
 /// rule). The photo gate uses the strict variant directly.
-async fn series_id_for_costume<P: Ports>(
+async fn project_id_for_costume<P: Ports>(
     state: &AppState<P>,
     costume_id: Uuid,
-) -> Result<Option<SeriesId>, ApiError> {
-    match series_id_for_costume_strict(state, costume_id).await {
-        Ok(series_id) => Ok(series_id),
+) -> Result<Option<ProjectId>, ApiError> {
+    match project_id_for_costume_strict(state, costume_id).await {
+        Ok(project_id) => Ok(project_id),
         Err(err) => {
             tracing::warn!(
                 error = ?err,
                 costume_id = %costume_id,
-                "series lookup failed; continuing without series_id (best-effort audit metadata, issue #532)"
+                "project lookup failed; continuing without project_id (best-effort audit metadata, issue #532)"
             );
             Ok(None)
         }
@@ -839,7 +849,7 @@ async fn membership_gate_any<P: Ports>(
 /// server already knew the season — a lookup omission, not a feature.
 /// As of issue #535 (ADR-035 B2/S2) the **photo** path no longer routes
 /// through this helper: those three handlers gate series-wide via
-/// [`authorize_costume_in_series`]. What remains here are the genuinely
+/// [`authorize_costume_in_project`]. What remains here are the genuinely
 /// season-scoped costume operations — detail editing (#543/#544),
 /// `set_costume_category` (season-match invariant) and the repertoire
 /// commands' **target-season** gate (#534, #533 terminal semantics).
@@ -894,27 +904,27 @@ async fn authorize_costume_scoped<P: Ports>(
 /// The season union (`costume_season_scopes`) must **not** be re-introduced
 /// here as an authorization input.
 ///
-/// The series resolution is the **strict** [`series_id_for_costume_strict`]
+/// The series resolution is the **strict** [`project_id_for_costume_strict`]
 /// lookup at the API edge (the only legitimate read-model consumer per the
 /// CQRS boundary hard rule): repertoire/season lookup *failures* propagate
 /// as 500 (issue #537 doctrine — an infrastructure outage must not surface
 /// as a domain answer), while a costume with neither a character nor a
 /// repertoire season genuinely cannot name a container at all → 422
 /// `costume.container-unresolved` (registered problem code, issue #535).
-/// The resolved [`SeriesId`] is returned so the photo handlers can carry
+/// The resolved [`ProjectId`] is returned so the photo handlers can carry
 /// it into the command's audit metadata — one resolution, shared by gate
 /// and command.
 ///
 /// Error behavior follows the issue #537 doctrine: `Ok(true)` passes,
 /// `Ok(false)` is a genuine 403 ([denial]), and a failed predicate lookup
 /// fails closed as a 500 — never a masquerading 403 ([`membership_gate`]).
-async fn authorize_costume_in_series<P: Ports>(
+async fn authorize_costume_in_project<P: Ports>(
     state: &AppState<P>,
     costume: &CostumeView,
     user_id: UserId,
     denial: &'static str,
-) -> Result<SeriesId, ApiError> {
-    let Some(series_id) = series_id_for_costume_strict(state, costume.id).await? else {
+) -> Result<ProjectId, ApiError> {
+    let Some(project_id) = project_id_for_costume_strict(state, costume.id).await? else {
         return Err(ApiError::Domain(DomainError::Validation {
             code: &COSTUME_CONTAINER_UNRESOLVED,
             reason: "costume has no assigned character and no season repertoire — cannot determine its series".into(),
@@ -924,21 +934,21 @@ async fn authorize_costume_in_series<P: Ports>(
         state
             .ports
             .membership_repo()
-            .has_active_costume_role_in_series(series_id, user_id),
+            .has_active_costume_role_in_project(project_id, user_id),
         || ApiError::Forbidden(denial),
     )
     .await?;
-    Ok(series_id)
+    Ok(project_id)
 }
 
 #[utoipa::path(
     get,
     path = "/audit",
-    description = "Audit journal entries of a series, newest first. Requires the series_id query parameter (400 otherwise).",
+    description = "Audit journal entries of a series, newest first. Requires the project_id query parameter (400 otherwise).",
     params(ListParams),
     responses(
         (status = 200, body = Vec<AuditEntry>, description = "Audit journal entries of the series, newest first"),
-        (status = 400, body = ProblemDetails, description = "Missing series_id query parameter"),
+        (status = 400, body = ProblemDetails, description = "Missing project_id query parameter"),
         (status = 403, body = ProblemDetails, description = "Caller holds no active membership in any block of the queried series"),
         (status = 422, body = ProblemDetails, description = "Validation error"),
     ),
@@ -948,9 +958,9 @@ pub async fn get_audit_history<P: Ports>(
     current_user: CurrentUser,
     Query(params): Query<ListParams>,
 ) -> ApiResult<Vec<AuditEntry>> {
-    let series_id = require_series(params.series_id)?;
+    let project_id = require_series(params.project_id)?;
 
-    // AUTHZ-GATE: the journal is filtered by the `series_id` **query
+    // AUTHZ-GATE: the journal is filtered by the `project_id` **query
     // parameter**, so the route is series-scoped data, not block-scoped data:
     // `requirement_for` classifies `/audit` as `Authenticated` and the
     // membership check happens here (issue #342). Any *active* membership in
@@ -962,7 +972,7 @@ pub async fn get_audit_history<P: Ports>(
         state
             .ports
             .membership_repo()
-            .has_active_membership_in_series(series_id, current_user.sub.clone()),
+            .has_active_membership_in_project(project_id, current_user.sub.clone()),
         || ApiError::Forbidden("not authorized to read the audit journal of this series"),
     )
     .await?;
@@ -970,8 +980,8 @@ pub async fn get_audit_history<P: Ports>(
     let entries = state
         .ports
         .audit_repo()
-        .list_by_series(
-            series_id,
+        .list_by_project(
+            project_id,
             params.limit.unwrap_or(50),
             params.offset.unwrap_or(0),
         )
@@ -998,7 +1008,7 @@ pub async fn create_season<P: Ports>(
     current_user: CurrentUser,
     Json(req): Json<CreateSeasonRequest>,
 ) -> ApiResult<IdVersionResponse> {
-    // #404 invariant pre-check (advisory): (series_id, number) uniqueness is
+    // #404 invariant pre-check (advisory): (project_id, number) uniqueness is
     // enforced authoritatively by idx_projection_season_series_number; this
     // handler-side read-model lookup — the only legitimate CQRS consumer —
     // turns a violation into a clean 409 before dispatch instead of a 2xx
@@ -1006,7 +1016,7 @@ pub async fn create_season<P: Ports>(
     if state
         .ports
         .season_repo()
-        .find_by_series_and_number(req.series_id, req.number)
+        .find_by_project_and_number(req.project_id, req.number)
         .await?
         .is_some()
     {
@@ -1018,7 +1028,7 @@ pub async fn create_season<P: Ports>(
     let id = Uuid::now_v7();
     let cmd = CreateSeason {
         id,
-        series_id: req.series_id,
+        project_id: req.project_id,
         number: req.number,
         title: req.title,
     };
@@ -1047,7 +1057,7 @@ pub async fn get_season<P: Ports>(
 #[utoipa::path(
     get,
     path = "/seasons",
-    description = "Lists seasons, optionally narrowed to one series via series_id. The table stays small, so — unlike the episode/scene lists — no scope parameter is required.",
+    description = "Lists seasons, optionally narrowed to one series via project_id. The table stays small, so — unlike the episode/scene lists — no scope parameter is required.",
     params(SeasonListParams),
     responses(
         (status = 200, body = Vec<SeasonView>),
@@ -1066,13 +1076,13 @@ pub async fn list_seasons<P: Ports>(
             "limit and offset must be non-negative",
         ));
     }
-    let views = match params.series_id {
-        Some(series_id) => {
+    let views = match params.project_id {
+        Some(project_id) => {
             state
                 .ports
                 .season_repo()
-                .list_by_series(
-                    series_id,
+                .list_by_project(
+                    project_id,
                     params.include_archived.unwrap_or(false),
                     limit,
                     offset,
@@ -1128,13 +1138,20 @@ fn derive_capabilities(has_active_costume_role_in_season: bool) -> Vec<String> {
 /// costume-photo policy (issue #535, ADR-035 B2/S2: photos authorize
 /// series-wide, so the client needs a series-level, backend-computed signal).
 ///
-/// `has_active_costume_role_in_series` is the backend-computed predicate the
+/// `has_active_costume_role_in_project` is the backend-computed predicate the
 /// client must NOT re-implement (CQRS-boundary rule). `capabilities` reuses
 /// the same v1 mapping; the photo gates read the predicate field directly.
 #[derive(Debug, Clone, Serialize, ToSchema)]
 pub struct SeriesMembershipDto {
-    pub series_id: Uuid,
-    pub has_active_costume_role_in_series: bool,
+    #[schema(rename = "series_id")]
+    // wire field pinned: layer 3 is a breaking ADR-021 change, deferred
+    pub project_id: Uuid,
+    // The Rust field follows the renamed predicate (ADR-035 S2,
+    // `has_active_costume_role_in_series` → `..._in_project`), but the wire
+    // flag stays put: renaming it would break the generated Flutter client for
+    // no gain, and layer 3 is the only change allowed to move wire fields.
+    #[schema(rename = "has_active_costume_role_in_series")]
+    pub has_active_costume_role_in_project: bool,
     #[schema(value_type = Vec<String>)]
     pub capabilities: Vec<String>,
 }
@@ -1153,7 +1170,7 @@ pub async fn get_series_membership<P: Ports>(
     current_user: CurrentUser,
     Path(id): Path<Uuid>,
 ) -> ApiResult<SeriesMembershipDto> {
-    // No existence check by design: `SeriesId` is an opaque UUIDv7 tenancy
+    // No existence check by design: `ProjectId` is an opaque UUIDv7 tenancy
     // seam with no aggregate and no projection of its own (ADR-035 D1/B5) —
     // the membership predicate itself is the only queryable fact. An unknown
     // series yields `false`, which the client gate treats identically to a
@@ -1164,14 +1181,14 @@ pub async fn get_series_membership<P: Ports>(
     let has_role = state
         .ports
         .membership_repo()
-        .has_active_costume_role_in_series(SeriesId::from_uuid(id), current_user.sub.clone())
+        .has_active_costume_role_in_project(ProjectId::from_uuid(id), current_user.sub.clone())
         .await?;
 
     Ok((
         StatusCode::OK,
         Json(SeriesMembershipDto {
-            series_id: id,
-            has_active_costume_role_in_series: has_role,
+            project_id: id,
+            has_active_costume_role_in_project: has_role,
             capabilities: derive_capabilities(has_role),
         }),
     ))
@@ -1232,11 +1249,11 @@ pub async fn rename_season<P: Ports>(
     Path(id): Path<Uuid>,
     Json(req): Json<RenameSeasonRequest>,
 ) -> ApiResult<AggregateVersion> {
-    let series_id = Some(state.ports.season_repo().find_by_id(id).await?.series_id);
+    let project_id = Some(state.ports.season_repo().find_by_id(id).await?.project_id);
     let cmd = RenameSeason {
         id,
         title: req.title,
-        series_id,
+        project_id,
         version: req.version,
     };
     let version = state
@@ -1288,7 +1305,7 @@ pub async fn archive_season<P: Ports>(
 
     let cmd = ArchiveSeason {
         id,
-        series_id: Some(season.series_id),
+        project_id: Some(season.project_id),
         version: req.version,
     };
     let version = state
@@ -1318,7 +1335,7 @@ pub async fn create_block<P: Ports>(
     current_user: CurrentUser,
     Json(req): Json<CreateBlockRequest>,
 ) -> ApiResult<IdVersionResponse> {
-    // #404 invariant pre-check (advisory): (series_id, number) uniqueness is
+    // #404 invariant pre-check (advisory): (project_id, number) uniqueness is
     // enforced authoritatively by idx_projection_block_series_number; this
     // handler-side read-model lookup — the only legitimate CQRS consumer —
     // turns a violation into a clean 409 before dispatch instead of a 2xx
@@ -1326,7 +1343,7 @@ pub async fn create_block<P: Ports>(
     if state
         .ports
         .block_repo()
-        .find_by_series_and_number(req.series_id, req.number)
+        .find_by_project_and_number(req.project_id, req.number)
         .await?
         .is_some()
     {
@@ -1339,7 +1356,7 @@ pub async fn create_block<P: Ports>(
     let cmd = CreateBlock {
         id,
         season_id: req.season_id,
-        series_id: req.series_id,
+        project_id: req.project_id,
         number: req.number,
         start_date: req.start_date,
         end_date: req.end_date,
@@ -1355,7 +1372,7 @@ pub async fn create_block<P: Ports>(
     // bootstrap command only succeeds on an empty block.
     let bootstrap = BootstrapOwner {
         block_id: BlockId(id),
-        series_id: req.series_id,
+        project_id: req.project_id,
         user_id: current_user.sub.clone(),
         role: Role::CostumeAssistant,
     };
@@ -1457,12 +1474,12 @@ pub async fn update_block_time_span<P: Ports>(
     Path(id): Path<Uuid>,
     Json(req): Json<UpdateBlockTimeSpanRequest>,
 ) -> ApiResult<AggregateVersion> {
-    let series_id = Some(state.ports.block_repo().find_by_id(id).await?.series_id);
+    let project_id = Some(state.ports.block_repo().find_by_id(id).await?.project_id);
     let cmd = UpdateBlockTimeSpan {
         id,
         start_date: req.start_date,
         end_date: req.end_date,
-        series_id,
+        project_id,
         version: req.version,
     };
     let version = state
@@ -1492,7 +1509,7 @@ pub async fn create_episode<P: Ports>(
     current_user: CurrentUser,
     Json(req): Json<CreateEpisodeRequest>,
 ) -> ApiResult<IdVersionResponse> {
-    // #404 invariant pre-check (advisory): (series_id, number) uniqueness is
+    // #404 invariant pre-check (advisory): (project_id, number) uniqueness is
     // enforced authoritatively by idx_projection_episode_series_number; this
     // handler-side read-model lookup — the only legitimate CQRS consumer —
     // turns a violation into a clean 409 before dispatch instead of a 2xx
@@ -1500,7 +1517,7 @@ pub async fn create_episode<P: Ports>(
     if state
         .ports
         .episode_repo()
-        .find_by_series_and_number(req.series_id, req.number)
+        .find_by_project_and_number(req.project_id, req.number)
         .await?
         .is_some()
     {
@@ -1513,7 +1530,7 @@ pub async fn create_episode<P: Ports>(
     let cmd = CreateEpisode {
         id,
         block_id: req.block_id,
-        series_id: req.series_id,
+        project_id: req.project_id,
         number: req.number,
         name: req.name,
     };
@@ -1541,7 +1558,7 @@ pub async fn get_episode<P: Ports>(
 
 /// Query parameters for the episode list endpoint.
 ///
-/// `block_id` scopes the list to one block; otherwise `series_id` scopes it
+/// `block_id` scopes the list to one block; otherwise `project_id` scopes it
 /// to a series (required). Kept separate from `ListParams` so the shared
 /// type does not advertise `block_id` on sibling operations that ignore it
 /// (issue #335 review).
@@ -1551,18 +1568,20 @@ pub struct EpisodeListParams {
     pub limit: Option<i64>,
     #[param(default = 0)]
     pub offset: Option<i64>,
-    pub series_id: Option<SeriesId>,
+    #[param(rename = "series_id")]
+    // query-param name pinned: layer 3 is a breaking ADR-021 change, deferred
+    pub project_id: Option<ProjectId>,
     pub block_id: Option<BlockId>,
 }
 
 #[utoipa::path(
     get,
     path = "/episodes",
-    description = "Lists episodes of a series, or of a single block when block_id is given. Requires series_id unless block_id is present (400 otherwise).",
+    description = "Lists episodes of a series, or of a single block when block_id is given. Requires project_id unless block_id is present (400 otherwise).",
     params(EpisodeListParams),
     responses(
         (status = 200, body = Vec<EpisodeView>),
-        (status = 400, body = ProblemDetails, description = "Missing series_id query parameter"),
+        (status = 400, body = ProblemDetails, description = "Missing project_id query parameter"),
     ),
 )]
 pub async fn list_episodes<P: Ports>(
@@ -1579,11 +1598,11 @@ pub async fn list_episodes<P: Ports>(
             .await?;
         return Ok((StatusCode::OK, Json(views)));
     }
-    let series_id = require_series(params.series_id)?;
+    let project_id = require_series(params.project_id)?;
     let views = state
         .ports
         .episode_repo()
-        .list_by_series(series_id, limit, offset)
+        .list_by_project(project_id, limit, offset)
         .await?;
     Ok((StatusCode::OK, Json(views)))
 }
@@ -1605,11 +1624,11 @@ pub async fn rename_episode<P: Ports>(
     Path(id): Path<Uuid>,
     Json(req): Json<RenameEpisodeRequest>,
 ) -> ApiResult<AggregateVersion> {
-    let series_id = Some(state.ports.episode_repo().find_by_id(id).await?.series_id);
+    let project_id = Some(state.ports.episode_repo().find_by_id(id).await?.project_id);
     let cmd = RenameEpisode {
         id,
         name: req.name,
-        series_id,
+        project_id,
         version: req.version,
     };
     let version = state
@@ -1640,18 +1659,18 @@ pub async fn create_scene<P: Ports>(
     Json(req): Json<CreateSceneRequest>,
 ) -> ApiResult<IdVersionResponse> {
     let id = Uuid::now_v7();
-    let series_id = Some(
+    let project_id = Some(
         state
             .ports
             .episode_repo()
             .find_by_id(req.episode_id.0)
             .await?
-            .series_id,
+            .project_id,
     );
     let cmd = CreateScene {
         id,
         episode_id: req.episode_id,
-        series_id,
+        project_id,
         details: req.details,
         // REST-created scenes are user-created; AI provenance is set
         // server-side only by the AI import worker (issue #517).
@@ -1725,11 +1744,11 @@ pub async fn update_scene_details<P: Ports>(
     Path(id): Path<Uuid>,
     Json(req): Json<UpdateSceneDetailsRequest>,
 ) -> ApiResult<AggregateVersion> {
-    let series_id = Some(series_id_for_scene(&state, id).await?);
+    let project_id = Some(project_id_for_scene(&state, id).await?);
     let cmd = UpdateSceneDetails {
         id,
         details: req.details,
-        series_id,
+        project_id,
         version: req.version,
     };
     let version = state
@@ -1752,11 +1771,11 @@ pub async fn assign_scene_character<P: Ports>(
     Path(id): Path<Uuid>,
     Json(req): Json<AssignCharacterRequest>,
 ) -> ApiResult<AggregateVersion> {
-    let series_id = Some(series_id_for_scene(&state, id).await?);
+    let project_id = Some(project_id_for_scene(&state, id).await?);
     let cmd = AssignCharacter {
         id,
         character_id: req.character_id,
-        series_id,
+        project_id,
         version: req.version,
     };
     let version = state
@@ -1779,11 +1798,11 @@ pub async fn remove_scene_character<P: Ports>(
     Path((id, character_id)): Path<(Uuid, Uuid)>,
     Query(version): Query<VersionRequest>,
 ) -> ApiResult<AggregateVersion> {
-    let series_id = Some(series_id_for_scene(&state, id).await?);
+    let project_id = Some(project_id_for_scene(&state, id).await?);
     let cmd = RemoveCharacter {
         id,
         character_id,
-        series_id,
+        project_id,
         version: version.version,
     };
     let version = state
@@ -1811,13 +1830,13 @@ pub async fn add_scene_costume_beat<P: Ports>(
     Path(id): Path<Uuid>,
     Json(req): Json<AddSceneCostumeBeatRequest>,
 ) -> ApiResult<AggregateVersion> {
-    let series_id = Some(series_id_for_scene(&state, id).await?);
+    let project_id = Some(project_id_for_scene(&state, id).await?);
     let cmd = AddCostumeBeat {
         id,
         character_id: req.character_id,
         costume_id: req.costume_id,
         note: req.note,
-        series_id,
+        project_id,
         version: req.version,
     };
     let version = state
@@ -1846,14 +1865,14 @@ pub async fn update_scene_costume_beat<P: Ports>(
     Path((id, character_id, order)): Path<(Uuid, Uuid, u32)>,
     Json(req): Json<UpdateSceneCostumeBeatRequest>,
 ) -> ApiResult<AggregateVersion> {
-    let series_id = Some(series_id_for_scene(&state, id).await?);
+    let project_id = Some(project_id_for_scene(&state, id).await?);
     let cmd = UpdateCostumeBeat {
         id,
         character_id,
         order,
         costume_id: req.costume_id,
         note: req.note,
-        series_id,
+        project_id,
         version: req.version,
     };
     let version = state
@@ -1881,12 +1900,12 @@ pub async fn remove_scene_costume_beat<P: Ports>(
     Path((id, character_id, order)): Path<(Uuid, Uuid, u32)>,
     Query(version): Query<VersionRequest>,
 ) -> ApiResult<AggregateVersion> {
-    let series_id = Some(series_id_for_scene(&state, id).await?);
+    let project_id = Some(project_id_for_scene(&state, id).await?);
     let cmd = RemoveCostumeBeat {
         id,
         character_id,
         order: Some(order),
-        series_id,
+        project_id,
         version: version.version,
     };
     let version = state
@@ -1916,12 +1935,12 @@ pub async fn clear_scene_costume_beats<P: Ports>(
     Path((id, character_id)): Path<(Uuid, Uuid)>,
     Query(version): Query<VersionRequest>,
 ) -> ApiResult<AggregateVersion> {
-    let series_id = Some(series_id_for_scene(&state, id).await?);
+    let project_id = Some(project_id_for_scene(&state, id).await?);
     let cmd = RemoveCostumeBeat {
         id,
         character_id,
         order: None,
-        series_id,
+        project_id,
         version: version.version,
     };
     let version = state
@@ -1955,18 +1974,18 @@ pub async fn create_shooting_day<P: Ports>(
     Json(req): Json<CreateShootingDayRequest>,
 ) -> ApiResult<IdVersionResponse> {
     let id = ShootingDayId::new();
-    let series_id = Some(
+    let project_id = Some(
         state
             .ports
             .episode_repo()
             .find_by_id(episode_id.0)
             .await?
-            .series_id,
+            .project_id,
     );
     let cmd = CreateShootingDay {
         id,
         episode_id,
-        series_id,
+        project_id,
         label: req.label,
         order_key: req.order_key,
         date: req.date,
@@ -2036,7 +2055,7 @@ pub async fn update_shooting_day<P: Ports>(
     Json(req): Json<UpdateShootingDayRequest>,
 ) -> ApiResult<AggregateVersion> {
     let actor = current_user.sub.clone();
-    let series_id = Some(series_id_for_shooting_day(&state, id).await?);
+    let project_id = Some(project_id_for_shooting_day(&state, id).await?);
     let cmds = state.ports.shooting_day_commands();
     if let Some(order_key) = req.order_key {
         let version = cmds
@@ -2045,7 +2064,7 @@ pub async fn update_shooting_day<P: Ports>(
                 ReorderShootingDay {
                     id,
                     order_key,
-                    series_id,
+                    project_id,
                     version: req.version,
                 },
             )
@@ -2059,7 +2078,7 @@ pub async fn update_shooting_day<P: Ports>(
                 RescheduleShootingDay {
                     id,
                     date,
-                    series_id,
+                    project_id,
                     version: req.version,
                 },
             )
@@ -2073,7 +2092,7 @@ pub async fn update_shooting_day<P: Ports>(
                 RenameShootingDay {
                     id,
                     label,
-                    series_id,
+                    project_id,
                     version: req.version,
                 },
             )
@@ -2098,7 +2117,7 @@ pub async fn archive_shooting_day<P: Ports>(
     Path(id): Path<ShootingDayId>,
     Json(req): Json<VersionRequest>,
 ) -> ApiResult<AggregateVersion> {
-    let series_id = Some(series_id_for_shooting_day(&state, id).await?);
+    let project_id = Some(project_id_for_shooting_day(&state, id).await?);
     let version = state
         .ports
         .shooting_day_commands()
@@ -2106,7 +2125,7 @@ pub async fn archive_shooting_day<P: Ports>(
             current_user.sub.clone(),
             ArchiveShootingDay {
                 id,
-                series_id,
+                project_id,
                 version: req.version,
             },
         )
@@ -2131,11 +2150,11 @@ pub async fn schedule_scene_on_shooting_day<P: Ports>(
     Path(id): Path<Uuid>,
     Json(req): Json<ScheduleSceneRequest>,
 ) -> ApiResult<AggregateVersion> {
-    let series_id = Some(series_id_for_shooting_day(&state, req.shooting_day_id).await?);
+    let project_id = Some(project_id_for_shooting_day(&state, req.shooting_day_id).await?);
     let cmd = ScheduleSceneOnShootingDay {
         id,
         shooting_day_id: req.shooting_day_id,
-        series_id,
+        project_id,
         version: req.version,
     };
     let version = state
@@ -2162,11 +2181,11 @@ pub async fn unschedule_scene_from_shooting_day<P: Ports>(
     Path((id, shooting_day_id)): Path<(Uuid, ShootingDayId)>,
     Query(version): Query<VersionRequest>,
 ) -> ApiResult<AggregateVersion> {
-    let series_id = Some(series_id_for_shooting_day(&state, shooting_day_id).await?);
+    let project_id = Some(project_id_for_shooting_day(&state, shooting_day_id).await?);
     let cmd = UnscheduleSceneFromShootingDay {
         id,
         shooting_day_id,
-        series_id,
+        project_id,
         version: version.version,
     };
     let version = state
@@ -2196,18 +2215,18 @@ pub async fn create_character<P: Ports>(
     Json(req): Json<CreateCharacterRequest>,
 ) -> ApiResult<IdVersionResponse> {
     let id = Uuid::now_v7();
-    let series_id = Some(
+    let project_id = Some(
         state
             .ports
             .season_repo()
             .find_by_id(req.season_id.0)
             .await?
-            .series_id,
+            .project_id,
     );
     let cmd = CreateCharacter {
         id,
         season_id: req.season_id,
-        series_id,
+        project_id,
         name: req.name,
         category: req.category,
     };
@@ -2276,11 +2295,11 @@ pub async fn update_measurements<P: Ports>(
     Path(id): Path<Uuid>,
     Json(req): Json<UpdateMeasurementsRequest>,
 ) -> ApiResult<AggregateVersion> {
-    let series_id = Some(series_id_for_character(&state, id).await?);
+    let project_id = Some(project_id_for_character(&state, id).await?);
     let cmd = UpdateMeasurements {
         id,
         measurements: req.measurements,
-        series_id,
+        project_id,
         version: req.version,
     };
     let version = state
@@ -2308,11 +2327,11 @@ pub async fn update_contact_info<P: Ports>(
     Path(id): Path<Uuid>,
     Json(req): Json<UpdateContactInfoRequest>,
 ) -> ApiResult<AggregateVersion> {
-    let series_id = Some(series_id_for_character(&state, id).await?);
+    let project_id = Some(project_id_for_character(&state, id).await?);
     let cmd = UpdateContactInfo {
         id,
         contact_info: req.contact_info,
-        series_id,
+        project_id,
         version: req.version,
     };
     let version = state
@@ -2343,7 +2362,7 @@ pub async fn create_costume<P: Ports>(
     Json(req): Json<CreateCostumeRequest>,
 ) -> ApiResult<IdVersionResponse> {
     let id = Uuid::now_v7();
-    let series_id = match req.season_id {
+    let project_id = match req.season_id {
         Some(season_id) => {
             // AUTHZ-GATE: the route is gated only by block-membership
             // middleware, so the target season must be verified against the
@@ -2378,7 +2397,7 @@ pub async fn create_costume<P: Ports>(
                     .season_repo()
                     .find_by_id(season_id.0)
                     .await?
-                    .series_id,
+                    .project_id,
             )
         }
         None => None,
@@ -2386,7 +2405,7 @@ pub async fn create_costume<P: Ports>(
     let cmd = CreateCostume {
         id,
         season_id: req.season_id,
-        series_id,
+        project_id,
     };
     let (id, version) = state
         .ports
@@ -2453,11 +2472,11 @@ pub async fn update_costume_notes<P: Ports>(
     Path(id): Path<Uuid>,
     Json(req): Json<UpdateCostumeNotesRequest>,
 ) -> ApiResult<AggregateVersion> {
-    let series_id = series_id_for_costume(&state, id).await?;
+    let project_id = project_id_for_costume(&state, id).await?;
     let cmd = UpdateCostumeNotes {
         id,
         notes: req.notes,
-        series_id,
+        project_id,
         version: req.version,
     };
     let version = state
@@ -2480,11 +2499,11 @@ pub async fn assign_costume<P: Ports>(
     Path(id): Path<Uuid>,
     Json(req): Json<AssignCostumeRequest>,
 ) -> ApiResult<AggregateVersion> {
-    let series_id = Some(series_id_for_character(&state, req.character_id).await?);
+    let project_id = Some(project_id_for_character(&state, req.character_id).await?);
     let cmd = AssignCostumeToCharacter {
         id,
         character_id: req.character_id,
-        series_id,
+        project_id,
         version: req.version,
     };
     let version = state
@@ -2511,10 +2530,10 @@ pub async fn unassign_costume<P: Ports>(
     Path(id): Path<Uuid>,
     Json(req): Json<VersionRequest>,
 ) -> ApiResult<AggregateVersion> {
-    let series_id = series_id_for_costume(&state, id).await?;
+    let project_id = project_id_for_costume(&state, id).await?;
     let cmd = UnassignCostume {
         id,
-        series_id,
+        project_id,
         version: req.version,
     };
     let version = state
@@ -2562,7 +2581,7 @@ pub async fn add_costume_detail<P: Ports>(
                     category_id: None,
                     text: req.detail.text,
                 },
-                series_id: series_id_for_costume(&state, id).await?,
+                project_id: project_id_for_costume(&state, id).await?,
                 version: req.version,
             },
         )
@@ -2640,7 +2659,7 @@ pub async fn update_costume_detail<P: Ports>(
                 },
                 // Audit metadata, resolved here at the edge (the only
                 // legitimate read-model consumer — CQRS boundary).
-                series_id: series_id_for_costume(&state, id).await?,
+                project_id: project_id_for_costume(&state, id).await?,
                 version: req.version,
             },
         )
@@ -2699,7 +2718,7 @@ pub async fn remove_costume_detail<P: Ports>(
                 detail_id,
                 // Audit metadata resolved at the edge, never re-queried by the
                 // adapter (CQRS boundary).
-                series_id: series_id_for_costume(&state, id).await?,
+                project_id: project_id_for_costume(&state, id).await?,
                 version: req.version,
             },
         )
@@ -2770,13 +2789,13 @@ pub async fn set_costume_category<P: Ports>(
             }));
         }
         // Audit metadata from the category's season projection.
-        let series_id = Some(
+        let project_id = Some(
             state
                 .ports
                 .season_repo()
                 .find_by_id(category.season_id.0)
                 .await?
-                .series_id,
+                .project_id,
         );
         let version = state
             .ports
@@ -2786,7 +2805,7 @@ pub async fn set_costume_category<P: Ports>(
                 SetCostumeCategory {
                     id,
                     category_id: Some(category_id),
-                    series_id,
+                    project_id,
                     version: req.version,
                 },
             )
@@ -2796,7 +2815,7 @@ pub async fn set_costume_category<P: Ports>(
 
     // Clearing (`category_id: None`): audit metadata from the costume
     // projection (best-effort, never blocks).
-    let series_id = series_id_for_costume(&state, id).await?;
+    let project_id = project_id_for_costume(&state, id).await?;
     let version = state
         .ports
         .costume_commands()
@@ -2805,7 +2824,7 @@ pub async fn set_costume_category<P: Ports>(
             SetCostumeCategory {
                 id,
                 category_id: None,
-                series_id,
+                project_id,
                 version: req.version,
             },
         )
@@ -2904,7 +2923,7 @@ pub async fn add_costume_to_season<P: Ports>(
                 season_id: SeasonId::from_uuid(season.id),
                 // Audit metadata from the target season's projection (the
                 // only legitimate read-model consumer — CQRS boundary).
-                series_id: Some(season.series_id),
+                project_id: Some(season.project_id),
                 version: req.version,
             },
         )
@@ -2980,7 +2999,7 @@ pub async fn remove_costume_from_season<P: Ports>(
             RemoveCostumeFromSeason {
                 id,
                 season_id: SeasonId::from_uuid(season.id),
-                series_id: Some(season.series_id),
+                project_id: Some(season.project_id),
                 version: req.version,
             },
         )
@@ -3011,18 +3030,18 @@ pub async fn create_costume_category<P: Ports>(
     Json(req): Json<CreateCostumeCategoryRequest>,
 ) -> ApiResult<IdVersionResponse> {
     let id = Uuid::now_v7();
-    let series_id = Some(
+    let project_id = Some(
         state
             .ports
             .season_repo()
             .find_by_id(season_id.0)
             .await?
-            .series_id,
+            .project_id,
     );
     let cmd = CreateCostumeCategory {
         id,
         season_id,
-        series_id,
+        project_id,
         name: req.name,
         order_key: req.order_key,
     };
@@ -3073,7 +3092,7 @@ pub async fn update_costume_category<P: Ports>(
     Json(req): Json<UpdateCostumeCategoryRequest>,
 ) -> ApiResult<AggregateVersion> {
     let actor = current_user.sub.clone();
-    let series_id = Some(series_id_for_costume_category(&state, id).await?);
+    let project_id = Some(project_id_for_costume_category(&state, id).await?);
     let cmds = state.ports.costume_category_commands();
     if let Some(name) = req.name {
         let version = cmds
@@ -3082,7 +3101,7 @@ pub async fn update_costume_category<P: Ports>(
                 RenameCostumeCategory {
                     id,
                     name,
-                    series_id,
+                    project_id,
                     version: req.version,
                 },
             )
@@ -3096,7 +3115,7 @@ pub async fn update_costume_category<P: Ports>(
                 ReorderCostumeCategory {
                     id,
                     order_key,
-                    series_id,
+                    project_id,
                     version: req.version,
                 },
             )
@@ -3121,7 +3140,7 @@ pub async fn archive_costume_category<P: Ports>(
     Path(id): Path<Uuid>,
     Json(req): Json<VersionRequest>,
 ) -> ApiResult<AggregateVersion> {
-    let series_id = Some(series_id_for_costume_category(&state, id).await?);
+    let project_id = Some(project_id_for_costume_category(&state, id).await?);
     let version = state
         .ports
         .costume_category_commands()
@@ -3129,7 +3148,7 @@ pub async fn archive_costume_category<P: Ports>(
             current_user.sub.clone(),
             ArchiveCostumeCategory {
                 id,
-                series_id,
+                project_id,
                 version: req.version,
             },
         )
@@ -3179,10 +3198,10 @@ pub async fn invite_member<P: Ports>(
             }
         }
     }
-    let series_id = state.ports.block_repo().find_by_id(id).await?.series_id;
+    let project_id = state.ports.block_repo().find_by_id(id).await?.project_id;
     let cmd = InviteMember {
         block_id: BlockId::from_uuid(id),
-        series_id,
+        project_id,
         user_id: UserId::from_sub(req.user_id),
         role: req.role,
     };
@@ -3216,10 +3235,10 @@ pub async fn accept_invitation<P: Ports>(
     current_user: CurrentUser,
     Path(id): Path<Uuid>,
 ) -> ApiResult<()> {
-    let series_id = state.ports.block_repo().find_by_id(id).await?.series_id;
+    let project_id = state.ports.block_repo().find_by_id(id).await?.project_id;
     let cmd = AcceptInvitation {
         block_id: BlockId::from_uuid(id),
-        series_id,
+        project_id,
         user_id: current_user.sub.clone(),
     };
     state
@@ -3279,10 +3298,10 @@ pub async fn grant_role<P: Ports>(
             }
         }
     }
-    let series_id = state.ports.block_repo().find_by_id(id).await?.series_id;
+    let project_id = state.ports.block_repo().find_by_id(id).await?.project_id;
     let cmd = GrantRole {
         block_id: BlockId::from_uuid(id),
-        series_id,
+        project_id,
         user_id: UserId::from_sub(user_id),
         role: req.role,
     };
@@ -3338,10 +3357,10 @@ pub async fn remove_member<P: Ports>(
             }
         }
     }
-    let series_id = state.ports.block_repo().find_by_id(id).await?.series_id;
+    let project_id = state.ports.block_repo().find_by_id(id).await?.project_id;
     let cmd = RemoveMember {
         block_id: BlockId::from_uuid(id),
-        series_id,
+        project_id,
         user_id: UserId::from_sub(user_id),
     };
     state
@@ -3371,10 +3390,10 @@ pub async fn leave_block<P: Ports>(
     current_user: CurrentUser,
     Path(id): Path<Uuid>,
 ) -> ApiResult<()> {
-    let series_id = state.ports.block_repo().find_by_id(id).await?.series_id;
+    let project_id = state.ports.block_repo().find_by_id(id).await?.project_id;
     let cmd = LeaveBlock {
         block_id: BlockId::from_uuid(id),
-        series_id,
+        project_id,
     };
     state
         .ports
@@ -3510,7 +3529,7 @@ pub async fn upload_costume_photo<P: Ports>(
     // Fetch the costume to resolve its owning series for authorization.
     let costume = state.ports.costume_repo().find_by_id(costume_id).await?;
 
-    // AUTHZ-GATE: authorize_costume_in_series — handler-internal auth gate
+    // AUTHZ-GATE: authorize_costume_in_project — handler-internal auth gate
     // (see AGENTS.md). Since issue #535 (ADR-035 B2/S2) the photo policy is
     // **series-scoped**: a costume-dept role in any active block of the
     // costume's owning series authorizes the upload (deliberate boundary
@@ -3519,7 +3538,7 @@ pub async fn upload_costume_photo<P: Ports>(
     // resolvable container answers 422 `costume.container-unresolved`. The
     // gate returns the resolved series so the commands below reuse ONE
     // resolution for their audit metadata (no second best-effort walk).
-    let series_id = authorize_costume_in_series(
+    let project_id = authorize_costume_in_project(
         &state,
         &costume,
         current_user.sub.clone(),
@@ -3555,7 +3574,7 @@ pub async fn upload_costume_photo<P: Ports>(
                 content_type: content_type.clone(),
                 size_bytes,
                 binding: PhotoBinding::Costume { costume_id },
-                series_id: Some(series_id),
+                project_id: Some(project_id),
             },
         )
         .await
@@ -3574,7 +3593,7 @@ pub async fn upload_costume_photo<P: Ports>(
             LinkPhoto {
                 id: costume_id,
                 photo_id: photo_id.0,
-                series_id: Some(series_id),
+                project_id: Some(project_id),
                 version,
             },
         )
@@ -3679,10 +3698,10 @@ pub async fn get_costume_photo_bytes<P: Ports>(
     // Fetch the costume to resolve its owning series for authorization.
     let costume = state.ports.costume_repo().find_by_id(costume_id).await?;
 
-    // AUTHZ-GATE: authorize_costume_in_series — handler-internal auth gate
+    // AUTHZ-GATE: authorize_costume_in_project — handler-internal auth gate
     // (see AGENTS.md). Series-scoped photo policy as of issue #535
     // (ADR-035 B2/S2) — same seam as upload/delete.
-    authorize_costume_in_series(
+    authorize_costume_in_project(
         &state,
         &costume,
         current_user.sub.clone(),
@@ -3766,11 +3785,11 @@ pub async fn delete_costume_photo<P: Ports>(
     // Fetch the costume to resolve its owning series for authorization.
     let costume = state.ports.costume_repo().find_by_id(costume_id).await?;
 
-    // AUTHZ-GATE: authorize_costume_in_series — handler-internal auth gate
+    // AUTHZ-GATE: authorize_costume_in_project — handler-internal auth gate
     // (see AGENTS.md). Series-scoped photo policy as of issue #535
     // (ADR-035 B2/S2) — same seam as upload/bytes. The resolved series is
     // reused as the command's audit metadata.
-    let series_id = authorize_costume_in_series(
+    let project_id = authorize_costume_in_project(
         &state,
         &costume,
         current_user.sub.clone(),
@@ -3787,7 +3806,7 @@ pub async fn delete_costume_photo<P: Ports>(
             UnlinkPhoto {
                 id: costume_id,
                 photo_id,
-                series_id: Some(series_id),
+                project_id: Some(project_id),
                 version: costume.version,
             },
         )
@@ -3904,7 +3923,7 @@ pub async fn plan_scene_shoot<P: Ports>(
     Json(req): Json<PlanSceneShootRequest>,
 ) -> ApiResult<IdVersionResponse> {
     let id = SceneShootId::new();
-    let series_id = Some(series_id_for_scene(&state, scene_id).await?);
+    let project_id = Some(project_id_for_scene(&state, scene_id).await?);
     // #404 invariant pre-check (advisory): (scene_id, shooting_day_id) pair
     // uniqueness is enforced authoritatively by uq_projection_scene_shoot_pair;
     // this handler-side read-model lookup — the only legitimate CQRS consumer
@@ -3930,7 +3949,7 @@ pub async fn plan_scene_shoot<P: Ports>(
         id,
         scene_id,
         shooting_day_id: day_id,
-        series_id,
+        project_id,
         planned_order: req.planned_order,
     };
     let (id, version) = state
@@ -3961,11 +3980,11 @@ pub async fn replan_scene_shoot<P: Ports>(
     Path((day_id, _scene_id, shoot_id)): Path<(ShootingDayId, Uuid, SceneShootId)>,
     Json(req): Json<ReplanSceneShootRequest>,
 ) -> ApiResult<AggregateVersion> {
-    let series_id = Some(scene_shoot_context(&state, day_id, shoot_id).await?);
+    let project_id = Some(scene_shoot_context(&state, day_id, shoot_id).await?);
     let cmd = ReplanSceneShoot {
         id: shoot_id,
         planned_order: req.planned_order,
-        series_id,
+        project_id,
         version: req.version,
     };
     let version = state
@@ -3998,13 +4017,13 @@ pub async fn start_scene_shoot<P: Ports>(
     Path((day_id, _scene_id, shoot_id)): Path<(ShootingDayId, Uuid, SceneShootId)>,
     Json(req): Json<StartSceneShootRequest>,
 ) -> ApiResult<AggregateVersion> {
-    let series_id = Some(scene_shoot_context(&state, day_id, shoot_id).await?);
+    let project_id = Some(scene_shoot_context(&state, day_id, shoot_id).await?);
     ensure_execution_open(&state, day_id).await?;
     let cmd = StartSceneShoot {
         id: shoot_id,
         shooting_day_id: day_id,
         start_dt: req.resolve_start_dt(),
-        series_id,
+        project_id,
         version: req.version,
     };
     let version = state
@@ -4036,13 +4055,13 @@ pub async fn set_actual_order<P: Ports>(
     Path((day_id, _scene_id, shoot_id)): Path<(ShootingDayId, Uuid, SceneShootId)>,
     Json(req): Json<SetActualOrderRequest>,
 ) -> ApiResult<AggregateVersion> {
-    let series_id = Some(scene_shoot_context(&state, day_id, shoot_id).await?);
+    let project_id = Some(scene_shoot_context(&state, day_id, shoot_id).await?);
     ensure_execution_open(&state, day_id).await?;
     let cmd = SetActualOrder {
         id: shoot_id,
         shooting_day_id: day_id,
         actual_order: req.actual_order,
-        series_id,
+        project_id,
         version: req.version,
     };
     let version = state
@@ -4074,13 +4093,13 @@ pub async fn finish_scene_shoot<P: Ports>(
     Path((day_id, _scene_id, shoot_id)): Path<(ShootingDayId, Uuid, SceneShootId)>,
     Json(req): Json<FinishSceneShootRequest>,
 ) -> ApiResult<AggregateVersion> {
-    let series_id = Some(scene_shoot_context(&state, day_id, shoot_id).await?);
+    let project_id = Some(scene_shoot_context(&state, day_id, shoot_id).await?);
     ensure_execution_open(&state, day_id).await?;
     let cmd = FinishSceneShoot {
         id: shoot_id,
         shooting_day_id: day_id,
         end_dt: req.resolve_end_dt(),
-        series_id,
+        project_id,
         version: req.version,
     };
     let version = state
@@ -4111,12 +4130,12 @@ pub async fn skip_scene_shoot<P: Ports>(
     Path((day_id, _scene_id, shoot_id)): Path<(ShootingDayId, Uuid, SceneShootId)>,
     Json(req): Json<SkipSceneShootRequest>,
 ) -> ApiResult<AggregateVersion> {
-    let series_id = Some(scene_shoot_context(&state, day_id, shoot_id).await?);
+    let project_id = Some(scene_shoot_context(&state, day_id, shoot_id).await?);
     ensure_execution_open(&state, day_id).await?;
     let cmd = SkipSceneShoot {
         id: shoot_id,
         shooting_day_id: day_id,
-        series_id,
+        project_id,
         version: req.version,
     };
     let version = state
@@ -4200,14 +4219,14 @@ pub async fn add_scene_shoot_note<P: Ports>(
     Json(req): Json<AddNoteRequest>,
 ) -> ApiResult<AggregateVersion> {
     let note_id = req.note_id.unwrap_or_else(Uuid::now_v7);
-    let series_id = Some(scene_shoot_context(&state, day_id, shoot_id).await?);
+    let project_id = Some(scene_shoot_context(&state, day_id, shoot_id).await?);
     ensure_execution_open(&state, day_id).await?;
     let cmd = AddSceneShootNote {
         id: shoot_id,
         shooting_day_id: day_id,
         note_id,
         body: req.body,
-        series_id,
+        project_id,
         author: None,
     };
     let version = state
@@ -4239,14 +4258,14 @@ pub async fn update_scene_shoot_note<P: Ports>(
     Path((day_id, _scene_id, shoot_id, note_id)): Path<(ShootingDayId, Uuid, SceneShootId, Uuid)>,
     Json(req): Json<UpdateNoteRequest>,
 ) -> ApiResult<AggregateVersion> {
-    let series_id = Some(scene_shoot_context(&state, day_id, shoot_id).await?);
+    let project_id = Some(scene_shoot_context(&state, day_id, shoot_id).await?);
     ensure_execution_open(&state, day_id).await?;
     let cmd = UpdateSceneShootNote {
         id: shoot_id,
         shooting_day_id: day_id,
         note_id,
         body: req.body,
-        series_id,
+        project_id,
         version: req.version,
     };
     let version = state
@@ -4276,13 +4295,13 @@ pub async fn remove_scene_shoot_note<P: Ports>(
     Path((day_id, _scene_id, shoot_id, note_id)): Path<(ShootingDayId, Uuid, SceneShootId, Uuid)>,
     Json(req): Json<VersionRequest>,
 ) -> ApiResult<AggregateVersion> {
-    let series_id = Some(scene_shoot_context(&state, day_id, shoot_id).await?);
+    let project_id = Some(scene_shoot_context(&state, day_id, shoot_id).await?);
     ensure_execution_open(&state, day_id).await?;
     let cmd = RemoveSceneShootNote {
         id: shoot_id,
         shooting_day_id: day_id,
         note_id,
-        series_id,
+        project_id,
         version: req.version,
     };
     let version = state
@@ -4339,11 +4358,11 @@ pub async fn link_continuity_photo<P: Ports>(
     )
     .await?;
 
-    let series_id = Some(block.series_id);
+    let project_id = Some(block.project_id);
     let cmd = LinkContinuityPhoto {
         id: shoot_id,
         photo_id: req.photo_id,
-        series_id,
+        project_id,
         version: req.version,
     };
     let version = state
@@ -4416,11 +4435,11 @@ pub async fn unlink_continuity_photo<P: Ports>(
     )
     .await?;
 
-    let series_id = Some(block.series_id);
+    let project_id = Some(block.project_id);
     let cmd = UnlinkContinuityPhoto {
         id: shoot_id,
         photo_id,
-        series_id,
+        project_id,
         version: version_req.version,
     };
     let version = state
@@ -4462,10 +4481,10 @@ pub async fn wrap_shooting_day<P: Ports>(
     Json(req): Json<WrapShootingDayRequest>,
 ) -> ApiResult<AggregateVersion> {
     use breakdown_core::shooting_day::commands::WrapShootingDay;
-    let series_id = Some(series_id_for_shooting_day(&state, id).await?);
+    let project_id = Some(project_id_for_shooting_day(&state, id).await?);
     let cmd = WrapShootingDay {
         id,
-        series_id,
+        project_id,
         version: req.version,
     };
     let version = state
@@ -6004,7 +6023,9 @@ fn parse_preview_payload(kind: DocumentKind, payload: &[u8]) -> Result<AiPreview
 #[derive(Debug, Clone, Deserialize, ToSchema)]
 pub struct ApplyAiImportRequest {
     pub episode_id: EpisodeId,
-    pub series_id: Option<SeriesId>,
+    #[schema(rename = "series_id")]
+    // wire field pinned: layer 3 is a breaking ADR-021 change, deferred
+    pub project_id: Option<ProjectId>,
     pub mappings: Vec<ApplyMapping>,
     pub accept_as_is: bool,
     pub edit_distance: u32,
@@ -6116,7 +6137,7 @@ pub async fn apply_ai_import<P: Ports>(
             }
             // The episode is the authoritative source for the series seam;
             // resolving it here keeps the write side free of read-model lookups.
-            let series_id = Some(episode.series_id);
+            let project_id = Some(episode.project_id);
             // A `Character` is scoped to a Season and the costume's repertoire
             // binding names one too, but a draft row only knows its episode. The
             // season is therefore resolved here — the handler is the only
@@ -6222,7 +6243,7 @@ pub async fn apply_ai_import<P: Ports>(
                     if state
                         .ports
                         .episode_repo()
-                        .find_by_series_and_number(episode.series_id, *number)
+                        .find_by_project_and_number(episode.project_id, *number)
                         .await?
                         .is_some()
                     {
@@ -6257,7 +6278,7 @@ pub async fn apply_ai_import<P: Ports>(
                     decisions: &request.mappings,
                     episode_id: request.episode_id,
                     season_id,
-                    series_id,
+                    project_id,
                     // Created episodes live under the target episode's block —
                     // the same block the AUTHZ-GATE above tied to the job.
                     block_id: episode.block_id,
@@ -6294,7 +6315,7 @@ pub async fn apply_ai_import<P: Ports>(
                     actor: current_user.sub,
                     preview_id: id,
                     preview: &preview,
-                    series_id: request.series_id,
+                    project_id: request.project_id,
                 })
                 .await?;
             // Telemetry is not part of the apply success contract: the mutation

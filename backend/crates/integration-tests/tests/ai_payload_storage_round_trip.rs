@@ -506,7 +506,7 @@ async fn ai_payload_apply_round_trips_through_projection() -> Result<()> {
             // The row names no figure, so no season-scoped aggregate is created
             // and this seam is never consulted.
             season_id: SeasonId::new(),
-            series_id: None,
+            project_id: None,
             // Single-episode flow: no group targets and no episode creation.
             block_id: BlockId::from_uuid(Uuid::now_v7()),
             episode_groups: Vec::new(),

@@ -22,13 +22,13 @@ use api::state::AppState;
 use axum::extract::State;
 
 use breakdown_core::membership::Role;
-use breakdown_core::shared::{BlockId, SeasonId, SeriesId, UserId};
+use breakdown_core::shared::{BlockId, ProjectId, SeasonId, UserId};
 use common::*;
 
 #[tokio::test]
 async fn get_series_membership_returns_predicate_for_active_member() {
     let ports = FakePorts::default();
-    let series = SeriesId::new();
+    let series = ProjectId::new();
     ports
         .membership_repo
         .seed_active(
@@ -46,8 +46,8 @@ async fn get_series_membership_returns_predicate_for_active_member() {
     )
     .await
     .unwrap();
-    assert_eq!(dto.series_id, series.0);
-    assert!(dto.has_active_costume_role_in_series);
+    assert_eq!(dto.project_id, series.0);
+    assert!(dto.has_active_costume_role_in_project);
     assert_eq!(
         dto.capabilities,
         vec![
@@ -60,7 +60,7 @@ async fn get_series_membership_returns_predicate_for_active_member() {
 #[tokio::test]
 async fn get_series_membership_returns_empty_capabilities_for_non_member() {
     let ports = FakePorts::default();
-    let series = SeriesId::new();
+    let series = ProjectId::new();
     let (_status, Json(dto)) = get_series_membership::<FakePorts>(
         State(AppState::new(ports)),
         CurrentUser::dummy("stranger"),
@@ -68,7 +68,7 @@ async fn get_series_membership_returns_empty_capabilities_for_non_member() {
     )
     .await
     .unwrap();
-    assert!(!dto.has_active_costume_role_in_series);
+    assert!(!dto.has_active_costume_role_in_project);
     assert!(dto.capabilities.is_empty());
 }
 
@@ -78,7 +78,7 @@ async fn get_series_membership_returns_empty_capabilities_for_non_member() {
 #[tokio::test]
 async fn get_series_membership_resolves_the_series_predicate_not_the_season_one() {
     let ports = FakePorts::default();
-    let series = SeriesId::new();
+    let series = ProjectId::new();
     // Season predicate would allow (override true), series predicate is
     // unseeded → the DTO must report `false`.
     *ports.membership_repo.costume_role_override.lock().await = Some(Ok(true));
@@ -94,7 +94,7 @@ async fn get_series_membership_resolves_the_series_predicate_not_the_season_one(
     )
     .await
     .unwrap();
-    assert!(!dto.has_active_costume_role_in_series);
+    assert!(!dto.has_active_costume_role_in_project);
 }
 
 /// A failing series predicate is propagated as a server error (fail closed,
@@ -102,7 +102,7 @@ async fn get_series_membership_resolves_the_series_predicate_not_the_season_one(
 #[tokio::test]
 async fn get_series_membership_propagates_predicate_failure() {
     let ports = FakePorts::default();
-    let series = SeriesId::new();
+    let series = ProjectId::new();
     *ports
         .membership_repo
         .series_costume_role_override

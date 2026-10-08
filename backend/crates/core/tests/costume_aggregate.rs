@@ -15,13 +15,13 @@
     clippy::dbg_macro
 )]
 use breakdown_core::costume::*;
-use breakdown_core::shared::{AggregateVersion, CostumeCategoryId, SeasonId, SeriesId};
+use breakdown_core::shared::{AggregateVersion, CostumeCategoryId, ProjectId, SeasonId};
 use kameo_es::{Apply, Command};
 use test_support::make_ctx;
 use uuid::Uuid;
 
-fn series_id() -> SeriesId {
-    SeriesId::new()
+fn project_id() -> ProjectId {
+    ProjectId::new()
 }
 
 fn make_costume() -> CostumeAggregate {
@@ -31,7 +31,7 @@ fn make_costume() -> CostumeAggregate {
             CreateCostume {
                 id: Uuid::now_v7(),
                 season_id: None,
-                series_id: Some(series_id()),
+                project_id: Some(project_id()),
             },
             make_ctx(),
         )
@@ -47,7 +47,7 @@ fn test_create_costume_success() {
         CreateCostume {
             id: Uuid::now_v7(),
             season_id: None,
-            series_id: Some(series_id()),
+            project_id: Some(project_id()),
         },
         make_ctx(),
     );
@@ -76,7 +76,7 @@ fn test_update_costume_notes_success() {
             UpdateCostumeNotes {
                 id: agg.id,
                 notes: n.clone(),
-                series_id: Some(series_id()),
+                project_id: Some(project_id()),
                 version: agg.version,
             },
             make_ctx(),
@@ -93,7 +93,7 @@ fn test_update_costume_notes_idempotency() {
         UpdateCostumeNotes {
             id: agg.id,
             notes: agg.notes.clone(),
-            series_id: Some(series_id()),
+            project_id: Some(project_id()),
             version: agg.version,
         },
         make_ctx(),
@@ -108,7 +108,7 @@ fn test_update_costume_notes_wrong_version() {
         UpdateCostumeNotes {
             id: agg.id,
             notes: "X".into(),
-            series_id: Some(series_id()),
+            project_id: Some(project_id()),
             version: AggregateVersion(99),
         },
         make_ctx(),
@@ -156,7 +156,7 @@ fn test_all_mutating_commands_reject_stale_version_as_version_mismatch() {
             UpdateCostumeNotes {
                 id: agg.id,
                 notes: "x".into(),
-                series_id: Some(series_id()),
+                project_id: Some(project_id()),
                 version: stale,
             },
             make_ctx(),
@@ -168,7 +168,7 @@ fn test_all_mutating_commands_reject_stale_version_as_version_mismatch() {
             AssignCostumeToCharacter {
                 id: agg.id,
                 character_id: Uuid::now_v7(),
-                series_id: Some(series_id()),
+                project_id: Some(project_id()),
                 version: stale,
             },
             make_ctx(),
@@ -179,7 +179,7 @@ fn test_all_mutating_commands_reject_stale_version_as_version_mismatch() {
         agg.handle(
             UnassignCostume {
                 id: agg.id,
-                series_id: Some(series_id()),
+                project_id: Some(project_id()),
                 version: stale,
             },
             make_ctx(),
@@ -196,7 +196,7 @@ fn test_all_mutating_commands_reject_stale_version_as_version_mismatch() {
                     category_id: None,
                     text: "x".into(),
                 },
-                series_id: Some(series_id()),
+                project_id: Some(project_id()),
                 version: stale,
             },
             make_ctx(),
@@ -208,7 +208,7 @@ fn test_all_mutating_commands_reject_stale_version_as_version_mismatch() {
             RemoveDetail {
                 id: agg.id,
                 detail_id,
-                series_id: Some(series_id()),
+                project_id: Some(project_id()),
                 version: stale,
             },
             make_ctx(),
@@ -220,7 +220,7 @@ fn test_all_mutating_commands_reject_stale_version_as_version_mismatch() {
             LinkPhoto {
                 id: agg.id,
                 photo_id,
-                series_id: Some(series_id()),
+                project_id: Some(project_id()),
                 version: stale,
             },
             make_ctx(),
@@ -232,7 +232,7 @@ fn test_all_mutating_commands_reject_stale_version_as_version_mismatch() {
             UnlinkPhoto {
                 id: agg.id,
                 photo_id,
-                series_id: Some(series_id()),
+                project_id: Some(project_id()),
                 version: stale,
             },
             make_ctx(),
@@ -247,7 +247,7 @@ fn test_all_mutating_commands_reject_stale_version_as_version_mismatch() {
             AddCostumeToSeason {
                 id: agg.id,
                 season_id: SeasonId::new(),
-                series_id: Some(series_id()),
+                project_id: Some(project_id()),
                 version: stale,
             },
             make_ctx(),
@@ -259,7 +259,7 @@ fn test_all_mutating_commands_reject_stale_version_as_version_mismatch() {
             RemoveCostumeFromSeason {
                 id: agg.id,
                 season_id: SeasonId::new(),
-                series_id: Some(series_id()),
+                project_id: Some(project_id()),
                 version: stale,
             },
             make_ctx(),
@@ -277,7 +277,7 @@ fn test_assign_costume_success() {
             AssignCostumeToCharacter {
                 id: agg.id,
                 character_id: cid,
-                series_id: Some(series_id()),
+                project_id: Some(project_id()),
                 version: agg.version,
             },
             make_ctx(),
@@ -296,7 +296,7 @@ fn test_assign_costume_conflict() {
             AssignCostumeToCharacter {
                 id: agg.id,
                 character_id: ca,
-                series_id: Some(series_id()),
+                project_id: Some(project_id()),
                 version: agg.version,
             },
             make_ctx(),
@@ -308,7 +308,7 @@ fn test_assign_costume_conflict() {
         AssignCostumeToCharacter {
             id: agg.id,
             character_id: Uuid::now_v7(),
-            series_id: Some(series_id()),
+            project_id: Some(project_id()),
             version: agg.version,
         },
         make_ctx(),
@@ -329,7 +329,7 @@ fn test_unassign_costume_success() {
             AssignCostumeToCharacter {
                 id: agg.id,
                 character_id: cid,
-                series_id: Some(series_id()),
+                project_id: Some(project_id()),
                 version: agg.version,
             },
             make_ctx(),
@@ -341,7 +341,7 @@ fn test_unassign_costume_success() {
         .handle(
             UnassignCostume {
                 id: agg.id,
-                series_id: Some(series_id()),
+                project_id: Some(project_id()),
                 version: agg.version,
             },
             make_ctx(),
@@ -357,7 +357,7 @@ fn test_unassign_not_assigned() {
     let result = agg.handle(
         UnassignCostume {
             id: agg.id,
-            series_id: Some(series_id()),
+            project_id: Some(project_id()),
             version: agg.version,
         },
         make_ctx(),
@@ -383,7 +383,7 @@ fn test_add_detail_success() {
                     category_id: None,
                     text: "silk".to_string(),
                 },
-                series_id: Some(series_id()),
+                project_id: Some(project_id()),
                 version: agg.version,
             },
             make_ctx(),
@@ -408,7 +408,7 @@ fn test_remove_detail_success() {
                     category_id: None,
                     text: "x".to_string(),
                 },
-                series_id: Some(series_id()),
+                project_id: Some(project_id()),
                 version: agg.version,
             },
             make_ctx(),
@@ -420,7 +420,7 @@ fn test_remove_detail_success() {
             RemoveDetail {
                 id: agg.id,
                 detail_id: did,
-                series_id: Some(series_id()),
+                project_id: Some(project_id()),
                 version: agg.version,
             },
             make_ctx(),
@@ -437,7 +437,7 @@ fn test_remove_detail_not_found() {
         RemoveDetail {
             id: agg.id,
             detail_id: Uuid::now_v7(),
-            series_id: Some(series_id()),
+            project_id: Some(project_id()),
             version: agg.version,
         },
         make_ctx(),
@@ -469,7 +469,7 @@ fn costume_with_detail(text: &str) -> (CostumeAggregate, Uuid) {
                     category_id: None,
                     text: text.to_string(),
                 },
-                series_id: Some(series_id()),
+                project_id: Some(project_id()),
                 version: agg.version,
             },
             make_ctx(),
@@ -493,7 +493,7 @@ fn test_update_detail_success() {
                     category_id: None,
                     text: "leder".to_string(),
                 },
-                series_id: Some(series_id()),
+                project_id: Some(project_id()),
                 version: version_before,
             },
             make_ctx(),
@@ -525,7 +525,7 @@ fn test_update_detail_keeps_position_in_details() {
                     category_id: None,
                     text: "second".to_string(),
                 },
-                series_id: Some(series_id()),
+                project_id: Some(project_id()),
                 version: agg.version,
             },
             make_ctx(),
@@ -543,7 +543,7 @@ fn test_update_detail_keeps_position_in_details() {
                     category_id: None,
                     text: "seide, geändert".to_string(),
                 },
-                series_id: Some(series_id()),
+                project_id: Some(project_id()),
                 version: agg.version,
             },
             make_ctx(),
@@ -570,7 +570,7 @@ fn test_update_detail_not_found_emits_no_event() {
                 category_id: None,
                 text: "typo".to_string(),
             },
-            series_id: Some(series_id()),
+            project_id: Some(project_id()),
             version: agg.version,
         },
         make_ctx(),
@@ -602,7 +602,7 @@ fn test_update_detail_version_chain() {
                         category_id: None,
                         text: text.to_string(),
                     },
-                    series_id: Some(series_id()),
+                    project_id: Some(project_id()),
                     version,
                 },
                 make_ctx(),
@@ -624,7 +624,7 @@ fn test_update_detail_version_chain() {
                 category_id: None,
                 text: "v3".to_string(),
             },
-            series_id: Some(series_id()),
+            project_id: Some(project_id()),
             version: AggregateVersion::INITIAL,
         },
         make_ctx(),
@@ -645,7 +645,7 @@ fn test_link_photo_success() {
             LinkPhoto {
                 id: agg.id,
                 photo_id: pid,
-                series_id: Some(series_id()),
+                project_id: Some(project_id()),
                 version: agg.version,
             },
             make_ctx(),
@@ -664,7 +664,7 @@ fn test_link_photo_already_linked() {
             LinkPhoto {
                 id: agg.id,
                 photo_id: pid,
-                series_id: Some(series_id()),
+                project_id: Some(project_id()),
                 version: agg.version,
             },
             make_ctx(),
@@ -675,7 +675,7 @@ fn test_link_photo_already_linked() {
         LinkPhoto {
             id: agg.id,
             photo_id: pid,
-            series_id: Some(series_id()),
+            project_id: Some(project_id()),
             version: agg.version,
         },
         make_ctx(),
@@ -696,7 +696,7 @@ fn test_unlink_photo_success() {
             LinkPhoto {
                 id: agg.id,
                 photo_id: pid,
-                series_id: Some(series_id()),
+                project_id: Some(project_id()),
                 version: agg.version,
             },
             make_ctx(),
@@ -708,7 +708,7 @@ fn test_unlink_photo_success() {
             UnlinkPhoto {
                 id: agg.id,
                 photo_id: pid,
-                series_id: Some(series_id()),
+                project_id: Some(project_id()),
                 version: agg.version,
             },
             make_ctx(),
@@ -725,7 +725,7 @@ fn test_unlink_photo_not_linked() {
         UnlinkPhoto {
             id: agg.id,
             photo_id: Uuid::now_v7(),
-            series_id: Some(series_id()),
+            project_id: Some(project_id()),
             version: agg.version,
         },
         make_ctx(),
@@ -792,7 +792,7 @@ fn test_unlink_photo_uses_negation() {
         UnlinkPhoto {
             id,
             photo_id,
-            series_id: Some(series_id()),
+            project_id: Some(project_id()),
             version: AggregateVersion::INITIAL,
         },
         make_ctx(),
@@ -818,7 +818,7 @@ fn test_add_detail_accepts_enriched_detail() {
                     category_id: Some(cat_id),
                     text: "Knöpfe vorne".into(),
                 },
-                series_id: Some(series_id()),
+                project_id: Some(project_id()),
                 version: agg.version,
             },
             make_ctx(),
@@ -882,7 +882,7 @@ fn notes(agg: &CostumeAggregate, text: &str) -> Vec<CostumeEvent> {
         UpdateCostumeNotes {
             id: agg.id,
             notes: text.to_string(),
-            series_id: Some(series_id()),
+            project_id: Some(project_id()),
             version: agg.version,
         },
         make_ctx(),
@@ -895,7 +895,7 @@ fn bind(agg: &CostumeAggregate, character_id: Uuid) -> Vec<CostumeEvent> {
         AssignCostumeToCharacter {
             id: agg.id,
             character_id,
-            series_id: Some(series_id()),
+            project_id: Some(project_id()),
             version: agg.version,
         },
         make_ctx(),
@@ -920,7 +920,7 @@ fn test_ai_apply_chain_advances_exactly_one_version_per_step() {
                 // The AI apply passes the season it resolved at the API edge so
                 // a costume that cannot be bound stays visible as unassigned.
                 season_id: Some(SeasonId::new()),
-                series_id: Some(series_id()),
+                project_id: Some(project_id()),
             },
             make_ctx(),
         )
@@ -974,7 +974,7 @@ fn test_bind_to_a_freshly_created_costume_uses_the_created_version() {
             AssignCostumeToCharacter {
                 id: stale.id,
                 character_id,
-                series_id: Some(series_id()),
+                project_id: Some(project_id()),
                 version: wrong,
             },
             make_ctx(),
@@ -1004,7 +1004,7 @@ fn test_replayed_bind_is_refused_as_a_version_mismatch_not_a_second_assignment()
         AssignCostumeToCharacter {
             id: agg.id,
             character_id,
-            series_id: Some(series_id()),
+            project_id: Some(project_id()),
             // The version the worker would still be holding if the confirm
             // mapping write had crashed after the append.
             version: AggregateVersion::INITIAL,
@@ -1068,7 +1068,7 @@ fn test_set_costume_category_sets_and_bumps_version() {
             SetCostumeCategory {
                 id: agg.id,
                 category_id: Some(cat_id),
-                series_id: Some(series_id()),
+                project_id: Some(project_id()),
                 version: agg.version,
             },
             make_ctx(),
@@ -1121,7 +1121,7 @@ fn test_set_costume_category_none_clears() {
             SetCostumeCategory {
                 id: agg.id,
                 category_id: None,
-                series_id: Some(series_id()),
+                project_id: Some(project_id()),
                 version: agg.version,
             },
             make_ctx(),
@@ -1181,7 +1181,7 @@ fn test_set_costume_category_same_value_is_a_state_based_noop() {
             SetCostumeCategory {
                 id,
                 category_id: Some(cat_id),
-                series_id: Some(series_id()),
+                project_id: Some(project_id()),
                 version: agg.version,
             },
             make_ctx(),
@@ -1210,7 +1210,7 @@ fn test_set_costume_category_same_value_is_a_state_based_noop() {
             SetCostumeCategory {
                 id,
                 category_id: None,
-                series_id: Some(series_id()),
+                project_id: Some(project_id()),
                 version: empty.version,
             },
             make_ctx(),
@@ -1229,7 +1229,7 @@ fn test_set_costume_category_version_mismatch() {
         SetCostumeCategory {
             id: agg.id,
             category_id: Some(CostumeCategoryId::new()),
-            series_id: Some(series_id()),
+            project_id: Some(project_id()),
             version: agg.version.next(),
         },
         make_ctx(),
@@ -1432,7 +1432,7 @@ fn make_costume_in_season(season_id: Option<SeasonId>) -> CostumeAggregate {
             CreateCostume {
                 id: Uuid::now_v7(),
                 season_id,
-                series_id: Some(series_id()),
+                project_id: Some(project_id()),
             },
             make_ctx(),
         )
@@ -1462,7 +1462,7 @@ fn test_add_costume_to_season_success() {
             AddCostumeToSeason {
                 id: agg.id,
                 season_id: season,
-                series_id: Some(series_id()),
+                project_id: Some(project_id()),
                 version: agg.version,
             },
             make_ctx(),
@@ -1498,7 +1498,7 @@ fn test_add_costume_to_season_idempotent_no_event() {
         AddCostumeToSeason {
             id: agg.id,
             season_id: season,
-            series_id: Some(series_id()),
+            project_id: Some(project_id()),
             version: agg.version,
         },
         make_ctx(),
@@ -1518,7 +1518,7 @@ fn test_add_second_season_extends_repertoire() {
             AddCostumeToSeason {
                 id: agg.id,
                 season_id: s2,
-                series_id: Some(series_id()),
+                project_id: Some(project_id()),
                 version: agg.version,
             },
             make_ctx(),
@@ -1541,7 +1541,7 @@ fn test_remove_costume_from_season_success() {
             AddCostumeToSeason {
                 id: agg.id,
                 season_id: s2,
-                series_id: Some(series_id()),
+                project_id: Some(project_id()),
                 version: agg.version,
             },
             make_ctx(),
@@ -1555,7 +1555,7 @@ fn test_remove_costume_from_season_success() {
             RemoveCostumeFromSeason {
                 id: with_two.id,
                 season_id: s1,
-                series_id: Some(series_id()),
+                project_id: Some(project_id()),
                 version: with_two.version,
             },
             make_ctx(),
@@ -1587,7 +1587,7 @@ fn test_remove_costume_from_season_idempotent_no_event() {
         RemoveCostumeFromSeason {
             id: agg.id,
             season_id: SeasonId::new(),
-            series_id: Some(series_id()),
+            project_id: Some(project_id()),
             version: agg.version,
         },
         make_ctx(),
@@ -1607,7 +1607,7 @@ fn test_remove_last_season_allowed_empty_repertoire() {
             RemoveCostumeFromSeason {
                 id: agg.id,
                 season_id: s1,
-                series_id: Some(series_id()),
+                project_id: Some(project_id()),
                 version: agg.version,
             },
             make_ctx(),
@@ -1632,7 +1632,7 @@ fn test_repertoire_version_chain() {
             AddCostumeToSeason {
                 id: agg.id,
                 season_id: s2,
-                series_id: Some(series_id()),
+                project_id: Some(project_id()),
                 version: agg.version,
             },
             make_ctx(),
@@ -1647,7 +1647,7 @@ fn test_repertoire_version_chain() {
             RemoveCostumeFromSeason {
                 id: v2.id,
                 season_id: s1,
-                series_id: Some(series_id()),
+                project_id: Some(project_id()),
                 version: v2.version,
             },
             make_ctx(),

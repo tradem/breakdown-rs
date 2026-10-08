@@ -6,7 +6,7 @@
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::shared::{AggregateVersion, BlockId, SeriesId};
+use crate::shared::{AggregateVersion, BlockId, ProjectId};
 
 /// Events emitted by the `EpisodeAggregate`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -14,10 +14,15 @@ pub enum EpisodeEvent {
     EpisodeCreated {
         id: Uuid,
         block_id: BlockId,
-        /// Denormalized from `block_id` (`Series` reference is immutable for an
-        /// Episode, so write-once is safe) — needed directly for the series-
-        /// global numbering unique index (ADR: decision 3).
-        series_id: SeriesId,
+        /// Denormalized from `block_id` (the project reference is immutable for
+        /// an Episode, so write-once is safe) — needed directly for the
+        /// project-global numbering unique index (ADR: decision 3).
+        ///
+        /// `#[serde(rename = "series_id")]` pins the persisted key (issue #591,
+        /// layer 2): stored `EpisodeCreated` events already use `project_id` and
+        /// ADR-002 forbids rewriting history.
+        #[serde(rename = "series_id")]
+        project_id: ProjectId,
         number: i32,
         name: Option<String>,
         version: AggregateVersion,

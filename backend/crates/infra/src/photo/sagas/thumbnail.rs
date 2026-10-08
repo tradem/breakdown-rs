@@ -15,7 +15,7 @@ use breakdown_core::photo::commands::{GenerateVariant, MarkVariantFailed, Normal
 use breakdown_core::photo::events::PhotoEvent;
 use breakdown_core::photo::ports::PhotoStorage;
 use breakdown_core::shared::{
-    AggregateVersion, EventMetadata, PhotoId, PhotoVariant, Provenance, SeriesId, VariantStatus,
+    AggregateVersion, EventMetadata, PhotoId, PhotoVariant, ProjectId, Provenance, VariantStatus,
 };
 use kameo_es::command_service::CommandService;
 use kameo_es::command_service::ExecuteExt;
@@ -78,8 +78,8 @@ impl EntityEventHandler<PhotoAggregate, ()> for PhotoThumbnailSaga {
             // (populated at the API edge), never from a read-model projection.
             // Missing metadata yields None — same tolerant best-effort path as
             // the old projection-based resolution.
-            let series_id = event.metadata.data.as_ref().and_then(|m| m.series_id);
-            self.process_upload_with_recovery(id, series_id).await?;
+            let project_id = event.metadata.data.as_ref().and_then(|m| m.project_id);
+            self.process_upload_with_recovery(id, project_id).await?;
         }
         Ok(())
     }
@@ -94,9 +94,9 @@ impl PhotoThumbnailSaga {
     async fn process_upload_with_recovery(
         &self,
         id: PhotoId,
-        series_id: Option<SeriesId>,
+        project_id: Option<ProjectId>,
     ) -> Result<()> {
-        retry_transient(|| self.process_upload(id, series_id)).await
+        retry_transient(|| self.process_upload(id, project_id)).await
     }
 
     /// Rebuild the photo aggregate's current state from the event store.
@@ -148,7 +148,7 @@ impl PhotoThumbnailSaga {
     async fn mark_variants_failed(
         &self,
         id: PhotoId,
-        series_id: Option<SeriesId>,
+        project_id: Option<ProjectId>,
         version: AggregateVersion,
         error: &str,
     ) {
@@ -162,7 +162,7 @@ impl PhotoThumbnailSaga {
                     id,
                     variant,
                     error: error.to_owned(),
-                    series_id,
+                    project_id,
                     version: expected,
                 },
             )
@@ -170,7 +170,7 @@ impl PhotoThumbnailSaga {
             .metadata(EventMetadata {
                 actor: None,
                 provenance: Provenance::Saga("PhotoThumbnailSaga".to_string()),
-                series_id,
+                project_id,
             })
             .await;
             match result {
@@ -187,7 +187,7 @@ impl PhotoThumbnailSaga {
         }
     }
 
-    async fn process_upload(&self, id: PhotoId, series_id: Option<SeriesId>) -> Result<()> {
+    async fn process_upload(&self, id: PhotoId, project_id: Option<ProjectId>) -> Result<()> {
         // Redelivery guard (issue #515): read the aggregate's current state
         // from the event store (the write-side source of truth — never a
         // read-model projection) and only redo work that is still missing.
@@ -248,7 +248,7 @@ impl PhotoThumbnailSaga {
                     );
                     self.mark_variants_failed(
                         id,
-                        series_id,
+                        project_id,
                         state.version,
                         &decode_error.to_string(),
                     )
@@ -306,7 +306,7 @@ impl PhotoThumbnailSaga {
             id,
             new_size: photo_bytes.size_bytes,
             rotated,
-            series_id,
+            project_id,
             version: AggregateVersion::INITIAL,
         };
         let result = PhotoAggregate::execute(&self.cmd_service, norm_id, norm_cmd)
@@ -314,7 +314,7 @@ impl PhotoThumbnailSaga {
             .metadata(EventMetadata {
                 actor: None,
                 provenance: Provenance::Saga("PhotoThumbnailSaga".to_string()),
-                series_id,
+                project_id,
             })
             .await;
         Self::map_saga_execute(result)?;
@@ -326,7 +326,7 @@ impl PhotoThumbnailSaga {
             id,
             variant: PhotoVariant::Thumb,
             size_bytes: thumb_size,
-            series_id,
+            project_id,
             version: AggregateVersion::INITIAL,
         };
         let result = PhotoAggregate::execute(&self.cmd_service, thumb_id, thumb_cmd)
@@ -334,7 +334,7 @@ impl PhotoThumbnailSaga {
             .metadata(EventMetadata {
                 actor: None,
                 provenance: Provenance::Saga("PhotoThumbnailSaga".to_string()),
-                series_id,
+                project_id,
             })
             .await;
         Self::map_saga_execute(result)?;
@@ -346,7 +346,7 @@ impl PhotoThumbnailSaga {
             id,
             variant: PhotoVariant::Medium,
             size_bytes: medium_size,
-            series_id,
+            project_id,
             version: AggregateVersion::INITIAL,
         };
         let result = PhotoAggregate::execute(&self.cmd_service, med_id, med_cmd)
@@ -354,7 +354,7 @@ impl PhotoThumbnailSaga {
             .metadata(EventMetadata {
                 actor: None,
                 provenance: Provenance::Saga("PhotoThumbnailSaga".to_string()),
-                series_id,
+                project_id,
             })
             .await;
         Self::map_saga_execute(result)?;

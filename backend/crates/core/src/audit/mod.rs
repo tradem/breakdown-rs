@@ -6,8 +6,8 @@
 //! Generic, cross-context audit projection. v1 captures the `membership`
 //! Bounded Context's events; the schema is generic so other contexts can be
 //! appended later without a breaking migration (see `block-membership` spec,
-//! "Membership audit journal", and `design.md` decision 9.3). The `series_id`
-//! tenant dimension is prepared for per-`SeriesId` tenancy (decision 9.2) but
+//! "Membership audit journal", and `design.md` decision 9.3). The `project_id`
+//! tenant dimension is prepared for per-`ProjectId` tenancy (decision 9.2) but
 //! is `NULL` in v1.
 
 pub mod ports;

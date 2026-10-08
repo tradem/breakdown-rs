@@ -37,7 +37,7 @@ use breakdown_core::costume_category::events::CostumeCategoryEvent;
 use breakdown_core::costume_category::ports::CostumeCategoryRepository as _;
 use breakdown_core::costume_category::views::CostumeCategoryView;
 use breakdown_core::shared::{
-    AggregateVersion, CostumeCategoryId, LexicalSortKey, SeasonId, SeriesId,
+    AggregateVersion, CostumeCategoryId, LexicalSortKey, ProjectId, SeasonId,
 };
 use chrono::Utc;
 use infra::queries::{CostumeCategoryRepositoryImpl, CostumeRepositoryImpl};
@@ -277,7 +277,7 @@ async fn season_created_seeds_exactly_five_categories_and_is_idempotent() -> Res
     let stream_id = format!("season-{}", season_id.0);
     let season_created = breakdown_core::season::events::SeasonEvent::SeasonCreated {
         id: season_id.0,
-        series_id: SeriesId(Uuid::now_v7()),
+        project_id: ProjectId(Uuid::now_v7()),
         number: 1,
         title: Some("Staffel 1".into()),
         version: AggregateVersion::INITIAL,
@@ -308,7 +308,7 @@ async fn season_created_seeds_exactly_five_categories_and_is_idempotent() -> Res
     let second_stream = format!("season-{}", Uuid::now_v7());
     let season_created_again = breakdown_core::season::events::SeasonEvent::SeasonCreated {
         id: season_id.0,
-        series_id: SeriesId(Uuid::now_v7()),
+        project_id: ProjectId(Uuid::now_v7()),
         number: 1,
         title: Some("Staffel 1 (replay)".into()),
         version: AggregateVersion::INITIAL,

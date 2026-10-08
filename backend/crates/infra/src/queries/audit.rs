@@ -8,7 +8,7 @@ use async_trait::async_trait;
 use breakdown_core::audit::ports::AuditRepository;
 use breakdown_core::audit::views::AuditEntry;
 use breakdown_core::error::DomainError;
-use breakdown_core::shared::{BlockId, SeriesId, UserId};
+use breakdown_core::shared::{BlockId, ProjectId, UserId};
 use chrono::{DateTime, Utc};
 use sqlx::{PgPool, Row};
 use uuid::Uuid;
@@ -104,14 +104,14 @@ impl AuditRepository for AuditRepositoryImpl {
         rows.into_iter().map(map_audit_row).collect()
     }
 
-    async fn list_by_series(
+    async fn list_by_project(
         &self,
-        series_id: SeriesId,
+        project_id: ProjectId,
         limit: i64,
         offset: i64,
     ) -> Result<Vec<AuditEntry>, DomainError> {
         let rows = sqlx::query("SELECT id, entity_type, entity_id, event_type, block_id, series_id, actor, payload, occurred_at FROM projection_audit WHERE series_id = $1 ORDER BY occurred_at DESC, id DESC LIMIT $2 OFFSET $3")
-        .bind(series_id.0)
+        .bind(project_id.0)
         .bind(limit)
         .bind(offset)
         .fetch_all(&self.pool)
@@ -139,7 +139,7 @@ fn map_audit_row(row: sqlx::postgres::PgRow) -> Result<AuditEntry, DomainError> 
         .try_get::<Option<Uuid>, _>("block_id")
         .map_err(|e| DomainError::conflict(e.to_string()))?
         .map(BlockId::from_uuid);
-    let series_id: Option<Uuid> = row
+    let project_id: Option<Uuid> = row
         .try_get("series_id")
         .map_err(|e| DomainError::conflict(e.to_string()))?;
     let actor: Option<UserId> = row
@@ -159,7 +159,7 @@ fn map_audit_row(row: sqlx::postgres::PgRow) -> Result<AuditEntry, DomainError> 
         entity_id,
         event_type,
         block_id,
-        series_id,
+        project_id,
         actor,
         payload,
         occurred_at,

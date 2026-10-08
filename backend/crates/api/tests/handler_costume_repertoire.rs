@@ -34,7 +34,7 @@ use axum::http::StatusCode;
 use breakdown_core::costume::views::CostumeView;
 use breakdown_core::error_registry::SEASON_NOT_FOUND;
 use breakdown_core::season::views::SeasonView;
-use breakdown_core::shared::{AggregateVersion, SeasonId, SeriesId};
+use breakdown_core::shared::{AggregateVersion, ProjectId, SeasonId};
 use chrono::Utc;
 use common::FakePorts;
 use uuid::Uuid;
@@ -78,7 +78,7 @@ async fn seed_costume(ports: &FakePorts, costume_id: Uuid, repertoire: &[Uuid]) 
 fn season_view(id: Uuid) -> SeasonView {
     SeasonView {
         id,
-        series_id: SeriesId::new(),
+        project_id: ProjectId::new(),
         number: 1,
         title: None,
         archived: false,

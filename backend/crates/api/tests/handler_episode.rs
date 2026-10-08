@@ -13,7 +13,7 @@ use api::problems::{Json, Query};
 use axum::extract::State;
 use axum::http::StatusCode;
 use breakdown_core::episode::views::EpisodeView;
-use breakdown_core::shared::{AggregateVersion, BlockId, SeriesId};
+use breakdown_core::shared::{AggregateVersion, BlockId, ProjectId};
 use chrono::Utc;
 use uuid::Uuid;
 
@@ -22,11 +22,11 @@ use api::state::AppState;
 
 mod common;
 
-fn episode_view(id: Uuid, block_id: BlockId, series_id: SeriesId, number: i32) -> EpisodeView {
+fn episode_view(id: Uuid, block_id: BlockId, project_id: ProjectId, number: i32) -> EpisodeView {
     EpisodeView {
         id,
         block_id,
-        series_id,
+        project_id,
         number,
         name: None,
         version: AggregateVersion::INITIAL,
@@ -38,7 +38,7 @@ fn list_params() -> EpisodeListParams {
     EpisodeListParams {
         limit: Some(50),
         offset: Some(0),
-        series_id: None,
+        project_id: None,
         block_id: None,
     }
 }
@@ -46,22 +46,22 @@ fn list_params() -> EpisodeListParams {
 #[tokio::test]
 async fn list_episodes_filters_by_block_id_without_series_id() {
     let ports = common::FakePorts::default();
-    let series_id = SeriesId::new();
+    let project_id = ProjectId::new();
     let block_a = BlockId::new();
     let block_b = BlockId::new();
     {
         let mut episodes = ports.episode_repo.episodes.lock().await;
         episodes.insert(
             Uuid::now_v7(),
-            episode_view(Uuid::now_v7(), block_a, series_id, 1),
+            episode_view(Uuid::now_v7(), block_a, project_id, 1),
         );
         episodes.insert(
             Uuid::now_v7(),
-            episode_view(Uuid::now_v7(), block_a, series_id, 2),
+            episode_view(Uuid::now_v7(), block_a, project_id, 2),
         );
         episodes.insert(
             Uuid::now_v7(),
-            episode_view(Uuid::now_v7(), block_b, series_id, 3),
+            episode_view(Uuid::now_v7(), block_b, project_id, 3),
         );
     }
     let state = AppState::new(ports);
@@ -79,21 +79,21 @@ async fn list_episodes_filters_by_block_id_without_series_id() {
 #[tokio::test]
 async fn list_episodes_by_series_still_returns_whole_series() {
     let ports = common::FakePorts::default();
-    let series_id = SeriesId::new();
+    let project_id = ProjectId::new();
     {
         let mut episodes = ports.episode_repo.episodes.lock().await;
         episodes.insert(
             Uuid::now_v7(),
-            episode_view(Uuid::now_v7(), BlockId::new(), series_id, 1),
+            episode_view(Uuid::now_v7(), BlockId::new(), project_id, 1),
         );
         episodes.insert(
             Uuid::now_v7(),
-            episode_view(Uuid::now_v7(), BlockId::new(), series_id, 2),
+            episode_view(Uuid::now_v7(), BlockId::new(), project_id, 2),
         );
     }
     let state = AppState::new(ports);
     let mut params = list_params();
-    params.series_id = Some(series_id);
+    params.project_id = Some(project_id);
 
     let result = list_episodes(State(state), Query(params)).await;
     let (status, Json(views)) = result.expect("handler should succeed");

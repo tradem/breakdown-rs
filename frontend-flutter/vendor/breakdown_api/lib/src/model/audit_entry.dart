@@ -11,7 +11,7 @@ import 'package:built_value/serializer.dart';
 
 part 'audit_entry.g.dart';
 
-/// One row of the audit journal: who (`actor`) did what (`event_type` on `entity_type`/`entity_id`) when (`occurred_at`), with the event `payload`.  `series_id` is the tenant dimension prepared for per-`SeriesId` tenancy (decision 9.2) and is `NULL` in v1. `payload` is the raw event serialized as JSON (generic, so any context's events fit the same row).
+/// One row of the audit journal: who (`actor`) did what (`event_type` on `entity_type`/`entity_id`) when (`occurred_at`), with the event `payload`.  `series_id` is the tenant dimension prepared for per-`ProjectId` tenancy (decision 9.2) and is `NULL` in v1. `payload` is the raw event serialized as JSON (generic, so any context's events fit the same row).
 ///
 /// Properties:
 /// * [actor] - Opaque identifier for a user, wrapping the OIDC `sub` claim.  `UserId` references the authenticated principal without ever decoding, storing, or dereferencing identity attributes in `core`. The backend only trusts the IdP-issued `sub`; account lifecycle lives exclusively in the OIDC provider (ADR-010). Unlike the hierarchy ids, `UserId` is *not* a UUIDv7 — it is the raw string subject the IdP assigns.

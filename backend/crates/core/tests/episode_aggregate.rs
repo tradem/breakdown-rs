@@ -12,20 +12,20 @@
     clippy::dbg_macro
 )]
 use breakdown_core::episode::*;
-use breakdown_core::shared::{AggregateVersion, BlockId, SeriesId};
+use breakdown_core::shared::{AggregateVersion, BlockId, ProjectId};
 use kameo_es::{Apply, Command};
 use test_support::make_ctx;
 use uuid::Uuid;
 
-fn series_id() -> SeriesId {
-    SeriesId::new()
+fn project_id() -> ProjectId {
+    ProjectId::new()
 }
 
 fn create_episode() -> EpisodeAggregate {
     let cmd = CreateEpisode {
         id: Uuid::now_v7(),
         block_id: BlockId::new(),
-        series_id: SeriesId::new(),
+        project_id: ProjectId::new(),
         number: 1,
         name: Some("Pilot".into()),
     };
@@ -38,11 +38,11 @@ fn create_episode() -> EpisodeAggregate {
 #[test]
 fn test_create_episode_success() {
     let block_id = BlockId::new();
-    let series_id = SeriesId::new();
+    let project_id = ProjectId::new();
     let cmd = CreateEpisode {
         id: Uuid::now_v7(),
         block_id,
-        series_id,
+        project_id,
         number: 2,
         name: Some("Finale".into()),
     };
@@ -52,14 +52,14 @@ fn test_create_episode_success() {
         EpisodeEvent::EpisodeCreated {
             id,
             block_id: bid,
-            series_id: sid,
+            project_id: sid,
             number,
             name,
             version,
         } => {
             assert_ne!(id, Uuid::nil());
             assert_eq!(bid, block_id);
-            assert_eq!(sid, series_id);
+            assert_eq!(sid, project_id);
             assert_eq!(number, 2);
             assert_eq!(name, Some("Finale".into()));
             assert_eq!(version, AggregateVersion::INITIAL);
@@ -73,7 +73,7 @@ fn test_create_episode_without_name() {
     let cmd = CreateEpisode {
         id: Uuid::now_v7(),
         block_id: BlockId::new(),
-        series_id: SeriesId::new(),
+        project_id: ProjectId::new(),
         number: 3,
         name: None,
     };
@@ -92,7 +92,7 @@ fn test_rename_episode_success() {
             RenameEpisode {
                 id: agg.id,
                 name: Some("Renamed".into()),
-                series_id: Some(series_id()),
+                project_id: Some(project_id()),
                 version: agg.version,
             },
             make_ctx(),
@@ -110,7 +110,7 @@ fn test_rename_episode_idempotency() {
         RenameEpisode {
             id: agg.id,
             name: agg.name.clone(),
-            series_id: Some(series_id()),
+            project_id: Some(project_id()),
             version: agg.version,
         },
         make_ctx(),
@@ -129,7 +129,7 @@ fn test_rename_episode_wrong_version() {
         RenameEpisode {
             id: agg.id,
             name: Some("X".into()),
-            series_id: Some(series_id()),
+            project_id: Some(project_id()),
             version: AggregateVersion(99),
         },
         make_ctx(),
@@ -155,7 +155,7 @@ fn test_apply_updates_state() {
         EpisodeEvent::EpisodeCreated {
             id,
             block_id: BlockId::new(),
-            series_id: SeriesId::new(),
+            project_id: ProjectId::new(),
             number: 5,
             name: Some("Liese".into()),
             version: AggregateVersion::INITIAL,
@@ -183,7 +183,7 @@ fn test_rename_uses_not_equal() {
         EpisodeEvent::EpisodeCreated {
             id,
             block_id: BlockId::new(),
-            series_id: SeriesId::new(),
+            project_id: ProjectId::new(),
             number: 1,
             name: Some("A".into()),
             version: AggregateVersion::INITIAL,
@@ -202,7 +202,7 @@ fn test_rename_uses_not_equal() {
         RenameEpisode {
             id,
             name: Some("B".into()),
-            series_id: Some(series_id()),
+            project_id: Some(project_id()),
             version: AggregateVersion(2),
         },
         make_ctx(),

@@ -8,13 +8,13 @@ use super::binding::PhotoBinding;
 use serde::Deserialize;
 use utoipa::ToSchema;
 
-use crate::shared::{AggregateVersion, PhotoId, PhotoVariant, SeriesId};
+use crate::shared::{AggregateVersion, PhotoId, PhotoVariant, ProjectId};
 
 /// Upload a new photo. The saga will later normalize the original and generate
 /// variants.
 ///
-/// `series_id` is carried for the `EventMetadata` audit trail (the audit
-/// projector keys on `series_id`); it is resolved at the API edge from the
+/// `project_id` is carried for the `EventMetadata` audit trail (the audit
+/// projector keys on `project_id`); it is resolved at the API edge from the
 /// photo's binding, never queried again by the command adapter.
 #[derive(Debug, Clone, Deserialize, ToSchema)]
 pub struct UploadPhoto {
@@ -25,60 +25,70 @@ pub struct UploadPhoto {
     /// Defaults to `Costume` for backward compat.
     #[serde(default)]
     pub binding: PhotoBinding,
-    pub series_id: Option<SeriesId>,
+    #[schema(rename = "series_id")]
+    // wire name pinned: layer 3 (OpenAPI field rename) is a breaking ADR-021 change, deferred
+    pub project_id: Option<ProjectId>,
 }
 
 /// Signal that the original has been re-encoded upright and EXIF-stripped.
 ///
-/// `series_id` is carried for the `EventMetadata` audit trail (the audit
-/// projector keys on `series_id`); it is resolved by the dispatching saga,
+/// `project_id` is carried for the `EventMetadata` audit trail (the audit
+/// projector keys on `project_id`); it is resolved by the dispatching saga,
 /// never queried again by the command adapter.
 #[derive(Debug, Clone, Deserialize, ToSchema)]
 pub struct NormalizeOriginal {
     pub id: PhotoId,
     pub new_size: u64,
     pub rotated: bool,
-    pub series_id: Option<SeriesId>,
+    #[schema(rename = "series_id")]
+    // wire name pinned: layer 3 (OpenAPI field rename) is a breaking ADR-021 change, deferred
+    pub project_id: Option<ProjectId>,
     pub version: AggregateVersion,
 }
 
 /// Signal that a variant (Thumb or Medium) has been generated.
 ///
-/// `series_id` is carried for the `EventMetadata` audit trail (the audit
-/// projector keys on `series_id`); it is resolved by the dispatching saga,
+/// `project_id` is carried for the `EventMetadata` audit trail (the audit
+/// projector keys on `project_id`); it is resolved by the dispatching saga,
 /// never queried again by the command adapter.
 #[derive(Debug, Clone, Deserialize, ToSchema)]
 pub struct GenerateVariant {
     pub id: PhotoId,
     pub variant: PhotoVariant,
     pub size_bytes: u64,
-    pub series_id: Option<SeriesId>,
+    #[schema(rename = "series_id")]
+    // wire name pinned: layer 3 (OpenAPI field rename) is a breaking ADR-021 change, deferred
+    pub project_id: Option<ProjectId>,
     pub version: AggregateVersion,
 }
 
 /// Signal that variant generation failed.
 ///
-/// `series_id` is carried for the `EventMetadata` audit trail (the audit
-/// projector keys on `series_id`); it is resolved by the dispatching saga,
+/// `project_id` is carried for the `EventMetadata` audit trail (the audit
+/// projector keys on `project_id`); it is resolved by the dispatching saga,
 /// never queried again by the command adapter.
 #[derive(Debug, Clone, Deserialize, ToSchema)]
 pub struct MarkVariantFailed {
     pub id: PhotoId,
     pub variant: PhotoVariant,
     pub error: String,
-    pub series_id: Option<SeriesId>,
+    #[schema(rename = "series_id")]
+    // wire name pinned: layer 3 (OpenAPI field rename) is a breaking ADR-021 change, deferred
+    pub project_id: Option<ProjectId>,
     pub version: AggregateVersion,
 }
 
 /// Delete a photo (terminal — no further mutations allowed after this).
 ///
-/// `series_id` is carried for the `EventMetadata` audit trail (the audit
-/// projector keys on `series_id`); it is resolved by the dispatching saga,
+/// `project_id` is carried for the `EventMetadata` audit trail (the audit
+/// projector keys on `project_id`); it is resolved by the dispatching saga,
 /// never queried again by the command adapter.
 #[derive(Debug, Clone, Deserialize, ToSchema)]
 pub struct DeletePhoto {
     pub id: PhotoId,
-    pub series_id: Option<SeriesId>,
+    #[schema(rename = "series_id")]
+    // wire name pinned: layer 3 (OpenAPI field rename) is a breaking ADR-021 change, deferred
+    pub project_id: Option<ProjectId>,
     pub version: AggregateVersion,
 }
 

@@ -6,27 +6,31 @@
 
 use uuid::Uuid;
 
-use crate::shared::{AggregateVersion, SeriesId};
+use crate::shared::{AggregateVersion, ProjectId};
 
-/// Create a new season in a series.
+/// Create a new season in a project.
 #[derive(Debug, Clone, serde::Deserialize, utoipa::ToSchema)]
 pub struct CreateSeason {
     pub id: Uuid,
-    pub series_id: SeriesId,
+    #[schema(rename = "series_id")]
+    // wire name pinned: layer 3 (OpenAPI field rename) is a breaking ADR-021 change, deferred
+    pub project_id: ProjectId,
     pub number: i32,
     pub title: Option<String>,
 }
 
 /// Rename a season (optional title may be cleared by passing `None`).
 ///
-/// `series_id` is carried for the `EventMetadata` audit trail (the audit
-/// projector keys on `series_id`); it is resolved at the API edge from the
+/// `project_id` is carried for the `EventMetadata` audit trail (the audit
+/// projector keys on `project_id`); it is resolved at the API edge from the
 /// season projection, never queried again by the command adapter.
 #[derive(Debug, Clone, serde::Deserialize, utoipa::ToSchema)]
 pub struct RenameSeason {
     pub id: Uuid,
     pub title: Option<String>,
-    pub series_id: Option<SeriesId>,
+    #[schema(rename = "series_id")]
+    // wire name pinned: layer 3 (OpenAPI field rename) is a breaking ADR-021 change, deferred
+    pub project_id: Option<ProjectId>,
     pub version: AggregateVersion,
 }
 
@@ -43,13 +47,15 @@ impl kameo_es::CommandName for CreateSeason {
 /// flip side of the repertoire lifecycle (issue #534): costume bindings stay
 /// historically valid while active membership ends.
 ///
-/// `series_id` is carried for the `EventMetadata` audit trail (the audit
-/// projector keys on `series_id`); it is resolved at the API edge from the
+/// `project_id` is carried for the `EventMetadata` audit trail (the audit
+/// projector keys on `project_id`); it is resolved at the API edge from the
 /// season projection, never queried again by the command adapter.
 #[derive(Debug, Clone, serde::Deserialize, utoipa::ToSchema)]
 pub struct ArchiveSeason {
     pub id: Uuid,
-    pub series_id: Option<SeriesId>,
+    #[schema(rename = "series_id")]
+    // wire name pinned: layer 3 (OpenAPI field rename) is a breaking ADR-021 change, deferred
+    pub project_id: Option<ProjectId>,
     pub version: AggregateVersion,
 }
 

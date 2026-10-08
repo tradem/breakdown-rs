@@ -280,7 +280,7 @@ fn json_report_routes_are_authenticated_only() {
 /// The series-scoped audit journal is authenticated-only, while its
 /// block-scoped sibling stays `BlockMember` (issue #342).
 ///
-/// The journal is filtered by the `series_id` **query parameter**, so the
+/// The journal is filtered by the `project_id` **query parameter**, so the
 /// caller's active block (`X-Active-Block`) is unrelated to the series whose
 /// journal is requested — the middleware check would give false assurance and
 /// the series check happens in the handler (`// AUTHZ-GATE:`). This test kills
@@ -393,7 +393,7 @@ async fn panicking_policy_yields_403_never_500() {
 use breakdown_core::error::DomainError;
 use breakdown_core::membership::policy::{Action, SeasonAuthContext};
 use breakdown_core::membership::{MembershipRepository, MembershipView};
-use breakdown_core::shared::{SeasonId, SeriesId, UserId};
+use breakdown_core::shared::{ProjectId, SeasonId, UserId};
 
 /// A MembershipRepository whose `has_active_costume_role_in_season` returns
 /// a configurable value — used to test each branch of the authorize_season
@@ -452,9 +452,9 @@ impl MembershipRepository for MockSeasonMembershipRepo {
     ) -> Result<bool, DomainError> {
         Ok(false)
     }
-    async fn has_active_membership_in_series(
+    async fn has_active_membership_in_project(
         &self,
-        _series_id: SeriesId,
+        _project_id: ProjectId,
         user_id: UserId,
     ) -> Result<bool, DomainError> {
         // Mirror the costume-role mock behaviour: this repo is keyed on the
@@ -463,9 +463,9 @@ impl MembershipRepository for MockSeasonMembershipRepo {
             .await
     }
 
-    async fn has_active_costume_role_in_series(
+    async fn has_active_costume_role_in_project(
         &self,
-        _series_id: SeriesId,
+        _project_id: ProjectId,
         user_id: UserId,
     ) -> Result<bool, DomainError> {
         // Mirror the costume-role mock behaviour: this repo is keyed on the

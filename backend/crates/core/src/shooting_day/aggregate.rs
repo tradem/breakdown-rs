@@ -20,7 +20,7 @@ use super::events::{ShootingDayEvent, ShootingDaySource};
 /// State persisted by the `ShootingDay` aggregate.
 ///
 /// A `ShootingDay` is scoped to exactly one `Episode` (its parent in the
-/// `Series → Season → Block → Episode → ShootingDay` leaf). It has no
+/// `Project → Season → Block → Episode → ShootingDay` leaf). It has no
 /// knowledge of which `Scene`s reference it; the `Scene` aggregate owns that
 /// link. Deletion is modelled as a terminal soft-archive (`archived = true`).
 #[derive(Debug, Clone)]

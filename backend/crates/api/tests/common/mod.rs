@@ -76,7 +76,7 @@ use breakdown_core::settings::ports::{
 };
 use breakdown_core::settings::views::{CredentialBindingState, SettingsView};
 use breakdown_core::shared::{
-    AggregateVersion, BlockId, EpisodeId, PhotoId, PhotoVariant, SceneShootId, SeasonId, SeriesId,
+    AggregateVersion, BlockId, EpisodeId, PhotoId, PhotoVariant, ProjectId, SceneShootId, SeasonId,
     ShootingDayId, UserId,
 };
 use breakdown_core::shooting_day::commands::WrapShootingDay;
@@ -541,7 +541,7 @@ type DetailedMembers = HashMap<(BlockId, UserId), (Role, MembershipStateKind)>;
 ///   `is_active_member`-style tests).
 /// - `detailed`: `(block_id, user_id) → (role, state)` rows for
 ///   role/state-distinct seeds (designers, pending invitees, …).
-/// - `scopes`: `block_id → (season_id, series_id)` attribution so the
+/// - `scopes`: `block_id → (season_id, project_id)` attribution so the
 ///   season/series-scoped predicates know which block belongs where.
 ///
 /// The explicit `*_override` knobs keep precedence over the seeded data, so
@@ -558,7 +558,7 @@ pub struct FakeMembershipRepo {
     /// Role/state-distinct membership rows (see the struct docs).
     pub detailed: Arc<Mutex<DetailedMembers>>,
     /// Block → (season, series) scope attribution (see the struct docs).
-    pub scopes: Arc<Mutex<HashMap<BlockId, (SeasonId, SeriesId)>>>,
+    pub scopes: Arc<Mutex<HashMap<BlockId, (SeasonId, ProjectId)>>>,
     /// Configurable outcome of `has_active_credential_role` — lets handler
     /// tests exercise the allow/deny/error branches of the AI import
     /// credential gate deterministically. `None` = resolve from seeded data.
@@ -583,11 +583,11 @@ pub struct FakeMembershipRepo {
     /// tests exercise the allow/deny branches of report-archive authz gates.
     /// `None` = resolve from seeded data.
     pub report_archive_role_override: Arc<Mutex<Option<Result<bool, DomainError>>>>,
-    /// Configurable outcome of `has_active_membership_in_series` — lets handler
+    /// Configurable outcome of `has_active_membership_in_project` — lets handler
     /// tests exercise the allow/deny branches of the series-scoped audit gate
     /// (issue #342). `None` = resolve from seeded data.
     pub series_membership_override: Arc<Mutex<Option<Result<bool, DomainError>>>>,
-    /// Configurable outcome of `has_active_costume_role_in_series` — lets
+    /// Configurable outcome of `has_active_costume_role_in_project` — lets
     /// handler tests exercise the allow/deny/error branches of the series-scoped
     /// photo gate (issue #535). `None` = resolve from seeded data.
     pub series_costume_role_override: Arc<Mutex<Option<Result<bool, DomainError>>>>,
@@ -603,7 +603,7 @@ impl FakeMembershipRepo {
         user_id: UserId,
         role: Role,
         season_id: SeasonId,
-        series_id: SeriesId,
+        project_id: ProjectId,
     ) {
         self.seed_with_state(
             block_id,
@@ -611,7 +611,7 @@ impl FakeMembershipRepo {
             role,
             MembershipStateKind::Active,
             season_id,
-            series_id,
+            project_id,
         )
         .await;
     }
@@ -625,7 +625,7 @@ impl FakeMembershipRepo {
         role: Role,
         state: MembershipStateKind,
         season_id: SeasonId,
-        series_id: SeriesId,
+        project_id: ProjectId,
     ) {
         self.detailed
             .lock()
@@ -634,7 +634,7 @@ impl FakeMembershipRepo {
         self.scopes
             .lock()
             .await
-            .insert(block_id, (season_id, series_id));
+            .insert(block_id, (season_id, project_id));
     }
 
     /// Seed an active credential-role membership (designer) for `user_id`
@@ -646,7 +646,7 @@ impl FakeMembershipRepo {
             user_id,
             Role::CostumeDesigner,
             SeasonId::new(),
-            SeriesId::new(),
+            ProjectId::new(),
         )
         .await;
     }
@@ -773,9 +773,9 @@ impl MembershipRepository for FakeMembershipRepo {
         Ok(self.members.lock().await.contains(&(block_id, user_id)))
     }
 
-    async fn has_active_membership_in_series(
+    async fn has_active_membership_in_project(
         &self,
-        series_id: SeriesId,
+        project_id: ProjectId,
         user_id: UserId,
     ) -> Result<bool, DomainError> {
         if let Some(result) = self.series_membership_override.lock().await.clone() {
@@ -790,13 +790,13 @@ impl MembershipRepository for FakeMembershipRepo {
                 && *state == MembershipStateKind::Active
                 && scopes
                     .get(block_id)
-                    .is_some_and(|(_, series)| series == &series_id)
+                    .is_some_and(|(_, series)| series == &project_id)
         }))
     }
 
-    async fn has_active_costume_role_in_series(
+    async fn has_active_costume_role_in_project(
         &self,
-        series_id: SeriesId,
+        project_id: ProjectId,
         user_id: UserId,
     ) -> Result<bool, DomainError> {
         if let Some(result) = self.series_costume_role_override.lock().await.clone() {
@@ -815,7 +815,7 @@ impl MembershipRepository for FakeMembershipRepo {
                 )
                 && scopes
                     .get(block_id)
-                    .is_some_and(|(_, series)| series == &series_id)
+                    .is_some_and(|(_, series)| series == &project_id)
         }))
     }
 
@@ -1106,11 +1106,11 @@ impl SeasonRepository for FakeSeasonRepo {
             return Ok(view.clone());
         }
         if self.season_exists {
-            // Return a stub SeasonView so handlers can resolve series_id
+            // Return a stub SeasonView so handlers can resolve project_id
             // for EventMetadata without a real projection.
             Ok(SeasonView {
                 id,
-                series_id: SeriesId::from_uuid(Uuid::now_v7()),
+                project_id: ProjectId::from_uuid(Uuid::now_v7()),
                 number: 1,
                 title: None,
                 archived: false,
@@ -1140,9 +1140,9 @@ impl SeasonRepository for FakeSeasonRepo {
             offset,
         ))
     }
-    async fn list_by_series(
+    async fn list_by_project(
         &self,
-        series_id: SeriesId,
+        project_id: ProjectId,
         include_archived: bool,
         limit: i64,
         offset: i64,
@@ -1150,15 +1150,15 @@ impl SeasonRepository for FakeSeasonRepo {
         let all = self.seasons.lock().await;
         Ok(sort_paginate_seasons(
             all.values()
-                .filter(|s| s.series_id == series_id && (include_archived || !s.archived))
+                .filter(|s| s.project_id == project_id && (include_archived || !s.archived))
                 .cloned(),
             limit,
             offset,
         ))
     }
-    async fn find_by_series_and_number(
+    async fn find_by_project_and_number(
         &self,
-        series_id: SeriesId,
+        project_id: ProjectId,
         number: i32,
     ) -> Result<Option<SeasonView>, DomainError> {
         // Backs the #404 numbering pre-check: scan the fake store like the
@@ -1168,7 +1168,7 @@ impl SeasonRepository for FakeSeasonRepo {
             .lock()
             .await
             .values()
-            .find(|s| s.series_id == series_id && s.number == number)
+            .find(|s| s.project_id == project_id && s.number == number)
             .cloned())
     }
 }
@@ -1185,11 +1185,11 @@ impl BlockRepository for FakeBlockRepo {
             return Ok(block);
         }
         // Fallback: return a stub BlockView so membership handlers can resolve
-        // series_id for EventMetadata without a real projection.
+        // project_id for EventMetadata without a real projection.
         Ok(BlockView {
             id,
             season_id: SeasonId::from_uuid(Uuid::now_v7()),
-            series_id: SeriesId::from_uuid(Uuid::now_v7()),
+            project_id: ProjectId::from_uuid(Uuid::now_v7()),
             number: 1,
             start_date: None,
             end_date: None,
@@ -1205,9 +1205,9 @@ impl BlockRepository for FakeBlockRepo {
     ) -> Result<Vec<BlockView>, DomainError> {
         Ok(Vec::new())
     }
-    async fn find_by_series_and_number(
+    async fn find_by_project_and_number(
         &self,
-        series_id: SeriesId,
+        project_id: ProjectId,
         number: i32,
     ) -> Result<Option<BlockView>, DomainError> {
         // Backs the #404 numbering pre-check: scan the fake store like the
@@ -1217,7 +1217,7 @@ impl BlockRepository for FakeBlockRepo {
             .lock()
             .await
             .values()
-            .find(|b| b.series_id == series_id && b.number == number)
+            .find(|b| b.project_id == project_id && b.number == number)
             .cloned())
     }
 }
@@ -1238,7 +1238,7 @@ impl EpisodeRepository for FakeEpisodeRepo {
         if let Some(ep) = self.episodes.lock().await.get(&id).cloned() {
             return Ok(ep);
         }
-        // Fallback: return a stub EpisodeView so handlers can resolve series_id
+        // Fallback: return a stub EpisodeView so handlers can resolve project_id
         // for EventMetadata without a real projection.
         let block_id = self
             .block_id_override
@@ -1248,7 +1248,7 @@ impl EpisodeRepository for FakeEpisodeRepo {
         Ok(EpisodeView {
             id,
             block_id,
-            series_id: SeriesId::from_uuid(Uuid::now_v7()),
+            project_id: ProjectId::from_uuid(Uuid::now_v7()),
             number: 1,
             name: None,
             version: AggregateVersion::INITIAL,
@@ -1278,9 +1278,9 @@ impl EpisodeRepository for FakeEpisodeRepo {
             .take(limit as usize)
             .collect())
     }
-    async fn list_by_series(
+    async fn list_by_project(
         &self,
-        series_id: SeriesId,
+        project_id: ProjectId,
         limit: i64,
         offset: i64,
     ) -> Result<Vec<EpisodeView>, DomainError> {
@@ -1291,7 +1291,7 @@ impl EpisodeRepository for FakeEpisodeRepo {
         // different episodes for the same scope, offset, and limit.
         let mut views: Vec<EpisodeView> = all
             .values()
-            .filter(|e| e.series_id == series_id)
+            .filter(|e| e.project_id == project_id)
             .cloned()
             .collect();
         views.sort_by(|a, b| a.number.cmp(&b.number).then(a.id.cmp(&b.id)));
@@ -1301,9 +1301,9 @@ impl EpisodeRepository for FakeEpisodeRepo {
             .take(limit as usize)
             .collect())
     }
-    async fn find_by_series_and_number(
+    async fn find_by_project_and_number(
         &self,
-        series_id: SeriesId,
+        project_id: ProjectId,
         number: i32,
     ) -> Result<Option<EpisodeView>, DomainError> {
         // Backs the #404 numbering pre-check: scan the fake store like the
@@ -1313,7 +1313,7 @@ impl EpisodeRepository for FakeEpisodeRepo {
             .lock()
             .await
             .values()
-            .find(|e| e.series_id == series_id && e.number == number)
+            .find(|e| e.project_id == project_id && e.number == number)
             .cloned())
     }
 }
@@ -1367,18 +1367,18 @@ impl AuditRepository for FakeAuditRepo {
     ) -> Result<Vec<AuditEntry>, DomainError> {
         Ok(Vec::new())
     }
-    async fn list_by_series(
+    async fn list_by_project(
         &self,
-        series_id: SeriesId,
+        project_id: ProjectId,
         limit: i64,
         offset: i64,
     ) -> Result<Vec<AuditEntry>, DomainError> {
         // Filter on the tenant dimension (mirrors the Postgres adapter) so a
-        // handler that drops the `series_id` filter is observable in tests.
+        // handler that drops the `project_id` filter is observable in tests.
         let all = self.entries.lock().await;
         Ok(all
             .iter()
-            .filter(|e| e.series_id == Some(series_id.0))
+            .filter(|e| e.project_id == Some(project_id.0))
             .skip(offset as usize)
             .take(limit as usize)
             .cloned()

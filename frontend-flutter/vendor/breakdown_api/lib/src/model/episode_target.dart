@@ -14,7 +14,7 @@ import 'package:one_of/one_of.dart';
 
 part 'episode_target.g.dart';
 
-/// The reviewer's decision for ONE episode group of a preview (issue #581): apply the group's rows to an existing episode, or create a new one. The number comes from the document's `Ep.:` marker; the API edge pre-checks it against the series' existing episodes (409 `episode.number-already-exists`, #404 doctrine).
+/// The reviewer's decision for ONE episode group of a preview (issue #581): apply the group's rows to an existing episode, or create a new one. The number comes from the document's `Ep.:` marker; the API edge pre-checks it against the project's existing episodes (409 `episode.number-already-exists`, #404 doctrine).
 ///
 /// Properties:
 /// * [episodeId] - Opaque identifier for an `Episode` aggregate.

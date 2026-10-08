@@ -76,7 +76,7 @@ fn ai_created_scene_keeps_ai_extracted_provenance() {
             CreateScene {
                 id: Uuid::now_v7(),
                 episode_id: EpisodeId::new(),
-                series_id: None,
+                project_id: None,
                 details: Default::default(),
                 source: SceneSource::AiExtracted {
                     document_id,

@@ -395,7 +395,7 @@ async fn main() -> Result<()> {
     .await?;
     info!("projectors spawned");
 
-    // Create repositories first (commands depend on them for series_id resolution)
+    // Create repositories first (commands depend on them for project_id resolution)
     let photo_repo = PhotoRepositoryImpl::new(pool.clone());
     let costume_repo = CostumeRepositoryImpl::new(pool.clone());
     let character_repo = CharacterRepositoryImpl::new(pool.clone());

@@ -11,7 +11,7 @@
 //! `scene`, `scene_shoot`, `shooting_day`, `character`, `costume`,
 //! `costume_category`, `photo`, `membership`). Each category gets its own
 //! `EntityEventHandler` impl that extracts `actor`, `provenance`, and
-//! `series_id` from `EventMetadata` and delegates to the shared
+//! `project_id` from `EventMetadata` and delegates to the shared
 //! [`write_audit_row`] helper.
 //!
 //! Idempotency under redelivery is guaranteed by the deterministic
@@ -123,7 +123,7 @@ impl AuditCategory {
 /// so that redelivered events never create duplicates.
 ///
 /// `provenance` is written as a plain-text label ("Human" / saga name / "System").
-/// `series_id` is written as a nullable UUID, denormalized at dispatch time.
+/// `project_id` is written as a nullable UUID, denormalized at dispatch time.
 /// `block_id` is set to the entity_id for backwards compatibility with the
 /// existing `idx_projection_audit_block` index.
 #[allow(clippy::too_many_arguments)]
@@ -134,7 +134,7 @@ async fn write_audit_row(
     event_type: &str,
     actor: Option<String>,
     provenance: &str,
-    series_id: Option<String>,
+    project_id: Option<String>,
     event: impl serde::Serialize,
     event_timestamp: chrono::DateTime<chrono::Utc>,
     event_id: uuid::Uuid,
@@ -142,9 +142,9 @@ async fn write_audit_row(
     let payload = serde_json::to_value(&event).unwrap_or(serde_json::Value::Null);
     let event_key = format!("{entity_type}:{entity_id}:{event_type}:{payload}");
 
-    let series_uuid: Option<uuid::Uuid> = series_id
+    let series_uuid: Option<uuid::Uuid> = project_id
         .and_then(|s| {
-            // The series_id string is already the UUID value.
+            // The project_id string is already the UUID value.
             uuid::Uuid::parse_str(&s).ok()
         })
         .or(None);
@@ -179,11 +179,11 @@ async fn write_audit_row(
 
 // ── metadata helpers ──────────────────────────────────────────────────
 
-/// Extract actor, provenance, and series_id from event metadata.
+/// Extract actor, provenance, and project_id from event metadata.
 ///
-/// Returns `(actor, provenance, series_id)`.  If no `EventMetadata` is
+/// Returns `(actor, provenance, project_id)`.  If no `EventMetadata` is
 /// present the defaults are `actor = None`, `provenance = "Human"`,
-/// `series_id = None`.
+/// `project_id = None`.
 fn extract_metadata(
     event: &Event<impl kameo_es::EventType, EventMetadata>,
 ) -> (Option<String>, String, Option<String>) {
@@ -195,7 +195,7 @@ fn extract_metadata(
             (
                 m.actor.as_ref().map(|u| u.as_str().to_string()),
                 m.provenance.as_str().to_string(),
-                m.series_id.as_ref().map(|s| s.0.to_string()),
+                m.project_id.as_ref().map(|s| s.0.to_string()),
             )
         })
         .unwrap_or_else(|| (None, "Human".to_string(), None))
@@ -205,7 +205,7 @@ fn extract_metadata(
 
 /// Deduplicates events from the **Season** aggregate into `projection_audit`.
 ///
-/// Reads `series_id` directly from `EventMetadata` — no entity→series
+/// Reads `project_id` directly from `EventMetadata` — no entity→series
 /// chain resolution at projection time (task 3.4 invariant).
 #[derive(Clone, Default, Debug)]
 pub struct SeasonAuditProjector;
@@ -227,7 +227,7 @@ impl<'a> EntityEventHandler<SeasonAggregate, Transaction<'a, Postgres>> for Seas
             | SeasonEvent::SeasonArchived { id, .. } => id.to_string(),
         };
         let event_type = event.data.event_type().to_string();
-        let (actor, provenance, series_id) = extract_metadata(&event);
+        let (actor, provenance, project_id) = extract_metadata(&event);
 
         write_audit_row(
             ctx,
@@ -236,7 +236,7 @@ impl<'a> EntityEventHandler<SeasonAggregate, Transaction<'a, Postgres>> for Seas
             &event_type,
             actor,
             &provenance,
-            series_id,
+            project_id,
             &event.data,
             event.timestamp,
             event.id,
@@ -270,7 +270,7 @@ impl<'a> EntityEventHandler<BlockAggregate, Transaction<'a, Postgres>> for Block
             }
         };
         let event_type = event.data.event_type().to_string();
-        let (actor, provenance, series_id) = extract_metadata(&event);
+        let (actor, provenance, project_id) = extract_metadata(&event);
 
         write_audit_row(
             ctx,
@@ -279,7 +279,7 @@ impl<'a> EntityEventHandler<BlockAggregate, Transaction<'a, Postgres>> for Block
             &event_type,
             actor,
             &provenance,
-            series_id,
+            project_id,
             &event.data,
             event.timestamp,
             event.id,
@@ -313,7 +313,7 @@ impl<'a> EntityEventHandler<EpisodeAggregate, Transaction<'a, Postgres>> for Epi
             }
         };
         let event_type = event.data.event_type().to_string();
-        let (actor, provenance, series_id) = extract_metadata(&event);
+        let (actor, provenance, project_id) = extract_metadata(&event);
 
         write_audit_row(
             ctx,
@@ -322,7 +322,7 @@ impl<'a> EntityEventHandler<EpisodeAggregate, Transaction<'a, Postgres>> for Epi
             &event_type,
             actor,
             &provenance,
-            series_id,
+            project_id,
             &event.data,
             event.timestamp,
             event.id,
@@ -363,7 +363,7 @@ impl<'a> EntityEventHandler<SceneAggregate, Transaction<'a, Postgres>> for Scene
             | SceneEvent::CostumeBeatsCleared { id, .. } => id.to_string(),
         };
         let event_type = event.data.event_type().to_string();
-        let (actor, provenance, series_id) = extract_metadata(&event);
+        let (actor, provenance, project_id) = extract_metadata(&event);
 
         write_audit_row(
             ctx,
@@ -372,7 +372,7 @@ impl<'a> EntityEventHandler<SceneAggregate, Transaction<'a, Postgres>> for Scene
             &event_type,
             actor,
             &provenance,
-            series_id,
+            project_id,
             &event.data,
             event.timestamp,
             event.id,
@@ -416,7 +416,7 @@ impl<'a> EntityEventHandler<SceneShootAggregate, Transaction<'a, Postgres>>
             | SceneShootEvent::ContinuityPhotoUnlinked { id, .. } => id.0.to_string(),
         };
         let event_type = event.data.event_type().to_string();
-        let (actor, provenance, series_id) = extract_metadata(&event);
+        let (actor, provenance, project_id) = extract_metadata(&event);
 
         write_audit_row(
             ctx,
@@ -425,7 +425,7 @@ impl<'a> EntityEventHandler<SceneShootAggregate, Transaction<'a, Postgres>>
             &event_type,
             actor,
             &provenance,
-            series_id,
+            project_id,
             &event.data,
             event.timestamp,
             event.id,
@@ -464,7 +464,7 @@ impl<'a> EntityEventHandler<ShootingDayAggregate, Transaction<'a, Postgres>>
             | ShootingDayEvent::ShootingDayWrapped { id, .. } => id.0.to_string(),
         };
         let event_type = event.data.event_type().to_string();
-        let (actor, provenance, series_id) = extract_metadata(&event);
+        let (actor, provenance, project_id) = extract_metadata(&event);
 
         write_audit_row(
             ctx,
@@ -473,7 +473,7 @@ impl<'a> EntityEventHandler<ShootingDayAggregate, Transaction<'a, Postgres>>
             &event_type,
             actor,
             &provenance,
-            series_id,
+            project_id,
             &event.data,
             event.timestamp,
             event.id,
@@ -509,7 +509,7 @@ impl<'a> EntityEventHandler<CharacterAggregate, Transaction<'a, Postgres>>
             | CharacterEvent::ContactInfoUpdated { id, .. } => id.to_string(),
         };
         let event_type = event.data.event_type().to_string();
-        let (actor, provenance, series_id) = extract_metadata(&event);
+        let (actor, provenance, project_id) = extract_metadata(&event);
 
         write_audit_row(
             ctx,
@@ -518,7 +518,7 @@ impl<'a> EntityEventHandler<CharacterAggregate, Transaction<'a, Postgres>>
             &event_type,
             actor,
             &provenance,
-            series_id,
+            project_id,
             &event.data,
             event.timestamp,
             event.id,
@@ -561,7 +561,7 @@ impl<'a> EntityEventHandler<CostumeAggregate, Transaction<'a, Postgres>> for Cos
             | CostumeEvent::CostumeCategorySet { id, .. } => id.to_string(),
         };
         let event_type = event.data.event_type().to_string();
-        let (actor, provenance, series_id) = extract_metadata(&event);
+        let (actor, provenance, project_id) = extract_metadata(&event);
 
         write_audit_row(
             ctx,
@@ -570,7 +570,7 @@ impl<'a> EntityEventHandler<CostumeAggregate, Transaction<'a, Postgres>> for Cos
             &event_type,
             actor,
             &provenance,
-            series_id,
+            project_id,
             &event.data,
             event.timestamp,
             event.id,
@@ -608,7 +608,7 @@ impl<'a> EntityEventHandler<CostumeCategoryAggregate, Transaction<'a, Postgres>>
             | CostumeCategoryEvent::CostumeCategoryArchived { id, .. } => id.to_string(),
         };
         let event_type = event.data.event_type().to_string();
-        let (actor, provenance, series_id) = extract_metadata(&event);
+        let (actor, provenance, project_id) = extract_metadata(&event);
 
         write_audit_row(
             ctx,
@@ -617,7 +617,7 @@ impl<'a> EntityEventHandler<CostumeCategoryAggregate, Transaction<'a, Postgres>>
             &event_type,
             actor,
             &provenance,
-            series_id,
+            project_id,
             &event.data,
             event.timestamp,
             event.id,
@@ -653,7 +653,7 @@ impl<'a> EntityEventHandler<PhotoAggregate, Transaction<'a, Postgres>> for Photo
             | PhotoEvent::PhotoDeleted { id, .. } => id.0.to_string(),
         };
         let event_type = event.data.event_type().to_string();
-        let (actor, provenance, series_id) = extract_metadata(&event);
+        let (actor, provenance, project_id) = extract_metadata(&event);
 
         write_audit_row(
             ctx,
@@ -662,7 +662,7 @@ impl<'a> EntityEventHandler<PhotoAggregate, Transaction<'a, Postgres>> for Photo
             &event_type,
             actor,
             &provenance,
-            series_id,
+            project_id,
             &event.data,
             event.timestamp,
             event.id,
@@ -688,7 +688,7 @@ pub type AuditProjector = MembershipAuditProjector;
 /// `projection_audit`.
 ///
 /// This is the original membership-only projector, now updated to write
-/// `provenance` and `series_id` from `EventMetadata`.
+/// `provenance` and `project_id` from `EventMetadata`.
 #[derive(Clone, Default, Debug)]
 pub struct MembershipAuditProjector;
 
@@ -714,7 +714,7 @@ impl<'a> EntityEventHandler<BlockMembership, Transaction<'a, Postgres>>
             | MembershipEvent::OwnerBootstrapped { block_id, .. } => block_id.0.to_string(),
         };
         let event_type = event.data.event_type().to_string();
-        let (actor, provenance, series_id) = extract_metadata(&event);
+        let (actor, provenance, project_id) = extract_metadata(&event);
 
         write_audit_row(
             ctx,
@@ -723,7 +723,7 @@ impl<'a> EntityEventHandler<BlockMembership, Transaction<'a, Postgres>>
             &event_type,
             actor,
             &provenance,
-            series_id,
+            project_id,
             &event.data,
             event.timestamp,
             event.id,
@@ -758,7 +758,7 @@ impl<'a> EntityEventHandler<SettingsAggregate, Transaction<'a, Postgres>>
             | SettingsEvent::CredentialRevoked { id, .. } => id.to_string(),
         };
         let event_type = event.data.event_type().to_string();
-        let (actor, provenance, series_id) = extract_metadata(&event);
+        let (actor, provenance, project_id) = extract_metadata(&event);
         write_audit_row(
             ctx,
             "settings",
@@ -766,7 +766,7 @@ impl<'a> EntityEventHandler<SettingsAggregate, Transaction<'a, Postgres>>
             &event_type,
             actor,
             &provenance,
-            series_id,
+            project_id,
             &event.data,
             event.timestamp,
             event.id,
@@ -859,7 +859,7 @@ fn audit_category_coverage_is_exhaustive() {
 mod mutation_tests {
     use super::*;
     use breakdown_core::season::events::SeasonEvent;
-    use breakdown_core::shared::{AggregateVersion, EventMetadata, Provenance, SeriesId, UserId};
+    use breakdown_core::shared::{AggregateVersion, EventMetadata, ProjectId, Provenance, UserId};
     use kameo_es::{Event, Metadata, StreamId};
 
     fn make_event(meta: Option<EventMetadata>) -> Event<SeasonEvent, EventMetadata> {
@@ -874,7 +874,7 @@ mod mutation_tests {
             name: "SeasonCreated".to_string(),
             data: SeasonEvent::SeasonCreated {
                 id: uuid::Uuid::now_v7(),
-                series_id: SeriesId(uuid::Uuid::now_v7()),
+                project_id: ProjectId(uuid::Uuid::now_v7()),
                 number: 1,
                 title: None,
                 version: AggregateVersion(0),
@@ -921,25 +921,25 @@ mod mutation_tests {
 
     #[test]
     fn extract_metadata_reads_present_metadata() {
-        let series = SeriesId(uuid::Uuid::now_v7());
+        let series = ProjectId(uuid::Uuid::now_v7());
         let meta = EventMetadata {
             actor: Some(UserId("user-123".into())),
             provenance: Provenance::Saga("SeasonSeeding".into()),
-            series_id: Some(series),
+            project_id: Some(series),
         };
         let event = make_event(Some(meta));
-        let (actor, provenance, series_id) = extract_metadata(&event);
+        let (actor, provenance, project_id) = extract_metadata(&event);
         assert_eq!(actor, Some("user-123".to_string()));
         assert_eq!(provenance, "SeasonSeeding");
-        assert_eq!(series_id, Some(series.0.to_string()));
+        assert_eq!(project_id, Some(series.0.to_string()));
     }
 
     #[test]
     fn extract_metadata_defaults_without_metadata() {
         let event = make_event(None);
-        let (actor, provenance, series_id) = extract_metadata(&event);
+        let (actor, provenance, project_id) = extract_metadata(&event);
         assert_eq!(actor, None);
         assert_eq!(provenance, "Human");
-        assert_eq!(series_id, None);
+        assert_eq!(project_id, None);
     }
 }

@@ -8,7 +8,7 @@ use serde::Serialize;
 use utoipa::ToSchema;
 use uuid::Uuid;
 
-use crate::shared::{AggregateVersion, SeriesId};
+use crate::shared::{AggregateVersion, ProjectId};
 
 /// Complete season read model.
 ///
@@ -16,7 +16,9 @@ use crate::shared::{AggregateVersion, SeriesId};
 #[derive(Debug, Clone, Serialize, ToSchema)]
 pub struct SeasonView {
     pub id: Uuid,
-    pub series_id: SeriesId,
+    /// The tenant-level production container this season belongs to.
+    #[serde(rename = "series_id")] // wire name pinned; see the type-level note on ProjectId
+    pub project_id: ProjectId,
     pub number: i32,
     pub title: Option<String>,
     /// Terminal lifecycle flag (issue #533): `true` once `SeasonArchived` was

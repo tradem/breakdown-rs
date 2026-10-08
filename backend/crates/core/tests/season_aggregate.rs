@@ -12,19 +12,19 @@
     clippy::dbg_macro
 )]
 use breakdown_core::season::*;
-use breakdown_core::shared::{AggregateVersion, SeriesId};
+use breakdown_core::shared::{AggregateVersion, ProjectId};
 use kameo_es::{Apply, Command};
 use test_support::make_ctx;
 use uuid::Uuid;
 
-fn series_id() -> SeriesId {
-    SeriesId::new()
+fn project_id() -> ProjectId {
+    ProjectId::new()
 }
 
 fn create_season() -> SeasonAggregate {
     let cmd = CreateSeason {
         id: Uuid::now_v7(),
-        series_id: SeriesId::new(),
+        project_id: ProjectId::new(),
         number: 1,
         title: Some("Spring Run".into()),
     };
@@ -36,10 +36,10 @@ fn create_season() -> SeasonAggregate {
 
 #[test]
 fn test_create_season_success() {
-    let series_id = SeriesId::new();
+    let project_id = ProjectId::new();
     let cmd = CreateSeason {
         id: Uuid::now_v7(),
-        series_id,
+        project_id,
         number: 2,
         title: Some("Autumn Run".into()),
     };
@@ -48,13 +48,13 @@ fn test_create_season_success() {
     match result.unwrap().into_iter().next().unwrap() {
         SeasonEvent::SeasonCreated {
             id,
-            series_id: sid,
+            project_id: sid,
             number,
             title,
             version,
         } => {
             assert_ne!(id, Uuid::nil());
-            assert_eq!(sid, series_id);
+            assert_eq!(sid, project_id);
             assert_eq!(number, 2);
             assert_eq!(title, Some("Autumn Run".into()));
             assert_eq!(version, AggregateVersion::INITIAL);
@@ -67,7 +67,7 @@ fn test_create_season_success() {
 fn test_create_season_without_title() {
     let cmd = CreateSeason {
         id: Uuid::now_v7(),
-        series_id: SeriesId::new(),
+        project_id: ProjectId::new(),
         number: 3,
         title: None,
     };
@@ -86,7 +86,7 @@ fn test_rename_season_success() {
             RenameSeason {
                 id: agg.id,
                 title: Some("Renamed".into()),
-                series_id: Some(series_id()),
+                project_id: Some(project_id()),
                 version: agg.version,
             },
             make_ctx(),
@@ -104,7 +104,7 @@ fn test_rename_season_idempotency() {
         RenameSeason {
             id: agg.id,
             title: agg.title.clone(),
-            series_id: Some(series_id()),
+            project_id: Some(project_id()),
             version: agg.version,
         },
         make_ctx(),
@@ -123,7 +123,7 @@ fn test_rename_season_wrong_version() {
         RenameSeason {
             id: agg.id,
             title: Some("X".into()),
-            series_id: Some(series_id()),
+            project_id: Some(project_id()),
             version: AggregateVersion(99),
         },
         make_ctx(),
@@ -145,11 +145,11 @@ fn test_apply_updates_state() {
     use kameo_es::Metadata;
     let mut agg = SeasonAggregate::default();
     let id = Uuid::now_v7();
-    let series_id = SeriesId::new();
+    let project_id = ProjectId::new();
     agg.apply(
         SeasonEvent::SeasonCreated {
             id,
-            series_id,
+            project_id,
             number: 7,
             title: Some("Liese".into()),
             version: AggregateVersion::INITIAL,
@@ -163,7 +163,7 @@ fn test_apply_updates_state() {
     );
     assert_eq!(agg.id, id, "apply() should set the id");
     assert_eq!(agg.number, 7);
-    assert_eq!(agg.series_id, series_id);
+    assert_eq!(agg.project_id, project_id);
     assert_eq!(agg.version, AggregateVersion::INITIAL);
 }
 
@@ -178,7 +178,7 @@ fn test_archive_season_success() {
         .handle(
             ArchiveSeason {
                 id: agg.id,
-                series_id: Some(series_id()),
+                project_id: Some(project_id()),
                 version: agg.version,
             },
             make_ctx(),
@@ -206,7 +206,7 @@ fn test_archive_season_redelivery_is_rejected() {
         .handle(
             ArchiveSeason {
                 id: agg.id,
-                series_id: Some(series_id()),
+                project_id: Some(project_id()),
                 version: agg.version,
             },
             make_ctx(),
@@ -217,7 +217,7 @@ fn test_archive_season_redelivery_is_rejected() {
     let result = agg.handle(
         ArchiveSeason {
             id: agg.id,
-            series_id: Some(series_id()),
+            project_id: Some(project_id()),
             version: agg.version,
         },
         make_ctx(),
@@ -237,7 +237,7 @@ fn test_rename_season_rejected_when_archived() {
         .handle(
             ArchiveSeason {
                 id: agg.id,
-                series_id: Some(series_id()),
+                project_id: Some(project_id()),
                 version: agg.version,
             },
             make_ctx(),
@@ -249,7 +249,7 @@ fn test_rename_season_rejected_when_archived() {
         RenameSeason {
             id: agg.id,
             title: Some("After archive".into()),
-            series_id: Some(series_id()),
+            project_id: Some(project_id()),
             version: agg.version,
         },
         make_ctx(),
@@ -269,7 +269,7 @@ fn test_archive_season_wrong_version() {
     let result = agg.handle(
         ArchiveSeason {
             id: agg.id,
-            series_id: Some(series_id()),
+            project_id: Some(project_id()),
             version: AggregateVersion(99),
         },
         make_ctx(),
@@ -294,7 +294,7 @@ fn test_rename_uses_not_equal() {
     agg.apply(
         SeasonEvent::SeasonCreated {
             id,
-            series_id: SeriesId::new(),
+            project_id: ProjectId::new(),
             number: 1,
             title: Some("A".into()),
             version: AggregateVersion::INITIAL,
@@ -313,7 +313,7 @@ fn test_rename_uses_not_equal() {
         RenameSeason {
             id,
             title: Some("B".into()),
-            series_id: Some(series_id()),
+            project_id: Some(project_id()),
             version: AggregateVersion(2),
         },
         make_ctx(),

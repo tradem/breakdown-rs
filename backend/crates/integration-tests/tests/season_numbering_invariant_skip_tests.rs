@@ -4,7 +4,7 @@
 
 //! Tier-4 regression test for the #404 numbering-projector skip path
 //! (issue #407): a duplicate `SeasonCreated` for an already-projected
-//! `(series_id, number)` pair under a *different* stream id hits the
+//! `(project_id, number)` pair under a *different* stream id hits the
 //! authoritative backstop `idx_projection_season_series_number` (23505) and
 //! must be savepoint-skipped — never panic-killing the worker.
 //!
@@ -45,7 +45,7 @@ use breakdown_core::error::DomainError;
 use breakdown_core::season::events::SeasonEvent;
 use breakdown_core::season::ports::SeasonRepository as _;
 use breakdown_core::season::views::SeasonView;
-use breakdown_core::shared::{AggregateVersion, SeriesId};
+use breakdown_core::shared::{AggregateVersion, ProjectId};
 use chrono::Utc;
 use infra::projectors::spawn_season_projector;
 use infra::queries::SeasonRepositoryImpl;
@@ -267,7 +267,7 @@ async fn await_checkpoint_advanced(
     }
 }
 
-/// The duplicate `SeasonCreated` (same `(series_id, number)` under a fresh
+/// The duplicate `SeasonCreated` (same `(project_id, number)` under a fresh
 /// stream id) is savepoint-skipped; its follow-up `SeasonRenamed` is harmless;
 /// the checkpoint advances past the poison event; the warn fires exactly once.
 #[tokio::test]
@@ -286,7 +286,7 @@ async fn duplicate_season_number_is_skipped_and_checkpoint_advances() -> Result<
 
     let repo = SeasonRepositoryImpl::new(pool.clone());
 
-    let series_id = SeriesId(Uuid::now_v7());
+    let project_id = ProjectId(Uuid::now_v7());
     let season_a = Uuid::now_v7();
     let season_b = Uuid::now_v7(); // duplicate stream (poison)
     let season_c = Uuid::now_v7(); // trailing stream, distinct number
@@ -294,7 +294,7 @@ async fn duplicate_season_number_is_skipped_and_checkpoint_advances() -> Result<
     // 1. Authoritative SeasonCreated projects (v1).
     let created_a = SeasonEvent::SeasonCreated {
         id: season_a,
-        series_id,
+        project_id,
         number: 1,
         title: Some("Season One".into()),
         version: AggregateVersion(1),
@@ -315,12 +315,12 @@ async fn duplicate_season_number_is_skipped_and_checkpoint_advances() -> Result<
     // sits at sequence 0).
     let baseline = await_checkpoint_exists(&pool).await?;
 
-    // 2. Duplicate SeasonCreated for the same (series_id, number) pair under a
+    // 2. Duplicate SeasonCreated for the same (project_id, number) pair under a
     //    fresh stream id → 23505 on idx_projection_season_series_number →
     //    savepoint-skip (no panic, no projection row).
     let duplicate = SeasonEvent::SeasonCreated {
         id: season_b,
-        series_id,
+        project_id,
         number: 1,
         title: Some("Season One Duplicate".into()),
         version: AggregateVersion(1),
@@ -356,7 +356,7 @@ async fn duplicate_season_number_is_skipped_and_checkpoint_advances() -> Result<
     //    was attempted and skipped — its projection proves catch-up.
     let trailing = SeasonEvent::SeasonCreated {
         id: season_c,
-        series_id,
+        project_id,
         number: 2,
         title: Some("Season Two".into()),
         version: AggregateVersion(1),
@@ -423,7 +423,7 @@ async fn duplicate_season_number_is_skipped_and_checkpoint_advances() -> Result<
         WHERE series_id = $1 AND number = $2
         "#,
     )
-    .bind(series_id.0)
+    .bind(project_id.0)
     .bind(1)
     .fetch_one(&pool)
     .await?;

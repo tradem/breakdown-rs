@@ -268,7 +268,7 @@ async fn reap_claim(
     {
         // The aggregate exists — but the claim only became TRUE if the
         // aggregate's persisted create event carries the claimed key's
-        // (series_id, number) / pair (CodeRabbit review: a re-driven attempt
+        // (project_id, number) / pair (CodeRabbit review: a re-driven attempt
         // can claim a DIFFERENT key under the same derived aggregate id —
         // changed episode-group target — and consuming that phantom would
         // block a key no aggregate owns).
@@ -371,8 +371,8 @@ async fn verify_realized_key(
             }
             match decode_lifecycle::<EpisodeEvent>(&first.payload, &first.stream_id)? {
                 EpisodeEvent::EpisodeCreated {
-                    series_id, number, ..
-                } => episode_number_key(series_id.0, number),
+                    project_id, number, ..
+                } => episode_number_key(project_id.0, number),
                 _ => return Ok(RealizedKey::Undecidable),
             }
         }
@@ -382,8 +382,8 @@ async fn verify_realized_key(
             }
             match decode_lifecycle::<SeasonEvent>(&first.payload, &first.stream_id)? {
                 SeasonEvent::SeasonCreated {
-                    series_id, number, ..
-                } => season_number_key(series_id.0, number),
+                    project_id, number, ..
+                } => season_number_key(project_id.0, number),
                 _ => return Ok(RealizedKey::Undecidable),
             }
         }
@@ -393,8 +393,8 @@ async fn verify_realized_key(
             }
             match decode_lifecycle::<BlockEvent>(&first.payload, &first.stream_id)? {
                 BlockEvent::BlockCreated {
-                    series_id, number, ..
-                } => block_number_key(series_id.0, number),
+                    project_id, number, ..
+                } => block_number_key(project_id.0, number),
                 _ => return Ok(RealizedKey::Undecidable),
             }
         }

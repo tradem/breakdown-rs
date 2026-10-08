@@ -16,7 +16,7 @@
 //! Covers the issue's acceptance criteria:
 //!
 //! 1. **Atomicity at the write boundary**: two concurrent creates with the
-//!    same `(series_id, number)` on the same adapter path — exactly one
+//!    same `(project_id, number)` on the same adapter path — exactly one
 //!    succeeds; the loser answers the registered 409 problem code *before*
 //!    any aggregate append (its aggregate stream stays empty — no phantom
 //!    aggregate, no event for the projector to skip).
@@ -44,7 +44,7 @@ use breakdown_core::episode::events::EpisodeEvent;
 use breakdown_core::episode::ports::EpisodeCommands;
 use breakdown_core::error::DomainError;
 use breakdown_core::season::ports::SeasonCommands as _;
-use breakdown_core::shared::{AggregateVersion, BlockId, SeriesId};
+use breakdown_core::shared::{AggregateVersion, BlockId, ProjectId};
 use chrono::Utc;
 use infra::reservations::reaper::run_reaper_pass;
 use infra::reservations::store::ReservationStore;
@@ -162,22 +162,22 @@ fn count_escan_events(value: redis::Value) -> usize {
     .unwrap_or(0)
 }
 
-fn create_episode_cmd(id: Uuid, block_id: Uuid, series_id: Uuid, number: i32) -> CreateEpisode {
+fn create_episode_cmd(id: Uuid, block_id: Uuid, project_id: Uuid, number: i32) -> CreateEpisode {
     CreateEpisode {
         id,
         block_id: BlockId(block_id),
-        series_id: SeriesId(series_id),
+        project_id: ProjectId(project_id),
         number,
         name: Some("Test Episode".into()),
     }
 }
 
-fn episode_key(series_id: Uuid, number: i32) -> String {
-    infra::reservations::event::episode_number_key(series_id, number)
+fn episode_key(project_id: Uuid, number: i32) -> String {
+    infra::reservations::event::episode_number_key(project_id, number)
 }
 
 // ---------------------------------------------------------------------------
-// 1. Atomicity: two concurrent creates, same (series_id, number)
+// 1. Atomicity: two concurrent creates, same (project_id, number)
 // ---------------------------------------------------------------------------
 
 /// Issue #586 AC: two concurrent creates with the same target number —
@@ -188,7 +188,7 @@ fn episode_key(series_id: Uuid, number: i32) -> String {
 async fn concurrent_creates_same_episode_number_exactly_one_wins() -> Result<()> {
     let (_pool, sierra_client, _pg, _sierra) = init().await?;
 
-    let series_id = Uuid::now_v7();
+    let project_id = Uuid::now_v7();
     let block_id = Uuid::now_v7();
     let id_a = Uuid::now_v7();
     let id_b = Uuid::now_v7();
@@ -202,11 +202,11 @@ async fn concurrent_creates_same_episode_number_exactly_one_wins() -> Result<()>
     let (res_a, res_b) = tokio::join!(
         episodes.create(
             test_user(),
-            create_episode_cmd(id_a, block_id, series_id, 3),
+            create_episode_cmd(id_a, block_id, project_id, 3),
         ),
         episodes.create(
             test_user(),
-            create_episode_cmd(id_b, block_id, series_id, 3),
+            create_episode_cmd(id_b, block_id, project_id, 3),
         ),
     );
 
@@ -256,11 +256,11 @@ async fn concurrent_creates_same_episode_number_exactly_one_wins() -> Result<()>
 async fn create_failure_keeps_claim_reaper_consumes_realized_claim() -> Result<()> {
     let (pool, sierra_client, _pg, _sierra) = init().await?;
 
-    let series_id = Uuid::now_v7();
+    let project_id = Uuid::now_v7();
     let block_id = Uuid::now_v7();
     let stuck_id = Uuid::now_v7(); // the aggregate append will fail for this id
     let number = 7;
-    let key = episode_key(series_id, number);
+    let key = episode_key(project_id, number);
     let conflict = DomainError::Conflict {
         code: &breakdown_core::error_registry::EPISODE_NUMBER_ALREADY_EXISTS,
         reason: "episode number already taken".into(),
@@ -274,7 +274,7 @@ async fn create_failure_keeps_claim_reaper_consumes_realized_claim() -> Result<(
         let payload = encode_event(&EpisodeEvent::EpisodeCreated {
             id: stuck_id,
             block_id: BlockId(block_id),
-            series_id: SeriesId(series_id),
+            project_id: ProjectId(project_id),
             number,
             name: None,
             version: AggregateVersion(1),
@@ -303,7 +303,7 @@ async fn create_failure_keeps_claim_reaper_consumes_realized_claim() -> Result<(
     let outcome = episodes
         .create(
             test_user(),
-            create_episode_cmd(stuck_id, block_id, series_id, number),
+            create_episode_cmd(stuck_id, block_id, project_id, number),
         )
         .await;
     assert!(
@@ -384,7 +384,7 @@ async fn same_aggregate_claim_is_recovered_not_conflicted() -> Result<()> {
     let (_pool, sierra_client, _pg, _sierra) = init().await?;
     let store = store_for(&sierra_client).await?;
 
-    let series_id = Uuid::now_v7();
+    let project_id = Uuid::now_v7();
     let id = Uuid::now_v7();
     let conflict = DomainError::Conflict {
         code: &breakdown_core::error_registry::EPISODE_NUMBER_ALREADY_EXISTS,
@@ -392,10 +392,10 @@ async fn same_aggregate_claim_is_recovered_not_conflicted() -> Result<()> {
     };
 
     let first = store
-        .reserve(&episode_key(series_id, 9), id, conflict.clone())
+        .reserve(&episode_key(project_id, 9), id, conflict.clone())
         .await?;
     let retry = store
-        .reserve(&episode_key(series_id, 9), id, conflict.clone())
+        .reserve(&episode_key(project_id, 9), id, conflict.clone())
         .await?;
 
     assert_eq!(first.claim_version, retry.claim_version);
@@ -403,7 +403,11 @@ async fn same_aggregate_claim_is_recovered_not_conflicted() -> Result<()> {
 
     // And a different aggregate on the same key still conflicts.
     let other = store
-        .reserve(&episode_key(series_id, 9), Uuid::now_v7(), conflict.clone())
+        .reserve(
+            &episode_key(project_id, 9),
+            Uuid::now_v7(),
+            conflict.clone(),
+        )
         .await;
     assert!(other.is_err(), "a different aggregate must lose the race");
 
@@ -422,11 +426,11 @@ async fn same_aggregate_claim_is_recovered_not_conflicted() -> Result<()> {
 async fn reaper_consumes_a_realized_claim() -> Result<()> {
     let (pool, sierra_client, _pg, _sierra) = init().await?;
 
-    let series_id = Uuid::now_v7();
+    let project_id = Uuid::now_v7();
     let block_id = Uuid::now_v7();
     let winner_id = Uuid::now_v7();
     let number = 42;
-    let key = episode_key(series_id, number);
+    let key = episode_key(project_id, number);
 
     // Winner create (claim stays held — the domain never releases numbers).
     let episodes = infra::event_store::EpisodeCommandsImpl::new(
@@ -437,7 +441,7 @@ async fn reaper_consumes_a_realized_claim() -> Result<()> {
     episodes
         .create(
             test_user(),
-            create_episode_cmd(winner_id, block_id, series_id, number),
+            create_episode_cmd(winner_id, block_id, project_id, number),
         )
         .await?;
 
@@ -499,10 +503,10 @@ async fn reaper_consumes_a_realized_claim() -> Result<()> {
 async fn reaper_releases_a_crash_orphan() -> Result<()> {
     let (pool, sierra_client, _pg, _sierra) = init().await?;
 
-    let series_id = Uuid::now_v7();
+    let project_id = Uuid::now_v7();
     let orphan_id = Uuid::now_v7();
     let number = 55;
-    let key = episode_key(series_id, number);
+    let key = episode_key(project_id, number);
 
     // Simulate the crash: claim reserved, no aggregate appended.
     {
@@ -573,7 +577,7 @@ async fn reaper_releases_a_crash_orphan() -> Result<()> {
     let competitor_create = episodes
         .create(
             test_user(),
-            create_episode_cmd(competitor_id, Uuid::now_v7(), series_id, number),
+            create_episode_cmd(competitor_id, Uuid::now_v7(), project_id, number),
         )
         .await;
     assert!(
@@ -593,11 +597,11 @@ async fn reaper_releases_a_crash_orphan() -> Result<()> {
 async fn reaper_releases_a_claim_whose_aggregate_carries_a_different_key() -> Result<()> {
     let (pool, sierra_client, _pg, _sierra) = init().await?;
 
-    let series_id = Uuid::now_v7();
+    let project_id = Uuid::now_v7();
     let stuck_id = Uuid::now_v7();
     let claimed_number = 80;
     let realized_number = 81; // the pre-seeded aggregate carries a DIFFERENT number
-    let key = episode_key(series_id, claimed_number);
+    let key = episode_key(project_id, claimed_number);
 
     // Pre-seed the claimed aggregate's stream with a create event whose
     // number does NOT match the claim key.
@@ -606,7 +610,7 @@ async fn reaper_releases_a_claim_whose_aggregate_carries_a_different_key() -> Re
         let payload = encode_event(&EpisodeEvent::EpisodeCreated {
             id: stuck_id,
             block_id: BlockId(Uuid::now_v7()),
-            series_id: SeriesId(series_id),
+            project_id: ProjectId(project_id),
             number: realized_number,
             name: None,
             version: AggregateVersion(1),
@@ -680,7 +684,7 @@ async fn reaper_releases_a_claim_whose_aggregate_carries_a_different_key() -> Re
     let competitor_create = episodes
         .create(
             test_user(),
-            create_episode_cmd(competitor_id, Uuid::now_v7(), series_id, claimed_number),
+            create_episode_cmd(competitor_id, Uuid::now_v7(), project_id, claimed_number),
         )
         .await;
     assert!(
@@ -696,13 +700,13 @@ async fn reaper_releases_a_claim_whose_aggregate_carries_a_different_key() -> Re
 // ---------------------------------------------------------------------------
 
 /// The other three numbering invariants ride the same store; pin season
-/// `(series_id, number)` atomicy end-to-end (a second concurrent create
+/// `(project_id, number)` atomicy end-to-end (a second concurrent create
 /// answers the registered 409 with an empty aggregate stream).
 #[tokio::test(flavor = "multi_thread")]
 async fn concurrent_creates_same_season_number_exactly_one_wins() -> Result<()> {
     let (_pool, sierra_client, _pg, _sierra) = init().await?;
 
-    let series_id = Uuid::now_v7();
+    let project_id = Uuid::now_v7();
     let id_a = Uuid::now_v7();
     let id_b = Uuid::now_v7();
 
@@ -714,7 +718,7 @@ async fn concurrent_creates_same_season_number_exactly_one_wins() -> Result<()> 
 
     let make = |id: Uuid| breakdown_core::season::commands::CreateSeason {
         id,
-        series_id: SeriesId(series_id),
+        project_id: ProjectId(project_id),
         number: 1,
         title: Some("A".into()),
     };

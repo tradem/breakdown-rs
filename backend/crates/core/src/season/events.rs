@@ -6,14 +6,18 @@
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::shared::{AggregateVersion, SeriesId};
+use crate::shared::{AggregateVersion, ProjectId};
 
 /// Events emitted by the `SeasonAggregate`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum SeasonEvent {
     SeasonCreated {
         id: Uuid,
-        series_id: SeriesId,
+        /// `#[serde(rename = "series_id")]` pins the persisted key (issue #591,
+        /// layer 2): the event store already holds `SeasonCreated` events
+        /// written under `project_id`, and ADR-002 forbids rewriting history.
+        #[serde(rename = "series_id")]
+        project_id: ProjectId,
         number: i32,
         title: Option<String>,
         version: AggregateVersion,
@@ -25,7 +29,7 @@ pub enum SeasonEvent {
     },
     /// The season is finished being produced (terminal lifecycle state).
     ///
-    /// The season's number stays reserved (the (series_id, number) unique
+    /// The season's number stays reserved (the (project_id, number) unique
     /// index is untouched by design, issue #533) and its inventory (blocks,
     /// episodes, shooting days) stays readable — only the season itself is
     /// locked against further mutation.

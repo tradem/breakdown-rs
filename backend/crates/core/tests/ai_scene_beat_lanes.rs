@@ -25,13 +25,13 @@ use breakdown_core::ai::{
 use breakdown_core::scene::aggregate::SceneAggregate;
 use breakdown_core::scene::commands::{AddCostumeBeat, AssignCharacter, CreateScene};
 use breakdown_core::scene::events::{SceneDetails, SceneSource};
-use breakdown_core::shared::{AggregateVersion, EpisodeId, SeriesId};
+use breakdown_core::shared::{AggregateVersion, EpisodeId, ProjectId};
 use kameo_es::Command;
 use test_support::make_ctx;
 use uuid::Uuid;
 
-fn series_id() -> SeriesId {
-    SeriesId::new()
+fn project_id() -> ProjectId {
+    ProjectId::new()
 }
 
 fn character(ordinal: usize, name: &str, identity: &str) -> CharacterApplyPlan {
@@ -58,7 +58,7 @@ fn row(characters: Vec<CharacterApplyPlan>, costumes: Vec<CostumeApplyPlan>) -> 
         scene: breakdown_core::ai::SceneApplyCommand::Create(CreateScene {
             id: Uuid::now_v7(),
             episode_id: EpisodeId::new(),
-            series_id: Some(series_id()),
+            project_id: Some(project_id()),
             details: SceneDetails::default(),
             source: SceneSource::Manual,
         }),
@@ -170,7 +170,7 @@ fn test_ai_scene_chain_advances_exactly_one_version_per_step() {
             CreateScene {
                 id: scene_id,
                 episode_id: EpisodeId::new(),
-                series_id: Some(series_id()),
+                project_id: Some(project_id()),
                 details: SceneDetails::default(),
                 source: SceneSource::AiExtracted {
                     document_id: Uuid::now_v7(),
@@ -194,7 +194,7 @@ fn test_ai_scene_chain_advances_exactly_one_version_per_step() {
             AssignCharacter {
                 id: scene_id,
                 character_id: ben,
-                series_id: Some(series_id()),
+                project_id: Some(project_id()),
                 version: agg.version,
             },
             make_ctx(),
@@ -212,7 +212,7 @@ fn test_ai_scene_chain_advances_exactly_one_version_per_step() {
                 character_id: ben,
                 costume_id: overall,
                 note: None,
-                series_id: Some(series_id()),
+                project_id: Some(project_id()),
                 version: agg.version,
             },
             make_ctx(),
@@ -228,7 +228,7 @@ fn test_ai_scene_chain_advances_exactly_one_version_per_step() {
             AssignCharacter {
                 id: scene_id,
                 character_id: renee,
-                series_id: Some(series_id()),
+                project_id: Some(project_id()),
                 version: agg.version,
             },
             make_ctx(),
@@ -245,7 +245,7 @@ fn test_ai_scene_chain_advances_exactly_one_version_per_step() {
                 character_id: renee,
                 costume_id: coat,
                 note: Some("nach dem Telefonat".into()),
-                series_id: Some(series_id()),
+                project_id: Some(project_id()),
                 version: agg.version,
             },
             make_ctx(),
@@ -275,7 +275,7 @@ fn add_costume_beat_refuses_identical_last_as_the_only_validation_error() {
             CreateScene {
                 id: scene_id,
                 episode_id: EpisodeId::new(),
-                series_id: Some(series_id()),
+                project_id: Some(project_id()),
                 details: SceneDetails::default(),
                 source: SceneSource::Manual,
             },
@@ -288,7 +288,7 @@ fn add_costume_beat_refuses_identical_last_as_the_only_validation_error() {
             AssignCharacter {
                 id: scene_id,
                 character_id: ben,
-                series_id: Some(series_id()),
+                project_id: Some(project_id()),
                 version: agg.version,
             },
             make_ctx(),
@@ -302,7 +302,7 @@ fn add_costume_beat_refuses_identical_last_as_the_only_validation_error() {
                 character_id: ben,
                 costume_id: overall,
                 note: None,
-                series_id: Some(series_id()),
+                project_id: Some(project_id()),
                 version: agg.version,
             },
             make_ctx(),
@@ -318,7 +318,7 @@ fn add_costume_beat_refuses_identical_last_as_the_only_validation_error() {
             character_id: ben,
             costume_id: overall,
             note: None,
-            series_id: Some(series_id()),
+            project_id: Some(project_id()),
             version: agg.version,
         },
         make_ctx(),
@@ -338,7 +338,7 @@ fn add_costume_beat_refuses_identical_last_as_the_only_validation_error() {
             character_id: ben,
             costume_id: overall,
             note: None,
-            series_id: Some(series_id()),
+            project_id: Some(project_id()),
             // The version from BEFORE the crashed beat append.
             version: AggregateVersion(2),
         },

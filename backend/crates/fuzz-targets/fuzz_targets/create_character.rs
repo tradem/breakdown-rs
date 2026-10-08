@@ -49,7 +49,7 @@ fuzz_target!(|data: &[u8]| {
     let _cmd = breakdown_core::character::commands::CreateCharacter {
         id: Uuid::now_v7(),
         season_id: req.season_id,
-        series_id: None,
+        project_id: None,
         name: req.name,
         category: req.category,
     };

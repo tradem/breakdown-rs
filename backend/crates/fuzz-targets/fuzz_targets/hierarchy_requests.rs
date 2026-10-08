@@ -17,12 +17,12 @@ use libfuzzer_sys::fuzz_target;
 use chrono::NaiveDate;
 use serde::Deserialize;
 
-use breakdown_core::shared::{BlockId, SeasonId, SeriesId};
+use breakdown_core::shared::{BlockId, ProjectId, SeasonId};
 
 /// Mirrors `breakdown_api::handlers::CreateSeasonRequest`.
 #[derive(Debug, Deserialize)]
 struct CreateSeasonRequest {
-    series_id: SeriesId,
+    project_id: ProjectId,
     number: i32,
     title: Option<String>,
 }
@@ -31,7 +31,7 @@ struct CreateSeasonRequest {
 #[derive(Debug, Deserialize)]
 struct CreateBlockRequest {
     season_id: SeasonId,
-    series_id: SeriesId,
+    project_id: ProjectId,
     number: i32,
     start_date: Option<NaiveDate>,
     end_date: Option<NaiveDate>,
@@ -41,7 +41,7 @@ struct CreateBlockRequest {
 #[derive(Debug, Deserialize)]
 struct CreateEpisodeRequest {
     block_id: BlockId,
-    series_id: SeriesId,
+    project_id: ProjectId,
     number: i32,
     name: Option<String>,
 }
@@ -49,13 +49,13 @@ struct CreateEpisodeRequest {
 fuzz_target!(|data: &[u8]| {
     // ── Season ──────────────────────────────────────────────────────────
     if let Ok(req) = serde_json::from_slice::<CreateSeasonRequest>(data) {
-        let _ = req.series_id.0;
+        let _ = req.project_id.0;
         let _ = req.number;
         let _ = req.title.as_deref();
 
         let _cmd = breakdown_core::season::commands::CreateSeason {
             id: uuid::Uuid::now_v7(),
-            series_id: req.series_id,
+            project_id: req.project_id,
             number: req.number,
             title: req.title,
         };
@@ -64,7 +64,7 @@ fuzz_target!(|data: &[u8]| {
     // ── Block ───────────────────────────────────────────────────────────
     if let Ok(req) = serde_json::from_slice::<CreateBlockRequest>(data) {
         let _ = req.season_id.0;
-        let _ = req.series_id.0;
+        let _ = req.project_id.0;
         let _ = req.number;
         let _ = req.start_date;
         let _ = req.end_date;
@@ -72,7 +72,7 @@ fuzz_target!(|data: &[u8]| {
         let _cmd = breakdown_core::block::commands::CreateBlock {
             id: uuid::Uuid::now_v7(),
             season_id: req.season_id,
-            series_id: req.series_id,
+            project_id: req.project_id,
             number: req.number,
             start_date: req.start_date,
             end_date: req.end_date,
@@ -82,14 +82,14 @@ fuzz_target!(|data: &[u8]| {
     // ── Episode ─────────────────────────────────────────────────────────
     if let Ok(req) = serde_json::from_slice::<CreateEpisodeRequest>(data) {
         let _ = req.block_id.0;
-        let _ = req.series_id.0;
+        let _ = req.project_id.0;
         let _ = req.number;
         let _ = req.name.as_deref();
 
         let _cmd = breakdown_core::episode::commands::CreateEpisode {
             id: uuid::Uuid::now_v7(),
             block_id: req.block_id,
-            series_id: req.series_id,
+            project_id: req.project_id,
             number: req.number,
             name: req.name,
         };

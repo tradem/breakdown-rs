@@ -389,7 +389,7 @@ async fn command_service_create_scene_round_trips_via_escan() -> Result<()> {
             CreateScene {
                 id: scene_id,
                 episode_id,
-                series_id: None,
+                project_id: None,
                 details: SceneDetails {
                     scene_number: Some(7),
                     location: Some("Berlin".into()),
@@ -439,7 +439,7 @@ async fn command_service_create_scene_round_trips_via_escan() -> Result<()> {
                     summary: None,
                     script_day: None,
                 },
-                series_id: None,
+                project_id: None,
                 // The caller-observed (domain) version after the create: the
                 // adapter maps it to the 0-based SierraDB stream version.
                 version: AggregateVersion(1),

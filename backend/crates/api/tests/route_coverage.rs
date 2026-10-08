@@ -132,7 +132,7 @@ fn api_routes_have_deliberate_authorization_requirement() {
             Requirement::Authenticated,
         ),
         // Audit journal — the series-scoped twin: the route is filtered by
-        // the `series_id` **query parameter**, so `X-Active-Block` membership
+        // the `project_id` **query parameter**, so `X-Active-Block` membership
         // says nothing about the queried series. `Authenticated` here, plus a
         // handler-internal `// AUTHZ-GATE:` that verifies active membership in
         // the queried series (issue #342).

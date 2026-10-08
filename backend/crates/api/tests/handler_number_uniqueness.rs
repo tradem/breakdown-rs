@@ -33,7 +33,7 @@ use axum::http::StatusCode;
 use breakdown_core::block::views::BlockView;
 use breakdown_core::episode::views::EpisodeView;
 use breakdown_core::season::views::SeasonView;
-use breakdown_core::shared::{AggregateVersion, BlockId, SeasonId, SeriesId};
+use breakdown_core::shared::{AggregateVersion, BlockId, ProjectId, SeasonId};
 use chrono::Utc;
 use common::FakePorts;
 use uuid::Uuid;
@@ -44,10 +44,10 @@ fn dummy_user() -> CurrentUser {
     CurrentUser::dummy(USER)
 }
 
-fn season_view(id: Uuid, series_id: SeriesId, number: i32) -> SeasonView {
+fn season_view(id: Uuid, project_id: ProjectId, number: i32) -> SeasonView {
     SeasonView {
         id,
-        series_id,
+        project_id,
         number,
         title: None,
         archived: false,
@@ -56,11 +56,11 @@ fn season_view(id: Uuid, series_id: SeriesId, number: i32) -> SeasonView {
     }
 }
 
-fn block_view(id: Uuid, series_id: SeriesId, number: i32) -> BlockView {
+fn block_view(id: Uuid, project_id: ProjectId, number: i32) -> BlockView {
     BlockView {
         id,
         season_id: SeasonId::new(),
-        series_id,
+        project_id,
         number,
         start_date: None,
         end_date: None,
@@ -69,11 +69,11 @@ fn block_view(id: Uuid, series_id: SeriesId, number: i32) -> BlockView {
     }
 }
 
-fn episode_view(id: Uuid, series_id: SeriesId, number: i32) -> EpisodeView {
+fn episode_view(id: Uuid, project_id: ProjectId, number: i32) -> EpisodeView {
     EpisodeView {
         id,
         block_id: BlockId::new(),
-        series_id,
+        project_id,
         number,
         name: None,
         version: AggregateVersion::INITIAL,
@@ -88,7 +88,7 @@ fn episode_view(id: Uuid, series_id: SeriesId, number: i32) -> EpisodeView {
 #[tokio::test]
 async fn create_season_rejects_duplicate_series_number_with_409() {
     let ports = FakePorts::default();
-    let series = SeriesId::new();
+    let series = ProjectId::new();
     let existing = Uuid::now_v7();
     ports
         .season_repo
@@ -102,7 +102,7 @@ async fn create_season_rejects_duplicate_series_number_with_409() {
         State(state),
         dummy_user(),
         Json(CreateSeasonRequest {
-            series_id: series,
+            project_id: series,
             number: 1,
             title: None,
         }),
@@ -118,7 +118,7 @@ async fn create_season_rejects_duplicate_series_number_with_409() {
 #[tokio::test]
 async fn create_season_allows_a_free_number() {
     let ports = FakePorts::default();
-    let series = SeriesId::new();
+    let series = ProjectId::new();
     let existing = Uuid::now_v7();
     ports
         .season_repo
@@ -132,7 +132,7 @@ async fn create_season_allows_a_free_number() {
         State(state),
         dummy_user(),
         Json(CreateSeasonRequest {
-            series_id: series,
+            project_id: series,
             number: 2,
             title: None,
         }),
@@ -150,7 +150,7 @@ async fn create_season_allows_a_free_number() {
 #[tokio::test]
 async fn create_block_rejects_duplicate_series_number_with_409() {
     let ports = FakePorts::default();
-    let series = SeriesId::new();
+    let series = ProjectId::new();
     let existing = Uuid::now_v7();
     ports
         .block_repo
@@ -165,7 +165,7 @@ async fn create_block_rejects_duplicate_series_number_with_409() {
         dummy_user(),
         Json(CreateBlockRequest {
             season_id: SeasonId::new(),
-            series_id: series,
+            project_id: series,
             number: 1,
             start_date: None,
             end_date: None,
@@ -182,7 +182,7 @@ async fn create_block_rejects_duplicate_series_number_with_409() {
 #[tokio::test]
 async fn create_block_allows_a_free_number() {
     let ports = FakePorts::default();
-    let series = SeriesId::new();
+    let series = ProjectId::new();
     let existing = Uuid::now_v7();
     ports
         .block_repo
@@ -197,7 +197,7 @@ async fn create_block_allows_a_free_number() {
         dummy_user(),
         Json(CreateBlockRequest {
             season_id: SeasonId::new(),
-            series_id: series,
+            project_id: series,
             number: 2,
             start_date: None,
             end_date: None,
@@ -216,7 +216,7 @@ async fn create_block_allows_a_free_number() {
 #[tokio::test]
 async fn create_episode_rejects_duplicate_series_number_with_409() {
     let ports = FakePorts::default();
-    let series = SeriesId::new();
+    let series = ProjectId::new();
     let existing = Uuid::now_v7();
     ports
         .episode_repo
@@ -231,7 +231,7 @@ async fn create_episode_rejects_duplicate_series_number_with_409() {
         dummy_user(),
         Json(CreateEpisodeRequest {
             block_id: BlockId::new(),
-            series_id: series,
+            project_id: series,
             number: 1,
             name: None,
         }),
@@ -247,7 +247,7 @@ async fn create_episode_rejects_duplicate_series_number_with_409() {
 #[tokio::test]
 async fn create_episode_allows_a_free_number() {
     let ports = FakePorts::default();
-    let series = SeriesId::new();
+    let series = ProjectId::new();
     let existing = Uuid::now_v7();
     ports
         .episode_repo
@@ -262,7 +262,7 @@ async fn create_episode_allows_a_free_number() {
         dummy_user(),
         Json(CreateEpisodeRequest {
             block_id: BlockId::new(),
-            series_id: series,
+            project_id: series,
             number: 2,
             name: None,
         }),

@@ -6,7 +6,7 @@
 use uuid::Uuid;
 
 use crate::error::DomainError;
-use crate::shared::{AggregateVersion, SeriesId, UserId};
+use crate::shared::{AggregateVersion, ProjectId, UserId};
 
 use super::commands::{ArchiveSeason, CreateSeason, RenameSeason};
 use super::views::SeasonView;
@@ -48,21 +48,21 @@ pub trait SeasonRepository: Send + Sync {
         limit: i64,
         offset: i64,
     ) -> Result<Vec<SeasonView>, DomainError>;
-    /// List seasons of a series, ordered by number.
+    /// List seasons of a project, ordered by number.
     ///
     /// Archived seasons are excluded unless `include_archived` is set
     /// (issue #533 default-off read model).
-    async fn list_by_series(
+    async fn list_by_project(
         &self,
-        series_id: SeriesId,
+        project_id: ProjectId,
         include_archived: bool,
         limit: i64,
         offset: i64,
     ) -> Result<Vec<SeasonView>, DomainError>;
-    /// Look up a season by its series-global number (for the 409 pre-check).
-    async fn find_by_series_and_number(
+    /// Look up a season by its project-global number (for the 409 pre-check).
+    async fn find_by_project_and_number(
         &self,
-        series_id: SeriesId,
+        project_id: ProjectId,
         number: i32,
     ) -> Result<Option<SeasonView>, DomainError>;
 }

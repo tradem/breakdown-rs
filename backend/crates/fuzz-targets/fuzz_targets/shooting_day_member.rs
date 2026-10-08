@@ -73,7 +73,7 @@ fuzz_target!(|data: &[u8]| {
         let _cmd = breakdown_core::shooting_day::commands::CreateShootingDay {
             id: ShootingDayId::new(),
             episode_id: req.episode_id,
-            series_id: None,
+            project_id: None,
             label: req.label,
             order_key: req.order_key,
             date: req.date,
@@ -93,7 +93,7 @@ fuzz_target!(|data: &[u8]| {
 
         let _cmd = breakdown_core::membership::commands::InviteMember {
             block_id: breakdown_core::shared::BlockId::from_uuid(uuid::Uuid::now_v7()),
-            series_id: breakdown_core::shared::SeriesId::new(),
+            project_id: breakdown_core::shared::ProjectId::new(),
             user_id: breakdown_core::shared::UserId::from_sub(req.user_id),
             role: req.role,
         };

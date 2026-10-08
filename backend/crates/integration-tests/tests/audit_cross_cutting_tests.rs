@@ -33,7 +33,7 @@
 //! **Coverage:**
 //! - 6.1: Non-membership events produce correctly-attributed audit rows
 //! - 6.2: Saga-dispatched commands record `Provenance::Saga` + `actor = NULL`
-//! - 6.3: `list_by_series` returns only the requested tenant's rows
+//! - 6.3: `list_by_project` returns only the requested tenant's rows
 //! - 6.4: Idempotency under redelivery for non-membership categories
 
 mod fixtures;
@@ -53,7 +53,7 @@ use breakdown_core::costume_category::events::CostumeCategoryEvent;
 use breakdown_core::costume_category::ports::CostumeCategoryRepository;
 use breakdown_core::season::events::SeasonEvent;
 use breakdown_core::shared::{
-    AggregateVersion, EventMetadata, LexicalSortKey, Provenance, SeasonId, SeriesId, UserId,
+    AggregateVersion, EventMetadata, LexicalSortKey, ProjectId, Provenance, SeasonId, UserId,
 };
 use chrono::Utc;
 use infra::projectors::{AuditProjectorHandles, spawn_all_audit_projectors};
@@ -352,11 +352,11 @@ async fn eappend_persisted(
 }
 
 /// Create CBOR-encoded saga metadata.
-fn saga_metadata(series_id: SeriesId, saga_name: &'static str) -> Result<Vec<u8>> {
+fn saga_metadata(project_id: ProjectId, saga_name: &'static str) -> Result<Vec<u8>> {
     let meta = EventMetadata {
         actor: None,
         provenance: Provenance::saga(saga_name),
-        series_id: Some(series_id),
+        project_id: Some(project_id),
     };
     let wrapped = Metadata::<EventMetadata>::default().with_data(meta);
     let mut buf = Vec::new();
@@ -369,11 +369,11 @@ fn saga_metadata(series_id: SeriesId, saga_name: &'static str) -> Result<Vec<u8>
 ///
 /// The bytes must match what `kameo_es::CommandService::CommandExecution`
 /// produces — `EventMetadata` wrapped in `Metadata`.
-fn human_metadata(actor: UserId, series_id: Option<SeriesId>) -> Result<Vec<u8>> {
+fn human_metadata(actor: UserId, project_id: Option<ProjectId>) -> Result<Vec<u8>> {
     let meta = EventMetadata {
         actor: Some(actor),
         provenance: Provenance::Human,
-        series_id,
+        project_id,
     };
     let wrapped = Metadata::<EventMetadata>::default().with_data(meta);
     let mut buf = Vec::new();
@@ -480,15 +480,15 @@ async fn await_audit_rows(
     }
 }
 
-/// Wait until at least `min` audit rows exist for a given `series_id`.
+/// Wait until at least `min` audit rows exist for a given `project_id`.
 async fn await_audit_by_series(
     repo: &AuditRepositoryImpl,
-    series_id: SeriesId,
+    project_id: ProjectId,
     min: usize,
 ) -> Result<Vec<AuditEntry>> {
     let deadline = Instant::now() + PROJECTION_DEADLINE;
     loop {
-        let result = repo.list_by_series(series_id, 100, 0).await;
+        let result = repo.list_by_project(project_id, 100, 0).await;
         match result {
             Ok(list) if list.len() >= min => return Ok(list),
             Ok(_) => {}
@@ -500,7 +500,7 @@ async fn await_audit_by_series(
                     tokio::time::sleep(POLL_INTERVAL).await;
                     continue;
                 }
-                return Err(anyhow!("list_by_series failed: {e}"));
+                return Err(anyhow!("list_by_project failed: {e}"));
             }
         }
         if Instant::now() < deadline {
@@ -509,8 +509,8 @@ async fn await_audit_by_series(
             bail!(
                 "projection lag: audit rows for series({}) = {} (expected >= {min}) \
                  within {PROJECTION_DEADLINE:?}",
-                series_id.0,
-                repo.list_by_series(series_id, 100, 0)
+                project_id.0,
+                repo.list_by_project(project_id, 100, 0)
                     .await
                     .map(|l| l.len())
                     .unwrap_or(0)
@@ -525,7 +525,7 @@ async fn await_audit_by_series(
 
 /// Create a season + character directly via EAPPEND and verify that the
 /// `projection_audit` rows carry the correct actor, provenance = Human,
-/// and series_id.
+/// and project_id.
 #[tokio::test]
 async fn non_membership_events_produce_attributed_audit_rows() -> Result<()> {
     let containers = init_containers();
@@ -534,20 +534,20 @@ async fn non_membership_events_produce_attributed_audit_rows() -> Result<()> {
     let audit_repo = AuditRepositoryImpl::new(pool.clone());
 
     let actor = UserId::from_sub("test-actor-6.1");
-    let series_id = SeriesId(Uuid::now_v7());
+    let project_id = ProjectId(Uuid::now_v7());
 
     // --- Create a season via EAPPEND ---
     let season_id = Uuid::now_v7();
     let season_stream = format!("season-{season_id}");
     let season_event = SeasonEvent::SeasonCreated {
         id: season_id,
-        series_id,
+        project_id,
         number: 1,
         title: Some("Test Season".into()),
         version: AggregateVersion::INITIAL,
     };
     let season_payload = encode_event(&season_event)?;
-    let season_meta = human_metadata(actor.clone(), Some(series_id))?;
+    let season_meta = human_metadata(actor.clone(), Some(project_id))?;
 
     eappend_event(
         redis_client,
@@ -583,8 +583,8 @@ async fn non_membership_events_produce_attributed_audit_rows() -> Result<()> {
         "actor must come from event metadata"
     );
     assert_eq!(
-        season_row.series_id,
-        Some(series_id.0),
+        season_row.project_id,
+        Some(project_id.0),
         "series_id must be denormalized from event metadata"
     );
 
@@ -596,7 +596,7 @@ async fn non_membership_events_produce_attributed_audit_rows() -> Result<()> {
         "provenance must be Human for EAPPEND events with actor metadata"
     );
 
-    // --- Create a character (resolves series_id via season projector) ---
+    // --- Create a character (resolves project_id via season projector) ---
     let char_id = Uuid::now_v7();
     let char_stream = format!("character-{char_id}");
     let char_event = CharacterEvent::CharacterCreated {
@@ -609,7 +609,7 @@ async fn non_membership_events_produce_attributed_audit_rows() -> Result<()> {
         version: AggregateVersion::INITIAL,
     };
     let char_payload = encode_event(&char_event)?;
-    let char_meta = human_metadata(actor.clone(), Some(series_id))?;
+    let char_meta = human_metadata(actor.clone(), Some(project_id))?;
 
     eappend_event(
         redis_client,
@@ -636,8 +636,8 @@ async fn non_membership_events_produce_attributed_audit_rows() -> Result<()> {
         "actor must come from event metadata"
     );
     assert_eq!(
-        char_row.series_id,
-        Some(series_id.0),
+        char_row.project_id,
+        Some(project_id.0),
         "series_id must be denormalized in metadata, not resolved at projection time"
     );
 
@@ -652,7 +652,7 @@ async fn non_membership_events_produce_attributed_audit_rows() -> Result<()> {
 }
 
 /// Create a costume category via EAPPEND and verify audit row attribution.
-/// (Requires a season to exist for series_id resolution.)
+/// (Requires a season to exist for project_id resolution.)
 #[tokio::test]
 async fn costume_category_create_produces_attributed_audit_row() -> Result<()> {
     let containers = init_containers();
@@ -661,20 +661,20 @@ async fn costume_category_create_produces_attributed_audit_row() -> Result<()> {
     let audit_repo = AuditRepositoryImpl::new(pool.clone());
 
     let actor = UserId::from_sub("test-actor-cc");
-    let series_id = SeriesId(Uuid::now_v7());
+    let project_id = ProjectId(Uuid::now_v7());
 
     // Create a season first (needed by costume_category projector).
     let season_id = Uuid::now_v7();
     let season_stream = format!("season-{season_id}");
     let season_event = SeasonEvent::SeasonCreated {
         id: season_id,
-        series_id,
+        project_id,
         number: 2,
         title: Some("Costume Cat Season".into()),
         version: AggregateVersion::INITIAL,
     };
     let season_payload = encode_event(&season_event)?;
-    let season_meta = human_metadata(actor.clone(), Some(series_id))?;
+    let season_meta = human_metadata(actor.clone(), Some(project_id))?;
 
     eappend_event(
         redis_client,
@@ -700,7 +700,7 @@ async fn costume_category_create_produces_attributed_audit_row() -> Result<()> {
         version: AggregateVersion::INITIAL,
     };
     let cc_payload = encode_event(&cc_event)?;
-    let cc_meta = human_metadata(actor.clone(), Some(series_id))?;
+    let cc_meta = human_metadata(actor.clone(), Some(project_id))?;
 
     eappend_event(
         redis_client,
@@ -727,8 +727,8 @@ async fn costume_category_create_produces_attributed_audit_row() -> Result<()> {
         "actor must come from event metadata"
     );
     assert_eq!(
-        row.series_id,
-        Some(series_id.0),
+        row.project_id,
+        Some(project_id.0),
         "series_id must be present"
     );
 
@@ -780,9 +780,9 @@ async fn saga_dispatched_costume_category_shows_saga_provenance() -> Result<()> 
     let pool = &containers.query_pool;
 
     // Build saga metadata: provenance = Saga("SeasonSeedingSaga"),
-    // actor = None, series_id = Some(...).
-    let series_id = SeriesId(Uuid::now_v7());
-    let metadata_buf = saga_metadata(series_id, "SeasonSeedingSaga")?;
+    // actor = None, project_id = Some(...).
+    let project_id = ProjectId(Uuid::now_v7());
+    let metadata_buf = saga_metadata(project_id, "SeasonSeedingSaga")?;
 
     let season_id = SeasonId::new();
     let cc_id = Uuid::now_v7();
@@ -841,8 +841,8 @@ async fn saga_dispatched_costume_category_shows_saga_provenance() -> Result<()> 
                     row.actor
                 );
                 assert_eq!(
-                    row.series_id,
-                    Some(series_id.0),
+                    row.project_id,
+                    Some(project_id.0),
                     "series_id must be copied from metadata"
                 );
 
@@ -884,11 +884,11 @@ async fn saga_dispatched_costume_category_shows_saga_provenance() -> Result<()> 
 }
 
 // ---------------------------------------------------------------------------
-// 6.3 — list_by_series returns only the requested tenant's rows
+// 6.3 — list_by_project returns only the requested tenant's rows
 // ---------------------------------------------------------------------------
 
 /// Create seasons in two different series via direct EAPPEND, then verify
-/// that `list_by_series` returns only rows for the requested series_id.
+/// that `list_by_project` returns only rows for the requested project_id.
 #[tokio::test]
 async fn list_by_series_returns_tenant_scoped_rows() -> Result<()> {
     let containers = init_containers();
@@ -897,15 +897,15 @@ async fn list_by_series_returns_tenant_scoped_rows() -> Result<()> {
     let audit_repo = AuditRepositoryImpl::new(pool.clone());
 
     let actor = UserId::from_sub("tenant-test-6.3");
-    let series_a = SeriesId(Uuid::now_v7());
-    let series_b = SeriesId(Uuid::now_v7());
+    let series_a = ProjectId(Uuid::now_v7());
+    let series_b = ProjectId(Uuid::now_v7());
 
     // Create season in series A.
     let season_a_id = Uuid::now_v7();
     let season_a_stream = format!("season-{season_a_id}");
     let season_a_event = SeasonEvent::SeasonCreated {
         id: season_a_id,
-        series_id: series_a,
+        project_id: series_a,
         number: 1,
         title: Some("Series A Season".into()),
         version: AggregateVersion::INITIAL,
@@ -927,7 +927,7 @@ async fn list_by_series_returns_tenant_scoped_rows() -> Result<()> {
     let season_b_stream = format!("season-{season_b_id}");
     let season_b_event = SeasonEvent::SeasonCreated {
         id: season_b_id,
-        series_id: series_b,
+        project_id: series_b,
         number: 1,
         title: Some("Series B Season".into()),
         version: AggregateVersion::INITIAL,
@@ -948,23 +948,23 @@ async fn list_by_series_returns_tenant_scoped_rows() -> Result<()> {
     let _a = await_audit_by_series(&audit_repo, series_a, 1).await?;
     let _b = await_audit_by_series(&audit_repo, series_b, 1).await?;
 
-    // list_by_series(series_a) must NOT include series_b rows.
-    let series_a_rows = audit_repo.list_by_series(series_a, 100, 0).await?;
+    // list_by_project(series_a) must NOT include series_b rows.
+    let series_a_rows = audit_repo.list_by_project(series_a, 100, 0).await?;
     assert!(!series_a_rows.is_empty(), "series_a must have audit rows");
     for row in &series_a_rows {
         assert_eq!(
-            row.series_id,
+            row.project_id,
             Some(series_a.0),
             "row for series_a must match series_a"
         );
     }
 
-    // list_by_series(series_b) must NOT include series_a rows.
-    let series_b_rows = audit_repo.list_by_series(series_b, 100, 0).await?;
+    // list_by_project(series_b) must NOT include series_a rows.
+    let series_b_rows = audit_repo.list_by_project(series_b, 100, 0).await?;
     assert!(!series_b_rows.is_empty(), "series_b must have audit rows");
     for row in &series_b_rows {
         assert_eq!(
-            row.series_id,
+            row.project_id,
             Some(series_b.0),
             "row for series_b must match series_b"
         );
@@ -1007,8 +1007,8 @@ async fn non_membership_audit_projector_is_idempotent_under_redelivery() -> Resu
     let audit_repo = AuditRepositoryImpl::new(pool.clone());
 
     // Build saga metadata.
-    let series_id = SeriesId(Uuid::now_v7());
-    let metadata_buf = saga_metadata(series_id, "SeasonSeedingSaga")?;
+    let project_id = ProjectId(Uuid::now_v7());
+    let metadata_buf = saga_metadata(project_id, "SeasonSeedingSaga")?;
 
     let season_id = SeasonId::new();
     let cc_id = Uuid::now_v7();

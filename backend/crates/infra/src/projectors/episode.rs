@@ -37,7 +37,7 @@ impl<'a> EntityEventHandler<EpisodeAggregate, Transaction<'a, Postgres>> for Epi
             EpisodeEvent::EpisodeCreated {
                 id,
                 block_id,
-                series_id,
+                project_id,
                 number,
                 name,
                 version,
@@ -66,7 +66,7 @@ impl<'a> EntityEventHandler<EpisodeAggregate, Transaction<'a, Postgres>> for Epi
                 )
                 .bind(id)
                 .bind(block_id.0)
-                .bind(series_id.0)
+                .bind(project_id.0)
                 .bind(number)
                 .bind(name)
                 .bind(version)

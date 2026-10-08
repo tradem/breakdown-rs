@@ -36,7 +36,7 @@ impl<'a> EntityEventHandler<SeasonAggregate, Transaction<'a, Postgres>> for Seas
         match event.data {
             SeasonEvent::SeasonCreated {
                 id,
-                series_id,
+                project_id,
                 number,
                 title,
                 version,
@@ -63,7 +63,7 @@ impl<'a> EntityEventHandler<SeasonAggregate, Transaction<'a, Postgres>> for Seas
                     "#,
                 )
                 .bind(id)
-                .bind(series_id.0)
+                .bind(project_id.0)
                 .bind(number)
                 .bind(title)
                 .bind(version)

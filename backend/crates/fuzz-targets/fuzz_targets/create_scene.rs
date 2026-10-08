@@ -49,7 +49,7 @@ fuzz_target!(|data: &[u8]| {
     let _cmd = breakdown_core::scene::commands::CreateScene {
         id: Uuid::now_v7(),
         episode_id: req.episode_id,
-        series_id: None,
+        project_id: None,
         details: req.details,
         source: SceneSource::Manual,
     };

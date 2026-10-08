@@ -25,7 +25,7 @@ use crate::scene::events::{SceneDetails, SceneSource};
 /// State persisted by the Scene aggregate.
 ///
 /// A Scene references exactly one `EpisodeId` (the work-unit scope). It does
-/// NOT carry any production-level scope (Series/Season/Block) directly.
+/// NOT carry any production-level scope (Project/Season/Block) directly.
 #[derive(Debug, Clone, Default)]
 pub struct SceneAggregate {
     pub id: Uuid,

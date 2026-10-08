@@ -202,7 +202,7 @@ async fn photo_nm_deletion_round_trip() -> Result<()> {
                 binding: breakdown_core::photo::binding::PhotoBinding::Costume {
                     costume_id: Uuid::now_v7(),
                 },
-                series_id: Some(breakdown_core::shared::SeriesId::new()),
+                project_id: Some(breakdown_core::shared::ProjectId::new()),
             },
         )
         .await?;
@@ -225,7 +225,7 @@ async fn photo_nm_deletion_round_trip() -> Result<()> {
             CreateCostume {
                 id: costume_a_id,
                 season_id: None,
-                series_id: None,
+                project_id: None,
             },
         )
         .await?;
@@ -249,7 +249,7 @@ async fn photo_nm_deletion_round_trip() -> Result<()> {
             CreateCostume {
                 id: costume_b_id,
                 season_id: None,
-                series_id: None,
+                project_id: None,
             },
         )
         .await?;
@@ -276,7 +276,7 @@ async fn photo_nm_deletion_round_trip() -> Result<()> {
             LinkPhoto {
                 id: costume_a_id,
                 photo_id: photo_id.0,
-                series_id: None,
+                project_id: None,
                 version: ver_a,
             },
         )
@@ -289,7 +289,7 @@ async fn photo_nm_deletion_round_trip() -> Result<()> {
             LinkPhoto {
                 id: costume_b_id,
                 photo_id: photo_id.0,
-                series_id: None,
+                project_id: None,
                 version: ver_b,
             },
         )
@@ -309,7 +309,7 @@ async fn photo_nm_deletion_round_trip() -> Result<()> {
             UnlinkPhoto {
                 id: costume_a_id,
                 photo_id: photo_id.0,
-                series_id: None,
+                project_id: None,
                 version: ver_a2,
             },
         )
@@ -339,7 +339,7 @@ async fn photo_nm_deletion_round_trip() -> Result<()> {
             UnlinkPhoto {
                 id: costume_b_id,
                 photo_id: photo_id.0,
-                series_id: None,
+                project_id: None,
                 version: ver_b2,
             },
         )

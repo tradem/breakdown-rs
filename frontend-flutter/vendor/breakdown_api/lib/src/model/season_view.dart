@@ -16,7 +16,7 @@ part 'season_view.g.dart';
 /// * [archived] - Terminal lifecycle flag (issue #533): `true` once `SeasonArchived` was applied. Archived seasons keep number + inventory readable.
 /// * [id]
 /// * [number]
-/// * [seriesId] - Opaque identifier for a `Series` (a show run).  `SeriesId` is an opaque UUIDv7 value type introduced by the `introduce-season-block-episode-hierarchy` change. It is the seam for a future additive `Series` aggregate: every hierarchy entity (Season, Block, Episode) references it but no `Series` aggregate exists yet.
+/// * [seriesId] - The tenant-level production container this season belongs to.
 /// * [title]
 /// * [updatedAt]
 /// * [version] - Aggregate version for optimistic-locking round-trips.
@@ -32,7 +32,7 @@ abstract class SeasonView implements Built<SeasonView, SeasonViewBuilder> {
   @BuiltValueField(wireName: r'number')
   int get number;
 
-  /// Opaque identifier for a `Series` (a show run).  `SeriesId` is an opaque UUIDv7 value type introduced by the `introduce-season-block-episode-hierarchy` change. It is the seam for a future additive `Series` aggregate: every hierarchy entity (Season, Block, Episode) references it but no `Series` aggregate exists yet.
+  /// The tenant-level production container this season belongs to.
   @BuiltValueField(wireName: r'series_id')
   String get seriesId;
 

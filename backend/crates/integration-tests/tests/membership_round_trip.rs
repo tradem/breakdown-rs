@@ -35,7 +35,7 @@ use breakdown_core::membership::{
     AcceptInvitation, BootstrapOwner, GrantRole, InviteMember, LeaveBlock, MembershipCommands,
     MembershipRepository, RemoveMember, Role,
 };
-use breakdown_core::shared::{BlockId, SeasonId, SeriesId, UserId};
+use breakdown_core::shared::{BlockId, ProjectId, SeasonId, UserId};
 use infra::event_store::{BlockCommandsImpl, MembershipCommandsImpl};
 use infra::projectors::{spawn_block_projector, spawn_membership_projector};
 use infra::queries::{BlockRepositoryImpl, MembershipRepositoryImpl};
@@ -167,7 +167,7 @@ async fn await_member_state(
 }
 
 /// Wait until the block projection row exists — the series-scoped audit gate
-/// joins on `projection_block.series_id` (issue #342).
+/// joins on `projection_block.project_id` (issue #342).
 async fn await_block_projected(pool: &PgPool, block_id: Uuid) -> Result<()> {
     let blocks = BlockRepositoryImpl::new(pool.clone());
     let deadline = std::time::Instant::now() + PROJECTION_DEADLINE;
@@ -191,22 +191,22 @@ async fn await_block_projected(pool: &PgPool, block_id: Uuid) -> Result<()> {
     }
 }
 
-/// `has_active_membership_in_series` with the `DomainError` mapped into
+/// `has_active_membership_in_project` with the `DomainError` mapped into
 /// `anyhow` (test ergonomics).
 async fn in_series(
     repo: &MembershipRepositoryImpl,
-    series_id: SeriesId,
+    project_id: ProjectId,
     user_id: UserId,
 ) -> Result<bool> {
-    repo.has_active_membership_in_series(series_id, user_id)
+    repo.has_active_membership_in_project(project_id, user_id)
         .await
         .map_err(|e| anyhow!(e.to_string()))
 }
 
 /// Spin up Postgres + SierraDB + the membership projector, and a SierraDB-backed
 /// `CommandService` (full command → SierraDB → projector → PG chain).
-fn test_series_id() -> SeriesId {
-    SeriesId::from_uuid(uuid::Uuid::now_v7())
+fn test_series_id() -> ProjectId {
+    ProjectId::from_uuid(uuid::Uuid::now_v7())
 }
 
 async fn init_membership() -> Result<(
@@ -225,7 +225,7 @@ async fn init_membership() -> Result<(
         infra::projectors::ProjectorFlushConfig::test_profile(),
     )
     .await?;
-    // The block projector feeds `projection_block.series_id`, the column the
+    // The block projector feeds `projection_block.project_id`, the column the
     // series-scoped audit gate joins on (issue #342).
     let _bp = spawn_block_projector(
         pool.clone(),
@@ -291,7 +291,7 @@ async fn command_invite_accept_round_trips_into_membership_projection() -> Resul
             owner.clone(),
             BootstrapOwner {
                 block_id,
-                series_id: test_series_id(),
+                project_id: test_series_id(),
                 user_id: owner.clone(),
                 role: Role::CostumeAssistant,
             },
@@ -304,7 +304,7 @@ async fn command_invite_accept_round_trips_into_membership_projection() -> Resul
             owner.clone(),
             InviteMember {
                 block_id,
-                series_id: test_series_id(),
+                project_id: test_series_id(),
                 user_id: invitee.clone(),
                 role: Role::CostumeDesigner,
             },
@@ -317,7 +317,7 @@ async fn command_invite_accept_round_trips_into_membership_projection() -> Resul
             invitee.clone(),
             AcceptInvitation {
                 block_id,
-                series_id: test_series_id(),
+                project_id: test_series_id(),
                 user_id: invitee.clone(),
             },
         )
@@ -366,7 +366,7 @@ async fn command_grant_remove_leave_round_trips_into_membership_projection() -> 
             owner.clone(),
             BootstrapOwner {
                 block_id,
-                series_id: test_series_id(),
+                project_id: test_series_id(),
                 user_id: owner.clone(),
                 role: Role::CostumeAssistant,
             },
@@ -377,7 +377,7 @@ async fn command_grant_remove_leave_round_trips_into_membership_projection() -> 
             owner.clone(),
             InviteMember {
                 block_id,
-                series_id: test_series_id(),
+                project_id: test_series_id(),
                 user_id: member.clone(),
                 role: Role::CostumeAssistant,
             },
@@ -388,7 +388,7 @@ async fn command_grant_remove_leave_round_trips_into_membership_projection() -> 
             member.clone(),
             AcceptInvitation {
                 block_id,
-                series_id: test_series_id(),
+                project_id: test_series_id(),
                 user_id: member.clone(),
             },
         )
@@ -400,7 +400,7 @@ async fn command_grant_remove_leave_round_trips_into_membership_projection() -> 
             owner.clone(),
             GrantRole {
                 block_id,
-                series_id: test_series_id(),
+                project_id: test_series_id(),
                 user_id: member.clone(),
                 role: Role::WardrobeSupervisor,
             },
@@ -417,7 +417,7 @@ async fn command_grant_remove_leave_round_trips_into_membership_projection() -> 
             owner.clone(),
             RemoveMember {
                 block_id,
-                series_id: test_series_id(),
+                project_id: test_series_id(),
                 user_id: member.clone(),
             },
         )
@@ -430,7 +430,7 @@ async fn command_grant_remove_leave_round_trips_into_membership_projection() -> 
             owner.clone(),
             LeaveBlock {
                 block_id,
-                series_id: test_series_id(),
+                project_id: test_series_id(),
             },
         )
         .await?;
@@ -531,10 +531,10 @@ async fn membership_projector_is_idempotent_under_redelivery() -> Result<()> {
     Ok(())
 }
 
-/// Tier-4: `has_active_membership_in_series` — the tenant predicate behind the
+/// Tier-4: `has_active_membership_in_project` — the tenant predicate behind the
 /// series-scoped audit gate (issue #342).
 ///
-/// `GET /v1/audit` filters the journal by the `series_id` **query parameter**,
+/// `GET /v1/audit` filters the journal by the `project_id` **query parameter**,
 /// so its gate cannot rely on the caller's active block. The predicate walks
 /// membership → block → series and must be true **only** for an *active* member
 /// of a block that belongs to the queried series.
@@ -545,7 +545,7 @@ async fn has_active_membership_in_series_scopes_the_audit_gate_by_series() -> Re
     let blocks = BlockCommandsImpl::new(cmd_svc);
     let repo = MembershipRepositoryImpl::new(pool.clone());
 
-    let series_id = test_series_id();
+    let project_id = test_series_id();
     let foreign_series = test_series_id();
     let season_id = SeasonId::new();
     let block_id = BlockId::from_uuid(Uuid::now_v7());
@@ -554,14 +554,14 @@ async fn has_active_membership_in_series_scopes_the_audit_gate_by_series() -> Re
     let outsider = UserId::from_sub("outsider-z");
 
     // The block must be projected first: the query joins on
-    // `projection_block.series_id`.
+    // `projection_block.project_id`.
     blocks
         .create(
             owner.clone(),
             CreateBlock {
                 id: block_id.0,
                 season_id,
-                series_id,
+                project_id,
                 number: 1,
                 start_date: None,
                 end_date: None,
@@ -575,7 +575,7 @@ async fn has_active_membership_in_series_scopes_the_audit_gate_by_series() -> Re
             owner.clone(),
             BootstrapOwner {
                 block_id,
-                series_id,
+                project_id,
                 user_id: owner.clone(),
                 role: Role::CostumeAssistant,
             },
@@ -585,7 +585,7 @@ async fn has_active_membership_in_series_scopes_the_audit_gate_by_series() -> Re
 
     // (1) Active member of a block of the series → authorized.
     assert!(
-        in_series(&repo, series_id, owner.clone()).await?,
+        in_series(&repo, project_id, owner.clone()).await?,
         "active member of the series must be authorized"
     );
 
@@ -601,7 +601,7 @@ async fn has_active_membership_in_series_scopes_the_audit_gate_by_series() -> Re
 
     // (2) No membership row at all → denied.
     assert!(
-        !in_series(&repo, series_id, outsider.clone()).await?,
+        !in_series(&repo, project_id, outsider.clone()).await?,
         "a user without any membership must be denied"
     );
 
@@ -619,7 +619,7 @@ async fn has_active_membership_in_series_scopes_the_audit_gate_by_series() -> Re
             owner.clone(),
             InviteMember {
                 block_id,
-                series_id,
+                project_id,
                 user_id: invitee.clone(),
                 role: Role::CostumeDesigner,
             },
@@ -633,7 +633,7 @@ async fn has_active_membership_in_series_scopes_the_audit_gate_by_series() -> Re
     )
     .await?;
     assert!(
-        !in_series(&repo, series_id, invitee.clone()).await?,
+        !in_series(&repo, project_id, invitee.clone()).await?,
         "a pending invitee must not be authorized"
     );
 
@@ -644,7 +644,7 @@ async fn has_active_membership_in_series_scopes_the_audit_gate_by_series() -> Re
             invitee.clone(),
             AcceptInvitation {
                 block_id,
-                series_id,
+                project_id,
                 user_id: invitee.clone(),
             },
         )
@@ -657,7 +657,7 @@ async fn has_active_membership_in_series_scopes_the_audit_gate_by_series() -> Re
     )
     .await?;
     assert!(
-        in_series(&repo, series_id, invitee.clone()).await?,
+        in_series(&repo, project_id, invitee.clone()).await?,
         "an active member must be authorized regardless of role"
     );
 
@@ -667,21 +667,21 @@ async fn has_active_membership_in_series_scopes_the_audit_gate_by_series() -> Re
             owner.clone(),
             RemoveMember {
                 block_id,
-                series_id,
+                project_id,
                 user_id: invitee.clone(),
             },
         )
         .await?;
     await_member_absent(&repo, block_id, invitee.clone()).await?;
     assert!(
-        !in_series(&repo, series_id, invitee.clone()).await?,
+        !in_series(&repo, project_id, invitee.clone()).await?,
         "a removed member must lose access"
     );
 
     Ok(())
 }
 
-/// Create a block in (`season_id`, `series_id`) and bootstrap `user` as its
+/// Create a block in (`season_id`, `project_id`) and bootstrap `user` as its
 /// owner with `role`, waiting until both the block row (the season/series
 /// scope the predicates join on) and the membership row are projected.
 #[allow(clippy::too_many_arguments)]
@@ -691,7 +691,7 @@ async fn seed_block_with_owner(
     pool: &PgPool,
     repo: &MembershipRepositoryImpl,
     season_id: SeasonId,
-    series_id: SeriesId,
+    project_id: ProjectId,
     user: UserId,
     role: Role,
     number: i32,
@@ -703,7 +703,7 @@ async fn seed_block_with_owner(
             CreateBlock {
                 id: block_id.0,
                 season_id,
-                series_id,
+                project_id,
                 number,
                 start_date: None,
                 end_date: None,
@@ -717,7 +717,7 @@ async fn seed_block_with_owner(
             user.clone(),
             BootstrapOwner {
                 block_id,
-                series_id,
+                project_id,
                 user_id: user,
                 role,
             },
@@ -775,7 +775,7 @@ async fn report_archive_role_allowlist_round_trips_through_real_sql() -> Result<
     let blocks = BlockCommandsImpl::new(cmd_svc);
     let repo = MembershipRepositoryImpl::new(pool.clone());
 
-    let series_id = test_series_id();
+    let project_id = test_series_id();
     let season_id = SeasonId::new();
     let other_season = SeasonId::new();
 
@@ -793,7 +793,7 @@ async fn report_archive_role_allowlist_round_trips_through_real_sql() -> Result<
         &pool,
         &repo,
         season_id,
-        series_id,
+        project_id,
         designer.clone(),
         Role::CostumeDesigner,
         1,
@@ -805,7 +805,7 @@ async fn report_archive_role_allowlist_round_trips_through_real_sql() -> Result<
         &pool,
         &repo,
         season_id,
-        series_id,
+        project_id,
         supervisor.clone(),
         Role::WardrobeSupervisor,
         2,
@@ -817,7 +817,7 @@ async fn report_archive_role_allowlist_round_trips_through_real_sql() -> Result<
         &pool,
         &repo,
         season_id,
-        series_id,
+        project_id,
         assistant.clone(),
         Role::CostumeAssistant,
         3,
@@ -834,7 +834,7 @@ async fn report_archive_role_allowlist_round_trips_through_real_sql() -> Result<
         &pool,
         &repo,
         other_season,
-        series_id,
+        project_id,
         foreign.clone(),
         Role::CostumeDesigner,
         4,
@@ -847,7 +847,7 @@ async fn report_archive_role_allowlist_round_trips_through_real_sql() -> Result<
             designer.clone(),
             InviteMember {
                 block_id: home,
-                series_id,
+                project_id,
                 user_id: pending.clone(),
                 role: Role::CostumeDesigner,
             },
@@ -862,7 +862,7 @@ async fn report_archive_role_allowlist_round_trips_through_real_sql() -> Result<
             designer.clone(),
             InviteMember {
                 block_id: home,
-                series_id,
+                project_id,
                 user_id: removed.clone(),
                 role: Role::WardrobeSupervisor,
             },
@@ -874,7 +874,7 @@ async fn report_archive_role_allowlist_round_trips_through_real_sql() -> Result<
             removed.clone(),
             AcceptInvitation {
                 block_id: home,
-                series_id,
+                project_id,
                 user_id: removed.clone(),
             },
         )
@@ -886,7 +886,7 @@ async fn report_archive_role_allowlist_round_trips_through_real_sql() -> Result<
             designer.clone(),
             RemoveMember {
                 block_id: home,
-                series_id,
+                project_id,
                 user_id: removed.clone(),
             },
         )
@@ -947,7 +947,7 @@ async fn costume_role_gate_families_round_trip_through_real_sql() -> Result<()> 
     let blocks = BlockCommandsImpl::new(cmd_svc);
     let repo = MembershipRepositoryImpl::new(pool.clone());
 
-    let series_id = test_series_id();
+    let project_id = test_series_id();
     let season_id = SeasonId::new();
     let other_season = SeasonId::new();
 
@@ -965,7 +965,7 @@ async fn costume_role_gate_families_round_trip_through_real_sql() -> Result<()> 
         &pool,
         &repo,
         season_id,
-        series_id,
+        project_id,
         designer.clone(),
         Role::CostumeDesigner,
         1,
@@ -977,7 +977,7 @@ async fn costume_role_gate_families_round_trip_through_real_sql() -> Result<()> 
         &pool,
         &repo,
         season_id,
-        series_id,
+        project_id,
         supervisor.clone(),
         Role::WardrobeSupervisor,
         2,
@@ -989,7 +989,7 @@ async fn costume_role_gate_families_round_trip_through_real_sql() -> Result<()> 
         &pool,
         &repo,
         season_id,
-        series_id,
+        project_id,
         assistant.clone(),
         Role::CostumeAssistant,
         3,
@@ -1001,7 +1001,7 @@ async fn costume_role_gate_families_round_trip_through_real_sql() -> Result<()> 
         &pool,
         &repo,
         other_season,
-        series_id,
+        project_id,
         foreign.clone(),
         Role::CostumeDesigner,
         4, // series-unique (`idx_projection_block_series_number`); see note above.
@@ -1013,7 +1013,7 @@ async fn costume_role_gate_families_round_trip_through_real_sql() -> Result<()> 
             designer.clone(),
             InviteMember {
                 block_id: home,
-                series_id,
+                project_id,
                 user_id: pending.clone(),
                 role: Role::CostumeAssistant,
             },
@@ -1027,7 +1027,7 @@ async fn costume_role_gate_families_round_trip_through_real_sql() -> Result<()> 
             designer.clone(),
             InviteMember {
                 block_id: home,
-                series_id,
+                project_id,
                 user_id: removed.clone(),
                 role: Role::CostumeDesigner,
             },
@@ -1039,7 +1039,7 @@ async fn costume_role_gate_families_round_trip_through_real_sql() -> Result<()> 
             removed.clone(),
             AcceptInvitation {
                 block_id: home,
-                series_id,
+                project_id,
                 user_id: removed.clone(),
             },
         )
@@ -1051,7 +1051,7 @@ async fn costume_role_gate_families_round_trip_through_real_sql() -> Result<()> 
             designer.clone(),
             RemoveMember {
                 block_id: home,
-                series_id,
+                project_id,
                 user_id: removed.clone(),
             },
         )
@@ -1109,7 +1109,7 @@ async fn credential_role_allowlist_round_trips_through_real_sql() -> Result<()> 
     let blocks = BlockCommandsImpl::new(cmd_svc);
     let repo = MembershipRepositoryImpl::new(pool.clone());
 
-    let series_id = test_series_id();
+    let project_id = test_series_id();
     let season_id = SeasonId::new();
 
     let designer = UserId::from_sub("credential-designer");
@@ -1124,7 +1124,7 @@ async fn credential_role_allowlist_round_trips_through_real_sql() -> Result<()> 
         &pool,
         &repo,
         season_id,
-        series_id,
+        project_id,
         designer.clone(),
         Role::CostumeDesigner,
         1,
@@ -1136,7 +1136,7 @@ async fn credential_role_allowlist_round_trips_through_real_sql() -> Result<()> 
         &pool,
         &repo,
         season_id,
-        series_id,
+        project_id,
         assistant.clone(),
         Role::CostumeAssistant,
         2,
@@ -1148,7 +1148,7 @@ async fn credential_role_allowlist_round_trips_through_real_sql() -> Result<()> 
         &pool,
         &repo,
         season_id,
-        series_id,
+        project_id,
         supervisor.clone(),
         Role::WardrobeSupervisor,
         3,
@@ -1160,7 +1160,7 @@ async fn credential_role_allowlist_round_trips_through_real_sql() -> Result<()> 
         &pool,
         &repo,
         season_id,
-        series_id,
+        project_id,
         removed.clone(),
         Role::CostumeDesigner,
         4,
@@ -1172,7 +1172,7 @@ async fn credential_role_allowlist_round_trips_through_real_sql() -> Result<()> 
             removed.clone(),
             LeaveBlock {
                 block_id: leaver_block,
-                series_id,
+                project_id,
             },
         )
         .await
@@ -1230,7 +1230,7 @@ async fn ops_role_gate_round_trips_through_real_sql() -> Result<()> {
     let blocks = BlockCommandsImpl::new(cmd_svc);
     let repo = MembershipRepositoryImpl::new(pool.clone());
 
-    let series_id = test_series_id();
+    let project_id = test_series_id();
     let season_id = SeasonId::new();
 
     let ops = UserId::from_sub("ops-holder");
@@ -1249,7 +1249,7 @@ async fn ops_role_gate_round_trips_through_real_sql() -> Result<()> {
         &pool,
         &repo,
         season_id,
-        series_id,
+        project_id,
         ops.clone(),
         Role::OpsAdmin,
         1,
@@ -1269,7 +1269,7 @@ async fn ops_role_gate_round_trips_through_real_sql() -> Result<()> {
         &pool,
         &repo,
         season_id,
-        series_id,
+        project_id,
         demoted.clone(),
         Role::OpsAdmin,
         2,
@@ -1280,7 +1280,7 @@ async fn ops_role_gate_round_trips_through_real_sql() -> Result<()> {
             demoted.clone(),
             GrantRole {
                 block_id: demoted_block,
-                series_id,
+                project_id,
                 user_id: demoted.clone(),
                 role: Role::CostumeAssistant,
             },
@@ -1304,7 +1304,7 @@ async fn ops_role_gate_round_trips_through_real_sql() -> Result<()> {
             ops.clone(),
             InviteMember {
                 block_id: ops_block,
-                series_id,
+                project_id,
                 user_id: pending.clone(),
                 role: Role::OpsAdmin,
             },
@@ -1322,7 +1322,7 @@ async fn ops_role_gate_round_trips_through_real_sql() -> Result<()> {
         &pool,
         &repo,
         season_id,
-        series_id,
+        project_id,
         leaver.clone(),
         Role::OpsAdmin,
         3,
@@ -1333,7 +1333,7 @@ async fn ops_role_gate_round_trips_through_real_sql() -> Result<()> {
             leaver.clone(),
             LeaveBlock {
                 block_id: leaver_block,
-                series_id,
+                project_id,
             },
         )
         .await?;
@@ -1350,7 +1350,7 @@ async fn ops_role_gate_round_trips_through_real_sql() -> Result<()> {
         &pool,
         &repo,
         season_id,
-        series_id,
+        project_id,
         designer.clone(),
         Role::CostumeDesigner,
         4,
@@ -1370,7 +1370,7 @@ async fn ops_role_gate_round_trips_through_real_sql() -> Result<()> {
     Ok(())
 }
 
-/// Tier-4: `has_active_costume_role_in_series` — the series-level predicate
+/// Tier-4: `has_active_costume_role_in_project` — the series-level predicate
 /// behind the costume-photo gate as of issue #535 (ADR-035 B2/S2).
 ///
 /// The truth table mirrors the season-scoped predicate one level up:
@@ -1385,7 +1385,7 @@ async fn costume_role_in_series_allowlist_round_trips_through_real_sql() -> Resu
     let blocks = BlockCommandsImpl::new(cmd_svc);
     let repo = MembershipRepositoryImpl::new(pool.clone());
 
-    let series_id = test_series_id();
+    let project_id = test_series_id();
     let season_a = SeasonId::new();
     let season_b = SeasonId::new();
     let foreign_series = test_series_id();
@@ -1404,14 +1404,14 @@ async fn costume_role_in_series_allowlist_round_trips_through_real_sql() -> Resu
         &pool,
         &repo,
         season_a,
-        series_id,
+        project_id,
         designer.clone(),
         Role::CostumeDesigner,
         1,
     )
     .await?;
     assert!(
-        in_series_costume(&repo, series_id, designer.clone()).await?,
+        in_series_costume(&repo, project_id, designer.clone()).await?,
         "an active costume_designer in the series must be authorized"
     );
 
@@ -1424,14 +1424,14 @@ async fn costume_role_in_series_allowlist_round_trips_through_real_sql() -> Resu
         &pool,
         &repo,
         season_b,
-        series_id,
+        project_id,
         cross_season.clone(),
         Role::WardrobeSupervisor,
         2,
     )
     .await?;
     assert!(
-        in_series_costume(&repo, series_id, cross_season.clone()).await?,
+        in_series_costume(&repo, project_id, cross_season.clone()).await?,
         "an active wardrobe_supervisor in another season of the same series must be authorized (issue #535 widening)"
     );
 
@@ -1442,14 +1442,14 @@ async fn costume_role_in_series_allowlist_round_trips_through_real_sql() -> Resu
         &pool,
         &repo,
         season_a,
-        series_id,
+        project_id,
         assistant.clone(),
         Role::CostumeAssistant,
         3,
     )
     .await?;
     assert!(
-        in_series_costume(&repo, series_id, assistant.clone()).await?,
+        in_series_costume(&repo, project_id, assistant.clone()).await?,
         "an active costume_assistant in the series must be authorized"
     );
 
@@ -1460,7 +1460,7 @@ async fn costume_role_in_series_allowlist_round_trips_through_real_sql() -> Resu
         &pool,
         &repo,
         season_a,
-        series_id,
+        project_id,
         designer.clone(),
         Role::CostumeDesigner,
         4,
@@ -1471,7 +1471,7 @@ async fn costume_role_in_series_allowlist_round_trips_through_real_sql() -> Resu
             designer.clone(),
             InviteMember {
                 block_id: invite_block,
-                series_id,
+                project_id,
                 user_id: pending.clone(),
                 role: Role::CostumeDesigner,
             },
@@ -1486,7 +1486,7 @@ async fn costume_role_in_series_allowlist_round_trips_through_real_sql() -> Resu
     )
     .await?;
     assert!(
-        !in_series_costume(&repo, series_id, pending.clone()).await?,
+        !in_series_costume(&repo, project_id, pending.clone()).await?,
         "a pending invitee must not be authorized"
     );
 
@@ -1496,7 +1496,7 @@ async fn costume_role_in_series_allowlist_round_trips_through_real_sql() -> Resu
             pending.clone(),
             AcceptInvitation {
                 block_id: invite_block,
-                series_id,
+                project_id,
                 user_id: pending.clone(),
             },
         )
@@ -1510,7 +1510,7 @@ async fn costume_role_in_series_allowlist_round_trips_through_real_sql() -> Resu
     )
     .await?;
     assert!(
-        in_series_costume(&repo, series_id, pending.clone()).await?,
+        in_series_costume(&repo, project_id, pending.clone()).await?,
         "an accepted invitee must be authorized"
     );
 
@@ -1520,7 +1520,7 @@ async fn costume_role_in_series_allowlist_round_trips_through_real_sql() -> Resu
             designer.clone(),
             InviteMember {
                 block_id: invite_block,
-                series_id,
+                project_id,
                 user_id: removed.clone(),
                 role: Role::CostumeAssistant,
             },
@@ -1532,7 +1532,7 @@ async fn costume_role_in_series_allowlist_round_trips_through_real_sql() -> Resu
             removed.clone(),
             AcceptInvitation {
                 block_id: invite_block,
-                series_id,
+                project_id,
                 user_id: removed.clone(),
             },
         )
@@ -1550,7 +1550,7 @@ async fn costume_role_in_series_allowlist_round_trips_through_real_sql() -> Resu
             designer.clone(),
             RemoveMember {
                 block_id: invite_block,
-                series_id,
+                project_id,
                 user_id: removed.clone(),
             },
         )
@@ -1558,7 +1558,7 @@ async fn costume_role_in_series_allowlist_round_trips_through_real_sql() -> Resu
         .map_err(|e| anyhow!(e.to_string()))?;
     await_member_absent(&repo, invite_block, removed.clone()).await?;
     assert!(
-        !in_series_costume(&repo, series_id, removed.clone()).await?,
+        !in_series_costume(&repo, project_id, removed.clone()).await?,
         "a removed member must lose access"
     );
 
@@ -1576,21 +1576,21 @@ async fn costume_role_in_series_allowlist_round_trips_through_real_sql() -> Resu
     )
     .await?;
     assert!(
-        !in_series_costume(&repo, series_id, stranger.clone()).await?,
+        !in_series_costume(&repo, project_id, stranger.clone()).await?,
         "a costume role in another series must not authorize this series"
     );
 
     Ok(())
 }
 
-/// `has_active_costume_role_in_series` with the `DomainError` mapped into
+/// `has_active_costume_role_in_project` with the `DomainError` mapped into
 /// `anyhow` (test ergonomics).
 async fn in_series_costume(
     repo: &MembershipRepositoryImpl,
-    series_id: SeriesId,
+    project_id: ProjectId,
     user_id: UserId,
 ) -> Result<bool> {
-    repo.has_active_costume_role_in_series(series_id, user_id)
+    repo.has_active_costume_role_in_project(project_id, user_id)
         .await
         .map_err(|e| anyhow!(e.to_string()))
 }

@@ -1,0 +1,63 @@
+# SPDX-License-Identifier: AGPL-3.0
+# Copyright (C) 2024-2026 Breakdown RS Contributors
+# Co-authored-by: space-bunny-free (opencode-go)
+
+# The tenant-level container id was renamed `SeriesId` → `ProjectId` by issue
+# #591 (ADR-035 D1 / S1). `ProjectId` replaces `SeriesId` outright: no
+# `pub type SeriesId = ProjectId;` compatibility alias was kept, because
+# `breakdown_core` is an internal workspace crate with no out-of-tree
+# consumers, so an alias would protect nobody while leaving the TV-shaped term
+# one grep away from creeping back in.
+#
+# This rule makes the rename mechanically final instead of a convention, so
+# the old term cannot creep back into code. (A stale `SeriesId` in *code* is
+# already a compile error — the value here is turning it into a **named,
+# explained** failure with a pointer to ADR-035, and covering the shapes a
+# compiler alone would not catch cleanly: a `use` path segment and an
+# associated-function call.)
+#
+# SCOPE — what this rule deliberately does NOT flag:
+#   * **Comments and doc prose.** ast-grep matches syntax, not text, so a
+#     historical mention like "`SeriesId` by issue #591" inside a `///` or
+#     `//!` comment is invisible to it — deliberately, since this change
+#     itself has to be able to say what the old name *was*. Prose correctness
+#     therefore rests on review, not on CI; the in-repo docs that describe the
+#     hierarchy (`AGENTS.md`, `security-architecture.md`, ADR-035, the
+#     `domain-model` instructions) are updated in the same PR that renames the
+#     code.
+#   * `series_id` (lowercase) as a SQL column name — the projection columns and
+#     the OpenAPI field names keep that spelling until the dedicated layer-3
+#     change (a breaking ADR-021 `/v2` migration, issue #591 layer 3). The
+#     persisted keys are pinned with `#[serde(rename = "series_id")]`; those
+#     are string literals and never match this rule.
+#   * `idx_projection_season_series_number` and friends — real Postgres index
+#     names, unchanged.
+#
+# A legitimately historical mention (e.g. a migration note explaining what the
+# id *used* to be called) is a comment and is never matched; if a *code*
+# reference is genuinely required, use a suppression:
+#   // ast-grep-ignore: no-stale-series-id
+# on the same line, carrying a justification comment above it.
+id: no-stale-series-id
+message: >-
+  `SeriesId` was renamed to `ProjectId` by issue #591 (ADR-035 D1/S1). The
+  tenant-level container is a `Project`, not a TV `Series`, and no
+  compatibility alias exists. Use `ProjectId`. Note that the *persisted*
+  spelling is deliberately unchanged: `series_id` stays as the projection
+  column, the OpenAPI field name and the serde key on event payloads until the
+  layer-3 `/v2` migration, so this rule does not flag lowercase `series_id`.
+severity: error
+language: Rust
+rule:
+  any:
+    # A bare type reference: `pub id: SeriesId`, `Option<SeriesId>`,
+    # `-> SeriesId`. Tree-sitter calls this node a `type_identifier`.
+    - kind: type_identifier
+      regex: ^SeriesId$
+    # The last segment of an import path: `use crate::shared::SeriesId;` —
+    # tree-sitter types that segment as a plain `identifier`, not a
+    # `type_identifier`, so the first alternative alone would miss it.
+    - kind: identifier
+      regex: ^SeriesId$
+    # A path call: `SeriesId::new()`, `SeriesId::from_uuid(..)`.
+    - pattern: SeriesId::$METHOD($$$ARGS)

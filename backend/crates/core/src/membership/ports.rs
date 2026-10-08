@@ -11,7 +11,7 @@
 //! owned by the `kameo_es` adapter in `infra`.
 
 use crate::error::DomainError;
-use crate::shared::{BlockId, SeasonId, SeriesId, UserId};
+use crate::shared::{BlockId, ProjectId, SeasonId, UserId};
 
 use super::commands::{
     AcceptInvitation, BootstrapOwner, GrantRole, InviteMember, LeaveBlock, RemoveMember,
@@ -73,42 +73,42 @@ pub trait MembershipRepository: Send + Sync {
     ) -> Result<bool, DomainError>;
 
     /// Check whether `user_id` is an *active* member of **any** block that
-    /// belongs to `series_id` (membership → block → season → series).
+    /// belongs to `project_id` (membership → block → season → project).
     ///
     /// This is the tenant-scoped counterpart of [`Self::is_active_member`] and
     /// backs the `GET /v1/audit` gate (issue #342): the audit journal is
-    /// filtered by the `series_id` **query parameter**, so the caller's active
+    /// filtered by the `project_id` **query parameter**, so the caller's active
     /// block (the middleware's `X-Active-Block` scope) says nothing about
-    /// whether they may read that series' journal.
+    /// whether they may read that project's journal.
     ///
     /// Unlike [`Self::has_active_costume_role_in_season`] this predicate is
-    /// **role-agnostic**: any active membership in the series grants access,
+    /// **role-agnostic**: any active membership in the project grants access,
     /// because the journal is an operational record of the whole production,
     /// not a costume-department artefact.
-    async fn has_active_membership_in_series(
+    async fn has_active_membership_in_project(
         &self,
-        series_id: SeriesId,
+        project_id: ProjectId,
         user_id: UserId,
     ) -> Result<bool, DomainError>;
 
     /// Check whether `user_id` holds any costume-dept role in **any** active
-    /// block of the **series** `series_id` — the series-level analogue of
+    /// block of the **project** `project_id` — the project-level analogue of
     /// [`Self::has_active_costume_role_in_season`], typed by the
     /// authorization level, not by a production-form-specific container
     /// (ADR-035 B2/S2).
     ///
     /// This is the photo-gate predicate as of issue #535: a costume-dept role
     /// (`costume_designer`, `wardrobe_supervisor`, `costume_assistant`) in any
-    /// active block of the owning series authorizes costume-photo access
-    /// **series-wide** — a deliberate authorization-boundary widening, so a
+    /// active block of the owning project authorizes costume-photo access
+    /// **project-wide** — a deliberate authorization-boundary widening, so a
     /// wardrobe team that works across seasons of one production can manage
     /// the costumes it carries between them. Unlike
-    /// [`Self::has_active_membership_in_series`] it is *not* role-agnostic:
+    /// [`Self::has_active_membership_in_project`] it is *not* role-agnostic:
     /// photos are a costume-department artefact, so the role filter of the
     /// season-scoped predicate is carried over unchanged.
-    async fn has_active_costume_role_in_series(
+    async fn has_active_costume_role_in_project(
         &self,
-        series_id: SeriesId,
+        project_id: ProjectId,
         user_id: UserId,
     ) -> Result<bool, DomainError>;
 
@@ -116,7 +116,7 @@ pub trait MembershipRepository: Send + Sync {
     /// block of `season_id` (for season-scoped costume authorization).
     ///
     /// As of issue #535 the *photo* path no longer calls this predicate (ADR-035
-    /// B2/S2 moved that boundary to [`Self::has_active_costume_role_in_series`]);
+    /// B2/S2 moved that boundary to [`Self::has_active_costume_role_in_project`]);
     /// the genuinely season-scoped costume operations keep it (target-season
     /// repertoire gates, category season-match).
     ///

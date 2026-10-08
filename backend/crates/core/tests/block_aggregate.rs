@@ -12,21 +12,21 @@
     clippy::dbg_macro
 )]
 use breakdown_core::block::*;
-use breakdown_core::shared::{AggregateVersion, SeasonId, SeriesId};
+use breakdown_core::shared::{AggregateVersion, ProjectId, SeasonId};
 use chrono::NaiveDate;
 use kameo_es::{Apply, Command};
 use test_support::make_ctx;
 use uuid::Uuid;
 
-fn series_id() -> SeriesId {
-    SeriesId::new()
+fn project_id() -> ProjectId {
+    ProjectId::new()
 }
 
 fn make_block() -> BlockAggregate {
     let cmd = CreateBlock {
         id: Uuid::now_v7(),
         season_id: SeasonId::new(),
-        series_id: SeriesId::new(),
+        project_id: ProjectId::new(),
         number: 1,
         start_date: None,
         end_date: None,
@@ -40,11 +40,11 @@ fn make_block() -> BlockAggregate {
 #[test]
 fn test_create_block_without_span() {
     let season_id = SeasonId::new();
-    let series_id = SeriesId::new();
+    let project_id = ProjectId::new();
     let cmd = CreateBlock {
         id: Uuid::now_v7(),
         season_id,
-        series_id,
+        project_id,
         number: 2,
         start_date: None,
         end_date: None,
@@ -54,7 +54,7 @@ fn test_create_block_without_span() {
         BlockEvent::BlockCreated {
             id,
             season_id: sid,
-            series_id: serid,
+            project_id: serid,
             number,
             start_date,
             end_date,
@@ -62,7 +62,7 @@ fn test_create_block_without_span() {
         } => {
             assert_ne!(id, Uuid::nil());
             assert_eq!(sid, season_id);
-            assert_eq!(serid, series_id);
+            assert_eq!(serid, project_id);
             assert_eq!(number, 2);
             assert_eq!(start_date, None);
             assert_eq!(end_date, None);
@@ -79,7 +79,7 @@ fn test_create_block_with_span() {
     let cmd = CreateBlock {
         id: Uuid::now_v7(),
         season_id: SeasonId::new(),
-        series_id: SeriesId::new(),
+        project_id: ProjectId::new(),
         number: 3,
         start_date: Some(d1),
         end_date: Some(d2),
@@ -109,7 +109,7 @@ fn test_update_block_time_span_success() {
                 id: agg.id,
                 start_date: Some(d1),
                 end_date: Some(d2),
-                series_id: Some(series_id()),
+                project_id: Some(project_id()),
                 version: agg.version,
             },
             make_ctx(),
@@ -129,7 +129,7 @@ fn test_update_block_time_span_wrong_version() {
             id: agg.id,
             start_date: None,
             end_date: None,
-            series_id: Some(series_id()),
+            project_id: Some(project_id()),
             version: AggregateVersion(99),
         },
         make_ctx(),
@@ -156,7 +156,7 @@ fn test_apply_updates_state() {
         BlockEvent::BlockCreated {
             id,
             season_id: SeasonId::new(),
-            series_id: SeriesId::new(),
+            project_id: ProjectId::new(),
             number: 4,
             start_date: Some(d1),
             end_date: None,

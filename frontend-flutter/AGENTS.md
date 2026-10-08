@@ -134,22 +134,29 @@ a server-owned concern (API shape, error surface, auth), the backend wins.
 
 ### Production hierarchy (mirrors backend)
 The client models the same four-level hierarchy as the backend:
-`Series` (opaque id) → `Season` → `Block` → `Episode` → `Scene`, with
+`Project` (opaque id) → `Season` → `Block` → `Episode` → `Scene`, with
 `SceneShoot` per `ShootingDay` and `Character`/`Costume` scoped to a
 `Season`. The `features/` tree **is** the navigation tree of the app: one
 feature folder per aggregate boundary, one screen per read-model query.
 Costume categories are season-scoped; continuity photos bind to scene
 shoots; the photo bounded context's `binding` discriminator
 (`Costume {| Continuity}`) is surfaced in the photos feature.
-**Forward direction (ADR-035, issue #531):** the top container will be
-renamed `Project` and the chain *below* it will become
-production-kind-configurable (film and theatre have no seasons). `Season` and
-the `Series` term are the terms being dissolved — do not build new navigation,
-feature folders or authorization gates on either as if it were permanent. The
-tenancy/authz seam moves *with* the rename (`Series` → `Project`, 1:1, no new
-level), so the client's scope headers and role checks keep their current
-meaning; when the rename lands, expect a `Project`-named counterpart of the
-`Series` scope it replaces.
+**The `Series` → `Project` rename has landed (issue #591, ADR-035 D1/S1).**
+The backend type is `ProjectId`; the hierarchy above reads `Project` and the
+client follows. **The wire contract did not move with it:** the OpenAPI field
+name and the generated Dart accessor are still `series_id` / `seriesId` (see
+the layer-3 note below), so the client's scope headers and role checks keep
+their current meaning and need no change today. `Season` and the `Series` term
+are the terms being dissolved — do not build new navigation, feature folders
+or authorization gates on either as if it were permanent. The chain *below*
+`Project` becomes production-kind-configurable in a later change (film and
+theatre have no seasons).
+
+**Layer 3 (not this change):** renaming the OpenAPI field to `project_id` is
+a breaking ADR-021 change that needs its own `/v2` path version plus an
+8-week dual-serve window. When it lands, `regen-client.sh` will produce
+`projectId` and every call site must move in the same PR — do not pre-empt
+it by hand-editing the generated client.
 A costume's **domain** scope is its **repertoire** seasons ∪ its character's
 season, not one season. Its **authorization** scope is *not* that union: per backend
 ADR-035 B2/S2 the costume-photo gate is a costume-department role in any active

@@ -3021,7 +3021,7 @@ class HandlersApi {
   }
 
   /// getAuditHistory
-  /// Audit journal entries of a series, newest first. Requires the series_id query parameter (400 otherwise).
+  /// Audit journal entries of a series, newest first. Requires the project_id query parameter (400 otherwise).
   ///
   /// Parameters:
   /// * [limit]
@@ -5540,7 +5540,7 @@ class HandlersApi {
   }
 
   /// listEpisodes
-  /// Lists episodes of a series, or of a single block when block_id is given. Requires series_id unless block_id is present (400 otherwise).
+  /// Lists episodes of a series, or of a single block when block_id is given. Requires project_id unless block_id is present (400 otherwise).
   ///
   /// Parameters:
   /// * [limit]
@@ -5937,7 +5937,7 @@ class HandlersApi {
   }
 
   /// listSeasons
-  /// Lists seasons, optionally narrowed to one series via series_id. The table stays small, so — unlike the episode/scene lists — no scope parameter is required.
+  /// Lists seasons, optionally narrowed to one series via project_id. The table stays small, so — unlike the episode/scene lists — no scope parameter is required.
   ///
   /// Parameters:
   /// * [limit]

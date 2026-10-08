@@ -8,7 +8,7 @@
 use kameo_es::{Apply, Command, Context, Entity, Metadata};
 use uuid::Uuid;
 
-use crate::shared::{AggregateVersion, EventMetadata, SeriesId};
+use crate::shared::{AggregateVersion, EventMetadata, ProjectId};
 
 use super::commands::{ArchiveSeason, CreateSeason, RenameSeason};
 use super::error::SeasonError;
@@ -16,12 +16,12 @@ use super::events::SeasonEvent;
 
 /// State persisted by the Season aggregate.
 ///
-/// A Season is scoped to exactly one `SeriesId`. It does NOT own per-Block or
+/// A Season is scoped to exactly one `ProjectId`. It does NOT own per-Block or
 /// per-Episode containment; that is derived from events in the read model.
 #[derive(Debug, Clone, Default)]
 pub struct SeasonAggregate {
     pub id: Uuid,
-    pub series_id: SeriesId,
+    pub project_id: ProjectId,
     pub number: i32,
     pub title: Option<String>,
     pub version: AggregateVersion,
@@ -48,13 +48,13 @@ impl Apply for SeasonAggregate {
         match event {
             SeasonEvent::SeasonCreated {
                 id,
-                series_id,
+                project_id,
                 number,
                 title,
                 version,
             } => {
                 self.id = id;
-                self.series_id = series_id;
+                self.project_id = project_id;
                 self.number = number;
                 self.title = title;
                 self.version = version;
@@ -80,12 +80,12 @@ impl Command<CreateSeason> for SeasonAggregate {
         cmd: CreateSeason,
         _ctx: Context<'_, Self>,
     ) -> Result<Vec<Self::Event>, Self::Error> {
-        // Series-global numbering uniqueness is enforced by a Postgres unique
-        // index on (series_id, number) in the projection, NOT here (CQRS
+        // Project-global numbering uniqueness is enforced by a Postgres unique
+        // index on (project_id, number) in the projection, NOT here (CQRS
         // write/read split — the aggregate cannot read its siblings).
         Ok(vec![SeasonEvent::SeasonCreated {
             id: cmd.id,
-            series_id: cmd.series_id,
+            project_id: cmd.project_id,
             number: cmd.number,
             title: cmd.title,
             version: AggregateVersion::INITIAL,
