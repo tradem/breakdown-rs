@@ -271,8 +271,8 @@ void main() {
       await submitCreate(tester, number: '2', title: 'Summer');
 
       // Issue #511: the series is taken from the build config
-      // (`devAuthConfig.defaultSeriesId`), never from a form field.
-      expect(repo.lastCreateRequest!.seriesId, 'series-1');
+      // (`devAuthConfig.defaultProjectId`), never from a form field.
+      expect(repo.lastCreateRequest!.projectId, 'series-1');
       expect(repo.lastCreateRequest!.number, 2);
       expect(repo.lastCreateRequest!.title, 'Summer');
     });
@@ -299,7 +299,7 @@ void main() {
     testWidgets('a build without a default series id fails fast (issue #511)', (
       tester,
     ) async {
-      await setupContainer(config: devAuthConfigNoSeriesId);
+      await setupContainer(config: devAuthConfigNoProjectId);
       await pumpScreen(tester);
 
       await tester.tap(find.byKey(const Key('season-manual-create')));
@@ -307,7 +307,7 @@ void main() {
 
       // The actionable build notice replaces the removed field …
       expect(find.byKey(const Key('create-series-id-missing')), findsOneWidget);
-      expect(find.textContaining('DEFAULT_SERIES_ID'), findsOneWidget);
+      expect(find.textContaining('DEFAULT_PROJECT_ID'), findsOneWidget);
       // … and no command is dispatched: the submit stays disabled.
       final submit = tester.widget<FilledButton>(
         find.byKey(const Key('create-submit')),

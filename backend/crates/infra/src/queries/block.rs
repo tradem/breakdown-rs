@@ -28,7 +28,7 @@ impl BlockRepository for BlockRepositoryImpl {
     async fn find_by_id(&self, id: Uuid) -> Result<BlockView, DomainError> {
         let row = sqlx::query(
             r#"
-            SELECT id, season_id, series_id, number, start_date, end_date, version, updated_at
+            SELECT id, season_id, project_id, number, start_date, end_date, version, updated_at
             FROM projection_block
             WHERE id = $1
             "#,
@@ -54,7 +54,7 @@ impl BlockRepository for BlockRepositoryImpl {
     ) -> Result<Vec<BlockView>, DomainError> {
         let rows = sqlx::query(
             r#"
-            SELECT id, season_id, series_id, number, start_date, end_date, version, updated_at
+            SELECT id, season_id, project_id, number, start_date, end_date, version, updated_at
             FROM projection_block
             WHERE season_id = $1
             ORDER BY number
@@ -78,9 +78,9 @@ impl BlockRepository for BlockRepositoryImpl {
     ) -> Result<Option<BlockView>, DomainError> {
         let row = sqlx::query(
             r#"
-            SELECT id, season_id, series_id, number, start_date, end_date, version, updated_at
+            SELECT id, season_id, project_id, number, start_date, end_date, version, updated_at
             FROM projection_block
-            WHERE series_id = $1 AND number = $2
+            WHERE project_id = $1 AND number = $2
             LIMIT 1
             "#,
         )
@@ -101,7 +101,7 @@ fn map_block_row(row: sqlx::postgres::PgRow) -> Result<BlockView, DomainError> {
     Ok(BlockView {
         id: row.try_get("id").map_err(map_err)?,
         season_id: SeasonId(row.try_get("season_id").map_err(map_err)?),
-        project_id: ProjectId(row.try_get("series_id").map_err(map_err)?),
+        project_id: ProjectId(row.try_get("project_id").map_err(map_err)?),
         number: row.try_get("number").map_err(map_err)?,
         start_date: row.try_get("start_date").map_err(map_err)?,
         end_date: row.try_get("end_date").map_err(map_err)?,

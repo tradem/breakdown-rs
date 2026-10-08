@@ -108,7 +108,7 @@ SeasonView _season() => SeasonView(
     ..archived = false
     ..id = 'season-1'
     ..number = 1
-    ..seriesId = 'series-1'
+    ..projectId = 'series-1'
     ..title = 'Season One'
     ..updatedAt = DateTime.utc(2026, 1, 1)
     ..version = 1,
@@ -121,7 +121,7 @@ BlockView _block() => BlockView(
     ..id = 'block-1'
     ..number = 1
     ..seasonId = 'season-1'
-    ..seriesId = 'series-1'
+    ..projectId = 'series-1'
     ..startDate = '2026-01-01'
     ..endDate = '2026-01-31'
     ..updatedAt = DateTime.utc(2026, 1, 1)
@@ -138,7 +138,7 @@ SeasonMembershipDto _membership(List<String> caps) => SeasonMembershipDto(
 /// The series-level membership the costume-photo gate reads (issue #535).
 SeriesMembershipDto _seriesMembership(bool hasRole) => SeriesMembershipDto(
   (b) => b
-    ..seriesId = 'series-1'
+    ..projectId = 'series-1'
     ..hasActiveCostumeRoleInSeries = hasRole
     ..capabilities.replace(const <String>[]),
 );

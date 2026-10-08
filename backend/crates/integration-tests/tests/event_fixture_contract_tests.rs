@@ -628,7 +628,7 @@ async fn replay_captured_chain_through_projectors_round_trips() -> Result<()> {
         season_fx.aggregate_id,
         json!({
             "id": season_fx.aggregate_id,
-            "series_id": chain.project_id,
+            "project_id": chain.project_id,
             "number": 1,
             "title": "Staffel 1",
             // #533 lifecycle flag: a fresh chain replays to `false`.
@@ -647,7 +647,7 @@ async fn replay_captured_chain_through_projectors_round_trips() -> Result<()> {
         json!({
             "id": block_fx.aggregate_id,
             "season_id": season_fx.aggregate_id,
-            "series_id": chain.project_id,
+            "project_id": chain.project_id,
             "number": 1,
             "start_date": null,
             "end_date": null,
@@ -665,7 +665,7 @@ async fn replay_captured_chain_through_projectors_round_trips() -> Result<()> {
         json!({
             "id": episode_fx.aggregate_id,
             "block_id": block_fx.aggregate_id,
-            "series_id": chain.project_id,
+            "project_id": chain.project_id,
             "number": 1,
             "name": "Block 1 Episode 1",
             "version": 1,

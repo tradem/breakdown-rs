@@ -118,14 +118,12 @@ impl std::str::FromStr for UserId {
 /// yet. The children below it stay `Season`/`Block`/`Episode` until a second
 /// production form actually lands (ADR-035 D2/D3).
 ///
-/// **Wire compatibility (issue #591, layers 2 and 3 explicitly out of the
-/// rename).** The *type* is `#[serde(transparent)]` over `Uuid`, so a field
-/// typed `ProjectId` still serializes as a bare UUID string — the JSON value is
-/// unchanged by this rename. What deliberately keeps the old spelling is the
-/// **field name** on persisted payloads: event fields and read-model view
-/// fields carry `#[serde(rename = "series_id")]`, and the projection columns and
-/// OpenAPI fields keep `project_id` until the dedicated layer-3 change (a
-/// breaking ADR-021 `/v2` migration).
+/// **Wire and storage spelling (issues #591 and #599).** The *type* is
+/// `#[serde(transparent)]` over `Uuid`, so a field typed `ProjectId` serializes
+/// as a bare UUID string. Issue #599 (ADR-035 S1, layer 3) renamed the
+/// projection columns and every wire-visible property/query parameter from
+/// `series_id` to `project_id`. Persisted *event payloads* deliberately keep the
+/// historical key — see the note on [`EventMetadata::project_id`].
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, ToSchema,
 )]

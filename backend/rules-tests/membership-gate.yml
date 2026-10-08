@@ -55,10 +55,10 @@ invalid:
         Ok(())
     }
   - |
-    // The series-membership family.
+    // The project-membership family.
     fn audit_gate(state: &State) -> Result<(), ApiError> {
         let authorized = membership_repo()
-            .has_active_membership_in_series(series_id, user.clone())
+            .has_active_membership_in_project(project_id, user.clone())
             .await
             .unwrap_or(false);
         Ok(())

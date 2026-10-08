@@ -271,7 +271,7 @@ void main() {
     oidcRedirectUri: '',
     devIdpInsecure: '',
     appVersion: '1.0.0+1',
-    defaultSeriesId: 'series-e2e',
+    defaultProjectId: 'series-e2e',
   );
 
   late CacheDatabase db;

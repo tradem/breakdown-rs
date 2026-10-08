@@ -616,7 +616,7 @@
   "seasonsCreateAuth": "Please sign in to continue.",
   "seasonsCreateNetwork": "Network problem — the season was not created. Try again.",
   "seasonsCreateGeneric": "The season could not be created.",
-  "seasonsCreateSeriesIdMissing": "This app was built without DEFAULT_SERIES_ID: the new season cannot be assigned to a series. Rebuild the app with --dart-define=DEFAULT_SERIES_ID=<id of the default series>.",
+  "seasonsCreateSeriesIdMissing": "This app was built without DEFAULT_PROJECT_ID: the new season cannot be assigned to a series. Rebuild the app with --dart-define=DEFAULT_PROJECT_ID=<id of the default series>.",
   "seasonsSetupCta": "Start season setup",
   "seasonsManualCreateCta": "Manual",
   "seasonsDefaultTitle": "Season {number}",

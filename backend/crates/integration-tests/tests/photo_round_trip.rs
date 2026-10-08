@@ -42,7 +42,7 @@ async fn seed_season(pool: &sqlx::PgPool) -> Result<breakdown_core::shared::Seas
     let project_id = Uuid::now_v7();
     let season_id = Uuid::now_v7();
     sqlx::query(
-        r#"INSERT INTO projection_season (id, series_id, number, title, version, updated_at)
+        r#"INSERT INTO projection_season (id, project_id, number, title, version, updated_at)
            VALUES ($1, $2, 1, 'Season 1', 1, now())"#,
     )
     .bind(season_id)

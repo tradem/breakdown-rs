@@ -6,7 +6,7 @@
 
 # CQRS boundary: write-side code (command adapters, sagas, aggregates) must
 # never query a read-model projection to resolve audit/derived context (e.g.
-# series_id for EventMetadata). Context must come from the event data itself
+# project_id for EventMetadata). Context must come from the event data itself
 # or a command field populated at the API edge (AGENTS.md §1).
 #
 # Scan scope is restricted to the write-side dirs in the CI job:
@@ -19,7 +19,7 @@
 id: cqrs-boundary
 message: >-
   Write-side code queries a read-model projection. Command adapters, sagas and
-  aggregates must never resolve audit/derived context (e.g. series_id) from
+  aggregates must never resolve audit/derived context (e.g. project_id) from
   projections — take it from the event data or a command field populated at the
   API edge (AGENTS.md §1). If this lookup is NOT audit-context resolution
   (e.g. a concurrency version guard), suppress it with an explicit

@@ -32,7 +32,7 @@ BlockView _block(String id, {int number = 1}) => BlockView(
     ..id = id
     ..number = number
     ..seasonId = 'season-1'
-    ..seriesId = 'series-1'
+    ..projectId = 'series-1'
     ..startDate = '2026-01-01'
     ..endDate = '2026-01-31'
     ..updatedAt = DateTime.utc(2026, 1, 1)
@@ -44,7 +44,7 @@ SeasonView _season() => SeasonView(
     ..archived = false
     ..id = 'season-1'
     ..number = 1
-    ..seriesId = 'series-1'
+    ..projectId = 'series-1'
     ..title = 'Season One'
     ..updatedAt = DateTime.utc(2026, 1, 1)
     ..version = 1,
@@ -187,14 +187,14 @@ void main() {
             ..archived = false
             ..id = 'season-9'
             ..number = 9
-            ..seriesId = 'series-9'
+            ..projectId = 'series-9'
             ..updatedAt = DateTime.utc(2026, 1, 1)
             ..version = 3,
         );
         await ctx.controller.create(season: other, number: 4);
         final req = ctx.repo.lastCreateRequest;
         expect(req, isNotNull);
-        expect(req!.seriesId, 'series-9');
+        expect(req!.projectId, 'series-9');
         expect(req.seasonId, 'season-9');
         expect(req.number, 4);
       },

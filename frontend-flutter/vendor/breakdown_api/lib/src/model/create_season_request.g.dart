@@ -10,7 +10,7 @@ class _$CreateSeasonRequest extends CreateSeasonRequest {
   @override
   final int number;
   @override
-  final String seriesId;
+  final String projectId;
   @override
   final String? title;
 
@@ -19,7 +19,7 @@ class _$CreateSeasonRequest extends CreateSeasonRequest {
       (CreateSeasonRequestBuilder()..update(updates))._build();
 
   _$CreateSeasonRequest._(
-      {required this.number, required this.seriesId, this.title})
+      {required this.number, required this.projectId, this.title})
       : super._();
   @override
   CreateSeasonRequest rebuild(
@@ -35,7 +35,7 @@ class _$CreateSeasonRequest extends CreateSeasonRequest {
     if (identical(other, this)) return true;
     return other is CreateSeasonRequest &&
         number == other.number &&
-        seriesId == other.seriesId &&
+        projectId == other.projectId &&
         title == other.title;
   }
 
@@ -43,7 +43,7 @@ class _$CreateSeasonRequest extends CreateSeasonRequest {
   int get hashCode {
     var _$hash = 0;
     _$hash = $jc(_$hash, number.hashCode);
-    _$hash = $jc(_$hash, seriesId.hashCode);
+    _$hash = $jc(_$hash, projectId.hashCode);
     _$hash = $jc(_$hash, title.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
@@ -53,7 +53,7 @@ class _$CreateSeasonRequest extends CreateSeasonRequest {
   String toString() {
     return (newBuiltValueToStringHelper(r'CreateSeasonRequest')
           ..add('number', number)
-          ..add('seriesId', seriesId)
+          ..add('projectId', projectId)
           ..add('title', title))
         .toString();
   }
@@ -67,9 +67,9 @@ class CreateSeasonRequestBuilder
   int? get number => _$this._number;
   set number(int? number) => _$this._number = number;
 
-  String? _seriesId;
-  String? get seriesId => _$this._seriesId;
-  set seriesId(String? seriesId) => _$this._seriesId = seriesId;
+  String? _projectId;
+  String? get projectId => _$this._projectId;
+  set projectId(String? projectId) => _$this._projectId = projectId;
 
   String? _title;
   String? get title => _$this._title;
@@ -83,7 +83,7 @@ class CreateSeasonRequestBuilder
     final $v = _$v;
     if ($v != null) {
       _number = $v.number;
-      _seriesId = $v.seriesId;
+      _projectId = $v.projectId;
       _title = $v.title;
       _$v = null;
     }
@@ -108,8 +108,8 @@ class CreateSeasonRequestBuilder
         _$CreateSeasonRequest._(
           number: BuiltValueNullFieldError.checkNotNull(
               number, r'CreateSeasonRequest', 'number'),
-          seriesId: BuiltValueNullFieldError.checkNotNull(
-              seriesId, r'CreateSeasonRequest', 'seriesId'),
+          projectId: BuiltValueNullFieldError.checkNotNull(
+              projectId, r'CreateSeasonRequest', 'projectId'),
           title: title,
         );
     replace(_$result);

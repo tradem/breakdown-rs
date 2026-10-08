@@ -96,11 +96,11 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   group('SeasonsController.create (D1: ack-gated optimistic insert)', () {
-    test('create transmits the form-mapped request payload (seriesId/number/title)', () async {
+    test('create transmits the form-mapped request payload (projectId/number/title)', () async {
       final ctx = await _buildFixture();
 
       final res = await ctx.controller.create(
-        seriesId: 'series-7',
+        projectId: 'series-7',
         number: 4,
         title: 'Mapped',
       );
@@ -110,7 +110,7 @@ void main() {
       // of passing every test (CodeRabbit review).
       final req = ctx.repo.lastCreateRequest;
       expect(req, isNotNull);
-      expect(req!.seriesId, 'series-7');
+      expect(req!.projectId, 'series-7');
       expect(req.number, 4);
       expect(req.title, 'Mapped');
     });
@@ -121,7 +121,7 @@ void main() {
         final ctx = await _buildFixture();
 
         final res = await ctx.controller.create(
-          seriesId: 'series-1',
+          projectId: 'series-1',
           number: 2,
           title: 'Season Two',
         );
@@ -150,7 +150,7 @@ void main() {
         ]);
 
         final res = await ctx.controller.create(
-          seriesId: 'series-1',
+          projectId: 'series-1',
           number: 2,
           title: 'Season Two',
         );
@@ -182,7 +182,7 @@ void main() {
         ctx.repo.createResult = const Left(_networkDown);
 
         final res = await ctx.controller.create(
-          seriesId: 'series-1',
+          projectId: 'series-1',
           number: 2,
           title: 'X',
         );
@@ -209,7 +209,7 @@ void main() {
         ctx.repo.createResult = const Left(_conflict);
 
         final res = await ctx.controller.create(
-          seriesId: 'series-1',
+          projectId: 'series-1',
           number: 9,
           title: 'Dup',
         );
@@ -238,7 +238,7 @@ void main() {
 
       final res = await container
           .read(seasonsControllerProvider.notifier)
-          .create(seriesId: 'series-1', number: 1, title: 'X');
+          .create(projectId: 'series-1', number: 1, title: 'X');
 
       expect(res.isLeft(), isTrue);
       res.fold(
@@ -251,11 +251,11 @@ void main() {
   group('bounded-retry reconciliation (D2/D3)', () {
     test('a late-acknowledged overlay triggers a dedicated follow-up reconcile pass', () async {
       final ctx = await _buildFixture(); // holder Left → projection never carries overlays
-      await ctx.controller.create(seriesId: 'series-1', number: 2, title: 'A');
+      await ctx.controller.create(projectId: 'series-1', number: 2, title: 'A');
       final pass = ctx.controller.reconcile(); // pass1 in flight
       // Second create acknowledges while pass1 is in flight; it joins the
       // single-flight pass via [reconcile].
-      await ctx.controller.create(seriesId: 'series-1', number: 3, title: 'B');
+      await ctx.controller.create(projectId: 'series-1', number: 3, title: 'B');
       await drain(pass, ctx.scheduler);
 
       // B was acknowledged after pass1 started; the fix runs a dedicated
@@ -276,7 +276,7 @@ void main() {
       () async {
         final ctx = await _buildFixture(); // holder Left → every refetch fails
         await ctx.controller.create(
-          seriesId: 'series-1',
+          projectId: 'series-1',
           number: 2,
           title: 'Later',
         );
@@ -300,7 +300,7 @@ void main() {
       () async {
         final ctx = await _buildFixture();
         await ctx.controller.create(
-          seriesId: 'series-1',
+          projectId: 'series-1',
           number: 2,
           title: 'Later',
         );

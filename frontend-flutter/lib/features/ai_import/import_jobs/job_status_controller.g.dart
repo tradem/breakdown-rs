@@ -235,7 +235,7 @@ final class AiJobContextProvider
   }
 }
 
-String _$aiJobContextHash() => r'2e2fe5688debb4d6ff20f898c17d547682a7c6b8';
+String _$aiJobContextHash() => r'5f5ec44579373bd279d0575391a21ff697d8909e';
 
 /// The persisted apply context of a cached job row (design §2.3): the
 /// apply navigation reads the episode/series from HERE, never from the

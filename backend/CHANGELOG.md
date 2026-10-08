@@ -161,6 +161,66 @@ tag. Never edit a released entry afterwards.
   chunk (the heading is that scene's heading).
 
 ### Changed
+- **Layer 3 of the `SeriesId` → `ProjectId` rename: the projection columns and
+  the wire contract say `project_id` (issue `#599`, ADR-035 D1/S1/B4/B5 —
+  completing issue `#591`).** Issue #591 renamed the Rust type and the Rust
+  field names but deliberately left every persisted and published spelling on
+  `series_id`; this change finishes it. Same UUIDv7 values, same tenant
+  boundary (B1), same audit-journal scope (B3) — only the *spelling* moves.
+- **Storage (breaking for the read model, migration
+  `20261008000001_projection_project_id` with an exact inverse `down`).**
+  `projection_season.series_id`, `projection_block.series_id`,
+  `projection_episode.series_id` and `projection_audit.series_id` are renamed
+  to `project_id`, together with `idx_projection_season_series_number` →
+  `idx_projection_season_project_number`, the two sibling `_series_number`
+  indexes, the three `idx_projection_*_series_id` indexes and
+  `idx_projection_audit_series` → `idx_projection_audit_project`. Every query,
+  projector upsert and the `#404` savepoint-skip classification in
+  `crates/infra/src/projectors/invariant_skip.rs` (which matches the constraint
+  name Postgres reports) follow. Uniqueness is now keyed
+  `(project_id, number)` — **B4 satisfied**.
+  *ADR-021 D6 deviation, decided deliberately:* D6 forbids renaming a column
+  consumed by an open API version during a deprecation window. No window was
+  open — nothing had been released against `/v1`, and `/v1`+`/v2` would be
+  served by the same binary, so the read model was never a cross-version
+  external contract. The queries consuming these columns are updated in the
+  same change.
+- **ADR-036 reservation-stream keys are unchanged, deliberately.** The four
+  synthetic claim keys (`seasnum-`/`blocknum-`/`epnum-`/`sspair-…`) are
+  *value-derived* (`{prefix}-{Uuid::simple(project_id)}-{number}`) and carry
+  no literal column name, so renaming the column cannot orphan a live claim —
+  a key rename would have. ADR-036's original "the rename sweeps the stream
+  ids too" is corrected in the ADR itself.
+- **Wire (breaking): the 29 OpenAPI `series_id` properties and the
+  `?series_id=` query parameters are now `project_id`.** The
+  `#[schema(rename = "series_id")]` / `#[param(rename = "series_id")]` pins
+  issue #591 had to add are **removed** — `utoipa` derives the property name
+  from the Rust field again, which is exactly the leak the pins were guarding
+  against. `SeasonView` / `BlockView` / `EpisodeView` / `AuditEntry` and every
+  command request body follow.
+- **No `/v2` path version was cut — a recorded deviation from the issue's
+  acceptance criteria.** ADR-021 D2/D3/D4 would have required a `/v2` plus an
+  8-week concurrent `/v1`+`/v2` window, but neither the backend nor the
+  Flutter client had ever been released against `/v1`, so there was no consumer
+  to keep serving and no client to migrate: the rename landed in place. The
+  deprecation lifecycle stays armed for the first breaking change that meets a
+  deployed client (`crates/api/src/versioning.rs` `DeprecationRegistry`).
+- **Persisted event payloads keep `series_id`, deliberately and permanently.**
+  `SeasonCreated` / `BlockCreated` / `EpisodeCreated` and
+  `EventMetadata.project_id` stay pinned with `#[serde(rename = "series_id")]`
+  (ADR-002 forbids rewriting history, and `projection_audit.event_key` is
+  derived from the *re-serialized* payload — renaming the key would silently
+  duplicate every pre-rename audit row on replay). This is now the only
+  surviving `series_id` spelling in the system, and the ast-grep rule
+  `no-stale-series-id.yml` was extended to also ban the lowercase form as a
+  Rust **identifier**, so neither spelling can creep back.
+- **Version bumps (issue `#599`).** `core 0.22.0 → 0.23.0` (DTO serde
+  property renames), `infra 0.27.0 → 0.28.0` (column/index rename; re-pins
+  core), `api 0.20.0 → 0.21.0` (wire contract rename; re-pins core/infra);
+  `architecture`, `fuzz-targets`, `integration-tests` and `test_support`
+  re-pin. MINOR on all three per ADR-020 D2 — the rename is a breaking
+  `pub`-API/wire change, and MINOR is this repo's breaking slot (0.x semver);
+  the change is invisible outside the monorepo.
 - **`SeriesId` → `ProjectId`: the tenant-level container is now a `Project`
   (issue `#591`, ADR-035 D1/S1 — layers 1 and 2 only).** The tenancy seam is
   renamed from the TV-shaped `Series` to the production-neutral `Project`

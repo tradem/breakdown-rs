@@ -23,7 +23,7 @@ the generic #37 dead-letter path for everything else).
 
 The documented residual gap (#586): **the pre-check-to-append window is racy.**
 Two concurrent creates with the same key both pass
-`find_by_series_and_number`/`find_by_pair` before either projection row exists,
+`find_by_project_and_number`/`find_by_pair` before either projection row exists,
 then append separate aggregate streams with the same key. The projector
 savepoint-skips the losing duplicate `*Created` by design, so the client that
 already received 2xx holds an aggregate id the read model will never surface;
@@ -39,8 +39,8 @@ competing command fails the version condition **in the event store**
 ## Decision
 
 **Accepted — all four #404 invariants migrate to reservation streams at once**
-(episode numbering `(series_id, number)`, season numbering `(series_id,
-number)`, block numbering `(series_id, number)`, scene_shoot pair-uniqueness
+(episode numbering `(project_id, number)`, season numbering `(project_id,
+number)`, block numbering `(project_id, number)`, scene_shoot pair-uniqueness
 `(scene_id, shooting_day_id)`), on both write paths for episodes (manual
 `POST /episodes` and the AI-apply `create_episode_reserved`), via the shared
 command adapters. Compensation follows the **release event + reaper** design.
@@ -53,20 +53,28 @@ disturbed), one stream per invariant key:
 
 | Invariant | Reservation stream id | Key payload |
 |---|---|---|
-| Episode numbering | `reservation-epnum-{series_simple}-{number}` | `{ aggregate_id }` |
-| Season numbering | `reservation-seasnum-{series_simple}-{number}` | `{ aggregate_id }` |
-| Block numbering | `reservation-blocknum-{series_simple}-{number}` | `{ aggregate_id }` |
+| Episode numbering | `reservation-epnum-{project_simple}-{number}` | `{ aggregate_id }` |
+| Season numbering | `reservation-seasnum-{project_simple}-{number}` | `{ aggregate_id }` |
+| Block numbering | `reservation-blocknum-{project_simple}-{number}` | `{ aggregate_id }` |
 | SceneShoot pair | `reservation-sspair-{pair_hash24}` | `{ aggregate_id }` |
 
-`{series_simple}` is the compact (dash-less, 32-char) `Uuid::simple()` hex
-form of the tenant-scoped series id; `{pair_hash24}` is a truncated SHA-256
+`{project_simple}` is the compact (dash-less, 32-char) `Uuid::simple()` hex
+form of the tenant-scoped project id; `{pair_hash24}` is a truncated SHA-256
 over `(scene_id, shooting_day_id)` (12 bytes = 24 hex chars) — SierraDB caps
 stream ids at 64 characters, so the dashed 36-char UUID forms and the raw
 pair would overflow. Key payloads are unchanged.
 
-Keys carry the tenant-scoped container id first (ADR-035 B4 — today the tenant
-seam is `series_id`; the `Project` rename change renames the stream ids with
-the same sweep).
+Keys carry the tenant-scoped container id first (ADR-035 B4).
+
+**Correction after issue #599 (2026-10-08).** This ADR originally said the
+`Project` rename "renames the stream ids with the same sweep". **It does not,
+and must not.** The keys are *value-derived* — `{prefix}-{Uuid::simple(project_id)}-{number}`
+— so they carry no literal column or type name, and issue #599 renamed the
+tenant container in storage and on the wire while leaving every existing key
+byte-identical. A key rename would have orphaned live reservation claims (the
+claim projector and the reaper would look for streams that no longer exist,
+silently releasing the uniqueness backstop). The prefixes `seasnum-`/`blocknum-`/
+`epnum-`/`sspair-` are permanent.
 
 ### 2. Claim lifecycle
 

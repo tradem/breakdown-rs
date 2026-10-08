@@ -190,6 +190,17 @@ own ADR:
   form-specific id: today's `(series_id, number)` for season / block / episode
   numbering becomes `(project_id, number)` (see the open ES-native reservation
   stream work in #586).
+
+  **Satisfied by issue #599 (2026-10-08).** The uniqueness constraints are
+  `(project_id, number)` in storage — `idx_projection_season_project_number`,
+  `idx_projection_block_project_number`,
+  `idx_projection_episode_project_number` (migration
+  `20261008000001_projection_project_id`), and the projector savepoint-skip
+  classification in `crates/infra/src/projectors/invariant_skip.rs` matches the
+  renamed constraint names. The ADR-036 reservation-stream keys
+  (`seasnum-`/`blocknum-`/`epnum-…`) are **value-derived**
+  (`{prefix}-{uuid_simple(project_id)}-{number}`) and carry no literal column
+  name, so they are byte-identical — no live claim is orphaned by the rename.
 - **B5 — No schema churn in this ADR.** Projection columns and OpenAPI field
   names keep the spelling `series_id` until a dedicated migration ADR renames
   them. The rename is deliberately *not* bundled here: the event store already
@@ -208,14 +219,46 @@ own ADR:
   - **event payload fields and `EventMetadata`** — untouched via
     `#[serde(rename = "series_id")]`, for the `event_key` reason above.
 
-  Renaming the projection columns and the 32 OpenAPI fields therefore remains
-  **open work**, and it is a *breaking* change: per ADR-021 D2/D3 it needs a
-  `/v2` path version, an 8-week concurrent `/v1`+`/v2` deprecation window
-  (D4), a column/index migration, and a `regen-client.sh` diff. That is a
-  second subsystem (wire + storage) and a second contract change — the size
-  gate, which is why it was not folded into #591. It should be its own change
-  with its own ADR; until it lands, **B5 is unchanged and new code must keep
-  the `series_id` spelling on those surfaces.**
+  **B5 outcome after issue #599 (2026-10-08): satisfied — the rename is
+  complete in storage and on the wire.** Layer 3 landed as planned, with one
+  documented deviation:
+  - **projection columns and indexes** renamed to `project_id` /
+    `idx_projection_*_project_id` / `idx_projection_*_project_number`
+    (migration `20261008000001_projection_project_id`, with an exact inverse
+    `down`);
+  - **OpenAPI fields and query parameters** — the 29 `series_id` properties
+    and the `?series_id=` parameters are now `project_id`; the
+    `#[schema(rename = "series_id")]` / `#[param(rename = "series_id")]` pins
+    #591 had to add are **removed**, so `utoipa` derives the name from the Rust
+    field again;
+  - **event payload fields and `EventMetadata`** — **still pinned**, unchanged
+    and still load-bearing (ADR-002 + `event_key`). This is the one remaining
+    `series_id` spelling in the system, and it is intentional.
+
+  **Deviation from ADR-021 D2/D3/D4, decided by the release owner: no `/v2`.**
+  Issue #599's acceptance criteria asked for a `/v2` path version with an
+  8-week concurrent window. That was **not** cut, because at the time of the
+  change neither the backend nor the Flutter client had been released: no
+  first-party consumer had ever been built against `/v1`, so there was nothing
+  to keep serving and no client to migrate. The rename therefore landed
+  **in place under `/v1`** as a pre-production breaking change, and the
+  deprecation lifecycle in ADR-021 D4 stays armed for the *first* breaking
+  change that meets a deployed client (`crates/api/src/versioning.rs`
+  `DeprecationRegistry` is in place and unused). Consequences of the choice:
+  the stored contract (`backend/openapi.yaml`) and the generated Dart client
+  are single-spelling, so a future breaking change is the one that pays for
+  the first `/v1`+`/v2` window.
+  **ADR-021 D6 was read as not applying:** D6 forbids renaming a projection
+  column "consumed by an open API version" *during a deprecation window*; no
+  window was open (there was no `/v2`, and `/v1` has no external consumer),
+  and `/v1`+`/v2` would be served by the same binary, so the read model was
+  never a cross-version external contract.
+
+  **Note on scope:** a *component schema name* and a *route path* are still
+  spelled with the old term where they are wire-visible beyond the properties
+  (e.g. `SeriesMembershipDto`, `GET /series/{id}/membership`). Renaming those
+  would change the generated Dart class and the URL space and was explicitly
+  out of scope for issue #599 — tracked as its own work.
 
 Configurable **below** `Project`:
 
@@ -254,6 +297,16 @@ container model behind them is not.
   Whether #591 covers layer 3 or stops after layers 1 — 2 is a decision for that
   issue; the outcome updates **B5** below. What is normative here: the
   rename must never be a single undifferentiated sweep across the three.
+
+  **RESOLVED by issue #599 (2026-10-08) — layer 3.** The projection columns and
+  the 29 OpenAPI properties/`?series_id=` parameters moved to `project_id` in
+  one change (migration + queries + projectors + `utoipa` pins removed +
+  `regen-client.sh` diff). Layer 2's rule held exactly as written: events kept
+  the pinned `series_id` serde key, so the audit `event_key` derivation is
+  unchanged and replay idempotency is intact — pinned by
+  `crates/integration-tests/tests/project_id_rename_replay.rs`. Layer 3's
+  predicted "deprecation window" was **not** needed (no released consumer —
+  see the B5 outcome).
 
   **RESOLVED by issue #591 (2026-10-07).** #591 shipped layers **1 and 2**
   only and did **not** touch layer 3 — see the **B5 outcome** below. Two
@@ -311,8 +364,8 @@ container model behind them is not.
     that still denies on the season union will block flows the server permits
     and silently drift, which is the #513 mirror lesson.
 - **S3 — Container-resolution seam.** The ad-hoc handler helpers
-  `series_id_for_costume` and `series_id_for_costume_category`
-  (`crates/api/src/handlers/mod.rs:616` / `:539`) are replaced by one
+  `project_id_for_costume` and `project_id_for_costume_category`
+  (`crates/api/src/handlers/mod.rs`) are replaced by one
   `ContainerResolver` port in `core`, answering
   `project_of(entity) -> Option<ProjectId>`, implemented in `infra`. Two rules
   carry over from `AGENTS.md` §1: the API edge is the only legitimate
@@ -341,10 +394,12 @@ container model behind them is not.
 
 ### Negative
 
-- Two terms now coexist in prose and code: `SeriesId` (persisted, on the
-  wire, in the projections) and `ProjectId` (the decided term). Every doc that
-  names the chain must say which one it means. The rename is deferred, so this
-  is a real, bounded cost.
+- ~~Two terms now coexist in prose and code~~ — **closed by issue #599.**
+  `ProjectId` is now the single spelling in code, in the projections and on the
+  wire; the only surviving `series_id` is the **persisted event payload key**,
+  which is pinned for `event_key` idempotency (ADR-002), plus wire-visible
+  route/component names noted under B5. Docs naming the chain now say
+  `Project`.
 - B2 constrains future feature work: a genuinely season-scoped permission
   (something only a season lead may do) can no longer be expressed as a new
   season-typed predicate. It has to be expressed at the project level or

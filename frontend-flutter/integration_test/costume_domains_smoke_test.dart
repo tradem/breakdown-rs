@@ -59,7 +59,7 @@ SeasonView _season() => SeasonView(
   (b) => b
     ..id = 'season-1'
     ..number = 1
-    ..seriesId = 'series-e2e'
+    ..projectId = 'series-e2e'
     ..title = 'E2E Season'
     ..updatedAt = DateTime.utc(2026, 1, 1)
     ..version = 1,
@@ -296,7 +296,7 @@ void main() {
     oidcRedirectUri: '',
     devIdpInsecure: '',
     appVersion: '1.0.0+1',
-    defaultSeriesId: 'series-e2e',
+    defaultProjectId: 'series-e2e',
   );
 
   testWidgets(

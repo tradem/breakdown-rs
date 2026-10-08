@@ -1016,13 +1016,13 @@ void main() {
           _job('j1', status: JobStatus.succeeded),
           DateTime.utc(2026, 1, 1),
           episodeId: 'ep-1',
-          seriesId: 'series-1',
+          projectId: 'series-1',
         );
         // A later status refetch (without context) must NOT wipe the context.
         await repo.getJobAndCache('j1');
         final row = (await dao.readAll('user-a')).single;
         expect(row.episodeId, 'ep-1');
-        expect(row.seriesId, 'series-1');
+        expect(row.projectId, 'series-1');
       },
     );
 
@@ -1420,7 +1420,7 @@ AiImportJobsCacheDao _dao() {
 ApplyAiImportRequest _applyRequest() => ApplyAiImportRequest(
   (b) => b
     ..episodeId = 'ep-1'
-    ..seriesId = 'series-1'
+    ..projectId = 'series-1'
     ..mappings.replace([
       ApplyMapping(
         (m) => m

@@ -96,18 +96,18 @@ impl MembershipRepository for MembershipRepositoryImpl {
         user_id: UserId,
     ) -> Result<bool, DomainError> {
         // Tenant scope is resolved along the production hierarchy
-        // (membership -> block -> season -> series). `projection_block`
-        // carries the series as a denormalized, indexed column written from
+        // (membership -> block -> season -> project). `projection_block`
+        // carries the project as a denormalized, indexed column written from
         // the very same event as `season_id`, so the block join answers the
         // question directly. Role-agnostic: any active membership in any
-        // block of the series grants access (issue #342).
+        // block of the project grants access (issue #342).
         let row: Option<(String,)> = sqlx::query_as(
             r#"
             SELECT m.role
             FROM projection_membership m
             JOIN projection_block b ON b.id = m.block_id
             WHERE m.user_id = $1
-              AND b.series_id = $2
+              AND b.project_id = $2
               AND m.state = 'active'
             LIMIT 1
             "#,
@@ -132,7 +132,7 @@ impl MembershipRepository for MembershipRepositoryImpl {
             FROM projection_membership m
             JOIN projection_block b ON b.id = m.block_id
             WHERE m.user_id = $1
-              AND b.series_id = $2
+              AND b.project_id = $2
               AND m.role IN ('costume_designer', 'wardrobe_supervisor', 'costume_assistant')
               AND m.state = 'active'
             LIMIT 1

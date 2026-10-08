@@ -897,7 +897,7 @@ final class EpisodesControllerProvider
 }
 
 String _$episodesControllerHash() =>
-    r'7538c3960ac1414ddbb018c4e6da067dfee6c3ad';
+    r'c1ea74e5838485ae96ffbf57ca09a33036b003a3';
 
 /// `EpisodesController(blockId, seasonId)` on the shared reconciliation
 /// runner: the `blockId` is the fetch scope (server-side `?block_id=`

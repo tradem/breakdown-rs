@@ -17,7 +17,7 @@ part 'episode_view.g.dart';
 /// * [id]
 /// * [name]
 /// * [number]
-/// * [seriesId] - The tenant-level production container this episode belongs to.
+/// * [projectId] - The tenant-level production container this episode belongs to (`project_id` on the wire, issue #599).
 /// * [updatedAt]
 /// * [version] - Aggregate version for optimistic-locking round-trips.
 @BuiltValue()
@@ -35,9 +35,9 @@ abstract class EpisodeView implements Built<EpisodeView, EpisodeViewBuilder> {
   @BuiltValueField(wireName: r'number')
   int get number;
 
-  /// The tenant-level production container this episode belongs to.
-  @BuiltValueField(wireName: r'series_id')
-  String get seriesId;
+  /// The tenant-level production container this episode belongs to (`project_id` on the wire, issue #599).
+  @BuiltValueField(wireName: r'project_id')
+  String get projectId;
 
   @BuiltValueField(wireName: r'updated_at')
   DateTime get updatedAt;
@@ -91,9 +91,9 @@ class _$EpisodeViewSerializer implements PrimitiveSerializer<EpisodeView> {
       object.number,
       specifiedType: const FullType(int),
     );
-    yield r'series_id';
+    yield r'project_id';
     yield serializers.serialize(
-      object.seriesId,
+      object.projectId,
       specifiedType: const FullType(String),
     );
     yield r'updated_at';
@@ -160,12 +160,12 @@ class _$EpisodeViewSerializer implements PrimitiveSerializer<EpisodeView> {
           ) as int;
           result.number = valueDes;
           break;
-        case r'series_id':
+        case r'project_id':
           final valueDes = serializers.deserialize(
             value,
             specifiedType: const FullType(String),
           ) as String;
-          result.seriesId = valueDes;
+          result.projectId = valueDes;
           break;
         case r'updated_at':
           final valueDes = serializers.deserialize(

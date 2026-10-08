@@ -28,7 +28,7 @@ impl EpisodeRepository for EpisodeRepositoryImpl {
     async fn find_by_id(&self, id: Uuid) -> Result<EpisodeView, DomainError> {
         let row = sqlx::query(
             r#"
-            SELECT id, block_id, series_id, number, name, version, updated_at
+            SELECT id, block_id, project_id, number, name, version, updated_at
             FROM projection_episode
             WHERE id = $1
             "#,
@@ -54,7 +54,7 @@ impl EpisodeRepository for EpisodeRepositoryImpl {
     ) -> Result<Vec<EpisodeView>, DomainError> {
         let rows = sqlx::query(
             r#"
-            SELECT id, block_id, series_id, number, name, version, updated_at
+            SELECT id, block_id, project_id, number, name, version, updated_at
             FROM projection_episode
             WHERE block_id = $1
             ORDER BY number
@@ -79,9 +79,9 @@ impl EpisodeRepository for EpisodeRepositoryImpl {
     ) -> Result<Vec<EpisodeView>, DomainError> {
         let rows = sqlx::query(
             r#"
-            SELECT id, block_id, series_id, number, name, version, updated_at
+            SELECT id, block_id, project_id, number, name, version, updated_at
             FROM projection_episode
-            WHERE series_id = $1
+            WHERE project_id = $1
             ORDER BY number
             LIMIT $2 OFFSET $3
             "#,
@@ -103,9 +103,9 @@ impl EpisodeRepository for EpisodeRepositoryImpl {
     ) -> Result<Option<EpisodeView>, DomainError> {
         let row = sqlx::query(
             r#"
-            SELECT id, block_id, series_id, number, name, version, updated_at
+            SELECT id, block_id, project_id, number, name, version, updated_at
             FROM projection_episode
-            WHERE series_id = $1 AND number = $2
+            WHERE project_id = $1 AND number = $2
             LIMIT 1
             "#,
         )
@@ -126,7 +126,7 @@ fn map_episode_row(row: sqlx::postgres::PgRow) -> Result<EpisodeView, DomainErro
     Ok(EpisodeView {
         id: row.try_get("id").map_err(map_err)?,
         block_id: BlockId(row.try_get("block_id").map_err(map_err)?),
-        project_id: ProjectId(row.try_get("series_id").map_err(map_err)?),
+        project_id: ProjectId(row.try_get("project_id").map_err(map_err)?),
         number: row.try_get("number").map_err(map_err)?,
         name: row.try_get("name").map_err(map_err)?,
         version: AggregateVersion(row.try_get::<i64, _>("version").map_err(map_err)? as u64),

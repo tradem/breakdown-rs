@@ -14,9 +14,9 @@ class _$BlockView extends BlockView {
   @override
   final int number;
   @override
-  final String seasonId;
+  final String projectId;
   @override
-  final String seriesId;
+  final String seasonId;
   @override
   final String? startDate;
   @override
@@ -31,8 +31,8 @@ class _$BlockView extends BlockView {
       {this.endDate,
       required this.id,
       required this.number,
+      required this.projectId,
       required this.seasonId,
-      required this.seriesId,
       this.startDate,
       required this.updatedAt,
       required this.version})
@@ -51,8 +51,8 @@ class _$BlockView extends BlockView {
         endDate == other.endDate &&
         id == other.id &&
         number == other.number &&
+        projectId == other.projectId &&
         seasonId == other.seasonId &&
-        seriesId == other.seriesId &&
         startDate == other.startDate &&
         updatedAt == other.updatedAt &&
         version == other.version;
@@ -64,8 +64,8 @@ class _$BlockView extends BlockView {
     _$hash = $jc(_$hash, endDate.hashCode);
     _$hash = $jc(_$hash, id.hashCode);
     _$hash = $jc(_$hash, number.hashCode);
+    _$hash = $jc(_$hash, projectId.hashCode);
     _$hash = $jc(_$hash, seasonId.hashCode);
-    _$hash = $jc(_$hash, seriesId.hashCode);
     _$hash = $jc(_$hash, startDate.hashCode);
     _$hash = $jc(_$hash, updatedAt.hashCode);
     _$hash = $jc(_$hash, version.hashCode);
@@ -79,8 +79,8 @@ class _$BlockView extends BlockView {
           ..add('endDate', endDate)
           ..add('id', id)
           ..add('number', number)
+          ..add('projectId', projectId)
           ..add('seasonId', seasonId)
-          ..add('seriesId', seriesId)
           ..add('startDate', startDate)
           ..add('updatedAt', updatedAt)
           ..add('version', version))
@@ -103,13 +103,13 @@ class BlockViewBuilder implements Builder<BlockView, BlockViewBuilder> {
   int? get number => _$this._number;
   set number(int? number) => _$this._number = number;
 
+  String? _projectId;
+  String? get projectId => _$this._projectId;
+  set projectId(String? projectId) => _$this._projectId = projectId;
+
   String? _seasonId;
   String? get seasonId => _$this._seasonId;
   set seasonId(String? seasonId) => _$this._seasonId = seasonId;
-
-  String? _seriesId;
-  String? get seriesId => _$this._seriesId;
-  set seriesId(String? seriesId) => _$this._seriesId = seriesId;
 
   String? _startDate;
   String? get startDate => _$this._startDate;
@@ -133,8 +133,8 @@ class BlockViewBuilder implements Builder<BlockView, BlockViewBuilder> {
       _endDate = $v.endDate;
       _id = $v.id;
       _number = $v.number;
+      _projectId = $v.projectId;
       _seasonId = $v.seasonId;
-      _seriesId = $v.seriesId;
       _startDate = $v.startDate;
       _updatedAt = $v.updatedAt;
       _version = $v.version;
@@ -163,10 +163,10 @@ class BlockViewBuilder implements Builder<BlockView, BlockViewBuilder> {
           id: BuiltValueNullFieldError.checkNotNull(id, r'BlockView', 'id'),
           number: BuiltValueNullFieldError.checkNotNull(
               number, r'BlockView', 'number'),
+          projectId: BuiltValueNullFieldError.checkNotNull(
+              projectId, r'BlockView', 'projectId'),
           seasonId: BuiltValueNullFieldError.checkNotNull(
               seasonId, r'BlockView', 'seasonId'),
-          seriesId: BuiltValueNullFieldError.checkNotNull(
-              seriesId, r'BlockView', 'seriesId'),
           startDate: startDate,
           updatedAt: BuiltValueNullFieldError.checkNotNull(
               updatedAt, r'BlockView', 'updatedAt'),

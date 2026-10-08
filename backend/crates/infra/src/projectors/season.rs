@@ -51,10 +51,10 @@ impl<'a> EntityEventHandler<SeasonAggregate, Transaction<'a, Postgres>> for Seas
                 match sqlx::query(
                     r#"
                     INSERT INTO projection_season
-                        (id, series_id, number, title, version, projector_version, updated_at)
+                        (id, project_id, number, title, version, projector_version, updated_at)
                     VALUES ($1, $2, $3, $4, $5, $6, $7)
                     ON CONFLICT (id) DO UPDATE SET
-                        series_id = EXCLUDED.series_id,
+                        project_id = EXCLUDED.project_id,
                         number = EXCLUDED.number,
                         title = EXCLUDED.title,
                         version = EXCLUDED.version,

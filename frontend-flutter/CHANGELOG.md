@@ -19,6 +19,26 @@ releases are cut as `vX.Y.Z` tags (`v<build-name>`, enforced by
 
 ## [Unreleased]
 
+- **Version bump:** `0.4.0-alpha.6+57 → 0.4.0-alpha.7+58` — the
+  `SeriesId` → `ProjectId` rename completed its wire/storage layer
+  (issue #599, ADR-035 D1/S1 layer 3, completing issue #591). The
+  generated client's `seriesId` accessors become `projectId` (vendor
+  tree regenerated from `backend/openapi.yaml` — no hand edits), and
+  every call site, DAO, cache row and test follows: the Drift mirror
+  columns `season_cache_rows`/`block_cache_rows`/`episode_cache_rows`/
+  `ai_import_job_cache_rows` are now `project_id` (schema **v13**,
+  additive `ADD COLUMN` — the cache policy forbids destructive
+  migrations and the cache is snapshot-replace, so a v12 install keeps
+  its orphaned `series_id` and gains `project_id`; probe
+  `test/data/cache/project_id_migration_test.dart`). The build-time
+  pre-fill define is now `DEFAULT_PROJECT_ID` (was `DEFAULT_SERIES_ID`,
+  same value — an opaque UUID), updated in `app_config.dart`, the
+  de/en ARB copy and `scripts/dev/build-test-apk.sh`. The
+  build-misconfiguration notice keeps its localized key
+  (`seasonsCreateSeriesIdMissing`) — a diagnostic string, not the
+  container's wire spelling. No `/v2` path version was cut: nothing had
+  been released against `/v1`, so the rename landed in place.
+
 - **Version bump:** `0.4.0-alpha.4+55 → 0.4.0-alpha.5+56` — costume
   season-repertoire management on the costume detail panel (issue #534,
   PR #595): vendor client reload (`addCostumeToSeason`/

@@ -328,7 +328,7 @@ problem_codes! {
 
     /// Conflict: another season of the same project already uses this number
     /// (issue #404). Backs the API-edge pre-check (advisory); the projection
-    /// unique index `idx_projection_season_series_number` stays authoritative
+    /// unique index `idx_projection_season_project_number` stays authoritative
     /// against races.
     SEASON_NUMBER_ALREADY_EXISTS {
         code: "season.number-already-exists",
@@ -366,7 +366,7 @@ problem_codes! {
 
     /// Conflict: another block of the same project already uses this number
     /// (issue #404). Backs the API-edge pre-check (advisory); the projection
-    /// unique index `idx_projection_block_series_number` stays authoritative
+    /// unique index `idx_projection_block_project_number` stays authoritative
     /// against races.
     BLOCK_NUMBER_ALREADY_EXISTS {
         code: "block.number-already-exists",
@@ -393,7 +393,7 @@ problem_codes! {
 
     /// Conflict: another episode of the same project already uses this number
     /// (issue #404). Backs the API-edge pre-check (advisory); the projection
-    /// unique index `idx_projection_episode_series_number` stays authoritative
+    /// unique index `idx_projection_episode_project_number` stays authoritative
     /// against races.
     EPISODE_NUMBER_ALREADY_EXISTS {
         code: "episode.number-already-exists",

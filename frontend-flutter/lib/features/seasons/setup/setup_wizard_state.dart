@@ -223,15 +223,15 @@ WizardFieldError? validateHasBlocks(List<BlockDraft> blocks) =>
     blocks.isEmpty ? WizardFieldError.noBlocks : null;
 
 /// The pre-dispatch guard's failure (issue #467): this build shipped
-/// without `--dart-define=DEFAULT_SERIES_ID`, so the env-sourced series id
+/// without `--dart-define=DEFAULT_PROJECT_ID`, so the env-sourced series id
 /// is empty and NO season can be created meaningfully. The wizard fails
 /// fast with this actionable error instead of dispatching a request the
 /// backend can only answer with a blind 422 `domain.validation` — the
 /// guard owns the message, no network round-trip.
 const missingSeriesIdProblem = ProblemError(
   code: 'config.series-id-missing',
-  title: 'Build missing DEFAULT_SERIES_ID',
-  detail: 'DEFAULT_SERIES_ID is empty in this build.',
+  title: 'Build missing DEFAULT_PROJECT_ID',
+  detail: 'DEFAULT_PROJECT_ID is empty in this build.',
 );
 
 /// True when [failure] is the build-misconfiguration guard (issue #467):

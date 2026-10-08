@@ -220,7 +220,7 @@ class AiImportSubmitController extends _$AiImportSubmitController {
         jobId,
         userId: fetched.userId,
         episodeId: episode.id,
-        seriesId: episode.seriesId,
+        projectId: episode.projectId,
       );
       return const Right(null);
     } on Object {

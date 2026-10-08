@@ -118,7 +118,7 @@ async fn list_seasons_hides_archived_by_default_and_returns_them_on_opt_in() {
 }
 
 #[tokio::test]
-async fn list_seasons_without_series_id_returns_all_series() {
+async fn list_seasons_without_project_id_returns_all_projects() {
     let ports = common::FakePorts::default();
     let series_a = ProjectId::new();
     let series_b = ProjectId::new();
@@ -181,8 +181,8 @@ fn openapi_doc_exposes_seasons_list() {
         .filter_map(|p| p.get("name").and_then(serde_json::Value::as_str))
         .collect();
     assert!(
-        names.contains(&"series_id"),
-        "GET /v1/seasons must expose series_id (issue #377), got {names:?}"
+        names.contains(&"project_id"),
+        "GET /v1/seasons must expose project_id (issue #377; renamed from series_id in issue #599), got {names:?}"
     );
     for ignored in ["episode_id", "season_id", "block_id"] {
         assert!(

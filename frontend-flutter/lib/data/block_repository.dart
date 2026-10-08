@@ -27,7 +27,7 @@ class BlockRepository extends BaseRepository {
 
   final BlockCacheDao cache;
 
-  /// Creates a new block. Ids (`series_id`, `season_id`) come from the
+  /// Creates a new block. Ids (`project_id`, `season_id`) come from the
   /// `SeasonView` read DTO the user acted on (CQRS boundary — never from a
   /// second projection lookup).
   Future<Result<IdVersionResponse>> create(CreateBlockRequest request) =>

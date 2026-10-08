@@ -164,7 +164,7 @@ SeasonView _season() => SeasonView(
     ..archived = false
     ..id = 'season-1'
     ..number = 1
-    ..seriesId = 'series-1'
+    ..projectId = 'series-1'
     ..title = 'Season One'
     ..updatedAt = DateTime.utc(2026, 1, 1)
     ..version = 1,
@@ -183,7 +183,7 @@ SeasonMembershipDto _membership(List<String> caps) => SeasonMembershipDto(
 /// photo capability.
 SeriesMembershipDto _seriesMembership(bool hasRole) => SeriesMembershipDto(
   (b) => b
-    ..seriesId = 'series-1'
+    ..projectId = 'series-1'
     ..hasActiveCostumeRoleInSeries = hasRole
     ..capabilities.replace(const <String>[]),
 );
@@ -1225,7 +1225,7 @@ void main() {
         ..archived = false
         ..id = 'season-2'
         ..number = 2
-        ..seriesId = 'series-1'
+        ..projectId = 'series-1'
         ..title = 'Season Two'
         ..updatedAt = DateTime.utc(2026, 1, 1)
         ..version = 1,

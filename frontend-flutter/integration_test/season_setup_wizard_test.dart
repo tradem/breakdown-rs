@@ -60,7 +60,7 @@ void main() {
   /// A fresh UUID series per run: the dev backend accumulates seasons and
   /// blocks under the fixed test series across runs, and block numbers are
   /// series-scoped — a fresh series keeps the full dispatch deterministic.
-  String freshSeriesId() {
+  String freshProjectId() {
     final r = DateTime.now().microsecondsSinceEpoch;
     String h(int v, int len) =>
         v.toRadixString(16).padLeft(len, '0').substring(0, len);
@@ -68,7 +68,7 @@ void main() {
         '-8${h(r >> 8, 3)}-${h(r, 12)}';
   }
 
-  late String seriesId;
+  late String projectId;
 
   const devConfigTemplate = AppConfig(
     flavor: Flavor.dev,
@@ -80,9 +80,9 @@ void main() {
     oidcRedirectUri: '',
     devIdpInsecure: '',
     appVersion: '1.0.0+1',
-    // Real-backend dispatch: `series_id` is a UUID on the wire, so the
+    // Real-backend dispatch: `project_id` is a UUID on the wire, so the
     // dev define carries a fixed test-series UUID (deterministic).
-    defaultSeriesId: '11111111-1111-1111-1111-111111111111',
+    defaultProjectId: '11111111-1111-1111-1111-111111111111',
   );
 
   late ProviderContainer container;
@@ -107,7 +107,7 @@ void main() {
             oidcRedirectUri: devConfigTemplate.oidcRedirectUri,
             devIdpInsecure: devConfigTemplate.devIdpInsecure,
             appVersion: devConfigTemplate.appVersion,
-            defaultSeriesId: seriesId,
+            defaultProjectId: projectId,
           ),
         ),
         pinnedSecurityContextProvider.overrideWithValue(pinned),
@@ -115,7 +115,7 @@ void main() {
     );
   }
 
-  setUp(() => seriesId = freshSeriesId());
+  setUp(() => projectId = freshProjectId());
 
   tearDown(() => container.dispose());
 

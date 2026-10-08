@@ -12,7 +12,6 @@ use crate::shared::{AggregateVersion, ProjectId};
 #[derive(Debug, Clone, serde::Deserialize, utoipa::ToSchema)]
 pub struct CreateSeason {
     pub id: Uuid,
-    #[schema(rename = "series_id")]
     // wire name pinned: layer 3 (OpenAPI field rename) is a breaking ADR-021 change, deferred
     pub project_id: ProjectId,
     pub number: i32,
@@ -28,7 +27,6 @@ pub struct CreateSeason {
 pub struct RenameSeason {
     pub id: Uuid,
     pub title: Option<String>,
-    #[schema(rename = "series_id")]
     // wire name pinned: layer 3 (OpenAPI field rename) is a breaking ADR-021 change, deferred
     pub project_id: Option<ProjectId>,
     pub version: AggregateVersion,
@@ -53,7 +51,6 @@ impl kameo_es::CommandName for CreateSeason {
 #[derive(Debug, Clone, serde::Deserialize, utoipa::ToSchema)]
 pub struct ArchiveSeason {
     pub id: Uuid,
-    #[schema(rename = "series_id")]
     // wire name pinned: layer 3 (OpenAPI field rename) is a breaking ADR-021 change, deferred
     pub project_id: Option<ProjectId>,
     pub version: AggregateVersion,

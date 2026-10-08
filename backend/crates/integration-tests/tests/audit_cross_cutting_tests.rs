@@ -365,7 +365,7 @@ fn saga_metadata(project_id: ProjectId, saga_name: &'static str) -> Result<Vec<u
     Ok(buf)
 }
 
-/// Create CBOR-encoded "human" metadata (actor set, provenance = Human, optional series).
+/// Create CBOR-encoded "human" metadata (actor set, provenance = Human, optional project).
 ///
 /// The bytes must match what `kameo_es::CommandService::CommandExecution`
 /// produces — `EventMetadata` wrapped in `Metadata`.
@@ -481,7 +481,7 @@ async fn await_audit_rows(
 }
 
 /// Wait until at least `min` audit rows exist for a given `project_id`.
-async fn await_audit_by_series(
+async fn await_audit_by_project(
     repo: &AuditRepositoryImpl,
     project_id: ProjectId,
     min: usize,
@@ -507,7 +507,7 @@ async fn await_audit_by_series(
             tokio::time::sleep(POLL_INTERVAL).await;
         } else {
             bail!(
-                "projection lag: audit rows for series({}) = {} (expected >= {min}) \
+                "projection lag: audit rows for project({}) = {} (expected >= {min}) \
                  within {PROJECTION_DEADLINE:?}",
                 project_id.0,
                 repo.list_by_project(project_id, 100, 0)
@@ -585,7 +585,7 @@ async fn non_membership_events_produce_attributed_audit_rows() -> Result<()> {
     assert_eq!(
         season_row.project_id,
         Some(project_id.0),
-        "series_id must be denormalized from event metadata"
+        "project_id must be denormalized from event metadata"
     );
 
     // Verify provenance via raw SQL query (AuditEntry view does not expose it).
@@ -638,7 +638,7 @@ async fn non_membership_events_produce_attributed_audit_rows() -> Result<()> {
     assert_eq!(
         char_row.project_id,
         Some(project_id.0),
-        "series_id must be denormalized in metadata, not resolved at projection time"
+        "project_id must be denormalized in metadata, not resolved at projection time"
     );
 
     let prov = read_provenance(pool, "character", char_id).await?;
@@ -729,7 +729,7 @@ async fn costume_category_create_produces_attributed_audit_row() -> Result<()> {
     assert_eq!(
         row.project_id,
         Some(project_id.0),
-        "series_id must be present"
+        "project_id must be present"
     );
 
     let prov = read_provenance(pool, "costume_category", cc_id).await?;
@@ -843,7 +843,7 @@ async fn saga_dispatched_costume_category_shows_saga_provenance() -> Result<()> 
                 assert_eq!(
                     row.project_id,
                     Some(project_id.0),
-                    "series_id must be copied from metadata"
+                    "project_id must be copied from metadata"
                 );
 
                 // Check provenance via raw SQL (AuditEntry does not expose it).
@@ -887,31 +887,31 @@ async fn saga_dispatched_costume_category_shows_saga_provenance() -> Result<()> 
 // 6.3 — list_by_project returns only the requested tenant's rows
 // ---------------------------------------------------------------------------
 
-/// Create seasons in two different series via direct EAPPEND, then verify
+/// Create seasons in two different projects via direct EAPPEND, then verify
 /// that `list_by_project` returns only rows for the requested project_id.
 #[tokio::test]
-async fn list_by_series_returns_tenant_scoped_rows() -> Result<()> {
+async fn list_by_project_returns_tenant_scoped_rows() -> Result<()> {
     let containers = init_containers();
     let pool = &containers.query_pool;
     let redis_client = &containers.redis_client;
     let audit_repo = AuditRepositoryImpl::new(pool.clone());
 
     let actor = UserId::from_sub("tenant-test-6.3");
-    let series_a = ProjectId(Uuid::now_v7());
-    let series_b = ProjectId(Uuid::now_v7());
+    let project_a = ProjectId(Uuid::now_v7());
+    let project_b = ProjectId(Uuid::now_v7());
 
-    // Create season in series A.
+    // Create season in project A.
     let season_a_id = Uuid::now_v7();
     let season_a_stream = format!("season-{season_a_id}");
     let season_a_event = SeasonEvent::SeasonCreated {
         id: season_a_id,
-        project_id: series_a,
+        project_id: project_a,
         number: 1,
-        title: Some("Series A Season".into()),
+        title: Some("Project A Season".into()),
         version: AggregateVersion::INITIAL,
     };
     let season_a_payload = encode_event(&season_a_event)?;
-    let season_a_meta = human_metadata(actor.clone(), Some(series_a))?;
+    let season_a_meta = human_metadata(actor.clone(), Some(project_a))?;
     eappend_event(
         redis_client,
         &season_a_stream,
@@ -922,18 +922,18 @@ async fn list_by_series_returns_tenant_scoped_rows() -> Result<()> {
     )
     .await?;
 
-    // Create season in series B.
+    // Create season in project B.
     let season_b_id = Uuid::now_v7();
     let season_b_stream = format!("season-{season_b_id}");
     let season_b_event = SeasonEvent::SeasonCreated {
         id: season_b_id,
-        project_id: series_b,
+        project_id: project_b,
         number: 1,
-        title: Some("Series B Season".into()),
+        title: Some("Project B Season".into()),
         version: AggregateVersion::INITIAL,
     };
     let season_b_payload = encode_event(&season_b_event)?;
-    let season_b_meta = human_metadata(actor.clone(), Some(series_b))?;
+    let season_b_meta = human_metadata(actor.clone(), Some(project_b))?;
     eappend_event(
         redis_client,
         &season_b_stream,
@@ -945,38 +945,38 @@ async fn list_by_series_returns_tenant_scoped_rows() -> Result<()> {
     .await?;
 
     // Wait for both audit rows to appear.
-    let _a = await_audit_by_series(&audit_repo, series_a, 1).await?;
-    let _b = await_audit_by_series(&audit_repo, series_b, 1).await?;
+    let _a = await_audit_by_project(&audit_repo, project_a, 1).await?;
+    let _b = await_audit_by_project(&audit_repo, project_b, 1).await?;
 
-    // list_by_project(series_a) must NOT include series_b rows.
-    let series_a_rows = audit_repo.list_by_project(series_a, 100, 0).await?;
-    assert!(!series_a_rows.is_empty(), "series_a must have audit rows");
-    for row in &series_a_rows {
+    // list_by_project(project_a) must NOT include project_b rows.
+    let project_a_rows = audit_repo.list_by_project(project_a, 100, 0).await?;
+    assert!(!project_a_rows.is_empty(), "project_a must have audit rows");
+    for row in &project_a_rows {
         assert_eq!(
             row.project_id,
-            Some(series_a.0),
-            "row for series_a must match series_a"
+            Some(project_a.0),
+            "row for project_a must match project_a"
         );
     }
 
-    // list_by_project(series_b) must NOT include series_a rows.
-    let series_b_rows = audit_repo.list_by_project(series_b, 100, 0).await?;
-    assert!(!series_b_rows.is_empty(), "series_b must have audit rows");
-    for row in &series_b_rows {
+    // list_by_project(project_b) must NOT include project_a rows.
+    let project_b_rows = audit_repo.list_by_project(project_b, 100, 0).await?;
+    assert!(!project_b_rows.is_empty(), "project_b must have audit rows");
+    for row in &project_b_rows {
         assert_eq!(
             row.project_id,
-            Some(series_b.0),
-            "row for series_b must match series_b"
+            Some(project_b.0),
+            "row for project_b must match project_b"
         );
     }
 
     // Verify no row leaks between tenants.
-    let a_ids: std::collections::HashSet<Uuid> = series_a_rows.iter().map(|r| r.id).collect();
-    let b_ids: std::collections::HashSet<Uuid> = series_b_rows.iter().map(|r| r.id).collect();
+    let a_ids: std::collections::HashSet<Uuid> = project_a_rows.iter().map(|r| r.id).collect();
+    let b_ids: std::collections::HashSet<Uuid> = project_b_rows.iter().map(|r| r.id).collect();
     let intersection: Vec<_> = a_ids.intersection(&b_ids).collect();
     assert!(
         intersection.is_empty(),
-        "no audit row must belong to both series (got {} shared)",
+        "no audit row must belong to both projects (got {} shared)",
         intersection.len()
     );
 

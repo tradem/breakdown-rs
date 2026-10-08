@@ -44,7 +44,7 @@ fn list_params() -> EpisodeListParams {
 }
 
 #[tokio::test]
-async fn list_episodes_filters_by_block_id_without_series_id() {
+async fn list_episodes_filters_by_block_id_without_project_id() {
     let ports = common::FakePorts::default();
     let project_id = ProjectId::new();
     let block_a = BlockId::new();

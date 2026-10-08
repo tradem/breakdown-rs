@@ -16,7 +16,7 @@ class _$EpisodeView extends EpisodeView {
   @override
   final int number;
   @override
-  final String seriesId;
+  final String projectId;
   @override
   final DateTime updatedAt;
   @override
@@ -30,7 +30,7 @@ class _$EpisodeView extends EpisodeView {
       required this.id,
       this.name,
       required this.number,
-      required this.seriesId,
+      required this.projectId,
       required this.updatedAt,
       required this.version})
       : super._();
@@ -49,7 +49,7 @@ class _$EpisodeView extends EpisodeView {
         id == other.id &&
         name == other.name &&
         number == other.number &&
-        seriesId == other.seriesId &&
+        projectId == other.projectId &&
         updatedAt == other.updatedAt &&
         version == other.version;
   }
@@ -61,7 +61,7 @@ class _$EpisodeView extends EpisodeView {
     _$hash = $jc(_$hash, id.hashCode);
     _$hash = $jc(_$hash, name.hashCode);
     _$hash = $jc(_$hash, number.hashCode);
-    _$hash = $jc(_$hash, seriesId.hashCode);
+    _$hash = $jc(_$hash, projectId.hashCode);
     _$hash = $jc(_$hash, updatedAt.hashCode);
     _$hash = $jc(_$hash, version.hashCode);
     _$hash = $jf(_$hash);
@@ -75,7 +75,7 @@ class _$EpisodeView extends EpisodeView {
           ..add('id', id)
           ..add('name', name)
           ..add('number', number)
-          ..add('seriesId', seriesId)
+          ..add('projectId', projectId)
           ..add('updatedAt', updatedAt)
           ..add('version', version))
         .toString();
@@ -101,9 +101,9 @@ class EpisodeViewBuilder implements Builder<EpisodeView, EpisodeViewBuilder> {
   int? get number => _$this._number;
   set number(int? number) => _$this._number = number;
 
-  String? _seriesId;
-  String? get seriesId => _$this._seriesId;
-  set seriesId(String? seriesId) => _$this._seriesId = seriesId;
+  String? _projectId;
+  String? get projectId => _$this._projectId;
+  set projectId(String? projectId) => _$this._projectId = projectId;
 
   DateTime? _updatedAt;
   DateTime? get updatedAt => _$this._updatedAt;
@@ -124,7 +124,7 @@ class EpisodeViewBuilder implements Builder<EpisodeView, EpisodeViewBuilder> {
       _id = $v.id;
       _name = $v.name;
       _number = $v.number;
-      _seriesId = $v.seriesId;
+      _projectId = $v.projectId;
       _updatedAt = $v.updatedAt;
       _version = $v.version;
       _$v = null;
@@ -154,8 +154,8 @@ class EpisodeViewBuilder implements Builder<EpisodeView, EpisodeViewBuilder> {
           name: name,
           number: BuiltValueNullFieldError.checkNotNull(
               number, r'EpisodeView', 'number'),
-          seriesId: BuiltValueNullFieldError.checkNotNull(
-              seriesId, r'EpisodeView', 'seriesId'),
+          projectId: BuiltValueNullFieldError.checkNotNull(
+              projectId, r'EpisodeView', 'projectId'),
           updatedAt: BuiltValueNullFieldError.checkNotNull(
               updatedAt, r'EpisodeView', 'updatedAt'),
           version: BuiltValueNullFieldError.checkNotNull(

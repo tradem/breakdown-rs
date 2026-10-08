@@ -29,14 +29,14 @@ const devAuthConfig = AppConfig(
   oidcRedirectUri: '',
   devIdpInsecure: '',
   appVersion: '1.0.0+1',
-  defaultSeriesId: 'series-1',
+  defaultProjectId: 'series-1',
 );
 
 /// Dev-auth config with an EMPTY series id — the issue #467
 /// build-misconfiguration state (a build shipped without
-/// `--dart-define=DEFAULT_SERIES_ID`). The wizard must fail fast with the
+/// `--dart-define=DEFAULT_PROJECT_ID`). The wizard must fail fast with the
 /// actionable copy instead of a blind 422 round-trip.
-const devAuthConfigNoSeriesId = AppConfig(
+const devAuthConfigNoProjectId = AppConfig(
   flavor: Flavor.dev,
   apiBase: 'http://10.0.2.2:3000',
   oidcIss: '',
@@ -46,7 +46,7 @@ const devAuthConfigNoSeriesId = AppConfig(
   oidcRedirectUri: '',
   devIdpInsecure: '',
   appVersion: '1.0.0+1',
-  defaultSeriesId: '',
+  defaultProjectId: '',
 );
 
 /// Real-OIDC config (with an empty [TokenStore] this is a signed-out
@@ -61,7 +61,7 @@ const realOidcConfig = AppConfig(
   oidcRedirectUri: 'breakdown://redirect',
   devIdpInsecure: '',
   appVersion: '1.0.0+1',
-  defaultSeriesId: '',
+  defaultProjectId: '',
 );
 
 SeasonView season(
@@ -73,7 +73,7 @@ SeasonView season(
   (b) => b
     ..id = id
     ..number = number
-    ..seriesId = 'series-1'
+    ..projectId = 'series-1'
     ..title = title
     ..archived = archived
     ..updatedAt = DateTime.utc(2026, 1, 1)
@@ -87,7 +87,7 @@ BlockView block(String id, {String seasonId = 'season-1'}) => BlockView(
     ..id = id
     ..number = 1
     ..seasonId = seasonId
-    ..seriesId = 'series-1'
+    ..projectId = 'series-1'
     ..updatedAt = DateTime.utc(2026, 1, 1)
     ..version = 1,
 );

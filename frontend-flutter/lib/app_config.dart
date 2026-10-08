@@ -56,7 +56,7 @@ class AppConfig {
     required this.oidcRedirectUri,
     required this.devIdpInsecure,
     required this.appVersion,
-    this.defaultSeriesId = '',
+    this.defaultProjectId = '',
   });
 
   /// Reads configuration from the environment, defaulting the API base to the
@@ -89,7 +89,7 @@ class AppConfig {
     final appVersion = appVersionRaw.isEmpty ? 'unknown' : appVersionRaw;
     // Optional pre-fill for season-creating forms. Env-sourced, never
     // hardcoded (AGENTS.md §5); the field stays editable when absent.
-    const defaultSeriesId = String.fromEnvironment('DEFAULT_SERIES_ID');
+    const defaultProjectId = String.fromEnvironment('DEFAULT_PROJECT_ID');
 
     return AppConfig(
       flavor: flavor,
@@ -101,7 +101,7 @@ class AppConfig {
       oidcRedirectUri: oidcRedirectUri,
       devIdpInsecure: devIdpInsecure,
       appVersion: appVersion,
-      defaultSeriesId: defaultSeriesId,
+      defaultProjectId: defaultProjectId,
     );
   }
 
@@ -148,10 +148,10 @@ class AppConfig {
   /// (enforced by the `version-drift` CI job).
   final String appVersion;
 
-  /// `DEFAULT_SERIES_ID` dart-define (may be empty). Used only as a form
-  /// pre-fill; the authoritative `series_id` of a season always comes from
+  /// `DEFAULT_PROJECT_ID` dart-define (may be empty). Used only as a form
+  /// pre-fill; the authoritative `project_id` of a season always comes from
   /// the server's projection, never from this value.
-  final String defaultSeriesId;
+  final String defaultProjectId;
 
   bool get isDev => flavor == Flavor.dev;
 
@@ -182,6 +182,6 @@ class AppConfig {
     oidcRedirectUri: oidcRedirectUri,
     devIdpInsecure: devIdpInsecure,
     appVersion: appVersion,
-    defaultSeriesId: defaultSeriesId,
+    defaultProjectId: defaultProjectId,
   );
 }

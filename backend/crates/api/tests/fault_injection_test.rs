@@ -69,7 +69,7 @@ fn test_app() -> axum::Router {
 
 fn create_block_body() -> String {
     format!(
-        r#"{{"id":"{}","season_id":"{}","series_id":"{}","number":1}}"#,
+        r#"{{"id":"{}","season_id":"{}","project_id":"{}","number":1}}"#,
         Uuid::now_v7(),
         Uuid::now_v7(),
         Uuid::now_v7()

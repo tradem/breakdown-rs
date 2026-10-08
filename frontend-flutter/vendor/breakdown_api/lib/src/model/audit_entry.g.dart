@@ -24,7 +24,7 @@ class _$AuditEntry extends AuditEntry {
   @override
   final JsonObject? payload;
   @override
-  final String? seriesId;
+  final String? projectId;
 
   factory _$AuditEntry([void Function(AuditEntryBuilder)? updates]) =>
       (AuditEntryBuilder()..update(updates))._build();
@@ -38,7 +38,7 @@ class _$AuditEntry extends AuditEntry {
       required this.id,
       required this.occurredAt,
       this.payload,
-      this.seriesId})
+      this.projectId})
       : super._();
   @override
   AuditEntry rebuild(void Function(AuditEntryBuilder) updates) =>
@@ -59,7 +59,7 @@ class _$AuditEntry extends AuditEntry {
         id == other.id &&
         occurredAt == other.occurredAt &&
         payload == other.payload &&
-        seriesId == other.seriesId;
+        projectId == other.projectId;
   }
 
   @override
@@ -73,7 +73,7 @@ class _$AuditEntry extends AuditEntry {
     _$hash = $jc(_$hash, id.hashCode);
     _$hash = $jc(_$hash, occurredAt.hashCode);
     _$hash = $jc(_$hash, payload.hashCode);
-    _$hash = $jc(_$hash, seriesId.hashCode);
+    _$hash = $jc(_$hash, projectId.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
   }
@@ -89,7 +89,7 @@ class _$AuditEntry extends AuditEntry {
           ..add('id', id)
           ..add('occurredAt', occurredAt)
           ..add('payload', payload)
-          ..add('seriesId', seriesId))
+          ..add('projectId', projectId))
         .toString();
   }
 }
@@ -129,9 +129,9 @@ class AuditEntryBuilder implements Builder<AuditEntry, AuditEntryBuilder> {
   JsonObject? get payload => _$this._payload;
   set payload(JsonObject? payload) => _$this._payload = payload;
 
-  String? _seriesId;
-  String? get seriesId => _$this._seriesId;
-  set seriesId(String? seriesId) => _$this._seriesId = seriesId;
+  String? _projectId;
+  String? get projectId => _$this._projectId;
+  set projectId(String? projectId) => _$this._projectId = projectId;
 
   AuditEntryBuilder() {
     AuditEntry._defaults(this);
@@ -148,7 +148,7 @@ class AuditEntryBuilder implements Builder<AuditEntry, AuditEntryBuilder> {
       _id = $v.id;
       _occurredAt = $v.occurredAt;
       _payload = $v.payload;
-      _seriesId = $v.seriesId;
+      _projectId = $v.projectId;
       _$v = null;
     }
     return this;
@@ -182,7 +182,7 @@ class AuditEntryBuilder implements Builder<AuditEntry, AuditEntryBuilder> {
           occurredAt: BuiltValueNullFieldError.checkNotNull(
               occurredAt, r'AuditEntry', 'occurredAt'),
           payload: payload,
-          seriesId: seriesId,
+          projectId: projectId,
         );
     replace(_$result);
     return _$result;

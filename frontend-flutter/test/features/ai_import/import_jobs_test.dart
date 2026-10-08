@@ -57,7 +57,7 @@ const devAuthConfig = AppConfig(
   oidcRedirectUri: '',
   devIdpInsecure: '',
   appVersion: '1.0.0+1',
-  defaultSeriesId: 'series-1',
+  defaultProjectId: 'series-1',
 );
 
 AiImportJob _job(
@@ -287,7 +287,7 @@ void main() {
                 ..id = 'ep-1'
                 ..number = 1
                 ..blockId = 'block-1'
-                ..seriesId = 'series-1'
+                ..projectId = 'series-1'
                 ..updatedAt = DateTime.utc(2026, 1, 1)
                 ..version = 1,
             ),
@@ -302,7 +302,7 @@ void main() {
       final rows = await repo.readCached('dev-user');
       final row = rows.getRight().toNullable()!.single;
       expect(row.episodeId, 'ep-1');
-      expect(row.seriesId, 'series-1');
+      expect(row.projectId, 'series-1');
       container.dispose();
     });
 
@@ -356,7 +356,7 @@ void main() {
                 ..id = 'ep-1'
                 ..number = 1
                 ..blockId = 'block-1'
-                ..seriesId = 'series-1'
+                ..projectId = 'series-1'
                 ..updatedAt = DateTime.utc(2026, 1, 1)
                 ..version = 1,
             ),

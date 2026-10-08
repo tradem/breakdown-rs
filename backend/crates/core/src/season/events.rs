@@ -13,9 +13,13 @@ use crate::shared::{AggregateVersion, ProjectId};
 pub enum SeasonEvent {
     SeasonCreated {
         id: Uuid,
-        /// `#[serde(rename = "series_id")]` pins the persisted key (issue #591,
-        /// layer 2): the event store already holds `SeasonCreated` events
-        /// written under `project_id`, and ADR-002 forbids rewriting history.
+        /// `#[serde(rename = "series_id")]` pins the **persisted** key, and it stays
+        /// that way: the event store already holds `SeasonCreated` events written
+        /// under `series_id`, ADR-002 forbids rewriting history, and
+        /// `projection_audit.event_key` is derived from the re-serialized payload
+        /// (renaming would duplicate every pre-rename audit row on replay). Issue
+        /// #599 renamed every *other* spelling (projection columns, OpenAPI
+        /// properties) but deliberately left this one.
         #[serde(rename = "series_id")]
         project_id: ProjectId,
         number: i32,

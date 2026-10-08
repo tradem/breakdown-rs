@@ -985,10 +985,9 @@ mod tests {
     #[derive(serde::Deserialize)]
     #[allow(dead_code)]
     struct SeasonCreateLike {
-        // Mirrors the real `CreateSeasonRequest` wire shape: the Rust field is
-        // `project_id` while the JSON key stays `series_id` (issue #591,
-        // layer 3 deferred).
-        #[serde(rename = "series_id")]
+        // Mirrors the real `CreateSeasonRequest` wire shape: both the Rust
+        // field and the JSON key are `project_id` (issue #599, ADR-035 S1
+        // layer 3).
         project_id: Uuid,
         number: i32,
     }
@@ -1126,7 +1125,7 @@ mod tests {
                 Method::POST,
                 "/",
                 Some("application/json"),
-                b"{\"series_id\":\"\",\"number\":1}",
+                b"{\"project_id\":\"\",\"number\":1}",
             ))
             .await
             .expect("oneshot");
@@ -1136,7 +1135,7 @@ mod tests {
 
         // A valid body still extracts (the wrapper must never over-reject).
         let valid_uuid = Uuid::now_v7();
-        let body = format!("{{\"series_id\":\"{valid_uuid}\",\"number\":1}}");
+        let body = format!("{{\"project_id\":\"{valid_uuid}\",\"number\":1}}");
         let resp = app
             .clone()
             .oneshot(

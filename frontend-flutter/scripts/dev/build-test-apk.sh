@@ -83,8 +83,8 @@ Outputs
       A sha256 of the stamped copy is printed.
 
 Precondition checks (hard fail before any build)
-  - DEFAULT_SERIES_ID non-empty. An empty define dispatches a season-create
-    with an empty series_id that surfaces only as a generic 422 at runtime
+  - DEFAULT_PROJECT_ID non-empty. An empty define dispatches a season-create
+    with an empty project_id that surfaces only as a generic 422 at runtime
     (issue #467) — the script aborts instead.
   - DEV_AUTH_SUB non-empty. Dev-auth parity with the backend (ADR-018);
     without it the app has no authenticated developer identity.
@@ -113,10 +113,10 @@ Dart defines injected (--dart-define)
       Authenticated subject for dev-auth mode (backend ADR-018 / DEV_AUTH_SUB).
       REQUIRED (hard fail when empty). Where it lives: your .env.build-test /
       environment; the backend must run with DEV_AUTH_SUB set to match.
-  DEFAULT_SERIES_ID
+  DEFAULT_PROJECT_ID
       Season-creation pre-fill (lib/app_config.dart). REQUIRED (hard fail when
-      empty, issue #467). Where it lives: a series id from the dev backend you
-      test against (GET /v1/series), in .env.build-test / environment.
+      empty, issue #467). Where it lives: a project id from the dev backend you
+      test against (GET /v1/series/{id}/membership), in .env.build-test / environment.
   APP_VERSION
       About-dialog marker (lib/features/app_info/info_dialog.dart). Default:
       '<pubspec version> · DEV-<n>' — <n> auto-increments from the stamps
@@ -130,7 +130,7 @@ Value source precedence (highest first)
      stripped). Create it once so this script becomes truly one command:
        API_BASE=https://<lan-ip>:3000
        DEV_AUTH_SUB=<dev-subject>
-       DEFAULT_SERIES_ID=<series-id>
+       DEFAULT_PROJECT_ID=<project-id>
   3. Built-in defaults (API_BASE emulator default, APP_VERSION auto marker)
 
 Exit codes: 0 ok; 1 precondition/build failure; 2 usage error.
@@ -185,7 +185,7 @@ require_nonempty() {
     die "${name} is empty — ${hint}" "Set it in ${ENV_FILE} or the calling environment (see --help)."
   fi
 }
-require_nonempty DEFAULT_SERIES_ID "an empty define dispatches a season-create with an empty series_id that surfaces only as a generic 422 at runtime (issue #467)"
+require_nonempty DEFAULT_PROJECT_ID "an empty define dispatches a season-create with an empty project_id that surfaces only as a generic 422 at runtime (issue #467)"
 require_nonempty DEV_AUTH_SUB "without it the app has no authenticated developer identity (backend dev-auth parity, ADR-018)"
 
 # 3. Pinned-CA sanity (spec flutter-dev-ca). The dev flavor pins
@@ -277,14 +277,14 @@ echo "  flavor       : dev (debug-signed Gradle fallback — never publish)"
 echo "  entrypoint   : ${ENTRYPOINT}"
 echo "  API_BASE     : ${API_BASE}"
 echo "  DEV_AUTH_SUB : ${DEV_AUTH_SUB}"
-echo "  SERIES_ID    : ${DEFAULT_SERIES_ID}"
+echo "  PROJECT_ID   : ${DEFAULT_PROJECT_ID}"
 echo "  APP_VERSION  : ${APP_VERSION}"
 
 # --- Build --------------------------------------------------------------------
 flutter build apk --release --flavor dev -t "${ENTRYPOINT}" \
   --dart-define=API_BASE="${API_BASE}" \
   --dart-define=DEV_AUTH_SUB="${DEV_AUTH_SUB}" \
-  --dart-define=DEFAULT_SERIES_ID="${DEFAULT_SERIES_ID}" \
+  --dart-define=DEFAULT_PROJECT_ID="${DEFAULT_PROJECT_ID}" \
   --dart-define=APP_VERSION="${APP_VERSION}"
 
 # --- Verify, stamp, print sha256 ---------------------------------------------

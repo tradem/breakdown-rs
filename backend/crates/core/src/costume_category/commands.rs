@@ -17,7 +17,6 @@ use crate::shared::{AggregateVersion, LexicalSortKey, ProjectId, SeasonId};
 pub struct CreateCostumeCategory {
     pub id: Uuid,
     pub season_id: SeasonId,
-    #[schema(rename = "series_id")]
     // wire name pinned: layer 3 (OpenAPI field rename) is a breaking ADR-021 change, deferred
     pub project_id: Option<ProjectId>,
     pub name: String,
@@ -33,7 +32,6 @@ pub struct CreateCostumeCategory {
 pub struct RenameCostumeCategory {
     pub id: Uuid,
     pub name: String,
-    #[schema(rename = "series_id")]
     // wire name pinned: layer 3 (OpenAPI field rename) is a breaking ADR-021 change, deferred
     pub project_id: Option<ProjectId>,
     pub version: AggregateVersion,
@@ -48,7 +46,6 @@ pub struct RenameCostumeCategory {
 pub struct ReorderCostumeCategory {
     pub id: Uuid,
     pub order_key: LexicalSortKey,
-    #[schema(rename = "series_id")]
     // wire name pinned: layer 3 (OpenAPI field rename) is a breaking ADR-021 change, deferred
     pub project_id: Option<ProjectId>,
     pub version: AggregateVersion,
@@ -62,7 +59,6 @@ pub struct ReorderCostumeCategory {
 #[derive(Debug, Clone, serde::Deserialize, utoipa::ToSchema)]
 pub struct ArchiveCostumeCategory {
     pub id: Uuid,
-    #[schema(rename = "series_id")]
     // wire name pinned: layer 3 (OpenAPI field rename) is a breaking ADR-021 change, deferred
     pub project_id: Option<ProjectId>,
     pub version: AggregateVersion,

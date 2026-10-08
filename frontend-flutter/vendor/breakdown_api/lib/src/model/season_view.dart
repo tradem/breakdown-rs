@@ -16,7 +16,7 @@ part 'season_view.g.dart';
 /// * [archived] - Terminal lifecycle flag (issue #533): `true` once `SeasonArchived` was applied. Archived seasons keep number + inventory readable.
 /// * [id]
 /// * [number]
-/// * [seriesId] - The tenant-level production container this season belongs to.
+/// * [projectId] - The tenant-level production container this season belongs to (`project_id` on the wire, issue #599).
 /// * [title]
 /// * [updatedAt]
 /// * [version] - Aggregate version for optimistic-locking round-trips.
@@ -32,9 +32,9 @@ abstract class SeasonView implements Built<SeasonView, SeasonViewBuilder> {
   @BuiltValueField(wireName: r'number')
   int get number;
 
-  /// The tenant-level production container this season belongs to.
-  @BuiltValueField(wireName: r'series_id')
-  String get seriesId;
+  /// The tenant-level production container this season belongs to (`project_id` on the wire, issue #599).
+  @BuiltValueField(wireName: r'project_id')
+  String get projectId;
 
   @BuiltValueField(wireName: r'title')
   String? get title;
@@ -84,9 +84,9 @@ class _$SeasonViewSerializer implements PrimitiveSerializer<SeasonView> {
       object.number,
       specifiedType: const FullType(int),
     );
-    yield r'series_id';
+    yield r'project_id';
     yield serializers.serialize(
-      object.seriesId,
+      object.projectId,
       specifiedType: const FullType(String),
     );
     if (object.title != null) {
@@ -152,12 +152,12 @@ class _$SeasonViewSerializer implements PrimitiveSerializer<SeasonView> {
           ) as int;
           result.number = valueDes;
           break;
-        case r'series_id':
+        case r'project_id':
           final valueDes = serializers.deserialize(
             value,
             specifiedType: const FullType(String),
           ) as String;
-          result.seriesId = valueDes;
+          result.projectId = valueDes;
           break;
         case r'title':
           final valueDes = serializers.deserialize(

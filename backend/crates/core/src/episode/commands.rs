@@ -14,7 +14,6 @@ pub struct CreateEpisode {
     pub id: Uuid,
     pub block_id: BlockId,
     /// Denormalized project reference (immutable for an Episode).
-    #[schema(rename = "series_id")]
     // wire name pinned: layer 3 (OpenAPI field rename) is a breaking ADR-021 change, deferred
     pub project_id: ProjectId,
     pub number: i32,
@@ -30,7 +29,6 @@ pub struct CreateEpisode {
 pub struct RenameEpisode {
     pub id: Uuid,
     pub name: Option<String>,
-    #[schema(rename = "series_id")]
     // wire name pinned: layer 3 (OpenAPI field rename) is a breaking ADR-021 change, deferred
     pub project_id: Option<ProjectId>,
     pub version: AggregateVersion,

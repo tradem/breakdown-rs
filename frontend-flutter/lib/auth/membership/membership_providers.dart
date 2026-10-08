@@ -34,10 +34,10 @@ SeasonMembershipDto devAuthMembership(String seasonId) => SeasonMembershipDto(
 
 /// The series-level permissive membership for dev-auth mode (issue #535):
 /// mirrors [devAuthMembership] one scope up.
-SeriesMembershipDto devAuthSeriesMembership(String seriesId) =>
+SeriesMembershipDto devAuthSeriesMembership(String projectId) =>
     SeriesMembershipDto(
       (b) => b
-        ..seriesId = seriesId
+        ..projectId = projectId
         ..hasActiveCostumeRoleInSeries = true
         ..capabilities.replace(Capability.values.map((c) => c.wireName)),
     );
@@ -57,10 +57,10 @@ SeasonMembershipDto devAuthDeniedMembership(String seasonId) =>
 /// The series-level denial membership for the Gherkin viewer-role scenario
 /// (issue #535): the series-scoped costume-photo gate resolves to a denial
 /// without any network call.
-SeriesMembershipDto devAuthDeniedSeriesMembership(String seriesId) =>
+SeriesMembershipDto devAuthDeniedSeriesMembership(String projectId) =>
     SeriesMembershipDto(
       (b) => b
-        ..seriesId = seriesId
+        ..projectId = projectId
         ..hasActiveCostumeRoleInSeries = false
         ..capabilities.replace(BuiltList<String>()),
     );
@@ -130,7 +130,7 @@ CostumeMembershipScope costumeMembershipScope(CostumeView costume) => (
 /// series, or the client would deny callers the server permits (and vice
 /// versa).
 ///
-/// Resolution order (mirror of `series_id_for_costume_strict`, api edge):
+/// Resolution order (mirror of `project_id_for_costume_strict`, api edge):
 /// 1. `characterId != null` → `GET /v1/characters/{id}` → the character's
 ///    season → the season's series (D1 read path).
 /// 2. else `seasonIds` (repertoire, ordered by `season_id` server-side) →
@@ -151,12 +151,12 @@ Future<Result<SeriesMembershipDto>> seriesMembershipForCostume(
   if (config.devAuthMode) {
     // Dev-auth short-circuit: no resolution runs, so there is no real series
     // id — use the documented placeholder (never a costume id, which would
-    // poison the DTO's `seriesId` field with a costume identifier).
-    const devSeriesId = 'dev-auth-series';
+    // poison the DTO's `projectId` field with a costume identifier).
+    const devProjectId = 'dev-auth-series';
     if (DebugMembershipOverride.deniesAll) {
-      return Right(devAuthDeniedSeriesMembership(devSeriesId));
+      return Right(devAuthDeniedSeriesMembership(devProjectId));
     }
-    return Right(devAuthSeriesMembership(devSeriesId));
+    return Right(devAuthSeriesMembership(devProjectId));
   }
   // Mirror the server's character-first resolution (issue #535 review).
   final characterId = scope.characterId;
@@ -186,7 +186,7 @@ Future<Result<SeriesMembershipDto>> seriesMembershipForCostume(
 
 /// Season → series membership resolution via the D1 read path (Drift cache
 /// first, network GET `/v1/seasons/{id}` + upsert on miss), then
-/// `GET /v1/series/{seriesId}/membership`. Shared by
+/// `GET /v1/series/{projectId}/membership`. Shared by
 /// [seriesMembershipForCostume] (character season and repertoire seasons
 /// alike — the character's season may be a *different* season than the open
 /// one, so the costume-keyed gate cannot shortcut through the open screen).
@@ -212,7 +212,7 @@ Future<Result<SeriesMembershipDto>> _seriesMembershipForSeason(
     (err) => Left(err),
     (view) =>
         MembershipRepository(BreakdownApi(dio: ref.watch(apiDioProvider)))
-            .fetchSeries(view.seriesId),
+            .fetchSeries(view.projectId),
   );
 }
 

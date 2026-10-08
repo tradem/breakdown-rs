@@ -14,7 +14,7 @@ class _$SeasonView extends SeasonView {
   @override
   final int number;
   @override
-  final String seriesId;
+  final String projectId;
   @override
   final String? title;
   @override
@@ -29,7 +29,7 @@ class _$SeasonView extends SeasonView {
       {required this.archived,
       required this.id,
       required this.number,
-      required this.seriesId,
+      required this.projectId,
       this.title,
       required this.updatedAt,
       required this.version})
@@ -48,7 +48,7 @@ class _$SeasonView extends SeasonView {
         archived == other.archived &&
         id == other.id &&
         number == other.number &&
-        seriesId == other.seriesId &&
+        projectId == other.projectId &&
         title == other.title &&
         updatedAt == other.updatedAt &&
         version == other.version;
@@ -60,7 +60,7 @@ class _$SeasonView extends SeasonView {
     _$hash = $jc(_$hash, archived.hashCode);
     _$hash = $jc(_$hash, id.hashCode);
     _$hash = $jc(_$hash, number.hashCode);
-    _$hash = $jc(_$hash, seriesId.hashCode);
+    _$hash = $jc(_$hash, projectId.hashCode);
     _$hash = $jc(_$hash, title.hashCode);
     _$hash = $jc(_$hash, updatedAt.hashCode);
     _$hash = $jc(_$hash, version.hashCode);
@@ -74,7 +74,7 @@ class _$SeasonView extends SeasonView {
           ..add('archived', archived)
           ..add('id', id)
           ..add('number', number)
-          ..add('seriesId', seriesId)
+          ..add('projectId', projectId)
           ..add('title', title)
           ..add('updatedAt', updatedAt)
           ..add('version', version))
@@ -97,9 +97,9 @@ class SeasonViewBuilder implements Builder<SeasonView, SeasonViewBuilder> {
   int? get number => _$this._number;
   set number(int? number) => _$this._number = number;
 
-  String? _seriesId;
-  String? get seriesId => _$this._seriesId;
-  set seriesId(String? seriesId) => _$this._seriesId = seriesId;
+  String? _projectId;
+  String? get projectId => _$this._projectId;
+  set projectId(String? projectId) => _$this._projectId = projectId;
 
   String? _title;
   String? get title => _$this._title;
@@ -123,7 +123,7 @@ class SeasonViewBuilder implements Builder<SeasonView, SeasonViewBuilder> {
       _archived = $v.archived;
       _id = $v.id;
       _number = $v.number;
-      _seriesId = $v.seriesId;
+      _projectId = $v.projectId;
       _title = $v.title;
       _updatedAt = $v.updatedAt;
       _version = $v.version;
@@ -153,8 +153,8 @@ class SeasonViewBuilder implements Builder<SeasonView, SeasonViewBuilder> {
           id: BuiltValueNullFieldError.checkNotNull(id, r'SeasonView', 'id'),
           number: BuiltValueNullFieldError.checkNotNull(
               number, r'SeasonView', 'number'),
-          seriesId: BuiltValueNullFieldError.checkNotNull(
-              seriesId, r'SeasonView', 'seriesId'),
+          projectId: BuiltValueNullFieldError.checkNotNull(
+              projectId, r'SeasonView', 'projectId'),
           title: title,
           updatedAt: BuiltValueNullFieldError.checkNotNull(
               updatedAt, r'SeasonView', 'updatedAt'),

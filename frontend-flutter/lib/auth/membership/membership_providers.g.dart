@@ -133,7 +133,7 @@ final class MembershipFetchFamily extends $Family
 /// series, or the client would deny callers the server permits (and vice
 /// versa).
 ///
-/// Resolution order (mirror of `series_id_for_costume_strict`, api edge):
+/// Resolution order (mirror of `project_id_for_costume_strict`, api edge):
 /// 1. `characterId != null` → `GET /v1/characters/{id}` → the character's
 ///    season → the season's series (D1 read path).
 /// 2. else `seasonIds` (repertoire, ordered by `season_id` server-side) →
@@ -159,7 +159,7 @@ final seriesMembershipForCostumeProvider = SeriesMembershipForCostumeFamily._();
 /// series, or the client would deny callers the server permits (and vice
 /// versa).
 ///
-/// Resolution order (mirror of `series_id_for_costume_strict`, api edge):
+/// Resolution order (mirror of `project_id_for_costume_strict`, api edge):
 /// 1. `characterId != null` → `GET /v1/characters/{id}` → the character's
 ///    season → the season's series (D1 read path).
 /// 2. else `seasonIds` (repertoire, ordered by `season_id` server-side) →
@@ -192,7 +192,7 @@ final class SeriesMembershipForCostumeProvider
   /// series, or the client would deny callers the server permits (and vice
   /// versa).
   ///
-  /// Resolution order (mirror of `series_id_for_costume_strict`, api edge):
+  /// Resolution order (mirror of `project_id_for_costume_strict`, api edge):
   /// 1. `characterId != null` → `GET /v1/characters/{id}` → the character's
   ///    season → the season's series (D1 read path).
   /// 2. else `seasonIds` (repertoire, ordered by `season_id` server-side) →
@@ -250,7 +250,7 @@ final class SeriesMembershipForCostumeProvider
 }
 
 String _$seriesMembershipForCostumeHash() =>
-    r'd59933a0113335d72b1d5952117e806a5bc7ea7f';
+    r'14471e8cef8e7e4698f41928bde58f737b353a67';
 
 /// The series-level membership fetch for a **costume** (issue #535 review):
 /// the client-side AUTHZ-GATE source for the **series-scoped costume-photo
@@ -262,7 +262,7 @@ String _$seriesMembershipForCostumeHash() =>
 /// series, or the client would deny callers the server permits (and vice
 /// versa).
 ///
-/// Resolution order (mirror of `series_id_for_costume_strict`, api edge):
+/// Resolution order (mirror of `project_id_for_costume_strict`, api edge):
 /// 1. `characterId != null` → `GET /v1/characters/{id}` → the character's
 ///    season → the season's series (D1 read path).
 /// 2. else `seasonIds` (repertoire, ordered by `season_id` server-side) →
@@ -300,7 +300,7 @@ final class SeriesMembershipForCostumeFamily extends $Family
   /// series, or the client would deny callers the server permits (and vice
   /// versa).
   ///
-  /// Resolution order (mirror of `series_id_for_costume_strict`, api edge):
+  /// Resolution order (mirror of `project_id_for_costume_strict`, api edge):
   /// 1. `characterId != null` → `GET /v1/characters/{id}` → the character's
   ///    season → the season's series (D1 read path).
   /// 2. else `seasonIds` (repertoire, ordered by `season_id` server-side) →

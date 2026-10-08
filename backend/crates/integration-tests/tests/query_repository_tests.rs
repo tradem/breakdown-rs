@@ -413,7 +413,7 @@ async fn costumes_with_details_returns_data() -> Result<()> {
 }
 
 #[tokio::test]
-async fn seasons_by_series_returns_data() -> Result<()> {
+async fn seasons_by_project_returns_data() -> Result<()> {
     let (pool, cmd_svc, _pg_guard, _sierra_guard) = init().await?;
     let project_id = ProjectId::new();
     let season_repo = SeasonRepositoryImpl::new(pool.clone());
@@ -580,7 +580,7 @@ async fn blocks_by_season_returns_data() -> Result<()> {
 }
 
 #[tokio::test]
-async fn episodes_by_series_returns_data() -> Result<()> {
+async fn episodes_by_project_returns_data() -> Result<()> {
     let (pool, cmd_svc, _pg_guard, _sierra_guard) = init().await?;
     let block_id = BlockId::new();
     let project_id = ProjectId::new();

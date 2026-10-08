@@ -41,7 +41,7 @@ const devAuthConfig = AppConfig(
   oidcRedirectUri: '',
   devIdpInsecure: '',
   appVersion: '1.0.0+1',
-  defaultSeriesId: 'series-1',
+  defaultProjectId: 'series-1',
 );
 
 AiImportJob _job(String id, {String? blockId}) => AiImportJob(
@@ -67,7 +67,7 @@ EpisodeView _episode(String id, String blockId, {int number = 1}) =>
         ..id = id
         ..blockId = blockId
         ..number = number
-        ..seriesId = 'series-1'
+        ..projectId = 'series-1'
         ..updatedAt = DateTime.utc(2026, 1, 1)
         ..version = 1,
     );
