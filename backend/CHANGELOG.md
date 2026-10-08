@@ -161,6 +161,14 @@ tag. Never edit a released entry afterwards.
   chunk (the heading is that scene's heading).
 
 ### Changed
+- **Version bumps (MSRV, issue `#605`).** `core 0.23.0 → 0.24.0`,
+  `infra 0.28.0 → 0.29.0` (re-pins core), `api 0.21.0 → 0.22.0` (re-pins
+  core/infra); MSRV `rust-version = 1.98 → 1.99` (Rust 1.99.0, stable
+  2026-10-01) — a **MAJOR change per crate** per ADR-020 D2/D5: the workspace
+  `rust-version`, the Dockerfile builder image (`rust:1.99-bookworm`), the
+  ci.yml `msrv` job's pinned toolchain, and the vendored
+  `.patches/kameo_es/` crates' mirror-aligned `rust-version` move in
+  lockstep; no code changes.
 - **Layer 3 of the `SeriesId` → `ProjectId` rename: the projection columns and
   the wire contract say `project_id` (issue `#599`, ADR-035 D1/S1/B4/B5 —
   completing issue `#591`).** Issue #591 renamed the Rust type and the Rust

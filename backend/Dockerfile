@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0
 # Copyright (C) 2024-2026 Breakdown RS Contributors
 # Co-authored-by: deepseek-v4-flash (opencode-go)
+# Co-authored-by: glm-5.3-flash (opencode-go)
 # Co-authored-by: gpt-5.6-luna (opencode-go)
 
 # Multi-stage build for the Breakdown RS API binary.
@@ -9,7 +10,7 @@
 
 # syntax=docker/dockerfile:1.7
 
-FROM rust:1.98-bookworm AS builder
+FROM rust:1.99-bookworm AS builder
 
 WORKDIR /build
 
