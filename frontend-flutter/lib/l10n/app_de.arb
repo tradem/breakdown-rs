@@ -622,7 +622,7 @@
   "seasonsCreateAuth": "Bitte melde dich an, um fortzufahren.",
   "seasonsCreateNetwork": "Netzwerkproblem — die Season wurde nicht erstellt. Bitte versuche es erneut.",
   "seasonsCreateGeneric": "Die Season konnte nicht erstellt werden.",
-  "seasonsCreateSeriesIdMissing": "Diese App wurde ohne DEFAULT_SERIES_ID gebaut: Die neue Season kann keiner Serie zugeordnet werden. Baue die App mit --dart-define=DEFAULT_SERIES_ID=<ID der Standardserie> neu.",
+  "seasonsCreateSeriesIdMissing": "Diese App wurde ohne DEFAULT_PROJECT_ID gebaut: Die neue Season kann keiner Serie zugeordnet werden. Baue die App mit --dart-define=DEFAULT_PROJECT_ID=<ID der Standardserie> neu.",
   "seasonsSetupCta": "Season-Setup starten",
   "seasonsManualCreateCta": "Manuell",
   "seasonsDefaultTitle": "Season {number}",

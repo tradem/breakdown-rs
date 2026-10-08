@@ -274,7 +274,7 @@ establishing change).
 | `—` *(no icon)* | **Eine ganze Zahl größer als 0 ist nötig.** | Wizard inline validation — season number / episode count | `wizard.errors.positiveNumber` |
 | `—` *(no icon)* | **Mindestens ein Block ist nötig.** | Wizard inline validation — zero drafts at submit time | `wizard.errors.noBlocks` |
 | `—` *(no icon)* | **Nummern werden ermittelt …** | Wizard review — derived series-scoped numbers still settling; confirm stays disabled until then | `wizard.review.numbersPending` |
-| `—` *(no icon)* | **Diese App wurde ohne DEFAULT_SERIES_ID gebaut: …** | Build-misconfiguration notice — shared by the wizard's pre-dispatch guard and the manual create sheet (the series is derived, never typed) | `seasons.create.seriesIdMissing` |
+| `—` *(no icon)* | **Diese App wurde ohne DEFAULT_PROJECT_ID gebaut: …** | Build-misconfiguration notice — shared by the wizard's pre-dispatch guard and the manual create sheet (the project is derived, never typed) | `seasons.create.seriesIdMissing` |
 | `quickcheck.title` *(template example)* | **Schnell-Check** | Screen-spec template example screen (fictional `CostumeQuickCheck`) | `quickcheck.title` |
 | `quickcheck.empty` *(template example)* | **Keine Figuren in dieser Szene** | Template example screen — empty state | `quickcheck.empty` |
 

@@ -63,7 +63,7 @@ void main() {
       'j2',
       userId: 'user-a',
       episodeId: 'ep-x',
-      seriesId: 'series-x',
+      projectId: 'series-x',
     );
     expect((await dao.readById('j2', 'user-b'))!.episodeId, isNull);
   });
@@ -115,11 +115,11 @@ void main() {
         _job('j1'),
         DateTime.utc(2026, 1, 1),
         episodeId: 'ep-1',
-        seriesId: 'series-1',
+        projectId: 'series-1',
       );
       final row = (await dao.readById('j1', 'user-a'))!;
       expect(row.episodeId, 'ep-1');
-      expect(row.seriesId, 'series-1');
+      expect(row.projectId, 'series-1');
       // Round-trips the mirrored DTO fields.
       expect(row.status, JobStatus.pending.name);
       expect(row.documentKind, DocumentKind.schedule.name);
@@ -133,7 +133,7 @@ void main() {
       _job('j1'),
       DateTime.utc(2026, 1, 1),
       episodeId: 'ep-1',
-      seriesId: 'series-1',
+      projectId: 'series-1',
     );
     // A list refetch (no context on the wire) must NOT wipe the context.
     await dao.upsertAll([
@@ -141,7 +141,7 @@ void main() {
     ], DateTime.utc(2026, 1, 2));
     final row = (await dao.readById('j1', 'user-a'))!;
     expect(row.episodeId, 'ep-1');
-    expect(row.seriesId, 'series-1');
+    expect(row.projectId, 'series-1');
     expect(row.status, JobStatus.succeeded.name);
   });
 
@@ -152,7 +152,7 @@ void main() {
       'j1',
       userId: 'user-a',
       episodeId: 'ep-9',
-      seriesId: 'series-9',
+      projectId: 'series-9',
     );
     expect((await dao.readById('j1', 'user-a'))!.episodeId, 'ep-9');
 
@@ -161,7 +161,7 @@ void main() {
       'ghost',
       userId: 'user-a',
       episodeId: 'ep-9',
-      seriesId: 'series-9',
+      projectId: 'series-9',
     );
     expect(await dao.readById('ghost', 'user-a'), isNull);
   });

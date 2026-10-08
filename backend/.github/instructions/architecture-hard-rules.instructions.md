@@ -18,9 +18,9 @@ dieser Text ist die vollständige Begründung mit Beispielen.
 
 **CQRS Boundary (hard rule):** Write-side code — Command adapters
 (`*CommandsImpl`), Sagas, Aggregates — must **never** query a read-model
-projection (`*Repository::find_by_id`) to resolve audit/derived context such
-as `series_id`. Such context must come from the **event data itself**
-(e.g. `SeasonCreated.series_id`) or from a **command field** populated at the
+projection (`*Repository::find_by_id`) to resolve audit/derived context (such
+as `project_id`). Such context must come from the **event data itself**
+(e.g. `SeasonCreated.project_id`) or from a **command field** populated at the
 API edge. The API layer (handlers) is the *only* legitimate consumer of
 read-model queries and may enrich commands before dispatch. Violating this
 creates a hidden coupling to projector presence and projection lag that
@@ -84,9 +84,9 @@ read model (dispo/soll-ist reports) never updates.
 | Invariant | Projection constraint | Status |
 |---|---|---|
 | SceneShoot pair-uniqueness `(scene_id, shooting_day_id)` | `uq_projection_scene_shoot_pair` | closed: API-edge 409 (`scene-shoot.pair-already-exists`) + projector savepoint-skip + ADR-036 reservation claim (`sspair-{sha256-24}` key) |
-| Season numbering `(series_id, number)` | `idx_projection_season_series_number` | closed: API-edge 409 (`season.number-already-exists`) + projector savepoint-skip + ADR-036 reservation claim (`seasnum-{series}-{n}` key) |
-| Block numbering `(series_id, number)` | `idx_projection_block_series_number` | closed: API-edge 409 (`block.number-already-exists`) + projector savepoint-skip + ADR-036 reservation claim (`blocknum-{series}-{n}` key) |
-| Episode numbering `(series_id, number)` | `idx_projection_episode_series_number` | closed: API-edge 409 (`episode.number-already-exists`) + projector savepoint-skip + ADR-036 reservation claim (`epnum-{series}-{n}` key; BOTH write paths — manual `POST /episodes` and the AI-apply worker — go through `EpisodeCommands::create`) |
+| Season numbering `(project_id, number)` | `idx_projection_season_project_number` | closed: API-edge 409 (`season.number-already-exists`) + projector savepoint-skip + ADR-036 reservation claim (`seasnum-{project}-{n}` key) |
+| Block numbering `(project_id, number)` | `idx_projection_block_project_number` | closed: API-edge 409 (`block.number-already-exists`) + projector savepoint-skip + ADR-036 reservation claim (`blocknum-{project}-{n}` key) |
+| Episode numbering `(project_id, number)` | `idx_projection_episode_project_number` | closed: API-edge 409 (`episode.number-already-exists`) + projector savepoint-skip + ADR-036 reservation claim (`epnum-{project}-{n}` key; BOTH write paths — manual `POST /episodes` and the AI-apply worker — go through `EpisodeCommands::create`) |
 
 The projector skip lives in `crates/infra/src/projectors/invariant_skip.rs`: a 23505 on
 exactly these constraints is a *permanent* violation, isolated in a SAVEPOINT (a failed

@@ -14,7 +14,7 @@ class _$CreateEpisodeRequest extends CreateEpisodeRequest {
   @override
   final int number;
   @override
-  final String seriesId;
+  final String projectId;
 
   factory _$CreateEpisodeRequest(
           [void Function(CreateEpisodeRequestBuilder)? updates]) =>
@@ -24,7 +24,7 @@ class _$CreateEpisodeRequest extends CreateEpisodeRequest {
       {required this.blockId,
       this.name,
       required this.number,
-      required this.seriesId})
+      required this.projectId})
       : super._();
   @override
   CreateEpisodeRequest rebuild(
@@ -42,7 +42,7 @@ class _$CreateEpisodeRequest extends CreateEpisodeRequest {
         blockId == other.blockId &&
         name == other.name &&
         number == other.number &&
-        seriesId == other.seriesId;
+        projectId == other.projectId;
   }
 
   @override
@@ -51,7 +51,7 @@ class _$CreateEpisodeRequest extends CreateEpisodeRequest {
     _$hash = $jc(_$hash, blockId.hashCode);
     _$hash = $jc(_$hash, name.hashCode);
     _$hash = $jc(_$hash, number.hashCode);
-    _$hash = $jc(_$hash, seriesId.hashCode);
+    _$hash = $jc(_$hash, projectId.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
   }
@@ -62,7 +62,7 @@ class _$CreateEpisodeRequest extends CreateEpisodeRequest {
           ..add('blockId', blockId)
           ..add('name', name)
           ..add('number', number)
-          ..add('seriesId', seriesId))
+          ..add('projectId', projectId))
         .toString();
   }
 }
@@ -83,9 +83,9 @@ class CreateEpisodeRequestBuilder
   int? get number => _$this._number;
   set number(int? number) => _$this._number = number;
 
-  String? _seriesId;
-  String? get seriesId => _$this._seriesId;
-  set seriesId(String? seriesId) => _$this._seriesId = seriesId;
+  String? _projectId;
+  String? get projectId => _$this._projectId;
+  set projectId(String? projectId) => _$this._projectId = projectId;
 
   CreateEpisodeRequestBuilder() {
     CreateEpisodeRequest._defaults(this);
@@ -97,7 +97,7 @@ class CreateEpisodeRequestBuilder
       _blockId = $v.blockId;
       _name = $v.name;
       _number = $v.number;
-      _seriesId = $v.seriesId;
+      _projectId = $v.projectId;
       _$v = null;
     }
     return this;
@@ -124,8 +124,8 @@ class CreateEpisodeRequestBuilder
           name: name,
           number: BuiltValueNullFieldError.checkNotNull(
               number, r'CreateEpisodeRequest', 'number'),
-          seriesId: BuiltValueNullFieldError.checkNotNull(
-              seriesId, r'CreateEpisodeRequest', 'seriesId'),
+          projectId: BuiltValueNullFieldError.checkNotNull(
+              projectId, r'CreateEpisodeRequest', 'projectId'),
         );
     replace(_$result);
     return _$result;

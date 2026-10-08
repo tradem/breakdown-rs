@@ -25,9 +25,9 @@ class BlockCacheRows extends Table {
   /// Mirrors `BlockView.seasonId` (fetch scope: `GET /v1/blocks?season_id=`).
   TextColumn get seasonId => text()();
 
-  /// Mirrors `BlockView.seriesId` (opaque `SeriesId`, carried into
+  /// Mirrors `BlockView.projectId` (opaque `ProjectId`, carried into
   /// `CreateEpisodeRequest` from the read DTO the user acts on).
-  TextColumn get seriesId => text()();
+  TextColumn get projectId => text()();
 
   /// Mirrors `BlockView.startDate` (wire string, preserved unchanged;
   /// nullable since issue #423 — the backend serializes unset dates as
@@ -67,8 +67,8 @@ class EpisodeCacheRows extends Table {
   /// Mirrors `EpisodeView.number`.
   IntColumn get number => integer()();
 
-  /// Mirrors `EpisodeView.seriesId` (opaque `SeriesId`).
-  TextColumn get seriesId => text()();
+  /// Mirrors `EpisodeView.projectId` (opaque `ProjectId`).
+  TextColumn get projectId => text()();
 
   /// Mirrors `EpisodeView.updatedAt` — server timestamp, preserved unchanged.
   DateTimeColumn get updatedAt => dateTime()();

@@ -18,9 +18,11 @@ pub enum EpisodeEvent {
         /// an Episode, so write-once is safe) — needed directly for the
         /// project-global numbering unique index (ADR: decision 3).
         ///
-        /// `#[serde(rename = "series_id")]` pins the persisted key (issue #591,
-        /// layer 2): stored `EpisodeCreated` events already use `project_id` and
-        /// ADR-002 forbids rewriting history.
+        /// `#[serde(rename = "series_id")]` pins the **persisted** key and stays
+        /// that way: stored `EpisodeCreated` events already use `series_id`,
+        /// ADR-002 forbids rewriting history, and `projection_audit.event_key` is
+        /// derived from the re-serialized payload. Issue #599 renamed every *other*
+        /// spelling but deliberately left this one.
         #[serde(rename = "series_id")]
         project_id: ProjectId,
         number: i32,

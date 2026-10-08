@@ -19,7 +19,7 @@ set -euo pipefail
 # an active credential role. This script drives that sequence against a live
 # dev-auth API:
 #
-#   series (fresh UUIDv7) → season → block  ⇒  dev user becomes CostumeAssistant
+#   project (fresh UUIDv7) → season → block  ⇒  dev user becomes CostumeAssistant
 #
 # Prerequisites: the API must be running in dev auth mode (`DEV_AUTH_SUB`),
 # because the script relies on the dummy user (no bearer token needed) and the
@@ -68,12 +68,12 @@ if [ "$code" != "403" ]; then
     exit 1
 fi
 
-series_id=$(uuidv7)
+project_id=$(uuidv7)
 
-echo "==> Creating season (series $series_id) and block to bootstrap membership"
+echo "==> Creating season (project $project_id) and block to bootstrap membership"
 season_json=$(curl -fsS -X POST "$API_URL/v1/seasons" \
     -H 'Content-Type: application/json' \
-    -d "{\"series_id\":\"$series_id\",\"number\":1,\"title\":\"Dev AI import\"}")
+    -d "{\"project_id\":\"$project_id\",\"number\":1,\"title\":\"Dev AI import\"}")
 season_id=$(printf '%s' "$season_json" | json_id)
 if [ -z "$season_id" ]; then
     echo "ERROR: could not parse season id from: $(printf '%s' "$season_json" | head -c 200)" >&2
@@ -84,7 +84,7 @@ fi
 # current user) becomes an active CostumeAssistant — a credential role.
 block_json=$(curl -fsS -X POST "$API_URL/v1/blocks" \
     -H 'Content-Type: application/json' \
-    -d "{\"season_id\":\"$season_id\",\"series_id\":\"$series_id\",\"number\":1}")
+    -d "{\"season_id\":\"$season_id\",\"project_id\":\"$project_id\",\"number\":1}")
 block_id=$(printf '%s' "$block_json" | json_id)
 if [ -z "$block_id" ]; then
     echo "ERROR: could not parse block id from: $(printf '%s' "$block_json" | head -c 200)" >&2

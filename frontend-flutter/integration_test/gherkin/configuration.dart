@@ -98,13 +98,13 @@ Future<FlutterTestConfiguration> buildGherkinConfig() async {
     ..dartDefineArgs = [
       'DEV_AUTH_SUB=${Platform.environment['DEV_AUTH_SUB'] ?? 'dev-e2e'}',
       'API_BASE=${Platform.environment['API_BASE'] ?? 'http://10.0.2.2:3000'}',
-      // The wizard + quick-create sheet source their `series_id` from the
-      // env (`--dart-define=DEFAULT_SERIES_ID`, never hardcoded — AGENTS.md
+      // The wizard + quick-create sheet source their `project_id` from the
+      // env (`--dart-define=DEFAULT_PROJECT_ID`, never hardcoded — AGENTS.md
       // §5). Without it the dispatch POST /v1/seasons fails 422 and the
       // happy-path scenario lands on the partial-failure surface
       // (discovered by the #368 on-device run). Default to the dev series
       // the seeding + wizard scenarios use.
-      'DEFAULT_SERIES_ID=${Platform.environment['DEFAULT_SERIES_ID'] ?? '11111111-1111-1111-1111-111111111111'}',
+      'DEFAULT_PROJECT_ID=${Platform.environment['DEFAULT_PROJECT_ID'] ?? '11111111-1111-1111-1111-111111111111'}',
     ]
     // Build the per-scenario world as an AppWorld so step definitions can
     // carry auth-role / network-recorder context without any pure-function

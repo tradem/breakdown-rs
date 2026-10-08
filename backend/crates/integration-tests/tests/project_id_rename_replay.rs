@@ -10,8 +10,8 @@
     clippy::print_stderr,
     clippy::dbg_macro
 )]
-//! Tier-4 replay proof for the `SeriesId` → `ProjectId` rename (issue #591,
-//! ADR-035 D1/S1 — layers 1 and 2).
+//! Tier-4 replay proof for the `SeriesId` → `ProjectId` rename (issues #591
+//! and #599, ADR-035 D1/S1 — layers 1–3).
 //!
 //! ## Why this test exists
 //!
@@ -20,7 +20,9 @@
 //! `series_id`, and ADR-002 forbids rewriting history, so the Rust field is now
 //! `project_id` while the serde key stays `series_id`
 //! (`#[serde(rename = "series_id")]` on `SeasonEvent::SeasonCreated` and on
-//! `EventMetadata::project_id`).
+//! `EventMetadata::project_id`). Issue #599 (layer 3) renamed every *other*
+//! spelling — projection columns, OpenAPI properties and query parameters —
+//! and left this one, which is what the tests below pin.
 //!
 //! The failure mode a blind rename causes is invisible to the compiler: the
 //! projector dies on deserialization (surfacing as SQLSTATE 22 / a #37
@@ -358,16 +360,16 @@ async fn pre_rename_event_flows_through_projector_to_projection() -> Result<()> 
 
     await_season_projected(&pool, season_id).await?;
 
-    // The read model is rebuilt, and the column keeps its pre-rename name
-    // (layer 3 is deferred to its own ADR-021 /v2 migration).
-    let series_uuid: Uuid =
-        sqlx::query_scalar("SELECT series_id FROM projection_season WHERE id = $1")
+    // The read model is rebuilt under the *renamed* column (issue #599,
+    // layer 3) with the same value.
+    let project_uuid: Uuid =
+        sqlx::query_scalar("SELECT project_id FROM projection_season WHERE id = $1")
             .bind(season_id)
             .fetch_one(&pool)
             .await
-            .map_err(|e| anyhow!("read projection_season.series_id: {e}"))?;
+            .map_err(|e| anyhow!("read projection_season.project_id: {e}"))?;
     assert_eq!(
-        series_uuid,
+        project_uuid,
         legacy_project(),
         "the denormalized tenant column must survive the rename with the same value"
     );
@@ -376,12 +378,11 @@ async fn pre_rename_event_flows_through_projector_to_projection() -> Result<()> 
     assert_eq!(view.project_id, ProjectId::from_uuid(legacy_project()));
     assert_eq!(view.number, 7);
 
-    // The wire field name is deliberately still `series_id` (layer 3).
+    // The wire field name moved with the storage rename (issue #599, layer 3).
     let wire = serde_json::to_value(&view)?;
     assert!(
-        wire.get("series_id").is_some() && wire.get("project_id").is_none(),
-        "SeasonView must keep the `series_id` wire field until the layer-3 \
-         ADR-021 /v2 migration; got {wire}"
+        wire.get("project_id").is_some() && wire.get("series_id").is_none(),
+        "SeasonView must expose `project_id` since issue #599; got {wire}"
     );
 
     Ok(())

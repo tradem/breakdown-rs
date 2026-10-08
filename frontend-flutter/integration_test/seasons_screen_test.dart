@@ -28,7 +28,7 @@ SeasonView _season(String id, {int number = 1, String? title}) => SeasonView(
   (b) => b
     ..id = id
     ..number = number
-    ..seriesId = 'series-e2e'
+    ..projectId = 'series-e2e'
     ..title = title
     ..updatedAt = DateTime.utc(2026, 1, 1)
     ..version = 1,
@@ -77,7 +77,7 @@ void main() {
     oidcRedirectUri: '',
     devIdpInsecure: '',
     appVersion: '1.0.0+1',
-    defaultSeriesId: 'series-e2e',
+    defaultProjectId: 'series-e2e',
   );
 
   testWidgets(

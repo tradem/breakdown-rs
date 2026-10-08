@@ -36,7 +36,7 @@ without going through a port trait.
 === Production Hierarchy
 
 Four levels, series being an opaque seam for a future additive aggregate.
-Each level's aggregate emits hierarchy context (`series_id`, `season_id`)
+Each level's aggregate emits hierarchy context (`project_id`, `season_id`)
 into events so audit never needs read-model lookups.
 
 === Costume Domain
@@ -75,7 +75,7 @@ payload GC — all visible in chapter 6 and 7.
 == CQRS Boundary Rule
 
 A saga or aggregate must never resolve audit/derived context (e.g. a
-`series_id`) by reading a projection. That context travels in the event data
+`project_id`) by reading a projection. That context travels in the event data
 and, when needed, is enriched at the API edge before dispatch. The one
 permitted exception is the AI-import job worker: it performs deterministic
 mapping lookups (preview draft → aggregate id) under explicit

@@ -161,8 +161,6 @@ pub struct ListParams {
     pub offset: Option<i64>,
     pub episode_id: Option<EpisodeId>,
     pub season_id: Option<SeasonId>,
-    #[param(rename = "series_id")]
-    // query-param name pinned: layer 3 is a breaking ADR-021 change, deferred
     pub project_id: Option<ProjectId>,
 }
 
@@ -178,8 +176,6 @@ pub struct SeasonListParams {
     pub limit: Option<i64>,
     #[param(default = 0, minimum = 0)]
     pub offset: Option<i64>,
-    #[param(rename = "series_id")]
-    // query-param name pinned: layer 3 is a breaking ADR-021 change, deferred
     pub project_id: Option<ProjectId>,
     /// Issue #533: archived seasons are hidden by default; the explicit
     /// opt-in returns them (read-only, still locked for writes).
@@ -278,8 +274,6 @@ pub struct AddCostumeToSeasonRequest {
 
 #[derive(Debug, Clone, Deserialize, ToSchema)]
 pub struct CreateSeasonRequest {
-    #[schema(rename = "series_id")]
-    // wire field pinned: layer 3 is a breaking ADR-021 change, deferred
     pub project_id: ProjectId,
     pub number: i32,
     pub title: Option<String>,
@@ -288,8 +282,6 @@ pub struct CreateSeasonRequest {
 #[derive(Debug, Clone, Deserialize, ToSchema)]
 pub struct CreateBlockRequest {
     pub season_id: SeasonId,
-    #[schema(rename = "series_id")]
-    // wire field pinned: layer 3 is a breaking ADR-021 change, deferred
     pub project_id: ProjectId,
     pub number: i32,
     pub start_date: Option<chrono::NaiveDate>,
@@ -299,8 +291,6 @@ pub struct CreateBlockRequest {
 #[derive(Debug, Clone, Deserialize, ToSchema)]
 pub struct CreateEpisodeRequest {
     pub block_id: BlockId,
-    #[schema(rename = "series_id")]
-    // wire field pinned: layer 3 is a breaking ADR-021 change, deferred
     pub project_id: ProjectId,
     pub number: i32,
     pub name: Option<String>,
@@ -508,8 +498,8 @@ fn require_season(params: &ListParams) -> Result<SeasonId, ApiError> {
 }
 
 /// Required `project_id` query parameter (`http.bad-query-param`, 400).
-fn require_series(project_id: Option<ProjectId>) -> Result<ProjectId, ApiError> {
-    project_id.ok_or(ApiError::BadQueryParam("series_id is required"))
+fn require_project(project_id: Option<ProjectId>) -> Result<ProjectId, ApiError> {
+    project_id.ok_or(ApiError::BadQueryParam("project_id is required"))
 }
 
 /// Resolve the `project_id` for a scene at the API edge (scene → episode → series).
@@ -958,7 +948,7 @@ pub async fn get_audit_history<P: Ports>(
     current_user: CurrentUser,
     Query(params): Query<ListParams>,
 ) -> ApiResult<Vec<AuditEntry>> {
-    let project_id = require_series(params.project_id)?;
+    let project_id = require_project(params.project_id)?;
 
     // AUTHZ-GATE: the journal is filtered by the `project_id` **query
     // parameter**, so the route is series-scoped data, not block-scoped data:
@@ -1009,7 +999,7 @@ pub async fn create_season<P: Ports>(
     Json(req): Json<CreateSeasonRequest>,
 ) -> ApiResult<IdVersionResponse> {
     // #404 invariant pre-check (advisory): (project_id, number) uniqueness is
-    // enforced authoritatively by idx_projection_season_series_number; this
+    // enforced authoritatively by idx_projection_season_project_number; this
     // handler-side read-model lookup — the only legitimate CQRS consumer —
     // turns a violation into a clean 409 before dispatch instead of a 2xx
     // plus a poison event for the projector.
@@ -1143,8 +1133,6 @@ fn derive_capabilities(has_active_costume_role_in_season: bool) -> Vec<String> {
 /// the same v1 mapping; the photo gates read the predicate field directly.
 #[derive(Debug, Clone, Serialize, ToSchema)]
 pub struct SeriesMembershipDto {
-    #[schema(rename = "series_id")]
-    // wire field pinned: layer 3 is a breaking ADR-021 change, deferred
     pub project_id: Uuid,
     // The Rust field follows the renamed predicate (ADR-035 S2,
     // `has_active_costume_role_in_series` → `..._in_project`), but the wire
@@ -1336,7 +1324,7 @@ pub async fn create_block<P: Ports>(
     Json(req): Json<CreateBlockRequest>,
 ) -> ApiResult<IdVersionResponse> {
     // #404 invariant pre-check (advisory): (project_id, number) uniqueness is
-    // enforced authoritatively by idx_projection_block_series_number; this
+    // enforced authoritatively by idx_projection_block_project_number; this
     // handler-side read-model lookup — the only legitimate CQRS consumer —
     // turns a violation into a clean 409 before dispatch instead of a 2xx
     // plus a poison event for the projector.
@@ -1510,7 +1498,7 @@ pub async fn create_episode<P: Ports>(
     Json(req): Json<CreateEpisodeRequest>,
 ) -> ApiResult<IdVersionResponse> {
     // #404 invariant pre-check (advisory): (project_id, number) uniqueness is
-    // enforced authoritatively by idx_projection_episode_series_number; this
+    // enforced authoritatively by idx_projection_episode_project_number; this
     // handler-side read-model lookup — the only legitimate CQRS consumer —
     // turns a violation into a clean 409 before dispatch instead of a 2xx
     // plus a poison event for the projector.
@@ -1568,8 +1556,6 @@ pub struct EpisodeListParams {
     pub limit: Option<i64>,
     #[param(default = 0)]
     pub offset: Option<i64>,
-    #[param(rename = "series_id")]
-    // query-param name pinned: layer 3 is a breaking ADR-021 change, deferred
     pub project_id: Option<ProjectId>,
     pub block_id: Option<BlockId>,
 }
@@ -1598,7 +1584,7 @@ pub async fn list_episodes<P: Ports>(
             .await?;
         return Ok((StatusCode::OK, Json(views)));
     }
-    let project_id = require_series(params.project_id)?;
+    let project_id = require_project(params.project_id)?;
     let views = state
         .ports
         .episode_repo()
@@ -6023,8 +6009,6 @@ fn parse_preview_payload(kind: DocumentKind, payload: &[u8]) -> Result<AiPreview
 #[derive(Debug, Clone, Deserialize, ToSchema)]
 pub struct ApplyAiImportRequest {
     pub episode_id: EpisodeId,
-    #[schema(rename = "series_id")]
-    // wire field pinned: layer 3 is a breaking ADR-021 change, deferred
     pub project_id: Option<ProjectId>,
     pub mappings: Vec<ApplyMapping>,
     pub accept_as_is: bool,
@@ -6209,7 +6193,7 @@ pub async fn apply_ai_import<P: Ports>(
             // preview BEFORE dispatching — a group the preview does not carry or
             // a duplicate ref is a client bug, and a create number already taken
             // in the series is a clean 409 (#404 doctrine: advisory pre-check,
-            // idx_projection_episode_series_number stays authoritative).
+            // idx_projection_episode_project_number stays authoritative).
             let preview_group_refs = episode_group_refs(&preview);
             // Bound the per-group loop before any repository read, mirroring
             // the mappings/costume-decisions bounds above: every valid group

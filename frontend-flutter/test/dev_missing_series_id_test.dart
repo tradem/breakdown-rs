@@ -17,7 +17,7 @@ AppConfig _config({
   String oidcRedirectUri = 'breakdown://redirect',
   String devIdpInsecure = '',
   String appVersion = '1.0.0+1',
-  String defaultSeriesId = '',
+  String defaultProjectId = '',
 }) => AppConfig(
   flavor: flavor,
   apiBase: apiBase,
@@ -28,60 +28,60 @@ AppConfig _config({
   oidcRedirectUri: oidcRedirectUri,
   devIdpInsecure: devIdpInsecure,
   appVersion: appVersion,
-  defaultSeriesId: defaultSeriesId,
+  defaultProjectId: defaultProjectId,
 );
 
 /// Issue #483 (ADR-031 follow-up to #467): a `Flavor.dev` build shipped
-/// without `--dart-define=DEFAULT_SERIES_ID` surfaces at boot (non-fatal log),
+/// without `--dart-define=DEFAULT_PROJECT_ID` surfaces at boot (non-fatal log),
 /// complementing the wizard's dispatch-time fail-fast. The pure predicate is
 /// the seam; the emission is proven from a widget test through the injectable
 /// `log` callback (no global-mutation of `debugPrint`).
 void main() {
-  group('devMissingSeriesIdWarning (pure predicate, both branches)', () {
-    test('dev + empty DEFAULT_SERIES_ID → actionable message', () {
-      final warning = devMissingSeriesIdWarning(
-        _config(flavor: Flavor.dev, defaultSeriesId: ''),
+  group('devMissingProjectIdWarning (pure predicate, both branches)', () {
+    test('dev + empty DEFAULT_PROJECT_ID → actionable message', () {
+      final warning = devMissingProjectIdWarning(
+        _config(flavor: Flavor.dev, defaultProjectId: ''),
       );
       expect(warning, isNotNull);
-      expect(warning, contains('DEFAULT_SERIES_ID'));
+      expect(warning, contains('DEFAULT_PROJECT_ID'));
       expect(warning, contains('--dart-define'));
     });
 
-    test('dev + set DEFAULT_SERIES_ID → null', () {
+    test('dev + set DEFAULT_PROJECT_ID → null', () {
       expect(
-        devMissingSeriesIdWarning(
-          _config(flavor: Flavor.dev, defaultSeriesId: '732f…'),
+        devMissingProjectIdWarning(
+          _config(flavor: Flavor.dev, defaultProjectId: '732f…'),
         ),
         isNull,
       );
     });
 
-    test('prod + empty DEFAULT_SERIES_ID → null', () {
+    test('prod + empty DEFAULT_PROJECT_ID → null', () {
       expect(
-        devMissingSeriesIdWarning(
-          _config(flavor: Flavor.prod, defaultSeriesId: ''),
+        devMissingProjectIdWarning(
+          _config(flavor: Flavor.prod, defaultProjectId: ''),
         ),
         isNull,
       );
     });
   });
 
-  group('logDevMissingSeriesIdWarning (widget-testable emission seam)', () {
+  group('logDevMissingProjectIdWarning (widget-testable emission seam)', () {
     testWidgets('dev + empty emits the boot warning', (tester) async {
       final messages = <String>[];
-      logDevMissingSeriesIdWarning(
-        _config(flavor: Flavor.dev, defaultSeriesId: ''),
+      logDevMissingProjectIdWarning(
+        _config(flavor: Flavor.dev, defaultProjectId: ''),
         log: messages.add,
       );
       expect(messages, hasLength(1));
       expect(messages.single, contains('[bootstrap]'));
-      expect(messages.single, contains('DEFAULT_SERIES_ID'));
+      expect(messages.single, contains('DEFAULT_PROJECT_ID'));
     });
 
     testWidgets('dev + set stays silent', (tester) async {
       final messages = <String>[];
-      logDevMissingSeriesIdWarning(
-        _config(flavor: Flavor.dev, defaultSeriesId: '732f…'),
+      logDevMissingProjectIdWarning(
+        _config(flavor: Flavor.dev, defaultProjectId: '732f…'),
         log: messages.add,
       );
       expect(messages, isEmpty);
@@ -91,8 +91,8 @@ void main() {
       tester,
     ) async {
       final messages = <String>[];
-      logDevMissingSeriesIdWarning(
-        _config(flavor: Flavor.prod, defaultSeriesId: ''),
+      logDevMissingProjectIdWarning(
+        _config(flavor: Flavor.prod, defaultProjectId: ''),
         log: messages.add,
       );
       expect(messages, isEmpty);

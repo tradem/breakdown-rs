@@ -879,11 +879,11 @@ async fn get_settings_denies_a_legacy_unknown_owner() {
 }
 
 // ---------------------------------------------------------------------------
-// P2.4 — `series_id_for_*` / `require_*` Audit-Helfer
+// P2.4 — `project_id_for_*` / `require_*` Audit-Helfer
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
-async fn get_audit_history_requires_series_id() {
+async fn get_audit_history_requires_project_id() {
     let ports = FakePorts::default();
     let state = app_state(ports);
 
@@ -902,7 +902,7 @@ async fn get_audit_history_requires_series_id() {
     .await;
 
     let problem = result
-        .expect_err("missing series_id must get an error")
+        .expect_err("missing project_id must get an error")
         .into_problem();
     assert_eq!(problem.status, 400);
     assert_eq!(problem.code, "http.bad-query-param");

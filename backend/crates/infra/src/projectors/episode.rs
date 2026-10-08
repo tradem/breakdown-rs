@@ -52,11 +52,11 @@ impl<'a> EntityEventHandler<EpisodeAggregate, Transaction<'a, Postgres>> for Epi
                 match sqlx::query(
                     r#"
                     INSERT INTO projection_episode
-                        (id, block_id, series_id, number, name, version, projector_version, updated_at)
+                        (id, block_id, project_id, number, name, version, projector_version, updated_at)
                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
                     ON CONFLICT (id) DO UPDATE SET
                         block_id = EXCLUDED.block_id,
-                        series_id = EXCLUDED.series_id,
+                        project_id = EXCLUDED.project_id,
                         number = EXCLUDED.number,
                         name = EXCLUDED.name,
                         version = EXCLUDED.version,

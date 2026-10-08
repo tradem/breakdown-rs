@@ -18,7 +18,7 @@ class _$ApplyAiImportRequest extends ApplyAiImportRequest {
   @override
   final BuiltList<ApplyMapping> mappings;
   @override
-  final String? seriesId;
+  final String? projectId;
 
   factory _$ApplyAiImportRequest(
           [void Function(ApplyAiImportRequestBuilder)? updates]) =>
@@ -30,7 +30,7 @@ class _$ApplyAiImportRequest extends ApplyAiImportRequest {
       this.episodeGroups,
       required this.episodeId,
       required this.mappings,
-      this.seriesId})
+      this.projectId})
       : super._();
   @override
   ApplyAiImportRequest rebuild(
@@ -50,7 +50,7 @@ class _$ApplyAiImportRequest extends ApplyAiImportRequest {
         episodeGroups == other.episodeGroups &&
         episodeId == other.episodeId &&
         mappings == other.mappings &&
-        seriesId == other.seriesId;
+        projectId == other.projectId;
   }
 
   @override
@@ -61,7 +61,7 @@ class _$ApplyAiImportRequest extends ApplyAiImportRequest {
     _$hash = $jc(_$hash, episodeGroups.hashCode);
     _$hash = $jc(_$hash, episodeId.hashCode);
     _$hash = $jc(_$hash, mappings.hashCode);
-    _$hash = $jc(_$hash, seriesId.hashCode);
+    _$hash = $jc(_$hash, projectId.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
   }
@@ -74,7 +74,7 @@ class _$ApplyAiImportRequest extends ApplyAiImportRequest {
           ..add('episodeGroups', episodeGroups)
           ..add('episodeId', episodeId)
           ..add('mappings', mappings)
-          ..add('seriesId', seriesId))
+          ..add('projectId', projectId))
         .toString();
   }
 }
@@ -107,9 +107,9 @@ class ApplyAiImportRequestBuilder
   set mappings(ListBuilder<ApplyMapping>? mappings) =>
       _$this._mappings = mappings;
 
-  String? _seriesId;
-  String? get seriesId => _$this._seriesId;
-  set seriesId(String? seriesId) => _$this._seriesId = seriesId;
+  String? _projectId;
+  String? get projectId => _$this._projectId;
+  set projectId(String? projectId) => _$this._projectId = projectId;
 
   ApplyAiImportRequestBuilder() {
     ApplyAiImportRequest._defaults(this);
@@ -123,7 +123,7 @@ class ApplyAiImportRequestBuilder
       _episodeGroups = $v.episodeGroups?.toBuilder();
       _episodeId = $v.episodeId;
       _mappings = $v.mappings.toBuilder();
-      _seriesId = $v.seriesId;
+      _projectId = $v.projectId;
       _$v = null;
     }
     return this;
@@ -155,7 +155,7 @@ class ApplyAiImportRequestBuilder
             episodeId: BuiltValueNullFieldError.checkNotNull(
                 episodeId, r'ApplyAiImportRequest', 'episodeId'),
             mappings: mappings.build(),
-            seriesId: seriesId,
+            projectId: projectId,
           );
     } catch (_) {
       late String _$failedField;

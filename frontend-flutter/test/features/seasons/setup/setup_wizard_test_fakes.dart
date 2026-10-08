@@ -91,7 +91,7 @@ class FakeEpisodeRepository extends EpisodeRepository {
 
   @override
   Future<Result<List<EpisodeView>>> listBySeries(
-    String seriesId, {
+    String projectId, {
     Clock clock = Clock.system,
     CacheWriteFence? fence,
   }) async {

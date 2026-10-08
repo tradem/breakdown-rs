@@ -13,7 +13,7 @@ use crate::shared::{BlockId, UserId};
 /// One row of the audit journal: who (`actor`) did what (`event_type` on
 /// `entity_type`/`entity_id`) when (`occurred_at`), with the event `payload`.
 ///
-/// `series_id` is the tenant dimension prepared for per-`ProjectId` tenancy
+/// `project_id` is the tenant dimension prepared for per-`ProjectId` tenancy
 /// (decision 9.2) and is `NULL` in v1. `payload` is the raw event serialized
 /// as JSON (generic, so any context's events fit the same row).
 #[derive(Debug, Clone, Serialize, ToSchema)]
@@ -23,8 +23,6 @@ pub struct AuditEntry {
     pub entity_id: String,
     pub event_type: String,
     pub block_id: Option<BlockId>,
-    #[schema(rename = "series_id")]
-    // wire name pinned: layer 3 (OpenAPI field rename) is a breaking ADR-021 change, deferred
     pub project_id: Option<Uuid>,
     pub actor: Option<UserId>,
     pub payload: serde_json::Value,

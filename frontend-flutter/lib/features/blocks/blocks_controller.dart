@@ -300,7 +300,7 @@ class BlocksController extends _$BlocksController {
     final ack = await repo.create(
       CreateBlockRequest(
         (b) => b
-          ..seriesId = season.seriesId
+          ..projectId = season.projectId
           ..seasonId = season.id
           ..number = number
           ..startDate = startDate

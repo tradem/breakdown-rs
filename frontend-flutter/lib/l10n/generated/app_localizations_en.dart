@@ -2237,7 +2237,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get seasonsCreateSeriesIdMissing =>
-      'This app was built without DEFAULT_SERIES_ID: the new season cannot be assigned to a series. Rebuild the app with --dart-define=DEFAULT_SERIES_ID=<id of the default series>.';
+      'This app was built without DEFAULT_PROJECT_ID: the new season cannot be assigned to a series. Rebuild the app with --dart-define=DEFAULT_PROJECT_ID=<id of the default series>.';
 
   @override
   String get seasonsSetupCta => 'Start season setup';

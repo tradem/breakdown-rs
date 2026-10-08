@@ -25,7 +25,6 @@ pub struct UploadPhoto {
     /// Defaults to `Costume` for backward compat.
     #[serde(default)]
     pub binding: PhotoBinding,
-    #[schema(rename = "series_id")]
     // wire name pinned: layer 3 (OpenAPI field rename) is a breaking ADR-021 change, deferred
     pub project_id: Option<ProjectId>,
 }
@@ -40,7 +39,6 @@ pub struct NormalizeOriginal {
     pub id: PhotoId,
     pub new_size: u64,
     pub rotated: bool,
-    #[schema(rename = "series_id")]
     // wire name pinned: layer 3 (OpenAPI field rename) is a breaking ADR-021 change, deferred
     pub project_id: Option<ProjectId>,
     pub version: AggregateVersion,
@@ -56,7 +54,6 @@ pub struct GenerateVariant {
     pub id: PhotoId,
     pub variant: PhotoVariant,
     pub size_bytes: u64,
-    #[schema(rename = "series_id")]
     // wire name pinned: layer 3 (OpenAPI field rename) is a breaking ADR-021 change, deferred
     pub project_id: Option<ProjectId>,
     pub version: AggregateVersion,
@@ -72,7 +69,6 @@ pub struct MarkVariantFailed {
     pub id: PhotoId,
     pub variant: PhotoVariant,
     pub error: String,
-    #[schema(rename = "series_id")]
     // wire name pinned: layer 3 (OpenAPI field rename) is a breaking ADR-021 change, deferred
     pub project_id: Option<ProjectId>,
     pub version: AggregateVersion,
@@ -86,7 +82,6 @@ pub struct MarkVariantFailed {
 #[derive(Debug, Clone, Deserialize, ToSchema)]
 pub struct DeletePhoto {
     pub id: PhotoId,
-    #[schema(rename = "series_id")]
     // wire name pinned: layer 3 (OpenAPI field rename) is a breaking ADR-021 change, deferred
     pub project_id: Option<ProjectId>,
     pub version: AggregateVersion,

@@ -145,7 +145,7 @@ SeasonMembershipDto _membership(List<String> caps) => SeasonMembershipDto(
 
 SeriesMembershipDto _seriesMembership(bool hasRole) => SeriesMembershipDto(
   (b) => b
-    ..seriesId = 'series-1'
+    ..projectId = 'series-1'
     ..hasActiveCostumeRoleInSeries = hasRole
     ..capabilities.replace(const <String>[]),
 );

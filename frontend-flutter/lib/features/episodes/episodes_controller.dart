@@ -252,7 +252,7 @@ class EpisodesController extends _$EpisodesController {
     );
   }
 
-  /// Submits the Create Episode command. Ids (`series_id`, `block_id`) come
+  /// Submits the Create Episode command. Ids (`project_id`, `block_id`) come
   /// from the `BlockView` read DTO the user acted on (CQRS boundary).
   ///
   /// AUTHZ-GATE: the backend create handler is `CurrentUser`-gated
@@ -282,7 +282,7 @@ class EpisodesController extends _$EpisodesController {
     final ack = await repo.create(
       CreateEpisodeRequest(
         (b) => b
-          ..seriesId = block.seriesId
+          ..projectId = block.projectId
           ..blockId = block.id
           ..number = number
           ..name = name,

@@ -544,7 +544,7 @@ class AiApplyController extends _$AiApplyController {
     final request = ApplyAiImportRequest(
       (b) => b
         ..episodeId = context.episodeId
-        ..seriesId = context.seriesId.isEmpty ? null : context.seriesId
+        ..projectId = context.projectId.isEmpty ? null : context.projectId
         ..mappings.replace(state.buildMappings())
         ..acceptAsIs = state.acceptAsIs
         ..editDistance = state.editDistance

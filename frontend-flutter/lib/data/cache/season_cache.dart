@@ -21,8 +21,8 @@ class SeasonCacheRows extends Table {
   /// Mirrors `SeasonView.archived` (issue #533 terminal lifecycle flag).
   BoolColumn get archived => boolean()();
 
-  /// Mirrors `SeasonView.series_id` (opaque `SeriesId`).
-  TextColumn get seriesId => text()();
+  /// Mirrors `SeasonView.project_id` (opaque `ProjectId`).
+  TextColumn get projectId => text()();
 
   /// Mirrors `SeasonView.title` (nullable).
   TextColumn get title => text().nullable()();

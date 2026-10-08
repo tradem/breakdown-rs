@@ -27,7 +27,6 @@ pub struct CreateCostume {
     pub season_id: Option<SeasonId>,
     /// Audit metadata (`EventMetadata`), resolved at the API edge from the
     /// repertoire season's projection.
-    #[schema(rename = "series_id")]
     // wire name pinned: layer 3 (OpenAPI field rename) is a breaking ADR-021 change, deferred
     pub project_id: Option<ProjectId>,
 }
@@ -40,7 +39,6 @@ pub struct CreateCostume {
 pub struct UpdateCostumeNotes {
     pub id: Uuid,
     pub notes: String,
-    #[schema(rename = "series_id")]
     // wire name pinned: layer 3 (OpenAPI field rename) is a breaking ADR-021 change, deferred
     pub project_id: Option<ProjectId>,
     pub version: AggregateVersion,
@@ -62,7 +60,6 @@ pub struct UpdateCostumeNotes {
 pub struct AddCostumeToSeason {
     pub id: Uuid,
     pub season_id: SeasonId,
-    #[schema(rename = "series_id")]
     // wire name pinned: layer 3 (OpenAPI field rename) is a breaking ADR-021 change, deferred
     pub project_id: Option<ProjectId>,
     pub version: AggregateVersion,
@@ -78,7 +75,6 @@ pub struct AddCostumeToSeason {
 pub struct RemoveCostumeFromSeason {
     pub id: Uuid,
     pub season_id: SeasonId,
-    #[schema(rename = "series_id")]
     // wire name pinned: layer 3 (OpenAPI field rename) is a breaking ADR-021 change, deferred
     pub project_id: Option<ProjectId>,
     pub version: AggregateVersion,
@@ -92,7 +88,6 @@ pub struct RemoveCostumeFromSeason {
 pub struct AssignCostumeToCharacter {
     pub id: Uuid,
     pub character_id: Uuid,
-    #[schema(rename = "series_id")]
     // wire name pinned: layer 3 (OpenAPI field rename) is a breaking ADR-021 change, deferred
     pub project_id: Option<ProjectId>,
     pub version: AggregateVersion,
@@ -105,7 +100,6 @@ pub struct AssignCostumeToCharacter {
 #[derive(Debug, Clone, serde::Deserialize, utoipa::ToSchema)]
 pub struct UnassignCostume {
     pub id: Uuid,
-    #[schema(rename = "series_id")]
     // wire name pinned: layer 3 (OpenAPI field rename) is a breaking ADR-021 change, deferred
     pub project_id: Option<ProjectId>,
     pub version: AggregateVersion,
@@ -119,7 +113,6 @@ pub struct UnassignCostume {
 pub struct AddDetail {
     pub id: Uuid,
     pub detail: CostumeDetail,
-    #[schema(rename = "series_id")]
     // wire name pinned: layer 3 (OpenAPI field rename) is a breaking ADR-021 change, deferred
     pub project_id: Option<ProjectId>,
     pub version: AggregateVersion,
@@ -140,7 +133,6 @@ pub struct AddDetail {
 pub struct UpdateCostumeDetail {
     pub id: Uuid,
     pub detail: CostumeDetail,
-    #[schema(rename = "series_id")]
     // wire name pinned: layer 3 (OpenAPI field rename) is a breaking ADR-021 change, deferred
     pub project_id: Option<ProjectId>,
     pub version: AggregateVersion,
@@ -154,7 +146,6 @@ pub struct UpdateCostumeDetail {
 pub struct RemoveDetail {
     pub id: Uuid,
     pub detail_id: Uuid,
-    #[schema(rename = "series_id")]
     // wire name pinned: layer 3 (OpenAPI field rename) is a breaking ADR-021 change, deferred
     pub project_id: Option<ProjectId>,
     pub version: AggregateVersion,
@@ -174,7 +165,6 @@ pub struct RemoveDetail {
 pub struct SetCostumeCategory {
     pub id: Uuid,
     pub category_id: Option<CostumeCategoryId>,
-    #[schema(rename = "series_id")]
     // wire name pinned: layer 3 (OpenAPI field rename) is a breaking ADR-021 change, deferred
     pub project_id: Option<ProjectId>,
     pub version: AggregateVersion,
@@ -188,7 +178,6 @@ pub struct SetCostumeCategory {
 pub struct LinkPhoto {
     pub id: Uuid,
     pub photo_id: Uuid,
-    #[schema(rename = "series_id")]
     // wire name pinned: layer 3 (OpenAPI field rename) is a breaking ADR-021 change, deferred
     pub project_id: Option<ProjectId>,
     pub version: AggregateVersion,
@@ -202,7 +191,6 @@ pub struct LinkPhoto {
 pub struct UnlinkPhoto {
     pub id: Uuid,
     pub photo_id: Uuid,
-    #[schema(rename = "series_id")]
     // wire name pinned: layer 3 (OpenAPI field rename) is a breaking ADR-021 change, deferred
     pub project_id: Option<ProjectId>,
     pub version: AggregateVersion,

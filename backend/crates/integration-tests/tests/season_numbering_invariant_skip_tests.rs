@@ -5,7 +5,7 @@
 //! Tier-4 regression test for the #404 numbering-projector skip path
 //! (issue #407): a duplicate `SeasonCreated` for an already-projected
 //! `(project_id, number)` pair under a *different* stream id hits the
-//! authoritative backstop `idx_projection_season_series_number` (23505) and
+//! authoritative backstop `idx_projection_season_project_number` (23505) and
 //! must be savepoint-skipped — never panic-killing the worker.
 //!
 //! Machine-checks the "inert for reports" claim documented in
@@ -60,10 +60,10 @@ const POLL_INTERVAL: Duration = Duration::from_millis(150);
 /// The authoritative season-numbering backstop (issue #404). Must stay in
 /// sync with `infra::projectors::invariant_skip::SEASON_NUMBER_CONSTRAINT`
 /// (kept private there; asserted indirectly via the warn-constraint check).
-const SEASON_NUMBER_CONSTRAINT: &str = "idx_projection_season_series_number";
+const SEASON_NUMBER_CONSTRAINT: &str = "idx_projection_season_project_number";
 
 /// One captured `tracing::warn!` from the season projector's skip path.
-/// The constraint equality (`idx_projection_season_series_number`) is checked
+/// The constraint equality (`idx_projection_season_project_number`) is checked
 /// at capture time, so only the poison id is stored.
 #[derive(Debug, Clone)]
 struct SkipWarn {
@@ -316,7 +316,7 @@ async fn duplicate_season_number_is_skipped_and_checkpoint_advances() -> Result<
     let baseline = await_checkpoint_exists(&pool).await?;
 
     // 2. Duplicate SeasonCreated for the same (project_id, number) pair under a
-    //    fresh stream id → 23505 on idx_projection_season_series_number →
+    //    fresh stream id → 23505 on idx_projection_season_project_number →
     //    savepoint-skip (no panic, no projection row).
     let duplicate = SeasonEvent::SeasonCreated {
         id: season_b,
@@ -420,7 +420,7 @@ async fn duplicate_season_number_is_skipped_and_checkpoint_advances() -> Result<
     let rows_for_pair: i64 = sqlx::query_scalar(
         r#"
         SELECT COUNT(*) FROM projection_season
-        WHERE series_id = $1 AND number = $2
+        WHERE project_id = $1 AND number = $2
         "#,
     )
     .bind(project_id.0)

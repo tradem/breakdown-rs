@@ -95,7 +95,7 @@ Future<AiJobContext?> aiJobContext(Ref ref, String jobId) async {
     if (row.id == jobId) {
       final episodeId = row.episodeId;
       if (episodeId == null) return null;
-      return AiJobContext(episodeId: episodeId, seriesId: row.seriesId ?? '');
+      return AiJobContext(episodeId: episodeId, projectId: row.projectId ?? '');
     }
   }
   return null;
@@ -103,10 +103,10 @@ Future<AiJobContext?> aiJobContext(Ref ref, String jobId) async {
 
 /// The persisted apply context (episode + series) of a job.
 class AiJobContext {
-  const AiJobContext({required this.episodeId, required this.seriesId});
+  const AiJobContext({required this.episodeId, required this.projectId});
 
   final String episodeId;
-  final String seriesId;
+  final String projectId;
 }
 
 /// Localized copy for the job-status error banner (watch failures,

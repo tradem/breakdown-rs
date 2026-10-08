@@ -12,7 +12,7 @@ class _$SeriesMembershipDto extends SeriesMembershipDto {
   @override
   final bool hasActiveCostumeRoleInSeries;
   @override
-  final String seriesId;
+  final String projectId;
 
   factory _$SeriesMembershipDto(
           [void Function(SeriesMembershipDtoBuilder)? updates]) =>
@@ -21,7 +21,7 @@ class _$SeriesMembershipDto extends SeriesMembershipDto {
   _$SeriesMembershipDto._(
       {required this.capabilities,
       required this.hasActiveCostumeRoleInSeries,
-      required this.seriesId})
+      required this.projectId})
       : super._();
   @override
   SeriesMembershipDto rebuild(
@@ -38,7 +38,7 @@ class _$SeriesMembershipDto extends SeriesMembershipDto {
     return other is SeriesMembershipDto &&
         capabilities == other.capabilities &&
         hasActiveCostumeRoleInSeries == other.hasActiveCostumeRoleInSeries &&
-        seriesId == other.seriesId;
+        projectId == other.projectId;
   }
 
   @override
@@ -46,7 +46,7 @@ class _$SeriesMembershipDto extends SeriesMembershipDto {
     var _$hash = 0;
     _$hash = $jc(_$hash, capabilities.hashCode);
     _$hash = $jc(_$hash, hasActiveCostumeRoleInSeries.hashCode);
-    _$hash = $jc(_$hash, seriesId.hashCode);
+    _$hash = $jc(_$hash, projectId.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
   }
@@ -56,7 +56,7 @@ class _$SeriesMembershipDto extends SeriesMembershipDto {
     return (newBuiltValueToStringHelper(r'SeriesMembershipDto')
           ..add('capabilities', capabilities)
           ..add('hasActiveCostumeRoleInSeries', hasActiveCostumeRoleInSeries)
-          ..add('seriesId', seriesId))
+          ..add('projectId', projectId))
         .toString();
   }
 }
@@ -77,9 +77,9 @@ class SeriesMembershipDtoBuilder
   set hasActiveCostumeRoleInSeries(bool? hasActiveCostumeRoleInSeries) =>
       _$this._hasActiveCostumeRoleInSeries = hasActiveCostumeRoleInSeries;
 
-  String? _seriesId;
-  String? get seriesId => _$this._seriesId;
-  set seriesId(String? seriesId) => _$this._seriesId = seriesId;
+  String? _projectId;
+  String? get projectId => _$this._projectId;
+  set projectId(String? projectId) => _$this._projectId = projectId;
 
   SeriesMembershipDtoBuilder() {
     SeriesMembershipDto._defaults(this);
@@ -90,7 +90,7 @@ class SeriesMembershipDtoBuilder
     if ($v != null) {
       _capabilities = $v.capabilities.toBuilder();
       _hasActiveCostumeRoleInSeries = $v.hasActiveCostumeRoleInSeries;
-      _seriesId = $v.seriesId;
+      _projectId = $v.projectId;
       _$v = null;
     }
     return this;
@@ -119,8 +119,8 @@ class SeriesMembershipDtoBuilder
                 hasActiveCostumeRoleInSeries,
                 r'SeriesMembershipDto',
                 'hasActiveCostumeRoleInSeries'),
-            seriesId: BuiltValueNullFieldError.checkNotNull(
-                seriesId, r'SeriesMembershipDto', 'seriesId'),
+            projectId: BuiltValueNullFieldError.checkNotNull(
+                projectId, r'SeriesMembershipDto', 'projectId'),
           );
     } catch (_) {
       late String _$failedField;

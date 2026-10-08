@@ -50,14 +50,14 @@ class MembershipRepository {
     }
   }
 
-  /// Fetches the series-level membership DTO for [seriesId] (issue #535).
+  /// Fetches the series-level membership DTO for [projectId] (issue #535).
   ///
   /// Same no-throw contract as [fetch]: every failure is a
   /// `Left(ProblemError)` carrying the backend's stable `code`.
-  Future<Result<SeriesMembershipDto>> fetchSeries(String seriesId) async {
+  Future<Result<SeriesMembershipDto>> fetchSeries(String projectId) async {
     try {
       final response = await _api.getHandlersApi().getSeriesMembership(
-        id: seriesId,
+        id: projectId,
       );
       final dto = response.data;
       if (dto == null) {

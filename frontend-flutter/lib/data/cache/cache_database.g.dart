@@ -41,12 +41,12 @@ class $SeasonCacheRowsTable extends SeasonCacheRows
       'CHECK ("archived" IN (0, 1))',
     ),
   );
-  static const VerificationMeta _seriesIdMeta = const VerificationMeta(
-    'seriesId',
+  static const VerificationMeta _projectIdMeta = const VerificationMeta(
+    'projectId',
   );
   @override
-  late final GeneratedColumn<String> seriesId = GeneratedColumn<String>(
-    'series_id',
+  late final GeneratedColumn<String> projectId = GeneratedColumn<String>(
+    'project_id',
     aliasedName,
     false,
     type: DriftSqlType.string,
@@ -99,7 +99,7 @@ class $SeasonCacheRowsTable extends SeasonCacheRows
     id,
     number,
     archived,
-    seriesId,
+    projectId,
     title,
     updatedAt,
     version,
@@ -138,13 +138,13 @@ class $SeasonCacheRowsTable extends SeasonCacheRows
     } else if (isInserting) {
       context.missing(_archivedMeta);
     }
-    if (data.containsKey('series_id')) {
+    if (data.containsKey('project_id')) {
       context.handle(
-        _seriesIdMeta,
-        seriesId.isAcceptableOrUnknown(data['series_id']!, _seriesIdMeta),
+        _projectIdMeta,
+        projectId.isAcceptableOrUnknown(data['project_id']!, _projectIdMeta),
       );
     } else if (isInserting) {
-      context.missing(_seriesIdMeta);
+      context.missing(_projectIdMeta);
     }
     if (data.containsKey('title')) {
       context.handle(
@@ -197,9 +197,9 @@ class $SeasonCacheRowsTable extends SeasonCacheRows
         DriftSqlType.bool,
         data['${effectivePrefix}archived'],
       )!,
-      seriesId: attachedDatabase.typeMapping.read(
+      projectId: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
-        data['${effectivePrefix}series_id'],
+        data['${effectivePrefix}project_id'],
       )!,
       title: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
@@ -236,8 +236,8 @@ class SeasonCacheRow extends DataClass implements Insertable<SeasonCacheRow> {
   /// Mirrors `SeasonView.archived` (issue #533 terminal lifecycle flag).
   final bool archived;
 
-  /// Mirrors `SeasonView.series_id` (opaque `SeriesId`).
-  final String seriesId;
+  /// Mirrors `SeasonView.project_id` (opaque `ProjectId`).
+  final String projectId;
 
   /// Mirrors `SeasonView.title` (nullable).
   final String? title;
@@ -255,7 +255,7 @@ class SeasonCacheRow extends DataClass implements Insertable<SeasonCacheRow> {
     required this.id,
     required this.number,
     required this.archived,
-    required this.seriesId,
+    required this.projectId,
     this.title,
     required this.updatedAt,
     required this.version,
@@ -267,7 +267,7 @@ class SeasonCacheRow extends DataClass implements Insertable<SeasonCacheRow> {
     map['id'] = Variable<String>(id);
     map['number'] = Variable<int>(number);
     map['archived'] = Variable<bool>(archived);
-    map['series_id'] = Variable<String>(seriesId);
+    map['project_id'] = Variable<String>(projectId);
     if (!nullToAbsent || title != null) {
       map['title'] = Variable<String>(title);
     }
@@ -282,7 +282,7 @@ class SeasonCacheRow extends DataClass implements Insertable<SeasonCacheRow> {
       id: Value(id),
       number: Value(number),
       archived: Value(archived),
-      seriesId: Value(seriesId),
+      projectId: Value(projectId),
       title: title == null && nullToAbsent
           ? const Value.absent()
           : Value(title),
@@ -301,7 +301,7 @@ class SeasonCacheRow extends DataClass implements Insertable<SeasonCacheRow> {
       id: serializer.fromJson<String>(json['id']),
       number: serializer.fromJson<int>(json['number']),
       archived: serializer.fromJson<bool>(json['archived']),
-      seriesId: serializer.fromJson<String>(json['seriesId']),
+      projectId: serializer.fromJson<String>(json['projectId']),
       title: serializer.fromJson<String?>(json['title']),
       updatedAt: serializer.fromJson<DateTime>(json['updatedAt']),
       version: serializer.fromJson<int>(json['version']),
@@ -315,7 +315,7 @@ class SeasonCacheRow extends DataClass implements Insertable<SeasonCacheRow> {
       'id': serializer.toJson<String>(id),
       'number': serializer.toJson<int>(number),
       'archived': serializer.toJson<bool>(archived),
-      'seriesId': serializer.toJson<String>(seriesId),
+      'projectId': serializer.toJson<String>(projectId),
       'title': serializer.toJson<String?>(title),
       'updatedAt': serializer.toJson<DateTime>(updatedAt),
       'version': serializer.toJson<int>(version),
@@ -327,7 +327,7 @@ class SeasonCacheRow extends DataClass implements Insertable<SeasonCacheRow> {
     String? id,
     int? number,
     bool? archived,
-    String? seriesId,
+    String? projectId,
     Value<String?> title = const Value.absent(),
     DateTime? updatedAt,
     int? version,
@@ -336,7 +336,7 @@ class SeasonCacheRow extends DataClass implements Insertable<SeasonCacheRow> {
     id: id ?? this.id,
     number: number ?? this.number,
     archived: archived ?? this.archived,
-    seriesId: seriesId ?? this.seriesId,
+    projectId: projectId ?? this.projectId,
     title: title.present ? title.value : this.title,
     updatedAt: updatedAt ?? this.updatedAt,
     version: version ?? this.version,
@@ -347,7 +347,7 @@ class SeasonCacheRow extends DataClass implements Insertable<SeasonCacheRow> {
       id: data.id.present ? data.id.value : this.id,
       number: data.number.present ? data.number.value : this.number,
       archived: data.archived.present ? data.archived.value : this.archived,
-      seriesId: data.seriesId.present ? data.seriesId.value : this.seriesId,
+      projectId: data.projectId.present ? data.projectId.value : this.projectId,
       title: data.title.present ? data.title.value : this.title,
       updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
       version: data.version.present ? data.version.value : this.version,
@@ -361,7 +361,7 @@ class SeasonCacheRow extends DataClass implements Insertable<SeasonCacheRow> {
           ..write('id: $id, ')
           ..write('number: $number, ')
           ..write('archived: $archived, ')
-          ..write('seriesId: $seriesId, ')
+          ..write('projectId: $projectId, ')
           ..write('title: $title, ')
           ..write('updatedAt: $updatedAt, ')
           ..write('version: $version, ')
@@ -375,7 +375,7 @@ class SeasonCacheRow extends DataClass implements Insertable<SeasonCacheRow> {
     id,
     number,
     archived,
-    seriesId,
+    projectId,
     title,
     updatedAt,
     version,
@@ -388,7 +388,7 @@ class SeasonCacheRow extends DataClass implements Insertable<SeasonCacheRow> {
           other.id == this.id &&
           other.number == this.number &&
           other.archived == this.archived &&
-          other.seriesId == this.seriesId &&
+          other.projectId == this.projectId &&
           other.title == this.title &&
           other.updatedAt == this.updatedAt &&
           other.version == this.version &&
@@ -399,7 +399,7 @@ class SeasonCacheRowsCompanion extends UpdateCompanion<SeasonCacheRow> {
   final Value<String> id;
   final Value<int> number;
   final Value<bool> archived;
-  final Value<String> seriesId;
+  final Value<String> projectId;
   final Value<String?> title;
   final Value<DateTime> updatedAt;
   final Value<int> version;
@@ -409,7 +409,7 @@ class SeasonCacheRowsCompanion extends UpdateCompanion<SeasonCacheRow> {
     this.id = const Value.absent(),
     this.number = const Value.absent(),
     this.archived = const Value.absent(),
-    this.seriesId = const Value.absent(),
+    this.projectId = const Value.absent(),
     this.title = const Value.absent(),
     this.updatedAt = const Value.absent(),
     this.version = const Value.absent(),
@@ -420,7 +420,7 @@ class SeasonCacheRowsCompanion extends UpdateCompanion<SeasonCacheRow> {
     required String id,
     required int number,
     required bool archived,
-    required String seriesId,
+    required String projectId,
     this.title = const Value.absent(),
     required DateTime updatedAt,
     required int version,
@@ -429,7 +429,7 @@ class SeasonCacheRowsCompanion extends UpdateCompanion<SeasonCacheRow> {
   }) : id = Value(id),
        number = Value(number),
        archived = Value(archived),
-       seriesId = Value(seriesId),
+       projectId = Value(projectId),
        updatedAt = Value(updatedAt),
        version = Value(version),
        cachedAt = Value(cachedAt);
@@ -437,7 +437,7 @@ class SeasonCacheRowsCompanion extends UpdateCompanion<SeasonCacheRow> {
     Expression<String>? id,
     Expression<int>? number,
     Expression<bool>? archived,
-    Expression<String>? seriesId,
+    Expression<String>? projectId,
     Expression<String>? title,
     Expression<DateTime>? updatedAt,
     Expression<int>? version,
@@ -448,7 +448,7 @@ class SeasonCacheRowsCompanion extends UpdateCompanion<SeasonCacheRow> {
       if (id != null) 'id': id,
       if (number != null) 'number': number,
       if (archived != null) 'archived': archived,
-      if (seriesId != null) 'series_id': seriesId,
+      if (projectId != null) 'project_id': projectId,
       if (title != null) 'title': title,
       if (updatedAt != null) 'updated_at': updatedAt,
       if (version != null) 'version': version,
@@ -461,7 +461,7 @@ class SeasonCacheRowsCompanion extends UpdateCompanion<SeasonCacheRow> {
     Value<String>? id,
     Value<int>? number,
     Value<bool>? archived,
-    Value<String>? seriesId,
+    Value<String>? projectId,
     Value<String?>? title,
     Value<DateTime>? updatedAt,
     Value<int>? version,
@@ -472,7 +472,7 @@ class SeasonCacheRowsCompanion extends UpdateCompanion<SeasonCacheRow> {
       id: id ?? this.id,
       number: number ?? this.number,
       archived: archived ?? this.archived,
-      seriesId: seriesId ?? this.seriesId,
+      projectId: projectId ?? this.projectId,
       title: title ?? this.title,
       updatedAt: updatedAt ?? this.updatedAt,
       version: version ?? this.version,
@@ -493,8 +493,8 @@ class SeasonCacheRowsCompanion extends UpdateCompanion<SeasonCacheRow> {
     if (archived.present) {
       map['archived'] = Variable<bool>(archived.value);
     }
-    if (seriesId.present) {
-      map['series_id'] = Variable<String>(seriesId.value);
+    if (projectId.present) {
+      map['project_id'] = Variable<String>(projectId.value);
     }
     if (title.present) {
       map['title'] = Variable<String>(title.value);
@@ -520,7 +520,7 @@ class SeasonCacheRowsCompanion extends UpdateCompanion<SeasonCacheRow> {
           ..write('id: $id, ')
           ..write('number: $number, ')
           ..write('archived: $archived, ')
-          ..write('seriesId: $seriesId, ')
+          ..write('projectId: $projectId, ')
           ..write('title: $title, ')
           ..write('updatedAt: $updatedAt, ')
           ..write('version: $version, ')
@@ -566,12 +566,12 @@ class $BlockCacheRowsTable extends BlockCacheRows
     type: DriftSqlType.string,
     requiredDuringInsert: true,
   );
-  static const VerificationMeta _seriesIdMeta = const VerificationMeta(
-    'seriesId',
+  static const VerificationMeta _projectIdMeta = const VerificationMeta(
+    'projectId',
   );
   @override
-  late final GeneratedColumn<String> seriesId = GeneratedColumn<String>(
-    'series_id',
+  late final GeneratedColumn<String> projectId = GeneratedColumn<String>(
+    'project_id',
     aliasedName,
     false,
     type: DriftSqlType.string,
@@ -637,7 +637,7 @@ class $BlockCacheRowsTable extends BlockCacheRows
     id,
     number,
     seasonId,
-    seriesId,
+    projectId,
     startDate,
     endDate,
     updatedAt,
@@ -677,13 +677,13 @@ class $BlockCacheRowsTable extends BlockCacheRows
     } else if (isInserting) {
       context.missing(_seasonIdMeta);
     }
-    if (data.containsKey('series_id')) {
+    if (data.containsKey('project_id')) {
       context.handle(
-        _seriesIdMeta,
-        seriesId.isAcceptableOrUnknown(data['series_id']!, _seriesIdMeta),
+        _projectIdMeta,
+        projectId.isAcceptableOrUnknown(data['project_id']!, _projectIdMeta),
       );
     } else if (isInserting) {
-      context.missing(_seriesIdMeta);
+      context.missing(_projectIdMeta);
     }
     if (data.containsKey('start_date')) {
       context.handle(
@@ -742,9 +742,9 @@ class $BlockCacheRowsTable extends BlockCacheRows
         DriftSqlType.string,
         data['${effectivePrefix}season_id'],
       )!,
-      seriesId: attachedDatabase.typeMapping.read(
+      projectId: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
-        data['${effectivePrefix}series_id'],
+        data['${effectivePrefix}project_id'],
       )!,
       startDate: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
@@ -785,9 +785,9 @@ class BlockCacheRow extends DataClass implements Insertable<BlockCacheRow> {
   /// Mirrors `BlockView.seasonId` (fetch scope: `GET /v1/blocks?season_id=`).
   final String seasonId;
 
-  /// Mirrors `BlockView.seriesId` (opaque `SeriesId`, carried into
+  /// Mirrors `BlockView.projectId` (opaque `ProjectId`, carried into
   /// `CreateEpisodeRequest` from the read DTO the user acts on).
-  final String seriesId;
+  final String projectId;
 
   /// Mirrors `BlockView.startDate` (wire string, preserved unchanged;
   /// nullable since issue #423 — the backend serializes unset dates as
@@ -811,7 +811,7 @@ class BlockCacheRow extends DataClass implements Insertable<BlockCacheRow> {
     required this.id,
     required this.number,
     required this.seasonId,
-    required this.seriesId,
+    required this.projectId,
     this.startDate,
     this.endDate,
     required this.updatedAt,
@@ -824,7 +824,7 @@ class BlockCacheRow extends DataClass implements Insertable<BlockCacheRow> {
     map['id'] = Variable<String>(id);
     map['number'] = Variable<int>(number);
     map['season_id'] = Variable<String>(seasonId);
-    map['series_id'] = Variable<String>(seriesId);
+    map['project_id'] = Variable<String>(projectId);
     if (!nullToAbsent || startDate != null) {
       map['start_date'] = Variable<String>(startDate);
     }
@@ -842,7 +842,7 @@ class BlockCacheRow extends DataClass implements Insertable<BlockCacheRow> {
       id: Value(id),
       number: Value(number),
       seasonId: Value(seasonId),
-      seriesId: Value(seriesId),
+      projectId: Value(projectId),
       startDate: startDate == null && nullToAbsent
           ? const Value.absent()
           : Value(startDate),
@@ -864,7 +864,7 @@ class BlockCacheRow extends DataClass implements Insertable<BlockCacheRow> {
       id: serializer.fromJson<String>(json['id']),
       number: serializer.fromJson<int>(json['number']),
       seasonId: serializer.fromJson<String>(json['seasonId']),
-      seriesId: serializer.fromJson<String>(json['seriesId']),
+      projectId: serializer.fromJson<String>(json['projectId']),
       startDate: serializer.fromJson<String?>(json['startDate']),
       endDate: serializer.fromJson<String?>(json['endDate']),
       updatedAt: serializer.fromJson<DateTime>(json['updatedAt']),
@@ -879,7 +879,7 @@ class BlockCacheRow extends DataClass implements Insertable<BlockCacheRow> {
       'id': serializer.toJson<String>(id),
       'number': serializer.toJson<int>(number),
       'seasonId': serializer.toJson<String>(seasonId),
-      'seriesId': serializer.toJson<String>(seriesId),
+      'projectId': serializer.toJson<String>(projectId),
       'startDate': serializer.toJson<String?>(startDate),
       'endDate': serializer.toJson<String?>(endDate),
       'updatedAt': serializer.toJson<DateTime>(updatedAt),
@@ -892,7 +892,7 @@ class BlockCacheRow extends DataClass implements Insertable<BlockCacheRow> {
     String? id,
     int? number,
     String? seasonId,
-    String? seriesId,
+    String? projectId,
     Value<String?> startDate = const Value.absent(),
     Value<String?> endDate = const Value.absent(),
     DateTime? updatedAt,
@@ -902,7 +902,7 @@ class BlockCacheRow extends DataClass implements Insertable<BlockCacheRow> {
     id: id ?? this.id,
     number: number ?? this.number,
     seasonId: seasonId ?? this.seasonId,
-    seriesId: seriesId ?? this.seriesId,
+    projectId: projectId ?? this.projectId,
     startDate: startDate.present ? startDate.value : this.startDate,
     endDate: endDate.present ? endDate.value : this.endDate,
     updatedAt: updatedAt ?? this.updatedAt,
@@ -914,7 +914,7 @@ class BlockCacheRow extends DataClass implements Insertable<BlockCacheRow> {
       id: data.id.present ? data.id.value : this.id,
       number: data.number.present ? data.number.value : this.number,
       seasonId: data.seasonId.present ? data.seasonId.value : this.seasonId,
-      seriesId: data.seriesId.present ? data.seriesId.value : this.seriesId,
+      projectId: data.projectId.present ? data.projectId.value : this.projectId,
       startDate: data.startDate.present ? data.startDate.value : this.startDate,
       endDate: data.endDate.present ? data.endDate.value : this.endDate,
       updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
@@ -929,7 +929,7 @@ class BlockCacheRow extends DataClass implements Insertable<BlockCacheRow> {
           ..write('id: $id, ')
           ..write('number: $number, ')
           ..write('seasonId: $seasonId, ')
-          ..write('seriesId: $seriesId, ')
+          ..write('projectId: $projectId, ')
           ..write('startDate: $startDate, ')
           ..write('endDate: $endDate, ')
           ..write('updatedAt: $updatedAt, ')
@@ -944,7 +944,7 @@ class BlockCacheRow extends DataClass implements Insertable<BlockCacheRow> {
     id,
     number,
     seasonId,
-    seriesId,
+    projectId,
     startDate,
     endDate,
     updatedAt,
@@ -958,7 +958,7 @@ class BlockCacheRow extends DataClass implements Insertable<BlockCacheRow> {
           other.id == this.id &&
           other.number == this.number &&
           other.seasonId == this.seasonId &&
-          other.seriesId == this.seriesId &&
+          other.projectId == this.projectId &&
           other.startDate == this.startDate &&
           other.endDate == this.endDate &&
           other.updatedAt == this.updatedAt &&
@@ -970,7 +970,7 @@ class BlockCacheRowsCompanion extends UpdateCompanion<BlockCacheRow> {
   final Value<String> id;
   final Value<int> number;
   final Value<String> seasonId;
-  final Value<String> seriesId;
+  final Value<String> projectId;
   final Value<String?> startDate;
   final Value<String?> endDate;
   final Value<DateTime> updatedAt;
@@ -981,7 +981,7 @@ class BlockCacheRowsCompanion extends UpdateCompanion<BlockCacheRow> {
     this.id = const Value.absent(),
     this.number = const Value.absent(),
     this.seasonId = const Value.absent(),
-    this.seriesId = const Value.absent(),
+    this.projectId = const Value.absent(),
     this.startDate = const Value.absent(),
     this.endDate = const Value.absent(),
     this.updatedAt = const Value.absent(),
@@ -993,7 +993,7 @@ class BlockCacheRowsCompanion extends UpdateCompanion<BlockCacheRow> {
     required String id,
     required int number,
     required String seasonId,
-    required String seriesId,
+    required String projectId,
     this.startDate = const Value.absent(),
     this.endDate = const Value.absent(),
     required DateTime updatedAt,
@@ -1003,7 +1003,7 @@ class BlockCacheRowsCompanion extends UpdateCompanion<BlockCacheRow> {
   }) : id = Value(id),
        number = Value(number),
        seasonId = Value(seasonId),
-       seriesId = Value(seriesId),
+       projectId = Value(projectId),
        updatedAt = Value(updatedAt),
        version = Value(version),
        cachedAt = Value(cachedAt);
@@ -1011,7 +1011,7 @@ class BlockCacheRowsCompanion extends UpdateCompanion<BlockCacheRow> {
     Expression<String>? id,
     Expression<int>? number,
     Expression<String>? seasonId,
-    Expression<String>? seriesId,
+    Expression<String>? projectId,
     Expression<String>? startDate,
     Expression<String>? endDate,
     Expression<DateTime>? updatedAt,
@@ -1023,7 +1023,7 @@ class BlockCacheRowsCompanion extends UpdateCompanion<BlockCacheRow> {
       if (id != null) 'id': id,
       if (number != null) 'number': number,
       if (seasonId != null) 'season_id': seasonId,
-      if (seriesId != null) 'series_id': seriesId,
+      if (projectId != null) 'project_id': projectId,
       if (startDate != null) 'start_date': startDate,
       if (endDate != null) 'end_date': endDate,
       if (updatedAt != null) 'updated_at': updatedAt,
@@ -1037,7 +1037,7 @@ class BlockCacheRowsCompanion extends UpdateCompanion<BlockCacheRow> {
     Value<String>? id,
     Value<int>? number,
     Value<String>? seasonId,
-    Value<String>? seriesId,
+    Value<String>? projectId,
     Value<String?>? startDate,
     Value<String?>? endDate,
     Value<DateTime>? updatedAt,
@@ -1049,7 +1049,7 @@ class BlockCacheRowsCompanion extends UpdateCompanion<BlockCacheRow> {
       id: id ?? this.id,
       number: number ?? this.number,
       seasonId: seasonId ?? this.seasonId,
-      seriesId: seriesId ?? this.seriesId,
+      projectId: projectId ?? this.projectId,
       startDate: startDate ?? this.startDate,
       endDate: endDate ?? this.endDate,
       updatedAt: updatedAt ?? this.updatedAt,
@@ -1071,8 +1071,8 @@ class BlockCacheRowsCompanion extends UpdateCompanion<BlockCacheRow> {
     if (seasonId.present) {
       map['season_id'] = Variable<String>(seasonId.value);
     }
-    if (seriesId.present) {
-      map['series_id'] = Variable<String>(seriesId.value);
+    if (projectId.present) {
+      map['project_id'] = Variable<String>(projectId.value);
     }
     if (startDate.present) {
       map['start_date'] = Variable<String>(startDate.value);
@@ -1101,7 +1101,7 @@ class BlockCacheRowsCompanion extends UpdateCompanion<BlockCacheRow> {
           ..write('id: $id, ')
           ..write('number: $number, ')
           ..write('seasonId: $seasonId, ')
-          ..write('seriesId: $seriesId, ')
+          ..write('projectId: $projectId, ')
           ..write('startDate: $startDate, ')
           ..write('endDate: $endDate, ')
           ..write('updatedAt: $updatedAt, ')
@@ -1157,12 +1157,12 @@ class $EpisodeCacheRowsTable extends EpisodeCacheRows
     type: DriftSqlType.int,
     requiredDuringInsert: true,
   );
-  static const VerificationMeta _seriesIdMeta = const VerificationMeta(
-    'seriesId',
+  static const VerificationMeta _projectIdMeta = const VerificationMeta(
+    'projectId',
   );
   @override
-  late final GeneratedColumn<String> seriesId = GeneratedColumn<String>(
-    'series_id',
+  late final GeneratedColumn<String> projectId = GeneratedColumn<String>(
+    'project_id',
     aliasedName,
     false,
     type: DriftSqlType.string,
@@ -1207,7 +1207,7 @@ class $EpisodeCacheRowsTable extends EpisodeCacheRows
     blockId,
     name,
     number,
-    seriesId,
+    projectId,
     updatedAt,
     version,
     cachedAt,
@@ -1251,13 +1251,13 @@ class $EpisodeCacheRowsTable extends EpisodeCacheRows
     } else if (isInserting) {
       context.missing(_numberMeta);
     }
-    if (data.containsKey('series_id')) {
+    if (data.containsKey('project_id')) {
       context.handle(
-        _seriesIdMeta,
-        seriesId.isAcceptableOrUnknown(data['series_id']!, _seriesIdMeta),
+        _projectIdMeta,
+        projectId.isAcceptableOrUnknown(data['project_id']!, _projectIdMeta),
       );
     } else if (isInserting) {
-      context.missing(_seriesIdMeta);
+      context.missing(_projectIdMeta);
     }
     if (data.containsKey('updated_at')) {
       context.handle(
@@ -1308,9 +1308,9 @@ class $EpisodeCacheRowsTable extends EpisodeCacheRows
         DriftSqlType.int,
         data['${effectivePrefix}number'],
       )!,
-      seriesId: attachedDatabase.typeMapping.read(
+      projectId: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
-        data['${effectivePrefix}series_id'],
+        data['${effectivePrefix}project_id'],
       )!,
       updatedAt: attachedDatabase.typeMapping.read(
         DriftSqlType.dateTime,
@@ -1346,8 +1346,8 @@ class EpisodeCacheRow extends DataClass implements Insertable<EpisodeCacheRow> {
   /// Mirrors `EpisodeView.number`.
   final int number;
 
-  /// Mirrors `EpisodeView.seriesId` (opaque `SeriesId`).
-  final String seriesId;
+  /// Mirrors `EpisodeView.projectId` (opaque `ProjectId`).
+  final String projectId;
 
   /// Mirrors `EpisodeView.updatedAt` — server timestamp, preserved unchanged.
   final DateTime updatedAt;
@@ -1362,7 +1362,7 @@ class EpisodeCacheRow extends DataClass implements Insertable<EpisodeCacheRow> {
     required this.blockId,
     this.name,
     required this.number,
-    required this.seriesId,
+    required this.projectId,
     required this.updatedAt,
     required this.version,
     required this.cachedAt,
@@ -1376,7 +1376,7 @@ class EpisodeCacheRow extends DataClass implements Insertable<EpisodeCacheRow> {
       map['name'] = Variable<String>(name);
     }
     map['number'] = Variable<int>(number);
-    map['series_id'] = Variable<String>(seriesId);
+    map['project_id'] = Variable<String>(projectId);
     map['updated_at'] = Variable<DateTime>(updatedAt);
     map['version'] = Variable<int>(version);
     map['cached_at'] = Variable<DateTime>(cachedAt);
@@ -1389,7 +1389,7 @@ class EpisodeCacheRow extends DataClass implements Insertable<EpisodeCacheRow> {
       blockId: Value(blockId),
       name: name == null && nullToAbsent ? const Value.absent() : Value(name),
       number: Value(number),
-      seriesId: Value(seriesId),
+      projectId: Value(projectId),
       updatedAt: Value(updatedAt),
       version: Value(version),
       cachedAt: Value(cachedAt),
@@ -1406,7 +1406,7 @@ class EpisodeCacheRow extends DataClass implements Insertable<EpisodeCacheRow> {
       blockId: serializer.fromJson<String>(json['blockId']),
       name: serializer.fromJson<String?>(json['name']),
       number: serializer.fromJson<int>(json['number']),
-      seriesId: serializer.fromJson<String>(json['seriesId']),
+      projectId: serializer.fromJson<String>(json['projectId']),
       updatedAt: serializer.fromJson<DateTime>(json['updatedAt']),
       version: serializer.fromJson<int>(json['version']),
       cachedAt: serializer.fromJson<DateTime>(json['cachedAt']),
@@ -1420,7 +1420,7 @@ class EpisodeCacheRow extends DataClass implements Insertable<EpisodeCacheRow> {
       'blockId': serializer.toJson<String>(blockId),
       'name': serializer.toJson<String?>(name),
       'number': serializer.toJson<int>(number),
-      'seriesId': serializer.toJson<String>(seriesId),
+      'projectId': serializer.toJson<String>(projectId),
       'updatedAt': serializer.toJson<DateTime>(updatedAt),
       'version': serializer.toJson<int>(version),
       'cachedAt': serializer.toJson<DateTime>(cachedAt),
@@ -1432,7 +1432,7 @@ class EpisodeCacheRow extends DataClass implements Insertable<EpisodeCacheRow> {
     String? blockId,
     Value<String?> name = const Value.absent(),
     int? number,
-    String? seriesId,
+    String? projectId,
     DateTime? updatedAt,
     int? version,
     DateTime? cachedAt,
@@ -1441,7 +1441,7 @@ class EpisodeCacheRow extends DataClass implements Insertable<EpisodeCacheRow> {
     blockId: blockId ?? this.blockId,
     name: name.present ? name.value : this.name,
     number: number ?? this.number,
-    seriesId: seriesId ?? this.seriesId,
+    projectId: projectId ?? this.projectId,
     updatedAt: updatedAt ?? this.updatedAt,
     version: version ?? this.version,
     cachedAt: cachedAt ?? this.cachedAt,
@@ -1452,7 +1452,7 @@ class EpisodeCacheRow extends DataClass implements Insertable<EpisodeCacheRow> {
       blockId: data.blockId.present ? data.blockId.value : this.blockId,
       name: data.name.present ? data.name.value : this.name,
       number: data.number.present ? data.number.value : this.number,
-      seriesId: data.seriesId.present ? data.seriesId.value : this.seriesId,
+      projectId: data.projectId.present ? data.projectId.value : this.projectId,
       updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
       version: data.version.present ? data.version.value : this.version,
       cachedAt: data.cachedAt.present ? data.cachedAt.value : this.cachedAt,
@@ -1466,7 +1466,7 @@ class EpisodeCacheRow extends DataClass implements Insertable<EpisodeCacheRow> {
           ..write('blockId: $blockId, ')
           ..write('name: $name, ')
           ..write('number: $number, ')
-          ..write('seriesId: $seriesId, ')
+          ..write('projectId: $projectId, ')
           ..write('updatedAt: $updatedAt, ')
           ..write('version: $version, ')
           ..write('cachedAt: $cachedAt')
@@ -1480,7 +1480,7 @@ class EpisodeCacheRow extends DataClass implements Insertable<EpisodeCacheRow> {
     blockId,
     name,
     number,
-    seriesId,
+    projectId,
     updatedAt,
     version,
     cachedAt,
@@ -1493,7 +1493,7 @@ class EpisodeCacheRow extends DataClass implements Insertable<EpisodeCacheRow> {
           other.blockId == this.blockId &&
           other.name == this.name &&
           other.number == this.number &&
-          other.seriesId == this.seriesId &&
+          other.projectId == this.projectId &&
           other.updatedAt == this.updatedAt &&
           other.version == this.version &&
           other.cachedAt == this.cachedAt);
@@ -1504,7 +1504,7 @@ class EpisodeCacheRowsCompanion extends UpdateCompanion<EpisodeCacheRow> {
   final Value<String> blockId;
   final Value<String?> name;
   final Value<int> number;
-  final Value<String> seriesId;
+  final Value<String> projectId;
   final Value<DateTime> updatedAt;
   final Value<int> version;
   final Value<DateTime> cachedAt;
@@ -1514,7 +1514,7 @@ class EpisodeCacheRowsCompanion extends UpdateCompanion<EpisodeCacheRow> {
     this.blockId = const Value.absent(),
     this.name = const Value.absent(),
     this.number = const Value.absent(),
-    this.seriesId = const Value.absent(),
+    this.projectId = const Value.absent(),
     this.updatedAt = const Value.absent(),
     this.version = const Value.absent(),
     this.cachedAt = const Value.absent(),
@@ -1525,7 +1525,7 @@ class EpisodeCacheRowsCompanion extends UpdateCompanion<EpisodeCacheRow> {
     required String blockId,
     this.name = const Value.absent(),
     required int number,
-    required String seriesId,
+    required String projectId,
     required DateTime updatedAt,
     required int version,
     required DateTime cachedAt,
@@ -1533,7 +1533,7 @@ class EpisodeCacheRowsCompanion extends UpdateCompanion<EpisodeCacheRow> {
   }) : id = Value(id),
        blockId = Value(blockId),
        number = Value(number),
-       seriesId = Value(seriesId),
+       projectId = Value(projectId),
        updatedAt = Value(updatedAt),
        version = Value(version),
        cachedAt = Value(cachedAt);
@@ -1542,7 +1542,7 @@ class EpisodeCacheRowsCompanion extends UpdateCompanion<EpisodeCacheRow> {
     Expression<String>? blockId,
     Expression<String>? name,
     Expression<int>? number,
-    Expression<String>? seriesId,
+    Expression<String>? projectId,
     Expression<DateTime>? updatedAt,
     Expression<int>? version,
     Expression<DateTime>? cachedAt,
@@ -1553,7 +1553,7 @@ class EpisodeCacheRowsCompanion extends UpdateCompanion<EpisodeCacheRow> {
       if (blockId != null) 'block_id': blockId,
       if (name != null) 'name': name,
       if (number != null) 'number': number,
-      if (seriesId != null) 'series_id': seriesId,
+      if (projectId != null) 'project_id': projectId,
       if (updatedAt != null) 'updated_at': updatedAt,
       if (version != null) 'version': version,
       if (cachedAt != null) 'cached_at': cachedAt,
@@ -1566,7 +1566,7 @@ class EpisodeCacheRowsCompanion extends UpdateCompanion<EpisodeCacheRow> {
     Value<String>? blockId,
     Value<String?>? name,
     Value<int>? number,
-    Value<String>? seriesId,
+    Value<String>? projectId,
     Value<DateTime>? updatedAt,
     Value<int>? version,
     Value<DateTime>? cachedAt,
@@ -1577,7 +1577,7 @@ class EpisodeCacheRowsCompanion extends UpdateCompanion<EpisodeCacheRow> {
       blockId: blockId ?? this.blockId,
       name: name ?? this.name,
       number: number ?? this.number,
-      seriesId: seriesId ?? this.seriesId,
+      projectId: projectId ?? this.projectId,
       updatedAt: updatedAt ?? this.updatedAt,
       version: version ?? this.version,
       cachedAt: cachedAt ?? this.cachedAt,
@@ -1600,8 +1600,8 @@ class EpisodeCacheRowsCompanion extends UpdateCompanion<EpisodeCacheRow> {
     if (number.present) {
       map['number'] = Variable<int>(number.value);
     }
-    if (seriesId.present) {
-      map['series_id'] = Variable<String>(seriesId.value);
+    if (projectId.present) {
+      map['project_id'] = Variable<String>(projectId.value);
     }
     if (updatedAt.present) {
       map['updated_at'] = Variable<DateTime>(updatedAt.value);
@@ -1625,7 +1625,7 @@ class EpisodeCacheRowsCompanion extends UpdateCompanion<EpisodeCacheRow> {
           ..write('blockId: $blockId, ')
           ..write('name: $name, ')
           ..write('number: $number, ')
-          ..write('seriesId: $seriesId, ')
+          ..write('projectId: $projectId, ')
           ..write('updatedAt: $updatedAt, ')
           ..write('version: $version, ')
           ..write('cachedAt: $cachedAt, ')
@@ -6393,12 +6393,12 @@ class $AiImportJobCacheRowsTable extends AiImportJobCacheRows
     type: DriftSqlType.string,
     requiredDuringInsert: false,
   );
-  static const VerificationMeta _seriesIdMeta = const VerificationMeta(
-    'seriesId',
+  static const VerificationMeta _projectIdMeta = const VerificationMeta(
+    'projectId',
   );
   @override
-  late final GeneratedColumn<String> seriesId = GeneratedColumn<String>(
-    'series_id',
+  late final GeneratedColumn<String> projectId = GeneratedColumn<String>(
+    'project_id',
     aliasedName,
     true,
     type: DriftSqlType.string,
@@ -6523,7 +6523,7 @@ class $AiImportJobCacheRowsTable extends AiImportJobCacheRows
     sourceFormat,
     blockId,
     episodeId,
-    seriesId,
+    projectId,
     dedupKey,
     documentDigest,
     sourceHandle,
@@ -6602,10 +6602,10 @@ class $AiImportJobCacheRowsTable extends AiImportJobCacheRows
         episodeId.isAcceptableOrUnknown(data['episode_id']!, _episodeIdMeta),
       );
     }
-    if (data.containsKey('series_id')) {
+    if (data.containsKey('project_id')) {
       context.handle(
-        _seriesIdMeta,
-        seriesId.isAcceptableOrUnknown(data['series_id']!, _seriesIdMeta),
+        _projectIdMeta,
+        projectId.isAcceptableOrUnknown(data['project_id']!, _projectIdMeta),
       );
     }
     if (data.containsKey('dedup_key')) {
@@ -6730,9 +6730,9 @@ class $AiImportJobCacheRowsTable extends AiImportJobCacheRows
         DriftSqlType.string,
         data['${effectivePrefix}episode_id'],
       ),
-      seriesId: attachedDatabase.typeMapping.read(
+      projectId: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
-        data['${effectivePrefix}series_id'],
+        data['${effectivePrefix}project_id'],
       ),
       dedupKey: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
@@ -6806,7 +6806,7 @@ class AiImportJobCacheRow extends DataClass
 
   /// Client-local persisted apply context (design §2.3) — see class doc.
   final String? episodeId;
-  final String? seriesId;
+  final String? projectId;
   final String dedupKey;
   final String documentDigest;
   final String sourceHandle;
@@ -6827,7 +6827,7 @@ class AiImportJobCacheRow extends DataClass
     required this.sourceFormat,
     this.blockId,
     this.episodeId,
-    this.seriesId,
+    this.projectId,
     required this.dedupKey,
     required this.documentDigest,
     required this.sourceHandle,
@@ -6853,8 +6853,8 @@ class AiImportJobCacheRow extends DataClass
     if (!nullToAbsent || episodeId != null) {
       map['episode_id'] = Variable<String>(episodeId);
     }
-    if (!nullToAbsent || seriesId != null) {
-      map['series_id'] = Variable<String>(seriesId);
+    if (!nullToAbsent || projectId != null) {
+      map['project_id'] = Variable<String>(projectId);
     }
     map['dedup_key'] = Variable<String>(dedupKey);
     map['document_digest'] = Variable<String>(documentDigest);
@@ -6886,9 +6886,9 @@ class AiImportJobCacheRow extends DataClass
       episodeId: episodeId == null && nullToAbsent
           ? const Value.absent()
           : Value(episodeId),
-      seriesId: seriesId == null && nullToAbsent
+      projectId: projectId == null && nullToAbsent
           ? const Value.absent()
-          : Value(seriesId),
+          : Value(projectId),
       dedupKey: Value(dedupKey),
       documentDigest: Value(documentDigest),
       sourceHandle: Value(sourceHandle),
@@ -6919,7 +6919,7 @@ class AiImportJobCacheRow extends DataClass
       sourceFormat: serializer.fromJson<String>(json['sourceFormat']),
       blockId: serializer.fromJson<String?>(json['blockId']),
       episodeId: serializer.fromJson<String?>(json['episodeId']),
-      seriesId: serializer.fromJson<String?>(json['seriesId']),
+      projectId: serializer.fromJson<String?>(json['projectId']),
       dedupKey: serializer.fromJson<String>(json['dedupKey']),
       documentDigest: serializer.fromJson<String>(json['documentDigest']),
       sourceHandle: serializer.fromJson<String>(json['sourceHandle']),
@@ -6943,7 +6943,7 @@ class AiImportJobCacheRow extends DataClass
       'sourceFormat': serializer.toJson<String>(sourceFormat),
       'blockId': serializer.toJson<String?>(blockId),
       'episodeId': serializer.toJson<String?>(episodeId),
-      'seriesId': serializer.toJson<String?>(seriesId),
+      'projectId': serializer.toJson<String?>(projectId),
       'dedupKey': serializer.toJson<String>(dedupKey),
       'documentDigest': serializer.toJson<String>(documentDigest),
       'sourceHandle': serializer.toJson<String>(sourceHandle),
@@ -6965,7 +6965,7 @@ class AiImportJobCacheRow extends DataClass
     String? sourceFormat,
     Value<String?> blockId = const Value.absent(),
     Value<String?> episodeId = const Value.absent(),
-    Value<String?> seriesId = const Value.absent(),
+    Value<String?> projectId = const Value.absent(),
     String? dedupKey,
     String? documentDigest,
     String? sourceHandle,
@@ -6984,7 +6984,7 @@ class AiImportJobCacheRow extends DataClass
     sourceFormat: sourceFormat ?? this.sourceFormat,
     blockId: blockId.present ? blockId.value : this.blockId,
     episodeId: episodeId.present ? episodeId.value : this.episodeId,
-    seriesId: seriesId.present ? seriesId.value : this.seriesId,
+    projectId: projectId.present ? projectId.value : this.projectId,
     dedupKey: dedupKey ?? this.dedupKey,
     documentDigest: documentDigest ?? this.documentDigest,
     sourceHandle: sourceHandle ?? this.sourceHandle,
@@ -7011,7 +7011,7 @@ class AiImportJobCacheRow extends DataClass
           : this.sourceFormat,
       blockId: data.blockId.present ? data.blockId.value : this.blockId,
       episodeId: data.episodeId.present ? data.episodeId.value : this.episodeId,
-      seriesId: data.seriesId.present ? data.seriesId.value : this.seriesId,
+      projectId: data.projectId.present ? data.projectId.value : this.projectId,
       dedupKey: data.dedupKey.present ? data.dedupKey.value : this.dedupKey,
       documentDigest: data.documentDigest.present
           ? data.documentDigest.value
@@ -7043,7 +7043,7 @@ class AiImportJobCacheRow extends DataClass
           ..write('sourceFormat: $sourceFormat, ')
           ..write('blockId: $blockId, ')
           ..write('episodeId: $episodeId, ')
-          ..write('seriesId: $seriesId, ')
+          ..write('projectId: $projectId, ')
           ..write('dedupKey: $dedupKey, ')
           ..write('documentDigest: $documentDigest, ')
           ..write('sourceHandle: $sourceHandle, ')
@@ -7067,7 +7067,7 @@ class AiImportJobCacheRow extends DataClass
     sourceFormat,
     blockId,
     episodeId,
-    seriesId,
+    projectId,
     dedupKey,
     documentDigest,
     sourceHandle,
@@ -7090,7 +7090,7 @@ class AiImportJobCacheRow extends DataClass
           other.sourceFormat == this.sourceFormat &&
           other.blockId == this.blockId &&
           other.episodeId == this.episodeId &&
-          other.seriesId == this.seriesId &&
+          other.projectId == this.projectId &&
           other.dedupKey == this.dedupKey &&
           other.documentDigest == this.documentDigest &&
           other.sourceHandle == this.sourceHandle &&
@@ -7112,7 +7112,7 @@ class AiImportJobCacheRowsCompanion
   final Value<String> sourceFormat;
   final Value<String?> blockId;
   final Value<String?> episodeId;
-  final Value<String?> seriesId;
+  final Value<String?> projectId;
   final Value<String> dedupKey;
   final Value<String> documentDigest;
   final Value<String> sourceHandle;
@@ -7132,7 +7132,7 @@ class AiImportJobCacheRowsCompanion
     this.sourceFormat = const Value.absent(),
     this.blockId = const Value.absent(),
     this.episodeId = const Value.absent(),
-    this.seriesId = const Value.absent(),
+    this.projectId = const Value.absent(),
     this.dedupKey = const Value.absent(),
     this.documentDigest = const Value.absent(),
     this.sourceHandle = const Value.absent(),
@@ -7153,7 +7153,7 @@ class AiImportJobCacheRowsCompanion
     required String sourceFormat,
     this.blockId = const Value.absent(),
     this.episodeId = const Value.absent(),
-    this.seriesId = const Value.absent(),
+    this.projectId = const Value.absent(),
     required String dedupKey,
     required String documentDigest,
     required String sourceHandle,
@@ -7186,7 +7186,7 @@ class AiImportJobCacheRowsCompanion
     Expression<String>? sourceFormat,
     Expression<String>? blockId,
     Expression<String>? episodeId,
-    Expression<String>? seriesId,
+    Expression<String>? projectId,
     Expression<String>? dedupKey,
     Expression<String>? documentDigest,
     Expression<String>? sourceHandle,
@@ -7207,7 +7207,7 @@ class AiImportJobCacheRowsCompanion
       if (sourceFormat != null) 'source_format': sourceFormat,
       if (blockId != null) 'block_id': blockId,
       if (episodeId != null) 'episode_id': episodeId,
-      if (seriesId != null) 'series_id': seriesId,
+      if (projectId != null) 'project_id': projectId,
       if (dedupKey != null) 'dedup_key': dedupKey,
       if (documentDigest != null) 'document_digest': documentDigest,
       if (sourceHandle != null) 'source_handle': sourceHandle,
@@ -7230,7 +7230,7 @@ class AiImportJobCacheRowsCompanion
     Value<String>? sourceFormat,
     Value<String?>? blockId,
     Value<String?>? episodeId,
-    Value<String?>? seriesId,
+    Value<String?>? projectId,
     Value<String>? dedupKey,
     Value<String>? documentDigest,
     Value<String>? sourceHandle,
@@ -7251,7 +7251,7 @@ class AiImportJobCacheRowsCompanion
       sourceFormat: sourceFormat ?? this.sourceFormat,
       blockId: blockId ?? this.blockId,
       episodeId: episodeId ?? this.episodeId,
-      seriesId: seriesId ?? this.seriesId,
+      projectId: projectId ?? this.projectId,
       dedupKey: dedupKey ?? this.dedupKey,
       documentDigest: documentDigest ?? this.documentDigest,
       sourceHandle: sourceHandle ?? this.sourceHandle,
@@ -7290,8 +7290,8 @@ class AiImportJobCacheRowsCompanion
     if (episodeId.present) {
       map['episode_id'] = Variable<String>(episodeId.value);
     }
-    if (seriesId.present) {
-      map['series_id'] = Variable<String>(seriesId.value);
+    if (projectId.present) {
+      map['project_id'] = Variable<String>(projectId.value);
     }
     if (dedupKey.present) {
       map['dedup_key'] = Variable<String>(dedupKey.value);
@@ -7339,7 +7339,7 @@ class AiImportJobCacheRowsCompanion
           ..write('sourceFormat: $sourceFormat, ')
           ..write('blockId: $blockId, ')
           ..write('episodeId: $episodeId, ')
-          ..write('seriesId: $seriesId, ')
+          ..write('projectId: $projectId, ')
           ..write('dedupKey: $dedupKey, ')
           ..write('documentDigest: $documentDigest, ')
           ..write('sourceHandle: $sourceHandle, ')
@@ -7672,7 +7672,7 @@ typedef $$SeasonCacheRowsTableCreateCompanionBuilder =
       required String id,
       required int number,
       required bool archived,
-      required String seriesId,
+      required String projectId,
       Value<String?> title,
       required DateTime updatedAt,
       required int version,
@@ -7684,7 +7684,7 @@ typedef $$SeasonCacheRowsTableUpdateCompanionBuilder =
       Value<String> id,
       Value<int> number,
       Value<bool> archived,
-      Value<String> seriesId,
+      Value<String> projectId,
       Value<String?> title,
       Value<DateTime> updatedAt,
       Value<int> version,
@@ -7716,8 +7716,8 @@ class $$SeasonCacheRowsTableFilterComposer
     builder: (column) => ColumnFilters(column),
   );
 
-  ColumnFilters<String> get seriesId => $composableBuilder(
-    column: $table.seriesId,
+  ColumnFilters<String> get projectId => $composableBuilder(
+    column: $table.projectId,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -7766,8 +7766,8 @@ class $$SeasonCacheRowsTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
-  ColumnOrderings<String> get seriesId => $composableBuilder(
-    column: $table.seriesId,
+  ColumnOrderings<String> get projectId => $composableBuilder(
+    column: $table.projectId,
     builder: (column) => ColumnOrderings(column),
   );
 
@@ -7810,8 +7810,8 @@ class $$SeasonCacheRowsTableAnnotationComposer
   GeneratedColumn<bool> get archived =>
       $composableBuilder(column: $table.archived, builder: (column) => column);
 
-  GeneratedColumn<String> get seriesId =>
-      $composableBuilder(column: $table.seriesId, builder: (column) => column);
+  GeneratedColumn<String> get projectId =>
+      $composableBuilder(column: $table.projectId, builder: (column) => column);
 
   GeneratedColumn<String> get title =>
       $composableBuilder(column: $table.title, builder: (column) => column);
@@ -7866,7 +7866,7 @@ class $$SeasonCacheRowsTableTableManager
                 Value<String> id = const Value.absent(),
                 Value<int> number = const Value.absent(),
                 Value<bool> archived = const Value.absent(),
-                Value<String> seriesId = const Value.absent(),
+                Value<String> projectId = const Value.absent(),
                 Value<String?> title = const Value.absent(),
                 Value<DateTime> updatedAt = const Value.absent(),
                 Value<int> version = const Value.absent(),
@@ -7876,7 +7876,7 @@ class $$SeasonCacheRowsTableTableManager
                 id: id,
                 number: number,
                 archived: archived,
-                seriesId: seriesId,
+                projectId: projectId,
                 title: title,
                 updatedAt: updatedAt,
                 version: version,
@@ -7888,7 +7888,7 @@ class $$SeasonCacheRowsTableTableManager
                 required String id,
                 required int number,
                 required bool archived,
-                required String seriesId,
+                required String projectId,
                 Value<String?> title = const Value.absent(),
                 required DateTime updatedAt,
                 required int version,
@@ -7898,7 +7898,7 @@ class $$SeasonCacheRowsTableTableManager
                 id: id,
                 number: number,
                 archived: archived,
-                seriesId: seriesId,
+                projectId: projectId,
                 title: title,
                 updatedAt: updatedAt,
                 version: version,
@@ -7944,7 +7944,7 @@ typedef $$BlockCacheRowsTableCreateCompanionBuilder =
       required String id,
       required int number,
       required String seasonId,
-      required String seriesId,
+      required String projectId,
       Value<String?> startDate,
       Value<String?> endDate,
       required DateTime updatedAt,
@@ -7957,7 +7957,7 @@ typedef $$BlockCacheRowsTableUpdateCompanionBuilder =
       Value<String> id,
       Value<int> number,
       Value<String> seasonId,
-      Value<String> seriesId,
+      Value<String> projectId,
       Value<String?> startDate,
       Value<String?> endDate,
       Value<DateTime> updatedAt,
@@ -7990,8 +7990,8 @@ class $$BlockCacheRowsTableFilterComposer
     builder: (column) => ColumnFilters(column),
   );
 
-  ColumnFilters<String> get seriesId => $composableBuilder(
-    column: $table.seriesId,
+  ColumnFilters<String> get projectId => $composableBuilder(
+    column: $table.projectId,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -8045,8 +8045,8 @@ class $$BlockCacheRowsTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
-  ColumnOrderings<String> get seriesId => $composableBuilder(
-    column: $table.seriesId,
+  ColumnOrderings<String> get projectId => $composableBuilder(
+    column: $table.projectId,
     builder: (column) => ColumnOrderings(column),
   );
 
@@ -8094,8 +8094,8 @@ class $$BlockCacheRowsTableAnnotationComposer
   GeneratedColumn<String> get seasonId =>
       $composableBuilder(column: $table.seasonId, builder: (column) => column);
 
-  GeneratedColumn<String> get seriesId =>
-      $composableBuilder(column: $table.seriesId, builder: (column) => column);
+  GeneratedColumn<String> get projectId =>
+      $composableBuilder(column: $table.projectId, builder: (column) => column);
 
   GeneratedColumn<String> get startDate =>
       $composableBuilder(column: $table.startDate, builder: (column) => column);
@@ -8153,7 +8153,7 @@ class $$BlockCacheRowsTableTableManager
                 Value<String> id = const Value.absent(),
                 Value<int> number = const Value.absent(),
                 Value<String> seasonId = const Value.absent(),
-                Value<String> seriesId = const Value.absent(),
+                Value<String> projectId = const Value.absent(),
                 Value<String?> startDate = const Value.absent(),
                 Value<String?> endDate = const Value.absent(),
                 Value<DateTime> updatedAt = const Value.absent(),
@@ -8164,7 +8164,7 @@ class $$BlockCacheRowsTableTableManager
                 id: id,
                 number: number,
                 seasonId: seasonId,
-                seriesId: seriesId,
+                projectId: projectId,
                 startDate: startDate,
                 endDate: endDate,
                 updatedAt: updatedAt,
@@ -8177,7 +8177,7 @@ class $$BlockCacheRowsTableTableManager
                 required String id,
                 required int number,
                 required String seasonId,
-                required String seriesId,
+                required String projectId,
                 Value<String?> startDate = const Value.absent(),
                 Value<String?> endDate = const Value.absent(),
                 required DateTime updatedAt,
@@ -8188,7 +8188,7 @@ class $$BlockCacheRowsTableTableManager
                 id: id,
                 number: number,
                 seasonId: seasonId,
-                seriesId: seriesId,
+                projectId: projectId,
                 startDate: startDate,
                 endDate: endDate,
                 updatedAt: updatedAt,
@@ -8236,7 +8236,7 @@ typedef $$EpisodeCacheRowsTableCreateCompanionBuilder =
       required String blockId,
       Value<String?> name,
       required int number,
-      required String seriesId,
+      required String projectId,
       required DateTime updatedAt,
       required int version,
       required DateTime cachedAt,
@@ -8248,7 +8248,7 @@ typedef $$EpisodeCacheRowsTableUpdateCompanionBuilder =
       Value<String> blockId,
       Value<String?> name,
       Value<int> number,
-      Value<String> seriesId,
+      Value<String> projectId,
       Value<DateTime> updatedAt,
       Value<int> version,
       Value<DateTime> cachedAt,
@@ -8284,8 +8284,8 @@ class $$EpisodeCacheRowsTableFilterComposer
     builder: (column) => ColumnFilters(column),
   );
 
-  ColumnFilters<String> get seriesId => $composableBuilder(
-    column: $table.seriesId,
+  ColumnFilters<String> get projectId => $composableBuilder(
+    column: $table.projectId,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -8334,8 +8334,8 @@ class $$EpisodeCacheRowsTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
-  ColumnOrderings<String> get seriesId => $composableBuilder(
-    column: $table.seriesId,
+  ColumnOrderings<String> get projectId => $composableBuilder(
+    column: $table.projectId,
     builder: (column) => ColumnOrderings(column),
   );
 
@@ -8376,8 +8376,8 @@ class $$EpisodeCacheRowsTableAnnotationComposer
   GeneratedColumn<int> get number =>
       $composableBuilder(column: $table.number, builder: (column) => column);
 
-  GeneratedColumn<String> get seriesId =>
-      $composableBuilder(column: $table.seriesId, builder: (column) => column);
+  GeneratedColumn<String> get projectId =>
+      $composableBuilder(column: $table.projectId, builder: (column) => column);
 
   GeneratedColumn<DateTime> get updatedAt =>
       $composableBuilder(column: $table.updatedAt, builder: (column) => column);
@@ -8430,7 +8430,7 @@ class $$EpisodeCacheRowsTableTableManager
                 Value<String> blockId = const Value.absent(),
                 Value<String?> name = const Value.absent(),
                 Value<int> number = const Value.absent(),
-                Value<String> seriesId = const Value.absent(),
+                Value<String> projectId = const Value.absent(),
                 Value<DateTime> updatedAt = const Value.absent(),
                 Value<int> version = const Value.absent(),
                 Value<DateTime> cachedAt = const Value.absent(),
@@ -8440,7 +8440,7 @@ class $$EpisodeCacheRowsTableTableManager
                 blockId: blockId,
                 name: name,
                 number: number,
-                seriesId: seriesId,
+                projectId: projectId,
                 updatedAt: updatedAt,
                 version: version,
                 cachedAt: cachedAt,
@@ -8452,7 +8452,7 @@ class $$EpisodeCacheRowsTableTableManager
                 required String blockId,
                 Value<String?> name = const Value.absent(),
                 required int number,
-                required String seriesId,
+                required String projectId,
                 required DateTime updatedAt,
                 required int version,
                 required DateTime cachedAt,
@@ -8462,7 +8462,7 @@ class $$EpisodeCacheRowsTableTableManager
                 blockId: blockId,
                 name: name,
                 number: number,
-                seriesId: seriesId,
+                projectId: projectId,
                 updatedAt: updatedAt,
                 version: version,
                 cachedAt: cachedAt,
@@ -10768,7 +10768,7 @@ typedef $$AiImportJobCacheRowsTableCreateCompanionBuilder =
       required String sourceFormat,
       Value<String?> blockId,
       Value<String?> episodeId,
-      Value<String?> seriesId,
+      Value<String?> projectId,
       required String dedupKey,
       required String documentDigest,
       required String sourceHandle,
@@ -10790,7 +10790,7 @@ typedef $$AiImportJobCacheRowsTableUpdateCompanionBuilder =
       Value<String> sourceFormat,
       Value<String?> blockId,
       Value<String?> episodeId,
-      Value<String?> seriesId,
+      Value<String?> projectId,
       Value<String> dedupKey,
       Value<String> documentDigest,
       Value<String> sourceHandle,
@@ -10848,8 +10848,8 @@ class $$AiImportJobCacheRowsTableFilterComposer
     builder: (column) => ColumnFilters(column),
   );
 
-  ColumnFilters<String> get seriesId => $composableBuilder(
-    column: $table.seriesId,
+  ColumnFilters<String> get projectId => $composableBuilder(
+    column: $table.projectId,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -10948,8 +10948,8 @@ class $$AiImportJobCacheRowsTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
-  ColumnOrderings<String> get seriesId => $composableBuilder(
-    column: $table.seriesId,
+  ColumnOrderings<String> get projectId => $composableBuilder(
+    column: $table.projectId,
     builder: (column) => ColumnOrderings(column),
   );
 
@@ -11038,8 +11038,8 @@ class $$AiImportJobCacheRowsTableAnnotationComposer
   GeneratedColumn<String> get episodeId =>
       $composableBuilder(column: $table.episodeId, builder: (column) => column);
 
-  GeneratedColumn<String> get seriesId =>
-      $composableBuilder(column: $table.seriesId, builder: (column) => column);
+  GeneratedColumn<String> get projectId =>
+      $composableBuilder(column: $table.projectId, builder: (column) => column);
 
   GeneratedColumn<String> get dedupKey =>
       $composableBuilder(column: $table.dedupKey, builder: (column) => column);
@@ -11130,7 +11130,7 @@ class $$AiImportJobCacheRowsTableTableManager
                 Value<String> sourceFormat = const Value.absent(),
                 Value<String?> blockId = const Value.absent(),
                 Value<String?> episodeId = const Value.absent(),
-                Value<String?> seriesId = const Value.absent(),
+                Value<String?> projectId = const Value.absent(),
                 Value<String> dedupKey = const Value.absent(),
                 Value<String> documentDigest = const Value.absent(),
                 Value<String> sourceHandle = const Value.absent(),
@@ -11150,7 +11150,7 @@ class $$AiImportJobCacheRowsTableTableManager
                 sourceFormat: sourceFormat,
                 blockId: blockId,
                 episodeId: episodeId,
-                seriesId: seriesId,
+                projectId: projectId,
                 dedupKey: dedupKey,
                 documentDigest: documentDigest,
                 sourceHandle: sourceHandle,
@@ -11172,7 +11172,7 @@ class $$AiImportJobCacheRowsTableTableManager
                 required String sourceFormat,
                 Value<String?> blockId = const Value.absent(),
                 Value<String?> episodeId = const Value.absent(),
-                Value<String?> seriesId = const Value.absent(),
+                Value<String?> projectId = const Value.absent(),
                 required String dedupKey,
                 required String documentDigest,
                 required String sourceHandle,
@@ -11192,7 +11192,7 @@ class $$AiImportJobCacheRowsTableTableManager
                 sourceFormat: sourceFormat,
                 blockId: blockId,
                 episodeId: episodeId,
-                seriesId: seriesId,
+                projectId: projectId,
                 dedupKey: dedupKey,
                 documentDigest: documentDigest,
                 sourceHandle: sourceHandle,

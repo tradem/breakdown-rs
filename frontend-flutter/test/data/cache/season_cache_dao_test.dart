@@ -21,7 +21,7 @@ SeasonView _season(
     ..archived = false
     ..id = id
     ..number = number
-    ..seriesId = 'series-1'
+    ..projectId = 'series-1'
     ..title = title
     ..updatedAt = updatedAt ?? DateTime.utc(2026, 1, 1)
     ..version = 1,
@@ -48,7 +48,7 @@ void main() {
       expect(rows, hasLength(1));
       expect(rows.first.id, 's1');
       expect(rows.first.title, 'Spring');
-      expect(rows.first.seriesId, 'series-1');
+      expect(rows.first.projectId, 'series-1');
       expect(rows.first.updatedAt, DateTime.utc(2026, 1, 1));
       expect(rows.first.version, 1);
     });

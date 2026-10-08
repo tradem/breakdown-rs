@@ -27,9 +27,11 @@ future PRs that touch these areas must keep this page in sync.
   (`crates/core/src/shared.rs`), renamed from `SeriesId` by issue #591
   (ADR-035 D1/S1) — a 1:1 rename of the *term*, not a change of the tenant
   boundary: same UUIDv7 values, same seam, no multi-tenancy change
-  (ADR-035 B1). The projection columns and the OpenAPI field names still spell
-  it `series_id`; that is a wire-layer detail of the deferred layer-3
-  migration, not a second container. Multi-tenancy itself is deferred — see the
+  (ADR-035 B1). Since issue #599 the rename is complete in storage and on the
+  wire too: the projection columns (`projection_*_project_id`) and the OpenAPI
+  properties/query parameters spell it `project_id`. Only the **persisted event
+  payload** keeps the historical `series_id` key (ADR-002 forbids rewriting
+  history). Multi-tenancy itself is deferred — see the
   `api-authorization` spec (`openspec/specs/api-authorization/spec.md`).
 
 ### Identity trust root
@@ -134,10 +136,10 @@ block-scoped, never open.
 | `/swagger-ui`, `/api-docs` | public | Docs only. Implemented as a **path-check inside the middleware**, *not* by omitting the layer — the middleware still runs on every request. (`authorization.rs::authorize_middleware`, `auth/mod.rs::auth_middleware`) |
 | `/seasons`, `/series/{id}/membership` (issue #535), `/settings`, `/blocks` (create/list) | `Authenticated` | No existing block membership can be required: creating a block bootstraps its owner; listing by season needs no block scope. The series-membership self-check is tenant-level data the `X-Active-Block` scope says nothing about (it backstops the client-side AUTHZ-GATE mirror); the handler itself performs no privileged action. |
 | `/settings/{id}` (`GET`/`DELETE`), `/settings/{id}/gdrive` (`PATCH`) (issue #555) | `Authenticated` + handler gates | Integration-level credentials, not season-scoped (ADR-028), so the middleware cannot gate them. Every handler enforces the credential role (`has_active_credential_role`) *and* per-binding ownership (`projection_settings.owner == caller`) with `// AUTHZ-GATE:` comments — 403 `settings.forbidden` for the role denial, 403 `settings.binding-forbidden` for a foreign or legacy unknown-owner binding. Ownership is checked before any Vault write or command dispatch, so a non-owner can neither read the `vault_key_id` nor rotate/destroy another user's secret. |
-| `/costumes/{id}/photos*` (issue #535) | `Authenticated` + handler gate | Handler internally resolves the costume's owning **series** (strict, `series_id_for_costume_strict` — lookup failures answer 500) and calls `has_active_costume_role_in_series` — a costume-dept role (`costume_designer`, `wardrobe_supervisor`, `costume_assistant`) in any active block of the series authorizes, **series-wide**. Returns `403` on denial, `422 costume.container-unresolved` when the costume has neither character nor repertoire (no resolvable container). Marked with `// AUTHZ-GATE:` comments — reviewers grep for them. See [Costume-photo authorization level (issue #535)](#costume-photo-authorization-level-issue-535). |
+| `/costumes/{id}/photos*` (issue #535) | `Authenticated` + handler gate | Handler internally resolves the costume's owning **project** (strict, `project_id_for_costume_strict` — lookup failures answer 500) and calls `has_active_costume_role_in_project` — a costume-dept role (`costume_designer`, `wardrobe_supervisor`, `costume_assistant`) in any active block of the project authorizes, **project-wide**. Returns `403` on denial, `422 costume.container-unresolved` when the costume has neither character nor repertoire (no resolvable container). Marked with `// AUTHZ-GATE:` comments — reviewers grep for them. See [Costume-photo authorization level (issue #535)](#costume-photo-authorization-level-issue-535). |
 | `/blocks/{id}/members/accept` | `Authenticated` | The invitee is *not yet* a member (that is the point). The domain command `AcceptInvitation` binds `user_id` to the authenticated `sub`, so a caller can only accept their own invitation. |
 | `/ai-import*`, `/report/*.pdf`, `/report/archive` | `Authenticated` + handler gates | Each handler performs season-scoped internal authorization (costume-dept membership / credential role) with `// AUTHZ-GATE:` comments. |
-| `/audit` (series-scoped journal) | `Authenticated` + handler gate | The journal is filtered by the `series_id` **query parameter**, so the caller's active block (`X-Active-Block`) is unrelated to the series being read — a middleware `BlockMember` check would give false assurance. `requirement_for` therefore classifies the route `Authenticated` and `get_audit_history` verifies `MembershipRepository::has_active_membership_in_series` itself, returning `403` on denial (issue #342). Its block-scoped twin `/blocks/{id}/audit` stays `BlockMember`. |
+| `/audit` (series-scoped journal) | `Authenticated` + handler gate | The journal is filtered by the `project_id` **query parameter**, so the caller's active block (`X-Active-Block`) is unrelated to the project being read — a middleware `BlockMember` check would give false assurance. `requirement_for` therefore classifies the route `Authenticated` and `get_audit_history` verifies `MembershipRepository::has_active_membership_in_project` itself, returning `403` on denial (issue #342). Its block-scoped twin `/blocks/{id}/audit` stays `BlockMember`. |
 | `/ops/projector-health` (issue #409) | `Authenticated` + handler gate | Deployment-scoped infrastructure state (DLQ + checkpoint progress) — no block/season scope applies. The handler verifies `AuthorizationPolicy::authorize_ops` (active `ops_admin` membership in any block, or the `OPS_ADMIN_SUBS` bootstrap allowlist) with `// AUTHZ-GATE:`. The ops capability itself is protected in both directions: it can only be granted **and** only be demoted/removed by existing ops holders (`invite_member` / `grant_role` / `remove_member` guards — a regular block member can neither self-escalate nor strip an ops holder). The `OPS_ADMIN_SUBS` bootstrap allowlist is injected once at API start; revoking a bootstrap subject requires an API restart, membership-based grants are revocable immediately via the membership API. |
 
 ### Fail-closed guarantee
@@ -168,7 +170,7 @@ membership_gate(
     state
         .ports
         .membership_repo()
-        .has_active_membership_in_series(series_id, current_user.sub.clone()),
+        .has_active_membership_in_project(project_id, current_user.sub.clone()),
     || ApiError::Forbidden("…"),
 )
 .await?;
@@ -192,7 +194,7 @@ since #535 the costume-photo gate is typed at the **series/project level**
 - **Predicate + role set.** Same three costume-department roles as the
   season-scoped predicate (`costume_designer`, `wardrobe_supervisor`,
   `costume_assistant`), one level up — the SQL joins
-  `projection_membership ⋈ projection_block ON b.series_id` instead of
+  `projection_membership ⋈ projection_block ON b.project_id` instead of
   `b.season_id`.
 - **Scope widening (deliberate, reviewed).** Pre-#535 the gate checked the
   season union (character season ∪ repertoire seasons, `authorize_costume_scoped`)

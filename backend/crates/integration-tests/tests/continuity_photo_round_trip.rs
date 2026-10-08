@@ -143,7 +143,7 @@ async fn seed_parents(pool: &sqlx::PgPool, scene_id: Uuid, day_id: ShootingDayId
     // projection)
     sqlx::query(
         r#"INSERT INTO projection_episode
-            (id,block_id,series_id,number,name,version,updated_at)
+            (id,block_id,project_id,number,name,version,updated_at)
         VALUES ($1,$2,$3,1,'Test Ep',1,now())
         ON CONFLICT (id) DO NOTHING"#,
     )

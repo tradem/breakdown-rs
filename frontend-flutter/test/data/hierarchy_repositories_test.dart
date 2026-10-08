@@ -28,7 +28,7 @@ BlockView _block(String id, {String seasonId = 'season-1', int number = 1}) =>
         ..id = id
         ..number = number
         ..seasonId = seasonId
-        ..seriesId = 'series-1'
+        ..projectId = 'series-1'
         ..startDate = '2026-01-01'
         ..endDate = '2026-01-31'
         ..updatedAt = DateTime.utc(2026, 1, 1)
@@ -46,7 +46,7 @@ EpisodeView _episode(
     ..blockId = blockId
     ..name = name
     ..number = number
-    ..seriesId = 'series-1'
+    ..projectId = 'series-1'
     ..updatedAt = DateTime.utc(2026, 1, 1)
     ..version = 1,
 );
@@ -225,7 +225,7 @@ class FakeCostumeCategoryRepository extends CostumeCategoryRepository {
 
 void main() {
   group('hierarchy cache schema (2.1)', () {
-    test('schema version is 12 with all projection tables', () async {
+    test('schema version is 13 with all projection tables', () async {
       final db = CacheDatabase(NativeDatabase.memory());
       addTearDown(db.close);
       // `flutter-costume-domains` 1.1 adds the costumes/characters/
@@ -243,8 +243,10 @@ void main() {
       // columns (migration v9 → v10, guarded ADD COLUMN); issue #533 adds
       // the season lifecycle flag (migration v10 → v11, guarded ADD
       // COLUMN); issue #534 persists the costume repertoire (migration
-      // v11 → v12, guarded ADD COLUMN).
-      expect(db.schemaVersion, 12);
+      // v11 → v12, guarded ADD COLUMN); issue #599 adds the `project_id`
+      // columns mirroring the wire rename (migration v12 → v13, guarded ADD
+      // COLUMN — additive by policy, never a destructive rename).
+      expect(db.schemaVersion, 13);
       // Every table round-trips (migration created them).
       await BlockCacheDao(db).applySnapshotForSeason('s', [
         _block('b', seasonId: 's'),
@@ -326,7 +328,7 @@ void main() {
             byBlock: {
               'blockA': [_episode('eA3', blockId: 'blockA')],
             },
-            seriesId: 'series-1',
+            projectId: 'series-1',
             cachedAt: at,
           );
 
@@ -343,7 +345,7 @@ void main() {
         ], at);
         await dao.applySeriesSnapshot(
           byBlock: const <String, List<EpisodeView>>{},
-          seriesId: 'series-1',
+          projectId: 'series-1',
           cachedAt: at,
         );
         expect(await dao.readByBlock('blockA'), isEmpty);
@@ -504,7 +506,7 @@ void main() {
         (await repo.create(
           CreateBlockRequest(
             (b) => b
-              ..seriesId = 'series-1'
+              ..projectId = 'series-1'
               ..seasonId = 'season-1'
               ..number = 1,
           ),
@@ -515,7 +517,7 @@ void main() {
       final err = await repo.create(
         CreateBlockRequest(
           (b) => b
-            ..seriesId = 'series-1'
+            ..projectId = 'series-1'
             ..seasonId = 'season-1'
             ..number = 2,
         ),
@@ -565,7 +567,7 @@ void main() {
         (await repo.create(
           CreateEpisodeRequest(
             (b) => b
-              ..seriesId = 'series-1'
+              ..projectId = 'series-1'
               ..blockId = 'block-1'
               ..number = 1,
           ),
@@ -577,7 +579,7 @@ void main() {
         await repo.create(
           CreateEpisodeRequest(
             (b) => b
-              ..seriesId = 'series-1'
+              ..projectId = 'series-1'
               ..blockId = 'block-1'
               ..number = 2,
           ),

@@ -19,7 +19,7 @@ SeasonView _season(String id, int number) => SeasonView(
     ..archived = false
     ..id = id
     ..number = number
-    ..seriesId = 'series-1'
+    ..projectId = 'series-1'
     ..updatedAt = DateTime.utc(2026, 1, 1)
     ..version = 1,
 );

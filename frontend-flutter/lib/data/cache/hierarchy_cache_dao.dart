@@ -32,7 +32,7 @@ class BlockCacheDao {
         id: view.id,
         number: view.number,
         seasonId: view.seasonId,
-        seriesId: view.seriesId,
+        projectId: view.projectId,
         // Nullable since issue #423 (unset dates serialize as JSON null):
         // wrapped in `Value` so an explicit null is stored, not the column
         // default.
@@ -110,7 +110,7 @@ class BlockCacheDao {
       ..id = row.id
       ..number = row.number
       ..seasonId = row.seasonId
-      ..seriesId = row.seriesId
+      ..projectId = row.projectId
       ..startDate = row.startDate
       ..endDate = row.endDate
       ..updatedAt = row.updatedAt.toUtc()
@@ -129,7 +129,7 @@ class EpisodeCacheDao {
         blockId: view.blockId,
         name: Value(view.name),
         number: view.number,
-        seriesId: view.seriesId,
+        projectId: view.projectId,
         updatedAt: view.updatedAt,
         version: view.version,
         cachedAt: cachedAt,
@@ -167,13 +167,13 @@ class EpisodeCacheDao {
 
   /// Applies a complete SERIES episode snapshot in ONE transaction
   /// (CodeRabbit #464 re-review): per-block snapshot-replace for each entry
-  /// in [byBlock] PLUS clearing of every cached block of [seriesId] absent
+  /// in [byBlock] PLUS clearing of every cached block of [projectId] absent
   /// from the snapshot, all atomic — a failure rolls back everything. Does
   /// NOT nest [applySnapshotForBlock] (which starts its own transaction).
   Future<void> applySeriesSnapshot({
     required Map<String, List<EpisodeView>> byBlock,
     required DateTime cachedAt,
-    required String seriesId,
+    required String projectId,
   }) {
     return _db.transaction(() async {
       final liveBlockIds = byBlock.keys.toSet();
@@ -196,7 +196,7 @@ class EpisodeCacheDao {
       }
       final rows = await (_db.select(
         _db.episodeCacheRows,
-      )..where((t) => t.seriesId.equals(seriesId))).get();
+      )..where((t) => t.projectId.equals(projectId))).get();
       final absent = {
         for (final r in rows)
           if (!liveBlockIds.contains(r.blockId)) r.blockId,
@@ -262,7 +262,7 @@ class EpisodeCacheDao {
       ..blockId = row.blockId
       ..name = row.name
       ..number = row.number
-      ..seriesId = row.seriesId
+      ..projectId = row.projectId
       ..updatedAt = row.updatedAt.toUtc()
       ..version = row.version,
   );

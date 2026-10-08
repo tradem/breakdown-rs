@@ -77,7 +77,7 @@ class _SetupWizardScreenState extends ConsumerState<SetupWizardScreen> {
         // id is the env-sourced default, same rule as the create sheet.
         await ref
             .read(setupWizardControllerProvider.notifier)
-            .seedDerivedNumbers(seriesId: _seriesId());
+            .seedDerivedNumbers(projectId: _projectId());
       }),
     );
   }
@@ -188,7 +188,7 @@ class _SetupWizardScreenState extends ConsumerState<SetupWizardScreen> {
           seasonName: state.seasonName,
           blocks: state.blocks,
           numbersSeeded: state.numbersSeeded,
-          onConfirm: () => controller.submit(seriesId: _seriesId()),
+          onConfirm: () => controller.submit(projectId: _projectId()),
         ),
       },
       SetupWizardPhase.dispatching => WizardDispatchView(
@@ -203,7 +203,7 @@ class _SetupWizardScreenState extends ConsumerState<SetupWizardScreen> {
         createdBlocks: state.createdBlocks,
         failure: state.failure,
         aiConfigAvailable: ref.watch(wizardAiConfigAvailableProvider),
-        onRetry: () => controller.retryRemaining(seriesId: _seriesId()),
+        onRetry: () => controller.retryRemaining(projectId: _projectId()),
         onOpenAiConfig: () => _openAiConfig(context),
         onImport: () => _openImport(context),
         onDone: () => Navigator.of(context).pop(),
@@ -211,9 +211,9 @@ class _SetupWizardScreenState extends ConsumerState<SetupWizardScreen> {
     };
   }
 
-  /// The env-sourced series id (`--dart-define=DEFAULT_SERIES_ID`) — the
+  /// The env-sourced series id (`--dart-define=DEFAULT_PROJECT_ID`) — the
   /// same rule the quick-create sheet follows (never hardcoded).
-  String _seriesId() => ref.read(appConfigProvider).defaultSeriesId;
+  String _projectId() => ref.read(appConfigProvider).defaultProjectId;
 
   /// The navigation steps' 1-based progress positions (Completion's 4 is
   /// derived from the settled phase, not a navigation step).

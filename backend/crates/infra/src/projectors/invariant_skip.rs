@@ -27,9 +27,9 @@
 /// A 23505 on exactly these constraints is a *permanent* violation that the
 /// projectors skip instead of propagating.
 pub(crate) const SCENE_SHOOT_PAIR_CONSTRAINT: &str = "uq_projection_scene_shoot_pair";
-pub(crate) const SEASON_NUMBER_CONSTRAINT: &str = "idx_projection_season_series_number";
-pub(crate) const BLOCK_NUMBER_CONSTRAINT: &str = "idx_projection_block_series_number";
-pub(crate) const EPISODE_NUMBER_CONSTRAINT: &str = "idx_projection_episode_series_number";
+pub(crate) const SEASON_NUMBER_CONSTRAINT: &str = "idx_projection_season_project_number";
+pub(crate) const BLOCK_NUMBER_CONSTRAINT: &str = "idx_projection_block_project_number";
+pub(crate) const EPISODE_NUMBER_CONSTRAINT: &str = "idx_projection_episode_project_number";
 
 /// Returns `true` if `err` is a Postgres unique-violation (SQLSTATE 23505) on
 /// the named constraint — the signature of a *permanent* invariant violation.
@@ -116,7 +116,7 @@ mod tests {
     #[test]
     fn does_not_classify_other_constraint() {
         assert!(!is_unique_violation_on(
-            &unique_violation(Some("idx_projection_season_series_number")),
+            &unique_violation(Some("idx_projection_season_project_number")),
             "uq_projection_scene_shoot_pair"
         ));
     }

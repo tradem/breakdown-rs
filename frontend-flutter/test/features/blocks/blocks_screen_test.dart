@@ -44,7 +44,7 @@ BlockView _block(String id, {int number = 1}) => BlockView(
     ..id = id
     ..number = number
     ..seasonId = 'season-1'
-    ..seriesId = 'series-1'
+    ..projectId = 'series-1'
     ..startDate = '2026-01-01'
     ..endDate = '2026-01-31'
     ..updatedAt = DateTime.utc(2026, 1, 1)
@@ -56,7 +56,7 @@ SeasonView _season() => SeasonView(
     ..archived = false
     ..id = 'season-1'
     ..number = 1
-    ..seriesId = 'series-1'
+    ..projectId = 'series-1'
     ..title = 'Season One'
     ..updatedAt = DateTime.utc(2026, 1, 1)
     ..version = 1,

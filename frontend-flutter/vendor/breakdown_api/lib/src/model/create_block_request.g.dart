@@ -12,9 +12,9 @@ class _$CreateBlockRequest extends CreateBlockRequest {
   @override
   final int number;
   @override
-  final String seasonId;
+  final String projectId;
   @override
-  final String seriesId;
+  final String seasonId;
   @override
   final Date? startDate;
 
@@ -25,8 +25,8 @@ class _$CreateBlockRequest extends CreateBlockRequest {
   _$CreateBlockRequest._(
       {this.endDate,
       required this.number,
+      required this.projectId,
       required this.seasonId,
-      required this.seriesId,
       this.startDate})
       : super._();
   @override
@@ -44,8 +44,8 @@ class _$CreateBlockRequest extends CreateBlockRequest {
     return other is CreateBlockRequest &&
         endDate == other.endDate &&
         number == other.number &&
+        projectId == other.projectId &&
         seasonId == other.seasonId &&
-        seriesId == other.seriesId &&
         startDate == other.startDate;
   }
 
@@ -54,8 +54,8 @@ class _$CreateBlockRequest extends CreateBlockRequest {
     var _$hash = 0;
     _$hash = $jc(_$hash, endDate.hashCode);
     _$hash = $jc(_$hash, number.hashCode);
+    _$hash = $jc(_$hash, projectId.hashCode);
     _$hash = $jc(_$hash, seasonId.hashCode);
-    _$hash = $jc(_$hash, seriesId.hashCode);
     _$hash = $jc(_$hash, startDate.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
@@ -66,8 +66,8 @@ class _$CreateBlockRequest extends CreateBlockRequest {
     return (newBuiltValueToStringHelper(r'CreateBlockRequest')
           ..add('endDate', endDate)
           ..add('number', number)
+          ..add('projectId', projectId)
           ..add('seasonId', seasonId)
-          ..add('seriesId', seriesId)
           ..add('startDate', startDate))
         .toString();
   }
@@ -85,13 +85,13 @@ class CreateBlockRequestBuilder
   int? get number => _$this._number;
   set number(int? number) => _$this._number = number;
 
+  String? _projectId;
+  String? get projectId => _$this._projectId;
+  set projectId(String? projectId) => _$this._projectId = projectId;
+
   String? _seasonId;
   String? get seasonId => _$this._seasonId;
   set seasonId(String? seasonId) => _$this._seasonId = seasonId;
-
-  String? _seriesId;
-  String? get seriesId => _$this._seriesId;
-  set seriesId(String? seriesId) => _$this._seriesId = seriesId;
 
   Date? _startDate;
   Date? get startDate => _$this._startDate;
@@ -106,8 +106,8 @@ class CreateBlockRequestBuilder
     if ($v != null) {
       _endDate = $v.endDate;
       _number = $v.number;
+      _projectId = $v.projectId;
       _seasonId = $v.seasonId;
-      _seriesId = $v.seriesId;
       _startDate = $v.startDate;
       _$v = null;
     }
@@ -133,10 +133,10 @@ class CreateBlockRequestBuilder
           endDate: endDate,
           number: BuiltValueNullFieldError.checkNotNull(
               number, r'CreateBlockRequest', 'number'),
+          projectId: BuiltValueNullFieldError.checkNotNull(
+              projectId, r'CreateBlockRequest', 'projectId'),
           seasonId: BuiltValueNullFieldError.checkNotNull(
               seasonId, r'CreateBlockRequest', 'seasonId'),
-          seriesId: BuiltValueNullFieldError.checkNotNull(
-              seriesId, r'CreateBlockRequest', 'seriesId'),
           startDate: startDate,
         );
     replace(_$result);

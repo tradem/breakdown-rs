@@ -16,7 +16,7 @@ part 'series_membership_dto.g.dart';
 /// Properties:
 /// * [capabilities]
 /// * [hasActiveCostumeRoleInSeries]
-/// * [seriesId]
+/// * [projectId]
 @BuiltValue()
 abstract class SeriesMembershipDto
     implements Built<SeriesMembershipDto, SeriesMembershipDtoBuilder> {
@@ -26,8 +26,8 @@ abstract class SeriesMembershipDto
   @BuiltValueField(wireName: r'has_active_costume_role_in_series')
   bool get hasActiveCostumeRoleInSeries;
 
-  @BuiltValueField(wireName: r'series_id')
-  String get seriesId;
+  @BuiltValueField(wireName: r'project_id')
+  String get projectId;
 
   SeriesMembershipDto._();
 
@@ -68,9 +68,9 @@ class _$SeriesMembershipDtoSerializer
       object.hasActiveCostumeRoleInSeries,
       specifiedType: const FullType(bool),
     );
-    yield r'series_id';
+    yield r'project_id';
     yield serializers.serialize(
-      object.seriesId,
+      object.projectId,
       specifiedType: const FullType(String),
     );
   }
@@ -112,12 +112,12 @@ class _$SeriesMembershipDtoSerializer
           ) as bool;
           result.hasActiveCostumeRoleInSeries = valueDes;
           break;
-        case r'series_id':
+        case r'project_id':
           final valueDes = serializers.deserialize(
             value,
             specifiedType: const FullType(String),
           ) as String;
-          result.seriesId = valueDes;
+          result.projectId = valueDes;
           break;
         default:
           unhandled.add(key);

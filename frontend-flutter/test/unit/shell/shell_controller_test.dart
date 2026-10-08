@@ -49,7 +49,7 @@ SeasonView _season(String id, {int number = 1, String? title}) => SeasonView(
     ..archived = false
     ..id = id
     ..number = number
-    ..seriesId = 'series-1'
+    ..projectId = 'series-1'
     ..title = title
     ..updatedAt = DateTime.utc(2026, 1, 1)
     ..version = 1,

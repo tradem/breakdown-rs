@@ -65,7 +65,7 @@ a server-owned concern (API shape, error surface, auth), the backend wins.
     The client never queries aggregates directly (there is no aggregate API
     to query) and never reconstructs aggregate state client-side.
   - **CQRS boundary on the client (mirror of the backend hard rule):** The
-    client must never derive audit/derived context (`series_id`, etc.) from
+    client must never derive audit/derived context (`project_id`, etc.) from
     a *different* read-model projection call to "fill in" a command. Such
     context comes from the command's own payload (populated at the API edge
     by the backend handler) or from the read DTO the user is acting on —
@@ -141,22 +141,19 @@ feature folder per aggregate boundary, one screen per read-model query.
 Costume categories are season-scoped; continuity photos bind to scene
 shoots; the photo bounded context's `binding` discriminator
 (`Costume {| Continuity}`) is surfaced in the photos feature.
-**The `Series` → `Project` rename has landed (issue #591, ADR-035 D1/S1).**
+**The `Series` → `Project` rename is complete (issues #591 and #599, ADR-035 D1/S1).**
 The backend type is `ProjectId`; the hierarchy above reads `Project` and the
-client follows. **The wire contract did not move with it:** the OpenAPI field
-name and the generated Dart accessor are still `series_id` / `seriesId` (see
-the layer-3 note below), so the client's scope headers and role checks keep
-their current meaning and need no change today. `Season` and the `Series` term
-are the terms being dissolved — do not build new navigation, feature folders
+client follows. **The wire contract moved with it (issue #599, layer 3):** the
+OpenAPI field and query parameter are `project_id`, so the generated Dart
+accessor is `projectId` and every call site, cache column and Drift schema in
+the client moved in the same PR (`regen-client.sh` diff committed; hand-edits
+in `vendor/breakdown_api/**` are forbidden). No `/v2` path version was cut:
+nothing had been released against `/v1`, so the rename landed in place
+(ADR-035 B5 outcome). `Season` and the `Series` term are the terms being
+dissolved — do not build new navigation, feature folders
 or authorization gates on either as if it were permanent. The chain *below*
 `Project` becomes production-kind-configurable in a later change (film and
 theatre have no seasons).
-
-**Layer 3 (not this change):** renaming the OpenAPI field to `project_id` is
-a breaking ADR-021 change that needs its own `/v2` path version plus an
-8-week dual-serve window. When it lands, `regen-client.sh` will produce
-`projectId` and every call site must move in the same PR — do not pre-empt
-it by hand-editing the generated client.
 A costume's **domain** scope is its **repertoire** seasons ∪ its character's
 season, not one season. Its **authorization** scope is *not* that union: per backend
 ADR-035 B2/S2 the costume-photo gate is a costume-department role in any active
@@ -448,7 +445,7 @@ CI runs:
   PR, so the cache never silently drops a field.
 - **Offline writes deferred to a later change:** A future change proposal
   may introduce an offline command queue with replay; this requires solving
-  sync/conflict semantics and offline `series_id` resolution and is out of
+  sync/conflict semantics and offline `project_id` resolution and is out of
   scope for the foundation.
 
 ## 9. Design System & Code Generation

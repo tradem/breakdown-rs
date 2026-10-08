@@ -53,11 +53,11 @@ impl<'a> EntityEventHandler<BlockAggregate, Transaction<'a, Postgres>> for Block
                 match sqlx::query(
                     r#"
                     INSERT INTO projection_block
-                        (id, season_id, series_id, number, start_date, end_date, version, projector_version, updated_at)
+                        (id, season_id, project_id, number, start_date, end_date, version, projector_version, updated_at)
                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
                     ON CONFLICT (id) DO UPDATE SET
                         season_id = EXCLUDED.season_id,
-                        series_id = EXCLUDED.series_id,
+                        project_id = EXCLUDED.project_id,
                         number = EXCLUDED.number,
                         start_date = EXCLUDED.start_date,
                         end_date = EXCLUDED.end_date,

@@ -152,7 +152,7 @@ async fn write_audit_row(
     sqlx::query(
         r#"
         INSERT INTO projection_audit
-            (id, event_key, entity_type, entity_id, event_type, block_id, series_id, actor, provenance, payload, projector_version, occurred_at)
+            (id, event_key, entity_type, entity_id, event_type, block_id, project_id, actor, provenance, payload, projector_version, occurred_at)
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
         ON CONFLICT (event_key) DO NOTHING
         "#,

@@ -16,8 +16,8 @@ part 'block_view.g.dart';
 /// * [endDate]
 /// * [id]
 /// * [number]
+/// * [projectId] - The tenant-level production container this block belongs to (`project_id` on the wire, issue #599).
 /// * [seasonId] - Opaque identifier for a `Season` aggregate.
-/// * [seriesId] - The tenant-level production container this block belongs to.
 /// * [startDate]
 /// * [updatedAt]
 /// * [version] - Aggregate version for optimistic-locking round-trips.
@@ -32,13 +32,13 @@ abstract class BlockView implements Built<BlockView, BlockViewBuilder> {
   @BuiltValueField(wireName: r'number')
   int get number;
 
+  /// The tenant-level production container this block belongs to (`project_id` on the wire, issue #599).
+  @BuiltValueField(wireName: r'project_id')
+  String get projectId;
+
   /// Opaque identifier for a `Season` aggregate.
   @BuiltValueField(wireName: r'season_id')
   String get seasonId;
-
-  /// The tenant-level production container this block belongs to.
-  @BuiltValueField(wireName: r'series_id')
-  String get seriesId;
 
   @BuiltValueField(wireName: r'start_date')
   String? get startDate;
@@ -90,14 +90,14 @@ class _$BlockViewSerializer implements PrimitiveSerializer<BlockView> {
       object.number,
       specifiedType: const FullType(int),
     );
+    yield r'project_id';
+    yield serializers.serialize(
+      object.projectId,
+      specifiedType: const FullType(String),
+    );
     yield r'season_id';
     yield serializers.serialize(
       object.seasonId,
-      specifiedType: const FullType(String),
-    );
-    yield r'series_id';
-    yield serializers.serialize(
-      object.seriesId,
       specifiedType: const FullType(String),
     );
     if (object.startDate != null) {
@@ -164,19 +164,19 @@ class _$BlockViewSerializer implements PrimitiveSerializer<BlockView> {
           ) as int;
           result.number = valueDes;
           break;
+        case r'project_id':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(String),
+          ) as String;
+          result.projectId = valueDes;
+          break;
         case r'season_id':
           final valueDes = serializers.deserialize(
             value,
             specifiedType: const FullType(String),
           ) as String;
           result.seasonId = valueDes;
-          break;
-        case r'series_id':
-          final valueDes = serializers.deserialize(
-            value,
-            specifiedType: const FullType(String),
-          ) as String;
-          result.seriesId = valueDes;
           break;
         case r'start_date':
           final valueDes = serializers.deserialize(

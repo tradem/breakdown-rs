@@ -16,8 +16,8 @@ part 'create_block_request.g.dart';
 /// Properties:
 /// * [endDate]
 /// * [number]
+/// * [projectId] - Opaque identifier for a `Project` — the tenant-level production container.  `ProjectId` is an opaque UUIDv7 value type introduced by the `introduce-season-block-episode-hierarchy` change and renamed from `SeriesId` by issue #591 (ADR-035 D1/S1). The rename is **1:1**: the position, the UUIDv7 values and the tenant boundary are unchanged (ADR-035 B1) — only the production-form-specific *word* is gone, so the container no longer claims to be a TV show.  It remains a seam rather than an aggregate: every hierarchy entity (Season, Block, Episode) references it, but no `Project` aggregate exists yet. The children below it stay `Season`/`Block`/`Episode` until a second production form actually lands (ADR-035 D2/D3).  **Wire and storage spelling (issues #591 and #599).** The *type* is `#[serde(transparent)]` over `Uuid`, so a field typed `ProjectId` serializes as a bare UUID string. Issue #599 (ADR-035 S1, layer 3) renamed the projection columns and every wire-visible property/query parameter from `series_id` to `project_id`. Persisted *event payloads* deliberately keep the historical key — see the note on [`EventMetadata::project_id`].
 /// * [seasonId] - Opaque identifier for a `Season` aggregate.
-/// * [seriesId] - Opaque identifier for a `Project` — the tenant-level production container.  `ProjectId` is an opaque UUIDv7 value type introduced by the `introduce-season-block-episode-hierarchy` change and renamed from `SeriesId` by issue #591 (ADR-035 D1/S1). The rename is **1:1**: the position, the UUIDv7 values and the tenant boundary are unchanged (ADR-035 B1) — only the production-form-specific *word* is gone, so the container no longer claims to be a TV show.  It remains a seam rather than an aggregate: every hierarchy entity (Season, Block, Episode) references it, but no `Project` aggregate exists yet. The children below it stay `Season`/`Block`/`Episode` until a second production form actually lands (ADR-035 D2/D3).  **Wire compatibility (issue #591, layers 2 and 3 explicitly out of the rename).** The *type* is `#[serde(transparent)]` over `Uuid`, so a field typed `ProjectId` still serializes as a bare UUID string — the JSON value is unchanged by this rename. What deliberately keeps the old spelling is the **field name** on persisted payloads: event fields and read-model view fields carry `#[serde(rename = \"series_id\")]`, and the projection columns and OpenAPI fields keep `project_id` until the dedicated layer-3 change (a breaking ADR-021 `/v2` migration).
 /// * [startDate]
 @BuiltValue()
 abstract class CreateBlockRequest
@@ -28,13 +28,13 @@ abstract class CreateBlockRequest
   @BuiltValueField(wireName: r'number')
   int get number;
 
+  /// Opaque identifier for a `Project` — the tenant-level production container.  `ProjectId` is an opaque UUIDv7 value type introduced by the `introduce-season-block-episode-hierarchy` change and renamed from `SeriesId` by issue #591 (ADR-035 D1/S1). The rename is **1:1**: the position, the UUIDv7 values and the tenant boundary are unchanged (ADR-035 B1) — only the production-form-specific *word* is gone, so the container no longer claims to be a TV show.  It remains a seam rather than an aggregate: every hierarchy entity (Season, Block, Episode) references it, but no `Project` aggregate exists yet. The children below it stay `Season`/`Block`/`Episode` until a second production form actually lands (ADR-035 D2/D3).  **Wire and storage spelling (issues #591 and #599).** The *type* is `#[serde(transparent)]` over `Uuid`, so a field typed `ProjectId` serializes as a bare UUID string. Issue #599 (ADR-035 S1, layer 3) renamed the projection columns and every wire-visible property/query parameter from `series_id` to `project_id`. Persisted *event payloads* deliberately keep the historical key — see the note on [`EventMetadata::project_id`].
+  @BuiltValueField(wireName: r'project_id')
+  String get projectId;
+
   /// Opaque identifier for a `Season` aggregate.
   @BuiltValueField(wireName: r'season_id')
   String get seasonId;
-
-  /// Opaque identifier for a `Project` — the tenant-level production container.  `ProjectId` is an opaque UUIDv7 value type introduced by the `introduce-season-block-episode-hierarchy` change and renamed from `SeriesId` by issue #591 (ADR-035 D1/S1). The rename is **1:1**: the position, the UUIDv7 values and the tenant boundary are unchanged (ADR-035 B1) — only the production-form-specific *word* is gone, so the container no longer claims to be a TV show.  It remains a seam rather than an aggregate: every hierarchy entity (Season, Block, Episode) references it, but no `Project` aggregate exists yet. The children below it stay `Season`/`Block`/`Episode` until a second production form actually lands (ADR-035 D2/D3).  **Wire compatibility (issue #591, layers 2 and 3 explicitly out of the rename).** The *type* is `#[serde(transparent)]` over `Uuid`, so a field typed `ProjectId` still serializes as a bare UUID string — the JSON value is unchanged by this rename. What deliberately keeps the old spelling is the **field name** on persisted payloads: event fields and read-model view fields carry `#[serde(rename = \"series_id\")]`, and the projection columns and OpenAPI fields keep `project_id` until the dedicated layer-3 change (a breaking ADR-021 `/v2` migration).
-  @BuiltValueField(wireName: r'series_id')
-  String get seriesId;
 
   @BuiltValueField(wireName: r'start_date')
   Date? get startDate;
@@ -77,14 +77,14 @@ class _$CreateBlockRequestSerializer
       object.number,
       specifiedType: const FullType(int),
     );
+    yield r'project_id';
+    yield serializers.serialize(
+      object.projectId,
+      specifiedType: const FullType(String),
+    );
     yield r'season_id';
     yield serializers.serialize(
       object.seasonId,
-      specifiedType: const FullType(String),
-    );
-    yield r'series_id';
-    yield serializers.serialize(
-      object.seriesId,
       specifiedType: const FullType(String),
     );
     if (object.startDate != null) {
@@ -134,19 +134,19 @@ class _$CreateBlockRequestSerializer
           ) as int;
           result.number = valueDes;
           break;
+        case r'project_id':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(String),
+          ) as String;
+          result.projectId = valueDes;
+          break;
         case r'season_id':
           final valueDes = serializers.deserialize(
             value,
             specifiedType: const FullType(String),
           ) as String;
           result.seasonId = valueDes;
-          break;
-        case r'series_id':
-          final valueDes = serializers.deserialize(
-            value,
-            specifiedType: const FullType(String),
-          ) as String;
-          result.seriesId = valueDes;
           break;
         case r'start_date':
           final valueDes = serializers.deserialize(
