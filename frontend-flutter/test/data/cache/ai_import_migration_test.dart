@@ -60,7 +60,7 @@ void main() {
     //    in the seasons table (survival witness).
     final v5 = _ProbeDatabaseV5(NativeDatabase(file));
     await v5.customStatement(
-      "INSERT INTO season_cache_rows (id, number, archived, series_id, "
+      "INSERT INTO season_cache_rows (id, number, archived, project_id, "
       "updated_at, version, cached_at) VALUES ('s1', 1, 0, 'series-1', "
       "'2026-01-01T00:00:00.000Z', 1, '2026-01-01T00:00:00.000Z')",
     );
@@ -100,12 +100,12 @@ void main() {
     await v10.customStatement(
       'CREATE TABLE season_cache_rows ('
       'id TEXT NOT NULL PRIMARY KEY, number INTEGER NOT NULL, '
-      "series_id TEXT NOT NULL, title TEXT, updated_at INTEGER NOT NULL, "
+      "project_id TEXT NOT NULL, title TEXT, updated_at INTEGER NOT NULL, "
       'version INTEGER NOT NULL, cached_at INTEGER NOT NULL)',
     );
     await v10.customStatement('PRAGMA user_version = 10');
     await v10.customStatement(
-      "INSERT INTO season_cache_rows (id, number, series_id, title, "
+      "INSERT INTO season_cache_rows (id, number, project_id, title, "
       "updated_at, version, cached_at) VALUES ('s1', 1, 'series-1', NULL, "
       "1136073600000, 1, 1136073600000)",
     );

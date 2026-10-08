@@ -19,7 +19,6 @@ use crate::membership::Role;
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct InviteMember {
     pub block_id: BlockId,
-    #[schema(rename = "series_id")]
     // wire name pinned: layer 3 (OpenAPI field rename) is a breaking ADR-021 change, deferred
     pub project_id: ProjectId,
     pub user_id: UserId,
@@ -30,7 +29,6 @@ pub struct InviteMember {
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct AcceptInvitation {
     pub block_id: BlockId,
-    #[schema(rename = "series_id")]
     // wire name pinned: layer 3 (OpenAPI field rename) is a breaking ADR-021 change, deferred
     pub project_id: ProjectId,
     pub user_id: UserId,
@@ -40,7 +38,6 @@ pub struct AcceptInvitation {
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct GrantRole {
     pub block_id: BlockId,
-    #[schema(rename = "series_id")]
     // wire name pinned: layer 3 (OpenAPI field rename) is a breaking ADR-021 change, deferred
     pub project_id: ProjectId,
     pub user_id: UserId,
@@ -51,7 +48,6 @@ pub struct GrantRole {
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct RemoveMember {
     pub block_id: BlockId,
-    #[schema(rename = "series_id")]
     // wire name pinned: layer 3 (OpenAPI field rename) is a breaking ADR-021 change, deferred
     pub project_id: ProjectId,
     pub user_id: UserId,
@@ -64,7 +60,6 @@ pub struct RemoveMember {
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct LeaveBlock {
     pub block_id: BlockId,
-    #[schema(rename = "series_id")]
     // wire name pinned: layer 3 (OpenAPI field rename) is a breaking ADR-021 change, deferred
     pub project_id: ProjectId,
 }
@@ -83,7 +78,6 @@ pub struct LeaveBlock {
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct BootstrapOwner {
     pub block_id: BlockId,
-    #[schema(rename = "series_id")]
     // wire name pinned: layer 3 (OpenAPI field rename) is a breaking ADR-021 change, deferred
     pub project_id: ProjectId,
     pub user_id: UserId,

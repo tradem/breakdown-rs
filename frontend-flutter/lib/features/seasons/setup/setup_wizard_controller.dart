@@ -85,7 +85,7 @@ class SetupWizardController extends _$SetupWizardController {
   /// * per season `GET /v1/blocks?season_id=…` — that season's blocks
   ///   (all pages; the backend REQUIRES `season_id`, so one call per
   ///   season is the honest single-scope block read);
-  /// * `GET /v1/episodes?series_id=…` (one call via
+  /// * `GET /v1/episodes?project_id=…` (one call via
   ///   [EpisodeRepository.listBySeries]) — the series' episode numbers
   ///   (episodes are numbered per series too,
   ///   `idx_projection_episode_series_number`).
@@ -100,9 +100,9 @@ class SetupWizardController extends _$SetupWizardController {
   /// the derivation must hold against state that changed after a previous
   /// run); [SetupWizardState.numbersSeeded] is set only when a run
   /// settles.
-  Future<void> seedDerivedNumbers({required String seriesId}) async {
+  Future<void> seedDerivedNumbers({required String projectId}) async {
     if (!state.isEditing) return;
-    await _deriveNumbers(seriesId: seriesId);
+    await _deriveNumbers(projectId: projectId);
   }
 
   /// Un-guarded core of the derivation (the editing-phase guard lives on
@@ -119,7 +119,7 @@ class SetupWizardController extends _$SetupWizardController {
   /// fallback (base 1, `numbersSeeded` still lifts so the user can
   /// continue); the dispatch path (`_runDispatch`) stops on a non-null
   /// return.
-  Future<ProblemError?> _deriveNumbers({required String seriesId}) async {
+  Future<ProblemError?> _deriveNumbers({required String projectId}) async {
     ProblemError? error;
     final blockNumbers = <int>[];
 
@@ -134,7 +134,7 @@ class SetupWizardController extends _$SetupWizardController {
     } else {
       final seasons = seasonsResult
           .getOrElse((_) => const <SeasonView>[])
-          .where((s) => s.seriesId == seriesId)
+          .where((s) => s.projectId == projectId)
           .toList();
       for (final season in seasons) {
         if (!ref.mounted) return null;
@@ -160,7 +160,7 @@ class SetupWizardController extends _$SetupWizardController {
     // episodes read is EXPECTED to 400 — the authoritative base is set by
     // the post-first-block re-derive in `_runDispatch`. Its error is
     // ignored; a failure leaves `nextEpisodeNumber` at its prior value.
-    await _deriveEpisodeNumbers(seriesId: seriesId);
+    await _deriveEpisodeNumbers(projectId: projectId);
     if (!ref.mounted) return null;
     state = state.copyWith(
       nextBlockNumber: smartDefaultBlockNumber(blockNumbers),
@@ -189,12 +189,12 @@ class SetupWizardController extends _$SetupWizardController {
   /// `nextEpisodeNumber` untouched so the caller can fail closed; the
   /// post-block-1 dispatch caller stops before any episode create.
   Future<ProblemError?> _deriveEpisodeNumbers({
-    required String seriesId,
+    required String projectId,
   }) async {
     if (!ref.mounted) return null;
     final episodeResult = await ref
         .read(episodeRepositoryProvider)
-        .listBySeries(seriesId);
+        .listBySeries(projectId);
     if (!ref.mounted) return null;
     final episodeError = episodeResult.getLeft().toNullable();
     if (episodeError != null) return episodeError;
@@ -212,9 +212,9 @@ class SetupWizardController extends _$SetupWizardController {
   /// the series accumulates state concurrently while the wizard is open,
   /// so the plan's derived block number must be re-checked before the
   /// user advances. No-op outside the editing phase; keeps draft state.
-  Future<void> rederive({required String seriesId}) async {
+  Future<void> rederive({required String projectId}) async {
     if (!state.isEditing) return;
-    await seedDerivedNumbers(seriesId: seriesId);
+    await seedDerivedNumbers(projectId: projectId);
   }
 
   void setSeasonName(String name) {
@@ -331,7 +331,7 @@ class SetupWizardController extends _$SetupWizardController {
   /// Submits the review step: dispatches season → blocks → episodes
   /// sequentially. Ids flow **exclusively** from command responses into
   /// the subsequent commands' payloads (CQRS boundary — the wizard never
-  /// derives a `series_id`/`season_id`/`block_id` from a second
+  /// derives a `project_id`/`season_id`/`block_id` from a second
   /// projection lookup; the season id comes from the create ack, block
   /// ids from their acks, and the series id from the env-sourced config
   /// the caller passes in).
@@ -350,17 +350,17 @@ class SetupWizardController extends _$SetupWizardController {
   /// session is resolved (awaited, never denial-by-absence) BEFORE the
   /// first network call and no command is dispatched without it.
   ///
-  /// Pre-dispatch guard (issue #467): an empty env-sourced `seriesId` (a
-  /// rebuild without `--dart-define=DEFAULT_SERIES_ID`) fails fast with
+  /// Pre-dispatch guard (issue #467): an empty env-sourced `projectId` (a
+  /// rebuild without `--dart-define=DEFAULT_PROJECT_ID`) fails fast with
   /// the actionable [missingSeriesIdProblem] — NO network round-trip that
   /// the backend could only answer with a blind 422 `domain.validation`.
-  Future<void> submit({required String seriesId}) async {
+  Future<void> submit({required String projectId}) async {
     if (!state.isEditing) return;
-    if (seriesId.trim().isEmpty) {
+    if (projectId.trim().isEmpty) {
       _failPreDispatchConfig();
       return;
     }
-    await _runDispatch(seriesId: seriesId);
+    await _runDispatch(projectId: projectId);
   }
 
   /// Retries the remaining commands of a partially failed dispatch
@@ -371,15 +371,15 @@ class SetupWizardController extends _$SetupWizardController {
   /// never re-derives.
   ///
   /// The issue #467 guard applies here too: a retry on a build without
-  /// `DEFAULT_SERIES_ID` re-trips the same fail-fast (no network), keeping
+  /// `DEFAULT_PROJECT_ID` re-trips the same fail-fast (no network), keeping
   /// the retry honest for a rebuild-required state.
-  Future<void> retryRemaining({required String seriesId}) async {
+  Future<void> retryRemaining({required String projectId}) async {
     if (state.phase != SetupWizardPhase.partialFailure) return;
-    if (seriesId.trim().isEmpty) {
+    if (projectId.trim().isEmpty) {
       _failPreDispatchConfig();
       return;
     }
-    await _runDispatch(seriesId: seriesId);
+    await _runDispatch(projectId: projectId);
   }
 
   /// The fail-fast branch of both dispatch entry points: renders the
@@ -393,7 +393,7 @@ class SetupWizardController extends _$SetupWizardController {
     );
   }
 
-  Future<void> _runDispatch({required String seriesId}) async {
+  Future<void> _runDispatch({required String projectId}) async {
     final drafts = state.blocks;
     final total = wizardDispatchTotal(drafts);
     state = state.copyWith(
@@ -420,7 +420,7 @@ class SetupWizardController extends _$SetupWizardController {
     // with an already-started plan whose numbers are LOCKED to the acked
     // commands — re-deriving then would renumber created rows.
     if (_completedCommandsSoFar() == 0) {
-      final deriveError = await _deriveNumbers(seriesId: seriesId);
+      final deriveError = await _deriveNumbers(projectId: projectId);
       if (!ref.mounted) return;
       if (deriveError != null) {
         // Fail closed (CodeRabbit #464): never dispatch against a degraded
@@ -469,7 +469,7 @@ class SetupWizardController extends _$SetupWizardController {
       final ack = await seasonRepo.create(
         CreateSeasonRequest(
           (b) => b
-            ..seriesId = seriesId
+            ..projectId = projectId
             ..number = state.seasonNumber
             ..title = state.seasonName.isEmpty ? null : state.seasonName,
         ),
@@ -497,12 +497,12 @@ class SetupWizardController extends _$SetupWizardController {
       if (existing == null) {
         state = state.copyWith(dispatchLabel: _blockLabel(i));
         // AUTHZ-GATE: authenticated session resolved above. The
-        // `season_id`/`series_id` come from the create-season RESPONSE and
+        // `season_id`/`project_id` come from the create-season RESPONSE and
         // the caller-supplied config — never from a projection lookup.
         final ack = await blockRepo.create(
           CreateBlockRequest(
             (b) => b
-              ..seriesId = seriesId
+              ..projectId = projectId
               ..seasonId = seasonId
               ..number = blockNumber,
           ),
@@ -550,7 +550,7 @@ class SetupWizardController extends _$SetupWizardController {
       // before ANY episode create. Only needed once (block 0, no acked
       // episodes yet); later blocks reuse the derived base.
       if (i == 0 && createdBlock.episodesCreated == 0) {
-        final episodeError = await _deriveEpisodeNumbers(seriesId: seriesId);
+        final episodeError = await _deriveEpisodeNumbers(projectId: projectId);
         if (!ref.mounted) return;
         if (episodeError != null) {
           // Fail closed (CodeRabbit #464): no episode create without an
@@ -581,7 +581,7 @@ class SetupWizardController extends _$SetupWizardController {
         final ack = await episodeRepo.create(
           CreateEpisodeRequest(
             (b) => b
-              ..seriesId = seriesId
+              ..projectId = projectId
               ..blockId = blockId
               ..number = episodeNumber,
           ),

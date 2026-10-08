@@ -27,7 +27,7 @@ class SeasonCacheDao {
         id: view.id,
         number: view.number,
         archived: view.archived,
-        seriesId: view.seriesId,
+        projectId: view.projectId,
         title: Value(view.title),
         updatedAt: view.updatedAt,
         version: view.version,
@@ -94,7 +94,7 @@ class SeasonCacheDao {
       ..id = row.id
       ..number = row.number
       ..archived = row.archived
-      ..seriesId = row.seriesId
+      ..projectId = row.projectId
       ..title = row.title
       // Drift preserves the instant but decodes DateTime in local time,
       // so normalize to UTC to keep the DTO representation identical to

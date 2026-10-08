@@ -123,7 +123,7 @@ jobs:
         run: |
           set -e
           # Write-side code (command adapters, sagas, aggregates) must never
-          # resolve audit/derived context (e.g. series_id for EventMetadata)
+          # resolve audit/derived context (e.g. project_id for EventMetadata)
           # from read-model projections — CQRS-boundary rule (AGENTS.md §1).
           # The API layer (handlers) is the only legitimate consumer.
           #
@@ -266,13 +266,15 @@ jobs:
           test -d crates/api/src/problems
           ast-grep scan -r rules/s2-extension-ban.yml crates/api/src/problems
           # Stale `SeriesId` after the `ProjectId` rename (issue #591,
-          # ADR-035 D1/S1) — the tenant container is a `Project` and no
-          # compatibility alias exists. Scoped to EVERY Rust file (production
-          # AND test/fuzz targets): the rename is final, and a test fixture
-          # naming the old container is how it would creep back in. The rule
-          # does not touch lowercase `series_id` — the projection columns,
-          # OpenAPI fields and pinned event serde keys keep that spelling
-          # until the layer-3 ADR-021 `/v2` migration.
+          # ADR-035 D1/S1; extended by issue #599, layer 3) — the tenant
+          # container is a `Project` and no compatibility alias exists. Scoped
+          # to EVERY Rust file (production AND test/fuzz targets): the rename
+          # is final, and a test fixture naming the old container is how it
+          # would creep back in. Since #599 the rule also bans lowercase
+          # `series_id` **identifiers** (projection columns, query params and
+          # JSON keys are `project_id` now). String literals stay legal — the
+          # pinned event serde keys (`#[serde(rename = "series_id")]`) must not
+          # move (ADR-002; `projection_audit.event_key` idempotency).
           test -f rules/no-stale-series-id.yml
           mapfile -t ALL_RS_FILES < <(find crates -name '*.rs' \
             ! -path '*/.ast-bro/*' -print)

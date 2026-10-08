@@ -748,7 +748,7 @@ procedure above (or leave the state if uncategorised tiles are acceptable).
 ## 12. Reservation claim health (ADR-036 / issue #586)
 
 Since ADR-036 the four cross-aggregate uniqueness invariants (episode/season/
-block numbering `(series_id, number)` and scene_shoot pair-uniqueness) are
+block numbering `(project_id, number)` and scene_shoot pair-uniqueness) are
 additionally protected at the write boundary: each create command atomically
 claims a synthetic `reservation-*` SierraDB stream before appending to its
 aggregate stream, so the protection closes the advisory-pre-check race window

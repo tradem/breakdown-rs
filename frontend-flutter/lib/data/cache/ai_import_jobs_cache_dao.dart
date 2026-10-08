@@ -46,7 +46,7 @@ class AiImportJobsCacheDao {
                 job,
                 cachedAt,
                 episodeId: existing?.episodeId,
-                seriesId: existing?.seriesId,
+                projectId: existing?.projectId,
               ),
             );
       }
@@ -59,11 +59,11 @@ class AiImportJobsCacheDao {
     AiImportJob job,
     DateTime cachedAt, {
     required String episodeId,
-    required String seriesId,
+    required String projectId,
   }) => _db
       .into(_db.aiImportJobCacheRows)
       .insertOnConflictUpdate(
-        _companion(job, cachedAt, episodeId: episodeId, seriesId: seriesId),
+        _companion(job, cachedAt, episodeId: episodeId, projectId: projectId),
       );
 
   /// Updates only the client-local apply context of a cached row (remembered
@@ -73,7 +73,7 @@ class AiImportJobsCacheDao {
     String jobId, {
     required String userId,
     required String episodeId,
-    required String seriesId,
+    required String projectId,
   }) async {
     final row = await readById(jobId, userId);
     if (row == null) return;
@@ -82,7 +82,7 @@ class AiImportJobsCacheDao {
     )..where((t) => t.id.equals(jobId))).write(
       AiImportJobCacheRowsCompanion(
         episodeId: Value(episodeId),
-        seriesId: Value(seriesId),
+        projectId: Value(projectId),
       ),
     );
   }
@@ -126,7 +126,7 @@ class AiImportJobsCacheDao {
     AiImportJob job,
     DateTime cachedAt, {
     String? episodeId,
-    String? seriesId,
+    String? projectId,
   }) => AiImportJobCacheRowsCompanion.insert(
     id: job.id,
     userId: job.userId,
@@ -144,7 +144,7 @@ class AiImportJobsCacheDao {
     ) as String,
     blockId: Value(job.blockId),
     episodeId: Value(episodeId),
-    seriesId: Value(seriesId),
+    projectId: Value(projectId),
     dedupKey: job.dedupKey,
     documentDigest: job.documentDigest,
     sourceHandle: job.sourceHandle,

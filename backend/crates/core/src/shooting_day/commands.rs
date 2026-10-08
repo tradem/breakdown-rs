@@ -20,7 +20,6 @@ use super::events::ShootingDaySource;
 pub struct CreateShootingDay {
     pub id: ShootingDayId,
     pub episode_id: EpisodeId,
-    #[schema(rename = "series_id")]
     // wire name pinned: layer 3 (OpenAPI field rename) is a breaking ADR-021 change, deferred
     pub project_id: Option<ProjectId>,
     pub label: Option<String>,
@@ -39,7 +38,6 @@ pub struct RenameShootingDay {
     pub id: ShootingDayId,
     /// New free-form label. `None` clears the label.
     pub label: Option<String>,
-    #[schema(rename = "series_id")]
     // wire name pinned: layer 3 (OpenAPI field rename) is a breaking ADR-021 change, deferred
     pub project_id: Option<ProjectId>,
     pub version: AggregateVersion,
@@ -55,7 +53,6 @@ pub struct RescheduleShootingDay {
     pub id: ShootingDayId,
     /// New calendar date. `None` unschedules the day (planning only).
     pub date: Option<NaiveDate>,
-    #[schema(rename = "series_id")]
     // wire name pinned: layer 3 (OpenAPI field rename) is a breaking ADR-021 change, deferred
     pub project_id: Option<ProjectId>,
     pub version: AggregateVersion,
@@ -72,7 +69,6 @@ pub struct ReorderShootingDay {
     /// New canonical ordering key. Computed by the caller (e.g. midpoint of
     /// two sibling keys); the aggregate validates its format only.
     pub order_key: LexicalSortKey,
-    #[schema(rename = "series_id")]
     // wire name pinned: layer 3 (OpenAPI field rename) is a breaking ADR-021 change, deferred
     pub project_id: Option<ProjectId>,
     pub version: AggregateVersion,
@@ -86,7 +82,6 @@ pub struct ReorderShootingDay {
 #[derive(Debug, Clone, serde::Deserialize, utoipa::ToSchema)]
 pub struct ArchiveShootingDay {
     pub id: ShootingDayId,
-    #[schema(rename = "series_id")]
     // wire name pinned: layer 3 (OpenAPI field rename) is a breaking ADR-021 change, deferred
     pub project_id: Option<ProjectId>,
     pub version: AggregateVersion,
@@ -129,7 +124,6 @@ impl kameo_es::CommandName for ArchiveShootingDay {
 #[derive(Debug, Clone, serde::Deserialize, utoipa::ToSchema)]
 pub struct WrapShootingDay {
     pub id: ShootingDayId,
-    #[schema(rename = "series_id")]
     // wire name pinned: layer 3 (OpenAPI field rename) is a breaking ADR-021 change, deferred
     pub project_id: Option<ProjectId>,
     pub version: AggregateVersion,

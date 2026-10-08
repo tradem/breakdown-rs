@@ -103,7 +103,7 @@ const _prodConfig = AppConfig(
   oidcRedirectUri: 'breakdown://redirect',
   devIdpInsecure: '',
   appVersion: '1.0.0+1',
-  defaultSeriesId: '',
+  defaultProjectId: '',
 );
 
 void main() {

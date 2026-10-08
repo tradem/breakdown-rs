@@ -22,15 +22,15 @@ Feature: Season setup wizard (guided production setup)
   integration_test/season_setup_wizard_test.dart).
 
   RE-PENDING (issue #368 follow-up): the #369/#368 on-device rerun hit a
-  series-scoped block-number 409 — the wizard happy path needs its own
-  harness repair against accumulated dev-series state (derive walks the
+  project-scoped block-number 409 — the wizard happy path needs its own
+  harness repair against accumulated dev-project state (derive walks the
   boot-time seasons cache while seeding runs concurrently). RECOVERY
   (issue #455): `seedDerivedNumbers` now derives from LIVE per-season
-  block fetches (handling the accumulated series), and the episode base
+  block fetches (handling the accumulated project), and the episode base
   is re-derived after the first block create (episodes are BlockMember-
   scoped, so the wizard can only read them once it owns a block). The
   happy path below ran green on-device against the accumulated dev
-  series and is PROMOTED.
+  project and is PROMOTED.
 
   The three sibling scenarios below were on-device validated under
   follow-up #463 and are now PROMOTED too, each after its independent

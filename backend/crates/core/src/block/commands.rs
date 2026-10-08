@@ -15,7 +15,6 @@ pub struct CreateBlock {
     pub id: Uuid,
     pub season_id: SeasonId,
     /// Denormalized project reference (immutable for a Block).
-    #[schema(rename = "series_id")]
     // wire name pinned: layer 3 (OpenAPI field rename) is a breaking ADR-021 change, deferred
     pub project_id: ProjectId,
     pub number: i32,
@@ -39,7 +38,6 @@ pub struct UpdateBlockTimeSpan {
     pub start_date: Option<NaiveDate>,
     #[schema(value_type = Option<String>)]
     pub end_date: Option<NaiveDate>,
-    #[schema(rename = "series_id")]
     // wire name pinned: layer 3 (OpenAPI field rename) is a breaking ADR-021 change, deferred
     pub project_id: Option<ProjectId>,
     pub version: AggregateVersion,

@@ -25,13 +25,18 @@
 #     hierarchy (`AGENTS.md`, `security-architecture.md`, ADR-035, the
 #     `domain-model` instructions) are updated in the same PR that renames the
 #     code.
-#   * `series_id` (lowercase) as a SQL column name — the projection columns and
-#     the OpenAPI field names keep that spelling until the dedicated layer-3
-#     change (a breaking ADR-021 `/v2` migration, issue #591 layer 3). The
-#     persisted keys are pinned with `#[serde(rename = "series_id")]`; those
-#     are string literals and never match this rule.
-#   * `idx_projection_season_series_number` and friends — real Postgres index
-#     names, unchanged.
+#   * **String literals.** The *persisted event payload* keys keep the old
+#     spelling: `#[serde(rename = "series_id")]` on `SeasonCreated` /
+#     `BlockCreated` / `EpisodeCreated` and on `EventMetadata` is load-bearing
+#     (issue #591, trap 1 — `projection_audit.event_key` is derived from the
+#     **re-serialized** payload, so renaming the key would silently duplicate
+#     every pre-rename audit row on replay; ADR-002 forbids rewriting history).
+#     Those are string literals, never identifiers, and never matched.
+#
+# Issue #599 (ADR-035 S1, layer 3) closed the last gap: the projection columns
+# (`projection_season/_block/_episode/_audit.series_id`) and the wire contract
+# (OpenAPI properties, `?series_id=` query parameters) are `project_id` now, and
+# the *identifiers* below are banned so the term cannot creep back into either.
 #
 # A legitimately historical mention (e.g. a migration note explaining what the
 # id *used* to be called) is a comment and is never matched; if a *code*
@@ -40,12 +45,14 @@
 # on the same line, carrying a justification comment above it.
 id: no-stale-series-id
 message: >-
-  `SeriesId` was renamed to `ProjectId` by issue #591 (ADR-035 D1/S1). The
-  tenant-level container is a `Project`, not a TV `Series`, and no
-  compatibility alias exists. Use `ProjectId`. Note that the *persisted*
-  spelling is deliberately unchanged: `series_id` stays as the projection
-  column, the OpenAPI field name and the serde key on event payloads until the
-  layer-3 `/v2` migration, so this rule does not flag lowercase `series_id`.
+  `SeriesId` was renamed to `ProjectId` by issue #591 (ADR-035 D1/S1), and the
+  tenant-level container is a `Project`, not a TV `Series` — no compatibility
+  alias exists. Use `ProjectId`. Issue #599 finished the rename: the projection
+  columns and the wire contract (OpenAPI properties, query parameters) spell it
+  `project_id`, so lowercase `series_id` is banned as an identifier too. The one
+  surviving spelling is the *persisted event payload* key, pinned with
+  `#[serde(rename = "series_id")]` as a string literal (ADR-002: history is not
+  rewritten).
 severity: error
 language: Rust
 rule:
@@ -61,3 +68,14 @@ rule:
       regex: ^SeriesId$
     # A path call: `SeriesId::new()`, `SeriesId::from_uuid(..)`.
     - pattern: SeriesId::$METHOD($$$ARGS)
+    # The lowercase wire/storage spelling, since issue #599 (ADR-035 S1,
+    # layer 3). A Rust *identifier* named `series_id` — a variable, a field
+    # binding, a struct field, a function parameter — is a stale reference to
+    # the old container: the projection column, the query-parameter name and
+    # the JSON key are all `project_id`. String literals are a different kind
+    # and are NOT matched here, which is what keeps the pinned event serde keys
+    # (`#[serde(rename = "series_id")]`) legal.
+    - kind: identifier
+      regex: ^series_id$
+    - kind: field_identifier
+      regex: ^series_id$

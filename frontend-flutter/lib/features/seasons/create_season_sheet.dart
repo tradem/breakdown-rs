@@ -58,12 +58,12 @@ class _CreateSeasonFormState extends ConsumerState<_CreateSeasonForm> {
 
   /// The build-misconfiguration guard (issue #511): the manual form no
   /// longer asks for a series id — it derives the env-sourced default.
-  /// A build without `--dart-define=DEFAULT_SERIES_ID` therefore cannot
+  /// A build without `--dart-define=DEFAULT_PROJECT_ID` therefore cannot
   /// create a season at all; the form says so instead of dispatching a
   /// request the backend can only answer with a blind validation error.
   /// Same problem `code` and copy as the wizard's pre-dispatch guard.
-  bool _seriesIdMissing() =>
-      ref.read(appConfigProvider).defaultSeriesId.trim().isEmpty;
+  bool _projectIdMissing() =>
+      ref.read(appConfigProvider).defaultProjectId.trim().isEmpty;
 
   @override
   void dispose() {
@@ -75,7 +75,7 @@ class _CreateSeasonFormState extends ConsumerState<_CreateSeasonForm> {
   Future<void> _submit() async {
     // Defensive only: the submit button is disabled while the build has no
     // default series (the notice renders instead).
-    if (_seriesIdMissing()) return;
+    if (_projectIdMissing()) return;
     if (!(_formKey.currentState?.validate() ?? false)) return;
     final number = int.parse(_numberController.text.trim());
     setState(() => _busy = true);
@@ -89,7 +89,7 @@ class _CreateSeasonFormState extends ConsumerState<_CreateSeasonForm> {
           // internal ids are not user-editable, issue #511). Never a
           // second projection lookup (CQRS boundary): the series is the
           // build's active project context.
-          seriesId: ref.read(appConfigProvider).defaultSeriesId.trim(),
+          projectId: ref.read(appConfigProvider).defaultProjectId.trim(),
           number: number,
           title: _titleController.text.trim(),
         );
@@ -106,7 +106,7 @@ class _CreateSeasonFormState extends ConsumerState<_CreateSeasonForm> {
     // Scrollable so the form stays reachable on short screens / with the
     // soft keyboard open (the sheet itself is unbounded with
     // isScrollControlled).
-    final missingSeriesId = _seriesIdMissing();
+    final missingSeriesId = _projectIdMissing();
     return SafeArea(
       child: SingleChildScrollView(
         padding: const EdgeInsets.all(16),

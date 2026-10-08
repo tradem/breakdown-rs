@@ -127,7 +127,7 @@ class SeasonsController extends _$SeasonsController {
   /// for a season that is being created). The client mirrors that gate
   /// here — no network call is issued without an authenticated session.
   Future<Result<IdVersionResponse>> create({
-    required String seriesId,
+    required String projectId,
     required int number,
     String? title,
   }) async {
@@ -150,7 +150,7 @@ class SeasonsController extends _$SeasonsController {
     final ack = await repo.create(
       CreateSeasonRequest(
         (b) => b
-          ..seriesId = seriesId
+          ..projectId = projectId
           ..number = number
           ..title = title,
       ),

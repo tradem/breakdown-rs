@@ -17,8 +17,8 @@ use crate::shared::{AggregateVersion, BlockId, ProjectId};
 pub struct EpisodeView {
     pub id: Uuid,
     pub block_id: BlockId,
-    /// The tenant-level production container this episode belongs to.
-    #[serde(rename = "series_id")] // wire name pinned; see the type-level note on ProjectId
+    /// The tenant-level production container this episode belongs to (`project_id`
+    /// on the wire, issue #599).
     pub project_id: ProjectId,
     pub number: i32,
     pub name: Option<String>,

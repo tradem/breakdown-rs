@@ -21,28 +21,34 @@ together with the `Season` term, it is *not* a new level above it), and the cont
 **below** `Project` becomes production-kind-configurable in a later change. Its normative
 boundary: authorization predicates are typed by the *authorization level*, never by a
 production-form-specific container — **no new `*_in_season` predicate may be added**
-(B2), and cross-aggregate uniqueness keys are prefixed with the tenant id, not `series_id`
-(B4). No schema or wire change follows from that ADR (B5). Read it before adding a container-scoped
-authorization predicate or a uniqueness constraint.
+(B2), and cross-aggregate uniqueness keys are prefixed with the tenant id, i.e. `project_id`
+(B4 — satisfied). Read it before adding a container-scoped authorization predicate or a
+uniqueness constraint.
 
-**The rename landed (issue #591, ADR-035 D1/S1).** `core::shared` now exposes `ProjectId`
-(no `SeriesId` alias — internal workspace crate, nothing out-of-tree to protect), and the
-ast-grep rule `backend/rules/no-stale-series-id.yml` fails CI on any stale `SeriesId`. The
-rename was **layers 1–2 only** and deliberately left two things spelled `series_id`: the
-**persisted** wire keys (event payload fields and `EventMetadata`, pinned with
-`#[serde(rename = "series_id")]`) and the **projection columns / OpenAPI fields**. Reasons
-worth knowing before touching either:
-- **Persisted keys may not move (ADR-002).** The store already holds events under `series_id`;
-  a rename surfaces as a projector dying on deserialization (SQLSTATE 22, #37 dead-letter),
-  not a compile error. Do **not** "fix" this with `#[serde(rename = "project_id", alias =
-  "series_id")]`: it reads old events correctly but re-serializes them under a *different* key,
-  and `projection_audit.event_key` is built from the **re-serialized** payload
-  (`write_audit_row`), so every replay would silently duplicate every pre-rename audit row.
-  Regression test: `crates/integration-tests/tests/project_id_rename_replay.rs`.
-- **Projection columns / OpenAPI fields are layer 3** — a breaking ADR-021 change needing its
-  own `/v2` path version + 8-week window. Until then the SQL stays `series_id`
-  (`row.try_get("series_id")`) and the JSON key stays `series_id`; only the utoipa *schema
-  name* moved (`SeriesId` → `ProjectId`, wire-neutral: both `type: string, format: uuid`).
+**The rename is complete (issues #591 and #599, ADR-035 D1/S1).** `core::shared` exposes
+`ProjectId` (no `SeriesId` alias — internal workspace crate, nothing out-of-tree to protect),
+and the ast-grep rule `backend/rules/no-stale-series-id.yml` fails CI on any stale `SeriesId`
+**or** on a `series_id` Rust identifier. Three layers, three rules — do not treat the rename
+as one sweep:
+- **Layer 1 — the Rust type.** Mechanical; no compatibility alias exists on purpose.
+- **Layer 2 — persisted wire keys: `series_id`, permanently.** The store already holds events
+  under `series_id`; a rename surfaces as a projector dying on deserialization (SQLSTATE 22,
+  #37 dead-letter), not a compile error. Do **not** "fix" this with
+  `#[serde(rename = "project_id", alias = "series_id")]`: it reads old events correctly but
+  re-serializes them under a *different* key, and `projection_audit.event_key` is built from
+  the **re-serialized** payload (`write_audit_row`), so every replay would silently duplicate
+  every pre-rename audit row. This is the **only** surviving `series_id` in the system:
+  `SeasonCreated`/`BlockCreated`/`EpisodeCreated` and `EventMetadata`. Regression test:
+  `crates/integration-tests/tests/project_id_rename_replay.rs`.
+- **Layer 3 — storage and wire: `project_id` (#599).** Projection columns
+  (`projection_season/_block/_episode/_audit.project_id`, indexes
+  `idx_projection_*_project_id` / `idx_projection_*_project_number` — migration
+  `20261008000001`), the read-model views, the OpenAPI properties and the `?project_id=`
+  query parameters. The `#[schema(rename = "series_id")]` / `#[param(rename = "series_id")]`
+  pins #591 had to add are **removed** — `utoipa` derives the wire name from the Rust field
+  again, so renaming a field renames the contract. ADR-021 needed no `/v2` window here: at
+  the time of the change no client had ever been released against `/v1`, so the rename landed
+  in place (ADR-035 B5 outcome).
 `Character` is scoped to a `Season` (`Character.season_id`). `Costume` is **not**
 scope-free: since #453 it carries a season **repertoire** (`projection_costume_season`,
 PK `(costume_id, season_id)` — m:n by construction, the wardrobe lifecycle carries a costume

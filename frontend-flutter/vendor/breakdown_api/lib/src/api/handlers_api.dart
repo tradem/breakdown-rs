@@ -3028,7 +3028,7 @@ class HandlersApi {
   /// * [offset]
   /// * [episodeId]
   /// * [seasonId]
-  /// * [seriesId]
+  /// * [projectId]
   /// * [cancelToken] - A [CancelToken] that can be used to cancel the operation
   /// * [headers] - Can be used to add additional headers to the request
   /// * [extras] - Can be used to add flags to the request
@@ -3043,7 +3043,7 @@ class HandlersApi {
     int? offset = 0,
     String? episodeId,
     String? seasonId,
-    String? seriesId,
+    String? projectId,
     CancelToken? cancelToken,
     Map<String, dynamic>? headers,
     Map<String, dynamic>? extra,
@@ -3077,9 +3077,9 @@ class HandlersApi {
       if (seasonId != null)
         r'season_id': encodeQueryParameter(
             _serializers, seasonId, const FullType(String)),
-      if (seriesId != null)
-        r'series_id': encodeQueryParameter(
-            _serializers, seriesId, const FullType(String)),
+      if (projectId != null)
+        r'project_id': encodeQueryParameter(
+            _serializers, projectId, const FullType(String)),
     };
 
     final _response = await _dio.request<Object>(
@@ -3211,7 +3211,7 @@ class HandlersApi {
   /// * [offset]
   /// * [episodeId]
   /// * [seasonId]
-  /// * [seriesId]
+  /// * [projectId]
   /// * [cancelToken] - A [CancelToken] that can be used to cancel the operation
   /// * [headers] - Can be used to add additional headers to the request
   /// * [extras] - Can be used to add flags to the request
@@ -3227,7 +3227,7 @@ class HandlersApi {
     int? offset = 0,
     String? episodeId,
     String? seasonId,
-    String? seriesId,
+    String? projectId,
     CancelToken? cancelToken,
     Map<String, dynamic>? headers,
     Map<String, dynamic>? extra,
@@ -3264,9 +3264,9 @@ class HandlersApi {
       if (seasonId != null)
         r'season_id': encodeQueryParameter(
             _serializers, seasonId, const FullType(String)),
-      if (seriesId != null)
-        r'series_id': encodeQueryParameter(
-            _serializers, seriesId, const FullType(String)),
+      if (projectId != null)
+        r'project_id': encodeQueryParameter(
+            _serializers, projectId, const FullType(String)),
     };
 
     final _response = await _dio.request<Object>(
@@ -4699,7 +4699,7 @@ class HandlersApi {
   /// * [offset]
   /// * [episodeId]
   /// * [seasonId]
-  /// * [seriesId]
+  /// * [projectId]
   /// * [cancelToken] - A [CancelToken] that can be used to cancel the operation
   /// * [headers] - Can be used to add additional headers to the request
   /// * [extras] - Can be used to add flags to the request
@@ -4714,7 +4714,7 @@ class HandlersApi {
     int? offset = 0,
     String? episodeId,
     String? seasonId,
-    String? seriesId,
+    String? projectId,
     CancelToken? cancelToken,
     Map<String, dynamic>? headers,
     Map<String, dynamic>? extra,
@@ -4748,9 +4748,9 @@ class HandlersApi {
       if (seasonId != null)
         r'season_id': encodeQueryParameter(
             _serializers, seasonId, const FullType(String)),
-      if (seriesId != null)
-        r'series_id': encodeQueryParameter(
-            _serializers, seriesId, const FullType(String)),
+      if (projectId != null)
+        r'project_id': encodeQueryParameter(
+            _serializers, projectId, const FullType(String)),
     };
 
     final _response = await _dio.request<Object>(
@@ -4803,7 +4803,7 @@ class HandlersApi {
   /// * [offset]
   /// * [episodeId]
   /// * [seasonId]
-  /// * [seriesId]
+  /// * [projectId]
   /// * [cancelToken] - A [CancelToken] that can be used to cancel the operation
   /// * [headers] - Can be used to add additional headers to the request
   /// * [extras] - Can be used to add flags to the request
@@ -4818,7 +4818,7 @@ class HandlersApi {
     int? offset = 0,
     String? episodeId,
     String? seasonId,
-    String? seriesId,
+    String? projectId,
     CancelToken? cancelToken,
     Map<String, dynamic>? headers,
     Map<String, dynamic>? extra,
@@ -4852,9 +4852,9 @@ class HandlersApi {
       if (seasonId != null)
         r'season_id': encodeQueryParameter(
             _serializers, seasonId, const FullType(String)),
-      if (seriesId != null)
-        r'series_id': encodeQueryParameter(
-            _serializers, seriesId, const FullType(String)),
+      if (projectId != null)
+        r'project_id': encodeQueryParameter(
+            _serializers, projectId, const FullType(String)),
     };
 
     final _response = await _dio.request<Object>(
@@ -5061,7 +5061,7 @@ class HandlersApi {
   /// * [offset]
   /// * [episodeId]
   /// * [seasonId]
-  /// * [seriesId]
+  /// * [projectId]
   /// * [cancelToken] - A [CancelToken] that can be used to cancel the operation
   /// * [headers] - Can be used to add additional headers to the request
   /// * [extras] - Can be used to add flags to the request
@@ -5076,7 +5076,7 @@ class HandlersApi {
     int? offset = 0,
     String? episodeId,
     String? seasonId,
-    String? seriesId,
+    String? projectId,
     CancelToken? cancelToken,
     Map<String, dynamic>? headers,
     Map<String, dynamic>? extra,
@@ -5110,9 +5110,9 @@ class HandlersApi {
       if (seasonId != null)
         r'season_id': encodeQueryParameter(
             _serializers, seasonId, const FullType(String)),
-      if (seriesId != null)
-        r'series_id': encodeQueryParameter(
-            _serializers, seriesId, const FullType(String)),
+      if (projectId != null)
+        r'project_id': encodeQueryParameter(
+            _serializers, projectId, const FullType(String)),
     };
 
     final _response = await _dio.request<Object>(
@@ -5164,7 +5164,7 @@ class HandlersApi {
   /// * [offset]
   /// * [episodeId]
   /// * [seasonId]
-  /// * [seriesId]
+  /// * [projectId]
   /// * [cancelToken] - A [CancelToken] that can be used to cancel the operation
   /// * [headers] - Can be used to add additional headers to the request
   /// * [extras] - Can be used to add flags to the request
@@ -5179,7 +5179,7 @@ class HandlersApi {
     int? offset = 0,
     String? episodeId,
     String? seasonId,
-    String? seriesId,
+    String? projectId,
     CancelToken? cancelToken,
     Map<String, dynamic>? headers,
     Map<String, dynamic>? extra,
@@ -5213,9 +5213,9 @@ class HandlersApi {
       if (seasonId != null)
         r'season_id': encodeQueryParameter(
             _serializers, seasonId, const FullType(String)),
-      if (seriesId != null)
-        r'series_id': encodeQueryParameter(
-            _serializers, seriesId, const FullType(String)),
+      if (projectId != null)
+        r'project_id': encodeQueryParameter(
+            _serializers, projectId, const FullType(String)),
     };
 
     final _response = await _dio.request<Object>(
@@ -5444,7 +5444,7 @@ class HandlersApi {
   /// * [offset]
   /// * [episodeId]
   /// * [seasonId]
-  /// * [seriesId]
+  /// * [projectId]
   /// * [cancelToken] - A [CancelToken] that can be used to cancel the operation
   /// * [headers] - Can be used to add additional headers to the request
   /// * [extras] - Can be used to add flags to the request
@@ -5459,7 +5459,7 @@ class HandlersApi {
     int? offset = 0,
     String? episodeId,
     String? seasonId,
-    String? seriesId,
+    String? projectId,
     CancelToken? cancelToken,
     Map<String, dynamic>? headers,
     Map<String, dynamic>? extra,
@@ -5493,9 +5493,9 @@ class HandlersApi {
       if (seasonId != null)
         r'season_id': encodeQueryParameter(
             _serializers, seasonId, const FullType(String)),
-      if (seriesId != null)
-        r'series_id': encodeQueryParameter(
-            _serializers, seriesId, const FullType(String)),
+      if (projectId != null)
+        r'project_id': encodeQueryParameter(
+            _serializers, projectId, const FullType(String)),
     };
 
     final _response = await _dio.request<Object>(
@@ -5545,7 +5545,7 @@ class HandlersApi {
   /// Parameters:
   /// * [limit]
   /// * [offset]
-  /// * [seriesId]
+  /// * [projectId]
   /// * [blockId]
   /// * [cancelToken] - A [CancelToken] that can be used to cancel the operation
   /// * [headers] - Can be used to add additional headers to the request
@@ -5559,7 +5559,7 @@ class HandlersApi {
   Future<Response<BuiltList<EpisodeView>>> listEpisodes({
     int? limit = 50,
     int? offset = 0,
-    String? seriesId,
+    String? projectId,
     String? blockId,
     CancelToken? cancelToken,
     Map<String, dynamic>? headers,
@@ -5588,9 +5588,9 @@ class HandlersApi {
       if (offset != null)
         r'offset':
             encodeQueryParameter(_serializers, offset, const FullType(int)),
-      if (seriesId != null)
-        r'series_id': encodeQueryParameter(
-            _serializers, seriesId, const FullType(String)),
+      if (projectId != null)
+        r'project_id': encodeQueryParameter(
+            _serializers, projectId, const FullType(String)),
       if (blockId != null)
         r'block_id':
             encodeQueryParameter(_serializers, blockId, const FullType(String)),
@@ -5646,7 +5646,7 @@ class HandlersApi {
   /// * [offset]
   /// * [episodeId]
   /// * [seasonId]
-  /// * [seriesId]
+  /// * [projectId]
   /// * [cancelToken] - A [CancelToken] that can be used to cancel the operation
   /// * [headers] - Can be used to add additional headers to the request
   /// * [extras] - Can be used to add flags to the request
@@ -5662,7 +5662,7 @@ class HandlersApi {
     int? offset = 0,
     String? episodeId,
     String? seasonId,
-    String? seriesId,
+    String? projectId,
     CancelToken? cancelToken,
     Map<String, dynamic>? headers,
     Map<String, dynamic>? extra,
@@ -5699,9 +5699,9 @@ class HandlersApi {
       if (seasonId != null)
         r'season_id': encodeQueryParameter(
             _serializers, seasonId, const FullType(String)),
-      if (seriesId != null)
-        r'series_id': encodeQueryParameter(
-            _serializers, seriesId, const FullType(String)),
+      if (projectId != null)
+        r'project_id': encodeQueryParameter(
+            _serializers, projectId, const FullType(String)),
     };
 
     final _response = await _dio.request<Object>(
@@ -5841,7 +5841,7 @@ class HandlersApi {
   /// * [offset]
   /// * [episodeId]
   /// * [seasonId]
-  /// * [seriesId]
+  /// * [projectId]
   /// * [cancelToken] - A [CancelToken] that can be used to cancel the operation
   /// * [headers] - Can be used to add additional headers to the request
   /// * [extras] - Can be used to add flags to the request
@@ -5856,7 +5856,7 @@ class HandlersApi {
     int? offset = 0,
     String? episodeId,
     String? seasonId,
-    String? seriesId,
+    String? projectId,
     CancelToken? cancelToken,
     Map<String, dynamic>? headers,
     Map<String, dynamic>? extra,
@@ -5890,9 +5890,9 @@ class HandlersApi {
       if (seasonId != null)
         r'season_id': encodeQueryParameter(
             _serializers, seasonId, const FullType(String)),
-      if (seriesId != null)
-        r'series_id': encodeQueryParameter(
-            _serializers, seriesId, const FullType(String)),
+      if (projectId != null)
+        r'project_id': encodeQueryParameter(
+            _serializers, projectId, const FullType(String)),
     };
 
     final _response = await _dio.request<Object>(
@@ -5942,7 +5942,7 @@ class HandlersApi {
   /// Parameters:
   /// * [limit]
   /// * [offset]
-  /// * [seriesId]
+  /// * [projectId]
   /// * [includeArchived] - Issue #533: archived seasons are hidden by default; the explicit opt-in returns them (read-only, still locked for writes).
   /// * [cancelToken] - A [CancelToken] that can be used to cancel the operation
   /// * [headers] - Can be used to add additional headers to the request
@@ -5956,7 +5956,7 @@ class HandlersApi {
   Future<Response<BuiltList<SeasonView>>> listSeasons({
     int? limit = 50,
     int? offset = 0,
-    String? seriesId,
+    String? projectId,
     bool? includeArchived = false,
     CancelToken? cancelToken,
     Map<String, dynamic>? headers,
@@ -5985,9 +5985,9 @@ class HandlersApi {
       if (offset != null)
         r'offset':
             encodeQueryParameter(_serializers, offset, const FullType(int)),
-      if (seriesId != null)
-        r'series_id': encodeQueryParameter(
-            _serializers, seriesId, const FullType(String)),
+      if (projectId != null)
+        r'project_id': encodeQueryParameter(
+            _serializers, projectId, const FullType(String)),
       if (includeArchived != null)
         r'include_archived': encodeQueryParameter(
             _serializers, includeArchived, const FullType(bool)),

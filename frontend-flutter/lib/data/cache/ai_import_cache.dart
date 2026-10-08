@@ -12,7 +12,7 @@ import 'package:drift/drift.dart';
 /// backend issue #337) — never the event-store schema. Two client-local
 /// columns sit alongside the mirrored fields:
 ///
-/// * [episodeId] / [seriesId] — the **persisted apply context** (design
+/// * [episodeId] / [projectId] — the **persisted apply context** (design
 ///   §2.3): `ApplyAiImportRequest.episode_id` is required, and both the
 ///   documented seasons-toolbar entry point and the remembered-job path can
 ///   reach a preview with no `EpisodeView` on the navigation stack, so the
@@ -47,7 +47,7 @@ class AiImportJobCacheRows extends Table {
 
   /// Client-local persisted apply context (design §2.3) — see class doc.
   TextColumn get episodeId => text().nullable()();
-  TextColumn get seriesId => text().nullable()();
+  TextColumn get projectId => text().nullable()();
 
   TextColumn get dedupKey => text()();
   TextColumn get documentDigest => text()();

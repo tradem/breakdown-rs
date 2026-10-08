@@ -52,7 +52,7 @@ const devAuthConfig = AppConfig(
   oidcRedirectUri: '',
   devIdpInsecure: '',
   appVersion: '1.0.0+1',
-  defaultSeriesId: 'series-1',
+  defaultProjectId: 'series-1',
 );
 
 DraftScene _draft(
@@ -84,7 +84,7 @@ EpisodeView _cachedEpisode(String id, {int number = 2}) => EpisodeView(
     ..id = id
     ..blockId = 'block-1'
     ..number = number
-    ..seriesId = 'series-1'
+    ..projectId = 'series-1'
     ..updatedAt = DateTime.utc(2026, 1, 1)
     ..version = 1,
 );
@@ -573,13 +573,13 @@ void main() {
       );
       final incomplete = AiApplyState(
         rows: [titleOnly],
-        context: const AiJobContext(episodeId: 'ep-1', seriesId: 'series-1'),
+        context: const AiJobContext(episodeId: 'ep-1', projectId: 'series-1'),
       );
       expect(incomplete.hasCompleteGroupTargets, isFalse);
 
       final numbered = AiApplyState(
         rows: [titleOnly],
-        context: const AiJobContext(episodeId: 'ep-1', seriesId: 'series-1'),
+        context: const AiJobContext(episodeId: 'ep-1', projectId: 'series-1'),
         groupTargets: const {
           'ep-t:Sommer': CreateEpisodeGroupTarget(number: 7, name: 'Sommer'),
         },
@@ -602,7 +602,7 @@ void main() {
       ];
       final colliding = AiApplyState(
         rows: twoGroups,
-        context: const AiJobContext(episodeId: 'ep-1', seriesId: 'series-1'),
+        context: const AiJobContext(episodeId: 'ep-1', projectId: 'series-1'),
         groupTargets: const {
           'ep-t:Sommer': CreateEpisodeGroupTarget(number: 3, name: 'Sommer'),
         },
@@ -690,7 +690,7 @@ void main() {
       controller.seedRows(const [
         PreviewRow(draftRef: 'd1', label: 'A'),
         PreviewRow(draftRef: 'd2', label: 'B'),
-      ], const AiJobContext(episodeId: 'ep-1', seriesId: 'series-1'));
+      ], const AiJobContext(episodeId: 'ep-1', projectId: 'series-1'));
       return controller.apply();
     }
 
@@ -755,13 +755,13 @@ void main() {
         _succeededJob('job-1'),
         DateTime.utc(2026, 1, 1),
         episodeId: 'ep-1',
-        seriesId: 'series-1',
+        projectId: 'series-1',
       );
       final context = await container.read(
         aiJobContextProvider('job-1').future,
       );
       expect(context!.episodeId, 'ep-1');
-      expect(context.seriesId, 'series-1');
+      expect(context.projectId, 'series-1');
     });
 
     test('missing context (a job id from an older build) → the picker is '
@@ -812,7 +812,7 @@ void main() {
           aiPreviewProvider.overrideWith((ref, jobId) async => preview.value),
           aiJobContextProvider.overrideWith((ref, jobId) async {
             if (!withPersistedContext) return null;
-            return const AiJobContext(episodeId: 'ep-1', seriesId: 'series-1');
+            return const AiJobContext(episodeId: 'ep-1', projectId: 'series-1');
           }),
           scenesListFetchProvider.overrideWith((ref, episodeId) async {
             return scenes.value;
@@ -827,7 +827,7 @@ void main() {
           _succeededJob('job-1'),
           DateTime.utc(2026, 1, 1),
           episodeId: 'ep-1',
-          seriesId: 'series-1',
+          projectId: 'series-1',
         );
       }
     }

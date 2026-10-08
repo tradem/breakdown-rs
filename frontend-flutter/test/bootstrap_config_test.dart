@@ -61,7 +61,7 @@ const _devBase = AppConfig(
   oidcRedirectUri: '',
   devIdpInsecure: '',
   appVersion: '1.0.0+1',
-  defaultSeriesId: '',
+  defaultProjectId: '',
 );
 
 const _prodBase = AppConfig(
@@ -74,7 +74,7 @@ const _prodBase = AppConfig(
   oidcRedirectUri: 'breakdown://redirect',
   devIdpInsecure: '',
   appVersion: '1.0.0+1',
-  defaultSeriesId: '',
+  defaultProjectId: '',
 );
 
 /// Bootstrap pre-application ordering (task 6.1/6.5): the persisted
@@ -134,7 +134,7 @@ void main() {
         oidcRedirectUri: '',
         devIdpInsecure: '',
         appVersion: '1.0.0+1',
-        defaultSeriesId: '',
+        defaultProjectId: '',
       );
       expect(await checkRedirectConsistency(noRedirect), isNull);
     });
@@ -150,7 +150,7 @@ void main() {
         oidcRedirectUri: 'breakdown://auth/callback',
         devIdpInsecure: '',
         appVersion: '1.0.0+1',
-        defaultSeriesId: '',
+        defaultProjectId: '',
       );
       expect(
         await checkRedirectConsistency(
@@ -173,7 +173,7 @@ void main() {
         oidcRedirectUri: 'myapp://auth/callback',
         devIdpInsecure: '',
         appVersion: '1.0.0+1',
-        defaultSeriesId: '',
+        defaultProjectId: '',
       );
       final error = await checkRedirectConsistency(
         drifted,
@@ -196,7 +196,7 @@ void main() {
         oidcRedirectUri: 'breakdown://auth/callback',
         devIdpInsecure: '',
         appVersion: '1.0.0+1',
-        defaultSeriesId: '',
+        defaultProjectId: '',
       );
       final error = await checkRedirectConsistency(
         matching,

@@ -133,7 +133,7 @@ EpisodeView _episodeView(String id, {required int number, String? blockId}) =>
         ..id = id
         ..number = number
         ..blockId = blockId ?? 'block-1'
-        ..seriesId = 'series-1'
+        ..projectId = 'series-1'
         ..updatedAt = DateTime.utc(2026, 1, 1)
         ..version = 1,
     );
@@ -144,7 +144,7 @@ BlockView _blockView(String id, {required int number, String? seasonId}) =>
         ..id = id
         ..number = number
         ..seasonId = seasonId ?? 'season-1'
-        ..seriesId = 'series-1'
+        ..projectId = 'series-1'
         ..updatedAt = DateTime.utc(2026, 1, 1)
         ..version = 1,
     );
@@ -154,7 +154,7 @@ SeasonView _season(String id, int number) => SeasonView(
     ..archived = false
     ..id = id
     ..number = number
-    ..seriesId = 'series-1'
+    ..projectId = 'series-1'
     ..updatedAt = DateTime.utc(2026, 1, 1)
     ..version = 1,
 );
@@ -226,7 +226,7 @@ void main() {
       ctx.blockRepo.createResults.add(
         Left<ProblemError, IdVersionResponse>(_conflict),
       );
-      await ctx.controller.submit(seriesId: 'series-1');
+      await ctx.controller.submit(projectId: 'series-1');
       await _flush();
       expect(ctx.state.phase, SetupWizardPhase.partialFailure);
       // The guard: field mutations in a non-editing phase are no-ops.
@@ -277,13 +277,13 @@ void main() {
           _episodeView('e2', number: 9, blockId: 'b1'),
         ]);
 
-        await ctx.controller.seedDerivedNumbers(seriesId: 'series-1');
+        await ctx.controller.seedDerivedNumbers(projectId: 'series-1');
 
         expect(ctx.state.nextBlockNumber, 6);
         expect(ctx.state.nextEpisodeNumber, 10);
         expect(ctx.blockRepo.listBySeasonCalls, 2);
         // The series' episodes derive in ONE live series-scoped read
-        // (issue #455 derive repair: `GET /v1/episodes?series_id=…`), not
+        // (issue #455 derive repair: `GET /v1/episodes?project_id=…`), not
         // a per-block walk.
         expect(ctx.episodeRepo.listBySeriesCalls, 1);
         expect(ctx.episodeRepo.listByBlockCalls, 0);
@@ -296,7 +296,7 @@ void main() {
           const Left<ProblemError, List<BlockView>>(
             ProblemError(code: 'transport.down'),
           );
-      await ctx.controller.seedDerivedNumbers(seriesId: 'series-1');
+      await ctx.controller.seedDerivedNumbers(projectId: 'series-1');
       expect(ctx.state.nextBlockNumber, 1);
       expect(ctx.state.nextEpisodeNumber, 1);
     });
@@ -315,7 +315,7 @@ void main() {
             ProblemError(code: 'transport.down'),
           );
 
-      await ctx.controller.seedDerivedNumbers(seriesId: 'series-1');
+      await ctx.controller.seedDerivedNumbers(projectId: 'series-1');
 
       expect(ctx.state.nextBlockNumber, 4);
       expect(ctx.state.nextEpisodeNumber, 1);
@@ -336,7 +336,7 @@ void main() {
         _episodeView('e1', number: 5, blockId: 'b1'),
       ]);
 
-      await ctx.controller.seedDerivedNumbers(seriesId: 'series-1');
+      await ctx.controller.seedDerivedNumbers(projectId: 'series-1');
 
       // Derived from the LIVE fetch (block 9 / episode 5), not from an
       // empty boot-time seasonsView.
@@ -350,7 +350,7 @@ void main() {
       () async {
         final ctx = await _buildFixture();
         // First run: no blocks (empty series) → base 1.
-        await ctx.controller.seedDerivedNumbers(seriesId: 'series-1');
+        await ctx.controller.seedDerivedNumbers(projectId: 'series-1');
         expect(ctx.state.nextBlockNumber, 1);
         expect(ctx.state.numbersSeeded, isTrue);
 
@@ -360,7 +360,7 @@ void main() {
           _blockView('b7', number: 7, seasonId: 's1'),
         ]);
         ctx.seasonsHolder.value = Right([_season('s1', 1)]);
-        await ctx.controller.seedDerivedNumbers(seriesId: 'series-1');
+        await ctx.controller.seedDerivedNumbers(projectId: 'series-1');
         expect(ctx.state.nextBlockNumber, 8);
       },
     );
@@ -391,7 +391,7 @@ void main() {
       var ctx = await _buildFixture();
       ctx = seededTwoByFour(ctx);
 
-      await ctx.controller.submit(seriesId: 'series-7');
+      await ctx.controller.submit(projectId: 'series-7');
       await _flush();
 
       expect(ctx.state.phase, SetupWizardPhase.completed);
@@ -400,7 +400,7 @@ void main() {
       expect(ctx.state.dispatchTotal, 11);
       // The season create carried the form mapping.
       final seasonReq = ctx.seasonRepo.lastCreateRequest!;
-      expect(seasonReq.seriesId, 'series-7');
+      expect(seasonReq.projectId, 'series-7');
       expect(seasonReq.number, 1);
       // Ids flow EXCLUSIVELY from the responses: the season id in the
       // block payloads is the fake season create's assigned id.
@@ -408,7 +408,7 @@ void main() {
       expect(seasonId, 'n1');
       for (final req in ctx.blockRepo.lastCreateRequests) {
         expect(req.seasonId, seasonId);
-        expect(req.seriesId, 'series-7');
+        expect(req.projectId, 'series-7');
       }
       for (var i = 0; i < ctx.episodeRepo.lastCreateRequests.length; i++) {
         final req = ctx.episodeRepo.lastCreateRequests[i];
@@ -442,13 +442,13 @@ void main() {
           ..archived = false
           ..id = 's1'
           ..number = 1
-          ..seriesId = 'series-7'
+          ..projectId = 'series-7'
           ..updatedAt = DateTime.utc(2026, 1, 1)
           ..version = 1,
       );
       ctx.seasonsHolder.value = Right([s1]);
 
-      await ctx.controller.submit(seriesId: 'series-7');
+      await ctx.controller.submit(projectId: 'series-7');
       await _flush();
 
       expect(ctx.state.phase, SetupWizardPhase.completed);
@@ -468,7 +468,7 @@ void main() {
         ProblemError(code: 'transport.down'),
       );
 
-      await ctx.controller.submit(seriesId: 'series-1');
+      await ctx.controller.submit(projectId: 'series-1');
       await _flush();
 
       expect(ctx.state.phase, SetupWizardPhase.partialFailure);
@@ -490,7 +490,7 @@ void main() {
           Left<ProblemError, IdVersionResponse>(_conflict),
         );
 
-        await ctx.controller.submit(seriesId: 'series-1');
+        await ctx.controller.submit(projectId: 'series-1');
         await _flush();
 
         expect(ctx.state.phase, SetupWizardPhase.partialFailure);
@@ -523,7 +523,7 @@ void main() {
         ];
         ctx.episodeRepo.createResults.addAll(episodeScript);
 
-        await ctx.controller.submit(seriesId: 'series-1');
+        await ctx.controller.submit(projectId: 'series-1');
         await _flush();
 
         expect(ctx.state.phase, SetupWizardPhase.partialFailure);
@@ -536,7 +536,7 @@ void main() {
         // re-dispatch of the acked commands.
         final seasonCreatesBefore = ctx.seasonRepo.createCalls;
         final blockCreatesBefore = ctx.blockRepo.lastCreateRequests.length;
-        await ctx.controller.retryRemaining(seriesId: 'series-1');
+        await ctx.controller.retryRemaining(projectId: 'series-1');
         await _flush();
 
         expect(ctx.state.phase, SetupWizardPhase.completed);
@@ -568,7 +568,7 @@ void main() {
       var ctx = await _buildFixture(signedIn: false);
       ctx = seededTwoByFour(ctx);
 
-      await ctx.controller.submit(seriesId: 'series-1');
+      await ctx.controller.submit(projectId: 'series-1');
       await _flush();
 
       expect(ctx.state.phase, SetupWizardPhase.partialFailure);
@@ -584,7 +584,7 @@ void main() {
       var ctx = await _buildFixture();
       ctx = seededTwoByFour(ctx);
 
-      await ctx.controller.submit(seriesId: '');
+      await ctx.controller.submit(projectId: '');
       await _flush();
 
       expect(ctx.state.phase, SetupWizardPhase.partialFailure);
@@ -600,7 +600,7 @@ void main() {
 
       // A retry on the same broken build re-trips the guard — idempotent
       // fail-fast, still no network.
-      await ctx.controller.retryRemaining(seriesId: '');
+      await ctx.controller.retryRemaining(projectId: '');
       await _flush();
       expect(ctx.state.phase, SetupWizardPhase.partialFailure);
       expect(ctx.state.failure!.code, 'config.series-id-missing');
@@ -612,7 +612,7 @@ void main() {
       var ctx = await _buildFixture();
       ctx = seededTwoByFour(ctx);
 
-      await ctx.controller.submit(seriesId: '   ');
+      await ctx.controller.submit(projectId: '   ');
       await _flush();
 
       expect(ctx.state.phase, SetupWizardPhase.partialFailure);
@@ -625,7 +625,7 @@ void main() {
       () async {
         var ctx = await _buildFixture();
         ctx = seededTwoByFour(ctx);
-        await ctx.controller.retryRemaining(seriesId: 'series-1');
+        await ctx.controller.retryRemaining(projectId: 'series-1');
         expect(ctx.state.phase, SetupWizardPhase.editing);
         expect(ctx.seasonRepo.createCalls, 0);
       },

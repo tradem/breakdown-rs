@@ -48,7 +48,7 @@ class CacheDatabase extends _$CacheDatabase {
   CacheDatabase.connect(super.executor);
 
   @override
-  int get schemaVersion => 12;
+  int get schemaVersion => 13;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -95,7 +95,7 @@ class CacheDatabase extends _$CacheDatabase {
       if (from < 6) {
         // `flutter-ai-import` 1.4: AI-import job projection table
         // (mirrors `AiImportJob`; carries the client-local persisted
-        // apply context columns `episode_id`/`series_id`, design §2.3).
+        // apply context columns `episode_id`/`project_id`, design §2.3).
         // Fresh table for existing installs — no data to migrate.
         // NOTE: the table is defined in `ai_import_cache.dart` (no
         // `cache_database` import — a cycle would break drift_dev table
@@ -229,6 +229,47 @@ class CacheDatabase extends _$CacheDatabase {
           ))) {
             await m.addColumn(costumeCacheRows, costumeCacheRows.categoryName);
           }
+        }
+      }
+      if (from < 13) {
+        // Issue #599 (v13): the `SeriesId` → `ProjectId` rename completed its
+        // wire/storage layer (ADR-035 D1/S1 layer 3, B5). `SeasonView`,
+        // `BlockView`, `EpisodeView` and the AI-import apply context now
+        // carry `project_id`, so the mirrored cache columns do too.
+        //
+        // Deliberately **additive, never a rename**: the cache policy above
+        // forbids destructive migrations, and the cache is
+        // snapshot-replace by design (D3) — the next TTL refresh rewrites
+        // every row anyway. An install upgrading from v12 therefore keeps an
+        // orphaned `series_id` column and gains a `project_id` one; nothing
+        // reads the old column, and the projection snapshot fills the new one
+        // on the next fetch. This mirrors the shape of the v9/v10/v12
+        // branches (nullable ADD COLUMN) and of v11 (non-nullable ADD COLUMN
+        // with an explicit default — SQLite rejects a bare `NOT NULL` on a
+        // populated table). Guarded by table AND column presence, so an
+        // upgrade that landed on a fresh create path is a no-op.
+        for (final table in const [
+          'season_cache_rows',
+          'block_cache_rows',
+          'episode_cache_rows',
+        ]) {
+          if (await _tableExists(m.database, table) &&
+              !(await _columnExists(m.database, table, 'project_id'))) {
+            await m.database.customStatement(
+              'ALTER TABLE $table ADD COLUMN project_id TEXT NOT NULL DEFAULT \'\'',
+            );
+          }
+        }
+        if (await _tableExists(m.database, 'ai_import_job_cache_rows') &&
+            !(await _columnExists(
+              m.database,
+              'ai_import_job_cache_rows',
+              'project_id',
+            ))) {
+          await m.addColumn(
+            aiImportJobCacheRows,
+            aiImportJobCacheRows.projectId,
+          );
         }
       }
     },

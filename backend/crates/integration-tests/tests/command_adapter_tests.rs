@@ -893,7 +893,7 @@ async fn costume_photo_link_unlink() -> Result<()> {
 }
 
 // ---------------------------------------------------------------------------
-// Production hierarchy (Series > Season > Block > Episode)
+// Production hierarchy (Project > Season > Block > Episode)
 // ---------------------------------------------------------------------------
 
 #[tokio::test]

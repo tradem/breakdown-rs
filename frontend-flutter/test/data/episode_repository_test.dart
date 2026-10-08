@@ -15,14 +15,14 @@ import 'package:frontend_flutter/data/episode_repository.dart';
 EpisodeView _episode(
   String id, {
   required String blockId,
-  required String seriesId,
+  required String projectId,
   required int number,
 }) => EpisodeView(
   (b) => b
     ..id = id
     ..blockId = blockId
     ..number = number
-    ..seriesId = seriesId
+    ..projectId = projectId
     ..updatedAt = DateTime.utc(2026, 1, 1)
     ..version = 1,
 );
@@ -46,10 +46,20 @@ void main() {
         // First call seeds block A and block B episodes in the series cache.
         await repo.applySeriesSnapshotFrom(
           Right<ProblemError, List<EpisodeView>>([
-            _episode('eA1', blockId: 'blockA', seriesId: 'series-1', number: 1),
-            _episode('eB1', blockId: 'blockB', seriesId: 'series-1', number: 2),
+            _episode(
+              'eA1',
+              blockId: 'blockA',
+              projectId: 'series-1',
+              number: 1,
+            ),
+            _episode(
+              'eB1',
+              blockId: 'blockB',
+              projectId: 'series-1',
+              number: 2,
+            ),
           ]),
-          seriesId: 'series-1',
+          projectId: 'series-1',
         );
         expect(
           (await repo.readCached('blockB')).getRight().toNullable()!.length,
@@ -62,9 +72,14 @@ void main() {
         // keep its stale rows.
         await repo.applySeriesSnapshotFrom(
           Right<ProblemError, List<EpisodeView>>([
-            _episode('eA2', blockId: 'blockA', seriesId: 'series-1', number: 3),
+            _episode(
+              'eA2',
+              blockId: 'blockA',
+              projectId: 'series-1',
+              number: 3,
+            ),
           ]),
-          seriesId: 'series-1',
+          projectId: 'series-1',
         );
 
         // Block A reflects the new snapshot (snapshot-replace), block B is
@@ -85,16 +100,16 @@ void main() {
     test('on Left leaves the cache untouched (no partial writes)', () async {
       await repo.applySeriesSnapshotFrom(
         Right<ProblemError, List<EpisodeView>>([
-          _episode('eA1', blockId: 'blockA', seriesId: 'series-1', number: 1),
+          _episode('eA1', blockId: 'blockA', projectId: 'series-1', number: 1),
         ]),
-        seriesId: 'series-1',
+        projectId: 'series-1',
       );
 
       final res = await repo.applySeriesSnapshotFrom(
         const Left<ProblemError, List<EpisodeView>>(
           ProblemError(code: 'transport.down'),
         ),
-        seriesId: 'series-1',
+        projectId: 'series-1',
       );
 
       expect(res.isLeft(), isTrue);

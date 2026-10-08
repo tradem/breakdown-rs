@@ -276,11 +276,11 @@ Future<void> bootstrap(Flavor flavor) async {
   await initializeDateFormatting();
   final config = await resolveAppConfig(flavor);
   // Non-fatal dev-build diagnostic (issue #483): a dev build shipped without
-  // --dart-define=DEFAULT_SERIES_ID surfaces here at boot (before any screen),
+  // --dart-define=DEFAULT_PROJECT_ID surfaces here at boot (before any screen),
   // complementing the wizard's dispatch-time fail-fast (#484). Logged, never
   // fatal — the pre-fill is optional and the wizard owns the user-facing
   // copy.
-  logDevMissingSeriesIdWarning(config);
+  logDevMissingProjectIdWarning(config);
 
   // Easter-eggs toggle hydration (issue #516): the persisted value seeds
   // the global notifier BEFORE any consumer exists, so the AI-Import view
@@ -489,35 +489,35 @@ String? validateStartupConfig(AppConfig config) {
 
 /// Pure predicate behind the non-fatal dev-build guard (issue #483): returns
 /// the actionable message when [config] is a dev-flavor build that shipped
-/// without `--dart-define=DEFAULT_SERIES_ID`, `null` otherwise (prod, and dev
-/// builds that carry the define). `DEFAULT_SERIES_ID` is an optional form
+/// without `--dart-define=DEFAULT_PROJECT_ID`, `null` otherwise (prod, and dev
+/// builds that carry the define). `DEFAULT_PROJECT_ID` is an optional form
 /// pre-fill, so an empty value is a misconfiguration to surface, not a
 /// fail-closed error — the widget-testable seam both [bootstrap] and widget
 /// tests drive. Exposed for tests (`@visibleForTesting`).
 @visibleForTesting
-String? devMissingSeriesIdWarning(AppConfig config) {
-  if (config.flavor != Flavor.dev || config.defaultSeriesId.isNotEmpty) {
+String? devMissingProjectIdWarning(AppConfig config) {
+  if (config.flavor != Flavor.dev || config.defaultProjectId.isNotEmpty) {
     return null;
   }
-  return 'Dev build shipped without --dart-define=DEFAULT_SERIES_ID; '
+  return 'Dev build shipped without --dart-define=DEFAULT_PROJECT_ID; '
       'season-creating forms have no series pre-fill (the wizard fails fast '
       'at dispatch — rebuild with the define to pre-fill the series id).';
 }
 
-/// Non-fatal emission seam for [devMissingSeriesIdWarning] called from
+/// Non-fatal emission seam for [devMissingProjectIdWarning] called from
 /// [bootstrap] right after the config resolves. Logged through [debugPrint]
 /// (boot console/DevTools) by default; the optional `log` callback is the
 /// widget-testable seam — a widget test injects a capturer instead of
 /// mutating the global `debugPrint`. Never aborts startup: an empty
-/// `DEFAULT_SERIES_ID` is an optional pre-fill (the wizard's dispatch-time
+/// `DEFAULT_PROJECT_ID` is an optional pre-fill (the wizard's dispatch-time
 /// guard owns the user-facing failure), so a hard `assert` or a fatal screen
 /// would needlessly break a locally-correct dev boot. Exposed for tests.
 @visibleForTesting
-void logDevMissingSeriesIdWarning(
+void logDevMissingProjectIdWarning(
   AppConfig config, {
   void Function(String message)? log,
 }) {
-  final warning = devMissingSeriesIdWarning(config);
+  final warning = devMissingProjectIdWarning(config);
   if (warning == null) return;
   (log ?? debugPrint)('[bootstrap] $warning');
 }
@@ -525,7 +525,7 @@ void logDevMissingSeriesIdWarning(
 /// Non-fatal warning emission for bootstrap-internal failures that fall
 /// back to a safe default (used for the easter-eggs preference read
 /// failure, issue #516). Same seam shape as
-/// [logDevMissingSeriesIdWarning]: logged through [debugPrint] by
+/// [logDevMissingProjectIdWarning]: logged through [debugPrint] by
 /// default, injectable for tests. Never aborts startup.
 @visibleForTesting
 void logBootstrapWarning(String message, {void Function(String message)? log}) {

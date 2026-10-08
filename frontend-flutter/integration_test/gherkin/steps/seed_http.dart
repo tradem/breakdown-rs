@@ -22,18 +22,18 @@ library;
 import 'dart:convert';
 import 'dart:io';
 
-/// The dev series the harness seeds into — `DEFAULT_SERIES_ID` from the
+/// The dev series the harness seeds into — `DEFAULT_PROJECT_ID` from the
 /// runner environment (the same value `buildGherkinConfig()` passes to the
 /// app so the wizard and quick-create sheet submit against it), falling
 /// back to the fixed dev-series UUID when unset. Deriving BOTH sides from
 /// one variable keeps seed payloads and the wizard's series in sync
 /// (CodeRabbit review, #456: a fixed id diverges from an env override).
-String get seedSeriesId =>
-    Platform.environment['DEFAULT_SERIES_ID'] ?? kDefaultSeedSeriesId;
+String get seedProjectId =>
+    Platform.environment['DEFAULT_PROJECT_ID'] ?? kDefaultSeedProjectId;
 
 /// Fallback dev-series UUID (the seeded dev backend's fixed series;
-/// also the value `buildGherkinConfig()` defaults `DEFAULT_SERIES_ID` to).
-const String kDefaultSeedSeriesId = '11111111-1111-1111-1111-111111111111';
+/// also the value `buildGherkinConfig()` defaults `DEFAULT_PROJECT_ID` to).
+const String kDefaultSeedProjectId = '11111111-1111-1111-1111-111111111111';
 
 /// `API_BASE` from the runner environment, host-resolved.
 String hostApiBase() =>
@@ -102,7 +102,7 @@ Future<Map<String, dynamic>> postJson(
 }
 
 /// Resolves the lowest free SERIES-scoped season number in the dev series
-/// ([seedSeriesId]) from the REAL backend. The dev series accumulates
+/// ([seedProjectId]) from the REAL backend. The dev series accumulates
 /// seasons across runs (the dispatch/seed POSTs 409 on a taken number), and
 /// the season lists order by number — a huge epoch-based number would bury
 /// the seeded row off-viewport. Throws when the backend is unreachable or
@@ -115,7 +115,7 @@ Future<int> resolveFreeSeasonNumber() async {
       await getJson('/v1/seasons?limit=1000&offset=0') as List<dynamic>;
   final numbers = [
     for (final s in seasons)
-      if (s is Map<String, dynamic> && s['series_id'] == seedSeriesId)
+      if (s is Map<String, dynamic> && s['project_id'] == seedProjectId)
         (s['number'] as num).toInt(),
   ]..sort();
   var candidate = 1;
@@ -126,7 +126,7 @@ Future<int> resolveFreeSeasonNumber() async {
 }
 
 /// Resolves a free SERIES-scoped BLOCK number in the dev series
-/// ([seedSeriesId]) from the real backend. Block numbers are unique per
+/// ([seedProjectId]) from the real backend. Block numbers are unique per
 /// SERIES (`idx_projection_block_series_number`) — independent of season
 /// numbers — so a free season number (from [resolveFreeSeasonNumber]) can
 /// collude with an existing block on the same series; the seed must resolve
@@ -144,7 +144,7 @@ Future<int> resolveFreeBlockNumber() async {
   final seriesSeasons = [
     for (final s in seasons)
       if (s is Map<String, dynamic> &&
-          s['series_id'] == seedSeriesId &&
+          s['project_id'] == seedProjectId &&
           s['id'] is String)
         s['id'] as String,
   ];
@@ -155,7 +155,7 @@ Future<int> resolveFreeBlockNumber() async {
     ) as List<dynamic>;
     numbers.addAll([
       for (final b in blocks)
-        if (b is Map<String, dynamic> && b['series_id'] == seedSeriesId)
+        if (b is Map<String, dynamic> && b['project_id'] == seedProjectId)
           (b['number'] as num).toInt(),
     ]);
   }
@@ -235,7 +235,7 @@ Future<Map<String, dynamic>> _createSeedBlock({
     try {
       final block = await postJson('/v1/blocks', {
         'season_id': seasonId,
-        'series_id': seedSeriesId,
+        'project_id': seedProjectId,
         // Fresh free BLOCK number each attempt (never reuse the season's
         // free number — block and season numbering are independent scopes).
         'number': await resolveFreeBlockNumber(),
@@ -249,7 +249,7 @@ Future<Map<String, dynamic>> _createSeedBlock({
     }
   }
   throw Exception(
-    'seed block create kept 409ing after retries (series $seedSeriesId, '
+    'seed block create kept 409ing after retries (series $seedProjectId, '
     'season $seasonId)',
   );
 }
@@ -268,7 +268,7 @@ Future<Map<String, dynamic>> _createSeedBlock({
 Future<Map<String, String>> seedCostumeAssignment() async {
   final seasonNumber = await resolveFreeSeasonNumber();
   final season = await postJson('/v1/seasons', {
-    'series_id': seedSeriesId,
+    'project_id': seedProjectId,
     'number': seasonNumber,
     'title': 'Gherkin seed',
   });

@@ -19,7 +19,6 @@ use crate::shared::{AggregateVersion, ProjectId, SeasonId};
 pub struct CreateCharacter {
     pub id: Uuid,
     pub season_id: SeasonId,
-    #[schema(rename = "series_id")]
     // wire name pinned: layer 3 (OpenAPI field rename) is a breaking ADR-021 change, deferred
     pub project_id: Option<ProjectId>,
     pub name: String,
@@ -35,7 +34,6 @@ pub struct CreateCharacter {
 pub struct UpdateMeasurements {
     pub id: Uuid,
     pub measurements: CharacterMeasurements,
-    #[schema(rename = "series_id")]
     // wire name pinned: layer 3 (OpenAPI field rename) is a breaking ADR-021 change, deferred
     pub project_id: Option<ProjectId>,
     pub version: AggregateVersion,
@@ -50,7 +48,6 @@ pub struct UpdateMeasurements {
 pub struct UpdateContactInfo {
     pub id: Uuid,
     pub contact_info: ContactInfo,
-    #[schema(rename = "series_id")]
     // wire name pinned: layer 3 (OpenAPI field rename) is a breaking ADR-021 change, deferred
     pub project_id: Option<ProjectId>,
     pub version: AggregateVersion,

@@ -65,7 +65,7 @@ BlockView _blockView(String id, {required int number, String? seasonId}) =>
         ..id = id
         ..number = number
         ..seasonId = seasonId ?? 'season-1'
-        ..seriesId = 'series-1'
+        ..projectId = 'series-1'
         ..updatedAt = DateTime.utc(2026, 1, 1)
         ..version = 1,
     );
@@ -75,7 +75,7 @@ SeasonView _season(String id, int number, {String? title}) => SeasonView(
     ..archived = false
     ..id = id
     ..number = number
-    ..seriesId = 'series-1'
+    ..projectId = 'series-1'
     ..title = title
     ..updatedAt = DateTime.utc(2026, 1, 1)
     ..version = 1,
@@ -582,7 +582,7 @@ void main() {
         'actionable message — no 422 round-trip, no retry affordance', (
       tester,
     ) async {
-      final ctx = await _buildFixture(config: devAuthConfigNoSeriesId);
+      final ctx = await _buildFixture(config: devAuthConfigNoProjectId);
       await _pumpWizard(tester, ctx);
       ctx.container
           .read(setupWizardControllerProvider.notifier)
@@ -611,7 +611,7 @@ void main() {
         findsOneWidget,
       );
       expect(find.text('Build-Konfiguration fehlt'), findsOneWidget);
-      expect(find.textContaining('DEFAULT_SERIES_ID'), findsOneWidget);
+      expect(find.textContaining('DEFAULT_PROJECT_ID'), findsOneWidget);
       expect(find.byKey(const Key('wizard-completion-summary')), findsNothing);
       expect(find.byKey(const Key('wizard-retry')), findsNothing);
       // The close affordance frees the (unusable) wizard.

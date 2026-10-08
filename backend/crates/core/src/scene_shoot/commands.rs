@@ -26,7 +26,6 @@ pub struct PlanSceneShoot {
     pub id: SceneShootId,
     pub scene_id: Uuid,
     pub shooting_day_id: ShootingDayId,
-    #[schema(rename = "series_id")]
     // wire name pinned: layer 3 (OpenAPI field rename) is a breaking ADR-021 change, deferred
     pub project_id: Option<ProjectId>,
     pub planned_order: LexicalSortKey,
@@ -44,7 +43,6 @@ pub struct PlanSceneShoot {
 pub struct ReplanSceneShoot {
     pub id: SceneShootId,
     pub planned_order: LexicalSortKey,
-    #[schema(rename = "series_id")]
     // wire name pinned: layer 3 (OpenAPI field rename) is a breaking ADR-021 change, deferred
     pub project_id: Option<ProjectId>,
     pub version: AggregateVersion,
@@ -69,7 +67,6 @@ pub struct StartSceneShoot {
     pub id: SceneShootId,
     pub shooting_day_id: ShootingDayId,
     pub start_dt: DateTime<Utc>,
-    #[schema(rename = "series_id")]
     // wire name pinned: layer 3 (OpenAPI field rename) is a breaking ADR-021 change, deferred
     pub project_id: Option<ProjectId>,
     pub version: AggregateVersion,
@@ -91,7 +88,6 @@ pub struct SetActualOrder {
     pub id: SceneShootId,
     pub shooting_day_id: ShootingDayId,
     pub actual_order: LexicalSortKey,
-    #[schema(rename = "series_id")]
     // wire name pinned: layer 3 (OpenAPI field rename) is a breaking ADR-021 change, deferred
     pub project_id: Option<ProjectId>,
     pub version: AggregateVersion,
@@ -110,7 +106,6 @@ pub struct FinishSceneShoot {
     pub id: SceneShootId,
     pub shooting_day_id: ShootingDayId,
     pub end_dt: DateTime<Utc>,
-    #[schema(rename = "series_id")]
     // wire name pinned: layer 3 (OpenAPI field rename) is a breaking ADR-021 change, deferred
     pub project_id: Option<ProjectId>,
     pub version: AggregateVersion,
@@ -128,7 +123,6 @@ pub struct FinishSceneShoot {
 pub struct SkipSceneShoot {
     pub id: SceneShootId,
     pub shooting_day_id: ShootingDayId,
-    #[schema(rename = "series_id")]
     // wire name pinned: layer 3 (OpenAPI field rename) is a breaking ADR-021 change, deferred
     pub project_id: Option<ProjectId>,
     pub version: AggregateVersion,
@@ -148,7 +142,6 @@ pub struct AddSceneShootNote {
     pub shooting_day_id: ShootingDayId,
     pub note_id: Uuid,
     pub body: String,
-    #[schema(rename = "series_id")]
     // wire name pinned: layer 3 (OpenAPI field rename) is a breaking ADR-021 change, deferred
     pub project_id: Option<ProjectId>,
     pub author: Option<UserId>,
@@ -168,7 +161,6 @@ pub struct UpdateSceneShootNote {
     pub shooting_day_id: ShootingDayId,
     pub note_id: Uuid,
     pub body: String,
-    #[schema(rename = "series_id")]
     // wire name pinned: layer 3 (OpenAPI field rename) is a breaking ADR-021 change, deferred
     pub project_id: Option<ProjectId>,
     pub version: AggregateVersion,
@@ -187,7 +179,6 @@ pub struct RemoveSceneShootNote {
     pub id: SceneShootId,
     pub shooting_day_id: ShootingDayId,
     pub note_id: Uuid,
-    #[schema(rename = "series_id")]
     // wire name pinned: layer 3 (OpenAPI field rename) is a breaking ADR-021 change, deferred
     pub project_id: Option<ProjectId>,
     pub version: AggregateVersion,
@@ -202,7 +193,6 @@ pub struct RemoveSceneShootNote {
 pub struct LinkContinuityPhoto {
     pub id: SceneShootId,
     pub photo_id: PhotoId,
-    #[schema(rename = "series_id")]
     // wire name pinned: layer 3 (OpenAPI field rename) is a breaking ADR-021 change, deferred
     pub project_id: Option<ProjectId>,
     pub version: AggregateVersion,
@@ -217,7 +207,6 @@ pub struct LinkContinuityPhoto {
 pub struct UnlinkContinuityPhoto {
     pub id: SceneShootId,
     pub photo_id: PhotoId,
-    #[schema(rename = "series_id")]
     // wire name pinned: layer 3 (OpenAPI field rename) is a breaking ADR-021 change, deferred
     pub project_id: Option<ProjectId>,
     pub version: AggregateVersion,

@@ -30,7 +30,7 @@ class EpisodeRepository extends BaseRepository {
 
   final EpisodeCacheDao cache;
 
-  /// Creates a new episode. Ids (`series_id`, `block_id`) come from the
+  /// Creates a new episode. Ids (`project_id`, `block_id`) come from the
   /// `BlockView` read DTO the user acted on (CQRS boundary — never from a
   /// second projection lookup).
   Future<Result<IdVersionResponse>> create(CreateEpisodeRequest request) => run(
@@ -73,7 +73,7 @@ class EpisodeRepository extends BaseRepository {
     );
   }
 
-  /// Series-scoped fetch (`GET /v1/episodes?series_id=…` — the backend
+  /// Series-scoped fetch (`GET /v1/episodes?project_id=…` — the backend
   /// lists episodes of a series, or of a single block when `block_id` is
   /// given). This is the derivation's honest single-scope read for
   /// series-scoped episode numbers (`idx_projection_episode_series_number`):
@@ -86,14 +86,14 @@ class EpisodeRepository extends BaseRepository {
   ///
   /// Paginates through every page (issue #385).
   Future<Result<List<EpisodeView>>> listBySeries(
-    String seriesId, {
+    String projectId, {
     Clock clock = Clock.system,
     CacheWriteFence? fence,
   }) async {
     final Result<List<EpisodeView>> fetched = await fetchAllPages<EpisodeView>(
       ({required int limit, required int offset}) => api
           .getHandlersApi()
-          .listEpisodes(seriesId: seriesId, limit: limit, offset: offset),
+          .listEpisodes(projectId: projectId, limit: limit, offset: offset),
       dtoInvalidCode: 'episode.dto_invalid',
     );
     return fetched.match(
@@ -104,7 +104,7 @@ class EpisodeRepository extends BaseRepository {
         }
         return applySeriesSnapshotFrom(
           Right<ProblemError, List<EpisodeView>>(rows),
-          seriesId: seriesId,
+          projectId: projectId,
           clock: clock,
         );
       },
@@ -123,19 +123,19 @@ class EpisodeRepository extends BaseRepository {
   /// leaves earlier blocks committed under `cache.write_failed`). On
   /// [Left] returns the error unchanged and leaves the cache untouched.
   ///
-  /// When [seriesId] is null the series-scoped absent-block clearing is
+  /// When [projectId] is null the series-scoped absent-block clearing is
   /// skipped (no series scope to prune against) and only the per-block
   /// snapshot-replace runs, mirroring [listByBlock]'s block-scoped write.
   Future<Result<List<EpisodeView>>> applySeriesSnapshotFrom(
     Result<List<EpisodeView>> fetched, {
     Clock clock = Clock.system,
-    String? seriesId,
+    String? projectId,
   }) async {
     return fetched.match(
       (err) async => Left<ProblemError, List<EpisodeView>>(err),
       (rows) async {
         try {
-          if (seriesId == null) {
+          if (projectId == null) {
             for (final entry in EpisodeRepository.groupByBlock(rows).entries) {
               await cache.applySnapshotForBlock(
                 entry.key,
@@ -146,7 +146,7 @@ class EpisodeRepository extends BaseRepository {
           } else {
             await cache.applySeriesSnapshot(
               byBlock: EpisodeRepository.groupByBlock(rows),
-              seriesId: seriesId,
+              projectId: projectId,
               cachedAt: clock.now(),
             );
           }

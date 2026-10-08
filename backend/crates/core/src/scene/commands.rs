@@ -23,7 +23,6 @@ use crate::shared::{AggregateVersion, EpisodeId, ProjectId, ShootingDayId};
 pub struct CreateScene {
     pub id: Uuid,
     pub episode_id: EpisodeId,
-    #[schema(rename = "series_id")]
     // wire name pinned: layer 3 (OpenAPI field rename) is a breaking ADR-021 change, deferred
     pub project_id: Option<ProjectId>,
     pub details: SceneDetails,
@@ -40,7 +39,6 @@ pub struct CreateScene {
 pub struct UpdateSceneDetails {
     pub id: Uuid,
     pub details: SceneDetails,
-    #[schema(rename = "series_id")]
     // wire name pinned: layer 3 (OpenAPI field rename) is a breaking ADR-021 change, deferred
     pub project_id: Option<ProjectId>,
     pub version: AggregateVersion,
@@ -55,7 +53,6 @@ pub struct UpdateSceneDetails {
 pub struct AssignCharacter {
     pub id: Uuid,
     pub character_id: Uuid,
-    #[schema(rename = "series_id")]
     // wire name pinned: layer 3 (OpenAPI field rename) is a breaking ADR-021 change, deferred
     pub project_id: Option<ProjectId>,
     pub version: AggregateVersion,
@@ -70,7 +67,6 @@ pub struct AssignCharacter {
 pub struct RemoveCharacter {
     pub id: Uuid,
     pub character_id: Uuid,
-    #[schema(rename = "series_id")]
     // wire name pinned: layer 3 (OpenAPI field rename) is a breaking ADR-021 change, deferred
     pub project_id: Option<ProjectId>,
     pub version: AggregateVersion,
@@ -92,7 +88,6 @@ pub struct AddCostumeBeat {
     pub costume_id: Uuid,
     /// Optional free-text cue for the wardrobe crew ("nach dem Telefonat").
     pub note: Option<String>,
-    #[schema(rename = "series_id")]
     // wire name pinned: layer 3 (OpenAPI field rename) is a breaking ADR-021 change, deferred
     pub project_id: Option<ProjectId>,
     pub version: AggregateVersion,
@@ -113,7 +108,6 @@ pub struct UpdateCostumeBeat {
     pub order: u32,
     pub costume_id: Uuid,
     pub note: Option<String>,
-    #[schema(rename = "series_id")]
     // wire name pinned: layer 3 (OpenAPI field rename) is a breaking ADR-021 change, deferred
     pub project_id: Option<ProjectId>,
     pub version: AggregateVersion,
@@ -131,7 +125,6 @@ pub struct RemoveCostumeBeat {
     pub id: Uuid,
     pub character_id: Uuid,
     pub order: Option<u32>,
-    #[schema(rename = "series_id")]
     // wire name pinned: layer 3 (OpenAPI field rename) is a breaking ADR-021 change, deferred
     pub project_id: Option<ProjectId>,
     pub version: AggregateVersion,
@@ -182,7 +175,6 @@ impl kameo_es::CommandName for RemoveCostumeBeat {
 pub struct ScheduleSceneOnShootingDay {
     pub id: Uuid,
     pub shooting_day_id: ShootingDayId,
-    #[schema(rename = "series_id")]
     // wire name pinned: layer 3 (OpenAPI field rename) is a breaking ADR-021 change, deferred
     pub project_id: Option<ProjectId>,
     pub version: AggregateVersion,
@@ -197,7 +189,6 @@ pub struct ScheduleSceneOnShootingDay {
 pub struct UnscheduleSceneFromShootingDay {
     pub id: Uuid,
     pub shooting_day_id: ShootingDayId,
-    #[schema(rename = "series_id")]
     // wire name pinned: layer 3 (OpenAPI field rename) is a breaking ADR-021 change, deferred
     pub project_id: Option<ProjectId>,
     pub version: AggregateVersion,

@@ -38,7 +38,7 @@ impl AuditRepository for AuditRepositoryImpl {
         limit: i64,
         offset: i64,
     ) -> Result<Vec<AuditEntry>, DomainError> {
-        let rows = sqlx::query("SELECT id, entity_type, entity_id, event_type, block_id, series_id, actor, payload, occurred_at FROM projection_audit WHERE block_id = $1 ORDER BY occurred_at DESC, id DESC LIMIT $2 OFFSET $3")
+        let rows = sqlx::query("SELECT id, entity_type, entity_id, event_type, block_id, project_id, actor, payload, occurred_at FROM projection_audit WHERE block_id = $1 ORDER BY occurred_at DESC, id DESC LIMIT $2 OFFSET $3")
         .bind(block_id.0)
         .bind(limit)
         .bind(offset)
@@ -55,7 +55,7 @@ impl AuditRepository for AuditRepositoryImpl {
         limit: i64,
         offset: i64,
     ) -> Result<Vec<AuditEntry>, DomainError> {
-        let rows = sqlx::query("SELECT id, entity_type, entity_id, event_type, block_id, series_id, actor, payload, occurred_at FROM projection_audit WHERE actor = $1 ORDER BY occurred_at DESC, id DESC LIMIT $2 OFFSET $3")
+        let rows = sqlx::query("SELECT id, entity_type, entity_id, event_type, block_id, project_id, actor, payload, occurred_at FROM projection_audit WHERE actor = $1 ORDER BY occurred_at DESC, id DESC LIMIT $2 OFFSET $3")
         .bind(actor.as_str())
         .bind(limit)
         .bind(offset)
@@ -73,7 +73,7 @@ impl AuditRepository for AuditRepositoryImpl {
         limit: i64,
         offset: i64,
     ) -> Result<Vec<AuditEntry>, DomainError> {
-        let rows = sqlx::query("SELECT id, entity_type, entity_id, event_type, block_id, series_id, actor, payload, occurred_at FROM projection_audit WHERE occurred_at BETWEEN $1 AND $2 ORDER BY occurred_at DESC, id DESC LIMIT $3 OFFSET $4")
+        let rows = sqlx::query("SELECT id, entity_type, entity_id, event_type, block_id, project_id, actor, payload, occurred_at FROM projection_audit WHERE occurred_at BETWEEN $1 AND $2 ORDER BY occurred_at DESC, id DESC LIMIT $3 OFFSET $4")
         .bind(from)
         .bind(to)
         .bind(limit)
@@ -92,7 +92,7 @@ impl AuditRepository for AuditRepositoryImpl {
         limit: i64,
         offset: i64,
     ) -> Result<Vec<AuditEntry>, DomainError> {
-        let rows = sqlx::query("SELECT id, entity_type, entity_id, event_type, block_id, series_id, actor, payload, occurred_at FROM projection_audit WHERE entity_type = $1 AND entity_id = $2 ORDER BY occurred_at DESC, id DESC LIMIT $3 OFFSET $4")
+        let rows = sqlx::query("SELECT id, entity_type, entity_id, event_type, block_id, project_id, actor, payload, occurred_at FROM projection_audit WHERE entity_type = $1 AND entity_id = $2 ORDER BY occurred_at DESC, id DESC LIMIT $3 OFFSET $4")
         .bind(entity_type)
         .bind(entity_id)
         .bind(limit)
@@ -110,7 +110,7 @@ impl AuditRepository for AuditRepositoryImpl {
         limit: i64,
         offset: i64,
     ) -> Result<Vec<AuditEntry>, DomainError> {
-        let rows = sqlx::query("SELECT id, entity_type, entity_id, event_type, block_id, series_id, actor, payload, occurred_at FROM projection_audit WHERE series_id = $1 ORDER BY occurred_at DESC, id DESC LIMIT $2 OFFSET $3")
+        let rows = sqlx::query("SELECT id, entity_type, entity_id, event_type, block_id, project_id, actor, payload, occurred_at FROM projection_audit WHERE project_id = $1 ORDER BY occurred_at DESC, id DESC LIMIT $2 OFFSET $3")
         .bind(project_id.0)
         .bind(limit)
         .bind(offset)
@@ -140,7 +140,7 @@ fn map_audit_row(row: sqlx::postgres::PgRow) -> Result<AuditEntry, DomainError> 
         .map_err(|e| DomainError::conflict(e.to_string()))?
         .map(BlockId::from_uuid);
     let project_id: Option<Uuid> = row
-        .try_get("series_id")
+        .try_get("project_id")
         .map_err(|e| DomainError::conflict(e.to_string()))?;
     let actor: Option<UserId> = row
         .try_get::<Option<String>, _>("actor")

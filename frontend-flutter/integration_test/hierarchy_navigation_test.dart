@@ -41,7 +41,7 @@ SeasonView _season() => SeasonView(
   (b) => b
     ..id = 'season-1'
     ..number = 1
-    ..seriesId = 'series-e2e'
+    ..projectId = 'series-e2e'
     ..title = 'Season One'
     ..updatedAt = DateTime.utc(2026, 1, 1)
     ..version = 1,
@@ -52,7 +52,7 @@ BlockView _block(String id) => BlockView(
     ..id = id
     ..number = 1
     ..seasonId = 'season-1'
-    ..seriesId = 'series-e2e'
+    ..projectId = 'series-e2e'
     ..startDate = '2026-01-01'
     ..endDate = '2026-01-31'
     ..updatedAt = DateTime.utc(2026, 1, 1)
@@ -64,7 +64,7 @@ EpisodeView _episode(String id) => EpisodeView(
     ..id = id
     ..blockId = 'block-1'
     ..number = 1
-    ..seriesId = 'series-e2e'
+    ..projectId = 'series-e2e'
     ..updatedAt = DateTime.utc(2026, 1, 1)
     ..version = 1,
 );
@@ -147,7 +147,7 @@ void main() {
     oidcRedirectUri: '',
     devIdpInsecure: '',
     appVersion: '1.0.0+1',
-    defaultSeriesId: 'series-e2e',
+    defaultProjectId: 'series-e2e',
   );
 
   testWidgets(

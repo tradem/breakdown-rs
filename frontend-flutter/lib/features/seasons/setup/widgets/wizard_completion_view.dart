@@ -75,7 +75,7 @@ class WizardCompletionView extends StatelessWidget {
     final partial = phase == SetupWizardPhase.partialFailure;
     // Issue #467: the pre-dispatch config guard's failure means ZERO
     // partial work happened and a retry cannot help (only a rebuilt app
-    // with `DEFAULT_SERIES_ID` can proceed) — hide the partial summary
+    // with `DEFAULT_PROJECT_ID` can proceed) — hide the partial summary
     // and the in-session retry for that state.
     final buildConfigFailure = partial && isMissingSeriesIdFailure(failure);
 

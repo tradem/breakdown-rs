@@ -930,7 +930,7 @@ final class BlocksControllerProvider
   }
 }
 
-String _$blocksControllerHash() => r'048120cdb748b29eae9fa36480e3d9e9a7ac3162';
+String _$blocksControllerHash() => r'542511984e9671aaf3c252fa5c30583e9ea41de3';
 
 /// Family `BlocksController(seasonId)` on the shared reconciliation runner
 /// (seasons reference pattern): projected `AsyncValue` rows, cached rows,

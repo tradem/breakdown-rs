@@ -25,7 +25,7 @@ BlockView _block(String id, {int number = 1, String seasonId = 'season-1'}) =>
         ..id = id
         ..number = number
         ..seasonId = seasonId
-        ..seriesId = 'series-1'
+        ..projectId = 'series-1'
         ..startDate = '2026-01-01'
         ..endDate = '2026-01-31'
         ..updatedAt = DateTime.utc(2026, 1, 1)

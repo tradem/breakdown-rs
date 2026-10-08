@@ -181,7 +181,7 @@ class _AiApplySectionState extends ConsumerState<AiApplySection> {
                     controller.setContext(
                       AiJobContext(
                         episodeId: picked.id,
-                        seriesId: picked.seriesId,
+                        projectId: picked.projectId,
                       ),
                     );
                   }

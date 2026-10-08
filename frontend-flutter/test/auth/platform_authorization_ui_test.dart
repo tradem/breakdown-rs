@@ -202,7 +202,7 @@ void main() {
               oidcRedirectUri: 'breakdown://redirect',
               devIdpInsecure: '',
               appVersion: '1.0.0+1',
-              defaultSeriesId: '',
+              defaultProjectId: '',
             ),
           ),
         ],
@@ -228,7 +228,7 @@ void main() {
         oidcRedirectUri: '',
         devIdpInsecure: '',
         appVersion: '1.0.0+1',
-        defaultSeriesId: '',
+        defaultProjectId: '',
       );
       for (final config in [devAuthConfig, noRedirect]) {
         final container = ProviderContainer(

@@ -166,7 +166,7 @@ async fn await_member_state(
     }
 }
 
-/// Wait until the block projection row exists — the series-scoped audit gate
+/// Wait until the block projection row exists — the project-scoped audit gate
 /// joins on `projection_block.project_id` (issue #342).
 async fn await_block_projected(pool: &PgPool, block_id: Uuid) -> Result<()> {
     let blocks = BlockRepositoryImpl::new(pool.clone());
@@ -193,7 +193,7 @@ async fn await_block_projected(pool: &PgPool, block_id: Uuid) -> Result<()> {
 
 /// `has_active_membership_in_project` with the `DomainError` mapped into
 /// `anyhow` (test ergonomics).
-async fn in_series(
+async fn in_project(
     repo: &MembershipRepositoryImpl,
     project_id: ProjectId,
     user_id: UserId,
@@ -205,7 +205,7 @@ async fn in_series(
 
 /// Spin up Postgres + SierraDB + the membership projector, and a SierraDB-backed
 /// `CommandService` (full command → SierraDB → projector → PG chain).
-fn test_series_id() -> ProjectId {
+fn test_project_id() -> ProjectId {
     ProjectId::from_uuid(uuid::Uuid::now_v7())
 }
 
@@ -226,7 +226,7 @@ async fn init_membership() -> Result<(
     )
     .await?;
     // The block projector feeds `projection_block.project_id`, the column the
-    // series-scoped audit gate joins on (issue #342).
+    // project-scoped audit gate joins on (issue #342).
     let _bp = spawn_block_projector(
         pool.clone(),
         Arc::clone(&sierra_client),
@@ -291,7 +291,7 @@ async fn command_invite_accept_round_trips_into_membership_projection() -> Resul
             owner.clone(),
             BootstrapOwner {
                 block_id,
-                project_id: test_series_id(),
+                project_id: test_project_id(),
                 user_id: owner.clone(),
                 role: Role::CostumeAssistant,
             },
@@ -304,7 +304,7 @@ async fn command_invite_accept_round_trips_into_membership_projection() -> Resul
             owner.clone(),
             InviteMember {
                 block_id,
-                project_id: test_series_id(),
+                project_id: test_project_id(),
                 user_id: invitee.clone(),
                 role: Role::CostumeDesigner,
             },
@@ -317,7 +317,7 @@ async fn command_invite_accept_round_trips_into_membership_projection() -> Resul
             invitee.clone(),
             AcceptInvitation {
                 block_id,
-                project_id: test_series_id(),
+                project_id: test_project_id(),
                 user_id: invitee.clone(),
             },
         )
@@ -366,7 +366,7 @@ async fn command_grant_remove_leave_round_trips_into_membership_projection() -> 
             owner.clone(),
             BootstrapOwner {
                 block_id,
-                project_id: test_series_id(),
+                project_id: test_project_id(),
                 user_id: owner.clone(),
                 role: Role::CostumeAssistant,
             },
@@ -377,7 +377,7 @@ async fn command_grant_remove_leave_round_trips_into_membership_projection() -> 
             owner.clone(),
             InviteMember {
                 block_id,
-                project_id: test_series_id(),
+                project_id: test_project_id(),
                 user_id: member.clone(),
                 role: Role::CostumeAssistant,
             },
@@ -388,7 +388,7 @@ async fn command_grant_remove_leave_round_trips_into_membership_projection() -> 
             member.clone(),
             AcceptInvitation {
                 block_id,
-                project_id: test_series_id(),
+                project_id: test_project_id(),
                 user_id: member.clone(),
             },
         )
@@ -400,7 +400,7 @@ async fn command_grant_remove_leave_round_trips_into_membership_projection() -> 
             owner.clone(),
             GrantRole {
                 block_id,
-                project_id: test_series_id(),
+                project_id: test_project_id(),
                 user_id: member.clone(),
                 role: Role::WardrobeSupervisor,
             },
@@ -417,7 +417,7 @@ async fn command_grant_remove_leave_round_trips_into_membership_projection() -> 
             owner.clone(),
             RemoveMember {
                 block_id,
-                project_id: test_series_id(),
+                project_id: test_project_id(),
                 user_id: member.clone(),
             },
         )
@@ -430,7 +430,7 @@ async fn command_grant_remove_leave_round_trips_into_membership_projection() -> 
             owner.clone(),
             LeaveBlock {
                 block_id,
-                project_id: test_series_id(),
+                project_id: test_project_id(),
             },
         )
         .await?;
@@ -532,21 +532,21 @@ async fn membership_projector_is_idempotent_under_redelivery() -> Result<()> {
 }
 
 /// Tier-4: `has_active_membership_in_project` — the tenant predicate behind the
-/// series-scoped audit gate (issue #342).
+/// project-scoped audit gate (issue #342).
 ///
 /// `GET /v1/audit` filters the journal by the `project_id` **query parameter**,
 /// so its gate cannot rely on the caller's active block. The predicate walks
-/// membership → block → series and must be true **only** for an *active* member
-/// of a block that belongs to the queried series.
+/// membership → block → project and must be true **only** for an *active* member
+/// of a block that belongs to the queried project.
 #[tokio::test]
-async fn has_active_membership_in_series_scopes_the_audit_gate_by_series() -> Result<()> {
+async fn has_active_membership_in_project_scopes_the_audit_gate_by_project() -> Result<()> {
     let (pool, cmd_svc, _pg, _sierra) = init_membership().await?;
     let membership = MembershipCommandsImpl::new(cmd_svc.clone());
     let blocks = BlockCommandsImpl::new(cmd_svc);
     let repo = MembershipRepositoryImpl::new(pool.clone());
 
-    let project_id = test_series_id();
-    let foreign_series = test_series_id();
+    let project_id = test_project_id();
+    let foreign_project = test_project_id();
     let season_id = SeasonId::new();
     let block_id = BlockId::from_uuid(Uuid::now_v7());
     let owner = UserId::from_sub("owner-a");
@@ -583,10 +583,10 @@ async fn has_active_membership_in_series_scopes_the_audit_gate_by_series() -> Re
         .await?;
     await_membership_count(&repo, block_id, 1).await?;
 
-    // (1) Active member of a block of the series → authorized.
+    // (1) Active member of a block of the project → authorized.
     assert!(
-        in_series(&repo, project_id, owner.clone()).await?,
-        "active member of the series must be authorized"
+        in_project(&repo, project_id, owner.clone()).await?,
+        "active member of the project must be authorized"
     );
 
     // (1b) Regression guard for the shared encoding: the season-scoped
@@ -601,16 +601,16 @@ async fn has_active_membership_in_series_scopes_the_audit_gate_by_series() -> Re
 
     // (2) No membership row at all → denied.
     assert!(
-        !in_series(&repo, project_id, outsider.clone()).await?,
+        !in_project(&repo, project_id, outsider.clone()).await?,
         "a user without any membership must be denied"
     );
 
-    // (3) A *foreign* series → denied. This is the tenant boundary the gate
-    //     exists for; a single-tenant deployment has exactly one series, so
-    //     this assertion is the regression guard for multi-series data.
+    // (3) A *foreign* project → denied. This is the tenant boundary the gate
+    //     exists for; a single-tenant deployment has exactly one project, so
+    //     this assertion is the regression guard for multi-project data.
     assert!(
-        !in_series(&repo, foreign_series, owner.clone()).await?,
-        "membership in one series must not authorize another series"
+        !in_project(&repo, foreign_project, owner.clone()).await?,
+        "membership in one project must not authorize another project"
     );
 
     // (4) A pending invitee is not yet an *active* member → denied.
@@ -633,7 +633,7 @@ async fn has_active_membership_in_series_scopes_the_audit_gate_by_series() -> Re
     )
     .await?;
     assert!(
-        !in_series(&repo, project_id, invitee.clone()).await?,
+        !in_project(&repo, project_id, invitee.clone()).await?,
         "a pending invitee must not be authorized"
     );
 
@@ -657,7 +657,7 @@ async fn has_active_membership_in_series_scopes_the_audit_gate_by_series() -> Re
     )
     .await?;
     assert!(
-        in_series(&repo, project_id, invitee.clone()).await?,
+        in_project(&repo, project_id, invitee.clone()).await?,
         "an active member must be authorized regardless of role"
     );
 
@@ -674,7 +674,7 @@ async fn has_active_membership_in_series_scopes_the_audit_gate_by_series() -> Re
         .await?;
     await_member_absent(&repo, block_id, invitee.clone()).await?;
     assert!(
-        !in_series(&repo, project_id, invitee.clone()).await?,
+        !in_project(&repo, project_id, invitee.clone()).await?,
         "a removed member must lose access"
     );
 
@@ -682,7 +682,7 @@ async fn has_active_membership_in_series_scopes_the_audit_gate_by_series() -> Re
 }
 
 /// Create a block in (`season_id`, `project_id`) and bootstrap `user` as its
-/// owner with `role`, waiting until both the block row (the season/series
+/// owner with `role`, waiting until both the block row (the season/project
 /// scope the predicates join on) and the membership row are projected.
 #[allow(clippy::too_many_arguments)]
 async fn seed_block_with_owner(
@@ -775,7 +775,7 @@ async fn report_archive_role_allowlist_round_trips_through_real_sql() -> Result<
     let blocks = BlockCommandsImpl::new(cmd_svc);
     let repo = MembershipRepositoryImpl::new(pool.clone());
 
-    let project_id = test_series_id();
+    let project_id = test_project_id();
     let season_id = SeasonId::new();
     let other_season = SeasonId::new();
 
@@ -824,8 +824,8 @@ async fn report_archive_role_allowlist_round_trips_through_real_sql() -> Result<
     )
     .await?;
     // Active member of a block in a different season: must be denied here.
-    // NOTE: block numbers are unique per *series*
-    // (`idx_projection_block_series_number`), so the foreign-season block
+    // NOTE: block numbers are unique per *project*
+    // (`idx_projection_block_project_number`), so the foreign-season block
     // takes number 4, not 1 — reusing 1 would violate the unique index and
     // the projector could never insert the row (silent rollback, lag timeout).
     seed_block_with_owner(
@@ -947,7 +947,7 @@ async fn costume_role_gate_families_round_trip_through_real_sql() -> Result<()> 
     let blocks = BlockCommandsImpl::new(cmd_svc);
     let repo = MembershipRepositoryImpl::new(pool.clone());
 
-    let project_id = test_series_id();
+    let project_id = test_project_id();
     let season_id = SeasonId::new();
     let other_season = SeasonId::new();
 
@@ -1004,7 +1004,7 @@ async fn costume_role_gate_families_round_trip_through_real_sql() -> Result<()> 
         project_id,
         foreign.clone(),
         Role::CostumeDesigner,
-        4, // series-unique (`idx_projection_block_series_number`); see note above.
+        4, // project-unique (`idx_projection_block_project_number`); see note above.
     )
     .await?;
 
@@ -1109,7 +1109,7 @@ async fn credential_role_allowlist_round_trips_through_real_sql() -> Result<()> 
     let blocks = BlockCommandsImpl::new(cmd_svc);
     let repo = MembershipRepositoryImpl::new(pool.clone());
 
-    let project_id = test_series_id();
+    let project_id = test_project_id();
     let season_id = SeasonId::new();
 
     let designer = UserId::from_sub("credential-designer");
@@ -1230,7 +1230,7 @@ async fn ops_role_gate_round_trips_through_real_sql() -> Result<()> {
     let blocks = BlockCommandsImpl::new(cmd_svc);
     let repo = MembershipRepositoryImpl::new(pool.clone());
 
-    let project_id = test_series_id();
+    let project_id = test_project_id();
     let season_id = SeasonId::new();
 
     let ops = UserId::from_sub("ops-holder");
@@ -1370,32 +1370,32 @@ async fn ops_role_gate_round_trips_through_real_sql() -> Result<()> {
     Ok(())
 }
 
-/// Tier-4: `has_active_costume_role_in_project` — the series-level predicate
+/// Tier-4: `has_active_costume_role_in_project` — the project-level predicate
 /// behind the costume-photo gate as of issue #535 (ADR-035 B2/S2).
 ///
 /// The truth table mirrors the season-scoped predicate one level up:
-/// a costume-dept role in **any** active block of the series authorizes —
-/// in particular a role in a *different season* of the same series (the
+/// a costume-dept role in **any** active block of the project authorizes —
+/// in particular a role in a *different season* of the same project (the
 /// documented #535 widening) — while pending invitees, removed members,
-/// non-costume roles and memberships of a *foreign* series stay denied.
+/// non-costume roles and memberships of a *foreign* project stay denied.
 #[tokio::test]
-async fn costume_role_in_series_allowlist_round_trips_through_real_sql() -> Result<()> {
+async fn costume_role_in_project_allowlist_round_trips_through_real_sql() -> Result<()> {
     let (pool, cmd_svc, _pg, _sierra) = init_membership().await?;
     let membership = MembershipCommandsImpl::new(cmd_svc.clone());
     let blocks = BlockCommandsImpl::new(cmd_svc);
     let repo = MembershipRepositoryImpl::new(pool.clone());
 
-    let project_id = test_series_id();
+    let project_id = test_project_id();
     let season_a = SeasonId::new();
     let season_b = SeasonId::new();
-    let foreign_series = test_series_id();
+    let foreign_project = test_project_id();
 
-    let designer = UserId::from_sub("series-designer");
-    let assistant = UserId::from_sub("series-assistant");
-    let cross_season = UserId::from_sub("series-cross-season");
-    let pending = UserId::from_sub("series-pending");
-    let removed = UserId::from_sub("series-removed");
-    let stranger = UserId::from_sub("series-stranger");
+    let designer = UserId::from_sub("project-designer");
+    let assistant = UserId::from_sub("project-assistant");
+    let cross_season = UserId::from_sub("project-cross-season");
+    let pending = UserId::from_sub("project-pending");
+    let removed = UserId::from_sub("project-removed");
+    let stranger = UserId::from_sub("project-stranger");
 
     // (1) Active costume-dept role in a block of season A → authorized.
     seed_block_with_owner(
@@ -1411,12 +1411,12 @@ async fn costume_role_in_series_allowlist_round_trips_through_real_sql() -> Resu
     )
     .await?;
     assert!(
-        in_series_costume(&repo, project_id, designer.clone()).await?,
-        "an active costume_designer in the series must be authorized"
+        in_project_costume(&repo, project_id, designer.clone()).await?,
+        "an active costume_designer in the project must be authorized"
     );
 
-    // (2) Active costume-dept role in a block of season B (same series) →
-    //     also authorized: the predicate is series-typed, the warm-up crew
+    // (2) Active costume-dept role in a block of season B (same project) →
+    //     also authorized: the predicate is project-typed, the warm-up crew
     //     cross-season block carries the same grant.
     seed_block_with_owner(
         &blocks,
@@ -1431,8 +1431,8 @@ async fn costume_role_in_series_allowlist_round_trips_through_real_sql() -> Resu
     )
     .await?;
     assert!(
-        in_series_costume(&repo, project_id, cross_season.clone()).await?,
-        "an active wardrobe_supervisor in another season of the same series must be authorized (issue #535 widening)"
+        in_project_costume(&repo, project_id, cross_season.clone()).await?,
+        "an active wardrobe_supervisor in another season of the same project must be authorized (issue #535 widening)"
     );
 
     // (3) costume_assistant in a second block of season A → authorized.
@@ -1449,8 +1449,8 @@ async fn costume_role_in_series_allowlist_round_trips_through_real_sql() -> Resu
     )
     .await?;
     assert!(
-        in_series_costume(&repo, project_id, assistant.clone()).await?,
-        "an active costume_assistant in the series must be authorized"
+        in_project_costume(&repo, project_id, assistant.clone()).await?,
+        "an active costume_assistant in the project must be authorized"
     );
 
     // (4) Pending invitee: invited with a costume role, never accepted → denied.
@@ -1486,7 +1486,7 @@ async fn costume_role_in_series_allowlist_round_trips_through_real_sql() -> Resu
     )
     .await?;
     assert!(
-        !in_series_costume(&repo, project_id, pending.clone()).await?,
+        !in_project_costume(&repo, project_id, pending.clone()).await?,
         "a pending invitee must not be authorized"
     );
 
@@ -1510,7 +1510,7 @@ async fn costume_role_in_series_allowlist_round_trips_through_real_sql() -> Resu
     )
     .await?;
     assert!(
-        in_series_costume(&repo, project_id, pending.clone()).await?,
+        in_project_costume(&repo, project_id, pending.clone()).await?,
         "an accepted invitee must be authorized"
     );
 
@@ -1558,26 +1558,26 @@ async fn costume_role_in_series_allowlist_round_trips_through_real_sql() -> Resu
         .map_err(|e| anyhow!(e.to_string()))?;
     await_member_absent(&repo, invite_block, removed.clone()).await?;
     assert!(
-        !in_series_costume(&repo, project_id, removed.clone()).await?,
+        !in_project_costume(&repo, project_id, removed.clone()).await?,
         "a removed member must lose access"
     );
 
-    // (7) A *foreign* series → denied (the tenant boundary stays).
+    // (7) A *foreign* project → denied (the tenant boundary stays).
     seed_block_with_owner(
         &blocks,
         &membership,
         &pool,
         &repo,
         SeasonId::new(),
-        foreign_series,
+        foreign_project,
         stranger.clone(),
         Role::CostumeDesigner,
         1,
     )
     .await?;
     assert!(
-        !in_series_costume(&repo, project_id, stranger.clone()).await?,
-        "a costume role in another series must not authorize this series"
+        !in_project_costume(&repo, project_id, stranger.clone()).await?,
+        "a costume role in another project must not authorize this project"
     );
 
     Ok(())
@@ -1585,7 +1585,7 @@ async fn costume_role_in_series_allowlist_round_trips_through_real_sql() -> Resu
 
 /// `has_active_costume_role_in_project` with the `DomainError` mapped into
 /// `anyhow` (test ergonomics).
-async fn in_series_costume(
+async fn in_project_costume(
     repo: &MembershipRepositoryImpl,
     project_id: ProjectId,
     user_id: UserId,

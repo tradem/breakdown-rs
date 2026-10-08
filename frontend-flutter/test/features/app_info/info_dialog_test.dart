@@ -36,7 +36,7 @@ const _unknownVersionConfig = AppConfig(
   oidcRedirectUri: '',
   devIdpInsecure: '',
   appVersion: 'unknown',
-  defaultSeriesId: '',
+  defaultProjectId: '',
 );
 
 void main() {

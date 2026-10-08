@@ -190,7 +190,7 @@ void main() {
     oidcRedirectUri: '',
     devIdpInsecure: '',
     appVersion: '1.0.0+1',
-    defaultSeriesId: 'series-e2e',
+    defaultProjectId: 'series-e2e',
   );
 
   testWidgets('submit → job → preview → apply → summary (fake LLM '
@@ -234,7 +234,7 @@ void main() {
               ..id = 'ep-e2e'
               ..number = 1
               ..blockId = 'block-e2e'
-              ..seriesId = 'series-e2e'
+              ..projectId = 'series-e2e'
               ..updatedAt = DateTime.utc(2026, 1, 1)
               ..version = 1,
           ),
@@ -270,6 +270,6 @@ void main() {
     final rows = await repo.readCached('dev-e2e');
     final row = rows.getRight().toNullable()!.single;
     expect(row.episodeId, 'ep-e2e');
-    expect(row.seriesId, 'series-e2e');
+    expect(row.projectId, 'series-e2e');
   });
 }

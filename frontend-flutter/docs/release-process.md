@@ -137,15 +137,15 @@ cd frontend-flutter
 # one-time: create a gitignored .env.build-test with your values
 #   API_BASE=https://<lan-ip>:3000
 #   DEV_AUTH_SUB=<dev-subject>
-#   DEFAULT_SERIES_ID=<series-id>
+#   DEFAULT_PROJECT_ID=<project-id>
 ./scripts/dev/build-test-apk.sh          # --help documents every define
 ```
 
 Preconditions (hard fail before any build work, so misconfiguration never
 surfaces as a later runtime error):
 
-- `DEFAULT_SERIES_ID` non-empty — an empty define dispatches a
-  season-create with an empty series_id that only shows up as a generic
+- `DEFAULT_PROJECT_ID` non-empty — an empty define dispatches a
+  season-create with an empty project_id that only shows up as a generic
   422 at runtime (issue #467).
 - `DEV_AUTH_SUB` non-empty — backend dev-auth parity (ADR-018).
 - `assets/certs/dev/ca.pem` is NOT the committed placeholder
@@ -161,7 +161,7 @@ surfaces as a later runtime error):
 
 Defines (each injected with `--dart-define`; precedence: environment >
 `.env.build-test` > built-in defaults): `API_BASE` (default
-`http://10.0.2.2:3000`, emulator only), `DEV_AUTH_SUB`, `DEFAULT_SERIES_ID`,
+`http://10.0.2.2:3000`, emulator only), `DEV_AUTH_SUB`, `DEFAULT_PROJECT_ID`,
 and `APP_VERSION` — the latter defaults to `<pubspec version> · DEV-<n>`, a
 per-build marker that auto-increments over the stamps in `build/test-apk/`
 so every installed variant is identifiable in the About dialog.

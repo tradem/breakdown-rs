@@ -564,7 +564,7 @@ async fn aggregate_soll_ist_report_episode_and_season_scopes() -> Result<()> {
     let sd_repo = infra::queries::ShootingDayRepositoryImpl::new(pool.clone());
     let ss_repo = SceneShootRepositoryImpl::new(pool.clone());
 
-    // Hierarchy: one series, one season, one block, two episodes.
+    // Hierarchy: one project, one season, one block, two episodes.
     let project_id = ProjectId::new();
     let season_id = SeasonId::new();
     let block_id = BlockId::new();

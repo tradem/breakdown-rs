@@ -349,7 +349,7 @@ void main() {
         ..id = id
         ..number = number
         ..seasonId = 'season-1'
-        ..seriesId = 'series-1'
+        ..projectId = 'series-1'
         ..updatedAt = DateTime.utc(2026, 1, 1)
         ..version = 1,
     );
@@ -360,7 +360,7 @@ void main() {
         ..number = number
         ..name = name
         ..blockId = 'b-1'
-        ..seriesId = 'series-1'
+        ..projectId = 'series-1'
         ..updatedAt = DateTime.utc(2026, 1, 1)
         ..version = 1,
     );
@@ -384,7 +384,7 @@ void main() {
         ..archived = false
         ..id = 'season-1'
         ..number = 1
-        ..seriesId = 'series-1'
+        ..projectId = 'series-1'
         ..title = 'Shell Season'
         ..updatedAt = DateTime.utc(2026, 1, 1)
         ..version = 1,

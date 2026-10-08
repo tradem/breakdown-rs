@@ -33,7 +33,7 @@ EpisodeView _episode(String id, {int number = 1, String? name}) => EpisodeView(
     ..blockId = 'block-1'
     ..name = name
     ..number = number
-    ..seriesId = 'series-1'
+    ..projectId = 'series-1'
     ..updatedAt = DateTime.utc(2026, 1, 1)
     ..version = 1,
 );
@@ -43,7 +43,7 @@ BlockView _block() => BlockView(
     ..id = 'block-1'
     ..number = 1
     ..seasonId = 'season-1'
-    ..seriesId = 'series-1'
+    ..projectId = 'series-1'
     ..startDate = '2026-01-01'
     ..endDate = '2026-01-31'
     ..updatedAt = DateTime.utc(2026, 1, 1)
@@ -150,7 +150,7 @@ void main() {
         await ctx.controller.create(block: _block(), number: 2, name: 'Ep');
         final req = ctx.repo.lastCreateRequest;
         expect(req, isNotNull);
-        expect(req!.seriesId, 'series-1');
+        expect(req!.projectId, 'series-1');
         expect(req.blockId, 'block-1');
         expect(req.number, 2);
         expect(req.name, 'Ep');

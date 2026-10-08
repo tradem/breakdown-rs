@@ -49,7 +49,7 @@ const devAuthConfig = AppConfig(
   oidcRedirectUri: '',
   devIdpInsecure: '',
   appVersion: '1.0.0+1',
-  defaultSeriesId: 'series-1',
+  defaultProjectId: 'series-1',
 );
 
 AiImportJob _job(String id, JobStatus status) => AiImportJob(
