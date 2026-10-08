@@ -1,6 +1,7 @@
 <!-- SPDX-License-Identifier: AGPL-3.0 -->
 <!-- Copyright (C) 2024-2026 Breakdown RS Contributors -->
 <!-- Co-authored-by: deepseek-v4-flash (opencode-go) -->
+<!-- Co-authored-by: glm-5.3-flash (opencode-go) -->
 
 # Release runbook — per-crate versions & the `api` image (ADR-020 / ADR-021)
 
@@ -27,7 +28,7 @@ itself (ADR-020 D7).
   baseline = last tag of the changed crate).
 - Tier-4 integration run green (`cargo test -p integration-tests`).
 - `cargo-deny check advisories bans licenses sources` green (ADR-017).
-- MSRV job green (`rust-version = 1.98`, ci.yml).
+- MSRV job green (`rust-version = 1.99`, ci.yml).
 
 ## 2. Cut a per-crate release (local, `cargo-release`)
 
