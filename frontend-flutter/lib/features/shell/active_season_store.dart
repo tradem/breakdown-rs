@@ -23,7 +23,7 @@ part 'active_season_store.g.dart';
 ///
 /// Persistence is best-effort: a store failure never breaks the in-memory
 /// active season — it degrades to "nothing persisted" (the next cold
-/// start simply opens the Season tab without an active season).
+/// start simply lands on the Cast view without an active season).
 const String kActiveSeasonKey = 'active_season_id';
 
 /// Session-scoped persistence key (CodeRabbit review fix): the reference

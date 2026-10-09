@@ -1451,11 +1451,20 @@ class AppLocalizationsDe extends AppLocalizations {
   String get continuityUnlinkButton => 'Verknüpfung entfernen';
 
   @override
-  String get costumingTabNoSeason =>
-      'Wähle im Planen-Tab eine Season, um Kostüme und Figuren zu sehen.';
+  String get castNoSeason =>
+      'Wähle eine Season, um Kostüme und Figuren zu sehen.';
 
   @override
-  String get costumingTabPickSeason => 'Season im Planen-Tab wählen';
+  String get castPickSeason => 'Season wählen';
+
+  @override
+  String get castCategoriesTooltip => 'Kostüm-Kategorien';
+
+  @override
+  String get castSegmentCharacters => 'Figuren';
+
+  @override
+  String get castSegmentCostumes => 'Kostüme';
 
   @override
   String get photoGalleryAddPhoto => 'Foto hinzufügen';
@@ -2153,10 +2162,13 @@ class AppLocalizationsDe extends AppLocalizations {
   String get commonUnknown => 'Unbekannt';
 
   @override
-  String get navSeasons => 'Season';
+  String get navCast => 'Cast';
 
   @override
-  String get navPlanen => 'Planen';
+  String get navScript => 'Script';
+
+  @override
+  String get navSchedule => 'Schedule/Dispo';
 
   @override
   String get navCostumes => 'Garderobe';
@@ -2166,9 +2178,6 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get navAiImport => 'Import';
-
-  @override
-  String get navMore => 'Mehr';
 
   @override
   String get navShootingDays => 'Drehtage';
@@ -2188,6 +2197,26 @@ class AppLocalizationsDe extends AppLocalizations {
   String scopeChipBlock(Object block) {
     return 'Filter: $block';
   }
+
+  @override
+  String scopeChipSeason(Object season) {
+    return 'Season: $season';
+  }
+
+  @override
+  String get scopeChipSeasonTooltip => 'Aktive Season wählen';
+
+  @override
+  String get scopeChipSeasonPickTitle => 'Season wählen';
+
+  @override
+  String get seasonScopeManageSeasons => 'Seasons verwalten';
+
+  @override
+  String get seasonScopeManageProduction => 'Produktion verwalten';
+
+  @override
+  String get seasonScopeEmpty => 'Noch keine Seasons vorhanden.';
 
   @override
   String get scopeChipUnknownBlock => 'Filter: Block unbekannt';
@@ -2317,15 +2346,14 @@ class AppLocalizationsDe extends AppLocalizations {
   }
 
   @override
-  String get planningNoSeasons => 'Noch keine Seasons';
+  String get productionTitle => 'Produktion';
 
   @override
-  String get planningLoadError => 'Seasons konnten nicht geladen werden.';
+  String get productionBlocksSubtitle =>
+      'Blöcke und Episoden der aktiven Season';
 
   @override
-  String planningSeasonNumber(Object number) {
-    return 'Nummer $number';
-  }
+  String get productionNoActiveSeason => 'Wähle zuerst eine Season.';
 
   @override
   String get planningImportSubtitle => 'KI-Assistent: Spielplan importieren';
@@ -2494,19 +2522,92 @@ class AppLocalizationsDe extends AppLocalizations {
       'Diese Konfiguration steuert, welchen KI-Anbieter und welche Modelle der serverseitige Import nutzt und welche Extraktions-Prompts gelten. Der konfigurierte Anbieter verarbeitet die von Nutzenden bereitgestellten Dokumente — konfiguriere kuratierte Anbieter und Modelle ehrlich.';
 
   @override
-  String get moreTitle => 'Mehr';
+  String scriptFetchError(Object code) {
+    return 'Das Script konnte nicht geladen werden ($code).';
+  }
 
   @override
-  String get moreCategories => 'Kostüm-Kategorien';
+  String scriptPartialBlocks(num count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count Blöcke',
+      one: '1 Block',
+    );
+    return 'Teilweise geladen: $_temp0 konnten nicht gelesen werden.';
+  }
 
   @override
-  String get moreCategoriesOpenPlanen => 'Season im Planen-Tab öffnen';
+  String scriptPartialLoad(num count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count Episoden',
+      one: '1 Episode',
+    );
+    return 'Teilweise geladen: $_temp0 konnten nicht gelesen werden.';
+  }
 
   @override
-  String get moreSignedIn => 'Angemeldet';
+  String scriptSceneNumber(Object number) {
+    return 'Szene $number';
+  }
 
   @override
-  String get moreSignedOut => 'Abgemeldet';
+  String get scriptSceneNumberUnknown => 'Szene ohne Nummer';
+
+  @override
+  String scriptEpisodeLabel(Object episode) {
+    return 'Episode $episode';
+  }
+
+  @override
+  String get scriptNoScenes => 'Noch keine Szenen in dieser Season.';
+
+  @override
+  String scheduleFetchError(Object code) {
+    return 'Der Dispo konnte nicht geladen werden ($code).';
+  }
+
+  @override
+  String get scheduleNoDays =>
+      'Für diese Season sind noch keine Drehtage geplant.';
+
+  @override
+  String schedulePartialBlocks(num count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count Blöcke',
+      one: '1 Block',
+    );
+    return 'Teilweise geladen: $_temp0 konnten nicht gelesen werden.';
+  }
+
+  @override
+  String schedulePartialLoad(num count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count Episoden',
+      one: '1 Episode',
+    );
+    return 'Teilweise geladen: $_temp0 konnten nicht gelesen werden.';
+  }
+
+  @override
+  String scheduleDayLabel(Object date) {
+    return 'Drehtag $date';
+  }
+
+  @override
+  String get scheduleDayUndated => 'Drehtag ohne Datum';
+
+  @override
+  String get profileTooltip => 'Menü';
+
+  @override
+  String get profileTitle => 'Profil';
 
   @override
   String get genericProblemTitle => 'Etwas ist schiefgelaufen';
@@ -2581,13 +2682,13 @@ class AppLocalizationsDe extends AppLocalizations {
   String get commonBack => 'Zurück';
 
   @override
-  String seasonTabSemantic(Object label, Object position) {
-    return '$label, Tab $position von 4';
+  String seasonTabSemantic(Object label, Object position, Object total) {
+    return '$label, Tab $position von $total';
   }
 
   @override
-  String seasonTabSemanticEn(Object label, Object position) {
-    return '$label, Tab $position of 4';
+  String seasonTabSemanticEn(Object label, Object position, Object total) {
+    return '$label, Tab $position of $total';
   }
 
   @override

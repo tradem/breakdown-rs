@@ -45,7 +45,8 @@ bool wizardAiConfigAvailable(Ref ref) {
 
 /// The season setup wizard screen (proposal §What Changes): a linear
 /// four-step flow — Season → Blocks → Review → Completion — as a
-/// full-screen route inside the Season tab's navigator (design D5).
+/// full-screen route on the current navigator (issue #610: the seasons
+/// overview is pushed from the season scope picker, not a tab root).
 ///
 /// The screen renders and dispatches only; all domain state lives in
 /// [SetupWizardController]. Abort semantics (design D3, team decision 3):

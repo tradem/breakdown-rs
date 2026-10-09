@@ -15,7 +15,7 @@ import '../../design/spacing.dart';
 import '../../l10n/app_localizations_provider.dart';
 
 /// Full-screen settings (issue #516, capability `flutter-settings-screen`):
-/// replaces the former `SettingsDialog` — pushed from the Mehr tab's
+/// replaces the former `SettingsDialog` — pushed from the profile menu's
 /// "Einstellungen" tile, back via AppBar.
 ///
 /// Two clearly separated sections:

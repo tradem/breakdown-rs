@@ -12,7 +12,7 @@ import '../../../l10n/app_localizations_provider.dart';
 /// headline + one sentence of guidance + two CTAs —
 /// * setup (gated by the session, like the FAB — `onSetup` is `null` when
 ///   the create flow is unavailable);
-/// * import (jumps to the Mehr tab's AI-import entry — a pure client
+/// * import (pushes the AI-import screen — a pure client
 ///   navigation; the membership AUTHZ-GATE runs inside the import submit
 ///   controller BEFORE any network call).
 ///
@@ -26,7 +26,8 @@ class SeasonsEmptyState extends StatelessWidget {
   /// route). `null` disables the CTA (session gate — same rule as the FAB).
   final VoidCallback? onSetup;
 
-  /// Switches to the Mehr tab (import entry).
+  /// Pushes the AI-import submit screen (issue #610: the import entry
+  /// lives with the production structure and in the wizard completion).
   final VoidCallback onImport;
 
   @override
