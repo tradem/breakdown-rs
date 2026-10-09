@@ -16,6 +16,15 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
+## [0.22.1] - Unreleased
+
+### Changed — dependency re-pin only (issue #607)
+
+- `infra` 0.29.0 → 0.29.1 (the embedded default AI-import script prompt no
+  longer asks the model to comment on an empty outline-style block; no `api`
+  code, route, contract or `openapi.yaml` entry changes).
+- No `api` API change: **0.22.0 → 0.22.1** (PATCH).
+
 ## [0.19.1] - Unreleased
 
 ### Fixed — episode/season/block numbering + scene-shoot pair uniqueness enforced at the write boundary (ADR-036, issue #586)

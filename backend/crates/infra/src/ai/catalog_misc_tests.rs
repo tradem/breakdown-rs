@@ -150,6 +150,36 @@ fn default_prompts_returns_both_document_kinds() {
     );
 }
 
+/// Issue #607: an outline-style block (heading + day marker, no body) used to
+/// be answered with a boilerplate sentence about its own emptiness, which the
+/// preview appends verbatim to the row label. The fix is the prompt: such a
+/// block gets empty lists and a NULL `summary`, and `summary` never carries
+/// meta-information about the extraction itself. These two assertions pin the
+/// instruction so the wording cannot silently regress into "say so".
+#[test]
+fn script_prompt_leaves_summary_empty_for_an_outline_style_block() {
+    let prompt = super::prompts::default_prompt(DocumentKind::Script).unwrap();
+    let lowered = prompt.to_lowercase();
+
+    assert!(
+        !lowered.contains("say so in"),
+        "the prompt must not ask the model to comment in `summary` (issue #607)"
+    );
+
+    let outline_rule = lowered
+        .split("outline-style block")
+        .nth(1)
+        .and_then(|rest| rest.split("correct answer").next())
+        .unwrap_or_else(|| {
+            panic!("the script prompt must keep its outline-style rule (issue #607): {prompt}")
+        });
+    assert!(
+        outline_rule.contains("summary") && outline_rule.contains("null"),
+        "the outline rule must leave `summary` null instead of describing the block: \
+         {outline_rule}"
+    );
+}
+
 // ===========================================================================
 // Provider URLs: base_url consistency
 // ===========================================================================

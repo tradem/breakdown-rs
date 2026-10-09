@@ -15,6 +15,30 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
+## [0.29.1] - Unreleased
+
+### Fixed — default script prompt no longer asks the model to comment on an empty block (issue #607)
+
+- `config/default_ai_prompts.toml`, `<grounding>`: an outline-style block
+  (heading + day marker only) is answered with empty `characters`/`costumes`
+  **and a null `summary`** — the previous "return empty lists for it and say
+  so in `summary`" instruction made every such block carry a boilerplate
+  sentence ("Outline-style block with heading and day marker only; no
+  characters, costumes, or props described.") into the preview, which renders
+  `summary` verbatim.
+- `<summary>` additionally forbids meta-information in the field: content
+  only, never the shape of the block, its emptiness, or what the model did or
+  did not extract; a block whose body states nothing gets `summary` null.
+- No frontend blacklist/regex was added (the issue explicitly rejects it as
+  brittle symptom-hiding); suppression happens at the prompt source.
+- Regression test `script_prompt_leaves_summary_empty_for_an_outline_style_block`
+  (`ai::catalog_misc_tests`) pins both the removal of the old instruction and
+  the null-`summary` rule.
+- Deployment note: the file is the fallback, not a lock. A deployment with a
+  stored configuration prompt (editable in the app, `AI_IMPORT_DEFAULT_PROMPTS_PATH`)
+  keeps serving the stored text and must update/clear it once to pick this up.
+- No public API change: **0.29.0 → 0.29.1** (PATCH).
+
 ## [0.22.0] - Unreleased
 
 ### Added — aggregated Soll-Ist read adapter + render kinds (issue #571)
