@@ -31,7 +31,7 @@ import 'jobs_controller.dart';
 /// client gate runs in `aiImportJobsFetch` (session resolved BEFORE the
 /// call — no session, no request) and denials route through the
 /// code-keyed copy (`aiJobsListErrorCopy`), never the server `detail`.
-/// The sibling AI-import entry on the Planen tab keeps its
+/// The sibling AI-import entry in the production overview keeps its
 /// block-scope gate (`import_submit_controller.dart`); this entry does
 /// not weaken it — the list itself issues no block-scoped write.
 class AiImportJobsScreen extends ConsumerWidget {

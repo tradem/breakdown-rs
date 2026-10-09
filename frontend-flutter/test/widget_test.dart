@@ -15,7 +15,7 @@ import 'package:frontend_flutter/src/network/api_client.dart';
 import 'features/seasons/seasons_test_fakes.dart';
 
 void main() {
-  testWidgets('App boots at the login gate; Continue renders Seasons', (
+  testWidgets('App boots at the login gate; Continue renders the shell', (
     tester,
   ) async {
     // Auth gate (D1, spec `flutter-auth-shell`): dev-auth boots signed out
@@ -49,7 +49,11 @@ void main() {
       await tester.pump(const Duration(milliseconds: 10));
     }
 
-    // The gate recomposes to the seasons shell (empty projection, no crash).
-    expect(find.text('Seasons'), findsOneWidget);
+    // The gate recomposes to the shell (empty projection, no crash).
+    // Issue #610: the post-login root is the three-destination shell with
+    // the Cast view selected — not the seasons overview.
+    // 800dp renders the medium morphology (navigation rail).
+    expect(find.byKey(const Key('shell-navigation-rail')), findsOneWidget);
+    expect(find.text('Cast'), findsWidgets);
   });
 }

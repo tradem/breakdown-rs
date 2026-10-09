@@ -21,6 +21,9 @@ import '../../data/cache/seasons_cache_providers.dart';
 import '../../l10n/app_localizations_provider.dart';
 import '../../l10n/generated/app_localizations.dart';
 import '../../l10n/generated/app_localizations_en.dart';
+import '../ai_import/import_jobs/import_submit_screen.dart';
+import '../shell/planning_location.dart';
+import '../shell/production_overview_screen.dart';
 import '../shell/shell_controller.dart';
 import 'create_season_sheet.dart';
 import 'seasons_controller.dart';
@@ -208,13 +211,16 @@ class SeasonsScreen extends ConsumerWidget {
                 : null,
             // AUTHZ-GATE: the AI-import upload routes are gated by the
             // season costume-dept membership INSIDE the import submit
-            // controller BEFORE any network call — this CTA only performs
-            // a client-side tab jump (no request is issued from here),
-            // and the gate comment travels with the Mehr tab's Import
-            // entry it lands on.
-            onImport: () => ref
-                .read(shellControllerProvider.notifier)
-                .selectTab(kMehrTabIndex),
+            // controller BEFORE any network call — this CTA only pushes
+            // that screen (no request is issued from here), and the gate
+            // comment travels with the entry itself.
+            onImport: () => unawaited(
+              Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => const AiImportSubmitScreen(),
+                ),
+              ),
+            ),
           ),
         ],
       );
@@ -276,12 +282,11 @@ class _SeasonCard extends ConsumerWidget {
                   .archive(season: season),
         archiveTooltip: l10n.seasonsArchiveTooltip,
         archiveLabel: l10n.seasonsArchiveCta,
-        // Task 4.4 + spec `flutter-hierarchy-navigation`: the season-row
-        // BlocksScreen push stays on the PLANEN tab's navigator (the
-        // shell's hierarchy spine — the Season tab never hosts hierarchy
-        // pushes). The card tap sets the active season from the ACTED-ON
-        // row DTO (CQRS boundary: no second projection lookup) and jumps
-        // to the Planen tab, exactly like the shell's Kategorien entry.
+        // Issue #610: the seasons overview is no longer a destination; it
+        // is pushed from the season scope picker. The card tap sets the
+        // active season from the ACTED-ON row DTO (CQRS boundary: no
+        // second projection lookup) and opens the production overview —
+        // the re-homed hierarchy spine (blocks → episodes → scenes).
         onTap: () => _openPlanning(context, ref, season),
       ),
       OptimisticSeasonRow(:final overlay) => SeasonCard(
@@ -352,10 +357,20 @@ class _SeasonCard extends ConsumerWidget {
     return parts.join(' · ');
   }
 
+  /// Sets the active season from the acted-on DTO and pushes the
+  /// production overview (issue #610: the Planen destination's hierarchy
+  /// spine, re-homed as a pushed screen) on this navigator.
   void _openPlanning(BuildContext context, WidgetRef ref, SeasonView season) {
     final shell = ref.read(shellControllerProvider.notifier);
     shell.setActiveSeason(season);
-    shell.selectTab(kPlanenTabIndex);
+    unawaited(
+      Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          settings: RouteSettings(arguments: PlanningLocation.season(season)),
+          builder: (_) => ProductionOverviewScreen(season: season),
+        ),
+      ),
+    );
   }
 }
 

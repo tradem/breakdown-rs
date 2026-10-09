@@ -2434,17 +2434,35 @@ abstract class AppLocalizations {
   /// **'Verknüpfung entfernen'**
   String get continuityUnlinkButton;
 
-  /// No description provided for @costumingTabNoSeason.
+  /// No description provided for @castNoSeason.
   ///
   /// In de, this message translates to:
-  /// **'Wähle im Planen-Tab eine Season, um Kostüme und Figuren zu sehen.'**
-  String get costumingTabNoSeason;
+  /// **'Wähle eine Season, um Kostüme und Figuren zu sehen.'**
+  String get castNoSeason;
 
-  /// No description provided for @costumingTabPickSeason.
+  /// No description provided for @castPickSeason.
   ///
   /// In de, this message translates to:
-  /// **'Season im Planen-Tab wählen'**
-  String get costumingTabPickSeason;
+  /// **'Season wählen'**
+  String get castPickSeason;
+
+  /// No description provided for @castCategoriesTooltip.
+  ///
+  /// In de, this message translates to:
+  /// **'Kostüm-Kategorien'**
+  String get castCategoriesTooltip;
+
+  /// No description provided for @castSegmentCharacters.
+  ///
+  /// In de, this message translates to:
+  /// **'Figuren'**
+  String get castSegmentCharacters;
+
+  /// No description provided for @castSegmentCostumes.
+  ///
+  /// In de, this message translates to:
+  /// **'Kostüme'**
+  String get castSegmentCostumes;
 
   /// No description provided for @photoGalleryAddPhoto.
   ///
@@ -3616,17 +3634,23 @@ abstract class AppLocalizations {
   /// **'Unbekannt'**
   String get commonUnknown;
 
-  /// No description provided for @navSeasons.
+  /// No description provided for @navCast.
   ///
   /// In de, this message translates to:
-  /// **'Season'**
-  String get navSeasons;
+  /// **'Cast'**
+  String get navCast;
 
-  /// No description provided for @navPlanen.
+  /// No description provided for @navScript.
   ///
   /// In de, this message translates to:
-  /// **'Planen'**
-  String get navPlanen;
+  /// **'Script'**
+  String get navScript;
+
+  /// No description provided for @navSchedule.
+  ///
+  /// In de, this message translates to:
+  /// **'Schedule/Dispo'**
+  String get navSchedule;
 
   /// No description provided for @navCostumes.
   ///
@@ -3645,12 +3669,6 @@ abstract class AppLocalizations {
   /// In de, this message translates to:
   /// **'Import'**
   String get navAiImport;
-
-  /// No description provided for @navMore.
-  ///
-  /// In de, this message translates to:
-  /// **'Mehr'**
-  String get navMore;
 
   /// No description provided for @navShootingDays.
   ///
@@ -3681,6 +3699,42 @@ abstract class AppLocalizations {
   /// In de, this message translates to:
   /// **'Filter: {block}'**
   String scopeChipBlock(Object block);
+
+  /// No description provided for @scopeChipSeason.
+  ///
+  /// In de, this message translates to:
+  /// **'Season: {season}'**
+  String scopeChipSeason(Object season);
+
+  /// No description provided for @scopeChipSeasonTooltip.
+  ///
+  /// In de, this message translates to:
+  /// **'Aktive Season wählen'**
+  String get scopeChipSeasonTooltip;
+
+  /// No description provided for @scopeChipSeasonPickTitle.
+  ///
+  /// In de, this message translates to:
+  /// **'Season wählen'**
+  String get scopeChipSeasonPickTitle;
+
+  /// No description provided for @seasonScopeManageSeasons.
+  ///
+  /// In de, this message translates to:
+  /// **'Seasons verwalten'**
+  String get seasonScopeManageSeasons;
+
+  /// No description provided for @seasonScopeManageProduction.
+  ///
+  /// In de, this message translates to:
+  /// **'Produktion verwalten'**
+  String get seasonScopeManageProduction;
+
+  /// No description provided for @seasonScopeEmpty.
+  ///
+  /// In de, this message translates to:
+  /// **'Noch keine Seasons vorhanden.'**
+  String get seasonScopeEmpty;
 
   /// No description provided for @scopeChipUnknownBlock.
   ///
@@ -3856,23 +3910,23 @@ abstract class AppLocalizations {
   /// **'{count, plural, =1{1 Kostüm} other{{count} Kostüme}}'**
   String seasonsMetaCostumes(num count);
 
-  /// No description provided for @planningNoSeasons.
+  /// No description provided for @productionTitle.
   ///
   /// In de, this message translates to:
-  /// **'Noch keine Seasons'**
-  String get planningNoSeasons;
+  /// **'Produktion'**
+  String get productionTitle;
 
-  /// No description provided for @planningLoadError.
+  /// No description provided for @productionBlocksSubtitle.
   ///
   /// In de, this message translates to:
-  /// **'Seasons konnten nicht geladen werden.'**
-  String get planningLoadError;
+  /// **'Blöcke und Episoden der aktiven Season'**
+  String get productionBlocksSubtitle;
 
-  /// No description provided for @planningSeasonNumber.
+  /// No description provided for @productionNoActiveSeason.
   ///
   /// In de, this message translates to:
-  /// **'Nummer {number}'**
-  String planningSeasonNumber(Object number);
+  /// **'Wähle zuerst eine Season.'**
+  String get productionNoActiveSeason;
 
   /// No description provided for @planningImportSubtitle.
   ///
@@ -4150,35 +4204,83 @@ abstract class AppLocalizations {
   /// **'Diese Konfiguration steuert, welchen KI-Anbieter und welche Modelle der serverseitige Import nutzt und welche Extraktions-Prompts gelten. Der konfigurierte Anbieter verarbeitet die von Nutzenden bereitgestellten Dokumente — konfiguriere kuratierte Anbieter und Modelle ehrlich.'**
   String get aiConfigLiteracyBody;
 
-  /// No description provided for @moreTitle.
+  /// No description provided for @scriptFetchError.
   ///
   /// In de, this message translates to:
-  /// **'Mehr'**
-  String get moreTitle;
+  /// **'Das Script konnte nicht geladen werden ({code}).'**
+  String scriptFetchError(Object code);
 
-  /// No description provided for @moreCategories.
+  /// No description provided for @scriptPartialLoad.
   ///
   /// In de, this message translates to:
-  /// **'Kostüm-Kategorien'**
-  String get moreCategories;
+  /// **'Teilweise geladen: {count, plural, =1{1 Episode} other{{count} Episoden}} konnten nicht gelesen werden.'**
+  String scriptPartialLoad(num count);
 
-  /// No description provided for @moreCategoriesOpenPlanen.
+  /// No description provided for @scriptSceneNumber.
   ///
   /// In de, this message translates to:
-  /// **'Season im Planen-Tab öffnen'**
-  String get moreCategoriesOpenPlanen;
+  /// **'Szene {number}'**
+  String scriptSceneNumber(Object number);
 
-  /// No description provided for @moreSignedIn.
+  /// No description provided for @scriptSceneNumberUnknown.
   ///
   /// In de, this message translates to:
-  /// **'Angemeldet'**
-  String get moreSignedIn;
+  /// **'Szene ohne Nummer'**
+  String get scriptSceneNumberUnknown;
 
-  /// No description provided for @moreSignedOut.
+  /// No description provided for @scriptEpisodeLabel.
   ///
   /// In de, this message translates to:
-  /// **'Abgemeldet'**
-  String get moreSignedOut;
+  /// **'Episode {episode}'**
+  String scriptEpisodeLabel(Object episode);
+
+  /// No description provided for @scriptNoScenes.
+  ///
+  /// In de, this message translates to:
+  /// **'Noch keine Szenen in dieser Season.'**
+  String get scriptNoScenes;
+
+  /// No description provided for @scheduleFetchError.
+  ///
+  /// In de, this message translates to:
+  /// **'Der Dispo konnte nicht geladen werden ({code}).'**
+  String scheduleFetchError(Object code);
+
+  /// No description provided for @scheduleNoDays.
+  ///
+  /// In de, this message translates to:
+  /// **'Für diese Season sind noch keine Drehtage geplant.'**
+  String get scheduleNoDays;
+
+  /// No description provided for @schedulePartialLoad.
+  ///
+  /// In de, this message translates to:
+  /// **'Teilweise geladen: {count, plural, =1{1 Episode} other{{count} Episoden}} konnten nicht gelesen werden.'**
+  String schedulePartialLoad(num count);
+
+  /// No description provided for @scheduleDayLabel.
+  ///
+  /// In de, this message translates to:
+  /// **'Drehtag {date}'**
+  String scheduleDayLabel(Object date);
+
+  /// No description provided for @scheduleDayUndated.
+  ///
+  /// In de, this message translates to:
+  /// **'Drehtag ohne Datum'**
+  String get scheduleDayUndated;
+
+  /// No description provided for @profileTooltip.
+  ///
+  /// In de, this message translates to:
+  /// **'Menü'**
+  String get profileTooltip;
+
+  /// No description provided for @profileTitle.
+  ///
+  /// In de, this message translates to:
+  /// **'Profil'**
+  String get profileTitle;
 
   /// No description provided for @genericProblemTitle.
   ///
@@ -4315,14 +4417,14 @@ abstract class AppLocalizations {
   /// No description provided for @seasonTabSemantic.
   ///
   /// In de, this message translates to:
-  /// **'{label}, Tab {position} von 4'**
-  String seasonTabSemantic(Object label, Object position);
+  /// **'{label}, Tab {position} von {total}'**
+  String seasonTabSemantic(Object label, Object position, Object total);
 
   /// No description provided for @seasonTabSemanticEn.
   ///
   /// In de, this message translates to:
-  /// **'{label}, Tab {position} of 4'**
-  String seasonTabSemanticEn(Object label, Object position);
+  /// **'{label}, Tab {position} of {total}'**
+  String seasonTabSemanticEn(Object label, Object position, Object total);
 
   /// No description provided for @settingsGeneral.
   ///

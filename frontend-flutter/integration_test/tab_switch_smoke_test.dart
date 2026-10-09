@@ -32,7 +32,9 @@ import 'package:frontend_flutter/features/blocks/blocks_controller.dart';
 import 'package:frontend_flutter/features/blocks/blocks_screen.dart';
 import 'package:frontend_flutter/features/costume_categories/costume_categories_controller.dart';
 import 'package:frontend_flutter/features/seasons/seasons_screen.dart';
-import 'package:frontend_flutter/features/shell/more_tab_screen.dart';
+import 'package:frontend_flutter/features/shell/production_overview_screen.dart';
+import 'package:frontend_flutter/features/shell/schedule_tab_screen.dart';
+import 'package:frontend_flutter/features/shell/script_tab_screen.dart';
 import 'package:frontend_flutter/features/shell/shell_controller.dart';
 import 'package:frontend_flutter/features/shell/window_size_class.dart';
 
@@ -101,52 +103,66 @@ void main() {
       await tester.tap(find.byKey(const Key('login-continue-button')));
       await tester.pumpAndSettle();
       expect(find.byKey(const Key('shell-navigation-bar')), findsOneWidget);
+      // Cast is the initial destination (issue #610) — without a season
+      // scope it renders its season-selection empty state.
+      expect(find.byKey(const Key('cast-empty')), findsOneWidget);
+
+      // Season scope: the picker on the shell's context bar is the one
+      // surface that SETS the active season (the Season tab is dissolved).
+      await tester.tap(find.byKey(const Key('cast-pick-season-cta')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('season-scope-list')), findsOneWidget);
+      // Season management entry → the seasons overview (create/manage).
+      await tester.tap(find.byKey(const Key('season-scope-manage-seasons')));
+      await tester.pumpAndSettle();
       expect(find.byType(SeasonsScreen), findsOneWidget);
       expect(find.text('E2E Season'), findsOneWidget);
 
-      // Planen tab: the AI-import entry lives at the top of the list
-      // (moved from the Mehr tab — the import creates planning entities).
-      // Assert it BEFORE the season drilldown: the tab's nested Navigator
-      // persists (IndexedStack), and a default finder skips offstage routes
-      // behind a pushed BlocksScreen.
-      await tester.tap(find.byKey(const Key('shell-destination-1')));
+      // Season row → the production overview (the re-homed Planen content):
+      // the card tap sets the active season from the acted-on DTO (D5) and
+      // opens the hierarchy spine.
+      await tester.tap(find.byKey(const Key('season-1')));
       await tester.pumpAndSettle();
-      expect(find.byKey(const Key('planen-ai-import')), findsOneWidget);
-
-      // Season row → BlocksScreen on the Planen navigator.
-      await tester.tap(find.byKey(const Key('planen-season-season-1')));
-      await tester.pumpAndSettle();
-      expect(find.byType(BlocksScreen), findsOneWidget);
-      // The drilldown set the active season from the acted-on DTO (D5).
+      expect(find.byType(ProductionOverviewScreen), findsOneWidget);
       expect(
         container.read(shellControllerProvider).activeSeason?.id,
         'season-1',
       );
+      // The AI-import entry lives with the production structure.
+      expect(find.byKey(const Key('production-ai-import')), findsOneWidget);
 
-      // Garderobe tab (label renamed from Kleidung; keys kept): season-scoped
-      // costume domain entries, no error.
-      await tester.tap(find.byKey(const Key('shell-destination-2')));
-      await tester.pumpAndSettle();
-      expect(find.byKey(const Key('kleidung-list')), findsOneWidget);
-      expect(find.text('Kostüme'), findsOneWidget);
-      expect(find.text('Figuren'), findsOneWidget);
-
-      // Mehr tab: labeled secondary entries render (no import entry here
-      // anymore — it moved to the Planen tab).
-      await tester.tap(find.byKey(const Key('shell-destination-3')));
-      await tester.pumpAndSettle();
-      expect(find.byType(MoreTabScreen), findsOneWidget);
-      expect(find.byKey(const Key('mehr-signout')), findsOneWidget);
-      expect(find.byKey(const Key('mehr-ai-import')), findsNothing);
-
-      // Back to Planen: the drilldown position is preserved (IndexedStack).
-      await tester.tap(find.byKey(const Key('shell-destination-1')));
+      // Production overview → BlocksScreen.
+      await tester.tap(find.byKey(const Key('production-blocks-entry')));
       await tester.pumpAndSettle();
       expect(find.byType(BlocksScreen), findsOneWidget);
+
+      // Back to the shell: the Cast destination renders the roster now that
+      // a season scope is set (issue #610: costumes/characters live here).
+      await tester.tap(find.byKey(const Key('shell-destination-0')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('season-scope-chip')), findsOneWidget);
+      expect(find.byKey(const Key('cast-surface-switch')), findsOneWidget);
+
+      // Script destination: the season's chronological scene overview.
+      await tester.tap(find.byKey(const Key('shell-destination-1')));
+      await tester.pumpAndSettle();
+      expect(find.byType(ScriptTabScreen), findsOneWidget);
+
+      // Schedule/Dispo destination: the season's shooting days.
+      await tester.tap(find.byKey(const Key('shell-destination-2')));
+      await tester.pumpAndSettle();
+      expect(find.byType(ScheduleTabScreen), findsOneWidget);
       expect(
         container.read(shellControllerProvider).selectedIndex,
-        kPlanenTabIndex,
+        kScheduleTabIndex,
       );
+
+      // Profile affordance (issue #610): the dissolved Mehr tab's entries.
+      await tester.tap(find.byKey(const Key('profile-menu-button')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('profile-signout')), findsOneWidget);
+      // Costume categories never live in the profile/settings surface.
+      expect(find.byKey(const Key('profile-categories')), findsNothing);
       // The smoke exercises the COMPACT morphology throughout.
       expect(resolveWindowSizeClass(360), WindowSizeClass.compact);
     },

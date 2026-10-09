@@ -89,11 +89,12 @@ void main() {
     }
 
     Future<void> openSettings() async {
-      // Settings moved to the shell's Mehr tab (task 4.3): tap the Mehr
-      // destination, then the labeled Einstellungen entry.
-      await tester.tap(find.byKey(const Key('shell-destination-3')));
+      // Issue #610: settings live in the per-view profile affordance (the
+      // Mehr destination is dissolved) — open the profile sheet of the
+      // current view, then the labeled Einstellungen entry.
+      await tester.tap(find.byKey(const Key('profile-menu-button')));
       await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const Key('mehr-settings')));
+      await tester.tap(find.byKey(const Key('profile-settings')));
       await frames();
     }
 

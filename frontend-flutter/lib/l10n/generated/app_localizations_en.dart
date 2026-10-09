@@ -1433,11 +1433,19 @@ class AppLocalizationsEn extends AppLocalizations {
   String get continuityUnlinkButton => 'Unlink';
 
   @override
-  String get costumingTabNoSeason =>
-      'Pick a season in the planning tab to see costumes and characters.';
+  String get castNoSeason => 'Pick a season to see costumes and characters.';
 
   @override
-  String get costumingTabPickSeason => 'Pick season in planning tab';
+  String get castPickSeason => 'Pick season';
+
+  @override
+  String get castCategoriesTooltip => 'Costume categories';
+
+  @override
+  String get castSegmentCharacters => 'Characters';
+
+  @override
+  String get castSegmentCostumes => 'Costumes';
 
   @override
   String get photoGalleryAddPhoto => 'Add photo';
@@ -2128,10 +2136,13 @@ class AppLocalizationsEn extends AppLocalizations {
   String get commonUnknown => 'Unknown';
 
   @override
-  String get navSeasons => 'Season';
+  String get navCast => 'Cast';
 
   @override
-  String get navPlanen => 'Plan';
+  String get navScript => 'Script';
+
+  @override
+  String get navSchedule => 'Schedule/Dispo';
 
   @override
   String get navCostumes => 'Wardrobe';
@@ -2141,9 +2152,6 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get navAiImport => 'Import';
-
-  @override
-  String get navMore => 'More';
 
   @override
   String get navShootingDays => 'Shooting days';
@@ -2163,6 +2171,26 @@ class AppLocalizationsEn extends AppLocalizations {
   String scopeChipBlock(Object block) {
     return 'Filter: $block';
   }
+
+  @override
+  String scopeChipSeason(Object season) {
+    return 'Season: $season';
+  }
+
+  @override
+  String get scopeChipSeasonTooltip => 'Choose active season';
+
+  @override
+  String get scopeChipSeasonPickTitle => 'Choose season';
+
+  @override
+  String get seasonScopeManageSeasons => 'Manage seasons';
+
+  @override
+  String get seasonScopeManageProduction => 'Manage production';
+
+  @override
+  String get seasonScopeEmpty => 'No seasons yet.';
 
   @override
   String get scopeChipUnknownBlock => 'Filter: unknown block';
@@ -2292,15 +2320,14 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
-  String get planningNoSeasons => 'No seasons yet';
+  String get productionTitle => 'Production';
 
   @override
-  String get planningLoadError => 'Seasons could not be loaded.';
+  String get productionBlocksSubtitle =>
+      'Blocks and episodes of the active season';
 
   @override
-  String planningSeasonNumber(Object number) {
-    return 'Number $number';
-  }
+  String get productionNoActiveSeason => 'Pick a season first.';
 
   @override
   String get planningImportSubtitle => 'AI assistant: import a schedule';
@@ -2466,19 +2493,69 @@ class AppLocalizationsEn extends AppLocalizations {
       'This configuration controls which AI provider and models the server-side import uses and which extraction prompts apply. The configured provider processes documents provided by users — configure curated providers and models honestly.';
 
   @override
-  String get moreTitle => 'More';
+  String scriptFetchError(Object code) {
+    return 'Could not load the script ($code).';
+  }
 
   @override
-  String get moreCategories => 'Costume categories';
+  String scriptPartialLoad(num count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count episodes',
+      one: '1 episode',
+    );
+    return 'Partially loaded: $_temp0 could not be read.';
+  }
 
   @override
-  String get moreCategoriesOpenPlanen => 'Open season in the Plan tab';
+  String scriptSceneNumber(Object number) {
+    return 'Scene $number';
+  }
 
   @override
-  String get moreSignedIn => 'Signed in';
+  String get scriptSceneNumberUnknown => 'Scene without number';
 
   @override
-  String get moreSignedOut => 'Signed out';
+  String scriptEpisodeLabel(Object episode) {
+    return 'Episode $episode';
+  }
+
+  @override
+  String get scriptNoScenes => 'No scenes in this season yet.';
+
+  @override
+  String scheduleFetchError(Object code) {
+    return 'Could not load the schedule ($code).';
+  }
+
+  @override
+  String get scheduleNoDays => 'No shooting days planned for this season yet.';
+
+  @override
+  String schedulePartialLoad(num count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count episodes',
+      one: '1 episode',
+    );
+    return 'Partially loaded: $_temp0 could not be read.';
+  }
+
+  @override
+  String scheduleDayLabel(Object date) {
+    return 'Shooting day $date';
+  }
+
+  @override
+  String get scheduleDayUndated => 'Shooting day without a date';
+
+  @override
+  String get profileTooltip => 'Menu';
+
+  @override
+  String get profileTitle => 'Profile';
 
   @override
   String get genericProblemTitle => 'Something went wrong';
@@ -2552,13 +2629,13 @@ class AppLocalizationsEn extends AppLocalizations {
   String get commonBack => 'Back';
 
   @override
-  String seasonTabSemantic(Object label, Object position) {
-    return '$label, Tab $position of 4';
+  String seasonTabSemantic(Object label, Object position, Object total) {
+    return '$label, Tab $position of $total';
   }
 
   @override
-  String seasonTabSemanticEn(Object label, Object position) {
-    return '$label, Tab $position of 4';
+  String seasonTabSemanticEn(Object label, Object position, Object total) {
+    return '$label, Tab $position of $total';
   }
 
   @override
