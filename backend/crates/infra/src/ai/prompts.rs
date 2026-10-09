@@ -27,12 +27,21 @@ pub struct AiPromptDefaults {
     pub schedule: String,
 }
 
+/// The prompt file compiled into the binary: the fallback `load_prompt_file`
+/// serves when no deployment override is configured. Exposed `pub(crate)` so
+/// a regression test can assert on the *embedded* wording even when
+/// `AI_IMPORT_DEFAULT_PROMPTS_PATH` points at a deployment's own prompt file
+/// (CodeRabbit, issue #607) — the test and the fallback read one constant, so
+/// they cannot drift apart.
+pub(crate) const EMBEDDED_PROMPT_FILE: &str =
+    include_str!("../../../../config/default_ai_prompts.toml");
+
 fn load_prompt_file() -> Result<PromptFile, DomainError> {
     let source = match std::env::var("AI_IMPORT_DEFAULT_PROMPTS_PATH") {
         Ok(path) if !path.trim().is_empty() => std::fs::read_to_string(&path).map_err(|error| {
             DomainError::validation(format!("could not read AI prompt config {path}: {error}"))
         })?,
-        _ => include_str!("../../../../config/default_ai_prompts.toml").to_owned(),
+        _ => EMBEDDED_PROMPT_FILE.to_owned(),
     };
     toml::from_str(&source)
         .map_err(|error| DomainError::validation(format!("invalid default AI prompts: {error}")))
