@@ -3,6 +3,7 @@
 // Co-authored-by: omen-alpha (opencode-go)
 // Co-authored-by: glm-5.3-flash (neuralwatt)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
+// Co-authored-by: glm-5.3-flash (opencode-go)
 
 // Tier-1 + Tier-2 tests for the preview + apply features
 // (`flutter-ai-import-workflow` tasks 4.3/4.4): the typed-preview

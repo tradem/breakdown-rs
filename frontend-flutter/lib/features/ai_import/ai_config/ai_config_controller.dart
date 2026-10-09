@@ -3,6 +3,7 @@
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
 // Co-authored-by: omen-alpha (opencode-go)
 // Co-authored-by: space-bunny-free (opencode-go)
+// Co-authored-by: glm-5.3-flash (opencode-go)
 
 import 'dart:async';
 

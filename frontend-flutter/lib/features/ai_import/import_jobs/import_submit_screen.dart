@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: omen-alpha (opencode-go)
 // Co-authored-by: space-bunny-free (opencode-go)
+// Co-authored-by: glm-5.3-flash (opencode-go)
 
 import 'dart:convert';
 import 'dart:typed_data';
