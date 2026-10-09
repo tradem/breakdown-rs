@@ -21,6 +21,7 @@ import '../../episodes/episodes_controller.dart';
 import '../../scenes/scenes_controller.dart';
 import 'apply_controller.dart';
 import 'job_status_controller.dart';
+import '../naming_line.dart';
 
 part 'apply_screen.g.dart';
 
@@ -96,6 +97,14 @@ class _AiApplySectionState extends ConsumerState<AiApplySection> {
               l10nOf(context).aiApplyTitle,
               style: const TextStyle(fontWeight: FontWeight.bold),
             ),
+            const SizedBox(height: 4),
+            // Provider/model labelling line (EU AI Act Art. 50, issue
+            // #608): the configured wire naming travels with the section
+            // so the reviewer always sees WHICH provider/model the
+            // configured import runs with (degraded honestly when
+            // unconfigured — until per-job provenance arrives from the
+            // backend, the configured value is the honest approximation).
+            AiNamingLine(key: const Key('ai-apply-naming')),
             const SizedBox(height: 8),
             if (state.context != null)
               ListTile(
@@ -146,6 +155,12 @@ class _AiApplySectionState extends ConsumerState<AiApplySection> {
             if (state.outcome != null)
               _OutcomeCard(outcome: state.outcome!)
             else ...[
+              // The EU AI Act transparency panel (issue #608): the same
+              // Art. 4/Art. 50 copy as the dedicated About-AI disclosure
+              // screen, collapsed by default to keep the review section
+              // compact — the expand affordance itself is always visible
+              // (transparency, never a blocker in the flow).
+              _AiActPanel(),
               CheckboxListTile(
                 key: const Key('ai-apply-review-checkbox'),
                 dense: true,
@@ -211,6 +226,37 @@ class _EpisodePickerRequired extends StatelessWidget {
     ),
     title: Text(l10nOf(context).aiApplyNoContextTitle),
     subtitle: Text(l10nOf(context).aiApplyNoContextSubtitle),
+  );
+}
+
+/// The EU AI Act transparency panel (issue #608): reuses the dedicated
+/// disclosure screen's copy keys (`aiDisclosureActTitle`/`aiDisclosureActBody`,
+/// de/en) inside a collapsed-by-default `ExpansionTile` — compact review
+/// section, always-visible expand affordance, zero new copy to translate.
+class _AiActPanel extends StatelessWidget {
+  const _AiActPanel();
+
+  @override
+  Widget build(BuildContext context) => ExpansionTile(
+    key: const Key('ai-apply-act-panel'),
+    tilePadding: EdgeInsets.zero,
+    childrenPadding: const EdgeInsets.only(bottom: 8),
+    leading: Icon(Icons.balance, color: Theme.of(context).colorScheme.tertiary),
+    title: Text(l10nOf(context).aiDisclosureActTitle),
+    subtitle: Text(
+      l10nOf(context).aiDisclosureActBody,
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+    ),
+    children: [
+      Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        child: Text(
+          key: const Key('ai-apply-act-body'),
+          l10nOf(context).aiDisclosureActBody,
+        ),
+      ),
+    ],
   );
 }
 

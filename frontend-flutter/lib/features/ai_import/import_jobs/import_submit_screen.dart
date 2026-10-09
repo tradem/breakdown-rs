@@ -15,6 +15,7 @@ import '../clippy/clippy_trigger.dart';
 import '../clippy/karl_klammer_overlay.dart';
 import '../ai_config/ai_config_screen.dart';
 import 'import_state.dart';
+import '../naming_line.dart';
 
 // Re-exported for callers that need the ack/document shapes (task 3.1
 // navigation).
@@ -183,12 +184,15 @@ AiImportDocument documentFromBytes(
 /// The persistent AI disclosure card (spec `flutter-ai-import-workflow`
 /// delta "Point-of-interaction AI disclosure", issue #538): icon + icon
 /// surface so the disclosure is visibly distinct, copy keyed on the ARB
-/// catalogs (no inline copy), rendered before the submit button.
-class _DisclosureCard extends StatelessWidget {
+/// catalogs (no inline copy), rendered before the submit button. The
+/// configured provider/model naming line rides under the body (issue
+/// #608): the point of interaction states WHICH configured provider/model
+/// the import runs with — honest degradation when unconfigured.
+class _DisclosureCard extends ConsumerWidget {
   const _DisclosureCard();
 
   @override
-  Widget build(BuildContext context) => Card(
+  Widget build(BuildContext context, WidgetRef ref) => Card(
     key: const Key('ai-import-disclosure'),
     color: Theme.of(context).colorScheme.tertiaryContainer,
     child: Padding(
@@ -215,6 +219,11 @@ class _DisclosureCard extends StatelessWidget {
                   key: const Key('ai-import-disclosure-body'),
                   l10nOf(context).aiImportDisclosureBody,
                 ),
+                const SizedBox(height: 4),
+                // "Import runs with provider X / model Y" (issue #608):
+                // the configured wire naming until per-job provenance
+                // arrives from the backend.
+                AiNamingLine(key: const Key('ai-import-naming')),
               ],
             ),
           ),

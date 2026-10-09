@@ -16,6 +16,7 @@ import '../../../l10n/app_localizations_provider.dart';
 import 'apply_controller.dart';
 import 'apply_screen.dart';
 import 'job_status_controller.dart';
+import '../naming_line.dart';
 
 /// The preview screen (`flutter-ai-import-workflow` task 4.1): typed
 /// `AiImportPreviewResponse` / `AiPreviewPayload` rendering
@@ -43,6 +44,11 @@ class AiPreviewScreen extends ConsumerWidget {
         key: const Key('ai-preview-screen'),
         padding: const EdgeInsets.all(16),
         children: [
+          // Provider/model labelling line (EU AI Act Art. 50, issue #608):
+          // the preview names the configured import machinery above the
+          // AI-extracted rows (honest degradation when unconfigured).
+          AiNamingLine(key: const Key('ai-preview-naming')),
+          const SizedBox(height: 8),
           switch (preview) {
             AsyncData(:final value) => value.match(
               (err) => _DegradedCard(error: err),
