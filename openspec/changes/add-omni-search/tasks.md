@@ -2,6 +2,8 @@
 <!-- Copyright (C) 2024-2026 Breakdown RS Contributors -->
 <!-- Co-authored-by: glm-5.3-flash (opencode-go) -->
 
+# add-omni-search — implementation tasks
+
 ## 1. Search core logic (Tier-1, pure)
 
 - [ ] 1.1 Create `lib/features/omni_search/` feature folder; define the pure search model: facet enum (scene/character/costume/shooting_day), query state (active facets + text prefilter), and result-group types with the canonical group order (scenes → roles → costumes → shooting days per design D3)
