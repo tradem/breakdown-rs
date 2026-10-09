@@ -171,7 +171,7 @@ checksum = "330a5ed07fa54e4702c9d6c4174f74427fc0ef6e214bbd677ae50a5099946470"
 
 [[package]]
 name = "api"
-version = "0.22.0"
+version = "0.22.1"
 dependencies = [
  "accept-language",
  "anyhow",
@@ -3119,7 +3119,7 @@ checksum = "a588916bfdfd92e71cacef98a63d9b1f0d74d6599980d11894290e7ddefffcf7"
 
 [[package]]
 name = "infra"
-version = "0.29.0"
+version = "0.29.1"
 dependencies = [
  "aes-gcm",
  "anyhow",

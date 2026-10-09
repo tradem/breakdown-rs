@@ -24,6 +24,22 @@
 # the server verifies every returned `source_quote` against the block it was
 # drawn from (`verify_draft_costumes`) — a prompt forbids invention, only the
 # check makes an invented costume unable to reach the reviewer.
+#
+# `summary` carries scene content only (issue #607). An outline-style block —
+# a heading plus a day marker and nothing else — is expressed by empty
+# `characters`/`costumes` arrays and a NULL `summary`, never by a sentence
+# about its own emptiness: the preview appends `summary` verbatim to the row
+# label, so a meta sentence ("Outline-style block with heading and day marker
+# only; no characters, costumes, or props described.") is noise every reviewer
+# has to read past. Suppressing it at the prompt source is why no frontend
+# boilerplate blacklist exists.
+#
+# Deployment note: this file is the fallback, not a lock. A deployment that has
+# stored a configuration prompt (editable in the app, overridable through
+# `AI_IMPORT_DEFAULT_PROMPTS_PATH`) keeps serving that stored text, so an edit
+# here only reaches deployments whose stored prompt is empty — such a
+# deployment has to update (or clear) its stored script prompt once to pick
+# this wording up.
 
 [script]
 text = """
@@ -45,9 +61,9 @@ text = """
 
 <location>Take `location` from the heading (the place), not from the body. `scene_number` only if the heading actually carries one. `script_day` for a fictional day such as "Tag 1" or "1. Spieltag". `mood` only when the text states it.</location>
 
-<summary>One factual sentence describing what happens in the block. Costuming does NOT belong here — it goes in `costumes`; props are recorded here as described above. Do not interpret, do not speculate, do not summarise the plot beyond what is written.</summary>
+<summary>One factual sentence describing what happens in the block — content, never meta-information: do not describe the shape of the block, its emptiness, or what you did or did not extract. A block whose body states nothing gets `summary` null, not a sentence saying so. Costuming does NOT belong here — it goes in `costumes`; props are recorded here as described above. Do not interpret, do not speculate, do not summarise the plot beyond what is written.</summary>
 
-<grounding>Extract only what the text states. Never infer a name, costume, location or prop that is not written. An outline-style block that contains only a heading and a day marker has no characters, no costumes and no props — return empty lists for it and say so in `summary`. That is a correct answer, not a failure.</grounding>
+<grounding>Extract only what the text states. Never infer a name, costume, location or prop that is not written. An outline-style block that contains only a heading and a day marker has no characters, no costumes and no props — return empty lists for it and leave `summary` null. That is a correct answer, not a failure, and it is never something to report in `summary`: a block with nothing in it needs no sentence.</grounding>
 
 <edge-case>When a value cannot be read confidently, leave it null and add an uncertainty with a note. A suggested_value must be clearly marked for user confirmation.</edge-case>
 
