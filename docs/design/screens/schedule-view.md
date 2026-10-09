@@ -39,7 +39,7 @@ another season is ignored (same reuse rule as the scope chip).
   --
   { "Scope: Season {n}" | "Filter: Block {n}" }
   --
-  [warning_amber_outlined "Teilweise geladen: {n} Episoden …"]?
+  [warning_amber_outlined "Teilweise geladen: {n} Blöcke/Episoden …"]?
   --
   { "Drehtag {date} — Episode {e}" | "…" }
 }
@@ -55,14 +55,14 @@ rows; ordering and degradation rules live in Interactions and States.
 | View title | Top app bar | The destination's own title | `navSchedule` |
 | Profile action | Icon button with tooltip | Identity, Über die App, Einstellungen, Abmelden | `profileTooltip` |
 | Day row | List item with event icon | The day's own label (server) or its date as the title, the episode as the subtitle | `scheduleDayLabel` / `scheduleDayUndated` / `scriptEpisodeLabel` |
-| Partial-load notice | List item | Names how many episodes could not be read | `schedulePartialLoad` |
+| Partial-load notice | List item | Names how many blocks / episodes could not be read (one notice per failed level) | `schedulePartialBlocks` / `schedulePartialLoad` |
 | Empty state | Centered narrative | „Für diese Season sind noch keine Drehtage geplant." | `scheduleNoDays` |
 | Error state | Centered narrative + retry | Keyed on the stable problem code | `scheduleFetchError` |
 
 ## States
 Loading: a progress indicator while the composition runs. Empty: no planned
-days → plain empty state. Partial: at least one episode failed → the loaded
-days plus a notice. Error: an unreadable block list → the code-keyed error
+days → plain empty state. Partial: at least one fan-out step failed → the
+loaded days plus one notice per failed LEVEL (blocks, episodes). Error: an unreadable block list → the code-keyed error
 state with retry. Stale: the per-episode fetch seams own their TTL cache; a
 pull-to-refresh re-runs the composition.
 

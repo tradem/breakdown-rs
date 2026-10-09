@@ -136,12 +136,27 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.byType(BlocksScreen), findsOneWidget);
 
-      // Back to the shell: the Cast destination renders the roster now that
-      // a season scope is set (issue #610: costumes/characters live here).
+      // Back to the Cast destination: selecting it does NOT pop its nested
+      // navigator (the drilldown above was pushed on the CAST navigator, so
+      // BlocksScreen is still on top and the root route stays offstage).
+      // Pop to the destination root first — otherwise the root-surface
+      // assertions below can never match.
       await tester.tap(find.byKey(const Key('shell-destination-0')));
       await tester.pumpAndSettle();
-      expect(find.byKey(const Key('season-scope-chip')), findsOneWidget);
+      for (
+        var i = 0;
+        i < 6 &&
+            find.byKey(const Key('cast-surface-switch')).evaluate().isEmpty;
+        i++
+      ) {
+        await tester.pageBack();
+        await tester.pumpAndSettle();
+      }
+      // The Cast root renders the roster now that a season scope is set
+      // (issue #610: costumes/characters live here).
       expect(find.byKey(const Key('cast-surface-switch')), findsOneWidget);
+      // The scope chip is shell-owned, so it stays visible above the view.
+      expect(find.byKey(const Key('season-scope-chip')), findsOneWidget);
 
       // Script destination: the season's chronological scene overview.
       await tester.tap(find.byKey(const Key('shell-destination-1')));

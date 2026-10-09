@@ -90,24 +90,39 @@ class _ScheduleBody extends ConsumerWidget {
             child: ListView.builder(
               key: const Key('schedule-list'),
               physics: const AlwaysScrollableScrollPhysics(),
-              itemCount: data.rows.length + (data.isPartial ? 1 : 0),
+              itemCount: data.rows.length + _noticeCount(data),
               itemBuilder: (context, index) {
-                if (data.isPartial && index == 0) {
-                  return ViewPartialNotice(
-                    noticeKey: const Key('schedule-partial-notice'),
-                    message: l10n.schedulePartialLoad(
-                      data.failedEpisodes.length,
-                    ),
-                  );
+                // What is missing is stated before what is present; each
+                // failed LEVEL gets its own notice.
+                if (index < _noticeCount(data)) {
+                  return index == 0 && data.failedBlocks.isNotEmpty
+                      ? ViewPartialNotice(
+                          noticeKey: const Key(
+                            'schedule-partial-blocks-notice',
+                          ),
+                          message: l10n.schedulePartialBlocks(
+                            data.failedBlocks.length,
+                          ),
+                        )
+                      : ViewPartialNotice(
+                          noticeKey: const Key('schedule-partial-notice'),
+                          message: l10n.schedulePartialLoad(
+                            data.failedEpisodes.length,
+                          ),
+                        );
                 }
-                final rowIndex = index - (data.isPartial ? 1 : 0);
+                final rowIndex = index - _noticeCount(data);
                 final row = data.rows[rowIndex];
                 return ListTile(
                   key: Key('schedule-day-${row.day.id}'),
                   leading: const Icon(Icons.event_outlined),
                   title: Text(
                     row.day.label ??
-                        l10n.scheduleDayLabel('${row.day.date ?? ''}'),
+                        (row.day.date == null
+                            // An undated day says so — never a bare
+                            // "Drehtag " with an empty date behind it.
+                            ? l10n.scheduleDayUndated
+                            : l10n.scheduleDayLabel('${row.day.date}')),
                   ),
                   subtitle: Text(
                     l10n.scriptEpisodeLabel(
@@ -141,4 +156,13 @@ class _ScheduleBody extends ConsumerWidget {
       ),
     );
   }
+}
+
+/// How many partial-load notices precede the day rows: one per failed LEVEL
+/// (blocks, episodes).
+int _noticeCount(SeasonSchedule data) {
+  var count = 0;
+  if (data.failedBlocks.isNotEmpty) count++;
+  if (data.failedEpisodes.isNotEmpty) count++;
+  return count;
 }

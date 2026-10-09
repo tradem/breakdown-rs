@@ -36,16 +36,28 @@ class ScheduleDayRow {
 /// The season-wide schedule composition.
 @immutable
 class SeasonSchedule {
-  const SeasonSchedule({required this.rows, this.failedEpisodes = const []});
+  const SeasonSchedule({
+    required this.rows,
+    this.failedEpisodes = const [],
+    this.failedBlocks = const [],
+  });
 
-  const SeasonSchedule.empty() : rows = const [], failedEpisodes = const [];
+  const SeasonSchedule.empty()
+    : rows = const [],
+      failedEpisodes = const [],
+      failedBlocks = const [];
 
   final List<ScheduleDayRow> rows;
 
-  /// Episode ids whose shooting days could not be read (partial truth).
+  /// Episode ids whose shooting days could not be read.
   final List<String> failedEpisodes;
 
-  bool get isPartial => failedEpisodes.isNotEmpty;
+  /// Block ids whose episode read failed — their days are UNKNOWN, not
+  /// empty, so they are tracked at their own level (never stuffed into
+  /// [failedEpisodes], which would count episodes the user never saw).
+  final List<String> failedBlocks;
+
+  bool get isPartial => failedEpisodes.isNotEmpty || failedBlocks.isNotEmpty;
 
   bool get isEmpty => rows.isEmpty;
 }
@@ -98,8 +110,9 @@ class ScheduleEpisodePart {
 /// `GET /v1/episodes/{id}/shooting-days` is episode-scoped, so the season
 /// view composes blocks → episodes → days through the existing
 /// authenticated seams. Failure semantics mirror the Script composition:
-/// an unreadable block list is a `Left` (the view errors), a single failed
-/// episode yields a visible partial-load notice.
+/// an unreadable block list is a `Left` (the view errors), a failed episode
+/// read or a failed day read yields a visible partial-load notice — at the
+/// level that actually failed.
 ///
 /// A sticky block scope for THIS season narrows the board to that block; a
 /// scope from another season is ignored (same reuse rule as the scope chip).
@@ -122,14 +135,17 @@ Future<Result<SeasonSchedule>> seasonScheduleFetch(
 
       final parts = <ScheduleEpisodePart>[];
       final failedEpisodes = <String>[];
+      final failedBlocks = <String>[];
       for (final block in relevantBlocks) {
         final episodesResult = await ref.watch(
           episodesListFetchProvider(block.id, season.id).future,
         );
-        final episodes = episodesResult.match(
-          (_) => const <EpisodeView>[],
-          (rows) => rows,
-        );
+        // A block whose episodes could NOT be read is tracked as a failed
+        // block: its shooting days are unknown, not empty.
+        final episodes = episodesResult.match((_) {
+          failedBlocks.add(block.id);
+          return const <EpisodeView>[];
+        }, (rows) => rows);
         for (final episode in episodes) {
           final daysResult = await ref.watch(
             shootingDaysListFetchProvider(episode.id).future,
@@ -147,6 +163,7 @@ Future<Result<SeasonSchedule>> seasonScheduleFetch(
         SeasonSchedule(
           rows: mergeScheduleParts(parts),
           failedEpisodes: failedEpisodes,
+          failedBlocks: failedBlocks,
         ),
       );
     },

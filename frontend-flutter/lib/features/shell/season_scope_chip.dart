@@ -114,12 +114,18 @@ class SeasonScopePickerScreen extends ConsumerWidget {
               key: const Key('season-scope-manage-production'),
               leading: const Icon(Icons.account_tree_outlined),
               title: Text(l10n.seasonScopeManageProduction),
-              subtitle: Text(l10n.productionBlocksSubtitle),
+              // With no season scope there is nothing to manage: say so
+              // instead of rendering a disabled tile without explanation.
+              subtitle: Text(
+                activeSeason == null
+                    ? l10n.productionNoActiveSeason
+                    : l10n.productionBlocksSubtitle,
+              ),
               trailing: const Icon(Icons.chevron_right),
               onTap: activeSeason == null
                   // No season yet: the production overview has no scope to
-                  // show. Say so and send the user to season management
-                  // rather than pushing an empty screen.
+                  // show, so the tile is disabled and the subtitle above
+                  // names the reason (pick a season first).
                   ? null
                   : () => unawaited(
                       Navigator.of(context).push(

@@ -41,7 +41,7 @@ reuse rule the scope chip renders as „gilt hier nicht").
   --
   { "Scope: Season {n}" | "Filter: Block {n}" }
   --
-  [warning_amber_outlined "Teilweise geladen: {n} Episoden …"]?
+  [warning_amber_outlined "Teilweise geladen: {n} Blöcke/Episoden …"]?
   --
   { "1 | Szene {summary}" | "2 | Szene {summary}" | "…" }
 }
@@ -58,15 +58,16 @@ States.
 | View title | Top app bar | The destination's own title | `navScript` |
 | Profile action | Icon button with tooltip | Identity, Über die App, Einstellungen, Abmelden | `profileTooltip` |
 | Scene row | List item with leading number avatar | Projected scene number as the visible label, scene summary as the title, its episode as the subtitle | `scriptSceneNumber` / `scriptSceneNumberUnknown` / `scriptEpisodeLabel` |
-| Partial-load notice | List item | Names how many episodes could not be read | `scriptPartialLoad` |
+| Partial-load notice | List item | Names how many blocks / episodes could not be read (one notice per failed level) | `scriptPartialBlocks` / `scriptPartialLoad` |
 | Empty state | Centered narrative | „Noch keine Szenen in dieser Season." | `scriptNoScenes` |
 | Error state | Centered narrative + retry | Keyed on the stable problem code | `scriptFetchError` |
 
 ## States
 Loading: a progress indicator while the composition runs. Empty: no scenes
 in the season → plain empty state (no CTA — scenes are created in the scene
-detail/sheet). Partial: at least one episode failed → the loaded scenes plus
-a notice; a shortened list is never presented as the complete script. Error:
+detail/sheet). Partial: at least one fan-out step failed → the loaded scenes plus one
+notice per failed LEVEL (blocks, episodes); a shortened list is never
+presented as the complete script. Error:
 an unreadable block list → the code-keyed error state with retry. Stale: the
 composed rows come from the per-episode fetch seams, each of which owns its
 TTL cache; a pull-to-refresh re-runs the composition.

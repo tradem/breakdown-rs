@@ -92,15 +92,29 @@ class _ScriptBody extends ConsumerWidget {
             child: ListView.builder(
               key: const Key('script-list'),
               physics: const AlwaysScrollableScrollPhysics(),
-              itemCount: data.rows.length + (data.isPartial ? 1 : 0),
+              itemCount: data.rows.length + _noticeCount(data),
               itemBuilder: (context, index) {
-                if (data.isPartial && index == 0) {
-                  return ViewPartialNotice(
-                    noticeKey: const Key('script-partial-notice'),
-                    message: l10n.scriptPartialLoad(data.failedEpisodes.length),
-                  );
+                // The notices sit ABOVE the rows: what is missing is stated
+                // before what is present. A block whose episode read failed
+                // and an episode whose scene read failed are counted at
+                // their own level.
+                if (index < _noticeCount(data)) {
+                  final notice = index == 0 && data.failedBlocks.isNotEmpty
+                      ? ViewPartialNotice(
+                          noticeKey: const Key('script-partial-blocks-notice'),
+                          message: l10n.scriptPartialBlocks(
+                            data.failedBlocks.length,
+                          ),
+                        )
+                      : ViewPartialNotice(
+                          noticeKey: const Key('script-partial-notice'),
+                          message: l10n.scriptPartialLoad(
+                            data.failedEpisodes.length,
+                          ),
+                        );
+                  return notice;
                 }
-                final rowIndex = index - (data.isPartial ? 1 : 0);
+                final rowIndex = index - _noticeCount(data);
                 return _ScriptRowTile(season: season, row: data.rows[rowIndex]);
               },
             ),
@@ -166,4 +180,14 @@ class _ScriptRowTile extends StatelessWidget {
       ),
     );
   }
+}
+
+/// How many partial-load notices precede the scene rows: one per failed
+/// LEVEL (blocks, episodes) — never one per failure, and never zero when
+/// something failed.
+int _noticeCount(SeasonScript data) {
+  var count = 0;
+  if (data.failedBlocks.isNotEmpty) count++;
+  if (data.failedEpisodes.isNotEmpty) count++;
+  return count;
 }

@@ -169,6 +169,24 @@ void main() {
       expect(result.getLeft().toNullable()!.code, 'blocks.network');
     });
 
+    test('partial: a failing EPISODE-LIST read degrades visibly too', () async {
+      // CodeRabbit review (PR #620): a failed `episodesListFetch` used to
+      // collapse to `[]` with no partial marker — the board then claimed to
+      // be complete while silently omitting a whole block.
+      blocksResult = Right([_block('b-1', 1)]);
+      episodesResult = const Left(ProblemError(code: 'episodes.network'));
+      await setUpContainer();
+
+      final result = await container.read(
+        seasonScheduleFetchProvider(_season()).future,
+      );
+
+      final schedule = result.getRight().toNullable()!;
+      expect(schedule.isPartial, isTrue);
+      expect(schedule.failedBlocks, ['b-1']);
+      expect(schedule.failedEpisodes, isEmpty);
+    });
+
     test('partial: a failing episode degrades visibly', () async {
       blocksResult = Right([_block('b-1', 1)]);
       episodesResult = Right([_episode('e-1', 1, 'b-1')]);

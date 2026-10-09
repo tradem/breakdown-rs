@@ -70,10 +70,11 @@ and the per-view profile affordance.
   detail screen with that scene read DTO as navigation context.
 
 #### Scenario: Script view degrades honestly on a partial fan-out
-- **WHEN** one episode of the active season fails to load its scenes.
+- **WHEN** one episode of the active season fails to load its scenes, or one
+  block fails to load its episode list.
 - **THEN** the successfully loaded scenes still render together with a
-  visible partial-load notice; the missing episode's scenes are never
-  silently presented as the season's complete script.
+  visible partial-load notice naming the failed level; the missing scenes
+  are never silently presented as the season's complete script.
 
 #### Scenario: Script view without an active season
 - **WHEN** the user opens the Script destination and no season is active.

@@ -2527,6 +2527,17 @@ class AppLocalizationsDe extends AppLocalizations {
   }
 
   @override
+  String scriptPartialBlocks(num count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count Blöcke',
+      one: '1 Block',
+    );
+    return 'Teilweise geladen: $_temp0 konnten nicht gelesen werden.';
+  }
+
+  @override
   String scriptPartialLoad(num count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,
@@ -2561,6 +2572,17 @@ class AppLocalizationsDe extends AppLocalizations {
   @override
   String get scheduleNoDays =>
       'Für diese Season sind noch keine Drehtage geplant.';
+
+  @override
+  String schedulePartialBlocks(num count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count Blöcke',
+      one: '1 Block',
+    );
+    return 'Teilweise geladen: $_temp0 konnten nicht gelesen werden.';
+  }
 
   @override
   String schedulePartialLoad(num count) {

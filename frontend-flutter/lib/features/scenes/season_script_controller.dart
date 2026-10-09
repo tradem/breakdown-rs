@@ -51,21 +51,35 @@ class ScriptSceneRow {
 /// The season-wide script composition (issue #610, view "Script").
 ///
 /// [rows] is the merged, `scene_number`-ordered overview. [failedEpisodes]
-/// names the episodes whose scenes could NOT be read — the honest
-/// degradation signal: a partially loaded script is rendered with a notice,
-/// never silently presented as the season's complete script.
+/// names the episodes whose scenes could NOT be read and [failedBlocks] the
+/// blocks whose EPISODE list could not be read (everything below such a
+/// block is unknown, not empty) — the honest degradation signal at BOTH
+/// levels of the composition: a partially loaded script is rendered with a
+/// notice, never silently presented as the season's complete script.
 @immutable
 class SeasonScript {
-  const SeasonScript({required this.rows, this.failedEpisodes = const []});
+  const SeasonScript({
+    required this.rows,
+    this.failedEpisodes = const [],
+    this.failedBlocks = const [],
+  });
 
-  const SeasonScript.empty() : rows = const [], failedEpisodes = const [];
+  const SeasonScript.empty()
+    : rows = const [],
+      failedEpisodes = const [],
+      failedBlocks = const [];
 
   final List<ScriptSceneRow> rows;
 
-  /// Ids of the episodes whose scene read failed (empty = complete).
+  /// Ids of the episodes whose scene read failed.
   final List<String> failedEpisodes;
 
-  bool get isPartial => failedEpisodes.isNotEmpty;
+  /// Ids of the blocks whose episode read failed. Tracked at its own level:
+  /// the scenes below such a block are UNKNOWN, not empty, and block ids
+  /// must not be counted as episodes the user never saw.
+  final List<String> failedBlocks;
+
+  bool get isPartial => failedEpisodes.isNotEmpty || failedBlocks.isNotEmpty;
 
   bool get isEmpty => rows.isEmpty;
 }
@@ -108,8 +122,12 @@ List<ScriptSceneRow> mergeScriptParts(Iterable<ScriptEpisodePart> parts) {
 ///
 /// Failure semantics:
 /// - the season's blocks cannot be read → `Left` (the whole view errors);
-/// - one block's or one episode's scenes fail → `Right` with
-///   [SeasonScript.failedEpisodes] set, so the UI states the partial truth.
+/// - one block's episodes or one episode's scenes fail → `Right` with the
+///   respective [SeasonScript.failedBlocks] / [SeasonScript.failedEpisodes]
+///   entry set, so the UI states the partial truth. A block whose episode
+///   read failed contributes NO scenes, and saying so is the whole point:
+///   silently omitting them would present a short list as the season's
+///   complete script.
 ///
 /// A sticky block scope for THIS season narrows the composition to that
 /// block — the scope chip's promise ("what filters your requests") holds for
@@ -134,14 +152,18 @@ Future<Result<SeasonScript>> seasonScriptFetch(
 
       final parts = <ScriptEpisodePart>[];
       final failedEpisodes = <String>[];
+      final failedBlocks = <String>[];
       for (final block in relevantBlocks) {
         final episodesResult = await ref.watch(
           episodesListFetchProvider(block.id, season.id).future,
         );
-        final episodes = episodesResult.match(
-          (_) => const <EpisodeView>[],
-          (rows) => rows,
-        );
+        // A block whose episodes could NOT be read is recorded as a failed
+        // scope: its scenes are UNKNOWN, not empty — saying so is the point
+        // of this composition.
+        final episodes = episodesResult.match((_) {
+          failedBlocks.add(block.id);
+          return const <EpisodeView>[];
+        }, (rows) => rows);
         for (final episode in episodes) {
           final scenesResult = await ref.watch(
             scenesListFetchProvider(episode.id).future,
@@ -159,6 +181,7 @@ Future<Result<SeasonScript>> seasonScriptFetch(
         SeasonScript(
           rows: mergeScriptParts(parts),
           failedEpisodes: failedEpisodes,
+          failedBlocks: failedBlocks,
         ),
       );
     },

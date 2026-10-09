@@ -47,7 +47,11 @@ class ProfileMenuButton extends ConsumerWidget {
 
   void _open(BuildContext context, WidgetRef ref) {
     final l10n = l10nOf(context);
-    final session = ref.watch(authSessionControllerProvider);
+    // `ref.read`, not `ref.watch`: this runs from the tap handler, OUTSIDE
+    // the build phase — watching there is invalid and newer Riverpod
+    // versions assert on it. The sheet shows the identity as it is at open
+    // time; a session change tears the shell down anyway.
+    final session = ref.read(authSessionControllerProvider);
     final sub = switch (session) {
       AsyncData(:final value) => value?.sub ?? '',
       _ => '',

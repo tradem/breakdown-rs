@@ -4210,6 +4210,12 @@ abstract class AppLocalizations {
   /// **'Das Script konnte nicht geladen werden ({code}).'**
   String scriptFetchError(Object code);
 
+  /// No description provided for @scriptPartialBlocks.
+  ///
+  /// In de, this message translates to:
+  /// **'Teilweise geladen: {count, plural, =1{1 Block} other{{count} Blöcke}} konnten nicht gelesen werden.'**
+  String scriptPartialBlocks(num count);
+
   /// No description provided for @scriptPartialLoad.
   ///
   /// In de, this message translates to:
@@ -4251,6 +4257,12 @@ abstract class AppLocalizations {
   /// In de, this message translates to:
   /// **'Für diese Season sind noch keine Drehtage geplant.'**
   String get scheduleNoDays;
+
+  /// No description provided for @schedulePartialBlocks.
+  ///
+  /// In de, this message translates to:
+  /// **'Teilweise geladen: {count, plural, =1{1 Block} other{{count} Blöcke}} konnten nicht gelesen werden.'**
+  String schedulePartialBlocks(num count);
 
   /// No description provided for @schedulePartialLoad.
   ///

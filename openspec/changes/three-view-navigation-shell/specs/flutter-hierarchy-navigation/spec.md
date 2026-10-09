@@ -62,6 +62,12 @@ context.
   incomplete state; the list is never presented as the season's complete
   script.
 
+#### Scenario: A failing block degrades visibly at ITS level
+- **WHEN** the episode list of one block fails to load (its scenes are
+  unknown, not empty) while other blocks succeed.
+- **THEN** a partial-load notice names the failed BLOCKS (never counts them
+  as episodes), and the scenes that are present still render.
+
 #### Scenario: Row tap carries the scene DTO
 - **WHEN** the user taps a scene row.
 - **THEN** the scene detail screen pushes with that scene's read DTO as

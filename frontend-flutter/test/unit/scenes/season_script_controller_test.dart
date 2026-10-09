@@ -187,6 +187,27 @@ void main() {
       expect(result.getLeft().toNullable()!.code, 'blocks.forbidden');
     });
 
+    test('partial: a failing EPISODE-LIST read degrades VISIBLY too', () async {
+      // CodeRabbit review (PR #620): a failed `episodesListFetch` used to
+      // collapse to `[]`, so the block contributed nothing while the view
+      // still claimed a COMPLETE script. Its scenes are unknown, not
+      // empty — the composition now records the failed block.
+      blocksResult = Right([_block('b-1', 1)]);
+      episodesResult = const Left(ProblemError(code: 'episodes.network'));
+      await setUpContainer();
+
+      final result = await container.read(
+        seasonScriptFetchProvider(_season()).future,
+      );
+
+      final script = result.getRight().toNullable()!;
+      expect(script.isPartial, isTrue);
+      expect(script.failedBlocks, ['b-1']);
+      // Block ids must not be counted as episodes.
+      expect(script.failedEpisodes, isEmpty);
+      expect(script.rows, isEmpty);
+    });
+
     test(
       'partial: a failing episode degrades VISIBLY, never silently',
       () async {
