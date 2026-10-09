@@ -660,7 +660,7 @@
   "infoAiBody": "Beim ausdrücklichen Absenden von Importen wird der von Dir bereitgestellte Text an einen konfigurierten serverseitigen KI-Anbieter gesendet. Diese App kontaktiert KI-Anbieter nicht direkt.",
   "aiImportDisclosureTitle": "KI-Verarbeitung",
   "aiImportDisclosureBody": "Die gewählte Datei wird von einem serverseitigen KI-Import verarbeitet. Die Ergebnisse sind KI-generiert und müssen vor dem Anwenden in der Vorschau geprüft werden.",
-  "aiNamingLine": "KI-Verarbeitung mit Anbieter {provider}, Modell {model}.",
+  "aiNamingLine": "Derzeit konfiguriert: Anbieter {provider}, Modell {model}.",
   "aiPreviewAiBanner": "KI-extrahierter Inhalt – sorgfältig prüfen",
   "aiPreviewAiNote": "Alle Zeilen sind maschinell extrahierte Entwürfe. Die Vorschau enthält keine maschinell verifizierten Zuverlässigkeitswerte.",
   "aiApplyReviewCheckbox": "Ich habe den KI-extrahierten Inhalt geprüft",

@@ -4033,7 +4033,7 @@ abstract class AppLocalizations {
   /// No description provided for @aiNamingLine.
   ///
   /// In de, this message translates to:
-  /// **'KI-Verarbeitung mit Anbieter {provider}, Modell {model}.'**
+  /// **'Derzeit konfiguriert: Anbieter {provider}, Modell {model}.'**
   String aiNamingLine(Object model, Object provider);
 
   /// No description provided for @aiPreviewAiBanner.

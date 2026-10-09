@@ -2422,7 +2422,7 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String aiNamingLine(Object model, Object provider) {
-    return 'KI-Verarbeitung mit Anbieter $provider, Modell $model.';
+    return 'Derzeit konfiguriert: Anbieter $provider, Modell $model.';
   }
 
   @override

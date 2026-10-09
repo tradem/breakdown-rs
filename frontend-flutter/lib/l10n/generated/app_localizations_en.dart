@@ -2394,7 +2394,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String aiNamingLine(Object model, Object provider) {
-    return 'AI processing with provider $provider, model $model.';
+    return 'Currently configured: provider $provider, model $model.';
   }
 
   @override

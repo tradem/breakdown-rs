@@ -66,7 +66,7 @@ void main() {
     expect(find.byType(Text), findsOneWidget);
     expect(
       tester.widget<Text>(find.byType(Text)).data,
-      'AI processing with provider openai, model assistant-model-1.',
+      'Currently configured: provider openai, model assistant-model-1.',
     );
   });
 
