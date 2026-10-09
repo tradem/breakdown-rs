@@ -2393,6 +2393,11 @@ class AppLocalizationsEn extends AppLocalizations {
       'The picked file is processed by a server-side AI import. The results are AI-generated and must be verified in the preview before they are applied.';
 
   @override
+  String aiNamingLine(Object model, Object provider) {
+    return 'Currently configured: provider $provider, model $model.';
+  }
+
+  @override
   String get aiPreviewAiBanner => 'AI-extracted content — review carefully';
 
   @override

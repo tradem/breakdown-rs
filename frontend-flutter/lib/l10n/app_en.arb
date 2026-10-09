@@ -654,6 +654,7 @@
   "infoAiBody": "When you explicitly submit an import, the text you provide is sent to a configured server-side AI provider. This app never communicates with an AI provider directly.",
   "aiImportDisclosureTitle": "AI processing",
   "aiImportDisclosureBody": "The picked file is processed by a server-side AI import. The results are AI-generated and must be verified in the preview before they are applied.",
+  "aiNamingLine": "Currently configured: provider {provider}, model {model}.",
   "aiPreviewAiBanner": "AI-extracted content — review carefully",
   "aiPreviewAiNote": "Every row is a machine-extracted draft. The preview carries no machine-verified confidence values.",
   "aiApplyReviewCheckbox": "I have reviewed the AI-extracted content",

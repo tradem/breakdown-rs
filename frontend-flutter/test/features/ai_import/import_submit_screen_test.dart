@@ -3,6 +3,7 @@
 // Co-authored-by: omen-alpha (opencode-go)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
 // Co-authored-by: space-bunny-free (opencode-go)
+// Co-authored-by: glm-5.3-flash (opencode-go)
 
 // Tier-2 widget tests for the AI-import submission screen
 // (`flutter-ai-import-workflow` tasks 3.1 + 3.4): the kind picker, the
@@ -15,6 +16,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:breakdown_api/breakdown_api.dart';
+import 'package:built_collection/built_collection.dart';
 import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -115,6 +117,21 @@ class FakeActiveBlock extends ActiveBlock {
   ActiveScope? build() => ActiveScope(seasonId: 'season-1', blockId: 'block-1');
 }
 
+/// The configured naming fixture the disclosure card's naming line
+/// renders (issue #608).
+AiConfigView namingConfig() => AiConfigView(
+  (b) => b
+    ..id = 'config-1'
+    ..userId = 'dev-user'
+    ..assistantModel = 'assistant-model-1'
+    ..provider = LlmProvider.openai
+    ..vaultKeyId = 'vk-1'
+    ..prompts.replace(BuiltMap<String, String>())
+    ..promptKinds.replace(BuiltList<DocumentKind>())
+    ..revoked = false
+    ..version = 1,
+);
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   setUp(() {
@@ -128,6 +145,7 @@ void main() {
   Future<void> setupContainer({
     Result<AiUploadAck>? uploadResult,
     Result<AiImportJob>? jobResult,
+    bool naming = true,
   }) async {
     db = CacheDatabase(NativeDatabase.memory());
     addTearDown(db.close);
@@ -142,6 +160,12 @@ void main() {
           (ref) => const _ImmediateScheduler(),
         ),
         activeBlockProvider.overrideWith(FakeActiveBlock.new),
+        // The disclosure card renders the configured naming line (issue
+        // #608) — a deterministic override keeps the test off the real
+        // discovery path; `naming: false` exercises the degraded state.
+        configuredAiNamingProvider.overrideWith(
+          (ref) => Future.value(naming ? namingConfig() : null),
+        ),
       ],
     );
     addTearDown(container.dispose);
@@ -208,6 +232,51 @@ void main() {
     await tester.tap(find.text('Schedule'));
     await tester.pumpAndSettle();
     expect(disclosure, findsOneWidget);
+  });
+
+  testWidgets('the disclosure names the configured provider/model — '
+      'EU AI Act transparency at the point of interaction (issue #608)', (
+    tester,
+  ) async {
+    await setupContainer();
+    await pumpScreen(tester);
+
+    final line = find.byKey(const Key('ai-import-naming'));
+    expect(line, findsOneWidget);
+    final copy = tester
+        .widget<Text>(find.descendant(of: line, matching: find.byType(Text)))
+        .data;
+    expect(
+      copy,
+      contains('provider'),
+      reason: 'the configured naming line names provider AND model',
+    );
+    expect(copy, contains('model'));
+    expect(copy, contains('assistant-model-1'));
+    // The naming line sits INSIDE the disclosure card, below its body —
+    // part of the same point-of-interaction disclosure.
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('ai-import-disclosure')),
+        matching: line,
+      ),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('the naming line degrades honestly when AI is unconfigured '
+      '(never an invented name)', (tester) async {
+    await setupContainer(naming: false);
+    await pumpScreen(tester);
+
+    final line = find.byKey(const Key('ai-import-naming'));
+    expect(line, findsOneWidget);
+    expect(
+      tester
+          .widget<Text>(find.descendant(of: line, matching: find.byType(Text)))
+          .data,
+      'No AI configuration is set up for this account.',
+    );
   });
 
   testWidgets('submit without a document surfaces the guard snackbar — '

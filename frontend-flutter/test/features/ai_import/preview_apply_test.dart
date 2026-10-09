@@ -3,6 +3,7 @@
 // Co-authored-by: omen-alpha (opencode-go)
 // Co-authored-by: glm-5.3-flash (neuralwatt)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
+// Co-authored-by: glm-5.3-flash (opencode-go)
 
 // Tier-1 + Tier-2 tests for the preview + apply features
 // (`flutter-ai-import-workflow` tasks 4.3/4.4): the typed-preview
@@ -14,9 +15,9 @@
 // path), 409/403 branches, and goldens.
 
 import 'package:breakdown_api/breakdown_api.dart';
+import 'package:built_collection/built_collection.dart';
 import 'package:drift/native.dart';
 import 'package:frontend_flutter/data/cache/clock.dart';
-import 'package:built_collection/built_collection.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -53,6 +54,20 @@ const devAuthConfig = AppConfig(
   devIdpInsecure: '',
   appVersion: '1.0.0+1',
   defaultProjectId: 'series-1',
+);
+
+/// The configured naming fixture the naming line renders (issue #608).
+AiConfigView _namingConfig() => AiConfigView(
+  (b) => b
+    ..id = 'config-1'
+    ..userId = 'dev-user'
+    ..assistantModel = 'assistant-model-1'
+    ..provider = LlmProvider.openai
+    ..vaultKeyId = 'vk-1'
+    ..prompts.replace(BuiltMap<String, String>())
+    ..promptKinds.replace(BuiltList<DocumentKind>())
+    ..revoked = false
+    ..version = 1,
 );
 
 DraftScene _draft(
@@ -792,6 +807,10 @@ void main() {
       /// cache-wide fallback reads THIS test's in-memory Drift (the test
       /// seeds rows via [EpisodeCacheDao] after setup).
       bool withCacheDatabase = false,
+
+      /// The configured-naming fixture the naming line renders (issue
+      /// #608); `false` exercises the honest unconfigured degradation.
+      bool naming = true,
     }) async {
       db = CacheDatabase(NativeDatabase.memory());
       addTearDown(db.close);
@@ -818,6 +837,12 @@ void main() {
             return scenes.value;
           }),
           if (withCacheDatabase) cacheDatabaseProvider.overrideWithValue(db),
+          // The preview + apply screens render the configured naming line
+          // (issue #608) — a deterministic override keeps the tests off
+          // the real discovery path and the goldens stable.
+          configuredAiNamingProvider.overrideWith(
+            (ref) => Future.value(naming ? _namingConfig() : null),
+          ),
         ],
       );
       addTearDown(container.dispose);
@@ -866,6 +891,78 @@ void main() {
       );
       expect(apply.onPressed, isNull);
       await tester.pump();
+    });
+
+    testWidgets('the preview + apply section name the configured '
+        'provider/model and carry the collapsible EU AI Act panel '
+        '(issue #608)', (tester) async {
+      await setupContainer();
+      await pumpPreview(tester);
+
+      // The preview's labelling line: configured wire naming.
+      final previewNaming = tester
+          .widget<Text>(
+            find.descendant(
+              of: find.byKey(const Key('ai-preview-naming')),
+              matching: find.byType(Text),
+            ),
+          )
+          .data;
+      expect(previewNaming, contains('openai'));
+      expect(previewNaming, contains('assistant-model-1'));
+
+      // The apply section's labelling line + collapsed Act panel.
+      expect(find.byKey(const Key('ai-apply-naming')), findsOneWidget);
+      final panel = find.byKey(const Key('ai-apply-act-panel'));
+      expect(panel, findsOneWidget);
+      // Collapsed by default: the full body is hidden behind the
+      // affordance (compact review section — no layout regression: the
+      // review checkbox and submit stay in place below).
+      expect(find.byKey(const Key('ai-apply-act-body')), findsNothing);
+      expect(find.byKey(const Key('ai-apply-review-checkbox')), findsOneWidget);
+      expect(find.byKey(const Key('ai-apply-submit')), findsOneWidget);
+
+      await tester.tap(panel);
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const Key('ai-apply-act-body')),
+        findsOneWidget,
+        reason: 'expanding the panel reveals the full Art. 4/Art. 50 copy',
+      );
+      expect(
+        tester.widget<Text>(find.byKey(const Key('ai-apply-act-body'))).data,
+        contains('2024/1689'),
+      );
+    });
+
+    testWidgets('the naming lines degrade honestly when AI is '
+        'unconfigured (never an invented name) (issue #608)', (tester) async {
+      await setupContainer(naming: false);
+      await pumpPreview(tester);
+
+      const degraded = 'No AI configuration is set up for this account.';
+      expect(
+        tester
+            .widget<Text>(
+              find.descendant(
+                of: find.byKey(const Key('ai-preview-naming')),
+                matching: find.byType(Text),
+              ),
+            )
+            .data,
+        degraded,
+      );
+      expect(
+        tester
+            .widget<Text>(
+              find.descendant(
+                of: find.byKey(const Key('ai-apply-naming')),
+                matching: find.byType(Text),
+              ),
+            )
+            .data,
+        degraded,
+      );
     });
 
     testWidgets('merged preview: matched rows actionable; unmatched rows '

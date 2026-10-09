@@ -2421,6 +2421,11 @@ class AppLocalizationsDe extends AppLocalizations {
       'Die gewählte Datei wird von einem serverseitigen KI-Import verarbeitet. Die Ergebnisse sind KI-generiert und müssen vor dem Anwenden in der Vorschau geprüft werden.';
 
   @override
+  String aiNamingLine(Object model, Object provider) {
+    return 'Derzeit konfiguriert: Anbieter $provider, Modell $model.';
+  }
+
+  @override
   String get aiPreviewAiBanner => 'KI-extrahierter Inhalt – sorgfältig prüfen';
 
   @override

@@ -21,6 +21,7 @@
 import 'dart:async';
 
 import 'package:breakdown_api/breakdown_api.dart';
+import 'package:built_collection/built_collection.dart';
 import 'package:drift/native.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -61,6 +62,20 @@ const devAuthConfig = AppConfig(
   devIdpInsecure: '',
   appVersion: '1.0.0+1',
   defaultProjectId: 'series-1',
+);
+
+/// The configured naming fixture the naming line renders (issue #608).
+AiConfigView _namingConfig() => AiConfigView(
+  (b) => b
+    ..id = 'config-1'
+    ..userId = 'dev-user'
+    ..assistantModel = 'assistant-model-1'
+    ..provider = LlmProvider.openai
+    ..vaultKeyId = 'vk-1'
+    ..prompts.replace(BuiltMap<String, String>())
+    ..promptKinds.replace(BuiltList<DocumentKind>())
+    ..revoked = false
+    ..version = 1,
 );
 
 AiImportJob _job(
@@ -160,6 +175,12 @@ void main() {
       overrides: [
         appConfigProvider.overrideWithValue(devAuthConfig),
         aiImportRepositoryProvider.overrideWithValue(repo!),
+        // The pushed import-submission screen renders the configured
+        // naming line (issue #608) — a deterministic override keeps the
+        // test off the real discovery path.
+        configuredAiNamingProvider.overrideWith(
+          (ref) => Future.value(_namingConfig()),
+        ),
       ],
     );
     addTearDown(() {

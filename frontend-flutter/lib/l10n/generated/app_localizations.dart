@@ -4030,6 +4030,12 @@ abstract class AppLocalizations {
   /// **'Die gewählte Datei wird von einem serverseitigen KI-Import verarbeitet. Die Ergebnisse sind KI-generiert und müssen vor dem Anwenden in der Vorschau geprüft werden.'**
   String get aiImportDisclosureBody;
 
+  /// No description provided for @aiNamingLine.
+  ///
+  /// In de, this message translates to:
+  /// **'Derzeit konfiguriert: Anbieter {provider}, Modell {model}.'**
+  String aiNamingLine(Object model, Object provider);
+
   /// No description provided for @aiPreviewAiBanner.
   ///
   /// In de, this message translates to:

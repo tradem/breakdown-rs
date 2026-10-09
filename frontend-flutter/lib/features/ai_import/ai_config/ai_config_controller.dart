@@ -3,6 +3,7 @@
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
 // Co-authored-by: omen-alpha (opencode-go)
 // Co-authored-by: space-bunny-free (opencode-go)
+// Co-authored-by: glm-5.3-flash (opencode-go)
 
 import 'dart:async';
 
@@ -478,6 +479,7 @@ class AiConfigController extends _$AiConfigController {
           return Right<ProblemError, IdVersionResponse>(idVersion);
         }
         ref.invalidate(aiConfigDiscoveryProvider);
+        ref.invalidate(configuredAiNamingProvider);
         ref.invalidate(aiImportHandoffProvider);
         state = state.copyWith(clearCommandError: true);
         return Right<ProblemError, IdVersionResponse>(idVersion);
@@ -575,6 +577,7 @@ class AiConfigController extends _$AiConfigController {
         }
         if (!ref.mounted) return;
         ref.invalidate(aiConfigDiscoveryProvider);
+        ref.invalidate(configuredAiNamingProvider);
         ref.invalidate(aiImportHandoffProvider);
         state = state.copyWith(clearCommandError: true);
       case ConfigNotCommitted():
@@ -744,6 +747,7 @@ class AiConfigController extends _$AiConfigController {
               view.provider.name == provider.name &&
               view.vaultKeyId == vaultKeyId) {
             ref.invalidate(aiConfigDiscoveryProvider);
+            ref.invalidate(configuredAiNamingProvider);
             if (ref.mounted) state = state.copyWith(clearCommandError: true);
             return Right<ProblemError, int>(view.version);
           }
@@ -763,6 +767,7 @@ class AiConfigController extends _$AiConfigController {
           );
         }
         ref.invalidate(aiConfigDiscoveryProvider);
+        ref.invalidate(configuredAiNamingProvider);
         if (!ref.mounted) {
           return Right<ProblemError, int>(version);
         }
@@ -788,6 +793,7 @@ class AiConfigController extends _$AiConfigController {
       },
       (version) async {
         ref.invalidate(aiConfigDiscoveryProvider);
+        ref.invalidate(configuredAiNamingProvider);
         if (!ref.mounted) {
           return Right<ProblemError, int>(version);
         }
@@ -800,6 +806,7 @@ class AiConfigController extends _$AiConfigController {
   /// Pull-to-refresh: re-run list-first discovery.
   Future<void> refresh() async {
     ref.invalidate(aiConfigDiscoveryProvider);
+    ref.invalidate(configuredAiNamingProvider);
     ref.invalidate(aiProvidersProvider);
   }
 
