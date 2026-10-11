@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
+// Co-authored-by: glm-5.3-flash (opencode-go)
 
 // Tier-2 widget + controller tests for `CharactersScreen` and
 // `CharacterDetailScreen` (Task 5.3): list/create per spec scenarios (409
