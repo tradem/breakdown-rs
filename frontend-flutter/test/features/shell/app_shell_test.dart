@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: omen-alpha (opencode-go)
+// Co-authored-by: glm-5.3-flash (opencode-go)
 // Co-authored-by: space-bunny-free (opencode-go)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
 
@@ -34,6 +35,7 @@ import 'package:frontend_flutter/features/ai_import/import_jobs/jobs_controller.
 import 'package:frontend_flutter/features/shell/planning_location.dart';
 
 import 'package:frontend_flutter/domain/reconciliation/reconciliation_scheduler.dart';
+import 'package:frontend_flutter/features/ai_import/import_jobs/import_submit_screen.dart';
 import 'package:frontend_flutter/features/shell/app_shell.dart';
 import 'package:frontend_flutter/l10n/generated/app_localizations.dart';
 import 'package:frontend_flutter/features/shell/cast_tab_screen.dart';
@@ -669,6 +671,111 @@ void main() {
         widthDp: 1000,
         mode: ThemeMode.dark,
       );
+    });
+  });
+
+  group('5.4 shell quick-create action (issue #612)', () {
+    testWidgets('plus FAB carries the button role and the localized label', (
+      tester,
+    ) async {
+      final semantics = tester.ensureSemantics();
+      await setupContainer();
+      await pumpShell(tester, widthDp: 360);
+
+      // CodeRabbit review #623: assistive technology must announce the
+      // FAB as an ACTION affordance with its localized VISIBLE label —
+      // ONE merged semantics node carrying BOTH (German template suite;
+      // the icon never carries the meaning alone, glossary rule). The
+      // shell wraps the FAB in `Semantics(button: true)` because
+      // FAB.extended's InkWell exposes the tap action but not the button
+      // flag.
+      // Node-based assertion (same pattern as the destination-traversal
+      // test; `getSemantics(byKey)` resolves the FAB's inner InkWell
+      // container node, which carries neither label nor role).
+      expect(
+        find.semantics.byPredicate(
+          (n) => n.label == 'Erstellen' && n.flagsCollection.isButton,
+        ),
+        findsOneWidget,
+      );
+      // BEING-disposed inside the test body (framework verifies handle
+      // disposal BEFORE tearDown callbacks run).
+      semantics.dispose();
+    });
+    testWidgets('plus FAB exists on all three morphologies at the root', (
+      tester,
+    ) async {
+      await setupContainer();
+      for (final widthDp in [360.0, 700.0, 1000.0]) {
+        await pumpShell(tester, widthDp: widthDp);
+        expect(find.byKey(const Key('shell-plus-fab')), findsOneWidget);
+      }
+    });
+
+    testWidgets('plus FAB opens the quick-create sheet from tab 1, 2, 3', (
+      tester,
+    ) async {
+      await setupContainer();
+      await pumpShell(tester, widthDp: 360);
+
+      for (var tab = 0; tab < kDestinationCount; tab++) {
+        await tester.tap(find.byKey(Key('shell-destination-$tab')));
+        await pumpFrames(tester, n: 8);
+        await tester.tap(find.byKey(const Key('shell-plus-fab')));
+        await pumpFrames(tester, n: 8);
+        // The sheet lists BOTH v1 entries with VISIBLE labels.
+        expect(
+          find.byKey(const Key('shell-quick-create-sheet')),
+          findsOneWidget,
+        );
+        expect(find.byKey(const Key('quick-create-ai-import')), findsOneWidget);
+        expect(find.byKey(const Key('quick-create-wizard')), findsOneWidget);
+        // Dismiss for the next tab (swipe down).
+        await tester.drag(
+          find.byKey(const Key('shell-quick-create-sheet')),
+          const Offset(0, 400),
+        );
+        await pumpFrames(tester, n: 12);
+        // No stacked flow was pushed by the dismissal.
+        expect(find.byType(AiImportSubmitScreen), findsNothing);
+      }
+    });
+
+    testWidgets('AI-import entry routes to the existing submit flow', (
+      tester,
+    ) async {
+      await setupContainer();
+      await pumpShell(tester, widthDp: 360);
+
+      await tester.tap(find.byKey(const Key('shell-plus-fab')));
+      await pumpFrames(tester, n: 8);
+      await tester.tap(find.byKey(const Key('quick-create-ai-import')));
+      await pumpFrames(tester, n: 12);
+
+      // The sheet popped and the full-screen import flow PUSHED on the
+      // root navigator (covers the shell — the scope-picker behavior).
+      expect(find.byKey(const Key('shell-quick-create-sheet')), findsNothing);
+      expect(find.byType(AiImportSubmitScreen), findsOneWidget);
+    });
+
+    testWidgets('plus FAB is hidden while the session is not resolved', (
+      tester,
+    ) async {
+      await setupContainer();
+      await pumpShell(tester, widthDp: 360);
+      expect(find.byKey(const Key('shell-plus-fab')), findsOneWidget);
+
+      // AUTHZ-GATE mirror: sign-out drops the authenticated-Affordance
+      // (the backend handlers would refuse anyway — fail-closed UI).
+      await container.read(authSessionControllerProvider.notifier).signOut();
+      // Pump past the FAB's exit transition: Scaffold keeps the OUTGOING
+      // FAB widget in the tree for its removal animation, so an immediate
+      // finder would match a fade-out ghost. Bounded, computed pump
+      // durations (deterministic-tests rule — no settle, no walls).
+      for (var i = 0; i < 20; i++) {
+        await tester.pump(const Duration(milliseconds: 30));
+      }
+      expect(find.byKey(const Key('shell-plus-fab')), findsNothing);
     });
   });
 }

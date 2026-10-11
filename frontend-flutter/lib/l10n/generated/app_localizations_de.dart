@@ -2189,6 +2189,20 @@ class AppLocalizationsDe extends AppLocalizations {
   String get navScenes => 'Szenen';
 
   @override
+  String get shellPlusFabLabel => 'Erstellen';
+
+  @override
+  String get quickCreateTitle => 'Was möchtest du erstellen?';
+
+  @override
+  String get quickCreateAiImportSubtitle =>
+      'Spielplan oder Skript per KI importieren';
+
+  @override
+  String get quickCreateWizardSubtitle =>
+      'Season, Blöcke und Episoden geführt anlegen';
+
+  @override
   String locationStripSemantics(Object path) {
     return 'Position: $path';
   }

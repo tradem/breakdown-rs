@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: omen-alpha (opencode-go)
+// Co-authored-by: glm-5.3-flash (opencode-go)
 // Co-authored-by: space-bunny-free (opencode-go)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
 
@@ -14,6 +15,8 @@ import '../../l10n/generated/app_localizations.dart';
 import '../../l10n/generated/app_localizations_de.dart';
 import '../../design/material_icons.dart';
 import '../../auth/active_block.dart';
+import '../../auth/auth_providers.dart';
+import 'quick_create_sheet.dart';
 import 'active_scope_chip.dart';
 import 'cast_tab_screen.dart';
 import 'location_strip.dart';
@@ -46,6 +49,12 @@ String tabSemanticLabel(
 
 /// How many destinations the shell renders (issue #610: three).
 const int kDestinationCount = 3;
+
+/// Bottom clearance the compact morphology reserves for the shell's
+/// extended plus FAB (CodeRabbit review #623): the FAB's 56 height + its
+/// 16 docked margin above the bar + 8 breathing room, so the tab lists'
+/// last row never renders beneath the persistent FAB.
+const double kShellFabBottomClearance = 80;
 
 /// The adaptive three-destination navigation shell (issue #610, spec
 /// `flutter-navigation-shell`, design D1–D3).
@@ -157,48 +166,104 @@ class AppShellState extends ConsumerState<AppShell> {
     // Issue #548: the hierarchy context surface lives in the SHELL (not in
     // each screen's app bar) — one surface, all three morphologies, the
     // ~60 per-feature goldens pump their screens directly and stay
-    // untouched.
-    final contentWithLocation = Column(
+    // untouched. [bottomClearance] reserves space under the shell's
+    // persistent plus FAB so the LAST list row never renders beneath it
+    // (CodeRabbit review #623 — compact-only: the medium/expanded FAB
+    // floats over the content area's bottom-right where no tab list ends).
+    Widget contentWithLocation({double bottomClearance = 0}) => Column(
       children: [
         ShellContextBar(
           navigatorKey: tabNavigatorKeys[state.selectedIndex],
           observer: tabLocationObservers[state.selectedIndex],
         ),
         Expanded(child: content),
+        if (bottomClearance > 0) SizedBox(height: bottomClearance),
       ],
     );
 
+    // AUTHZ-GATE (issue #612, client-side mirror, Decision D6): the
+    // quick-create sheet is `Requirement::Authenticated`-gated UI — the
+    // backend create/import handlers are auth-gated server-side, so the
+    // shell plus action renders only for a RESOLVED authenticated session
+    // (a pending/erroring session shows nothing, same rule as the seasons
+    // FAB). The pushed flows gate further inside their controllers BEFORE
+    // any network call; the sheet itself issues no request, so the
+    // `grep AUTHZ-GATE` contract travels with this comment.
+    final session = ref.watch(authSessionControllerProvider);
+    final canCreate = session is AsyncData && session.value != null;
+    // Explicit accessible BUTTON role (CodeRabbit review #623):
+    // FloatingActionButton.extended builds on RawMaterialButton/InkWell,
+    // which expose the tap action but NOT the semantics button flag —
+    // screen readers announce the affordance without the "Schaltfläche"
+    // role. One wrapping Semantics fixes that at the affordance's root.
+    final plusFab = canCreate
+        ? Semantics(
+            button: true,
+            child: FloatingActionButton.extended(
+              key: const Key('shell-plus-fab'),
+              onPressed: () => unawaited(
+                showQuickCreateSheet(
+                  context,
+                  actions: shellQuickCreateActions(l10n),
+                ),
+              ),
+              // One Spotify-style plus action across ALL three morphologies
+              // (issue #612, settled decision): the FAB is an ACTION, not a
+              // destination — the destination contract (kDestinationCount,
+              // `shell-destination-*` keys) stays untouched.
+              icon: const Icon(Icons.add),
+              label: Text(l10n.shellPlusFabLabel),
+            ),
+          )
+        : null;
+
+    // The shell carries its own Scaffold so the FAB is a shell-level
+    // affordance: in the compact morphology it sits on `bottomNavigationBar`
+    // and DOCKS above the bar (Material's FAB slot); in medium/expanded it
+    // floats at the content's bottom-right (no tab root carries its own FAB
+    // since #610, so there is no overlap).
     return switch (sizeClass) {
-      WindowSizeClass.compact => Column(
-        children: [
-          Expanded(child: contentWithLocation),
-          ShellDestinations.navigationBar(
-            selectedIndex: state.selectedIndex,
-            onSelected: controller.selectTab,
-            l10n: l10n,
-          ),
-        ],
+      WindowSizeClass.compact => Scaffold(
+        body: contentWithLocation(
+          // CodeRabbit review #623: the extended FAB sits docked above the
+          // bar (its 56 height + the 16 docked margin); without clearance
+          // the final list row renders BENEATH it. Gated: without a FAB
+          // there is nothing to avoid (auth-gate symmetry).
+          bottomClearance: canCreate ? kShellFabBottomClearance : 0,
+        ),
+        bottomNavigationBar: ShellDestinations.navigationBar(
+          selectedIndex: state.selectedIndex,
+          onSelected: controller.selectTab,
+          l10n: l10n,
+        ),
+        floatingActionButton: plusFab,
       ),
-      WindowSizeClass.medium => Row(
-        children: [
-          ShellDestinations.navigationRail(
-            selectedIndex: state.selectedIndex,
-            onSelected: controller.selectTab,
-            l10n: l10n,
-          ),
-          const VerticalDivider(width: 1, thickness: 1),
-          Expanded(child: contentWithLocation),
-        ],
+      WindowSizeClass.medium => Scaffold(
+        body: Row(
+          children: [
+            ShellDestinations.navigationRail(
+              selectedIndex: state.selectedIndex,
+              onSelected: controller.selectTab,
+              l10n: l10n,
+            ),
+            const VerticalDivider(width: 1, thickness: 1),
+            Expanded(child: contentWithLocation()),
+          ],
+        ),
+        floatingActionButton: plusFab,
       ),
-      WindowSizeClass.expanded => Row(
-        children: [
-          ShellDestinations.navigationDrawer(
-            selectedIndex: state.selectedIndex,
-            onSelected: controller.selectTab,
-            l10n: l10n,
-          ),
-          Expanded(child: contentWithLocation),
-        ],
+      WindowSizeClass.expanded => Scaffold(
+        body: Row(
+          children: [
+            ShellDestinations.navigationDrawer(
+              selectedIndex: state.selectedIndex,
+              onSelected: controller.selectTab,
+              l10n: l10n,
+            ),
+            Expanded(child: contentWithLocation()),
+          ],
+        ),
+        floatingActionButton: plusFab,
       ),
     };
   }
