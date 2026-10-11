@@ -49,10 +49,13 @@ projections itself), this needs a backend read-model first.
 
 ## Impact
 
-- **Affected specs:** existing behavior; no delta spec — the change
-  establishes a navigation seam and documented degraded fallback on the
-  characters feature (see the screen spec for the machine-reviewable
-  surface).
+- **Affected specs:** no **existing** capability spec changes. This
+  change ADDS the `flutter-role-extract` delta spec
+  (`specs/flutter-role-extract/`): the Cast-entry requirement (route key
+  `role-extract-<characterId>`), the degraded no-client-side-aggregation
+  fallback, and the pending on-device Gherkin step. The human-readable
+  surface is the screen spec
+  (`docs/design/screens/role-extract.md`).
 - **Affected code:**
   - `lib/features/characters/role_extract_screen.dart` (new)
   - `lib/features/characters/characters_screen.dart` (push target)
