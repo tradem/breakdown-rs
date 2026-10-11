@@ -3688,6 +3688,30 @@ abstract class AppLocalizations {
   /// **'Szenen'**
   String get navScenes;
 
+  /// No description provided for @shellPlusFabLabel.
+  ///
+  /// In de, this message translates to:
+  /// **'Erstellen'**
+  String get shellPlusFabLabel;
+
+  /// No description provided for @quickCreateTitle.
+  ///
+  /// In de, this message translates to:
+  /// **'Was möchtest du erstellen?'**
+  String get quickCreateTitle;
+
+  /// No description provided for @quickCreateAiImportSubtitle.
+  ///
+  /// In de, this message translates to:
+  /// **'Spielplan oder Skript per KI importieren'**
+  String get quickCreateAiImportSubtitle;
+
+  /// No description provided for @quickCreateWizardSubtitle.
+  ///
+  /// In de, this message translates to:
+  /// **'Season, Blöcke und Episoden geführt anlegen'**
+  String get quickCreateWizardSubtitle;
+
   /// No description provided for @locationStripSemantics.
   ///
   /// In de, this message translates to:

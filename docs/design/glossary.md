@@ -1,6 +1,7 @@
 <!-- SPDX-License-Identifier: AGPL-3.0 -->
 <!-- Copyright (C) 2024-2026 Breakdown RS Contributors -->
 <!-- Co-authored-by: omen-alpha (opencode-go) -->
+<!-- Co-authored-by: glm-5.3-flash (opencode-go) -->
 <!-- Co-authored-by: space-bunny-free (opencode-go) -->
 <!-- Co-authored-by: deepseek-v4-flash (neuralwatt) -->
 <!-- Co-authored-by: glm-5.3-flash (opencode-go) -->
@@ -111,6 +112,9 @@ establishing change).
 | `face` | **Cast** | Navigation shell destination 1 of 3 (issue #610) — the actor roster AND the costume surface (season-scoped), plus the costume-category vocabulary on its app bar | `nav.cast` |
 | `menu_book` | **Script** | Navigation shell destination 2 of 3 (issue #610) — the active season's chronological scene overview, continuously numbered | `nav.script` |
 | `calendar_month` | **Schedule/Dispo** | Navigation shell destination 3 of 3 (issue #610) — the active season's shooting days in calendar order | `nav.schedule` |
+| `add` (extended FAB) | **Erstellen** | Navigation shell's ONE plus action (issue #612, Spotify-style): an extended FAB visible in all three morphologies — docked above the bottom bar (compact), floating at the content's bottom-right (medium/expanded). An ACTION, not a destination — the destination contract (3 tabs, `shell-destination-*` keys) stays untouched. Auth-gated (only for a resolved session); opens the quick-create sheet | `shellPlusFabLabel` |
+| `smart_toy_outlined` | **Import** | Quick-create sheet entry 1 of 2 (issue #612): the sheet → push deep-link to the existing AI-import submit flow (never embeds it; the submit controller gates internally) | `navAiImport` + `quickCreateAiImportSubtitle` |
+| `rocket_launch_outlined` | **Season-Setup** | Quick-create sheet entry 2 of 2 (issue #612): the guided season setup wizard deep-link (sheet → push). Sheet asks „Was möchtest du erstellen?“; context-sensitive entries land later | `wizardTitle` + `quickCreateWizardSubtitle` (sheet title `quickCreateTitle`) |
 | `person_outline` | **Figuren** / **Kostüme** | Cast view's roster/costume switch (issue #610): the two segments switch between the season-scoped character and costume surfaces; both labels always visible | `cast.segment.characters` / `cast.segment.costumes` |
 | `style_outlined` | **Kostüm-Kategorien** | Cast view app-bar action (issue #610): the season-scoped costume-category vocabulary. **Explicitly NOT part of the profile/settings menu** — costume content lives with costumes and characters | `cast.categories.tooltip` |
 | `account_circle_outlined` | **Menü** | Profile affordance in every view root's app bar (issue #610): the dissolved Mehr destination's entries — identity, Über die App, Einstellungen, Abmelden. Issue #613 owns the final top-bar design | `profile.tooltip` |

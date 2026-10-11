@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: omen-alpha (opencode-go)
+// Co-authored-by: glm-5.3-flash (opencode-go)
 // Co-authored-by: space-bunny-free (opencode-go)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
 
@@ -14,6 +15,8 @@ import '../../l10n/generated/app_localizations.dart';
 import '../../l10n/generated/app_localizations_de.dart';
 import '../../design/material_icons.dart';
 import '../../auth/active_block.dart';
+import '../../auth/auth_providers.dart';
+import 'quick_create_sheet.dart';
 import 'active_scope_chip.dart';
 import 'cast_tab_screen.dart';
 import 'location_strip.dart';
@@ -168,37 +171,75 @@ class AppShellState extends ConsumerState<AppShell> {
       ],
     );
 
+    // AUTHZ-GATE (issue #612, client-side mirror, Decision D6): the
+    // quick-create sheet is `Requirement::Authenticated`-gated UI — the
+    // backend create/import handlers are auth-gated server-side, so the
+    // shell plus action renders only for a RESOLVED authenticated session
+    // (a pending/erroring session shows nothing, same rule as the seasons
+    // FAB). The pushed flows gate further inside their controllers BEFORE
+    // any network call; the sheet itself issues no request, so the
+    // `grep AUTHZ-GATE` contract travels with this comment.
+    final session = ref.watch(authSessionControllerProvider);
+    final canCreate = session is AsyncData && session.value != null;
+    final plusFab = canCreate
+        ? FloatingActionButton.extended(
+            key: const Key('shell-plus-fab'),
+            onPressed: () => unawaited(
+              showQuickCreateSheet(
+                context,
+                actions: shellQuickCreateActions(l10n),
+              ),
+            ),
+            // One Spotify-style plus action across ALL three morphologies
+            // (issue #612, settled decision): the FAB is an ACTION, not a
+            // destination — the destination contract (kDestinationCount,
+            // `shell-destination-*` keys) stays untouched.
+            icon: const Icon(Icons.add),
+            label: Text(l10n.shellPlusFabLabel),
+          )
+        : null;
+
+    // The shell carries its own Scaffold so the FAB is a shell-level
+    // affordance: in the compact morphology it sits on `bottomNavigationBar`
+    // and DOCKS above the bar (Material's FAB slot); in medium/expanded it
+    // floats at the content's bottom-right (no tab root carries its own FAB
+    // since #610, so there is no overlap).
     return switch (sizeClass) {
-      WindowSizeClass.compact => Column(
-        children: [
-          Expanded(child: contentWithLocation),
-          ShellDestinations.navigationBar(
-            selectedIndex: state.selectedIndex,
-            onSelected: controller.selectTab,
-            l10n: l10n,
-          ),
-        ],
+      WindowSizeClass.compact => Scaffold(
+        body: contentWithLocation,
+        bottomNavigationBar: ShellDestinations.navigationBar(
+          selectedIndex: state.selectedIndex,
+          onSelected: controller.selectTab,
+          l10n: l10n,
+        ),
+        floatingActionButton: plusFab,
       ),
-      WindowSizeClass.medium => Row(
-        children: [
-          ShellDestinations.navigationRail(
-            selectedIndex: state.selectedIndex,
-            onSelected: controller.selectTab,
-            l10n: l10n,
-          ),
-          const VerticalDivider(width: 1, thickness: 1),
-          Expanded(child: contentWithLocation),
-        ],
+      WindowSizeClass.medium => Scaffold(
+        body: Row(
+          children: [
+            ShellDestinations.navigationRail(
+              selectedIndex: state.selectedIndex,
+              onSelected: controller.selectTab,
+              l10n: l10n,
+            ),
+            const VerticalDivider(width: 1, thickness: 1),
+            Expanded(child: contentWithLocation),
+          ],
+        ),
+        floatingActionButton: plusFab,
       ),
-      WindowSizeClass.expanded => Row(
-        children: [
-          ShellDestinations.navigationDrawer(
-            selectedIndex: state.selectedIndex,
-            onSelected: controller.selectTab,
-            l10n: l10n,
-          ),
-          Expanded(child: contentWithLocation),
-        ],
+      WindowSizeClass.expanded => Scaffold(
+        body: Row(
+          children: [
+            ShellDestinations.navigationDrawer(
+              selectedIndex: state.selectedIndex,
+              onSelected: controller.selectTab,
+              l10n: l10n,
+            ),
+            Expanded(child: contentWithLocation),
+          ],
+        ),
+        floatingActionButton: plusFab,
       ),
     };
   }
