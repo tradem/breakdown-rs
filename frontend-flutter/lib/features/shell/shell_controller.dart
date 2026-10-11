@@ -13,14 +13,14 @@ import 'active_season_store.dart';
 
 part 'shell_controller.g.dart';
 
-/// Shell controller state (task 2.1, design D2/D5): the selected tab index
-/// and the active season as **plain data** — no season-changing token
-/// knowledge lives in widgets; the Garderobe tab consumes `activeSeason`
-/// directly.
+/// Shell controller state (task 2.1, design D2/D5): the selected
+/// destination index and the active season as **plain data** — no
+/// season-changing token knowledge lives in widgets; the Cast and Script
+/// views consume `activeSeason` directly.
 class ShellState {
   const ShellState({this.selectedIndex = 0, this.activeSeason});
 
-  /// Selected destination (0..3: Season | Planen | Garderobe | Mehr).
+  /// Selected destination (0..2: Cast | Script | Schedule/Dispo).
   final int selectedIndex;
 
   /// The active season (last-opened, persisted reference resolved against
@@ -49,14 +49,18 @@ class ShellState {
       'activeSeason: ${activeSeason?.id})';
 }
 
-/// The four shell destinations in display order (spec
-/// `flutter-navigation-shell` — Season | Planen | Garderobe | Mehr).
-/// `kKleidungTabIndex` keeps its historical name: shell test keys
-/// (`kleidung-*`) and on-device Gherkin steps bind to it.
-const int kSeasonTabIndex = 0;
-const int kPlanenTabIndex = 1;
-const int kKleidungTabIndex = 2;
-const int kMehrTabIndex = 3;
+/// The three shell destinations in display order (issue #610, spec
+/// `flutter-navigation-shell` — Cast | Script | Schedule/Dispo).
+///
+/// Issue #610 replaces the former four-destination set (Season | Planen |
+/// Kleidung | Mehr) WITHOUT aliases: `kSeasonTabIndex`,
+/// `kPlanenTabIndex`, `kKleidungTabIndex` and `kMehrTabIndex` are gone, so
+/// every stale binding (widget test, integration test, Gherkin step) fails
+/// to compile until it is migrated explicitly. A silently working alias
+/// would leave bindings nobody re-checks.
+const int kCastTabIndex = 0;
+const int kScriptTabIndex = 1;
+const int kScheduleTabIndex = 2;
 
 /// The shell controller (task 2.1, design D2/D7): holds the selected tab
 /// index and the active season; resets both on sign-out / a new session.
@@ -68,9 +72,10 @@ const int kMehrTabIndex = 3;
 class ShellController extends _$ShellController {
   @override
   ShellState build() {
-    // D7: sign-out mid-session (and any new session) resets the tab index
-    // and drops the in-memory active season; the Garderobe tab re-resolves
-    // from the persisted reference on the next selection.
+    // D7: sign-out mid-session (and any new session) resets the
+    // destination index and drops the in-memory active season; the Cast
+    // view re-resolves from the persisted reference on the next
+    // selection.
     final session = ref.watch(authSessionControllerProvider);
     // Session identity: a NEW session (different sub, or signed-out after
     // being signed-in) resets the tab index AND evicts the previous
@@ -87,7 +92,7 @@ class ShellController extends _$ShellController {
         _evictPersistedReference(_sessionKey);
       }
       _sessionKey = key;
-      _selectedIndex = kSeasonTabIndex;
+      _selectedIndex = kCastTabIndex;
     }
     final signedOut = switch (session) {
       AsyncData(:final value) => value == null,
@@ -107,7 +112,7 @@ class ShellController extends _$ShellController {
     );
   }
 
-  int _selectedIndex = kSeasonTabIndex;
+  int _selectedIndex = kCastTabIndex;
 
   /// Session identity the current tab/season state belongs to. A session
   /// change (sign-out or a new sign-in) resets the tab index — the shell
@@ -116,9 +121,11 @@ class ShellController extends _$ShellController {
   /// resuming), matching the restore-pending gate semantics.
   String? _sessionKey;
 
-  /// Switches the selected tab (a user "jump" — no history entry).
+  /// Switches the selected destination (a user "jump" — no history
+  /// entry). Out-of-range indices are rejected, never clamped: a stale
+  /// binding must not silently select the last destination.
   void selectTab(int index) {
-    if (index < 0 || index > kMehrTabIndex) return;
+    if (index < 0 || index > kScheduleTabIndex) return;
     _selectedIndex = index;
     state = ShellState(selectedIndex: index, activeSeason: state.activeSeason);
   }

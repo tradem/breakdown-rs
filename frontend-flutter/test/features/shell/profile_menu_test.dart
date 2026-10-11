@@ -4,11 +4,15 @@
 // Co-authored-by: space-bunny-free (opencode-go)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
 
-// The app-menu tests, MIGRATED to the Mehr tab (task 5.4): the seasons
-// overflow menu moved to the shell's Mehr tab as first-class labeled
-// entries (`redesign-app-shell-navigation` 4.3). Entry path: tap the
-// "Mehr" destination, then the labeled list entry. Keys are carried over
-// verbatim (menu-identity/menu-signout), only the entry action changes.
+// The app-menu tests, MIGRATED to the per-view PROFILE affordance (issue
+// #610): the dissolved Mehr destination's entries (identity, About,
+// Settings, Sign out) now live in the profile sheet every view root
+// carries in its app bar. Issue #613 owns the final top-bar design; this
+// change only moves the entries off the dissolved destination.
+//
+// Entry path: tap `profile-menu-button`, then the labeled sheet entry.
+// Costume categories are deliberately NOT here (they live with the costume
+// content in the Cast view) — asserted below.
 
 import 'package:breakdown_api/breakdown_api.dart';
 import 'package:drift/native.dart';
@@ -72,8 +76,10 @@ void main() {
           final r = ref.watch(seasonRepositoryProvider);
           return r.fetchAndCacheList(() async => holder.value);
         }),
-        // The Planen-tab active-jobs summary row (issue #547): stub the
-        // AI-import jobs repository + fetch seam (no client needed here).
+        // The production overview's active-jobs summary row (issue #547):
+        // stub the AI-import jobs repository + fetch seam (no client needed
+        // here — the shell mounts all three views, none of which fetches
+        // jobs at their root).
         aiImportRepositoryProvider.overrideWithValue(
           FakeJobsRepository(BreakdownApi(), AiImportJobsCacheDao(db)),
         ),
@@ -97,21 +103,28 @@ void main() {
     await pumpFrames(tester);
   }
 
-  Future<void> openMehr(WidgetTester tester) async {
-    await tester.tap(find.text('More'));
-    await pumpFrames(tester, n: 6);
+  /// Opens the profile sheet (bottom sheet animation needs real frames —
+  /// no wall-clock budget, just enough pumps for the entrance).
+  Future<void> openProfile(WidgetTester tester) async {
+    await tester.tap(find.byKey(const Key('profile-menu-button')));
+    await pumpFrames(tester, n: 30);
   }
 
-  group('Mehr tab menu (task 4.3, migrated from the seasons overflow)', () {
+  group('profile menu (issue #610, migrated from the Mehr destination)', () {
     testWidgets('shows the authenticated identity', (tester) async {
       await setupDevAuth();
       await pumpApp(tester);
-      await openMehr(tester);
+      await openProfile(tester);
 
-      expect(find.byKey(const Key('menu-identity')), findsOneWidget);
+      expect(find.byKey(const Key('profile-identity')), findsOneWidget);
       expect(find.text('dev-user'), findsOneWidget);
-      expect(find.byKey(const Key('mehr-settings')), findsOneWidget);
-      expect(find.byKey(const Key('mehr-signout')), findsOneWidget);
+      expect(find.byKey(const Key('profile-about')), findsOneWidget);
+      expect(find.byKey(const Key('profile-settings')), findsOneWidget);
+      expect(find.byKey(const Key('profile-signout')), findsOneWidget);
+      // Hard acceptance criterion of issue #610: the costume-category
+      // vocabulary never lives with the user settings.
+      expect(find.text('Costume categories'), findsNothing);
+      expect(find.byKey(const Key('profile-categories')), findsNothing);
     });
 
     testWidgets('sign out returns to login: no refetch, cache emptied once', (
@@ -119,17 +132,19 @@ void main() {
     ) async {
       await setupDevAuth();
       await pumpApp(tester);
-      expect(find.text('Menu Season'), findsOneWidget);
+      // Issue #610: the shell boots into the Cast view, which does NOT read
+      // the seasons projection until a season scope is opened — so the
+      // "no refetch after sign-out" contract is asserted as "the fetch
+      // count never grows during the sign-out", whatever it started at.
       final fetchesBeforeSignOut = fetchCalls;
-      expect(fetchesBeforeSignOut, greaterThanOrEqualTo(1));
 
-      await openMehr(tester);
-      await tester.tap(find.byKey(const Key('mehr-signout')));
-      await pumpFrames(tester);
+      await openProfile(tester);
+      await tester.tap(find.byKey(const Key('profile-signout')));
+      await pumpFrames(tester, n: 30);
 
       // Root recomposed to LoginScreen; no post-signout projection render.
       expect(find.byKey(const Key('login-continue-button')), findsOneWidget);
-      expect(find.byKey(const Key('seasons-list')), findsNothing);
+      expect(find.byKey(const Key('shell-navigation-bar')), findsNothing);
       expect(fetchCalls, fetchesBeforeSignOut);
       // Cache emptied exactly once, rows really gone.
       expect(repo.clearCacheCalls, 1);
@@ -140,8 +155,8 @@ void main() {
       await setupDevAuth();
       await pumpApp(tester);
 
-      await openMehr(tester);
-      await tester.tap(find.byKey(const Key('mehr-about')));
+      await openProfile(tester);
+      await tester.tap(find.byKey(const Key('profile-about')));
       await pumpFrames(tester);
 
       expect(find.byKey(const Key('info-dialog')), findsOneWidget);
@@ -156,8 +171,8 @@ void main() {
       await setupDevAuth();
       await pumpApp(tester);
 
-      await openMehr(tester);
-      await tester.tap(find.byKey(const Key('mehr-settings')));
+      await openProfile(tester);
+      await tester.tap(find.byKey(const Key('profile-settings')));
       await pumpFrames(tester);
 
       // Issue #516: a pushed full screen, not a dialog.
@@ -197,12 +212,12 @@ void main() {
       );
       await container.read(authSessionControllerProvider.notifier).signIn();
       await pumpApp(tester);
-      await openMehr(tester);
-      await tester.tap(find.byKey(const Key('mehr-signout')));
-      await pumpFrames(tester);
+      await openProfile(tester);
+      await tester.tap(find.byKey(const Key('profile-signout')));
+      await pumpFrames(tester, n: 30);
 
-      // Fail-closed: seasons gone, LoginScreen carries the error copy.
-      expect(find.byKey(const Key('seasons-list')), findsNothing);
+      // Fail-closed: the shell is gone, LoginScreen carries the error copy.
+      expect(find.byKey(const Key('shell-navigation-bar')), findsNothing);
       expect(find.byKey(const Key('login-error-banner')), findsOneWidget);
       expect(find.textContaining('Something went wrong'), findsOneWidget);
     });

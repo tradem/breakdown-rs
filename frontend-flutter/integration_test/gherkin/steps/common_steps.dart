@@ -233,20 +233,42 @@ StepDefinitionGeneric whenOpenReportIndexEntry() => when1<String, FlutterWorld>(
   },
 );
 
-/// Opens a season from the seasons list (`season-<id>` tile).
+/// Opens a season and enters the production hierarchy spine (spec
+/// `flutter-hierarchy-navigation`; issue #610 re-homed the spine out of the
+/// dissolved Planen destination).
+///
+/// Path: the Cast view's season-selection CTA → the season scope picker →
+/// its season-management entry (the seasons overview) → the season card
+/// (which sets the shell's active season from the acted-on DTO and opens
+/// the production overview) → the block list.
 StepDefinitionGeneric whenOpenSeason() => when1<String, FlutterWorld>(
   'I open season {string}',
   (String seasonId, context) async {
-    // Hierarchy spine via the shell's Planen tab (spec
-    // `flutter-hierarchy-navigation`: hierarchy pushes operate on the
-    // Planen tab's nested navigator): tap the Planen destination, then the
-    // season row (which also sets the shell's active season).
+    final driver = context.world.driver!;
     await FlutterDriverUtils.tap(
-      context.world.driver!,
-      find.byValueKey('shell-destination-1'),
+      driver,
+      find.byValueKey('cast-pick-season-cta'),
     );
-    final locator = find.byValueKey('planen-season-$seasonId');
-    await FlutterDriverUtils.tap(context.world.driver!, locator);
+    await FlutterDriverUtils.tap(
+      driver,
+      find.byValueKey('season-scope-manage-seasons'),
+    );
+    final seasonCard = find.byValueKey('season-$seasonId');
+    // Off-viewport guard (same analytic budget as the costume step: the
+    // dev series accumulates seasons across on-device runs, so the seeded
+    // row can sit far down the list — a real gesture, never a sleep).
+    await driver.scrollUntilVisible(
+      find.byValueKey('seasons-list'),
+      seasonCard,
+      dxScroll: 0,
+      dyScroll: -200,
+      timeout: const Duration(seconds: 45),
+    );
+    await FlutterDriverUtils.tap(driver, seasonCard);
+    await FlutterDriverUtils.tap(
+      driver,
+      find.byValueKey('production-blocks-entry'),
+    );
   },
 );
 
@@ -287,11 +309,14 @@ StepDefinitionGeneric whenOpenDayBoard() => when1<String, FlutterWorld>(
   },
 );
 
-/// Opens costume assignment for a season via the shell's Kleidung tab
-/// (`redesign-app-shell-navigation` task 5.5 — the season-row icon buttons
-/// are gone; the costume stream is a first-class tab destination now):
-/// tap the Kleidung destination, then the season-scoped "Kostüme" entry.
-/// Scenario semantics preserved; only the entry action changed.
+/// Opens costume assignment for a season via the shell's Cast destination
+/// (issue #610: the costume surface moved out of the dissolved Kleidung
+/// destination INTO the Cast view; the costume categories vocabulary lives
+/// here too, never with the user settings).
+///
+/// Path: Cast view's season CTA → season scope picker → pick the season
+/// (sets the active season, pops) → switch the Cast view to the costume
+/// surface. Scenario semantics preserved; only the entry action changed.
 StepDefinitionGeneric whenOpenCostumeAssignment() =>
     when1<String, FlutterWorld>(
       'I open the costume assignment for season {string}',
@@ -300,16 +325,17 @@ StepDefinitionGeneric whenOpenCostumeAssignment() =>
         // id (AppWorld.seedIds, filled by the seeding Given step).
         final realSeason =
             (context.world as AppWorld).seedIds[seasonId] ?? seasonId;
-        // The Kleidung tab scopes to the shell's ACTIVE season, and the app
+        // The Cast view scopes to the shell's ACTIVE season, and the app
         // restarts per scenario with none set: first set the active season
-        // from the Planen tab's season row (the surface that SETS it, D5),
-        // then switch to the Kleidung tab and open the costumes entry.
+        // from the season scope picker (the surface that SETS it, D5),
+        // then switch the Cast view to the costume surface.
+        final driver = context.world.driver!;
         await FlutterDriverUtils.tap(
-          context.world.driver!,
-          find.byValueKey('shell-destination-1'),
+          driver,
+          find.byValueKey('cast-pick-season-cta'),
         );
-        final planenList = find.byValueKey('planen-list');
-        final seasonRow = find.byValueKey('planen-season-$realSeason');
+        final scopeList = find.byValueKey('season-scope-list');
+        final seasonRow = find.byValueKey('season-scope-season-$realSeason');
         // Off-viewport guard (#368 on-device run): the seeded season sorts
         // at the END of the accumulated dev series (it gets the next free,
         // hence highest, number), beyond the built window of the Planen
@@ -320,22 +346,16 @@ StepDefinitionGeneric whenOpenCostumeAssignment() =>
         // #463), so the deepest row can sit ~6400px down; the budget covers
         // that analytic worst case deterministically (per-step -200px
         // gesture, never a sleep).
-        await context.world.driver!.scrollUntilVisible(
-          planenList,
+        await driver.scrollUntilVisible(
+          scopeList,
           seasonRow,
           dxScroll: 0,
           dyScroll: -200,
           timeout: const Duration(seconds: 45),
         );
-        await FlutterDriverUtils.tap(context.world.driver!, seasonRow);
-        await FlutterDriverUtils.tap(
-          context.world.driver!,
-          find.byValueKey('shell-destination-2'),
-        );
-        // The season-scoped costumes entry (Kleidung tab root).
-        await FlutterDriverUtils.tap(
-          context.world.driver!,
-          find.byValueKey('kleidung-costumes-entry'),
-        );
+        await FlutterDriverUtils.tap(driver, seasonRow);
+        // The Cast view's roster/costume switch — the costume surface is
+        // the second segment (label „Kostüme").
+        await FlutterDriverUtils.tap(driver, find.text('Kostüme'));
       },
     );

@@ -15,26 +15,40 @@ import '../../l10n/generated/app_localizations_de.dart';
 import '../../design/material_icons.dart';
 import '../../auth/active_block.dart';
 import 'active_scope_chip.dart';
+import 'cast_tab_screen.dart';
 import 'location_strip.dart';
-import 'more_tab_screen.dart';
-import 'planning_tab_screen.dart';
-import '../seasons/seasons_screen.dart';
-import 'costuming_tab_screen.dart';
 import 'planning_location_route_observer.dart';
+import 'schedule_tab_screen.dart';
+import 'script_tab_screen.dart';
+import 'season_scope_chip.dart';
 import 'shell_controller.dart';
 import 'window_size_class.dart';
 
 /// Semantic traversal labels: Material's NavigationBar/Rail/Drawer add the
-/// framework `MaterialLocalizations.tabLabel` ("Tab N of 4") semantics to
-/// every destination automatically, so the "Season, Tab 1 of 4" traversal
-/// pattern is announced without hand-rolled Semantics wrappers. This helper
-/// builds the concatenated form for the NavigationBar tooltip (carried into
-/// its semantics) and documents the contract for tests.
-String tabSemanticLabel(AppLocalizations l10n, int index, String label) =>
-    l10n.seasonTabSemantic(label, index + 1);
+/// framework `MaterialLocalizations.tabLabel` semantics to every destination
+/// automatically, so the "Cast, Tab 1 von 3" traversal pattern is announced
+/// without hand-rolled Semantics wrappers. This helper builds the
+/// concatenated form for the NavigationBar tooltip (carried into its
+/// semantics) and documents the contract for tests.
+///
+/// The destination TOTAL is a placeholder, not a baked-in literal (issue
+/// #610 reduced the shell from four destinations to three): it is derived
+/// from the destination-list length, so a future destination change updates
+/// the announcement by construction. The placeholder is deliberately named
+/// `total`, not `count` — `count` is reserved by the ICU message parser and
+/// would be read as a plural selector.
+String tabSemanticLabel(
+  AppLocalizations l10n,
+  int index,
+  String label, {
+  int total = kDestinationCount,
+}) => l10n.seasonTabSemantic(label, index + 1, total);
 
-/// The adaptive four-tab navigation shell (spec `flutter-navigation-shell`,
-/// design D1–D3).
+/// How many destinations the shell renders (issue #610: three).
+const int kDestinationCount = 3;
+
+/// The adaptive three-destination navigation shell (issue #610, spec
+/// `flutter-navigation-shell`, design D1–D3).
 ///
 /// Resolves the window size class from the window width (MediaQuery, no
 /// extra package) and renders the navigation suite in the matching
@@ -43,25 +57,32 @@ String tabSemanticLabel(AppLocalizations l10n, int index, String label) =>
 /// renders a VISIBLE label (glossary rule — icon-only navigation is
 /// forbidden).
 ///
-/// Tab content: an [IndexedStack] keeps all four nested navigators alive,
-/// so switching tabs preserves each tab's position (design D2). System
-/// back pops within the active tab's navigator first; at a tab root it
-/// never hops tabs — at the initial (Season) tab root it issues the
-/// app-exit intent per platform convention (D3).
+/// Destinations are TASK-oriented (issue #610): Cast (roster + costumes +
+/// category vocabulary), Script (the season's chronological scenes) and
+/// Schedule/Dispo (the season's shooting days). The former Season, Planen,
+/// Kleidung and Mehr tabs are dissolved: seasons and the production spine
+/// are reached from the season scope chip's picker, and the profile entries
+/// from each view's app-bar profile action (issue #613 owns the final
+/// top-bar design).
+///
+/// Tab content: an [IndexedStack] keeps all three nested navigators alive,
+/// so switching destinations preserves each one's position (design D2).
+/// System back pops within the active destination's navigator first; at a
+/// destination root it never hops destinations — at the initial (Cast)
+/// destination root it issues the app-exit intent per platform convention
+/// (D3).
 ///
 /// The shell renders only for a resolved authenticated session (it sits
 /// below `AuthGate`; the gate contract is unchanged).
 class AppShell extends ConsumerStatefulWidget {
   const AppShell({super.key});
 
-  /// Root screen per tab (design D2/task 3.2): Season = the seasons
-  /// overview, Planen = hierarchy entry (+ AI import), Garderobe = costume
-  /// domains scope, Mehr = secondary destinations.
+  /// Root screen per destination (issue #610): Cast = roster/costumes,
+  /// Script = chronological scene overview, Schedule/Dispo = day board.
   static const List<Widget> _tabRoots = [
-    SeasonsScreen(),
-    PlanningTabScreen(),
-    CostumingTabScreen(),
-    MoreTabScreen(),
+    CastTabScreen(),
+    ScriptTabScreen(),
+    ScheduleTabScreen(),
   ];
 
   @override
@@ -74,17 +95,17 @@ class AppShellState extends ConsumerState<AppShell> {
   /// assertion if two shells were ever mounted side by side, e.g. a
   /// preview or a lingering test tree).
   final List<GlobalKey<NavigatorState>> tabNavigatorKeys = [
-    GlobalKey<NavigatorState>(debugLabel: 'shell-tab-0-season'),
-    GlobalKey<NavigatorState>(debugLabel: 'shell-tab-1-planen'),
-    GlobalKey<NavigatorState>(debugLabel: 'shell-tab-2-kleidung'),
-    GlobalKey<NavigatorState>(debugLabel: 'shell-tab-3-mehr'),
+    GlobalKey<NavigatorState>(debugLabel: 'shell-tab-0-cast'),
+    GlobalKey<NavigatorState>(debugLabel: 'shell-tab-1-script'),
+    GlobalKey<NavigatorState>(debugLabel: 'shell-tab-2-schedule'),
   ];
 
-  /// One location observer per tab navigator (issue #548): the context
-  /// bar resolves the ACTIVE tab's location from its topmost route's
-  /// `RouteSettings.arguments`; pop/tab-switch updates come free.
+  /// One location observer per destination navigator (issue #548): the
+  /// context bar resolves the ACTIVE destination's location from its
+  /// topmost route's `RouteSettings.arguments`; pop/switch updates come
+  /// free.
   final List<LocationRouteObserver> tabLocationObservers = [
-    for (var i = 0; i < 4; i++) LocationRouteObserver(),
+    for (var i = 0; i < 3; i++) LocationRouteObserver(),
   ];
 
   @override
@@ -107,11 +128,11 @@ class AppShellState extends ConsumerState<AppShell> {
         final navigator = tabNavigatorKeys[state.selectedIndex].currentState;
         final popped = await navigator?.maybePop() ?? false;
         if (popped) return;
-        // At the tab root: NO tab hopping (D3). The initial (Season) tab
-        // issues the app-exit intent per platform convention; any other
-        // tab root stays on the tab (the OS back intent is consumed —
-        // back is never a tab-history step).
-        if (state.selectedIndex == kSeasonTabIndex) {
+        // At the destination root: NO destination hopping (D3). The
+        // initial (Cast) destination issues the app-exit intent per
+        // platform convention; any other root stays put (the OS back
+        // intent is consumed — back is never a destination-history step).
+        if (state.selectedIndex == kCastTabIndex) {
           await SystemNavigator.pop();
         }
       },
@@ -183,12 +204,12 @@ class AppShellState extends ConsumerState<AppShell> {
   }
 }
 
-/// The shell's context bar (issue #548): the [LocationStrip] for the
-/// active tab's topmost route location plus the [ActiveScopeChip] —
-/// WHERE YOU NAVIGATED (per-route) and WHAT FILTERS YOUR REQUESTS
-/// (sticky) as two separate widgets with separate lifetimes. Hidden
-/// entirely when neither has anything to say (tab roots without a pushed
-/// location and no scope).
+/// The shell's context bar (issue #548 + #610): the [LocationStrip] for the
+/// active destination's topmost route location plus the SEASON and BLOCK
+/// scope chips — WHERE YOU NAVIGATED (per-route) and WHAT FILTERS YOUR
+/// REQUESTS (sticky) as separate widgets with separate lifetimes. Hidden
+/// entirely when neither has anything to say (destination roots without a
+/// pushed location and no scope).
 class ShellContextBar extends ConsumerWidget {
   const ShellContextBar({
     super.key,
@@ -207,7 +228,10 @@ class ShellContextBar extends ConsumerWidget {
         final navigator = navigatorKey.currentState;
         final location = navigator == null ? null : locationOf(navigator);
         final scope = ref.watch(activeBlockProvider);
-        if (location == null && scope == null) return const SizedBox.shrink();
+        final season = ref.watch(shellControllerProvider).activeSeason;
+        if (location == null && scope == null && season == null) {
+          return const SizedBox.shrink();
+        }
 
         final maxSegments =
             resolveWindowSizeClass(MediaQuery.sizeOf(context).width) ==
@@ -241,6 +265,15 @@ class ShellContextBar extends ConsumerWidget {
                   ),
                   const SizedBox(width: 8),
                 ],
+                SeasonScopeChip(
+                  onOpenPicker: () => unawaited(
+                    Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => const SeasonScopePickerScreen(),
+                      ),
+                    ),
+                  ),
+                ),
                 ActiveScopeChip(
                   location: location,
                   onOpenPicker: (seasonId) => unawaited(
@@ -262,7 +295,7 @@ class ShellContextBar extends ConsumerWidget {
 }
 
 /// The shell navigation suite: the three M3 morphologies built from ONE
-/// destination list (glossary icons + visible labels + "Tab N of 4"
+/// destination list (glossary icons + visible labels + "Tab N of 3"
 /// semantics). Public (non-private) so the semantics/touch-target widget
 /// tests pump the EXACT suite widgets the shell renders — the framework's
 /// test semantics pipeline prunes sibling-subtree annotations when an
@@ -272,7 +305,8 @@ class ShellDestinations {
   ShellDestinations._();
 
   static List<_DestinationSpec> _specs(AppLocalizations l10n) => [
-    for (var i = 0; i < 4; i++) _DestinationSpec.tab(i, l10n),
+    for (var i = 0; i < kDestinationCount; i++)
+      _DestinationSpec.destination(i, l10n),
   ];
 
   /// Compact morphology: bottom [NavigationBar].
@@ -364,9 +398,9 @@ class ShellDestinations {
 }
 
 /// One shell destination's static metadata: glossary icon, visible label
-/// and the "Tab N of 4" semantics label.
+/// and the "Tab N of 3" semantics label.
 class _DestinationSpec {
-  _DestinationSpec.tab(int index, AppLocalizations l10n)
+  _DestinationSpec.destination(int index, AppLocalizations l10n)
     : keySuffix = _keySuffixes[index],
       label = _label(index, l10n),
       outlineIcon = _outlineIcons[index],
@@ -381,29 +415,25 @@ class _DestinationSpec {
   final String semanticLabel;
 
   static String _label(int index, AppLocalizations l10n) => switch (index) {
-    0 => l10n.navSeasons,
-    1 => l10n.navPlanen,
-    2 => l10n.navCostumes,
-    _ => l10n.navMore,
+    0 => l10n.navCast,
+    1 => l10n.navScript,
+    _ => l10n.navSchedule,
   };
   static const _keySuffixes = [
     'shell-destination-0',
     'shell-destination-1',
     'shell-destination-2',
-    'shell-destination-3',
   ];
-  // Glossary (`docs/design/glossary.md`): home_outlined/Season,
-  // edit_calendar_outlined/Planen, checkroom/Garderobe, more_horiz/Mehr.
+  // Glossary (`docs/design/glossary.md`, issue #610): face/Cast,
+  // menu_book/Script, calendar_month/Schedule/Dispo.
   static const _outlineIcons = [
-    BreakdownMaterialIcons.shellHomeOutline,
-    BreakdownMaterialIcons.shellPlanenOutline,
-    BreakdownMaterialIcons.shellCostumesOutline,
-    BreakdownMaterialIcons.shellMore,
+    BreakdownMaterialIcons.shellCastOutline,
+    BreakdownMaterialIcons.shellScriptOutline,
+    BreakdownMaterialIcons.shellScheduleOutline,
   ];
   static const _filledIcons = [
-    BreakdownMaterialIcons.shellHomeFilled,
-    BreakdownMaterialIcons.shellPlanenFilled,
-    BreakdownMaterialIcons.shellCostumesFilled,
-    BreakdownMaterialIcons.shellMore,
+    BreakdownMaterialIcons.shellCastFilled,
+    BreakdownMaterialIcons.shellScriptFilled,
+    BreakdownMaterialIcons.shellScheduleFilled,
   ];
 }

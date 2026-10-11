@@ -104,25 +104,25 @@ _buildFixture({AuthSession? session, SeasonView? resolvedSeason}) async {
 
 void main() {
   group('ShellController (task 2.1)', () {
-    test('starts on the Season tab without an active season', () async {
+    test('starts on the Cast destination without an active season', () async {
       final f = await _buildFixture();
       final state = f.container.read(shellControllerProvider);
-      expect(state.selectedIndex, kSeasonTabIndex);
+      expect(state.selectedIndex, kCastTabIndex);
       expect(state.activeSeason, isNull);
     });
 
-    test('selectTab switches the selected index', () async {
+    test('selectTab switches the selected destination', () async {
       final f = await _buildFixture();
       final c = f.container.read(shellControllerProvider.notifier);
-      c.selectTab(kPlanenTabIndex);
+      c.selectTab(kScriptTabIndex);
       expect(
         f.container.read(shellControllerProvider).selectedIndex,
-        kPlanenTabIndex,
+        kScriptTabIndex,
       );
-      c.selectTab(kKleidungTabIndex);
+      c.selectTab(kScheduleTabIndex);
       expect(
         f.container.read(shellControllerProvider).selectedIndex,
-        kKleidungTabIndex,
+        kScheduleTabIndex,
       );
     });
 
@@ -132,9 +132,9 @@ void main() {
       final container = f.container;
       final notifier = container.read(shellControllerProvider.notifier);
       notifier.setActiveSeason(s);
-      notifier.selectTab(kPlanenTabIndex);
+      notifier.selectTab(kScriptTabIndex);
       final state = container.read(shellControllerProvider);
-      expect(state.selectedIndex, kPlanenTabIndex);
+      expect(state.selectedIndex, kScriptTabIndex);
       expect(state.activeSeason?.id, 'season-1');
     });
 
@@ -145,7 +145,7 @@ void main() {
       c.selectTab(99);
       expect(
         f.container.read(shellControllerProvider).selectedIndex,
-        kSeasonTabIndex,
+        kCastTabIndex,
       );
     });
 
@@ -284,7 +284,7 @@ void main() {
       expect(state.activeSeason, isNull);
       expect(
         container.read(shellControllerProvider).selectedIndex,
-        kSeasonTabIndex,
+        kCastTabIndex,
       );
       // Flush the fire-and-forget eviction write.
       await _settlePersistence();
@@ -304,7 +304,7 @@ void main() {
       final f = await _buildFixture(resolvedSeason: s);
       final container = f.container;
       final notifier = container.read(shellControllerProvider.notifier);
-      notifier.selectTab(kMehrTabIndex);
+      notifier.selectTab(kScheduleTabIndex);
       notifier.setActiveSeason(s);
       await _settlePersistence();
 
@@ -314,7 +314,7 @@ void main() {
       container.invalidate(authSessionControllerProvider);
       await container.read(authSessionControllerProvider.future);
       final state = container.read(shellControllerProvider);
-      expect(state.selectedIndex, kSeasonTabIndex);
+      expect(state.selectedIndex, kCastTabIndex);
       expect(state.activeSeason, isNull);
     });
   });

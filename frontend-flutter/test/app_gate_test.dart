@@ -87,7 +87,8 @@ void main() {
           final r = ref.watch(seasonRepositoryProvider);
           return r.fetchAndCacheList(() async => holder.value);
         }),
-        // The Planen-tab active-jobs summary row (issue #547): stub the
+        // The production overview's active-jobs summary row (issue #547):
+        // stub the
         // AI-import jobs repository + fetch seam (no client needed here).
         aiImportRepositoryProvider.overrideWithValue(
           FakeJobsRepository(BreakdownApi(), AiImportJobsCacheDao(db)),
@@ -150,16 +151,20 @@ void main() {
       expect(repo.createCalls, 0);
     });
 
-    testWidgets('authenticated → SeasonsScreen', (tester) async {
+    testWidgets('authenticated → the navigation shell (issue #610: the '
+        'seasons overview is no longer the post-login root)', (tester) async {
       final container = setupContainer(
         () async => const AuthSession(sub: 'user-1'),
         initialRows: [season('a', number: 1, title: 'Spring')],
       );
       await pumpApp(tester, container);
 
-      expect(find.text('Seasons'), findsOneWidget);
+      expect(find.text('Cast'), findsWidgets);
       expect(find.byKey(const Key('login-signin-button')), findsNothing);
-      expect(fetchCalls, greaterThanOrEqualTo(1));
+      // Issue #610: the shell no longer boots INTO the seasons projection —
+      // the Cast view renders its season-selection empty state until the
+      // user picks a season (the seasons read then happens on that demand).
+      expect(find.byKey(const Key('cast-empty')), findsOneWidget);
     });
 
     testWidgets('AsyncError(ProblemError) → LoginScreen with keyed copy', (

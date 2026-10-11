@@ -34,12 +34,11 @@ import 'package:frontend_flutter/features/ai_import/import_jobs/jobs_controller.
 import 'package:frontend_flutter/features/shell/planning_location.dart';
 
 import 'package:frontend_flutter/domain/reconciliation/reconciliation_scheduler.dart';
-import 'package:frontend_flutter/features/blocks/blocks_screen.dart';
-import 'package:frontend_flutter/features/seasons/seasons_screen.dart';
 import 'package:frontend_flutter/features/shell/app_shell.dart';
 import 'package:frontend_flutter/l10n/generated/app_localizations.dart';
-import 'package:frontend_flutter/features/shell/more_tab_screen.dart';
-import 'package:frontend_flutter/features/shell/planning_tab_screen.dart';
+import 'package:frontend_flutter/features/shell/cast_tab_screen.dart';
+import 'package:frontend_flutter/features/shell/schedule_tab_screen.dart';
+import 'package:frontend_flutter/features/shell/script_tab_screen.dart';
 import 'package:frontend_flutter/features/shell/shell_controller.dart';
 import 'package:frontend_flutter/features/blocks/blocks_controller.dart';
 import 'package:frontend_flutter/features/costume_categories/costume_categories_controller.dart';
@@ -60,6 +59,17 @@ Future<void> pumpFrames(WidgetTester tester, {int n = 8}) async {
 
 /// The app under the dev-auth session with one seeded season.
 const _appConfig = devAuthConfig;
+
+/// A stand-in for a pushed hierarchy screen (the state-preservation test
+/// only needs SOMETHING on the Script destination's nested navigator — no
+/// projection data, no network).
+class BlocksScreenFixture extends StatelessWidget {
+  const BlocksScreenFixture({super.key});
+
+  @override
+  Widget build(BuildContext context) =>
+      const Scaffold(body: Text('drilldown fixture'));
+}
 
 void main() {
   late CacheDatabase db;
@@ -95,7 +105,8 @@ void main() {
           final r = ref.watch(seasonRepositoryProvider);
           return r.fetchAndCacheList(() async => holder.value);
         }),
-        // The Planen-tab active-jobs summary row (issue #547) reads the
+        // The production overview's active-jobs summary row (issue #547)
+        // reads the
         // AI-import jobs view; stub its repository + fetch seam so no
         // network client is needed (the shell test asserts NAVIGATION
         // state, not job data).
@@ -149,14 +160,17 @@ void main() {
 
       expect(find.byKey(const Key('shell-navigation-bar')), findsOneWidget);
       expect(find.byKey(const Key('shell-navigation-rail')), findsNothing);
-      // Every destination shows a VISIBLE label (glossary rule).
-      expect(find.text('Season'), findsWidgets);
-      expect(find.text('Planen'), findsOneWidget);
-      expect(find.text('Garderobe'), findsOneWidget);
-      expect(find.text('Mehr'), findsOneWidget);
-      // The Season tab is the initial tab; its content is the seasons list.
-      expect(find.byType(SeasonsScreen), findsOneWidget);
-      expect(find.text('Shell Season'), findsOneWidget);
+      // Every destination shows a VISIBLE label (glossary rule). Each
+      // label appears twice — once as the destination label, once as the
+      // view root's app-bar title (the IndexedStack mounts all three).
+      expect(find.text('Cast'), findsWidgets);
+      expect(find.text('Script'), findsWidgets);
+      expect(find.text('Schedule/Dispo'), findsWidgets);
+      // The Cast destination is selected first; its content is the cast
+      // view (roster/costumes — issue #610).
+      expect(find.byType(CastTabScreen), findsOneWidget);
+      // No season scope yet: the cast view shows its season empty state.
+      expect(find.byKey(const Key('cast-empty')), findsOneWidget);
     });
 
     testWidgets('medium (700dp) renders a NavigationRail beside content', (
@@ -167,11 +181,28 @@ void main() {
 
       expect(find.byKey(const Key('shell-navigation-rail')), findsOneWidget);
       expect(find.byKey(const Key('shell-navigation-bar')), findsNothing);
-      // Visible labels (rail labelType all).
-      expect(find.text('Season'), findsOneWidget);
-      expect(find.text('Planen'), findsOneWidget);
-      expect(find.text('Garderobe'), findsOneWidget);
-      expect(find.text('Mehr'), findsOneWidget);
+      // Visible labels (rail labelType all) on the destination rail.
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('shell-navigation-rail')),
+          matching: find.text('Cast'),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('shell-navigation-rail')),
+          matching: find.text('Script'),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('shell-navigation-rail')),
+          matching: find.text('Schedule/Dispo'),
+        ),
+        findsOneWidget,
+      );
     });
 
     testWidgets('expanded (1000dp) renders a permanent NavigationDrawer', (
@@ -182,14 +213,31 @@ void main() {
 
       expect(find.byKey(const Key('shell-navigation-drawer')), findsOneWidget);
       expect(find.byKey(const Key('shell-navigation-bar')), findsNothing);
-      expect(find.text('Season'), findsOneWidget);
-      expect(find.text('Planen'), findsOneWidget);
-      expect(find.text('Garderobe'), findsOneWidget);
-      expect(find.text('Mehr'), findsOneWidget);
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('shell-navigation-drawer')),
+          matching: find.text('Cast'),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('shell-navigation-drawer')),
+          matching: find.text('Script'),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('shell-navigation-drawer')),
+          matching: find.text('Schedule/Dispo'),
+        ),
+        findsOneWidget,
+      );
     });
 
     testWidgets(
-      'semantic traversal announces position: "<label>, Tab N of 4" per '
+      'semantic traversal announces position: "<label>, Tab N of 3" per '
       'destination (rail suite, medium morphology)',
       (tester) async {
         await setupContainer();
@@ -215,16 +263,15 @@ void main() {
           await tester.pump(const Duration(milliseconds: 16));
         }
 
-        // Explicit "<label>, Tab N of 4" semantics per destination
+        // Explicit "<label>, Tab N of 3" semantics per destination
         // (spec accessible-labeled-destinations requirement). Node-based
         // finder: the label node carries no widget-level actions, so the
         // element-based `bySemanticsLabel` cannot reach it.
         SemanticsFinder hasLabel(String label) =>
             find.semantics.byPredicate((SemanticsNode n) => n.label == label);
-        expect(hasLabel('Season, Tab 1 von 4'), findsOneWidget);
-        expect(hasLabel('Planen, Tab 2 von 4'), findsOneWidget);
-        expect(hasLabel('Garderobe, Tab 3 von 4'), findsOneWidget);
-        expect(hasLabel('Mehr, Tab 4 von 4'), findsOneWidget);
+        expect(hasLabel('Cast, Tab 1 von 3'), findsOneWidget);
+        expect(hasLabel('Script, Tab 2 von 3'), findsOneWidget);
+        expect(hasLabel('Schedule/Dispo, Tab 3 von 3'), findsOneWidget);
         semantics.dispose();
       },
     );
@@ -242,75 +289,78 @@ void main() {
   });
 
   group('5.2 tab state preservation + back contract', () {
-    testWidgets('Planen drilldown survives a Kleidung switch (IndexedStack), '
-        'and back pops within the tab without hopping', (tester) async {
+    testWidgets('Script drilldown survives a Cast switch (IndexedStack), '
+        'and back pops within the destination without hopping', (tester) async {
       await setupContainer();
       await pumpShell(tester, widthDp: 360);
 
-      // Planen → season row → BlocksScreen on the Planen navigator.
-      await tester.tap(find.text('Planen'));
+      // Script → a pushed hierarchy screen on the Script navigator (the
+      // view's own scene-detail push).
+      await tester.tap(find.byKey(const Key('shell-destination-1')));
       await pumpFrames(tester);
-      await tester.tap(find.byKey(const Key('planen-season-season-1')));
+      expect(find.byType(ScriptTabScreen), findsOneWidget);
+      final shell = tester.state<AppShellState>(find.byType(AppShell));
+      // Fire-and-forget: a push future completes on POP, awaiting it here
+      // would deadlock the test.
+      shell.tabNavigatorKeys[kScriptTabIndex].currentState!.push(
+        MaterialPageRoute<void>(builder: (_) => const BlocksScreenFixture()),
+      );
       await pumpFrames(tester, n: 12);
-      expect(find.byType(BlocksScreen), findsOneWidget);
+      expect(find.byType(BlocksScreenFixture), findsOneWidget);
 
-      // Switch to Kleidung and back to Planen: the drilldown stays.
-      // NOTE: IndexedStack keeps ALL tab navigators mounted, so
-      // finders see every tab's widgets — visibility is asserted via
-      // the shell controller's selected index.
-      await tester.tap(find.text('Garderobe'));
+      // Switch to Cast and back to Script: the drilldown stays.
+      // NOTE: IndexedStack keeps ALL destination navigators mounted, so
+      // finders see every destination's widgets — visibility is asserted
+      // via the shell controller's selected index.
+      await tester.tap(find.byKey(const Key('shell-destination-0')));
       await pumpFrames(tester);
       expect(
         container.read(shellControllerProvider).selectedIndex,
-        kKleidungTabIndex,
+        kCastTabIndex,
       );
-      await tester.tap(find.text('Planen'));
+      await tester.tap(find.byKey(const Key('shell-destination-1')));
       await pumpFrames(tester);
       expect(
         container.read(shellControllerProvider).selectedIndex,
-        kPlanenTabIndex,
+        kScriptTabIndex,
       );
-      expect(find.byType(BlocksScreen), findsOneWidget);
+      expect(find.byType(BlocksScreenFixture), findsOneWidget);
 
-      // System back pops WITHIN the Planen tab (no tab hop, no exit).
+      // System back pops WITHIN the Script destination (no hop, no exit).
       await tester.binding.handlePopRoute();
       await pumpFrames(tester, n: 40);
-      expect(find.byType(PlanningTabScreen), findsOneWidget);
-      // The popped BlocksScreen is no longer in the Planen navigator.
-      expect(find.byType(BlocksScreen), findsNothing);
-      // Still on the Planen tab — back never switched tabs.
+      expect(find.byType(ScriptTabScreen), findsOneWidget);
+      // The pushed screen is gone from the Script navigator.
+      expect(find.byType(BlocksScreenFixture), findsNothing);
+      // Still on Script — back never switched destinations.
       expect(
         container.read(shellControllerProvider).selectedIndex,
-        kPlanenTabIndex,
+        kScriptTabIndex,
+      );
+    });
+
+    testWidgets('back at the Script root stays on the destination (no lazy '
+        'destination-switch chain, D3)', (tester) async {
+      await setupContainer();
+      await pumpShell(tester, widthDp: 360);
+
+      await tester.tap(find.byKey(const Key('shell-destination-1')));
+      await pumpFrames(tester);
+      expect(find.byType(ScriptTabScreen), findsOneWidget);
+
+      await tester.binding.handlePopRoute();
+      await pumpFrames(tester);
+      // Stayed on Script; no hop back to Cast.
+      expect(find.byType(ScriptTabScreen), findsOneWidget);
+      expect(
+        container.read(shellControllerProvider).selectedIndex,
+        kScriptTabIndex,
       );
     });
 
     testWidgets(
-      'back at the Planen tab root stays on the tab (no lazy tab-switch '
-      'chain, D3)',
-      (tester) async {
-        await setupContainer();
-        await pumpShell(tester, widthDp: 360);
-
-        await tester.tap(find.text('Planen'));
-        await pumpFrames(tester);
-        expect(find.byType(PlanningTabScreen), findsOneWidget);
-
-        await tester.binding.handlePopRoute();
-        await pumpFrames(tester);
-        // Stayed on Planen; no hop back to Season.
-        expect(find.byType(PlanningTabScreen), findsOneWidget);
-        expect(find.byType(SeasonsScreen), findsNothing);
-        expect(
-          container.read(shellControllerProvider).selectedIndex,
-          kPlanenTabIndex,
-        );
-      },
-    );
-
-    testWidgets(
-      'back at the Season tab root consumes the intent and issues the '
-      'app-exit request (D3) without leaving the shell',
+      'back at the Cast root consumes the intent and issues the app-exit '
+      'request (D3) without leaving the shell',
       (tester) async {
         await setupContainer();
         await pumpShell(tester, widthDp: 360);
@@ -318,28 +368,28 @@ void main() {
         await tester.binding.handlePopRoute();
         await pumpFrames(tester);
         // The shell is still the root; the app-exit intent was issued via
-        // the platform channel (no tab change, no crash).
-        expect(find.byType(SeasonsScreen), findsOneWidget);
+        // the platform channel (no destination change, no crash).
+        expect(find.byType(CastTabScreen), findsOneWidget);
         expect(
           container.read(shellControllerProvider).selectedIndex,
-          kSeasonTabIndex,
+          kCastTabIndex,
         );
       },
     );
 
-    testWidgets('tab switch resets nothing: Season tab keeps its position', (
+    testWidgets('destination switch resets nothing: Cast keeps its position', (
       tester,
     ) async {
       await setupContainer();
       await pumpShell(tester, widthDp: 360);
 
-      await tester.tap(find.text('Mehr'));
+      await tester.tap(find.byKey(const Key('shell-destination-2')));
       await pumpFrames(tester);
-      expect(find.byType(MoreTabScreen), findsOneWidget);
-      await tester.tap(find.text('Season'));
+      expect(find.byType(ScheduleTabScreen), findsOneWidget);
+      await tester.tap(find.byKey(const Key('shell-destination-0')));
       await pumpFrames(tester);
-      expect(find.byType(SeasonsScreen), findsOneWidget);
-      expect(find.text('Shell Season'), findsOneWidget);
+      expect(find.byType(CastTabScreen), findsOneWidget);
+      expect(find.byKey(const Key('cast-empty')), findsOneWidget);
     });
   });
 
@@ -420,7 +470,7 @@ void main() {
       await pumpShell(tester, widthDp: 360);
       await pushLocation(
         tester,
-        kSeasonTabIndex,
+        kCastTabIndex,
         PlanningLocation.season(seasonDto),
       );
       expect(find.byKey(const Key('shell-context-bar')), findsOneWidget);
@@ -428,7 +478,7 @@ void main() {
 
       tester
           .state<AppShellState>(find.byType(AppShell))
-          .tabNavigatorKeys[kSeasonTabIndex]
+          .tabNavigatorKeys[kCastTabIndex]
           .currentState!
           .pop();
       // ONE pump — the route is gone, the location with it.
@@ -443,21 +493,21 @@ void main() {
         await pumpShell(tester, widthDp: 360);
         await pushLocation(
           tester,
-          kPlanenTabIndex,
+          kScriptTabIndex,
           PlanningLocation.block(seasonDto, block('b-1', 2)),
         );
-        // Tab 0 is active — no location there, bar hidden.
+        // Cast is active — no location there, bar hidden.
         expect(find.byKey(const Key('shell-context-bar')), findsNothing);
 
-        await tester.tap(find.text('Planen'));
+        await tester.tap(find.byKey(const Key('shell-destination-1')));
         await pumpFrames(tester);
-        // The Planen tab's nested navigator resolves its own chain.
+        // The Script destination's nested navigator resolves its own chain.
         expect(find.byKey(const Key('shell-context-bar')), findsOneWidget);
         expect(find.text('Shell Season'), findsWidgets);
         expect(find.text('Block 2'), findsOneWidget);
 
-        // Back to Season: hidden again (per-tab state, none to clear).
-        await tester.tap(find.text('Season'));
+        // Back to Cast: hidden again (per-destination state, none to clear).
+        await tester.tap(find.byKey(const Key('shell-destination-0')));
         await pumpFrames(tester);
         expect(find.byKey(const Key('shell-context-bar')), findsNothing);
       },
@@ -468,13 +518,17 @@ void main() {
     ) async {
       await setupContainer();
       await pumpShell(tester, widthDp: 700);
-      // The strip mirrors the ACTIVE tab's nested navigator — activate the
-      // Planen tab first, then push the full scene chain onto it.
-      await tester.tap(find.text('Planen'));
+      // The strip mirrors the ACTIVE destination's nested navigator —
+      // activate Script first, then push the full scene chain onto it.
+      await tester.tap(find.byKey(const Key('shell-destination-1')));
       await pumpFrames(tester);
+      expect(
+        container.read(shellControllerProvider).selectedIndex,
+        kScriptTabIndex,
+      );
       await pushLocation(
         tester,
-        kPlanenTabIndex,
+        kScriptTabIndex,
         PlanningLocation.scene(
           seasonDto,
           block('b-1', 2),
@@ -483,7 +537,12 @@ void main() {
         ),
       );
       expect(find.byKey(const Key('shell-context-bar')), findsOneWidget);
-      expect(find.text('Shell Season'), findsWidgets);
+      // The deepest levels are rendered (the strip drops LEADING segments
+      // that do not fit — the full path stays in the merged semantics node,
+      // which the location-strip test below asserts).
+      expect(find.byKey(const Key('location-segment-block')), findsOneWidget);
+      expect(find.byKey(const Key('location-segment-episode')), findsOneWidget);
+      expect(find.byKey(const Key('location-segment-scene')), findsOneWidget);
       expect(find.text('Block 2'), findsOneWidget);
       expect(find.text('Der Diebstahl'), findsOneWidget);
       expect(find.text('Die Küche'), findsOneWidget);

@@ -88,12 +88,42 @@ void main() {
       }
     }
 
-    Future<void> openSettings() async {
-      // Settings moved to the shell's Mehr tab (task 4.3): tap the Mehr
-      // destination, then the labeled Einstellungen entry.
-      await tester.tap(find.byKey(const Key('shell-destination-3')));
+    /// Navigates to the seasons overview (issue #610: it is no longer the
+    /// post-login root — it is pushed from the season scope picker's
+    /// *Seasons verwalten* entry, so every season assertion below must open
+    /// it explicitly).
+    Future<void> openSeasons() async {
+      await tester.tap(find.byKey(const Key('cast-pick-season-cta')));
       await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const Key('mehr-settings')));
+      await tester.tap(find.byKey(const Key('season-scope-manage-seasons')));
+      await tester.pumpAndSettle();
+    }
+
+    /// Returns to the shell root, where the view's profile action lives: a
+    /// pushed screen (or the season scope picker) covers the app bar of the
+    /// view beneath it, so one blind `pageBack` is not enough — pop until
+    /// the profile action is reachable, bounded by the known stack depth
+    /// (deterministic, no sleep).
+    Future<void> backToShell() async {
+      for (
+        var i = 0;
+        i < 4 &&
+            find.byKey(const Key('profile-menu-button')).evaluate().isEmpty;
+        i++
+      ) {
+        await tester.pageBack();
+        await tester.pumpAndSettle();
+      }
+    }
+
+    Future<void> openSettings() async {
+      // Issue #610: settings live in the per-view profile affordance (the
+      // Mehr destination is dissolved) — open the profile sheet of the
+      // current view, then the labeled Einstellungen entry. The caller must
+      // be on the shell root (see [backToShell]).
+      await tester.tap(find.byKey(const Key('profile-menu-button')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('profile-settings')));
       await frames();
     }
 
@@ -104,6 +134,10 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('login-continue-button')));
     await tester.pumpAndSettle();
+    // Issue #610: Continue lands on the Cast view, which has no season
+    // scope yet — open the seasons overview through the scope picker
+    // before asserting anything about season rows.
+    await openSeasons();
     expect(find.text('E2E Season'), findsOneWidget);
     // The retained snapshot (`prevRows`) seeds from an unawaited cache
     // read that can lose the race against the initial fetch write; force
@@ -117,8 +151,12 @@ void main() {
     expect(container.read(seasonsPrevRowsProvider), isNotEmpty);
     expect(find.byKey(const Key('seasons-stale-banner')), findsNothing);
 
-    // Switch to the unreachable base: dialog closes…
+    // Switch to the unreachable base: the settings screen closes…
+    // (Issue #610: settings are a PUSHED full screen (issue #516), not a
+    // dialog — the flow returns to the seasons overview explicitly instead
+    // of relying on a route that never existed.)
     useRealFetch = true;
+    await backToShell();
     await openSettings();
     await tester.enterText(
       find.byKey(const Key('settings-uri-field')),
@@ -126,19 +164,25 @@ void main() {
     );
     await tester.tap(find.byKey(const Key('settings-save')));
     await frames(n: 12);
-    expect(find.byKey(const Key('settings-dialog')), findsNothing);
+    expect(find.byKey(const Key('settings-screen')), findsOneWidget);
     // The rebuilt client targets the switched base (provider chain).
     expect(container.read(apiDioProvider).options.baseUrl, 'http://10.0.2.2:9');
 
     // …and the failed refetch surfaces: retained rows + stale banner.
+    await backToShell();
+    await openSeasons();
     expect(find.text('E2E Season'), findsOneWidget);
     expect(find.byKey(const Key('seasons-stale-banner')), findsOneWidget);
 
     // Reset recovers: holder fetch succeeds, banner gone.
     useRealFetch = false;
+    await backToShell();
     await openSettings();
     await tester.tap(find.byKey(const Key('settings-reset')));
     await frames(n: 12);
+    expect(find.byKey(const Key('settings-screen')), findsOneWidget);
+    await backToShell();
+    await openSeasons();
     expect(find.text('E2E Season'), findsOneWidget);
     expect(find.byKey(const Key('seasons-stale-banner')), findsNothing);
   });

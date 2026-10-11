@@ -118,7 +118,7 @@ class _RootRouterDelegate extends RouterDelegate<Object>
 /// - `AsyncData(null)` → [LoginScreen] (signed out; the seasons subtree is
 ///   not built, so no main-app network call can happen).
 /// - `AsyncData(session)` → [AppShell] (the post-login root — the
-///   adaptive four-tab navigation shell).
+///   adaptive three-destination navigation shell — issue #610).
 /// - `AsyncError` → [LoginScreen] with the failure surfaced. The error is
 ///   normalized to a stable-code [ProblemError] first: `AsyncError` is not
 ///   constrained to `ProblemError`, and the login error contract renders

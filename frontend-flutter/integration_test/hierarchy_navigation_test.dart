@@ -33,8 +33,8 @@ import 'package:frontend_flutter/features/episodes/episodes_controller.dart';
 import 'package:frontend_flutter/features/episodes/episodes_screen.dart';
 import 'package:frontend_flutter/features/scenes/scenes_controller.dart';
 import 'package:frontend_flutter/features/scenes/scenes_screen.dart';
-import 'package:frontend_flutter/features/shell/more_tab_screen.dart';
-import 'package:frontend_flutter/features/shell/planning_tab_screen.dart';
+import 'package:frontend_flutter/features/shell/cast_tab_screen.dart';
+import 'package:frontend_flutter/features/shell/production_overview_screen.dart';
 import 'package:frontend_flutter/features/shell/shell_controller.dart';
 
 SeasonView _season() => SeasonView(
@@ -241,14 +241,15 @@ void main() {
       await tester.pumpWidget(
         UncontrolledProviderScope(
           container: container,
-          child: const MaterialApp(home: PlanningTabScreen()),
+          child: MaterialApp(home: ProductionOverviewScreen(season: _season())),
         ),
       );
       await tester.pumpAndSettle();
 
-      // Planen: season → blocks (hierarchy spine on the Planen tab's
-      // nested navigator, spec `flutter-hierarchy-navigation`).
-      await tester.tap(find.byKey(const Key('planen-season-season-1')));
+      // Production overview → blocks (hierarchy spine, issue #610: re-homed
+      // out of the dissolved Planen destination, spec
+      // `flutter-hierarchy-navigation`).
+      await tester.tap(find.byKey(const Key('production-blocks-entry')));
       await tester.pumpAndSettle();
       expect(find.byType(BlocksScreen), findsOneWidget);
       expect(find.byKey(const Key('block-block-1')), findsOneWidget);
@@ -276,21 +277,21 @@ void main() {
       expect(find.byKey(const Key('block-block-1')), findsOneWidget);
       await tester.pageBack();
       await tester.pumpAndSettle();
-      expect(find.byType(PlanningTabScreen), findsOneWidget);
+      expect(find.byType(ProductionOverviewScreen), findsOneWidget);
 
-      // Categories via the Mehr tab (task 4.3): the Planen row set the
-      // active season; the labeled categories entry is season-gated.
+      // Categories from the Cast view (issue #610: the vocabulary moved
+      // OUT of the dissolved Mehr tab and lives with the costume content).
       container
           .read(shellControllerProvider.notifier)
           .setActiveSeason(_season());
       await tester.pumpWidget(
         UncontrolledProviderScope(
           container: container,
-          child: const MaterialApp(home: MoreTabScreen()),
+          child: const MaterialApp(home: CastTabScreen()),
         ),
       );
       await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const Key('mehr-categories-entry')));
+      await tester.tap(find.byKey(const Key('cast-categories-action')));
       await tester.pumpAndSettle();
       expect(find.byType(CostumeCategoriesScreen), findsOneWidget);
       expect(find.byKey(const Key('categories-empty')), findsOneWidget);

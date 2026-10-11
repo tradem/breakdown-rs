@@ -205,7 +205,7 @@ void main() {
       ),
     );
     await pumpFrames(tester);
-    // Push the screen like the Mehr tab does (no dialog).
+    // Push the screen like the profile menu does (no dialog).
     unawaited(
       Navigator.of(
         tester.element(find.byType(Scaffold)),

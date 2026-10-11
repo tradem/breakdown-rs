@@ -2,7 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: glm-5.3-flash (opencode-go)
 
-// Tier-2 widget tests for the Planen-tab active-jobs summary row
+// Tier-2 widget tests for the production overview's active-jobs summary row
 // (issue #547): the row is visible exactly while at least one known
 // AI-import job needs attention (any non-`succeeded` status — a silent
 // `dead_letter` keeps summoning the row), is hidden when everything
@@ -25,7 +25,7 @@ import 'package:frontend_flutter/data/cache/cache_database.dart';
 import 'package:frontend_flutter/data/cache/season_cache_dao.dart';
 import 'package:frontend_flutter/data/cache/seasons_cache_providers.dart';
 import 'package:frontend_flutter/features/ai_import/import_jobs/jobs_screen.dart';
-import 'package:frontend_flutter/features/shell/planning_tab_screen.dart';
+import 'package:frontend_flutter/features/shell/production_overview_screen.dart';
 import 'package:frontend_flutter/l10n/generated/app_localizations.dart';
 
 import '../ai_import/jobs_screen_test.dart' show FakeJobsRepository;
@@ -69,7 +69,10 @@ void main() {
     await container.read(authSessionControllerProvider.notifier).signIn();
   }
 
-  Future<void> pumpTab(WidgetTester tester) async {
+  /// Pumps the production overview (issue #610: the AI-import jobs row is
+  /// re-homed there from the dissolved Planen destination) for the
+  /// container's active season.
+  Future<void> pumpProductionOverview(WidgetTester tester) async {
     tester.view.physicalSize = const Size(800, 1200);
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.reset);
@@ -81,7 +84,7 @@ void main() {
           locale: const Locale('en'),
           supportedLocales: const [Locale('en'), Locale('de')],
           localizationsDelegates: AppLocalizations.localizationsDelegates,
-          home: const PlanningTabScreen(),
+          home: ProductionOverviewScreen(season: season('season-1', number: 1)),
         ),
       ),
     );
@@ -95,43 +98,44 @@ void main() {
     tester,
   ) async {
     await setupContainer(jobsResult: Right([_job('job-1', JobStatus.running)]));
-    await pumpTab(tester);
+    await pumpProductionOverview(tester);
 
-    expect(find.byKey(const Key('planen-active-jobs')), findsOneWidget);
+    expect(find.byKey(const Key('production-active-jobs')), findsOneWidget);
     expect(jobsRepo.watchCalls, 0);
-    await tester.tap(find.byKey(const Key('planen-active-jobs')));
+    await tester.tap(find.byKey(const Key('production-active-jobs')));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));
     expect(find.byType(AiImportJobsScreen), findsOneWidget);
     await tester.pump();
   });
 
-  testWidgets('a dead_letter job keeps the row visible — the silent '
-      'dead-letter hole closes on a cold start back at the Planen tab', (
-    tester,
-  ) async {
-    await setupContainer(
-      jobsResult: Right([_job('job-1', JobStatus.deadLetter)]),
-    );
-    await pumpTab(tester);
-    expect(find.byKey(const Key('planen-active-jobs')), findsOneWidget);
-    await tester.pump();
-  });
+  testWidgets(
+    'a dead_letter job keeps the row visible — the silent '
+    'dead-letter hole closes on a cold start back at the production overview',
+    (tester) async {
+      await setupContainer(
+        jobsResult: Right([_job('job-1', JobStatus.deadLetter)]),
+      );
+      await pumpProductionOverview(tester);
+      expect(find.byKey(const Key('production-active-jobs')), findsOneWidget);
+      await tester.pump();
+    },
+  );
 
   testWidgets('the row is hidden when every job succeeded', (tester) async {
     await setupContainer(
       jobsResult: Right([_job('job-1', JobStatus.succeeded)]),
     );
-    await pumpTab(tester);
-    expect(find.byKey(const Key('planen-active-jobs')), findsNothing);
+    await pumpProductionOverview(tester);
+    expect(find.byKey(const Key('production-active-jobs')), findsNothing);
     await tester.pump();
   });
 
   testWidgets('the row is hidden when nothing was ever imported '
       '(no cache rows, empty list)', (tester) async {
     await setupContainer();
-    await pumpTab(tester);
-    expect(find.byKey(const Key('planen-active-jobs')), findsNothing);
+    await pumpProductionOverview(tester);
+    expect(find.byKey(const Key('production-active-jobs')), findsNothing);
     await tester.pump();
   });
 }

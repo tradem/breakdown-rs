@@ -29,8 +29,8 @@ import 'package:frontend_flutter/features/blocks/blocks_controller.dart';
 import 'package:frontend_flutter/features/blocks/blocks_screen.dart';
 import 'package:frontend_flutter/features/costume_categories/costume_categories_controller.dart';
 import 'package:frontend_flutter/features/costume_categories/costume_categories_screen.dart';
-import 'package:frontend_flutter/features/shell/more_tab_screen.dart';
-import 'package:frontend_flutter/features/shell/planning_tab_screen.dart';
+import 'package:frontend_flutter/features/shell/cast_tab_screen.dart';
+import 'package:frontend_flutter/features/shell/production_overview_screen.dart';
 import 'package:frontend_flutter/features/shell/shell_controller.dart';
 
 import '../seasons/seasons_test_fakes.dart';
@@ -351,40 +351,45 @@ void main() {
       await container.read(authSessionControllerProvider.notifier).signIn();
     }
 
-    Future<void> pumpMore(WidgetTester tester) async {
+    /// The production overview (issue #610: the re-homed Planen
+    /// destination) for the container's active season.
+    Future<void> pumpProduction(WidgetTester tester) async {
       tester.view.physicalSize = const Size(800, 1200);
       tester.view.devicePixelRatio = 1.0;
       addTearDown(tester.view.reset);
       await tester.pumpWidget(
         UncontrolledProviderScope(
           container: container,
-          child: const MaterialApp(home: MoreTabScreen()),
+          child: MaterialApp(home: ProductionOverviewScreen(season: _season())),
         ),
       );
       await tester.pumpAndSettle();
     }
 
-    Future<void> pumpPlanen(WidgetTester tester) async {
+    /// The Cast view (issue #610: the costume surface and the category
+    /// vocabulary moved here from the dissolved Kleidung/Mehr
+    /// destinations).
+    Future<void> pumpCast(WidgetTester tester) async {
       tester.view.physicalSize = const Size(800, 1200);
       tester.view.devicePixelRatio = 1.0;
       addTearDown(tester.view.reset);
       await tester.pumpWidget(
         UncontrolledProviderScope(
           container: container,
-          child: const MaterialApp(home: PlanningTabScreen()),
+          child: const MaterialApp(home: CastTabScreen()),
         ),
       );
       await tester.pumpAndSettle();
     }
 
-    testWidgets('Planen season row pushes BlocksScreen; back pops', (
+    testWidgets('production overview pushes BlocksScreen; back pops', (
       tester,
     ) async {
       await setupNavContainer();
-      await pumpPlanen(tester);
-      expect(find.byKey(const Key('planen-season-season-1')), findsOneWidget);
+      await pumpProduction(tester);
+      expect(find.byKey(const Key('production-blocks-entry')), findsOneWidget);
 
-      await tester.tap(find.byKey(const Key('planen-season-season-1')));
+      await tester.tap(find.byKey(const Key('production-blocks-entry')));
       await _pumpFrames(tester, n: 30);
       expect(find.byType(BlocksScreen), findsOneWidget);
 
@@ -392,23 +397,22 @@ void main() {
       // Pop transition must finish: the dismissed route stays findable
       // until it does (both screens are static here, so settling is safe).
       await tester.pumpAndSettle();
-      expect(find.byType(PlanningTabScreen), findsOneWidget);
+      expect(find.byType(ProductionOverviewScreen), findsOneWidget);
       expect(find.byType(BlocksScreen), findsNothing);
     });
 
-    testWidgets('categories entry (Mehr tab) pushes CostumeCategoriesScreen', (
-      tester,
-    ) async {
+    testWidgets('the Cast view categories action pushes '
+        'CostumeCategoriesScreen (issue #610: categories never with '
+        'settings)', (tester) async {
       await setupNavContainer();
       // The active season is set the way the shell does: from the acted-on
-      // DTO (task 4.4 — the icon buttons are gone; the categories entry
-      // lives on the Mehr tab, gated on the active season).
+      // DTO (the categories action is gated on the active season).
       container
           .read(shellControllerProvider.notifier)
           .setActiveSeason(_season());
-      await pumpMore(tester);
+      await pumpCast(tester);
 
-      await tester.tap(find.byKey(const Key('mehr-categories-entry')));
+      await tester.tap(find.byKey(const Key('cast-categories-action')));
       await _pumpFrames(tester, n: 30);
       expect(find.byType(CostumeCategoriesScreen), findsOneWidget);
     });

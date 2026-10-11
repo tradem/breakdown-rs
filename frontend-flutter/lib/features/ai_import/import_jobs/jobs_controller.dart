@@ -323,7 +323,8 @@ class AiImportJobRowView {
       status == JobStatus.deadLetter || status == JobStatus.payloadUnavailable;
 
   /// True while the job is not done (`pending`/`running`/`failed`) — the
-  /// Planen-tab summary row's driver.
+  /// production overview's summary row's driver (issue #610 re-homed it
+  /// from the dissolved Planen destination).
   bool get isInProgress =>
       status == JobStatus.pending ||
       status == JobStatus.running ||

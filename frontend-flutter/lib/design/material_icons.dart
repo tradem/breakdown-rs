@@ -11,13 +11,17 @@ import 'package:flutter/material.dart';
 /// are user-defined, so unknown names use the deterministic style_outlined
 /// fallback until a server-owned icon key is available.
 abstract final class BreakdownMaterialIcons {
-  static const shellHomeOutline = Icons.home_outlined;
-  static const shellHomeFilled = Icons.home;
-  static const shellPlanenOutline = Icons.edit_calendar_outlined;
-  static const shellPlanenFilled = Icons.edit_calendar;
-  static const shellCostumesOutline = Icons.checkroom_outlined;
-  static const shellCostumesFilled = Icons.checkroom;
-  static const shellMore = Icons.more_horiz;
+  // Navigation shell destinations (issue #610: three task-oriented views —
+  // Cast | Script | Schedule/Dispo; glossary rows updated in the same
+  // change). The former Season/Planen/Kleidung/Mehr pairs are retired with
+  // their destinations, not kept as aliases.
+  static const shellCastOutline = Icons.face_outlined;
+  static const shellCastFilled = Icons.face;
+  static const shellScriptOutline = Icons.menu_book_outlined;
+  static const shellScriptFilled = Icons.menu_book;
+  static const shellScheduleOutline = Icons.calendar_month_outlined;
+  static const shellScheduleFilled = Icons.calendar_month;
+  static const shellProfile = Icons.account_circle_outlined;
 
   // Hierarchy context strip segments (issue #548 — glossary:
   // icon + visible text per segment; icons reinforce only).

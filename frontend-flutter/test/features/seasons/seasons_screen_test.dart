@@ -29,12 +29,18 @@ import 'package:frontend_flutter/data/cache/seasons_cache_providers.dart';
 import 'package:frontend_flutter/design/theme.dart';
 import 'package:frontend_flutter/features/blocks/blocks_controller.dart';
 import 'package:frontend_flutter/features/episodes/episodes_controller.dart';
+import 'package:frontend_flutter/data/ai_import_providers.dart';
+import 'package:frontend_flutter/data/cache/ai_import_jobs_cache_dao.dart';
+import 'package:frontend_flutter/features/ai_import/import_jobs/import_submit_screen.dart';
+import 'package:frontend_flutter/features/ai_import/import_jobs/jobs_controller.dart';
+import 'package:frontend_flutter/features/shell/production_overview_screen.dart';
 import 'package:frontend_flutter/features/shell/shell_controller.dart';
 import 'package:frontend_flutter/features/seasons/seasons_controller.dart';
 import 'package:frontend_flutter/features/seasons/seasons_screen.dart';
 import 'package:frontend_flutter/features/seasons/setup/setup_wizard_screen.dart';
 import 'package:frontend_flutter/l10n/generated/app_localizations.dart';
 
+import '../ai_import/jobs_screen_test.dart' show FakeJobsRepository;
 import 'seasons_test_fakes.dart';
 import 'setup/setup_wizard_test_fakes.dart';
 
@@ -139,6 +145,16 @@ void main() {
           return r.listByBlock(blockId);
         }),
         wizardAiConfigAvailableProvider.overrideWithValue(false),
+        // Issue #610: the season card now opens the PRODUCTION OVERVIEW,
+        // whose active-jobs row reads the AI-import jobs view — stub its
+        // repository + fetch seam (the assertion is about navigation, not
+        // job data).
+        aiImportRepositoryProvider.overrideWithValue(
+          FakeJobsRepository(BreakdownApi(), AiImportJobsCacheDao(db)),
+        ),
+        aiImportJobsFetchProvider.overrideWith(
+          (ref) async => Right(<AiImportJob>[]),
+        ),
       ],
     );
     addTearDown(container.dispose);
@@ -530,9 +546,8 @@ void main() {
       expect(find.byKey(const Key('overlay-spinner')), findsOneWidget);
     });
 
-    testWidgets('card tap sets the active season and jumps to Planen', (
-      tester,
-    ) async {
+    testWidgets('card tap sets the active season and opens the production '
+        'overview', (tester) async {
       await setupContainer(
         initialRows: [season('a', number: 1, title: 'Spring')],
         clock: fixedClock,
@@ -552,7 +567,10 @@ void main() {
       }
       final shell = container.read(shellControllerProvider);
       expect(shell.activeSeason?.id, 'a');
-      expect(shell.selectedIndex, kPlanenTabIndex);
+      // Issue #610: the card tap no longer jumps to a destination — it
+      // opens the production overview, and the shell keeps its position.
+      expect(find.byType(ProductionOverviewScreen), findsOneWidget);
+      expect(shell.selectedIndex, kCastTabIndex);
     });
   });
 
@@ -658,18 +676,15 @@ void main() {
       expect(find.byKey(const Key('wizard-step-season')), findsNothing);
     });
 
-    testWidgets('import CTA jumps to the Mehr tab (gate travels with the '
-        'entry — no network call from the CTA)', (tester) async {
+    testWidgets('import CTA opens the AI-import screen (gate travels with '
+        'the entry — no network call from the CTA)', (tester) async {
       await setupContainer();
       await pumpScreen(tester);
 
       await tester.tap(find.byKey(const Key('seasons-empty-import-cta')));
       await pumpFrames(tester);
 
-      expect(
-        container.read(shellControllerProvider).selectedIndex,
-        kMehrTabIndex,
-      );
+      expect(find.byType(AiImportSubmitScreen), findsOneWidget);
     });
   });
 
