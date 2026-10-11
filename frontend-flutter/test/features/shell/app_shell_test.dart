@@ -675,6 +675,33 @@ void main() {
   });
 
   group('5.4 shell quick-create action (issue #612)', () {
+    testWidgets('plus FAB carries the button role and the localized label', (
+      tester,
+    ) async {
+      final semantics = tester.ensureSemantics();
+      await setupContainer();
+      await pumpShell(tester, widthDp: 360);
+
+      // CodeRabbit review #623: assistive technology must announce the
+      // FAB as an ACTION affordance with its localized VISIBLE label —
+      // ONE merged semantics node carrying BOTH (German template suite;
+      // the icon never carries the meaning alone, glossary rule). The
+      // shell wraps the FAB in `Semantics(button: true)` because
+      // FAB.extended's InkWell exposes the tap action but not the button
+      // flag.
+      // Node-based assertion (same pattern as the destination-traversal
+      // test; `getSemantics(byKey)` resolves the FAB's inner InkWell
+      // container node, which carries neither label nor role).
+      expect(
+        find.semantics.byPredicate(
+          (n) => n.label == 'Erstellen' && n.flagsCollection.isButton,
+        ),
+        findsOneWidget,
+      );
+      // BEING-disposed inside the test body (framework verifies handle
+      // disposal BEFORE tearDown callbacks run).
+      semantics.dispose();
+    });
     testWidgets('plus FAB exists on all three morphologies at the root', (
       tester,
     ) async {

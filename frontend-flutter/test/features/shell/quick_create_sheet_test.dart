@@ -39,18 +39,29 @@ class _StubFlowScreen extends StatelessWidget {
 Future<void> pumpHarness(
   WidgetTester tester, {
   required List<QuickCreateAction> actions,
+  GlobalKey<NavigatorState>? rootNavigatorKey,
+  GlobalKey<NavigatorState>? nestedNavigatorKey,
 }) async {
   await tester.pumpWidget(
     ProviderScope(
       child: MaterialApp(
-        home: Scaffold(
-          body: Center(
-            child: Builder(
-              builder: (context) => FilledButton(
-                key: const Key('harness-open-sheet'),
-                onPressed: () =>
-                    showQuickCreateSheet(context, actions: actions),
-                child: const Text('open'),
+        navigatorKey: rootNavigatorKey,
+        // A nested navigator below the ROOT navigator mirrors the shell
+        // structure: the assertion “the entry PUSHED on the ROOT navigator,
+        // never the nested one” can only be made by inspecting both stacks.
+        home: Navigator(
+          key: nestedNavigatorKey,
+          onGenerateRoute: (_) => MaterialPageRoute<void>(
+            builder: (_) => Scaffold(
+              body: Center(
+                child: Builder(
+                  builder: (context) => FilledButton(
+                    key: const Key('harness-open-sheet'),
+                    onPressed: () =>
+                        showQuickCreateSheet(context, actions: actions),
+                    child: const Text('open'),
+                  ),
+                ),
               ),
             ),
           ),
@@ -106,8 +117,12 @@ void main() {
     testWidgets('tap pops the sheet and pushes the flow on the navigator', (
       tester,
     ) async {
+      final rootNavigatorKey = GlobalKey<NavigatorState>();
+      final nestedNavigatorKey = GlobalKey<NavigatorState>();
       await pumpHarness(
         tester,
+        rootNavigatorKey: rootNavigatorKey,
+        nestedNavigatorKey: nestedNavigatorKey,
         actions: const [
           QuickCreateAction(
             key: Key('quick-create-stub'),
@@ -129,6 +144,12 @@ void main() {
       // embed — the stub screen is visible, the sheet no longer is).
       expect(find.text('Eintrag'), findsNothing);
       expect(find.text('stub-flow'), findsOneWidget);
+
+      // CodeRabbit review #623: the sheet lives on the ROOT navigator
+      // (useRootNavigator), so the pushed flow must change the ROOT stack
+      // — the nested navigator (the shell-tab analog) stays untouched.
+      expect(rootNavigatorKey.currentState!.canPop(), isTrue);
+      expect(nestedNavigatorKey.currentState!.canPop(), isFalse);
     });
 
     testWidgets('dismiss restores the previous surface untouched', (

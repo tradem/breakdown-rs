@@ -50,6 +50,12 @@ String tabSemanticLabel(
 /// How many destinations the shell renders (issue #610: three).
 const int kDestinationCount = 3;
 
+/// Bottom clearance the compact morphology reserves for the shell's
+/// extended plus FAB (CodeRabbit review #623): the FAB's 56 height + its
+/// 16 docked margin above the bar + 8 breathing room, so the tab lists'
+/// last row never renders beneath the persistent FAB.
+const double kShellFabBottomClearance = 80;
+
 /// The adaptive three-destination navigation shell (issue #610, spec
 /// `flutter-navigation-shell`, design D1–D3).
 ///
@@ -160,14 +166,18 @@ class AppShellState extends ConsumerState<AppShell> {
     // Issue #548: the hierarchy context surface lives in the SHELL (not in
     // each screen's app bar) — one surface, all three morphologies, the
     // ~60 per-feature goldens pump their screens directly and stay
-    // untouched.
-    final contentWithLocation = Column(
+    // untouched. [bottomClearance] reserves space under the shell's
+    // persistent plus FAB so the LAST list row never renders beneath it
+    // (CodeRabbit review #623 — compact-only: the medium/expanded FAB
+    // floats over the content area's bottom-right where no tab list ends).
+    Widget contentWithLocation({double bottomClearance = 0}) => Column(
       children: [
         ShellContextBar(
           navigatorKey: tabNavigatorKeys[state.selectedIndex],
           observer: tabLocationObservers[state.selectedIndex],
         ),
         Expanded(child: content),
+        if (bottomClearance > 0) SizedBox(height: bottomClearance),
       ],
     );
 
@@ -181,21 +191,29 @@ class AppShellState extends ConsumerState<AppShell> {
     // `grep AUTHZ-GATE` contract travels with this comment.
     final session = ref.watch(authSessionControllerProvider);
     final canCreate = session is AsyncData && session.value != null;
+    // Explicit accessible BUTTON role (CodeRabbit review #623):
+    // FloatingActionButton.extended builds on RawMaterialButton/InkWell,
+    // which expose the tap action but NOT the semantics button flag —
+    // screen readers announce the affordance without the "Schaltfläche"
+    // role. One wrapping Semantics fixes that at the affordance's root.
     final plusFab = canCreate
-        ? FloatingActionButton.extended(
-            key: const Key('shell-plus-fab'),
-            onPressed: () => unawaited(
-              showQuickCreateSheet(
-                context,
-                actions: shellQuickCreateActions(l10n),
+        ? Semantics(
+            button: true,
+            child: FloatingActionButton.extended(
+              key: const Key('shell-plus-fab'),
+              onPressed: () => unawaited(
+                showQuickCreateSheet(
+                  context,
+                  actions: shellQuickCreateActions(l10n),
+                ),
               ),
+              // One Spotify-style plus action across ALL three morphologies
+              // (issue #612, settled decision): the FAB is an ACTION, not a
+              // destination — the destination contract (kDestinationCount,
+              // `shell-destination-*` keys) stays untouched.
+              icon: const Icon(Icons.add),
+              label: Text(l10n.shellPlusFabLabel),
             ),
-            // One Spotify-style plus action across ALL three morphologies
-            // (issue #612, settled decision): the FAB is an ACTION, not a
-            // destination — the destination contract (kDestinationCount,
-            // `shell-destination-*` keys) stays untouched.
-            icon: const Icon(Icons.add),
-            label: Text(l10n.shellPlusFabLabel),
           )
         : null;
 
@@ -206,7 +224,13 @@ class AppShellState extends ConsumerState<AppShell> {
     // since #610, so there is no overlap).
     return switch (sizeClass) {
       WindowSizeClass.compact => Scaffold(
-        body: contentWithLocation,
+        body: contentWithLocation(
+          // CodeRabbit review #623: the extended FAB sits docked above the
+          // bar (its 56 height + the 16 docked margin); without clearance
+          // the final list row renders BENEATH it. Gated: without a FAB
+          // there is nothing to avoid (auth-gate symmetry).
+          bottomClearance: canCreate ? kShellFabBottomClearance : 0,
+        ),
         bottomNavigationBar: ShellDestinations.navigationBar(
           selectedIndex: state.selectedIndex,
           onSelected: controller.selectTab,
@@ -223,7 +247,7 @@ class AppShellState extends ConsumerState<AppShell> {
               l10n: l10n,
             ),
             const VerticalDivider(width: 1, thickness: 1),
-            Expanded(child: contentWithLocation),
+            Expanded(child: contentWithLocation()),
           ],
         ),
         floatingActionButton: plusFab,
@@ -236,7 +260,7 @@ class AppShellState extends ConsumerState<AppShell> {
               onSelected: controller.selectTab,
               l10n: l10n,
             ),
-            Expanded(child: contentWithLocation),
+            Expanded(child: contentWithLocation()),
           ],
         ),
         floatingActionButton: plusFab,
