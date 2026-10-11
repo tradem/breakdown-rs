@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
+// Co-authored-by: glm-5.3-flash (opencode-go)
 
 import 'package:breakdown_api/breakdown_api.dart';
 import 'package:flutter/material.dart';
@@ -13,9 +14,9 @@ import '../../l10n/app_localizations_provider.dart';
 import '../blocks/active_block_gate.dart';
 import '../blocks/blocks_controller.dart';
 import '../shell/planning_location.dart';
-import 'character_detail_screen.dart';
 import 'characters_controller.dart';
 import 'characters_state.dart';
+import 'role_extract_screen.dart';
 import 'widgets/characters_widgets.dart';
 
 /// `CharactersScreen` — the season's characters (season-scoped list with
@@ -140,12 +141,17 @@ class CharactersScreen extends ConsumerWidget {
                                                       season,
                                                     ),
                                               ),
-                                              builder: (_) =>
-                                                  CharacterDetailScreen(
-                                                    season: season,
-                                                    characterId:
-                                                        row.character.id,
-                                                  ),
+                                              builder: (_) => RoleExtractScreen(
+                                                // Stable route key for the
+                                                // on-device Gherkin step
+                                                // (issue #611).
+                                                key: Key(
+                                                  'role-extract-'
+                                                  '${row.character.id}',
+                                                ),
+                                                season: season,
+                                                characterId: row.character.id,
+                                              ),
                                             ),
                                           )
                                         : null,

@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
+// Co-authored-by: glm-5.3-flash (opencode-go)
 
 // Tier-2 widget + controller tests for `CharactersScreen` and
 // `CharacterDetailScreen` (Task 5.3): list/create per spec scenarios (409
@@ -29,6 +30,7 @@ import 'package:frontend_flutter/features/blocks/blocks_controller.dart';
 import 'package:frontend_flutter/features/characters/character_detail_screen.dart';
 import 'package:frontend_flutter/features/characters/characters_controller.dart';
 import 'package:frontend_flutter/features/characters/characters_screen.dart';
+import 'package:frontend_flutter/features/characters/role_extract_screen.dart';
 
 import '../seasons/seasons_test_fakes.dart';
 
@@ -283,6 +285,47 @@ void main() {
         (err) => expect(err.code, 'character.unknown_category'),
         (_) => fail('expected Left'),
       );
+    });
+  });
+
+  group('RoleExtractScreen (issue #611, degraded)', () {
+    testWidgets('Cast tap opens the role extract — degraded parity: the '
+        'screen hosts today\'s character detail, not a fan-out surface', (
+      tester,
+    ) async {
+      await setupContainer(initialRows: [_character('ch-1')]);
+      await pumpScreen(tester);
+      await tester.tap(find.byKey(const Key('character-ch-1')));
+      await tester.pumpAndSettle();
+
+      // The pushed route IS the role extract (issue #611 decision: the
+      // Cast entry point is already the extract, never the bare detail).
+      expect(find.byType(RoleExtractScreen), findsOneWidget);
+      // Degraded fallback: characters detail as today (list-only, no
+      // client-side per-scene fan-out).
+      expect(find.byKey(const Key('character-detail-ch-1')), findsOneWidget);
+      expect(find.text('Ada'), findsWidgets);
+    });
+
+    testWidgets('mounted directly, the degraded screen renders the detail '
+        'content (contacts + measurements + category row)', (tester) async {
+      await setupContainer(initialRows: [_character('ch-1')]);
+      tester.view.physicalSize = const Size(800, 1200);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: MaterialApp(
+            home: RoleExtractScreen(season: _season(), characterId: 'ch-1'),
+          ),
+        ),
+      );
+      await _pumpFrames(tester, n: 20);
+
+      expect(find.text('Ada'), findsWidgets);
+      expect(find.byKey(const Key('character-category-ch-1')), findsOneWidget);
+      expect(find.byKey(const Key('character-email-ch-1')), findsOneWidget);
     });
   });
 
