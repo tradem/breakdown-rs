@@ -359,3 +359,51 @@ StepDefinitionGeneric whenOpenCostumeAssignment() =>
         await FlutterDriverUtils.tap(driver, find.text('Kostüme'));
       },
     );
+
+/// Opens the role extract for a character from the Cast view's roster
+/// (issue #611): season scope via the scope picker (the surface that SETS
+/// the active season, D5 — same flow as the costume-assignment step), then
+/// the roster's character tile pushes the role extract route
+/// (`role-extract-<characterId>`). Degraded today: the route mounts the
+/// character detail; extract rows arrive with backend read-model issue #621.
+StepDefinitionGeneric whenOpenRoleExtract() =>
+    when2<String, String, FlutterWorld>(
+      'I open the role extract for character {string} in season {string}',
+      (String characterId, String seasonId, context) async {
+        // Symbolic feature ids map to the seeded REAL ids (AppWorld.seedIds,
+        // filled by the seeding Given step at promotion time).
+        final world = context.world as AppWorld;
+        final realSeason = world.seedIds[seasonId] ?? seasonId;
+        final realCharacter = world.seedIds[characterId] ?? characterId;
+        final driver = context.world.driver!;
+        await FlutterDriverUtils.tap(
+          driver,
+          find.byValueKey('cast-pick-season-cta'),
+        );
+        final scopeList = find.byValueKey('season-scope-list');
+        final seasonRow = find.byValueKey('season-scope-season-$realSeason');
+        // Off-viewport guard (same analytic budget as the costume step):
+        // scroll until the row builds, then tap it — a real gesture on the
+        // real read-model surface, never a sleep.
+        await driver.scrollUntilVisible(
+          scopeList,
+          seasonRow,
+          dxScroll: 0,
+          dyScroll: -200,
+          timeout: const Duration(seconds: 45),
+        );
+        await FlutterDriverUtils.tap(driver, seasonRow);
+        // Back on the Cast roster: the character tile (same off-viewport
+        // guard against the accumulated dev series).
+        final roster = find.byValueKey('characters-list');
+        final tile = find.byValueKey('character-$realCharacter');
+        await driver.scrollUntilVisible(
+          roster,
+          tile,
+          dxScroll: 0,
+          dyScroll: -200,
+          timeout: const Duration(seconds: 45),
+        );
+        await FlutterDriverUtils.tap(driver, tile);
+      },
+    );

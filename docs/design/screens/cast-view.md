@@ -17,8 +17,10 @@ production departments throughout the shoot, mostly as a lookup surface.
 
 ## Navigation
 Reached as navigation destination 1 of 3 (selected on app start); never
-pushed. Tapping a character row opens the character detail, a costume row
-the inline costume editor (both unchanged, on this destination's nested
+pushed. Tapping a character row opens the role extract (issue #611,
+spec `role-extract.md` — currently its degraded fallback, the character
+detail as today, pending backend read model #621), a costume row the
+inline costume editor (both unchanged, on this destination's nested
 navigator). The app-bar action opens the season-scoped costume-category
 vocabulary; the profile action opens the identity/about/settings/sign-out
 sheet. With no active season the view shows a season-selection empty state

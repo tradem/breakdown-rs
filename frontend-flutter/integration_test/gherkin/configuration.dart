@@ -52,6 +52,9 @@ Future<FlutterTestConfiguration> buildGherkinConfig() async {
     whenOpenShootingDays(),
     whenOpenReportIndexEntry(),
     whenOpenCostumeAssignment(),
+    // Issue #611: role extract from the Cast view's roster (pending backend
+    // read model issue #621 — degraded route covered by widget tests).
+    whenOpenRoleExtract(),
     ...sollIstReportSteps(),
     ...sollIstExecutionSteps(),
     ...continuityPhotoSteps(),

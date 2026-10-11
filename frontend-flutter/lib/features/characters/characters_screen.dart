@@ -13,9 +13,9 @@ import '../../l10n/app_localizations_provider.dart';
 import '../blocks/active_block_gate.dart';
 import '../blocks/blocks_controller.dart';
 import '../shell/planning_location.dart';
-import 'character_detail_screen.dart';
 import 'characters_controller.dart';
 import 'characters_state.dart';
+import 'role_extract_screen.dart';
 import 'widgets/characters_widgets.dart';
 
 /// `CharactersScreen` — the season's characters (season-scoped list with
@@ -140,12 +140,17 @@ class CharactersScreen extends ConsumerWidget {
                                                       season,
                                                     ),
                                               ),
-                                              builder: (_) =>
-                                                  CharacterDetailScreen(
-                                                    season: season,
-                                                    characterId:
-                                                        row.character.id,
-                                                  ),
+                                              builder: (_) => RoleExtractScreen(
+                                                // Stable route key for the
+                                                // on-device Gherkin step
+                                                // (issue #611).
+                                                key: Key(
+                                                  'role-extract-'
+                                                  '${row.character.id}',
+                                                ),
+                                                season: season,
+                                                characterId: row.character.id,
+                                              ),
                                             ),
                                           )
                                         : null,
