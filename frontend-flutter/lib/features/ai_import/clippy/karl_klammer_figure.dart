@@ -50,11 +50,36 @@ class KarlKlammerFigure extends StatefulWidget {
 /// known phase and reproduce the exact frame — no wall clock, no random.
 bool karlEyesClosed(double phase) => phase >= 0.48 && phase <= 0.52;
 
+/// Length of one full animation cycle in milliseconds. Every per-pose
+/// motion period is a divisor of this value, so `bodyPhase` is
+/// continuous across the controller restart (no jump at the cycle
+/// boundary — CodeRabbit review #627).
+const int _karlCycleMs = 4200;
+
+/// Per-pose body-motion period in milliseconds. Each value is a divisor
+/// of [_karlCycleMs] so the motion completes whole cycles per controller
+/// restart (continuous phase — CodeRabbit review #627).
+double _posePeriodMs(ClippyPose pose) => switch (pose) {
+  ClippyPose.neutral => 2100, // 2 cycles — gentle bob
+  ClippyPose.excited => 1050, // 4 cycles — energetic swing
+  ClippyPose.droop => 4200, // 1 cycle — slow sag
+  ClippyPose.proud => 1400, // 3 cycles — upright bounce
+  ClippyPose.thinking => 2100, // 2 cycles — thoughtful sway
+};
+
+/// The body-motion phase (`0..1`) for [pose] at the controller [phase].
+///
+/// Every pose period divides the cycle, so this is continuous across the
+/// controller restart: `karlBodyPhase(pose, 1) == karlBodyPhase(pose, 0)`
+/// (CodeRabbit review #627). Pure and deterministic.
+double karlBodyPhase(ClippyPose pose, double phase) =>
+    (phase * _karlCycleMs / _posePeriodMs(pose)) % 1.0;
+
 class _KarlKlammerFigureState extends State<KarlKlammerFigure>
     with SingleTickerProviderStateMixin {
   /// One full motion cycle. Body motion derives its per-pose phase from
   /// this value; the blink window sits at 0.48–0.52 of it.
-  static const _cycle = Duration(milliseconds: 4200);
+  static const _cycle = Duration(milliseconds: _karlCycleMs);
 
   AnimationController? _controller;
 
@@ -147,23 +172,13 @@ class _HangerPainter extends CustomPainter {
   static const _eyeRight = Offset(41, 22);
   static const _eyeRadius = 3.4;
 
-  /// Per-pose body-motion period in milliseconds (the phase is derived
-  /// from the single [_KarlKlammerFigureState._cycle] controller).
-  static double _periodMs(ClippyPose pose) => switch (pose) {
-    ClippyPose.neutral => 3600,
-    ClippyPose.excited => 1600,
-    ClippyPose.droop => 4200,
-    ClippyPose.proud => 1800,
-    ClippyPose.thinking => 3000,
-  };
-
   @override
   void paint(Canvas canvas, Size size) {
     final scale = size.shortestSide / 72;
     canvas.scale(scale);
 
     final phase = _motion?.value ?? 0.0;
-    final bodyPhase = (phase * 4200 / _periodMs(pose)) % 1.0;
+    final bodyPhase = karlBodyPhase(pose, phase);
     final wave = math.sin(bodyPhase * 2 * math.pi);
 
     // Pose transform (applied around the hook anchor at the top center).
@@ -386,5 +401,9 @@ class _HangerPainter extends CustomPainter {
       oldDelegate.sclera != sclera ||
       oldDelegate.pupil != pupil ||
       oldDelegate.features != features ||
-      oldDelegate.outline != outline;
+      oldDelegate.outline != outline ||
+      // The controller can be disposed when `animate` flips to false
+      // (static pose) — without this, CustomPaint may keep the last
+      // animated frame (CodeRabbit review #627).
+      oldDelegate._motion != _motion;
 }

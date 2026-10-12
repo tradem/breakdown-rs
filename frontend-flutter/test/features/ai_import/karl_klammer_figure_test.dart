@@ -47,6 +47,20 @@ void main() {
     });
   });
 
+  group('body-motion continuity (issue #614 / review #627)', () {
+    test('every pose completes whole cycles per controller restart', () {
+      for (final pose in ClippyPose.values) {
+        // Continuous phase: the end of the cycle equals the start, so
+        // there is no jump when the 4200 ms controller restarts.
+        expect(
+          karlBodyPhase(pose, 1.0),
+          closeTo(karlBodyPhase(pose, 0.0), 1e-9),
+          reason: '${pose.name} must be continuous at the cycle boundary',
+        );
+      }
+    });
+  });
+
   group('comic-vector pose rendering (issue #614)', () {
     for (final pose in ClippyPose.values) {
       testWidgets('renders the ${pose.name} pose (static golden)', (
@@ -133,6 +147,22 @@ void main() {
         'test/features/ai_import/goldens/karl_blink_closed.png',
       ).readAsBytesSync();
       expect(listEquals(open, closed), isFalse);
+    });
+
+    testWidgets('disabling animation repaints to the static pose', (
+      tester,
+    ) async {
+      // Repaint proof for shouldRepaint comparing _motion (review #627):
+      // pump to a blink-closed frame, then flip animate to false. If the
+      // painter did not repaint, the stale closed-eye frame would remain
+      // and this static-pose golden would mismatch.
+      await pumpFigure(tester, pose: ClippyPose.neutral, animate: true);
+      await tester.pump(const Duration(milliseconds: 2100));
+      await pumpFigure(tester, pose: ClippyPose.neutral, animate: false);
+      await expectLater(
+        find.byType(KarlKlammerFigure),
+        matchesGoldenFile('goldens/karl_pose_neutral.png'),
+      );
     });
   });
 
