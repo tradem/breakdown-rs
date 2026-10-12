@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: deepseek-v4.1-flash (neuralwatt)
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
 // Co-authored-by: space-bunny-free (opencode-go)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
@@ -179,7 +180,7 @@ void main() {
       expect(find.byKey(const Key('settings-screen')), findsOneWidget);
       expect(find.byKey(const Key('settings-appbar')), findsOneWidget);
       expect(find.byKey(const Key('settings-uri-field')), findsOneWidget);
-      expect(find.byKey(const Key('settings-easter-eggs')), findsOneWidget);
+      expect(find.byKey(const Key('settings-egg-karlKlammer')), findsOneWidget);
     });
 
     testWidgets('failed sign-out leaves the gate, error surfaced', (

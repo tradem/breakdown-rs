@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: deepseek-v4.1-flash (neuralwatt)
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
 // Co-authored-by: omen-alpha (opencode-go)
 // Co-authored-by: hy3 (opencode-go)
@@ -26,6 +27,7 @@ import 'data/settings/easter_eggs_store.dart';
 import 'design/spacing.dart';
 import 'design/theme.dart';
 import 'features/auth/login_screen.dart';
+import 'features/easter_eggs/dejavu_cat.dart';
 import 'features/shell/app_shell.dart';
 import 'l10n/app_localizations_provider.dart';
 import 'l10n/generated/app_localizations.dart';
@@ -175,25 +177,30 @@ class SplashView extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     return Scaffold(
       backgroundColor: scheme.surface,
-      body: Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              Icons.checkroom,
-              key: const Key('splash-brand-icon'),
-              size: 64,
-              color: scheme.primary,
-            ),
-            const SizedBox(height: AppSpacing.space16),
-            Text(
-              'Breakdown',
-              style: Theme.of(context).textTheme.headlineSmall
-                  ?.copyWith(color: scheme.onSurface),
-            ),
-            const SizedBox(height: AppSpacing.space24),
-            const CircularProgressIndicator(key: Key('splash-spinner')),
-          ],
+      // The October-only Deja-vu Cat crosses this surface while it is
+      // visible (issue #615); outside October / when its egg is off the
+      // overlay returns the child untouched.
+      body: DejaVuCatOverlay(
+        child: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                Icons.checkroom,
+                key: const Key('splash-brand-icon'),
+                size: 64,
+                color: scheme.primary,
+              ),
+              const SizedBox(height: AppSpacing.space16),
+              Text(
+                'Breakdown',
+                style: Theme.of(context).textTheme.headlineSmall
+                    ?.copyWith(color: scheme.onSurface),
+              ),
+              const SizedBox(height: AppSpacing.space24),
+              const CircularProgressIndicator(key: Key('splash-spinner')),
+            ],
+          ),
         ),
       ),
     );
@@ -282,22 +289,37 @@ Future<void> bootstrap(Flavor flavor) async {
   // copy.
   logDevMissingProjectIdWarning(config);
 
-  // Easter-eggs toggle hydration (issue #516): the persisted value seeds
-  // the global notifier BEFORE any consumer exists, so the AI-Import view
-  // reflects the stored preference on cold start (default ON on first
-  // launch). A failed read is NOT swallowed (discard-result rule): the
-  // Err branch is matched here, logs a warning, falls back to default ON
-  // and raises the notifier's `readFailed` flag — the settings screen
-  // renders a visible error state for it.
-  final easterEggsResult = await EasterEggsStore(SharedPreferencesAsync())
-      .read();
-  final (easterEggsValue, easterEggsFailed) = easterEggsResult.match((e) {
-    logBootstrapWarning(
-      'easter-eggs preference read failed (${e.code}) — falling back to '
-      'default ON',
-    );
-    return (true, true);
-  }, (stored) => (stored ?? true, false));
+  // Per-egg Easter-eggs hydration + legacy migration (issue #615): the
+  // persisted per-egg values seed the family BEFORE any consumer exists, so
+  // the AI-Import overlay and the splash cat reflect the stored preferences
+  // on cold start (default ON on first launch; the pre-#615 global
+  // `easter_eggs` flag is folded into the per-egg keys and removed). A
+  // failed read is NOT swallowed (discard-result rule): the Err branch is
+  // matched here, logs a warning, falls back to default ON per egg and
+  // raises each notifier's `readFailed` flag — the settings screen renders
+  // a visible error state for it.
+  final easterEggsSnapshot = await EasterEggsStore(SharedPreferencesAsync())
+      .readAll();
+  final (easterEggsValues, easterEggsFailed) = easterEggsSnapshot.match(
+    (e) {
+      logBootstrapWarning(
+        'easter-eggs preference read failed (${e.code}) — falling back to '
+        'default ON',
+      );
+      return (
+        <EasterEggId, bool>{for (final id in EasterEggId.values) id: true},
+        true,
+      );
+    },
+    (snapshot) {
+      return (
+        <EasterEggId, bool>{
+          for (final id in EasterEggId.values) id: snapshot.effective(id),
+        },
+        false,
+      );
+    },
+  );
 
   final configError = validateStartupConfig(config);
   if (configError != null) {
@@ -345,12 +367,14 @@ Future<void> bootstrap(Flavor flavor) async {
         dioProvider.overrideWithValue(apiDio),
         idpDioProvider.overrideWith((ref) => Future.value(idpDio)),
         pinnedSecurityContextProvider.overrideWithValue(pinnedContext),
-        easterEggsProvider.overrideWith(
-          () => HydratedEasterEggs(
-            initial: easterEggsValue,
-            failed: easterEggsFailed,
+        for (final id in EasterEggId.values)
+          easterEggProvider(id).overrideWith(
+            () => HydratedEasterEggs(
+              id,
+              initial: easterEggsValues[id]!,
+              failed: easterEggsFailed,
+            ),
           ),
-        ),
       ],
       child: const App(),
     ),

@@ -19,9 +19,10 @@ import 'karl_klammer_figure.dart';
 /// assistant reacting to the given [ClippyFlowState].
 ///
 /// Hard requirements (spec `flutter-easter-eggs`):
-/// - **Visible only while Easter eggs are enabled** — `ref.watch`es
-///   [easterEggsProvider]; toggled off, the bubble (and any running
-///   timers/animations) disappear immediately without residue.
+/// - **Visible only while its own egg flag is enabled** — `ref.watch`es
+///   [easterEggProvider] for [EasterEggId.karlKlammer]; toggled off, the
+///   bubble (and any running timers/animations) disappear immediately
+///   without residue.
 /// - **Non-modal** — an `Align(bottomLeft)` bubble above the content;
 ///   primary CTAs (FAB, bottom actions) are never covered; tap
 ///   dismisses for the session (until the next flow-state change).
@@ -140,7 +141,9 @@ class _KarlKlammerOverlayState extends ConsumerState<KarlKlammerOverlay> {
 
   @override
   Widget build(BuildContext context) {
-    final easterEggsEnabled = ref.watch(easterEggsProvider);
+    final easterEggsEnabled = ref.watch(
+      easterEggProvider(EasterEggId.karlKlammer),
+    );
     if (!easterEggsEnabled) {
       // Immediate, residue-free disappearance: no bubble, no skeleton,
       // no placeholder — and the timers are torn down on dispose below.

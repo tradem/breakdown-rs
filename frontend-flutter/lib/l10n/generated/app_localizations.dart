@@ -4492,6 +4492,30 @@ abstract class AppLocalizations {
   /// **'Die Einstellung konnte nicht gelesen werden – Standard (eingeschaltet) bleibt aktiv.'**
   String get settingsEasterEggsError;
 
+  /// No description provided for @settingsEasterEggsKarlKlammer.
+  ///
+  /// In de, this message translates to:
+  /// **'Karl Klammer'**
+  String get settingsEasterEggsKarlKlammer;
+
+  /// No description provided for @settingsEasterEggsKarlKlammerSubtitle.
+  ///
+  /// In de, this message translates to:
+  /// **'Der Kleiderbügel-Assistent hilft im KI-Import mit Tipps und Sprüchen.'**
+  String get settingsEasterEggsKarlKlammerSubtitle;
+
+  /// No description provided for @settingsEasterEggsDejavuCat.
+  ///
+  /// In de, this message translates to:
+  /// **'Déjà-vu-Katze'**
+  String get settingsEasterEggsDejavuCat;
+
+  /// No description provided for @settingsEasterEggsDejavuCatSubtitle.
+  ///
+  /// In de, this message translates to:
+  /// **'Im Oktober läuft eine schwarze Katze über den Startbildschirm.'**
+  String get settingsEasterEggsDejavuCatSubtitle;
+
   /// No description provided for @settingsDev.
   ///
   /// In de, this message translates to:

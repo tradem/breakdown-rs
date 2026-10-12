@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: deepseek-v4.1-flash (neuralwatt)
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
 
 import 'dart:async';
@@ -21,6 +22,7 @@ import 'package:frontend_flutter/data/cache/cache_database.dart';
 import 'package:frontend_flutter/data/cache/season_cache_dao.dart';
 import 'package:frontend_flutter/data/cache/seasons_cache_providers.dart';
 import 'package:frontend_flutter/features/ai_import/import_jobs/jobs_controller.dart';
+import 'package:frontend_flutter/features/easter_eggs/dejavu_cat.dart';
 import 'package:frontend_flutter/features/seasons/seasons_controller.dart';
 
 import 'features/seasons/seasons_test_fakes.dart';
@@ -96,6 +98,9 @@ void main() {
         aiImportJobsFetchProvider.overrideWith(
           (ref) async => Right(<AiImportJob>[]),
         ),
+        // Determinism (issue #615): pin the October gate to a non-October
+        // date so the splash goldens/assertions stay stable year-round.
+        dejaVuCatClockProvider.overrideWithValue(() => DateTime(2026, 6, 1)),
       ],
     );
     addTearDown(container.dispose);

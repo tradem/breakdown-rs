@@ -1,5 +1,6 @@
 <!-- SPDX-License-Identifier: AGPL-3.0 -->
 <!-- Copyright (C) 2024-2026 Breakdown RS Contributors -->
+<!-- Co-authored-by: deepseek-v4.1-flash (neuralwatt) -->
 <!-- Co-authored-by: glm-5.3-flash (opencode-go) -->
 
 # Settings — Screen Spec
@@ -35,7 +36,9 @@ stays hidden (graceful-degradation rule).
   --
   {^ "Allgemein"
     --
-    { "Easter-Eggs" | [x] }
+    "Easter-Eggs"
+    { "Karl Klammer" | [x] }
+    { "Déjà-vu-Katze" | [x] }
     "Kleine Überraschungen in der App lassen sich ein- und ausschalten."
   }
   --
@@ -60,7 +63,9 @@ note (store compliance).
 |---|---|---|---|
 | App bar title | Top app bar | Screen identity | `settings.title` |
 | General section | Section header | Groups always-available settings | `settings.general` |
-| Easter-eggs switch | Switch list tile | Global Easter-egg preference (default ON) | `settings.easterEggs` + `settings.easterEggsSubtitle` |
+| Easter-eggs group | Section header | Labels the per-egg switch list | `settings.easterEggs` + `settings.easterEggsSubtitle` |
+| Karl Klammer switch | Switch list tile | Per-egg preference (default ON) | `settings.easterEggsKarlKlammer` + `settings.easterEggsKarlKlammerSubtitle` |
+| Deja-vu Cat switch | Switch list tile | Per-egg preference (default ON; October-only effect) | `settings.easterEggsDejavuCat` + `settings.easterEggsDejavuCatSubtitle` |
 | Development section | Section header | Labels the dev-only area | `settings.dev` |
 | Server address row | List item (read-only) | Active effective API base | `settings.serverAddress` |
 | Flavor row | List item (read-only) | Active build flavor | `settings.flavor` |
@@ -71,16 +76,17 @@ note (store compliance).
 
 ## States
 Loading: N/A — the screen reads local state synchronously (the
-hydrated easter-eggs notifier and the effective base). Data: rows as
-above. Error: the Easter-eggs read failure surfaces as a visible error
-state in the general section (fallback default ON); backend-URI save
+hydrated per-egg easter-eggs notifiers and the effective base). Data:
+rows as above. Error: an Easter-eggs read failure surfaces as a visible
+error state on each egg row (fallback default ON); backend-URI save
 errors render inline keyed on `code` via the validation copy. Stale:
-N/A. Optimistic: the easter-eggs switch flips instantly (local
+N/A. Optimistic: each easter-eggs switch flips instantly (local
 preference, no projection involved).
 
 ## Interactions
-- Flipping the Easter-eggs switch persists the value and flips the
-  global notifier immediately — AI-Import consumers update live.
+- Flipping an Easter-eggs switch persists that egg's value and flips its
+global notifier immediately — the matching consumer (Karl Klammer
+overlay / splash cat) updates live, the other egg is unaffected.
 - Save (dev): validates inline (`validateApiBase`); on success runs the
   `SessionReset.switchBackend` flow with a linear progress indicator,
   then re-reads the effective base.
@@ -96,15 +102,17 @@ errors and save errors surface via the existing `apiBaseValidationCopy`
 mapping keyed on `code` — never on `detail` prose.
 
 ## Accessibility & i18n
-Every destination/action carries a visible label; the switch announces
+Every destination/action carries a visible label; each switch announces
 its state. All copy via glossary keys (`settings.*`); German template +
-English catalog. The Easter-eggs switch is a standard M3 switch —
+English catalog. The Easter-eggs switches are standard M3 switches —
 screen-reader friendly by construction.
 
 ## Tests
 - Widget: tile pushes the screen (no dialog); back navigation;
-  general section in both flavors; dev section dev-only; switch flips
-  the notifier immediately; save/reset/progress flows.
+  general section in both flavors; one switch per egg; dev section
+  dev-only; flipping one egg leaves the other unchanged; save/reset/
+  progress flows; per-egg read-failure error subtitle.
 - Golden: `settings_dev_{light,dark}` + `settings_prod_{light,dark}`
   (replacing the former dialog goldens).
-- Unit: easter-eggs store Ok/Err branches, default-ON fallback.
+- Unit: per-egg store Ok/Err branches, legacy migration, default-ON
+  fallback.
