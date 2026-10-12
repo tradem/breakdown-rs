@@ -18,8 +18,12 @@ part of 'season_script_controller.dart';
 ///
 /// Failure semantics:
 /// - the season's blocks cannot be read → `Left` (the whole view errors);
-/// - one block's or one episode's scenes fail → `Right` with
-///   [SeasonScript.failedEpisodes] set, so the UI states the partial truth.
+/// - one block's episodes or one episode's scenes fail → `Right` with the
+///   respective [SeasonScript.failedBlocks] / [SeasonScript.failedEpisodes]
+///   entry set, so the UI states the partial truth. A block whose episode
+///   read failed contributes NO scenes, and saying so is the whole point:
+///   silently omitting them would present a short list as the season's
+///   complete script.
 ///
 /// A sticky block scope for THIS season narrows the composition to that
 /// block — the scope chip's promise ("what filters your requests") holds for
@@ -39,8 +43,12 @@ final seasonScriptFetchProvider = SeasonScriptFetchFamily._();
 ///
 /// Failure semantics:
 /// - the season's blocks cannot be read → `Left` (the whole view errors);
-/// - one block's or one episode's scenes fail → `Right` with
-///   [SeasonScript.failedEpisodes] set, so the UI states the partial truth.
+/// - one block's episodes or one episode's scenes fail → `Right` with the
+///   respective [SeasonScript.failedBlocks] / [SeasonScript.failedEpisodes]
+///   entry set, so the UI states the partial truth. A block whose episode
+///   read failed contributes NO scenes, and saying so is the whole point:
+///   silently omitting them would present a short list as the season's
+///   complete script.
 ///
 /// A sticky block scope for THIS season narrows the composition to that
 /// block — the scope chip's promise ("what filters your requests") holds for
@@ -67,8 +75,12 @@ final class SeasonScriptFetchProvider
   ///
   /// Failure semantics:
   /// - the season's blocks cannot be read → `Left` (the whole view errors);
-  /// - one block's or one episode's scenes fail → `Right` with
-  ///   [SeasonScript.failedEpisodes] set, so the UI states the partial truth.
+  /// - one block's episodes or one episode's scenes fail → `Right` with the
+  ///   respective [SeasonScript.failedBlocks] / [SeasonScript.failedEpisodes]
+  ///   entry set, so the UI states the partial truth. A block whose episode
+  ///   read failed contributes NO scenes, and saying so is the whole point:
+  ///   silently omitting them would present a short list as the season's
+  ///   complete script.
   ///
   /// A sticky block scope for THIS season narrows the composition to that
   /// block — the scope chip's promise ("what filters your requests") holds for
@@ -118,7 +130,7 @@ final class SeasonScriptFetchProvider
   }
 }
 
-String _$seasonScriptFetchHash() => r'556e51c43ac6687bd1c80ebceb0cf70376af4026';
+String _$seasonScriptFetchHash() => r'657a312faf5b59ccb766d91fd4ff78a29595d561';
 
 /// Composes the active season's chronological script view (issue #610).
 ///
@@ -130,8 +142,12 @@ String _$seasonScriptFetchHash() => r'556e51c43ac6687bd1c80ebceb0cf70376af4026';
 ///
 /// Failure semantics:
 /// - the season's blocks cannot be read → `Left` (the whole view errors);
-/// - one block's or one episode's scenes fail → `Right` with
-///   [SeasonScript.failedEpisodes] set, so the UI states the partial truth.
+/// - one block's episodes or one episode's scenes fail → `Right` with the
+///   respective [SeasonScript.failedBlocks] / [SeasonScript.failedEpisodes]
+///   entry set, so the UI states the partial truth. A block whose episode
+///   read failed contributes NO scenes, and saying so is the whole point:
+///   silently omitting them would present a short list as the season's
+///   complete script.
 ///
 /// A sticky block scope for THIS season narrows the composition to that
 /// block — the scope chip's promise ("what filters your requests") holds for
@@ -159,8 +175,12 @@ final class SeasonScriptFetchFamily extends $Family
   ///
   /// Failure semantics:
   /// - the season's blocks cannot be read → `Left` (the whole view errors);
-  /// - one block's or one episode's scenes fail → `Right` with
-  ///   [SeasonScript.failedEpisodes] set, so the UI states the partial truth.
+  /// - one block's episodes or one episode's scenes fail → `Right` with the
+  ///   respective [SeasonScript.failedBlocks] / [SeasonScript.failedEpisodes]
+  ///   entry set, so the UI states the partial truth. A block whose episode
+  ///   read failed contributes NO scenes, and saying so is the whole point:
+  ///   silently omitting them would present a short list as the season's
+  ///   complete script.
   ///
   /// A sticky block scope for THIS season narrows the composition to that
   /// block — the scope chip's promise ("what filters your requests") holds for

@@ -752,5 +752,35 @@
   "seasonsArchiveTooltip": "Staffel-Aktionen",
   "seasonsArchiveCta": "Staffel archivieren",
   "seasonsArchivedError": "Die Staffel ist archiviert und kann nicht mehr geändert werden.",
-  "seasonsArchiveForbidden": "Dafür fehlt dir die aktive Kostüm-Rolle in dieser Staffel."
+  "seasonsArchiveForbidden": "Dafür fehlt dir die aktive Kostüm-Rolle in dieser Staffel.",
+
+  "omniSearchTitle": "Suche",
+  "omniSearchTooltip": "Suchen",
+  "omniSearchHint": "Suchen: Szenen, Rollen, Kostüme, Drehtage dieser Staffel",
+  "omniSearchChipScene": "Szene",
+  "omniSearchChipCharacter": "Rolle",
+  "omniSearchChipCostume": "Kostüm",
+  "omniSearchChipShootingDay": "Drehtag",
+  "omniSearchGroupScenes": "Szenen",
+  "omniSearchGroupCharacters": "Rollen",
+  "omniSearchGroupCostumes": "Kostüme",
+  "omniSearchGroupShootingDays": "Drehtage",
+  "omniSearchInitialEmpty": "Tippe, um die Szenen, Rollen, Kostüme und Drehtage dieser Staffel zu durchsuchen.",
+  "@omniSearchZeroMatch": {
+    "placeholders": {
+      "query": {"type": "String"},
+      "facets": {"type": "String"}
+    }
+  },
+  "omniSearchZeroMatch": "Keine Treffer für „{query}“ in: {facets}.",
+  "@omniSearchNotLoaded": {
+    "placeholders": {
+      "facets": {"type": "String"}
+    }
+  },
+  "omniSearchNotLoaded": "Noch nicht geladen: {facets}. Öffne die zugehörige Ansicht, um die Daten zu laden.",
+  "omniSearchError": "Die Suche kann den lokalen Cache gerade nicht lesen.",
+  "omniSearchNoSeason": "Wähle zuerst eine Staffel, um sie zu durchsuchen.",
+  "omniSearchStaleBanner": "Diese Ergebnisse basieren auf dem lokalen Cache und können veraltet sein.",
+  "omniSearchRefresh": "Aktualisieren"
 }

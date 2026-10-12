@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
 // Co-authored-by: omen-alpha (opencode-go)
+// Co-authored-by: glm-5.3-flash (neuralwatt)
 
 import 'dart:convert';
 
@@ -105,18 +106,24 @@ class BlockCacheDao {
     _db.blockCacheRows,
   )..where((t) => t.seasonId.equals(seasonId))).go();
 
-  BlockView _toBlockView(BlockCacheRow row) => BlockView(
-    (b) => b
-      ..id = row.id
-      ..number = row.number
-      ..seasonId = row.seasonId
-      ..projectId = row.projectId
-      ..startDate = row.startDate
-      ..endDate = row.endDate
-      ..updatedAt = row.updatedAt.toUtc()
-      ..version = row.version,
-  );
+  BlockView _toBlockView(BlockCacheRow row) => blockViewOf(row);
 }
+
+/// Public row→view mappers (issue #616): the OmniSearch composed reads and
+/// the other aggregate DAOs map episode/block rows from cross-DAO joins,
+/// so these top-level functions hold the mapping ONCE — the per-DAO
+/// private mappers delegate here (no duplication, no drift).
+BlockView blockViewOf(BlockCacheRow row) => BlockView(
+  (b) => b
+    ..id = row.id
+    ..number = row.number
+    ..seasonId = row.seasonId
+    ..projectId = row.projectId
+    ..startDate = row.startDate
+    ..endDate = row.endDate
+    ..updatedAt = row.updatedAt.toUtc()
+    ..version = row.version,
+);
 
 class EpisodeCacheDao {
   const EpisodeCacheDao(this._db);
@@ -256,17 +263,21 @@ class EpisodeCacheDao {
     _db.episodeCacheRows,
   )..where((t) => t.blockId.equals(blockId))).go();
 
-  EpisodeView _toEpisodeView(EpisodeCacheRow row) => EpisodeView(
-    (b) => b
-      ..id = row.id
-      ..blockId = row.blockId
-      ..name = row.name
-      ..number = row.number
-      ..projectId = row.projectId
-      ..updatedAt = row.updatedAt.toUtc()
-      ..version = row.version,
-  );
+  EpisodeView _toEpisodeView(EpisodeCacheRow row) => episodeViewOf(row);
 }
+
+/// See [blockViewOf] (issue #616): one mapping source, reused by the
+/// aggregates that join episode rows (OmniSearch scene/day composition).
+EpisodeView episodeViewOf(EpisodeCacheRow row) => EpisodeView(
+  (b) => b
+    ..id = row.id
+    ..blockId = row.blockId
+    ..name = row.name
+    ..number = row.number
+    ..projectId = row.projectId
+    ..updatedAt = row.updatedAt.toUtc()
+    ..version = row.version,
+);
 
 class SceneCacheDao {
   const SceneCacheDao(this._db);
@@ -360,6 +371,57 @@ class SceneCacheDao {
   Future<void> clearEpisode(String episodeId) => (_db.delete(
     _db.sceneCacheRows,
   )..where((t) => t.episodeId.equals(episodeId))).go();
+
+  /// Season-scoped composed read (issue #616, OmniSearch tasks §2.1): one
+  /// SELECT joining the scene row with its owning episode AND block, scoped
+  /// via `block.season_id` — the scene table carries no season column, so
+  /// the join IS the season scope (never a season of another episode).
+  ///
+  /// READ-ONLY over the existing projection schema (no §2.4 schema bump:
+  /// the prefilter decided in OmniSearch design D2 runs Dart-side on the
+  /// materialized lists — see `omni_search_cache_dao.dart`).
+  ///
+  /// Returns rows straight from the join; the per-season staleness verdict
+  /// is `true` when ANY involved row's client-only `cachedAt` has exceeded
+  /// [ttl] per the injectable [clock] (same TTL semantics as
+  /// `isSeasonExpired`), covering all three involved tables at once.
+  Future<({List<(SceneView, EpisodeView, BlockView)> rows, bool stale})>
+  readBySeasonComposed(
+    String seasonId, {
+    Duration ttl = kCacheTtl,
+    Clock clock = Clock.system,
+  }) async {
+    final query = _db.select(_db.sceneCacheRows).join([
+      innerJoin(
+        _db.episodeCacheRows,
+        _db.episodeCacheRows.id.equalsExp(_db.sceneCacheRows.episodeId),
+      ),
+      innerJoin(
+        _db.blockCacheRows,
+        _db.blockCacheRows.id.equalsExp(_db.episodeCacheRows.blockId),
+      ),
+    ])..where(_db.blockCacheRows.seasonId.equals(seasonId));
+    final joined = await query.get();
+
+    var stale = false;
+    final rows = <(SceneView, EpisodeView, BlockView)>[];
+    for (final row in joined) {
+      final scene = row.readTable(_db.sceneCacheRows);
+      final episode = row.readTable(_db.episodeCacheRows);
+      final block = row.readTable(_db.blockCacheRows);
+      if (isRowExpired(scene.cachedAt, ttl, clock: clock) ||
+          isRowExpired(episode.cachedAt, ttl, clock: clock) ||
+          isRowExpired(block.cachedAt, ttl, clock: clock)) {
+        stale = true;
+      }
+      rows.add((
+        _toSceneView(scene),
+        episodeViewOf(episode),
+        blockViewOf(block),
+      ));
+    }
+    return (rows: rows, stale: stale);
+  }
 
   SceneView _toSceneView(SceneCacheRow row) => SceneView(
     (b) => b

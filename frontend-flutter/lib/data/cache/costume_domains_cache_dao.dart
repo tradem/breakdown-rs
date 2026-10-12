@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
+// Co-authored-by: glm-5.3-flash (neuralwatt)
 
 import 'dart:convert';
 
@@ -12,6 +13,7 @@ import 'package:drift/drift.dart';
 import 'cache_database.dart';
 import 'cache_ttl.dart';
 import 'clock.dart';
+import 'hierarchy_cache_dao.dart' show blockViewOf, episodeViewOf;
 import 'costume_domains_cache.dart';
 
 /// Serializers shim: the generated `breakdown_api` package exposes the
@@ -178,13 +180,27 @@ class CostumeCacheDao {
   /// Reads the season's costumes in snapshot order (`snapshotIndex`
   /// ASC reproduces the server `ORDER BY updated_at DESC` exactly,
   /// including timestamp ties that no column ordering could separate).
-  Future<List<CostumeView>> readBySeason(String seasonId) async {
-    final rows =
+  Future<List<CostumeView>> readBySeason(String seasonId) async =>
+      (await readBySeasonFresh(seasonId)).rows;
+
+  /// Season-scoped read WITH the TTL staleness verdict (issue #616,
+  /// OmniSearch tasks §2.1): the costume scope is the seasonal snapshot
+  /// column, so no join is needed. No schema change (§2.4 does not
+  /// trigger).
+  Future<({List<CostumeView> rows, bool stale})> readBySeasonFresh(
+    String seasonId, {
+    Duration ttl = kCacheTtl,
+    Clock clock = Clock.system,
+  }) async {
+    final raw =
         await (_db.select(_db.costumeCacheRows)
               ..where((t) => t.seasonId.equals(seasonId))
               ..orderBy([(t) => OrderingTerm.asc(t.snapshotIndex)]))
             .get();
-    return rows.map((r) => _toView(seasonId, r)).toList();
+    return (
+      rows: raw.map((r) => _toView(seasonId, r)).toList(),
+      stale: raw.any((r) => isRowExpired(r.cachedAt, ttl, clock: clock)),
+    );
   }
 
   Future<CostumeView?> readById(String seasonId, String id) async {
@@ -338,6 +354,24 @@ class CharacterCacheDao {
   Future<void> clearSeason(String seasonId) => (_db.delete(
     _db.characterCacheRows,
   )..where((t) => t.seasonId.equals(seasonId))).go();
+
+  /// Season-scoped read WITH the TTL staleness verdict (issue #616,
+  /// OmniSearch tasks §2.1): same rows as [readBySeason], plus `true` when
+  /// any row's client-only `cachedAt` has exceeded [ttl]. One additional
+  /// typed-row pass, no schema change (§2.4 does not trigger).
+  Future<({List<CharacterView> rows, bool stale})> readBySeasonFresh(
+    String seasonId, {
+    Duration ttl = kCacheTtl,
+    Clock clock = Clock.system,
+  }) async {
+    final raw = await (_db.select(
+      _db.characterCacheRows,
+    )..where((t) => t.seasonId.equals(seasonId))).get();
+    return (
+      rows: raw.map(_toView).toList(),
+      stale: raw.any((r) => isRowExpired(r.cachedAt, ttl, clock: clock)),
+    );
+  }
 }
 
 // --- Shooting days ------------------------------------------------------------
@@ -465,4 +499,50 @@ class ShootingDayCacheDao {
   Future<void> clearEpisode(String episodeId) => (_db.delete(
     _db.shootingDayCacheRows,
   )..where((t) => t.episodeId.equals(episodeId))).go();
+
+  /// Season-scoped composed read (issue #616, OmniSearch tasks §2.1): one
+  /// SELECT joining the shooting-day row with its owning episode AND block,
+  /// scoped via `block.season_id` — the day table carries no season column,
+  /// so the join IS the season scope. READ-ONLY, no schema change.
+  ///
+  /// Server order is preserved (`order_key ASC` — no client re-sort); the
+  /// staleness verdict covers ALL three involved tables' `cachedAt`.
+  Future<({List<(ShootingDayView, EpisodeView, BlockView)> rows, bool stale})>
+  readBySeasonComposed(
+    String seasonId, {
+    Duration ttl = kCacheTtl,
+    Clock clock = Clock.system,
+  }) async {
+    final query =
+        _db.select(_db.shootingDayCacheRows).join([
+            innerJoin(
+              _db.episodeCacheRows,
+              _db.episodeCacheRows.id.equalsExp(
+                _db.shootingDayCacheRows.episodeId,
+              ),
+            ),
+            innerJoin(
+              _db.blockCacheRows,
+              _db.blockCacheRows.id.equalsExp(_db.episodeCacheRows.blockId),
+            ),
+          ])
+          ..where(_db.blockCacheRows.seasonId.equals(seasonId))
+          ..orderBy([OrderingTerm.asc(_db.shootingDayCacheRows.orderKey)]);
+    final joined = await query.get();
+
+    var stale = false;
+    final rows = <(ShootingDayView, EpisodeView, BlockView)>[];
+    for (final row in joined) {
+      final day = row.readTable(_db.shootingDayCacheRows);
+      final episode = row.readTable(_db.episodeCacheRows);
+      final block = row.readTable(_db.blockCacheRows);
+      if (isRowExpired(day.cachedAt, ttl, clock: clock) ||
+          isRowExpired(episode.cachedAt, ttl, clock: clock) ||
+          isRowExpired(block.cachedAt, ttl, clock: clock)) {
+        stale = true;
+      }
+      rows.add((_toView(day), episodeViewOf(episode), blockViewOf(block)));
+    }
+    return (rows: rows, stale: stale);
+  }
 }

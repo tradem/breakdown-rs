@@ -13,8 +13,9 @@ part of 'season_schedule_controller.dart';
 /// `GET /v1/episodes/{id}/shooting-days` is episode-scoped, so the season
 /// view composes blocks → episodes → days through the existing
 /// authenticated seams. Failure semantics mirror the Script composition:
-/// an unreadable block list is a `Left` (the view errors), a single failed
-/// episode yields a visible partial-load notice.
+/// an unreadable block list is a `Left` (the view errors), a failed episode
+/// read or a failed day read yields a visible partial-load notice — at the
+/// level that actually failed.
 ///
 /// A sticky block scope for THIS season narrows the board to that block; a
 /// scope from another season is ignored (same reuse rule as the scope chip).
@@ -27,8 +28,9 @@ final seasonScheduleFetchProvider = SeasonScheduleFetchFamily._();
 /// `GET /v1/episodes/{id}/shooting-days` is episode-scoped, so the season
 /// view composes blocks → episodes → days through the existing
 /// authenticated seams. Failure semantics mirror the Script composition:
-/// an unreadable block list is a `Left` (the view errors), a single failed
-/// episode yields a visible partial-load notice.
+/// an unreadable block list is a `Left` (the view errors), a failed episode
+/// read or a failed day read yields a visible partial-load notice — at the
+/// level that actually failed.
 ///
 /// A sticky block scope for THIS season narrows the board to that block; a
 /// scope from another season is ignored (same reuse rule as the scope chip).
@@ -48,8 +50,9 @@ final class SeasonScheduleFetchProvider
   /// `GET /v1/episodes/{id}/shooting-days` is episode-scoped, so the season
   /// view composes blocks → episodes → days through the existing
   /// authenticated seams. Failure semantics mirror the Script composition:
-  /// an unreadable block list is a `Left` (the view errors), a single failed
-  /// episode yields a visible partial-load notice.
+  /// an unreadable block list is a `Left` (the view errors), a failed episode
+  /// read or a failed day read yields a visible partial-load notice — at the
+  /// level that actually failed.
   ///
   /// A sticky block scope for THIS season narrows the board to that block; a
   /// scope from another season is ignored (same reuse rule as the scope chip).
@@ -98,15 +101,16 @@ final class SeasonScheduleFetchProvider
 }
 
 String _$seasonScheduleFetchHash() =>
-    r'156f4b10004dd22e2d8ddf2dd35963bd4ca95fd9';
+    r'22a691e73c418ee6cbb25725ed2d6c585e3f825b';
 
 /// Composes the active season's shooting-day board (issue #610).
 ///
 /// `GET /v1/episodes/{id}/shooting-days` is episode-scoped, so the season
 /// view composes blocks → episodes → days through the existing
 /// authenticated seams. Failure semantics mirror the Script composition:
-/// an unreadable block list is a `Left` (the view errors), a single failed
-/// episode yields a visible partial-load notice.
+/// an unreadable block list is a `Left` (the view errors), a failed episode
+/// read or a failed day read yields a visible partial-load notice — at the
+/// level that actually failed.
 ///
 /// A sticky block scope for THIS season narrows the board to that block; a
 /// scope from another season is ignored (same reuse rule as the scope chip).
@@ -131,8 +135,9 @@ final class SeasonScheduleFetchFamily extends $Family
   /// `GET /v1/episodes/{id}/shooting-days` is episode-scoped, so the season
   /// view composes blocks → episodes → days through the existing
   /// authenticated seams. Failure semantics mirror the Script composition:
-  /// an unreadable block list is a `Left` (the view errors), a single failed
-  /// episode yields a visible partial-load notice.
+  /// an unreadable block list is a `Left` (the view errors), a failed episode
+  /// read or a failed day read yields a visible partial-load notice — at the
+  /// level that actually failed.
   ///
   /// A sticky block scope for THIS season narrows the board to that block; a
   /// scope from another season is ignored (same reuse rule as the scope chip).

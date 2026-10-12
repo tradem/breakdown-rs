@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: space-bunny (opencode-go)
+// Co-authored-by: glm-5.3-flash (neuralwatt)
 
 import 'dart:async' show unawaited;
 
@@ -13,6 +14,7 @@ import '../scenes/scene_detail_screen.dart';
 import '../scenes/season_script_controller.dart';
 import 'planning_location.dart';
 import 'profile_menu_button.dart';
+import 'search_action_button.dart';
 import 'shell_controller.dart';
 import 'view_states.dart';
 
@@ -40,7 +42,7 @@ class ScriptTabScreen extends ConsumerWidget {
     return Scaffold(
       appBar: AppBar(
         title: Text(l10n.navScript),
-        actions: const [ProfileMenuButton()],
+        actions: const [ShellSearchAction(), ProfileMenuButton()],
       ),
       body: season == null
           ? const SeasonRequiredView(emptyKey: Key('script-no-season'))
