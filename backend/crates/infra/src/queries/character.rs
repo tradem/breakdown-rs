@@ -5,7 +5,9 @@
 
 use breakdown_core::character::category::CharacterCategory;
 use breakdown_core::character::ports::CharacterRepository;
-use breakdown_core::character::views::CharacterView;
+use breakdown_core::character::views::{
+    AppearanceCostumeView, CharacterAppearanceView, CharacterView,
+};
 use breakdown_core::error::DomainError;
 use breakdown_core::error_registry::CHARACTER_NOT_FOUND;
 use breakdown_core::shared::{AggregateVersion, EpisodeId, SeasonId};
@@ -103,14 +105,42 @@ impl CharacterRepository for CharacterRepositoryImpl {
         rows.into_iter().map(map_character_row).collect()
     }
 
-    async fn appearances(&self, character_id: Uuid) -> Result<Vec<EpisodeId>, DomainError> {
+    async fn character_appearances(
+        &self,
+        character_id: Uuid,
+    ) -> Result<Vec<CharacterAppearanceView>, DomainError> {
+        // Issue #621: script-order appearances of one character, each carrying
+        // that character's own ordered costume beats. The costume list is a
+        // correlated scalar subquery keyed on `(scene_id, character_id)` so the
+        // one-to-many join cannot multiply the scene rows (issue #550 pattern);
+        // `COALESCE` keeps a scene with no beat for this character as an empty
+        // list. `scene_number` is nullable (unnumbered scenes sort last) and
+        // `s.id` is the deterministic tie-break.
         let rows = sqlx::query(
             r#"
-            SELECT DISTINCT s.episode_id
-            FROM projection_scene_character sc
-            JOIN projection_scene s ON s.id = sc.scene_id
-            WHERE sc.character_id = $1
-            ORDER BY s.episode_id
+            SELECT
+                s.id AS scene_id,
+                s.episode_id,
+                s.scene_number,
+                s.summary,
+                COALESCE((
+                    SELECT jsonb_agg(
+                        jsonb_build_object(
+                            'costume_id', psca.costume_id,
+                            'costume_category_id', co.category_id,
+                            'costume_category_name', co.category_name,
+                            'order', psca."order",
+                            'note', psca.note
+                        ) ORDER BY psca."order"
+                    )
+                    FROM projection_scene_costume_assignment psca
+                    LEFT JOIN projection_costume co ON co.id = psca.costume_id
+                    WHERE psca.scene_id = s.id AND psca.character_id = $1
+                ), '[]'::jsonb) AS costumes
+            FROM projection_scene_character psc
+            JOIN projection_scene s ON s.id = psc.scene_id
+            WHERE psc.character_id = $1
+            ORDER BY s.scene_number NULLS LAST, s.id
             "#,
         )
         .bind(character_id)
@@ -118,12 +148,7 @@ impl CharacterRepository for CharacterRepositoryImpl {
         .await
         .map_err(|e| DomainError::conflict(e.to_string()))?;
 
-        rows.into_iter()
-            .map(|row| {
-                let id: Uuid = row.try_get("episode_id").map_err(map_err)?;
-                Ok(EpisodeId(id))
-            })
-            .collect()
+        rows.into_iter().map(map_appearance_row).collect()
     }
 }
 
@@ -143,6 +168,25 @@ fn map_character_row(row: sqlx::postgres::PgRow) -> Result<CharacterView, Domain
         updated_at: row
             .try_get::<DateTime<Utc>, _>("updated_at")
             .map_err(map_err)?,
+    })
+}
+
+fn map_appearance_row(row: sqlx::postgres::PgRow) -> Result<CharacterAppearanceView, DomainError> {
+    let costumes_json: serde_json::Value = row.try_get("costumes").map_err(map_err)?;
+    let costumes: Vec<AppearanceCostumeView> =
+        serde_json::from_value(costumes_json.clone()).map_err(|e| {
+            DomainError::conflict(format!(
+                "failed to deserialize character appearance costumes from projection row: {e}; json={costumes_json}"
+            ))
+        })?;
+    let scene_number: Option<i32> = row.try_get("scene_number").map_err(map_err)?;
+
+    Ok(CharacterAppearanceView {
+        scene_id: row.try_get("scene_id").map_err(map_err)?,
+        episode_id: EpisodeId(row.try_get("episode_id").map_err(map_err)?),
+        scene_number: scene_number.map(|n| n as u32),
+        synopsis: row.try_get("summary").map_err(map_err)?,
+        costumes,
     })
 }
 

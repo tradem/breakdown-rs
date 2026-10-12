@@ -420,6 +420,38 @@ components:
       - provider
       - key
       type: object
+    AppearanceCostumeView:
+      description: |-
+        One costume beat of a character within one scene (issue #621): the
+        character-scoped slice of `projection_scene_costume_assignment`, enriched by
+        join with `projection_costume` for the category.
+      properties:
+        costume_category_id:
+          format: uuid
+          type:
+          - string
+          - 'null'
+        costume_category_name:
+          type:
+          - string
+          - 'null'
+        costume_id:
+          format: uuid
+          type: string
+        note:
+          description: Optional free-text cue for the wardrobe crew.
+          type:
+          - string
+          - 'null'
+        order:
+          description: Dense, zero-based, unique per character within this scene.
+          format: int32
+          minimum: 0
+          type: integer
+      required:
+      - costume_id
+      - order
+      type: object
     ApplyAiImportRequest:
       properties:
         accept_as_is:
@@ -671,6 +703,43 @@ components:
       - number
       - version
       - updated_at
+      type: object
+    CharacterAppearanceView:
+      description: |-
+        One appearance of a character in a scene (issue #621): the scene reference
+        in script order plus the character's own costume beats in that scene.
+
+        Backs `GET /v1/characters/{id}/appearances` — the role extract ("Ring
+        binder per role"): every scene the character appears in, in `scene_number`
+        order, with the costume(s) that character wears there.
+      properties:
+        costumes:
+          description: |-
+            The character's costume beats in this scene, ordered by `order`.
+            Empty when the character has no costume beat in the scene yet.
+          items:
+            $ref: '#/components/schemas/AppearanceCostumeView'
+          type: array
+        episode_id:
+          $ref: '#/components/schemas/EpisodeId'
+        scene_id:
+          format: uuid
+          type: string
+        scene_number:
+          description: Script-order scene number; `None` for scenes not yet numbered.
+          format: int32
+          minimum: 0
+          type:
+          - integer
+          - 'null'
+        synopsis:
+          description: Scene synopsis (the scene projection's `summary`), for the extract row.
+          type:
+          - string
+          - 'null'
+      required:
+      - scene_id
+      - episode_id
       type: object
     CharacterCategory:
       description: |-
@@ -4320,6 +4389,49 @@ paths:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
+      tags:
+      - handlers
+  /v1/characters/{id}/appearances:
+    get:
+      description: |-
+        Season-scoped read gated handler-internally (the route is classified
+        `Authenticated` in `requirement_for`, mirroring the report/photo families):
+        the caller must hold an active costume-department role in the character's
+        season. The character fetch runs first so an unknown id answers
+        `404 character.not-found` before the policy.
+      operationId: get_character_appearances
+      parameters:
+      - description: Character id
+        in: path
+        name: id
+        required: true
+        schema:
+          format: uuid
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                items:
+                  $ref: '#/components/schemas/CharacterAppearanceView'
+                type: array
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Not authorized
+        '404':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Character not found
+      summary: |-
+        Per-character appearances read model (issue #621): the role extract
+        ("Ring binder per role") — every scene the character appears in, in script
+        order, each with that character's own ordered costume beats.
       tags:
       - handlers
   /v1/characters/{id}/contact:

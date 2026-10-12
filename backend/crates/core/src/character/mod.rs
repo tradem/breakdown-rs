@@ -17,4 +17,4 @@ pub use commands::{CreateCharacter, UpdateContactInfo, UpdateMeasurements};
 pub use error::CharacterError;
 pub use events::{CharacterEvent, CharacterMeasurements, ContactInfo};
 pub use ports::{CharacterCommands, CharacterRepository};
-pub use views::CharacterView;
+pub use views::{AppearanceCostumeView, CharacterAppearanceView, CharacterView};

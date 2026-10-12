@@ -15,6 +15,24 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
+## [0.30.0] - Unreleased
+
+### Added — per-character appearances query (issue #621)
+
+- `CharacterRepositoryImpl::character_appearances` reads
+  `projection_scene_character` → `projection_scene` in script order
+  (`scene_number` NULLS LAST, id tie-break) and attaches the character's own
+  `projection_scene_costume_assignment` beats (category resolved by join)
+  through a correlated scalar subquery, so the one-to-many costume list cannot
+  fan out the scene rows.
+- Migration `20261009000001` adds the covering index
+  `idx_projection_scene_character_character_scene (character_id, scene_id)`
+  backing the filter + join. A literal `(character_id, scene_number)` index is
+  impossible across the two tables (`scene_number` lives on
+  `projection_scene`).
+- `breakdown_core` 0.24.0 → 0.25.0; new trait-method implementation
+  (additive): **0.29.2 → 0.30.0** (MINOR).
+
 ## [0.29.2] - Unreleased
 
 ### Changed — descriptive, configurable `User-Agent` on the AI provider HTTP clients (issue #521)

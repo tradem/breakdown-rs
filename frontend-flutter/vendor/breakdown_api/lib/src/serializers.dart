@@ -32,6 +32,7 @@ import 'package:breakdown_api/src/model/ai_preview_payload_one_of.dart';
 import 'package:breakdown_api/src/model/ai_preview_payload_one_of1.dart';
 import 'package:breakdown_api/src/model/ai_preview_payload_one_of2.dart';
 import 'package:breakdown_api/src/model/ai_provider_info.dart';
+import 'package:breakdown_api/src/model/appearance_costume_view.dart';
 import 'package:breakdown_api/src/model/apply_ai_import_request.dart';
 import 'package:breakdown_api/src/model/apply_ai_import_response.dart';
 import 'package:breakdown_api/src/model/apply_episode_group_request.dart';
@@ -43,6 +44,7 @@ import 'package:breakdown_api/src/model/assign_character_request.dart';
 import 'package:breakdown_api/src/model/assign_costume_request.dart';
 import 'package:breakdown_api/src/model/audit_entry.dart';
 import 'package:breakdown_api/src/model/block_view.dart';
+import 'package:breakdown_api/src/model/character_appearance_view.dart';
 import 'package:breakdown_api/src/model/character_category.dart';
 import 'package:breakdown_api/src/model/character_measurements.dart';
 import 'package:breakdown_api/src/model/character_view.dart';
@@ -174,6 +176,7 @@ part 'serializers.g.dart';
   AiPreviewPayloadOneOf1,
   AiPreviewPayloadOneOf2,
   AiProviderInfo,
+  AppearanceCostumeView,
   ApplyAiImportRequest,
   ApplyAiImportResponse,
   ApplyEpisodeGroupRequest,
@@ -185,6 +188,7 @@ part 'serializers.g.dart';
   AssignCostumeRequest,
   AuditEntry,
   BlockView,
+  CharacterAppearanceView,
   CharacterCategory,
   CharacterMeasurements,
   CharacterView,
@@ -449,12 +453,20 @@ Serializers serializers = (_$serializers.toBuilder()
         () => ListBuilder<UnappliedCostume>(),
       )
       ..addBuilderFactory(
+        const FullType(BuiltList, [FullType(CharacterAppearanceView)]),
+        () => ListBuilder<CharacterAppearanceView>(),
+      )
+      ..addBuilderFactory(
         const FullType(BuiltList, [FullType(BlockView)]),
         () => ListBuilder<BlockView>(),
       )
       ..addBuilderFactory(
         const FullType(BuiltList, [FullType(DocumentKind)]),
         () => ListBuilder<DocumentKind>(),
+      )
+      ..addBuilderFactory(
+        const FullType(BuiltList, [FullType(AppearanceCostumeView)]),
+        () => ListBuilder<AppearanceCostumeView>(),
       )
       ..addBuilderFactory(
         const FullType(BuiltList, [FullType(String)]),

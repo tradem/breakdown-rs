@@ -226,6 +226,11 @@ fn allowlist_paths_map_to_authenticated_only() {
         // gate (`authorize_ops`) inside the handler.
         "/ops/projector-health",
         "/v1/ops/projector-health",
+        // Per-character appearances (issue #621): season-scoped
+        // handler-internal costume-role gate (`// AUTHZ-GATE:`), authenticated
+        // only at the middleware.
+        "/characters/00000000-0000-7000-8000-000000000000/appearances",
+        "/v1/characters/00000000-0000-7000-8000-000000000000/appearances",
     ];
 
     for path in allowlist {

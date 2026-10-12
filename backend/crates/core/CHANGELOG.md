@@ -15,6 +15,20 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
+## [0.25.0] - Unreleased
+
+### Added — per-character appearances read model (issue #621)
+
+- `CharacterAppearanceView` (scene reference + script-order `scene_number` +
+  `synopsis` + the character's own `costumes`) and `AppearanceCostumeView`
+  (costume identity + category + beat `order` + `note`) — the role-extract
+  read shape for `GET /v1/characters/{id}/appearances`.
+- `CharacterRepository::character_appearances(character_id)` (additive port
+  method). The previously unused `appearances` → `Vec<EpisodeId>` helper is
+  removed.
+- Public API change: **0.24.0 → 0.25.0** (MINOR; the removed `appearances`
+  method had no out-of-tree implementor).
+
 ## [0.18.0] - Unreleased
 
 ### Added — aggregated Soll-Ist report types (issue #571)

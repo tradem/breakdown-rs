@@ -28,6 +28,7 @@ import 'package:breakdown_api/src/model/assign_character_request.dart';
 import 'package:breakdown_api/src/model/assign_costume_request.dart';
 import 'package:breakdown_api/src/model/audit_entry.dart';
 import 'package:breakdown_api/src/model/block_view.dart';
+import 'package:breakdown_api/src/model/character_appearance_view.dart';
 import 'package:breakdown_api/src/model/character_view.dart';
 import 'package:breakdown_api/src/model/costume_category_view.dart';
 import 'package:breakdown_api/src/model/costume_view.dart';
@@ -3378,6 +3379,86 @@ class HandlersApi {
     }
 
     return Response<CharacterView>(
+      data: _responseData,
+      headers: _response.headers,
+      isRedirect: _response.isRedirect,
+      requestOptions: _response.requestOptions,
+      redirects: _response.redirects,
+      statusCode: _response.statusCode,
+      statusMessage: _response.statusMessage,
+      extra: _response.extra,
+    );
+  }
+
+  /// Per-character appearances read model (issue #621): the role extract (\&quot;Ring binder per role\&quot;) — every scene the character appears in, in script order, each with that character&#39;s own ordered costume beats.
+  /// Season-scoped read gated handler-internally (the route is classified &#x60;Authenticated&#x60; in &#x60;requirement_for&#x60;, mirroring the report/photo families): the caller must hold an active costume-department role in the character&#39;s season. The character fetch runs first so an unknown id answers &#x60;404 character.not-found&#x60; before the policy.
+  ///
+  /// Parameters:
+  /// * [id] - Character id
+  /// * [cancelToken] - A [CancelToken] that can be used to cancel the operation
+  /// * [headers] - Can be used to add additional headers to the request
+  /// * [extras] - Can be used to add flags to the request
+  /// * [validateStatus] - A [ValidateStatus] callback that can be used to determine request success based on the HTTP status of the response
+  /// * [onSendProgress] - A [ProgressCallback] that can be used to get the send progress
+  /// * [onReceiveProgress] - A [ProgressCallback] that can be used to get the receive progress
+  ///
+  /// Returns a [Future] containing a [Response] with a [BuiltList<CharacterAppearanceView>] as data
+  /// Throws [DioException] if API call or serialization fails
+  Future<Response<BuiltList<CharacterAppearanceView>>> getCharacterAppearances({
+    required String id,
+    CancelToken? cancelToken,
+    Map<String, dynamic>? headers,
+    Map<String, dynamic>? extra,
+    ValidateStatus? validateStatus,
+    ProgressCallback? onSendProgress,
+    ProgressCallback? onReceiveProgress,
+  }) async {
+    final _path = r'/v1/characters/{id}/appearances'.replaceAll(
+        '{' r'id' '}',
+        encodeQueryParameter(_serializers, id, const FullType(String))
+            .toString());
+    final _options = Options(
+      method: r'GET',
+      headers: <String, dynamic>{
+        ...?headers,
+      },
+      extra: <String, dynamic>{
+        'secure': <Map<String, String>>[],
+        ...?extra,
+      },
+      validateStatus: validateStatus,
+    );
+
+    final _response = await _dio.request<Object>(
+      _path,
+      options: _options,
+      cancelToken: cancelToken,
+      onSendProgress: onSendProgress,
+      onReceiveProgress: onReceiveProgress,
+    );
+
+    BuiltList<CharacterAppearanceView>? _responseData;
+
+    try {
+      final rawResponse = _response.data;
+      _responseData = rawResponse == null
+          ? null
+          : _serializers.deserialize(
+              rawResponse,
+              specifiedType: const FullType(
+                  BuiltList, [FullType(CharacterAppearanceView)]),
+            ) as BuiltList<CharacterAppearanceView>;
+    } catch (error, stackTrace) {
+      throw DioException(
+        requestOptions: _response.requestOptions,
+        response: _response,
+        type: DioExceptionType.unknown,
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+
+    return Response<BuiltList<CharacterAppearanceView>>(
       data: _responseData,
       headers: _response.headers,
       isRedirect: _response.isRedirect,

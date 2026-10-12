@@ -3,14 +3,18 @@
 
 //! Hexagonal ports for the Character context.
 
+// SPDX-License-Identifier: AGPL-3.0
+// Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: deepseek-v4.1-flash (neuralwatt)
+
 use uuid::Uuid;
 
 use crate::error::DomainError;
-use crate::shared::{AggregateVersion, EpisodeId, SeasonId, UserId};
+use crate::shared::{AggregateVersion, SeasonId, UserId};
 
 use super::category::CharacterCategory;
 use super::commands::{CreateCharacter, UpdateContactInfo, UpdateMeasurements};
-use super::views::CharacterView;
+use super::views::{CharacterAppearanceView, CharacterView};
 
 /// Async write port for the `CharacterAggregate`.
 #[allow(async_fn_in_trait)]
@@ -50,7 +54,15 @@ pub trait CharacterRepository: Send + Sync {
         limit: i64,
         offset: i64,
     ) -> Result<Vec<CharacterView>, DomainError>;
-    /// Derived read (Task 5.4): episodes a character appears in.
-    /// Implemented as a JOIN over `projection_scene_character` → `projection_scene`.
-    async fn appearances(&self, character_id: Uuid) -> Result<Vec<EpisodeId>, DomainError>;
+    /// Derived read (issue #621): the scenes a character appears in, in
+    /// script order (`scene_number`), each carrying the character's own
+    /// ordered costume beats. Backs the role-extract route
+    /// `GET /v1/characters/{id}/appearances`.
+    ///
+    /// Implemented as a JOIN over `projection_scene_character` →
+    /// `projection_scene` with a per-scene costume subquery.
+    async fn character_appearances(
+        &self,
+        character_id: Uuid,
+    ) -> Result<Vec<CharacterAppearanceView>, DomainError>;
 }
