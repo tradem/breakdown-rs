@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: glm-5.3-flash (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (neuralwatt)
 
 /// Pure Karl Klammer trigger logic (issue #516, Decision D4 of
 /// `add-karl-klammer-easter-egg`): maps an AI-Import flow state to a tip
@@ -17,6 +18,11 @@ enum ClippyFlowState {
   /// No AI config present yet — the "It looks like you're writing a
   /// letter…" allusion offering the AI-config entry.
   noConfig,
+
+  /// An import job is queued but has not started yet — the figure
+  /// "thinks it over" (issue #614: a distinct reaction, previously folded
+  /// into [running]).
+  queued,
 
   /// An import job is running — Clippy's signature eager-for-knowledge
   /// animation, adapted to the hanger: an excited swing/wobble.
@@ -47,21 +53,39 @@ enum ClippyPose {
 
   /// Upright with a proud tilt (success).
   proud,
+
+  /// Head tilted, eyes up, one brow raised — the queued "thinking it
+  /// over" reaction (issue #614).
+  thinking,
 }
 
 /// Which localized tip to show (`aiImport.clippy.*` ARB keys).
 enum ClippyTipKey {
   noConfig,
+  queued,
   running,
   error,
   success,
 
-  /// Idle jokes — a small fixed set from the Clippy canon
-  /// (`aiImport.clippy.idle1..3`).
+  /// Idle jokes — a fixed set from the Clippy canon
+  /// (`aiImport.clippy.idle1..5`).
   idle1,
   idle2,
   idle3,
+  idle4,
+  idle5,
 }
+
+/// The deterministic pose cycle for the idle joke set (issue #614) —
+/// index-aligned with `idle1..idle5` so the figure visibly alternates
+/// between a resting and a thoughtful stance without any randomness.
+const List<ClippyPose> _idlePoses = [
+  ClippyPose.neutral,
+  ClippyPose.thinking,
+  ClippyPose.neutral,
+  ClippyPose.thinking,
+  ClippyPose.neutral,
+];
 
 final class ClippyTip {
   const ClippyTip(this.key, this.pose);
@@ -79,6 +103,10 @@ ClippyTip clippyTipFor(ClippyFlowState state, {required int triggerCount}) {
       ClippyTipKey.noConfig,
       ClippyPose.neutral,
     ),
+    ClippyFlowState.queued => const ClippyTip(
+      ClippyTipKey.queued,
+      ClippyPose.thinking,
+    ),
     ClippyFlowState.running => const ClippyTip(
       ClippyTipKey.running,
       ClippyPose.excited,
@@ -92,9 +120,10 @@ ClippyTip clippyTipFor(ClippyFlowState state, {required int triggerCount}) {
       ClippyPose.proud,
     ),
     ClippyFlowState.idle => ClippyTip(
-      // Deterministic rotation over the fixed idle set.
-      ClippyTipKey.values[ClippyTipKey.idle1.index + (triggerCount % 3)],
-      ClippyPose.neutral,
+      // Deterministic rotation over the fixed idle set, with a matching
+      // pose cycle (never random).
+      ClippyTipKey.values[ClippyTipKey.idle1.index + (triggerCount % 5)],
+      _idlePoses[triggerCount % 5],
     ),
   };
 }

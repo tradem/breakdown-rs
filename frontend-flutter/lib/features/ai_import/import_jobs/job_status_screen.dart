@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: omen-alpha (opencode-go)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
+// Co-authored-by: deepseek-v4.1-flash (neuralwatt)
 
 import 'package:breakdown_api/breakdown_api.dart';
 import 'package:flutter/material.dart';
@@ -49,7 +50,8 @@ class AiJobStatusScreen extends ConsumerWidget {
     // screen's own watched status — running/droop/proud reactions.
     final clippyState = switch (status) {
       AsyncData(:final value) => switch (value.status) {
-        JobStatus.pending || JobStatus.running => ClippyFlowState.running,
+        JobStatus.pending => ClippyFlowState.queued,
+        JobStatus.running => ClippyFlowState.running,
         JobStatus.failed => ClippyFlowState.error,
         JobStatus.succeeded => ClippyFlowState.success,
         _ => ClippyFlowState.idle,

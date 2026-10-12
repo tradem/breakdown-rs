@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: glm-5.3-flash (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (neuralwatt)
 
 import 'dart:async' show unawaited;
 
@@ -49,11 +50,10 @@ class AiImportJobsScreen extends ConsumerWidget {
     // screen's own watched state — never from a second projection call.
     final clippyState = state.error != null && state.rows.isEmpty
         ? ClippyFlowState.error
-        : state.rows.any(
-            (r) =>
-                r.status == JobStatus.pending || r.status == JobStatus.running,
-          )
+        : state.rows.any((r) => r.status == JobStatus.running)
         ? ClippyFlowState.running
+        : state.rows.any((r) => r.status == JobStatus.pending)
+        ? ClippyFlowState.queued
         : ClippyFlowState.idle;
 
     return Scaffold(

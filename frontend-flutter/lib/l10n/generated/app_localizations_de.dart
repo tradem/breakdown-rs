@@ -2742,6 +2742,9 @@ class AppLocalizationsDe extends AppLocalizations {
       'Klasse! Der Import sitzt wie maßgeschneidert.';
 
   @override
+  String get aiImportClippyQueued => 'Hmm, lass mich kurz überlegen…';
+
+  @override
   String get aiImportClippyIdle1 =>
       'Wusstest du, dass „Klamotten“ umgangssprachlich Kleidung bedeutet? Der Name sitzt also doppelt.';
 
@@ -2750,6 +2753,14 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get aiImportClippyIdle3 => 'Häng dich nicht auf – ich bin ja da.';
+
+  @override
+  String get aiImportClippyIdle4 =>
+      'Ein Kleiderbügel kommt selten allein – meistens hängt er mit Freunden rum.';
+
+  @override
+  String get aiImportClippyIdle5 =>
+      'Ordnung ist das halbe Leben. Die andere Hälfte ist der passende Bügel.';
 
   @override
   String get aiImportClippyDismissTooltip => 'Karl Klammer ausblenden';

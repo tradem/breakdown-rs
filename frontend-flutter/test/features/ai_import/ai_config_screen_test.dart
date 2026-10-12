@@ -276,6 +276,14 @@ void main() {
             theme: ThemeData.light(),
             darkTheme: ThemeData.dark(),
             themeMode: mode,
+            // Deterministic host tests (AGENTS.md §6): the Karl Klammer
+            // figure is time-driven, so freeze animations — the static
+            // pose is exactly the remove-animations rendering (spec
+            // `flutter-easter-eggs`).
+            builder: (context, child) => MediaQuery(
+              data: MediaQuery.of(context).copyWith(disableAnimations: true),
+              child: child!,
+            ),
             home: const AiConfigScreen(),
           ),
         ),

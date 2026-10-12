@@ -253,9 +253,10 @@ establishing change).
 | `dns_outlined` | **Serveradresse** | Settings — backend endpoint display | `settings.serverUrl` |
 | `—` *(no icon)* | **Es sieht so aus, als wolltest du einen Spielplan importieren…** | Karl Klammer (Easter egg, AI Import) — no-config allusion offering the AI-config entry | `aiImport.clippy.noConfig` |
 | `—` *(no icon)* | **Ich bin ganz Ohr!** | Karl Klammer — import-job-running reaction (excited swing pose) | `aiImport.clippy.running` |
+| `—` *(no icon)* | **Hmm, lass mich kurz überlegen…** | Karl Klammer — job queued (not yet running) reaction (thinking pose, issue #614) | `aiImport.clippy.queued` |
 | `—` *(no icon)* | **Das hat leider nicht geklappt. Aber gemeinsam kriegen wir das hin!** | Karl Klammer — error consolation (droop pose) | `aiImport.clippy.error` |
 | `—` *(no icon)* | **Klasse! Der Import sitzt wie maßgeschneidert.** | Karl Klammer — success praise (proud pose) | `aiImport.clippy.success` |
-| `—` *(no icon)* | *(small fixed joke set)* | Karl Klammer — idle jokes from the Clippy canon (`aiImport.clippy.idle.*`) | `aiImport.clippy.idle` |
+| `—` *(no icon)* | *(fixed joke set of five)* | Karl Klammer — idle jokes from the Clippy canon (`aiImport.clippy.idle1..5`, issue #614) | `aiImport.clippy.idle` |
 | `science_outlined` | **Experimentelle Funktionen** | Settings — experimental features | `settings.experimental` |
 | `psychology_alt_outlined` | **KI-Konfiguration** | AI provider/model configuration | `ai.config` |
 | `smart_toy_outlined` *(info)* | **KI-Assistent** | App info — AI attribution entry | `common.aiInfo` |

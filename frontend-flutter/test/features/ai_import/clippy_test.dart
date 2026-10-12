@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: glm-5.3-flash (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (neuralwatt)
 
 // Tier-1 unit tests for the pure Karl Klammer trigger logic (issue #516,
 // Decision D4): state → tip/pose mapping, deterministic idle cycling.
@@ -22,6 +23,12 @@ void main() {
       expect(tip.pose, ClippyPose.excited);
     });
 
+    test('queued → thinking tip, thinking pose (issue #614)', () {
+      final tip = clippyTipFor(ClippyFlowState.queued, triggerCount: 0);
+      expect(tip.key, ClippyTipKey.queued);
+      expect(tip.pose, ClippyPose.thinking);
+    });
+
     test('error → consolation tip, droop pose', () {
       final tip = clippyTipFor(ClippyFlowState.error, triggerCount: 0);
       expect(tip.key, ClippyTipKey.error);
@@ -38,19 +45,43 @@ void main() {
       'idle cycles the fixed joke set deterministically (no randomness)',
       () {
         final seq = [
-          for (var i = 0; i < 6; i++)
+          for (var i = 0; i < 10; i++)
             clippyTipFor(ClippyFlowState.idle, triggerCount: i),
         ];
         expect(seq.map((t) => t.key), [
           ClippyTipKey.idle1,
           ClippyTipKey.idle2,
           ClippyTipKey.idle3,
+          ClippyTipKey.idle4,
+          ClippyTipKey.idle5,
           ClippyTipKey.idle1,
           ClippyTipKey.idle2,
           ClippyTipKey.idle3,
+          ClippyTipKey.idle4,
+          ClippyTipKey.idle5,
+        ]);
+        // The pose cycles deterministically alongside the joke set —
+        // alternating resting / thoughtful stances (issue #614).
+        expect(seq.map((t) => t.pose), [
+          ClippyPose.neutral,
+          ClippyPose.thinking,
+          ClippyPose.neutral,
+          ClippyPose.thinking,
+          ClippyPose.neutral,
+          ClippyPose.neutral,
+          ClippyPose.thinking,
+          ClippyPose.neutral,
+          ClippyPose.thinking,
+          ClippyPose.neutral,
         ]);
         // Idle is never a blocking pose.
-        expect(seq.every((t) => t.pose == ClippyPose.neutral), isTrue);
+        expect(
+          seq.every(
+            (t) =>
+                t.pose == ClippyPose.neutral || t.pose == ClippyPose.thinking,
+          ),
+          isTrue,
+        );
       },
     );
 

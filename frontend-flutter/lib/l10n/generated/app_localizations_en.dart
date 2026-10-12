@@ -2711,6 +2711,9 @@ class AppLocalizationsEn extends AppLocalizations {
       'Nice! The import fits like it\'s tailor-made.';
 
   @override
+  String get aiImportClippyQueued => 'Hmm, let me think about that…';
+
+  @override
   String get aiImportClippyIdle1 =>
       'Did you know \'Klamotten\' colloquially means clothes? The name fits twice.';
 
@@ -2719,6 +2722,14 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get aiImportClippyIdle3 => 'Don\'t hang around – I\'m here for you.';
+
+  @override
+  String get aiImportClippyIdle4 =>
+      'A clothes hanger is rarely alone — it usually hangs out with friends.';
+
+  @override
+  String get aiImportClippyIdle5 =>
+      'Order is half the battle. The other half is the right hanger.';
 
   @override
   String get aiImportClippyDismissTooltip => 'Hide Karl Klammer';

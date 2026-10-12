@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: glm-5.3-flash (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (neuralwatt)
 
 import 'dart:async';
 
@@ -125,12 +126,15 @@ class _KarlKlammerOverlayState extends ConsumerState<KarlKlammerOverlay> {
     final l10n = l10nOf(context);
     return switch (key) {
       ClippyTipKey.noConfig => l10n.aiImportClippyNoConfig,
+      ClippyTipKey.queued => l10n.aiImportClippyQueued,
       ClippyTipKey.running => l10n.aiImportClippyRunning,
       ClippyTipKey.error => l10n.aiImportClippyError,
       ClippyTipKey.success => l10n.aiImportClippySuccess,
       ClippyTipKey.idle1 => l10n.aiImportClippyIdle1,
       ClippyTipKey.idle2 => l10n.aiImportClippyIdle2,
       ClippyTipKey.idle3 => l10n.aiImportClippyIdle3,
+      ClippyTipKey.idle4 => l10n.aiImportClippyIdle4,
+      ClippyTipKey.idle5 => l10n.aiImportClippyIdle5,
     };
   }
 

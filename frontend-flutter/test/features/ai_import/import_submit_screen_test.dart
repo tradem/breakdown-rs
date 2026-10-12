@@ -179,7 +179,16 @@ void main() {
     await tester.pumpWidget(
       UncontrolledProviderScope(
         container: container,
-        child: const MaterialApp(home: AiImportSubmitScreen()),
+        child: MaterialApp(
+          // Deterministic host tests (AGENTS.md §6): the Karl Klammer
+          // figure is time-driven, so freeze animations (spec
+          // `flutter-easter-eggs`).
+          builder: (context, child) => MediaQuery(
+            data: MediaQuery.of(context).copyWith(disableAnimations: true),
+            child: child!,
+          ),
+          home: const AiImportSubmitScreen(),
+        ),
       ),
     );
     await tester.pumpAndSettle();

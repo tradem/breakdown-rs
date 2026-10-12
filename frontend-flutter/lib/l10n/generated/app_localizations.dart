@@ -4522,6 +4522,12 @@ abstract class AppLocalizations {
   /// **'Klasse! Der Import sitzt wie maßgeschneidert.'**
   String get aiImportClippySuccess;
 
+  /// No description provided for @aiImportClippyQueued.
+  ///
+  /// In de, this message translates to:
+  /// **'Hmm, lass mich kurz überlegen…'**
+  String get aiImportClippyQueued;
+
   /// No description provided for @aiImportClippyIdle1.
   ///
   /// In de, this message translates to:
@@ -4539,6 +4545,18 @@ abstract class AppLocalizations {
   /// In de, this message translates to:
   /// **'Häng dich nicht auf – ich bin ja da.'**
   String get aiImportClippyIdle3;
+
+  /// No description provided for @aiImportClippyIdle4.
+  ///
+  /// In de, this message translates to:
+  /// **'Ein Kleiderbügel kommt selten allein – meistens hängt er mit Freunden rum.'**
+  String get aiImportClippyIdle4;
+
+  /// No description provided for @aiImportClippyIdle5.
+  ///
+  /// In de, this message translates to:
+  /// **'Ordnung ist das halbe Leben. Die andere Hälfte ist der passende Bügel.'**
+  String get aiImportClippyIdle5;
 
   /// No description provided for @aiImportClippyDismissTooltip.
   ///

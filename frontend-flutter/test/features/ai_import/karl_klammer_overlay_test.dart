@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: glm-5.3-flash (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (neuralwatt)
 
 // Tier-2 widget tests for the Karl Klammer overlay (issue #516, spec
 // `flutter-easter-eggs`): visibility gated on the Easter-eggs toggle

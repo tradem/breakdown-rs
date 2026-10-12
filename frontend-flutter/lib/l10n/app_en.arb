@@ -736,9 +736,12 @@
   "aiImportClippyRunning": "I'm all ears!",
   "aiImportClippyError": "That didn't work out. But together we'll get there!",
   "aiImportClippySuccess": "Nice! The import fits like it's tailor-made.",
+  "aiImportClippyQueued": "Hmm, let me think about that…",
   "aiImportClippyIdle1": "Did you know 'Klamotten' colloquially means clothes? The name fits twice.",
   "aiImportClippyIdle2": "I'm a clothes hanger with ambition.",
   "aiImportClippyIdle3": "Don't hang around – I'm here for you.",
+  "aiImportClippyIdle4": "A clothes hanger is rarely alone — it usually hangs out with friends.",
+  "aiImportClippyIdle5": "Order is half the battle. The other half is the right hanger.",
   "aiImportClippyDismissTooltip": "Hide Karl Klammer",
 
   "seasonsArchivedBadge": "Archived",
