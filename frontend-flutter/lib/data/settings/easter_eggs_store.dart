@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: glm-5.3-flash (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (neuralwatt)
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:fpdart/fpdart.dart';
@@ -9,10 +10,45 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../core/problem_error.dart';
 import '../../core/result.dart';
 
-/// On-device persistence for the global Easter-eggs toggle (issue #516,
-/// capability `flutter-easter-eggs`).
+/// The registered Easter eggs (issue #615). Each egg has its own flat
+/// `shared_preferences` key so one egg's value never affects another and a
+/// partial write stays recoverable (Decision D1 of
+/// `615-dejavu-cat-easter-egg`).
+enum EasterEggId {
+  /// The Karl Klammer clothes-hanger assistant in the AI Import view.
+  karlKlammer('easter_eggs.karl_klammer'),
+
+  /// The October-only Deja-vu Cat on the launch splash.
+  dejaVuCat('easter_eggs.dejavu_cat');
+
+  const EasterEggId(this.prefsKey);
+
+  /// The flat `shared_preferences` key holding this egg's boolean.
+  final String prefsKey;
+}
+
+/// A read snapshot of every egg plus the legacy-migration outcome.
+final class EasterEggsSnapshot {
+  const EasterEggsSnapshot({
+    required this.values,
+    required this.migratedLegacy,
+  });
+
+  /// Stored value per egg; `null` means "no persisted value" (default ON).
+  final Map<EasterEggId, bool?> values;
+
+  /// True when the legacy global flag was found and folded into the
+  /// per-egg keys during this read.
+  final bool migratedLegacy;
+
+  /// The effective value: the stored value or the default **ON**.
+  bool effective(EasterEggId id) => values[id] ?? true;
+}
+
+/// On-device persistence for the per-egg Easter-eggs switches (issue
+/// #615, capability `flutter-easter-eggs`).
 ///
-/// The flag is **not a secret** (no token, no credential), so it lives in
+/// The flags are **not secrets** (no token, no credential), so they live in
 /// plain `shared_preferences` — deliberately NOT in
 /// `flutter_secure_storage`, which would misuse the secure enclave
 /// (Decision D1 of `add-karl-klammer-easter-egg`; contrast
@@ -24,16 +60,17 @@ import '../../core/result.dart';
 class EasterEggsStore {
   const EasterEggsStore(this._prefs);
 
-  /// Shared-preferences key for the toggle.
-  static const String key = 'easter_eggs';
+  /// The pre-#615 global toggle key. Read once during migration, then
+  /// removed; a leftover is harmless and ignored on the next boot.
+  static const String legacyKey = 'easter_eggs';
 
   final SharedPreferencesAsync _prefs;
 
-  /// Reads the persisted toggle; `null` when none is stored yet
-  /// (first launch — callers fall back to default **enabled**).
-  Future<Result<bool?>> read() async {
+  /// Reads one egg; `null` when none is stored yet (first launch —
+  /// callers fall back to default **enabled**).
+  Future<Result<bool?>> read(EasterEggId id) async {
     try {
-      return Right(await _prefs.getBool(key));
+      return Right(await _prefs.getBool(id.prefsKey));
     } catch (e) {
       return Left(
         ProblemError(code: 'settings.easter_eggs_read_failed', detail: '$e'),
@@ -41,10 +78,10 @@ class EasterEggsStore {
     }
   }
 
-  /// Persists the toggle value.
-  Future<Result<void>> write(bool enabled) async {
+  /// Persists one egg's value.
+  Future<Result<void>> write(EasterEggId id, bool enabled) async {
     try {
-      await _prefs.setBool(key, enabled);
+      await _prefs.setBool(id.prefsKey, enabled);
       return const Right<ProblemError, void>(null);
     } catch (e) {
       return Left(
@@ -52,21 +89,68 @@ class EasterEggsStore {
       );
     }
   }
+
+  /// Reads every egg, migrating the legacy global flag on the first launch
+  /// after the update (issue #615, Decision D2).
+  ///
+  /// When the legacy key is present it seeds **only eggs with no stored
+  /// value** (a partially-migrated install keeps its explicit per-egg
+  /// choices), then removes the legacy key. A failed removal is non-fatal:
+  /// the leftover key is ignored on the next boot. Any other failure
+  /// (reads, migration writes) surfaces as the stable read-failure code so
+  /// the caller can fall back to default ON per egg with a visible error.
+  Future<Result<EasterEggsSnapshot>> readAll() async {
+    try {
+      final values = <EasterEggId, bool?>{};
+      for (final id in EasterEggId.values) {
+        values[id] = await _prefs.getBool(id.prefsKey);
+      }
+
+      final legacy = await _prefs.getBool(legacyKey);
+      var migrated = false;
+      if (legacy != null) {
+        for (final id in EasterEggId.values) {
+          if (values[id] == null) {
+            await _prefs.setBool(id.prefsKey, legacy);
+            values[id] = legacy;
+          }
+        }
+        migrated = true;
+        try {
+          await _prefs.remove(legacyKey);
+        } on Exception {
+          // Non-fatal: the leftover legacy key is ignored on the next
+          // boot (the per-egg values already won the migration).
+        }
+      }
+
+      return Right(
+        EasterEggsSnapshot(values: values, migratedLegacy: migrated),
+      );
+    } catch (e) {
+      return Left(
+        ProblemError(code: 'settings.easter_eggs_read_failed', detail: '$e'),
+      );
+    }
+  }
 }
 
-/// Global Easter-eggs switch (issue #516): default **enabled**, persisted,
-/// and effective immediately — consumers (e.g. the Karl Klammer overlay
-/// in the AI Import view) `ref.watch` this notifier, so flipping it needs
-/// no restart. KeepAlive by construction — the setting outlives any
-/// screen.
+/// One egg's reactive switch (issue #615, Decision D3): default
+/// **enabled**, persisted, and effective immediately. Consumers
+/// `ref.watch(easterEggProvider(id))` — flipping one egg never rebuilds
+/// the other. KeepAlive by construction — the setting outlives any screen.
 ///
-/// Hydration is owned by `bootstrap()` (task 2 of
-/// `add-karl-klammer-easter-egg`): it reads [EasterEggsStore] and seeds
-/// the notifier state via [HydratedEasterEggs.overrideWith] before the
-/// first consumer exists. A failed read falls back to default ON with
+/// Hydration is owned by `bootstrap()`: it reads [EasterEggsStore] and
+/// seeds each family member via [HydratedEasterEggs.overrideWith] before
+/// the first consumer exists. A failed read falls back to default ON with
 /// [readFailed] raised so the settings screen shows a visible error
 /// state — never a silent failure.
 class EasterEggs extends Notifier<bool> {
+  EasterEggs(this.id);
+
+  /// The egg this notifier owns.
+  final EasterEggId id;
+
   @override
   bool build() => true;
 
@@ -74,28 +158,30 @@ class EasterEggs extends Notifier<bool> {
   /// screen; the effective value stays default ON).
   bool get readFailed => false;
 
-  /// Flips the toggle and persists. The in-memory flip is applied
+  /// Flips this egg and persists. The in-memory flip is applied
   /// immediately (global reactivity); the write result is returned so
   /// the caller surfaces persistence failures (no silent discard).
   Future<Result<void>> toggle(EasterEggsStore store) async {
     state = !state;
-    return store.write(state);
+    return store.write(id, state);
   }
 }
 
 /// Bootstrap-seeded variant: carries the value resolved from
-/// [EasterEggsStore.read] plus the read-failure flag.
+/// [EasterEggsStore.readAll] plus the read-failure flag.
 final class HydratedEasterEggs extends EasterEggs {
-  HydratedEasterEggs({required this.initial, required this._failed});
+  HydratedEasterEggs(super.id, {required this.initial, required this.failed});
 
   final bool initial;
-  final bool _failed;
+  final bool failed;
 
   @override
   bool build() => initial;
 
   @override
-  bool get readFailed => _failed;
+  bool get readFailed => failed;
 }
 
-final easterEggsProvider = NotifierProvider<EasterEggs, bool>(EasterEggs.new);
+/// The per-egg switch family (issue #615). Keyed by [EasterEggId].
+final easterEggProvider =
+    NotifierProvider.family<EasterEggs, bool, EasterEggId>(EasterEggs.new);

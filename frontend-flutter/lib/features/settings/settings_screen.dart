@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: deepseek-v4.1-flash (neuralwatt)
 // Co-authored-by: glm-5.3-flash (opencode-go)
 
 import 'package:flutter/material.dart';
@@ -13,16 +14,17 @@ import '../../data/settings/api_base_override_store.dart';
 import '../../data/settings/easter_eggs_store.dart';
 import '../../design/spacing.dart';
 import '../../l10n/app_localizations_provider.dart';
+import '../../l10n/generated/app_localizations.dart';
 
 /// Full-screen settings (issue #516, capability `flutter-settings-screen`):
 /// replaces the former `SettingsDialog` — pushed from the profile menu's
 /// "Einstellungen" tile, back via AppBar.
 ///
 /// Two clearly separated sections:
-/// - **General app settings** (every flavor): the Easter-Eggs switch
-///   (default ON, persisted, globally reactive via [easterEggsProvider]).
-///   A failed preference read falls back to default ON with a visible
-///   error state — never a silent failure.
+/// - **General app settings** (every flavor): the per-egg Easter-Eggs
+///   switches (issue #615; default ON, persisted, globally reactive via
+///   [easterEggProvider]). A failed preference read falls back to default
+///   ON with a visible error state — never a silent failure.
 /// - **Entwicklung** (dev flavor only): migration target of the dialog's
 ///   dev-only content — editable backend URI with inline validation
 ///   ([validateApiBase]), save (persist → rebuild → invalidate via
@@ -110,30 +112,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     }
   }
 
-  Future<void> _toggleEasterEggs(bool enabled) async {
-    final result = await ref
-        .read(easterEggsProvider.notifier)
-        .toggle(EasterEggsStore(SharedPreferencesAsync()));
-    // The in-memory flip already happened (global reactivity). A failed
-    // persistence is surfaced as an inline error — no silent discard.
-    if (!mounted) return;
-    result.match(
-      // CodeRabbit fix: localized, code-scoped copy — never the
-      // backend-URI validation copy (that maps different codes).
-      (e) => ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(l10nOf(context).settingsEasterEggsWriteError)),
-      ),
-      (_) {},
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final config = ref.watch(appConfigProvider);
     final base = _effectiveBase();
     final l10n = l10nOf(context);
-    final easterEggsError = ref.watch(easterEggsProvider.notifier).readFailed;
-    final easterEggsEnabled = ref.watch(easterEggsProvider);
 
     return Scaffold(
       key: const Key('settings-screen'),
@@ -146,19 +129,18 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         children: [
           // ── General app settings (every flavor) ─────────────────────
           _SectionHeader(label: l10n.settingsGeneral),
-          SwitchListTile(
-            key: const Key('settings-easter-eggs'),
-            secondary: const Icon(Icons.celebration_outlined),
-            title: Text(l10n.settingsEasterEggs),
-            subtitle: easterEggsError
-                ? Text(
-                    l10n.settingsEasterEggsError,
-                    key: const Key('settings-easter-eggs-error'),
-                  )
-                : Text(l10n.settingsEasterEggsSubtitle),
-            value: easterEggsEnabled,
-            onChanged: (enabled) => _toggleEasterEggs(enabled),
+          _SectionHeader(label: l10n.settingsEasterEggs),
+          Padding(
+            key: const Key('settings-easter-eggs-subtitle'),
+            padding: const EdgeInsets.fromLTRB(
+              AppSpacing.space16,
+              0,
+              AppSpacing.space16,
+              AppSpacing.space8,
+            ),
+            child: Text(l10n.settingsEasterEggsSubtitle),
           ),
+          for (final id in EasterEggId.values) _EggSwitchRow(id: id),
           const Divider(),
 
           // ── Read-only server info (every flavor, as the dialog had) ──
@@ -227,8 +209,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   }
 }
 
-/// Small labeled section header used for "Allgemein" and "Entwicklung"
-/// (settings-screen section separation, issue #516).
+/// Small labeled section header used for "Allgemein", the "Easter eggs"
+/// group and "Entwicklung" (settings-screen section separation, issue
+/// #516/#615).
 class _SectionHeader extends StatelessWidget {
   const _SectionHeader({required this.label});
 
@@ -254,3 +237,73 @@ class _SectionHeader extends StatelessWidget {
     );
   }
 }
+
+/// One per-egg switch row (issue #615).
+///
+/// A dedicated [ConsumerWidget] owns the watches for a SINGLE egg, so
+/// flipping one egg rebuilds only its own row — never the settings screen
+/// or the other egg's row (spec `flutter-easter-eggs`).
+class _EggSwitchRow extends ConsumerWidget {
+  const _EggSwitchRow({required this.id});
+
+  final EasterEggId id;
+
+  Future<void> _toggle(
+    BuildContext context,
+    WidgetRef ref,
+    bool enabled,
+  ) async {
+    final result = await ref
+        .read(easterEggProvider(id).notifier)
+        .toggle(EasterEggsStore(SharedPreferencesAsync()));
+    // The in-memory flip already happened (global reactivity). A failed
+    // persistence is surfaced as an inline error — no silent discard.
+    if (!context.mounted) return;
+    result.match(
+      // CodeRabbit fix: localized, code-scoped copy — never the
+      // backend-URI validation copy (that maps different codes).
+      (e) => ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(l10nOf(context).settingsEasterEggsWriteError)),
+      ),
+      (_) {},
+    );
+  }
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final l10n = l10nOf(context);
+    final readFailed = ref.watch(easterEggProvider(id).notifier).readFailed;
+    final value = ref.watch(easterEggProvider(id));
+    return SwitchListTile(
+      key: Key('settings-egg-${id.name}'),
+      secondary: Icon(_eggIcon(id)),
+      title: Text(_eggTitle(l10n, id)),
+      subtitle: readFailed
+          ? Text(
+              l10n.settingsEasterEggsError,
+              key: Key('settings-egg-${id.name}-error'),
+            )
+          : Text(_eggSubtitle(l10n, id)),
+      value: value,
+      onChanged: (enabled) => _toggle(context, ref, enabled),
+    );
+  }
+}
+
+/// The localized name of an Easter egg (issue #615).
+String _eggTitle(AppLocalizations l10n, EasterEggId id) => switch (id) {
+  EasterEggId.karlKlammer => l10n.settingsEasterEggsKarlKlammer,
+  EasterEggId.dejaVuCat => l10n.settingsEasterEggsDejavuCat,
+};
+
+/// The localized short description of an Easter egg (issue #615).
+String _eggSubtitle(AppLocalizations l10n, EasterEggId id) => switch (id) {
+  EasterEggId.karlKlammer => l10n.settingsEasterEggsKarlKlammerSubtitle,
+  EasterEggId.dejaVuCat => l10n.settingsEasterEggsDejavuCatSubtitle,
+};
+
+/// The row icon of an Easter egg (issue #615).
+IconData _eggIcon(EasterEggId id) => switch (id) {
+  EasterEggId.karlKlammer => Icons.celebration_outlined,
+  EasterEggId.dejaVuCat => Icons.pets_outlined,
+};

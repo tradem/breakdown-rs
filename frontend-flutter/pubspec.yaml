@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: AGPL-3.0
 # Copyright (C) 2024-2026 Breakdown RS Contributors
+# Co-authored-by: deepseek-v4.1-flash (neuralwatt)
 # Co-authored-by: deepseek-v4-flash (neuralwatt)
 # Co-authored-by: hy3 (opencode-go)
 # Co-authored-by: qwen3.8-flash (opencode-go)
@@ -29,7 +30,7 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 # https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
 # In Windows, build-name is used as the major, minor, and patch parts
 # of the product and file versions while build-number is used as the build suffix.
-version: 0.4.0-alpha.11+62
+version: 0.4.0-alpha.12+63
 
 environment:
   sdk: ^3.13.1

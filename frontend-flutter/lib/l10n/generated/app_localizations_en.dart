@@ -2693,6 +2693,20 @@ class AppLocalizationsEn extends AppLocalizations {
       'The setting could not be read – the default (enabled) stays active.';
 
   @override
+  String get settingsEasterEggsKarlKlammer => 'Karl Klammer';
+
+  @override
+  String get settingsEasterEggsKarlKlammerSubtitle =>
+      'The clothes-hanger assistant helps in AI import with tips and quips.';
+
+  @override
+  String get settingsEasterEggsDejavuCat => 'Déjà-vu Cat';
+
+  @override
+  String get settingsEasterEggsDejavuCatSubtitle =>
+      'In October a black cat crosses the launch screen.';
+
+  @override
   String get settingsDev => 'Development';
 
   @override

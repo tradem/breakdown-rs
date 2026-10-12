@@ -38,8 +38,12 @@ Future<void> pumpOverlay(
   final container = ProviderContainer(
     overrides: [
       if (!easterEggs)
-        easterEggsProvider.overrideWith(
-          () => HydratedEasterEggs(initial: false, failed: false),
+        easterEggProvider(EasterEggId.karlKlammer).overrideWith(
+          () => HydratedEasterEggs(
+            EasterEggId.karlKlammer,
+            initial: false,
+            failed: false,
+          ),
         ),
     ],
   );
@@ -138,7 +142,7 @@ void main() {
       // Flip the global toggle OFF — running tips are torn down with the
       // subtree (dispose cancels the timers).
       await container
-          .read(easterEggsProvider.notifier)
+          .read(easterEggProvider(EasterEggId.karlKlammer).notifier)
           .toggle(EasterEggsStore(SharedPreferencesAsync()));
       for (var i = 0; i < 4; i++) {
         await tester.pump(const Duration(milliseconds: 50));

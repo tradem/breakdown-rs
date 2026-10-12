@@ -2724,6 +2724,20 @@ class AppLocalizationsDe extends AppLocalizations {
       'Die Einstellung konnte nicht gelesen werden – Standard (eingeschaltet) bleibt aktiv.';
 
   @override
+  String get settingsEasterEggsKarlKlammer => 'Karl Klammer';
+
+  @override
+  String get settingsEasterEggsKarlKlammerSubtitle =>
+      'Der Kleiderbügel-Assistent hilft im KI-Import mit Tipps und Sprüchen.';
+
+  @override
+  String get settingsEasterEggsDejavuCat => 'Déjà-vu-Katze';
+
+  @override
+  String get settingsEasterEggsDejavuCatSubtitle =>
+      'Im Oktober läuft eine schwarze Katze über den Startbildschirm.';
+
+  @override
   String get settingsDev => 'Entwicklung';
 
   @override

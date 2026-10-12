@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: deepseek-v4.1-flash (neuralwatt)
 // Co-authored-by: glm-5.3-flash (opencode-go)
 
 import 'dart:async';
@@ -145,9 +146,10 @@ void main() {
       retry: (_, _) => null,
       overrides: [
         if (easterEggsReadFailed)
-          easterEggsProvider.overrideWith(
-            () => HydratedEasterEggs(initial: true, failed: true),
-          ),
+          for (final id in EasterEggId.values)
+            easterEggProvider(id).overrideWith(
+              () => HydratedEasterEggs(id, initial: true, failed: true),
+            ),
         appConfigProvider.overrideWithValue(config),
         tokenStoreProvider.overrideWithValue(FakeTokenStore(null)),
         pinnedSecurityContextProvider.overrideWithValue(SecurityContext()),
@@ -230,17 +232,17 @@ void main() {
       expect(find.byType(BackButton), findsOneWidget);
     });
 
-    testWidgets('general section always visible with the easter-eggs switch', (
+    testWidgets('general section always visible with the per-egg switches', (
       tester,
     ) async {
       await pumpScreen(tester);
 
-      expect(find.byKey(const Key('settings-easter-eggs')), findsOneWidget);
-      // Default ON.
-      final switchTile = tester.widget<SwitchListTile>(
-        find.byKey(const Key('settings-easter-eggs')),
-      );
-      expect(switchTile.value, isTrue);
+      // One switch per registered egg (issue #615), default ON.
+      for (final id in EasterEggId.values) {
+        final key = Key('settings-egg-${id.name}');
+        expect(find.byKey(key), findsOneWidget);
+        expect(tester.widget<SwitchListTile>(find.byKey(key)).value, isTrue);
+      }
     });
 
     testWidgets('shows base, flavor, and the dev editor', (tester) async {
@@ -377,27 +379,40 @@ void main() {
       expect(find.byKey(const Key('settings-uri-field')), findsNothing);
       expect(find.byKey(const Key('settings-save')), findsNothing);
       expect(find.byKey(const Key('settings-reset')), findsNothing);
-      // …while general settings (Easter-eggs) stay available.
-      expect(find.byKey(const Key('settings-easter-eggs')), findsOneWidget);
+      // …while general settings (per-egg Easter-eggs) stay available.
+      expect(find.byKey(const Key('settings-egg-karlKlammer')), findsOneWidget);
+      expect(find.byKey(const Key('settings-egg-dejaVuCat')), findsOneWidget);
       expect(find.byKey(const Key('settings-prod-note')), findsOneWidget);
     });
   });
 
-  group('SettingsScreen easter-eggs switch (issue #516)', () {
-    testWidgets('toggle flips the global notifier immediately', (tester) async {
+  group('SettingsScreen per-egg switches (issue #615)', () {
+    testWidgets('toggling one egg flips only its notifier immediately', (
+      tester,
+    ) async {
       await pumpScreen(tester);
 
-      final flips = <bool>[];
-      container.listen(easterEggsProvider, (_, v) => flips.add(v));
+      final karlFlips = <bool>[];
+      container.listen(
+        easterEggProvider(EasterEggId.karlKlammer),
+        (_, v) => karlFlips.add(v),
+      );
 
-      await tester.tap(find.byKey(const Key('settings-easter-eggs')));
+      await tester.tap(find.byKey(const Key('settings-egg-karlKlammer')));
       await pumpFrames(tester);
 
-      expect(container.read(easterEggsProvider), isFalse);
-      expect(flips, [false]);
-      // Persisted on-device.
       expect(
-        await SharedPreferencesAsync().getBool(EasterEggsStore.key),
+        container.read(easterEggProvider(EasterEggId.karlKlammer)),
+        isFalse,
+      );
+      // The other egg is untouched (per-egg independence).
+      expect(container.read(easterEggProvider(EasterEggId.dejaVuCat)), isTrue);
+      expect(karlFlips, [false]);
+      // Persisted on-device under the flat per-egg key.
+      expect(
+        await SharedPreferencesAsync().getBool(
+          EasterEggId.karlKlammer.prefsKey,
+        ),
         isFalse,
       );
     });
@@ -408,14 +423,14 @@ void main() {
       // CodeRabbit review #576: cover the visible error state.
       await pumpScreen(tester, easterEggsReadFailed: true);
 
-      final switchTile = tester.widget<SwitchListTile>(
-        find.byKey(const Key('settings-easter-eggs')),
-      );
-      expect(switchTile.value, isTrue); // default ON fallback
-      expect(
-        find.byKey(const Key('settings-easter-eggs-error')),
-        findsOneWidget,
-      );
+      for (final id in EasterEggId.values) {
+        final key = Key('settings-egg-${id.name}');
+        expect(tester.widget<SwitchListTile>(find.byKey(key)).value, isTrue);
+        expect(
+          find.byKey(Key('settings-egg-${id.name}-error')),
+          findsOneWidget,
+        );
+      }
     });
 
     testWidgets('write failure: localized snackbar, no silent discard', (
@@ -426,11 +441,11 @@ void main() {
       // backend-URI) copy.
       await pumpScreen(tester, failPrefsWrite: true);
 
-      await tester.tap(find.byKey(const Key('settings-easter-eggs')));
+      await tester.tap(find.byKey(const Key('settings-egg-dejaVuCat')));
       await pumpFrames(tester);
 
       // The in-memory flip still applied...
-      expect(container.read(easterEggsProvider), isFalse);
+      expect(container.read(easterEggProvider(EasterEggId.dejaVuCat)), isFalse);
       // ...and the persistence failure surfaces as a localized snackbar.
       expect(find.byType(SnackBar), findsOneWidget);
       expect(find.textContaining('could not be saved'), findsOneWidget);

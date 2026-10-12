@@ -1,5 +1,6 @@
 <!-- SPDX-License-Identifier: AGPL-3.0 -->
 <!-- Copyright (C) 2024-2026 Breakdown RS Contributors -->
+<!-- Co-authored-by: deepseek-v4.1-flash (neuralwatt) -->
 <!-- Co-authored-by: omen-alpha (opencode-go) -->
 <!-- Co-authored-by: glm-5.3-flash (opencode-go) -->
 <!-- Co-authored-by: space-bunny-free (opencode-go) -->
@@ -182,8 +183,12 @@ establishing change).
 | `—` *(no icon)* | **Staffel {n}** | Season-number fallback title on the blocks AppBar | `blocks.seasonNumber` |
 | `—` *(no icon)* | **Einstellungen** | Mehr-tab tile (issue #516: pushes the settings screen — no dialog) and screen app-bar title | `settings.title` |
 | `—` *(no icon)* | **Allgemein** | Settings screen — general app-settings section header (every flavor) | `settings.general` |
-| `—` *(no icon)* | **Easter-Eggs** | Settings — global Easter-eggs switch (default ON) | `settings.easterEggs` |
-| `—` *(no icon)* | **Kleine Überraschungen in der App lassen sich ein- und ausschalten.** | Settings — Easter-eggs switch explanatory subtitle | `settings.easterEggsSubtitle` |
+| `—` *(no icon)* | **Easter-Eggs** | Settings — Easter-eggs group header (per-egg switches, default ON, issue #615) | `settings.easterEggs` |
+| `—` *(no icon)* | **Kleine Überraschungen in der App lassen sich ein- und ausschalten.** | Settings — Easter-eggs group explanatory line | `settings.easterEggsSubtitle` |
+| `celebration_outlined` | **Karl Klammer** | Settings — Karl Klammer egg switch (default ON) | `settings.easterEggsKarlKlammer` |
+| `—` *(no icon)* | **Der Kleiderbügel-Assistent hilft im KI-Import mit Tipps und Sprüchen.** | Settings — Karl Klammer egg description | `settings.easterEggsKarlKlammerSubtitle` |
+| `pets_outlined` | **Déjà-vu-Katze** | Settings — Deja-vu Cat egg switch (default ON; October-only effect) | `settings.easterEggsDejavuCat` |
+| `—` *(no icon)* | **Im Oktober läuft eine schwarze Katze über den Startbildschirm.** | Settings — Deja-vu Cat egg description | `settings.easterEggsDejavuCatSubtitle` |
 | `—` *(no icon)* | **Entwicklung** | Settings screen — dev-only section header (backend switch flow lives here) | `settings.dev` |
 | `—` *(no icon)* | **Backend-URI** | Settings (dev) — editable backend-URI field label | `settings.backendUri` |
 | `—` *(no icon)* | **Speichern** | Settings (dev) — save override action | `settings.save` |
@@ -257,6 +262,7 @@ establishing change).
 | `—` *(no icon)* | **Das hat leider nicht geklappt. Aber gemeinsam kriegen wir das hin!** | Karl Klammer — error consolation (droop pose) | `aiImport.clippy.error` |
 | `—` *(no icon)* | **Klasse! Der Import sitzt wie maßgeschneidert.** | Karl Klammer — success praise (proud pose) | `aiImport.clippy.success` |
 | `—` *(no icon)* | *(fixed joke set of five)* | Karl Klammer — idle jokes from the Clippy canon (`aiImport.clippy.idle1..5`, issue #614) | `aiImport.clippy.idle` |
+| `pets_outlined` | *(no copy — pure animation)* | Deja-vu Cat — original black cat crossing the splash in October (issue #615; no caption) | *(splash-only egg)* |
 | `science_outlined` | **Experimentelle Funktionen** | Settings — experimental features | `settings.experimental` |
 | `psychology_alt_outlined` | **KI-Konfiguration** | AI provider/model configuration | `ai.config` |
 | `smart_toy_outlined` *(info)* | **KI-Assistent** | App info — AI attribution entry | `common.aiInfo` |
