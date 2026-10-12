@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
 // Co-authored-by: gpt-5.6-luna (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (neuralwatt)
 // Co-authored-by: space-bunny-free (opencode-go)
 
 //! AI infrastructure adapters.
@@ -37,6 +38,7 @@ pub mod runtime;
 pub mod schedule_apply;
 pub mod shutdown;
 pub mod transport;
+mod user_agent;
 pub mod worker_loop;
 pub mod workers;
 

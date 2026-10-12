@@ -342,12 +342,40 @@ services:
       # Reuses the same Garage credentials and endpoint as photo storage.
       # Bucket is separate (ai-import-payloads) to keep lifecycle policies
       # independent. All three required vars must be set when AI_IMPORT_ENABLED
-      # is true; in dev mode the API falls back to in-memory storage.
+      # is true, or the API refuses to start (#181). When AI_IMPORT_ENABLED is
+      # false the API wires a store that refuses every operation with 503
+      # rather than an in-memory store that would drop payloads on restart.
       AI_PAYLOAD_S3_ENDPOINT: https://caddy:9443
       AI_PAYLOAD_S3_TLS_ROOT_CERT: /certs/root_ca.crt
       AI_PAYLOAD_S3_ACCESS_KEY: ${AI_PAYLOAD_S3_ACCESS_KEY:-${S3_ACCESS_KEY}}
       AI_PAYLOAD_S3_SECRET_KEY: ${AI_PAYLOAD_S3_SECRET_KEY:-${S3_SECRET_KEY}}
       AI_PAYLOAD_S3_BUCKET: ${AI_PAYLOAD_S3_BUCKET:-ai-import-payloads}
+      # --- AI import tuning + provider User-Agent (issue #521) ---
+      # Defaults mirror the code (`AiImportBounds::from_env`); forwarding them
+      # makes the feature configurable in the container at all (Compose does
+      # not pass host env through automatically). `AI_IMPORT_ENABLED` stays
+      # opt-in (`false`). The `AI_IMPORT_USER_AGENT*` values are optional
+      # overrides — empty means "use the built-in
+      # `breakdown-rs-backend/<version> (ai-import)` agent".
+      AI_IMPORT_ENABLED: ${AI_IMPORT_ENABLED:-false}
+      AI_IMPORT_MAX_CHUNKS_PER_SCRIPT: ${AI_IMPORT_MAX_CHUNKS_PER_SCRIPT:-128}
+      AI_IMPORT_MAX_TOKENS_PER_REQ: ${AI_IMPORT_MAX_TOKENS_PER_REQ:-8192}
+      AI_IMPORT_MAX_CONCURRENT_JOBS_GLOBAL: ${AI_IMPORT_MAX_CONCURRENT_JOBS_GLOBAL:-16}
+      AI_IMPORT_MAX_CONCURRENT_JOBS_PER_USER: ${AI_IMPORT_MAX_CONCURRENT_JOBS_PER_USER:-2}
+      AI_IMPORT_MAX_DOCUMENT_BYTES: ${AI_IMPORT_MAX_DOCUMENT_BYTES:-20971520}
+      AI_IMPORT_REQUEST_TIMEOUT_SECS: ${AI_IMPORT_REQUEST_TIMEOUT_SECS:-120}
+      AI_IMPORT_MAX_RETRIES: ${AI_IMPORT_MAX_RETRIES:-5}
+      AI_IMPORT_LEASE_SECS: ${AI_IMPORT_LEASE_SECS:-900}
+      AI_IMPORT_DEFAULT_PROMPTS_PATH: ${AI_IMPORT_DEFAULT_PROMPTS_PATH:-}
+      AI_IMPORT_USER_AGENT: ${AI_IMPORT_USER_AGENT:-}
+      AI_IMPORT_USER_AGENT_OPENCODE_GO: ${AI_IMPORT_USER_AGENT_OPENCODE_GO:-}
+      AI_IMPORT_USER_AGENT_OPENCODE: ${AI_IMPORT_USER_AGENT_OPENCODE:-}
+      # --- AI payload GC (periodic cleanup) ---
+      AI_PAYLOAD_GC_ENABLED: ${AI_PAYLOAD_GC_ENABLED:-true}
+      AI_PAYLOAD_GC_INTERVAL_SECS: ${AI_PAYLOAD_GC_INTERVAL_SECS:-3600}
+      AI_PAYLOAD_GC_MAX_AGE_SECS: ${AI_PAYLOAD_GC_MAX_AGE_SECS:-604800}
+      AI_PAYLOAD_GC_BATCH_SIZE: ${AI_PAYLOAD_GC_BATCH_SIZE:-1000}
+      AI_PAYLOAD_GC_DRY_RUN: ${AI_PAYLOAD_GC_DRY_RUN:-false}
       # --- Report archival destination (credentials live only in Vault) ---
       REPORT_BACKUP_PROVIDER: ${REPORT_BACKUP_PROVIDER:-s3}
       # Opaque Settings aggregate id; never put GDrive credential fields here.

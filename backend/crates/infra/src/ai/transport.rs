@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: deepseek-v4-flash (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (neuralwatt)
 
 //! Explicit redirect & transport policy for AI provider HTTP clients
 //! (issue #170).
@@ -50,10 +51,12 @@ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::time::Duration;
 
 use reqwest::Url;
+use reqwest::header::HeaderValue;
 use reqwest::redirect::{Action, Attempt, Policy};
 use url::Host;
 
 use super::CuratedProviderUrls;
+use super::user_agent::default_user_agent;
 use breakdown_core::ai::{CuratedLlmProvider, LlmProvider};
 
 /// Maximum redirect hops followed per request. `Policy::custom` replaces
@@ -324,6 +327,23 @@ pub async fn build_hosted_client(
     host: &str,
     timeout: Duration,
 ) -> Result<reqwest::Client, RedirectViolation> {
+    build_hosted_client_with_user_agent(
+        host,
+        timeout,
+        HeaderValue::from_static(default_user_agent()),
+    )
+    .await
+}
+
+/// Build the hosted-regime HTTP client for `host` with an explicit
+/// `User-Agent` (per-provider override, issue #521). See
+/// [`build_hosted_client`] for the transport policy; the agent is additive and
+/// changes none of it.
+pub(crate) async fn build_hosted_client_with_user_agent(
+    host: &str,
+    timeout: Duration,
+    user_agent: HeaderValue,
+) -> Result<reqwest::Client, RedirectViolation> {
     let addrs = validate_public_resolution(host).await?;
     reqwest::Client::builder()
         .timeout(timeout)
@@ -334,6 +354,10 @@ pub async fn build_hosted_client(
         // would tunnel bearer credentials through an unvalidated hop — the
         // hosted client never uses them (issue #170).
         .no_proxy()
+        // Descriptive agent so gateways do not triage the request as a bot
+        // (issue #521); it is transport metadata only and leaves the redirect,
+        // pinning and no-proxy policy above untouched.
+        .user_agent(user_agent)
         .build()
         .map_err(|error| RedirectViolation::ClientBuildFailed {
             error: error.to_string(),

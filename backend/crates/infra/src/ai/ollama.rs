@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: gpt-5.6-luna (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (neuralwatt)
 
 use async_trait::async_trait;
 use breakdown_core::ai::{LlmChatRequest, LlmClient, LlmProvider, ScriptContext};
@@ -11,6 +12,7 @@ use std::time::Duration;
 
 use super::client::{classify_http_status, classify_transport_error};
 use super::transport::ollama_redirect_policy;
+use super::user_agent::resolve_user_agent;
 use super::{CuratedLlmProvider, CuratedProviderUrls};
 
 #[cfg(test)]
@@ -47,9 +49,19 @@ impl OllamaChatClient {
         let http = reqwest::Client::builder()
             .timeout(timeout)
             .redirect(ollama_redirect_policy())
+            // Descriptive agent so gateways do not triage the request as a bot
+            // (issue #521).
+            .user_agent(resolve_user_agent(LlmProvider::Ollama))
             .build()
             .map_err(|error| DomainError::validation(format!("invalid HTTP client: {error}")))?;
         Ok(Self::with_http(http, max_parse_retries, timeout))
+    }
+
+    /// Test seam: the production-built client, so wire tests can assert its
+    /// default headers reach the request (issue #521 review).
+    #[cfg(test)]
+    pub(crate) fn http(&self) -> &reqwest::Client {
+        &self.http
     }
 
     async fn request_once(&self, req: &LlmChatRequest) -> Result<String, DomainError> {

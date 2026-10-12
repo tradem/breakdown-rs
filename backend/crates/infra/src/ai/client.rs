@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: gpt-5.6-luna (opencode-go)
 // Co-authored-by: deepseek-v4-flash (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (neuralwatt)
 // Co-authored-by: qwen3.8-flash (opencode-go)
 
 use std::time::Duration;
@@ -18,7 +19,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 use super::CuratedProviderUrls;
-use super::transport::build_hosted_client;
+use super::transport::build_hosted_client_with_user_agent;
+use super::user_agent::resolve_user_agent;
 
 #[cfg(test)]
 #[path = "client_tests.rs"]
@@ -79,9 +81,10 @@ impl OpenAiCompatibleChatClient {
         // internal service, even if the hostname text is allowlisted but
         // resolves privately (DNS rebinding).
         let host = Self::hosted_origin_host(provider)?;
-        let http = build_hosted_client(&host, timeout)
-            .await
-            .map_err(|violation| DomainError::validation(violation.to_string()))?;
+        let http =
+            build_hosted_client_with_user_agent(&host, timeout, resolve_user_agent(provider))
+                .await
+                .map_err(|violation| DomainError::validation(violation.to_string()))?;
         Ok(Self {
             http,
             provider,

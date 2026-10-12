@@ -26,6 +26,19 @@ tag. Never edit a released entry afterwards.
 
 ### Added
 
+- **Descriptive, configurable `User-Agent` on the AI provider HTTP clients
+  (issue #521).** reqwest's generic `reqwest/<version>` fallback is what the
+  opencode / OpenCode-Go anti-abuse filters flag as a bot (403), so every AI
+  provider client (model catalog, Ollama, hosted chat) now sends
+  `breakdown-rs-backend/<version> (ai-import)` by default — overridable
+  globally (`AI_IMPORT_USER_AGENT`) or per curated provider
+  (`AI_IMPORT_USER_AGENT_<PROVIDER>`, e.g. `AI_IMPORT_USER_AGENT_OPENCODE_GO`).
+  The issue #170 redirect / DNS-pin / no-proxy policy is unchanged; a
+  `User-Agent` is not a credential. `docker-compose.prod.yml` now forwards the
+  full `AI_IMPORT_*` tuning set, the `AI_IMPORT_USER_AGENT*` overrides and the
+  `AI_PAYLOAD_GC_*` vars (all defaults mirror the code; `AI_IMPORT_ENABLED`
+  stays opt-in `false`). Crates: `infra` 0.29.2, `api` 0.22.2 (re-pin only).
+
 - **Series-level costume-photo authorization — `has_active_costume_role_in_series`
   (issue #535, ADR-035 B2/S2).** The costume-photo gate moves off the
   season-typed predicate: the three photo handlers (`upload_costume_photo`,
