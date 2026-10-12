@@ -16,6 +16,15 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
+## [0.22.2] - Unreleased
+
+### Changed — dependency re-pin only (issue #521)
+
+- `infra` 0.29.1 → 0.29.2 (AI provider HTTP clients now send a descriptive,
+  configurable `User-Agent` instead of reqwest's generic default; no `api`
+  code, route, contract or `openapi.yaml` entry changes).
+- No `api` API change: **0.22.1 → 0.22.2** (PATCH).
+
 ## [0.22.1] - Unreleased
 
 ### Changed — dependency re-pin only (issue #607)

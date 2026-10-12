@@ -15,6 +15,24 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
+## [0.29.2] - Unreleased
+
+### Changed — descriptive, configurable `User-Agent` on the AI provider HTTP clients (issue #521)
+
+- New private `ai::user_agent` module resolves the `User-Agent` every AI
+  provider client sends: default `breakdown-rs-backend/<version> (ai-import)`,
+  overridable globally (`AI_IMPORT_USER_AGENT`) or per curated provider
+  (`AI_IMPORT_USER_AGENT_<PROVIDER>`, e.g. `AI_IMPORT_USER_AGENT_OPENCODE_GO`).
+  reqwest's generic `reqwest/<version>` fallback is the agent opencode /
+  OpenCode-Go anti-abuse filters flag as a bot (403).
+- Applied to the model-catalog client, the shared Ollama client, and every
+  hosted-regime client built by `transport::build_hosted_client` (plus the new
+  `pub(crate) build_hosted_client_with_user_agent` for per-provider agents).
+  The issue #170 redirect / DNS-pin / no-proxy policy is unchanged; the agent
+  is additive transport metadata. A `User-Agent` is not a credential, so no
+  secret handling applies (gitleaks-safe).
+- No public API change (`build_hosted_client` keeps its signature): **0.29.1 → 0.29.2** (PATCH).
+
 ## [0.29.1] - Unreleased
 
 ### Fixed — default script prompt no longer asks the model to comment on an empty block (issue #607)

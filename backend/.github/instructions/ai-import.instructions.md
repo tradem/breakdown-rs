@@ -25,6 +25,20 @@ applyTo:
 - `AI_IMPORT_MAX_RETRIES` – maximum queue retries before dead-lettering (default: `5`).
 - `AI_IMPORT_LEASE_SECS` – worker claim lease in seconds (default: `900`). An out-of-range number is clamped to `30..=86400`; only absent/unparsable values fall back to the default. A claim records `worker_id` + `lease_expires_at`; once the lease expires another worker may reclaim the `running` job (crash recovery, issue #177). Long jobs keep their claim via a background heartbeat (`LeaseHeartbeat`, renewing at 1/3 of the window), so the lease does not need to cover a whole multi-chunk script run. All worker-originated lifecycle writes (`mark_running`, `mark_succeeded`, `mark_failed`, `record_worker_telemetry`) are **owner-fenced**: a worker whose lease lapsed gets `DomainError::Conflict` instead of overwriting the new owner's state.
 - `AI_IMPORT_DEFAULT_PROMPTS_PATH` – optional deployment override documented for prompt packaging; the built-in fallback is `config/default_ai_prompts.toml`.
+- `AI_IMPORT_USER_AGENT` – global override for the `User-Agent` sent by every AI provider HTTP client (default: `breakdown-rs-backend/<version> (ai-import)`).
+- `AI_IMPORT_USER_AGENT_<PROVIDER>` – per-provider override, e.g. `AI_IMPORT_USER_AGENT_OPENCODE_GO` or `AI_IMPORT_USER_AGENT_OPENCODE` (takes precedence over the global variable). An empty or header-invalid value is ignored and the next source applies.
+
+> **Descriptive `User-Agent` (issue #521).** The curated opencode / OpenCode-Go
+> gateways triage requests on `User-Agent`; a blank, generic or reqwest-default
+> agent (`reqwest/<version>`) is answered with `403`. Every provider client
+> (catalog, Ollama, hosted chat) therefore sends the configured descriptive
+> agent — additive transport metadata that leaves the issue #170 redirect /
+> DNS-pin / no-proxy policy untouched. A `User-Agent` is not a credential.
+>
+> **Verify before attributing a `403`.** The same research note also links a
+> `403` to model entitlement. When a real opencode-* call fails, capture the
+> response body `code` and distinguish UA-triage from entitlement before
+> changing the agent; do not commit to a one-cause fix without evidence.
 
 > **Concurrency permits are cancellation-safe (issue #178).** The two
 > `AI_IMPORT_MAX_CONCURRENT_JOBS_*` ceilings above are enforced by one owned

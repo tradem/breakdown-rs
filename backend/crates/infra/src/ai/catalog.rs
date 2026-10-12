@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
 // Co-authored-by: gpt-5.6-luna (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (neuralwatt)
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
 
 use std::borrow::Cow;
@@ -18,8 +19,9 @@ use serde::Deserialize;
 use super::CuratedProviderUrls;
 use super::client::{classify_http_status, classify_transport_error};
 use super::transport::RedirectViolation;
-use super::transport::build_hosted_client;
+use super::transport::build_hosted_client_with_user_agent;
 use super::transport::curated_provider_redirect_policy;
+use super::user_agent::resolve_user_agent;
 
 /// Deadline for curated model-catalog requests. The catalog has no
 /// caller-supplied timeout, so the bound is fixed here (the sibling chat
@@ -43,6 +45,9 @@ impl OpenAiCompatibleModelCatalog {
         let http = reqwest::Client::builder()
             .timeout(CATALOG_REQUEST_TIMEOUT)
             .redirect(curated_provider_redirect_policy())
+            // Descriptive agent so gateways do not triage the catalog request
+            // as a bot (issue #521).
+            .user_agent(resolve_user_agent(LlmProvider::Ollama))
             .build()
             // TLS backend / proxy configuration fault — a server-side problem,
             // not a client validation failure (503, not 422).
@@ -105,9 +110,13 @@ impl OpenAiCompatibleModelCatalog {
                 "curated base URL for {provider:?} has no host"
             ))
         })?;
-        let client = build_hosted_client(host, CATALOG_REQUEST_TIMEOUT)
-            .await
-            .map_err(map_redirect_violation)?;
+        let client = build_hosted_client_with_user_agent(
+            host,
+            CATALOG_REQUEST_TIMEOUT,
+            resolve_user_agent(provider),
+        )
+        .await
+        .map_err(map_redirect_violation)?;
         Ok(Cow::Owned(client))
     }
 }
