@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: glm-5.3-flash (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (neuralwatt)
 
 import 'dart:math' as math;
 
@@ -8,16 +9,20 @@ import 'package:flutter/material.dart';
 
 import 'clippy_trigger.dart';
 
-/// Karl Klammer — the clothes-hanger assistant (issue #516, Decision D2):
-/// a self-drawn [CustomPainter] figure geometrically based on the app
-/// icon's `checkroom` hanger glyph (Material Symbols, Apache-2.0 — the
-/// same source the launcher icon uses; the drawing and its animation are
-/// our own AGPL-3.0 work). Clippy's *behavior* on a hanger body.
+/// Karl Klammer — the clothes-hanger assistant (issue #516, Decision D2;
+/// redesigned as a comic-vector character in issue #614): a self-drawn
+/// [CustomPainter] figure geometrically based on the app icon's
+/// `checkroom` hanger glyph (Material Symbols, Apache-2.0 — the same
+/// source the launcher icon uses; the drawing and its animation are our
+/// own AGPL-3.0 work). Clippy's *behavior* on a hanger body.
 ///
-/// All colors come from the ambient Material 3 color-scheme roles — no
-/// hardcoded colors (design-token rule). When [animate] is false (the
-/// system "remove animations" setting is active) the figure renders its
-/// static pose — no controller runs at all.
+/// Since issue #614 the figure is a **filled comic-vector silhouette**
+/// with a clearly visible expressive face (sclera + pupils, eyebrows,
+/// per-pose mouth). It blinks and shows per-pose motion. All colors come
+/// from the ambient Material 3 color-scheme roles — no hardcoded colors
+/// (design-token rule). When [animate] is false (the system "remove
+/// animations" setting is active) the figure renders its static pose —
+/// no controller runs at all.
 class KarlKlammerFigure extends StatefulWidget {
   const KarlKlammerFigure({
     required this.pose,
@@ -38,8 +43,19 @@ class KarlKlammerFigure extends StatefulWidget {
   State<KarlKlammerFigure> createState() => _KarlKlammerFigureState();
 }
 
+/// Whether the eyes are closed at the given animation [phase] (`0..1`).
+///
+/// Pure and deterministic: the blink is a narrow window inside the
+/// single controller cycle (issue #614), so a widget test can pump to a
+/// known phase and reproduce the exact frame — no wall clock, no random.
+bool karlEyesClosed(double phase) => phase >= 0.48 && phase <= 0.52;
+
 class _KarlKlammerFigureState extends State<KarlKlammerFigure>
     with SingleTickerProviderStateMixin {
+  /// One full motion cycle. Body motion derives its per-pose phase from
+  /// this value; the blink window sits at 0.48–0.52 of it.
+  static const _cycle = Duration(milliseconds: 4200);
+
   AnimationController? _controller;
 
   @override
@@ -55,12 +71,12 @@ class _KarlKlammerFigureState extends State<KarlKlammerFigure>
   }
 
   void _syncController() {
-    final shouldAnimate = widget.animate && widget.pose == ClippyPose.excited;
+    // Every pose now has a motion signature (issue #614), so the
+    // controller runs whenever animations are enabled.
+    final shouldAnimate = widget.animate;
     if (shouldAnimate && _controller == null) {
-      _controller = AnimationController(
-        vsync: this,
-        duration: const Duration(milliseconds: 1600),
-      )..repeat();
+      _controller = AnimationController(vsync: this, duration: _cycle)
+        ..repeat();
     } else if (!shouldAnimate && _controller != null) {
       _controller!.dispose();
       _controller = null;
@@ -82,12 +98,13 @@ class _KarlKlammerFigureState extends State<KarlKlammerFigure>
       child: CustomPaint(
         painter: _HangerPainter(
           // The controller doubles as the repaint listenable: every tick
-          // re-schedules a paint (CodeRabbit fix — a plain field read in
-          // build never repaints the wobble).
+          // re-schedules a paint (the repaint proof test pins this).
           repaint: controller,
           pose: widget.pose,
           body: scheme.primary,
-          face: scheme.onSurfaceVariant,
+          sclera: scheme.onPrimary,
+          pupil: scheme.primary,
+          features: scheme.onPrimary,
           outline: scheme.outline,
         ),
       ),
@@ -95,110 +112,279 @@ class _KarlKlammerFigureState extends State<KarlKlammerFigure>
   }
 }
 
-/// Draws the hanger: hook with a small face on it (Karl's head),
-/// shoulder bar, and the bottom triangle. Poses rotate/tilt the figure:
-/// `excited` swings by the controller phase read inside [paint],
-/// `droop` leans sideways with a downturned mouth, `proud` tilts
-/// slightly upright with a smiling face.
+/// Draws the comic-vector hanger (issue #614): a filled triangle body
+/// (hook, head, shoulders, bottom bar / lower triangle) carrying a large
+/// expressive head. Poses change the expression (eyes, eyebrows, mouth)
+/// and the motion signature; [karlEyesClosed] drives the periodic blink.
 class _HangerPainter extends CustomPainter {
   _HangerPainter({
     Animation<double>? repaint,
     required this.pose,
     required this.body,
-    required this.face,
+    required this.sclera,
+    required this.pupil,
+    required this.features,
     required this.outline,
-  }) : _wobble = repaint,
+  }) : _motion = repaint,
        // Wires the live phase to the render object: every controller
        // tick marks the paint dirty (the repaint proof test pins this).
        super(repaint: repaint);
 
-  /// Live animation phase (the excited wobble); `null` = static poses.
-  final Animation<double>? _wobble;
+  /// Live animation phase (body motion + blink); `null` = static pose.
+  final Animation<double>? _motion;
 
   final ClippyPose pose;
 
   final Color body;
-  final Color face;
+  final Color sclera;
+  final Color pupil;
+  final Color features;
   final Color outline;
 
-  static const _stroke = 3.0;
+  static const _edge = 2.4;
+  static const _headCenter = Offset(36, 23);
+  static const _eyeLeft = Offset(31, 22);
+  static const _eyeRight = Offset(41, 22);
+  static const _eyeRadius = 3.4;
+
+  /// Per-pose body-motion period in milliseconds (the phase is derived
+  /// from the single [_KarlKlammerFigureState._cycle] controller).
+  static double _periodMs(ClippyPose pose) => switch (pose) {
+    ClippyPose.neutral => 3600,
+    ClippyPose.excited => 1600,
+    ClippyPose.droop => 4200,
+    ClippyPose.proud => 1800,
+    ClippyPose.thinking => 3000,
+  };
 
   @override
   void paint(Canvas canvas, Size size) {
-    final scale = size.width / 72;
+    final scale = size.shortestSide / 72;
     canvas.scale(scale);
 
-    final wobble = _wobble?.value ?? 0.0;
+    final phase = _motion?.value ?? 0.0;
+    final bodyPhase = (phase * 4200 / _periodMs(pose)) % 1.0;
+    final wave = math.sin(bodyPhase * 2 * math.pi);
 
     // Pose transform (applied around the hook anchor at the top center).
     final angle = switch (pose) {
-      ClippyPose.excited => math.sin(wobble * 2 * math.pi) * 0.12,
-      ClippyPose.droop => 0.35, // permanent lean — the hanger droops
-      ClippyPose.proud => -0.08, // slight proud tilt back
-      ClippyPose.neutral => 0.0,
+      ClippyPose.neutral => wave * 0.05,
+      ClippyPose.excited => wave * 0.18,
+      ClippyPose.droop => 0.32 + wave * 0.04, // slow permanent sag
+      ClippyPose.proud => -0.07 + wave * 0.03, // upright bounce
+      ClippyPose.thinking => 0.12 + wave * 0.04, // thoughtful sway
     };
     final dy = switch (pose) {
-      // Drooping also sinks a little.
-      ClippyPose.droop => 4.0,
-      _ => 0.0,
+      ClippyPose.neutral => wave * 1.5,
+      ClippyPose.excited => -wave.abs() * 3.5,
+      ClippyPose.droop => 4.0 + wave * 1.0,
+      ClippyPose.proud => -wave * 2.5,
+      ClippyPose.thinking => wave * 1.0,
     };
-    canvas.translate(36 + angle * 20, 8 + dy);
+    canvas.translate(36 + angle * 18, 8 + dy);
     canvas.rotate(angle);
     canvas.translate(-36, -8);
 
-    final paint = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = _stroke
-      ..strokeCap = StrokeCap.round
-      ..color = body;
-
-    // ── Hook (Karl's "head"): bezier hook opening to the left. ──
-    final hook = Path()
-      ..moveTo(36, 34)
-      ..lineTo(36, 18)
-      ..cubicTo(36, 10, 27, 8, 25, 14)
-      ..cubicTo(24, 18, 28, 21, 32, 19);
-    canvas.drawPath(hook, paint);
-
-    // ── Face on the hook: two eyes + a mouth. ──
-    final facePaint = Paint()
+    final fill = Paint()
       ..style = PaintingStyle.fill
-      ..color = face;
-    final smile = Paint()
+      ..color = body;
+    final edge = Paint()
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.6
+      ..strokeWidth = _edge
+      ..strokeJoin = StrokeJoin.round
+      ..color = outline;
+    final hookPaint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 3.0
       ..strokeCap = StrokeCap.round
-      ..color = face;
-    // Eyes sit on the hook stem.
-    canvas.drawCircle(const Offset(33.6, 22), 1.1, facePaint);
-    canvas.drawCircle(const Offset(38.4, 22), 1.1, facePaint);
-    // Mouth: downturned when drooping, wide smile otherwise.
-    final mouth = Path()
-      ..moveTo(33, 27)
-      ..quadraticBezierTo(
-        36,
-        pose == ClippyPose.droop ? 25.5 : 30,
-        39,
-        pose == ClippyPose.droop ? 27 : 27,
+      ..color = outline;
+
+    // ── Hook: the head-top antenna, opening to the left. ──
+    final hook = Path()
+      ..moveTo(36, 15)
+      ..lineTo(36, 9)
+      ..cubicTo(36, 3, 27, 2, 25, 8)
+      ..cubicTo(24, 12, 28, 15, 32, 13);
+    canvas.drawPath(hook, hookPaint);
+
+    // ── Body: the filled hanger triangle (shoulders + bottom bar). ──
+    final bodyPath = Path()
+      ..moveTo(36, 30)
+      ..quadraticBezierTo(20, 38, 9, 50)
+      ..quadraticBezierTo(8, 52, 11, 52)
+      ..lineTo(61, 52)
+      ..quadraticBezierTo(64, 52, 63, 50)
+      ..quadraticBezierTo(52, 38, 36, 30)
+      ..close();
+    canvas.drawPath(bodyPath, fill);
+    canvas.drawPath(bodyPath, edge);
+
+    // ── Head: a filled stadium carrying the face. ──
+    final head = RRect.fromRectAndRadius(
+      Rect.fromCenter(center: _headCenter, width: 22, height: 24),
+      const Radius.circular(11),
+    );
+    canvas.drawRRect(head, fill);
+    canvas.drawRRect(head, edge);
+
+    _drawFace(canvas, phase);
+  }
+
+  void _drawFace(Canvas canvas, double phase) {
+    final lid = Paint()
+      ..style = PaintingStyle.fill
+      ..color = body;
+    final scleraPaint = Paint()..color = sclera;
+    final pupilPaint = Paint()..color = pupil;
+    final feature = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.8
+      ..strokeCap = StrokeCap.round
+      ..color = features;
+
+    // Eye opening + pupil gaze per pose (issue #614 expression table).
+    final (open, gaze) = switch (pose) {
+      ClippyPose.neutral => (1.0, const Offset(0, 0.2)),
+      ClippyPose.excited => (1.0, const Offset(0, 0)),
+      ClippyPose.droop => (0.55, const Offset(0, 0.8)),
+      ClippyPose.proud => (1.0, const Offset(0, -0.3)),
+      ClippyPose.thinking => (1.0, const Offset(0.3, -1.4)),
+    };
+    final openFraction = karlEyesClosed(phase) ? 0.0 : open;
+
+    _drawEye(
+      canvas,
+      _eyeLeft,
+      openFraction,
+      gaze,
+      scleraPaint,
+      pupilPaint,
+      lid,
+    );
+    _drawEye(
+      canvas,
+      _eyeRight,
+      openFraction,
+      gaze,
+      scleraPaint,
+      pupilPaint,
+      lid,
+    );
+
+    // Eyebrows.
+    final (leftBrowY, rightBrowY) = switch (pose) {
+      ClippyPose.neutral => (15.6, 15.6),
+      ClippyPose.excited => (13.6, 13.6),
+      ClippyPose.droop => (17.0, 17.0),
+      ClippyPose.proud => (13.8, 13.8),
+      ClippyPose.thinking => (13.6, 15.8),
+    };
+    canvas.drawLine(Offset(27.5, leftBrowY), Offset(34.5, leftBrowY), feature);
+    canvas.drawLine(
+      Offset(37.5, rightBrowY),
+      Offset(44.5, rightBrowY),
+      feature,
+    );
+
+    // Mouth.
+    _drawMouth(canvas, feature);
+  }
+
+  void _drawEye(
+    Canvas canvas,
+    Offset center,
+    double openFraction,
+    Offset gaze,
+    Paint scleraPaint,
+    Paint pupilPaint,
+    Paint lid,
+  ) {
+    if (openFraction <= 0.02) {
+      // Closed eye: a simple lash line.
+      canvas.drawLine(
+        Offset(center.dx - _eyeRadius, center.dy),
+        Offset(center.dx + _eyeRadius, center.dy),
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1.6
+          ..strokeCap = StrokeCap.round
+          ..color = features,
       );
-    canvas.drawPath(mouth, smile);
+      return;
+    }
+    canvas.drawCircle(center, _eyeRadius, scleraPaint);
+    canvas.drawCircle(center + gaze * 0.8, _eyeRadius * 0.48, pupilPaint);
+    // Lids clip the sclera to the open fraction (half-lidded for droop).
+    final top = center.dy - _eyeRadius * openFraction;
+    final bottom = center.dy + _eyeRadius * openFraction;
+    if (top > center.dy - _eyeRadius) {
+      canvas.drawRect(
+        Rect.fromLTRB(
+          center.dx - _eyeRadius,
+          center.dy - _eyeRadius,
+          center.dx + _eyeRadius,
+          top,
+        ),
+        lid,
+      );
+    }
+    if (bottom < center.dy + _eyeRadius) {
+      canvas.drawRect(
+        Rect.fromLTRB(
+          center.dx - _eyeRadius,
+          bottom,
+          center.dx + _eyeRadius,
+          center.dy + _eyeRadius,
+        ),
+        lid,
+      );
+    }
+  }
 
-    // ── Shoulders: from the stem down to the two bar tips. ──
-    final shoulders = Path()
-      ..moveTo(36, 34)
-      ..lineTo(6, 46)
-      ..moveTo(36, 34)
-      ..lineTo(66, 46);
-    canvas.drawPath(shoulders, paint);
-
-    // ── Bottom bar connecting the tips. ──
-    canvas.drawLine(const Offset(6, 46), const Offset(66, 46), paint);
+  void _drawMouth(Canvas canvas, Paint feature) {
+    switch (pose) {
+      case ClippyPose.excited:
+        // Big open grin: a filled arc (the mouth interior).
+        final grin = Path()
+          ..moveTo(31, 28)
+          ..quadraticBezierTo(36, 34, 41, 28)
+          ..close();
+        canvas.drawPath(
+          grin,
+          Paint()
+            ..style = PaintingStyle.fill
+            ..color = features,
+        );
+      case ClippyPose.droop:
+        final frown = Path()
+          ..moveTo(32, 31)
+          ..quadraticBezierTo(36, 28, 40, 31);
+        canvas.drawPath(frown, feature);
+      case ClippyPose.proud:
+        final smile = Path()
+          ..moveTo(31.5, 28.5)
+          ..quadraticBezierTo(36, 32, 40.5, 28.5);
+        canvas.drawPath(smile, feature);
+      case ClippyPose.thinking:
+        canvas.drawLine(
+          const Offset(33.5, 30),
+          const Offset(38.5, 30),
+          feature,
+        );
+      case ClippyPose.neutral:
+        final smile = Path()
+          ..moveTo(32, 29)
+          ..quadraticBezierTo(36, 31.5, 40, 29);
+        canvas.drawPath(smile, feature);
+    }
   }
 
   @override
   bool shouldRepaint(_HangerPainter oldDelegate) =>
       oldDelegate.pose != pose ||
       oldDelegate.body != body ||
-      oldDelegate.face != face ||
+      oldDelegate.sclera != sclera ||
+      oldDelegate.pupil != pupil ||
+      oldDelegate.features != features ||
       oldDelegate.outline != outline;
 }
