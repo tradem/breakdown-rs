@@ -16,6 +16,20 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
+## [0.23.0] - Unreleased
+
+### Added — `GET /v1/characters/{id}/appearances` (issue #621)
+
+- Per-character role extract: the character's scenes in script order, each
+  with the character's own ordered costume beats (`Vec<CharacterAppearanceView>`
+  on the wire). utoipa-derived `openapi.yaml` plus a regenerated Dart client.
+- The route is `Authenticated` at the middleware (a narrow exception to the
+  block-scoped `/characters/*` default) with a handler-internal
+  `// AUTHZ-GATE:` over `has_active_costume_role_in_season`: `403` on denial,
+  `404` for an unknown character.
+- `breakdown_core` 0.24.0 → 0.25.0, `infra` 0.29.2 → 0.30.0.
+- New public route + types: **0.22.2 → 0.23.0** (MINOR).
+
 ## [0.22.2] - Unreleased
 
 ### Changed — dependency re-pin only (issue #521)

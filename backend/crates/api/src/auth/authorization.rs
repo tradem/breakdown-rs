@@ -278,7 +278,22 @@ pub fn requirement_for(path: &str) -> Requirement {
         .strip_prefix("/series/")
         .and_then(|rest| rest.strip_suffix("/membership"))
         .is_some_and(|id| !id.is_empty() && !id.contains('/'));
-    if path.starts_with("/seasons") || is_series_membership || path.starts_with("/settings") {
+    // The per-character appearances read model (issue #621) is a season-scoped
+    // read of the character's role extract: like the report/photo families it
+    // is authenticated-only at the middleware and the handler carries an
+    // `// AUTHZ-GATE:` over `has_active_costume_role_in_season`. The exception
+    // is deliberately NARROW (exactly `{id}/appearances`, non-empty id, no
+    // deeper segments) so every other `/characters/*` route keeps the default
+    // `BlockMember` policy.
+    let is_character_appearances = path
+        .strip_prefix("/characters/")
+        .and_then(|rest| rest.strip_suffix("/appearances"))
+        .is_some_and(|id| !id.is_empty() && !id.contains('/'));
+    if path.starts_with("/seasons")
+        || is_series_membership
+        || is_character_appearances
+        || path.starts_with("/settings")
+    {
         return Requirement::Authenticated;
     }
     // `/blocks` covers both `POST` (create + owner bootstrap) and `GET`

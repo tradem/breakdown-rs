@@ -44,7 +44,7 @@ use breakdown_core::character::category::CharacterCategory;
 use breakdown_core::character::commands::{CreateCharacter, UpdateContactInfo, UpdateMeasurements};
 use breakdown_core::character::events::{CharacterMeasurements, ContactInfo};
 use breakdown_core::character::ports::{CharacterCommands, CharacterRepository};
-use breakdown_core::character::views::CharacterView;
+use breakdown_core::character::views::{CharacterAppearanceView, CharacterView};
 use breakdown_core::costume::commands::{
     AddCostumeToSeason, AddDetail, AssignCostumeToCharacter, CreateCostume, LinkPhoto,
     RemoveCostumeFromSeason, RemoveDetail, SetCostumeCategory, UnassignCostume, UnlinkPhoto,
@@ -2236,6 +2236,53 @@ pub async fn get_character<P: Ports>(
 ) -> ApiResult<CharacterView> {
     let view = state.ports.character_repo().find_by_id(id).await?;
     Ok((StatusCode::OK, Json(view)))
+}
+
+/// Per-character appearances read model (issue #621): the role extract
+/// ("Ring binder per role") — every scene the character appears in, in script
+/// order, each with that character's own ordered costume beats.
+///
+/// Season-scoped read gated handler-internally (the route is classified
+/// `Authenticated` in `requirement_for`, mirroring the report/photo families):
+/// the caller must hold an active costume-department role in the character's
+/// season. The character fetch runs first so an unknown id answers
+/// `404 character.not-found` before the policy.
+#[utoipa::path(
+    get,
+    path = "/characters/{id}/appearances",
+    params(("id" = Uuid, Path, description = "Character id")),
+    responses(
+        (status = 200, body = Vec<CharacterAppearanceView>),
+        (status = 403, body = ProblemDetails, description = "Not authorized"),
+        (status = 404, body = ProblemDetails, description = "Character not found"),
+    ),
+)]
+pub async fn get_character_appearances<P: Ports>(
+    State(state): State<AppState<P>>,
+    current_user: CurrentUser,
+    Path(id): Path<Uuid>,
+) -> ApiResult<Vec<CharacterAppearanceView>> {
+    // AUTHZ-GATE: handler-internal season-scoped gate. The route is
+    // `Authenticated` at the middleware (narrow exception to the block-scoped
+    // `/characters/*` default) so the client's season-scoped membership mirror
+    // is authoritative; the policy runs inside the handler. Fail closed: the
+    // character lookup 404s unknown ids before the policy.
+    let character = state.ports.character_repo().find_by_id(id).await?;
+    membership_gate(
+        state
+            .ports
+            .membership_repo()
+            .has_active_costume_role_in_season(character.season_id, current_user.sub.clone()),
+        || ApiError::Forbidden("not authorized to view this character's appearances"),
+    )
+    .await?;
+
+    let appearances = state
+        .ports
+        .character_repo()
+        .character_appearances(id)
+        .await?;
+    Ok((StatusCode::OK, Json(appearances)))
 }
 
 #[utoipa::path(
@@ -7175,6 +7222,10 @@ pub fn routes() -> Router<AppState<ProductionPorts>> {
         .route(
             "/characters/{id}",
             routing::get(get_character::<ProductionPorts>),
+        )
+        .route(
+            "/characters/{id}/appearances",
+            routing::get(get_character_appearances::<ProductionPorts>),
         )
         .route(
             "/characters/{id}/measurements",

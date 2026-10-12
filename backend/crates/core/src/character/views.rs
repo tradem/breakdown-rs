@@ -1,14 +1,15 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: deepseek-v4.1-flash (neuralwatt)
 
 //! Flat read-model DTOs for the Character context.
 
 use chrono::{DateTime, Utc};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 use uuid::Uuid;
 
-use crate::shared::{AggregateVersion, SeasonId};
+use crate::shared::{AggregateVersion, EpisodeId, SeasonId};
 
 use super::category::CharacterCategory;
 use super::events::{CharacterMeasurements, ContactInfo};
@@ -27,4 +28,38 @@ pub struct CharacterView {
     /// Aggregate version for optimistic-locking round-trips.
     pub version: AggregateVersion,
     pub updated_at: DateTime<Utc>,
+}
+
+/// One appearance of a character in a scene (issue #621): the scene reference
+/// in script order plus the character's own costume beats in that scene.
+///
+/// Backs `GET /v1/characters/{id}/appearances` — the role extract ("Ring
+/// binder per role"): every scene the character appears in, in `scene_number`
+/// order, with the costume(s) that character wears there.
+#[derive(Debug, Clone, Deserialize, Serialize, ToSchema)]
+pub struct CharacterAppearanceView {
+    pub scene_id: Uuid,
+    pub episode_id: EpisodeId,
+    /// Script-order scene number; `None` for scenes not yet numbered.
+    pub scene_number: Option<u32>,
+    /// Scene synopsis (the scene projection's `summary`), for the extract row.
+    pub synopsis: Option<String>,
+    /// The character's costume beats in this scene, ordered by `order`.
+    /// Empty when the character has no costume beat in the scene yet.
+    #[serde(default)]
+    pub costumes: Vec<AppearanceCostumeView>,
+}
+
+/// One costume beat of a character within one scene (issue #621): the
+/// character-scoped slice of `projection_scene_costume_assignment`, enriched by
+/// join with `projection_costume` for the category.
+#[derive(Debug, Clone, Deserialize, Serialize, ToSchema)]
+pub struct AppearanceCostumeView {
+    pub costume_id: Uuid,
+    pub costume_category_id: Option<Uuid>,
+    pub costume_category_name: Option<String>,
+    /// Dense, zero-based, unique per character within this scene.
+    pub order: u32,
+    /// Optional free-text cue for the wardrobe crew.
+    pub note: Option<String>,
 }

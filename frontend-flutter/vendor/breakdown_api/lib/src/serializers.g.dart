@@ -27,6 +27,7 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..add(AiPreviewPayloadOneOf2KindEnum.serializer)
       ..add(AiPreviewPayloadOneOfKindEnum.serializer)
       ..add(AiProviderInfo.serializer)
+      ..add(AppearanceCostumeView.serializer)
       ..add(ApplyAiImportRequest.serializer)
       ..add(ApplyAiImportResponse.serializer)
       ..add(ApplyEpisodeGroupRequest.serializer)
@@ -38,6 +39,7 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..add(AssignCostumeRequest.serializer)
       ..add(AuditEntry.serializer)
       ..add(BlockView.serializer)
+      ..add(CharacterAppearanceView.serializer)
       ..add(CharacterCategory.serializer)
       ..add(CharacterMeasurements.serializer)
       ..add(CharacterView.serializer)
@@ -154,6 +156,10 @@ Serializers _$serializers = (Serializers().toBuilder()
           const FullType(
               BuiltList, const [const FullType(AggregateSollIstDiffRow)]),
           () => ListBuilder<AggregateSollIstDiffRow>())
+      ..addBuilderFactory(
+          const FullType(
+              BuiltList, const [const FullType(AppearanceCostumeView)]),
+          () => ListBuilder<AppearanceCostumeView>())
       ..addBuilderFactory(
           const FullType(
               BuiltList, const [const FullType(ApplyEpisodeGroupRequest)]),

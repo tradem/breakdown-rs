@@ -87,7 +87,7 @@ fn api_routes_are_behind_auth_middleware() {
     //  patterns, not method-verb pairs.)
     assert_eq!(
         api.len(),
-        91,
+        92,
         "number of API route path patterns has changed — \
          see doc comment above for update instructions"
     );
@@ -225,6 +225,12 @@ fn api_routes_have_deliberate_authorization_requirement() {
         ("/characters/{id}", Requirement::BlockMember),
         ("/characters/{id}/measurements", Requirement::BlockMember),
         ("/characters/{id}/contact", Requirement::BlockMember),
+        // Issue #621: the per-character appearances read model is a
+        // season-scoped role extract. Authenticated at the middleware (narrow
+        // exception) with a handler-internal `// AUTHZ-GATE:` over
+        // `has_active_costume_role_in_season` — the middleware cannot scope a
+        // character to a season.
+        ("/characters/{id}/appearances", Requirement::Authenticated),
         // Costumes
         ("/costumes", Requirement::BlockMember),
         ("/costumes/{id}", Requirement::BlockMember),

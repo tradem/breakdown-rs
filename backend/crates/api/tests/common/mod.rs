@@ -20,7 +20,7 @@ use breakdown_core::block::views::BlockView;
 use breakdown_core::character::category::CharacterCategory;
 use breakdown_core::character::commands::{CreateCharacter, UpdateContactInfo, UpdateMeasurements};
 use breakdown_core::character::ports::{CharacterCommands, CharacterRepository};
-use breakdown_core::character::views::CharacterView;
+use breakdown_core::character::views::{CharacterAppearanceView, CharacterView};
 use breakdown_core::costume::commands::{
     AddCostumeToSeason, AddDetail, AssignCostumeToCharacter, CreateCostume, LinkPhoto,
     RemoveCostumeFromSeason, RemoveDetail, SetCostumeCategory, UnassignCostume, UnlinkPhoto,
@@ -934,6 +934,8 @@ impl SceneRepository for FakeSceneRepo {
 #[allow(dead_code)]
 pub struct FakeCharacterRepo {
     pub characters: Arc<Mutex<HashMap<Uuid, CharacterView>>>,
+    /// Issue #621: seeded per-character appearances.
+    pub appearances: Arc<Mutex<HashMap<Uuid, Vec<CharacterAppearanceView>>>>,
 }
 
 impl CharacterRepository for FakeCharacterRepo {
@@ -962,8 +964,17 @@ impl CharacterRepository for FakeCharacterRepo {
     ) -> Result<Vec<CharacterView>, DomainError> {
         Ok(Vec::new())
     }
-    async fn appearances(&self, _character_id: Uuid) -> Result<Vec<EpisodeId>, DomainError> {
-        Ok(Vec::new())
+    async fn character_appearances(
+        &self,
+        character_id: Uuid,
+    ) -> Result<Vec<CharacterAppearanceView>, DomainError> {
+        Ok(self
+            .appearances
+            .lock()
+            .await
+            .get(&character_id)
+            .cloned()
+            .unwrap_or_default())
     }
 }
 
