@@ -57,6 +57,13 @@ impl OllamaChatClient {
         Ok(Self::with_http(http, max_parse_retries, timeout))
     }
 
+    /// Test seam: the production-built client, so wire tests can assert its
+    /// default headers reach the request (issue #521 review).
+    #[cfg(test)]
+    pub(crate) fn http(&self) -> &reqwest::Client {
+        &self.http
+    }
+
     async fn request_once(&self, req: &LlmChatRequest) -> Result<String, DomainError> {
         let body = OllamaRequest {
             model: req.model.clone(),

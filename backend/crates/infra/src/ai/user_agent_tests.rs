@@ -41,6 +41,43 @@ fn set_var(key: &str, value: Option<&str>) {
     }
 }
 
+/// Run `f` with arbitrary env assignments applied, restoring every touched
+/// variable to its original value afterwards. The `ENV_LOCK` guard is held for
+/// the duration, so `f` must not `await` (clippy `await_holding_lock`).
+fn with_env_vars<R>(vars: &[(&str, Option<&str>)], f: impl FnOnce() -> R) -> R {
+    let _guard = env_guard();
+    let originals: Vec<(String, Option<String>)> = vars
+        .iter()
+        .map(|(key, _)| ((*key).to_owned(), std::env::var(key).ok()))
+        .collect();
+    for (key, value) in vars {
+        set_var(key, *value);
+    }
+    let result = f();
+    for (key, original) in &originals {
+        set_var(key, original.as_deref());
+    }
+    result
+}
+
+/// Run `f` with the given provider overrides applied, restoring the original
+/// env state before returning. `f` must not `await` (the lock is held).
+fn with_overrides<R>(
+    provider: LlmProvider,
+    global: Option<&str>,
+    per_provider: Option<&str>,
+    f: impl FnOnce() -> R,
+) -> R {
+    let provider_key = provider_override_env(provider);
+    with_env_vars(
+        &[
+            (AI_USER_AGENT_ENV, global),
+            (provider_key.as_str(), per_provider),
+        ],
+        f,
+    )
+}
+
 /// Resolve the agent with the given overrides applied, restoring the original
 /// env state before returning. The returned `String` is the wire value.
 fn resolve_with_overrides(
@@ -48,16 +85,12 @@ fn resolve_with_overrides(
     global: Option<&str>,
     per_provider: Option<&str>,
 ) -> String {
-    let _guard = env_guard();
-    let provider_key = provider_override_env(provider);
-    let global_original = std::env::var(AI_USER_AGENT_ENV).ok();
-    let provider_original = std::env::var(&provider_key).ok();
-    set_var(AI_USER_AGENT_ENV, global);
-    set_var(&provider_key, per_provider);
-    let resolved = resolve_user_agent(provider);
-    set_var(AI_USER_AGENT_ENV, global_original.as_deref());
-    set_var(&provider_key, provider_original.as_deref());
-    resolved.to_str().unwrap_or_default().to_owned()
+    with_overrides(provider, global, per_provider, || {
+        resolve_user_agent(provider)
+            .to_str()
+            .unwrap_or_default()
+            .to_owned()
+    })
 }
 
 // ===========================================================================
@@ -129,17 +162,26 @@ fn per_provider_override_wins_over_the_global_one() {
 
 #[test]
 fn per_provider_override_does_not_leak_to_other_providers() {
-    let agent = resolve_with_overrides(LlmProvider::OpenAI, None, None);
-    // Set only for OpenCodeGo, then resolve OpenAI — must stay on the default.
-    let _guard = env_guard();
-    set_var(
-        &provider_override_env(LlmProvider::OpenCodeGo),
-        Some("opencode/1.0.0"),
+    // Baseline: no overrides anywhere.
+    let openai = with_overrides(LlmProvider::OpenAI, None, None, || {
+        resolve_user_agent(LlmProvider::OpenAI)
+    });
+    // An OpenCodeGo-specific override must not change OpenAI resolution. The
+    // ambient global override is cleared (and both variables are restored)
+    // so the assertion is deterministic regardless of the test environment.
+    let opencode_go_key = provider_override_env(LlmProvider::OpenCodeGo);
+    let openai_with_opencode_override = with_env_vars(
+        &[
+            (AI_USER_AGENT_ENV, None),
+            (opencode_go_key.as_str(), Some("opencode/1.0.0")),
+        ],
+        || resolve_user_agent(LlmProvider::OpenAI),
     );
-    let openai = resolve_user_agent(LlmProvider::OpenAI);
-    set_var(&provider_override_env(LlmProvider::OpenCodeGo), None);
-    assert_eq!(agent, default_user_agent());
     assert_eq!(openai.to_str().unwrap(), default_user_agent());
+    assert_eq!(
+        openai_with_opencode_override.to_str().unwrap(),
+        default_user_agent()
+    );
 }
 
 #[test]
@@ -207,49 +249,15 @@ fn spawn_capture_server() -> (SocketAddr, Arc<Mutex<Option<String>>>) {
 }
 
 #[tokio::test]
-async fn configured_user_agent_is_sent_on_outgoing_requests() {
-    let (address, captured) = spawn_capture_server();
-    // Resolve (and restore env) before any await so no std lock is held across
-    // it (clippy `await_holding_lock`).
-    let configured = resolve_with_overrides(
-        LlmProvider::OpenAI,
-        Some("breakdown-test/1.2.3 (ai-import)"),
-        None,
-    );
-
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(5))
-        .user_agent(configured.clone())
-        .build()
-        .unwrap_or_else(|error| panic!("cannot build test client: {error}"));
-    let response = client
-        .get(format!("http://{address}/probe"))
-        .send()
+async fn build_hosted_client_sends_the_default_user_agent() {
+    // The production builder, driven against the local capture server. `8.8.8.8`
+    // is a public IP literal, so building performs no DNS and the test stays
+    // offline; the pinned host only constrains requests to that host, while the
+    // client-level default `User-Agent` applies to the loopback request here.
+    let client = crate::ai::transport::build_hosted_client("8.8.8.8", Duration::from_secs(5))
         .await
-        .unwrap_or_else(|error| panic!("request failed: {error}"));
-    assert_eq!(response.status(), reqwest::StatusCode::OK);
-
-    let seen = captured
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
-        .clone();
-    assert_eq!(
-        seen.as_deref(),
-        Some(configured.as_str()),
-        "the configured User-Agent must reach the provider"
-    );
-}
-
-#[tokio::test]
-async fn default_user_agent_is_sent_on_outgoing_requests() {
+        .unwrap_or_else(|error| panic!("cannot build hosted client: {error}"));
     let (address, captured) = spawn_capture_server();
-    let configured = resolve_with_overrides(LlmProvider::Ollama, None, None);
-
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(5))
-        .user_agent(configured.clone())
-        .build()
-        .unwrap_or_else(|error| panic!("cannot build test client: {error}"));
     let response = client
         .get(format!("http://{address}/probe"))
         .send()
@@ -264,6 +272,65 @@ async fn default_user_agent_is_sent_on_outgoing_requests() {
     assert_eq!(
         seen.as_deref(),
         Some(default_user_agent()),
-        "the default User-Agent must reach the provider"
+        "the production hosted client must send the default User-Agent"
+    );
+}
+
+#[tokio::test]
+async fn ollama_production_client_sends_the_configured_user_agent() {
+    // Build the real `OllamaChatClient` under the override, then drive its
+    // production client against the local capture server. The env lock is
+    // released before the request (no guard across `.await`).
+    const CONFIGURED: &str = "breakdown-test/9.9.9 (ai-import)";
+    let client = with_env_vars(&[(AI_USER_AGENT_ENV, Some(CONFIGURED))], || {
+        crate::ai::OllamaChatClient::new(0, Duration::from_secs(5))
+            .unwrap_or_else(|error| panic!("cannot build ollama client: {error}"))
+    });
+    let (address, captured) = spawn_capture_server();
+    let response = client
+        .http()
+        .get(format!("http://{address}/probe"))
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("request failed: {error}"));
+    assert_eq!(response.status(), reqwest::StatusCode::OK);
+
+    let seen = captured
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .clone();
+    assert_eq!(
+        seen.as_deref(),
+        Some(CONFIGURED),
+        "the production Ollama client must send the configured User-Agent"
+    );
+}
+
+#[tokio::test]
+async fn catalog_production_client_sends_the_configured_user_agent() {
+    // The catalog's shared client serves the Ollama regime and is built without
+    // DNS; it must carry the configured agent like the chat clients do.
+    const CONFIGURED: &str = "breakdown-test/8.8.8 (ai-import)";
+    let catalog = with_env_vars(&[(AI_USER_AGENT_ENV, Some(CONFIGURED))], || {
+        crate::ai::OpenAiCompatibleModelCatalog::new()
+            .unwrap_or_else(|error| panic!("cannot build catalog: {error}"))
+    });
+    let (address, captured) = spawn_capture_server();
+    let response = catalog
+        .http()
+        .get(format!("http://{address}/probe"))
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("request failed: {error}"));
+    assert_eq!(response.status(), reqwest::StatusCode::OK);
+
+    let seen = captured
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .clone();
+    assert_eq!(
+        seen.as_deref(),
+        Some(CONFIGURED),
+        "the production catalog client must send the configured User-Agent"
     );
 }

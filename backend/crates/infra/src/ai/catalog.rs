@@ -83,6 +83,14 @@ impl OpenAiCompatibleModelCatalog {
     pub fn is_allowed(&self, model: &str) -> bool {
         self.allowlist.contains(model)
     }
+
+    /// Test seam: the production-built shared client, so wire tests can assert
+    /// its default headers reach the request (issue #521 review).
+    #[cfg(test)]
+    pub(crate) fn http(&self) -> &reqwest::Client {
+        &self.http
+    }
+
     /// Client for one catalog listing, chosen by regime: the curated Ollama
     /// origin is served by the shared client (its redirect policy restricts
     /// every hop to local destinations), while hosted providers get a
