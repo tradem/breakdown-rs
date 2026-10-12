@@ -745,7 +745,7 @@
   "seasonsArchiveTooltip": "Season actions",
   "seasonsArchiveCta": "Archive season",
   "seasonsArchivedError": "The season is archived and can no longer be changed.",
-  "seasonsArchiveForbidden": "You have no active costume-dept role in this season.",
+  "seasonsArchiveForbidden": "You need an active costume role in this season.",
 
   "omniSearchTitle": "Search",
   "omniSearchTooltip": "Search",

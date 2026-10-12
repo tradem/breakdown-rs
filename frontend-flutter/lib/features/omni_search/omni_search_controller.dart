@@ -56,15 +56,20 @@ class OmniSearchQuery extends _$OmniSearchQuery {
   void setText(String text) =>
       state = OmniSearchQueryState(text: text, facets: state.facets);
 
-  /// Toggle a facet chip. The LAST active facet cannot be deselected away
-  /// to nothing? It can — an empty facet selection is a legitimate surface
-  /// state the zero-match copy covers by echoing no chips (spec void
-  /// handling: results "always grouped by facet type", so zero facets =
-  /// zero groups).
+  /// Toggle a facet chip. The LAST active facet cannot be deselected — an
+  /// empty facet selection would make the typed text search nothing while
+  /// the zero-match contract (echo of the KNOWINGLY searched facets) has
+  /// nothing left to echo (CodeRabbit review): the last chip stays on.
   void toggleFacet(OmniSearchFacet facet) {
     final facets = {...state.facets};
-    if (!facets.remove(facet)) facets.add(facet);
-    state = OmniSearchQueryState(text: state.text, facets: facets);
+    final removed = facets.remove(facet);
+    if (removed && facets.isEmpty) return; // keep at least one active
+    if (removed) {
+      state = OmniSearchQueryState(text: state.text, facets: facets);
+    } else {
+      facets.add(facet);
+      state = OmniSearchQueryState(text: state.text, facets: facets);
+    }
   }
 }
 
@@ -192,12 +197,16 @@ class OmniSearchController extends _$OmniSearchController {
       text: query.text,
       activeFacets: query.facets,
       groups: results.groups,
-      // Zero-match = a typed query hits nothing anywhere. The copy echoes
-      // the KNOWINGLY SEARCHED (loaded) facets (surface
-      // `consultedFacets`); surfaces that never answered are named by the
-      // not-yet-loaded notes, never swallowed into the zero-match
-      // sentence.
-      zeroMatch: query.text.isNotEmpty && results.groups.isEmpty,
+      // Zero-match = a typed query hits nothing anywhere AMONG THE
+      // KNOWINGLY SEARCHED (loaded) facets — the documented contract
+      // (CodeRabbit review): an unanswered facet was not searched, so it
+      // can never make the zero-match sentence true; it is named by the
+      // not-yet-loaded notes instead. Whitespace-only text is not a query
+      // (trim — see composeOmniSearchResults).
+      zeroMatch:
+          query.text.trim().isNotEmpty &&
+          results.groups.isEmpty &&
+          consulted.isNotEmpty,
       notLoadedFacets: notLoaded,
       consultedFacets: consulted,
       anyStale: staleFacets.where((f) => query.facets.contains(f)).isNotEmpty,

@@ -177,6 +177,27 @@ void main() {
       expect(results.groups, isEmpty);
     });
 
+    test(
+      'a whitespace-only query matches nothing (trimmed before folding)',
+      () {
+        // CodeRabbit review: " " is non-empty after folding and would match
+        // every field containing a space — it degrades to no groups (the
+        // initial state), interior spacing still matching normally.
+        final results = composeOmniSearchResults(
+          workload(),
+          '   ',
+          kAllOmniSearchFacets,
+        );
+        expect(results.groups, isEmpty);
+        final padded = composeOmniSearchResults(
+          workload(),
+          '  wo  ',
+          kAllOmniSearchFacets,
+        );
+        expect(padded.groups.map((g) => g.facet), kAllOmniSearchFacets);
+      },
+    );
+
     test('hits keep the input order inside their group', () {
       final results = composeOmniSearchResults(workload(), 'wo', {
         OmniSearchFacet.scene,

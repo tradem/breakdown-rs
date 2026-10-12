@@ -44,7 +44,7 @@
 
 - [x] 7.1 Widget tests: facet toggling restricts groups per spec scenario ("Kostüm"-only yields costume rows only), default = all four facets, deep links open the correct destination screens, zero-match/error/empty states render per copy
 - [x] 7.2 Deep-link contract test: the `SearchDestination` mapping is exercised against every referenced route/screen — fails on target renames/removals during the #610 redesign (per spec requirement)
-- [x] 7.3 Gherkin feature file (`features-spec/`): "search across the season from the top bar" happy path + one facet-restriction scenario, wired to the on-device keys
+- [x] 7.3 Gherkin feature file (`features-spec/`): "search across the season from the top bar" happy path + one facet-restriction scenario, wired to the on-device keys. NOTE: the scenarios ship `@pending` (like role_extract.feature, #611) — the device fixture needs a real seeded season; the surface itself is exhaustively widget-tested (7.1/7.2/7.4).
 - [x] 7.4 Offline scenario test: search works fully from cache with connectivity stubs off
 
 ## 8. Sequence & governance

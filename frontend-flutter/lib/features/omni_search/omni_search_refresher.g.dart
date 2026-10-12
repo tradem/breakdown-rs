@@ -13,10 +13,17 @@ part of 'omni_search_refresher.dart';
 ///
 /// On surface open and on user retry the surface runs ONE bounded pass
 /// through the ESTABLISHED read seams for the active season — blocks, their
-/// episodes, per-episode scenes AND days plus characters and costumes —
-/// each via the same providers the read screens consume (which own the
-/// Drift cache-write discipline, fence included). After the pass the search
-/// inputs provider is invalidated so the surface re-reads the cache.
+/// episodes, per-episode scenes AND days plus characters and costumes.
+/// The seams are the six aggregate REPOSITORIES (the layer beneath the
+/// read screens' list-fetch providers — those are thin wrappers over
+/// `repo.listBy…` with clock + fence): calling the repositories directly
+/// keeps the refresh pass FREE of autoDispose provider-future lifecycle
+/// races (CodeRabbit review — a bare `ref.read(provider.future)` holds no
+/// listener, so Riverpod may dispose the provider mid-load and complete
+/// its pending future with an error; plain repository futures carry no
+/// such lifecycle). The cache-write discipline travels with the repos: the
+/// same [CacheWriteFence] over the cache generation the fetch providers
+/// build, so a base switch / sign-out reset mid-pass discards its writes.
 ///
 /// The QUERY path never goes through here (spec: "No network call SHALL be
 /// issued by the search itself"): typing and matching run purely over the
@@ -25,8 +32,12 @@ part of 'omni_search_refresher.dart';
 /// the surface's error state (that one is reserved for storage failures,
 /// spec "Storage failure" scenario).
 ///
-/// Single-flight: a concurrent retry joins the in-flight pass (the same
-/// rule the ReconciliationCoordinator applies to the read screens).
+/// Lifecycle: the refresher is KEEP-ALIVE — a pass started for a season
+/// survives a screen close and finishes its cache writes. Single-flight
+/// futures are keyed BY SEASON: a pass for season A never satisfies a
+/// `prefresh('B')` call, and same-season callers still join exactly one
+/// pass. Every ref touch is `mounted`-guarded so a pass stops cleanly once
+/// the container is gone — never as an unhandled rejection.
 
 @ProviderFor(omniSearchSourceRefresher)
 final omniSearchSourceRefresherProvider = OmniSearchSourceRefresherProvider._();
@@ -36,10 +47,17 @@ final omniSearchSourceRefresherProvider = OmniSearchSourceRefresherProvider._();
 ///
 /// On surface open and on user retry the surface runs ONE bounded pass
 /// through the ESTABLISHED read seams for the active season — blocks, their
-/// episodes, per-episode scenes AND days plus characters and costumes —
-/// each via the same providers the read screens consume (which own the
-/// Drift cache-write discipline, fence included). After the pass the search
-/// inputs provider is invalidated so the surface re-reads the cache.
+/// episodes, per-episode scenes AND days plus characters and costumes.
+/// The seams are the six aggregate REPOSITORIES (the layer beneath the
+/// read screens' list-fetch providers — those are thin wrappers over
+/// `repo.listBy…` with clock + fence): calling the repositories directly
+/// keeps the refresh pass FREE of autoDispose provider-future lifecycle
+/// races (CodeRabbit review — a bare `ref.read(provider.future)` holds no
+/// listener, so Riverpod may dispose the provider mid-load and complete
+/// its pending future with an error; plain repository futures carry no
+/// such lifecycle). The cache-write discipline travels with the repos: the
+/// same [CacheWriteFence] over the cache generation the fetch providers
+/// build, so a base switch / sign-out reset mid-pass discards its writes.
 ///
 /// The QUERY path never goes through here (spec: "No network call SHALL be
 /// issued by the search itself"): typing and matching run purely over the
@@ -48,8 +66,12 @@ final omniSearchSourceRefresherProvider = OmniSearchSourceRefresherProvider._();
 /// the surface's error state (that one is reserved for storage failures,
 /// spec "Storage failure" scenario).
 ///
-/// Single-flight: a concurrent retry joins the in-flight pass (the same
-/// rule the ReconciliationCoordinator applies to the read screens).
+/// Lifecycle: the refresher is KEEP-ALIVE — a pass started for a season
+/// survives a screen close and finishes its cache writes. Single-flight
+/// futures are keyed BY SEASON: a pass for season A never satisfies a
+/// `prefresh('B')` call, and same-season callers still join exactly one
+/// pass. Every ref touch is `mounted`-guarded so a pass stops cleanly once
+/// the container is gone — never as an unhandled rejection.
 
 final class OmniSearchSourceRefresherProvider
     extends
@@ -64,10 +86,17 @@ final class OmniSearchSourceRefresherProvider
   ///
   /// On surface open and on user retry the surface runs ONE bounded pass
   /// through the ESTABLISHED read seams for the active season — blocks, their
-  /// episodes, per-episode scenes AND days plus characters and costumes —
-  /// each via the same providers the read screens consume (which own the
-  /// Drift cache-write discipline, fence included). After the pass the search
-  /// inputs provider is invalidated so the surface re-reads the cache.
+  /// episodes, per-episode scenes AND days plus characters and costumes.
+  /// The seams are the six aggregate REPOSITORIES (the layer beneath the
+  /// read screens' list-fetch providers — those are thin wrappers over
+  /// `repo.listBy…` with clock + fence): calling the repositories directly
+  /// keeps the refresh pass FREE of autoDispose provider-future lifecycle
+  /// races (CodeRabbit review — a bare `ref.read(provider.future)` holds no
+  /// listener, so Riverpod may dispose the provider mid-load and complete
+  /// its pending future with an error; plain repository futures carry no
+  /// such lifecycle). The cache-write discipline travels with the repos: the
+  /// same [CacheWriteFence] over the cache generation the fetch providers
+  /// build, so a base switch / sign-out reset mid-pass discards its writes.
   ///
   /// The QUERY path never goes through here (spec: "No network call SHALL be
   /// issued by the search itself"): typing and matching run purely over the
@@ -76,15 +105,19 @@ final class OmniSearchSourceRefresherProvider
   /// the surface's error state (that one is reserved for storage failures,
   /// spec "Storage failure" scenario).
   ///
-  /// Single-flight: a concurrent retry joins the in-flight pass (the same
-  /// rule the ReconciliationCoordinator applies to the read screens).
+  /// Lifecycle: the refresher is KEEP-ALIVE — a pass started for a season
+  /// survives a screen close and finishes its cache writes. Single-flight
+  /// futures are keyed BY SEASON: a pass for season A never satisfies a
+  /// `prefresh('B')` call, and same-season callers still join exactly one
+  /// pass. Every ref touch is `mounted`-guarded so a pass stops cleanly once
+  /// the container is gone — never as an unhandled rejection.
   OmniSearchSourceRefresherProvider._()
     : super(
         from: null,
         argument: null,
         retry: null,
         name: r'omniSearchSourceRefresherProvider',
-        isAutoDispose: true,
+        isAutoDispose: false,
         dependencies: null,
         $allTransitiveDependencies: null,
       );
@@ -113,7 +146,7 @@ final class OmniSearchSourceRefresherProvider
 }
 
 String _$omniSearchSourceRefresherHash() =>
-    r'dca3dfa42671ca2880aea03090dfbb6206e271fd';
+    r'83e84a1ebf2986fc6e72e6db9a04f75f635ba714';
 
 /// Which facets have delivered a source snapshot (empty-but-successful
 /// counts — the server answered, so a future zero-match is zero-match and

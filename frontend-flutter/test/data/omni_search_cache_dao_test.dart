@@ -85,16 +85,22 @@ void main() {
     () async {
       await seedHierarchy(db, season: 'season-1', block: 'b1', episode: 'e1');
       // ONE snapshot per episode (the DAO is snapshot-replace scoped) — the
-      // three scenes seed in one call so all three coexist.
+      // scenes seed in one call so all of them coexist.
       await seedScenes(db, 'e1', [
         ('s-x', null, 'X'),
         ('s-2', 2, 'Zwei'),
         ('s-1', 1, 'Eins'),
+        // Equal numbers in the SAME episode: the scene id is the final
+        // stable key (CodeRabbit review — the join has no ORDER BY).
+        ('s-b', 1, 'Eins b'),
+        ('s-a', 1, 'Eins a'),
       ]);
 
       final inputs = await readInputs(dao, freshClock);
       expect(inputs.scenes.map((h) => h.scene.id).toList(), [
         's-1',
+        's-a',
+        's-b',
         's-2',
         's-x',
       ]);

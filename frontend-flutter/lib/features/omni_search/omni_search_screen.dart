@@ -63,16 +63,20 @@ class _OmniSearchScreenState extends ConsumerState<OmniSearchScreen> {
   @override
   void initState() {
     super.initState();
-    // Bounded prefresh on surface open (task §3.4): fire-and-forget — the
-    // cache results render immediately; the pass only lifts the
-    // not-yet-loaded notes and, on success, brings fresh rows in.
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      final season = ref.read(shellControllerProvider).activeSeason;
-      if (season != null) {
-        ref.read(omniSearchSourceRefresherProvider).prefresh(season.id);
-      }
-    });
+    // Bounded prefresh (task §3.4): fire-and-forget — the cache results
+    // render immediately; the pass only lifts the not-yet-loaded notes
+    // and, on success, brings fresh rows in. LISTEN-MANUAL, not a one-shot
+    // post-frame callback (CodeRabbit review): a season switch while the
+    // surface is open starts a pass for the NEW season too (the query
+    // recompute alone would leave its cold cache as not-yet-loaded until
+    // the user pulls to refresh). fireImmediately covers the opening
+    // season; the mounted + non-null safeguards travel with the callback.
+    ref.listenManual(shellControllerProvider, (previous, next) {
+      final previousId = previous?.activeSeason?.id;
+      final nextSeason = next.activeSeason;
+      if (nextSeason == null || nextSeason.id == previousId) return;
+      ref.read(omniSearchSourceRefresherProvider).prefresh(nextSeason.id);
+    }, fireImmediately: true);
   }
 
   @override

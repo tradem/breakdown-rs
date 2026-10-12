@@ -2738,7 +2738,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get seasonsArchiveForbidden =>
-      'You have no active costume-dept role in this season.';
+      'You need an active costume role in this season.';
 
   @override
   String get omniSearchTitle => 'Search';

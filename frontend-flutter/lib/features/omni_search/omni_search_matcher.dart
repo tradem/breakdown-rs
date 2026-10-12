@@ -46,7 +46,11 @@ OmniSearchResults composeOmniSearchResults(
   String rawQuery,
   Set<OmniSearchFacet> activeFacets,
 ) {
-  final folded = foldForSearch(rawQuery);
+  // Trim BEFORE folding (CodeRabbit review): a whitespace-only query must
+  // not turn into a non-empty folded needle that matches every field with
+  // a space in it — it degrades to the initial state. INTERIOR spacing
+  // stays untouched (the dictionary-folding contract).
+  final folded = foldForSearch(rawQuery.trim());
   final seenFacets = <OmniSearchFacet>{};
   final groups = <OmniSearchGroup>[];
 

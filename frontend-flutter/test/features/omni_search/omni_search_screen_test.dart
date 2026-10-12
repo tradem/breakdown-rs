@@ -29,8 +29,17 @@ import 'package:frontend_flutter/src/network/api_client.dart'
 import 'package:frontend_flutter/core/problem_error.dart';
 import 'package:frontend_flutter/core/result.dart';
 import 'package:frontend_flutter/data/cache/cache_database.dart';
+import 'package:frontend_flutter/data/block_repository.dart';
+import 'package:frontend_flutter/data/cache/cache_generation.dart';
+import 'package:frontend_flutter/data/cache/costume_domains_cache_dao.dart';
+import 'package:frontend_flutter/data/cache/hierarchy_cache_dao.dart';
 import 'package:frontend_flutter/data/cache/cache_ttl.dart';
 import 'package:frontend_flutter/data/cache/clock.dart';
+import 'package:frontend_flutter/data/character_repository.dart';
+import 'package:frontend_flutter/data/costume_repository.dart';
+import 'package:frontend_flutter/data/episode_repository.dart';
+import 'package:frontend_flutter/data/scene_repository.dart';
+import 'package:frontend_flutter/data/shooting_day_repository.dart';
 import 'package:frontend_flutter/data/cache/season_cache_dao.dart';
 import 'package:frontend_flutter/data/cache/seasons_cache_providers.dart';
 import 'package:frontend_flutter/data/omni_search_cache_dao.dart';
@@ -67,20 +76,13 @@ const seasonId = 'season-1';
 void main() {
   late ProviderContainer container;
 
-  /// Fake fetch seams — mutable so single tests can fail them (the prefresh
-  /// pass runs through the REAL refresher against them).
+  /// Fake repository seams — mutable so single tests can fail them (the
+  /// prefresh pass runs through the REAL refresher, which calls the six
+  /// aggregate repositories directly — the layer beneath the read screens'
+  /// list-fetch providers; CodeRabbit review: no autoDispose provider
+  /// futures in the pass, so nothing can be disposed mid-load).
   bool seamsFail = false;
-  Result<List<BlockView>> blocksSeam() =>
-      seamsFail ? const Left(ProblemError(code: 'unknown')) : const Right([]);
-  Result<List<EpisodeView>> episodesSeam() =>
-      seamsFail ? const Left(ProblemError(code: 'unknown')) : const Right([]);
-  Result<List<SceneView>> scenesSeam() =>
-      seamsFail ? const Left(ProblemError(code: 'unknown')) : const Right([]);
-  Result<List<ShootingDayView>> daysSeam() =>
-      seamsFail ? const Left(ProblemError(code: 'unknown')) : const Right([]);
-  Result<List<CharacterView>> charactersSeam() =>
-      seamsFail ? const Left(ProblemError(code: 'unknown')) : const Right([]);
-  Result<List<CostumeView>> costumesSeam() =>
+  Result<List<T>> seamResult<T>() =>
       seamsFail ? const Left(ProblemError(code: 'unknown')) : const Right([]);
 
   /// The fake DAO reads from this holder: per-season inputs, overridable
@@ -142,20 +144,24 @@ void main() {
         reconciliationSchedulerProvider.overrideWith((ref) => _NoScheduler()),
         // The bounded prefresh pass runs through the REAL refresher
         // provider; its seams are the fake holders here.
-        charactersListFetchProvider(seasonId)
-            .overrideWith((ref) async => charactersSeam()),
-        costumesListFetchProvider(seasonId)
-            .overrideWith((ref) async => costumesSeam()),
-        blocksListFetchProvider(seasonId)
-            .overrideWith((ref) async => blocksSeam()),
-        episodesListFetchProvider(
-          'b-1',
-          seasonId,
-        ).overrideWith((ref) async => episodesSeam()),
-        scenesListFetchProvider('e-1')
-            .overrideWith((ref) async => scenesSeam()),
-        shootingDaysListFetchProvider('e-1')
-            .overrideWith((ref) async => daysSeam()),
+        characterRepositoryProvider.overrideWithValue(
+          _FakeCharacterRepository(() => seamResult()),
+        ),
+        costumeRepositoryProvider.overrideWithValue(
+          _FakeCostumeRepository(() => seamResult()),
+        ),
+        blockRepositoryProvider.overrideWithValue(
+          _FakeBlockRepository(() => seamResult()),
+        ),
+        episodeRepositoryProvider.overrideWithValue(
+          _FakeEpisodeRepository(() => seamResult()),
+        ),
+        sceneRepositoryProvider.overrideWithValue(
+          _FakeSceneRepository(() => seamResult()),
+        ),
+        shootingDayRepositoryProvider.overrideWithValue(
+          _FakeShootingDayRepository(() => seamResult()),
+        ),
       ],
     );
     addTearDown(container.dispose);
@@ -341,6 +347,22 @@ void main() {
     for (final label in ['Scene', 'Role', 'Costume', 'Shooting day']) {
       expect(text, contains(label));
     }
+
+    // A whitespace-only query is NOT a query (trim contract): it stays in
+    // the initial state, never a near-universe zero-match... and the last
+    // active chip cannot be deselected away (toggle guard), so an echo of
+    // an empty set is unreachable.
+    await tester.enterText(find.byKey(const Key('omni-search-field')), '   ');
+    await pumpFrames(tester, n: 5);
+    expect(find.byKey(const Key('omni-search-zero-match')), findsNothing);
+    expect(find.byKey(const Key('omni-search-initial')), findsOneWidget);
+    for (final entry in OmniSearchScreen.chipKeys.entries) {
+      expect(
+        tester.widget<FilterChip>(find.byKey(Key(entry.value))).selected,
+        isTrue,
+        reason: entry.key.name,
+      );
+    }
   });
 
   testWidgets(
@@ -456,47 +478,48 @@ void main() {
     expect(find.byKey(const Key('omni-search-hit-scene-s1')), findsNothing);
   });
 
-  testWidgets('result row deep-opens through the destination mapping (route', (
-    tester,
-  ) async {
-    // The full screens' builders spin up their own controller hubs (the
-    // detail screens need the repo seams of their own tests) — the
-    // WIDGET-TYPE identity of every destination is asserted directly in
-    // the contract test above; here the push CONTRACT is asserted: a tap
-    // pops a route whose arguments carry the scene-level PlanningLocation
-    // (one route contract, no parallel routing).
-    final routes = _RouteSpy();
-    await setUpContainer();
-    addTearDown(container.dispose);
-    tester.view.physicalSize = const Size(400, 900);
-    tester.view.devicePixelRatio = 1.0;
-    await tester.pumpWidget(
-      UncontrolledProviderScope(
-        container: container,
-        child: MaterialApp(
-          navigatorObservers: [routes],
-          home: const OmniSearchScreen(),
+  testWidgets(
+    'result row deep-opens through the destination mapping (route arguments)',
+    (tester) async {
+      // The full screens' builders spin up their own controller hubs (the
+      // detail screens need the repo seams of their own tests) — the
+      // WIDGET-TYPE identity of every destination is asserted directly in
+      // the contract test above; here the push CONTRACT is asserted: a tap
+      // pops a route whose arguments carry the scene-level PlanningLocation
+      // (one route contract, no parallel routing).
+      final routes = _RouteSpy();
+      await setUpContainer();
+      addTearDown(container.dispose);
+      tester.view.physicalSize = const Size(400, 900);
+      tester.view.devicePixelRatio = 1.0;
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: MaterialApp(
+            navigatorObservers: [routes],
+            home: const OmniSearchScreen(),
+          ),
         ),
-      ),
-    );
-    await pumpFrames(tester, n: 10);
-    await tester.enterText(
-      find.byKey(const Key('omni-search-field')),
-      'wohnung',
-    );
-    await pumpFrames(tester, n: 5);
-    await tester.tap(find.byKey(const Key('omni-search-hit-scene-s1')));
-    await pumpFrames(tester, n: 5);
+      );
+      await pumpFrames(tester, n: 10);
+      await tester.enterText(
+        find.byKey(const Key('omni-search-field')),
+        'wohnung',
+      );
+      await pumpFrames(tester, n: 5);
+      await tester.tap(find.byKey(const Key('omni-search-hit-scene-s1')));
+      await pumpFrames(tester, n: 5);
 
-    // The first recorded route is the app-root home route (its settings
-    // carry no name); the push contract route argument comes next.
-    expect(
-      routes.pushedMaterialRoutes
-          .where((s) => s.arguments != null)
-          .map((s) => s.arguments),
-      [isA<SceneLocation>()],
-    );
-  });
+      // The first recorded route is the app-root home route (its settings
+      // carry no name); the push contract route argument comes next.
+      expect(
+        routes.pushedMaterialRoutes
+            .where((s) => s.arguments != null)
+            .map((s) => s.arguments),
+        [isA<SceneLocation>()],
+      );
+    },
+  );
 }
 
 /// Navigator-observer spy for the deep-link push contract (task 7.2):
@@ -540,6 +563,115 @@ class _FakeOmniSearchDao extends OmniSearchDao {
 class _NoScheduler extends ReconciliationScheduler {
   @override
   Future<void> tick(int attempt) async {}
+}
+
+// --- fake repositories (the refresher's seams) ------------------------------
+
+/// The pass calls the six aggregate repositories DIRECTLY (the layer
+/// beneath the read screens' list-fetch providers). Each fake answers with
+/// the mutable [_seam] result — `Right([])` normally, `Left(unknown)` when
+/// a test fails the seams.
+
+class _FakeCharacterRepository extends CharacterRepository {
+  _FakeCharacterRepository(this._result)
+    : super(
+        BreakdownApi(),
+        CharacterCacheDao(CacheDatabase(NativeDatabase.memory())),
+      );
+
+  final Result<List<CharacterView>> Function() _result;
+
+  @override
+  Future<Result<List<CharacterView>>> listBySeason(
+    String seasonId, {
+    Clock clock = Clock.system,
+    CacheWriteFence? fence,
+  }) async => _result();
+}
+
+class _FakeCostumeRepository extends CostumeRepository {
+  _FakeCostumeRepository(this._result)
+    : super(
+        BreakdownApi(),
+        CostumeCacheDao(CacheDatabase(NativeDatabase.memory())),
+      );
+
+  final Result<List<CostumeView>> Function() _result;
+
+  @override
+  Future<Result<List<CostumeView>>> listBySeason(
+    String seasonId, {
+    Clock clock = Clock.system,
+    CacheWriteFence? fence,
+  }) async => _result();
+}
+
+class _FakeBlockRepository extends BlockRepository {
+  _FakeBlockRepository(this._result)
+    : super(
+        BreakdownApi(),
+        BlockCacheDao(CacheDatabase(NativeDatabase.memory())),
+      );
+
+  final Result<List<BlockView>> Function() _result;
+
+  @override
+  Future<Result<List<BlockView>>> listBySeason(
+    String seasonId, {
+    Clock clock = Clock.system,
+    CacheWriteFence? fence,
+  }) async => _result();
+}
+
+class _FakeEpisodeRepository extends EpisodeRepository {
+  _FakeEpisodeRepository(this._result)
+    : super(
+        BreakdownApi(),
+        EpisodeCacheDao(CacheDatabase(NativeDatabase.memory())),
+      );
+
+  final Result<List<EpisodeView>> Function() _result;
+
+  @override
+  Future<Result<List<EpisodeView>>> listByBlock(
+    String blockId, {
+    Clock clock = Clock.system,
+    CacheWriteFence? fence,
+  }) async => _result();
+}
+
+class _FakeSceneRepository extends SceneRepository {
+  _FakeSceneRepository(this._result)
+    : super(
+        BreakdownApi(),
+        SceneCacheDao(CacheDatabase(NativeDatabase.memory())),
+      );
+
+  final Result<List<SceneView>> Function() _result;
+
+  @override
+  Future<Result<List<SceneView>>> listByEpisode(
+    String episodeId, {
+    Clock clock = Clock.system,
+    CacheWriteFence? fence,
+  }) async => _result();
+}
+
+class _FakeShootingDayRepository extends ShootingDayRepository {
+  _FakeShootingDayRepository(this._result)
+    : super(
+        BreakdownApi(),
+        ShootingDayCacheDao(CacheDatabase(NativeDatabase.memory())),
+      );
+
+  final Result<List<ShootingDayView>> Function() _result;
+
+  @override
+  Future<Result<List<ShootingDayView>>> listByEpisode(
+    String episodeId, {
+    Clock clock = Clock.system,
+    CacheWriteFence? fence,
+  }) async => _result();
 }
 
 // --- fixtures ---------------------------------------------------------------

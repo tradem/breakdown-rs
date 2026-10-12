@@ -137,13 +137,17 @@ class OmniSearchDao {
     hits.sort((a, b) {
       final an = a.scene.sceneNumber;
       final bn = b.scene.sceneNumber;
-      if (an == null && bn == null) {
-        return a.episode.number.compareTo(b.episode.number);
+      if (an != bn) {
+        if (an == null) return 1;
+        if (bn == null) return -1;
+        return an.compareTo(bn);
       }
-      if (an == null) return 1;
-      if (bn == null) return -1;
-      if (an != bn) return an.compareTo(bn);
-      return a.episode.number.compareTo(b.episode.number);
+      final byEpisode = a.episode.number.compareTo(b.episode.number);
+      if (byEpisode != 0) return byEpisode;
+      // Final stable key (the doc contract): equal numbers in the same
+      // episode keep ONE deterministic order across cache re-reads — the
+      // join has no ORDER BY, so SQLite row order is not a guarantee.
+      return a.scene.id.compareTo(b.scene.id);
     });
     return hits;
   }

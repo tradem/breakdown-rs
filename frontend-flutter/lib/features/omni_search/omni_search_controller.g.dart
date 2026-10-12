@@ -229,7 +229,7 @@ final class OmniSearchQueryProvider
   }
 }
 
-String _$omniSearchQueryHash() => r'2969da07d984e34a916a3a94efd9edf9367b26eb';
+String _$omniSearchQueryHash() => r'7a9cdef9cc36266e2adf2c4156972aab28488b99';
 
 /// Notifier family per active season (task 4.2): the season switch
 /// re-computes over the new season only — the family key IS the scope.
@@ -355,7 +355,7 @@ final class OmniSearchControllerProvider
 }
 
 String _$omniSearchControllerHash() =>
-    r'89f04a99d135fed494813fb4801043abe1bf569c';
+    r'811e00e9fa52c715cee7648049ccbfd465d5f9bf';
 
 /// The search-surface controller (task 3.3/3.4): maps the inputs `Result`
 /// into [OmniSearchViewState], never discarding an `Err` (the client analog

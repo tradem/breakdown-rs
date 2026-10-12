@@ -6,6 +6,8 @@
 import 'package:breakdown_api/breakdown_api.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
+import '../../data/cache/cache_generation.dart';
+import '../../data/cache/clock.dart';
 import '../../domain/reconciliation/reconciliation_scheduler.dart';
 import '../blocks/blocks_controller.dart';
 import '../characters/characters_controller.dart';
@@ -15,6 +17,7 @@ import '../scenes/scenes_controller.dart';
 import '../shooting_days/shooting_days_controller.dart';
 import 'omni_search_controller.dart';
 import 'omni_search_model.dart';
+import '../../data/cache/seasons_cache_providers.dart' show clockProvider;
 
 part 'omni_search_refresher.g.dart';
 
@@ -31,10 +34,17 @@ const int kOmniSearchPrefreshAttempts = 2;
 ///
 /// On surface open and on user retry the surface runs ONE bounded pass
 /// through the ESTABLISHED read seams for the active season — blocks, their
-/// episodes, per-episode scenes AND days plus characters and costumes —
-/// each via the same providers the read screens consume (which own the
-/// Drift cache-write discipline, fence included). After the pass the search
-/// inputs provider is invalidated so the surface re-reads the cache.
+/// episodes, per-episode scenes AND days plus characters and costumes.
+/// The seams are the six aggregate REPOSITORIES (the layer beneath the
+/// read screens' list-fetch providers — those are thin wrappers over
+/// `repo.listBy…` with clock + fence): calling the repositories directly
+/// keeps the refresh pass FREE of autoDispose provider-future lifecycle
+/// races (CodeRabbit review — a bare `ref.read(provider.future)` holds no
+/// listener, so Riverpod may dispose the provider mid-load and complete
+/// its pending future with an error; plain repository futures carry no
+/// such lifecycle). The cache-write discipline travels with the repos: the
+/// same [CacheWriteFence] over the cache generation the fetch providers
+/// build, so a base switch / sign-out reset mid-pass discards its writes.
 ///
 /// The QUERY path never goes through here (spec: "No network call SHALL be
 /// issued by the search itself"): typing and matching run purely over the
@@ -43,9 +53,13 @@ const int kOmniSearchPrefreshAttempts = 2;
 /// the surface's error state (that one is reserved for storage failures,
 /// spec "Storage failure" scenario).
 ///
-/// Single-flight: a concurrent retry joins the in-flight pass (the same
-/// rule the ReconciliationCoordinator applies to the read screens).
-@riverpod
+/// Lifecycle: the refresher is KEEP-ALIVE — a pass started for a season
+/// survives a screen close and finishes its cache writes. Single-flight
+/// futures are keyed BY SEASON: a pass for season A never satisfies a
+/// `prefresh('B')` call, and same-season callers still join exactly one
+/// pass. Every ref touch is `mounted`-guarded so a pass stops cleanly once
+/// the container is gone — never as an unhandled rejection.
+@Riverpod(keepAlive: true)
 OmniSearchSourceRefresher omniSearchSourceRefresher(Ref ref) =>
     OmniSearchSourceRefresher(ref);
 
@@ -53,32 +67,52 @@ class OmniSearchSourceRefresher {
   OmniSearchSourceRefresher(this._ref);
 
   final Ref _ref;
-  Future<void>? _inFlight;
 
-  /// Runs (or joins) the bounded prefresh pass for [seasonId]. The
-  /// single-flight future is RETURNED (never discarded — breakdown_lints
-  /// `discard_result`), so a joining caller awaits the same pass.
-  Future<void> prefresh(String seasonId) => _inFlight ??= _run(seasonId);
+  /// In-flight pass per season (CodeRabbit review: keyed by seasonId — a
+  /// season switch must not join the previous season's pass).
+  final Map<String, Future<void>> _inFlight = {};
+
+  /// Runs (or joins) the bounded prefresh pass for [seasonId].
+  Future<void> prefresh(String seasonId) =>
+      _inFlight[seasonId] ??= _run(seasonId);
+
+  /// The cache-write fence the read seams build (same shape as the
+  /// list-fetch providers): a generation captured at pass start, valid
+  /// only while this refresher's container is alive and the generation is
+  /// still current.
+  CacheWriteFence _fence() {
+    final generation = _ref.read(cacheGenerationProvider);
+    return CacheWriteFence(
+      generation: generation,
+      isCurrentGeneration: (g) =>
+          _ref.mounted && _ref.read(cacheGenerationProvider) == g,
+    );
+  }
 
   Future<void> _run(String seasonId) async {
+    final clock = _ref.read(clockProvider);
     try {
       var loaded = const <OmniSearchFacet>{};
       for (var attempt = 0; attempt < kOmniSearchPrefreshAttempts; attempt++) {
+        if (!_ref.mounted) return;
         if (attempt > 0) {
           // Injectable seam — tests stay deterministic (AGENTS.md §6).
           await _ref.read(reconciliationSchedulerProvider).tick(attempt);
+          if (!_ref.mounted) return;
         }
-        loaded = await _runPass(seasonId, loaded);
-        if (_ref.mounted) {
-          _ref
-              .read(omniSearchFacetLoadsProvider(seasonId).notifier)
-              .markLoaded(loaded);
-        }
+        loaded = await _runPass(seasonId, loaded, clock);
+        if (!_ref.mounted) return;
+        _ref
+            .read(omniSearchFacetLoadsProvider(seasonId).notifier)
+            .markLoaded(loaded);
         // A pass whose every source answered stops retrying — bounded.
         if (loaded.length == OmniSearchFacet.values.length) break;
       }
     } finally {
-      _inFlight = null;
+      // Bookkeeping only: the entry is removed; the (now complete or
+      // abandoned) future VALUE is intentionally dropped — declared, not
+      // discarded, so the discard_result rule sees no thrown-away Future.
+      final _ = _inFlight.remove(seasonId);
     }
     // Re-read the cache AFTER the pass: the seams wrote snapshots on
     // success, so the search inputs now serve the fresh rows.
@@ -93,11 +127,27 @@ class OmniSearchSourceRefresher {
   Future<Set<OmniSearchFacet>> _runPass(
     String seasonId,
     Set<OmniSearchFacet> alreadyLoaded,
+    Clock clock,
   ) async {
     final loaded = {...alreadyLoaded};
-    final charactersOk = await _characterSeam(seasonId);
-    final costumeOk = await _costumeSeam(seasonId);
-    final hierarchyOk = await _hierarchySeam(seasonId);
+    final fence = _fence();
+    final charactersOk = await _guarded(
+      () => _ref
+          .read(characterRepositoryProvider)
+          .listBySeason(seasonId, clock: clock, fence: fence)
+          .then((r) => r.isRight()),
+    );
+    if (!_ref.mounted) return loaded;
+    final costumeOk = await _guarded(
+      () => _ref
+          .read(costumeRepositoryProvider)
+          .listBySeason(seasonId, clock: clock, fence: fence)
+          .then((r) => r.isRight()),
+    );
+    if (!_ref.mounted) return loaded;
+    final hierarchyOk = await _guarded(
+      () => _hierarchyChain(seasonId, clock, fence),
+    );
     if (charactersOk) loaded.add(OmniSearchFacet.character);
     if (costumeOk) loaded.add(OmniSearchFacet.costume);
     if (hierarchyOk) {
@@ -108,57 +158,58 @@ class OmniSearchSourceRefresher {
     return loaded;
   }
 
-  Future<bool> _characterSeam(String seasonId) async {
-    _ref.invalidate(charactersListFetchProvider(seasonId));
-    final res = await _ref.read(charactersListFetchProvider(seasonId).future);
-    return res.isRight();
-  }
-
-  Future<bool> _costumeSeam(String seasonId) async {
-    _ref.invalidate(costumesListFetchProvider(seasonId));
-    final res = await _ref.read(costumesListFetchProvider(seasonId).future);
-    return res.isRight();
-  }
-
   /// The hierarchy chain: blocks of the season → their episodes → each
   /// episode's scenes AND days. A failing level answers `false` and leaves
   /// the facet NOT loaded (its correctness is unknown, not empty — the
   /// same partial-truth honesty as the season-script composition); the
   /// next pass retries.
-  Future<bool> _hierarchySeam(String seasonId) async {
-    _ref.invalidate(blocksListFetchProvider(seasonId));
-    final blocks = await _ref.read(blocksListFetchProvider(seasonId).future);
+  Future<bool> _hierarchyChain(
+    String seasonId,
+    Clock clock,
+    CacheWriteFence fence,
+  ) async {
+    final blocks = await _ref
+        .read(blockRepositoryProvider)
+        .listBySeason(seasonId, clock: clock, fence: fence);
     // A failed blocks read is the whole chain unanswered — tried again on
     // the next pass, never silently counted as "loaded, empty".
-    final blockRows = blocks.match((_) => const <BlockView>[], (rows) => rows);
     if (blocks.isLeft()) return false;
 
     var allRight = true;
-    for (final block in blockRows) {
-      _ref.invalidate(episodesListFetchProvider(block.id, seasonId));
-      final episodes = await _ref.read(
-        episodesListFetchProvider(block.id, seasonId).future,
-      );
+    for (final block in blocks.match((_) => const <BlockView>[], (r) => r)) {
+      final episodes = await _ref
+          .read(episodeRepositoryProvider)
+          .listByBlock(block.id, clock: clock, fence: fence);
       allRight = allRight && episodes.isRight();
       if (episodes.isLeft()) continue;
-      final episodeRows = episodes.match(
+      for (final episode in episodes.match(
         (_) => const <EpisodeView>[],
         (rows) => rows,
-      );
-      for (final episode in episodeRows) {
-        _ref.invalidate(scenesListFetchProvider(episode.id));
-        final scenes = await _ref.read(
-          scenesListFetchProvider(episode.id).future,
-        );
+      )) {
+        final scenes = await _ref
+            .read(sceneRepositoryProvider)
+            .listByEpisode(episode.id, clock: clock, fence: fence);
         allRight = allRight && scenes.isRight();
-        _ref.invalidate(shootingDaysListFetchProvider(episode.id));
-        final days = await _ref.read(
-          shootingDaysListFetchProvider(episode.id).future,
-        );
+        final days = await _ref
+            .read(shootingDayRepositoryProvider)
+            .listByEpisode(episode.id, clock: clock, fence: fence);
         allRight = allRight && days.isRight();
       }
     }
     return allRight;
+  }
+
+  /// Runs [body]; a ref used after the container died must never escape as
+  /// an unhandled rejection — a torn-down pass reports `false` (the honest
+  /// "not answered"), never a throw. The Riverpod teardown race past a
+  /// mounted check surfaces as `StateError` ("Cannot use … after dispose").
+  Future<bool> _guarded(Future<bool> Function() body) async {
+    if (!_ref.mounted) return false;
+    try {
+      return await body();
+    } on StateError {
+      return false;
+    }
   }
 }
 
