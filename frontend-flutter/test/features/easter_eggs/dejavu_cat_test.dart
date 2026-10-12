@@ -136,13 +136,13 @@ void main() {
       tester.view.devicePixelRatio = 1.0;
       addTearDown(tester.view.reset);
       await tester.pumpWidget(
-        MaterialApp(
-          theme: AppThemes.light(),
-          darkTheme: AppThemes.dark(),
-          themeMode: ThemeMode.system,
-          home: MediaQuery(
-            data: MediaQueryData(platformBrightness: brightness),
-            child: Scaffold(
+        MediaQuery(
+          data: MediaQueryData(platformBrightness: brightness),
+          child: MaterialApp(
+            theme: AppThemes.light(),
+            darkTheme: AppThemes.dark(),
+            themeMode: ThemeMode.system,
+            home: Scaffold(
               body: Center(
                 child: SizedBox(
                   width: 400,
@@ -163,6 +163,19 @@ void main() {
       await expectLater(
         find.byType(DejaVuCatWalker),
         matchesGoldenFile('goldens/dejavu_cat_static_light.png'),
+      );
+    });
+
+    testWidgets('static pose golden — dark theme keeps the cat black', (
+      tester,
+    ) async {
+      // CodeRabbit review #628: `onSurface` would render a LIGHT cat in
+      // dark mode. The body is `colorScheme.shadow` (the black token) with
+      // an `onSurface` rim; this golden protects the black-cat requirement.
+      await pumpWalker(tester, animate: false, brightness: Brightness.dark);
+      await expectLater(
+        find.byType(DejaVuCatWalker),
+        matchesGoldenFile('goldens/dejavu_cat_static_dark.png'),
       );
     });
 

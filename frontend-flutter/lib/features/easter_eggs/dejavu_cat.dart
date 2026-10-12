@@ -126,7 +126,12 @@ class _DejaVuCatWalkerState extends State<DejaVuCatWalker>
           painter: _CatPainter(
             repaint: controller,
             catWidth: widget.catWidth,
-            body: scheme.onSurface,
+            // The PO requirement is a *black* cat in every theme. In
+            // Material 3 `colorScheme.shadow` is the black token in both
+            // light and dark schemes, so the body stays black; the
+            // `onSurface` rim keeps it readable on the dark surface.
+            body: scheme.shadow,
+            outline: scheme.onSurface,
             accent: scheme.primary,
           ),
         ),
@@ -141,12 +146,15 @@ const double _staticPhase = 0.60;
 
 /// Draws the cat silhouette and positions it along the lower band for the
 /// current animation phase. Colors come exclusively from the ambient
-/// Material 3 color-scheme roles (design-token rule).
+/// Material 3 color-scheme roles (design-token rule): a black body
+/// (`colorScheme.shadow`) with a contrasting rim (`colorScheme.onSurface`)
+/// so the cat stays black in BOTH themes, and a `primary` eye/whiskers.
 class _CatPainter extends CustomPainter {
   _CatPainter({
     Animation<double>? repaint,
     required this.catWidth,
     required this.body,
+    required this.outline,
     required this.accent,
   }) : _motion = repaint,
        super(repaint: repaint);
@@ -156,6 +164,7 @@ class _CatPainter extends CustomPainter {
 
   final double catWidth;
   final Color body;
+  final Color outline;
   final Color accent;
 
   @override
@@ -179,17 +188,33 @@ class _CatPainter extends CustomPainter {
     final bodyPaint = Paint()
       ..style = PaintingStyle.fill
       ..color = body;
+    // Limbs are drawn as a thicker outline stroke first, then the black
+    // body stroke on top — a contrasting rim that keeps the black cat
+    // readable on the dark surface.
+    final limbRim = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = h * 0.15
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round
+      ..color = outline;
     final limbPaint = Paint()
       ..style = PaintingStyle.stroke
       ..strokeWidth = h * 0.11
       ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round
       ..color = body;
+    final rimPaint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = h * 0.035
+      ..strokeJoin = StrokeJoin.round
+      ..color = outline;
     final accentPaint = Paint()..color = accent;
 
     // Tail: a curved stroke rising from the rear.
     final tail = Path()
       ..moveTo(w * 0.14, h * 0.66)
       ..cubicTo(-w * 0.02, h * 0.60, w * 0.02, h * 0.18, w * 0.20, h * 0.16);
+    canvas.drawPath(tail, limbRim);
     canvas.drawPath(tail, limbPaint);
 
     // Legs: four short strokes, mid-stride.
@@ -200,11 +225,10 @@ class _CatPainter extends CustomPainter {
       (0.66, -stride),
       (0.80, 0.0),
     ]) {
-      canvas.drawLine(
-        Offset(w * lx, h * 0.72),
-        Offset(w * lx, h * 0.98 + dy),
-        limbPaint,
-      );
+      final top = Offset(w * lx, h * 0.72);
+      final bottom = Offset(w * lx, h * 0.98 + dy);
+      canvas.drawLine(top, bottom, limbRim);
+      canvas.drawLine(top, bottom, limbPaint);
     }
 
     // Body: a rounded elongated torso.
@@ -213,6 +237,7 @@ class _CatPainter extends CustomPainter {
       Radius.circular(h * 0.18),
     );
     canvas.drawRRect(bodyRect, bodyPaint);
+    canvas.drawRRect(bodyRect, rimPaint);
 
     // Head: shifted slightly back during the glance beat.
     final headCx = w * 0.80 - glance * w * 0.06;
@@ -229,9 +254,12 @@ class _CatPainter extends CustomPainter {
       ..lineTo(headCx + headR * 0.95, headCy - headR * 1.4)
       ..lineTo(headCx + headR * 0.8, headCy - headR * 0.5)
       ..close();
-    canvas.drawPath(ear, bodyPaint);
-    canvas.drawPath(ear2, bodyPaint);
+    for (final earPath in [ear, ear2]) {
+      canvas.drawPath(earPath, bodyPaint);
+      canvas.drawPath(earPath, rimPaint);
+    }
     canvas.drawCircle(Offset(headCx, headCy), headR, bodyPaint);
+    canvas.drawCircle(Offset(headCx, headCy), headR, rimPaint);
 
     // Eye: a single visible eye (side view), looking back on the glance.
     final eyeDx = headCx + glance * headR * 0.35;
@@ -260,6 +288,7 @@ class _CatPainter extends CustomPainter {
   bool shouldRepaint(_CatPainter oldDelegate) =>
       oldDelegate.catWidth != catWidth ||
       oldDelegate.body != body ||
+      oldDelegate.outline != outline ||
       oldDelegate.accent != accent ||
       // The controller can be disposed when `animate` flips to false
       // (static pose) — without this, CustomPaint may keep the last

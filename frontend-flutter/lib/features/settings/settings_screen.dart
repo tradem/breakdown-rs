@@ -112,48 +112,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     }
   }
 
-  Future<void> _toggleEgg(EasterEggId id, bool enabled) async {
-    final result = await ref
-        .read(easterEggProvider(id).notifier)
-        .toggle(EasterEggsStore(SharedPreferencesAsync()));
-    // The in-memory flip already happened (global reactivity). A failed
-    // persistence is surfaced as an inline error — no silent discard.
-    if (!mounted) return;
-    result.match(
-      // CodeRabbit fix: localized, code-scoped copy — never the
-      // backend-URI validation copy (that maps different codes).
-      (e) => ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(l10nOf(context).settingsEasterEggsWriteError)),
-      ),
-      (_) {},
-    );
-  }
-
-  /// One per-egg switch row (issue #615). Each row owns its egg's notifier,
-  /// so flipping one never rebuilds the other; a read failure shows the
-  /// localized visible error subtitle under a keyed error widget.
-  Widget _eggSwitch(
-    BuildContext context,
-    AppLocalizations l10n,
-    EasterEggId id,
-  ) {
-    final readFailed = ref.watch(easterEggProvider(id).notifier).readFailed;
-    final value = ref.watch(easterEggProvider(id));
-    return SwitchListTile(
-      key: Key('settings-egg-${id.name}'),
-      secondary: Icon(_eggIcon(id)),
-      title: Text(_eggTitle(l10n, id)),
-      subtitle: readFailed
-          ? Text(
-              l10n.settingsEasterEggsError,
-              key: Key('settings-egg-${id.name}-error'),
-            )
-          : Text(_eggSubtitle(l10n, id)),
-      value: value,
-      onChanged: (enabled) => _toggleEgg(id, enabled),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final config = ref.watch(appConfigProvider);
@@ -182,7 +140,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             ),
             child: Text(l10n.settingsEasterEggsSubtitle),
           ),
-          for (final id in EasterEggId.values) _eggSwitch(context, l10n, id),
+          for (final id in EasterEggId.values) _EggSwitchRow(id: id),
           const Divider(),
 
           // ── Read-only server info (every flavor, as the dialog had) ──
@@ -276,6 +234,58 @@ class _SectionHeader extends StatelessWidget {
           fontWeight: FontWeight.w600,
         ),
       ),
+    );
+  }
+}
+
+/// One per-egg switch row (issue #615).
+///
+/// A dedicated [ConsumerWidget] owns the watches for a SINGLE egg, so
+/// flipping one egg rebuilds only its own row — never the settings screen
+/// or the other egg's row (spec `flutter-easter-eggs`).
+class _EggSwitchRow extends ConsumerWidget {
+  const _EggSwitchRow({required this.id});
+
+  final EasterEggId id;
+
+  Future<void> _toggle(
+    BuildContext context,
+    WidgetRef ref,
+    bool enabled,
+  ) async {
+    final result = await ref
+        .read(easterEggProvider(id).notifier)
+        .toggle(EasterEggsStore(SharedPreferencesAsync()));
+    // The in-memory flip already happened (global reactivity). A failed
+    // persistence is surfaced as an inline error — no silent discard.
+    if (!context.mounted) return;
+    result.match(
+      // CodeRabbit fix: localized, code-scoped copy — never the
+      // backend-URI validation copy (that maps different codes).
+      (e) => ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(l10nOf(context).settingsEasterEggsWriteError)),
+      ),
+      (_) {},
+    );
+  }
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final l10n = l10nOf(context);
+    final readFailed = ref.watch(easterEggProvider(id).notifier).readFailed;
+    final value = ref.watch(easterEggProvider(id));
+    return SwitchListTile(
+      key: Key('settings-egg-${id.name}'),
+      secondary: Icon(_eggIcon(id)),
+      title: Text(_eggTitle(l10n, id)),
+      subtitle: readFailed
+          ? Text(
+              l10n.settingsEasterEggsError,
+              key: Key('settings-egg-${id.name}-error'),
+            )
+          : Text(_eggSubtitle(l10n, id)),
+      value: value,
+      onChanged: (enabled) => _toggle(context, ref, enabled),
     );
   }
 }

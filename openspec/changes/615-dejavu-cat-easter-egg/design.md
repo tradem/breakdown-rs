@@ -88,11 +88,13 @@ animation loops continuously while the splash is up; when the restore
 completes the splash (and the cat) simply disappear — no linger.
 
 ### D6 — Splash stage & placement
-The cat is drawn as a dark silhouette using `colorScheme.onSurface`
-(contrasts against `surface` in light AND dark themes — a black cat on the
-light splash, a light silhouette on the dark splash). It walks along the
-lower band of the splash, above the bottom edge, never covering the brand
-icon/wordmark/spinner. The overlay is wrapped in `IgnorePointer` (the
+The cat is drawn as a **black** silhouette in every theme using
+`colorScheme.shadow` (the Material 3 black token) with a contrasting
+`colorScheme.onSurface` rim — so the PO requirement "black cat" holds in
+light AND dark mode. An `onSurface` body would render a *light* cat in dark
+mode (CodeRabbit review #628), which is why the rim exists. It walks along
+the lower band of the splash, above the bottom edge, never covering the
+brand icon/wordmark/spinner. The overlay is wrapped in `IgnorePointer` (the
 splash has no interaction) and honours `MediaQuery.disableAnimations`
 (static pose at the pause beat, no controller).
 
