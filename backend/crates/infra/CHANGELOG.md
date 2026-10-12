@@ -21,7 +21,8 @@ commits (ADR-020 D5).
 
 - `CharacterRepositoryImpl::character_appearances` reads
   `projection_scene_character` → `projection_scene` in script order
-  (`scene_number` NULLS LAST, id tie-break) and attaches the character's own
+  (**episode number first**, then the episode-local `scene_number` NULLS LAST,
+  id tie-break) and attaches the character's own
   `projection_scene_costume_assignment` beats (category resolved by join)
   through a correlated scalar subquery, so the one-to-many costume list cannot
   fan out the scene rows.

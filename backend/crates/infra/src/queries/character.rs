@@ -110,12 +110,15 @@ impl CharacterRepository for CharacterRepositoryImpl {
         character_id: Uuid,
     ) -> Result<Vec<CharacterAppearanceView>, DomainError> {
         // Issue #621: script-order appearances of one character, each carrying
-        // that character's own ordered costume beats. The costume list is a
-        // correlated scalar subquery keyed on `(scene_id, character_id)` so the
-        // one-to-many join cannot multiply the scene rows (issue #550 pattern);
-        // `COALESCE` keeps a scene with no beat for this character as an empty
-        // list. `scene_number` is nullable (unnumbered scenes sort last) and
-        // `s.id` is the deterministic tie-break.
+        // that character's own ordered costume beats. `scene_number` is
+        // episode-local, so the order is episode number first, then scene
+        // number (`episode.number` is NOT NULL; the LEFT JOIN + NULLS LAST only
+        // guards a lagging episode projection, which must not drop the scene).
+        // The costume list is a correlated scalar subquery keyed on
+        // `(scene_id, character_id)` so the one-to-many join cannot multiply
+        // the scene rows (issue #550 pattern); `COALESCE` keeps a scene with no
+        // beat for this character as an empty list. `s.id` is the deterministic
+        // tie-break.
         let rows = sqlx::query(
             r#"
             SELECT
@@ -139,8 +142,9 @@ impl CharacterRepository for CharacterRepositoryImpl {
                 ), '[]'::jsonb) AS costumes
             FROM projection_scene_character psc
             JOIN projection_scene s ON s.id = psc.scene_id
+            LEFT JOIN projection_episode e ON e.id = s.episode_id
             WHERE psc.character_id = $1
-            ORDER BY s.scene_number NULLS LAST, s.id
+            ORDER BY e.number NULLS LAST, s.episode_id, s.scene_number NULLS LAST, s.id
             "#,
         )
         .bind(character_id)
@@ -175,7 +179,7 @@ fn map_appearance_row(row: sqlx::postgres::PgRow) -> Result<CharacterAppearanceV
     let costumes_json: serde_json::Value = row.try_get("costumes").map_err(map_err)?;
     let costumes: Vec<AppearanceCostumeView> =
         serde_json::from_value(costumes_json.clone()).map_err(|e| {
-            DomainError::conflict(format!(
+            DomainError::internal(format!(
                 "failed to deserialize character appearance costumes from projection row: {e}; json={costumes_json}"
             ))
         })?;
