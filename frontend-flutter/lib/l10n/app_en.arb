@@ -745,5 +745,35 @@
   "seasonsArchiveTooltip": "Season actions",
   "seasonsArchiveCta": "Archive season",
   "seasonsArchivedError": "The season is archived and can no longer be changed.",
-  "seasonsArchiveForbidden": "You have no active costume-dept role in this season."
+  "seasonsArchiveForbidden": "You need an active costume role in this season.",
+
+  "omniSearchTitle": "Search",
+  "omniSearchTooltip": "Search",
+  "omniSearchHint": "Search scenes, roles, costumes and shooting days of this season",
+  "omniSearchChipScene": "Scene",
+  "omniSearchChipCharacter": "Role",
+  "omniSearchChipCostume": "Costume",
+  "omniSearchChipShootingDay": "Shooting day",
+  "omniSearchGroupScenes": "Scenes",
+  "omniSearchGroupCharacters": "Roles",
+  "omniSearchGroupCostumes": "Costumes",
+  "omniSearchGroupShootingDays": "Shooting days",
+  "omniSearchInitialEmpty": "Type to search the scenes, roles, costumes and shooting days of this season.",
+  "@omniSearchZeroMatch": {
+    "placeholders": {
+      "query": {"type": "String"},
+      "facets": {"type": "String"}
+    }
+  },
+  "omniSearchZeroMatch": "No matches for \"{query}\" in: {facets}.",
+  "@omniSearchNotLoaded": {
+    "placeholders": {
+      "facets": {"type": "String"}
+    }
+  },
+  "omniSearchNotLoaded": "Not loaded yet: {facets}. Open the related view to load its data.",
+  "omniSearchError": "The search cannot read the local cache right now.",
+  "omniSearchNoSeason": "Pick a season first to search it.",
+  "omniSearchStaleBanner": "These results are based on the local cache and may be stale.",
+  "omniSearchRefresh": "Refresh"
 }

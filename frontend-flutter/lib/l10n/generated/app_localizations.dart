@@ -4575,6 +4575,114 @@ abstract class AppLocalizations {
   /// In de, this message translates to:
   /// **'Dafür fehlt dir die aktive Kostüm-Rolle in dieser Staffel.'**
   String get seasonsArchiveForbidden;
+
+  /// No description provided for @omniSearchTitle.
+  ///
+  /// In de, this message translates to:
+  /// **'Suche'**
+  String get omniSearchTitle;
+
+  /// No description provided for @omniSearchTooltip.
+  ///
+  /// In de, this message translates to:
+  /// **'Suchen'**
+  String get omniSearchTooltip;
+
+  /// No description provided for @omniSearchHint.
+  ///
+  /// In de, this message translates to:
+  /// **'Suchen: Szenen, Rollen, Kostüme, Drehtage dieser Staffel'**
+  String get omniSearchHint;
+
+  /// No description provided for @omniSearchChipScene.
+  ///
+  /// In de, this message translates to:
+  /// **'Szene'**
+  String get omniSearchChipScene;
+
+  /// No description provided for @omniSearchChipCharacter.
+  ///
+  /// In de, this message translates to:
+  /// **'Rolle'**
+  String get omniSearchChipCharacter;
+
+  /// No description provided for @omniSearchChipCostume.
+  ///
+  /// In de, this message translates to:
+  /// **'Kostüm'**
+  String get omniSearchChipCostume;
+
+  /// No description provided for @omniSearchChipShootingDay.
+  ///
+  /// In de, this message translates to:
+  /// **'Drehtag'**
+  String get omniSearchChipShootingDay;
+
+  /// No description provided for @omniSearchGroupScenes.
+  ///
+  /// In de, this message translates to:
+  /// **'Szenen'**
+  String get omniSearchGroupScenes;
+
+  /// No description provided for @omniSearchGroupCharacters.
+  ///
+  /// In de, this message translates to:
+  /// **'Rollen'**
+  String get omniSearchGroupCharacters;
+
+  /// No description provided for @omniSearchGroupCostumes.
+  ///
+  /// In de, this message translates to:
+  /// **'Kostüme'**
+  String get omniSearchGroupCostumes;
+
+  /// No description provided for @omniSearchGroupShootingDays.
+  ///
+  /// In de, this message translates to:
+  /// **'Drehtage'**
+  String get omniSearchGroupShootingDays;
+
+  /// No description provided for @omniSearchInitialEmpty.
+  ///
+  /// In de, this message translates to:
+  /// **'Tippe, um die Szenen, Rollen, Kostüme und Drehtage dieser Staffel zu durchsuchen.'**
+  String get omniSearchInitialEmpty;
+
+  /// No description provided for @omniSearchZeroMatch.
+  ///
+  /// In de, this message translates to:
+  /// **'Keine Treffer für „{query}“ in: {facets}.'**
+  String omniSearchZeroMatch(String query, String facets);
+
+  /// No description provided for @omniSearchNotLoaded.
+  ///
+  /// In de, this message translates to:
+  /// **'Noch nicht geladen: {facets}. Öffne die zugehörige Ansicht, um die Daten zu laden.'**
+  String omniSearchNotLoaded(String facets);
+
+  /// No description provided for @omniSearchError.
+  ///
+  /// In de, this message translates to:
+  /// **'Die Suche kann den lokalen Cache gerade nicht lesen.'**
+  String get omniSearchError;
+
+  /// No description provided for @omniSearchNoSeason.
+  ///
+  /// In de, this message translates to:
+  /// **'Wähle zuerst eine Staffel, um sie zu durchsuchen.'**
+  String get omniSearchNoSeason;
+
+  /// No description provided for @omniSearchStaleBanner.
+  ///
+  /// In de, this message translates to:
+  /// **'Diese Ergebnisse basieren auf dem lokalen Cache und können veraltet sein.'**
+  String get omniSearchStaleBanner;
+
+  /// No description provided for @omniSearchRefresh.
+  ///
+  /// In de, this message translates to:
+  /// **'Aktualisieren'**
+  String get omniSearchRefresh;
 }
 
 class _AppLocalizationsDelegate

@@ -2770,4 +2770,67 @@ class AppLocalizationsDe extends AppLocalizations {
   @override
   String get seasonsArchiveForbidden =>
       'Dafür fehlt dir die aktive Kostüm-Rolle in dieser Staffel.';
+
+  @override
+  String get omniSearchTitle => 'Suche';
+
+  @override
+  String get omniSearchTooltip => 'Suchen';
+
+  @override
+  String get omniSearchHint =>
+      'Suchen: Szenen, Rollen, Kostüme, Drehtage dieser Staffel';
+
+  @override
+  String get omniSearchChipScene => 'Szene';
+
+  @override
+  String get omniSearchChipCharacter => 'Rolle';
+
+  @override
+  String get omniSearchChipCostume => 'Kostüm';
+
+  @override
+  String get omniSearchChipShootingDay => 'Drehtag';
+
+  @override
+  String get omniSearchGroupScenes => 'Szenen';
+
+  @override
+  String get omniSearchGroupCharacters => 'Rollen';
+
+  @override
+  String get omniSearchGroupCostumes => 'Kostüme';
+
+  @override
+  String get omniSearchGroupShootingDays => 'Drehtage';
+
+  @override
+  String get omniSearchInitialEmpty =>
+      'Tippe, um die Szenen, Rollen, Kostüme und Drehtage dieser Staffel zu durchsuchen.';
+
+  @override
+  String omniSearchZeroMatch(String query, String facets) {
+    return 'Keine Treffer für „$query“ in: $facets.';
+  }
+
+  @override
+  String omniSearchNotLoaded(String facets) {
+    return 'Noch nicht geladen: $facets. Öffne die zugehörige Ansicht, um die Daten zu laden.';
+  }
+
+  @override
+  String get omniSearchError =>
+      'Die Suche kann den lokalen Cache gerade nicht lesen.';
+
+  @override
+  String get omniSearchNoSeason =>
+      'Wähle zuerst eine Staffel, um sie zu durchsuchen.';
+
+  @override
+  String get omniSearchStaleBanner =>
+      'Diese Ergebnisse basieren auf dem lokalen Cache und können veraltet sein.';
+
+  @override
+  String get omniSearchRefresh => 'Aktualisieren';
 }

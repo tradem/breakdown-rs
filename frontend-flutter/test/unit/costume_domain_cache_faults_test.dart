@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: omen-alpha (opencode-go)
+// Co-authored-by: glm-5.3-flash (neuralwatt)
 
 // Tier-1 unit tests (issue #369): deterministic fault-injection coverage for
 // the costume-domain cache paths. A scriptable DAO fake wraps a REAL DAO over
@@ -27,6 +28,7 @@ import 'package:test/test.dart';
 
 import 'package:frontend_flutter/core/result.dart';
 import 'package:frontend_flutter/data/cache/cache_database.dart';
+import 'package:frontend_flutter/data/cache/cache_ttl.dart';
 import 'package:frontend_flutter/data/cache/clock.dart';
 import 'package:frontend_flutter/data/cache/costume_domains_cache_dao.dart';
 import 'package:frontend_flutter/data/character_repository.dart';
@@ -190,6 +192,16 @@ class _FaultCostumeCacheDao implements CostumeCacheDao {
       real.readById(seasonId, id);
 
   @override
+  Future<({List<CostumeView> rows, bool stale})> readBySeasonFresh(
+    String seasonId, {
+    Duration ttl = kCacheTtl,
+    Clock clock = Clock.system,
+  }) async {
+    if (phase == _FaultPhase.read) throw const _InjectedFault();
+    return real.readBySeasonFresh(seasonId, ttl: ttl, clock: clock);
+  }
+
+  @override
   Future<bool> isSeasonExpired(
     String seasonId,
     Duration ttl, {
@@ -238,6 +250,16 @@ class _FaultCharacterCacheDao implements CharacterCacheDao {
   Future<CharacterView?> readById(String id) => real.readById(id);
 
   @override
+  Future<({List<CharacterView> rows, bool stale})> readBySeasonFresh(
+    String seasonId, {
+    Duration ttl = kCacheTtl,
+    Clock clock = Clock.system,
+  }) async {
+    if (phase == _FaultPhase.read) throw const _InjectedFault();
+    return real.readBySeasonFresh(seasonId, ttl: ttl, clock: clock);
+  }
+
+  @override
   Future<bool> isSeasonExpired(
     String seasonId,
     Duration ttl, {
@@ -254,6 +276,17 @@ class _FaultCharacterCacheDao implements CharacterCacheDao {
 /// Scriptable DAO fake wrapping a real [ShootingDayCacheDao]
 /// (same seam contract as [_FaultCostumeCacheDao], episode-scoped).
 class _FaultShootingDayCacheDao implements ShootingDayCacheDao {
+  @override
+  Future<({List<(ShootingDayView, EpisodeView, BlockView)> rows, bool stale})>
+  readBySeasonComposed(
+    String seasonId, {
+    Duration ttl = kCacheTtl,
+    Clock clock = Clock.system,
+  }) async {
+    if (phase == _FaultPhase.read) throw const _InjectedFault();
+    return real.readBySeasonComposed(seasonId, ttl: ttl, clock: clock);
+  }
+
   _FaultShootingDayCacheDao(this.real);
 
   final ShootingDayCacheDao real;

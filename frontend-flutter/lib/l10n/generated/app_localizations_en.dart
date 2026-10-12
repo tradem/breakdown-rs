@@ -2738,5 +2738,67 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get seasonsArchiveForbidden =>
-      'You have no active costume-dept role in this season.';
+      'You need an active costume role in this season.';
+
+  @override
+  String get omniSearchTitle => 'Search';
+
+  @override
+  String get omniSearchTooltip => 'Search';
+
+  @override
+  String get omniSearchHint =>
+      'Search scenes, roles, costumes and shooting days of this season';
+
+  @override
+  String get omniSearchChipScene => 'Scene';
+
+  @override
+  String get omniSearchChipCharacter => 'Role';
+
+  @override
+  String get omniSearchChipCostume => 'Costume';
+
+  @override
+  String get omniSearchChipShootingDay => 'Shooting day';
+
+  @override
+  String get omniSearchGroupScenes => 'Scenes';
+
+  @override
+  String get omniSearchGroupCharacters => 'Roles';
+
+  @override
+  String get omniSearchGroupCostumes => 'Costumes';
+
+  @override
+  String get omniSearchGroupShootingDays => 'Shooting days';
+
+  @override
+  String get omniSearchInitialEmpty =>
+      'Type to search the scenes, roles, costumes and shooting days of this season.';
+
+  @override
+  String omniSearchZeroMatch(String query, String facets) {
+    return 'No matches for \"$query\" in: $facets.';
+  }
+
+  @override
+  String omniSearchNotLoaded(String facets) {
+    return 'Not loaded yet: $facets. Open the related view to load its data.';
+  }
+
+  @override
+  String get omniSearchError =>
+      'The search cannot read the local cache right now.';
+
+  @override
+  String get omniSearchNoSeason => 'Pick a season first to search it.';
+
+  @override
+  String get omniSearchStaleBanner =>
+      'These results are based on the local cache and may be stale.';
+
+  @override
+  String get omniSearchRefresh => 'Refresh';
 }

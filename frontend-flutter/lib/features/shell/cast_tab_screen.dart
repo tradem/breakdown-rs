@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: space-bunny (opencode-go)
+// Co-authored-by: glm-5.3-flash (neuralwatt)
 
 import 'dart:async' show unawaited;
 
@@ -14,6 +15,7 @@ import '../costume_categories/costume_categories_screen.dart';
 import '../costumes/costumes_screen.dart';
 import 'planning_location.dart';
 import 'profile_menu_button.dart';
+import 'search_action_button.dart';
 import 'season_scope_chip.dart';
 import 'shell_controller.dart';
 
@@ -65,6 +67,7 @@ class _CastTabScreenState extends ConsumerState<CastTabScreen> {
               // Fire-and-forget navigation (no result consumed).
               onPressed: () => _openCategories(context),
             ),
+          const ShellSearchAction(),
           const ProfileMenuButton(),
         ],
       ),
