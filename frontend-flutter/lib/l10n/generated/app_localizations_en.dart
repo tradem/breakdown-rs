@@ -744,6 +744,55 @@ class AppLocalizationsEn extends AppLocalizations {
   String get aiJobCheckAgain => 'Check again';
 
   @override
+  String get aiJobNextRetryImminent => 'Retry imminent.';
+
+  @override
+  String aiJobNextRetryMinutes(Object count) {
+    return 'Retry in ~$count min';
+  }
+
+  @override
+  String aiJobNextRetryHours(Object count) {
+    return 'Retry in ~$count h';
+  }
+
+  @override
+  String aiJobNextRetryDays(Object count) {
+    return 'Retry in ~$count d';
+  }
+
+  @override
+  String get aiJobNextRetryUnknown => 'Retry scheduled — time not known yet.';
+
+  @override
+  String get aiJobReasonUnknown =>
+      'The last attempt failed for an unknown reason.';
+
+  @override
+  String get aiJobReasonDependencyAuth =>
+      'A service credential was rejected — this needs attention, not another retry.';
+
+  @override
+  String get aiJobReasonServiceUnavailable =>
+      'An upstream service was temporarily unavailable — the next attempt may succeed.';
+
+  @override
+  String get aiJobReasonInternal => 'A server-side error occurred.';
+
+  @override
+  String aiJobReasonGeneric(Object code) {
+    return 'The last attempt failed ($code).';
+  }
+
+  @override
+  String get aiJobAttemptHistoryLabel => 'Previous attempts';
+
+  @override
+  String aiJobAttemptRow(Object attemptNo, Object reason) {
+    return 'Attempt $attemptNo: $reason';
+  }
+
+  @override
   String get aiPreviewTitle => 'Import preview';
 
   @override

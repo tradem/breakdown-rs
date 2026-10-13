@@ -141,7 +141,7 @@ pub(crate) async fn fail_payload_load<Q: AiImportQueue + ?Sized>(
 ) -> Result<(), DomainError> {
     if matches!(error, DomainError::NotFound { .. }) {
         return queue
-            .mark_payload_unavailable(id, worker_id, &error.to_string())
+            .mark_payload_unavailable(id, worker_id, &error.to_string(), Some(error.code().code))
             .await;
     }
     queue
@@ -149,6 +149,7 @@ pub(crate) async fn fail_payload_load<Q: AiImportQueue + ?Sized>(
             id,
             worker_id,
             &error.to_string(),
+            Some(error.code().code),
             matches!(error, DomainError::ServiceUnavailable { .. }),
         )
         .await
@@ -499,6 +500,7 @@ where
                 id,
                 worker_id,
                 &error.to_string(),
+                Some(error.code().code),
                 matches!(error, DomainError::ServiceUnavailable { .. }),
             )
             .await

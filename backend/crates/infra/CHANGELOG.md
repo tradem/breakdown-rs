@@ -15,6 +15,17 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
+## [0.32.0] - Unreleased
+
+### Changed — persist the AI-import attempt failure code (issue #639)
+
+- Migration `20261011000001_ai_import_attempt_error_code` adds
+  `ai_import.ai_import_job_attempt.error_code`; `mark_failed` and
+  `mark_payload_unavailable` persist `DomainError::code()` in the same statement
+  as the lifecycle write, and `list_attempts` decodes it into
+  `AiImportAttempt.code`.
+- The AI-import workers pass the error code at every failure site.
+
 ## [0.31.0] - Unreleased
 
 ### Added — Vault token renewal + auth classification, attempt history (issue #637)

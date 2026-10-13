@@ -129,6 +129,7 @@ impl AiImportQueue for MockQueue {
         _: AiImportJobId,
         _: &str,
         _: &str,
+        _error_code: Option<&str>,
         _: bool,
     ) -> Result<(), DomainError> {
         Ok(())

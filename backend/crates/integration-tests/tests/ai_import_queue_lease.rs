@@ -239,7 +239,7 @@ async fn pending_and_retryable_failed_jobs_remain_claimable() -> Result<()> {
 
     // A retryable failure releases the claim and schedules a backoff.
     queue
-        .mark_failed(id, "worker-a", "transient upstream", true)
+        .mark_failed(id, "worker-a", "transient upstream", None, true)
         .await?;
     let (worker_id, lease_expires_at) = read_claim(&pool, id).await;
     assert_eq!(worker_id, None, "a failed job must hold no claim");
@@ -314,7 +314,7 @@ async fn permanent_failure_dead_letters_and_releases_the_claim() -> Result<()> {
     );
 
     queue
-        .mark_failed(id, "worker-a", "rejected API key", false)
+        .mark_failed(id, "worker-a", "rejected API key", None, false)
         .await?;
 
     let (worker_id, lease_expires_at) = read_claim(&pool, id).await;
@@ -497,7 +497,7 @@ async fn displaced_worker_cannot_fail_a_reclaimed_job() -> Result<()> {
     recovering.claim_next("worker-b").await?.expect("reclaim");
 
     let stale = recovering
-        .mark_failed(id, "worker-a", "stale timeout", true)
+        .mark_failed(id, "worker-a", "stale timeout", None, true)
         .await;
     assert!(
         matches!(

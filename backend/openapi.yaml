@@ -259,6 +259,15 @@ components:
           format: int32
           minimum: 0
           type: integer
+        code:
+          description: |-
+            Stable problem `code` of the failure (ADR-031 D2), e.g.
+            `dependency.auth-failed`; `None` when the writer recorded no typed
+            error. Lets a client localize the reason without parsing
+            `error_summary` (issue #639).
+          type:
+          - string
+          - 'null'
         created_at:
           description: When the attempt was recorded.
           format: date-time

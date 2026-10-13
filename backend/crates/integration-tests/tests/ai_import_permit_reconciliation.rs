@@ -687,7 +687,7 @@ async fn a_retryable_failure_clears_the_permit_link() -> Result<()> {
 
     // Retryable failure: the job stays claimable, so the link must go.
     queue
-        .mark_failed(job.id, "worker-a", "transient upstream error", true)
+        .mark_failed(job.id, "worker-a", "transient upstream error", None, true)
         .await?;
     let (status, retries) = job_state(&pool, job_id).await;
     assert_eq!(status, "failed", "retryable, not dead-lettered");

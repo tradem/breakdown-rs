@@ -519,6 +519,7 @@ impl AiImportQueue for PgAiImportQueue {
         id: AiImportJobId,
         worker_id: &str,
         error_summary: &str,
+        error_code: Option<&str>,
         retryable: bool,
     ) -> Result<(), DomainError> {
         // The attempt row is appended in the same statement as the lifecycle
@@ -563,8 +564,8 @@ impl AiImportQueue for PgAiImportQueue {
                 RETURNING id, retries, status, last_error
             )
             INSERT INTO ai_import.ai_import_job_attempt
-                (id, job_id, attempt_no, status, error_summary, retryable)
-            SELECT $5, id, retries, status, last_error, $4
+                (id, job_id, attempt_no, status, error_summary, error_code, retryable)
+            SELECT $5, id, retries, status, last_error, $6, $4
             FROM updated
             "#,
         )
@@ -573,6 +574,7 @@ impl AiImportQueue for PgAiImportQueue {
         .bind(error_summary)
         .bind(retryable)
         .bind(Uuid::now_v7())
+        .bind(error_code)
         .execute(&self.pool)
         .await
         .map_err(map_sqlx_error)?;
@@ -595,6 +597,7 @@ impl AiImportQueue for PgAiImportQueue {
         id: AiImportJobId,
         worker_id: &str,
         error_summary: &str,
+        error_code: Option<&str>,
     ) -> Result<(), DomainError> {
         let result = sqlx::query(
             r#"
@@ -611,11 +614,11 @@ impl AiImportQueue for PgAiImportQueue {
                 RETURNING id, retries, status, last_error
             )
             INSERT INTO ai_import.ai_import_job_attempt
-                (id, job_id, attempt_no, status, error_summary, retryable)
+                (id, job_id, attempt_no, status, error_summary, error_code, retryable)
             -- `retries` is unchanged on this path, so the attempt that made the
             -- discovery is `retries + 1` (matching `mark_failed`'s post-increment
             -- numbering).
-            SELECT $4, id, retries + 1, status, last_error, FALSE
+            SELECT $4, id, retries + 1, status, last_error, $5, FALSE
             FROM updated
             "#,
         )
@@ -623,6 +626,7 @@ impl AiImportQueue for PgAiImportQueue {
         .bind(worker_id)
         .bind(error_summary)
         .bind(Uuid::now_v7())
+        .bind(error_code)
         .execute(&self.pool)
         .await
         .map_err(map_sqlx_error)?;
@@ -699,7 +703,7 @@ impl AiImportQueue for PgAiImportQueue {
         let limit = limit.clamp(1, ATTEMPT_HISTORY_LIMIT);
         let rows = sqlx::query(
             r#"
-            SELECT attempt_no, status, error_summary, retryable, created_at
+            SELECT attempt_no, status, error_summary, error_code, retryable, created_at
             FROM ai_import.ai_import_job_attempt
             WHERE job_id = $1
             ORDER BY attempt_no DESC
@@ -883,6 +887,7 @@ fn map_attempt_row(row: sqlx::postgres::PgRow) -> Result<AiImportAttempt, Domain
             .max(0) as u32,
         status: parse_status(row.try_get("status").map_err(map_sqlx_error)?)?,
         error_summary: row.try_get("error_summary").map_err(map_sqlx_error)?,
+        code: row.try_get("error_code").map_err(map_sqlx_error)?,
         retryable: row.try_get("retryable").map_err(map_sqlx_error)?,
         created_at: row.try_get("created_at").map_err(map_sqlx_error)?,
     })

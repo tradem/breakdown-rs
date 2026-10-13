@@ -25,13 +25,11 @@ use breakdown_core::error::DomainError;
 use breakdown_core::error_registry::{
     AI_CONFIG_FORBIDDEN, AI_CONFIG_PROVIDER_MISMATCH, AI_CONFIG_VAULT_KEY_FORBIDDEN,
     AI_CONFIG_VERSION_MISMATCH, AI_IMPORT_DISABLED, AI_IMPORT_FORBIDDEN, AI_IMPORT_NOT_FOUND,
-    AI_IMPORT_UNSUPPORTED_MEDIA_TYPE, CONCURRENCY_VERSION_MISMATCH, COSTUME_ALREADY_ASSIGNED,
-    COSTUME_CATEGORY_SEASON_MISMATCH, DOMAIN_CONFLICT, DOMAIN_FORBIDDEN, DOMAIN_NOT_FOUND,
+    AI_IMPORT_UNSUPPORTED_MEDIA_TYPE, DOMAIN_CONFLICT, DOMAIN_FORBIDDEN, DOMAIN_NOT_FOUND,
     DOMAIN_SERVICE_UNAVAILABLE, DOMAIN_VALIDATION, HTTP_BAD_JSON_BODY, HTTP_BAD_PATH_PARAM,
     HTTP_BAD_QUERY_PARAM, HTTP_BAD_REQUEST, HTTP_INTERNAL_ERROR, HTTP_PAYLOAD_TOO_LARGE,
     HTTP_REQUEST_TIMEOUT, HTTP_ROUTE_NOT_FOUND, HTTP_UNSUPPORTED_MEDIA_TYPE, ProblemCode,
-    SCENE_ALREADY_SCHEDULED, SCENE_NOT_SCHEDULED, SCENE_SHOOT_ALREADY_LINKED,
-    SCENE_SHOOT_SHOOTING_DAY_WRAPPED, SETTINGS_BINDING_FORBIDDEN, SETTINGS_FORBIDDEN,
+    SETTINGS_BINDING_FORBIDDEN, SETTINGS_FORBIDDEN,
 };
 
 use serde::Serialize;
@@ -232,46 +230,41 @@ pub fn current_trace_id() -> String {
 /// whitelisted, ADR-031 D4). `detail` is the constant English title until
 /// Tranche 3 localizes it.
 fn domain_error_problem(err: DomainError) -> ProblemDetails {
+    // The registry entry is the single source of a `DomainError`'s identity
+    // (ADR-031 D2): `DomainError::code()` and this builder can never drift.
+    let code = *err.code();
     match err {
-        DomainError::NotFound { code, .. } => problem(*code).build(),
-        DomainError::Forbidden { code, .. } => problem(*code).build(),
-        DomainError::Validation { code, .. } => problem(*code).build(),
-        DomainError::Conflict { code, .. } => problem(*code).build(),
-        DomainError::ServiceUnavailable { code, .. } => problem(*code).build(),
-        DomainError::DependencyAuthFailed { code, .. } => problem(*code).build(),
         // `Internal` has a fixed code (`http.internal-error`) and a log-only
         // reason — the failure cause must be logged here so the server keeps
         // the diagnostic even though the wire document is static.
         DomainError::Internal { reason } => {
             tracing::error!(error = %reason, "internal server fault");
-            problem(HTTP_INTERNAL_ERROR).build()
+            problem(code).build()
         }
-        DomainError::VersionConflict { expected, current } => problem(CONCURRENCY_VERSION_MISMATCH)
+        DomainError::VersionConflict { expected, current } => problem(code)
             .extension("expected_version", expected)
             .extension("current_version", current)
             .build(),
-        DomainError::AlreadyAssigned { character_id } => problem(COSTUME_ALREADY_ASSIGNED)
+        DomainError::AlreadyAssigned { character_id } => problem(code)
             .extension("assigned_character_id", character_id)
             .build(),
-        DomainError::AlreadyScheduled { shooting_day_id } => problem(SCENE_ALREADY_SCHEDULED)
+        DomainError::AlreadyScheduled { shooting_day_id } => problem(code)
             .extension("offending_shooting_day_id", shooting_day_id)
             .build(),
-        DomainError::NotScheduled { shooting_day_id } => problem(SCENE_NOT_SCHEDULED)
+        DomainError::NotScheduled { shooting_day_id } => problem(code)
             .extension("shooting_day_id", shooting_day_id)
             .build(),
-        DomainError::AlreadyLinked { photo_id } => problem(SCENE_SHOOT_ALREADY_LINKED)
-            .extension("photo_id", photo_id)
+        DomainError::AlreadyLinked { photo_id } => {
+            problem(code).extension("photo_id", photo_id).build()
+        }
+        DomainError::ShootingDayWrapped { shooting_day_id } => problem(code)
+            .extension("shooting_day_id", shooting_day_id)
             .build(),
-        DomainError::ShootingDayWrapped { shooting_day_id } => {
-            problem(SCENE_SHOOT_SHOOTING_DAY_WRAPPED)
-                .extension("shooting_day_id", shooting_day_id)
-                .build()
-        }
         DomainError::CategorySeasonMismatch { category_id } => {
-            problem(COSTUME_CATEGORY_SEASON_MISMATCH)
-                .extension("category_id", category_id)
-                .build()
+            problem(code).extension("category_id", category_id).build()
         }
+        // Every remaining variant renders from the registry entry alone.
+        _ => problem(code).build(),
     }
 }
 
@@ -710,7 +703,7 @@ pub fn panic_response(_panic: Box<dyn std::any::Any + Send>) -> Response {
 mod tests {
     use super::*;
     use axum::http::{Method, Request};
-    use breakdown_core::error_registry::HTTP_BAD_JSON_BODY;
+    use breakdown_core::error_registry::{CONCURRENCY_VERSION_MISMATCH, HTTP_BAD_JSON_BODY};
     use uuid::Uuid;
 
     #[test]

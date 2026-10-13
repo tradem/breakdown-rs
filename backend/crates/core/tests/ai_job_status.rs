@@ -214,6 +214,7 @@ impl AiImportQueue for DefaultingQueue {
         _id: AiImportJobId,
         _worker_id: &str,
         error_summary: &str,
+        _error_code: Option<&str>,
         retryable: bool,
     ) -> Result<(), DomainError> {
         self.writes.lock().unwrap().push(Write::Failed {
@@ -289,6 +290,7 @@ impl AiImportQueue for FailingQueue {
         id: AiImportJobId,
         worker_id: &str,
         _error_summary: &str,
+        _error_code: Option<&str>,
         _retryable: bool,
     ) -> Result<(), DomainError> {
         Err(DomainError::conflict(format!(
@@ -324,7 +326,8 @@ fn default_mark_payload_unavailable_records_a_non_retryable_failure() {
     let queue = DefaultingQueue::default();
     let id = AiImportJobId::new();
 
-    block_on(queue.mark_payload_unavailable(id, "worker-a", "source document is gone")).unwrap();
+    block_on(queue.mark_payload_unavailable(id, "worker-a", "source document is gone", None))
+        .unwrap();
 
     assert_eq!(
         queue.writes.into_inner().unwrap(),
@@ -347,6 +350,7 @@ fn default_mark_payload_unavailable_propagates_the_fence_error() {
         AiImportJobId::new(),
         "stale-worker",
         "source document is gone",
+        None,
     ));
 
     assert!(

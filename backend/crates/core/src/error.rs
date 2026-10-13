@@ -18,20 +18,22 @@ use crate::error_registry::{
     AI_CONFIG_ALREADY_REVOKED, AI_CONFIG_EMPTY_MODEL, AI_CONFIG_EMPTY_PROMPT,
     AI_CONFIG_EMPTY_PROVIDER, AI_CONFIG_EMPTY_VAULT_KEY, AI_CONFIG_NOT_FOUND,
     AI_CONFIG_PROVIDER_MISMATCH, BLOCK_NOT_FOUND, CHARACTER_NOT_FOUND, CHARACTER_VALIDATION,
-    COSTUME_CATEGORY_ARCHIVED, COSTUME_CATEGORY_VALIDATION, COSTUME_DETAIL_NOT_FOUND,
+    CONCURRENCY_VERSION_MISMATCH, COSTUME_ALREADY_ASSIGNED, COSTUME_CATEGORY_ARCHIVED,
+    COSTUME_CATEGORY_SEASON_MISMATCH, COSTUME_CATEGORY_VALIDATION, COSTUME_DETAIL_NOT_FOUND,
     COSTUME_NOT_FOUND, COSTUME_VALIDATION, DEPENDENCY_AUTH_FAILED, DOMAIN_CONFLICT,
     DOMAIN_FORBIDDEN, DOMAIN_NOT_FOUND, DOMAIN_SERVICE_UNAVAILABLE, DOMAIN_VALIDATION,
-    EPISODE_NOT_FOUND, MEMBERSHIP_ALREADY_INVITED, MEMBERSHIP_BOOTSTRAP_NOT_ALLOWED,
-    MEMBERSHIP_MISSING_ACTOR, MEMBERSHIP_NO_PENDING_INVITATION, MEMBERSHIP_NOT_ACTIVE_MEMBER,
-    MEMBERSHIP_NOT_FOUND, PHOTO_ALREADY_DELETED, PHOTO_NOT_FOUND, PHOTO_VALIDATION, ProblemCode,
-    SCENE_BEAT_NOT_FOUND, SCENE_CHARACTER_ALREADY_ASSIGNED, SCENE_CHARACTER_NOT_FOUND,
-    SCENE_CHARACTER_NOT_IN_SCENE, SCENE_NOT_FOUND, SCENE_SHOOT_ALREADY_STARTED,
+    EPISODE_NOT_FOUND, HTTP_INTERNAL_ERROR, MEMBERSHIP_ALREADY_INVITED,
+    MEMBERSHIP_BOOTSTRAP_NOT_ALLOWED, MEMBERSHIP_MISSING_ACTOR, MEMBERSHIP_NO_PENDING_INVITATION,
+    MEMBERSHIP_NOT_ACTIVE_MEMBER, MEMBERSHIP_NOT_FOUND, PHOTO_ALREADY_DELETED, PHOTO_NOT_FOUND,
+    PHOTO_VALIDATION, ProblemCode, SCENE_ALREADY_SCHEDULED, SCENE_BEAT_NOT_FOUND,
+    SCENE_CHARACTER_ALREADY_ASSIGNED, SCENE_CHARACTER_NOT_FOUND, SCENE_CHARACTER_NOT_IN_SCENE,
+    SCENE_NOT_FOUND, SCENE_NOT_SCHEDULED, SCENE_SHOOT_ALREADY_LINKED, SCENE_SHOOT_ALREADY_STARTED,
     SCENE_SHOOT_NOT_FOUND, SCENE_SHOOT_NOTE_NOT_FOUND, SCENE_SHOOT_PAIR_ALREADY_EXISTS,
-    SCENE_SHOOT_PLANNED_ORDER_FROZEN, SCENE_SHOOT_TERMINAL_STATE, SCENE_SHOOT_VALIDATION,
-    SCENE_VALIDATION, SEASON_NOT_FOUND, SETTINGS_ALREADY_REVOKED, SETTINGS_EMPTY_PROVIDER,
-    SETTINGS_EMPTY_VAULT_KEY, SETTINGS_NOT_FOUND, SETTINGS_PROVIDER_MISMATCH,
-    SHOOTING_DAY_ARCHIVED, SHOOTING_DAY_DUPLICATE_ORDER_KEY, SHOOTING_DAY_NOT_FOUND,
-    SHOOTING_DAY_VALIDATION,
+    SCENE_SHOOT_PLANNED_ORDER_FROZEN, SCENE_SHOOT_SHOOTING_DAY_WRAPPED, SCENE_SHOOT_TERMINAL_STATE,
+    SCENE_SHOOT_VALIDATION, SCENE_VALIDATION, SEASON_NOT_FOUND, SETTINGS_ALREADY_REVOKED,
+    SETTINGS_EMPTY_PROVIDER, SETTINGS_EMPTY_VAULT_KEY, SETTINGS_NOT_FOUND,
+    SETTINGS_PROVIDER_MISMATCH, SHOOTING_DAY_ARCHIVED, SHOOTING_DAY_DUPLICATE_ORDER_KEY,
+    SHOOTING_DAY_NOT_FOUND, SHOOTING_DAY_VALIDATION,
 };
 use crate::membership::error::MembershipError;
 use crate::photo::error::PhotoError;
@@ -624,6 +626,32 @@ impl DomainError {
         }
     }
 
+    /// The stable problem `code` this error renders (ADR-031 D2).
+    ///
+    /// The single source of a `DomainError`'s identity: the HTTP boundary
+    /// (`crates/api`) and operational consumers — the AI-import attempt
+    /// history (issue #639) — read the same registered entry, so a persisted
+    /// code can never drift from the problem document the same error renders.
+    /// Never localized; `title`/`detail` remain the presentation layer.
+    pub fn code(&self) -> &'static ProblemCode {
+        match self {
+            DomainError::NotFound { code, .. }
+            | DomainError::Forbidden { code, .. }
+            | DomainError::Validation { code, .. }
+            | DomainError::Conflict { code, .. }
+            | DomainError::ServiceUnavailable { code, .. }
+            | DomainError::DependencyAuthFailed { code, .. } => code,
+            DomainError::Internal { .. } => &HTTP_INTERNAL_ERROR,
+            DomainError::VersionConflict { .. } => &CONCURRENCY_VERSION_MISMATCH,
+            DomainError::AlreadyAssigned { .. } => &COSTUME_ALREADY_ASSIGNED,
+            DomainError::AlreadyScheduled { .. } => &SCENE_ALREADY_SCHEDULED,
+            DomainError::NotScheduled { .. } => &SCENE_NOT_SCHEDULED,
+            DomainError::AlreadyLinked { .. } => &SCENE_SHOOT_ALREADY_LINKED,
+            DomainError::ShootingDayWrapped { .. } => &SCENE_SHOOT_SHOOTING_DAY_WRAPPED,
+            DomainError::CategorySeasonMismatch { .. } => &COSTUME_CATEGORY_SEASON_MISMATCH,
+        }
+    }
+
     /// Whether a background worker should treat this failure as a transient
     /// condition worth retrying.
     ///
@@ -659,5 +687,37 @@ mod retry_classification_tests {
         };
         assert_eq!(code.code, "dependency.auth-failed");
         assert_eq!(code.status, 503);
+    }
+
+    #[test]
+    fn code_matches_the_registry_entry_for_every_shape() {
+        // Variants that carry their entry.
+        assert_eq!(
+            DomainError::service_unavailable("blip").code().code,
+            "domain.service-unavailable"
+        );
+        assert_eq!(
+            DomainError::dependency_auth_failed("token").code().code,
+            "dependency.auth-failed"
+        );
+        assert_eq!(DomainError::conflict("x").code().code, "domain.conflict");
+        assert_eq!(
+            DomainError::not_found("scene").code().code,
+            "domain.not-found"
+        );
+        // Variants whose code is fixed by construction.
+        assert_eq!(
+            DomainError::internal("boom").code().code,
+            "http.internal-error"
+        );
+        assert_eq!(
+            DomainError::VersionConflict {
+                expected: super::AggregateVersion::INITIAL,
+                current: super::AggregateVersion::INITIAL,
+            }
+            .code()
+            .code,
+            "concurrency.version-mismatch"
+        );
     }
 }

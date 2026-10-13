@@ -338,7 +338,7 @@ async fn a_job_without_a_preview_is_complete_once_its_source_is_marked() -> Resu
     queue.claim_next("worker-a").await?.expect("claimable");
     // Non-retryable: dead-letters immediately, so no preview was ever stored.
     queue
-        .mark_failed(id, "worker-a", "malformed document", false)
+        .mark_failed(id, "worker-a", "malformed document", None, false)
         .await?;
     backdate(&pool, id).await;
 

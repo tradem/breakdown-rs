@@ -16,6 +16,17 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
+## [0.25.0] - Unreleased
+
+### Changed — problem mapping reads `DomainError::code()` (issue #639)
+
+- `domain_error_problem` derives the registry entry from `DomainError::code()`
+  instead of a parallel match, so the HTTP problem `code` and the AI-import
+  attempt code can never drift.
+- `AiImportAttempt` on the wire gains `code`; the utoipa-derived
+  `openapi.yaml` is regenerated.
+- `breakdown_core` 0.26.0 → 0.27.0, `infra` 0.31.0 → 0.32.0.
+
 ## [0.24.0] - Unreleased
 
 ### Added — public `GET /v1/health` + AI job retry observability (issue #637)

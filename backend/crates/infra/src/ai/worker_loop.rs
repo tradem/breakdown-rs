@@ -294,7 +294,13 @@ async fn script_worker_tick(
                 "failed to resolve AI config; failing job"
             );
             deps.queue
-                .mark_failed(job.id, worker_id, &error.to_string(), error.is_retryable())
+                .mark_failed(
+                    job.id,
+                    worker_id,
+                    &error.to_string(),
+                    Some(error.code().code),
+                    error.is_retryable(),
+                )
                 .await?;
             return Ok(());
         }
@@ -315,7 +321,13 @@ async fn script_worker_tick(
                     "failed to fetch AI credential; failing job"
                 );
                 deps.queue
-                    .mark_failed(job.id, worker_id, &error.to_string(), error.is_retryable())
+                    .mark_failed(
+                        job.id,
+                        worker_id,
+                        &error.to_string(),
+                        Some(error.code().code),
+                        error.is_retryable(),
+                    )
                     .await?;
                 return Ok(());
             }
@@ -339,7 +351,13 @@ async fn script_worker_tick(
                             "failed to build Ollama client; failing job"
                         );
                         deps.queue
-                            .mark_failed(job.id, worker_id, &error.to_string(), false)
+                            .mark_failed(
+                                job.id,
+                                worker_id,
+                                &error.to_string(),
+                                Some(error.code().code),
+                                false,
+                            )
                             .await?;
                         return Ok(());
                     }
@@ -380,7 +398,13 @@ async fn script_worker_tick(
                         "failed to build LLM client; failing job"
                     );
                     deps.queue
-                        .mark_failed(job.id, worker_id, &error.to_string(), false)
+                        .mark_failed(
+                            job.id,
+                            worker_id,
+                            &error.to_string(),
+                            Some(error.code().code),
+                            false,
+                        )
                         .await?;
                     return Ok(());
                 }
@@ -488,7 +512,13 @@ async fn schedule_worker_tick(
                 "failed to resolve AI config; failing job"
             );
             deps.queue
-                .mark_failed(job.id, worker_id, &error.to_string(), error.is_retryable())
+                .mark_failed(
+                    job.id,
+                    worker_id,
+                    &error.to_string(),
+                    Some(error.code().code),
+                    error.is_retryable(),
+                )
                 .await?;
             return Ok(());
         }
@@ -509,7 +539,13 @@ async fn schedule_worker_tick(
                     "failed to fetch AI credential; failing job"
                 );
                 deps.queue
-                    .mark_failed(job.id, worker_id, &error.to_string(), error.is_retryable())
+                    .mark_failed(
+                        job.id,
+                        worker_id,
+                        &error.to_string(),
+                        Some(error.code().code),
+                        error.is_retryable(),
+                    )
                     .await?;
                 return Ok(());
             }
@@ -529,7 +565,13 @@ async fn schedule_worker_tick(
                             "failed to build Ollama client; failing job"
                         );
                         deps.queue
-                            .mark_failed(job.id, worker_id, &error.to_string(), false)
+                            .mark_failed(
+                                job.id,
+                                worker_id,
+                                &error.to_string(),
+                                Some(error.code().code),
+                                false,
+                            )
                             .await?;
                         return Ok(());
                     }
@@ -570,7 +612,13 @@ async fn schedule_worker_tick(
                         "failed to build LLM client; failing job"
                     );
                     deps.queue
-                        .mark_failed(job.id, worker_id, &error.to_string(), false)
+                        .mark_failed(
+                            job.id,
+                            worker_id,
+                            &error.to_string(),
+                            Some(error.code().code),
+                            false,
+                        )
                         .await?;
                     return Ok(());
                 }
@@ -673,7 +721,13 @@ async fn finalize_job_result<Q: AiImportQueue + ?Sized>(
                 "permanently failing AI import job"
             );
             match queue
-                .mark_failed(job_id, worker_id, &error.to_string(), false)
+                .mark_failed(
+                    job_id,
+                    worker_id,
+                    &error.to_string(),
+                    Some(error.code().code),
+                    false,
+                )
                 .await
             {
                 Ok(()) => Ok(()),
@@ -757,6 +811,7 @@ mod tests {
             id: AiImportJobId,
             _worker_id: &str,
             error_summary: &str,
+            _error_code: Option<&str>,
             retryable: bool,
         ) -> Result<(), DomainError> {
             let mut state = self.state.lock().unwrap();

@@ -15,6 +15,22 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
+## [0.27.0] - Unreleased
+
+### Added — AI-import attempt failure codes + `DomainError::code()` (issue #639)
+
+- `DomainError::code()` exposes the variant's registry entry (ADR-031 D2) — the
+  single source of a failure's stable `code` for operational consumers and the
+  HTTP boundary, so a persisted attempt code cannot drift from the problem
+  document the same error renders.
+- `AiImportAttempt.code` carries the stable problem `code` of the failure that
+  ended the attempt, letting a client localize the reason without parsing the
+  free-form `error_summary`.
+- `AiImportQueue::mark_failed` / `mark_payload_unavailable` take the error
+  `code` alongside the summary (breaking for trait implementors; a 0.x MINOR
+  bump covers it).
+- Public API change: **0.26.0 → 0.27.0** (MINOR).
+
 ## [0.26.0] - Unreleased
 
 ### Added — Vault auth-failure classification + AI-import attempt observability (issue #637)

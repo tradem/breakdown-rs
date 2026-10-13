@@ -1316,6 +1316,78 @@ abstract class AppLocalizations {
   /// **'Erneut prüfen'**
   String get aiJobCheckAgain;
 
+  /// No description provided for @aiJobNextRetryImminent.
+  ///
+  /// In de, this message translates to:
+  /// **'Erneuter Versuch steht kurz bevor.'**
+  String get aiJobNextRetryImminent;
+
+  /// No description provided for @aiJobNextRetryMinutes.
+  ///
+  /// In de, this message translates to:
+  /// **'Erneuter Versuch in ~{count} min'**
+  String aiJobNextRetryMinutes(Object count);
+
+  /// No description provided for @aiJobNextRetryHours.
+  ///
+  /// In de, this message translates to:
+  /// **'Erneuter Versuch in ~{count} h'**
+  String aiJobNextRetryHours(Object count);
+
+  /// No description provided for @aiJobNextRetryDays.
+  ///
+  /// In de, this message translates to:
+  /// **'Erneuter Versuch in ~{count} d'**
+  String aiJobNextRetryDays(Object count);
+
+  /// No description provided for @aiJobNextRetryUnknown.
+  ///
+  /// In de, this message translates to:
+  /// **'Erneuter Versuch geplant – Zeitpunkt noch unbekannt.'**
+  String get aiJobNextRetryUnknown;
+
+  /// No description provided for @aiJobReasonUnknown.
+  ///
+  /// In de, this message translates to:
+  /// **'Der letzte Versuch ist aus unbekanntem Grund fehlgeschlagen.'**
+  String get aiJobReasonUnknown;
+
+  /// No description provided for @aiJobReasonDependencyAuth.
+  ///
+  /// In de, this message translates to:
+  /// **'Eine Dienst-Anmeldung wurde abgelehnt – das erfordert Aufmerksamkeit, keinen weiteren Versuch.'**
+  String get aiJobReasonDependencyAuth;
+
+  /// No description provided for @aiJobReasonServiceUnavailable.
+  ///
+  /// In de, this message translates to:
+  /// **'Ein Dienst war vorübergehend nicht erreichbar – der nächste Versuch kann gelingen.'**
+  String get aiJobReasonServiceUnavailable;
+
+  /// No description provided for @aiJobReasonInternal.
+  ///
+  /// In de, this message translates to:
+  /// **'Ein Serverfehler ist aufgetreten.'**
+  String get aiJobReasonInternal;
+
+  /// No description provided for @aiJobReasonGeneric.
+  ///
+  /// In de, this message translates to:
+  /// **'Der letzte Versuch ist fehlgeschlagen ({code}).'**
+  String aiJobReasonGeneric(Object code);
+
+  /// No description provided for @aiJobAttemptHistoryLabel.
+  ///
+  /// In de, this message translates to:
+  /// **'Bisherige Versuche'**
+  String get aiJobAttemptHistoryLabel;
+
+  /// No description provided for @aiJobAttemptRow.
+  ///
+  /// In de, this message translates to:
+  /// **'Versuch {attemptNo}: {reason}'**
+  String aiJobAttemptRow(Object attemptNo, Object reason);
+
   /// No description provided for @aiPreviewTitle.
   ///
   /// In de, this message translates to:

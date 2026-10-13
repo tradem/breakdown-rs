@@ -757,6 +757,56 @@ class AppLocalizationsDe extends AppLocalizations {
   String get aiJobCheckAgain => 'Erneut prüfen';
 
   @override
+  String get aiJobNextRetryImminent => 'Erneuter Versuch steht kurz bevor.';
+
+  @override
+  String aiJobNextRetryMinutes(Object count) {
+    return 'Erneuter Versuch in ~$count min';
+  }
+
+  @override
+  String aiJobNextRetryHours(Object count) {
+    return 'Erneuter Versuch in ~$count h';
+  }
+
+  @override
+  String aiJobNextRetryDays(Object count) {
+    return 'Erneuter Versuch in ~$count d';
+  }
+
+  @override
+  String get aiJobNextRetryUnknown =>
+      'Erneuter Versuch geplant – Zeitpunkt noch unbekannt.';
+
+  @override
+  String get aiJobReasonUnknown =>
+      'Der letzte Versuch ist aus unbekanntem Grund fehlgeschlagen.';
+
+  @override
+  String get aiJobReasonDependencyAuth =>
+      'Eine Dienst-Anmeldung wurde abgelehnt – das erfordert Aufmerksamkeit, keinen weiteren Versuch.';
+
+  @override
+  String get aiJobReasonServiceUnavailable =>
+      'Ein Dienst war vorübergehend nicht erreichbar – der nächste Versuch kann gelingen.';
+
+  @override
+  String get aiJobReasonInternal => 'Ein Serverfehler ist aufgetreten.';
+
+  @override
+  String aiJobReasonGeneric(Object code) {
+    return 'Der letzte Versuch ist fehlgeschlagen ($code).';
+  }
+
+  @override
+  String get aiJobAttemptHistoryLabel => 'Bisherige Versuche';
+
+  @override
+  String aiJobAttemptRow(Object attemptNo, Object reason) {
+    return 'Versuch $attemptNo: $reason';
+  }
+
+  @override
   String get aiPreviewTitle => 'Import-Vorschau';
 
   @override
