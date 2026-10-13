@@ -1,0 +1,7 @@
+{
+  "code": "dependency.auth-failed",
+  "detail": "Eine vorgelagerte Abhängigkeit hat die konfigurierten Zugangsdaten abgelehnt.",
+  "status": 503,
+  "title": "Dependency authentication failed",
+  "type": "https://docs.breakdown.example/problems/dependency.auth-failed"
+}

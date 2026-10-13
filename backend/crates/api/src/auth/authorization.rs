@@ -252,6 +252,10 @@ pub enum Requirement {
     Authenticated,
     /// Requires the caller to be an active member of the active block.
     BlockMember,
+    /// No authentication at all — a probe/health surface (issue #637).
+    /// Deliberately narrow: only the health endpoint is public, so a container
+    /// probe needs no OIDC token.
+    Public,
 }
 
 /// Resolve the authorization requirement for a request path (Section 5.3/5.4).
@@ -265,6 +269,12 @@ pub fn requirement_for(path: &str) -> Requirement {
     // the requirement classification is version-independent (a future `/v2`
     // inherits the same policy until a route is deliberately reclassified).
     let path = path.strip_prefix("/v1").unwrap_or(path);
+    // Public health surface (issue #637): the probe must work without a token.
+    // Classified here (not only in the middleware) so the route-coverage test
+    // records it as a deliberate `Public` requirement rather than an accident.
+    if path == "/health" {
+        return Requirement::Public;
+    }
     // `/series/{id}/membership` is the series-level counterpart of
     // `/seasons/{id}/membership` (issue #535): the membership self-check is
     // tenant-level data the middleware's `X-Active-Block` scope says nothing
@@ -409,11 +419,18 @@ pub async fn authorize_middleware(
 ) -> Response {
     let path = req.uri().path().to_string();
     // Documentation endpoints are public.
-    if path.starts_with("/swagger-ui") || path.starts_with("/api-docs") {
+    if path.starts_with("/swagger-ui")
+        || path.starts_with("/api-docs")
+        || path == "/v1/health"
+        || path == "/health"
+    {
         return next.run(req).await;
     }
 
-    if matches!(requirement_for(&path), Requirement::Authenticated) {
+    if matches!(
+        requirement_for(&path),
+        Requirement::Authenticated | Requirement::Public
+    ) {
         return next.run(req).await;
     }
 

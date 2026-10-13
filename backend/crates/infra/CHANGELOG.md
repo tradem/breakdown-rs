@@ -15,6 +15,21 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
+## [0.31.0] - Unreleased
+
+### Added — Vault token renewal + auth classification, attempt history (issue #637)
+
+- `VaultClient::send` now classifies 401/403 from Vault as
+  `DomainError::DependencyAuthFailed` (non-retryable) instead of the generic
+  `ServiceUnavailable`; new `token_valid`, `renew_token` and
+  `spawn_token_renewal` keep a long-running API's periodic app token alive
+  across the 24 h TTL.
+- Migration `20261010000001_ai_import_job_attempt`; `mark_failed` and
+  `mark_payload_unavailable` append a per-attempt row in the same statement as
+  the lifecycle write, and `get` populates the job's attempt history.
+- `OpenDalAiPayloadStorage::health_check` backs the Garage readiness probe.
+- `breakdown_core` 0.25.0 → 0.26.0; **0.30.0 → 0.31.0** (MINOR).
+
 ## [0.30.0] - Unreleased
 
 ### Added — per-character appearances query (issue #621)

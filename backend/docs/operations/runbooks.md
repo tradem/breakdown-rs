@@ -217,8 +217,27 @@ To upgrade SierraDB:
   startup (visible in `docker compose logs caddy`; `restart: unless-stopped`
   keeps retrying), so `docker compose config` + a `caddy validate` pass in CI
   are the primary gates (see `.github/workflows/ci.yml`).
-- API: served at `https://<host>/` via the Caddy edge (extend with a `/health`
-  route in a future hardening change).
+- API: served at `https://<host>/` via the Caddy edge. The API exposes a
+  public, unauthenticated readiness surface at `GET /v1/health` (issue #637):
+  a .NET-style report with a `postgres`, `sierradb`, `vault` and `garage`
+  entry. `200` for `Healthy`/`Degraded`, `503` for `Unhealthy`. Use it as the
+  container/k8s probe — it needs no OIDC token.
+
+### Vault app token (issue #637)
+
+`scripts/vault-bootstrap.sh` creates a 24 h **periodic** `breakdown-app` token.
+A periodic token stays valid indefinitely only if it is renewed before its
+TTL; the one-shot bootstrap renews it on a re-run, and the API itself now
+renews it in-process (`VaultClient::spawn_token_renewal`, cadence
+`VAULT_TOKEN_RENEW_INTERVAL_SECS`, default 12 h, clamped `60`–`172800`).
+
+If the token ever lapses (API down past the TTL, or the token revoked), Vault
+KV reads answer `403`, which is now classified as
+`dependency.auth-failed` — non-retryable — and `GET /v1/health` reports the
+`vault` entry `Unhealthy` ("Vault app token is invalid or expired"). Repair:
+re-run the bootstrap (it re-issues the token from the bootstrap seed), then
+restart the API. Jobs that were dead-lettered on the auth failure can be
+re-enqueued; they were not retried against the dead dependency.
 
 ## 5. HTTPS edge & certificates (ADR-025)
 

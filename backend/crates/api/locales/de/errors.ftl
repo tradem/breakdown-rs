@@ -121,6 +121,9 @@ problem-domain-not-found =
 problem-domain-service-unavailable =
     Der Dienst ist derzeit nicht verfügbar.
 
+problem-dependency-auth-failed =
+    Eine vorgelagerte Abhängigkeit hat die konfigurierten Zugangsdaten abgelehnt.
+
 problem-domain-validation =
     Die Anfrage ist nicht gültig.
 

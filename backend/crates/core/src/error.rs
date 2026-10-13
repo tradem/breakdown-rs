@@ -19,18 +19,19 @@ use crate::error_registry::{
     AI_CONFIG_EMPTY_PROVIDER, AI_CONFIG_EMPTY_VAULT_KEY, AI_CONFIG_NOT_FOUND,
     AI_CONFIG_PROVIDER_MISMATCH, BLOCK_NOT_FOUND, CHARACTER_NOT_FOUND, CHARACTER_VALIDATION,
     COSTUME_CATEGORY_ARCHIVED, COSTUME_CATEGORY_VALIDATION, COSTUME_DETAIL_NOT_FOUND,
-    COSTUME_NOT_FOUND, COSTUME_VALIDATION, DOMAIN_CONFLICT, DOMAIN_FORBIDDEN, DOMAIN_NOT_FOUND,
-    DOMAIN_SERVICE_UNAVAILABLE, DOMAIN_VALIDATION, EPISODE_NOT_FOUND, MEMBERSHIP_ALREADY_INVITED,
-    MEMBERSHIP_BOOTSTRAP_NOT_ALLOWED, MEMBERSHIP_MISSING_ACTOR, MEMBERSHIP_NO_PENDING_INVITATION,
-    MEMBERSHIP_NOT_ACTIVE_MEMBER, MEMBERSHIP_NOT_FOUND, PHOTO_ALREADY_DELETED, PHOTO_NOT_FOUND,
-    PHOTO_VALIDATION, ProblemCode, SCENE_BEAT_NOT_FOUND, SCENE_CHARACTER_ALREADY_ASSIGNED,
-    SCENE_CHARACTER_NOT_FOUND, SCENE_CHARACTER_NOT_IN_SCENE, SCENE_NOT_FOUND,
-    SCENE_SHOOT_ALREADY_STARTED, SCENE_SHOOT_NOT_FOUND, SCENE_SHOOT_NOTE_NOT_FOUND,
-    SCENE_SHOOT_PAIR_ALREADY_EXISTS, SCENE_SHOOT_PLANNED_ORDER_FROZEN, SCENE_SHOOT_TERMINAL_STATE,
-    SCENE_SHOOT_VALIDATION, SCENE_VALIDATION, SEASON_NOT_FOUND, SETTINGS_ALREADY_REVOKED,
-    SETTINGS_EMPTY_PROVIDER, SETTINGS_EMPTY_VAULT_KEY, SETTINGS_NOT_FOUND,
-    SETTINGS_PROVIDER_MISMATCH, SHOOTING_DAY_ARCHIVED, SHOOTING_DAY_DUPLICATE_ORDER_KEY,
-    SHOOTING_DAY_NOT_FOUND, SHOOTING_DAY_VALIDATION,
+    COSTUME_NOT_FOUND, COSTUME_VALIDATION, DEPENDENCY_AUTH_FAILED, DOMAIN_CONFLICT,
+    DOMAIN_FORBIDDEN, DOMAIN_NOT_FOUND, DOMAIN_SERVICE_UNAVAILABLE, DOMAIN_VALIDATION,
+    EPISODE_NOT_FOUND, MEMBERSHIP_ALREADY_INVITED, MEMBERSHIP_BOOTSTRAP_NOT_ALLOWED,
+    MEMBERSHIP_MISSING_ACTOR, MEMBERSHIP_NO_PENDING_INVITATION, MEMBERSHIP_NOT_ACTIVE_MEMBER,
+    MEMBERSHIP_NOT_FOUND, PHOTO_ALREADY_DELETED, PHOTO_NOT_FOUND, PHOTO_VALIDATION, ProblemCode,
+    SCENE_BEAT_NOT_FOUND, SCENE_CHARACTER_ALREADY_ASSIGNED, SCENE_CHARACTER_NOT_FOUND,
+    SCENE_CHARACTER_NOT_IN_SCENE, SCENE_NOT_FOUND, SCENE_SHOOT_ALREADY_STARTED,
+    SCENE_SHOOT_NOT_FOUND, SCENE_SHOOT_NOTE_NOT_FOUND, SCENE_SHOOT_PAIR_ALREADY_EXISTS,
+    SCENE_SHOOT_PLANNED_ORDER_FROZEN, SCENE_SHOOT_TERMINAL_STATE, SCENE_SHOOT_VALIDATION,
+    SCENE_VALIDATION, SEASON_NOT_FOUND, SETTINGS_ALREADY_REVOKED, SETTINGS_EMPTY_PROVIDER,
+    SETTINGS_EMPTY_VAULT_KEY, SETTINGS_NOT_FOUND, SETTINGS_PROVIDER_MISMATCH,
+    SHOOTING_DAY_ARCHIVED, SHOOTING_DAY_DUPLICATE_ORDER_KEY, SHOOTING_DAY_NOT_FOUND,
+    SHOOTING_DAY_VALIDATION,
 };
 use crate::membership::error::MembershipError;
 use crate::photo::error::PhotoError;
@@ -88,6 +89,17 @@ pub enum DomainError {
     /// Upstream dependency unavailable (503).
     #[error("service unavailable: {reason}")]
     ServiceUnavailable {
+        code: &'static ProblemCode,
+        reason: String,
+    },
+
+    /// Upstream dependency rejected our credential (401/403, invalid or
+    /// expired token). Distinct from [`DomainError::ServiceUnavailable`] so
+    /// callers can tell a permanent misconfiguration from a transient outage
+    /// and fail fast instead of retrying (issue #637). HTTP 503 with the
+    /// `dependency.auth-failed` code.
+    #[error("dependency authentication failed: {reason}")]
+    DependencyAuthFailed {
         code: &'static ProblemCode,
         reason: String,
     },
@@ -575,6 +587,18 @@ impl DomainError {
         }
     }
 
+    /// 503 — an upstream dependency rejected our credentials (issue #637).
+    ///
+    /// Use for 401/403/invalid-token responses from Vault (or a future
+    /// dependency), never for transient connection/5xx failures. The distinct
+    /// variant is what lets a worker treat it as non-retryable.
+    pub fn dependency_auth_failed(reason: impl Into<String>) -> Self {
+        DomainError::DependencyAuthFailed {
+            code: &DEPENDENCY_AUTH_FAILED,
+            reason: reason.into(),
+        }
+    }
+
     /// 500 — server-side fault (projection/schema drift, internal failures).
     /// `reason` is log-only (http-error-surface spec: internal text never
     /// leaves the server). The code is fixed to `http.internal-error`.
@@ -598,5 +622,42 @@ impl DomainError {
             code: &DOMAIN_FORBIDDEN,
             reason: reason.into(),
         }
+    }
+
+    /// Whether a background worker should treat this failure as a transient
+    /// condition worth retrying.
+    ///
+    /// Only [`DomainError::ServiceUnavailable`] is transient. In particular
+    /// [`DomainError::DependencyAuthFailed`] is **not**: a rejected credential
+    /// is a permanent misconfiguration, and retrying it burns the retry budget
+    /// while the cause persists (issue #637). `Conflict` and validation
+    /// failures are likewise non-retryable.
+    pub const fn is_retryable(&self) -> bool {
+        matches!(self, DomainError::ServiceUnavailable { .. })
+    }
+}
+
+#[cfg(test)]
+mod retry_classification_tests {
+    use super::DomainError;
+
+    #[test]
+    fn only_service_unavailable_is_retryable() {
+        assert!(DomainError::service_unavailable("blip").is_retryable());
+        // A rejected credential is permanent: retrying burns the budget
+        // (issue #637).
+        assert!(!DomainError::dependency_auth_failed("invalid token").is_retryable());
+        assert!(!DomainError::conflict("lost claim").is_retryable());
+        assert!(!DomainError::validation("bad input").is_retryable());
+    }
+
+    #[test]
+    fn dependency_auth_failed_uses_the_registered_code() {
+        let error = DomainError::dependency_auth_failed("invalid token");
+        let DomainError::DependencyAuthFailed { code, .. } = error else {
+            panic!("expected DependencyAuthFailed");
+        };
+        assert_eq!(code.code, "dependency.auth-failed");
+        assert_eq!(code.status, 503);
     }
 }

@@ -183,6 +183,13 @@ fn every_operation_documents_an_error_response() {
     ];
     let mut failures: Vec<String> = Vec::new();
     for (path, item) in paths {
+        // `/health` is a probe endpoint, not an API resource: its 503 body is
+        // the `HealthReport` (which dependency is down), deliberately not an
+        // RFC 9457 problem document (issue #637). Exempt it from the
+        // problem-body rule; every real API route still must document one.
+        if path.ends_with("/health") {
+            continue;
+        }
         for method in METHODS {
             let Some(op) = item.get(method) else {
                 continue;

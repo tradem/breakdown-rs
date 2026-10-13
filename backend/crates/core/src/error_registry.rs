@@ -37,7 +37,7 @@ pub const PROBLEM_DOCS_BASE: &str = "https://docs.breakdown.example";
 /// Kept in sync with the `problem_codes!` invocation below by a compile-time
 /// assertion — adding or removing a code without deliberately updating this
 /// count fails the build (issue #232).
-const PROBLEM_CODE_COUNT: usize = 92;
+const PROBLEM_CODE_COUNT: usize = 93;
 
 /// One registered problem code (ADR-031 D2/D4).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -289,6 +289,19 @@ problem_codes! {
         code: "domain.service-unavailable",
         status: 503,
         title: "Service unavailable",
+        extensions: &[],
+    },
+
+    /// 503 — an upstream dependency rejected our credentials (401/403,
+    /// invalid/expired token). Deliberately distinct from
+    /// `domain.service-unavailable`: the dependency is *reachable*, the
+    /// caller's credential is not accepted, so retrying the same request
+    /// cannot help — a job/worker must fail fast instead of burning its retry
+    /// budget against a permanent misconfiguration (issue #637).
+    DEPENDENCY_AUTH_FAILED {
+        code: "dependency.auth-failed",
+        status: 503,
+        title: "Dependency authentication failed",
         extensions: &[],
     },
 

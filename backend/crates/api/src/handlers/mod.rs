@@ -7020,6 +7020,10 @@ pub fn routes() -> Router<AppState<ProductionPorts>> {
         .saturating_mul(1024 * 1024);
     Router::new()
         .route(
+            "/health",
+            routing::get(crate::health::get_health::<ProductionPorts>),
+        )
+        .route(
             "/ops/projector-health",
             routing::get(get_projector_health::<ProductionPorts>),
         )

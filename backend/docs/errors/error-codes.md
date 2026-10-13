@@ -175,6 +175,21 @@ semantics, the S0/S1/S2 privacy policy, and the deprecation rule.
 - **Extensions**: none
 - **`type` anchor**: `https://docs.breakdown.example/problems/domain.service-unavailable`
 
+<a id="dependency.auth-failed"></a>
+
+### dependency.auth-failed
+
+- **Status**: `503`
+- **Title**: Dependency authentication failed
+- **Extensions**: none
+- **`type` anchor**: `https://docs.breakdown.example/problems/dependency.auth-failed`
+
+> An upstream dependency (e.g. Vault) rejected the configured credentials
+> (401/403, invalid or expired token). Distinct from
+> `domain.service-unavailable`: the dependency is reachable, the credential is
+> not accepted, so the failure is permanent — a worker must fail fast instead
+> of retrying (issue #637).
+
 <a id="domain.validation"></a>
 
 ### domain.validation

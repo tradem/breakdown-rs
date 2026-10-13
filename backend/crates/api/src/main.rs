@@ -599,6 +599,27 @@ async fn main() -> Result<()> {
     let worker_ai_preview_store = ai_preview_store.clone();
     let worker_credential_vault: Arc<dyn CredentialVault> = Arc::new(credential_vault.clone());
 
+    // --- Dependency health checks + Vault token renewal (issue #637) ---
+    // A clone of the Vault client is used for the health probe and the
+    // background renewal so the instance moved into `ProductionPorts` below is
+    // untouched. Renewing at half the 24 h periodic TTL keeps a long-running
+    // API's token alive without re-running the one-shot bootstrap.
+    let vault_health_client = Arc::new(credential_vault.clone());
+    let _vault_token_renewal = Arc::clone(&vault_health_client).spawn_token_renewal();
+    let mut health_checks: Vec<Arc<dyn api::health::HealthCheck>> = vec![
+        Arc::new(api::health::PostgresHealthCheck::new(pool.clone())),
+        Arc::new(api::health::SierraDbHealthCheck::new(Arc::clone(
+            &redis_client,
+        ))),
+        Arc::new(api::health::VaultHealthCheck::new(vault_health_client)),
+    ];
+    if let Some(storage) = infra::ai::OpenDalAiPayloadStorage::from_env() {
+        health_checks.push(Arc::new(api::health::AiPayloadStorageHealthCheck::new(
+            Arc::new(storage),
+        )));
+    }
+    let health = Arc::new(api::health::HealthRegistry::new(health_checks));
+
     let ports = ProductionPorts::new(
         SceneCommandsImpl::new(cmd_service.clone()),
         scene_repo,
@@ -641,7 +662,7 @@ async fn main() -> Result<()> {
         },
         infra::projectors::ProjectorHealthRepository::new(pool.clone()),
     );
-    let app_state = AppState::new(ports);
+    let app_state = AppState::new(ports).with_health(health);
 
     // --- AI import concurrency limiter + worker loops (issue #214) ---
     // Constructed only when AI_IMPORT_ENABLED so the default deployment is

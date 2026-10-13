@@ -272,8 +272,16 @@ pub async fn auth_middleware(
     next: Next,
 ) -> Response {
     let path = req.uri().path().to_string();
-    // Documentation endpoints are public.
-    if path.starts_with("/swagger-ui") || path.starts_with("/api-docs") {
+    // Documentation and health endpoints are public: a container probe must
+    // not need an OIDC token (issue #637). Health is classified `Public` by
+    // `requirement_for`, the single source of that decision.
+    if path.starts_with("/swagger-ui")
+        || path.starts_with("/api-docs")
+        || matches!(
+            crate::auth::authorization::requirement_for(&path),
+            crate::auth::authorization::Requirement::Public
+        )
+    {
         return next.run(req).await;
     }
 

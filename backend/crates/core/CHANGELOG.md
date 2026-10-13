@@ -15,6 +15,21 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
+## [0.26.0] - Unreleased
+
+### Added — Vault auth-failure classification + AI-import attempt observability (issue #637)
+
+- `DomainError::DependencyAuthFailed` (HTTP 503, registered code
+  `dependency.auth-failed`) with constructor `dependency_auth_failed`, distinct
+  from `ServiceUnavailable` so a rejected dependency credential is treated as
+  permanent rather than transient. `DomainError::is_retryable()` centralises the
+  worker retry policy (only `ServiceUnavailable` is retryable).
+- `AiImportJob.next_attempt_at` and `AiImportJob.attempts` (new
+  `AiImportAttempt` type) expose retry timing and per-attempt failure history —
+  `last_error` alone is overwritten on every attempt.
+- `AiImportQueue::list_attempts` (default empty) backs the single-job read.
+- Public API change: **0.25.0 → 0.26.0** (MINOR; purely additive).
+
 ## [0.25.0] - Unreleased
 
 ### Added — per-character appearances read model (issue #621)

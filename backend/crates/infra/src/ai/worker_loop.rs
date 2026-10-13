@@ -294,12 +294,7 @@ async fn script_worker_tick(
                 "failed to resolve AI config; failing job"
             );
             deps.queue
-                .mark_failed(
-                    job.id,
-                    worker_id,
-                    &error.to_string(),
-                    matches!(error, DomainError::ServiceUnavailable { .. }),
-                )
+                .mark_failed(job.id, worker_id, &error.to_string(), error.is_retryable())
                 .await?;
             return Ok(());
         }
@@ -320,12 +315,7 @@ async fn script_worker_tick(
                     "failed to fetch AI credential; failing job"
                 );
                 deps.queue
-                    .mark_failed(
-                        job.id,
-                        worker_id,
-                        &error.to_string(),
-                        matches!(error, DomainError::ServiceUnavailable { .. }),
-                    )
+                    .mark_failed(job.id, worker_id, &error.to_string(), error.is_retryable())
                     .await?;
                 return Ok(());
             }
@@ -498,12 +488,7 @@ async fn schedule_worker_tick(
                 "failed to resolve AI config; failing job"
             );
             deps.queue
-                .mark_failed(
-                    job.id,
-                    worker_id,
-                    &error.to_string(),
-                    matches!(error, DomainError::ServiceUnavailable { .. }),
-                )
+                .mark_failed(job.id, worker_id, &error.to_string(), error.is_retryable())
                 .await?;
             return Ok(());
         }
@@ -524,12 +509,7 @@ async fn schedule_worker_tick(
                     "failed to fetch AI credential; failing job"
                 );
                 deps.queue
-                    .mark_failed(
-                        job.id,
-                        worker_id,
-                        &error.to_string(),
-                        matches!(error, DomainError::ServiceUnavailable { .. }),
-                    )
+                    .mark_failed(job.id, worker_id, &error.to_string(), error.is_retryable())
                     .await?;
                 return Ok(());
             }

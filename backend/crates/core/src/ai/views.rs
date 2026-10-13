@@ -205,8 +205,41 @@ pub struct AiImportJob {
     pub last_error: Option<String>,
     pub retries: u32,
     pub max_retries: u32,
+    /// When a retryable `failed` job becomes claimable again (issue #637).
+    ///
+    /// `None` for every other state: `pending`/`running` have no backoff, and
+    /// a terminal job never retries. The column always existed; the wire view
+    /// omitted it, so neither the UI nor operators could explain a stalled
+    /// import ("why is this job not running yet?").
+    #[serde(default)]
+    pub next_attempt_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    /// Per-attempt failure history, newest first (issue #637).
+    ///
+    /// `last_error` is overwritten by every `mark_failed`, so the reason an
+    /// *earlier* attempt failed is lost. This list keeps each attempt's
+    /// outcome retrievable. Populated on the single-job read
+    /// (`GET /ai-import/jobs/{id}`); empty in list/claim contexts where the
+    /// history is not fetched, so it is additive on the wire.
+    #[serde(default)]
+    pub attempts: Vec<AiImportAttempt>,
+}
+
+/// One recorded execution attempt of an AI import job (issue #637).
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct AiImportAttempt {
+    /// 1-based attempt number, matching the job's `retries` after the attempt.
+    pub attempt_no: u32,
+    /// Job status the attempt left the job in (`failed`, `dead_letter` or
+    /// `payload_unavailable`).
+    pub status: JobStatus,
+    /// Failure summary, same text `last_error` carried for that attempt.
+    pub error_summary: Option<String>,
+    /// Whether the attempt was classified as retryable.
+    pub retryable: bool,
+    /// When the attempt was recorded.
+    pub created_at: DateTime<Utc>,
 }
 
 /// Whether an import job ever reached the apply step, and with what outcome.

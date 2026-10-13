@@ -142,6 +142,8 @@ fn succeeded_job(preview_handle: &str) -> AiImportJob {
         preview_handle: Some(preview_handle.to_owned()),
         last_error: None,
         retries: 0,
+        next_attempt_at: None,
+        attempts: Vec::new(),
         max_retries: 5,
         created_at: now,
         updated_at: now,

@@ -238,6 +238,7 @@ fn domain_error_problem(err: DomainError) -> ProblemDetails {
         DomainError::Validation { code, .. } => problem(*code).build(),
         DomainError::Conflict { code, .. } => problem(*code).build(),
         DomainError::ServiceUnavailable { code, .. } => problem(*code).build(),
+        DomainError::DependencyAuthFailed { code, .. } => problem(*code).build(),
         // `Internal` has a fixed code (`http.internal-error`) and a log-only
         // reason — the failure cause must be logged here so the server keeps
         // the diagnostic even though the wire document is static.
