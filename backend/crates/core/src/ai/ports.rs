@@ -19,7 +19,9 @@ use crate::error::DomainError;
 use crate::shared::{AggregateVersion, BlockId, UserId};
 
 use super::preview::{ScriptContext, ShootingSchedule};
-use super::views::{AiImportJob, AiImportJobId, DocumentKind, SourceFormat, Telemetry};
+use super::views::{
+    AiImportAttempt, AiImportJob, AiImportJobId, DocumentKind, SourceFormat, Telemetry,
+};
 
 /// Curated providers. The enum is intentionally non-exhaustive so adding a
 /// provider is additive and does not break downstream matches.
@@ -390,6 +392,22 @@ pub trait AiImportQueue: Send + Sync {
         id: AiImportJobId,
         telemetry: Telemetry,
     ) -> Result<(), DomainError>;
+
+    /// List a job's recorded attempt history, newest first (issue #637).
+    ///
+    /// Backs the `attempts` field of `GET /ai-import/jobs/{id}` so the reason
+    /// an earlier attempt failed stays retrievable after `last_error` was
+    /// overwritten. `limit` is clamped by the adapter.
+    ///
+    /// The default returns no history for backends that do not persist
+    /// attempts (in-memory and test queues).
+    async fn list_attempts(
+        &self,
+        _id: AiImportJobId,
+        _limit: i64,
+    ) -> Result<Vec<AiImportAttempt>, DomainError> {
+        Ok(Vec::new())
+    }
 }
 
 /// Idempotency mapping from a reviewed preview row to the aggregate it was

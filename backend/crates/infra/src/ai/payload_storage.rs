@@ -119,6 +119,29 @@ impl OpenDalAiPayloadStorage {
         }
     }
 
+    /// Probe the configured S3 bucket for reachability (readiness, issue #637).
+    ///
+    /// Lists the bucket root: a successful (possibly empty) listing proves the
+    /// endpoint answered and the bucket is readable, while a missing bucket or
+    /// a transport/permission error fails. Only the raw error kind is surfaced
+    /// to the caller — the health report renders a static description.
+    pub async fn health_check(&self) -> Result<(), DomainError> {
+        let op = self.operator().await?;
+        let mut lister = op
+            .lister("/")
+            .await
+            .map_err(|error| Self::unreachable(&error))?;
+        match futures::StreamExt::next(&mut lister).await {
+            Some(Ok(_)) | None => Ok(()),
+            Some(Err(error)) => Err(Self::unreachable(&error)),
+        }
+    }
+
+    /// Map an OpenDAL error to a transient-unavailability domain error.
+    fn unreachable(error: &opendal::Error) -> DomainError {
+        DomainError::service_unavailable(format!("AI payload storage unreachable: {error}"))
+    }
+
     /// Return the cached operator, or construct one on demand.
     async fn operator(&self) -> Result<Operator, DomainError> {
         // Fast path: return cached operator

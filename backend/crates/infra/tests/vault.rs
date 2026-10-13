@@ -536,3 +536,66 @@ async fn photo_sse_c_kv_write_conflict_retries_with_existing_key() {
     handle.join().unwrap();
     std::fs::remove_file(token_path).ok();
 }
+
+/// A 401/403 from Vault is a *credential* failure, not a transient outage
+/// (issue #637): `token_valid` must surface `DependencyAuthFailed` so a worker
+/// fails fast instead of retrying a permanent misconfiguration.
+#[tokio::test]
+async fn token_valid_classifies_forbidden_as_auth_failure() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    let token_path = std::env::temp_dir().join(format!("vault-403-{}", uuid::Uuid::now_v7()));
+    std::fs::write(&token_path, "test-token").unwrap();
+    let handle = thread::spawn(move || {
+        let mut stream = listener.incoming().next().unwrap().unwrap();
+        let mut reader = BufReader::new(stream.try_clone().unwrap());
+        let mut request_line = String::new();
+        reader.read_line(&mut request_line).unwrap();
+        let mut header = String::new();
+        while reader.read_line(&mut header).unwrap_or(0) > 0 && header != "\r\n" {
+            header.clear();
+        }
+        stream
+            .write_all(response("403 Forbidden", r#"{"errors":["permission denied"]}"#).as_bytes())
+            .unwrap();
+    });
+    let client = VaultClient::for_test(format!("http://{address}"), Some(token_path.clone()));
+    let result = client.token_valid().await;
+    assert!(
+        matches!(result, Err(DomainError::DependencyAuthFailed { .. })),
+        "expected DependencyAuthFailed, got: {result:?}"
+    );
+    handle.join().unwrap();
+    std::fs::remove_file(token_path).ok();
+}
+
+/// A transient 500 must stay a retryable `ServiceUnavailable`, never the
+/// auth-failure classification.
+#[tokio::test]
+async fn token_valid_keeps_server_error_retryable() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    let token_path = std::env::temp_dir().join(format!("vault-500-{}", uuid::Uuid::now_v7()));
+    std::fs::write(&token_path, "test-token").unwrap();
+    let handle = thread::spawn(move || {
+        let mut stream = listener.incoming().next().unwrap().unwrap();
+        let mut reader = BufReader::new(stream.try_clone().unwrap());
+        let mut request_line = String::new();
+        reader.read_line(&mut request_line).unwrap();
+        let mut header = String::new();
+        while reader.read_line(&mut header).unwrap_or(0) > 0 && header != "\r\n" {
+            header.clear();
+        }
+        stream
+            .write_all(response("500 Internal Server Error", "{}").as_bytes())
+            .unwrap();
+    });
+    let client = VaultClient::for_test(format!("http://{address}"), Some(token_path.clone()));
+    let result = client.token_valid().await;
+    assert!(
+        matches!(result, Err(DomainError::ServiceUnavailable { .. })),
+        "expected ServiceUnavailable, got: {result:?}"
+    );
+    handle.join().unwrap();
+    std::fs::remove_file(token_path).ok();
+}

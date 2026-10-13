@@ -121,6 +121,9 @@ problem-domain-not-found =
 problem-domain-service-unavailable =
     The service is currently unavailable.
 
+problem-dependency-auth-failed =
+    An upstream dependency rejected the configured credentials.
+
 problem-domain-validation =
     The request is not valid.
 

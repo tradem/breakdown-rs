@@ -21,6 +21,7 @@ pub mod auth;
 #[cfg(feature = "test-support")]
 pub mod fault_injection;
 pub mod handlers;
+pub mod health;
 pub mod problems;
 pub mod routes;
 pub mod state;
@@ -44,6 +45,7 @@ use utoipa::OpenApi;
         version = "v1"
     ),
     paths(
+        crate::health::get_health,
         handlers::create_season,
         handlers::list_seasons,
         handlers::get_season,
@@ -219,6 +221,10 @@ use utoipa::OpenApi;
         handlers::ApplyAiImportRequest,
         handlers::ApplyAiImportResponse,
         breakdown_core::ai::AiImportJob,
+        breakdown_core::ai::AiImportAttempt,
+        crate::health::HealthReport,
+        crate::health::HealthEntry,
+        crate::health::HealthStatus,
         breakdown_core::ai::AiConfigView,
         breakdown_core::ai::LlmProvider,
         breakdown_core::ai::ModelInfo,

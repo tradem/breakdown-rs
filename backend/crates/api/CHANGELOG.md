@@ -16,6 +16,20 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
+## [0.24.0] - Unreleased
+
+### Added — public `GET /v1/health` + AI job retry observability (issue #637)
+
+- Public, unauthenticated `GET /v1/health` rendering a .NET-shaped
+  `HealthReport` (Vault reachability + token validity, Postgres, SierraDB,
+  Garage): `200` for `Healthy`/`Degraded`, `503` for `Unhealthy`. The route is
+  classified `Public` by `requirement_for` and exempt from the auth/authz
+  middleware.
+- `AiImportJob` on the wire gains `next_attempt_at` and `attempts`; the
+  utoipa-derived `openapi.yaml` is regenerated.
+- `breakdown_core` 0.25.0 → 0.26.0, `infra` 0.30.0 → 0.31.0.
+- New public route + types: **0.23.0 → 0.24.0** (MINOR).
+
 ## [0.23.0] - Unreleased
 
 ### Added — `GET /v1/characters/{id}/appearances` (issue #621)

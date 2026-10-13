@@ -251,6 +251,37 @@ components:
       - version
       - revoked
       type: object
+    AiImportAttempt:
+      description: 'One recorded execution attempt of an AI import job (issue #637).'
+      properties:
+        attempt_no:
+          description: 1-based attempt number, matching the job's `retries` after the attempt.
+          format: int32
+          minimum: 0
+          type: integer
+        created_at:
+          description: When the attempt was recorded.
+          format: date-time
+          type: string
+        error_summary:
+          description: Failure summary, same text `last_error` carried for that attempt.
+          type:
+          - string
+          - 'null'
+        retryable:
+          description: Whether the attempt was classified as retryable.
+          type: boolean
+        status:
+          $ref: '#/components/schemas/JobStatus'
+          description: |-
+            Job status the attempt left the job in (`failed`, `dead_letter` or
+            `payload_unavailable`).
+      required:
+      - attempt_no
+      - status
+      - retryable
+      - created_at
+      type: object
     AiImportDefaults:
       description: |-
         Wire shape for `GET /v1/ai-import/defaults` (issue #471): the
@@ -273,6 +304,18 @@ components:
         Operational job row. Preview blobs and errors are represented by opaque
         handles/summaries; credentials and document bytes are deliberately absent.
       properties:
+        attempts:
+          description: |-
+            Per-attempt failure history, newest first (issue #637).
+
+            `last_error` is overwritten by every `mark_failed`, so the reason an
+            *earlier* attempt failed is lost. This list keeps each attempt's
+            outcome retrievable. Populated on the single-job read
+            (`GET /ai-import/jobs/{id}`); empty in list/claim contexts where the
+            history is not fetched, so it is additive on the wire.
+          items:
+            $ref: '#/components/schemas/AiImportAttempt'
+          type: array
         block_id:
           oneOf:
           - $ref: '#/components/schemas/BlockId'
@@ -296,6 +339,18 @@ components:
           format: int32
           minimum: 0
           type: integer
+        next_attempt_at:
+          description: |-
+            When a retryable `failed` job becomes claimable again (issue #637).
+
+            `None` for every other state: `pending`/`running` have no backoff, and
+            a terminal job never retries. The column always existed; the wire view
+            omitted it, so neither the UI nor operators could explain a stalled
+            import ("why is this job not running yet?").
+          format: date-time
+          type:
+          - string
+          - 'null'
         preview_handle:
           type:
           - string
@@ -1585,6 +1640,60 @@ components:
       required:
       - role
       type: object
+    HealthEntry:
+      description: Result of one dependency check.
+      properties:
+        description:
+          description: |-
+            Human-readable failure/success note (static text — never raw error
+            detail, which could leak internal topology).
+          type:
+          - string
+          - 'null'
+        duration_ms:
+          description: Wall-clock time the check took, in milliseconds.
+          format: int64
+          minimum: 0
+          type: integer
+        status:
+          $ref: '#/components/schemas/HealthStatus'
+        tags:
+          description: Free-form tags (`ready`, `live`, …) for probe selection.
+          items:
+            type: string
+          type: array
+      required:
+      - status
+      - duration_ms
+      - tags
+      type: object
+    HealthReport:
+      description: Aggregate health report rendered by `GET /v1/health`.
+      properties:
+        entries:
+          additionalProperties:
+            $ref: '#/components/schemas/HealthEntry'
+          propertyNames:
+            type: string
+          type: object
+        status:
+          $ref: '#/components/schemas/HealthStatus'
+        total_duration_ms:
+          format: int64
+          minimum: 0
+          type: integer
+      required:
+      - status
+      - total_duration_ms
+      - entries
+      type: object
+    HealthStatus:
+      description: Aggregate status of a health report, modelled on .NET's `HealthStatus`.
+      enum:
+      - Healthy
+      - Degraded
+      - Unhealthy
+      type: string
     IdVersionResponse:
       description: Response for aggregate creation endpoints.
       properties:
@@ -5550,6 +5659,29 @@ paths:
         render kind's own embedded template.
       tags:
       - handlers
+  /v1/health:
+    get:
+      description: |-
+        Public by design (the auth/authorization middleware exempt it): a container
+        probe must not need an OIDC token. It exposes only aggregate dependency
+        status and static descriptions, never credentials or internal addresses.
+      operationId: get_health
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthReport'
+          description: All dependencies healthy or degraded
+        '503':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthReport'
+          description: At least one dependency is unhealthy
+      summary: '`GET /v1/health` — public, unversioned-by-policy readiness surface.'
+      tags:
+      - handlers
   /v1/ops/projector-health:
     get:
       description: |-
@@ -7818,6 +7950,11 @@ x-code-registry:
   status: 503
   title: Service unavailable
   type: https://docs.breakdown.example/problems/domain.service-unavailable
+- code: dependency.auth-failed
+  extensions: []
+  status: 503
+  title: Dependency authentication failed
+  type: https://docs.breakdown.example/problems/dependency.auth-failed
 - code: season.validation
   extensions: []
   status: 422

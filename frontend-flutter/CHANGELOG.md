@@ -20,6 +20,14 @@ releases are cut as `vX.Y.Z` tags (`v<build-name>`, enforced by
 
 ## [Unreleased]
 
+- **Version bump:** `0.4.0-alpha.15+66 → 0.4.0-alpha.16+67` — regenerate the
+  vendored `breakdown_api` client for the backend contract change of issue
+  #637 (backend PR #646): the new `GET /v1/health` (`HealthReport`,
+  `HealthEntry`, `HealthStatus`) and the additive `AiImportJob.next_attempt_at`
+  / `attempts` fields plus the `AiImportAttempt` model. Purely generated
+  (`vendor/breakdown_api/**`, excluded from coverage); no hand-written Dart
+  consumes the new types yet, so no UI change.
+
 - **Version bump:** `0.4.0-alpha.14+65 → 0.4.0-alpha.15+66` — the shell's
   **sticky top bar** redesign (issue #638, OpenSpec change
   `638-shell-top-bar-redesign`). The bar is now a shell-owned two-row

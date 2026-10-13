@@ -91,7 +91,10 @@ where
                 // immutable and the worker cannot observe later applied scenes.
                 // The caller must re-prepare a fresh MergeInput at the API boundary
                 // after scenes are applied (CQRS boundary, AGENTS.md §1).
-                let retryable = !matches!(error, DomainError::Conflict { .. });
+                let retryable = !matches!(
+                    error,
+                    DomainError::Conflict { .. } | DomainError::DependencyAuthFailed { .. }
+                );
                 self.fail(job.id, worker_id, &error, retryable).await?;
                 return Err(error);
             }

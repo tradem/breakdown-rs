@@ -81,6 +81,8 @@ impl RecordingQueue {
                 preview_handle: preview_handle.map(str::to_owned),
                 last_error: None,
                 retries: 0,
+                next_attempt_at: None,
+                attempts: Vec::new(),
                 max_retries: 5,
                 created_at: Utc::now(),
                 updated_at: Utc::now(),

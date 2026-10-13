@@ -23,6 +23,7 @@ import 'package:breakdown_api/src/model/add_scene_costume_beat_request.dart';
 import 'package:breakdown_api/src/model/aggregate_soll_ist_diff_row.dart';
 import 'package:breakdown_api/src/model/aggregate_soll_ist_report.dart';
 import 'package:breakdown_api/src/model/ai_config_view.dart';
+import 'package:breakdown_api/src/model/ai_import_attempt.dart';
 import 'package:breakdown_api/src/model/ai_import_defaults.dart';
 import 'package:breakdown_api/src/model/ai_import_job.dart';
 import 'package:breakdown_api/src/model/ai_import_job_response.dart';
@@ -82,6 +83,9 @@ import 'package:breakdown_api/src/model/finish_scene_shoot_request.dart';
 import 'package:breakdown_api/src/model/g_drive_credential_request.dart';
 import 'package:breakdown_api/src/model/g_drive_credential_update_request.dart';
 import 'package:breakdown_api/src/model/grant_role_request.dart';
+import 'package:breakdown_api/src/model/health_entry.dart';
+import 'package:breakdown_api/src/model/health_report.dart';
+import 'package:breakdown_api/src/model/health_status.dart';
 import 'package:breakdown_api/src/model/id_version_response.dart';
 import 'package:breakdown_api/src/model/invite_member_request.dart';
 import 'package:breakdown_api/src/model/job_status.dart';
@@ -167,6 +171,7 @@ part 'serializers.g.dart';
   AggregateSollIstDiffRow,
   AggregateSollIstReport,
   AiConfigView,
+  AiImportAttempt,
   AiImportDefaults,
   AiImportJob,
   AiImportJobResponse,
@@ -227,6 +232,9 @@ part 'serializers.g.dart';
   $GDriveCredentialRequest,
   GDriveCredentialUpdateRequest,
   GrantRoleRequest,
+  HealthEntry,
+  HealthReport,
+  HealthStatus,
   IdVersionResponse,
   InviteMemberRequest,
   JobStatus,
@@ -356,6 +364,10 @@ Serializers serializers = (_$serializers.toBuilder()
         () => ListBuilder<EpisodeView>(),
       )
       ..addBuilderFactory(
+        const FullType(BuiltList, [FullType(AiImportAttempt)]),
+        () => ListBuilder<AiImportAttempt>(),
+      )
+      ..addBuilderFactory(
         const FullType(BuiltList, [FullType(AiProviderInfo)]),
         () => ListBuilder<AiProviderInfo>(),
       )
@@ -447,6 +459,10 @@ Serializers serializers = (_$serializers.toBuilder()
       ..addBuilderFactory(
         const FullType(BuiltList, [FullType(CostumeView)]),
         () => ListBuilder<CostumeView>(),
+      )
+      ..addBuilderFactory(
+        const FullType(BuiltMap, [FullType(String), FullType(HealthEntry)]),
+        () => MapBuilder<String, HealthEntry>(),
       )
       ..addBuilderFactory(
         const FullType(BuiltList, [FullType(UnappliedCostume)]),

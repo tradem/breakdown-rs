@@ -15,6 +15,7 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..add(AggregateSollIstDiffRow.serializer)
       ..add(AggregateSollIstReport.serializer)
       ..add(AiConfigView.serializer)
+      ..add(AiImportAttempt.serializer)
       ..add(AiImportDefaults.serializer)
       ..add(AiImportJob.serializer)
       ..add(AiImportJobResponse.serializer)
@@ -78,6 +79,9 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..add(FinishSceneShootRequest.serializer)
       ..add(GDriveCredentialUpdateRequest.serializer)
       ..add(GrantRoleRequest.serializer)
+      ..add(HealthEntry.serializer)
+      ..add(HealthReport.serializer)
+      ..add(HealthStatus.serializer)
       ..add(IdVersionResponse.serializer)
       ..add(InviteMemberRequest.serializer)
       ..add(JobStatus.serializer)
@@ -156,6 +160,9 @@ Serializers _$serializers = (Serializers().toBuilder()
           const FullType(
               BuiltList, const [const FullType(AggregateSollIstDiffRow)]),
           () => ListBuilder<AggregateSollIstDiffRow>())
+      ..addBuilderFactory(
+          const FullType(BuiltList, const [const FullType(AiImportAttempt)]),
+          () => ListBuilder<AiImportAttempt>())
       ..addBuilderFactory(
           const FullType(
               BuiltList, const [const FullType(AppearanceCostumeView)]),
@@ -242,6 +249,9 @@ Serializers _$serializers = (Serializers().toBuilder()
           const FullType(BuiltList, const [const FullType(String)]),
           () => ListBuilder<String>())
       ..addBuilderFactory(
+          const FullType(BuiltList, const [const FullType(String)]),
+          () => ListBuilder<String>())
+      ..addBuilderFactory(
           const FullType(BuiltList, const [const FullType(DraftCostume)]),
           () => ListBuilder<DraftCostume>())
       ..addBuilderFactory(
@@ -269,6 +279,10 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..addBuilderFactory(
           const FullType(BuiltList, const [const FullType(UnappliedCostume)]),
           () => ListBuilder<UnappliedCostume>())
+      ..addBuilderFactory(
+          const FullType(BuiltMap,
+              const [const FullType(String), const FullType(HealthEntry)]),
+          () => MapBuilder<String, HealthEntry>())
       ..addBuilderFactory(
           const FullType(
               BuiltMap, const [const FullType(String), const FullType(String)]),

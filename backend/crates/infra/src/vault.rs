@@ -16,6 +16,7 @@ use reqwest::{Client, StatusCode};
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::Duration;
 use uuid::Uuid;
 use zeroize::{Zeroize, Zeroizing};
@@ -119,6 +120,18 @@ impl VaultClient {
         DomainError::service_unavailable(format!("Vault unavailable: {}", detail.into()))
     }
 
+    /// A Vault credential/permission failure (401/403, invalid or expired
+    /// token). Distinct from [`Self::unavailable`] so a caller — the AI-import
+    /// worker in particular — can tell a permanent misconfiguration from a
+    /// transient outage and fail fast instead of burning its retry budget
+    /// (issue #637).
+    fn auth_failed(detail: impl Into<String>) -> DomainError {
+        DomainError::dependency_auth_failed(format!(
+            "Vault authentication failed: {}",
+            detail.into()
+        ))
+    }
+
     async fn send<T: Serialize + ?Sized>(
         &self,
         method: reqwest::Method,
@@ -137,10 +150,23 @@ impl VaultClient {
         if let Some(body) = body {
             request = request.json(body);
         }
-        request
+        let response = request
             .send()
             .await
-            .map_err(|err| Self::unavailable(err.to_string()))
+            .map_err(|err| Self::unavailable(err.to_string()))?;
+        // Classify auth failures centrally: every Vault request that answers
+        // 401/403 means our credential was rejected, never a transient
+        // condition, so no caller can accidentally retry it as a blip.
+        if matches!(
+            response.status(),
+            StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN
+        ) {
+            return Err(Self::auth_failed(format!(
+                "Vault rejected the app token (HTTP {})",
+                response.status()
+            )));
+        }
+        Ok(response)
     }
 
     async fn ensure_key(&self, key_id: &str) -> Result<bool, DomainError> {
@@ -503,6 +529,81 @@ impl VaultClient {
             vault_version: 1,
         })
     }
+
+    /// Verify the configured app token is currently accepted by Vault.
+    ///
+    /// Unlike [`check`](Self::check) — which hits the unauthenticated
+    /// `/v1/sys/health` endpoint and therefore cannot detect a lapsed token —
+    /// this calls `auth/token/lookup-self` with the token, so an expired or
+    /// revoked credential is visible *before* the first job fails (issue #637).
+    pub async fn token_valid(&self) -> Result<(), DomainError> {
+        let response = self
+            .send::<()>(reqwest::Method::GET, "auth/token/lookup-self", None)
+            .await?;
+        if response.status().is_success() {
+            Ok(())
+        } else {
+            Err(Self::unavailable(format!(
+                "token lookup returned {}",
+                response.status()
+            )))
+        }
+    }
+
+    /// Renew the periodic app token via `auth/token/renew-self`.
+    ///
+    /// A periodic token (the bootstrap creates `-period=24h`) stays valid
+    /// indefinitely as long as it is renewed before its TTL lapses, and the
+    /// token string does not change on renewal — so the token file the API
+    /// reads keeps working.
+    pub async fn renew_token(&self) -> Result<(), DomainError> {
+        let response = self
+            .send::<()>(reqwest::Method::POST, "auth/token/renew-self", None)
+            .await?;
+        if response.status().is_success() {
+            Ok(())
+        } else {
+            Err(Self::unavailable(format!(
+                "token renewal returned {}",
+                response.status()
+            )))
+        }
+    }
+
+    /// Spawn a background task that renews the app token well before its TTL
+    /// lapses (issue #637).
+    ///
+    /// The bootstrap creates a 24 h *periodic* token; nothing in the API
+    /// renewed it, so a long-running process lost Vault access once it lapsed
+    /// and every KV read answered 403. Renewing at half the period keeps it
+    /// alive without an operator re-running the one-shot bootstrap. A failed
+    /// renewal is logged loudly (it is the signal the health endpoint also
+    /// surfaces) but never panics the task.
+    ///
+    /// The returned handle must be kept alive for the process lifetime; the
+    /// composition root aborts it on shutdown.
+    pub fn spawn_token_renewal(self: Arc<Self>) -> tokio::task::JoinHandle<()> {
+        let interval = parse_renew_interval(
+            std::env::var("VAULT_TOKEN_RENEW_INTERVAL_SECS")
+                .ok()
+                .as_deref(),
+        );
+        tokio::spawn(async move {
+            loop {
+                // Renew once immediately: a restart must not reset the wait to
+                // the full interval while the token TTL keeps running, or the
+                // token could lapse across a restart (review follow-up).
+                match self.renew_token().await {
+                    Ok(()) => tracing::info!("renewed Vault app token"),
+                    Err(error) => tracing::error!(
+                        %error,
+                        "failed to renew Vault app token; Vault access will lapse if this persists"
+                    ),
+                }
+                tokio::time::sleep(interval).await;
+            }
+        })
+    }
 }
 
 #[async_trait::async_trait]
@@ -637,6 +738,26 @@ impl CredentialVault for VaultClient {
     }
 }
 
+/// Default renewal cadence: half of the bootstrap's 24 h token period.
+const DEFAULT_RENEW_INTERVAL_SECS: u64 = 12 * 60 * 60;
+
+/// Upper bound for the renewal cadence: strictly below the 24 h token period,
+/// so the token cannot lapse between two renewals.
+const MAX_RENEW_INTERVAL_SECS: u64 = 23 * 60 * 60;
+
+/// Parse the `VAULT_TOKEN_RENEW_INTERVAL_SECS` override.
+///
+/// Clamped to `60..=23h`: a near-zero interval would hammer Vault, and an
+/// interval at or beyond the 24 h period could let the token lapse before the
+/// next renewal. Only an absent or unparsable value falls back to the default.
+fn parse_renew_interval(raw: Option<&str>) -> Duration {
+    let secs = raw
+        .and_then(|value| value.trim().parse::<u64>().ok())
+        .map(|value| value.clamp(60, MAX_RENEW_INTERVAL_SECS))
+        .unwrap_or(DEFAULT_RENEW_INTERVAL_SECS);
+    Duration::from_secs(secs)
+}
+
 /// Resolve the KV record id for a validated binding key. Legacy bindings use
 /// the bare Settings UUID; rotation bindings use their opaque key id.
 fn record_id_for(settings_id: Uuid, vault_key_id: &str) -> String {
@@ -738,4 +859,38 @@ pub fn decrypt_envelope(dek: &[u8], payload: &[u8]) -> Result<Vec<u8>, &'static 
     cipher
         .decrypt(&nonce, encrypted)
         .map_err(|_| "credential decryption failed")
+}
+
+#[cfg(test)]
+mod renewal_interval_tests {
+    use super::{DEFAULT_RENEW_INTERVAL_SECS, MAX_RENEW_INTERVAL_SECS, parse_renew_interval};
+    use std::time::Duration;
+
+    #[test]
+    fn default_applies_when_absent_or_unparsable() {
+        assert_eq!(
+            parse_renew_interval(None),
+            Duration::from_secs(DEFAULT_RENEW_INTERVAL_SECS)
+        );
+        assert_eq!(
+            parse_renew_interval(Some("not-a-number")),
+            Duration::from_secs(DEFAULT_RENEW_INTERVAL_SECS)
+        );
+    }
+
+    #[test]
+    fn numeric_override_is_clamped_below_the_token_period() {
+        assert_eq!(parse_renew_interval(Some("120")), Duration::from_secs(120));
+        assert_eq!(parse_renew_interval(Some("0")), Duration::from_secs(60));
+        // 24 h or more would let the token lapse before the next renewal; the
+        // upper clamp stays strictly below the period (review follow-up).
+        assert_eq!(
+            parse_renew_interval(Some("86400")),
+            Duration::from_secs(MAX_RENEW_INTERVAL_SECS)
+        );
+        assert_eq!(
+            parse_renew_interval(Some("172800")),
+            Duration::from_secs(MAX_RENEW_INTERVAL_SECS)
+        );
+    }
 }

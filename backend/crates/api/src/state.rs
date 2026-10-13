@@ -177,6 +177,10 @@ pub struct AppState<P: Ports> {
     /// AI document size bound, resolved once from `AiImportFeature` at state
     /// construction so the handler and the extractor share one value.
     pub ai_import_max_document_bytes: u64,
+    /// Dependency health checks rendered by the public `GET /v1/health` route
+    /// (issue #637). Empty by default so unit tests need no infrastructure;
+    /// the composition root fills it with the real checks.
+    pub health: Arc<crate::health::HealthRegistry>,
 }
 
 impl<P: Ports> std::fmt::Debug for AppState<P> {
@@ -239,7 +243,15 @@ where
             authorization_policy,
             ai_import_enabled,
             ai_import_max_document_bytes,
+            health: Arc::new(crate::health::HealthRegistry::default()),
         }
+    }
+
+    /// Install the composition root's dependency health checks (issue #637).
+    #[must_use]
+    pub fn with_health(mut self, health: Arc<crate::health::HealthRegistry>) -> Self {
+        self.health = health;
+        self
     }
 }
 

@@ -44,6 +44,6 @@ pub use preview::{
     verify_draft_costumes,
 };
 pub use views::{
-    AiConfigView, AiImportJob, AiImportJobId, DocumentKind, JobStatus, SourceFormat, Telemetry,
-    TelemetryApplyState,
+    AiConfigView, AiImportAttempt, AiImportJob, AiImportJobId, DocumentKind, JobStatus,
+    SourceFormat, Telemetry, TelemetryApplyState,
 };

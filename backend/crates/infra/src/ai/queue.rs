@@ -7,8 +7,8 @@
 use std::time::Duration;
 
 use breakdown_core::ai::{
-    AiImportEnqueueRequest, AiImportEnqueueResult, AiImportJob, AiImportJobId, AiImportQueue,
-    DocumentKind, JobStatus, SourceFormat, Telemetry,
+    AiImportAttempt, AiImportEnqueueRequest, AiImportEnqueueResult, AiImportJob, AiImportJobId,
+    AiImportQueue, DocumentKind, JobStatus, SourceFormat, Telemetry,
 };
 use breakdown_core::error::DomainError;
 use breakdown_core::shared::UserId;
@@ -46,6 +46,11 @@ const _LEASE_BOUNDS_INVARIANT: () = assert!(
         && MIN_LEASE_SECS <= DEFAULT_LEASE_SECS
         && DEFAULT_LEASE_SECS <= MAX_LEASE_SECS
 );
+
+/// Upper bound on the per-job attempt history returned to a caller (issue
+/// #637). A job can accumulate many attempts over its life; the read surface
+/// only needs enough to explain the failure sequence.
+const ATTEMPT_HISTORY_LIMIT: i64 = 20;
 
 #[derive(Clone, Debug)]
 pub struct PgAiImportQueue {
@@ -415,7 +420,13 @@ impl AiImportQueue for PgAiImportQueue {
         .fetch_optional(&self.pool)
         .await
         .map_err(map_sqlx_error)?;
-        row.map(map_job_row).transpose()
+        match row.map(map_job_row).transpose()? {
+            Some(mut job) => {
+                job.attempts = self.list_attempts(id, ATTEMPT_HISTORY_LIMIT).await?;
+                Ok(Some(job))
+            }
+            None => Ok(None),
+        }
     }
 
     /// List the caller's jobs, newest first (issue #337).
@@ -510,45 +521,58 @@ impl AiImportQueue for PgAiImportQueue {
         error_summary: &str,
         retryable: bool,
     ) -> Result<(), DomainError> {
+        // The attempt row is appended in the same statement as the lifecycle
+        // write, so a failed attempt can never exist without its history row
+        // (or vice versa). `rows_affected` is the INSERT's count: a fenced-out
+        // UPDATE returns nothing from the CTE, so no attempt is recorded and
+        // `ensure_claim_owned` still sees zero.
         let result = sqlx::query(
             r#"
-            UPDATE ai_import.ai_import_job
-            SET retries = retries + 1,
-                status = CASE
-                    WHEN $4 AND retries + 1 < max_retries THEN 'failed'
-                    ELSE 'dead_letter'
-                END,
-                last_error = LEFT($3, 1000),
-                next_attempt_at = CASE
-                    WHEN $4 AND retries + 1 < max_retries
-                        -- Exponential backoff: 1min * 2^retries, capped at
-                        -- ~5.3h after 8 retries, so a failing dependency is not
-                        -- hammered at a fixed one-minute cadence.
-                        THEN now() + LEAST(
-                            interval '1 minute' * power(2, retries)::int,
-                            interval '6 hours'
-                        )
-                    ELSE NULL
-                END,
-                -- A terminal or backing-off job holds no claim: releasing the
-                -- lease here keeps `running` the only leased state, so the
-                -- reclaim predicate can never resurrect a failed job early.
-                worker_id = NULL,
-                lease_expires_at = NULL,
-                -- Likewise the permit link. This matters most on the retryable
-                -- branch: the job stays claimable, so a stale id would be read
-                -- by the next reclaim and deleted — freeing a permit that this
-                -- worker already released, and whose id may since belong to
-                -- someone else.
-                permit_id = NULL,
-                updated_at = now()
-            WHERE id = $1 AND status = 'running' AND worker_id = $2
+            WITH updated AS (
+                UPDATE ai_import.ai_import_job
+                SET retries = retries + 1,
+                    status = CASE
+                        WHEN $4 AND retries + 1 < max_retries THEN 'failed'
+                        ELSE 'dead_letter'
+                    END,
+                    last_error = LEFT($3, 1000),
+                    next_attempt_at = CASE
+                        WHEN $4 AND retries + 1 < max_retries
+                            -- Exponential backoff: 1min * 2^retries, capped at
+                            -- ~5.3h after 8 retries, so a failing dependency is not
+                            -- hammered at a fixed one-minute cadence.
+                            THEN now() + LEAST(
+                                interval '1 minute' * power(2, retries)::int,
+                                interval '6 hours'
+                            )
+                        ELSE NULL
+                    END,
+                    -- A terminal or backing-off job holds no claim: releasing the
+                    -- lease here keeps `running` the only leased state, so the
+                    -- reclaim predicate can never resurrect a failed job early.
+                    worker_id = NULL,
+                    lease_expires_at = NULL,
+                    -- Likewise the permit link. This matters most on the retryable
+                    -- branch: the job stays claimable, so a stale id would be read
+                    -- by the next reclaim and deleted — freeing a permit that this
+                    -- worker already released, and whose id may since belong to
+                    -- someone else.
+                    permit_id = NULL,
+                    updated_at = now()
+                WHERE id = $1 AND status = 'running' AND worker_id = $2
+                RETURNING id, retries, status, last_error
+            )
+            INSERT INTO ai_import.ai_import_job_attempt
+                (id, job_id, attempt_no, status, error_summary, retryable)
+            SELECT $5, id, retries, status, last_error, $4
+            FROM updated
             "#,
         )
         .bind(id.as_uuid())
         .bind(worker_id)
         .bind(error_summary)
         .bind(retryable)
+        .bind(Uuid::now_v7())
         .execute(&self.pool)
         .await
         .map_err(map_sqlx_error)?;
@@ -574,20 +598,31 @@ impl AiImportQueue for PgAiImportQueue {
     ) -> Result<(), DomainError> {
         let result = sqlx::query(
             r#"
-            UPDATE ai_import.ai_import_job
-            SET status = 'payload_unavailable',
-                last_error = LEFT($3, 1000),
-                next_attempt_at = NULL,
-                worker_id = NULL,
-                lease_expires_at = NULL,
-                permit_id = NULL,
-                updated_at = now()
-            WHERE id = $1 AND status = 'running' AND worker_id = $2
+            WITH updated AS (
+                UPDATE ai_import.ai_import_job
+                SET status = 'payload_unavailable',
+                    last_error = LEFT($3, 1000),
+                    next_attempt_at = NULL,
+                    worker_id = NULL,
+                    lease_expires_at = NULL,
+                    permit_id = NULL,
+                    updated_at = now()
+                WHERE id = $1 AND status = 'running' AND worker_id = $2
+                RETURNING id, retries, status, last_error
+            )
+            INSERT INTO ai_import.ai_import_job_attempt
+                (id, job_id, attempt_no, status, error_summary, retryable)
+            -- `retries` is unchanged on this path, so the attempt that made the
+            -- discovery is `retries + 1` (matching `mark_failed`'s post-increment
+            -- numbering).
+            SELECT $4, id, retries + 1, status, last_error, FALSE
+            FROM updated
             "#,
         )
         .bind(id.as_uuid())
         .bind(worker_id)
         .bind(error_summary)
+        .bind(Uuid::now_v7())
         .execute(&self.pool)
         .await
         .map_err(map_sqlx_error)?;
@@ -654,6 +689,29 @@ impl AiImportQueue for PgAiImportQueue {
             .await
             .map_err(map_sqlx_error)?;
         Ok(())
+    }
+
+    async fn list_attempts(
+        &self,
+        id: AiImportJobId,
+        limit: i64,
+    ) -> Result<Vec<AiImportAttempt>, DomainError> {
+        let limit = limit.clamp(1, ATTEMPT_HISTORY_LIMIT);
+        let rows = sqlx::query(
+            r#"
+            SELECT attempt_no, status, error_summary, retryable, created_at
+            FROM ai_import.ai_import_job_attempt
+            WHERE job_id = $1
+            ORDER BY attempt_no DESC
+            LIMIT $2
+            "#,
+        )
+        .bind(id.as_uuid())
+        .bind(limit)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(map_sqlx_error)?;
+        rows.into_iter().map(map_attempt_row).collect()
     }
 }
 
@@ -807,8 +865,26 @@ fn map_job_row(row: sqlx::postgres::PgRow) -> Result<AiImportJob, DomainError> {
             .try_get::<i32, _>("max_retries")
             .map_err(map_sqlx_error)?
             .max(0) as u32,
+        next_attempt_at: row.try_get("next_attempt_at").map_err(map_sqlx_error)?,
         created_at,
         updated_at,
+        // Populated by `get` (single-job read); list/claim contexts leave it
+        // empty so they do not pay N+1 history queries.
+        attempts: Vec::new(),
+    })
+}
+
+/// Decode one `ai_import.ai_import_job_attempt` row (issue #637).
+fn map_attempt_row(row: sqlx::postgres::PgRow) -> Result<AiImportAttempt, DomainError> {
+    Ok(AiImportAttempt {
+        attempt_no: row
+            .try_get::<i32, _>("attempt_no")
+            .map_err(map_sqlx_error)?
+            .max(0) as u32,
+        status: parse_status(row.try_get("status").map_err(map_sqlx_error)?)?,
+        error_summary: row.try_get("error_summary").map_err(map_sqlx_error)?,
+        retryable: row.try_get("retryable").map_err(map_sqlx_error)?,
+        created_at: row.try_get("created_at").map_err(map_sqlx_error)?,
     })
 }
 

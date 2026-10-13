@@ -87,7 +87,7 @@ fn api_routes_are_behind_auth_middleware() {
     //  patterns, not method-verb pairs.)
     assert_eq!(
         api.len(),
-        92,
+        93,
         "number of API route path patterns has changed — \
          see doc comment above for update instructions"
     );
@@ -114,6 +114,8 @@ fn api_routes_have_deliberate_authorization_requirement() {
     //                     that require active membership in the active block.
     let expected: &[(&str, Requirement)] = &[
         // Settings — authenticated edge; ADR-028 adds role-specific checks.
+        // Public probe surface (issue #637): no authentication by design.
+        ("/health", Requirement::Public),
         ("/settings/credentials", Requirement::Authenticated),
         ("/settings/gdrive", Requirement::Authenticated),
         ("/settings/{id}/gdrive", Requirement::Authenticated),

@@ -8,6 +8,8 @@ part of 'ai_import_job.dart';
 
 class _$AiImportJob extends AiImportJob {
   @override
+  final BuiltList<AiImportAttempt>? attempts;
+  @override
   final String? blockId;
   @override
   final DateTime createdAt;
@@ -23,6 +25,8 @@ class _$AiImportJob extends AiImportJob {
   final String? lastError;
   @override
   final int maxRetries;
+  @override
+  final DateTime? nextAttemptAt;
   @override
   final String? previewHandle;
   @override
@@ -42,7 +46,8 @@ class _$AiImportJob extends AiImportJob {
       (AiImportJobBuilder()..update(updates))._build();
 
   _$AiImportJob._(
-      {this.blockId,
+      {this.attempts,
+      this.blockId,
       required this.createdAt,
       required this.dedupKey,
       required this.documentDigest,
@@ -50,6 +55,7 @@ class _$AiImportJob extends AiImportJob {
       required this.id,
       this.lastError,
       required this.maxRetries,
+      this.nextAttemptAt,
       this.previewHandle,
       required this.retries,
       required this.sourceFormat,
@@ -69,6 +75,7 @@ class _$AiImportJob extends AiImportJob {
   bool operator ==(Object other) {
     if (identical(other, this)) return true;
     return other is AiImportJob &&
+        attempts == other.attempts &&
         blockId == other.blockId &&
         createdAt == other.createdAt &&
         dedupKey == other.dedupKey &&
@@ -77,6 +84,7 @@ class _$AiImportJob extends AiImportJob {
         id == other.id &&
         lastError == other.lastError &&
         maxRetries == other.maxRetries &&
+        nextAttemptAt == other.nextAttemptAt &&
         previewHandle == other.previewHandle &&
         retries == other.retries &&
         sourceFormat == other.sourceFormat &&
@@ -89,6 +97,7 @@ class _$AiImportJob extends AiImportJob {
   @override
   int get hashCode {
     var _$hash = 0;
+    _$hash = $jc(_$hash, attempts.hashCode);
     _$hash = $jc(_$hash, blockId.hashCode);
     _$hash = $jc(_$hash, createdAt.hashCode);
     _$hash = $jc(_$hash, dedupKey.hashCode);
@@ -97,6 +106,7 @@ class _$AiImportJob extends AiImportJob {
     _$hash = $jc(_$hash, id.hashCode);
     _$hash = $jc(_$hash, lastError.hashCode);
     _$hash = $jc(_$hash, maxRetries.hashCode);
+    _$hash = $jc(_$hash, nextAttemptAt.hashCode);
     _$hash = $jc(_$hash, previewHandle.hashCode);
     _$hash = $jc(_$hash, retries.hashCode);
     _$hash = $jc(_$hash, sourceFormat.hashCode);
@@ -111,6 +121,7 @@ class _$AiImportJob extends AiImportJob {
   @override
   String toString() {
     return (newBuiltValueToStringHelper(r'AiImportJob')
+          ..add('attempts', attempts)
           ..add('blockId', blockId)
           ..add('createdAt', createdAt)
           ..add('dedupKey', dedupKey)
@@ -119,6 +130,7 @@ class _$AiImportJob extends AiImportJob {
           ..add('id', id)
           ..add('lastError', lastError)
           ..add('maxRetries', maxRetries)
+          ..add('nextAttemptAt', nextAttemptAt)
           ..add('previewHandle', previewHandle)
           ..add('retries', retries)
           ..add('sourceFormat', sourceFormat)
@@ -132,6 +144,12 @@ class _$AiImportJob extends AiImportJob {
 
 class AiImportJobBuilder implements Builder<AiImportJob, AiImportJobBuilder> {
   _$AiImportJob? _$v;
+
+  ListBuilder<AiImportAttempt>? _attempts;
+  ListBuilder<AiImportAttempt> get attempts =>
+      _$this._attempts ??= ListBuilder<AiImportAttempt>();
+  set attempts(ListBuilder<AiImportAttempt>? attempts) =>
+      _$this._attempts = attempts;
 
   String? _blockId;
   String? get blockId => _$this._blockId;
@@ -166,6 +184,11 @@ class AiImportJobBuilder implements Builder<AiImportJob, AiImportJobBuilder> {
   int? _maxRetries;
   int? get maxRetries => _$this._maxRetries;
   set maxRetries(int? maxRetries) => _$this._maxRetries = maxRetries;
+
+  DateTime? _nextAttemptAt;
+  DateTime? get nextAttemptAt => _$this._nextAttemptAt;
+  set nextAttemptAt(DateTime? nextAttemptAt) =>
+      _$this._nextAttemptAt = nextAttemptAt;
 
   String? _previewHandle;
   String? get previewHandle => _$this._previewHandle;
@@ -204,6 +227,7 @@ class AiImportJobBuilder implements Builder<AiImportJob, AiImportJobBuilder> {
   AiImportJobBuilder get _$this {
     final $v = _$v;
     if ($v != null) {
+      _attempts = $v.attempts?.toBuilder();
       _blockId = $v.blockId;
       _createdAt = $v.createdAt;
       _dedupKey = $v.dedupKey;
@@ -212,6 +236,7 @@ class AiImportJobBuilder implements Builder<AiImportJob, AiImportJobBuilder> {
       _id = $v.id;
       _lastError = $v.lastError;
       _maxRetries = $v.maxRetries;
+      _nextAttemptAt = $v.nextAttemptAt;
       _previewHandle = $v.previewHandle;
       _retries = $v.retries;
       _sourceFormat = $v.sourceFormat;
@@ -238,35 +263,50 @@ class AiImportJobBuilder implements Builder<AiImportJob, AiImportJobBuilder> {
   AiImportJob build() => _build();
 
   _$AiImportJob _build() {
-    final _$result = _$v ??
-        _$AiImportJob._(
-          blockId: blockId,
-          createdAt: BuiltValueNullFieldError.checkNotNull(
-              createdAt, r'AiImportJob', 'createdAt'),
-          dedupKey: BuiltValueNullFieldError.checkNotNull(
-              dedupKey, r'AiImportJob', 'dedupKey'),
-          documentDigest: BuiltValueNullFieldError.checkNotNull(
-              documentDigest, r'AiImportJob', 'documentDigest'),
-          documentKind: BuiltValueNullFieldError.checkNotNull(
-              documentKind, r'AiImportJob', 'documentKind'),
-          id: BuiltValueNullFieldError.checkNotNull(id, r'AiImportJob', 'id'),
-          lastError: lastError,
-          maxRetries: BuiltValueNullFieldError.checkNotNull(
-              maxRetries, r'AiImportJob', 'maxRetries'),
-          previewHandle: previewHandle,
-          retries: BuiltValueNullFieldError.checkNotNull(
-              retries, r'AiImportJob', 'retries'),
-          sourceFormat: BuiltValueNullFieldError.checkNotNull(
-              sourceFormat, r'AiImportJob', 'sourceFormat'),
-          sourceHandle: BuiltValueNullFieldError.checkNotNull(
-              sourceHandle, r'AiImportJob', 'sourceHandle'),
-          status: BuiltValueNullFieldError.checkNotNull(
-              status, r'AiImportJob', 'status'),
-          updatedAt: BuiltValueNullFieldError.checkNotNull(
-              updatedAt, r'AiImportJob', 'updatedAt'),
-          userId: BuiltValueNullFieldError.checkNotNull(
-              userId, r'AiImportJob', 'userId'),
-        );
+    _$AiImportJob _$result;
+    try {
+      _$result = _$v ??
+          _$AiImportJob._(
+            attempts: _attempts?.build(),
+            blockId: blockId,
+            createdAt: BuiltValueNullFieldError.checkNotNull(
+                createdAt, r'AiImportJob', 'createdAt'),
+            dedupKey: BuiltValueNullFieldError.checkNotNull(
+                dedupKey, r'AiImportJob', 'dedupKey'),
+            documentDigest: BuiltValueNullFieldError.checkNotNull(
+                documentDigest, r'AiImportJob', 'documentDigest'),
+            documentKind: BuiltValueNullFieldError.checkNotNull(
+                documentKind, r'AiImportJob', 'documentKind'),
+            id: BuiltValueNullFieldError.checkNotNull(id, r'AiImportJob', 'id'),
+            lastError: lastError,
+            maxRetries: BuiltValueNullFieldError.checkNotNull(
+                maxRetries, r'AiImportJob', 'maxRetries'),
+            nextAttemptAt: nextAttemptAt,
+            previewHandle: previewHandle,
+            retries: BuiltValueNullFieldError.checkNotNull(
+                retries, r'AiImportJob', 'retries'),
+            sourceFormat: BuiltValueNullFieldError.checkNotNull(
+                sourceFormat, r'AiImportJob', 'sourceFormat'),
+            sourceHandle: BuiltValueNullFieldError.checkNotNull(
+                sourceHandle, r'AiImportJob', 'sourceHandle'),
+            status: BuiltValueNullFieldError.checkNotNull(
+                status, r'AiImportJob', 'status'),
+            updatedAt: BuiltValueNullFieldError.checkNotNull(
+                updatedAt, r'AiImportJob', 'updatedAt'),
+            userId: BuiltValueNullFieldError.checkNotNull(
+                userId, r'AiImportJob', 'userId'),
+          );
+    } catch (_) {
+      late String _$failedField;
+      try {
+        _$failedField = 'attempts';
+        _attempts?.build();
+      } catch (e) {
+        throw BuiltValueNestedFieldError(
+            r'AiImportJob', _$failedField, e.toString());
+      }
+      rethrow;
+    }
     replace(_$result);
     return _$result;
   }
