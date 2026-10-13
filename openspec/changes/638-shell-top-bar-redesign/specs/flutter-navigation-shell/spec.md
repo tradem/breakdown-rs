@@ -31,12 +31,15 @@ visible title, the hierarchy breadcrumb (`LocationStrip`) and the search
 affordance. The top bar SHALL stay pinned above the view content across
 destination switches, and the destination roots SHALL NOT render their own
 app bar (the shell view bar carries the title). The profile and search
-affordances SHALL open inside the active destination's nested navigator.
-The breadcrumb SHALL wrap onto further lines instead of dropping its
-outermost levels when the chain does not fit beside the title and the
-search affordance; only a single level wider than the whole line SHALL
-ellipsize, and the breadcrumb's merged semantics node SHALL always announce
-the full path.
+affordances SHALL push the SCREENS they open (the OmniSearch surface, the
+settings screen) onto the active destination's nested navigator, so back
+returns to that destination; their transient MODAL surfaces (the profile
+menu sheet and the About dialog) SHALL stay on the shell's root navigator,
+so their scrim covers the whole shell. The breadcrumb SHALL wrap onto
+further lines instead of dropping its outermost levels when the chain does
+not fit beside the title and the search affordance; only a single level
+wider than the whole line SHALL ellipsize, and the breadcrumb's merged
+semantics node SHALL always announce the full path.
 
 #### Scenario: Row composition
 - **WHEN** the shell renders for a resolved authenticated session.
@@ -68,6 +71,12 @@ the full path.
 - **WHEN** the user taps the search affordance.
 - **THEN** the OmniSearch surface pushes on the active destination's nested
   navigator.
+
+#### Scenario: Profile modal surfaces stay shell-level
+- **WHEN** the user taps the profile affordance and then *Einstellungen*.
+- **THEN** the menu sheet is hosted by the shell's root navigator (its
+  scrim covers row 1, row 2 and the destination bar), and the settings
+  screen pushes on the active destination's nested navigator.
 
 ### Requirement: Scope Pill Visual Hierarchy
 

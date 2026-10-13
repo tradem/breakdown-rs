@@ -608,7 +608,8 @@ void main() {
       await pumpFrames(tester, n: 4);
       await tester.tap(find.byKey(const Key('active-scope-chip')));
       await pumpFrames(tester, n: 12);
-      // The picker opened on the active tab's nested navigator.
+      // The picker opened on the shell's ROOT navigator (it covers the
+      // shell) — not on the active tab's nested navigator.
       expect(find.byKey(const Key('block-scope-picker')), findsOneWidget);
       // Picking a block changes the scope and pops back.
       await tester.tap(find.byKey(const Key('block-scope-pick-b-1')));
@@ -644,13 +645,18 @@ void main() {
       tester,
     ) async {
       const statusBar = 28.0;
+      // ONE container and ONE view teardown for the whole loop: the width is
+      // the only thing that varies, so a per-iteration `setupContainer()`
+      // would build three throwaway databases, three provider containers and
+      // three `tester.view.reset` callbacks for a test that asserts geometry.
+      await setupContainer();
+      tester.view.devicePixelRatio = 1.0;
+      tester.view.padding = const FakeViewPadding(top: statusBar);
+      tester.view.viewPadding = const FakeViewPadding(top: statusBar);
+      addTearDown(tester.view.reset);
+
       for (final widthDp in [360.0, 700.0, 1000.0]) {
-        await setupContainer();
         tester.view.physicalSize = Size(widthDp, 800);
-        tester.view.devicePixelRatio = 1.0;
-        tester.view.padding = const FakeViewPadding(top: statusBar);
-        tester.view.viewPadding = const FakeViewPadding(top: statusBar);
-        addTearDown(tester.view.reset);
         await tester.pumpWidget(
           UncontrolledProviderScope(
             container: container,
@@ -784,6 +790,67 @@ void main() {
       await tester.tap(find.byKey(const Key('active-scope-chip')));
       await pumpFrames(tester, n: 12);
       expect(find.byKey(const Key('block-scope-picker')), findsOneWidget);
+    });
+
+    testWidgets('profile MODALS are shell-level, not destination-level', (
+      tester,
+    ) async {
+      await setupContainer();
+      await pumpShell(tester, widthDp: 360);
+
+      await tester.tap(find.byKey(const Key('profile-menu-button')));
+      await pumpFrames(tester, n: 30);
+
+      // The menu sheet is hosted by the ROOT navigator, so its scrim covers
+      // row 1, row 2 and the destination bar. Hosting it in the active
+      // destination's nested navigator would (a) lay the scrim out inside
+      // that destination's box, leaving the top bar and the destination bar
+      // tappable, and (b) keep the sheet alive in the shell's `IndexedStack`
+      // across a destination switch as an invisible route that back pops.
+      final sheetContext = tester.element(
+        find.byKey(const Key('profile-identity')),
+      );
+      expect(
+        Navigator.of(sheetContext),
+        same(Navigator.of(sheetContext, rootNavigator: true)),
+        reason: 'the profile sheet must sit on the root navigator',
+      );
+
+      // The About dialog is the second modal and follows the same rule.
+      await tester.tap(find.byKey(const Key('profile-about')));
+      await pumpFrames(tester);
+      final dialogContext = tester.element(
+        find.byKey(const Key('info-dialog')),
+      );
+      expect(
+        Navigator.of(dialogContext),
+        same(Navigator.of(dialogContext, rootNavigator: true)),
+        reason: 'the About dialog must sit on the root navigator',
+      );
+    });
+
+    testWidgets('profile SCREENS push into the active destination', (
+      tester,
+    ) async {
+      await setupContainer();
+      await pumpShell(tester, widthDp: 360);
+
+      await tester.tap(find.byKey(const Key('profile-menu-button')));
+      await pumpFrames(tester, n: 30);
+      await tester.tap(find.byKey(const Key('profile-settings')));
+      await pumpFrames(tester, n: 30);
+
+      // The pushed screen IS destination-level: it is hosted by the nested
+      // navigator (NOT the root one), so back returns to the destination
+      // instead of leaving the shell. Same seam as the OmniSearch surface.
+      final settingsContext = tester.element(
+        find.byKey(const Key('settings-screen')),
+      );
+      expect(
+        Navigator.of(settingsContext),
+        isNot(same(Navigator.of(settingsContext, rootNavigator: true))),
+        reason: 'the settings screen must sit on the destination navigator',
+      );
     });
   });
 

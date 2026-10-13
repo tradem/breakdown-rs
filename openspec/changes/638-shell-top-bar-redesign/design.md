@@ -106,6 +106,16 @@ there"), `ShellSearchAction` / `ProfileMenuButton` accept an optional
 `Navigator.of(context)`. The shell passes the active destination's
 navigator key.
 
+The seam covers PUSHED SCREENS only — the OmniSearch surface and
+`SettingsScreen`. The two transient modals the profile affordance opens (the
+menu bottom sheet and the About dialog) deliberately stay on the shell's
+ROOT navigator: a modal hosted by a destination navigator is laid out inside
+that destination's box, so its scrim would leave row 1, row 2 and the
+destination bar tappable, and it would survive a destination switch in the
+shell's keep-alive `IndexedStack` as an invisible route that back then pops.
+The sheet and the dialog are shell-level surfaces; only the screen they push
+is destination-level.
+
 ## Risks
 
 - **Golden churn:** the shell goldens change for all three morphologies ×

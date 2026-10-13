@@ -155,7 +155,9 @@ class _ScopeRow extends StatelessWidget {
 
   /// The scope pickers keep the shell's own (root) navigator — they cover
   /// the shell, exactly as they did before the top bar was redesigned
-  /// (design D7 of `638-shell-top-bar-redesign`).
+  /// (design.md *Out of scope* of `638-shell-top-bar-redesign`). Note that
+  /// this is NOT design D7: D7 covers only the search/profile seam, which
+  /// targets the DESTINATION navigator — the opposite direction.
   void _push(BuildContext context, Widget screen) {
     // Fire-and-forget navigation (no result consumed).
     unawaited(
