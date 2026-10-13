@@ -1,0 +1,20 @@
+# SPDX-License-Identifier: AGPL-3.0
+# Copyright (C) 2024-2026 Breakdown RS Contributors
+# Co-authored-by: deepseek-v4.1-flash (neuralwatt)
+
+[build]
+# Issue #631: raised from 3 to 8 on the 12-core / 15 GB dev machine, which
+# was under-utilised. The linker is the memory peak, so 8 leaves headroom;
+# the reduced debug info in the dev/test profiles (see the workspace
+# Cargo.toml) is what makes the higher parallelism safe. Low-RAM hosts can
+# override this per-machine without editing the tracked file:
+#   CARGO_BUILD_JOBS=3 cargo test -p api
+jobs = 8
+
+[target.x86_64-unknown-linux-gnu]
+# Issue #631: prefer a faster linker (mold → lld → system default). The
+# wrapper keeps the C compiler as the link driver and degrades gracefully
+# when neither mold nor lld is installed, so no machine is broken by this.
+# The path is resolved relative to the workspace root — the directory cargo
+# runs rustc in — so it works regardless of the invocation CWD.
+linker = "scripts/cc-linker.sh"

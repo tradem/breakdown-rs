@@ -2,6 +2,7 @@
 # Copyright (C) 2024-2026 Breakdown RS Contributors
 # Co-authored-by: deepseek-v4-flash (opencode-go)
 # Co-authored-by: glm-5.3-flash (opencode-go)
+# Co-authored-by: deepseek-v4.1-flash (neuralwatt)
 
 [package]
 name = "api"
@@ -9,6 +10,11 @@ version = "0.23.0"
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
+# Issue #631: integration tests are grouped into the explicit `[[test]]`
+# harnesses below; the case files are `#[path]`-included modules. Disable
+# auto-discovery so cargo does not treat every `tests/*.rs` as its own
+# target (which would link the full graph 30+ times).
+autotests = false
 
 [features]
 # Dummy feature to satisfy cargo-mutants global `features = ["test-support"]`
@@ -89,6 +95,30 @@ hyper = { version = "1", features = ["server", "http1"] }
 tower = "0.5"
 # Coverage lint parses the FTL bundles (tests only).
 fluent-syntax = "0.12"
+
+# Issue #631: explicit integration-test harnesses. Each harness includes
+# its case files as `#[path]` modules, so the api+infra+core+typst+… graph
+# is linked a handful of times instead of once per case file (was 33).
+# Keep this list in sync when adding a case file; see tests/README.md.
+[[test]]
+name = "auth"
+path = "tests/auth.rs"
+
+[[test]]
+name = "handlers"
+path = "tests/handlers.rs"
+
+[[test]]
+name = "handlers_ai"
+path = "tests/handlers_ai.rs"
+
+[[test]]
+name = "contract"
+path = "tests/contract.rs"
+
+[[test]]
+name = "fault_injection"
+path = "tests/fault_injection.rs"
 
 [lints]
 workspace = true

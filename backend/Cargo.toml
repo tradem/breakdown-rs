@@ -2,6 +2,7 @@
 # Copyright (C) 2024-2026 Breakdown RS Contributors
 # Co-authored-by: deepseek-v4-flash (opencode-go)
 # Co-authored-by: glm-5.3-flash (opencode-go)
+# Co-authored-by: deepseek-v4.1-flash (neuralwatt)
 
 [workspace]
 resolver = "2"
@@ -152,3 +153,26 @@ await_holding_refcell_ref = "deny"
 # never executes and credential material lingers in leaked storage
 # (security: secrets would not be wiped on drop).
 mem_forget = "deny"
+
+# ─── Dev/test build performance (issue #631) ─────────────────────────────
+#
+# Full DWARF (`debug = true`, the dev/test default) made the `api`
+# integration-test binaries ~1 GB each and pushed a single link to 26–40 min
+# on a 12-core / 15 GB machine. On btrfs the many large artifacts also
+# exhausted filesystem metadata, surfacing as `ld ... signal 7 [Bus error]`.
+#
+# `debug = "line-tables-only"` keeps file/line info for readable backtraces
+# but drops the bulky variable/type DWARF; `split-debuginfo = "unpacked"`
+# keeps the remaining DWARF in `.dwo`/`.dwp` sidecars instead of embedding it
+# in every linked executable. Together they cut link time, executable size and
+# the `target/` file/metadata footprint without losing useful backtraces.
+# Release profiles are untouched. `split-debuginfo` only affects Linux/macOS;
+# it is accepted (and ignored) elsewhere. See `backend/AGENTS.md` §8 and
+# `.github/instructions/build-performance.instructions.md`.
+[profile.dev]
+debug = "line-tables-only"
+split-debuginfo = "unpacked"
+
+[profile.test]
+debug = "line-tables-only"
+split-debuginfo = "unpacked"

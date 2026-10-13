@@ -9,7 +9,7 @@
     clippy::print_stderr,
     clippy::dbg_macro
 )]
-mod common;
+use crate::common;
 use utoipa::OpenApi;
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 

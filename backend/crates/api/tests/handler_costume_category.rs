@@ -20,7 +20,7 @@
     clippy::dbg_macro
 )]
 
-mod common;
+use crate::common;
 
 use api::auth::CurrentUser;
 use api::handlers::{SetCostumeCategoryRequest, set_costume_category};

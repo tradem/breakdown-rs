@@ -25,7 +25,7 @@
 // Co-authored-by: space-bunny-free (opencode-go)
 
 #![allow(clippy::expect_used)]
-mod common;
+use crate::common;
 
 use api::problems::Json; // test-only alias for the wrapper extractor (ADR-031)
 use api::problems::{Path, Query};

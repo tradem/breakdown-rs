@@ -23,7 +23,7 @@ use api::auth::CurrentUser;
 use api::handlers::{CreateSceneRequest, create_scene, get_scene};
 use api::state::AppState;
 
-mod common;
+use crate::common;
 
 #[tokio::test]
 async fn create_scene_returns_201_with_id_and_version() {

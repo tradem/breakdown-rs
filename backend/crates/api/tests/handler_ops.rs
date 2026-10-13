@@ -14,7 +14,7 @@
     clippy::print_stderr,
     clippy::dbg_macro
 )]
-mod common;
+use crate::common;
 
 use axum::extract::State;
 use axum::http::StatusCode;

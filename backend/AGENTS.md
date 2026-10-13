@@ -3,6 +3,7 @@
 <!-- Co-authored-by: gpt-5.6-luna (opencode-go) -->
 <!-- Co-authored-by: omen-alpha (opencode-go) -->
 <!-- Co-authored-by: glm-5.3-flash (neuralwatt) -->
+<!-- Co-authored-by: deepseek-v4.1-flash (neuralwatt) -->
 
 # Agent Guidelines for breakdown-rs
 
@@ -108,6 +109,7 @@ descriptive goes to the instruction that scopes it** — backend-relative globs 
 | `backend/.github/instructions/ci-hardening.instructions.md` | `backend/rules{,-tests}/**`, `backend/scripts/**` | Guardrail ast-grep rule + job detail |
 | `.github/instructions/workflow-hardening.instructions.md` | `.github/workflows/**`, `.github/dependabot.yml` | SHA-pinning, Dependabot, script-injection hygiene |
 | `.github/instructions/local-dev-root.instructions.md` | root `scripts/**`, root `.env*` | Pointer to the local-dev-runtime documentation for root dev assets |
+| `backend/.github/instructions/build-performance.instructions.md` | `backend/Cargo.toml`, `backend/.cargo/**`, `backend/scripts/cc-linker.sh`, `backend/crates/api/{Cargo.toml,tests/**}` | Dev/test profiles, linker wrapper, integration-test harness layout, artifact/container cleanup recipe (issue #631) |
 
 Further references: `docs/security/security-architecture.md` (threat model),
 `docs/errors/` (problem codes, ADR-031), `backend/openapi.yaml` (API contract), ADRs.
@@ -119,3 +121,28 @@ Further references: `docs/security/security-architecture.md` (threat model),
 - **Co-authors:** Add one `// Co-authored-by: <model> (<provider|tool>)` line per contributor, directly under the Copyright line. Use a **separate line per author** (not a comma-separated list) — this matches the git `Co-authored-by` trailer convention, is greppable (`grep "Co-authored-by: <model>"`), and keeps diff-based attribution stable. Values come from `$PI_MODEL` and `$PI_PROVIDER` (e.g. `// Co-authored-by: glm-5.2 (neuralwatt)`). Append, don't duplicate — if an author line already exists, don't re-add it.
 
 *When in doubt about the domain logic or workflow, ask questions before generating code.*
+
+## 8. Build performance & dev-machine hygiene (issue #631)
+
+Local iteration is dominated by **link time and `target/` footprint**, not test
+runtime. The workspace ships a dev/test profile and a linker wrapper so a full
+graph links a handful of times, not 30+:
+
+- **Profiles:** dev/test use `debug = "line-tables-only"` +
+  `split-debuginfo = "unpacked"` (workspace `Cargo.toml`); release is untouched.
+  Do not re-enable full DWARF locally — it made `api` test binaries ~1 GB each
+  and pushed a single link to 26–40 min (and can SIGBUS `ld` on btrfs).
+- **Linker:** `.cargo/config.toml` wires `scripts/cc-linker.sh`, which prefers
+  `mold` → `lld` → the system linker. Install one for the fast path; without
+  them the build still works.
+- **Test harnesses:** `crates/api/tests/*.rs` are grouped into the explicit
+  `[[test]]` harnesses in `crates/api/Cargo.toml` (`autotests = false`). Add a
+  case file as a `#[path]` module in the matching harness — never as a new
+  top-level test target.
+- **Artifact/container hygiene:** after heavy local runs, `cargo sweep -t 30`
+  (or `cargo clean`), `docker container prune`, `docker volume prune`. On btrfs
+  the metadata chunk can exhaust long before data space; a periodic
+  `btrfs balance` (root) reclaims it.
+
+Full rationale and the cleanup runbook:
+`.github/instructions/build-performance.instructions.md`.
