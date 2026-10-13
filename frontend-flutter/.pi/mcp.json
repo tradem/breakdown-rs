@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "dart": {
+      "command": "dart",
+      "args": ["mcp-server"],
+      "description": "Official Dart/Flutter tooling: analyze_files, dart_fix, dart_format, pub, run_tests, hot reload, widget inspector, VM service."
+    },
+    "context7": {
+      "url": "https://mcp.context7.com/mcp",
+      "description": "Up-to-date library documentation lookup."
+    }
+  }
+}
