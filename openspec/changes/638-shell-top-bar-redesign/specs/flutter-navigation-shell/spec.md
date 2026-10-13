@@ -32,6 +32,11 @@ affordance. The top bar SHALL stay pinned above the view content across
 destination switches, and the destination roots SHALL NOT render their own
 app bar (the shell view bar carries the title). The profile and search
 affordances SHALL open inside the active destination's nested navigator.
+The breadcrumb SHALL wrap onto further lines instead of dropping its
+outermost levels when the chain does not fit beside the title and the
+search affordance; only a single level wider than the whole line SHALL
+ellipsize, and the breadcrumb's merged semantics node SHALL always announce
+the full path.
 
 #### Scenario: Row composition
 - **WHEN** the shell renders for a resolved authenticated session.
@@ -50,6 +55,14 @@ affordances SHALL open inside the active destination's nested navigator.
 - **WHEN** a destination root is visible.
 - **THEN** no destination-owned app bar renders; the shell view bar is the
   only title surface.
+
+#### Scenario: Deep breadcrumb wraps instead of dropping levels
+- **WHEN** the active destination's pushed chain does not fit on one line
+  beside the title and the search affordance.
+- **THEN** the breadcrumb continues on the next line with every level still
+  visible, each level carrying its own trailing separator (so no line starts
+  with a dangling separator), and its merged semantics node still announces
+  the full path.
 
 #### Scenario: Search opens inside the active destination
 - **WHEN** the user taps the search affordance.

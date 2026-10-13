@@ -115,9 +115,11 @@ navigator key.
   row; the pill cluster is a horizontal `SingleChildScrollView`, so a
   narrow bar scrolls rather than overflows.
 - **Breadcrumb width:** row 2 shares its width between the title, the
-  breadcrumb and the search affordance; `LocationStrip` already drops
-  leading segments and ellipsizes, and its merged semantics node keeps the
-  full path.
+  breadcrumb and the search affordance; `LocationStrip` WRAPS the chain onto
+  as many lines as it needs (each segment carries its trailing separator, so
+  a wrapped line never starts with a dangling `›`), and its merged semantics
+  node keeps the full path. `maxSegments` still caps how many levels render
+  (deepest wins), which bounds the bar's height.
 
 ## Out of scope
 

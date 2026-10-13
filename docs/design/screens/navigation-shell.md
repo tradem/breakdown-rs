@@ -51,9 +51,16 @@ The shell owns a **two-row sticky top bar** above the view content
   hierarchy breadcrumb (the `PlanningLocation` chain the active
   destination's topmost route was pushed with, per-route and hidden at
   destination roots) and the search affordance. The breadcrumb deepens
-  through Season → Block → Episode → Scene; the scope pills are its sticky
-  counterpart and keep their label-less-scope backfill and foreign-season
-  narratives.
+  through Season → Block → Episode → Scene and **wraps onto a second line**
+  when the chain does not fit beside the title and the search affordance
+  (issue #638): the first line carries as many levels as fit (e.g.
+  Season › Block ›) and the next line carries the rest (e.g. Episode), so a
+  deep path never loses its outermost levels. Each level carries its own
+  trailing `›`, so a wrapped line never starts with a dangling separator;
+  only a single level wider than the whole line ellipsizes, and the merged
+  semantics node always announces the full path. The scope pills are its
+  sticky counterpart and keep their label-less-scope backfill and
+  foreign-season narratives.
 
 The whole top bar is inset below the system status bar in every morphology
 (`SafeArea` on the view padding) — no content renders under the Android
@@ -115,7 +122,8 @@ Expanded (≥ 840dp) — permanent navigation drawer:
 Static structure only: which destination is selected, the pill
 selected/unselected colors, the prerequisite visibility of the block and
 episode pills, and back behavior are covered in Interactions and Tests —
-never in the wireframes.
+never in the wireframes. The wireframes draw a chain that fits one line; a
+longer chain wraps as described in the Row 2 bullet.
 
 ## Components & Semantics
 | Element | M3 component | Semantics | Copy key |
@@ -127,7 +135,7 @@ never in the wireframes.
 | Episode scope pill | Assist pill (fully rounded) | The sticky active-episode target the quick-create entries act on; neutral "Episode wählen" once a block is scoped but no episode is set. Selected fill: tertiary container | `episodeChipTooltip` / `episodeChipUnset` |
 | Pill visibility | Prerequisite rule | Season always; block once a season is active (or a block scope is set); episode once a block is scoped (or an episode scope is set). A level is never offered before its prerequisite exists | — |
 | View title | Text (row 2, leading) | The active destination's visible title | `navCast` / `navScript` / `navSchedule` |
-| Location strip | Row 2, beside the title | The pushed hierarchy chain, one merged semantics node; hidden at destination roots | `locationStrip` |
+| Location strip | Row 2, beside the title | The pushed hierarchy chain, one merged semantics node that always announces the full path; wraps onto a second line instead of dropping its outermost levels; hidden at destination roots | `locationStrip` |
 | Search affordance | Icon button with tooltip (row 2, trailing) | Opens the OmniSearch surface from anywhere inside the shell; never a bottom-bar destination | `omniSearchTooltip` |
 | Cast view actions | Icon buttons in the Cast view's own toolbar | Costume categories (season-gated) and Fundus; they live with the Cast content, below the shell view bar — costume vocabulary never with the user settings | `castCategoriesTooltip` / `fundusTooltip` |
 | Season scope picker | Screen | Season rows (pick), *Seasons verwalten*, *Produktion verwalten* | `scopeChipSeasonPickTitle` / `seasonScopeManageSeasons` / `seasonScopeManageProduction` |

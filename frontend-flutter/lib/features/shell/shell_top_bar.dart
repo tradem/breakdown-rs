@@ -192,9 +192,10 @@ class _ViewRow extends StatelessWidget {
           style: Theme.of(context).textTheme.titleMedium,
         ),
         const SizedBox(width: AppSpacing.space8),
-        // The breadcrumb takes the remaining width; the strip already drops
-        // leading segments and ellipsizes, and its merged semantics node
-        // keeps the full path.
+        // The breadcrumb takes the remaining width and WRAPS onto a second
+        // line when the chain is long (issue #638), so a deep path shows all
+        // of its levels instead of losing the outermost ones; its merged
+        // semantics node keeps the full path in either case.
         Expanded(
           child: location == null
               ? const SizedBox.shrink()

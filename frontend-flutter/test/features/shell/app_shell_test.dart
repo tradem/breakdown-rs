@@ -530,10 +530,12 @@ void main() {
         // The Script destination's nested navigator resolves its own chain.
         expect(find.byKey(const Key('shell-context-bar')), findsOneWidget);
         expect(find.byKey(const Key('location-strip')), findsOneWidget);
-        // The strip drops LEADING segments that do not fit the shared row 2
-        // (the test font is wide); the DEEPEST level — which names the
-        // current screen — always renders, and the merged semantics node
-        // keeps the full path (see location_strip_test.dart).
+        // The strip wraps rather than dropping leading segments (issue
+        // #638), so both levels of the chain stay visible.
+        expect(
+          find.byKey(const Key('location-segment-season')),
+          findsOneWidget,
+        );
         expect(find.byKey(const Key('location-segment-block')), findsOneWidget);
         expect(find.text('Block 2'), findsOneWidget);
 
@@ -545,7 +547,7 @@ void main() {
       },
     );
 
-    testWidgets('deep chain renders the deepest breadcrumb level', (
+    testWidgets('deep chain renders every breadcrumb level (wrapping)', (
       tester,
     ) async {
       await setupContainer();
@@ -572,11 +574,14 @@ void main() {
       expect(find.byKey(const Key('shell-context-bar')), findsOneWidget);
       expect(find.byKey(const Key('location-strip')), findsOneWidget);
       // Row 2 shares its width between the title, the breadcrumb and the
-      // search affordance, so the strip drops LEADING segments that do not
-      // fit — the DEEPEST levels (which name the current screen) always
-      // render, and the full path stays in the merged semantics node
-      // (asserted in location_strip_test.dart).
+      // search affordance; the strip WRAPS instead of dropping leading
+      // segments (issue #638), so EVERY level stays visible — the deepest
+      // one is no longer reached by sacrificing its ancestors.
+      expect(find.byKey(const Key('location-segment-season')), findsOneWidget);
+      expect(find.byKey(const Key('location-segment-block')), findsOneWidget);
+      expect(find.byKey(const Key('location-segment-episode')), findsOneWidget);
       expect(find.byKey(const Key('location-segment-scene')), findsOneWidget);
+      expect(find.text('Der Diebstahl'), findsOneWidget);
       expect(find.text('Die Küche'), findsOneWidget);
     });
 

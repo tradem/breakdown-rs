@@ -49,12 +49,16 @@ IconData iconForPlanningLevel(PlanningLevel level) => switch (level) {
 /// VISIBLE text (glossary `categories.icon` rule: icons reinforce, text
 /// always visible).
 ///
-/// Overflow: at most [maxSegments] trailing segments are rendered (the
-/// shell passes 3 on compact, 4 on medium+; the deepest level wins because
-/// it names the current screen). When the available width is still
-/// insufficient, leading segments are dropped (never below one) and the
-/// surviving texts ellipsize — the merged semantics node ALWAYS announces
-/// the full path, so a `…` is never the sole carrier of the hierarchy.
+/// Overflow (issue #638): at most [maxSegments] trailing segments are
+/// rendered (the shell passes 3 on compact, 4 on medium+; the deepest level
+/// wins because it names the current screen). The rendered chain then
+/// WRAPS onto as many lines as the available width requires, so a deep
+/// chain shows its full path instead of losing its outermost levels — e.g.
+/// `Season › Block` on the first line and `Episode` on the next. Each
+/// segment carries its own trailing separator, so a wrapped line never
+/// starts with a dangling `›`. A single segment too wide for the line
+/// ellipsizes; the merged semantics node ALWAYS announces the full path, so
+/// a `…` is never the sole carrier of the hierarchy.
 class LocationStrip extends StatelessWidget {
   const LocationStrip({
     super.key,
@@ -64,7 +68,8 @@ class LocationStrip extends StatelessWidget {
 
   final PlanningLocation location;
 
-  /// Maximum rendered segments before leading segments are dropped.
+  /// Maximum rendered segments (the DEEPEST levels win); the rendered chain
+  /// wraps onto as many lines as it needs.
   final int maxSegments;
 
   @override
@@ -81,23 +86,23 @@ class LocationStrip extends StatelessWidget {
       container: true,
       excludeSemantics: true,
       label: fullLabel,
-      child: _FittingRow(
-        key: const Key('location-strip'),
-        copy: copy,
-        segments: shown,
-      ),
+      child: _WrappingRow(key: const Key('location-strip'), segments: shown),
     );
   }
 }
 
-/// Measures the rendered segment widths against the available width and
-/// drops LEADING segments (never below one) until the row fits — the
-/// "collapse to the last segments" overflow behaviour. Text measurement is
-/// synchronous TextPainter layout (deterministic, no frame pumping).
-class _FittingRow extends StatelessWidget {
-  const _FittingRow({super.key, required this.copy, required this.segments});
+/// Lays the segments out as a WRAPPING breadcrumb (issue #638): the chain
+/// fills the available width and continues on the next line.
+///
+/// The separator is the TRAILING element of each segment (except the last),
+/// so a run break can never leave a `›` stranded at the start of a line —
+/// the alternatives are a trailing `›` (reads as "continues below") or no
+/// separator at all. No text measurement is needed: `Wrap` decides the
+/// breaks, which keeps the layout honest under any text scale (the previous
+/// implementation measured with `TextPainter` to decide what to DROP).
+class _WrappingRow extends StatelessWidget {
+  const _WrappingRow({super.key, required this.segments});
 
-  final PlanningLocationCopy copy;
   final List<PlanningSegment> segments;
 
   @override
@@ -106,84 +111,44 @@ class _FittingRow extends StatelessWidget {
     final style = theme.textTheme.bodySmall ?? const TextStyle(fontSize: 12);
     final iconColor = theme.colorScheme.onSurfaceVariant;
 
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        var kept = segments;
-        while (kept.length > 1 &&
-            _measureWidth(context, kept, style) >
-                constraints.maxWidth - _kHorizontalPadding * 2) {
-          // Drop the LEADING (outermost) segment; keep at least one.
-          kept = kept.sublist(1);
-        }
-
-        final children = <Widget>[];
-        for (var i = 0; i < kept.length; i++) {
-          if (i > 0) {
-            children.add(
-              Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: _kSeparatorIndent,
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: _kHorizontalPadding),
+      child: Wrap(
+        crossAxisAlignment: WrapCrossAlignment.center,
+        children: [
+          for (var i = 0; i < segments.length; i++)
+            Row(
+              key: Key('location-segment-${segments[i].$1.name}'),
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(iconForPlanningLevel(segments[i].$1), size: 14),
+                const SizedBox(width: 3),
+                // Flexible so a single over-wide segment ellipsizes inside
+                // the line instead of overflowing it.
+                Flexible(
+                  child: Text(
+                    segments[i].$2,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: style,
+                  ),
                 ),
-                child: Icon(
-                  Icons.chevron_right,
-                  size: _kSeparatorWidth,
-                  color: iconColor,
-                ),
-              ),
-            );
-          }
-          final (level, label) = kept[i];
-          children.add(
-            Flexible(
-              child: Row(
-                key: Key('location-segment-${level.name}'),
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(iconForPlanningLevel(level), size: 14),
-                  const SizedBox(width: 3),
-                  Flexible(
-                    child: Text(
-                      label,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: style,
+                if (i < segments.length - 1)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: _kSeparatorIndent,
+                    ),
+                    child: Icon(
+                      Icons.chevron_right,
+                      size: _kSeparatorWidth,
+                      color: iconColor,
                     ),
                   ),
-                ],
-              ),
+              ],
             ),
-          );
-        }
-
-        return Padding(
-          padding: const EdgeInsets.symmetric(horizontal: _kHorizontalPadding),
-          child: Row(children: children),
-        );
-      },
+        ],
+      ),
     );
-  }
-
-  double _measureWidth(
-    BuildContext context,
-    List<PlanningSegment> segments,
-    TextStyle style,
-  ) {
-    final scaler = MediaQuery.textScalerOf(context);
-    const separatorWidth = _kSeparatorIndent * 2 + _kSeparatorWidth;
-    var width = 0.0;
-    for (var i = 0; i < segments.length; i++) {
-      if (i > 0) width += separatorWidth;
-      width += 14 + 3; // icon + gap
-      final painter = TextPainter(
-        text: TextSpan(text: segments[i].$2, style: style),
-        textDirection: Directionality.of(context),
-        textScaler: scaler,
-        maxLines: 1,
-      )..layout();
-      width += painter.maxIntrinsicWidth;
-      painter.dispose();
-    }
-    return width;
   }
 }
 
