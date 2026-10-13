@@ -38,5 +38,5 @@ new `[[test]]` entry in `Cargo.toml` instead of relying on auto-discovery.
 
 Grouping is by rough area, not by individual feature, to keep each harness
 focused while still collapsing the link count. See
-`../../.github/instructions/build-performance.instructions.md` for the full
+`../../../.github/instructions/build-performance.instructions.md` for the full
 rationale and the dev-machine cleanup recipe.

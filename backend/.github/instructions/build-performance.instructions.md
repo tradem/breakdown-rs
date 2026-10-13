@@ -130,7 +130,7 @@ cd backend
 cargo clean                         # or: cargo sweep -t 30  (install cargo-sweep)
 docker container prune
 docker volume prune                 # testcontainers leaves volumes after interrupted runs
-sudo btrfs balance start -dusage=50 /   # root; reclaims metadata
+sudo btrfs balance start -musage=50 /   # root; reclaims metadata chunks (add -dusage=50 if data is fragmented too)
 ```
 
 `cargo clean` of a 1.3 TB `target/` removed ~125k files in ~7 min here and took

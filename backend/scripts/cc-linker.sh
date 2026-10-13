@@ -11,8 +11,10 @@
 # flags — crt startup files, `-lgcc_s`, library search paths — keep working.
 #
 # Preference order: mold → lld → the driver's default linker. Machines with
-# neither mold nor lld therefore build exactly as before. Override the
-# driver with `CC` (e.g. `CC=clang`) if needed.
+# neither mold nor lld therefore build exactly as before. The lld branch
+# requires the `ld.lld` executable specifically: `-fuse-ld=lld` makes the
+# driver look up `ld.lld`, not `lld`, so selecting it when only `lld` exists
+# would fail the link. Override the driver with `CC` (e.g. `CC=clang`) if needed.
 
 set -euo pipefail
 
@@ -22,7 +24,7 @@ if command -v mold >/dev/null 2>&1; then
     exec "$cc" -fuse-ld=mold "$@"
 fi
 
-if command -v ld.lld >/dev/null 2>&1 || command -v lld >/dev/null 2>&1; then
+if command -v ld.lld >/dev/null 2>&1; then
     exec "$cc" -fuse-ld=lld "$@"
 fi
 

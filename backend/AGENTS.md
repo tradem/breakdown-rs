@@ -142,7 +142,7 @@ graph links a handful of times, not 30+:
 - **Artifact/container hygiene:** after heavy local runs, `cargo sweep -t 30`
   (or `cargo clean`), `docker container prune`, `docker volume prune`. On btrfs
   the metadata chunk can exhaust long before data space; a periodic
-  `btrfs balance` (root) reclaims it.
+  `btrfs balance start -musage=50` (root) reclaims it.
 
 Full rationale and the cleanup runbook:
 `.github/instructions/build-performance.instructions.md`.
