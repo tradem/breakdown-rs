@@ -31,6 +31,13 @@
 # runs, generation timestamps are stripped, `build_runner` is pinned, and a
 # `// GENERATED — do not edit` banner is injected by this script.
 #
+# EXCEPTION — `pubspec.lock`: this script starts with `rm -rf "${OUT}"`, so the
+# lock is resolved FRESH on every run and absorbs whatever transitive versions
+# pub.dev published since the last commit (it is a dependency-resolution
+# artifact, not generated code). The CI gate therefore excludes it from the
+# contract comparison (`--exclude=pubspec.lock`) while still requiring every
+# other file to match. See frontend-flutter/AGENTS.md §3 and §7.
+#
 # The script resolves the frontend-flutter root from its own location, so it
 # works regardless of the caller's working directory.
 

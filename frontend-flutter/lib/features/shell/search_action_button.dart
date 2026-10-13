@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: glm-5.3-flash (opencode-go)
 // Co-authored-by: glm-5.3-flash (neuralwatt)
+// Co-authored-by: deepseek-v4.1-flash (neuralwatt)
 
 import 'dart:async' show unawaited;
 
@@ -13,17 +14,18 @@ import '../omni_search/omni_search_screen.dart';
 
 /// The shell's top-bar search affordance (issues #613/#616, task 4.1).
 ///
-/// Placed BESIDE the profile action on every destination root's app bar
-/// (the #613 top-bar slot: "profile/settings … with the OmniSearch entry
-/// beside it") — mounted on all three destination screens so the entry is
-/// persistent from anywhere inside the shell in BOTH morphologies (the app
-/// bar renders under the compact bottom-[NavigationBar] and the wide
-/// [NavigationRail] alike). It is never a bottom-bar destination tab.
+/// Placement (issue #638): the SECOND row of the shell's sticky top bar,
+/// trailing the view title and the hierarchy breadcrumb — the #613 slot
+/// ("profile/settings … with the OmniSearch entry beside it") is now
+/// shell-owned, so the entry is persistent from anywhere inside the shell in
+/// all three morphologies (compact bottom navigation, medium rail, expanded
+/// drawer). It is never a bottom-bar destination tab.
 ///
-/// The push targets the DESTINATION navigator the app bar already lives
-/// in (`Navigator.of(context)` from within the tab content) — the surface
-/// opens inside the active view's stack (back returns there), no shell
-/// GlobalKey wiring and no parallel route system.
+/// The push targets the ACTIVE DESTINATION's navigator: the shell passes the
+/// active tab's `GlobalKey<NavigatorState>` as [navigatorKey], so the
+/// surface opens inside the active view's stack (back returns there) — the
+/// same target the affordance had when it lived on the destination app bar.
+/// A `null` [navigatorKey] falls back to `Navigator.of(context)`.
 ///
 /// // AUTHZ-GATE: the surface is `Authenticated`-gated UI reached only
 /// from inside the shell (below `AuthGate`); the search itself issues no
@@ -31,7 +33,11 @@ import '../omni_search/omni_search_screen.dart';
 /// dispatches no command and needs no membership check beyond the shell
 /// gate.
 class ShellSearchAction extends ConsumerWidget {
-  const ShellSearchAction({super.key});
+  const ShellSearchAction({super.key, this.navigatorKey});
+
+  /// The active destination's nested navigator (issue #638). Resolved at tap
+  /// time — the key's state is not guaranteed during the first build.
+  final GlobalKey<NavigatorState>? navigatorKey;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -44,13 +50,13 @@ class ShellSearchAction extends ConsumerWidget {
   }
 
   void _open(BuildContext context) {
+    final navigator = navigatorKey?.currentState ?? Navigator.of(context);
     // Fire-and-forget navigation (no result consumed — `unawaited` marks
-    // the discard explicitly per the breakdown_lints `discard_result` rule,
-    // the same shape `ProfileMenuButton` uses).
+    // the discard explicitly per the breakdown_lints `discard_result` rule).
     unawaited(
-      Navigator.of(
-        context,
-      ).push(MaterialPageRoute<void>(builder: (_) => const OmniSearchScreen())),
+      navigator.push(
+        MaterialPageRoute<void>(builder: (_) => const OmniSearchScreen()),
+      ),
     );
   }
 }

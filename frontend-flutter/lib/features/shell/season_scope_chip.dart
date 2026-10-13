@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: space-bunny (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (neuralwatt)
 
 import 'dart:async' show unawaited;
 
@@ -13,11 +14,12 @@ import '../../l10n/app_localizations_provider.dart';
 import '../seasons/seasons_screen.dart';
 import 'planning_location.dart';
 import 'production_overview_screen.dart';
+import 'scope_pill.dart';
 import 'shell_controller.dart';
 
-/// The season scope chip (issue #610): the season half of the shell's
-/// "what filters your requests" surface, sibling to the block-scope
-/// `ActiveScopeChip`.
+/// The season scope chip (issue #610, redesigned as a pill in #638): the
+/// season half of the shell's "what filters your requests" surface, sibling
+/// to the block-scope `ActiveScopeChip` and the `ActiveEpisodeChip`.
 ///
 /// The dedicated Season destination is dissolved, so this chip is the
 /// always-visible answer to "which season am I working in?" across all
@@ -25,10 +27,11 @@ import 'shell_controller.dart';
 /// `ShellState.activeSeason` (never a second projection lookup) and a tap
 /// opens [SeasonScopePickerScreen] on the active destination's navigator.
 ///
-/// Arms:
-/// - **no active season** → hidden, exactly like the block chip: an unset
-///   scope says nothing, and the views render their own season-empty state;
-/// - **active season** → `Season: {title | number}`.
+/// Arms (issue #638 — the pill is never hidden; it is the only affordance
+/// that can SET a season when none is active):
+/// - **no active season** → a neutral "Season wählen" pill opening the
+///   season scope picker;
+/// - **active season** → the season's label in the level highlight color.
 ///
 /// // AUTHZ-GATE: the chip is display + navigation only — it dispatches no
 // command and performs no network call (the picker's season read is the
@@ -44,21 +47,20 @@ class SeasonScopeChip extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final season = ref.watch(shellControllerProvider).activeSeason;
-    if (season == null) return const SizedBox.shrink();
-
     final l10n = l10nOf(context);
-    return ActionChip(
+    final scheme = Theme.of(context).colorScheme;
+
+    return ScopePill(
       key: const Key('season-scope-chip'),
-      avatar: Icon(
-        Icons.video_collection_outlined,
-        size: 18,
-        color: Theme.of(context).colorScheme.onSurfaceVariant,
-      ),
-      label: Text(
-        l10n.scopeChipSeason(
-          season.title ?? l10n.seasonsDefaultTitle(season.number),
-        ),
-      ),
+      icon: Icons.video_collection_outlined,
+      label: season == null
+          ? l10n.scopeChipSeasonUnset
+          : l10n.scopeChipSeason(
+              season.title ?? l10n.seasonsDefaultTitle(season.number),
+            ),
+      selected: season != null,
+      selectedColor: scheme.primaryContainer,
+      selectedForegroundColor: scheme.onPrimaryContainer,
       tooltip: l10n.scopeChipSeasonTooltip,
       onPressed: onOpenPicker,
     );

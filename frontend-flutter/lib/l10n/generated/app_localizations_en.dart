@@ -2211,6 +2211,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get scopeChipSeasonPickTitle => 'Choose season';
 
   @override
+  String get scopeChipSeasonUnset => 'Choose season';
+
+  @override
   String get seasonScopeManageSeasons => 'Manage seasons';
 
   @override
@@ -2233,6 +2236,12 @@ class AppLocalizationsEn extends AppLocalizations {
   String get scopeChipPickTitle => 'Pick the block filter';
 
   @override
+  String get scopeChipBlockUnset => 'Choose block';
+
+  @override
+  String get scopeChipBlockUnsetTooltip => 'Choose the active block filter';
+
+  @override
   String get episodeChipTooltip => 'Change the active episode';
 
   @override
@@ -2240,6 +2249,12 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get episodeChipEmpty => 'No episodes in this block yet.';
+
+  @override
+  String get episodeChipUnset => 'Choose episode';
+
+  @override
+  String get episodeChipUnsetTooltip => 'Choose the active episode';
 
   @override
   String get seasonsTitle => 'Seasons';

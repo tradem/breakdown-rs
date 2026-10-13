@@ -4,6 +4,7 @@
 // Co-authored-by: glm-5.3-flash (opencode-go)
 // Co-authored-by: space-bunny-free (opencode-go)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
+// Co-authored-by: deepseek-v4.1-flash (neuralwatt)
 
 import 'dart:async' show unawaited;
 
@@ -14,20 +15,16 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../l10n/generated/app_localizations.dart';
 import '../../l10n/generated/app_localizations_de.dart';
 import '../../design/material_icons.dart';
-import '../../auth/active_block.dart';
 import '../../auth/active_episode.dart';
 import '../../auth/active_episode_store.dart';
 import '../../auth/auth_providers.dart';
 import 'quick_create_sheet.dart';
-import 'active_episode_chip.dart';
-import 'active_scope_chip.dart';
 import 'cast_tab_screen.dart';
-import 'location_strip.dart';
 import 'planning_location_route_observer.dart';
 import 'schedule_tab_screen.dart';
 import 'script_tab_screen.dart';
-import 'season_scope_chip.dart';
 import 'shell_controller.dart';
+import 'shell_top_bar.dart';
 import 'window_size_class.dart';
 
 /// Semantic traversal labels: Material's NavigationBar/Rail/Drawer add the
@@ -73,9 +70,9 @@ const double kShellFabBottomClearance = 80;
 /// category vocabulary), Script (the season's chronological scenes) and
 /// Schedule/Dispo (the season's shooting days). The former Season, Planen,
 /// Kleidung and Mehr tabs are dissolved: seasons and the production spine
-/// are reached from the season scope chip's picker, and the profile entries
-/// from each view's app-bar profile action (issue #613 owns the final
-/// top-bar design).
+/// are reached from the season scope pill's picker, and the profile entries
+/// from the shell's top-bar profile action (issue #638 owns the top bar —
+/// row 1: profile + scope pills, row 2: view title + breadcrumb + search).
 ///
 /// Tab content: an [IndexedStack] keeps all three nested navigators alive,
 /// so switching destinations preserves each one's position (design D2).
@@ -181,7 +178,12 @@ class AppShellState extends ConsumerState<AppShell> {
     // floats over the content area's bottom-right where no tab list ends).
     Widget contentWithLocation({double bottomClearance = 0}) => Column(
       children: [
-        ShellContextBar(
+        // Issue #638: the shell owns the sticky two-row top bar (row 1:
+        // profile + scope pills, row 2: view title + breadcrumb + search)
+        // and insets it below the system status bar. The title comes from
+        // the destination spec so it can never drift from the destinations.
+        ShellTopBar(
+          title: ShellDestinations.viewTitle(state.selectedIndex, l10n),
           navigatorKey: tabNavigatorKeys[state.selectedIndex],
           observer: tabLocationObservers[state.selectedIndex],
         ),
@@ -346,135 +348,6 @@ class AppShellState extends ConsumerState<AppShell> {
   }
 }
 
-/// The shell's context bar (issue #548 + #610): the [LocationStrip] for the
-/// active destination's topmost route location plus the SEASON and BLOCK
-/// scope chips — WHERE YOU NAVIGATED (per-route) and WHAT FILTERS YOUR
-/// REQUESTS (sticky) as separate widgets with separate lifetimes. Hidden
-/// entirely when neither has anything to say (destination roots without a
-/// pushed location and no scope).
-class ShellContextBar extends ConsumerWidget {
-  const ShellContextBar({
-    super.key,
-    required this.navigatorKey,
-    required this.observer,
-  });
-
-  final GlobalKey<NavigatorState> navigatorKey;
-  final LocationRouteObserver observer;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    return ListenableBuilder(
-      listenable: observer,
-      builder: (context, _) {
-        final navigator = navigatorKey.currentState;
-        final location = navigator == null ? null : locationOf(navigator);
-        final scope = ref.watch(activeBlockProvider);
-        final episode = ref.watch(activeEpisodeProvider);
-        final season = ref.watch(shellControllerProvider).activeSeason;
-        if (location == null &&
-            scope == null &&
-            episode == null &&
-            season == null) {
-          return const SizedBox.shrink();
-        }
-
-        final maxSegments =
-            resolveWindowSizeClass(MediaQuery.sizeOf(context).width) ==
-                WindowSizeClass.compact
-            ? 3
-            : 4;
-        // Whether any scope chip will render (each self-hides when unset).
-        // When none will, the location strip must keep the FULL width — a
-        // flex sibling would otherwise steal half of it (issue #624).
-        final hasChips = season != null || scope != null || episode != null;
-        // ActionChip needs a Material ancestor; the bar sits OUTSIDE the
-        // tab navigators' Scaffolds in all three morphologies, so it
-        // provides its own transparent one.
-        return Material(
-          type: MaterialType.transparency,
-          child: Container(
-            key: const Key('shell-context-bar'),
-            width: double.infinity,
-            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-            decoration: BoxDecoration(
-              border: Border(
-                bottom: BorderSide(
-                  color: Theme.of(context).colorScheme.outlineVariant,
-                ),
-              ),
-            ),
-            child: Row(
-              children: [
-                if (location != null) ...[
-                  Expanded(
-                    flex: 3,
-                    child: LocationStrip(
-                      location: location,
-                      maxSegments: maxSegments,
-                    ),
-                  ),
-                  if (hasChips) const SizedBox(width: 8),
-                ],
-                // The scope chips can be up to three (season + block +
-                // episode, issue #624). They live in a horizontally
-                // scrollable cluster so a narrow bar never overflows — the
-                // location strip keeps the Expanded share on its left.
-                if (hasChips)
-                  Flexible(
-                    flex: 2,
-                    child: SingleChildScrollView(
-                      scrollDirection: Axis.horizontal,
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          SeasonScopeChip(
-                            onOpenPicker: () => unawaited(
-                              Navigator.of(context).push(
-                                MaterialPageRoute<void>(
-                                  builder: (_) =>
-                                      const SeasonScopePickerScreen(),
-                                ),
-                              ),
-                            ),
-                          ),
-                          ActiveScopeChip(
-                            location: location,
-                            onOpenPicker: (seasonId) => unawaited(
-                              Navigator.of(context).push(
-                                MaterialPageRoute<void>(
-                                  builder: (_) =>
-                                      ScopeChipPickerScreen(seasonId: seasonId),
-                                ),
-                              ),
-                            ),
-                          ),
-                          ActiveEpisodeChip(
-                            location: location,
-                            onOpenPicker: (seasonId, blockId) => unawaited(
-                              Navigator.of(context).push(
-                                MaterialPageRoute<void>(
-                                  builder: (_) => EpisodeScopePickerScreen(
-                                    seasonId: seasonId,
-                                    blockId: blockId,
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-              ],
-            ),
-          ),
-        );
-      },
-    );
-  }
-}
-
 /// The shell navigation suite: the three M3 morphologies built from ONE
 /// destination list (glossary icons + visible labels + "Tab N of 3"
 /// semantics). Public (non-private) so the semantics/touch-target widget
@@ -489,6 +362,12 @@ class ShellDestinations {
     for (var i = 0; i < kDestinationCount; i++)
       _DestinationSpec.destination(i, l10n),
   ];
+
+  /// The visible view-bar title for a destination (issue #638): the same
+  /// glossary label the destination renders, so the shell's sticky top bar
+  /// can never drift from the destination list.
+  static String viewTitle(int index, AppLocalizations l10n) =>
+      _DestinationSpec._label(index, l10n);
 
   /// Compact morphology: bottom [NavigationBar].
   static Widget navigationBar({

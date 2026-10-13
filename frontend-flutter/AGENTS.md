@@ -173,7 +173,15 @@ on the season union — it would block flows the server permits.
   regenerate the Dart client and commit the diff. CI regenerates into a
   throwaway, diffs against the committed tree, and fails on difference with
   a regenerate instruction. A PR that hand-edits `vendor/breakdown_api/`
-  fails the same check.
+  fails the same check. The comparison covers the **contract surface** —
+  `lib/`, `pubspec.yaml`, `build.yaml` — and excludes two non-contract
+  artifacts: `.dart_tool` (build output) and `pubspec.lock`
+  (dependency resolution). The lock is excluded because
+  `scripts/regen-client.sh` wipes the output directory first, so the lock is
+  resolved **fresh** on every regen and absorbs whatever transitive versions
+  pub.dev published since the last commit — which made the gate fail on
+  upstream publishes while `lib/` was byte-identical. The lock stays
+  committed as provenance; it is simply not what the gate guards.
 - **Never manually type API responses.** Always consume the generated types.
   The downstream of every API call is a generated DTO; mappers to domain
   entities live in `data/` and are unit-tested in isolation.
@@ -375,7 +383,10 @@ CI runs:
   (import via `package:breakdown_api/breakdown_api.dart`); the script drops the
   standalone-package cruft (tests/docs/CI files) but keeps `pubspec.yaml`,
   `lib/`, and `build.yaml`. The CI OpenAPI drift check invokes this same script,
-  so the committed tree MUST be byte-identical to its output.
+  so the committed tree MUST be byte-identical to its output — except
+  `pubspec.lock`, which the gate excludes on purpose (see §3: the script wipes
+  the directory first, so the lock re-resolves to the newest published
+  transitive versions on every run).
 
   ```bash
   bash scripts/regen-client.sh

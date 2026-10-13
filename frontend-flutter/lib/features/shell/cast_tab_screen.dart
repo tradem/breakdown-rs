@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: space-bunny (opencode-go)
 // Co-authored-by: glm-5.3-flash (neuralwatt)
+// Co-authored-by: deepseek-v4.1-flash (neuralwatt)
 
 import 'dart:async' show unawaited;
 
@@ -15,8 +16,6 @@ import '../costume_categories/costume_categories_screen.dart';
 import '../costumes/costumes_screen.dart';
 import '../fundus/fundus_screen.dart';
 import 'planning_location.dart';
-import 'profile_menu_button.dart';
-import 'search_action_button.dart';
 import 'season_scope_chip.dart';
 import 'shell_controller.dart';
 
@@ -26,12 +25,12 @@ import 'shell_controller.dart';
 /// Design decision D3: the dissolved `Garderobe` destination did NOT
 /// become a second launcher tab — costumes are integrated here, one switch
 /// away from the characters they are bound to, and the season-scoped
-/// costume-category vocabulary sits on this view's app bar (never with the
-/// user settings, issue #610's hard acceptance criterion).
+/// costume-category vocabulary sits in this view's own toolbar (never with
+/// the user settings, issue #610's hard acceptance criterion).
 ///
 /// Both list screens keep their controllers, repositories, keys and
 /// AUTHZ-GATE comments (issue #610: only the entry point moves). They are
-/// embedded as tab content beneath the view's own app bar; each brings its
+/// embedded as tab content beneath this view's toolbar; each brings its
 /// own scaffold, so their titles stay visible with the roster/costume
 /// surface they belong to.
 ///
@@ -53,13 +52,61 @@ class _CastTabScreenState extends ConsumerState<CastTabScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final l10n = l10nOf(context);
     final season = ref.watch(shellControllerProvider).activeSeason;
 
     return Scaffold(
-      appBar: AppBar(
-        title: Text(l10n.navCast),
-        actions: [
+      // Issue #638: no app bar — the shell's sticky view bar carries the
+      // title and the search entry. The Cast view's own costume-domain
+      // actions move into [_toolbar] below.
+      body: Column(
+        children: [
+          _toolbar(context, season),
+          Expanded(
+            child: season == null
+                ? _emptyState(context)
+                : (_showCostumes
+                      ? CostumesScreen(season: season)
+                      : CharactersScreen(season: season)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// The Cast view's own toolbar (issue #638): the roster/costume switch and
+  /// the view's costume-domain actions (categories, fundus). They live with
+  /// the costume content, below the shell's view bar — the shell top bar
+  /// carries only the title and the search entry. The navigator target is
+  /// unchanged (the active destination's nested navigator), so the shell's
+  /// breadcrumb still deepens on the pushes.
+  Widget _toolbar(BuildContext context, SeasonView? season) {
+    final l10n = l10nOf(context);
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      child: Row(
+        children: [
+          Expanded(
+            child: season == null
+                ? const SizedBox.shrink()
+                : SegmentedButton<bool>(
+                    key: const Key('cast-surface-switch'),
+                    segments: [
+                      ButtonSegment<bool>(
+                        value: false,
+                        icon: const Icon(Icons.person_outline),
+                        label: Text(l10n.castSegmentCharacters),
+                      ),
+                      ButtonSegment<bool>(
+                        value: true,
+                        icon: const Icon(Icons.checkroom_outlined),
+                        label: Text(l10n.castSegmentCostumes),
+                      ),
+                    ],
+                    selected: {_showCostumes},
+                    onSelectionChanged: (selection) =>
+                        setState(() => _showCostumes = selection.first),
+                  ),
+          ),
           if (season != null)
             IconButton(
               key: const Key('cast-categories-action'),
@@ -77,46 +124,8 @@ class _CastTabScreenState extends ConsumerState<CastTabScreen> {
             // Fire-and-forget navigation (no result consumed).
             onPressed: () => _openFundus(context),
           ),
-          const ShellSearchAction(),
-          const ProfileMenuButton(),
         ],
       ),
-      body: season == null ? _emptyState(context) : _content(context, season),
-    );
-  }
-
-  /// The roster/costume switch plus the selected surface.
-  Widget _content(BuildContext context, SeasonView season) {
-    final l10n = l10nOf(context);
-    return Column(
-      children: [
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-          child: SegmentedButton<bool>(
-            key: const Key('cast-surface-switch'),
-            segments: [
-              ButtonSegment<bool>(
-                value: false,
-                icon: const Icon(Icons.person_outline),
-                label: Text(l10n.castSegmentCharacters),
-              ),
-              ButtonSegment<bool>(
-                value: true,
-                icon: const Icon(Icons.checkroom_outlined),
-                label: Text(l10n.castSegmentCostumes),
-              ),
-            ],
-            selected: {_showCostumes},
-            onSelectionChanged: (selection) =>
-                setState(() => _showCostumes = selection.first),
-          ),
-        ),
-        Expanded(
-          child: _showCostumes
-              ? CostumesScreen(season: season)
-              : CharactersScreen(season: season),
-        ),
-      ],
     );
   }
 

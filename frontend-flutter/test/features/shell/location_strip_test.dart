@@ -112,7 +112,7 @@ void main() {
       expect(find.text('Die Küche'), findsOneWidget);
     });
 
-    testWidgets('compact overflow: leading segments dropped (max 3)', (
+    testWidgets('maxSegments caps the chain to the deepest levels (compact)', (
       tester,
     ) async {
       await pumpStrip(
@@ -126,20 +126,22 @@ void main() {
           ),
         ),
       );
+      // The CAP (not an overflow) drops the outermost level: compact keeps
+      // the three deepest.
       expect(find.text('Sommerkomödie'), findsNothing);
       expect(find.text('Block 2'), findsOneWidget);
       expect(find.text('Der Diebstahl'), findsOneWidget);
       expect(find.text('Die Küche'), findsOneWidget);
     });
 
-    testWidgets('insufficient width collapses to the last two segments', (
+    testWidgets('insufficient width WRAPS instead of dropping segments', (
       tester,
     ) async {
       await pumpStrip(
         tester,
         SizedBox(
-          // 420dp: two 12px segments fit (~351dp in the test font), three
-          // do not (~512dp) — the last TWO survive.
+          // 420dp: the four 12px segments need ~630dp in the test font, so
+          // the chain must continue on a second line (issue #638).
           width: 420,
           child: LocationStrip(
             location: PlanningLocation.scene(season, block, episode, scene),
@@ -147,21 +149,25 @@ void main() {
           ),
         ),
       );
-      // Leading segments dropped until the row fits (min one kept) — the
-      // LAST segments (deepest = current screen) survive.: leading segments dropped until the
-      // row fits (min one) — the LAST segments (deepest = current screen)
-      // survive.
-      expect(find.text('Sommerkomödie'), findsNothing);
-      expect(find.text('Block 2'), findsNothing);
+      // EVERY level survives — the deepest one is no longer reached by
+      // dropping its ancestors (the previous behaviour).
+      expect(find.text('Sommerkomödie'), findsOneWidget);
+      expect(find.text('Block 2'), findsOneWidget);
       expect(find.text('Der Diebstahl'), findsOneWidget);
       expect(find.text('Die Küche'), findsOneWidget);
+      // And it really wrapped: the segments occupy at least two rows.
+      final rows = {
+        for (final level in ['season', 'block', 'episode', 'scene'])
+          tester.getTopLeft(find.byKey(Key('location-segment-$level'))).dy,
+      };
+      expect(rows.length, greaterThanOrEqualTo(2));
     });
 
     testWidgets('semantics node announces the FULL path', (tester) async {
       await pumpStrip(
         tester,
         SizedBox(
-          // Narrow box: every leading segment is dropped (min one kept).
+          // Narrow box: the chain wraps over several lines.
           width: 300,
           child: LocationStrip(
             location: PlanningLocation.scene(season, block, episode, scene),
@@ -172,8 +178,8 @@ void main() {
       final semantics = tester.getSemantics(
         find.byKey(const Key('location-strip')),
       );
-      // Even in the collapsed variant the merged node reads the whole
-      // chain (never a bare "…").
+      // The merged node reads the whole chain (never a bare "…"),
+      // independent of how many lines it occupies.
       expect(
         semantics.label,
         'Position: Sommerkomödie → Block 2 → Der Diebstahl → Die Küche',
@@ -202,8 +208,9 @@ void main() {
       required PlanningLocation location,
       required ThemeMode mode,
       required double width,
+      double height = 120,
     }) async {
-      tester.view.physicalSize = Size(width, 120);
+      tester.view.physicalSize = Size(width, height);
       tester.view.devicePixelRatio = 1.0;
       addTearDown(tester.view.reset);
       await tester.pumpWidget(
@@ -253,13 +260,14 @@ void main() {
       );
     });
 
-    testWidgets('overflow variant, light', (tester) async {
+    testWidgets('wrapped variant, light', (tester) async {
       await pumpGolden(
         tester,
-        golden: 'location_strip_overflow_light.png',
+        golden: 'location_strip_wrapped_light.png',
         location: PlanningLocation.scene(season, block, episode, scene),
         mode: ThemeMode.light,
         width: 220,
+        height: 140,
       );
     });
   });

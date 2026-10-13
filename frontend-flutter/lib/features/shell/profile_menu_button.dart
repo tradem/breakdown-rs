@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: space-bunny (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (neuralwatt)
 
 import 'dart:async' show unawaited;
 
@@ -14,14 +15,21 @@ import '../app_info/info_dialog.dart';
 import '../auth/sign_out.dart';
 import '../settings/settings_screen.dart';
 
-/// The profile affordance (issue #610): the minimal home the dissolved
-/// `Mehr` destination needed when the shell moved to three task views.
+/// The profile affordance (issues #610/#613, relocated in #638): the
+/// minimal home the dissolved `Mehr` destination needed when the shell moved
+/// to three task views.
 ///
-/// It is deliberately small — identity, *Über die App*, *Einstellungen*,
-/// *Abmelden* — because issue #613 owns the final top-bar design (and the
-/// OmniSearch entry beside it). It is mounted on all three destination
-/// roots so the entries are reachable from anywhere without giving the
-/// settings surface back its status as a navigation destination.
+/// Placement (issue #638): the LEFT-MOST element of the shell's sticky top
+/// bar (row 1), ahead of the scope pills — one affordance for the whole
+/// shell, never one per destination root. It is deliberately small —
+/// identity, *Über die App*, *Einstellungen*, *Abmelden* — because the
+/// final top-bar design belongs to issue #638, which owns this slot.
+///
+/// The settings push targets the ACTIVE DESTINATION's navigator: the shell
+/// passes the active tab's `GlobalKey<NavigatorState>` as [navigatorKey], so
+/// the screen opens inside the active view's stack — the same target the
+/// affordance had when it lived on the destination app bar. A `null`
+/// [navigatorKey] falls back to `Navigator.of(context)`.
 ///
 /// Note what is NOT here: the costume-category vocabulary. Categories are
 /// costume-domain content and live with the Cast view (hard acceptance
@@ -32,7 +40,11 @@ import '../settings/settings_screen.dart';
 /// from inside the shell. No command is dispatched from this widget itself
 /// beyond the session reset.
 class ProfileMenuButton extends ConsumerWidget {
-  const ProfileMenuButton({super.key});
+  const ProfileMenuButton({super.key, this.navigatorKey});
+
+  /// The active destination's nested navigator (issue #638). Resolved at tap
+  /// time — the key's state is not guaranteed during the first build.
+  final GlobalKey<NavigatorState>? navigatorKey;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -89,9 +101,11 @@ class ProfileMenuButton extends ConsumerWidget {
                 title: Text(l10n.commonSettings),
                 onTap: () {
                   Navigator.of(sheetContext).pop();
+                  final navigator =
+                      navigatorKey?.currentState ?? Navigator.of(context);
                   // Fire-and-forget navigation (no result consumed).
                   unawaited(
-                    Navigator.of(context).push(
+                    navigator.push(
                       MaterialPageRoute<void>(
                         builder: (_) => const SettingsScreen(),
                       ),

@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: space-bunny (opencode-go)
 // Co-authored-by: glm-5.3-flash (neuralwatt)
+// Co-authored-by: deepseek-v4.1-flash (neuralwatt)
 
 import 'dart:async' show unawaited;
 
@@ -14,8 +15,6 @@ import '../../l10n/app_localizations_provider.dart';
 import '../scenes/scene_detail_screen.dart';
 import '../scenes/season_script_controller.dart';
 import 'planning_location.dart';
-import 'profile_menu_button.dart';
-import 'search_action_button.dart';
 import 'shell_controller.dart';
 import 'view_states.dart';
 
@@ -37,14 +36,11 @@ class ScriptTabScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final l10n = l10nOf(context);
     final season = ref.watch(shellControllerProvider).activeSeason;
 
     return Scaffold(
-      appBar: AppBar(
-        title: Text(l10n.navScript),
-        actions: const [ShellSearchAction(), ProfileMenuButton()],
-      ),
+      // Issue #638: no app bar — the shell's sticky view bar carries the
+      // title and the search entry.
       body: season == null
           ? const SeasonRequiredView(emptyKey: Key('script-no-season'))
           : _ScriptBody(season: season),
