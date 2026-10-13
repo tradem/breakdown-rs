@@ -91,6 +91,18 @@ class SessionReset extends Notifier<void> {
           .read(authSessionControllerProvider.notifier)
           .failSession(scopesError);
     }
+    // Issue #624: the active-episode scope is identity-scoped too — wipe
+    // its persisted per-season map so the next session never inherits it.
+    // A clear failure fails the session closed, like the block store above.
+    final episodeScopesCleared = await ref
+        .read(activeEpisodeStoreProvider)
+        .clear();
+    final episodeScopesError = episodeScopesCleared.getLeft().toNullable();
+    if (episodeScopesError != null) {
+      await ref
+          .read(authSessionControllerProvider.notifier)
+          .failSession(episodeScopesError);
+    }
     // AI-import state is identity-scoped (`flutter-ai-import` design §3):
     // the secure-storage hand-off (config id + remembered job ids, keyed
     // by the authenticated `sub`) and the Drift job rows are wiped so the

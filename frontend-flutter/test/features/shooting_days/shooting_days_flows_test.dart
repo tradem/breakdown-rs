@@ -479,5 +479,23 @@ void main() {
         findsOneWidget,
       );
     });
+
+    testWidgets('a double tap dispatches only one create command', (
+      tester,
+    ) async {
+      await setupContainer();
+      await pumpCreatePage(tester);
+
+      // Two taps before the first settles: the submit control is disabled
+      // synchronously, so the second is a no-op.
+      await tester.tap(find.byKey(const Key('create-shooting-day-submit')));
+      await tester.tap(
+        find.byKey(const Key('create-shooting-day-submit')),
+        warnIfMissed: false,
+      );
+      await _pumpFrames(tester);
+
+      expect(repo.createCalls, 1);
+    });
   });
 }

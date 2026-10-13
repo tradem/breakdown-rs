@@ -13,6 +13,8 @@ import 'package:fpdart/fpdart.dart';
 
 import 'package:frontend_flutter/auth/active_block.dart';
 import 'package:frontend_flutter/auth/active_block_store.dart';
+import 'package:frontend_flutter/auth/active_episode.dart';
+import 'package:frontend_flutter/auth/active_episode_store.dart';
 import 'package:frontend_flutter/auth/auth_providers.dart';
 import 'package:frontend_flutter/auth/token_store.dart';
 import 'package:frontend_flutter/core/problem_error.dart';
@@ -211,6 +213,38 @@ void main() {
 
         expect(await session(), isNull);
         expect(container.read(activeBlockProvider), isNull);
+        expect((await store.readScopes()).getRight().toNullable(), isEmpty);
+      },
+    );
+
+    test(
+      'clears the persisted active-episode scopes (no cross-identity leak)',
+      () async {
+        setupContainer();
+        expect(await session(), isNotNull);
+        final store = ActiveEpisodeStore.secure();
+        expect(
+          (await store.saveScope(
+            seasonId: 's1',
+            blockId: 'b1',
+            episodeId: 'e1',
+            episodeNumber: 1,
+          )).isRight(),
+          isTrue,
+        );
+        container
+            .read(activeEpisodeProvider.notifier)
+            .set(
+              seasonId: 's1',
+              blockId: 'b1',
+              episodeId: 'e1',
+              episodeNumber: 1,
+            );
+
+        await container.read(sessionResetProvider.notifier).signOut();
+
+        expect(await session(), isNull);
+        expect(container.read(activeEpisodeProvider), isNull);
         expect((await store.readScopes()).getRight().toNullable(), isEmpty);
       },
     );

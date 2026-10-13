@@ -112,9 +112,12 @@ class _CreateSceneFormState extends ConsumerState<CreateSceneForm> {
     result.match<void>((_) {}, (_) {});
     if (!mounted) return;
     // Stay open on failure: the inline banner renders the failure (the
-    // full-screen create page must not pop away its own error surface).
+    // full-screen create page must not pop away its own error surface) and
+    // the submit button is re-enabled so the user can retry.
     if (result.match((_) => false, (_) => true)) {
       Navigator.of(context).pop();
+    } else {
+      setState(() => _busy = false);
     }
   }
 

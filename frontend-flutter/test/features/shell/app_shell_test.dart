@@ -20,6 +20,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:fpdart/fpdart.dart';
 
 import 'package:flutter/semantics.dart';
+import 'package:flutter_secure_storage_platform_interface/flutter_secure_storage_platform_interface.dart';
+import 'package:frontend_flutter/auth/active_episode.dart';
+import 'package:frontend_flutter/auth/active_episode_store.dart';
 import 'package:frontend_flutter/auth/active_block.dart';
 import 'package:frontend_flutter/core/result.dart';
 import 'package:frontend_flutter/auth/auth_providers.dart';
@@ -49,6 +52,7 @@ import 'package:frontend_flutter/core/problem_error.dart';
 
 import '../seasons/seasons_test_fakes.dart';
 import '../ai_import/jobs_screen_test.dart' show FakeJobsRepository;
+import '../../support/fake_secure_storage.dart';
 
 /// Pumps a bounded number of frames (never `pumpAndSettle` while an
 /// indeterminate spinner may be on screen — that would hang the settle
@@ -776,6 +780,68 @@ void main() {
         await tester.pump(const Duration(milliseconds: 30));
       }
       expect(find.byKey(const Key('shell-plus-fab')), findsNothing);
+    });
+
+    testWidgets(
+      'cold start restores the persisted episode scope (issue #624)',
+      (tester) async {
+        final platform = FakeSecureStoragePlatform();
+        final previous = FlutterSecureStoragePlatform.instance;
+        FlutterSecureStoragePlatform.instance = platform;
+        addTearDown(() => FlutterSecureStoragePlatform.instance = previous);
+        await ActiveEpisodeStore.secure().saveScope(
+          seasonId: 'season-1',
+          blockId: 'b-1',
+          episodeId: 'e-1',
+          episodeNumber: 3,
+          episodeName: 'Pilot',
+        );
+        await setupContainer();
+        await pumpShell(tester, widthDp: 360);
+        container
+            .read(shellControllerProvider.notifier)
+            .setActiveSeason(
+              season('season-1', number: 1, title: 'Shell Season'),
+            );
+        // Let the persisted map resolve and the deferred restore microtask run.
+        for (var i = 0; i < 20; i++) {
+          await tester.pump(const Duration(milliseconds: 10));
+        }
+
+        expect(container.read(activeEpisodeProvider)?.episodeId, 'e-1');
+        // The chip surfaces the restored scope.
+        expect(find.byKey(const Key('active-episode-chip')), findsOneWidget);
+      },
+    );
+
+    testWidgets('a foreign-season scope offers no context entries', (
+      tester,
+    ) async {
+      await setupContainer();
+      await pumpShell(tester, widthDp: 360);
+      container
+          .read(shellControllerProvider.notifier)
+          .setActiveSeason(
+            season('season-1', number: 1, title: 'Shell Season'),
+          );
+      // A scope for a DIFFERENT season than the active one.
+      container
+          .read(activeEpisodeProvider.notifier)
+          .set(
+            seasonId: 'season-2',
+            blockId: 'b-2',
+            episodeId: 'e-2',
+            episodeNumber: 1,
+          );
+      await pumpFrames(tester, n: 12);
+
+      await tester.tap(find.byKey(const Key('shell-plus-fab')));
+      await pumpFrames(tester, n: 8);
+
+      expect(find.byKey(const Key('quick-create-scene')), findsNothing);
+      expect(find.byKey(const Key('quick-create-shooting-day')), findsNothing);
+      expect(find.byKey(const Key('quick-create-ai-import')), findsOneWidget);
+      expect(find.byKey(const Key('quick-create-wizard')), findsOneWidget);
     });
   });
 }

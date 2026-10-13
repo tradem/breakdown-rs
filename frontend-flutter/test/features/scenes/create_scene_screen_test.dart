@@ -138,8 +138,15 @@ void main() {
     await pumpFrames(tester);
 
     expect(find.byKey(const Key('create-scene-error-banner')), findsOneWidget);
-    // Stayed open — the page does not pop away its own error surface.
+    // Stayed open — the page does not pop away its own error surface — and
+    // the submit button is re-enabled so the user can retry.
     expect(find.byKey(const Key('create-scene-submit')), findsOneWidget);
+    expect(
+      tester
+          .widget<FilledButton>(find.byKey(const Key('create-scene-submit')))
+          .onPressed,
+      isNotNull,
+    );
   });
 
   testWidgets('AUTHZ gate: no session, no request (deny before network)', (

@@ -46,6 +46,7 @@ class _CreateShootingDayFormState extends ConsumerState<CreateShootingDayForm> {
   late final TextEditingController _label;
   late final GlobalKey<FormState> _formKey;
   Date? _date;
+  bool _busy = false;
 
   @override
   void initState() {
@@ -61,6 +62,10 @@ class _CreateShootingDayFormState extends ConsumerState<CreateShootingDayForm> {
   }
 
   Future<void> _submit() async {
+    // Disable the submit control synchronously so a double tap cannot
+    // dispatch two create commands before the first settles.
+    if (_busy) return;
+    setState(() => _busy = true);
     // Handled: failures surface via the command-error provider (keyed copy
     // in the inline banner below).
     final createResult = await ref
@@ -71,9 +76,12 @@ class _CreateShootingDayFormState extends ConsumerState<CreateShootingDayForm> {
         );
     if (!mounted) return;
     // Stay open on failure: the inline banner renders the failure (the
-    // full-screen create page must not pop away its own error surface).
+    // full-screen create page must not pop away its own error surface) and
+    // the submit button is re-enabled so the user can retry.
     if (createResult.match((_) => false, (_) => true)) {
       Navigator.of(context).pop();
+    } else {
+      setState(() => _busy = false);
     }
   }
 
@@ -141,6 +149,9 @@ class _CreateShootingDayFormState extends ConsumerState<CreateShootingDayForm> {
                         firstDate: DateTime(2000),
                         lastDate: DateTime(2100),
                       );
+                      // The form may have been disposed while the picker was
+                      // open — never setState on a disposed State.
+                      if (!mounted) return;
                       if (picked != null) {
                         setState(() => _date = picked.toDate());
                       }
@@ -152,7 +163,7 @@ class _CreateShootingDayFormState extends ConsumerState<CreateShootingDayForm> {
               const SizedBox(height: 16),
               FilledButton(
                 key: const Key('create-shooting-day-submit'),
-                onPressed: _submit,
+                onPressed: _busy ? null : _submit,
                 child: Text(l10n.blocksCreateButton),
               ),
             ],
