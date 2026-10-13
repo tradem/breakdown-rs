@@ -6,6 +6,8 @@
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
 // Co-authored-by: glm-5.3-flash (opencode-go)
 
+import 'dart:async' show unawaited;
+
 import 'package:breakdown_api/breakdown_api.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -166,22 +168,24 @@ class EpisodesScreen extends ConsumerWidget {
                                                         episodeName:
                                                             row.episode.name,
                                                       );
-                                                  Navigator.of(context).push(
-                                                    MaterialPageRoute<void>(
-                                                      settings: RouteSettings(
-                                                        arguments:
-                                                            episodeLocation
-                                                                ?.withEpisode(
+                                                  unawaited(
+                                                    Navigator.of(context).push(
+                                                      MaterialPageRoute<void>(
+                                                        settings: RouteSettings(
+                                                          arguments:
+                                                              episodeLocation
+                                                                  ?.withEpisode(
+                                                                    row.episode,
+                                                                  ),
+                                                        ),
+                                                        builder: (_) =>
+                                                            ScenesScreen(
+                                                              episode:
                                                                   row.episode,
-                                                                ),
+                                                              seasonId: block
+                                                                  .seasonId,
+                                                            ),
                                                       ),
-                                                      builder: (_) =>
-                                                          ScenesScreen(
-                                                            episode:
-                                                                row.episode,
-                                                            seasonId:
-                                                                block.seasonId,
-                                                          ),
                                                     ),
                                                   );
                                                 }
@@ -217,19 +221,22 @@ class EpisodesScreen extends ConsumerWidget {
                                                       row.episode.number,
                                                   episodeName: row.episode.name,
                                                 );
-                                            Navigator.of(context).push(
-                                              MaterialPageRoute<void>(
-                                                settings: RouteSettings(
-                                                  arguments: episodeLocation
-                                                      ?.withEpisode(
-                                                        row.episode,
+                                            unawaited(
+                                              Navigator.of(context).push(
+                                                MaterialPageRoute<void>(
+                                                  settings: RouteSettings(
+                                                    arguments: episodeLocation
+                                                        ?.withEpisode(
+                                                          row.episode,
+                                                        ),
+                                                  ),
+                                                  builder: (_) =>
+                                                      ShootingDaysScreen(
+                                                        episode: row.episode,
+                                                        seasonId:
+                                                            block.seasonId,
                                                       ),
                                                 ),
-                                                builder: (_) =>
-                                                    ShootingDaysScreen(
-                                                      episode: row.episode,
-                                                      seasonId: block.seasonId,
-                                                    ),
                                               ),
                                             );
                                           },
