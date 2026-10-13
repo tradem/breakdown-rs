@@ -20,7 +20,7 @@ use uuid::Uuid;
 use api::handlers::{EpisodeListParams, list_episodes};
 use api::state::AppState;
 
-mod common;
+use crate::common;
 
 fn episode_view(id: Uuid, block_id: BlockId, project_id: ProjectId, number: i32) -> EpisodeView {
     EpisodeView {

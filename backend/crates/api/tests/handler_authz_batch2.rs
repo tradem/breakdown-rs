@@ -21,7 +21,7 @@
 )]
 #![allow(unsafe_code)] // test-only env var manipulation
 
-mod common;
+use crate::common;
 
 use axum::body::Bytes;
 use axum::extract::State;

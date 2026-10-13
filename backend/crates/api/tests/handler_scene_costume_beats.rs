@@ -39,7 +39,7 @@ use breakdown_core::scene::events::SceneSource;
 use breakdown_core::scene::views::SceneView;
 use breakdown_core::shared::{AggregateVersion, EpisodeId};
 
-mod common;
+use crate::common;
 
 fn dummy_user() -> CurrentUser {
     CurrentUser::dummy("test-user")

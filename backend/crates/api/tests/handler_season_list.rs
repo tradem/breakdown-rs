@@ -27,7 +27,7 @@ use uuid::Uuid;
 use api::handlers::{SeasonListParams, list_seasons};
 use api::state::AppState;
 
-mod common;
+use crate::common;
 
 fn season_view(id: Uuid, project_id: ProjectId, number: i32) -> SeasonView {
     season_view_archived(id, project_id, number, false)

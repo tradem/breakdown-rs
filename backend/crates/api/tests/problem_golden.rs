@@ -15,7 +15,7 @@
 //! reclassifying an extension field — or changing a code's status/title —
 //! must be an explicit, review-visible change to the golden files.
 //!
-//! Regenerate with `UPDATE_GOLDEN=1 cargo test -p api --test problem_golden`.
+//! Regenerate with `UPDATE_GOLDEN=1 cargo test -p api --test contract problem_golden`.
 
 // Test code: workspace denies `clippy::expect_used`/`unwrap_used`; this file
 // uses `.expect()` with explicit messages (same pattern as the other api
@@ -92,7 +92,7 @@ fn problem_documents_match_golden_snapshots() {
             Ok(expected) => {
                 if expected != rendered {
                     failures.push(format!(
-                        "DIFF  {} — run `UPDATE_GOLDEN=1 cargo test -p api --test problem_golden` after reviewing\n--- expected ---\n{expected}--- actual ---\n{rendered}",
+                        "DIFF  {} — run `UPDATE_GOLDEN=1 cargo test -p api --test contract problem_golden` after reviewing\n--- expected ---\n{expected}--- actual ---\n{rendered}",
                         entry.code
                     ));
                 }

@@ -22,7 +22,7 @@
     clippy::print_stderr,
     clippy::dbg_macro
 )]
-mod common;
+use crate::common;
 
 use std::collections::HashMap;
 use std::sync::Arc;

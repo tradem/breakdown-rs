@@ -7,7 +7,7 @@
     clippy::print_stderr,
     clippy::dbg_macro
 )]
-mod common;
+use crate::common;
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: deepseek-v4-flash (opencode-go)
 

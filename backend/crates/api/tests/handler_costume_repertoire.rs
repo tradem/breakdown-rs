@@ -21,7 +21,7 @@
     clippy::dbg_macro
 )]
 
-mod common;
+use crate::common;
 
 use api::auth::CurrentUser;
 use api::handlers::{

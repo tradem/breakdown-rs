@@ -62,6 +62,12 @@ temp/
 # Machine-local cargo config (e.g. `[build] jobs` cap to protect low-RAM hosts
 # from OOM during full-workspace builds). Never commit per-machine settings;
 # CI and other contributors must not inherit them.
+#
+# EXCEPTION (issue #631): `backend/.cargo/config.toml` is force-added/tracked —
+# it carries the shared linker wrapper (mold -> lld -> system fallback, so it
+# is safe everywhere) and the workspace job count. Keep any *other* local cargo
+# config out of git, and override the tracked `jobs` with `CARGO_BUILD_JOBS`
+# rather than editing the file.
 **/.cargo/config.toml
 
 # Test coverage

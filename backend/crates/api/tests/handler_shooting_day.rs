@@ -22,7 +22,7 @@
     clippy::dbg_macro
 )]
 
-mod common;
+use crate::common;
 
 use api::auth::CurrentUser;
 use api::handlers::{UpdateShootingDayRequest, update_shooting_day};

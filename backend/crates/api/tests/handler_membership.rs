@@ -9,7 +9,7 @@
     clippy::print_stderr,
     clippy::dbg_macro
 )]
-mod common;
+use crate::common;
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 

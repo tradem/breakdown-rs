@@ -42,7 +42,7 @@ checked-in snapshot: `backend/openapi.yaml` is rendered from `api_doc()`
 that changes the wire contract:
 
 ```bash
-UPDATE_OPENAPI=1 cargo test -p api --test openapi_drift
+UPDATE_OPENAPI=1 cargo test -p api --test contract openapi_drift
 ```
 
 CI runs the same test as an explicit step and fails on drift, so every

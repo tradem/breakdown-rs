@@ -3,6 +3,7 @@
 <!-- Co-authored-by: gpt-5.6-luna (opencode-go) -->
 <!-- Co-authored-by: omen-alpha (opencode-go) -->
 <!-- Co-authored-by: glm-5.3-flash (neuralwatt) -->
+<!-- Co-authored-by: deepseek-v4.1-flash (neuralwatt) -->
 
 # Agent Guidelines for breakdown-rs
 
@@ -36,7 +37,7 @@ Aggregate details and invariants (`shooting_day`/`wrapped_at`, `scene_shoot` lif
 
 ## 3. Workflow & Best Practices
 - **EventStorming Mapping:** **Event** (past tense, e.g. `SceneCreated`) → `enum` in `core`; **Command** (imperative, e.g. `CreateScene`) → `struct` in `core`; **Aggregate** (noun) → state `struct` in `core`.
-- **Open-Spec / API First:** API contract is authored **code-first** via `utoipa` derives (ADR-006); the checked-in **`backend/openapi.yaml`** is the review artifact and MUST be kept in sync (`UPDATE_OPENAPI=1 cargo test -p api --test openapi_drift`); CI fails on drift. Map exact types using `serde`.
+- **Open-Spec / API First:** API contract is authored **code-first** via `utoipa` derives (ADR-006); the checked-in **`backend/openapi.yaml`** is the review artifact and MUST be kept in sync (`UPDATE_OPENAPI=1 cargo test -p api --test contract openapi_drift`); CI fails on drift. Map exact types using `serde`.
 - **ID Generation:** Strictly **UUIDv7** (`uuid::Uuid::now_v7()`) for all entities and events. No UUIDv4.
 - **Security:** Never hardcode secrets. Your code must pass `gitleaks`. Authoritative threat model / authorization architecture: `docs/security/security-architecture.md` — keep it in sync when touching auth/authz code (issue #85).
 - **No panics in production code (hard rule):** `unwrap()`/`expect()`/`panic!()`/`unreachable!()`/`todo!()` forbidden in production paths (adapters, sagas, projectors, handlers, `main.rs`). Use `?` with `DomainError`/`anyhow` or `match` with explicit fallback. Clippy `unwrap_used`/`expect_used`/`panic` are `deny`; `#[allow]` only for const-time construction from known-valid literals or test code, each with justification comment.
@@ -108,6 +109,7 @@ descriptive goes to the instruction that scopes it** — backend-relative globs 
 | `backend/.github/instructions/ci-hardening.instructions.md` | `backend/rules{,-tests}/**`, `backend/scripts/**` | Guardrail ast-grep rule + job detail |
 | `.github/instructions/workflow-hardening.instructions.md` | `.github/workflows/**`, `.github/dependabot.yml` | SHA-pinning, Dependabot, script-injection hygiene |
 | `.github/instructions/local-dev-root.instructions.md` | root `scripts/**`, root `.env*` | Pointer to the local-dev-runtime documentation for root dev assets |
+| `backend/.github/instructions/build-performance.instructions.md` | `backend/Cargo.toml`, `backend/.cargo/**`, `backend/scripts/cc-linker.sh`, `backend/crates/api/{Cargo.toml,tests/**}` | Dev/test profiles, linker wrapper, integration-test harness layout, artifact/container cleanup recipe (issue #631) |
 
 Further references: `docs/security/security-architecture.md` (threat model),
 `docs/errors/` (problem codes, ADR-031), `backend/openapi.yaml` (API contract), ADRs.
@@ -119,3 +121,28 @@ Further references: `docs/security/security-architecture.md` (threat model),
 - **Co-authors:** Add one `// Co-authored-by: <model> (<provider|tool>)` line per contributor, directly under the Copyright line. Use a **separate line per author** (not a comma-separated list) — this matches the git `Co-authored-by` trailer convention, is greppable (`grep "Co-authored-by: <model>"`), and keeps diff-based attribution stable. Values come from `$PI_MODEL` and `$PI_PROVIDER` (e.g. `// Co-authored-by: glm-5.2 (neuralwatt)`). Append, don't duplicate — if an author line already exists, don't re-add it.
 
 *When in doubt about the domain logic or workflow, ask questions before generating code.*
+
+## 8. Build performance & dev-machine hygiene (issue #631)
+
+Local iteration is dominated by **link time and `target/` footprint**, not test
+runtime. The workspace ships a dev/test profile and a linker wrapper so a full
+graph links a handful of times, not 30+:
+
+- **Profiles:** dev/test use `debug = "line-tables-only"` +
+  `split-debuginfo = "unpacked"` (workspace `Cargo.toml`); release is untouched.
+  Do not re-enable full DWARF locally — it made `api` test binaries ~1 GB each
+  and pushed a single link to 26–40 min (and can SIGBUS `ld` on btrfs).
+- **Linker:** `.cargo/config.toml` wires `scripts/cc-linker.sh`, which prefers
+  `mold` → `lld` → the system linker. Install one for the fast path; without
+  them the build still works.
+- **Test harnesses:** `crates/api/tests/*.rs` are grouped into the explicit
+  `[[test]]` harnesses in `crates/api/Cargo.toml` (`autotests = false`). Add a
+  case file as a `#[path]` module in the matching harness — never as a new
+  top-level test target.
+- **Artifact/container hygiene:** after heavy local runs, `cargo sweep -t 30`
+  (or `cargo clean`), `docker container prune`, `docker volume prune`. On btrfs
+  the metadata chunk can exhaust long before data space; a periodic
+  `btrfs balance start -musage=50` (root) reclaims it.
+
+Full rationale and the cleanup runbook:
+`.github/instructions/build-performance.instructions.md`.

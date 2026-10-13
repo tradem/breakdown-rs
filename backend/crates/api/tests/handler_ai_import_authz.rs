@@ -17,7 +17,7 @@
 // handler `Result` returns use `.expect()`/`.expect_err()` with explicit
 // messages. No other lints are suppressed — the allow list is kept minimal.
 #![allow(clippy::expect_used)]
-mod common;
+use crate::common;
 
 use api::problems::Json; // test-only alias for the wrapper extractor (ADR-031)
 use axum::extract::State;
