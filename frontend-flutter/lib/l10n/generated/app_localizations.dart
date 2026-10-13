@@ -4767,6 +4767,66 @@ abstract class AppLocalizations {
   /// In de, this message translates to:
   /// **'Aktualisieren'**
   String get omniSearchRefresh;
+
+  /// No description provided for @fundusTitle.
+  ///
+  /// In de, this message translates to:
+  /// **'Fundus'**
+  String get fundusTitle;
+
+  /// No description provided for @fundusTooltip.
+  ///
+  /// In de, this message translates to:
+  /// **'Fundus durchsuchen'**
+  String get fundusTooltip;
+
+  /// No description provided for @fundusHint.
+  ///
+  /// In de, this message translates to:
+  /// **'Fundus durchsuchen: Kostüme über alle Staffeln'**
+  String get fundusHint;
+
+  /// No description provided for @fundusEmpty.
+  ///
+  /// In de, this message translates to:
+  /// **'Der Fundus dieses Projekts ist leer.'**
+  String get fundusEmpty;
+
+  /// No description provided for @fundusNotLoaded.
+  ///
+  /// In de, this message translates to:
+  /// **'Der Fundus wird noch geladen.'**
+  String get fundusNotLoaded;
+
+  /// No description provided for @fundusZeroMatch.
+  ///
+  /// In de, this message translates to:
+  /// **'Keine Treffer für „{query}“ im Fundus.'**
+  String fundusZeroMatch(String query);
+
+  /// No description provided for @fundusError.
+  ///
+  /// In de, this message translates to:
+  /// **'Der Fundus kann den lokalen Cache gerade nicht lesen.'**
+  String get fundusError;
+
+  /// No description provided for @fundusNoSeason.
+  ///
+  /// In de, this message translates to:
+  /// **'Wähle zuerst eine Staffel, um den Fundus zu durchsuchen.'**
+  String get fundusNoSeason;
+
+  /// No description provided for @fundusStaleBanner.
+  ///
+  /// In de, this message translates to:
+  /// **'Diese Ergebnisse basieren auf dem lokalen Cache und können veraltet sein.'**
+  String get fundusStaleBanner;
+
+  /// No description provided for @fundusRepertoireSeasons.
+  ///
+  /// In de, this message translates to:
+  /// **'Staffeln: {seasons}'**
+  String fundusRepertoireSeasons(String seasons);
 }
 
 class _AppLocalizationsDelegate

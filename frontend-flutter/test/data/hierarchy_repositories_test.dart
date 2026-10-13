@@ -16,6 +16,7 @@ import 'package:frontend_flutter/core/result.dart';
 import 'package:frontend_flutter/data/block_repository.dart';
 import 'package:frontend_flutter/data/cache/cache_database.dart';
 import 'package:frontend_flutter/data/cache/clock.dart';
+import 'package:frontend_flutter/data/cache/costume_domains_cache_dao.dart';
 import 'package:frontend_flutter/data/cache/hierarchy_cache_dao.dart';
 import 'package:frontend_flutter/data/cache/scene_shoot_cache_dao.dart';
 import 'package:frontend_flutter/data/costume_category_repository.dart';
@@ -225,7 +226,7 @@ class FakeCostumeCategoryRepository extends CostumeCategoryRepository {
 
 void main() {
   group('hierarchy cache schema (2.1)', () {
-    test('schema version is 13 with all projection tables', () async {
+    test('schema version is 14 with all projection tables', () async {
       final db = CacheDatabase(NativeDatabase.memory());
       addTearDown(db.close);
       // `flutter-costume-domains` 1.1 adds the costumes/characters/
@@ -245,8 +246,10 @@ void main() {
       // COLUMN); issue #534 persists the costume repertoire (migration
       // v11 → v12, guarded ADD COLUMN); issue #599 adds the `project_id`
       // columns mirroring the wire rename (migration v12 → v13, guarded ADD
-      // COLUMN — additive by policy, never a destructive rename).
-      expect(db.schemaVersion, 13);
+      // COLUMN — additive by policy, never a destructive rename); issue
+      // #625 adds the project-scoped fundus slice (migration v13 → v14,
+      // fresh table — `createTable`, no data to migrate).
+      expect(db.schemaVersion, 14);
       // Every table round-trips (migration created them).
       await BlockCacheDao(db).applySnapshotForSeason('s', [
         _block('b', seasonId: 's'),
@@ -290,6 +293,24 @@ void main() {
       expect(
         (await SceneShootCacheDao(db).readByDayOrdered('d')).map((v) => v.id),
         ['ssh-1'],
+      );
+      // The project-scoped fundus slice round-trips (migration created it).
+      await FundusCostumeCacheDao(db).applySnapshotForProject('project-1', [
+        CostumeView(
+          (b) => b
+            ..id = 'fundus-1'
+            ..notes = 'Jacke'
+            ..details.replace(BuiltList<CostumeDetailView>())
+            ..photos.replace(BuiltList<CostumePhotoView>())
+            ..seasonIds.replace(BuiltList<String>(['s']))
+            ..updatedAt = DateTime.utc(2026, 5, 1)
+            ..version = 1,
+        ),
+      ], DateTime.utc(2026, 5, 2));
+      expect(
+        (await FundusCostumeCacheDao(db).readByProjectFresh('project-1')).rows
+            .map((v) => v.id),
+        ['fundus-1'],
       );
     });
   });

@@ -796,5 +796,25 @@
   "omniSearchError": "Die Suche kann den lokalen Cache gerade nicht lesen.",
   "omniSearchNoSeason": "Wähle zuerst eine Staffel, um sie zu durchsuchen.",
   "omniSearchStaleBanner": "Diese Ergebnisse basieren auf dem lokalen Cache und können veraltet sein.",
-  "omniSearchRefresh": "Aktualisieren"
+  "omniSearchRefresh": "Aktualisieren",
+  "fundusTitle": "Fundus",
+  "fundusTooltip": "Fundus durchsuchen",
+  "fundusHint": "Fundus durchsuchen: Kostüme über alle Staffeln",
+  "fundusEmpty": "Der Fundus dieses Projekts ist leer.",
+  "fundusNotLoaded": "Der Fundus wird noch geladen.",
+  "@fundusZeroMatch": {
+    "placeholders": {
+      "query": {"type": "String"}
+    }
+  },
+  "fundusZeroMatch": "Keine Treffer für „{query}“ im Fundus.",
+  "fundusError": "Der Fundus kann den lokalen Cache gerade nicht lesen.",
+  "fundusNoSeason": "Wähle zuerst eine Staffel, um den Fundus zu durchsuchen.",
+  "fundusStaleBanner": "Diese Ergebnisse basieren auf dem lokalen Cache und können veraltet sein.",
+  "@fundusRepertoireSeasons": {
+    "placeholders": {
+      "seasons": {"type": "String"}
+    }
+  },
+  "fundusRepertoireSeasons": "Staffeln: {seasons}"
 }

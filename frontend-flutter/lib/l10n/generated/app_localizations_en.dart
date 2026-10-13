@@ -2848,4 +2848,39 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get omniSearchRefresh => 'Refresh';
+
+  @override
+  String get fundusTitle => 'Fundus';
+
+  @override
+  String get fundusTooltip => 'Browse the fundus';
+
+  @override
+  String get fundusHint => 'Browse the fundus: costumes across all seasons';
+
+  @override
+  String get fundusEmpty => 'This project\'s fundus is empty.';
+
+  @override
+  String get fundusNotLoaded => 'The fundus is still loading.';
+
+  @override
+  String fundusZeroMatch(String query) {
+    return 'No matches for \"$query\" in the fundus.';
+  }
+
+  @override
+  String get fundusError => 'The fundus cannot read the local cache right now.';
+
+  @override
+  String get fundusNoSeason => 'Pick a season first to browse the fundus.';
+
+  @override
+  String get fundusStaleBanner =>
+      'These results are based on the local cache and may be outdated.';
+
+  @override
+  String fundusRepertoireSeasons(String seasons) {
+    return 'Seasons: $seasons';
+  }
 }

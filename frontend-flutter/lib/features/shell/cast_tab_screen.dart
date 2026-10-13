@@ -13,6 +13,7 @@ import '../../l10n/app_localizations_provider.dart';
 import '../characters/characters_screen.dart';
 import '../costume_categories/costume_categories_screen.dart';
 import '../costumes/costumes_screen.dart';
+import '../fundus/fundus_screen.dart';
 import 'planning_location.dart';
 import 'profile_menu_button.dart';
 import 'search_action_button.dart';
@@ -67,6 +68,15 @@ class _CastTabScreenState extends ConsumerState<CastTabScreen> {
               // Fire-and-forget navigation (no result consumed).
               onPressed: () => _openCategories(context),
             ),
+          // Fundus browse (issue #625): the cross-season costume surface —
+          // a SEPARATE surface, not a fifth OmniSearch chip (design D1).
+          IconButton(
+            key: const Key('cast-fundus-action'),
+            icon: const Icon(Icons.checkroom_outlined),
+            tooltip: l10n.fundusTooltip,
+            // Fire-and-forget navigation (no result consumed).
+            onPressed: () => _openFundus(context),
+          ),
           const ShellSearchAction(),
           const ProfileMenuButton(),
         ],
@@ -154,6 +164,16 @@ class _CastTabScreenState extends ConsumerState<CastTabScreen> {
           builder: (_) => CostumeCategoriesScreen(season: season),
         ),
       ),
+    );
+  }
+
+  /// Pushes the cross-season fundus surface (issue #625). The surface reads
+  /// the active project from the shell state itself, so no argument is
+  /// passed — it renders the localized no-season state when none is active.
+  void _openFundus(BuildContext context) {
+    unawaited(
+      Navigator.of(context)
+          .push(MaterialPageRoute<void>(builder: (_) => const FundusScreen())),
     );
   }
 }

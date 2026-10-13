@@ -789,5 +789,25 @@
   "omniSearchError": "The search cannot read the local cache right now.",
   "omniSearchNoSeason": "Pick a season first to search it.",
   "omniSearchStaleBanner": "These results are based on the local cache and may be stale.",
-  "omniSearchRefresh": "Refresh"
+  "omniSearchRefresh": "Refresh",
+  "fundusTitle": "Fundus",
+  "fundusTooltip": "Browse the fundus",
+  "fundusHint": "Browse the fundus: costumes across all seasons",
+  "fundusEmpty": "This project's fundus is empty.",
+  "fundusNotLoaded": "The fundus is still loading.",
+  "@fundusZeroMatch": {
+    "placeholders": {
+      "query": {"type": "String"}
+    }
+  },
+  "fundusZeroMatch": "No matches for \"{query}\" in the fundus.",
+  "fundusError": "The fundus cannot read the local cache right now.",
+  "fundusNoSeason": "Pick a season first to browse the fundus.",
+  "fundusStaleBanner": "These results are based on the local cache and may be outdated.",
+  "@fundusRepertoireSeasons": {
+    "placeholders": {
+      "seasons": {"type": "String"}
+    }
+  },
+  "fundusRepertoireSeasons": "Seasons: {seasons}"
 }
