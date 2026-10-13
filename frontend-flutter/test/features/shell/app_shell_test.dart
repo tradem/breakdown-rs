@@ -40,6 +40,7 @@ import 'package:frontend_flutter/features/shell/planning_location.dart';
 import 'package:frontend_flutter/domain/reconciliation/reconciliation_scheduler.dart';
 import 'package:frontend_flutter/features/ai_import/import_jobs/import_submit_screen.dart';
 import 'package:frontend_flutter/features/shell/app_shell.dart';
+import 'package:frontend_flutter/features/shell/active_season_store.dart';
 import 'package:frontend_flutter/l10n/generated/app_localizations.dart';
 import 'package:frontend_flutter/features/shell/cast_tab_screen.dart';
 import 'package:frontend_flutter/features/shell/schedule_tab_screen.dart';
@@ -89,7 +90,11 @@ void main() {
   // context-strip tests need real candidate blocks).
   Result<List<BlockView>> blocksResult = const Right([]);
 
-  Future<void> setupContainer() async {
+  Future<void> setupContainer({
+    // Untyped on purpose: Riverpod's `Override` is not exported by
+    // `flutter_riverpod`; a list literal still type-checks at the call site.
+    List<dynamic> extraOverrides = const [],
+  }) async {
     db = CacheDatabase(NativeDatabase.memory());
     addTearDown(db.close);
     repo = FakeSeasonRepository(BreakdownApi(), SeasonCacheDao(db));
@@ -134,6 +139,7 @@ void main() {
             .overrideWith((ref) async => const Right([])),
         membershipFetchProvider('season-1')
             .overrideWith((ref) async => const Left(ProblemError(code: 'x'))),
+        ...extraOverrides,
       ],
     );
     addTearDown(container.dispose);
@@ -811,6 +817,91 @@ void main() {
         expect(container.read(activeEpisodeProvider)?.episodeId, 'e-1');
         // The chip surfaces the restored scope.
         expect(find.byKey(const Key('active-episode-chip')), findsOneWidget);
+      },
+    );
+
+    testWidgets("a season switch restores the new season's saved scope", (
+      tester,
+    ) async {
+      await setupContainer(
+        extraOverrides: [
+          // The active season is season-2, independent of the seasons view.
+          activeSeasonResolutionProvider.overrideWith(
+            (ref) async => season('season-2', number: 2, title: 'Second'),
+          ),
+          activeEpisodePersistedProvider.overrideWith(
+            (ref) async => {
+              'season-1': const PersistedEpisodeScope(
+                blockId: 'b-1',
+                episodeId: 'e-1',
+                episodeNumber: 1,
+                episodeName: 'One',
+              ),
+              'season-2': const PersistedEpisodeScope(
+                blockId: 'b-2',
+                episodeId: 'e-2',
+                episodeNumber: 2,
+                episodeName: 'Two',
+              ),
+            },
+          ),
+        ],
+      );
+      // A scope pinned in the PREVIOUS season.
+      container
+          .read(activeEpisodeProvider.notifier)
+          .set(
+            seasonId: 'season-1',
+            blockId: 'b-1',
+            episodeId: 'e-1',
+            episodeNumber: 1,
+            episodeName: 'One',
+          );
+      await pumpShell(tester, widthDp: 360);
+      for (var i = 0; i < 20; i++) {
+        await tester.pump(const Duration(milliseconds: 10));
+      }
+
+      // The previous season's scope is replaced by the new season's.
+      expect(container.read(activeEpisodeProvider)?.episodeId, 'e-2');
+    });
+
+    testWidgets(
+      'a season switch drops a stale scope when the new season has none',
+      (tester) async {
+        await setupContainer(
+          extraOverrides: [
+            activeSeasonResolutionProvider.overrideWith(
+              (ref) async => season('season-2', number: 2, title: 'Second'),
+            ),
+            activeEpisodePersistedProvider.overrideWith(
+              (ref) async => {
+                'season-1': const PersistedEpisodeScope(
+                  blockId: 'b-1',
+                  episodeId: 'e-1',
+                  episodeNumber: 1,
+                  episodeName: 'One',
+                ),
+              },
+            ),
+          ],
+        );
+        container
+            .read(activeEpisodeProvider.notifier)
+            .set(
+              seasonId: 'season-1',
+              blockId: 'b-1',
+              episodeId: 'e-1',
+              episodeNumber: 1,
+              episodeName: 'One',
+            );
+        await pumpShell(tester, widthDp: 360);
+        for (var i = 0; i < 20; i++) {
+          await tester.pump(const Duration(milliseconds: 10));
+        }
+
+        // The foreign scope is dropped (no lingering foreign chip).
+        expect(container.read(activeEpisodeProvider), isNull);
       },
     );
 

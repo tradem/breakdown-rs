@@ -134,4 +134,11 @@ class ActiveEpisode extends _$ActiveEpisode {
       }),
     );
   }
+
+  /// Drops the IN-MEMORY scope without touching the persisted per-season
+  /// documents (issue #624, CodeRabbit review): used when the active season
+  /// changes and the new season has no remembered episode — the previous
+  /// season's scope must not linger as a foreign chip, while each season
+  /// keeps its own persisted entry.
+  void discard() => state = null;
 }

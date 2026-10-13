@@ -296,21 +296,42 @@ class AppShellState extends ConsumerState<AppShell> {
   /// the persisted per-season document for the active season. Deferred to a
   /// microtask (never mutate a provider during build); double-guarded so the
   /// resulting rebuilds converge.
+  ///
+  /// Season switch: the guard compares the current scope's season, not mere
+  /// presence — when the active season changes, the new season's remembered
+  /// scope replaces a scope from the previous season (or the stale scope is
+  /// dropped when the new season has none).
   void _restoreEpisodeScope(
     String? seasonId,
     AsyncValue<Map<String, PersistedEpisodeScope>> persisted,
   ) {
     if (seasonId == null) return;
-    if (ref.read(activeEpisodeProvider) != null) return;
+    final current = ref.read(activeEpisodeProvider);
+    // Already showing the right season's scope.
+    if (current != null && current.seasonId == seasonId) return;
     final saved = switch (persisted) {
       AsyncData(:final value) => value[seasonId],
       _ => null,
     };
-    if (saved == null) return;
+    if (saved == null) {
+      // The new season has no remembered episode: drop the previous
+      // season's in-memory scope so its foreign chip does not linger. The
+      // persisted documents are untouched (each season keeps its own).
+      if (current == null) return;
+      unawaited(
+        Future.microtask(() {
+          if (!mounted) return;
+          final live = ref.read(activeEpisodeProvider);
+          if (live == null || live.seasonId == seasonId) return;
+          ref.read(activeEpisodeProvider.notifier).discard();
+        }),
+      );
+      return;
+    }
     unawaited(
       Future.microtask(() {
         if (!mounted) return;
-        if (ref.read(activeEpisodeProvider) != null) return;
+        if (ref.read(activeEpisodeProvider)?.seasonId == seasonId) return;
         ref
             .read(activeEpisodeProvider.notifier)
             .set(
