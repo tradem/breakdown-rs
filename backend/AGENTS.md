@@ -37,7 +37,7 @@ Aggregate details and invariants (`shooting_day`/`wrapped_at`, `scene_shoot` lif
 
 ## 3. Workflow & Best Practices
 - **EventStorming Mapping:** **Event** (past tense, e.g. `SceneCreated`) → `enum` in `core`; **Command** (imperative, e.g. `CreateScene`) → `struct` in `core`; **Aggregate** (noun) → state `struct` in `core`.
-- **Open-Spec / API First:** API contract is authored **code-first** via `utoipa` derives (ADR-006); the checked-in **`backend/openapi.yaml`** is the review artifact and MUST be kept in sync (`UPDATE_OPENAPI=1 cargo test -p api --test openapi_drift`); CI fails on drift. Map exact types using `serde`.
+- **Open-Spec / API First:** API contract is authored **code-first** via `utoipa` derives (ADR-006); the checked-in **`backend/openapi.yaml`** is the review artifact and MUST be kept in sync (`UPDATE_OPENAPI=1 cargo test -p api --test contract openapi_drift`); CI fails on drift. Map exact types using `serde`.
 - **ID Generation:** Strictly **UUIDv7** (`uuid::Uuid::now_v7()`) for all entities and events. No UUIDv4.
 - **Security:** Never hardcode secrets. Your code must pass `gitleaks`. Authoritative threat model / authorization architecture: `docs/security/security-architecture.md` — keep it in sync when touching auth/authz code (issue #85).
 - **No panics in production code (hard rule):** `unwrap()`/`expect()`/`panic!()`/`unreachable!()`/`todo!()` forbidden in production paths (adapters, sagas, projectors, handlers, `main.rs`). Use `?` with `DomainError`/`anyhow` or `match` with explicit fallback. Clippy `unwrap_used`/`expect_used`/`panic` are `deny`; `#[allow]` only for const-time construction from known-valid literals or test code, each with justification comment.

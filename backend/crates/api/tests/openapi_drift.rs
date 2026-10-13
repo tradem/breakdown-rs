@@ -13,7 +13,7 @@
 //! up in review instead of only appearing at runtime under `/swagger-ui`.
 //! CI fails when the two diverge.
 //!
-//! Regenerate with `UPDATE_OPENAPI=1 cargo test -p api --test openapi_drift`.
+//! Regenerate with `UPDATE_OPENAPI=1 cargo test -p api --test contract openapi_drift`.
 #![allow(
     clippy::unwrap_used,
     clippy::expect_used,
@@ -59,12 +59,12 @@ fn openapi_yaml_matches_generated_doc() {
         Ok(checked_in) if checked_in.trim_end() == rendered.trim_end() => {}
         Ok(_) => panic!(
             "DIFF  openapi.yaml is stale — run \
-             `UPDATE_OPENAPI=1 cargo test -p api --test openapi_drift`, \
+             `UPDATE_OPENAPI=1 cargo test -p api --test contract openapi_drift`, \
              then commit backend/openapi.yaml"
         ),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => panic!(
             "MISSING openapi.yaml — run \
-             `UPDATE_OPENAPI=1 cargo test -p api --test openapi_drift`, \
+             `UPDATE_OPENAPI=1 cargo test -p api --test contract openapi_drift`, \
              then commit backend/openapi.yaml"
         ),
         Err(e) => panic!("cannot read {}: {e}", path.display()),

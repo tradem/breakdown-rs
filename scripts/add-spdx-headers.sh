@@ -10,7 +10,7 @@
 # reproduced byte-for-byte by tooling, so an injected SPDX header would be
 # stripped by the next regeneration and break drift checks instead of helping:
 #   - backend/openapi.yaml (`-not -path "*/backend/openapi.yaml"`): written
-#     verbatim by `UPDATE_OPENAPI=1 cargo test -p api --test openapi_drift`;
+#     verbatim by `UPDATE_OPENAPI=1 cargo test -p api --test contract openapi_drift`;
 #     any header makes the artifact differ from the generated document.
 #     Scoped to backend/ so a hand-authored openapi.yaml elsewhere still
 #     gains a header.

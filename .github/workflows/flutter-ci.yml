@@ -616,7 +616,7 @@ jobs:
 #      backend/openapi.yaml into a throwaway, diffs against the committed
 #      tree, fails on difference. Lands with `wire-openapi-dart-client`
 #      (task 4). Mirrors backend `UPDATE_OPENAPI=1 cargo test -p api --test
-#      openapi_drift`. See spec `flutter-openapi-client`.
+#      contract openapi_drift`. See spec `flutter-openapi-client`.
 #
 #  - test-with-coverage:
 #      ✅ WIRED (see job above). `flutter test --coverage --branch-coverage` +

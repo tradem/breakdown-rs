@@ -100,7 +100,7 @@ classified (ADR-031 D4):
   orphan-key lint tolerates deprecated entries.
 - Adding a code = one registry entry (`crates/core/src/error_registry.rs`)
   + de/en bundle messages + golden snapshot
-  (`UPDATE_GOLDEN=1 cargo test -p api --test problem_golden`). The
+  (`UPDATE_GOLDEN=1 cargo test -p api --test contract problem_golden`). The
   bundle-coverage lint and golden tests are the mechanical gate.
 - The registry entries are declared through the single-source
   `problem_codes!` macro: a single invocation contains the whole registry,
