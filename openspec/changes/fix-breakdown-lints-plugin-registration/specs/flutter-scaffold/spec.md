@@ -53,7 +53,9 @@ report at ERROR severity.
 #### Scenario: A discarded future in a widget build
 - **WHEN** a build method leaves a `Future` as a statement
 - **THEN** the analyzer reports `discard_result` unless suppressed with a
-  `// ignore: discard_result` reason comment
+  `// ignore: breakdown_lints/discard_result` reason comment. The unqualified
+  `// ignore: discard_result` form does NOT suppress a plugin diagnostic
+  (verified; see `design.md` finding 8).
 
 #### Scenario: Negative activation test asserts each rule ID
 - **WHEN** a fixture file intentionally triggers all four rules (a discarded

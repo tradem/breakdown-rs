@@ -76,7 +76,10 @@ Consequently:
 ## Non-goals
 
 - Rewriting the four rule implementations or their semantics.
-- Changing the ignore-comment syntax.
+- Changing the rule IDs or the suppression mechanism. The documented
+  suppression syntax is corrected to the verified plugin-qualified form
+  (`// ignore: breakdown_lints/<code>`), and the rules' `correctionMessage`s
+  are fixed to match; the rule IDs themselves do not change.
 - Removing `tool/breakdown_lints_runner` before the enforcement decision is
   made and validated.
 - Making `dart mcp-server` load plugins (out of this repo's control; tracked as

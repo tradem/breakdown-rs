@@ -26,11 +26,18 @@
   `INFO`.
 - [ ] 2.2 Decide between (a) rules report `ErrorSeverity.ERROR`, (b) keep
   `breakdown_lints_runner` as the hard gate, or (c) both — see `design.md`.
-- [ ] 2.3 Implement the decision. For (a): set the three hard rules'
+- [ ] 2.3 Verify and document the suppression syntax: only
+  `// ignore: breakdown_lints/<code>` (and the `ignore_for_file` variant)
+  suppress a plugin diagnostic; the unqualified form does not. Correct the four
+  rules' `correctionMessage`/doc comments in
+  `frontend-flutter/packages/breakdown_lints/lib/rules/*.dart` to advertise the
+  qualified form. Confirm no existing `// ignore: <code>` comments need
+  migration (none at proposal time).
+- [ ] 2.4 Implement the decision. For (a): set the three hard rules'
   `LintCode` severity to `ERROR` and keep `no_hardcoded_secrets` advisory.
-- [ ] 2.4 Clean up the `analyzer: errors:` block to match the decision (remove
+- [ ] 2.5 Clean up the `analyzer: errors:` block to match the decision (remove
   entries that have no effect on plugin codes).
-- [ ] 2.5 If (a) is chosen, validate in CI that `flutter analyze` alone exits
+- [ ] 2.6 If (a) is chosen, validate in CI that `flutter analyze` alone exits
   non-zero on a violating fixture, then retire
   `frontend-flutter/tool/breakdown_lints_runner/` and its CI step.
 

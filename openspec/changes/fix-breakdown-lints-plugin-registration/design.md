@@ -35,6 +35,14 @@ default), but each rule's `LintCode` carries the default `ErrorSeverity.INFO`.
 7. `analysis_options.yaml` already sets `unrecognized_error_code: ignore` to
    silence batch-CLI warnings about the custom codes — a workaround that is
    only needed because the codes are not recognized without a loaded plugin.
+8. A plugin diagnostic is suppressed ONLY by the plugin-qualified form.
+   Verified with `dart analyze` (control + both forms, Dart 3.13.1 bundled):
+   `// ignore: breakdown_lints/discard_result` and
+   `// ignore_for_file: breakdown_lints/discard_result` suppress;
+   `// ignore: discard_result` and `// ignore_for_file: discard_result` do NOT.
+   The diagnostic is DISPLAYED unqualified (`discard_result`) while the
+   suppression key is qualified, which is why the rules' `correctionMessage`
+   ("suppress with // ignore: discard_result") advertises the wrong form.
 
 ## Decision: enforcement path
 
@@ -86,6 +94,11 @@ machines.
   15 s.
 - **Duplicate diagnostics.** Observed when two analysis contexts cover the same
   file; not a correctness issue, but watch for it in the regression test.
-- **Severity change blast radius.** If (a) is chosen, existing `// ignore:
-  discard_result` comments stay valid; but any code relying on a zero exit from
-  `flutter analyze` will now fail, which is the intent.
+- **Severity change blast radius.** If (a) is chosen, any code relying on a
+  zero exit from `flutter analyze` will now fail, which is the intent. Note the
+  verified suppression syntax (finding 8): a plugin diagnostic is suppressed
+  only by `// ignore: breakdown_lints/<code>` (or the `ignore_for_file`
+  variant); the unqualified form does not suppress. The repo has no existing
+  ignore comments for the four rules (verified), so no migration is needed
+  today — but the rule `correctionMessage`s must be corrected BEFORE the
+  severity change, otherwise the advertised suppression silently does nothing.
