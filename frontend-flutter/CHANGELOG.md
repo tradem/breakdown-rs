@@ -6,6 +6,7 @@
 <!-- Co-authored-by: space-bunny-free (opencode-go) -->
 <!-- Co-authored-by: qwen3.8-flash (opencode-go) -->
 <!-- Co-authored-by: glm-5.3-flash (opencode-go) -->
+<!-- Co-authored-by: deepseek-v4.1-flash (neuralwatt) -->
 
 # Changelog
 
@@ -18,6 +19,22 @@ releases are cut as `vX.Y.Z` tags (`v<build-name>`, enforced by
 `scripts/release/version-gate.sh`).
 
 ## [Unreleased]
+
+- **Version bump:** `0.4.0-alpha.13+64 → 0.4.0-alpha.14+65` — the
+  cross-season costume **fundus** browse surface (issue #625, OpenSpec
+  change `flutter-fundus-search`): a SEPARATE, project-scoped surface
+  (deliberately NOT a fifth OmniSearch chip — the four-chip /
+  active-season-scoped contract is untouched), fed by the existing
+  `GET /v1/costumes?project_id=` route into a new project-scoped Drift
+  slice (`fundus_costume_cache_rows`, schema **v14**, additive
+  `createTable`; probe `test/data/cache/fundus_migration_test.dart`).
+  Season filter chips + a dictionary-folded name prefilter over the pinned
+  costume fields (notes + category name), rows annotated with their
+  repertoire season names, and deep links into the existing costume detail
+  screen scoped to a project-resident repertoire season. No
+  `backend/openapi.yaml` change and no vendor-client regeneration (the
+  project-scoped route was already generated). Play `versionCode` `+N`
+  stays strictly monotonic.
 
 - **Version bump:** `0.4.0-alpha.6+57 → 0.4.0-alpha.7+58` — the
   `SeriesId` → `ProjectId` rename completed its wire/storage layer

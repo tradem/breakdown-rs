@@ -3858,6 +3858,822 @@ class CostumeCacheRowsCompanion extends UpdateCompanion<CostumeCacheRow> {
   }
 }
 
+class $FundusCostumeCacheRowsTable extends FundusCostumeCacheRows
+    with TableInfo<$FundusCostumeCacheRowsTable, FundusCostumeCacheRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $FundusCostumeCacheRowsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<String> id = GeneratedColumn<String>(
+    'id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _projectIdMeta = const VerificationMeta(
+    'projectId',
+  );
+  @override
+  late final GeneratedColumn<String> projectId = GeneratedColumn<String>(
+    'project_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _characterIdMeta = const VerificationMeta(
+    'characterId',
+  );
+  @override
+  late final GeneratedColumn<String> characterId = GeneratedColumn<String>(
+    'character_id',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _categoryIdMeta = const VerificationMeta(
+    'categoryId',
+  );
+  @override
+  late final GeneratedColumn<String> categoryId = GeneratedColumn<String>(
+    'category_id',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _categoryNameMeta = const VerificationMeta(
+    'categoryName',
+  );
+  @override
+  late final GeneratedColumn<String> categoryName = GeneratedColumn<String>(
+    'category_name',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _notesMeta = const VerificationMeta('notes');
+  @override
+  late final GeneratedColumn<String> notes = GeneratedColumn<String>(
+    'notes',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _detailsJsonMeta = const VerificationMeta(
+    'detailsJson',
+  );
+  @override
+  late final GeneratedColumn<String> detailsJson = GeneratedColumn<String>(
+    'details_json',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _photosJsonMeta = const VerificationMeta(
+    'photosJson',
+  );
+  @override
+  late final GeneratedColumn<String> photosJson = GeneratedColumn<String>(
+    'photos_json',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _seasonIdsJsonMeta = const VerificationMeta(
+    'seasonIdsJson',
+  );
+  @override
+  late final GeneratedColumn<String> seasonIdsJson = GeneratedColumn<String>(
+    'season_ids_json',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _updatedAtMeta = const VerificationMeta(
+    'updatedAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> updatedAt = GeneratedColumn<DateTime>(
+    'updated_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _versionMeta = const VerificationMeta(
+    'version',
+  );
+  @override
+  late final GeneratedColumn<int> version = GeneratedColumn<int>(
+    'version',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _cachedAtMeta = const VerificationMeta(
+    'cachedAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> cachedAt = GeneratedColumn<DateTime>(
+    'cached_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _snapshotIndexMeta = const VerificationMeta(
+    'snapshotIndex',
+  );
+  @override
+  late final GeneratedColumn<int> snapshotIndex = GeneratedColumn<int>(
+    'snapshot_index',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    id,
+    projectId,
+    characterId,
+    categoryId,
+    categoryName,
+    notes,
+    detailsJson,
+    photosJson,
+    seasonIdsJson,
+    updatedAt,
+    version,
+    cachedAt,
+    snapshotIndex,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'fundus_costume_cache_rows';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<FundusCostumeCacheRow> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    } else if (isInserting) {
+      context.missing(_idMeta);
+    }
+    if (data.containsKey('project_id')) {
+      context.handle(
+        _projectIdMeta,
+        projectId.isAcceptableOrUnknown(data['project_id']!, _projectIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_projectIdMeta);
+    }
+    if (data.containsKey('character_id')) {
+      context.handle(
+        _characterIdMeta,
+        characterId.isAcceptableOrUnknown(
+          data['character_id']!,
+          _characterIdMeta,
+        ),
+      );
+    }
+    if (data.containsKey('category_id')) {
+      context.handle(
+        _categoryIdMeta,
+        categoryId.isAcceptableOrUnknown(data['category_id']!, _categoryIdMeta),
+      );
+    }
+    if (data.containsKey('category_name')) {
+      context.handle(
+        _categoryNameMeta,
+        categoryName.isAcceptableOrUnknown(
+          data['category_name']!,
+          _categoryNameMeta,
+        ),
+      );
+    }
+    if (data.containsKey('notes')) {
+      context.handle(
+        _notesMeta,
+        notes.isAcceptableOrUnknown(data['notes']!, _notesMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_notesMeta);
+    }
+    if (data.containsKey('details_json')) {
+      context.handle(
+        _detailsJsonMeta,
+        detailsJson.isAcceptableOrUnknown(
+          data['details_json']!,
+          _detailsJsonMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_detailsJsonMeta);
+    }
+    if (data.containsKey('photos_json')) {
+      context.handle(
+        _photosJsonMeta,
+        photosJson.isAcceptableOrUnknown(data['photos_json']!, _photosJsonMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_photosJsonMeta);
+    }
+    if (data.containsKey('season_ids_json')) {
+      context.handle(
+        _seasonIdsJsonMeta,
+        seasonIdsJson.isAcceptableOrUnknown(
+          data['season_ids_json']!,
+          _seasonIdsJsonMeta,
+        ),
+      );
+    }
+    if (data.containsKey('updated_at')) {
+      context.handle(
+        _updatedAtMeta,
+        updatedAt.isAcceptableOrUnknown(data['updated_at']!, _updatedAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_updatedAtMeta);
+    }
+    if (data.containsKey('version')) {
+      context.handle(
+        _versionMeta,
+        version.isAcceptableOrUnknown(data['version']!, _versionMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_versionMeta);
+    }
+    if (data.containsKey('cached_at')) {
+      context.handle(
+        _cachedAtMeta,
+        cachedAt.isAcceptableOrUnknown(data['cached_at']!, _cachedAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_cachedAtMeta);
+    }
+    if (data.containsKey('snapshot_index')) {
+      context.handle(
+        _snapshotIndexMeta,
+        snapshotIndex.isAcceptableOrUnknown(
+          data['snapshot_index']!,
+          _snapshotIndexMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_snapshotIndexMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  FundusCostumeCacheRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return FundusCostumeCacheRow(
+      id: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}id'],
+      )!,
+      projectId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}project_id'],
+      )!,
+      characterId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}character_id'],
+      ),
+      categoryId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}category_id'],
+      ),
+      categoryName: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}category_name'],
+      ),
+      notes: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}notes'],
+      )!,
+      detailsJson: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}details_json'],
+      )!,
+      photosJson: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}photos_json'],
+      )!,
+      seasonIdsJson: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}season_ids_json'],
+      ),
+      updatedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}updated_at'],
+      )!,
+      version: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}version'],
+      )!,
+      cachedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}cached_at'],
+      )!,
+      snapshotIndex: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}snapshot_index'],
+      )!,
+    );
+  }
+
+  @override
+  $FundusCostumeCacheRowsTable createAlias(String alias) {
+    return $FundusCostumeCacheRowsTable(attachedDatabase, alias);
+  }
+}
+
+class FundusCostumeCacheRow extends DataClass
+    implements Insertable<FundusCostumeCacheRow> {
+  /// Mirrors `CostumeView.id`.
+  final String id;
+
+  /// Fetch scope: `GET /v1/costumes?project_id=` (NOT on the wire DTO).
+  final String projectId;
+
+  /// Mirrors `CostumeView.characterId` (nullable assignment).
+  final String? characterId;
+
+  /// Mirrors `CostumeView.categoryId` (nullable = uncategorised).
+  final String? categoryId;
+
+  /// Mirrors `CostumeView.categoryName` (denormalised; nullable on miss).
+  final String? categoryName;
+
+  /// Mirrors `CostumeView.notes` (the fundus designation/description).
+  final String notes;
+
+  /// JSON snapshot of `CostumeView.details` (wire maps).
+  final String detailsJson;
+
+  /// JSON snapshot of `CostumeView.photos` (wire maps).
+  final String photosJson;
+
+  /// JSON snapshot of `CostumeView.seasonIds` (the repertoire; non-empty for
+  /// every fundus row by the exclusion contract — nullable only for the
+  /// defensive decode path, never for a freshly fetched row).
+  final String? seasonIdsJson;
+
+  /// Mirrors `CostumeView.updatedAt` — server timestamp, preserved unchanged.
+  final DateTime updatedAt;
+
+  /// Mirrors `CostumeView.version`.
+  final int version;
+
+  /// Client-only cache-write time. TTL is computed from this column only.
+  final DateTime cachedAt;
+
+  /// Snapshot ordinal (position in the last project-scoped response).
+  final int snapshotIndex;
+  const FundusCostumeCacheRow({
+    required this.id,
+    required this.projectId,
+    this.characterId,
+    this.categoryId,
+    this.categoryName,
+    required this.notes,
+    required this.detailsJson,
+    required this.photosJson,
+    this.seasonIdsJson,
+    required this.updatedAt,
+    required this.version,
+    required this.cachedAt,
+    required this.snapshotIndex,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<String>(id);
+    map['project_id'] = Variable<String>(projectId);
+    if (!nullToAbsent || characterId != null) {
+      map['character_id'] = Variable<String>(characterId);
+    }
+    if (!nullToAbsent || categoryId != null) {
+      map['category_id'] = Variable<String>(categoryId);
+    }
+    if (!nullToAbsent || categoryName != null) {
+      map['category_name'] = Variable<String>(categoryName);
+    }
+    map['notes'] = Variable<String>(notes);
+    map['details_json'] = Variable<String>(detailsJson);
+    map['photos_json'] = Variable<String>(photosJson);
+    if (!nullToAbsent || seasonIdsJson != null) {
+      map['season_ids_json'] = Variable<String>(seasonIdsJson);
+    }
+    map['updated_at'] = Variable<DateTime>(updatedAt);
+    map['version'] = Variable<int>(version);
+    map['cached_at'] = Variable<DateTime>(cachedAt);
+    map['snapshot_index'] = Variable<int>(snapshotIndex);
+    return map;
+  }
+
+  FundusCostumeCacheRowsCompanion toCompanion(bool nullToAbsent) {
+    return FundusCostumeCacheRowsCompanion(
+      id: Value(id),
+      projectId: Value(projectId),
+      characterId: characterId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(characterId),
+      categoryId: categoryId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(categoryId),
+      categoryName: categoryName == null && nullToAbsent
+          ? const Value.absent()
+          : Value(categoryName),
+      notes: Value(notes),
+      detailsJson: Value(detailsJson),
+      photosJson: Value(photosJson),
+      seasonIdsJson: seasonIdsJson == null && nullToAbsent
+          ? const Value.absent()
+          : Value(seasonIdsJson),
+      updatedAt: Value(updatedAt),
+      version: Value(version),
+      cachedAt: Value(cachedAt),
+      snapshotIndex: Value(snapshotIndex),
+    );
+  }
+
+  factory FundusCostumeCacheRow.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return FundusCostumeCacheRow(
+      id: serializer.fromJson<String>(json['id']),
+      projectId: serializer.fromJson<String>(json['projectId']),
+      characterId: serializer.fromJson<String?>(json['characterId']),
+      categoryId: serializer.fromJson<String?>(json['categoryId']),
+      categoryName: serializer.fromJson<String?>(json['categoryName']),
+      notes: serializer.fromJson<String>(json['notes']),
+      detailsJson: serializer.fromJson<String>(json['detailsJson']),
+      photosJson: serializer.fromJson<String>(json['photosJson']),
+      seasonIdsJson: serializer.fromJson<String?>(json['seasonIdsJson']),
+      updatedAt: serializer.fromJson<DateTime>(json['updatedAt']),
+      version: serializer.fromJson<int>(json['version']),
+      cachedAt: serializer.fromJson<DateTime>(json['cachedAt']),
+      snapshotIndex: serializer.fromJson<int>(json['snapshotIndex']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<String>(id),
+      'projectId': serializer.toJson<String>(projectId),
+      'characterId': serializer.toJson<String?>(characterId),
+      'categoryId': serializer.toJson<String?>(categoryId),
+      'categoryName': serializer.toJson<String?>(categoryName),
+      'notes': serializer.toJson<String>(notes),
+      'detailsJson': serializer.toJson<String>(detailsJson),
+      'photosJson': serializer.toJson<String>(photosJson),
+      'seasonIdsJson': serializer.toJson<String?>(seasonIdsJson),
+      'updatedAt': serializer.toJson<DateTime>(updatedAt),
+      'version': serializer.toJson<int>(version),
+      'cachedAt': serializer.toJson<DateTime>(cachedAt),
+      'snapshotIndex': serializer.toJson<int>(snapshotIndex),
+    };
+  }
+
+  FundusCostumeCacheRow copyWith({
+    String? id,
+    String? projectId,
+    Value<String?> characterId = const Value.absent(),
+    Value<String?> categoryId = const Value.absent(),
+    Value<String?> categoryName = const Value.absent(),
+    String? notes,
+    String? detailsJson,
+    String? photosJson,
+    Value<String?> seasonIdsJson = const Value.absent(),
+    DateTime? updatedAt,
+    int? version,
+    DateTime? cachedAt,
+    int? snapshotIndex,
+  }) => FundusCostumeCacheRow(
+    id: id ?? this.id,
+    projectId: projectId ?? this.projectId,
+    characterId: characterId.present ? characterId.value : this.characterId,
+    categoryId: categoryId.present ? categoryId.value : this.categoryId,
+    categoryName: categoryName.present ? categoryName.value : this.categoryName,
+    notes: notes ?? this.notes,
+    detailsJson: detailsJson ?? this.detailsJson,
+    photosJson: photosJson ?? this.photosJson,
+    seasonIdsJson: seasonIdsJson.present
+        ? seasonIdsJson.value
+        : this.seasonIdsJson,
+    updatedAt: updatedAt ?? this.updatedAt,
+    version: version ?? this.version,
+    cachedAt: cachedAt ?? this.cachedAt,
+    snapshotIndex: snapshotIndex ?? this.snapshotIndex,
+  );
+  FundusCostumeCacheRow copyWithCompanion(
+    FundusCostumeCacheRowsCompanion data,
+  ) {
+    return FundusCostumeCacheRow(
+      id: data.id.present ? data.id.value : this.id,
+      projectId: data.projectId.present ? data.projectId.value : this.projectId,
+      characterId: data.characterId.present
+          ? data.characterId.value
+          : this.characterId,
+      categoryId: data.categoryId.present
+          ? data.categoryId.value
+          : this.categoryId,
+      categoryName: data.categoryName.present
+          ? data.categoryName.value
+          : this.categoryName,
+      notes: data.notes.present ? data.notes.value : this.notes,
+      detailsJson: data.detailsJson.present
+          ? data.detailsJson.value
+          : this.detailsJson,
+      photosJson: data.photosJson.present
+          ? data.photosJson.value
+          : this.photosJson,
+      seasonIdsJson: data.seasonIdsJson.present
+          ? data.seasonIdsJson.value
+          : this.seasonIdsJson,
+      updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
+      version: data.version.present ? data.version.value : this.version,
+      cachedAt: data.cachedAt.present ? data.cachedAt.value : this.cachedAt,
+      snapshotIndex: data.snapshotIndex.present
+          ? data.snapshotIndex.value
+          : this.snapshotIndex,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('FundusCostumeCacheRow(')
+          ..write('id: $id, ')
+          ..write('projectId: $projectId, ')
+          ..write('characterId: $characterId, ')
+          ..write('categoryId: $categoryId, ')
+          ..write('categoryName: $categoryName, ')
+          ..write('notes: $notes, ')
+          ..write('detailsJson: $detailsJson, ')
+          ..write('photosJson: $photosJson, ')
+          ..write('seasonIdsJson: $seasonIdsJson, ')
+          ..write('updatedAt: $updatedAt, ')
+          ..write('version: $version, ')
+          ..write('cachedAt: $cachedAt, ')
+          ..write('snapshotIndex: $snapshotIndex')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    id,
+    projectId,
+    characterId,
+    categoryId,
+    categoryName,
+    notes,
+    detailsJson,
+    photosJson,
+    seasonIdsJson,
+    updatedAt,
+    version,
+    cachedAt,
+    snapshotIndex,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is FundusCostumeCacheRow &&
+          other.id == this.id &&
+          other.projectId == this.projectId &&
+          other.characterId == this.characterId &&
+          other.categoryId == this.categoryId &&
+          other.categoryName == this.categoryName &&
+          other.notes == this.notes &&
+          other.detailsJson == this.detailsJson &&
+          other.photosJson == this.photosJson &&
+          other.seasonIdsJson == this.seasonIdsJson &&
+          other.updatedAt == this.updatedAt &&
+          other.version == this.version &&
+          other.cachedAt == this.cachedAt &&
+          other.snapshotIndex == this.snapshotIndex);
+}
+
+class FundusCostumeCacheRowsCompanion
+    extends UpdateCompanion<FundusCostumeCacheRow> {
+  final Value<String> id;
+  final Value<String> projectId;
+  final Value<String?> characterId;
+  final Value<String?> categoryId;
+  final Value<String?> categoryName;
+  final Value<String> notes;
+  final Value<String> detailsJson;
+  final Value<String> photosJson;
+  final Value<String?> seasonIdsJson;
+  final Value<DateTime> updatedAt;
+  final Value<int> version;
+  final Value<DateTime> cachedAt;
+  final Value<int> snapshotIndex;
+  final Value<int> rowid;
+  const FundusCostumeCacheRowsCompanion({
+    this.id = const Value.absent(),
+    this.projectId = const Value.absent(),
+    this.characterId = const Value.absent(),
+    this.categoryId = const Value.absent(),
+    this.categoryName = const Value.absent(),
+    this.notes = const Value.absent(),
+    this.detailsJson = const Value.absent(),
+    this.photosJson = const Value.absent(),
+    this.seasonIdsJson = const Value.absent(),
+    this.updatedAt = const Value.absent(),
+    this.version = const Value.absent(),
+    this.cachedAt = const Value.absent(),
+    this.snapshotIndex = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  FundusCostumeCacheRowsCompanion.insert({
+    required String id,
+    required String projectId,
+    this.characterId = const Value.absent(),
+    this.categoryId = const Value.absent(),
+    this.categoryName = const Value.absent(),
+    required String notes,
+    required String detailsJson,
+    required String photosJson,
+    this.seasonIdsJson = const Value.absent(),
+    required DateTime updatedAt,
+    required int version,
+    required DateTime cachedAt,
+    required int snapshotIndex,
+    this.rowid = const Value.absent(),
+  }) : id = Value(id),
+       projectId = Value(projectId),
+       notes = Value(notes),
+       detailsJson = Value(detailsJson),
+       photosJson = Value(photosJson),
+       updatedAt = Value(updatedAt),
+       version = Value(version),
+       cachedAt = Value(cachedAt),
+       snapshotIndex = Value(snapshotIndex);
+  static Insertable<FundusCostumeCacheRow> custom({
+    Expression<String>? id,
+    Expression<String>? projectId,
+    Expression<String>? characterId,
+    Expression<String>? categoryId,
+    Expression<String>? categoryName,
+    Expression<String>? notes,
+    Expression<String>? detailsJson,
+    Expression<String>? photosJson,
+    Expression<String>? seasonIdsJson,
+    Expression<DateTime>? updatedAt,
+    Expression<int>? version,
+    Expression<DateTime>? cachedAt,
+    Expression<int>? snapshotIndex,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (projectId != null) 'project_id': projectId,
+      if (characterId != null) 'character_id': characterId,
+      if (categoryId != null) 'category_id': categoryId,
+      if (categoryName != null) 'category_name': categoryName,
+      if (notes != null) 'notes': notes,
+      if (detailsJson != null) 'details_json': detailsJson,
+      if (photosJson != null) 'photos_json': photosJson,
+      if (seasonIdsJson != null) 'season_ids_json': seasonIdsJson,
+      if (updatedAt != null) 'updated_at': updatedAt,
+      if (version != null) 'version': version,
+      if (cachedAt != null) 'cached_at': cachedAt,
+      if (snapshotIndex != null) 'snapshot_index': snapshotIndex,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  FundusCostumeCacheRowsCompanion copyWith({
+    Value<String>? id,
+    Value<String>? projectId,
+    Value<String?>? characterId,
+    Value<String?>? categoryId,
+    Value<String?>? categoryName,
+    Value<String>? notes,
+    Value<String>? detailsJson,
+    Value<String>? photosJson,
+    Value<String?>? seasonIdsJson,
+    Value<DateTime>? updatedAt,
+    Value<int>? version,
+    Value<DateTime>? cachedAt,
+    Value<int>? snapshotIndex,
+    Value<int>? rowid,
+  }) {
+    return FundusCostumeCacheRowsCompanion(
+      id: id ?? this.id,
+      projectId: projectId ?? this.projectId,
+      characterId: characterId ?? this.characterId,
+      categoryId: categoryId ?? this.categoryId,
+      categoryName: categoryName ?? this.categoryName,
+      notes: notes ?? this.notes,
+      detailsJson: detailsJson ?? this.detailsJson,
+      photosJson: photosJson ?? this.photosJson,
+      seasonIdsJson: seasonIdsJson ?? this.seasonIdsJson,
+      updatedAt: updatedAt ?? this.updatedAt,
+      version: version ?? this.version,
+      cachedAt: cachedAt ?? this.cachedAt,
+      snapshotIndex: snapshotIndex ?? this.snapshotIndex,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<String>(id.value);
+    }
+    if (projectId.present) {
+      map['project_id'] = Variable<String>(projectId.value);
+    }
+    if (characterId.present) {
+      map['character_id'] = Variable<String>(characterId.value);
+    }
+    if (categoryId.present) {
+      map['category_id'] = Variable<String>(categoryId.value);
+    }
+    if (categoryName.present) {
+      map['category_name'] = Variable<String>(categoryName.value);
+    }
+    if (notes.present) {
+      map['notes'] = Variable<String>(notes.value);
+    }
+    if (detailsJson.present) {
+      map['details_json'] = Variable<String>(detailsJson.value);
+    }
+    if (photosJson.present) {
+      map['photos_json'] = Variable<String>(photosJson.value);
+    }
+    if (seasonIdsJson.present) {
+      map['season_ids_json'] = Variable<String>(seasonIdsJson.value);
+    }
+    if (updatedAt.present) {
+      map['updated_at'] = Variable<DateTime>(updatedAt.value);
+    }
+    if (version.present) {
+      map['version'] = Variable<int>(version.value);
+    }
+    if (cachedAt.present) {
+      map['cached_at'] = Variable<DateTime>(cachedAt.value);
+    }
+    if (snapshotIndex.present) {
+      map['snapshot_index'] = Variable<int>(snapshotIndex.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('FundusCostumeCacheRowsCompanion(')
+          ..write('id: $id, ')
+          ..write('projectId: $projectId, ')
+          ..write('characterId: $characterId, ')
+          ..write('categoryId: $categoryId, ')
+          ..write('categoryName: $categoryName, ')
+          ..write('notes: $notes, ')
+          ..write('detailsJson: $detailsJson, ')
+          ..write('photosJson: $photosJson, ')
+          ..write('seasonIdsJson: $seasonIdsJson, ')
+          ..write('updatedAt: $updatedAt, ')
+          ..write('version: $version, ')
+          ..write('cachedAt: $cachedAt, ')
+          ..write('snapshotIndex: $snapshotIndex, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
 class $CharacterCacheRowsTable extends CharacterCacheRows
     with TableInfo<$CharacterCacheRowsTable, CharacterCacheRow> {
   @override
@@ -7639,6 +8455,8 @@ abstract class _$CacheDatabase extends GeneratedDatabase {
   late final $CostumeCacheRowsTable costumeCacheRows = $CostumeCacheRowsTable(
     this,
   );
+  late final $FundusCostumeCacheRowsTable fundusCostumeCacheRows =
+      $FundusCostumeCacheRowsTable(this);
   late final $CharacterCacheRowsTable characterCacheRows =
       $CharacterCacheRowsTable(this);
   late final $ShootingDayCacheRowsTable shootingDayCacheRows =
@@ -7659,6 +8477,7 @@ abstract class _$CacheDatabase extends GeneratedDatabase {
     sceneCacheRows,
     costumeCategoryCacheRows,
     costumeCacheRows,
+    fundusCostumeCacheRows,
     characterCacheRows,
     shootingDayCacheRows,
     sceneShootCacheRows,
@@ -9575,6 +10394,403 @@ typedef $$CostumeCacheRowsTableProcessedTableManager =
       CostumeCacheRow,
       PrefetchHooks Function()
     >;
+typedef $$FundusCostumeCacheRowsTableCreateCompanionBuilder =
+    FundusCostumeCacheRowsCompanion Function({
+      required String id,
+      required String projectId,
+      Value<String?> characterId,
+      Value<String?> categoryId,
+      Value<String?> categoryName,
+      required String notes,
+      required String detailsJson,
+      required String photosJson,
+      Value<String?> seasonIdsJson,
+      required DateTime updatedAt,
+      required int version,
+      required DateTime cachedAt,
+      required int snapshotIndex,
+      Value<int> rowid,
+    });
+typedef $$FundusCostumeCacheRowsTableUpdateCompanionBuilder =
+    FundusCostumeCacheRowsCompanion Function({
+      Value<String> id,
+      Value<String> projectId,
+      Value<String?> characterId,
+      Value<String?> categoryId,
+      Value<String?> categoryName,
+      Value<String> notes,
+      Value<String> detailsJson,
+      Value<String> photosJson,
+      Value<String?> seasonIdsJson,
+      Value<DateTime> updatedAt,
+      Value<int> version,
+      Value<DateTime> cachedAt,
+      Value<int> snapshotIndex,
+      Value<int> rowid,
+    });
+
+class $$FundusCostumeCacheRowsTableFilterComposer
+    extends Composer<_$CacheDatabase, $FundusCostumeCacheRowsTable> {
+  $$FundusCostumeCacheRowsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get projectId => $composableBuilder(
+    column: $table.projectId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get characterId => $composableBuilder(
+    column: $table.characterId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get categoryId => $composableBuilder(
+    column: $table.categoryId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get categoryName => $composableBuilder(
+    column: $table.categoryName,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get notes => $composableBuilder(
+    column: $table.notes,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get detailsJson => $composableBuilder(
+    column: $table.detailsJson,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get photosJson => $composableBuilder(
+    column: $table.photosJson,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get seasonIdsJson => $composableBuilder(
+    column: $table.seasonIdsJson,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get version => $composableBuilder(
+    column: $table.version,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get cachedAt => $composableBuilder(
+    column: $table.cachedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get snapshotIndex => $composableBuilder(
+    column: $table.snapshotIndex,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$FundusCostumeCacheRowsTableOrderingComposer
+    extends Composer<_$CacheDatabase, $FundusCostumeCacheRowsTable> {
+  $$FundusCostumeCacheRowsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get projectId => $composableBuilder(
+    column: $table.projectId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get characterId => $composableBuilder(
+    column: $table.characterId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get categoryId => $composableBuilder(
+    column: $table.categoryId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get categoryName => $composableBuilder(
+    column: $table.categoryName,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get notes => $composableBuilder(
+    column: $table.notes,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get detailsJson => $composableBuilder(
+    column: $table.detailsJson,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get photosJson => $composableBuilder(
+    column: $table.photosJson,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get seasonIdsJson => $composableBuilder(
+    column: $table.seasonIdsJson,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get version => $composableBuilder(
+    column: $table.version,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get cachedAt => $composableBuilder(
+    column: $table.cachedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get snapshotIndex => $composableBuilder(
+    column: $table.snapshotIndex,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$FundusCostumeCacheRowsTableAnnotationComposer
+    extends Composer<_$CacheDatabase, $FundusCostumeCacheRowsTable> {
+  $$FundusCostumeCacheRowsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get projectId =>
+      $composableBuilder(column: $table.projectId, builder: (column) => column);
+
+  GeneratedColumn<String> get characterId => $composableBuilder(
+    column: $table.characterId,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get categoryId => $composableBuilder(
+    column: $table.categoryId,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get categoryName => $composableBuilder(
+    column: $table.categoryName,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get notes =>
+      $composableBuilder(column: $table.notes, builder: (column) => column);
+
+  GeneratedColumn<String> get detailsJson => $composableBuilder(
+    column: $table.detailsJson,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get photosJson => $composableBuilder(
+    column: $table.photosJson,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get seasonIdsJson => $composableBuilder(
+    column: $table.seasonIdsJson,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<DateTime> get updatedAt =>
+      $composableBuilder(column: $table.updatedAt, builder: (column) => column);
+
+  GeneratedColumn<int> get version =>
+      $composableBuilder(column: $table.version, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get cachedAt =>
+      $composableBuilder(column: $table.cachedAt, builder: (column) => column);
+
+  GeneratedColumn<int> get snapshotIndex => $composableBuilder(
+    column: $table.snapshotIndex,
+    builder: (column) => column,
+  );
+}
+
+class $$FundusCostumeCacheRowsTableTableManager
+    extends
+        RootTableManager<
+          _$CacheDatabase,
+          $FundusCostumeCacheRowsTable,
+          FundusCostumeCacheRow,
+          $$FundusCostumeCacheRowsTableFilterComposer,
+          $$FundusCostumeCacheRowsTableOrderingComposer,
+          $$FundusCostumeCacheRowsTableAnnotationComposer,
+          $$FundusCostumeCacheRowsTableCreateCompanionBuilder,
+          $$FundusCostumeCacheRowsTableUpdateCompanionBuilder,
+          (
+            FundusCostumeCacheRow,
+            BaseReferences<
+              _$CacheDatabase,
+              $FundusCostumeCacheRowsTable,
+              FundusCostumeCacheRow
+            >,
+          ),
+          FundusCostumeCacheRow,
+          PrefetchHooks Function()
+        > {
+  $$FundusCostumeCacheRowsTableTableManager(
+    _$CacheDatabase db,
+    $FundusCostumeCacheRowsTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$FundusCostumeCacheRowsTableFilterComposer(
+                $db: db,
+                $table: table,
+              ),
+          createOrderingComposer: () =>
+              $$FundusCostumeCacheRowsTableOrderingComposer(
+                $db: db,
+                $table: table,
+              ),
+          createComputedFieldComposer: () =>
+              $$FundusCostumeCacheRowsTableAnnotationComposer(
+                $db: db,
+                $table: table,
+              ),
+          updateCompanionCallback:
+              ({
+                Value<String> id = const Value.absent(),
+                Value<String> projectId = const Value.absent(),
+                Value<String?> characterId = const Value.absent(),
+                Value<String?> categoryId = const Value.absent(),
+                Value<String?> categoryName = const Value.absent(),
+                Value<String> notes = const Value.absent(),
+                Value<String> detailsJson = const Value.absent(),
+                Value<String> photosJson = const Value.absent(),
+                Value<String?> seasonIdsJson = const Value.absent(),
+                Value<DateTime> updatedAt = const Value.absent(),
+                Value<int> version = const Value.absent(),
+                Value<DateTime> cachedAt = const Value.absent(),
+                Value<int> snapshotIndex = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => FundusCostumeCacheRowsCompanion(
+                id: id,
+                projectId: projectId,
+                characterId: characterId,
+                categoryId: categoryId,
+                categoryName: categoryName,
+                notes: notes,
+                detailsJson: detailsJson,
+                photosJson: photosJson,
+                seasonIdsJson: seasonIdsJson,
+                updatedAt: updatedAt,
+                version: version,
+                cachedAt: cachedAt,
+                snapshotIndex: snapshotIndex,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String id,
+                required String projectId,
+                Value<String?> characterId = const Value.absent(),
+                Value<String?> categoryId = const Value.absent(),
+                Value<String?> categoryName = const Value.absent(),
+                required String notes,
+                required String detailsJson,
+                required String photosJson,
+                Value<String?> seasonIdsJson = const Value.absent(),
+                required DateTime updatedAt,
+                required int version,
+                required DateTime cachedAt,
+                required int snapshotIndex,
+                Value<int> rowid = const Value.absent(),
+              }) => FundusCostumeCacheRowsCompanion.insert(
+                id: id,
+                projectId: projectId,
+                characterId: characterId,
+                categoryId: categoryId,
+                categoryName: categoryName,
+                notes: notes,
+                detailsJson: detailsJson,
+                photosJson: photosJson,
+                seasonIdsJson: seasonIdsJson,
+                updatedAt: updatedAt,
+                version: version,
+                cachedAt: cachedAt,
+                snapshotIndex: snapshotIndex,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map(
+                (e) => (
+                  e.readTable<
+                    $FundusCostumeCacheRowsTable,
+                    FundusCostumeCacheRow
+                  >(table),
+                  BaseReferences<
+                    _$CacheDatabase,
+                    $FundusCostumeCacheRowsTable,
+                    FundusCostumeCacheRow
+                  >(db, table, e),
+                ),
+              )
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$FundusCostumeCacheRowsTableProcessedTableManager =
+    ProcessedTableManager<
+      _$CacheDatabase,
+      $FundusCostumeCacheRowsTable,
+      FundusCostumeCacheRow,
+      $$FundusCostumeCacheRowsTableFilterComposer,
+      $$FundusCostumeCacheRowsTableOrderingComposer,
+      $$FundusCostumeCacheRowsTableAnnotationComposer,
+      $$FundusCostumeCacheRowsTableCreateCompanionBuilder,
+      $$FundusCostumeCacheRowsTableUpdateCompanionBuilder,
+      (
+        FundusCostumeCacheRow,
+        BaseReferences<
+          _$CacheDatabase,
+          $FundusCostumeCacheRowsTable,
+          FundusCostumeCacheRow
+        >,
+      ),
+      FundusCostumeCacheRow,
+      PrefetchHooks Function()
+    >;
 typedef $$CharacterCacheRowsTableCreateCompanionBuilder =
     CharacterCacheRowsCompanion Function({
       required String id,
@@ -11441,6 +12657,11 @@ class $CacheDatabaseManager {
       );
   $$CostumeCacheRowsTableTableManager get costumeCacheRows =>
       $$CostumeCacheRowsTableTableManager(_db, _db.costumeCacheRows);
+  $$FundusCostumeCacheRowsTableTableManager get fundusCostumeCacheRows =>
+      $$FundusCostumeCacheRowsTableTableManager(
+        _db,
+        _db.fundusCostumeCacheRows,
+      );
   $$CharacterCacheRowsTableTableManager get characterCacheRows =>
       $$CharacterCacheRowsTableTableManager(_db, _db.characterCacheRows);
   $$ShootingDayCacheRowsTableTableManager get shootingDayCacheRows =>

@@ -30,6 +30,7 @@ part 'cache_database.g.dart';
     SceneCacheRows,
     CostumeCategoryCacheRows,
     CostumeCacheRows,
+    FundusCostumeCacheRows,
     CharacterCacheRows,
     ShootingDayCacheRows,
     SceneShootCacheRows,
@@ -48,7 +49,7 @@ class CacheDatabase extends _$CacheDatabase {
   CacheDatabase.connect(super.executor);
 
   @override
-  int get schemaVersion => 13;
+  int get schemaVersion => 14;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -271,6 +272,14 @@ class CacheDatabase extends _$CacheDatabase {
             aiImportJobCacheRows.projectId,
           );
         }
+      }
+      if (from < 14) {
+        // `flutter-fundus-search` (v14, issue #625): the project-scoped
+        // fundus slice — a dedicated table because its fetch scope is a
+        // PROJECT (`GET /v1/costumes?project_id=`), not a season. Fresh
+        // table for existing installs — no data to migrate; the next
+        // snapshot-replace fills it on first fundus open.
+        await m.createTable(fundusCostumeCacheRows);
       }
     },
   );

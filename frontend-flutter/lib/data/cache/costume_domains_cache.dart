@@ -82,6 +82,69 @@ class CostumeCacheRows extends Table {
   Set<Column<Object>> get primaryKey => {id};
 }
 
+// --- Fundus costumes (mirrors `CostumeView` + fetch-scope `projectId`) --------
+
+/// Drift rows for the **project-scoped fundus** slice (OpenSpec change
+/// `flutter-fundus-search`, issue #625).
+///
+/// A separate table from [CostumeCacheRows] because the fetch scope differs:
+/// [CostumeCacheRows.seasonId] is a SEASON scope (`GET /v1/costumes?season_id=`),
+/// while the fundus is a PROJECT scope (`GET /v1/costumes?project_id=`, design
+/// D3). Reusing the season table with a synthetic season key would abuse a
+/// season-typed column as a project key and make the season DAO semantics
+/// ambiguous.
+///
+/// The row mirrors `CostumeView` exactly like [CostumeCacheRows] (including
+/// the issue #534 `season_ids` repertoire), plus the client-only `cachedAt`
+/// and `snapshotIndex` columns. PK is `{id}`: one row per costume even when
+/// its repertoire spans several seasons (the repertoire IS the `seasonIdsJson`
+/// list, not duplicated rows).
+class FundusCostumeCacheRows extends Table {
+  /// Mirrors `CostumeView.id`.
+  TextColumn get id => text()();
+
+  /// Fetch scope: `GET /v1/costumes?project_id=` (NOT on the wire DTO).
+  TextColumn get projectId => text()();
+
+  /// Mirrors `CostumeView.characterId` (nullable assignment).
+  TextColumn get characterId => text().nullable()();
+
+  /// Mirrors `CostumeView.categoryId` (nullable = uncategorised).
+  TextColumn get categoryId => text().nullable()();
+
+  /// Mirrors `CostumeView.categoryName` (denormalised; nullable on miss).
+  TextColumn get categoryName => text().nullable()();
+
+  /// Mirrors `CostumeView.notes` (the fundus designation/description).
+  TextColumn get notes => text()();
+
+  /// JSON snapshot of `CostumeView.details` (wire maps).
+  TextColumn get detailsJson => text()();
+
+  /// JSON snapshot of `CostumeView.photos` (wire maps).
+  TextColumn get photosJson => text()();
+
+  /// JSON snapshot of `CostumeView.seasonIds` (the repertoire; non-empty for
+  /// every fundus row by the exclusion contract — nullable only for the
+  /// defensive decode path, never for a freshly fetched row).
+  TextColumn get seasonIdsJson => text().nullable()();
+
+  /// Mirrors `CostumeView.updatedAt` — server timestamp, preserved unchanged.
+  DateTimeColumn get updatedAt => dateTime()();
+
+  /// Mirrors `CostumeView.version`.
+  IntColumn get version => integer()();
+
+  /// Client-only cache-write time. TTL is computed from this column only.
+  DateTimeColumn get cachedAt => dateTime()();
+
+  /// Snapshot ordinal (position in the last project-scoped response).
+  IntColumn get snapshotIndex => integer()();
+
+  @override
+  Set<Column<Object>> get primaryKey => {id};
+}
+
 // --- Characters (mirrors `CharacterView`, flattened) --------------------------
 
 class CharacterCacheRows extends Table {

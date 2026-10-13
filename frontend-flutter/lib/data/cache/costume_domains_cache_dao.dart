@@ -228,6 +228,167 @@ class CostumeCacheDao {
   )..where((t) => t.seasonId.equals(seasonId))).go();
 }
 
+// --- Fundus costumes (project scope) ------------------------------------------
+
+/// Data-access object for [FundusCostumeCacheRows] (OpenSpec change
+/// `flutter-fundus-search`, issue #625).
+///
+/// Same snapshot discipline as [CostumeCacheDao], but the scope key is a
+/// PROJECT id (`GET /v1/costumes?project_id=`) instead of a season. The
+/// rows mirror `CostumeView` faithfully — including costumes whose
+/// repertoire is empty; the repertoire-exclusion rule is a pure domain rule
+/// applied by the fundus matcher, never a silent drop at the cache layer
+/// (so the cache never lies about what the server returned).
+class FundusCostumeCacheDao {
+  const FundusCostumeCacheDao(this._db);
+
+  final CacheDatabase _db;
+
+  FundusCostumeCacheRowsCompanion _companion(
+    String projectId,
+    CostumeView view,
+    DateTime cachedAt,
+    int snapshotIndex,
+  ) => FundusCostumeCacheRowsCompanion.insert(
+    id: view.id,
+    projectId: projectId,
+    characterId: Value(view.characterId),
+    categoryId: Value(view.categoryId),
+    categoryName: Value(view.categoryName),
+    notes: view.notes,
+    detailsJson: jsonEncode(
+      _encodeBuiltList(view.details, CostumeDetailView.serializer),
+    ),
+    photosJson: jsonEncode(
+      _encodeBuiltList(view.photos, CostumePhotoView.serializer),
+    ),
+    seasonIdsJson: Value(jsonEncode(view.seasonIds.toList())),
+    updatedAt: view.updatedAt,
+    version: view.version,
+    cachedAt: cachedAt,
+    snapshotIndex: snapshotIndex,
+  );
+
+  CostumeView _toView(FundusCostumeCacheRow row) => CostumeView((b) {
+    b
+      ..id = row.id
+      ..characterId = row.characterId
+      ..categoryId = row.categoryId
+      ..categoryName = row.categoryName
+      ..notes = row.notes
+      ..details.replace(
+        _decodeBuiltList(row.detailsJson, CostumeDetailView.serializer),
+      )
+      ..photos.replace(
+        _decodeBuiltList(row.photosJson, CostumePhotoView.serializer),
+      )
+      ..updatedAt = row.updatedAt.toUtc()
+      ..version = row.version;
+    // Same tolerant decode as [CostumeCacheDao._toView]: a corrupt stored
+    // value must not throw out of a `data/` read. A NULL (defensive) maps
+    // to the empty repertoire the matcher then excludes.
+    if (row.seasonIdsJson case final json? when json.isNotEmpty) {
+      final decoded = jsonDecode(json);
+      if (decoded is List) {
+        b.seasonIds.replace(BuiltList<String>(decoded.whereType<String>()));
+      }
+    }
+  });
+
+  /// Single-row upsert preserving the existing snapshot ordinal.
+  Future<void> upsert(
+    String projectId,
+    CostumeView view,
+    DateTime cachedAt,
+  ) async {
+    final existing =
+        await (_db.select(_db.fundusCostumeCacheRows)..where(
+              (t) => t.id.equals(view.id) & t.projectId.equals(projectId),
+            ))
+            .getSingleOrNull();
+    var index = existing?.snapshotIndex;
+    index ??= await _projectMaxIndex(projectId);
+    await _db
+        .into(_db.fundusCostumeCacheRows)
+        .insertOnConflictUpdate(
+          _companion(projectId, view, cachedAt, (index ?? -1) + 1),
+        );
+  }
+
+  Future<int?> _projectMaxIndex(String projectId) async {
+    final row =
+        await (_db.select(_db.fundusCostumeCacheRows)
+              ..where((t) => t.projectId.equals(projectId))
+              ..orderBy([(t) => OrderingTerm.desc(t.snapshotIndex)])
+              ..limit(1))
+            .getSingleOrNull();
+    return row?.snapshotIndex;
+  }
+
+  /// Snapshot-replace scoped to one project: upserts every [views] row by id
+  /// and deletes cached rows of [projectId] absent from [views], in ONE
+  /// transaction. Rows of other projects are never touched.
+  Future<void> applySnapshotForProject(
+    String projectId,
+    List<CostumeView> views,
+    DateTime cachedAt,
+  ) {
+    return _db.transaction(() async {
+      final ids = views.map((v) => v.id).toSet();
+      for (var i = 0; i < views.length; i++) {
+        await _db
+            .into(_db.fundusCostumeCacheRows)
+            .insertOnConflictUpdate(
+              _companion(projectId, views[i], cachedAt, i),
+            );
+      }
+      if (ids.isEmpty) {
+        await (_db.delete(
+          _db.fundusCostumeCacheRows,
+        )..where((t) => t.projectId.equals(projectId))).go();
+      } else {
+        await (_db.delete(_db.fundusCostumeCacheRows)
+              ..where((t) => t.projectId.equals(projectId) & t.id.isNotIn(ids)))
+            .go();
+      }
+    });
+  }
+
+  /// Reads the project's costumes in snapshot order, WITH the TTL staleness
+  /// verdict (the `cachedAt` column only).
+  Future<({List<CostumeView> rows, bool stale})> readByProjectFresh(
+    String projectId, {
+    Duration ttl = kCacheTtl,
+    Clock clock = Clock.system,
+  }) async {
+    final raw =
+        await (_db.select(_db.fundusCostumeCacheRows)
+              ..where((t) => t.projectId.equals(projectId))
+              ..orderBy([(t) => OrderingTerm.asc(t.snapshotIndex)]))
+            .get();
+    return (
+      rows: raw.map(_toView).toList(),
+      stale: raw.any((r) => isRowExpired(r.cachedAt, ttl, clock: clock)),
+    );
+  }
+
+  Future<bool> isProjectExpired(
+    String projectId,
+    Duration ttl, {
+    Clock clock = Clock.system,
+  }) async {
+    final rows = await (_db.select(
+      _db.fundusCostumeCacheRows,
+    )..where((t) => t.projectId.equals(projectId))).get();
+    if (rows.isEmpty) return false;
+    return rows.any((r) => isRowExpired(r.cachedAt, ttl, clock: clock));
+  }
+
+  Future<void> clearProject(String projectId) => (_db.delete(
+    _db.fundusCostumeCacheRows,
+  )..where((t) => t.projectId.equals(projectId))).go();
+}
+
 // --- Characters ---------------------------------------------------------------
 
 /// Data-access object for [CharacterCacheRows] (flattened measurements +
