@@ -25,6 +25,7 @@ import 'package:frontend_flutter/data/cache/costume_domains_cache_dao.dart';
 import 'package:frontend_flutter/data/cache/seasons_cache_providers.dart';
 import 'package:frontend_flutter/data/shooting_day_repository.dart';
 import 'package:frontend_flutter/domain/reconciliation/reconciliation_scheduler.dart';
+import 'package:frontend_flutter/features/shooting_days/create_shooting_day_screen.dart';
 import 'package:frontend_flutter/features/shooting_days/shooting_days_controller.dart';
 import 'package:frontend_flutter/features/shooting_days/shooting_days_screen.dart';
 
@@ -419,6 +420,63 @@ void main() {
       expect(
         find.byKey(const Key('shooting-day-command-error-banner')),
         findsNothing,
+      );
+    });
+  });
+
+  group('CreateShootingDayScreen (issue #624, full-screen create page)', () {
+    Future<void> pumpCreatePage(WidgetTester tester) async {
+      tester.view.physicalSize = const Size(800, 1200);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: MaterialApp(
+            home: const CreateShootingDayScreen(episodeId: 'episode-1'),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('submit dispatches for the page episode and pops on success', (
+      tester,
+    ) async {
+      await setupContainer();
+      await pumpCreatePage(tester);
+
+      await tester.enterText(
+        find.byKey(const Key('create-shooting-day-label')),
+        '2. Tag',
+      );
+      await tester.tap(find.byKey(const Key('create-shooting-day-submit')));
+      await _pumpFrames(tester);
+
+      expect(repo.createCalls, 1);
+      expect(repo.lastCreate, isNotNull);
+      expect(
+        find.byKey(const Key('create-shooting-day-error-banner')),
+        findsNothing,
+      );
+    });
+
+    testWidgets('a failed command surfaces the inline banner (Err branch)', (
+      tester,
+    ) async {
+      await setupContainer();
+      // No session: the AUTHZ gate denies before the network call and the
+      // command-error provider carries the denial.
+      await container.read(authSessionControllerProvider.notifier).signOut();
+      await pumpCreatePage(tester);
+
+      await tester.tap(find.byKey(const Key('create-shooting-day-submit')));
+      await _pumpFrames(tester);
+
+      expect(repo.createCalls, 0);
+      expect(
+        find.byKey(const Key('create-shooting-day-error-banner')),
+        findsOneWidget,
       );
     });
   });

@@ -227,6 +227,23 @@ class ScenesCommandError extends _$ScenesCommandError {
   void clear() => state = null;
 }
 
+/// Localized client-side copy for a create-scene failure, keyed on the
+/// stable problem `code` (never the server's localized `detail`). There is
+/// no scene-number uniqueness conflict on the backend (create_scene has no
+/// 409 path), so the old `scenes.conflict`/`scene.conflict` keys are dead —
+/// every real create-scene failure lands on the transport/generic arms or
+/// the keyed auth arms (issue #481 class).
+///
+/// Lives next to the command-error provider (issue #624) so the shared create
+/// form can key its inline banner without importing the screen.
+String sceneCreateErrorCopy(AppLocalizations l10n, ProblemError error) =>
+    switch (error.code) {
+      'authz.denied' || 'auth.session_required' => l10n.blocksCreateErrorSignIn,
+      _ when error.code.startsWith('transport.') =>
+        l10n.scenesCreateErrorNetwork,
+      _ => l10n.scenesCreateErrorGeneric(error.code),
+    };
+
 /// `ScenesController(episodeId)` on the shared reconciliation runner.
 @Riverpod(keepAlive: true)
 class ScenesController extends _$ScenesController {
@@ -321,14 +338,14 @@ class ScenesController extends _$ScenesController {
     ];
   }
 
-  /// Submits the Create Scene command (`episode_id` + `details` from the
-  /// `EpisodeView` read DTO the user acted on — CQRS boundary).
+  /// Submits the Create Scene command (`episode_id` + `details`). The
+  /// `episode_id` is the controller's key — the id from the `EpisodeView`
+  /// read DTO the user acted on (CQRS boundary), never a second lookup.
   ///
   /// AUTHZ-GATE: the backend create handler is `CurrentUser`-gated
   /// (auth-only). The client mirrors that gate — no network call is issued
   /// without an authenticated session.
   Future<Result<IdVersionResponse>> create({
-    required EpisodeView episode,
     required SceneDetails details,
   }) async {
     // AUTHZ-GATE: authenticated session required; deny before any network
@@ -348,7 +365,7 @@ class ScenesController extends _$ScenesController {
     final ack = await repo.create(
       CreateSceneRequest(
         (b) => b
-          ..episodeId = episode.id
+          ..episodeId = episodeId
           ..details.replace(details),
       ),
     );

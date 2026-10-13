@@ -10,6 +10,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fpdart/fpdart.dart';
 
+import 'package:frontend_flutter/auth/active_episode.dart';
 import 'package:frontend_flutter/auth/auth_providers.dart';
 import 'package:frontend_flutter/core/problem_error.dart';
 import 'package:frontend_flutter/core/result.dart';
@@ -370,6 +371,43 @@ void main() {
       await tester.tap(find.byKey(const Key('episode-shooting-days-e1')));
       await tester.pumpAndSettle();
       expect(find.byKey(const Key('shooting-days-list')), findsOneWidget);
+    });
+  });
+
+  group('EpisodesScreen sets the active-episode scope (issue #624)', () {
+    testWidgets('episode row tap sets the scope before the push', (
+      tester,
+    ) async {
+      await setupContainer(
+        initialRows: [_episode('e1', number: 2, name: 'Pilot')],
+      );
+      await pumpScreen(tester);
+
+      await tester.tap(find.byKey(const Key('episode-e1')));
+      await tester.pump();
+      // The pushed screen builds against bootstrap providers this harness
+      // does not override; the scope is set BEFORE the push (the contract).
+      while (tester.takeException() != null) {}
+
+      final scope = container.read(activeEpisodeProvider);
+      expect(scope?.seasonId, 'season-1');
+      expect(scope?.blockId, 'block-1');
+      expect(scope?.episodeId, 'e1');
+      expect(scope?.episodeNumber, 2);
+      expect(scope?.episodeName, 'Pilot');
+    });
+
+    testWidgets('shooting-days entry sets the scope before the push', (
+      tester,
+    ) async {
+      await setupContainer(initialRows: [_episode('e1', number: 2)]);
+      await pumpScreen(tester);
+
+      await tester.tap(find.byKey(const Key('episode-shooting-days-e1')));
+      await tester.pump();
+      while (tester.takeException() != null) {}
+
+      expect(container.read(activeEpisodeProvider)?.episodeId, 'e1');
     });
   });
 }

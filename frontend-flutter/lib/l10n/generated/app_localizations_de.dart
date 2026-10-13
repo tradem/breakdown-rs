@@ -2203,6 +2203,19 @@ class AppLocalizationsDe extends AppLocalizations {
       'Season, Blöcke und Episoden geführt anlegen';
 
   @override
+  String get quickCreateSceneTitle => 'Neue Szene';
+
+  @override
+  String get quickCreateSceneSubtitle => 'Szene in der aktiven Episode anlegen';
+
+  @override
+  String get quickCreateShootingDayTitle => 'Neuer Drehtag';
+
+  @override
+  String get quickCreateShootingDaySubtitle =>
+      'Drehtag in der aktiven Episode planen';
+
+  @override
   String locationStripSemantics(Object path) {
     return 'Position: $path';
   }
@@ -2243,6 +2256,15 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get scopeChipPickTitle => 'Block-Filter wählen';
+
+  @override
+  String get episodeChipTooltip => 'Aktive Episode ändern';
+
+  @override
+  String get episodeChipPickTitle => 'Episode wählen';
+
+  @override
+  String get episodeChipEmpty => 'Noch keine Episoden in diesem Block.';
 
   @override
   String get seasonsTitle => 'Seasons';

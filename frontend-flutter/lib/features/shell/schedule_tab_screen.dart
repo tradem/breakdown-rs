@@ -9,6 +9,7 @@ import 'package:breakdown_api/breakdown_api.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../auth/active_episode.dart';
 import '../../l10n/app_localizations_provider.dart';
 import '../shooting_days/shooting_days_screen.dart';
 import '../shooting_days/season_schedule_controller.dart';
@@ -133,23 +134,38 @@ class _ScheduleBody extends ConsumerWidget {
                   ),
                   trailing: const Icon(Icons.chevron_right),
                   // Fire-and-forget navigation (no result consumed).
-                  onTap: () => unawaited(
-                    Navigator.of(context).push(
-                      MaterialPageRoute<void>(
-                        settings: RouteSettings(
-                          arguments: PlanningLocation.episode(
-                            season,
-                            row.block,
-                            row.episode,
+                  //
+                  // Issue #624: entering an episode's day board sets the
+                  // sticky active-episode scope (from the row's acted-on
+                  // DTOs — CQRS boundary) before the push.
+                  onTap: () {
+                    ref
+                        .read(activeEpisodeProvider.notifier)
+                        .set(
+                          seasonId: season.id,
+                          blockId: row.block.id,
+                          episodeId: row.episode.id,
+                          episodeNumber: row.episode.number,
+                          episodeName: row.episode.name,
+                        );
+                    unawaited(
+                      Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          settings: RouteSettings(
+                            arguments: PlanningLocation.episode(
+                              season,
+                              row.block,
+                              row.episode,
+                            ),
+                          ),
+                          builder: (_) => ShootingDaysScreen(
+                            episode: row.episode,
+                            seasonId: season.id,
                           ),
                         ),
-                        builder: (_) => ShootingDaysScreen(
-                          episode: row.episode,
-                          seasonId: season.id,
-                        ),
                       ),
-                    ),
-                  ),
+                    );
+                  },
                 );
               },
             ),

@@ -15,8 +15,10 @@ import '../../l10n/generated/app_localizations.dart';
 import '../../l10n/generated/app_localizations_de.dart';
 import '../../design/material_icons.dart';
 import '../../auth/active_block.dart';
+import '../../auth/active_episode.dart';
 import '../../auth/auth_providers.dart';
 import 'quick_create_sheet.dart';
+import 'active_episode_chip.dart';
 import 'active_scope_chip.dart';
 import 'cast_tab_screen.dart';
 import 'location_strip.dart';
@@ -204,7 +206,10 @@ class AppShellState extends ConsumerState<AppShell> {
               onPressed: () => unawaited(
                 showQuickCreateSheet(
                   context,
-                  actions: shellQuickCreateActions(l10n),
+                  actions: shellQuickCreateActions(
+                    l10n,
+                    episode: ref.read(activeEpisodeProvider),
+                  ),
                 ),
               ),
               // One Spotify-style plus action across ALL three morphologies
@@ -293,8 +298,12 @@ class ShellContextBar extends ConsumerWidget {
         final navigator = navigatorKey.currentState;
         final location = navigator == null ? null : locationOf(navigator);
         final scope = ref.watch(activeBlockProvider);
+        final episode = ref.watch(activeEpisodeProvider);
         final season = ref.watch(shellControllerProvider).activeSeason;
-        if (location == null && scope == null && season == null) {
+        if (location == null &&
+            scope == null &&
+            episode == null &&
+            season == null) {
           return const SizedBox.shrink();
         }
 
@@ -346,6 +355,19 @@ class ShellContextBar extends ConsumerWidget {
                       MaterialPageRoute<void>(
                         builder: (_) =>
                             ScopeChipPickerScreen(seasonId: seasonId),
+                      ),
+                    ),
+                  ),
+                ),
+                ActiveEpisodeChip(
+                  location: location,
+                  onOpenPicker: (seasonId, blockId) => unawaited(
+                    Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => EpisodeScopePickerScreen(
+                          seasonId: seasonId,
+                          blockId: blockId,
+                        ),
                       ),
                     ),
                   ),

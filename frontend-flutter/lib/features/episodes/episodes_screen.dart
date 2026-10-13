@@ -10,6 +10,7 @@ import 'package:breakdown_api/breakdown_api.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../auth/active_episode.dart';
 import '../../auth/auth_providers.dart';
 import '../../core/problem_error.dart';
 import '../../l10n/app_localizations_provider.dart';
@@ -141,25 +142,49 @@ class EpisodesScreen extends ConsumerWidget {
                                         child: EpisodeTile(
                                           row: row,
                                           onTap: row is ProjectedEpisodeRow
-                                              ? () => Navigator.of(context)
-                                                    .push(
-                                                      MaterialPageRoute<void>(
-                                                        settings: RouteSettings(
-                                                          arguments:
-                                                              episodeLocation
-                                                                  ?.withEpisode(
-                                                                    row.episode,
-                                                                  ),
-                                                        ),
-                                                        builder: (_) =>
-                                                            ScenesScreen(
-                                                              episode:
+                                              ? () {
+                                                  // Issue #624: entering an
+                                                  // episode's scenes sets
+                                                  // the sticky active-
+                                                  // episode scope (from the
+                                                  // DTO acted on — CQRS
+                                                  // boundary) before the
+                                                  // push.
+                                                  ref
+                                                      .read(
+                                                        activeEpisodeProvider
+                                                            .notifier,
+                                                      )
+                                                      .set(
+                                                        seasonId:
+                                                            block.seasonId,
+                                                        blockId: block.id,
+                                                        episodeId:
+                                                            row.episode.id,
+                                                        episodeNumber:
+                                                            row.episode.number,
+                                                        episodeName:
+                                                            row.episode.name,
+                                                      );
+                                                  Navigator.of(context).push(
+                                                    MaterialPageRoute<void>(
+                                                      settings: RouteSettings(
+                                                        arguments:
+                                                            episodeLocation
+                                                                ?.withEpisode(
                                                                   row.episode,
-                                                              seasonId: block
-                                                                  .seasonId,
-                                                            ),
+                                                                ),
                                                       ),
-                                                    )
+                                                      builder: (_) =>
+                                                          ScenesScreen(
+                                                            episode:
+                                                                row.episode,
+                                                            seasonId:
+                                                                block.seasonId,
+                                                          ),
+                                                    ),
+                                                  );
+                                                }
                                               : null,
                                         ),
                                       ),
@@ -174,23 +199,40 @@ class EpisodesScreen extends ConsumerWidget {
                                             Icons.calendar_month_outlined,
                                           ),
                                           tooltip: l10n.navShootingDays,
-                                          onPressed: () => Navigator.of(context)
-                                              .push(
-                                                MaterialPageRoute<void>(
-                                                  settings: RouteSettings(
-                                                    arguments: episodeLocation
-                                                        ?.withEpisode(
-                                                          row.episode,
-                                                        ),
-                                                  ),
-                                                  builder: (_) =>
-                                                      ShootingDaysScreen(
-                                                        episode: row.episode,
-                                                        seasonId:
-                                                            block.seasonId,
+                                          onPressed: () {
+                                            // Issue #624: entering an
+                                            // episode's day board sets the
+                                            // sticky active-episode scope
+                                            // before the push.
+                                            ref
+                                                .read(
+                                                  activeEpisodeProvider
+                                                      .notifier,
+                                                )
+                                                .set(
+                                                  seasonId: block.seasonId,
+                                                  blockId: block.id,
+                                                  episodeId: row.episode.id,
+                                                  episodeNumber:
+                                                      row.episode.number,
+                                                  episodeName: row.episode.name,
+                                                );
+                                            Navigator.of(context).push(
+                                              MaterialPageRoute<void>(
+                                                settings: RouteSettings(
+                                                  arguments: episodeLocation
+                                                      ?.withEpisode(
+                                                        row.episode,
                                                       ),
                                                 ),
+                                                builder: (_) =>
+                                                    ShootingDaysScreen(
+                                                      episode: row.episode,
+                                                      seasonId: block.seasonId,
+                                                    ),
                                               ),
+                                            );
+                                          },
                                         ),
                                     ],
                                   );

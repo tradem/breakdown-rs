@@ -108,6 +108,7 @@ are covered in Interactions and Tests — never in the wireframes.
 | Destination labels | Visible text | Mandatory on every destination in every morphology | — |
 | Season scope chip | Assist chip | The active season; tap opens the season scope picker | `scopeChipSeason` |
 | Block scope chip | Assist chip | The sticky block filter; tap opens the block picker | `scopeChipBlock` |
+| Episode scope chip | Assist chip | The sticky active-episode target the quick-create entries act on (issue #624); tap opens the episode picker for the scope block; hidden when unset | `episodeChipTooltip` / `episodeChipPickTitle` |
 | Season scope picker | Screen | Season rows (pick), *Seasons verwalten*, *Produktion verwalten* | `scopeChipSeasonPickTitle` / `seasonScopeManageSeasons` / `seasonScopeManageProduction` |
 | Profile action | Icon button with tooltip + labeled sheet entries | Identity, Über die App, Einstellungen, Abmelden (never the costume categories) | `profileTooltip` |
 | View content | Content pane | The active destination's screen (its own app bar and FABs stay) | — |

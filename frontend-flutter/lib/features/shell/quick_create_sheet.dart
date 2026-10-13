@@ -6,10 +6,13 @@ import 'dart:async' show unawaited;
 
 import 'package:flutter/material.dart';
 
+import '../../auth/active_episode.dart';
 import '../../l10n/generated/app_localizations.dart';
 import '../../l10n/generated/app_localizations_de.dart';
 import '../ai_import/import_jobs/import_submit_screen.dart';
+import '../scenes/create_scene_screen.dart';
 import '../seasons/setup/setup_wizard_screen.dart';
+import '../shooting_days/create_shooting_day_screen.dart';
 
 /// One affordance row of the shell quick-create sheet (issue #612).
 ///
@@ -43,11 +46,31 @@ class QuickCreateAction {
   final Widget Function() routeBuilder;
 }
 
-/// The v1 affordance list (issue #612 design decision 2): context-free,
-/// dumb-by-design — the AI import and the guided season setup wizard.
-/// Context-sensitive entries ("new scene/day" inside Script/Schedule) are
-/// a later decision; the list is data-driven, so extension is additive.
-List<QuickCreateAction> shellQuickCreateActions(AppLocalizations l10n) => [
+/// The quick-create affordance list (issue #612, extended by #624): the
+/// context-free entries are always present, and when an [episode] scope is
+/// active the two context-sensitive entries are prepended for that episode.
+/// The list is data-driven, so extension stays additive — the sheet renders
+/// whatever it is handed.
+List<QuickCreateAction> shellQuickCreateActions(
+  AppLocalizations l10n, {
+  ActiveEpisodeScope? episode,
+}) => [
+  if (episode != null) ...[
+    QuickCreateAction(
+      key: const Key('quick-create-scene'),
+      icon: Icons.view_agenda_outlined,
+      title: l10n.quickCreateSceneTitle,
+      subtitle: l10n.quickCreateSceneSubtitle,
+      routeBuilder: () => CreateSceneScreen(episodeId: episode.episodeId),
+    ),
+    QuickCreateAction(
+      key: const Key('quick-create-shooting-day'),
+      icon: Icons.calendar_month_outlined,
+      title: l10n.quickCreateShootingDayTitle,
+      subtitle: l10n.quickCreateShootingDaySubtitle,
+      routeBuilder: () => CreateShootingDayScreen(episodeId: episode.episodeId),
+    ),
+  ],
   QuickCreateAction(
     key: const Key('quick-create-ai-import'),
     icon: Icons.smart_toy_outlined,
@@ -107,29 +130,34 @@ class QuickCreateSheet extends StatelessWidget {
         Localizations.of<AppLocalizations>(context, AppLocalizations) ??
         AppLocalizationsDe();
     return SafeArea(
-      child: Column(
-        key: const Key('shell-quick-create-sheet'),
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(24, 16, 24, 8),
-            child: Text(
-              l10n.quickCreateTitle,
-              style: Theme.of(context).textTheme.titleLarge,
+      // Scrollable so a longer affordance list (issue #624 added the
+      // context-sensitive entries) never overflows the sheet's bounded
+      // height on short screens.
+      child: SingleChildScrollView(
+        child: Column(
+          key: const Key('shell-quick-create-sheet'),
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(24, 16, 24, 8),
+              child: Text(
+                l10n.quickCreateTitle,
+                style: Theme.of(context).textTheme.titleLarge,
+              ),
             ),
-          ),
-          for (final action in actions)
-            ListTile(
-              key: action.key,
-              leading: Icon(action.icon),
-              title: Text(action.title),
-              subtitle: Text(action.subtitle),
-              trailing: const Icon(Icons.chevron_right),
-              onTap: () => _open(context, action),
-            ),
-          const SizedBox(height: 8),
-        ],
+            for (final action in actions)
+              ListTile(
+                key: action.key,
+                leading: Icon(action.icon),
+                title: Text(action.title),
+                subtitle: Text(action.subtitle),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => _open(context, action),
+              ),
+            const SizedBox(height: 8),
+          ],
+        ),
       ),
     );
   }

@@ -14,6 +14,7 @@ import '../../core/problem_error.dart';
 import '../../l10n/app_localizations_provider.dart';
 import '../costume_categories/next_order_key.dart';
 import '../reports/reports_index_screen.dart';
+import 'create_shooting_day_sheet.dart';
 import 'order_keys.dart';
 import 'shooting_days_controller.dart';
 import 'shooting_days_state.dart';
@@ -217,11 +218,7 @@ class ShootingDaysScreen extends ConsumerWidget {
   }
 
   Future<void> _showCreateSheet(BuildContext context, WidgetRef ref) {
-    return showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      builder: (_) => _CreateShootingDaySheet(episode: episode),
-    );
+    return showCreateShootingDaySheet(context, episode);
   }
 
   Future<void> _showRenameSheet(
@@ -384,130 +381,8 @@ class ShootingDaysScreen extends ConsumerWidget {
   }
 }
 
-/// Create-sheet content: owns its controllers in widget state so they
-/// dispose exactly when the sheet unmounts (a `whenComplete` chain would
-/// race the sheet's exit transition, which rebuilds fields after the
-/// sheet future completes).
-class _CreateShootingDaySheet extends ConsumerStatefulWidget {
-  const _CreateShootingDaySheet({required this.episode});
-
-  final EpisodeView episode;
-
-  @override
-  ConsumerState<_CreateShootingDaySheet> createState() =>
-      _CreateShootingDaySheetState();
-}
-
-class _CreateShootingDaySheetState
-    extends ConsumerState<_CreateShootingDaySheet> {
-  late final TextEditingController _label;
-  late final GlobalKey<FormState> _formKey;
-  Date? _date;
-
-  @override
-  void initState() {
-    super.initState();
-    _label = TextEditingController();
-    _formKey = GlobalKey<FormState>();
-  }
-
-  @override
-  void dispose() {
-    _label.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = l10nOf(context);
-    return SafeArea(
-      child: Padding(
-        padding: EdgeInsets.only(
-          left: 16,
-          right: 16,
-          top: 16,
-          bottom: MediaQuery.of(context).viewInsets.bottom + 16,
-        ),
-        child: Form(
-          key: _formKey,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                l10n.shootingDayCreateTitle,
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-              ),
-              TextFormField(
-                key: const Key('create-shooting-day-label'),
-                controller: _label,
-                decoration: InputDecoration(
-                  labelText: l10n.shootingDayLabelHint,
-                ),
-              ),
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      _date == null
-                          ? l10n.shootingDayNoDate
-                          : l10n.shootingDayDate('$_date'),
-                      key: const Key('create-shooting-day-date-text'),
-                    ),
-                  ),
-                  TextButton(
-                    key: const Key('create-shooting-day-date-pick'),
-                    onPressed: () async {
-                      // Material date utilities localize the picker (no
-                      // hand-rolled date math for locale — spec §5).
-                      final picked = await showDatePicker(
-                        context: context,
-                        initialDate: DateTime.now(),
-                        firstDate: DateTime(2000),
-                        lastDate: DateTime(2100),
-                      );
-                      if (picked != null) {
-                        setState(() => _date = picked.toDate());
-                      }
-                    },
-                    child: Text(l10n.shootingDayPickDate),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 16),
-              FilledButton(
-                key: const Key('create-shooting-day-submit'),
-                onPressed: () async {
-                  // Handled: failures surface via the command-error
-                  // provider (keyed copy in the screen).
-                  final createResult = await ref
-                      .read(
-                        shootingDaysControllerProvider(widget.episode.id)
-                            .notifier,
-                      )
-                      .create(
-                        label: _label.text.trim().isEmpty
-                            ? null
-                            : _label.text.trim(),
-                        date: _date,
-                      );
-                  createResult.match<void>((_) {}, (_) {});
-                  if (context.mounted) {
-                    Navigator.of(context).pop();
-                  }
-                },
-                child: Text(l10n.blocksCreateButton),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
 /// Rename-dialog content: owns its controller in widget state (same
-/// dispose discipline as [_CreateShootingDaySheet]).
+/// dispose discipline as [CreateShootingDayForm]).
 class _RenameShootingDaySheet extends ConsumerStatefulWidget {
   const _RenameShootingDaySheet({required this.episode, required this.day});
 
