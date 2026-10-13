@@ -7,7 +7,9 @@
 // ignore_for_file: unused_element
 import 'package:breakdown_api/src/model/document_kind.dart';
 import 'package:breakdown_api/src/model/job_status.dart';
+import 'package:built_collection/built_collection.dart';
 import 'package:breakdown_api/src/model/source_format.dart';
+import 'package:breakdown_api/src/model/ai_import_attempt.dart';
 import 'package:built_value/built_value.dart';
 import 'package:built_value/serializer.dart';
 
@@ -16,6 +18,7 @@ part 'ai_import_job.g.dart';
 /// Operational job row. Preview blobs and errors are represented by opaque handles/summaries; credentials and document bytes are deliberately absent.
 ///
 /// Properties:
+/// * [attempts] - Per-attempt failure history, newest first (issue #637).  `last_error` is overwritten by every `mark_failed`, so the reason an *earlier* attempt failed is lost. This list keeps each attempt's outcome retrievable. Populated on the single-job read (`GET /ai-import/jobs/{id}`); empty in list/claim contexts where the history is not fetched, so it is additive on the wire.
 /// * [blockId] - Opaque identifier for a `Block` aggregate.
 /// * [createdAt]
 /// * [dedupKey]
@@ -24,6 +27,7 @@ part 'ai_import_job.g.dart';
 /// * [id] - Opaque identifier for an operational AI import job.
 /// * [lastError]
 /// * [maxRetries]
+/// * [nextAttemptAt] - When a retryable `failed` job becomes claimable again (issue #637).  `None` for every other state: `pending`/`running` have no backoff, and a terminal job never retries. The column always existed; the wire view omitted it, so neither the UI nor operators could explain a stalled import (\"why is this job not running yet?\").
 /// * [previewHandle]
 /// * [retries]
 /// * [sourceFormat]
@@ -33,6 +37,10 @@ part 'ai_import_job.g.dart';
 /// * [userId] - Opaque identifier for a user, wrapping the OIDC `sub` claim.  `UserId` references the authenticated principal without ever decoding, storing, or dereferencing identity attributes in `core`. The backend only trusts the IdP-issued `sub`; account lifecycle lives exclusively in the OIDC provider (ADR-010). Unlike the hierarchy ids, `UserId` is *not* a UUIDv7 — it is the raw string subject the IdP assigns.
 @BuiltValue()
 abstract class AiImportJob implements Built<AiImportJob, AiImportJobBuilder> {
+  /// Per-attempt failure history, newest first (issue #637).  `last_error` is overwritten by every `mark_failed`, so the reason an *earlier* attempt failed is lost. This list keeps each attempt's outcome retrievable. Populated on the single-job read (`GET /ai-import/jobs/{id}`); empty in list/claim contexts where the history is not fetched, so it is additive on the wire.
+  @BuiltValueField(wireName: r'attempts')
+  BuiltList<AiImportAttempt>? get attempts;
+
   /// Opaque identifier for a `Block` aggregate.
   @BuiltValueField(wireName: r'block_id')
   String? get blockId;
@@ -59,6 +67,10 @@ abstract class AiImportJob implements Built<AiImportJob, AiImportJobBuilder> {
 
   @BuiltValueField(wireName: r'max_retries')
   int get maxRetries;
+
+  /// When a retryable `failed` job becomes claimable again (issue #637).  `None` for every other state: `pending`/`running` have no backoff, and a terminal job never retries. The column always existed; the wire view omitted it, so neither the UI nor operators could explain a stalled import (\"why is this job not running yet?\").
+  @BuiltValueField(wireName: r'next_attempt_at')
+  DateTime? get nextAttemptAt;
 
   @BuiltValueField(wireName: r'preview_handle')
   String? get previewHandle;
@@ -107,6 +119,13 @@ class _$AiImportJobSerializer implements PrimitiveSerializer<AiImportJob> {
     AiImportJob object, {
     FullType specifiedType = FullType.unspecified,
   }) sync* {
+    if (object.attempts != null) {
+      yield r'attempts';
+      yield serializers.serialize(
+        object.attempts,
+        specifiedType: const FullType(BuiltList, [FullType(AiImportAttempt)]),
+      );
+    }
     if (object.blockId != null) {
       yield r'block_id';
       yield serializers.serialize(
@@ -151,6 +170,13 @@ class _$AiImportJobSerializer implements PrimitiveSerializer<AiImportJob> {
       object.maxRetries,
       specifiedType: const FullType(int),
     );
+    if (object.nextAttemptAt != null) {
+      yield r'next_attempt_at';
+      yield serializers.serialize(
+        object.nextAttemptAt,
+        specifiedType: const FullType.nullable(DateTime),
+      );
+    }
     if (object.previewHandle != null) {
       yield r'preview_handle';
       yield serializers.serialize(
@@ -213,6 +239,15 @@ class _$AiImportJobSerializer implements PrimitiveSerializer<AiImportJob> {
       final key = serializedList[i] as String;
       final value = serializedList[i + 1];
       switch (key) {
+        case r'attempts':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType:
+                const FullType.nullable(BuiltList, [FullType(AiImportAttempt)]),
+          ) as BuiltList<AiImportAttempt>?;
+          if (valueDes == null) continue;
+          result.attempts.replace(valueDes);
+          break;
         case r'block_id':
           final valueDes = serializers.deserialize(
             value,
@@ -270,6 +305,14 @@ class _$AiImportJobSerializer implements PrimitiveSerializer<AiImportJob> {
             specifiedType: const FullType(int),
           ) as int;
           result.maxRetries = valueDes;
+          break;
+        case r'next_attempt_at':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType.nullable(DateTime),
+          ) as DateTime?;
+          if (valueDes == null) continue;
+          result.nextAttemptAt = valueDes;
           break;
         case r'preview_handle':
           final valueDes = serializers.deserialize(

@@ -5681,7 +5681,7 @@ paths:
           description: At least one dependency is unhealthy
       summary: '`GET /v1/health` — public, unversioned-by-policy readiness surface.'
       tags:
-      - crate::health
+      - handlers
   /v1/ops/projector-health:
     get:
       description: |-

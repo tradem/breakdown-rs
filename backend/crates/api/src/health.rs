@@ -178,6 +178,7 @@ impl HealthRegistry {
 #[utoipa::path(
     get,
     path = "/health",
+    tag = "handlers",
     responses(
         (status = 200, description = "All dependencies healthy or degraded", body = HealthReport),
         (status = 503, description = "At least one dependency is unhealthy", body = HealthReport)
