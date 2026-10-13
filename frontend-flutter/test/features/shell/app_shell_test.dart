@@ -4,6 +4,7 @@
 // Co-authored-by: glm-5.3-flash (opencode-go)
 // Co-authored-by: space-bunny-free (opencode-go)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
+// Co-authored-by: deepseek-v4.1-flash (neuralwatt)
 
 // Widget tests for the adaptive navigation shell (`redesign-app-shell-navigation`
 // tasks 5.1/5.2): three morphologies via `tester.view.physicalSize`
@@ -469,10 +470,21 @@ void main() {
       await pumpFrames(tester, n: 12);
     }
 
-    testWidgets('hidden at tab roots (no location, no scope)', (tester) async {
+    testWidgets('top bar present at tab roots; the breadcrumb is not', (
+      tester,
+    ) async {
       await setupContainer();
       await pumpShell(tester, widthDp: 360);
-      expect(find.byKey(const Key('shell-context-bar')), findsNothing);
+      // Issue #638: the top bar is NEVER hidden — the season pill is always
+      // present because it is also the only affordance that can SET a
+      // season. What hides at a destination root is the breadcrumb.
+      expect(find.byKey(const Key('shell-context-bar')), findsOneWidget);
+      expect(find.byKey(const Key('location-strip')), findsNothing);
+      // Prerequisite-aware pills: season always, block/episode only once
+      // their prerequisite exists.
+      expect(find.byKey(const Key('season-scope-chip')), findsOneWidget);
+      expect(find.byKey(const Key('active-scope-chip')), findsNothing);
+      expect(find.byKey(const Key('active-episode-chip')), findsNothing);
     });
 
     testWidgets('pop updates the strip in the SAME frame (no stale level)', (
@@ -493,9 +505,10 @@ void main() {
           .tabNavigatorKeys[kCastTabIndex]
           .currentState!
           .pop();
-      // ONE pump — the route is gone, the location with it.
+      // ONE pump — the route is gone, the breadcrumb with it (the top bar
+      // itself stays; issue #638).
       await tester.pump();
-      expect(find.byKey(const Key('shell-context-bar')), findsNothing);
+      expect(find.byKey(const Key('location-strip')), findsNothing);
     });
 
     testWidgets(
@@ -508,28 +521,36 @@ void main() {
           kScriptTabIndex,
           PlanningLocation.block(seasonDto, block('b-1', 2)),
         );
-        // Cast is active — no location there, bar hidden.
-        expect(find.byKey(const Key('shell-context-bar')), findsNothing);
+        // Cast is active — no location there, breadcrumb absent (the top
+        // bar itself is always present; issue #638).
+        expect(find.byKey(const Key('location-strip')), findsNothing);
 
         await tester.tap(find.byKey(const Key('shell-destination-1')));
         await pumpFrames(tester);
         // The Script destination's nested navigator resolves its own chain.
         expect(find.byKey(const Key('shell-context-bar')), findsOneWidget);
-        expect(find.text('Shell Season'), findsWidgets);
+        expect(find.byKey(const Key('location-strip')), findsOneWidget);
+        // The strip drops LEADING segments that do not fit the shared row 2
+        // (the test font is wide); the DEEPEST level — which names the
+        // current screen — always renders, and the merged semantics node
+        // keeps the full path (see location_strip_test.dart).
+        expect(find.byKey(const Key('location-segment-block')), findsOneWidget);
         expect(find.text('Block 2'), findsOneWidget);
 
-        // Back to Cast: hidden again (per-destination state, none to clear).
+        // Back to Cast: breadcrumb absent again (per-destination state,
+        // none to clear).
         await tester.tap(find.byKey(const Key('shell-destination-0')));
         await pumpFrames(tester);
-        expect(find.byKey(const Key('shell-context-bar')), findsNothing);
+        expect(find.byKey(const Key('location-strip')), findsNothing);
       },
     );
 
-    testWidgets('deep chain renders every level on medium (max 4)', (
+    testWidgets('deep chain renders the deepest breadcrumb level', (
       tester,
     ) async {
       await setupContainer();
-      await pumpShell(tester, widthDp: 700);
+      // Expanded: the widest view bar, so the strip has the most room.
+      await pumpShell(tester, widthDp: 1400);
       // The strip mirrors the ACTIVE destination's nested navigator —
       // activate Script first, then push the full scene chain onto it.
       await tester.tap(find.byKey(const Key('shell-destination-1')));
@@ -549,14 +570,13 @@ void main() {
         ),
       );
       expect(find.byKey(const Key('shell-context-bar')), findsOneWidget);
-      // The deepest levels are rendered (the strip drops LEADING segments
-      // that do not fit — the full path stays in the merged semantics node,
-      // which the location-strip test below asserts).
-      expect(find.byKey(const Key('location-segment-block')), findsOneWidget);
-      expect(find.byKey(const Key('location-segment-episode')), findsOneWidget);
+      expect(find.byKey(const Key('location-strip')), findsOneWidget);
+      // Row 2 shares its width between the title, the breadcrumb and the
+      // search affordance, so the strip drops LEADING segments that do not
+      // fit — the DEEPEST levels (which name the current screen) always
+      // render, and the full path stays in the merged semantics node
+      // (asserted in location_strip_test.dart).
       expect(find.byKey(const Key('location-segment-scene')), findsOneWidget);
-      expect(find.text('Block 2'), findsOneWidget);
-      expect(find.text('Der Diebstahl'), findsOneWidget);
       expect(find.text('Die Küche'), findsOneWidget);
     });
 
@@ -577,6 +597,10 @@ void main() {
       expect(find.byKey(const Key('active-scope-chip')), findsOneWidget);
       expect(find.text('Filter: Block 2'), findsOneWidget);
 
+      // The pill cluster scrolls horizontally; make sure the pill is fully
+      // inside the viewport before tapping it.
+      await tester.ensureVisible(find.byKey(const Key('active-scope-chip')));
+      await pumpFrames(tester, n: 4);
       await tester.tap(find.byKey(const Key('active-scope-chip')));
       await pumpFrames(tester, n: 12);
       // The picker opened on the active tab's nested navigator.
@@ -586,6 +610,175 @@ void main() {
       await pumpFrames(tester, n: 24);
       expect(container.read(activeBlockProvider)?.blockId, 'b-1');
       expect(find.byKey(const Key('block-scope-picker')), findsNothing);
+    });
+  });
+
+  group('5.5 shell top bar (issue #638)', () {
+    final seasonDto = SeasonView(
+      (b) => b
+        ..archived = false
+        ..id = 'season-1'
+        ..number = 1
+        ..projectId = 'series-1'
+        ..title = 'Shell Season'
+        ..updatedAt = DateTime.utc(2026, 1, 1)
+        ..version = 1,
+    );
+
+    BlockView block(String id, int number) => BlockView(
+      (b) => b
+        ..id = id
+        ..number = number
+        ..seasonId = 'season-1'
+        ..projectId = 'series-1'
+        ..updatedAt = DateTime.utc(2026, 1, 1)
+        ..version = 1,
+    );
+
+    testWidgets('clears the status bar in all three morphologies', (
+      tester,
+    ) async {
+      const statusBar = 28.0;
+      for (final widthDp in [360.0, 700.0, 1000.0]) {
+        await setupContainer();
+        tester.view.physicalSize = Size(widthDp, 800);
+        tester.view.devicePixelRatio = 1.0;
+        tester.view.padding = const FakeViewPadding(top: statusBar);
+        tester.view.viewPadding = const FakeViewPadding(top: statusBar);
+        addTearDown(tester.view.reset);
+        await tester.pumpWidget(
+          UncontrolledProviderScope(
+            container: container,
+            child: MaterialApp(home: AppShell()),
+          ),
+        );
+        await pumpFrames(tester);
+
+        expect(
+          tester.getTopLeft(find.byKey(const Key('shell-context-bar'))).dy,
+          greaterThanOrEqualTo(statusBar),
+          reason: 'top bar must clear the status bar at ${widthDp}dp',
+        );
+        // The view content starts BELOW the bar, never under the status
+        // bar's neighbour: the bar's bottom is the content's top.
+        expect(
+          tester.getBottomLeft(find.byKey(const Key('shell-context-bar'))).dy,
+          lessThanOrEqualTo(200),
+          reason: 'the two-row bar stays compact at ${widthDp}dp',
+        );
+      }
+    });
+
+    testWidgets('without a status bar the bar starts at y = 0', (tester) async {
+      await setupContainer();
+      await pumpShell(tester, widthDp: 360);
+      expect(
+        tester.getTopLeft(find.byKey(const Key('shell-context-bar'))).dy,
+        0,
+      );
+    });
+
+    testWidgets('row 2 carries the view title and the search affordance', (
+      tester,
+    ) async {
+      await setupContainer();
+      await pumpShell(tester, widthDp: 1000);
+
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('shell-view-bar')),
+          matching: find.text('Cast'),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('shell-view-bar')),
+          matching: find.byKey(const Key('shell-search-action')),
+        ),
+        findsOneWidget,
+      );
+      // The profile affordance is in row 1, not in the view bar.
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('shell-scope-bar')),
+          matching: find.byKey(const Key('profile-menu-button')),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('shell-view-bar')),
+          matching: find.byKey(const Key('profile-menu-button')),
+        ),
+        findsNothing,
+      );
+
+      // The title follows the active destination.
+      await tester.tap(find.byKey(const Key('shell-destination-1')));
+      await pumpFrames(tester);
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('shell-view-bar')),
+          matching: find.text('Script'),
+        ),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('the destination roots render no app bar of their own', (
+      tester,
+    ) async {
+      await setupContainer();
+      await pumpShell(tester, widthDp: 360);
+      // The shell view bar is the ONLY title surface: the Cast root no
+      // longer owns an AppBar (issue #638). (The hosted roster/costume
+      // screens keep their own bar, so assert the Cast TITLE is gone from
+      // an app bar rather than that no AppBar exists in the subtree.)
+      expect(
+        find.descendant(
+          of: find.byType(CastTabScreen),
+          matching: find.widgetWithText(AppBar, 'Cast'),
+        ),
+        findsNothing,
+      );
+      // Its costume-domain actions moved into the Cast view's toolbar.
+      expect(find.byKey(const Key('cast-fundus-action')), findsOneWidget);
+    });
+
+    testWidgets('an unset level offers a neutral pill that opens its picker', (
+      tester,
+    ) async {
+      // TWO blocks so the Cast view renders its one-tap block picker instead
+      // of fetching characters (that fetch needs a network client this
+      // harness does not build).
+      blocksResult = Right<ProblemError, List<BlockView>>([
+        block('b-1', 2),
+        block('b-2', 3),
+      ]);
+      await setupContainer();
+      // Expanded: enough room for the pills without scrolling.
+      await pumpShell(tester, widthDp: 1000);
+
+      // Prerequisite: with no season only the season pill renders.
+      expect(find.byKey(const Key('season-scope-chip')), findsOneWidget);
+      expect(find.byKey(const Key('active-scope-chip')), findsNothing);
+      expect(find.byKey(const Key('active-episode-chip')), findsNothing);
+
+      container
+          .read(shellControllerProvider.notifier)
+          .setActiveSeason(seasonDto);
+      await pumpFrames(tester, n: 12);
+
+      // The block pill appears (season prerequisite) as a NEUTRAL pill with
+      // its "choose" label (the English fallback catalog: this harness
+      // installs no localization delegates) and opens its picker.
+      expect(find.byKey(const Key('active-scope-chip')), findsOneWidget);
+      expect(find.byKey(const Key('active-episode-chip')), findsNothing);
+      expect(find.text('Choose block'), findsOneWidget);
+      await tester.tap(find.byKey(const Key('active-scope-chip')));
+      await pumpFrames(tester, n: 12);
+      expect(find.byKey(const Key('block-scope-picker')), findsOneWidget);
     });
   });
 

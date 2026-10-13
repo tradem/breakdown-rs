@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: glm-5.3 (neuralwatt)
+// Co-authored-by: deepseek-v4.1-flash (neuralwatt)
 
 import 'dart:async' show unawaited;
 
@@ -13,6 +14,8 @@ import '../../l10n/app_localizations_provider.dart';
 import '../blocks/active_block_gate.dart';
 import '../blocks/blocks_controller.dart';
 import 'planning_location.dart';
+import 'scope_pill.dart';
+import 'shell_controller.dart';
 
 part 'active_scope_chip.g.dart';
 
@@ -49,9 +52,12 @@ Future<int?> resolvedScopeBlockNumber(
 /// whenever a scope is set; a tap opens the block picker so the scope
 /// becomes changeable, not just visible.
 ///
-/// Arms:
-/// - **no scope** → hidden (`SizedBox.shrink`);
-/// - **scoped + number known** → `Filter: Block {n}` (localized);
+/// Arms (issue #638 adds the prerequisite + neutral arm):
+/// - **no season and no scope** → hidden (`SizedBox.shrink`);
+/// - **season active, no scope** → the neutral "Block wählen" pill, whose
+///   tap opens the block picker for the active season;
+/// - **scoped + number known** → `Filter: Block {n}` (localized) in the
+///   block highlight color;
 /// - **scoped, label unknown** (old persisted document) → the explicit
 ///   "unknown" narrative while the cache-only backfill resolves the
 ///   number and writes it back;
@@ -84,13 +90,22 @@ class _ActiveScopeChipState extends ConsumerState<ActiveScopeChip> {
 
   @override
   Widget build(BuildContext context) {
+    final season = ref.watch(shellControllerProvider).activeSeason;
     final scope = ref.watch(activeBlockProvider);
-    if (scope == null) return const SizedBox.shrink();
+    // Issue #638 prerequisite: a block belongs to a season, so the pill is
+    // hidden until a season is active — or a block scope is already set
+    // (legacy persisted scope restored before the season resolves).
+    if (season == null && scope == null) return const SizedBox.shrink();
 
     final l10n = l10nOf(context);
+    final scheme = Theme.of(context).colorScheme;
     final foreign =
-        widget.location != null && widget.location!.seasonId != scope.seasonId;
-    final label = foreign
+        scope != null &&
+        widget.location != null &&
+        widget.location!.seasonId != scope.seasonId;
+    final label = scope == null
+        ? l10n.scopeChipBlockUnset
+        : foreign
         ? l10n.scopeChipForeignSeason
         : scope.blockNumber == null
         ? l10n.scopeChipUnknownBlock
@@ -102,23 +117,28 @@ class _ActiveScopeChipState extends ConsumerState<ActiveScopeChip> {
     // (season, block) pair, so a later DIFFERENT label-less scope (sign-out
     // + legacy restore, etc.) gets its own attempt; the same failed pair is
     // never retried (no busy loop).
-    if (!foreign &&
+    if (scope != null &&
+        !foreign &&
         scope.blockNumber == null &&
         _backfilled != (scope.seasonId, scope.blockId)) {
       _backfilled = (scope.seasonId, scope.blockId);
       unawaited(_backfill(scope));
     }
 
-    return ActionChip(
+    // Unset arm: the picker targets the ACTIVE season (guaranteed non-null
+    // here — the pill is hidden when neither a season nor a scope is set).
+    final targetSeasonId = scope?.seasonId ?? season!.id;
+    return ScopePill(
       key: const Key('active-scope-chip'),
-      avatar: Icon(
-        Icons.filter_alt_outlined,
-        size: 18,
-        color: Theme.of(context).colorScheme.onSurfaceVariant,
-      ),
-      label: Text(label),
-      tooltip: l10n.scopeChipTooltip,
-      onPressed: () => widget.onOpenPicker(scope.seasonId),
+      icon: Icons.filter_alt_outlined,
+      label: label,
+      selected: scope != null,
+      selectedColor: scheme.secondaryContainer,
+      selectedForegroundColor: scheme.onSecondaryContainer,
+      tooltip: scope == null
+          ? l10n.scopeChipBlockUnsetTooltip
+          : l10n.scopeChipTooltip,
+      onPressed: () => widget.onOpenPicker(targetSeasonId),
     );
   }
 

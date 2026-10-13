@@ -56,3 +56,7 @@ dist/
 # Per-developer values (API_BASE, DEV_AUTH_SUB, DEFAULT_SERIES_ID, APP_VERSION) —
 # never committed; the build script hard-fails on missing defines.
 /.env.build-test
+
+# Golden-test failure artifacts (flutter_test writes the diff images here on
+# a mismatch) — generated locally, never committed.
+**/failures/

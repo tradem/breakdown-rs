@@ -20,6 +20,26 @@ releases are cut as `vX.Y.Z` tags (`v<build-name>`, enforced by
 
 ## [Unreleased]
 
+- **Version bump:** `0.4.0-alpha.14+65 → 0.4.0-alpha.15+66` — the shell's
+  **sticky top bar** redesign (issue #638, OpenSpec change
+  `638-shell-top-bar-redesign`). The bar is now a shell-owned two-row
+  surface inset below the system status bar (`SafeArea`) in all three
+  morphologies (compact bottom nav / medium rail / expanded drawer), so no
+  content renders under the Android status bar any more. Row 1 carries the
+  profile affordance (left-most) and the three scope pills; row 2 carries
+  the active destination's title, the hierarchy breadcrumb and the search
+  affordance — the destination roots no longer own app bars (the Cast
+  view's costume-category and fundus actions moved into its own toolbar,
+  keeping their navigator target). The Season/Block/Episode chips became
+  fully rounded, prerequisite-aware pills (season always visible; block once
+  a season is active; episode once a block is scoped) whose set levels are
+  filled with their own M3 container color (primary/secondary/tertiary
+  container), with a neutral "… wählen" arm that opens the level's picker.
+  New de/en keys `scopeChipSeasonUnset`, `scopeChipBlockUnset`,
+  `scopeChipBlockUnsetTooltip`, `episodeChipUnset`,
+  `episodeChipUnsetTooltip`. No `backend/openapi.yaml` change and no
+  vendor-client regeneration.
+
 - **Version bump:** `0.4.0-alpha.13+64 → 0.4.0-alpha.14+65` — the
   cross-season costume **fundus** browse surface (issue #625, OpenSpec
   change `flutter-fundus-search`): a SEPARATE, project-scoped surface

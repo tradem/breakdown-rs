@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: space-bunny (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (neuralwatt)
 
 // Widget tests for the three task-oriented view roots and the season scope
 // picker (issue #610). Each view is asserted in its season-empty state and
@@ -409,13 +410,18 @@ void main() {
   });
 
   group('season scope chip', () {
-    testWidgets('hidden without a season; visible with one', (tester) async {
+    testWidgets('always visible: neutral without a season, labelled with one', (
+      tester,
+    ) async {
       await setUpContainer(withSeason: false);
       await pumpView(
         tester,
         const Scaffold(body: SeasonScopeChip(onOpenPicker: _noopPicker)),
       );
-      expect(find.byKey(const Key('season-scope-chip')), findsNothing);
+      // Issue #638: the season pill is NEVER hidden — it is also the only
+      // affordance that can SET a season. Unset renders the neutral label.
+      expect(find.byKey(const Key('season-scope-chip')), findsOneWidget);
+      expect(find.text('Choose season'), findsOneWidget);
 
       container
           .read(shellControllerProvider.notifier)

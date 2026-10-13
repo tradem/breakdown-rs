@@ -6,11 +6,13 @@ import 'package:breakdown_api/breakdown_api.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../auth/active_block.dart';
 import '../../auth/active_episode.dart';
 import '../../l10n/app_localizations_provider.dart';
 import '../blocks/active_block_gate.dart';
 import '../episodes/episodes_controller.dart';
 import 'planning_location.dart';
+import 'scope_pill.dart';
 
 /// The episode scope chip (issue #624): says WHICH EPISODE the shell's
 /// quick-create entries act on.
@@ -19,9 +21,12 @@ import 'planning_location.dart';
 /// request filter (`X-Active-Block`); the episode scope is the sticky
 /// create/context target. Both are per-season and persisted.
 ///
-/// Arms:
-/// - **no scope** → hidden (`SizedBox.shrink`);
-/// - **scoped** → `Episode {n}` (the acted-on name wins when present);
+/// Arms (issue #638 adds the prerequisite + neutral arm):
+/// - **no block scope and no episode scope** → hidden (`SizedBox.shrink`);
+/// - **block scoped, no episode** → the neutral "Episode wählen" pill, whose
+///   tap opens the episode picker for the scope block;
+/// - **scoped** → `Episode {n}` (the acted-on name wins when present) in the
+///   episode highlight color;
 /// - **foreign season** (the scope's season differs from the navigated
 ///   season in [location]) → the chip says so instead of presenting the
 ///   foreign episode as if it applied.
@@ -45,26 +50,41 @@ class ActiveEpisodeChip extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final block = ref.watch(activeBlockProvider);
     final scope = ref.watch(activeEpisodeProvider);
-    if (scope == null) return const SizedBox.shrink();
+    // Issue #638 prerequisite: the episode picker needs a block, so the
+    // pill is hidden until a block scope is set — or an episode scope is
+    // already set (restored before the block scope resolves).
+    if (block == null && scope == null) return const SizedBox.shrink();
 
     final l10n = l10nOf(context);
-    final foreign = location != null && location!.seasonId != scope.seasonId;
-    final label = foreign
+    final scheme = Theme.of(context).colorScheme;
+    final foreign =
+        scope != null &&
+        location != null &&
+        location!.seasonId != scope.seasonId;
+    final label = scope == null
+        ? l10n.episodeChipUnset
+        : foreign
         ? l10n.scopeChipForeignSeason
         : (scope.episodeName ??
               l10n.episodeTileLabel('${scope.episodeNumber}'));
+    // The unset arm targets the active block (guaranteed non-null here —
+    // the `??` only evaluates it when no episode scope is set).
+    final targetSeasonId = scope?.seasonId ?? block!.seasonId;
+    final targetBlockId = scope?.blockId ?? block!.blockId;
 
-    return ActionChip(
+    return ScopePill(
       key: const Key('active-episode-chip'),
-      avatar: Icon(
-        Icons.movie_creation_outlined,
-        size: 18,
-        color: Theme.of(context).colorScheme.onSurfaceVariant,
-      ),
-      label: Text(label),
-      tooltip: l10n.episodeChipTooltip,
-      onPressed: () => onOpenPicker(scope.seasonId, scope.blockId),
+      icon: Icons.movie_creation_outlined,
+      label: label,
+      selected: scope != null,
+      selectedColor: scheme.tertiaryContainer,
+      selectedForegroundColor: scheme.onTertiaryContainer,
+      tooltip: scope == null
+          ? l10n.episodeChipUnsetTooltip
+          : l10n.episodeChipTooltip,
+      onPressed: () => onOpenPicker(targetSeasonId, targetBlockId),
     );
   }
 }

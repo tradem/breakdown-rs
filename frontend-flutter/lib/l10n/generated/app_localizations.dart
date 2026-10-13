@@ -3766,6 +3766,12 @@ abstract class AppLocalizations {
   /// **'Season wählen'**
   String get scopeChipSeasonPickTitle;
 
+  /// No description provided for @scopeChipSeasonUnset.
+  ///
+  /// In de, this message translates to:
+  /// **'Season wählen'**
+  String get scopeChipSeasonUnset;
+
   /// No description provided for @seasonScopeManageSeasons.
   ///
   /// In de, this message translates to:
@@ -3808,6 +3814,18 @@ abstract class AppLocalizations {
   /// **'Block-Filter wählen'**
   String get scopeChipPickTitle;
 
+  /// No description provided for @scopeChipBlockUnset.
+  ///
+  /// In de, this message translates to:
+  /// **'Block wählen'**
+  String get scopeChipBlockUnset;
+
+  /// No description provided for @scopeChipBlockUnsetTooltip.
+  ///
+  /// In de, this message translates to:
+  /// **'Aktiven Block-Filter wählen'**
+  String get scopeChipBlockUnsetTooltip;
+
   /// No description provided for @episodeChipTooltip.
   ///
   /// In de, this message translates to:
@@ -3825,6 +3843,18 @@ abstract class AppLocalizations {
   /// In de, this message translates to:
   /// **'Noch keine Episoden in diesem Block.'**
   String get episodeChipEmpty;
+
+  /// No description provided for @episodeChipUnset.
+  ///
+  /// In de, this message translates to:
+  /// **'Episode wählen'**
+  String get episodeChipUnset;
+
+  /// No description provided for @episodeChipUnsetTooltip.
+  ///
+  /// In de, this message translates to:
+  /// **'Aktive Episode wählen'**
+  String get episodeChipUnsetTooltip;
 
   /// No description provided for @seasonsTitle.
   ///
