@@ -34,8 +34,8 @@ carrying its own `status`, `duration_ms`, optional static `description` and
 The API SHALL renew its periodic Vault app token in-process well before its
 TTL lapses, so a long-running process does not lose Vault access without an
 operator re-running the one-shot bootstrap. The cadence SHALL be configurable
-via `VAULT_TOKEN_RENEW_INTERVAL_SECS` (default 12 h, clamped to `60`–`172800`
-seconds).
+via `VAULT_TOKEN_RENEW_INTERVAL_SECS` (default 12 h, clamped to `60`–`82800`
+seconds, i.e. up to 23 h).
 
 #### Scenario: A long-running API keeps Vault access
 - **WHEN** the process has been up for longer than the token period

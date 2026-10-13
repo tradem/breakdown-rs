@@ -34,7 +34,7 @@ Two related defects surfaced while importing screenplays:
   (dead-letters) rather than consuming the retry budget. `worker_loop` and
   `merge_worker` use it.
 - `VaultClient::spawn_token_renewal` renews the periodic app token in-process at
-  `VAULT_TOKEN_RENEW_INTERVAL_SECS` (default 12 h, clamped `60`–`172800`); the
+  `VAULT_TOKEN_RENEW_INTERVAL_SECS` (default 12 h, clamped `60`–`82800` (23 h)); the
   composition root keeps the task alive.
 - A public, unauthenticated `GET /v1/health` renders a .NET-shaped
   `HealthReport` (Vault reachable **and** token valid, Postgres, SierraDB,

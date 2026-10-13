@@ -590,7 +590,9 @@ impl VaultClient {
         );
         tokio::spawn(async move {
             loop {
-                tokio::time::sleep(interval).await;
+                // Renew once immediately: a restart must not reset the wait to
+                // the full interval while the token TTL keeps running, or the
+                // token could lapse across a restart (review follow-up).
                 match self.renew_token().await {
                     Ok(()) => tracing::info!("renewed Vault app token"),
                     Err(error) => tracing::error!(
@@ -598,6 +600,7 @@ impl VaultClient {
                         "failed to renew Vault app token; Vault access will lapse if this persists"
                     ),
                 }
+                tokio::time::sleep(interval).await;
             }
         })
     }
@@ -738,15 +741,19 @@ impl CredentialVault for VaultClient {
 /// Default renewal cadence: half of the bootstrap's 24 h token period.
 const DEFAULT_RENEW_INTERVAL_SECS: u64 = 12 * 60 * 60;
 
+/// Upper bound for the renewal cadence: strictly below the 24 h token period,
+/// so the token cannot lapse between two renewals.
+const MAX_RENEW_INTERVAL_SECS: u64 = 23 * 60 * 60;
+
 /// Parse the `VAULT_TOKEN_RENEW_INTERVAL_SECS` override.
 ///
-/// Clamped to `60..=24h`: a near-zero interval would hammer Vault, and an
-/// interval at or beyond the period could let the token lapse before the next
-/// renewal. Only an absent or unparsable value falls back to the default.
+/// Clamped to `60..=23h`: a near-zero interval would hammer Vault, and an
+/// interval at or beyond the 24 h period could let the token lapse before the
+/// next renewal. Only an absent or unparsable value falls back to the default.
 fn parse_renew_interval(raw: Option<&str>) -> Duration {
     let secs = raw
         .and_then(|value| value.trim().parse::<u64>().ok())
-        .map(|value| value.clamp(60, DEFAULT_RENEW_INTERVAL_SECS * 2))
+        .map(|value| value.clamp(60, MAX_RENEW_INTERVAL_SECS))
         .unwrap_or(DEFAULT_RENEW_INTERVAL_SECS);
     Duration::from_secs(secs)
 }
@@ -852,4 +859,38 @@ pub fn decrypt_envelope(dek: &[u8], payload: &[u8]) -> Result<Vec<u8>, &'static 
     cipher
         .decrypt(&nonce, encrypted)
         .map_err(|_| "credential decryption failed")
+}
+
+#[cfg(test)]
+mod renewal_interval_tests {
+    use super::{DEFAULT_RENEW_INTERVAL_SECS, MAX_RENEW_INTERVAL_SECS, parse_renew_interval};
+    use std::time::Duration;
+
+    #[test]
+    fn default_applies_when_absent_or_unparsable() {
+        assert_eq!(
+            parse_renew_interval(None),
+            Duration::from_secs(DEFAULT_RENEW_INTERVAL_SECS)
+        );
+        assert_eq!(
+            parse_renew_interval(Some("not-a-number")),
+            Duration::from_secs(DEFAULT_RENEW_INTERVAL_SECS)
+        );
+    }
+
+    #[test]
+    fn numeric_override_is_clamped_below_the_token_period() {
+        assert_eq!(parse_renew_interval(Some("120")), Duration::from_secs(120));
+        assert_eq!(parse_renew_interval(Some("0")), Duration::from_secs(60));
+        // 24 h or more would let the token lapse before the next renewal; the
+        // upper clamp stays strictly below the period (review follow-up).
+        assert_eq!(
+            parse_renew_interval(Some("86400")),
+            Duration::from_secs(MAX_RENEW_INTERVAL_SECS)
+        );
+        assert_eq!(
+            parse_renew_interval(Some("172800")),
+            Duration::from_secs(MAX_RENEW_INTERVAL_SECS)
+        );
+    }
 }

@@ -18,7 +18,7 @@
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 use axum::Json;
@@ -128,6 +128,15 @@ pub trait HealthCheck: Send + Sync {
     async fn check(&self) -> HealthCheckOutcome;
 }
 
+/// Per-check timeout for the public health surface (issue #637).
+///
+/// `GET /v1/health` is unauthenticated and runs every check; a slow
+/// dependency (a blocked pool acquire, a connect with no read timeout) must
+/// not stall the probe — or let unauthenticated callers stack slow requests.
+/// A check that exceeds this bound is reported `Unhealthy` and the report
+/// continues.
+const HEALTH_CHECK_TIMEOUT: Duration = Duration::from_secs(2);
+
 /// Registry of checks, built once at the composition root.
 #[derive(Clone, Default)]
 pub struct HealthRegistry {
@@ -150,7 +159,13 @@ impl HealthRegistry {
         let mut status = HealthStatus::Healthy;
         for check in &self.checks {
             let check_started = Instant::now();
-            let outcome = check.check().await;
+            let outcome = match tokio::time::timeout(HEALTH_CHECK_TIMEOUT, check.check()).await {
+                Ok(outcome) => outcome,
+                Err(_) => {
+                    tracing::warn!(check = check.name(), "health check timed out");
+                    HealthCheckOutcome::unhealthy("health check timed out")
+                }
+            };
             status = status.worst(outcome.status);
             entries.insert(
                 check.name().to_string(),
@@ -398,5 +413,29 @@ mod tests {
         let report = registry.report().await;
         assert_eq!(report.status, HealthStatus::Healthy);
         assert_eq!(report.status.http_status(), StatusCode::OK);
+    }
+
+    struct Hanging;
+
+    #[async_trait]
+    impl HealthCheck for Hanging {
+        fn name(&self) -> &'static str {
+            "hanging"
+        }
+
+        async fn check(&self) -> HealthCheckOutcome {
+            // Far longer than the probe timeout; with paused time this resolves
+            // only if the timeout fails to fire.
+            tokio::time::sleep(Duration::from_secs(3600)).await;
+            HealthCheckOutcome::healthy()
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_check_that_exceeds_the_timeout_is_unhealthy() {
+        let registry = HealthRegistry::new(vec![Arc::new(Hanging)]);
+        let report = registry.report().await;
+        assert_eq!(report.status, HealthStatus::Unhealthy);
+        assert_eq!(report.entries["hanging"].status, HealthStatus::Unhealthy);
     }
 }

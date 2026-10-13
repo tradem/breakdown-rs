@@ -229,7 +229,7 @@ To upgrade SierraDB:
 A periodic token stays valid indefinitely only if it is renewed before its
 TTL; the one-shot bootstrap renews it on a re-run, and the API itself now
 renews it in-process (`VaultClient::spawn_token_renewal`, cadence
-`VAULT_TOKEN_RENEW_INTERVAL_SECS`, default 12 h, clamped `60`–`172800`).
+`VAULT_TOKEN_RENEW_INTERVAL_SECS`, default 12 h, clamped `60`–`82800` (23 h)).
 
 If the token ever lapses (API down past the TTL, or the token revoked), Vault
 KV reads answer `403`, which is now classified as
