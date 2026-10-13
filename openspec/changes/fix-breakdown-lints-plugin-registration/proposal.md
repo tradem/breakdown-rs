@@ -2,7 +2,7 @@
 <!-- Copyright (C) 2024-2026 Breakdown RS Contributors -->
 <!-- Co-authored-by: deepseek-v4.1-flash (neuralwatt) -->
 
-# Proposal: Fix `breakdown_lints` plugin registration
+# Proposal: Fix `breakdown_lints` plugin registration (issue #634)
 
 ## Problem
 
