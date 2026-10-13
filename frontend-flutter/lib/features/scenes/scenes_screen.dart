@@ -11,27 +11,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../auth/auth_providers.dart';
 import '../../core/problem_error.dart';
 import '../../l10n/app_localizations_provider.dart';
-import '../../l10n/generated/app_localizations.dart';
 import 'create_scene_sheet.dart';
 import '../shell/planning_location.dart';
 import 'scene_detail_screen.dart';
 import 'scenes_controller.dart';
 import 'scenes_state.dart';
 import 'widgets/scenes_widgets.dart';
-
-/// Localized client-side copy for a create-scene failure, keyed on the
-/// stable problem `code` (never the server's localized `detail`). There is
-/// no scene-number uniqueness conflict on the backend (create_scene has no
-/// 409 path), so the old `scenes.conflict`/`scene.conflict` keys are dead —
-/// every real create-scene failure lands on the transport/generic arms or
-/// the keyed auth arms (issue #481 class).
-String sceneCreateErrorCopy(AppLocalizations l10n, ProblemError error) =>
-    switch (error.code) {
-      'authz.denied' || 'auth.session_required' => l10n.blocksCreateErrorSignIn,
-      _ when error.code.startsWith('transport.') =>
-        l10n.scenesCreateErrorNetwork,
-      _ => l10n.scenesCreateErrorGeneric(error.code),
-    };
 
 /// `ScenesScreen` — the episode's scenes with read-only detail data
 /// (`GET /v1/scenes?episode_id=…`).

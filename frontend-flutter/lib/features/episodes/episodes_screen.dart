@@ -6,10 +6,13 @@
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
 // Co-authored-by: glm-5.3-flash (opencode-go)
 
+import 'dart:async' show unawaited;
+
 import 'package:breakdown_api/breakdown_api.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../auth/active_episode.dart';
 import '../../auth/auth_providers.dart';
 import '../../core/problem_error.dart';
 import '../../l10n/app_localizations_provider.dart';
@@ -141,8 +144,32 @@ class EpisodesScreen extends ConsumerWidget {
                                         child: EpisodeTile(
                                           row: row,
                                           onTap: row is ProjectedEpisodeRow
-                                              ? () => Navigator.of(context)
-                                                    .push(
+                                              ? () {
+                                                  // Issue #624: entering an
+                                                  // episode's scenes sets
+                                                  // the sticky active-
+                                                  // episode scope (from the
+                                                  // DTO acted on — CQRS
+                                                  // boundary) before the
+                                                  // push.
+                                                  ref
+                                                      .read(
+                                                        activeEpisodeProvider
+                                                            .notifier,
+                                                      )
+                                                      .set(
+                                                        seasonId:
+                                                            block.seasonId,
+                                                        blockId: block.id,
+                                                        episodeId:
+                                                            row.episode.id,
+                                                        episodeNumber:
+                                                            row.episode.number,
+                                                        episodeName:
+                                                            row.episode.name,
+                                                      );
+                                                  unawaited(
+                                                    Navigator.of(context).push(
                                                       MaterialPageRoute<void>(
                                                         settings: RouteSettings(
                                                           arguments:
@@ -159,7 +186,9 @@ class EpisodesScreen extends ConsumerWidget {
                                                                   .seasonId,
                                                             ),
                                                       ),
-                                                    )
+                                                    ),
+                                                  );
+                                                }
                                               : null,
                                         ),
                                       ),
@@ -174,8 +203,26 @@ class EpisodesScreen extends ConsumerWidget {
                                             Icons.calendar_month_outlined,
                                           ),
                                           tooltip: l10n.navShootingDays,
-                                          onPressed: () => Navigator.of(context)
-                                              .push(
+                                          onPressed: () {
+                                            // Issue #624: entering an
+                                            // episode's day board sets the
+                                            // sticky active-episode scope
+                                            // before the push.
+                                            ref
+                                                .read(
+                                                  activeEpisodeProvider
+                                                      .notifier,
+                                                )
+                                                .set(
+                                                  seasonId: block.seasonId,
+                                                  blockId: block.id,
+                                                  episodeId: row.episode.id,
+                                                  episodeNumber:
+                                                      row.episode.number,
+                                                  episodeName: row.episode.name,
+                                                );
+                                            unawaited(
+                                              Navigator.of(context).push(
                                                 MaterialPageRoute<void>(
                                                   settings: RouteSettings(
                                                     arguments: episodeLocation
@@ -191,6 +238,8 @@ class EpisodesScreen extends ConsumerWidget {
                                                       ),
                                                 ),
                                               ),
+                                            );
+                                          },
                                         ),
                                     ],
                                   );

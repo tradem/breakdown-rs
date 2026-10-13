@@ -9,6 +9,7 @@ import 'package:breakdown_api/breakdown_api.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../auth/active_episode.dart';
 import '../../l10n/app_localizations_provider.dart';
 import '../scenes/scene_detail_screen.dart';
 import '../scenes/season_script_controller.dart';
@@ -129,14 +130,14 @@ class _ScriptBody extends ConsumerWidget {
 
 /// One scene row: the projected scene number as the visible label, the
 /// scene summary as the title and the episode it belongs to as metadata.
-class _ScriptRowTile extends StatelessWidget {
+class _ScriptRowTile extends ConsumerWidget {
   const _ScriptRowTile({required this.season, required this.row});
 
   final SeasonView season;
   final ScriptSceneRow row;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final l10n = l10nOf(context);
     final number = row.scene.sceneNumber;
     final summary = row.scene.summary;
@@ -154,14 +155,26 @@ class _ScriptRowTile extends StatelessWidget {
         l10n.scriptEpisodeLabel(row.episode.name ?? '${row.episode.number}'),
       ),
       trailing: const Icon(Icons.chevron_right),
-      onTap: () => _open(context),
+      onTap: () => _open(context, ref),
     );
   }
 
   /// Pushes the scene detail with the hierarchy context chain the row was
   /// composed from (issue #548: the shell's location strip deepens through
   /// Season → Block → Episode → Scene).
-  void _open(BuildContext context) {
+  ///
+  /// Issue #624: entering an episode's scene sets the sticky active-episode
+  /// scope (from the row's acted-on DTOs — CQRS boundary) before the push.
+  void _open(BuildContext context, WidgetRef ref) {
+    ref
+        .read(activeEpisodeProvider.notifier)
+        .set(
+          seasonId: season.id,
+          blockId: row.block.id,
+          episodeId: row.episode.id,
+          episodeNumber: row.episode.number,
+          episodeName: row.episode.name,
+        );
     unawaited(
       Navigator.of(context).push(
         MaterialPageRoute<void>(

@@ -15,8 +15,11 @@ import '../../l10n/generated/app_localizations.dart';
 import '../../l10n/generated/app_localizations_de.dart';
 import '../../design/material_icons.dart';
 import '../../auth/active_block.dart';
+import '../../auth/active_episode.dart';
+import '../../auth/active_episode_store.dart';
 import '../../auth/auth_providers.dart';
 import 'quick_create_sheet.dart';
+import 'active_episode_chip.dart';
 import 'active_scope_chip.dart';
 import 'cast_tab_screen.dart';
 import 'location_strip.dart';
@@ -129,6 +132,12 @@ class AppShellState extends ConsumerState<AppShell> {
         Localizations.of<AppLocalizations>(context, AppLocalizations) ??
         AppLocalizationsDe();
 
+    // Issue #624 (CodeRabbit review): restore the persisted active-episode
+    // scope for the active season on cold start. Watched unconditionally so
+    // the shell rebuilds once the persisted map resolves.
+    final episodePersisted = ref.watch(activeEpisodePersistedProvider);
+    _restoreEpisodeScope(state.activeSeason?.id, episodePersisted);
+
     final content = PopScope(
       canPop: false,
       onPopInvokedWithResult: (didPop, result) async {
@@ -201,12 +210,26 @@ class AppShellState extends ConsumerState<AppShell> {
             button: true,
             child: FloatingActionButton.extended(
               key: const Key('shell-plus-fab'),
-              onPressed: () => unawaited(
-                showQuickCreateSheet(
-                  context,
-                  actions: shellQuickCreateActions(l10n),
-                ),
-              ),
+              onPressed: () {
+                final activeSeasonId = ref
+                    .read(shellControllerProvider)
+                    .activeSeason
+                    ?.id;
+                final scope = ref.read(activeEpisodeProvider);
+                unawaited(
+                  showQuickCreateSheet(
+                    context,
+                    actions: shellQuickCreateActions(
+                      l10n,
+                      // Never offer scene/day for a scope whose season differs
+                      // from the active season (foreign-scope guard).
+                      episode: scope != null && scope.seasonId == activeSeasonId
+                          ? scope
+                          : null,
+                    ),
+                  ),
+                );
+              },
               // One Spotify-style plus action across ALL three morphologies
               // (issue #612, settled decision): the FAB is an ACTION, not a
               // destination — the destination contract (kDestinationCount,
@@ -267,6 +290,60 @@ class AppShellState extends ConsumerState<AppShell> {
       ),
     };
   }
+
+  /// Cold-start restore of the persisted active-episode scope (issue #624,
+  /// CodeRabbit review): the in-memory scope starts `null`, so seed it from
+  /// the persisted per-season document for the active season. Deferred to a
+  /// microtask (never mutate a provider during build); double-guarded so the
+  /// resulting rebuilds converge.
+  ///
+  /// Season switch: the guard compares the current scope's season, not mere
+  /// presence — when the active season changes, the new season's remembered
+  /// scope replaces a scope from the previous season (or the stale scope is
+  /// dropped when the new season has none).
+  void _restoreEpisodeScope(
+    String? seasonId,
+    AsyncValue<Map<String, PersistedEpisodeScope>> persisted,
+  ) {
+    if (seasonId == null) return;
+    final current = ref.read(activeEpisodeProvider);
+    // Already showing the right season's scope.
+    if (current != null && current.seasonId == seasonId) return;
+    final saved = switch (persisted) {
+      AsyncData(:final value) => value[seasonId],
+      _ => null,
+    };
+    if (saved == null) {
+      // The new season has no remembered episode: drop the previous
+      // season's in-memory scope so its foreign chip does not linger. The
+      // persisted documents are untouched (each season keeps its own).
+      if (current == null) return;
+      unawaited(
+        Future.microtask(() {
+          if (!mounted) return;
+          final live = ref.read(activeEpisodeProvider);
+          if (live == null || live.seasonId == seasonId) return;
+          ref.read(activeEpisodeProvider.notifier).discard();
+        }),
+      );
+      return;
+    }
+    unawaited(
+      Future.microtask(() {
+        if (!mounted) return;
+        if (ref.read(activeEpisodeProvider)?.seasonId == seasonId) return;
+        ref
+            .read(activeEpisodeProvider.notifier)
+            .set(
+              seasonId: seasonId,
+              blockId: saved.blockId,
+              episodeId: saved.episodeId,
+              episodeNumber: saved.episodeNumber,
+              episodeName: saved.episodeName,
+            );
+      }),
+    );
+  }
 }
 
 /// The shell's context bar (issue #548 + #610): the [LocationStrip] for the
@@ -293,8 +370,12 @@ class ShellContextBar extends ConsumerWidget {
         final navigator = navigatorKey.currentState;
         final location = navigator == null ? null : locationOf(navigator);
         final scope = ref.watch(activeBlockProvider);
+        final episode = ref.watch(activeEpisodeProvider);
         final season = ref.watch(shellControllerProvider).activeSeason;
-        if (location == null && scope == null && season == null) {
+        if (location == null &&
+            scope == null &&
+            episode == null &&
+            season == null) {
           return const SizedBox.shrink();
         }
 
@@ -303,6 +384,10 @@ class ShellContextBar extends ConsumerWidget {
                 WindowSizeClass.compact
             ? 3
             : 4;
+        // Whether any scope chip will render (each self-hides when unset).
+        // When none will, the location strip must keep the FULL width — a
+        // flex sibling would otherwise steal half of it (issue #624).
+        final hasChips = season != null || scope != null || episode != null;
         // ActionChip needs a Material ancestor; the bar sits OUTSIDE the
         // tab navigators' Scaffolds in all three morphologies, so it
         // provides its own transparent one.
@@ -323,33 +408,64 @@ class ShellContextBar extends ConsumerWidget {
               children: [
                 if (location != null) ...[
                   Expanded(
+                    flex: 3,
                     child: LocationStrip(
                       location: location,
                       maxSegments: maxSegments,
                     ),
                   ),
-                  const SizedBox(width: 8),
+                  if (hasChips) const SizedBox(width: 8),
                 ],
-                SeasonScopeChip(
-                  onOpenPicker: () => unawaited(
-                    Navigator.of(context).push(
-                      MaterialPageRoute<void>(
-                        builder: (_) => const SeasonScopePickerScreen(),
+                // The scope chips can be up to three (season + block +
+                // episode, issue #624). They live in a horizontally
+                // scrollable cluster so a narrow bar never overflows — the
+                // location strip keeps the Expanded share on its left.
+                if (hasChips)
+                  Flexible(
+                    flex: 2,
+                    child: SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          SeasonScopeChip(
+                            onOpenPicker: () => unawaited(
+                              Navigator.of(context).push(
+                                MaterialPageRoute<void>(
+                                  builder: (_) =>
+                                      const SeasonScopePickerScreen(),
+                                ),
+                              ),
+                            ),
+                          ),
+                          ActiveScopeChip(
+                            location: location,
+                            onOpenPicker: (seasonId) => unawaited(
+                              Navigator.of(context).push(
+                                MaterialPageRoute<void>(
+                                  builder: (_) =>
+                                      ScopeChipPickerScreen(seasonId: seasonId),
+                                ),
+                              ),
+                            ),
+                          ),
+                          ActiveEpisodeChip(
+                            location: location,
+                            onOpenPicker: (seasonId, blockId) => unawaited(
+                              Navigator.of(context).push(
+                                MaterialPageRoute<void>(
+                                  builder: (_) => EpisodeScopePickerScreen(
+                                    seasonId: seasonId,
+                                    blockId: blockId,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                   ),
-                ),
-                ActiveScopeChip(
-                  location: location,
-                  onOpenPicker: (seasonId) => unawaited(
-                    Navigator.of(context).push(
-                      MaterialPageRoute<void>(
-                        builder: (_) =>
-                            ScopeChipPickerScreen(seasonId: seasonId),
-                      ),
-                    ),
-                  ),
-                ),
               ],
             ),
           ),

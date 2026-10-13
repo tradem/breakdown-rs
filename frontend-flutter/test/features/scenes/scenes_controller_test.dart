@@ -38,16 +38,6 @@ SceneView _scene(String id) => SceneView(
     ..version = 1,
 );
 
-EpisodeView _episode() => EpisodeView(
-  (b) => b
-    ..id = 'episode-1'
-    ..blockId = 'block-1'
-    ..number = 1
-    ..projectId = 'series-1'
-    ..updatedAt = DateTime.utc(2026, 1, 1)
-    ..version = 1,
-);
-
 class _FakeSceneRepository extends SceneRepository {
   _FakeSceneRepository(super.api, super.cache);
 
@@ -137,7 +127,6 @@ void main() {
         ctx.repo.nextList = const Right([]);
 
         final res = await ctx.controller.create(
-          episode: _episode(),
           details: SceneDetails((b) => b..isScheduleSet = false),
         );
 
@@ -155,7 +144,6 @@ void main() {
       final ctx = await _buildFixture();
       ctx.repo.nextList = Right([_scene('n1')]);
       await ctx.controller.create(
-        episode: _episode(),
         details: SceneDetails((b) => b..isScheduleSet = false),
       );
       await ctx.controller.reconcile();
@@ -205,7 +193,6 @@ void main() {
       ctx.repo.nextList = const Right([]);
       ctx.repo.nextCreate = const Left(_networkDown);
       final res = await ctx.controller.create(
-        episode: _episode(),
         details: SceneDetails((b) => b..isScheduleSet = false),
       );
       expect(res.isLeft(), isTrue);
@@ -217,7 +204,6 @@ void main() {
       final ctx = await _buildFixture();
       ctx.repo.nextList = const Left(_networkDown);
       await ctx.controller.create(
-        episode: _episode(),
         details: SceneDetails((b) => b..isScheduleSet = false),
       );
       await _drain(ctx.controller.reconcile(), ctx.scheduler);

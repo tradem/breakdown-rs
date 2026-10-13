@@ -2177,6 +2177,19 @@ class AppLocalizationsEn extends AppLocalizations {
       'Create season, blocks and episodes step by step';
 
   @override
+  String get quickCreateSceneTitle => 'New scene';
+
+  @override
+  String get quickCreateSceneSubtitle => 'Create a scene in the active episode';
+
+  @override
+  String get quickCreateShootingDayTitle => 'New shooting day';
+
+  @override
+  String get quickCreateShootingDaySubtitle =>
+      'Plan a shooting day in the active episode';
+
+  @override
   String locationStripSemantics(Object path) {
     return 'Location: $path';
   }
@@ -2218,6 +2231,15 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get scopeChipPickTitle => 'Pick the block filter';
+
+  @override
+  String get episodeChipTooltip => 'Change the active episode';
+
+  @override
+  String get episodeChipPickTitle => 'Choose episode';
+
+  @override
+  String get episodeChipEmpty => 'No episodes in this block yet.';
 
   @override
   String get seasonsTitle => 'Seasons';

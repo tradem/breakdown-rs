@@ -16,6 +16,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:fpdart/fpdart.dart';
 import 'package:one_of/one_of.dart';
 
+import 'package:frontend_flutter/auth/active_episode.dart';
 import 'package:frontend_flutter/auth/auth_providers.dart';
 import 'package:frontend_flutter/core/problem_error.dart';
 import 'package:frontend_flutter/core/result.dart';
@@ -199,6 +200,27 @@ void main() {
       expect(find.text('2'), findsOneWidget);
     });
 
+    testWidgets('scene row sets the active-episode scope (issue #624)', (
+      tester,
+    ) async {
+      blocksResult = Right([blockDto()]);
+      episodesResult = Right([episodeDto()]);
+      scenesResult = Right([sceneDto('s-1', 1, 'Erster')]);
+      await setUpContainer();
+      await pumpView(tester, const ScriptTabScreen());
+
+      await tester.tap(find.byKey(const Key('script-scene-s-1')));
+      await tester.pump();
+      // The pushed detail builds against bootstrap providers this harness
+      // does not override; the scope is set BEFORE the push (the contract).
+      while (tester.takeException() != null) {}
+
+      final scope = container.read(activeEpisodeProvider);
+      expect(scope?.seasonId, 'season-1');
+      expect(scope?.blockId, 'b-1');
+      expect(scope?.episodeId, 'e-1');
+    });
+
     testWidgets('empty season: plain-language empty state', (tester) async {
       blocksResult = Right([blockDto()]);
       episodesResult = Right([episodeDto()]);
@@ -258,6 +280,27 @@ void main() {
           .map((k) => k.value)
           .toList();
       expect(rowKeys, ['schedule-day-d-1', 'schedule-day-d-2']);
+    });
+
+    testWidgets('day row sets the active-episode scope (issue #624)', (
+      tester,
+    ) async {
+      blocksResult = Right([blockDto()]);
+      episodesResult = Right([episodeDto()]);
+      daysResult = Right([dayDto('d-1', 'a', Date(2026, 3, 1))]);
+      await setUpContainer();
+      await pumpView(tester, const ScheduleTabScreen());
+
+      await tester.tap(find.byKey(const Key('schedule-day-d-1')));
+      await tester.pump();
+      // The pushed day board builds against bootstrap providers this
+      // harness does not override; the scope is set BEFORE the push.
+      while (tester.takeException() != null) {}
+
+      final scope = container.read(activeEpisodeProvider);
+      expect(scope?.seasonId, 'season-1');
+      expect(scope?.blockId, 'b-1');
+      expect(scope?.episodeId, 'e-1');
     });
 
     testWidgets('no planned days: plain-language empty state', (tester) async {

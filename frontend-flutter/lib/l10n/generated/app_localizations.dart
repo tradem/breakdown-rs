@@ -3712,6 +3712,30 @@ abstract class AppLocalizations {
   /// **'Season, Blöcke und Episoden geführt anlegen'**
   String get quickCreateWizardSubtitle;
 
+  /// No description provided for @quickCreateSceneTitle.
+  ///
+  /// In de, this message translates to:
+  /// **'Neue Szene'**
+  String get quickCreateSceneTitle;
+
+  /// No description provided for @quickCreateSceneSubtitle.
+  ///
+  /// In de, this message translates to:
+  /// **'Szene in der aktiven Episode anlegen'**
+  String get quickCreateSceneSubtitle;
+
+  /// No description provided for @quickCreateShootingDayTitle.
+  ///
+  /// In de, this message translates to:
+  /// **'Neuer Drehtag'**
+  String get quickCreateShootingDayTitle;
+
+  /// No description provided for @quickCreateShootingDaySubtitle.
+  ///
+  /// In de, this message translates to:
+  /// **'Drehtag in der aktiven Episode planen'**
+  String get quickCreateShootingDaySubtitle;
+
   /// No description provided for @locationStripSemantics.
   ///
   /// In de, this message translates to:
@@ -3783,6 +3807,24 @@ abstract class AppLocalizations {
   /// In de, this message translates to:
   /// **'Block-Filter wählen'**
   String get scopeChipPickTitle;
+
+  /// No description provided for @episodeChipTooltip.
+  ///
+  /// In de, this message translates to:
+  /// **'Aktive Episode ändern'**
+  String get episodeChipTooltip;
+
+  /// No description provided for @episodeChipPickTitle.
+  ///
+  /// In de, this message translates to:
+  /// **'Episode wählen'**
+  String get episodeChipPickTitle;
+
+  /// No description provided for @episodeChipEmpty.
+  ///
+  /// In de, this message translates to:
+  /// **'Noch keine Episoden in diesem Block.'**
+  String get episodeChipEmpty;
 
   /// No description provided for @seasonsTitle.
   ///

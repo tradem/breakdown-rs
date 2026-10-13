@@ -3,16 +3,22 @@
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
 // Co-authored-by: space-bunny-free (opencode-go)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
+// Co-authored-by: deepseek-v4.1-flash (neuralwatt)
 
 import 'package:breakdown_api/breakdown_api.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../design/components/create_error_banner.dart';
 import '../../l10n/app_localizations_provider.dart';
 import 'scenes_controller.dart';
 
 /// Opens the Create Scene form: a centered dialog on macOS (side-sheet
 /// width cap 480 dp, Escape-closable) and a bottom sheet on Android.
+///
+/// The in-context FAB presentation. The quick-create sheet reaches the same
+/// form through the full-screen [CreateSceneScreen] (issue #624) — one form
+/// implementation, two presentations.
 Future<void> showCreateSceneSheet(
   BuildContext context,
   WidgetRef ref,
@@ -25,7 +31,7 @@ Future<void> showCreateSceneSheet(
       builder: (dialogContext) => Dialog(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 480),
-          child: _CreateSceneForm(episode: episode),
+          child: CreateSceneForm(episodeId: episode.id),
         ),
       ),
     );
@@ -41,22 +47,28 @@ Future<void> showCreateSceneSheet(
         constraints: BoxConstraints(
           maxHeight: MediaQuery.of(sheetContext).size.height * 0.9,
         ),
-        child: _CreateSceneForm(episode: episode),
+        child: CreateSceneForm(episodeId: episode.id),
       ),
     ),
   );
 }
 
-class _CreateSceneForm extends ConsumerStatefulWidget {
-  const _CreateSceneForm({required this.episode});
+/// The Create Scene form body, keyed by the episode id the command sources
+/// its `episode_id` from.
+///
+/// Shared by the in-context sheet ([showCreateSceneSheet]) and the
+/// quick-create full-screen page (`CreateSceneScreen`, issue #624). The
+/// episode id is the acted-on `EpisodeView`'s id (CQRS boundary).
+class CreateSceneForm extends ConsumerStatefulWidget {
+  const CreateSceneForm({super.key, required this.episodeId});
 
-  final EpisodeView episode;
+  final String episodeId;
 
   @override
-  ConsumerState<_CreateSceneForm> createState() => _CreateSceneFormState();
+  ConsumerState<CreateSceneForm> createState() => _CreateSceneFormState();
 }
 
-class _CreateSceneFormState extends ConsumerState<_CreateSceneForm> {
+class _CreateSceneFormState extends ConsumerState<CreateSceneForm> {
   final _formKey = GlobalKey<FormState>();
   final _numberController = TextEditingController();
   final _summaryController = TextEditingController();
@@ -85,9 +97,8 @@ class _CreateSceneFormState extends ConsumerState<_CreateSceneForm> {
 
     final numberText = _numberController.text.trim();
     final result = await ref
-        .read(scenesControllerProvider(widget.episode.id).notifier)
+        .read(scenesControllerProvider(widget.episodeId).notifier)
         .create(
-          episode: widget.episode,
           details: SceneDetails(
             (b) => b
               ..isScheduleSet = false
@@ -100,12 +111,20 @@ class _CreateSceneFormState extends ConsumerState<_CreateSceneForm> {
         );
     result.match<void>((_) {}, (_) {});
     if (!mounted) return;
-    Navigator.of(context).pop();
+    // Stay open on failure: the inline banner renders the failure (the
+    // full-screen create page must not pop away its own error surface) and
+    // the submit button is re-enabled so the user can retry.
+    if (result.match((_) => false, (_) => true)) {
+      Navigator.of(context).pop();
+    } else {
+      setState(() => _busy = false);
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     final l10n = l10nOf(context);
+    final error = ref.watch(scenesCommandErrorProvider(widget.episodeId));
     return SafeArea(
       child: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
@@ -115,6 +134,19 @@ class _CreateSceneFormState extends ConsumerState<_CreateSceneForm> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
+              if (error != null) ...[
+                CreateErrorBanner(
+                  key: const Key('create-scene-error-banner'),
+                  text: sceneCreateErrorCopy(l10n, error),
+                  dismissKey: const Key('create-scene-error-dismiss'),
+                  onDismiss: () => ref
+                      .read(
+                        scenesCommandErrorProvider(widget.episodeId).notifier,
+                      )
+                      .clear(),
+                ),
+                const SizedBox(height: 12),
+              ],
               Text(
                 l10n.scenesCreateTitle,
                 style: Theme.of(context).textTheme.titleLarge,

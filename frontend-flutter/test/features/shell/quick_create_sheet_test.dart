@@ -13,8 +13,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:frontend_flutter/auth/active_episode.dart';
 import 'package:frontend_flutter/features/ai_import/import_jobs/import_submit_screen.dart';
+import 'package:frontend_flutter/features/scenes/create_scene_screen.dart';
 import 'package:frontend_flutter/features/seasons/setup/setup_wizard_screen.dart';
+import 'package:frontend_flutter/features/shooting_days/create_shooting_day_screen.dart';
 import 'package:frontend_flutter/features/shell/quick_create_sheet.dart';
 import 'package:frontend_flutter/l10n/generated/app_localizations_de.dart';
 
@@ -179,6 +182,72 @@ void main() {
       // The harness surface is still the root route (nothing pushed).
       expect(find.text('open'), findsOneWidget);
       expect(find.text('stub-flow'), findsNothing);
+    });
+  });
+
+  group('context-sensitive entries (issue #624)', () {
+    const scope = ActiveEpisodeScope(
+      seasonId: 'season-1',
+      blockId: 'block-1',
+      episodeId: 'episode-1',
+      episodeNumber: 3,
+      episodeName: 'Pilot',
+    );
+
+    test('no scope keeps the shipped context-free list', () {
+      final actions = shellQuickCreateActions(AppLocalizationsDe());
+      expect(actions, hasLength(2));
+      expect(actions[0].routeBuilder(), isA<AiImportSubmitScreen>());
+      expect(actions[1].routeBuilder(), isA<SetupWizardScreen>());
+    });
+
+    test('a scope adds scene/day entries for that episode, additively', () {
+      final actions = shellQuickCreateActions(
+        AppLocalizationsDe(),
+        episode: scope,
+      );
+      expect(actions, hasLength(4));
+      // Context entries first (the immediate task), the context-free pair
+      // still present.
+      expect(actions[0].routeBuilder(), isA<CreateSceneScreen>());
+      expect(actions[1].routeBuilder(), isA<CreateShootingDayScreen>());
+      expect(actions[2].routeBuilder(), isA<AiImportSubmitScreen>());
+      expect(actions[3].routeBuilder(), isA<SetupWizardScreen>());
+      // The context pages carry the scoped episode id.
+      expect(
+        (actions[0].routeBuilder() as CreateSceneScreen).episodeId,
+        'episode-1',
+      );
+      expect(
+        (actions[1].routeBuilder() as CreateShootingDayScreen).episodeId,
+        'episode-1',
+      );
+      for (final action in actions) {
+        expect(action.title, isNotEmpty);
+        expect(action.subtitle, isNotEmpty);
+      }
+    });
+
+    testWidgets('the sheet lists the context entries with visible labels', (
+      tester,
+    ) async {
+      await pumpHarness(
+        tester,
+        actions: shellQuickCreateActions(AppLocalizationsDe(), episode: scope),
+      );
+      await tester.tap(find.byKey(const Key('harness-open-sheet')));
+      await pumpFrames(tester);
+
+      expect(find.byKey(const Key('quick-create-scene')), findsOneWidget);
+      expect(
+        find.byKey(const Key('quick-create-shooting-day')),
+        findsOneWidget,
+      );
+      expect(find.text('Neue Szene'), findsOneWidget);
+      expect(find.text('Neuer Drehtag'), findsOneWidget);
+      // The context-free entries remain.
+      expect(find.byKey(const Key('quick-create-ai-import')), findsOneWidget);
+      expect(find.byKey(const Key('quick-create-wizard')), findsOneWidget);
     });
   });
 }

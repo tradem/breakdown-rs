@@ -8,6 +8,8 @@ import 'package:fpdart/fpdart.dart';
 
 import '../../auth/active_block.dart';
 import '../../auth/active_block_store.dart';
+import '../../auth/active_episode.dart';
+import '../../auth/active_episode_store.dart';
 import '../../auth/auth_providers.dart';
 import '../../auth/membership/membership_providers.dart';
 import '../../core/problem_error.dart';
@@ -88,6 +90,18 @@ class SessionReset extends Notifier<void> {
       await ref
           .read(authSessionControllerProvider.notifier)
           .failSession(scopesError);
+    }
+    // Issue #624: the active-episode scope is identity-scoped too — wipe
+    // its persisted per-season map so the next session never inherits it.
+    // A clear failure fails the session closed, like the block store above.
+    final episodeScopesCleared = await ref
+        .read(activeEpisodeStoreProvider)
+        .clear();
+    final episodeScopesError = episodeScopesCleared.getLeft().toNullable();
+    if (episodeScopesError != null) {
+      await ref
+          .read(authSessionControllerProvider.notifier)
+          .failSession(episodeScopesError);
     }
     // AI-import state is identity-scoped (`flutter-ai-import` design §3):
     // the secure-storage hand-off (config id + remembered job ids, keyed
@@ -180,6 +194,10 @@ class SessionReset extends Notifier<void> {
     // The second invalidation in `_invalidateReadScope` below is kept:
     // it clears a scope set mid-switch (fail-closed).
     ref.invalidate(activeBlockProvider);
+    // Issue #624: the active-episode scope is identity- and backend-scoped
+    // too — clear it (and its persisted map) BEFORE the Dio rebuild for the
+    // same reason as the block scope above.
+    ref.invalidate(activeEpisodeProvider);
     // Block ids are backend-scoped (issue #382): wipe the persisted
     // per-season map BEFORE switching the base — otherwise the gate would
     // restore the old backend's block id against the new backend (403).
@@ -194,6 +212,20 @@ class SessionReset extends Notifier<void> {
       return Left(scopesError);
     }
     ref.invalidate(activeBlockPersistedProvider);
+    // Episode ids are backend-scoped too (issue #624): wipe the persisted
+    // per-season map BEFORE switching the base. Best-effort like the block
+    // store's clear, but a failure still fails the session closed.
+    final episodeScopesCleared = await ref
+        .read(activeEpisodeStoreProvider)
+        .clear();
+    final episodeScopesError = episodeScopesCleared.getLeft().toNullable();
+    if (episodeScopesError != null) {
+      await ref
+          .read(authSessionControllerProvider.notifier)
+          .failSession(episodeScopesError);
+      return Left(episodeScopesError);
+    }
+    ref.invalidate(activeEpisodePersistedProvider);
     // AI-import ids are backend-scoped (`flutter-ai-import` design §3):
     // the hand-off store and the Drift job rows are wiped BEFORE the
     // switch (a remembered id from the old backend must never be sent to
@@ -320,7 +352,12 @@ class SessionReset extends Notifier<void> {
       // The persisted per-season map (issue #382) was already wiped by
       // the caller; this drops the provider's cached read alongside it.
       ..invalidate(activeBlockProvider)
-      ..invalidate(activeBlockPersistedProvider);
+      ..invalidate(activeBlockPersistedProvider)
+      // Active-episode scope (issue #624): identity-scoped like the block
+      // scope — the next session must never inherit the previous user's
+      // episode. The persisted per-season map was wiped by the caller.
+      ..invalidate(activeEpisodeProvider)
+      ..invalidate(activeEpisodePersistedProvider);
   }
 
   /// Resets read state after a backend switch (session kept): like
@@ -340,7 +377,11 @@ class SessionReset extends Notifier<void> {
       // new base with the old backend's block id. The persisted map
       // (issue #382) was wiped there too; this drops its cached read.
       ..invalidate(activeBlockProvider)
-      ..invalidate(activeBlockPersistedProvider);
+      ..invalidate(activeBlockPersistedProvider)
+      // Episode ids are backend-scoped (issue #624): the persisted map was
+      // wiped in `_applyNewBase`; this drops the cached read alongside it.
+      ..invalidate(activeEpisodeProvider)
+      ..invalidate(activeEpisodePersistedProvider);
   }
 }
 
