@@ -119,6 +119,15 @@ void main() {
       expect(result.fold((e) => e.code, (_) => null), 'cache.clear_failed');
     },
   );
+
+  test(
+    'isCacheStale translates a throwing DAO into Left(cache.read_failed)',
+    () async {
+      final repo = FundusRepository(BreakdownApi(), _ThrowingFundusDao(db));
+      final result = await repo.isCacheStale('project-1');
+      expect(result.fold((e) => e.code, (_) => null), 'cache.read_failed');
+    },
+  );
 }
 
 /// Interceptor that short-circuits `GET /v1/costumes` without a real network
@@ -163,4 +172,11 @@ class _ThrowingFundusDao extends FundusCostumeCacheDao {
   @override
   Future<void> clearProject(String projectId) async =>
       throw StateError('simulated executor failure');
+
+  @override
+  Future<bool> isProjectExpired(
+    String projectId,
+    Duration ttl, {
+    Clock clock = Clock.system,
+  }) async => throw StateError('simulated executor failure');
 }

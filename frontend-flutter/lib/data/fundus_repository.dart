@@ -77,11 +77,21 @@ class FundusRepository extends BaseRepository {
   }
 
   /// Returns `true` when any cached row of the project is older than [ttl].
-  Future<bool> isCacheStale(
+  ///
+  /// Wrapped in the repository's standard error boundary so a throwing DAO
+  /// read cannot escape as a throw (the class's "never throws" contract —
+  /// `Result` in, `Result` out, errors as values, AGENTS.md §5).
+  Future<Result<bool>> isCacheStale(
     String projectId, {
     Clock clock = Clock.system,
     Duration ttl = kCacheTtl,
-  }) => cache.isProjectExpired(projectId, ttl, clock: clock);
+  }) async {
+    try {
+      return Right(await cache.isProjectExpired(projectId, ttl, clock: clock));
+    } on Object {
+      return const Left(ProblemError(code: 'cache.read_failed'));
+    }
+  }
 
   /// Empties the project's fundus rows (sign-out / backend-switch resets).
   Future<Result<void>> clearCache(String projectId) async {
