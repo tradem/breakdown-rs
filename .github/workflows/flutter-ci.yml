@@ -390,18 +390,37 @@ jobs:
           set -euo pipefail
           # Move the freshly regenerated tree aside, restore the committed
           # tree, then diff. Any difference means the committed client is out
-          # of sync with backend/openapi.yaml (or was hand-edited). Exclude
-          # .dart_tool (build artifact, gitignored) so the build_runner output
-          # created during regen does not itself look like drift.
+          # of sync with backend/openapi.yaml (or was hand-edited).
+          #
+          # Two exclusions, both for files that are NOT the OpenAPI contract
+          # surface:
+          #   .dart_tool   — build artifact, gitignored; the build_runner
+          #                  output created during regen must not look like
+          #                  drift.
+          #   pubspec.lock — dependency-resolution artifact, not generated
+          #                  code. `regen-client.sh` starts with `rm -rf
+          #                  vendor/breakdown_api`, so the lock is resolved
+          #                  FRESH on every regen and picks up whatever
+          #                  transitive versions pub.dev published since the
+          #                  last commit. Comparing it made this gate fail on
+          #                  every upstream publish (e.g. coverage 1.15.1 ->
+          #                  1.16.0, which also pulled in cli_util + ffi)
+          #                  while the generated lib/ was byte-identical — a
+          #                  false positive for "is the client in sync with
+          #                  backend/openapi.yaml?". The lock stays committed
+          #                  as provenance; it is simply not part of the
+          #                  contract comparison.
           mv vendor/breakdown_api /tmp/regenerated-client
           git checkout -- vendor/breakdown_api
-          if diff -rq --exclude=.dart_tool /tmp/regenerated-client vendor/breakdown_api; then
+          if diff -rq --exclude=.dart_tool --exclude=pubspec.lock \
+               /tmp/regenerated-client vendor/breakdown_api; then
             echo "::notice::OpenAPI client is in sync with backend/openapi.yaml."
             exit 0
           fi
           echo "::error::OpenAPI client drift detected. vendor/breakdown_api/ is out of sync with backend/openapi.yaml. Regenerate with 'bash scripts/regen-client.sh' and commit the diff. (Hand-edits to vendor/breakdown_api/ are forbidden — see frontend-flutter/AGENTS.md §3.)"
           # Show a concise diff for the PR annotation.
-          diff -ruN --exclude=.dart_tool vendor/breakdown_api /tmp/regenerated-client || true
+          diff -ruN --exclude=.dart_tool --exclude=pubspec.lock \
+            vendor/breakdown_api /tmp/regenerated-client || true
           exit 1
 
   # Version drift — the client-side analog of ADR-006's `openapi_drift`
