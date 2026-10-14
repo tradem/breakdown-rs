@@ -201,8 +201,11 @@ establishing change).
 | `—` *(no icon)* | **Speichern** | Settings (dev) — save override action | `settings.save` |
 | `—` *(no icon)* | **Zurücksetzen** | Settings (dev) — reset-to-default action | `settings.reset` |
 | `—` *(no icon)* | **Die Serveradresse wird von deiner Organisation sicherheitsbedingt festgelegt und kann hier nicht geändert werden.** | Settings (prod) — explanatory note for the absent editor (store compliance) | `settings.prodNote` |
-| `psychology_alt_outlined` | **KI-Konfiguration** | Settings (general section) — central AI-configuration entry pushing `AiConfigScreen` (issue #643); visible only while the season-scoped membership resolves to an active costume-dept role | `settings.aiConfig` |
-| `—` *(no icon)* | **KI-Anbieter und Modelle für den KI-Import verwalten.** | Settings (general section) — AI-configuration entry explanatory line (issue #643) | `settings.aiConfigSubtitle` |
+| `—` *(no icon)* | **KI** | Settings — AI section header (every flavor), grouping the AI-configuration entry (#643) and the AI-imports entry (#644) | `settings.ai` |
+| `psychology_alt_outlined` | **KI-Konfiguration** | Settings (AI section) — central AI-configuration entry pushing `AiConfigScreen` (issue #643); visible only while the season-scoped membership resolves to an active costume-dept role | `settings.aiConfig` |
+| `—` *(no icon)* | **KI-Anbieter und Modelle für den KI-Import verwalten.** | Settings (AI section) — AI-configuration entry explanatory line (issue #643) | `settings.aiConfigSubtitle` |
+| `list_alt_outlined` | **KI-Import-Aufträge** | Settings (AI section) — persistent entry pushing the AI-import jobs list (route name `ai-import-jobs`, issue #644); NO client-side role gate — the read-only route's fetch seam resolves the session before the call and the tile dispatches no command | `settings.aiImports` + `settings.aiImportsSubtitle` |
+| `—` *(no icon)* | **Status deiner KI-Importe ansehen.** | Settings (AI section) — AI-imports entry explanatory line (issue #644) | `settings.aiImportsSubtitle` |
 | `cloud_off` | **Verbindung gestört** | Stale/optimistic overlay banner when sync hangs | `errors.connectionLost` |
 | `style_outlined` | **Kategorien** | Season tile → costume categories. Redesign note (report §4.5): not a daily entry point — relocates into „Mehr"/season detail; then icon-only entry is removed | `nav.costumeCategories` |
 | `add` (FAB) | **Kategorie hinzufügen** | Costume-categories FAB (same icon, per-screen label) | `costumeCategories.create` |

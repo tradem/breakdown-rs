@@ -15,17 +15,22 @@ from the cache-then-revalidate `aiImportJobsView` projection.
 
 ## Navigation
 
-Reached from the **Planen** tab two ways: the active-jobs summary row
-(shown while any known job needs attention) and, from the jobs screen's
-empty state, the CTA into the import entry. Row selection pushes the job
+Reached from the main **Settings** screen's AI section — the
+persistent "KI-Import-Aufträge" tile (issue #644): always reachable,
+even when zero jobs need attention. Two further paths: the
+production-overview **active-jobs summary row** (shown while any known
+job needs attention) and, from the jobs screen's empty state, the CTA
+into the import entry. Every push carries `RouteSettings(name:
+'ai-import-jobs')`, so the apply outcome's "back to imports"
+`popUntil` contract resolves from any entry. Row selection pushes the job
 status screen (`AiJobStatusScreen`) — the screen that owns the single
-foreground status watch; back returns to the list. No route parameters.
+foreground status watch; back returns to the caller. No route parameters.
 AUTHZ-GATE: the jobs list route is ownership-scoped server-side; the
 client resolves the authenticated session before the fetch (no session →
 no request) and denials surface through code-keyed copy
 (`jobWatchForbidden` / `aiJobsLoadError`), never backend `detail`. The
-sibling Planen import entry keeps its block-scope gate — this screen does
-not weaken it (it dispatches no block-scoped write).
+sibling production-overview import entry keeps its block-scope gate —
+this screen does not weaken it (it dispatches no block-scoped write).
 
 ## Layout
 
@@ -65,7 +70,8 @@ screen, on every window size.
 | Stale banner | Banner | Failed refetch serving retained cached rows | `seasonsStaleBanner` |
 | Error state | Card + button | Copy keyed on the problem `code`; retry re-runs the list route | `aiJobsLoadError` / `aiJobCheckAgain` |
 | Empty state | Icon + text + button | Honest "no import yet" + CTA into the import entry | `aiJobsEmpty` / `aiJobsEmptyCta` |
-| Planen summary row | List item | Visible while any known job needs attention (any non-`succeeded` status) | `planningActiveJobRow` / `aiJobsActiveBadge` |
+| Settings AI-imports entry | List item (push, chevron) | Persistent entry from the Settings AI section (issue #644) | `settings.aiImports` + `settings.aiImportsSubtitle` |
+| Production-overview summary row | List item | Visible while any known job needs attention (any non-`succeeded` status) | `planningActiveJobRow` / `aiJobsActiveBadge` |
 
 ## States
 
@@ -86,8 +92,9 @@ watch (D5) and owns the re-arm (`aiJobCheckAgain`) and preview
 list itself arms NO watch and dispatches nothing — pull-to-refresh
 re-runs exactly the list route, which is the status authority for rows;
 there is no per-row polling and no fabricated progress indicator (the
-wire carries `retries`/`max_retries`, never a percentage). The Planen
-summary row pushes this screen and never arms a watch.
+wire carries `retries`/`max_retries`, never a percentage). The
+production-overview summary row and the Settings AI-imports entry push
+this screen and never arm a watch.
 
 ## Input & Validation
 
@@ -107,7 +114,9 @@ kind + date + status.
 Widget tests: rows render kind + date + status text + icon; tap pushes the
 status screen (watch-call proof: zero before the tap); empty state + CTA;
 error state per `code`; stale banner over retained rows; terminal-failure
-distinctness; Planen summary row visible/hidden matrix and navigation.
+distinctness; production-overview summary row visible/hidden matrix and
+navigation; Settings AI-imports entry push + back-to-Settings contract
+(issue #644).
 Unit tests: cache-then-revalidate ordering, no-watch assertion (D5),
 remembered-id fast-path seed ordering, `forgetJob` reconciliation, status
 label matrix (all six), code-keyed error copy. Goldens:

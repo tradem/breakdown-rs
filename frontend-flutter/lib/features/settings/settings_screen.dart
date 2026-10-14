@@ -21,6 +21,7 @@ import '../../design/spacing.dart';
 import '../../l10n/app_localizations_provider.dart';
 import '../../l10n/generated/app_localizations.dart';
 import '../ai_import/ai_config/ai_config_screen.dart';
+import '../ai_import/import_jobs/jobs_screen.dart';
 import '../ai_import/clippy/clippy_trigger.dart';
 import '../ai_import/clippy/karl_klammer_figure.dart';
 import '../easter_eggs/dejavu_cat.dart';
@@ -168,9 +169,15 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           ),
           for (final id in EasterEggId.values) _EggPreviewRow(id: id),
 
-          // ── AI configuration (issue #643): central entry, general
-          //    section — role-gated, see [_AiConfigEntryTile]. ────────
+          // ── AI (issue #644): a dedicated, always-present section —
+          //    the AI-configuration entry (issue #643, role-gated) and
+          //    the AI-imports entry, which makes the jobs list reachable
+          //    even when ZERO jobs need attention (the production
+          //    overview's conditional row alone made it unreachable
+          //    after every import succeeded). ────────────────
+          _SectionHeader(label: l10n.settingsAi),
           const _AiConfigEntryTile(),
+          const _AiImportsEntryTile(),
           const Divider(),
 
           // ── Read-only server info (every flavor, as the dialog had) ──
@@ -239,8 +246,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   }
 }
 
-/// The central AI-configuration entry (issue #643): a general-section
-/// tile pushing the existing [AiConfigScreen] — no new screen, no new
+/// The central AI-configuration entry (issue #643): a tile in the AI
+/// section pushing the existing [AiConfigScreen] — no new screen, no new
 /// controller, no new API surface.
 ///
 /// AUTHZ-GATE: the AI-config handlers are handler-internally gated by
@@ -290,8 +297,51 @@ class _AiConfigEntryTile extends ConsumerWidget {
   }
 }
 
-/// Small labeled section header used for "Allgemein", the "Easter eggs" /// group and "Entwicklung" (settings-screen section separation, issue
-/// #516/#615).
+/// The persistent AI-imports entry (issue #644): a tile in the AI
+/// section pushing the existing [AiImportJobsScreen] under the named
+/// route `ai-import-jobs` — the same route name the production
+/// overview's active-jobs row pushes, so the apply outcome's
+/// "back to imports" `popUntil` contract in `apply_screen.dart` keeps
+/// resolving from this entry. No new screen, no new API surface, no
+/// command dispatch.
+///
+/// AUTHZ-GATE: the tile itself issues no request and dispatches no
+/// command — the jobs list is a read-only route, ownership-scoped
+/// server-side, whose fetch seam (`aiImportJobsFetch`) resolves the
+/// authenticated session BEFORE the call (no session → no request;
+/// the `// AUTHZ-GATE:` comment lives there). A denial surfaces inside
+/// the pushed screen through the code-keyed copy, never backend
+/// `detail`. The production-overview active-jobs row stays the
+/// in-context path when a job needs attention; this tile is the
+/// always-reachable path (every flavor, no active-block scope
+/// required).
+class _AiImportsEntryTile extends StatelessWidget {
+  const _AiImportsEntryTile();
+
+  @override
+  Widget build(BuildContext context) {
+    return ListTile(
+      key: const Key('settings-ai-imports'),
+      leading: const Icon(Icons.list_alt_outlined),
+      title: Text(l10nOf(context).settingsAiImports),
+      subtitle: Text(l10nOf(context).settingsAiImportsSubtitle),
+      trailing: const Icon(Icons.chevron_right),
+      // Fire-and-forget push (no result consumed). The named route is
+      // the apply-outcome button's pop target ("back to imports").
+      onTap: () => unawaited(
+        Navigator.of(context).push(
+          MaterialPageRoute<void>(
+            settings: const RouteSettings(name: 'ai-import-jobs'),
+            builder: (_) => const AiImportJobsScreen(),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Small labeled section header used for "Allgemein", the "Easter eggs" /// group, "KI" (AI section, issue #644) and "Entwicklung" (settings-
+/// screen section separation, issue #516/#615).
 class _SectionHeader extends StatelessWidget {
   const _SectionHeader({required this.label});
 

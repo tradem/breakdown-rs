@@ -21,7 +21,11 @@ import 'package:frontend_flutter/auth/auth_providers.dart';
 import 'package:frontend_flutter/auth/membership/membership_providers.dart';
 import 'package:frontend_flutter/core/problem_error.dart';
 import 'package:frontend_flutter/core/result.dart';
+import 'package:frontend_flutter/data/ai_import_providers.dart';
+import 'package:frontend_flutter/data/ai_import_repository.dart';
+import 'package:frontend_flutter/data/cache/ai_import_jobs_cache_dao.dart';
 import 'package:frontend_flutter/data/cache/cache_database.dart';
+import 'package:frontend_flutter/data/cache/clock.dart';
 import 'package:frontend_flutter/data/cache/season_cache_dao.dart';
 import 'package:frontend_flutter/data/cache/seasons_cache_providers.dart';
 import 'package:frontend_flutter/data/settings/api_base_override_store.dart';
@@ -75,6 +79,26 @@ class _ImmediateReconciliationScheduler extends ReconciliationScheduler {
 
   @override
   Future<void> tick(int attempt) => Future<void>.value();
+}
+
+/// Jobs-list fake (issue #644 push test): a benign empty list — the
+/// pushed jobs screen renders its honest empty state and no network
+/// runs. Watch count stays zero by construction (D5: the list arms no
+/// watch; the single foreground watch lives on the status screen).
+class _FakeJobsRepository extends AiImportRepository {
+  _FakeJobsRepository(super.api, super.cache);
+
+  @override
+  Future<Result<List<AiImportJob>>> listJobsAndCache({
+    Clock clock = Clock.system,
+  }) async => const Right<ProblemError, List<AiImportJob>>([]);
+
+  @override
+  Stream<Result<AiImportJob>> watch(
+    String jobId, {
+    ReconciliationScheduler scheduler = const ExponentialBackoffScheduler(),
+    int maxAttempts = 30,
+  }) => const Stream<Result<AiImportJob>>.empty();
 }
 
 /// In-memory secure-storage double backing [ApiBaseOverrideStore.secure].
@@ -688,6 +712,75 @@ void main() {
         findsOneWidget,
       );
     });
+  });
+
+  group('SettingsScreen AI section + AI-imports entry (issue #644)', () {
+    /// Harness with the jobs fetch seam faked to a benign empty list —
+    /// the pushed screen renders its honest empty state, no network.
+    Future<void> pumpWithJobs(WidgetTester tester, {AppConfig? config}) async {
+      await pumpScreen(
+        tester,
+        config: config ?? devAuthConfig,
+        extraOverrides: [
+          aiImportRepositoryProvider.overrideWithValue(
+            _FakeJobsRepository(BreakdownApi(), AiImportJobsCacheDao(db)),
+          ),
+        ],
+      );
+    }
+
+    testWidgets(
+      'AI section header + tile render without ANY active-block scope — '
+      'the jobs list is reachable even with zero jobs needing attention',
+      (tester) async {
+        await pumpWithJobs(tester);
+
+        // The tile is unconditional (the AI-config entry above it stays
+        // hidden without a scope — covered by the #643 group).
+        expect(find.byKey(const Key('settings-ai-imports')), findsOneWidget);
+        expect(find.byKey(const Key('settings-ai-config')), findsNothing);
+        // Localized section header + tile copy (glossary keys settings.ai*,
+        // settings.aiImports*); l10nOf falls back to English in bare trees.
+        expect(find.text('AI'), findsOneWidget);
+        expect(find.text('AI imports'), findsOneWidget);
+      },
+    );
+
+    testWidgets('visible in the prod flavor too (no dev-only gate)', (
+      tester,
+    ) async {
+      await pumpWithJobs(tester, config: _prodConfig);
+
+      expect(find.byKey(const Key('settings-ai-imports')), findsOneWidget);
+    });
+
+    testWidgets(
+      'tap pushes AiImportJobsScreen under route name "ai-import-jobs"; '
+      'back returns to Settings',
+      (tester) async {
+        await pumpWithJobs(tester);
+
+        await tester.tap(find.byKey(const Key('settings-ai-imports')));
+        await pumpFrames(tester, n: 12);
+
+        // The pushed screen renders (empty state — zero jobs).
+        expect(find.byKey(const Key('ai-jobs-empty')), findsOneWidget);
+        // The named route is the apply-outcome \"back to imports\" pop
+        // target — the contract in apply_screen.dart must keep resolving.
+        final route = ModalRoute.of(tester.element(find.byType(BackButton)));
+        expect(route!.settings.name, 'ai-import-jobs');
+        expect(
+          find.byKey(const Key('settings-screen'), skipOffstage: false),
+          findsOneWidget,
+        );
+
+        // Back navigation returns to Settings.
+        await tester.tap(find.byType(BackButton));
+        await pumpFrames(tester, n: 12);
+        expect(find.byKey(const Key('settings-screen')), findsOneWidget);
+        expect(find.byKey(const Key('ai-jobs-empty')), findsNothing);
+      },
+    );
   });
 
   group('SettingsScreen goldens (issue #516)', () {
