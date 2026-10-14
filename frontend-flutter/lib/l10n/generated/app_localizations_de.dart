@@ -2550,6 +2550,55 @@ class AppLocalizationsDe extends AppLocalizations {
       'Backend-Versionen konnten nicht geladen werden.';
 
   @override
+  String get infoCredits => 'Mitwirkende';
+
+  @override
+  String get infoCreditsSubtitle =>
+      'Die Menschen und KI-Modelle hinter dieser App.';
+
+  @override
+  String get creditsTitle => 'Mitwirkende';
+
+  @override
+  String get creditsCloudTitle => 'Dank an alle Mitwirkenden';
+
+  @override
+  String get creditsCloudBody =>
+      'Die KI-Modelle (mit ihrem Anbieter) und die menschlichen Mitwirkenden (mit ihren Rollen), die an diesem Projekt mitgewirkt haben.';
+
+  @override
+  String get creditsError => 'Mitwirkende konnten nicht geladen werden.';
+
+  @override
+  String get creditsRoleLabel => 'Rollen';
+
+  @override
+  String get creditsLlmLabel => 'KI-Co-Autor';
+
+  @override
+  String creditsSemanticHuman(Object name, Object roles) {
+    return '$name, $roles';
+  }
+
+  @override
+  String creditsSemanticLlm(Object name, Object provider) {
+    return '$name, KI-Co-Autor von $provider';
+  }
+
+  @override
+  String get creditsShouldersTitle => 'Auf der Schulter von Riesen';
+
+  @override
+  String get creditsShouldersBody =>
+      'Diese App baut auf diesen freien Technologien auf.';
+
+  @override
+  String get creditsRustLabel => 'Rust — die Backend-Sprache';
+
+  @override
+  String get creditsFlutterLabel => 'Flutter — das App-Framework';
+
+  @override
   String get infoAiUsage => 'KI-Nutzung';
 
   @override

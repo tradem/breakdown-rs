@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0
+// Co-authored-by: glm-5.3-flash (neuralwatt)
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: glm-5.3 (neuralwatt)
 
@@ -99,6 +100,67 @@ void main() {
       result.fold(
         (l) => expect(l.code, 'auth.unauthenticated'),
         (_) => fail('expected Left'),
+      );
+    });
+  });
+
+  group('MetaRepository.credits (issue #655)', () {
+    test('returns the decoded credit entries on success', () async {
+      final repo = MetaRepository(
+        _apiWith(
+          _FakeMetaInterceptor(
+            payload: {
+              'credits': [
+                {'name': 'glm-5.3', 'provider': 'neuralwatt', 'roles': []},
+                {
+                  'name': 'digiwitcher',
+                  'provider': null,
+                  'roles': ['Developer'],
+                },
+              ],
+            },
+          ),
+        ),
+      );
+
+      final result = await repo.credits();
+
+      expect(result.isRight(), isTrue);
+      result.fold((l) => fail('expected Right but got Left($l)'), (r) {
+        expect(r.credits.length, 2);
+        expect(r.credits[0].name, 'glm-5.3');
+        expect(r.credits[0].provider, 'neuralwatt');
+        expect(r.credits[1].name, 'digiwitcher');
+        expect(r.credits[1].provider, isNull);
+        expect(r.credits[1].roles.toList(), ['Developer']);
+      });
+    });
+
+    test('maps an unauthenticated rejection to a Left(ProblemError)', () async {
+      final path = '/v1/meta/credits';
+      final exception = DioException(
+        requestOptions: RequestOptions(path: path),
+        response: Response(
+          requestOptions: RequestOptions(path: path),
+          statusCode: 401,
+          data: {
+            'code': 'auth.unauthenticated',
+            'title': 'Authentication required',
+            'status': 401,
+          },
+        ),
+        type: DioExceptionType.badResponse,
+      );
+      final repo = MetaRepository(
+        _apiWith(_FakeMetaInterceptor(exception: exception)),
+      );
+
+      final result = await repo.credits();
+
+      expect(result.isLeft(), isTrue);
+      result.fold(
+        (l) => expect(l.code, 'auth.unauthenticated'),
+        (r) => fail('expected Left but got Right($r)'),
       );
     });
   });

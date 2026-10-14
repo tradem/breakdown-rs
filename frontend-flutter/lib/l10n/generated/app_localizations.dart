@@ -4252,6 +4252,90 @@ abstract class AppLocalizations {
   /// **'Backend-Versionen konnten nicht geladen werden.'**
   String get infoBackendVersionsError;
 
+  /// No description provided for @infoCredits.
+  ///
+  /// In de, this message translates to:
+  /// **'Mitwirkende'**
+  String get infoCredits;
+
+  /// No description provided for @infoCreditsSubtitle.
+  ///
+  /// In de, this message translates to:
+  /// **'Die Menschen und KI-Modelle hinter dieser App.'**
+  String get infoCreditsSubtitle;
+
+  /// No description provided for @creditsTitle.
+  ///
+  /// In de, this message translates to:
+  /// **'Mitwirkende'**
+  String get creditsTitle;
+
+  /// No description provided for @creditsCloudTitle.
+  ///
+  /// In de, this message translates to:
+  /// **'Dank an alle Mitwirkenden'**
+  String get creditsCloudTitle;
+
+  /// No description provided for @creditsCloudBody.
+  ///
+  /// In de, this message translates to:
+  /// **'Die KI-Modelle (mit ihrem Anbieter) und die menschlichen Mitwirkenden (mit ihren Rollen), die an diesem Projekt mitgewirkt haben.'**
+  String get creditsCloudBody;
+
+  /// No description provided for @creditsError.
+  ///
+  /// In de, this message translates to:
+  /// **'Mitwirkende konnten nicht geladen werden.'**
+  String get creditsError;
+
+  /// No description provided for @creditsRoleLabel.
+  ///
+  /// In de, this message translates to:
+  /// **'Rollen'**
+  String get creditsRoleLabel;
+
+  /// No description provided for @creditsLlmLabel.
+  ///
+  /// In de, this message translates to:
+  /// **'KI-Co-Autor'**
+  String get creditsLlmLabel;
+
+  /// No description provided for @creditsSemanticHuman.
+  ///
+  /// In de, this message translates to:
+  /// **'{name}, {roles}'**
+  String creditsSemanticHuman(Object name, Object roles);
+
+  /// No description provided for @creditsSemanticLlm.
+  ///
+  /// In de, this message translates to:
+  /// **'{name}, KI-Co-Autor von {provider}'**
+  String creditsSemanticLlm(Object name, Object provider);
+
+  /// No description provided for @creditsShouldersTitle.
+  ///
+  /// In de, this message translates to:
+  /// **'Auf der Schulter von Riesen'**
+  String get creditsShouldersTitle;
+
+  /// No description provided for @creditsShouldersBody.
+  ///
+  /// In de, this message translates to:
+  /// **'Diese App baut auf diesen freien Technologien auf.'**
+  String get creditsShouldersBody;
+
+  /// No description provided for @creditsRustLabel.
+  ///
+  /// In de, this message translates to:
+  /// **'Rust — die Backend-Sprache'**
+  String get creditsRustLabel;
+
+  /// No description provided for @creditsFlutterLabel.
+  ///
+  /// In de, this message translates to:
+  /// **'Flutter — das App-Framework'**
+  String get creditsFlutterLabel;
+
   /// No description provided for @infoAiUsage.
   ///
   /// In de, this message translates to:

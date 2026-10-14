@@ -120,3 +120,58 @@ final class MetaVersionsProvider
 }
 
 String _$metaVersionsHash() => r'806cf1c0b6931ed11164ebb768bac2db6fd3e946';
+
+/// Deduped LLM co-authors + human contributors for the credits screen
+/// (issue #655). Same Result→AsyncValue adaptation as [metaVersions]: the
+/// credits screen shows the honest error copy, it never crashes on a
+/// failed fetch.
+
+@ProviderFor(metaCredits)
+final metaCreditsProvider = MetaCreditsProvider._();
+
+/// Deduped LLM co-authors + human contributors for the credits screen
+/// (issue #655). Same Result→AsyncValue adaptation as [metaVersions]: the
+/// credits screen shows the honest error copy, it never crashes on a
+/// failed fetch.
+
+final class MetaCreditsProvider
+    extends
+        $FunctionalProvider<
+          AsyncValue<MetaCreditsResponse>,
+          MetaCreditsResponse,
+          FutureOr<MetaCreditsResponse>
+        >
+    with
+        $FutureModifier<MetaCreditsResponse>,
+        $FutureProvider<MetaCreditsResponse> {
+  /// Deduped LLM co-authors + human contributors for the credits screen
+  /// (issue #655). Same Result→AsyncValue adaptation as [metaVersions]: the
+  /// credits screen shows the honest error copy, it never crashes on a
+  /// failed fetch.
+  MetaCreditsProvider._()
+    : super(
+        from: null,
+        argument: null,
+        retry: null,
+        name: r'metaCreditsProvider',
+        isAutoDispose: true,
+        dependencies: null,
+        $allTransitiveDependencies: null,
+      );
+
+  @override
+  String debugGetCreateSourceHash() => _$metaCreditsHash();
+
+  @$internal
+  @override
+  $FutureProviderElement<MetaCreditsResponse> $createElement(
+    $ProviderPointer pointer,
+  ) => $FutureProviderElement(pointer);
+
+  @override
+  FutureOr<MetaCreditsResponse> create(Ref ref) {
+    return metaCredits(ref);
+  }
+}
+
+String _$metaCreditsHash() => r'd03153d6391776bb6db31a91b52284be7701bed2';

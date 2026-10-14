@@ -26,6 +26,22 @@ tag. Never edit a released entry afterwards.
 
 ### Added
 
+- **Credits route with deduped co-authors + human roles (issue #655):**
+  `GET /v1/meta/credits` returns the LLM co-authors (deduped per
+  `model + provider` from the repo AGENTS.md `Co-authored-by:` headers;
+  compile-time const list guarded by a parity test against those files) plus
+  the human contributors (`digiwitcher` — Developer; `imacRic` — Product
+  Owner, Tester). **Authenticated** (same decision as `/meta/versions`,
+  issue #656): no tenant data, no block membership. The Flutter credits
+  screen (linked from the About screen) renders the payload as a
+  deterministic word cloud (hash-tiered terms, semantic labels for screen
+  readers, goldens light/dark × android/macos) plus the
+  "Auf der Schulter von Riesen" section with the bundled Rust and Flutter
+  logos (flutter_svg).
+- **Version bump (additive MINOR):** `api` 0.27.0 → 0.28.0 (new public
+  `GET /v1/meta/credits` route); `core`/`infra` unchanged (no domain or
+  infra API change, no re-pin needed).
+
 - **Meta route exposing workspace crate versions (issue #656):**
   `GET /v1/meta/versions` reports the compile-time versions of the workspace
   crates meaningful to clients (`api`, `core`, `infra`), sourced from each
