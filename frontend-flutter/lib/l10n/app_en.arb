@@ -610,6 +610,7 @@
   "navEpisodes": "Episodes",
   "navScenes": "Scenes",
   "shellPlusFabLabel": "Create",
+  "offlinePillLabel": "Offline — data may be stale",
   "quickCreateTitle": "What do you want to create?",
   "quickCreateAiImportSubtitle": "Import a schedule or script via AI",
   "quickCreateWizardSubtitle": "Create season, blocks and episodes step by step",

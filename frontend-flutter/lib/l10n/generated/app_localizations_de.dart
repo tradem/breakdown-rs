@@ -2242,6 +2242,9 @@ class AppLocalizationsDe extends AppLocalizations {
   String get shellPlusFabLabel => 'Erstellen';
 
   @override
+  String get offlinePillLabel => 'Offline – Daten können veraltet sein';
+
+  @override
   String get quickCreateTitle => 'Was möchtest du erstellen?';
 
   @override

@@ -3766,6 +3766,12 @@ abstract class AppLocalizations {
   /// **'Erstellen'**
   String get shellPlusFabLabel;
 
+  /// No description provided for @offlinePillLabel.
+  ///
+  /// In de, this message translates to:
+  /// **'Offline – Daten können veraltet sein'**
+  String get offlinePillLabel;
+
   /// No description provided for @quickCreateTitle.
   ///
   /// In de, this message translates to:

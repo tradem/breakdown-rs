@@ -47,6 +47,10 @@ import 'package:frontend_flutter/features/shell/cast_tab_screen.dart';
 import 'package:frontend_flutter/features/shell/schedule_tab_screen.dart';
 import 'package:frontend_flutter/features/shell/script_tab_screen.dart';
 import 'package:frontend_flutter/features/shell/shell_controller.dart';
+import 'package:frontend_flutter/src/connectivity/connectivity_providers.dart';
+
+import '../../support/silent_connectivity.dart';
+
 import 'package:frontend_flutter/features/blocks/blocks_controller.dart';
 import 'package:frontend_flutter/features/costume_categories/costume_categories_controller.dart';
 import 'package:frontend_flutter/auth/membership/membership_providers.dart';
@@ -107,6 +111,14 @@ void main() {
       retry: (_, _) => null,
       overrides: [
         appConfigProvider.overrideWithValue(_appConfig),
+        // Issue #654: the offline pill's connectivity controller is kept
+        // alive by the shell — hand it a quiet fake passive source so the
+        // real connectivity_plus channel is never activated in tests (its
+        // activation error is reported via FlutterError and would fail
+        // goldens). The pill stays hidden: no events, no offline evidence.
+        passiveConnectivitySourceProvider.overrideWithValue(
+          const SilentPassiveSource(),
+        ),
         tokenStoreProvider.overrideWithValue(tokens),
         cacheDatabaseProvider.overrideWithValue(db),
         seasonRepositoryProvider.overrideWithValue(repo),
@@ -1209,3 +1221,7 @@ void main() {
     });
   });
 }
+
+/// Test-double passive connectivity source lives in
+/// `test/support/silent_connectivity.dart` (shared with the profile-menu
+/// harness, which pumps the shell too).
