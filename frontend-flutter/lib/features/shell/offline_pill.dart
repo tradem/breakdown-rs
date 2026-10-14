@@ -54,6 +54,10 @@ class OfflinePill extends ConsumerWidget {
                   child: Semantics(
                     key: const Key('shell-offline-pill-semantics'),
                     liveRegion: true,
+                    // The wrapper's label IS the announcement; exclude the
+                    // child Text's own semantics node so screen readers
+                    // never announce the same string twice (CodeRabbit #660).
+                    excludeSemantics: true,
                     label: l10n.offlinePillLabel,
                     child: Container(
                       padding: const EdgeInsets.symmetric(

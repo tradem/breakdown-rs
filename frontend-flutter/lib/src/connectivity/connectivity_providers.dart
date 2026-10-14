@@ -93,20 +93,28 @@ PassiveConnectivitySource passiveConnectivitySource(Ref ref) =>
 ConnectivityHttpProbe connectivityHttpProbe(Ref ref) {
   final apiBase = ref.watch(appConfigProvider).apiBase;
   return () async {
+    // Bare Dio WITHOUT the auth interceptor: a liveness probe never
+    // carries tokens. `validateStatus: (_) => true` accepts EVERY status:
+    // 404/401/503 from the API all prove the route is usable — Dio's
+    // default predicate would throw `badResponse` for 4xx/5xx and mask a
+    // working connection as offline (CodeRabbit #660). Only transport
+    // errors/timeout mean the route is NOT usable.
+    final dio = Dio(
+      BaseOptions(
+        connectTimeout: const Duration(seconds: 5),
+        receiveTimeout: const Duration(seconds: 5),
+        validateStatus: (_) => true,
+      ),
+    );
     try {
-      // Bare Dio WITHOUT the auth interceptor: a liveness probe never
-      // carries tokens. Any response — even 404/401 — proves the route to
-      // the backend is usable; only transport errors/timeout mean it is not.
-      final dio = Dio(
-        BaseOptions(
-          connectTimeout: const Duration(seconds: 5),
-          receiveTimeout: const Duration(seconds: 5),
-        ),
-      );
       await dio.getUri<void>(Uri.parse(apiBase));
       return true;
     } on DioException {
       return false;
+    } finally {
+      // Each probe owns its client: close it on BOTH paths so repeated
+      // degraded retries never accumulate sockets (CodeRabbit #660).
+      dio.close(force: true);
     }
   };
 }

@@ -30,15 +30,19 @@ final class FakePassiveSource implements PassiveConnectivitySource {
 void main() {
   late FakePassiveSource source;
 
-  Future<void> pumpPill(WidgetTester tester) async {
+  Future<void> pumpPill(
+    WidgetTester tester, {
+    // Optional probe outcome for reconnection scenarios; the default never
+    // resolves (unconfirmed reconnection → pill stays visible).
+    Future<bool> Function()? probe,
+  }) async {
     source = FakePassiveSource();
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
           passiveConnectivitySourceProvider.overrideWithValue(source),
-          // Probe outcomes are driven per-test via a completer-backed fake.
           connectivityHttpProbeProvider.overrideWithValue(
-            () => Completer<bool>().future,
+            probe ?? (() => Completer<bool>().future),
           ),
           connectivityDelayProvider.overrideWithValue(
             (duration) => Completer<void>().future,
@@ -80,20 +84,31 @@ void main() {
   );
 
   testWidgets(
-    'pill hides again when connectivity returns (auto, no interaction)',
+    'confirmed reconnection hides the pill automatically (no interaction)',
     (tester) async {
-      await pumpPill(tester);
+      await pumpPill(tester, probe: () async => true);
       await emitAndSettle(tester, [ConnectivityResult.none]);
       expect(find.text('Offline — data may be stale'), findsOneWidget);
 
-      // Carrier returns; the confirmation probe never resolves here, but the
-      // widget branch is driven by the STATUS (degraded still shows) — so
-      // resolve the probe with success through a fresh controller state.
+      // Carrier returns and the confirmation probe succeeds: the pill hides
+      // without user interaction (CodeRabbit #660: this branch was previously
+      // only asserted at controller level, never in a rendered tree).
       await emitAndSettle(tester, [ConnectivityResult.wifi]);
-      // Unconfirmed reconnection keeps the pill (degraded, not online).
-      expect(find.text('Offline — data may be stale'), findsOneWidget);
+      expect(find.text('Offline — data may be stale'), findsNothing);
     },
   );
+
+  testWidgets('unconfirmed reconnection keeps the pill visible (degraded)', (
+    tester,
+  ) async {
+    await pumpPill(tester); // default probe never resolves
+    await emitAndSettle(tester, [ConnectivityResult.none]);
+    expect(find.text('Offline — data may be stale'), findsOneWidget);
+
+    await emitAndSettle(tester, [ConnectivityResult.wifi]);
+    // OS carrier present, probe still unresolved → degraded, pill stays.
+    expect(find.text('Offline — data may be stale'), findsOneWidget);
+  });
 
   testWidgets(
     'pill color comes from the theme error container role (no hardcoded colors)',
