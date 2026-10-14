@@ -201,6 +201,8 @@ establishing change).
 | `—` *(no icon)* | **Speichern** | Settings (dev) — save override action | `settings.save` |
 | `—` *(no icon)* | **Zurücksetzen** | Settings (dev) — reset-to-default action | `settings.reset` |
 | `—` *(no icon)* | **Die Serveradresse wird von deiner Organisation sicherheitsbedingt festgelegt und kann hier nicht geändert werden.** | Settings (prod) — explanatory note for the absent editor (store compliance) | `settings.prodNote` |
+| `psychology_alt_outlined` | **KI-Konfiguration** | Settings (general section) — central AI-configuration entry pushing `AiConfigScreen` (issue #643); visible only while the season-scoped membership resolves to an active costume-dept role | `settings.aiConfig` |
+| `—` *(no icon)* | **KI-Anbieter und Modelle für den KI-Import verwalten.** | Settings (general section) — AI-configuration entry explanatory line (issue #643) | `settings.aiConfigSubtitle` |
 | `cloud_off` | **Verbindung gestört** | Stale/optimistic overlay banner when sync hangs | `errors.connectionLost` |
 | `style_outlined` | **Kategorien** | Season tile → costume categories. Redesign note (report §4.5): not a daily entry point — relocates into „Mehr"/season detail; then icon-only entry is removed | `nav.costumeCategories` |
 | `add` (FAB) | **Kategorie hinzufügen** | Costume-categories FAB (same icon, per-screen label) | `costumeCategories.create` |

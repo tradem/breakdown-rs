@@ -2832,6 +2832,13 @@ class AppLocalizationsDe extends AppLocalizations {
       'Jedes Ei lässt sich hier in Ruhe ansehen — unabhängig vom Monat.';
 
   @override
+  String get settingsAiConfig => 'KI-Konfiguration';
+
+  @override
+  String get settingsAiConfigSubtitle =>
+      'KI-Anbieter und Modelle für den KI-Import verwalten.';
+
+  @override
   String get settingsDev => 'Entwicklung';
 
   @override

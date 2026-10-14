@@ -4,11 +4,15 @@
 // Co-authored-by: glm-5.3-flash (opencode-go)
 // Co-authored-by: glm-5.3-flash (neuralwatt)
 
+import 'dart:async' show unawaited;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../auth/auth_providers.dart';
+import '../../auth/active_block.dart';
+import '../../auth/membership/membership_providers.dart';
 import '../auth/sign_out.dart';
 import '../../data/settings/api_base_validation.dart';
 import '../../data/settings/api_base_override_store.dart';
@@ -16,6 +20,7 @@ import '../../data/settings/easter_eggs_store.dart';
 import '../../design/spacing.dart';
 import '../../l10n/app_localizations_provider.dart';
 import '../../l10n/generated/app_localizations.dart';
+import '../ai_import/ai_config/ai_config_screen.dart';
 import '../ai_import/clippy/clippy_trigger.dart';
 import '../ai_import/clippy/karl_klammer_figure.dart';
 import '../easter_eggs/dejavu_cat.dart';
@@ -162,6 +167,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             child: Text(l10n.settingsEasterEggsPreviewSubtitle),
           ),
           for (final id in EasterEggId.values) _EggPreviewRow(id: id),
+
+          // ── AI configuration (issue #643): central entry, general
+          //    section — role-gated, see [_AiConfigEntryTile]. ────────
+          const _AiConfigEntryTile(),
           const Divider(),
 
           // ── Read-only server info (every flavor, as the dialog had) ──
@@ -230,8 +239,58 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   }
 }
 
-/// Small labeled section header used for "Allgemein", the "Easter eggs"
-/// group and "Entwicklung" (settings-screen section separation, issue
+/// The central AI-configuration entry (issue #643): a general-section
+/// tile pushing the existing [AiConfigScreen] — no new screen, no new
+/// controller, no new API surface.
+///
+/// AUTHZ-GATE: the AI-config handlers are handler-internally gated by
+/// `has_active_credential_role` (an active `costume_designer` /
+/// `costume_assistant` in any active membership — backend
+/// `AuthorizationPolicy`). The exact global predicate is not on the
+/// wire, so the client mirrors it through the existing D2/D3 resolution
+/// chain — the sticky active-block scope's season membership and its
+/// backend-computed `hasActiveCostumeRoleInSeason` flag (deliberately
+/// wider: it also covers `wardrobe_supervisor`). The tile is offered
+/// ONLY while that gate resolves to true: no active-block scope, a
+/// pending fetch, a membership error, or a resolved denial render no
+/// tile (a pending fetch hides, never denies — D3). A wider-role
+/// member admitted by the tile then meets the server's localized 403
+/// narrative inside [AiConfigScreen] (its documented D4 exception) —
+/// honest degradation, server authoritative, never a bypass.
+class _AiConfigEntryTile extends ConsumerWidget {
+  const _AiConfigEntryTile();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    // The sticky scope is the only ambient season context the shell
+    // carries; without it the role cannot resolve and the entry hides
+    // (show only when the role resolves — issue #643 decision).
+    final seasonId = ref.watch(activeBlockProvider)?.seasonId;
+    if (seasonId == null) return const SizedBox.shrink();
+    final membership = ref.watch(currentMembershipProvider(seasonId));
+    // `AsyncValue.value` is null while loading/errored — both hide the
+    // tile (D3: a pending fetch disables, never denies).
+    if (membership.value?.hasActiveCostumeRoleInSeason != true) {
+      return const SizedBox.shrink();
+    }
+    return ListTile(
+      key: const Key('settings-ai-config'),
+      leading: const Icon(Icons.psychology_alt_outlined),
+      title: Text(l10nOf(context).settingsAiConfig),
+      subtitle: Text(l10nOf(context).settingsAiConfigSubtitle),
+      trailing: const Icon(Icons.chevron_right),
+      // Fire-and-forget push (no result consumed), same as the wizard
+      // and import-submit entries. ListTile keeps the ≥ 48×48 dp target.
+      onTap: () => unawaited(
+        Navigator.of(
+          context,
+        ).push(MaterialPageRoute<void>(builder: (_) => const AiConfigScreen())),
+      ),
+    );
+  }
+}
+
+/// Small labeled section header used for "Allgemein", the "Easter eggs" /// group and "Entwicklung" (settings-screen section separation, issue
 /// #516/#615).
 class _SectionHeader extends StatelessWidget {
   const _SectionHeader({required this.label});
