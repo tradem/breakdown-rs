@@ -187,7 +187,9 @@ class ConnectivityController extends _$ConnectivityController {
       return;
     }
     // Reconnection from offline/degraded: confirm with ONE HTTP probe.
-    _runConfirmationProbe();
+    // Fire-and-forget by design (a passive event callback cannot await);
+    // the chain self-terminates on generation mismatch (see below).
+    unawaited(_runConfirmationProbe());
   }
 
   Future<void> _runConfirmationProbe() async {
