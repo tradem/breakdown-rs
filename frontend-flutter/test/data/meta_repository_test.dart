@@ -60,14 +60,11 @@ void main() {
       final result = await repo.versions();
 
       expect(result.isRight(), isTrue);
-      result.fold(
-        (l) => fail('expected Right but got Left($l)'),
-        (r) {
-          expect(r.api, '0.26.0');
-          expect(r.core, '0.28.0');
-          expect(r.infra, '0.33.0');
-        },
-      );
+      result.fold((l) => fail('expected Right but got Left($l)'), (r) {
+        expect(r.api, '0.26.0');
+        expect(r.core, '0.28.0');
+        expect(r.infra, '0.33.0');
+      });
     });
 
     test('maps an unauthenticated rejection to a Left(ProblemError)', () async {

@@ -164,11 +164,9 @@ void main() {
 
       // The section is rendered with the decoded wire values verbatim —
       // crate names are code identifiers, only the label is localized.
+      expect(find.byKey(const Key('info-backend-versions')), findsOneWidget);
       expect(
-        find.byKey(const Key('info-backend-versions')),
-        findsOneWidget,
-      );
-      expect(find.text('api 0.26.0 · core 0.28.0 · infra 0.33.0'),
+        find.text('api 0.26.0 · core 0.28.0 · infra 0.33.0'),
         findsOneWidget,
       );
     });
@@ -177,8 +175,8 @@ void main() {
         '(issue #656)', (tester) async {
       await pumpScreen(
         tester,
-        metaVersionsFetch:
-            () => Future.error(const ProblemError(code: 'auth.unauthenticated')),
+        metaVersionsFetch: () =>
+            Future.error(const ProblemError(code: 'auth.unauthenticated')),
       );
 
       // The screen STAYS and shows the honest error copy — never a crash,
