@@ -28,6 +28,7 @@ import 'package:frontend_flutter/data/ai_import_repository.dart';
 import 'package:frontend_flutter/data/cache/ai_import_jobs_cache_dao.dart';
 import 'package:frontend_flutter/data/cache/cache_database.dart';
 import 'package:frontend_flutter/data/cache/clock.dart';
+import 'package:frontend_flutter/data/cache/seasons_cache_providers.dart';
 import 'package:frontend_flutter/domain/reconciliation/reconciliation_scheduler.dart';
 import 'package:frontend_flutter/features/ai_import/import_jobs/job_status_screen.dart';
 
@@ -36,6 +37,8 @@ AiImportJob _job(
   int retries = 0,
   int maxRetries = 3,
   String? lastError,
+  DateTime? nextAttemptAt,
+  List<AiImportAttempt> attempts = const [],
 }) => AiImportJob(
   (b) => b
     ..id = 'job-1'
@@ -49,8 +52,29 @@ AiImportJob _job(
     ..retries = retries
     ..maxRetries = maxRetries
     ..lastError = lastError
+    ..nextAttemptAt = nextAttemptAt
+    ..attempts.addAll(attempts)
     ..createdAt = DateTime.utc(2026, 1, 1)
     ..updatedAt = DateTime.utc(2026, 1, 1),
+);
+
+/// One recorded attempt for the history (issue #637/#639). `code` is the
+/// stable problem identity the UI localizes on; `errorSummary` is the raw
+/// free-form text that must never render as identity.
+AiImportAttempt _attempt(
+  int attemptNo, {
+  String? code,
+  String? errorSummary,
+  bool retryable = true,
+  JobStatus status = JobStatus.failed,
+}) => AiImportAttempt(
+  (b) => b
+    ..attemptNo = attemptNo
+    ..code = code
+    ..errorSummary = errorSummary
+    ..retryable = retryable
+    ..status = status
+    ..createdAt = DateTime.utc(2026, 1, 1),
 );
 
 const devAuthConfig = AppConfig(
@@ -70,6 +94,16 @@ void main() {
   CacheDatabase? db;
   ProviderContainer? container;
   late ValueNotifier<Result<AiImportJob>> job;
+  // Injectable clock (issue #639): the retry ETA reads `clockProvider`, so a
+  // mutable `now` lets a test advance time and assert the live copy without
+  // sleeping. Goldens keep it fixed.
+  var now = DateTime.utc(2026, 1, 1, 12);
+
+  setUp(() {
+    // Every test starts from a fixed instant; the ETA test advances it
+    // explicitly and goldens stay deterministic (deterministic-tests rule).
+    now = DateTime.utc(2026, 1, 1, 12);
+  });
 
   Future<void> setupContainer(Result<AiImportJob> initial) async {
     // A re-setup (the two-status loop) disposes the previous container
@@ -83,6 +117,7 @@ void main() {
     container = ProviderContainer(
       overrides: [
         appConfigProvider.overrideWithValue(devAuthConfig),
+        clockProvider.overrideWithValue(Clock(() => now)),
         aiImportRepositoryProvider.overrideWithValue(
           _StubRepository(BreakdownApi(), AiImportJobsCacheDao(db!))
             ..jobNotifier = job,
@@ -173,6 +208,141 @@ void main() {
     expect(find.textContaining('retry is scheduled'), findsOneWidget);
     expect(find.byKey(const Key('ai-job-retry-budget')), findsOneWidget);
     expect(find.textContaining('Retry 2 of 5'), findsOneWidget);
+    await tester.pump();
+  });
+
+  testWidgets('retryable failed shows a LIVE next-retry ETA derived from '
+      'next_attempt_at (issue #639)', (tester) async {
+    now = DateTime.utc(2026, 1, 1, 12);
+    await setupContainer(
+      Right(
+        _job(
+          JobStatus.failed,
+          retries: 1,
+          maxRetries: 4,
+          nextAttemptAt: now.add(const Duration(minutes: 4)),
+          attempts: [_attempt(1, code: 'domain.service-unavailable')],
+        ),
+      ),
+    );
+    await pumpScreen(tester);
+    expect(find.byKey(const Key('ai-job-next-retry')), findsOneWidget);
+    expect(find.textContaining('Retry in ~4 min'), findsOneWidget);
+
+    // Time advances past a bucket; the bounded ticker refreshes the copy
+    // without a per-frame rebuild.
+    now = now.add(const Duration(minutes: 2));
+    await tester.pump(const Duration(seconds: 31));
+    expect(find.textContaining('Retry in ~2 min'), findsOneWidget);
+    await tester.pump();
+  });
+
+  testWidgets('retryable failed without next_attempt_at degrades honestly — '
+      'no fabricated countdown (issue #639)', (tester) async {
+    await setupContainer(
+      Right(
+        _job(
+          JobStatus.failed,
+          attempts: [_attempt(1, code: 'dependency.auth-failed')],
+        ),
+      ),
+    );
+    await pumpScreen(tester);
+    expect(find.byKey(const Key('ai-job-next-retry')), findsOneWidget);
+    expect(find.textContaining('Retry scheduled'), findsOneWidget);
+    // No "~<n>" bucket copy is rendered when the due time is unknown.
+    expect(find.textContaining('Retry in ~'), findsNothing);
+    await tester.pump();
+  });
+
+  testWidgets('retryable failed shows the newest attempt reason keyed on the '
+      'problem code, never the raw summary (issue #639)', (tester) async {
+    await setupContainer(
+      Right(
+        _job(
+          JobStatus.failed,
+          attempts: [
+            _attempt(
+              2,
+              code: 'dependency.auth-failed',
+              errorSummary:
+                  'dependency authentication failed: KV read '
+                  'returned 403 Forbidden',
+            ),
+            _attempt(1, code: 'domain.service-unavailable'),
+          ],
+        ),
+      ),
+    );
+    await pumpScreen(tester);
+    expect(find.byKey(const Key('ai-job-failure-reason')), findsOneWidget);
+    expect(find.textContaining('credential was rejected'), findsOneWidget);
+    // The raw backend summary never renders as identity on the retryable card.
+    expect(find.textContaining('KV read returned 403'), findsNothing);
+    await tester.pump();
+  });
+
+  testWidgets('an absent or unknown attempt code renders the generic '
+      'localized reason (issue #639)', (tester) async {
+    await setupContainer(
+      Right(
+        _job(
+          JobStatus.failed,
+          attempts: [
+            _attempt(
+              1,
+              code: 'some.future-code',
+              errorSummary: 'raw backend detail',
+            ),
+          ],
+        ),
+      ),
+    );
+    await pumpScreen(tester);
+    // The generic arm echoes the stable code (an identifier, not `detail`).
+    expect(find.textContaining('some.future-code'), findsOneWidget);
+    expect(find.textContaining('raw backend detail'), findsNothing);
+
+    // Absence branch: no code at all.
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
+    await setupContainer(
+      Right(
+        _job(
+          JobStatus.failed,
+          attempts: [_attempt(1, errorSummary: 'raw backend detail')],
+        ),
+      ),
+    );
+    await pumpScreen(tester);
+    expect(find.textContaining('unknown reason'), findsOneWidget);
+    expect(find.textContaining('raw backend detail'), findsNothing);
+    await tester.pump();
+  });
+
+  testWidgets('terminal card adds the per-attempt history with code-keyed '
+      'reasons, keeping last_error as secondary detail (issue #639)', (
+    tester,
+  ) async {
+    await setupContainer(
+      Right(
+        _job(
+          JobStatus.deadLetter,
+          lastError: 'the raw last error',
+          attempts: [
+            _attempt(2, code: 'dependency.auth-failed'),
+            _attempt(1, code: 'domain.service-unavailable'),
+          ],
+        ),
+      ),
+    );
+    await pumpScreen(tester);
+    expect(find.byKey(const Key('ai-job-attempt-history')), findsOneWidget);
+    expect(find.byKey(const Key('ai-job-attempt-2')), findsOneWidget);
+    expect(find.byKey(const Key('ai-job-attempt-1')), findsOneWidget);
+    expect(find.textContaining('Attempt 2:'), findsOneWidget);
+    expect(find.textContaining('credential was rejected'), findsOneWidget);
+    expect(find.byKey(const Key('ai-job-last-error')), findsOneWidget);
     await tester.pump();
   });
 
@@ -304,6 +474,61 @@ void main() {
         platform: TargetPlatform.macOS,
       );
     });
+
+    // Retryable-with-ETA (issue #639): the live "next retry in …" and the
+    // code-keyed reason, {light,dark}×{android,macos}.
+    for (final (mode, platform, suffix) in [
+      (ThemeMode.light, TargetPlatform.android, 'light_android'),
+      (ThemeMode.dark, TargetPlatform.android, 'dark_android'),
+      (ThemeMode.light, TargetPlatform.macOS, 'light_macos'),
+      (ThemeMode.dark, TargetPlatform.macOS, 'dark_macos'),
+    ]) {
+      testWidgets('golden $suffix (retryable with ETA)', (tester) async {
+        await setupContainer(
+          Right(
+            _job(
+              JobStatus.failed,
+              retries: 1,
+              maxRetries: 4,
+              nextAttemptAt: DateTime.utc(2026, 1, 1, 12, 4),
+              attempts: [
+                _attempt(
+                  2,
+                  code: 'domain.service-unavailable',
+                  errorSummary: 'service unavailable: upstream 503',
+                ),
+                _attempt(1, code: 'domain.service-unavailable'),
+              ],
+            ),
+          ),
+        );
+        await pumpGolden(
+          tester,
+          golden: 'ai_job_status_retryable_$suffix.png',
+          mode: mode,
+          platform: platform,
+        );
+      });
+
+      testWidgets('golden $suffix (retryable, unknown ETA)', (tester) async {
+        await setupContainer(
+          Right(
+            _job(
+              JobStatus.failed,
+              retries: 1,
+              maxRetries: 4,
+              attempts: [_attempt(1, code: 'dependency.auth-failed')],
+            ),
+          ),
+        );
+        await pumpGolden(
+          tester,
+          golden: 'ai_job_status_retryable_unknown_eta_$suffix.png',
+          mode: mode,
+          platform: platform,
+        );
+      });
+    }
   });
 }
 

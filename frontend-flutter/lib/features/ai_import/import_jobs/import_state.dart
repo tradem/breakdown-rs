@@ -83,3 +83,19 @@ bool jobStatusInProgress(JobStatus status) =>
 /// True when [status] renders the terminal error card.
 bool jobStatusTerminalError(JobStatus status) =>
     status == JobStatus.deadLetter || status == JobStatus.payloadUnavailable;
+
+/// Localized client-side copy for the failure of an AI-import attempt, keyed
+/// on the attempt's stable problem `code` (issue #639). The backend
+/// `error_summary` is free-form `DomainError` log text and is NEVER used as
+/// the error's identity (AGENTS.md §5): only the registry `code` selects the
+/// narrative. An absent or unrecognized code degrades to a generic localized
+/// message — the generic arm may echo the stable `code` (an identifier, not
+/// `detail`), matching `aiUploadGeneric`/`jobWatchGeneric`.
+String aiJobFailureReason(AppLocalizations l10n, String? code) =>
+    switch (code) {
+      null || '' => l10n.aiJobReasonUnknown,
+      'dependency.auth-failed' => l10n.aiJobReasonDependencyAuth,
+      'domain.service-unavailable' => l10n.aiJobReasonServiceUnavailable,
+      'http.internal-error' => l10n.aiJobReasonInternal,
+      _ => l10n.aiJobReasonGeneric(code),
+    };

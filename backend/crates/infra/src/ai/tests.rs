@@ -173,6 +173,7 @@ async fn merge_worker_empty_input_is_non_retryable() {
             _id: breakdown_core::ai::AiImportJobId,
             _worker_id: &str,
             _error_summary: &str,
+            _error_code: Option<&str>,
             retryable: bool,
         ) -> Result<(), DomainError> {
             self.state.lock().unwrap().failed_retryable.push(retryable);
@@ -318,6 +319,7 @@ async fn merge_worker_success_records_telemetry() {
             _id: AiImportJobId,
             _worker_id: &str,
             _error_summary: &str,
+            _error_code: Option<&str>,
             _retryable: bool,
         ) -> Result<(), DomainError> {
             unimplemented!("the success path must not fail")
@@ -521,6 +523,7 @@ impl AiImportQueue for FakeQueue {
         id: AiImportJobId,
         _worker_id: &str,
         _error_summary: &str,
+        _error_code: Option<&str>,
         _retryable: bool,
     ) -> Result<(), DomainError> {
         self.state.lock().unwrap().failed.push(id);

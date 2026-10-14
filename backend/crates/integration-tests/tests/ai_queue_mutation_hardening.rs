@@ -252,13 +252,52 @@ async fn mark_failed_sets_failed_status_and_increments_retries() -> Result<()> {
     assert_eq!(job.retries, 0);
 
     queue
-        .mark_failed(job.id, "worker-1", "something went wrong", true)
+        .mark_failed(job.id, "worker-1", "something went wrong", None, true)
         .await?;
 
     let job = queue.get(id).await?.expect("job should exist");
     assert_eq!(job.status, JobStatus::Failed);
     assert_eq!(job.retries, 1);
     assert_eq!(job.last_error, Some("something went wrong".into()));
+    // A code-less writer leaves the attempt's code unset (absence branch).
+    let attempt = job.attempts.first().expect("attempt history is populated");
+    assert_eq!(attempt.code, None);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn mark_failed_persists_the_attempt_error_code() -> Result<()> {
+    let (pool, _container) = crate::fixtures::spawn_postgres().await?;
+    let queue = PgAiImportQueue::new(pool);
+
+    let request = make_enqueue_request("user-1", DocumentKind::Script);
+    let id = request.id;
+    queue.enqueue(request).await?;
+
+    queue.claim_next("worker-1").await?.expect("should claim");
+    queue
+        .mark_failed(
+            id,
+            "worker-1",
+            "dependency authentication failed: invalid token",
+            Some("dependency.auth-failed"),
+            false,
+        )
+        .await?;
+
+    let job = queue.get(id).await?.expect("job should exist");
+    let attempt = job
+        .attempts
+        .first()
+        .expect("the single-job read must populate the attempt history");
+    // The stable identity the client localizes on...
+    assert_eq!(attempt.code.as_deref(), Some("dependency.auth-failed"));
+    // ...stays a separate field from the human-readable summary.
+    assert_eq!(
+        attempt.error_summary.as_deref(),
+        Some("dependency authentication failed: invalid token")
+    );
 
     Ok(())
 }
@@ -274,7 +313,7 @@ async fn mark_payload_unavailable_sets_terminal_status() -> Result<()> {
 
     let job = queue.claim_next("worker-1").await?.expect("should claim");
     queue
-        .mark_payload_unavailable(job.id, "worker-1", "payload gone")
+        .mark_payload_unavailable(job.id, "worker-1", "payload gone", None)
         .await?;
 
     let job = queue.get(id).await?.expect("job should exist");
@@ -356,7 +395,9 @@ async fn owner_fenced_operations_fail_for_wrong_worker() -> Result<()> {
     let result = queue.mark_succeeded(job.id, "worker-2", "preview").await;
     assert!(result.is_err(), "wrong worker should fail mark_succeeded");
 
-    let result = queue.mark_failed(job.id, "worker-2", "error", true).await;
+    let result = queue
+        .mark_failed(job.id, "worker-2", "error", None, true)
+        .await;
     assert!(result.is_err(), "wrong worker should fail mark_failed");
 
     Ok(())

@@ -211,7 +211,7 @@ async fn payload_unavailable_is_persisted_and_terminal() -> Result<()> {
     assert_eq!(claimed.id, id);
 
     queue
-        .mark_payload_unavailable(id, "worker-a", "AI document source is gone")
+        .mark_payload_unavailable(id, "worker-a", "AI document source is gone", None)
         .await?;
 
     // The persisted string must be the one the CHECK constraint accepts.
@@ -262,7 +262,7 @@ async fn payload_unavailable_is_owner_fenced() -> Result<()> {
     // A worker that lost its claim must not stamp a terminal state over the
     // result of the worker that now owns the job.
     let result = queue
-        .mark_payload_unavailable(id, "worker-b", "stale worker")
+        .mark_payload_unavailable(id, "worker-b", "stale worker", None)
         .await;
     assert!(
         matches!(result, Err(DomainError::Conflict { .. })),
@@ -286,7 +286,7 @@ async fn gc_spares_a_retryable_failed_job_and_sweeps_terminal_ones() -> Result<(
     let retryable = seed_job(&queue, "gc-retryable", DocumentKind::Script).await;
     queue.claim_next("worker-a").await?.expect("claimable");
     queue
-        .mark_failed(retryable, "worker-a", "transient provider 503", true)
+        .mark_failed(retryable, "worker-a", "transient provider 503", None, true)
         .await?;
     assert_eq!(read_status(&pool, retryable).await, "failed");
 
@@ -304,7 +304,7 @@ async fn gc_spares_a_retryable_failed_job_and_sweeps_terminal_ones() -> Result<(
         .await?
         .expect("claimable");
     queue
-        .mark_payload_unavailable(unavailable, "worker-c", "source document is gone")
+        .mark_payload_unavailable(unavailable, "worker-c", "source document is gone", None)
         .await?;
 
     // (4) Pending: never ran, must never be swept.
@@ -416,7 +416,7 @@ async fn gc_sweeps_a_dead_lettered_job() -> Result<()> {
     // A non-retryable failure dead-letters immediately, regardless of the
     // remaining budget.
     queue
-        .mark_failed(id, "worker-a", "malformed document", false)
+        .mark_failed(id, "worker-a", "malformed document", None, false)
         .await?;
     assert_eq!(read_status(&pool, id).await, "dead_letter");
 

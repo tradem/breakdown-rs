@@ -229,6 +229,7 @@ mod tests {
             _id: AiImportJobId,
             _worker_id: &str,
             _error_summary: &str,
+            _error_code: Option<&str>,
             _retryable: bool,
         ) -> Result<(), DomainError> {
             unimplemented!("not exercised by the heartbeat")

@@ -341,6 +341,7 @@ pub trait AiImportQueue: Send + Sync {
         id: AiImportJobId,
         worker_id: &str,
         error_summary: &str,
+        error_code: Option<&str>,
         retryable: bool,
     ) -> Result<(), DomainError>;
 
@@ -367,8 +368,10 @@ pub trait AiImportQueue: Send + Sync {
         id: AiImportJobId,
         worker_id: &str,
         error_summary: &str,
+        error_code: Option<&str>,
     ) -> Result<(), DomainError> {
-        self.mark_failed(id, worker_id, error_summary, false).await
+        self.mark_failed(id, worker_id, error_summary, error_code, false)
+            .await
     }
 
     /// Record telemetry produced by a *worker* while it holds the claim.

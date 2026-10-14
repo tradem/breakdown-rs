@@ -10,6 +10,8 @@ class _$AiImportAttempt extends AiImportAttempt {
   @override
   final int attemptNo;
   @override
+  final String? code;
+  @override
   final DateTime createdAt;
   @override
   final String? errorSummary;
@@ -23,6 +25,7 @@ class _$AiImportAttempt extends AiImportAttempt {
 
   _$AiImportAttempt._(
       {required this.attemptNo,
+      this.code,
       required this.createdAt,
       this.errorSummary,
       required this.retryable,
@@ -40,6 +43,7 @@ class _$AiImportAttempt extends AiImportAttempt {
     if (identical(other, this)) return true;
     return other is AiImportAttempt &&
         attemptNo == other.attemptNo &&
+        code == other.code &&
         createdAt == other.createdAt &&
         errorSummary == other.errorSummary &&
         retryable == other.retryable &&
@@ -50,6 +54,7 @@ class _$AiImportAttempt extends AiImportAttempt {
   int get hashCode {
     var _$hash = 0;
     _$hash = $jc(_$hash, attemptNo.hashCode);
+    _$hash = $jc(_$hash, code.hashCode);
     _$hash = $jc(_$hash, createdAt.hashCode);
     _$hash = $jc(_$hash, errorSummary.hashCode);
     _$hash = $jc(_$hash, retryable.hashCode);
@@ -62,6 +67,7 @@ class _$AiImportAttempt extends AiImportAttempt {
   String toString() {
     return (newBuiltValueToStringHelper(r'AiImportAttempt')
           ..add('attemptNo', attemptNo)
+          ..add('code', code)
           ..add('createdAt', createdAt)
           ..add('errorSummary', errorSummary)
           ..add('retryable', retryable)
@@ -77,6 +83,10 @@ class AiImportAttemptBuilder
   int? _attemptNo;
   int? get attemptNo => _$this._attemptNo;
   set attemptNo(int? attemptNo) => _$this._attemptNo = attemptNo;
+
+  String? _code;
+  String? get code => _$this._code;
+  set code(String? code) => _$this._code = code;
 
   DateTime? _createdAt;
   DateTime? get createdAt => _$this._createdAt;
@@ -102,6 +112,7 @@ class AiImportAttemptBuilder
     final $v = _$v;
     if ($v != null) {
       _attemptNo = $v.attemptNo;
+      _code = $v.code;
       _createdAt = $v.createdAt;
       _errorSummary = $v.errorSummary;
       _retryable = $v.retryable;
@@ -129,6 +140,7 @@ class AiImportAttemptBuilder
         _$AiImportAttempt._(
           attemptNo: BuiltValueNullFieldError.checkNotNull(
               attemptNo, r'AiImportAttempt', 'attemptNo'),
+          code: code,
           createdAt: BuiltValueNullFieldError.checkNotNull(
               createdAt, r'AiImportAttempt', 'createdAt'),
           errorSummary: errorSummary,

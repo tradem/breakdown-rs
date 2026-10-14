@@ -153,6 +153,7 @@ impl AiImportQueue for RecordingQueue {
         _id: AiImportJobId,
         _worker_id: &str,
         _error_summary: &str,
+        _error_code: Option<&str>,
         retryable: bool,
     ) -> Result<(), DomainError> {
         self.transitions
@@ -167,6 +168,7 @@ impl AiImportQueue for RecordingQueue {
         _id: AiImportJobId,
         _worker_id: &str,
         _error_summary: &str,
+        _error_code: Option<&str>,
     ) -> Result<(), DomainError> {
         self.transitions
             .lock()

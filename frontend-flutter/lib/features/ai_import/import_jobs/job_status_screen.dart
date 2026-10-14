@@ -4,11 +4,15 @@
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
 // Co-authored-by: deepseek-v4.1-flash (neuralwatt)
 
+import 'dart:async';
+
 import 'package:breakdown_api/breakdown_api.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/problem_error.dart';
+import '../../../data/cache/relative_time.dart';
+import '../../../data/cache/seasons_cache_providers.dart';
 import '../../../l10n/app_localizations_provider.dart';
 import '../clippy/clippy_trigger.dart';
 import '../clippy/karl_klammer_overlay.dart';
@@ -110,6 +114,7 @@ class _JobCard extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final scheme = Theme.of(context).colorScheme;
     final lastError = job.lastError;
+    final attempts = job.attempts;
 
     if (jobStatusTerminalError(job.status)) {
       return Card(
@@ -148,6 +153,36 @@ class _JobCard extends ConsumerWidget {
                   ),
                 ),
               ],
+              // The per-attempt history (issue #637) survives the
+              // `last_error` overwrite; each row's reason is keyed on its
+              // stable problem `code` (issue #639), never the raw summary.
+              if (attempts != null && attempts.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                Text(
+                  l10nOf(context).aiJobAttemptHistoryLabel,
+                  key: const Key('ai-job-attempt-history'),
+                  style: TextStyle(
+                    color: scheme.onErrorContainer,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 12,
+                  ),
+                ),
+                for (final attempt in attempts)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 2),
+                    child: Text(
+                      key: Key('ai-job-attempt-${attempt.attemptNo}'),
+                      l10nOf(context).aiJobAttemptRow(
+                        '${attempt.attemptNo}',
+                        aiJobFailureReason(l10nOf(context), attempt.code),
+                      ),
+                      style: TextStyle(
+                        color: scheme.onErrorContainer.withValues(alpha: 0.75),
+                        fontSize: 12,
+                      ),
+                    ),
+                  ),
+              ],
             ],
           ),
         ),
@@ -176,7 +211,13 @@ class _JobCard extends ConsumerWidget {
     }
 
     if (job.status == JobStatus.failed) {
-      // Retryable: "retry scheduled" with the visible retry budget.
+      // Retryable: a live "next retry in …" ETA (when the backend carries
+      // one), the code-keyed reason of the newest attempt, and the visible
+      // retry budget. The raw `error_summary` never renders here — only the
+      // localized, code-keyed narrative (AGENTS.md §5).
+      final newestAttempt = attempts != null && attempts.isNotEmpty
+          ? attempts.first
+          : null;
       return Card(
         key: const Key('ai-job-retryable'),
         child: Padding(
@@ -194,6 +235,15 @@ class _JobCard extends ConsumerWidget {
                 ),
                 style: Theme.of(context).textTheme.bodySmall,
               ),
+              const SizedBox(height: 8),
+              _NextRetryEta(nextAttemptAt: job.nextAttemptAt),
+              if (newestAttempt != null) ...[
+                const SizedBox(height: 8),
+                Text(
+                  key: const Key('ai-job-failure-reason'),
+                  aiJobFailureReason(l10nOf(context), newestAttempt.code),
+                ),
+              ],
             ],
           ),
         ),
@@ -267,6 +317,86 @@ class _WatchErrorCard extends ConsumerWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+/// Live "next retry in …" ETA (issue #639).
+///
+/// Recomputes on a bounded ticker so the countdown stays honest without a
+/// per-second rebuild. The copy is coarse-bucketed (see [relativeTimeUntil]);
+/// an absent [nextAttemptAt] degrades to a localized "retry scheduled — time
+/// unknown", never a fabricated countdown. The clock is the injectable
+/// [clockProvider], so widget tests and goldens stay deterministic.
+class _NextRetryEta extends ConsumerStatefulWidget {
+  const _NextRetryEta({required this.nextAttemptAt});
+
+  final DateTime? nextAttemptAt;
+
+  @override
+  ConsumerState<_NextRetryEta> createState() => _NextRetryEtaState();
+}
+
+class _NextRetryEtaState extends ConsumerState<_NextRetryEta> {
+  /// Coarse bucket size: `relativeTimeUntil` changes at most once per minute,
+  /// so a 30 s tick keeps the copy current without a per-frame rebuild.
+  static const Duration _tick = Duration(seconds: 30);
+
+  Timer? _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    _syncTimer();
+  }
+
+  @override
+  void didUpdateWidget(covariant _NextRetryEta oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    _syncTimer();
+  }
+
+  void _syncTimer() {
+    final needsTimer = widget.nextAttemptAt != null;
+    if (needsTimer && _timer == null) {
+      _timer = Timer.periodic(_tick, (_) {
+        if (mounted) setState(() {});
+      });
+    } else if (!needsTimer && _timer != null) {
+      _timer!.cancel();
+      _timer = null;
+    }
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    _timer = null;
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = l10nOf(context);
+    final due = widget.nextAttemptAt;
+    final text = due == null
+        ? l10n.aiJobNextRetryUnknown
+        : relativeTimeUntil(
+            due,
+            clock: ref.watch(clockProvider),
+            // The data-layer formatter stays string-free; the units come from
+            // the resolved catalog (ADR-034).
+            copy: RelativeTimeUntilCopy(
+              imminent: l10n.aiJobNextRetryImminent,
+              minutes: (count) => l10n.aiJobNextRetryMinutes('$count'),
+              hours: (count) => l10n.aiJobNextRetryHours('$count'),
+              days: (count) => l10n.aiJobNextRetryDays('$count'),
+            ),
+          );
+    return Text(
+      text,
+      key: const Key('ai-job-next-retry'),
+      style: Theme.of(context).textTheme.bodyMedium,
     );
   }
 }

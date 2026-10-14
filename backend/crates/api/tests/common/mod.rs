@@ -2305,6 +2305,7 @@ impl AiImportQueue for FakeAiImportQueue {
         id: AiImportJobId,
         _worker_id: &str,
         error_summary: &str,
+        _error_code: Option<&str>,
         _retryable: bool,
     ) -> Result<(), DomainError> {
         if let Some(job) = self.jobs.lock().await.get_mut(&id.as_uuid()) {

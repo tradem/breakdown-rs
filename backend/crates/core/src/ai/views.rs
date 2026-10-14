@@ -236,6 +236,12 @@ pub struct AiImportAttempt {
     pub status: JobStatus,
     /// Failure summary, same text `last_error` carried for that attempt.
     pub error_summary: Option<String>,
+    /// Stable problem `code` of the failure (ADR-031 D2), e.g.
+    /// `dependency.auth-failed`; `None` when the writer recorded no typed
+    /// error. Lets a client localize the reason without parsing
+    /// `error_summary` (issue #639).
+    #[serde(default)]
+    pub code: Option<String>,
     /// Whether the attempt was classified as retryable.
     pub retryable: bool,
     /// When the attempt was recorded.

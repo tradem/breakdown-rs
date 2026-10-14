@@ -15,6 +15,7 @@ part 'ai_import_attempt.g.dart';
 ///
 /// Properties:
 /// * [attemptNo] - 1-based attempt number, matching the job's `retries` after the attempt.
+/// * [code] - Stable problem `code` of the failure (ADR-031 D2), e.g. `dependency.auth-failed`; `None` when the writer recorded no typed error. Lets a client localize the reason without parsing `error_summary` (issue #639).
 /// * [createdAt] - When the attempt was recorded.
 /// * [errorSummary] - Failure summary, same text `last_error` carried for that attempt.
 /// * [retryable] - Whether the attempt was classified as retryable.
@@ -25,6 +26,10 @@ abstract class AiImportAttempt
   /// 1-based attempt number, matching the job's `retries` after the attempt.
   @BuiltValueField(wireName: r'attempt_no')
   int get attemptNo;
+
+  /// Stable problem `code` of the failure (ADR-031 D2), e.g. `dependency.auth-failed`; `None` when the writer recorded no typed error. Lets a client localize the reason without parsing `error_summary` (issue #639).
+  @BuiltValueField(wireName: r'code')
+  String? get code;
 
   /// When the attempt was recorded.
   @BuiltValueField(wireName: r'created_at')
@@ -74,6 +79,13 @@ class _$AiImportAttemptSerializer
       object.attemptNo,
       specifiedType: const FullType(int),
     );
+    if (object.code != null) {
+      yield r'code';
+      yield serializers.serialize(
+        object.code,
+        specifiedType: const FullType.nullable(String),
+      );
+    }
     yield r'created_at';
     yield serializers.serialize(
       object.createdAt,
@@ -127,6 +139,14 @@ class _$AiImportAttemptSerializer
             specifiedType: const FullType(int),
           ) as int;
           result.attemptNo = valueDes;
+          break;
+        case r'code':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType.nullable(String),
+          ) as String?;
+          if (valueDes == null) continue;
+          result.code = valueDes;
           break;
         case r'created_at':
           final valueDes = serializers.deserialize(

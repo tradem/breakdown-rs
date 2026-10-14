@@ -71,7 +71,12 @@ where
         let Some(payload) = stored else {
             let error = DomainError::not_found("schedule-preview");
             self.queue
-                .mark_payload_unavailable(job.id, worker_id, &error.to_string())
+                .mark_payload_unavailable(
+                    job.id,
+                    worker_id,
+                    &error.to_string(),
+                    Some(error.code().code),
+                )
                 .await?;
             return Err(error);
         };
@@ -139,7 +144,13 @@ where
         retryable: bool,
     ) -> Result<(), DomainError> {
         self.queue
-            .mark_failed(id, worker_id, &error.to_string(), retryable)
+            .mark_failed(
+                id,
+                worker_id,
+                &error.to_string(),
+                Some(error.code().code),
+                retryable,
+            )
             .await
     }
 }
