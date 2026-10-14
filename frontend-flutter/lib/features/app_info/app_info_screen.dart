@@ -26,11 +26,17 @@ Future<bool> _defaultLaunchUri(Uri url) => launchUrl(url);
 /// Shows the About surface (spec `flutter-app-dialogs`, issue #653): a
 /// FULL SCREEN route — explicitly not a dialog. The account drawer's
 /// *Über die App* entry pushes this screen onto the active destination's
-/// navigator.
-void showAppInfoScreen(BuildContext context, {LaunchUri? launchUri}) {
+/// navigator via [navigatorKey] (falling back to the ambient navigator),
+/// so this helper is the SINGLE push path to the About surface.
+void showAppInfoScreen(
+  BuildContext context, {
+  LaunchUri? launchUri,
+  GlobalKey<NavigatorState>? navigatorKey,
+}) {
+  final navigator = navigatorKey?.currentState ?? Navigator.of(context);
   // Fire-and-forget navigation (no result consumed).
   unawaited(
-    Navigator.of(context).push(
+    navigator.push(
       MaterialPageRoute<void>(
         builder: (_) => AppInfoScreen(launchUri: launchUri),
       ),

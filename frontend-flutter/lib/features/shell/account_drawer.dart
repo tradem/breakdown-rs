@@ -78,17 +78,11 @@ class AccountDrawer extends ConsumerWidget {
           title: Text(l10n.commonAbout),
           onTap: () {
             // Issue #653: About is a FULL SCREEN route — never a dialog.
-            final navigator = navigatorKey?.currentState;
+            // The helper captures the destination navigator BEFORE the
+            // pop (see showAppInfoScreen), so closing the drawer first is
+            // safe — single push path, same seam as Settings below.
             Navigator.of(context).pop();
-            if (navigator != null) {
-              unawaited(
-                navigator.push(
-                  MaterialPageRoute<void>(
-                    builder: (_) => const AppInfoScreen(),
-                  ),
-                ),
-              );
-            }
+            showAppInfoScreen(context, navigatorKey: navigatorKey);
           },
         ),
         ListTile(
