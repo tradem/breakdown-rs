@@ -722,8 +722,15 @@ void main() {
         tester,
         config: config ?? devAuthConfig,
         extraOverrides: [
-          aiImportRepositoryProvider.overrideWithValue(
-            _FakeJobsRepository(BreakdownApi(), AiImportJobsCacheDao(db)),
+          // Constructed lazily when the provider first resolves — AFTER
+          // pumpScreen has installed the fresh in-memory db (CodeRabbit:
+          // a direct overrideWithValue would capture the PREVIOUS test's
+          // database, and throw LateInitializationError in isolation).
+          aiImportRepositoryProvider.overrideWith(
+            (ref) => _FakeJobsRepository(
+              BreakdownApi(),
+              AiImportJobsCacheDao(ref.watch(cacheDatabaseProvider)),
+            ),
           ),
         ],
       );
