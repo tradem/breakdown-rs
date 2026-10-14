@@ -214,12 +214,18 @@ class _HangerPainter extends CustomPainter {
       ..strokeCap = StrokeCap.round
       ..color = outline;
 
-    // ── Hook: the head-top antenna, opening to the left. ──
+    // ── Hook: an OPEN clothes-hanger hook above the head (issue #641).
+    // The stem rises from the head top, arcs over to the left and ends
+    // in a small under-curl whose tip stays clearly above the head
+    // outline and well away from the stem — the visible gap is what
+    // makes the silhouette read as a hanger instead of a closed "bun".
+    // (Head-stadium top point: (36, 11); the old curl ended at (32, 13)
+    // INSIDE the head, which closed the loop.)
     final hook = Path()
-      ..moveTo(36, 15)
-      ..lineTo(36, 9)
-      ..cubicTo(36, 3, 27, 2, 25, 8)
-      ..cubicTo(24, 12, 28, 15, 32, 13);
+      ..moveTo(36, 13)
+      ..lineTo(36, 7)
+      ..cubicTo(36, 2, 28, 1, 26, 5.5)
+      ..cubicTo(24.5, 9, 26, 11, 28.5, 9.5);
     canvas.drawPath(hook, hookPaint);
 
     // ── Body: the filled hanger triangle (shoulders + bottom bar). ──
