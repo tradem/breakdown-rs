@@ -176,6 +176,9 @@ void main() {
       find.byKey(const Key('profile-health-pill-semantics')),
     );
     expect(semantics.properties.label, 'Backend unreachable');
+    // CodeRabbit #662: the child Text's own semantics node is excluded, so
+    // the tier is announced ONCE (the wrapper's label), matching OfflinePill.
+    expect(semantics.excludeSemantics, isTrue);
   });
 
   group('goldens (German template locale, AGENTS.md §6)', () {

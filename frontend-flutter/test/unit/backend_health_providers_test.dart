@@ -282,6 +282,41 @@ void main() {
     );
 
     test(
+      'disposal mid-poll never touches the disposed notifier (ref.mounted)',
+      () async {
+        final completer = Completer<BackendHealthOutcome>();
+        final source = FakePassiveSource();
+        final delay = FakeDelay();
+        final container = ProviderContainer(
+          overrides: [
+            passiveConnectivitySourceProvider.overrideWithValue(source),
+            connectivityHttpProbeProvider.overrideWithValue(
+              () => Completer<bool>().future,
+            ),
+            connectivityDelayProvider.overrideWithValue(
+              (duration) => Completer<void>().future,
+            ),
+            backendHealthProbeProvider.overrideWithValue(
+              () => completer.future,
+            ),
+            backendHealthDelayProvider.overrideWithValue(delay.call),
+          ],
+        );
+        container.listen(backendHealthControllerProvider, (_, _) {});
+        expect(container.read(backendHealthControllerProvider), isNull);
+
+        // Drawer closed / provider disposed while the probe is in flight…
+        container.dispose();
+
+        // …and the probe answers AFTER disposal: the continuation must exit
+        // on the ref.mounted check — no state write on a disposed Ref, no
+        // unhandled async error in the zone (CodeRabbit #662).
+        completer.complete(const BackendHealthReported(HealthStatus.healthy));
+        await drainEvents();
+      },
+    );
+
+    test(
       'connectivity offline pauses polling and maps to offline directly',
       () async {
         final h = _harness(

@@ -144,6 +144,13 @@ String _$backendHealthDelayHash() =>
 /// 4. A generation counter cancels pending chains: a new passive event or a
 ///    controller rebuild supersedes every in-flight continuation, so a
 ///    flapping link cannot trigger request storms.
+/// 5. AutoDispose by design (CodeRabbit #662): the pill is the provider's
+///    only listener, so the whole poll loop dies with the closed drawer —
+///    no background health traffic while nothing is visible. Reopening
+///    restarts from the null state (fresh first probe) instead of serving
+///    a cached tier as if it were current; the empty slot for the ~one
+///    round-trip is the same honest "not measured yet" presentation as on
+///    the very first open.
 
 @ProviderFor(BackendHealthController)
 final backendHealthControllerProvider = BackendHealthControllerProvider._();
@@ -168,6 +175,13 @@ final backendHealthControllerProvider = BackendHealthControllerProvider._();
 /// 4. A generation counter cancels pending chains: a new passive event or a
 ///    controller rebuild supersedes every in-flight continuation, so a
 ///    flapping link cannot trigger request storms.
+/// 5. AutoDispose by design (CodeRabbit #662): the pill is the provider's
+///    only listener, so the whole poll loop dies with the closed drawer —
+///    no background health traffic while nothing is visible. Reopening
+///    restarts from the null state (fresh first probe) instead of serving
+///    a cached tier as if it were current; the empty slot for the ~one
+///    round-trip is the same honest "not measured yet" presentation as on
+///    the very first open.
 final class BackendHealthControllerProvider
     extends $NotifierProvider<BackendHealthController, BackendHealthTier?> {
   /// Backend health controller (issue #657): polls the public
@@ -190,13 +204,20 @@ final class BackendHealthControllerProvider
   /// 4. A generation counter cancels pending chains: a new passive event or a
   ///    controller rebuild supersedes every in-flight continuation, so a
   ///    flapping link cannot trigger request storms.
+  /// 5. AutoDispose by design (CodeRabbit #662): the pill is the provider's
+  ///    only listener, so the whole poll loop dies with the closed drawer —
+  ///    no background health traffic while nothing is visible. Reopening
+  ///    restarts from the null state (fresh first probe) instead of serving
+  ///    a cached tier as if it were current; the empty slot for the ~one
+  ///    round-trip is the same honest "not measured yet" presentation as on
+  ///    the very first open.
   BackendHealthControllerProvider._()
     : super(
         from: null,
         argument: null,
         retry: null,
         name: r'backendHealthControllerProvider',
-        isAutoDispose: false,
+        isAutoDispose: true,
         dependencies: null,
         $allTransitiveDependencies: null,
       );
@@ -218,7 +239,7 @@ final class BackendHealthControllerProvider
 }
 
 String _$backendHealthControllerHash() =>
-    r'548c0107c691a037f6e06ed5d847a9c0b34d5c23';
+    r'1a406c3f0dfc5e3f133338a39629dff789ac3900';
 
 /// Backend health controller (issue #657): polls the public
 /// `GET /v1/health` on a battery-friendly schedule and exposes the coarse
@@ -240,6 +261,13 @@ String _$backendHealthControllerHash() =>
 /// 4. A generation counter cancels pending chains: a new passive event or a
 ///    controller rebuild supersedes every in-flight continuation, so a
 ///    flapping link cannot trigger request storms.
+/// 5. AutoDispose by design (CodeRabbit #662): the pill is the provider's
+///    only listener, so the whole poll loop dies with the closed drawer —
+///    no background health traffic while nothing is visible. Reopening
+///    restarts from the null state (fresh first probe) instead of serving
+///    a cached tier as if it were current; the empty slot for the ~one
+///    round-trip is the same honest "not measured yet" presentation as on
+///    the very first open.
 
 abstract class _$BackendHealthController extends $Notifier<BackendHealthTier?> {
   BackendHealthTier? build();

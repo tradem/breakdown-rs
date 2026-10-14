@@ -153,7 +153,14 @@ BackendHealthDelay backendHealthDelay(Ref ref) =>
 /// 4. A generation counter cancels pending chains: a new passive event or a
 ///    controller rebuild supersedes every in-flight continuation, so a
 ///    flapping link cannot trigger request storms.
-@Riverpod(keepAlive: true)
+/// 5. AutoDispose by design (CodeRabbit #662): the pill is the provider's
+///    only listener, so the whole poll loop dies with the closed drawer —
+///    no background health traffic while nothing is visible. Reopening
+///    restarts from the null state (fresh first probe) instead of serving
+///    a cached tier as if it were current; the empty slot for the ~one
+///    round-trip is the same honest "not measured yet" presentation as on
+///    the very first open.
+@Riverpod()
 class BackendHealthController extends _$BackendHealthController {
   /// Monotonic generation: any rebuild, connectivity change, or new chain
   /// step invalidates every in-flight continuation from earlier generations.
@@ -180,54 +187,62 @@ class BackendHealthController extends _$BackendHealthController {
       // has no usable route, so the backend is unreachable by definition.
       return _lastTier = BackendHealthTier.offline;
     }
-    // Fire-and-forget by design (build cannot await); the chain
-    // self-terminates on generation mismatch. (Riverpod already runs the
-    // previous build's onDispose listeners before this rebuild, and the
-    // bump above invalidates every chain from earlier generations.)
+    // Fire-and-forget by design (build cannot await); the loop
+    // self-terminates on generation mismatch or disposal. (Riverpod already
+    // runs the previous build's onDispose listeners before this rebuild.)
     unawaited(_poll());
     return _lastTier;
   }
 
+  /// One iterative poll loop (CodeRabbit #662: no self-awaiting recursion,
+  /// so a long-lived chain retains exactly ONE frame, not one per interval).
+  /// Every `await` is followed by BOTH a disposal check (`ref.mounted` — a
+  /// disposed Ref must not be used again, Riverpod 3 throws) and the
+  /// generation check (a rebuild/connectivity change supersedes this loop).
   Future<void> _poll() async {
     final generation = ++_generation;
-    final probe = ref.read(backendHealthProbeProvider);
-    BackendHealthOutcome outcome;
-    try {
-      outcome = await probe();
-    } catch (_) {
-      // A throwing probe is an unreachable probe (issue #657: never throws
-      // into the widget layer).
-      outcome = const BackendHealthUnreachable();
+    while (ref.mounted && generation == _generation) {
+      BackendHealthOutcome outcome;
+      try {
+        outcome = await ref.read(backendHealthProbeProvider)();
+      } catch (_) {
+        // A throwing probe is an unreachable probe (issue #657: never throws
+        // into the widget layer).
+        outcome = const BackendHealthUnreachable();
+      }
+      if (!ref.mounted || generation != _generation) {
+        return; // disposed/superseded
+      }
+      switch (outcome) {
+        case BackendHealthReported(:final status):
+          switch (status) {
+            case HealthStatus.healthy:
+              _retries = 0;
+              state = _lastTier = BackendHealthTier.healthy;
+            case HealthStatus.degraded:
+              state = _lastTier = BackendHealthTier.degraded;
+            case HealthStatus.unhealthy:
+              state = _lastTier = BackendHealthTier.unhealthy;
+          }
+        case BackendHealthUnreachable():
+          state = _lastTier = BackendHealthTier.offline;
+      }
+      // Battery-friendly re-poll: healthy answers wait the full conservative
+      // interval; anything else backs off exponentially. Canceled by a
+      // generation bump (connectivity change / rebuild) or disposal while
+      // waiting.
+      await ref.read(backendHealthDelayProvider)(
+        state == BackendHealthTier.healthy
+            ? backendHealthPollInterval
+            : backendHealthRetryBackoff(++_retries),
+      );
+      if (!ref.mounted || generation != _generation) {
+        return; // disposed/superseded while waiting
+      }
+      if (ref.read(connectivityControllerProvider) ==
+          ConnectivityStatus.offline) {
+        return; // device went offline — build() owns the mapping then
+      }
     }
-    if (generation != _generation) return; // superseded
-    switch (outcome) {
-      case BackendHealthReported(:final status):
-        switch (status) {
-          case HealthStatus.healthy:
-            _retries = 0;
-            state = _lastTier = BackendHealthTier.healthy;
-          case HealthStatus.degraded:
-            state = _lastTier = BackendHealthTier.degraded;
-          case HealthStatus.unhealthy:
-            state = _lastTier = BackendHealthTier.unhealthy;
-        }
-      case BackendHealthUnreachable():
-        state = _lastTier = BackendHealthTier.offline;
-    }
-    // Battery-friendly re-poll: healthy answers wait the full conservative
-    // interval; anything else backs off exponentially. Canceled by a
-    // generation bump (connectivity change / rebuild) while waiting.
-    final delay = ref.read(backendHealthDelayProvider);
-    await delay(
-      state == BackendHealthTier.healthy
-          ? backendHealthPollInterval
-          : backendHealthRetryBackoff(++_retries),
-    );
-    if (generation != _generation) return; // superseded while waiting
-    if (ref.read(connectivityControllerProvider) ==
-        ConnectivityStatus.offline) {
-      return; // device went offline — build() owns the mapping then
-    }
-    await _poll();
   }
 }

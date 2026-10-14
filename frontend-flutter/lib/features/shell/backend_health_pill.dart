@@ -75,6 +75,10 @@ class BackendHealthPill extends ConsumerWidget {
     return Semantics(
       key: const Key('profile-health-pill-semantics'),
       label: label,
+      // The wrapper's label IS the announcement; exclude the child Text's
+      // own semantics node so screen readers never announce the tier twice
+      // (CodeRabbit #662 — same pattern as the OfflinePill).
+      excludeSemantics: true,
       child: Container(
         key: const Key('profile-health-pill'),
         padding: const EdgeInsets.symmetric(
