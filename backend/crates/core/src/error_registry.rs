@@ -5,6 +5,7 @@
 // Co-authored-by: kimi-k3 (neuralwatt)
 // Co-authored-by: deepseek-v4-flash (opencode-go)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
+// Co-authored-by: glm-5.3 (neuralwatt)
 
 //! Stable problem-code registry (ADR-031).
 //!
@@ -37,7 +38,7 @@ pub const PROBLEM_DOCS_BASE: &str = "https://docs.breakdown.example";
 /// Kept in sync with the `problem_codes!` invocation below by a compile-time
 /// assertion — adding or removing a code without deliberately updating this
 /// count fails the build (issue #232).
-const PROBLEM_CODE_COUNT: usize = 93;
+const PROBLEM_CODE_COUNT: usize = 94;
 
 /// One registered problem code (ADR-031 D2/D4).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -302,6 +303,18 @@ problem_codes! {
         code: "dependency.auth-failed",
         status: 503,
         title: "Dependency authentication failed",
+        extensions: &[],
+    },
+
+    /// 503 — the report renderer is misconfigured or unavailable (no fonts /
+    /// no template for the requested kind, issue #642). Deliberately distinct
+    /// from `http.internal-error`: the request is fine, the deployment is
+    /// broken — retrying the same request cannot help until an operator fixes
+    /// the font/template setup.
+    REPORT_RENDERER_UNAVAILABLE {
+        code: "report.renderer-unavailable",
+        status: 503,
+        title: "Report rendering unavailable",
         extensions: &[],
     },
 

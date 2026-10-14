@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: mimo-v2.5 (opencode-go)
+// Co-authored-by: glm-5.3 (neuralwatt)
 
 #![allow(
     clippy::unwrap_used,
@@ -176,6 +177,101 @@ fn typst_report_renderer_rejects_oversized_json() {
 
 // ------------------------------------------------------------------
 // RenderConfig defaults
+// ------------------------------------------------------------------
+
+#[test]
+fn with_defaults_renders_pdf_end_to_end_on_host_font_layout() {
+    // Issue #642 end-to-end regression: on the failing host layout (fonts
+    // only in subdirectories of the fontconfig trees — e.g. Arch), the
+    // composition-root construction path must succeed and a render must
+    // produce a real PDF. Skipped only when an *independent* probe (own
+    // recursion, not the discovery code under test) confirms the host has no
+    // font files at all — a discovery regression must fail this test, not
+    // silently skip it (CodeRabbit review, PR #651).
+    if !independent_host_font_probe() {
+        eprintln!("host has no font files in the standard font trees; skipping e2e render");
+        return;
+    }
+    let renderer =
+        TypstReportRenderer::with_defaults().expect("with_defaults must succeed on a fonted host");
+    assert!(
+        !renderer.templates.is_empty(),
+        "template map must be non-empty"
+    );
+
+    let req = ReportRenderRequest {
+        kind: ReportKind::Dispo,
+        context: RenderPresentationContext {
+            locale: ReportLocale::de_de(),
+            timezone: "Europe/Berlin".into(),
+            template_version: "1.0.0".into(),
+        },
+        // Empty rows → the template's "Keine Daten vorhanden" branch — no
+        // data coupling, only font + template + compiler must work.
+        data: serde_json::json!({ "rows": [] }),
+    };
+
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let rendered = rt
+        .block_on(renderer.render(req))
+        .expect("render must succeed");
+    assert_eq!(rendered.content_type, "application/pdf");
+    assert!(
+        rendered.pdf_bytes.starts_with(b"%PDF"),
+        "output must be a PDF"
+    );
+    assert!(rendered.page_count >= 1);
+}
+
+/// Independent font-presence probe for the e2e skip decision: a deliberately
+/// simple second implementation (recursive read_dir + extension check over
+/// the standard font trees; no symlink handling, no dedupe, no depth cap).
+/// Deliberately does NOT reuse the discovery code under test.
+fn independent_host_font_probe() -> bool {
+    fn scan(dir: &std::path::Path, depth: usize) -> bool {
+        if depth > 12 {
+            return false;
+        }
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return false;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let Ok(meta) = std::fs::metadata(&path) else {
+                continue;
+            };
+            if meta.is_dir() && scan(&path, depth + 1) {
+                return true;
+            }
+            if meta.is_file()
+                && let Some(ext) = path.extension().and_then(|e| e.to_str())
+                && matches!(
+                    ext.to_ascii_lowercase().as_str(),
+                    "ttf" | "otf" | "ttc" | "otc"
+                )
+            {
+                return true;
+            }
+        }
+        false
+    }
+
+    let mut roots: Vec<std::path::PathBuf> = Vec::new();
+    if let Some(home) = std::env::var_os("HOME").filter(|v| !v.is_empty()) {
+        let home = std::path::PathBuf::from(home);
+        roots.push(home.join(".local/share/fonts"));
+        roots.push(home.join(".fonts"));
+    }
+    roots.push("/usr/share/fonts".into());
+    roots.push("/usr/local/share/fonts".into());
+    #[cfg(target_os = "macos")]
+    {
+        roots.push("/System/Library/Fonts".into());
+        roots.push("/Library/Fonts".into());
+    }
+    roots.iter().any(|d| d.is_dir() && scan(d, 0))
+}
+
 // ------------------------------------------------------------------
 
 #[test]

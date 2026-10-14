@@ -124,6 +124,9 @@ problem-domain-service-unavailable =
 problem-dependency-auth-failed =
     Eine vorgelagerte Abhängigkeit hat die konfigurierten Zugangsdaten abgelehnt.
 
+problem-report-renderer-unavailable =
+    Berichts-Downloads sind derzeit nicht verfügbar.
+
 problem-domain-validation =
     Die Anfrage ist nicht gültig.
 

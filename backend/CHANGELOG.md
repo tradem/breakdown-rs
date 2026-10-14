@@ -24,6 +24,45 @@ tag. Never edit a released entry afterwards.
 
 ## [Unreleased]
 
+### Fixed
+
+- **PDF report downloads work again — real font discovery instead of a flat
+  `ttf`-only scan, and no silent empty-renderer fallback (issue #642).**
+  `load_system_fonts()` previously scanned only the top level of four
+  hardcoded directories for exact-`ttf` files; on hosts whose font trees are
+  organized in subdirectories (Arch and many distros/containers), discovery
+  always failed, `main.rs` swallowed the error and wired an **empty**
+  renderer, and every PDF download (dispo, shoot-day, planned-vs-actual,
+  season/episode Soll-Ist) answered an opaque `500 http.internal-error`.
+  Now:
+  - Font discovery follows the freedesktop/fontconfig conventions
+    (`$XDG_DATA_HOME/fonts`, `$XDG_DATA_DIRS/*/fonts`, legacy `$HOME/.fonts`)
+    plus the unconditional system trees (`/usr/share/fonts`,
+    `/usr/local/share/fonts`) and the macOS/Windows platform directories,
+    recurses depth-capped into subdirectories, accepts `ttf`/`otf`/`ttc`/
+    `otc` (case-insensitive), follows file symlinks but never symlinked
+    directories, and canonical-dedupes across overlapping candidates.
+    Additionally (CodeRabbit review, PR #651): fontconfig-managed font
+    directories are discovered best-effort from `/etc/fonts/fonts.conf` and
+    `/etc/fonts/local.conf` `<dir>` entries (prefix attribute, `~`- and
+    `${XDG_*}`/`${HOME}` substitution), and an explicit
+    **`REPORT_FONT_DIRS`** override (OS path list) takes precedence over all
+    automatic sources — the escape hatch for NixOS-style package layouts.
+  - The composition root **fails fast at boot** when fonts/templates cannot
+    be loaded (a report feature that cannot render is a deployment
+    misconfiguration) — the empty-renderer fallback is gone.
+  - A residual renderer failure (template missing) answers the new distinct
+    problem code **`503 report.renderer-unavailable`** (registry entry +
+    golden file + Fluent `de`/`en` + `openapi.yaml` x-code-registry) instead
+    of the generic 500, so clients can show an honest message.
+  - Regression coverage: walker unit tests (nesting, extensions, symlinks,
+    depth cap, dedupe, fontconfig `<dir>` parsing/resolution), the
+    non-empty `with_defaults()` renderer invariant, and the 503 mapping
+    test. Verified end-to-end on the failing Arch layout
+    (2934 fonts, 0 at top level). Crates: `core` 0.28.0, `infra` 0.33.0,
+    `api` 0.26.0 (all MINOR: additive registry constant, behavior fix, new
+    wire code; re-pins core/infra).
+
 ### Added
 
 - **Descriptive, configurable `User-Agent` on the AI provider HTTP clients

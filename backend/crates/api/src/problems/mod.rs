@@ -29,7 +29,7 @@ use breakdown_core::error_registry::{
     DOMAIN_SERVICE_UNAVAILABLE, DOMAIN_VALIDATION, HTTP_BAD_JSON_BODY, HTTP_BAD_PATH_PARAM,
     HTTP_BAD_QUERY_PARAM, HTTP_BAD_REQUEST, HTTP_INTERNAL_ERROR, HTTP_PAYLOAD_TOO_LARGE,
     HTTP_REQUEST_TIMEOUT, HTTP_ROUTE_NOT_FOUND, HTTP_UNSUPPORTED_MEDIA_TYPE, ProblemCode,
-    SETTINGS_BINDING_FORBIDDEN, SETTINGS_FORBIDDEN,
+    REPORT_RENDERER_UNAVAILABLE, SETTINGS_BINDING_FORBIDDEN, SETTINGS_FORBIDDEN,
 };
 
 use serde::Serialize;
@@ -496,6 +496,11 @@ fn report_render_problem(err: breakdown_core::reporting::ReportRenderError) -> P
             .detail("Report exceeds the configured limits")
             .build(),
         ReportRenderError::RenderTimeout => problem(HTTP_REQUEST_TIMEOUT).build(),
+        // A missing template is the client-visible symptom of a misconfigured
+        // renderer (no fonts / empty template map, issue #642): 503 with a
+        // distinct code instead of the generic 500, so clients can show an
+        // honest "report feature temporarily unavailable" message.
+        ReportRenderError::TemplateNotFound { .. } => problem(REPORT_RENDERER_UNAVAILABLE).build(),
         other => {
             tracing::error!(error = %other, "report rendering failed");
             problem(HTTP_INTERNAL_ERROR).build()

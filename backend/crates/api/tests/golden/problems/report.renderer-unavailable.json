@@ -1,0 +1,7 @@
+{
+  "code": "report.renderer-unavailable",
+  "detail": "Berichts-Downloads sind derzeit nicht verfügbar.",
+  "status": 503,
+  "title": "Report rendering unavailable",
+  "type": "https://docs.breakdown.example/problems/report.renderer-unavailable"
+}

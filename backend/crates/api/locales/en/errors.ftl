@@ -124,6 +124,9 @@ problem-domain-service-unavailable =
 problem-dependency-auth-failed =
     An upstream dependency rejected the configured credentials.
 
+problem-report-renderer-unavailable =
+    Report downloads are temporarily unavailable.
+
 problem-domain-validation =
     The request is not valid.
 
