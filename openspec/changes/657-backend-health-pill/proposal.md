@@ -55,7 +55,8 @@ health pill at the top of the drawer gives an at-a-glance quality signal.
 
 ## Impact
 
-- `pubspec.yaml`: no change (no new dependency).
+- `pubspec.yaml`: version bump `0.4.0-alpha.24+75` → `0.4.0-alpha.25+76`
+  (per-feature-PR bump convention).
 - New: `lib/src/health/backend_health_providers.dart` (+ codegen
   `backend_health_providers.g.dart`), `lib/features/shell/backend_health_pill.dart`.
 - Modified: `lib/features/shell/account_drawer.dart` (pill slot in the
