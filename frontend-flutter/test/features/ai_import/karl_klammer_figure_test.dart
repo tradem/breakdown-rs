@@ -13,6 +13,7 @@ import 'package:flutter/foundation.dart' show listEquals;
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:frontend_flutter/design/theme.dart';
 import 'package:frontend_flutter/features/ai_import/clippy/clippy_trigger.dart';
 import 'package:frontend_flutter/features/ai_import/clippy/karl_klammer_figure.dart';
 
@@ -20,9 +21,11 @@ Future<void> pumpFigure(
   WidgetTester tester, {
   required ClippyPose pose,
   required bool animate,
+  bool dark = false,
 }) async {
   await tester.pumpWidget(
     MaterialApp(
+      theme: dark ? AppThemes.dark() : AppThemes.light(),
       home: Scaffold(
         body: Center(
           child: KarlKlammerFigure(pose: pose, animate: animate),
@@ -61,17 +64,19 @@ void main() {
     });
   });
 
-  group('comic-vector pose rendering (issue #614)', () {
-    for (final pose in ClippyPose.values) {
-      testWidgets('renders the ${pose.name} pose (static golden)', (
-        tester,
-      ) async {
-        await pumpFigure(tester, pose: pose, animate: false);
-        await expectLater(
-          find.byType(KarlKlammerFigure),
-          matchesGoldenFile('goldens/karl_pose_${pose.name}.png'),
-        );
-      });
+  group('comic-vector pose rendering (issue #614, #641)', () {
+    for (final dark in const [false, true]) {
+      for (final pose in ClippyPose.values) {
+        final suffix = dark ? '_dark' : '';
+        testWidgets('renders the ${pose.name} pose (${dark ? 'dark' : 'light'} '
+            'golden)', (tester) async {
+          await pumpFigure(tester, pose: pose, animate: false, dark: dark);
+          await expectLater(
+            find.byType(KarlKlammerFigure),
+            matchesGoldenFile('goldens/karl_pose_${pose.name}$suffix.png'),
+          );
+        });
+      }
     }
 
     test('every pose golden differs byte-wise (distinct expressions)', () {
