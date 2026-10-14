@@ -22,6 +22,7 @@ import 'quick_create_sheet.dart';
 import 'account_drawer.dart';
 import 'cast_tab_screen.dart';
 import 'planning_location_route_observer.dart';
+import 'offline_pill.dart';
 import 'schedule_tab_screen.dart';
 import 'script_tab_screen.dart';
 import 'shell_controller.dart';
@@ -188,6 +189,10 @@ class AppShellState extends ConsumerState<AppShell> {
           navigatorKey: tabNavigatorKeys[state.selectedIndex],
           observer: tabLocationObservers[state.selectedIndex],
         ),
+        // Issue #654: the offline pill lives in the shell content column —
+        // one surface visible on every destination and every pushed route
+        // inside the tabs; it animates in/out with connectivity changes.
+        const OfflinePill(),
         Expanded(child: content),
         if (bottomClearance > 0) SizedBox(height: bottomClearance),
       ],

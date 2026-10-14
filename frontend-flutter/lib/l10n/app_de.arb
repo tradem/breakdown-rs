@@ -617,6 +617,7 @@
   "navEpisodes": "Episoden",
   "navScenes": "Szenen",
   "shellPlusFabLabel": "Erstellen",
+  "offlinePillLabel": "Offline – Daten können veraltet sein",
   "quickCreateTitle": "Was möchtest du erstellen?",
   "quickCreateAiImportSubtitle": "Spielplan oder Skript per KI importieren",
   "quickCreateWizardSubtitle": "Season, Blöcke und Episoden geführt anlegen",

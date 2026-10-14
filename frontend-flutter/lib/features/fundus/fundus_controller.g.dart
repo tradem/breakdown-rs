@@ -466,7 +466,7 @@ final class FundusControllerProvider
   }
 }
 
-String _$fundusControllerHash() => r'b8a4e3d1cf496fda66e7e2528f8d034be436d7bb';
+String _$fundusControllerHash() => r'eb8b95046693451e02eac22a315e5b43672aa72e';
 
 /// The fundus-surface controller (tasks §3.1): maps the inputs `Result` into
 /// a [FundusViewState], never discarding an `Err` (storage failure SURFACES

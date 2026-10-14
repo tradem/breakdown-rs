@@ -38,6 +38,10 @@ import 'package:frontend_flutter/l10n/generated/app_localizations.dart';
 import '../seasons/seasons_test_fakes.dart';
 import '../ai_import/jobs_screen_test.dart' show FakeJobsRepository;
 
+import 'package:frontend_flutter/src/connectivity/connectivity_providers.dart';
+
+import '../../support/silent_connectivity.dart';
+
 /// Pumps a bounded number of frames (never `pumpAndSettle` while an
 /// indeterminate spinner may be on screen — that would hang the settle loop).
 Future<void> pumpFrames(WidgetTester tester, {int n = 6}) async {
@@ -67,6 +71,12 @@ void main() {
       retry: (_, _) => null,
       overrides: [
         appConfigProvider.overrideWithValue(devAuthConfig),
+        // Issue #654: the shell hosts the offline pill whose keep-alive
+        // controller must not activate the real connectivity_plus channel
+        // in tests (activation error fails goldens via FlutterError).
+        passiveConnectivitySourceProvider.overrideWithValue(
+          const SilentPassiveSource(),
+        ),
         tokenStoreProvider.overrideWithValue(tokens),
         cacheDatabaseProvider.overrideWithValue(db),
         seasonRepositoryProvider.overrideWithValue(repo),
@@ -254,6 +264,11 @@ void main() {
         retry: (_, _) => null,
         overrides: [
           appConfigProvider.overrideWithValue(devAuthConfig),
+          // See the first container: never activate the connectivity channel
+          // in the widget-test environment.
+          passiveConnectivitySourceProvider.overrideWithValue(
+            const SilentPassiveSource(),
+          ),
           tokenStoreProvider.overrideWithValue(tokens),
           cacheDatabaseProvider.overrideWithValue(db),
           seasonRepositoryProvider.overrideWithValue(repo),
