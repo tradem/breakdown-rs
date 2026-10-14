@@ -28,7 +28,7 @@ use utoipa::ToSchema;
 /// the repository AGENTS.md files. A model that is attributed in many files
 /// appears here exactly once per model+provider combination. Kept as a
 /// compile-time const (no runtime scan, no git dependency in deployments);
-/// `meta_credits_const_list_matches_agency_headers` in the tests below
+/// `meta_credits_const_list_matches_agents_md_headers` in the tests below
 /// enforces parity with the AGENTS.md files so drift is caught in CI.
 /// Sorted by `(name, provider)` for a deterministic wire order.
 const LLM_COAUTHORS: &[(&str, &str)] = &[

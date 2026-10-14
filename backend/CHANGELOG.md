@@ -38,7 +38,7 @@ tag. Never edit a released entry afterwards.
   readers, goldens light/dark × android/macos) plus the
   "Auf der Schulter von Riesen" section with the bundled Rust and Flutter
   logos (flutter_svg).
-- **Version bump (additive MINOR):** `api` 0.27.0 → 0.28.0 (new public
+- **Version bump (additive MINOR):** `api` 0.27.0 → 0.28.0 (new
   `GET /v1/meta/credits` route); `core`/`infra` unchanged (no domain or
   infra API change, no re-pin needed).
 
