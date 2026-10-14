@@ -209,7 +209,7 @@
   "aiJobNextRetryDays": "Retry in ~{count} d",
   "aiJobNextRetryUnknown": "Retry scheduled — time not known yet.",
   "aiJobReasonUnknown": "The last attempt failed for an unknown reason.",
-  "aiJobReasonDependencyAuth": "A service credential was rejected — this needs attention, not another retry.",
+  "aiJobReasonDependencyAuth": "A service credential was rejected — retries continue, but it may need attention.",
   "aiJobReasonServiceUnavailable": "An upstream service was temporarily unavailable — the next attempt may succeed.",
   "aiJobReasonInternal": "A server-side error occurred.",
   "aiJobReasonGeneric": "The last attempt failed ({code}).",

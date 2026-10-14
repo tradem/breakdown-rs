@@ -784,7 +784,7 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get aiJobReasonDependencyAuth =>
-      'Eine Dienst-Anmeldung wurde abgelehnt – das erfordert Aufmerksamkeit, keinen weiteren Versuch.';
+      'Eine Dienst-Anmeldung wurde abgelehnt – die Wiederholungen laufen weiter, aber sie braucht eventuell Aufmerksamkeit.';
 
   @override
   String get aiJobReasonServiceUnavailable =>

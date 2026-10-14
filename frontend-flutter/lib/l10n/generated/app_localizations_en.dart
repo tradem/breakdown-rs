@@ -770,7 +770,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get aiJobReasonDependencyAuth =>
-      'A service credential was rejected — this needs attention, not another retry.';
+      'A service credential was rejected — retries continue, but it may need attention.';
 
   @override
   String get aiJobReasonServiceUnavailable =>

@@ -760,7 +760,7 @@ mod tests {
 
     #[derive(Default)]
     struct RecordingState {
-        mark_failed_calls: Vec<(AiImportJobId, String, bool)>,
+        mark_failed_calls: Vec<(AiImportJobId, String, Option<String>, bool)>,
         mark_failed_result: Option<DomainError>,
         released: Vec<AiImportJobId>,
     }
@@ -811,16 +811,21 @@ mod tests {
             id: AiImportJobId,
             _worker_id: &str,
             error_summary: &str,
-            _error_code: Option<&str>,
+            error_code: Option<&str>,
             retryable: bool,
         ) -> Result<(), DomainError> {
             let mut state = self.state.lock().unwrap();
             if let Some(error) = state.mark_failed_result.take() {
                 return Err(error);
             }
-            state
-                .mark_failed_calls
-                .push((id, error_summary.to_owned(), retryable));
+            // Record the code too: the worker-to-queue call is what the
+            // database test cannot cover (it supplies a literal code).
+            state.mark_failed_calls.push((
+                id,
+                error_summary.to_owned(),
+                error_code.map(str::to_owned),
+                retryable,
+            ));
             Ok(())
         }
         async fn release_claim(
@@ -869,9 +874,14 @@ mod tests {
         assert!(result.is_ok(), "a terminalized job is not a loop failure");
         let state = queue.state.lock().unwrap();
         assert_eq!(state.mark_failed_calls.len(), 1);
-        let (failed_id, summary, retryable) = &state.mark_failed_calls[0];
+        let (failed_id, summary, code, retryable) = &state.mark_failed_calls[0];
         assert_eq!(*failed_id, id);
         assert!(summary.contains("rejected API key"));
+        assert_eq!(
+            code.as_deref(),
+            Some("domain.validation"),
+            "the worker must forward the error's registry code"
+        );
         assert!(!*retryable, "permanent errors must be non-retryable");
     }
 

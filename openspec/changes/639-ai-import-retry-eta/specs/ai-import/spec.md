@@ -23,7 +23,7 @@ reason rather than inventing one.
 
 #### Scenario: A retryable dependency outage records its code
 - **WHEN** a worker fails a job with `DomainError::ServiceUnavailable`
-- **THEN** the appended `AiImportAttempt` carries `code = "http.service-unavailable"`
+- **THEN** the appended `AiImportAttempt` carries `code = "domain.service-unavailable"`
   (the registry entry `DomainError::code()` resolves to)
 
 #### Scenario: A code-less writer stays honest

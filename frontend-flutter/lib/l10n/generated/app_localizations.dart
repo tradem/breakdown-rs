@@ -1355,7 +1355,7 @@ abstract class AppLocalizations {
   /// No description provided for @aiJobReasonDependencyAuth.
   ///
   /// In de, this message translates to:
-  /// **'Eine Dienst-Anmeldung wurde abgelehnt – das erfordert Aufmerksamkeit, keinen weiteren Versuch.'**
+  /// **'Eine Dienst-Anmeldung wurde abgelehnt – die Wiederholungen laufen weiter, aber sie braucht eventuell Aufmerksamkeit.'**
   String get aiJobReasonDependencyAuth;
 
   /// No description provided for @aiJobReasonServiceUnavailable.

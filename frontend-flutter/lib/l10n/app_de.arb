@@ -215,7 +215,7 @@
   "aiJobNextRetryDays": "Erneuter Versuch in ~{count} d",
   "aiJobNextRetryUnknown": "Erneuter Versuch geplant – Zeitpunkt noch unbekannt.",
   "aiJobReasonUnknown": "Der letzte Versuch ist aus unbekanntem Grund fehlgeschlagen.",
-  "aiJobReasonDependencyAuth": "Eine Dienst-Anmeldung wurde abgelehnt – das erfordert Aufmerksamkeit, keinen weiteren Versuch.",
+  "aiJobReasonDependencyAuth": "Eine Dienst-Anmeldung wurde abgelehnt – die Wiederholungen laufen weiter, aber sie braucht eventuell Aufmerksamkeit.",
   "aiJobReasonServiceUnavailable": "Ein Dienst war vorübergehend nicht erreichbar – der nächste Versuch kann gelingen.",
   "aiJobReasonInternal": "Ein Serverfehler ist aufgetreten.",
   "aiJobReasonGeneric": "Der letzte Versuch ist fehlgeschlagen ({code}).",
