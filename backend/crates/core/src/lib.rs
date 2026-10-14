@@ -9,6 +9,10 @@
     test,
     allow(clippy::print_stdout, clippy::print_stderr, clippy::dbg_macro)
 )]
+/// The crate's own semantic version, captured at compile time from
+/// `CARGO_PKG_VERSION` (issue #656: reported by `GET /v1/meta/versions`).
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+
 pub mod ai;
 pub mod audit;
 pub mod block;

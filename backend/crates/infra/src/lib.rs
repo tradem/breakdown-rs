@@ -24,6 +24,10 @@
 //! - `projectors/`  – Event-Handler / Projectoren
 //! - `queries/`     – sqlx-Read-Queries
 
+/// The crate's own semantic version, captured at compile time from
+/// `CARGO_PKG_VERSION` (issue #656: reported by `GET /v1/meta/versions`).
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+
 pub mod ai;
 pub mod event_store;
 pub mod photo;

@@ -7024,6 +7024,10 @@ pub fn routes() -> Router<AppState<ProductionPorts>> {
             routing::get(crate::health::get_health::<ProductionPorts>),
         )
         .route(
+            "/meta/versions",
+            routing::get(crate::meta::get_meta_versions),
+        )
+        .route(
             "/ops/projector-health",
             routing::get(get_projector_health::<ProductionPorts>),
         )

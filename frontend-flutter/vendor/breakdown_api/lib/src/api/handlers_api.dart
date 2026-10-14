@@ -53,6 +53,7 @@ import 'package:breakdown_api/src/model/id_version_response.dart';
 import 'package:breakdown_api/src/model/invite_member_request.dart';
 import 'package:breakdown_api/src/model/link_continuity_photo_request.dart';
 import 'package:breakdown_api/src/model/membership_view.dart';
+import 'package:breakdown_api/src/model/meta_versions_response.dart';
 import 'package:breakdown_api/src/model/model_info.dart';
 import 'package:breakdown_api/src/model/photo_view.dart';
 import 'package:breakdown_api/src/model/plan_scene_shoot_request.dart';
@@ -3869,6 +3870,80 @@ class HandlersApi {
     }
 
     return Response<MembershipView>(
+      data: _responseData,
+      headers: _response.headers,
+      isRedirect: _response.isRedirect,
+      requestOptions: _response.requestOptions,
+      redirects: _response.redirects,
+      statusCode: _response.statusCode,
+      statusMessage: _response.statusMessage,
+      extra: _response.extra,
+    );
+  }
+
+  /// &#x60;GET /v1/meta/versions&#x60; — compile-time workspace crate versions.
+  /// **Authenticated, not Public** (decided in the #656 change proposal): unlike &#x60;/health&#x60; (a container probe that must run without any token), this route serves the signed-in app&#39;s About screen, so requiring a valid OIDC token costs the client nothing while denying anonymous probes a backend version fingerprint. The response carries no tenant data and no block-scoped action, so no membership requirement and no handler-internal auth gate is needed — the &#x60;Authenticated&#x60; middleware classification is the whole gate. The handler performs no I/O whatsoever.
+  ///
+  /// Parameters:
+  /// * [cancelToken] - A [CancelToken] that can be used to cancel the operation
+  /// * [headers] - Can be used to add additional headers to the request
+  /// * [extras] - Can be used to add flags to the request
+  /// * [validateStatus] - A [ValidateStatus] callback that can be used to determine request success based on the HTTP status of the response
+  /// * [onSendProgress] - A [ProgressCallback] that can be used to get the send progress
+  /// * [onReceiveProgress] - A [ProgressCallback] that can be used to get the receive progress
+  ///
+  /// Returns a [Future] containing a [Response] with a [MetaVersionsResponse] as data
+  /// Throws [DioException] if API call or serialization fails
+  Future<Response<MetaVersionsResponse>> getMetaVersions({
+    CancelToken? cancelToken,
+    Map<String, dynamic>? headers,
+    Map<String, dynamic>? extra,
+    ValidateStatus? validateStatus,
+    ProgressCallback? onSendProgress,
+    ProgressCallback? onReceiveProgress,
+  }) async {
+    final _path = r'/v1/meta/versions';
+    final _options = Options(
+      method: r'GET',
+      headers: <String, dynamic>{
+        ...?headers,
+      },
+      extra: <String, dynamic>{
+        'secure': <Map<String, String>>[],
+        ...?extra,
+      },
+      validateStatus: validateStatus,
+    );
+
+    final _response = await _dio.request<Object>(
+      _path,
+      options: _options,
+      cancelToken: cancelToken,
+      onSendProgress: onSendProgress,
+      onReceiveProgress: onReceiveProgress,
+    );
+
+    MetaVersionsResponse? _responseData;
+
+    try {
+      final rawResponse = _response.data;
+      _responseData = rawResponse == null
+          ? null
+          : _serializers.deserialize(
+              rawResponse,
+              specifiedType: const FullType(MetaVersionsResponse),
+            ) as MetaVersionsResponse;
+    } catch (error, stackTrace) {
+      throw DioException(
+        requestOptions: _response.requestOptions,
+        response: _response,
+        type: DioExceptionType.unknown,
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+
+    return Response<MetaVersionsResponse>(
       data: _responseData,
       headers: _response.headers,
       isRedirect: _response.isRedirect,

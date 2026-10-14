@@ -1871,6 +1871,23 @@ components:
       - scene
       - schedule_rows
       type: object
+    MetaVersionsResponse:
+      description: Compile-time versions of the workspace crates meaningful to clients.
+      properties:
+        api:
+          description: Version of the `api` crate (the served HTTP surface itself).
+          type: string
+        core:
+          description: Version of the `core` crate (domain logic).
+          type: string
+        infra:
+          description: Version of the `infra` crate (event store, projections).
+          type: string
+      required:
+      - api
+      - core
+      - infra
+      type: object
     ModelInfo:
       properties:
         display_name:
@@ -5689,6 +5706,34 @@ paths:
                 $ref: '#/components/schemas/HealthReport'
           description: At least one dependency is unhealthy
       summary: '`GET /v1/health` — public, unversioned-by-policy readiness surface.'
+      tags:
+      - handlers
+  /v1/meta/versions:
+    get:
+      description: |-
+        **Authenticated, not Public** (decided in the #656 change proposal):
+        unlike `/health` (a container probe that must run without any token),
+        this route serves the signed-in app's About screen, so requiring a valid
+        OIDC token costs the client nothing while denying anonymous probes a
+        backend version fingerprint. The response carries no tenant data and no
+        block-scoped action, so no membership requirement and no handler-internal
+        auth gate is needed — the `Authenticated` middleware classification is
+        the whole gate. The handler performs no I/O whatsoever.
+      operationId: get_meta_versions
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MetaVersionsResponse'
+          description: Compile-time versions of the workspace crates
+        '401':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Missing or invalid OIDC token
+      summary: '`GET /v1/meta/versions` — compile-time workspace crate versions.'
       tags:
       - handlers
   /v1/ops/projector-health:

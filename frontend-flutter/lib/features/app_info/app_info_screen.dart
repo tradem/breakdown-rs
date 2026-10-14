@@ -12,6 +12,7 @@ import '../../auth/auth_providers.dart';
 import '../../design/spacing.dart';
 import '../../l10n/app_localizations_provider.dart';
 import 'ai_disclosure_screen.dart';
+import 'app_info_controller.dart';
 
 /// Source repository linked from the About screen (spec
 /// `flutter-app-dialogs`: AGPL-3.0 license + source link).
@@ -82,6 +83,7 @@ class AppInfoScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final appVersion = ref.watch(appConfigProvider).appVersion;
+    final backendVersions = ref.watch(metaVersionsProvider);
     final l10n = l10nOf(context);
     return Scaffold(
       key: const Key('app-info-screen'),
@@ -99,6 +101,28 @@ class AppInfoScreen extends ConsumerWidget {
             leading: const Icon(Icons.tag),
             title: Text(l10n.infoVersion),
             subtitle: Text(appVersion),
+          ),
+          ListTile(
+            key: const Key('info-backend-versions'),
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(Icons.dns_outlined),
+            title: Text(l10n.infoBackendVersions),
+            subtitle: switch (backendVersions) {
+              // Graceful degradation (issue #656): a failed or in-flight
+              // fetch never crashes the About screen — it shows a loading
+              // hint or the honest error text, per the no-silent-discard
+              // rule the controller's AsyncValue error state carries.
+              // Riverpod surfaces a failed fetch as an AsyncLoading/error
+              // state carrying `hasError`, so the guard covers both it and
+              // a plain AsyncError.
+              AsyncData(:final value) => Text(
+                'api ${value.api} · core ${value.core} · infra ${value.infra}',
+              ),
+              _ when backendVersions.hasError => Text(
+                l10n.infoBackendVersionsError,
+              ),
+              _ => Text(l10n.infoBackendVersionsSubtitle),
+            },
           ),
           ListTile(
             key: const Key('info-license'),

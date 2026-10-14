@@ -2506,6 +2506,17 @@ class AppLocalizationsEn extends AppLocalizations {
   String get infoSourceError => 'Could not open the source link.';
 
   @override
+  String get infoBackendVersions => 'Backend components';
+
+  @override
+  String get infoBackendVersionsSubtitle =>
+      'Workspace component versions as reported by the backend.';
+
+  @override
+  String get infoBackendVersionsError =>
+      'Backend versions could not be loaded.';
+
+  @override
   String get infoAiUsage => 'AI usage';
 
   @override

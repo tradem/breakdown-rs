@@ -12,8 +12,10 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:frontend_flutter/app_config.dart';
 import 'package:frontend_flutter/auth/auth_providers.dart';
+import 'package:frontend_flutter/core/problem_error.dart';
 import 'package:frontend_flutter/data/ai_import_providers.dart';
 import 'package:frontend_flutter/design/theme.dart';
+import 'package:frontend_flutter/features/app_info/app_info_controller.dart';
 import 'package:frontend_flutter/features/app_info/app_info_screen.dart';
 
 import '../seasons/seasons_test_fakes.dart';
@@ -48,6 +50,12 @@ void main() {
   /// in production) under [config], optionally with a scripted link
   /// launcher. Fresh tree per pump (view MediaQuery data is cached across
   /// `pumpWidget` — see `theme_test.dart`).
+  ///
+  /// The backend-versions fetch (issue #656) is overridden to
+  /// [metaVersionsFetch] so the tests can script the data/error/loading
+  /// states of the provider; it defaults to a fixed response so the content
+  /// tests and goldens are deterministic (no real client call in the
+  /// widget tree). A never-completing future yields the loading state.
   Future<void> pumpScreen(
     WidgetTester tester, {
     AppConfig config = devAuthConfig,
@@ -55,8 +63,13 @@ void main() {
     LaunchUri? launchUri,
     double textScaler = 1.0,
     AiConfigView? aiNaming,
+    Future<MetaVersionsResponse> Function()? metaVersionsFetch,
   }) async {
     container = ProviderContainer(
+      // Riverpod 3 auto-retries failed providers on a timer — the scripted
+      // error state (issue #656 test) must not leave a pending timer at
+      // teardown (same pattern as season_script_controller_test.dart).
+      retry: (_, _) => null,
       overrides: [
         appConfigProvider.overrideWithValue(config),
         // The AI-notice doorway pushes the About-AI disclosure screen,
@@ -64,6 +77,18 @@ void main() {
         // push never issues a real discovery call from these tests.
         configuredAiNamingProvider.overrideWith(
           (ref) => Future.value(aiNaming),
+        ),
+        metaVersionsProvider.overrideWith(
+          (ref) =>
+              metaVersionsFetch?.call() ??
+              Future<MetaVersionsResponse>.value(
+                MetaVersionsResponse(
+                  (b) => b
+                    ..api = '0.26.0'
+                    ..core = '0.28.0'
+                    ..infra = '0.33.0',
+                ),
+              ),
         ),
       ],
     );
@@ -130,6 +155,56 @@ void main() {
       await pumpScreen(tester, config: _unknownVersionConfig);
 
       expect(find.text('unknown'), findsOneWidget);
+    });
+
+    testWidgets('shows the fetched backend crate versions (issue #656)', (
+      tester,
+    ) async {
+      await pumpScreen(tester);
+
+      // The section is rendered with the decoded wire values verbatim —
+      // crate names are code identifiers, only the label is localized.
+      expect(
+        find.byKey(const Key('info-backend-versions')),
+        findsOneWidget,
+      );
+      expect(find.text('api 0.26.0 · core 0.28.0 · infra 0.33.0'),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('a failed backend-versions fetch degrades gracefully '
+        '(issue #656)', (tester) async {
+      await pumpScreen(
+        tester,
+        metaVersionsFetch:
+            () => Future.error(const ProblemError(code: 'auth.unauthenticated')),
+      );
+
+      // The screen STAYS and shows the honest error copy — never a crash,
+      // never a discarded error (no-silent-discard rule).
+      expect(find.byKey(const Key('app-info-screen')), findsOneWidget);
+      expect(tester.takeException(), isNull);
+      expect(
+        find.text('Backend versions could not be loaded.'),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('an in-flight backend-versions fetch shows the loading '
+        'hint, screen stays (issue #656)', (tester) async {
+      // A never-completing future keeps the provider in AsyncLoading.
+      await pumpScreen(
+        tester,
+        metaVersionsFetch: () => Completer<MetaVersionsResponse>().future,
+      );
+
+      expect(find.byKey(const Key('app-info-screen')), findsOneWidget);
+      expect(tester.takeException(), isNull);
+      expect(
+        find.textContaining('Workspace component versions'),
+        findsOneWidget,
+      );
     });
 
     testWidgets('source link opens the repository URL', (tester) async {
