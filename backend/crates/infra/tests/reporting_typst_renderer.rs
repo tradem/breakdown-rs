@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: mimo-v2.5 (opencode-go)
+// Co-authored-by: glm-5.3 (neuralwatt)
 
 #![allow(
     clippy::unwrap_used,
@@ -176,6 +177,50 @@ fn typst_report_renderer_rejects_oversized_json() {
 
 // ------------------------------------------------------------------
 // RenderConfig defaults
+// ------------------------------------------------------------------
+
+#[test]
+fn with_defaults_renders_pdf_end_to_end_on_host_font_layout() {
+    // Issue #642 end-to-end regression: on the failing host layout (fonts
+    // only in subdirectories of the fontconfig trees — e.g. Arch), the
+    // composition-root construction path must succeed and a render must
+    // produce a real PDF. Skipped only on genuinely fontless hosts.
+    let renderer = match TypstReportRenderer::with_defaults() {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("host has no discoverable fonts ({e}); skipping e2e render");
+            return;
+        }
+    };
+    assert!(
+        !renderer.templates.is_empty(),
+        "template map must be non-empty"
+    );
+
+    let req = ReportRenderRequest {
+        kind: ReportKind::Dispo,
+        context: RenderPresentationContext {
+            locale: ReportLocale::de_de(),
+            timezone: "Europe/Berlin".into(),
+            template_version: "1.0.0".into(),
+        },
+        // Empty rows → the template's "Keine Daten vorhanden" branch — no
+        // data coupling, only font + template + compiler must work.
+        data: serde_json::json!({ "rows": [] }),
+    };
+
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let rendered = rt
+        .block_on(renderer.render(req))
+        .expect("render must succeed");
+    assert_eq!(rendered.content_type, "application/pdf");
+    assert!(
+        rendered.pdf_bytes.starts_with(b"%PDF"),
+        "output must be a PDF"
+    );
+    assert!(rendered.page_count >= 1);
+}
+
 // ------------------------------------------------------------------
 
 #[test]

@@ -62,7 +62,7 @@ use opentelemetry_otlp::WithExportConfig;
 use redis::Client as RedisClient;
 use sqlx::postgres::PgPoolOptions;
 use tower_http::trace::TraceLayer;
-use tracing::{info, warn};
+use tracing::{error, info, warn};
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 
@@ -560,12 +560,20 @@ async fn main() -> Result<()> {
         }
     };
     // Shared renderer (process-wide semaphore budget for HTTP + backup).
+    // Fail fast (issue #642): a renderer without fonts/templates is a
+    // deployment misconfiguration — every report download would 500/503, so
+    // booting an API that cannot render reports is worse than refusing to
+    // start. Never silently wire an empty renderer.
     let report_renderer: std::sync::Arc<dyn breakdown_core::reporting::ReportRenderer> =
-        std::sync::Arc::new(TypstReportRenderer::with_defaults().unwrap_or_else(|e| {
-            warn!(error = %e, "TypstReportRenderer defaults failed — empty renderer");
-            use std::collections::HashMap;
-            TypstReportRenderer::new(HashMap::new(), vec![])
-        }));
+        std::sync::Arc::new(TypstReportRenderer::with_defaults().map_err(|e| {
+            error!(
+                error = %e,
+                "TypstReportRenderer defaults failed — report rendering is misconfigured; \
+                 install system fonts (fontconfig-style tree under /usr/share/fonts, \
+                 recursed for ttf/otf/ttc) and restart"
+            );
+            anyhow::anyhow!("report renderer misconfigured: {e}")
+        })?);
     let report_loader = std::sync::Arc::new(SceneShootReportDataLoader::new(
         scene_shoot_report_repo.clone(),
     ));

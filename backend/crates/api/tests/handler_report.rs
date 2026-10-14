@@ -118,9 +118,11 @@ fn test_map_render_error_template_not_found() {
         kind: "dispo".into(),
     };
     let problem = map_render_error(err).into_problem();
-    assert_eq!(problem.status, 500);
-    // Internal renderer text must never leave the server (ADR-031 decision 6).
-    assert_eq!(problem.code, "http.internal-error");
+    // A missing template is a misconfigured/unavailable renderer, not an
+    // internal bug (issue #642): 503 with a distinct code so clients can
+    // show an honest "report feature unavailable" message.
+    assert_eq!(problem.status, 503);
+    assert_eq!(problem.code, "report.renderer-unavailable");
     assert!(!problem.detail.contains("dispo"));
 }
 

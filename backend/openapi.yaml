@@ -7964,6 +7964,11 @@ x-code-registry:
   status: 503
   title: Dependency authentication failed
   type: https://docs.breakdown.example/problems/dependency.auth-failed
+- code: report.renderer-unavailable
+  extensions: []
+  status: 503
+  title: Report rendering unavailable
+  type: https://docs.breakdown.example/problems/report.renderer-unavailable
 - code: season.validation
   extensions: []
   status: 422
