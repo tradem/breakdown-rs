@@ -2218,6 +2218,18 @@ class AppLocalizationsEn extends AppLocalizations {
   String get offlinePillLabel => 'Offline — data may be stale';
 
   @override
+  String get healthPillHealthy => 'Backend ready';
+
+  @override
+  String get healthPillDegraded => 'Backend degraded';
+
+  @override
+  String get healthPillUnhealthy => 'Backend impaired';
+
+  @override
+  String get healthPillOffline => 'Backend unreachable';
+
+  @override
   String get quickCreateTitle => 'What do you want to create?';
 
   @override

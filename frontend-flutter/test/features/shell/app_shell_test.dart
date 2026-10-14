@@ -48,6 +48,7 @@ import 'package:frontend_flutter/features/shell/schedule_tab_screen.dart';
 import 'package:frontend_flutter/features/shell/script_tab_screen.dart';
 import 'package:frontend_flutter/features/shell/shell_controller.dart';
 import 'package:frontend_flutter/src/connectivity/connectivity_providers.dart';
+import 'package:frontend_flutter/src/health/backend_health_providers.dart';
 
 import '../../support/silent_connectivity.dart';
 
@@ -118,6 +119,13 @@ void main() {
         // goldens). The pill stays hidden: no events, no offline evidence.
         passiveConnectivitySourceProvider.overrideWithValue(
           const SilentPassiveSource(),
+        ),
+        // Issue #657: the drawer hosts the backend health pill. Freeze the
+        // controller to a deterministic tier — the overridden build never
+        // polls, so no probe/Dio activity and no pending timers (the pill's
+        // own tiers are covered in backend_health_pill_test.dart).
+        backendHealthControllerProvider.overrideWithValue(
+          BackendHealthTier.healthy,
         ),
         tokenStoreProvider.overrideWithValue(tokens),
         cacheDatabaseProvider.overrideWithValue(db),

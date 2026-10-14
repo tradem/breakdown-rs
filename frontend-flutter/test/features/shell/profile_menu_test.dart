@@ -34,6 +34,7 @@ import 'package:frontend_flutter/features/ai_import/import_jobs/jobs_controller.
 import 'package:frontend_flutter/features/app_info/app_info_screen.dart';
 import 'package:frontend_flutter/features/seasons/seasons_controller.dart';
 import 'package:frontend_flutter/l10n/generated/app_localizations.dart';
+import 'package:frontend_flutter/src/health/backend_health_providers.dart';
 
 import '../seasons/seasons_test_fakes.dart';
 import '../ai_import/jobs_screen_test.dart' show FakeJobsRepository;
@@ -76,6 +77,14 @@ void main() {
         // in tests (activation error fails goldens via FlutterError).
         passiveConnectivitySourceProvider.overrideWithValue(
           const SilentPassiveSource(),
+        ),
+        // Issue #657: the drawer hosts the backend health pill. Freeze the
+        // controller to a deterministic tier — the overridden build never
+        // polls, so no probe/Dio activity and no pending timers in the
+        // widget-test environment. The pill's own tiers are covered in
+        // backend_health_pill_test.dart.
+        backendHealthControllerProvider.overrideWithValue(
+          BackendHealthTier.healthy,
         ),
         tokenStoreProvider.overrideWithValue(tokens),
         cacheDatabaseProvider.overrideWithValue(db),
@@ -140,6 +149,10 @@ void main() {
       expect(find.byType(AlertDialog), findsNothing);
       expect(find.byKey(const Key('profile-identity')), findsOneWidget);
       expect(find.text('dev-user'), findsOneWidget);
+      // Issue #657: the health pill leads the drawer header, ABOVE the
+      // identity entry, labeled (never color alone).
+      expect(find.byKey(const Key('profile-health-pill')), findsOneWidget);
+      expect(find.text('Backend ready'), findsOneWidget);
       expect(find.byKey(const Key('profile-about')), findsOneWidget);
       expect(find.byKey(const Key('profile-settings')), findsOneWidget);
       expect(find.byKey(const Key('profile-signout')), findsOneWidget);
@@ -268,6 +281,11 @@ void main() {
           // in the widget-test environment.
           passiveConnectivitySourceProvider.overrideWithValue(
             const SilentPassiveSource(),
+          ),
+          // Issue #657: freeze the drawer's health pill (no probe, no
+          // timers) — same rationale as the first container.
+          backendHealthControllerProvider.overrideWithValue(
+            BackendHealthTier.healthy,
           ),
           tokenStoreProvider.overrideWithValue(tokens),
           cacheDatabaseProvider.overrideWithValue(db),

@@ -12,6 +12,7 @@ import '../../l10n/app_localizations_provider.dart';
 import '../app_info/app_info_screen.dart';
 import '../auth/sign_out.dart';
 import '../settings/settings_screen.dart';
+import 'backend_health_pill.dart';
 
 /// The user account drawer (issue #653): a Material 3
 /// [NavigationDrawer] hosted as the shell Scaffolds' side drawer —
@@ -60,6 +61,17 @@ class AccountDrawer extends ConsumerWidget {
     return NavigationDrawer(
       key: const Key('profile-account-drawer'),
       children: [
+        // Issue #657: the backend health-status pill leads the drawer —
+        // top-of-drawer quality signal, themed via DTCG semantic tokens,
+        // labeled (never color alone). It stays empty until the first
+        // health probe answered, so it never flashes a wrong tier.
+        Padding(
+          padding: const EdgeInsets.fromLTRB(28, 16, 28, 8),
+          child: Align(
+            alignment: AlignmentDirectional.centerStart,
+            child: const BackendHealthPill(),
+          ),
+        ),
         Padding(
           padding: const EdgeInsets.fromLTRB(28, 16, 16, 8),
           child: ListTile(
