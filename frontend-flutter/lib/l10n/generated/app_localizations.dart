@@ -4684,6 +4684,24 @@ abstract class AppLocalizations {
   /// **'KI-Anbieter und Modelle für den KI-Import verwalten.'**
   String get settingsAiConfigSubtitle;
 
+  /// No description provided for @settingsAi.
+  ///
+  /// In de, this message translates to:
+  /// **'KI'**
+  String get settingsAi;
+
+  /// No description provided for @settingsAiImports.
+  ///
+  /// In de, this message translates to:
+  /// **'KI-Import-Aufträge'**
+  String get settingsAiImports;
+
+  /// No description provided for @settingsAiImportsSubtitle.
+  ///
+  /// In de, this message translates to:
+  /// **'Status deiner KI-Importe ansehen.'**
+  String get settingsAiImportsSubtitle;
+
   /// No description provided for @settingsDev.
   ///
   /// In de, this message translates to:

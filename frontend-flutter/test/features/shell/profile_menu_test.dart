@@ -179,8 +179,17 @@ void main() {
       // Issue #516: a pushed full screen, not a dialog.
       expect(find.byKey(const Key('settings-screen')), findsOneWidget);
       expect(find.byKey(const Key('settings-appbar')), findsOneWidget);
-      expect(find.byKey(const Key('settings-uri-field')), findsOneWidget);
       expect(find.byKey(const Key('settings-egg-karlKlammer')), findsOneWidget);
+      // Issue #644: the AI section grew the list — the dev URI field now
+      // sits below the fold at this viewport (the ListView builds lazily,
+      // so the key is not even IN the tree until scrolled to).
+      await tester.dragUntilVisible(
+        find.byKey(const Key('settings-uri-field')),
+        find.byKey(const Key('settings-list')),
+        const Offset(0, -200),
+      );
+      await pumpFrames(tester);
+      expect(find.byKey(const Key('settings-uri-field')), findsOneWidget);
     });
 
     testWidgets('failed sign-out leaves the gate, error surfaced', (

@@ -2807,6 +2807,16 @@ class AppLocalizationsEn extends AppLocalizations {
       'Manage the AI provider and models for AI import.';
 
   @override
+  String get settingsAi => 'AI';
+
+  @override
+  String get settingsAiImports => 'AI imports';
+
+  @override
+  String get settingsAiImportsSubtitle =>
+      'Check the status of your AI imports.';
+
+  @override
   String get settingsDev => 'Development';
 
   @override

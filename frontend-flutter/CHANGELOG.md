@@ -21,6 +21,22 @@ releases are cut as `vX.Y.Z` tags (`v<build-name>`, enforced by
 
 ## [Unreleased]
 
+- **Version bump:** `0.4.0-alpha.19+70 → 0.4.0-alpha.20+71` — persistent
+  AI-imports entry in the Settings AI section (issue #644): a dedicated,
+  always-present "KI" section groups the AI-configuration entry (#643,
+  role gate unchanged) with a new unconditional "KI-Import-Aufträge" tile
+  that pushes the existing `AiImportJobsScreen` under the named route
+  `ai-import-jobs` — the apply outcome's "back to imports" `popUntil`
+  contract keeps resolving from any entry, and the jobs list is reachable
+  even when zero jobs need attention (the production overview's
+  conditional active-jobs row alone made it unreachable after every
+  import succeeded). No new screen, no API surface, no command dispatch:
+  the read-only route is ownership-scoped server-side and its fetch seam
+  (`aiImportJobsFetch`) resolves the session before the call. New ARB
+  keys `settingsAi` / `settingsAiImports` / `settingsAiImportsSubtitle`.
+  Design docs updated first (glossary, `settings.md`,
+  `ai-import-jobs.md`).
+
 - **Version bump:** `0.4.0-alpha.18+69 → 0.4.0-alpha.19+70` — central
   AI-configuration entry on the Settings screen (issue #643): a role-gated
   tile in the general section pushes the existing `AiConfigScreen`, so the

@@ -2839,6 +2839,15 @@ class AppLocalizationsDe extends AppLocalizations {
       'KI-Anbieter und Modelle für den KI-Import verwalten.';
 
   @override
+  String get settingsAi => 'KI';
+
+  @override
+  String get settingsAiImports => 'KI-Import-Aufträge';
+
+  @override
+  String get settingsAiImportsSubtitle => 'Status deiner KI-Importe ansehen.';
+
+  @override
   String get settingsDev => 'Entwicklung';
 
   @override

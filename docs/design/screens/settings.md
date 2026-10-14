@@ -7,10 +7,12 @@
 
 ## Purpose & Context
 The app's dedicated full-screen settings: general app settings (every
-flavor) — including the central AI-configuration entry (issue #643) —
-and, dev-flavor-only, the development backend switch. It replaces the
-former `SettingsDialog` (issue #516). Used occasionally by every user
-(Easter-eggs preference) and regularly by developers (backend override).
+flavor) — including the central AI-configuration entry (issue #643) and
+the persistent AI-imports entry (issue #644), grouped in an "AI"
+section — and, dev-flavor-only, the development backend switch. It replaces
+the former `SettingsDialog` (issue #516). Used occasionally by every user
+(Easter-eggs preference, AI-import review) and regularly by developers
+(backend override).
 
 ## Navigation
 Pushed from the Mehr tab's labeled tile „Einstellungen" (`mehr-settings`)
@@ -21,8 +23,8 @@ post-authentication (Mehr tab lives inside the auth shell); the save /
 reset actions issue requests against the configured backend through the
 existing `SessionReset` coordinator, which owns the auth fence — no
 additional client-side membership gate applies (server-ownership rule).
-The AI-configuration entry is the one general-section element with its
-own gate — see Interactions.
+The AI-section entries are the general-section elements with entry-specific
+gates — see Interactions.
 
 ## Location & Context
 N/A — settings are not a planning-hierarchy surface; the screen is
@@ -48,8 +50,11 @@ stays hidden (graceful-degradation rule).
     {^ [Déjà-vu-Katze auf einem Streifzug] }
     "Jedes Ei lässt sich hier in Ruhe ansehen — unabhängig vom Monat."
     --
+    "KI"                                 <- issue #644: AI section header
     "KI-Konfiguration"                  <- issue #643
     "KI-Anbieter und Modelle für den KI-Import verwalten."
+    "KI-Import-Aufträge"                <- issue #644
+    "Status deiner KI-Importe ansehen."
   }
   --
   {^ "Entwicklung"
@@ -80,7 +85,9 @@ note (store compliance).
 | Gallery preview line | Text | Explains the month-independent preview | `settings.easterEggsPreviewSubtitle` |
 | Karl Klammer preview | Preview card | Static figure render of the egg (issue #640) | n/a (graphic, no copy) |
 | Deja-vu Cat preview | Preview card | Bounded walker render of the egg — shown only while the egg switch is ON (issue #640) | n/a (graphic, no copy) |
+| AI section | Section header | Groups the AI-configuration and AI-imports entries (issue #644) | `settings.ai` |
 | AI-configuration entry | List item (push, chevron) | Central entry to `AiConfigScreen` (issue #643); visible only while the season-scoped membership resolves to an active costume-dept role — see Interactions | `settings.aiConfig` + `settings.aiConfigSubtitle` |
+| AI-imports entry | List item (push, chevron) | Persistent entry to `AiImportJobsScreen` (issue #644 — reachable even with zero jobs needing attention); visible in every flavor with no client-side role gate — see Interactions | `settings.aiImports` + `settings.aiImportsSubtitle` |
 | Development section | Section header | Labels the dev-only area | `settings.dev` |
 | Server address row | List item (read-only) | Active effective API base | `settings.serverAddress` |
 | Flavor row | List item (read-only) | Active build flavor | `settings.flavor` |
@@ -101,7 +108,8 @@ renders no preview (the switch is the master gate; the gallery
 bypasses only the October month gate, never the preference). The
 AI-configuration entry renders only while the season-scoped membership
 resolves with an active costume-dept role (issue #643 — see
-Interactions). Error: an Easter-eggs read failure surfaces as a visible
+Interactions); the AI-imports entry renders unconditionally
+(post-authentication is its only gate, issue #644). Error: an Easter-eggs read failure surfaces as a visible
 error state on each egg row (fallback default ON); backend-URI save
 errors render inline keyed on `code` via the validation copy; a failed
 membership fetch renders no AI-configuration entry (hidden, with the
@@ -136,6 +144,19 @@ they are explicit showcase surfaces, not live egg appearances (issue
   (`MaterialPageRoute`, fire-and-forget, same as the wizard and
   import-submit entries). The touch target is a standard `ListTile`
   (≥ 48×48 dp).
+- AI-imports entry (issue #644): pushes the existing
+  `AiImportJobsScreen` under the named route `ai-import-jobs`
+  (`MaterialPageRoute` with `RouteSettings(name: 'ai-import-jobs')`,
+  fire-and-forget) — the apply outcome's "back to imports" `popUntil`
+  contract keeps resolving from this entry. The tile is always visible
+  (every flavor, no active-block scope required): the jobs list is a
+  read-only route, ownership-scoped server-side, whose fetch seam
+  (`aiImportJobsFetch`) resolves the authenticated session before the
+  call — no session, no request; the tile itself dispatches no command,
+  so no client-side role gate applies. The contextual
+  production-overview active-jobs row remains the in-context path when
+  a job needs attention. The touch target is a standard `ListTile`
+  (≥ 48×48 dp).
 - Save (dev): validates inline (`validateApiBase`); on success runs the
   `SessionReset.switchBackend` flow with a linear progress indicator,
   then re-reads the effective base.
@@ -164,9 +185,14 @@ screen-reader friendly by construction.
   save/reset/progress flows; per-egg read-failure error subtitle;
   AI-configuration entry visible on an active costume-dept membership,
   hidden without an active-block scope / while pending / on a resolved
-  denial, tap pushes `AiConfigScreen` (issue #643).
+  denial, tap pushes `AiConfigScreen` (issue #643); AI-imports entry
+  visible in both flavors without any scope, tap pushes
+  `AiImportJobsScreen` under route name `ai-import-jobs`, back returns
+  to Settings (issue #644).
 - Golden: `settings_dev_{light,dark}` + `settings_prod_{light,dark}`
   (replacing the former dialog goldens) + gallery-preview golden +
-  visible AI-configuration entry `{light,dark}` (issue #643).
+  visible AI-configuration entry `{light,dark}` (issue #643); the base
+  goldens cover the AI section with its always-visible AI-imports tile
+  (issue #644).
 - Unit: per-egg store Ok/Err branches, legacy migration, default-ON
   fallback.
