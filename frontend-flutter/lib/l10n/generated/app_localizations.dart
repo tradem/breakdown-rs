@@ -3772,6 +3772,30 @@ abstract class AppLocalizations {
   /// **'Offline – Daten können veraltet sein'**
   String get offlinePillLabel;
 
+  /// No description provided for @healthPillHealthy.
+  ///
+  /// In de, this message translates to:
+  /// **'Backend bereit'**
+  String get healthPillHealthy;
+
+  /// No description provided for @healthPillDegraded.
+  ///
+  /// In de, this message translates to:
+  /// **'Backend eingeschränkt'**
+  String get healthPillDegraded;
+
+  /// No description provided for @healthPillUnhealthy.
+  ///
+  /// In de, this message translates to:
+  /// **'Backend gestört'**
+  String get healthPillUnhealthy;
+
+  /// No description provided for @healthPillOffline.
+  ///
+  /// In de, this message translates to:
+  /// **'Backend nicht erreichbar'**
+  String get healthPillOffline;
+
   /// No description provided for @quickCreateTitle.
   ///
   /// In de, this message translates to:

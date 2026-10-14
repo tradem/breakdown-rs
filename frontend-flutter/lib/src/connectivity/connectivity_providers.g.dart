@@ -103,7 +103,7 @@ final class ConnectivityHttpProbeProvider
 }
 
 String _$connectivityHttpProbeHash() =>
-    r'cae667909b6e96994bbbc2ca936cc589dcc3a43f';
+    r'9d08cd3c1d06f6a8fe0c6f90094ab2a56fa1edff';
 
 @ProviderFor(connectivityDelay)
 final connectivityDelayProvider = ConnectivityDelayProvider._();
@@ -258,7 +258,7 @@ final class ConnectivityControllerProvider
 }
 
 String _$connectivityControllerHash() =>
-    r'976afbee40ab2d7619faf4a0ee83f8433f86e8c6';
+    r'896d08a461c11be82a0c36560ebf38108b9e3d1b';
 
 /// Connectivity controller (issue #654): passive-first detection with a
 /// conservative HTTP confirmation probe.

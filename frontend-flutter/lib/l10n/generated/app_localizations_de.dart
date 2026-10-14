@@ -2245,6 +2245,18 @@ class AppLocalizationsDe extends AppLocalizations {
   String get offlinePillLabel => 'Offline – Daten können veraltet sein';
 
   @override
+  String get healthPillHealthy => 'Backend bereit';
+
+  @override
+  String get healthPillDegraded => 'Backend eingeschränkt';
+
+  @override
+  String get healthPillUnhealthy => 'Backend gestört';
+
+  @override
+  String get healthPillOffline => 'Backend nicht erreichbar';
+
+  @override
   String get quickCreateTitle => 'Was möchtest du erstellen?';
 
   @override
