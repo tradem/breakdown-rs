@@ -626,6 +626,20 @@ void main() {
       // Localized general-section copy (glossary keys settings.aiConfig*);
       // l10nOf falls back to the English catalog in bare test trees.
       expect(find.text('AI configuration'), findsOneWidget);
+      // Screen-reader semantics (CodeRabbit review): the tile is one
+      // merged, enabled, tappable node whose label carries the visible
+      // title — a future change that makes it unusable with a screen
+      // reader fails here (anchored to the settings-ai-config key).
+      final semanticsHandle = tester.ensureSemantics();
+      final node = tester.getSemantics(
+        find.byKey(const Key('settings-ai-config')),
+      );
+      expect(
+        node,
+        isSemantics(hasEnabledState: true, isEnabled: true, hasTapAction: true),
+      );
+      expect(node.label, contains('AI configuration'));
+      semanticsHandle.dispose();
       final size = tester.getSize(tile);
       expect(size.height, greaterThanOrEqualTo(48));
       expect(size.width, greaterThanOrEqualTo(48));

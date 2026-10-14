@@ -210,3 +210,12 @@ String aiConfigErrorCopy(AppLocalizations l10n, ProblemError error) =>
 /// fix a feature flag, so the UI must not offer a retry affordance.
 bool isAiImportDisabled(ProblemError error) =>
     error.code == 'ai-import.disabled';
+
+/// True when the backend denied the call on the credential-role gate (issue
+/// #470's scoped 403 arms: `ai-config.forbidden` for AI-config
+/// management/discovery, `settings.forbidden` for settings credentials).
+/// A scoped authorization denial is NOT a retryable load error — retrying
+/// cannot flip a role — so the UI renders the "administrator role
+/// required" narrative ([aiConfigErrorCopy]) WITHOUT a retry affordance.
+bool isAiConfigAuthzDenied(ProblemError error) =>
+    error.code == 'ai-config.forbidden' || error.code == 'settings.forbidden';

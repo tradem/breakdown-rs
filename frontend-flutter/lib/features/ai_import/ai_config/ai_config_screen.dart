@@ -91,6 +91,22 @@ class AiConfigScreen extends ConsumerWidget {
                     ),
                   ),
                 )
+              else if (isAiConfigAuthzDenied(state.discoveryError!))
+                // Scoped credential-role denial (issue #470 wire arms —
+                // surfaced centrally via the Settings entry, issue #643):
+                // a 403 is a DENIAL, not a load failure — the "administrator
+                // role required" narrative ([aiConfigErrorCopy]) WITHOUT a
+                // retry affordance (retrying cannot flip a role).
+                Card(
+                  key: const Key('ai-config-discovery-forbidden'),
+                  color: Theme.of(context).colorScheme.errorContainer,
+                  child: Padding(
+                    padding: const EdgeInsets.all(AppSpacing.space12),
+                    child: Text(
+                      aiConfigErrorCopy(l10nOf(context), state.discoveryError!),
+                    ),
+                  ),
+                )
               else
                 // Failed discovery is NOT "no config exists": rendering the
                 // first-run form here would let the user create a SECOND
