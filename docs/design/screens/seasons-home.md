@@ -59,7 +59,9 @@ Compact — Season tab content with card list and extended FAB:
 @endsalt
 ```
 
-Empty state:
+Empty state (in October, with the egg switch ON, the Deja-vu Cat
+crosses the empty surface's lower band as a decorative graphic row —
+non-interactive, never overlapping the CTAs' tap targets):
 
 ```plantuml
 @startsalt
@@ -71,6 +73,7 @@ Empty state:
   --
   [Season-Setup starten]
   [KI-Import öffnen]
+  "🐈" — Deja-vu-Katze (Oktober, dekorativ)
   --
   ( 🚀 Season-Setup starten )
 }
@@ -116,6 +119,7 @@ and tests — never in the wireframes.
 | Empty guidance | Card supporting text | One sentence of guidance | `seasons.empty.guidance` |
 | Setup CTA | Filled button | Starts the guided setup wizard (renders always; disabled without a session) | `seasons.empty.setupCta` |
 | Import CTA | Outlined button | Jumps to the Mehr tab's AI-import entry | `seasons.empty.importCta` |
+| Deja-vu Cat visitor | Decorative graphic (October egg) | Non-interactive October visitor crossing the empty surface's lower band (issue #640); gated by the egg switch + October + "remove animations"; absent outside October / when switched off | n/a (graphic, no copy) |
 | Stale banner | Banner | List-level cache staleness (existing) | `errors.connectionLost` |
 | Overlay card | Card | Optimistic create entry with sync indicator | `seasons.syncing` |
 
@@ -124,7 +128,10 @@ and tests — never in the wireframes.
 Loading (cold start, no cached rows): skeleton placeholder in the list
 area — the empty state does NOT flash for the transient loading window.
 Data: one card per projected season with metadata where cached. Empty:
-headline + guidance + setup/import CTAs. Error: Problem-Details `code`
+headline + guidance + setup/import CTAs — and, in October with the egg
+switch ON, the non-interactive Deja-vu Cat crossing the lower band
+(issue #640; same overlay as the splash, October gate + per-egg switch
++ "remove animations" preserved). Error: Problem-Details `code`
 routed to localized copy (never backend `detail` text); the list
 serves retained cached rows with the stale banner. Stale: two levels —
 (a) the list-level stale banner (existing `isStale` flag) and (b) the
@@ -178,7 +185,9 @@ card, stale indicator), the guided FAB label + its wizard route, the
 "Manuell" action opening the manual sheet (no series-id field, derived
 series in the command, fail-fast on a build without a default series),
 empty-state CTAs (tab switch on import), skeleton on cold start
-(no empty-state flash) — semantic finders + key pairings. Goldens:
+(no empty-state flash) — semantic finders + key pairings; October
+gate + egg-switch + remove-animations behavior of the empty-state cat
+visitor (issue #640). Goldens:
 Season tab (light/dark × cards empty/full/optimistic) + empty state +
 skeleton, re-baselined in this change. Gherkin: the season-setup wizard
 scenario enters through the guided FAB; the costume-assignment scenario

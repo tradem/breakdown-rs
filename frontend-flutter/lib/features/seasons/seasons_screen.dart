@@ -26,6 +26,7 @@ import '../shell/planning_location.dart';
 import '../shell/production_overview_screen.dart';
 import '../shell/shell_controller.dart';
 import 'create_season_sheet.dart';
+import '../easter_eggs/dejavu_cat.dart';
 import 'seasons_controller.dart';
 import 'seasons_metrics_provider.dart';
 import 'seasons_state.dart';
@@ -189,40 +190,47 @@ class SeasonsScreen extends ConsumerWidget {
           ],
         );
       }
-      return ListView(
-        key: const Key('seasons-list'),
-        physics: const AlwaysScrollableScrollPhysics(),
-        children: [
-          const SizedBox(height: 96),
-          SeasonsEmptyState(
-            // Session gate: same rule as the FAB (auth-only create).
-            // The setup wizard is the guided path (add-season-setup-wizard;
-            // issue #511 made it the primary entry) — opened as a
-            // full-screen route on THIS tab's navigator, the same route
-            // the FAB now opens.
-            onSetup: _canCreateSeason(ref)
-                ? () => unawaited(
-                    Navigator.of(context).push(
-                      MaterialPageRoute<void>(
-                        builder: (_) => const SetupWizardScreen(),
+      // The October-only Deja-vu Cat also crosses the empty surface's
+      // lower band (issue #640): same overlay as the splash, so the
+      // October gate, the per-egg switch and the "remove animations"
+      // behavior are preserved by construction. The overlay is
+      // non-interactive (IgnorePointer) — the CTAs stay hittable.
+      return DejaVuCatOverlay(
+        child: ListView(
+          key: const Key('seasons-list'),
+          physics: const AlwaysScrollableScrollPhysics(),
+          children: [
+            const SizedBox(height: 96),
+            SeasonsEmptyState(
+              // Session gate: same rule as the FAB (auth-only create).
+              // The setup wizard is the guided path (add-season-setup-wizard;
+              // issue #511 made it the primary entry) — opened as a
+              // full-screen route on THIS tab's navigator, the same route
+              // the FAB now opens.
+              onSetup: _canCreateSeason(ref)
+                  ? () => unawaited(
+                      Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) => const SetupWizardScreen(),
+                        ),
                       ),
-                    ),
-                  )
-                : null,
-            // AUTHZ-GATE: the AI-import upload routes are gated by the
-            // season costume-dept membership INSIDE the import submit
-            // controller BEFORE any network call — this CTA only pushes
-            // that screen (no request is issued from here), and the gate
-            // comment travels with the entry itself.
-            onImport: () => unawaited(
-              Navigator.of(context).push(
-                MaterialPageRoute<void>(
-                  builder: (_) => const AiImportSubmitScreen(),
+                    )
+                  : null,
+              // AUTHZ-GATE: the AI-import upload routes are gated by the
+              // season costume-dept membership INSIDE the import submit
+              // controller BEFORE any network call — this CTA only pushes
+              // that screen (no request is issued from here), and the gate
+              // comment travels with the entry itself.
+              onImport: () => unawaited(
+                Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => const AiImportSubmitScreen(),
+                  ),
                 ),
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       );
     }
     return ListView.builder(

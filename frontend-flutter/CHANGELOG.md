@@ -7,6 +7,7 @@
 <!-- Co-authored-by: qwen3.8-flash (opencode-go) -->
 <!-- Co-authored-by: glm-5.3-flash (opencode-go) -->
 <!-- Co-authored-by: deepseek-v4.1-flash (neuralwatt) -->
+<!-- Co-authored-by: glm-5.3-flash (neuralwatt) -->
 
 # Changelog
 
@@ -20,6 +21,15 @@ releases are cut as `vX.Y.Z` tags (`v<build-name>`, enforced by
 
 ## [Unreleased]
 
+- **Version bump:** `0.4.0-alpha.17+68 → 0.4.0-alpha.18+69` — surface the
+  Deja-vu Cat beyond the sub-second splash (issue #640): the cat now also
+  crosses the Seasons home empty state (same overlay as the splash —
+  October gate, per-egg switch and "remove animations" preserved), and a
+  „Vorschau" gallery in Settings renders each egg's figure regardless of
+  month (bypassing only the October gate, never the per-egg switch). New
+  ARB keys `settingsEasterEggsPreview` / `settingsEasterEggsPreviewSubtitle`;
+  déjà-vu cat subtitle updated. Design docs updated first (glossary,
+  `settings.md`, `seasons-home.md`).
 - **Version bump:** `0.4.0-alpha.15+66 → 0.4.0-alpha.16+67` — regenerate the
   vendored `breakdown_api` client for the backend contract change of issue
   #637 (backend PR #646): the new `GET /v1/health` (`HealthReport`,

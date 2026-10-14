@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: deepseek-v4.1-flash (neuralwatt)
 // Co-authored-by: glm-5.3-flash (opencode-go)
+// Co-authored-by: glm-5.3-flash (neuralwatt)
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -15,6 +16,9 @@ import '../../data/settings/easter_eggs_store.dart';
 import '../../design/spacing.dart';
 import '../../l10n/app_localizations_provider.dart';
 import '../../l10n/generated/app_localizations.dart';
+import '../ai_import/clippy/clippy_trigger.dart';
+import '../ai_import/clippy/karl_klammer_figure.dart';
+import '../easter_eggs/dejavu_cat.dart';
 
 /// Full-screen settings (issue #516, capability `flutter-settings-screen`):
 /// replaces the former `SettingsDialog` — pushed from the profile menu's
@@ -141,6 +145,23 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             child: Text(l10n.settingsEasterEggsSubtitle),
           ),
           for (final id in EasterEggId.values) _EggSwitchRow(id: id),
+          const Divider(),
+
+          // ── Easter-eggs gallery (issue #640): replay/preview each egg
+          //    regardless of month — the preview bypasses only the
+          //    October month gate, never the per-egg switch. ─────────
+          _SectionHeader(label: l10n.settingsEasterEggsPreview),
+          Padding(
+            key: const Key('settings-eggs-preview-subtitle'),
+            padding: const EdgeInsets.fromLTRB(
+              AppSpacing.space16,
+              0,
+              AppSpacing.space16,
+              AppSpacing.space8,
+            ),
+            child: Text(l10n.settingsEasterEggsPreviewSubtitle),
+          ),
+          for (final id in EasterEggId.values) _EggPreviewRow(id: id),
           const Divider(),
 
           // ── Read-only server info (every flavor, as the dialog had) ──
@@ -295,6 +316,65 @@ String _eggTitle(AppLocalizations l10n, EasterEggId id) => switch (id) {
   EasterEggId.karlKlammer => l10n.settingsEasterEggsKarlKlammer,
   EasterEggId.dejaVuCat => l10n.settingsEasterEggsDejavuCat,
 };
+
+/// One per-egg gallery preview card (issue #640, design decision
+/// "Easter-eggs gallery in Settings"): renders the egg's figure as an
+/// explicit showcase — **regardless of month** — so every egg is
+/// discoverable and testable year-round.
+///
+/// Gates preserved by construction:
+/// - the **per-egg switch** stays the master gate: a switched-off egg
+///   renders no preview (the row watches the same
+///   [easterEggProvider] family member, so a flip appears/disappears
+///   the preview live);
+/// - the system **"remove animations"** setting renders the static
+///   pose — no controller runs (same rule as the live surfaces).
+///
+/// The October month gate is deliberately NOT applied here — bypassing
+/// it is the gallery's entire purpose (issue #640). The gate itself is
+/// untouched on the live surfaces ([DejaVuCatOverlay]).
+class _EggPreviewRow extends ConsumerWidget {
+  const _EggPreviewRow({required this.id});
+
+  final EasterEggId id;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final enabled = ref.watch(easterEggProvider(id));
+    if (!enabled) return const SizedBox.shrink();
+    final disableAnimations = MediaQuery.of(context).disableAnimations;
+    return Padding(
+      key: Key('settings-egg-preview-${id.name}'),
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.space16,
+        0,
+        AppSpacing.space16,
+        AppSpacing.space8,
+      ),
+      child: Card(
+        child: SizedBox(
+          height: 150,
+          width: double.infinity,
+          child: Center(
+            child: switch (id) {
+              EasterEggId.karlKlammer => KarlKlammerFigure(
+                pose: ClippyPose.neutral,
+                animate: !disableAnimations,
+              ),
+              // The walker paints the cat along the lower band of its
+              // box (y = height − 72 − cat height); 150 logical px keep
+              // the full silhouette inside the card.
+              EasterEggId.dejaVuCat => DejaVuCatWalker(
+                key: const Key('settings-egg-preview-dejavu-cat'),
+                animate: !disableAnimations,
+              ),
+            },
+          ),
+        ),
+      ),
+    );
+  }
+}
 
 /// The localized short description of an Easter egg (issue #615).
 String _eggSubtitle(AppLocalizations l10n, EasterEggId id) => switch (id) {

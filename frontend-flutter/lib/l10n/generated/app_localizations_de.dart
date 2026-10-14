@@ -2822,7 +2822,14 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get settingsEasterEggsDejavuCatSubtitle =>
-      'Im Oktober läuft eine schwarze Katze über den Startbildschirm.';
+      'Im Oktober läuft eine schwarze Katze über den Startbildschirm und durch die leere Season-Liste. In der Vorschau hier ist sie jederzeit zu sehen.';
+
+  @override
+  String get settingsEasterEggsPreview => 'Vorschau';
+
+  @override
+  String get settingsEasterEggsPreviewSubtitle =>
+      'Jedes Ei lässt sich hier in Ruhe ansehen — unabhängig vom Monat.';
 
   @override
   String get settingsDev => 'Entwicklung';

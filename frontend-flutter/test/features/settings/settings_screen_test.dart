@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: deepseek-v4.1-flash (neuralwatt)
 // Co-authored-by: glm-5.3-flash (opencode-go)
+// Co-authored-by: glm-5.3-flash (neuralwatt)
 
 import 'dart:async';
 import 'dart:io';
@@ -24,6 +25,7 @@ import 'package:frontend_flutter/data/cache/seasons_cache_providers.dart';
 import 'package:frontend_flutter/data/settings/api_base_override_store.dart';
 import 'package:frontend_flutter/data/settings/easter_eggs_store.dart';
 import 'package:frontend_flutter/design/theme.dart';
+import 'package:frontend_flutter/features/easter_eggs/dejavu_cat.dart';
 import 'package:frontend_flutter/features/settings/settings_screen.dart';
 import 'package:frontend_flutter/src/network/api_client.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -449,6 +451,74 @@ void main() {
       // ...and the persistence failure surfaces as a localized snackbar.
       expect(find.byType(SnackBar), findsOneWidget);
       expect(find.textContaining('could not be saved'), findsOneWidget);
+    });
+  });
+
+  group('SettingsScreen easter-eggs gallery (issue #640)', () {
+    testWidgets('preview per egg renders month-independently when ON', (
+      tester,
+    ) async {
+      // The gallery bypasses ONLY the October month gate — no clock
+      // setup here, and still both previews render.
+      await pumpScreen(tester);
+
+      expect(
+        find.byKey(const Key('settings-egg-preview-karlKlammer')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const Key('settings-egg-preview-dejaVuCat')),
+        findsOneWidget,
+      );
+      // The cat preview is the walker (same figure the splash uses).
+      expect(find.byType(DejaVuCatWalker), findsOneWidget);
+    });
+
+    testWidgets('flipping an egg off removes only its preview', (tester) async {
+      await pumpScreen(tester);
+
+      await tester.tap(find.byKey(const Key('settings-egg-dejaVuCat')));
+      await pumpFrames(tester);
+
+      expect(
+        find.byKey(const Key('settings-egg-preview-dejaVuCat')),
+        findsNothing,
+      );
+      // The other egg's preview is untouched (per-egg independence).
+      expect(
+        find.byKey(const Key('settings-egg-preview-karlKlammer')),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('remove-animations: the cat preview renders statically', (
+      tester,
+    ) async {
+      await pumpScreen(tester);
+      // Re-pump the host with disableAnimations: the overlay-free walker
+      // must not schedule a ticker (same rule as the live surfaces).
+      tester.view.physicalSize = const Size(800, 1200);
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: MediaQuery(
+            data: const MediaQueryData(disableAnimations: true),
+            child: MaterialApp(
+              theme: AppThemes.light(),
+              darkTheme: AppThemes.dark(),
+              home: const Scaffold(body: SettingsScreen()),
+            ),
+          ),
+        ),
+      );
+      await pumpFrames(tester);
+
+      expect(
+        find.byKey(const Key('settings-egg-preview-dejavu-cat')),
+        findsOneWidget,
+      );
+      await tester.pump(const Duration(milliseconds: 800));
+      expect(tester.binding.transientCallbackCount, 0);
     });
   });
 

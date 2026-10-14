@@ -5,6 +5,7 @@
 // Co-authored-by: qwen3.8-flash (opencode-go)
 // Co-authored-by: space-bunny-free (opencode-go)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
+// Co-authored-by: glm-5.3-flash (neuralwatt)
 
 import 'dart:async';
 
@@ -15,6 +16,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fpdart/fpdart.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:shared_preferences_platform_interface/in_memory_shared_preferences_async.dart';
+import 'package:shared_preferences_platform_interface/shared_preferences_async_platform_interface.dart';
 
 import 'package:frontend_flutter/app_config.dart';
 import 'package:frontend_flutter/auth/auth_providers.dart';
@@ -26,6 +30,7 @@ import 'package:frontend_flutter/data/cache/costume_domains_cache_dao.dart';
 import 'package:frontend_flutter/data/cache/hierarchy_cache_dao.dart';
 import 'package:frontend_flutter/data/cache/season_cache_dao.dart';
 import 'package:frontend_flutter/data/cache/seasons_cache_providers.dart';
+import 'package:frontend_flutter/data/settings/easter_eggs_store.dart';
 import 'package:frontend_flutter/design/theme.dart';
 import 'package:frontend_flutter/features/blocks/blocks_controller.dart';
 import 'package:frontend_flutter/features/episodes/episodes_controller.dart';
@@ -33,6 +38,7 @@ import 'package:frontend_flutter/data/ai_import_providers.dart';
 import 'package:frontend_flutter/data/cache/ai_import_jobs_cache_dao.dart';
 import 'package:frontend_flutter/features/ai_import/import_jobs/import_submit_screen.dart';
 import 'package:frontend_flutter/features/ai_import/import_jobs/jobs_controller.dart';
+import 'package:frontend_flutter/features/easter_eggs/dejavu_cat.dart';
 import 'package:frontend_flutter/features/shell/production_overview_screen.dart';
 import 'package:frontend_flutter/features/shell/shell_controller.dart';
 import 'package:frontend_flutter/features/seasons/seasons_controller.dart';
@@ -102,6 +108,11 @@ void main() {
     bool holdInitialFetch = false,
     FutureOr<void> Function(CacheDatabase db)? seed,
     Clock? clock,
+    // Issue #640: pin the empty-surface cat's clock. Defaults to a
+    // NON-October date so the suite stays month-independent (a live
+    // walk animation would hang `pumpAndSettle` and shift the goldens);
+    // the dedicated cat tests below pin October instead.
+    DateTime? catClock,
   }) async {
     db = CacheDatabase(NativeDatabase.memory());
     addTearDown(db.close);
@@ -115,6 +126,15 @@ void main() {
     container = ProviderContainer(
       overrides: [
         appConfigProvider.overrideWithValue(config),
+        // Issue #640: the empty-surface cat visitor must never make this
+        // suite month-dependent — pin its clock to a NON-October date so
+        // `pumpAndSettle` (which a repeating walk animation would hang)
+        // and the goldens stay deterministic year-round. The dedicated
+        // cat tests below override this seam to October with bounded
+        // pumps instead.
+        dejaVuCatClockProvider.overrideWithValue(
+          () => catClock ?? DateTime(2026, DateTime.may, 1),
+        ),
         if (clock != null) clockProvider.overrideWithValue(clock),
         if (!config.devAuthMode) ...[
           dioProvider.overrideWithValue(Dio()),
@@ -705,6 +725,119 @@ void main() {
       expect(find.byKey(const Key('season-a')), findsOneWidget);
     },
   );
+
+  group('Empty-surface Deja-vu Cat visitor (issue #640)', () {
+    /// October pump with BOUNDED frames (the walk animation repeats —
+    /// `pumpAndSettle` would hang), optionally with the system
+    /// "remove animations" setting on (static pose, settle-safe).
+    Future<void> pumpOctober(
+      WidgetTester tester, {
+      bool disableAnimations = false,
+    }) async {
+      tester.view.physicalSize = const Size(800, 1200);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: MediaQuery(
+            data: MediaQueryData(disableAnimations: disableAnimations),
+            child: MaterialApp(
+              theme: AppThemes.light(),
+              locale: const Locale('de'),
+              supportedLocales: AppLocalizations.supportedLocales,
+              localizationsDelegates: AppLocalizations.localizationsDelegates,
+              home: const SeasonsScreen(),
+            ),
+          ),
+        ),
+      );
+      await pumpFrames(tester, n: 6);
+    }
+
+    testWidgets('visible on the empty surface in October (egg default ON)', (
+      tester,
+    ) async {
+      await setupContainer(catClock: DateTime(2026, DateTime.october, 14));
+      await pumpOctober(tester);
+
+      expect(find.byKey(const Key('seasons-empty-title')), findsOneWidget);
+      expect(find.byKey(const Key('dejavu-cat')), findsOneWidget);
+    });
+
+    testWidgets('dormant outside October even when enabled', (tester) async {
+      // setupContainer's default pins May — the overlay must be absent.
+      await setupContainer();
+      tester.view.physicalSize = const Size(800, 1200);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: MaterialApp(
+            theme: AppThemes.light(),
+            locale: const Locale('de'),
+            supportedLocales: AppLocalizations.supportedLocales,
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            home: const SeasonsScreen(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('dejavu-cat')), findsNothing);
+    });
+
+    testWidgets('hidden when the egg switch is off (October, egg off)', (
+      tester,
+    ) async {
+      await setupContainer(catClock: DateTime(2026, DateTime.october, 14));
+      SharedPreferencesAsyncPlatform.instance =
+          InMemorySharedPreferencesAsync.empty();
+      await container
+          .read(easterEggProvider(EasterEggId.dejaVuCat).notifier)
+          .toggle(EasterEggsStore(SharedPreferencesAsync()));
+      await pumpOctober(tester);
+
+      expect(find.byKey(const Key('dejavu-cat')), findsNothing);
+      expect(find.byKey(const Key('seasons-empty-title')), findsOneWidget);
+    });
+
+    testWidgets('non-interactive: the import CTA stays hittable', (
+      tester,
+    ) async {
+      await setupContainer(catClock: DateTime(2026, DateTime.october, 14));
+      await pumpOctober(tester);
+
+      // The cat overlays the surface, but IgnorePointer keeps the CTAs
+      // hittable — the import CTA still opens its screen.
+      await tester.tap(find.byKey(const Key('seasons-empty-import-cta')));
+      await pumpFrames(tester, n: 4);
+      expect(find.byType(AiImportSubmitScreen), findsOneWidget);
+    });
+
+    testWidgets('remove-animations: static pose on the empty surface', (
+      tester,
+    ) async {
+      await setupContainer(catClock: DateTime(2026, DateTime.october, 14));
+      await pumpOctober(tester, disableAnimations: true);
+
+      expect(find.byKey(const Key('dejavu-cat')), findsOneWidget);
+      await tester.pump(const Duration(milliseconds: 800));
+      expect(tester.binding.transientCallbackCount, 0);
+    });
+
+    testWidgets('golden: October empty state with the static-pose cat', (
+      tester,
+    ) async {
+      await setupContainer(catClock: DateTime(2026, DateTime.october, 14));
+      await pumpOctober(tester, disableAnimations: true);
+      await expectLater(
+        find.byType(SeasonsScreen),
+        matchesGoldenFile('goldens/seasons_home_empty_cat.png'),
+      );
+    });
+  });
 
   group(
     'Goldens (task 4.4: light/dark × cards full/optimistic + empty + skeleton)',

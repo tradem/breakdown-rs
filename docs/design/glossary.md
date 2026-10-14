@@ -193,7 +193,9 @@ establishing change).
 | `celebration_outlined` | **Karl Klammer** | Settings — Karl Klammer egg switch (default ON) | `settings.easterEggsKarlKlammer` |
 | `—` *(no icon)* | **Der Kleiderbügel-Assistent hilft im KI-Import mit Tipps und Sprüchen.** | Settings — Karl Klammer egg description | `settings.easterEggsKarlKlammerSubtitle` |
 | `pets_outlined` | **Déjà-vu-Katze** | Settings — Deja-vu Cat egg switch (default ON; October-only effect) | `settings.easterEggsDejavuCat` |
-| `—` *(no icon)* | **Im Oktober läuft eine schwarze Katze über den Startbildschirm.** | Settings — Deja-vu Cat egg description | `settings.easterEggsDejavuCatSubtitle` |
+| `—` *(no icon)* | **Im Oktober läuft eine schwarze Katze über den Startbildschirm und durch die leere Season-Liste. In der Vorschau hier ist sie jederzeit zu sehen.** | Settings — Deja-vu Cat egg description (issue #640: surfaces = splash + empty seasons home + gallery preview) | `settings.easterEggsDejavuCatSubtitle` |
+| `—` *(no icon)* | **Vorschau** | Settings — Easter-eggs gallery preview label (per-egg replay/preview regardless of month, issue #640) | `settings.easterEggsPreview` |
+| `—` *(no icon)* | **Jedes Ei lässt sich hier in Ruhe ansehen — unabhängig vom Monat.** | Settings — Easter-eggs gallery explanatory line | `settings.easterEggsPreviewSubtitle` |
 | `—` *(no icon)* | **Entwicklung** | Settings screen — dev-only section header (backend switch flow lives here) | `settings.dev` |
 | `—` *(no icon)* | **Backend-URI** | Settings (dev) — editable backend-URI field label | `settings.backendUri` |
 | `—` *(no icon)* | **Speichern** | Settings (dev) — save override action | `settings.save` |
