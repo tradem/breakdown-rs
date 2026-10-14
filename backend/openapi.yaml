@@ -1871,6 +1871,44 @@ components:
       - scene
       - schedule_rows
       type: object
+    MetaCreditsEntry:
+      description: |-
+        One credit entry (issue #655): LLM co-author or human contributor.
+
+        One wire shape for both kinds so the client renders the word cloud from a
+        single payload: `provider` is set (and `roles` empty) for LLM co-authors;
+        `roles` is set (and `provider` null) for humans.
+      properties:
+        name:
+          description: Display name — the model name (LLM) or the contributor handle (human).
+          type: string
+        provider:
+          description: Provider/tool for LLM co-authors (e.g. `neuralwatt`); null for humans.
+          type:
+          - string
+          - 'null'
+        roles:
+          description: Roles for human contributors (e.g. `Developer`); empty for LLMs.
+          items:
+            type: string
+          type: array
+      required:
+      - name
+      - roles
+      type: object
+    MetaCreditsResponse:
+      description: |-
+        `GET /v1/meta/credits` response (issue #655): deduped LLM co-authors plus
+        the human contributors. LLM entries come first (sorted by name, provider),
+        humans second (sorted by name) — a fixed, deterministic order.
+      properties:
+        credits:
+          items:
+            $ref: '#/components/schemas/MetaCreditsEntry'
+          type: array
+      required:
+      - credits
+      type: object
     MetaVersionsResponse:
       description: Compile-time versions of the workspace crates meaningful to clients.
       properties:
@@ -5706,6 +5744,31 @@ paths:
                 $ref: '#/components/schemas/HealthReport'
           description: At least one dependency is unhealthy
       summary: '`GET /v1/health` — public, unversioned-by-policy readiness surface.'
+      tags:
+      - handlers
+  /v1/meta/credits:
+    get:
+      description: |-
+        **Authenticated, not Public** (same decision as `/meta/versions`, issue
+        #656, applied to this route per user decision on issue #655): the route
+        serves the signed-in app's credits screen, carries no tenant data and no
+        block-scoped action, so `Authenticated` is the whole gate — no
+        handler-internal auth gate needed. The handler performs no I/O.
+      operationId: get_meta_credits
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MetaCreditsResponse'
+          description: Deduped LLM co-authors and human contributors
+        '401':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Missing or invalid OIDC token
+      summary: '`GET /v1/meta/credits` — deduped LLM co-authors + human contributors.'
       tags:
       - handlers
   /v1/meta/versions:

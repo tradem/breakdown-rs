@@ -93,6 +93,8 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..add(MembershipView.serializer)
       ..add(MergedPreview.serializer)
       ..add(MergedScene.serializer)
+      ..add(MetaCreditsEntry.serializer)
+      ..add(MetaCreditsResponse.serializer)
       ..add(MetaVersionsResponse.serializer)
       ..add(ModelInfo.serializer)
       ..add(PhotoBinding.serializer)
@@ -224,6 +226,9 @@ Serializers _$serializers = (Serializers().toBuilder()
           const FullType(BuiltList, const [const FullType(SceneView)]),
           () => ListBuilder<SceneView>())
       ..addBuilderFactory(
+          const FullType(BuiltList, const [const FullType(MetaCreditsEntry)]),
+          () => ListBuilder<MetaCreditsEntry>())
+      ..addBuilderFactory(
           const FullType(BuiltList, const [const FullType(PhotoVariantView)]),
           () => ListBuilder<PhotoVariantView>())
       ..addBuilderFactory(
@@ -240,6 +245,9 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..addBuilderFactory(
           const FullType(BuiltList, const [const FullType(SollIstDiffRow)]),
           () => ListBuilder<SollIstDiffRow>())
+      ..addBuilderFactory(
+          const FullType(BuiltList, const [const FullType(String)]),
+          () => ListBuilder<String>())
       ..addBuilderFactory(
           const FullType(BuiltList, const [const FullType(String)]),
           () => ListBuilder<String>())

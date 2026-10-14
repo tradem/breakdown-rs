@@ -2520,6 +2520,54 @@ class AppLocalizationsEn extends AppLocalizations {
       'Backend versions could not be loaded.';
 
   @override
+  String get infoCredits => 'Credits';
+
+  @override
+  String get infoCreditsSubtitle => 'The people and AI models behind this app.';
+
+  @override
+  String get creditsTitle => 'Credits';
+
+  @override
+  String get creditsCloudTitle => 'Thanks to all contributors';
+
+  @override
+  String get creditsCloudBody =>
+      'The AI models (with their provider) and the human contributors (with their roles) who helped build this project.';
+
+  @override
+  String get creditsError => 'Credits could not be loaded.';
+
+  @override
+  String get creditsRoleLabel => 'Roles';
+
+  @override
+  String get creditsLlmLabel => 'AI co-author';
+
+  @override
+  String creditsSemanticHuman(Object name, Object roles) {
+    return '$name, $roles';
+  }
+
+  @override
+  String creditsSemanticLlm(Object name, Object provider) {
+    return '$name, AI co-author by $provider';
+  }
+
+  @override
+  String get creditsShouldersTitle => 'On the shoulders of giants';
+
+  @override
+  String get creditsShouldersBody =>
+      'This app is built on these free technologies.';
+
+  @override
+  String get creditsRustLabel => 'Rust — the backend language';
+
+  @override
+  String get creditsFlutterLabel => 'Flutter — the app framework';
+
+  @override
   String get infoAiUsage => 'AI usage';
 
   @override

@@ -30,7 +30,7 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 # https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
 # In Windows, build-name is used as the major, minor, and patch parts
 # of the product and file versions while build-number is used as the build suffix.
-version: 0.4.0-alpha.23+74
+version: 0.4.0-alpha.24+75
 
 environment:
   sdk: ^3.13.1
@@ -119,6 +119,10 @@ dependencies:
   # Test-surface dependency (issue #516): the in-memory platform double
   # for shared_preferences lives in the platform-interface package.
   shared_preferences_platform_interface: ^2.4.2
+  # Word-cloud credits screen (issue #655): SVG rendering of the bundled
+  # technology logos (Rust, Flutter) in the "Auf der Schulter von Riesen"
+  # section. FOSS package (dart.dev), no native platform channels.
+  flutter_svg: ^2.2.3
   connectivity_plus: ^7.3.2
 
   # The following adds the Cupertino Icons font to your application.
@@ -192,6 +196,10 @@ flutter:
     # `bootstrap()` can prove the dart-define matches the value Gradle
     # used for the native deep-link registration (fail-closed on drift).
     - oidc-config.json
+    # Credits screen "Auf der Schulter von Riesen" (issue #655): bundled
+    # technology logos (SVG, rendered via flutter_svg).
+    - assets/graphics/rust_logo.svg
+    - assets/graphics/flutter_logo.svg
 
   # To add assets to your application, add an assets section, like this:
   # assets:

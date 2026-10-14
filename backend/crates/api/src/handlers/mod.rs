@@ -7028,6 +7028,10 @@ pub fn routes() -> Router<AppState<ProductionPorts>> {
             routing::get(crate::meta::get_meta_versions),
         )
         .route(
+            "/meta/credits",
+            routing::get(crate::meta::get_meta_credits),
+        )
+        .route(
             "/ops/projector-health",
             routing::get(get_projector_health::<ProductionPorts>),
         )

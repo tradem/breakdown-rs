@@ -48,6 +48,7 @@ use utoipa::OpenApi;
     paths(
         crate::health::get_health,
         crate::meta::get_meta_versions,
+        crate::meta::get_meta_credits,
         handlers::create_season,
         handlers::list_seasons,
         handlers::get_season,

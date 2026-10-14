@@ -95,6 +95,8 @@ export 'package:breakdown_api/src/model/membership_state_kind.dart';
 export 'package:breakdown_api/src/model/membership_view.dart';
 export 'package:breakdown_api/src/model/merged_preview.dart';
 export 'package:breakdown_api/src/model/merged_scene.dart';
+export 'package:breakdown_api/src/model/meta_credits_entry.dart';
+export 'package:breakdown_api/src/model/meta_credits_response.dart';
 export 'package:breakdown_api/src/model/meta_versions_response.dart';
 export 'package:breakdown_api/src/model/model_info.dart';
 export 'package:breakdown_api/src/model/photo_binding.dart';

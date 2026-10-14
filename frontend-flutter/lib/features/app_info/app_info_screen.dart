@@ -13,6 +13,7 @@ import '../../design/spacing.dart';
 import '../../l10n/app_localizations_provider.dart';
 import 'ai_disclosure_screen.dart';
 import 'app_info_controller.dart';
+import 'credits_screen.dart';
 
 /// Source repository linked from the About screen (spec
 /// `flutter-app-dialogs`: AGPL-3.0 license + source link).
@@ -140,6 +141,28 @@ class AppInfoScreen extends ConsumerWidget {
               icon: const Icon(Icons.open_in_new, size: 18),
               label: Text(l10n.infoSource),
             ),
+          ),
+          ListTile(
+            key: const Key('info-credits'),
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(Icons.groups_outlined),
+            title: Text(l10n.infoCredits),
+            subtitle: Text(l10n.infoCreditsSubtitle),
+            // Doorway to the credits screen (issue #655): word cloud of
+            // the deduped LLM co-authors + human contributors, plus the
+            // "Auf der Schulter von Riesen" technology-logos section.
+            // Fire-and-forget navigation (no result consumed); the screen
+            // stays in the stack beneath the credits.
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () {
+              unawaited(
+                Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => const CreditsScreen(),
+                  ),
+                ),
+              );
+            },
           ),
           const SizedBox(height: AppSpacing.space8),
           ListTile(

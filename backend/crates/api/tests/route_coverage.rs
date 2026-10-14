@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0
+// Co-authored-by: glm-5.3-flash (neuralwatt)
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: space-bunny-free (opencode-go)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
@@ -87,7 +88,7 @@ fn api_routes_are_behind_auth_middleware() {
     //  patterns, not method-verb pairs.)
     assert_eq!(
         api.len(),
-        94,
+        95,
         "number of API route path patterns has changed — \
          see doc comment above for update instructions"
     );
@@ -121,6 +122,11 @@ fn api_routes_have_deliberate_authorization_requirement() {
         // app pays nothing, anonymous probes get no version fingerprint; no
         // tenant data, so no block membership.
         ("/meta/versions", Requirement::Authenticated),
+        // Meta surface (issue #655): deduped LLM co-authors + human
+        // contributors for the client's credits screen. `Authenticated`
+        // (not Public) — same decision as /meta/versions: no tenant data,
+        // no block membership, no version fingerprint for anonymous probes.
+        ("/meta/credits", Requirement::Authenticated),
         ("/settings/credentials", Requirement::Authenticated),
         ("/settings/gdrive", Requirement::Authenticated),
         ("/settings/{id}/gdrive", Requirement::Authenticated),

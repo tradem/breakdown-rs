@@ -2,11 +2,12 @@
 # Copyright (C) 2024-2026 Breakdown RS Contributors
 # Co-authored-by: deepseek-v4-flash (opencode-go)
 # Co-authored-by: glm-5.3-flash (opencode-go)
+# Co-authored-by: glm-5.3-flash (neuralwatt)
 # Co-authored-by: deepseek-v4.1-flash (neuralwatt)
 
 [package]
 name = "api"
-version = "0.27.0"
+version = "0.28.0"
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true

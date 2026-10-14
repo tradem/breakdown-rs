@@ -53,6 +53,7 @@ import 'package:breakdown_api/src/model/id_version_response.dart';
 import 'package:breakdown_api/src/model/invite_member_request.dart';
 import 'package:breakdown_api/src/model/link_continuity_photo_request.dart';
 import 'package:breakdown_api/src/model/membership_view.dart';
+import 'package:breakdown_api/src/model/meta_credits_response.dart';
 import 'package:breakdown_api/src/model/meta_versions_response.dart';
 import 'package:breakdown_api/src/model/model_info.dart';
 import 'package:breakdown_api/src/model/photo_view.dart';
@@ -3870,6 +3871,80 @@ class HandlersApi {
     }
 
     return Response<MembershipView>(
+      data: _responseData,
+      headers: _response.headers,
+      isRedirect: _response.isRedirect,
+      requestOptions: _response.requestOptions,
+      redirects: _response.redirects,
+      statusCode: _response.statusCode,
+      statusMessage: _response.statusMessage,
+      extra: _response.extra,
+    );
+  }
+
+  /// &#x60;GET /v1/meta/credits&#x60; — deduped LLM co-authors + human contributors.
+  /// **Authenticated, not Public** (same decision as &#x60;/meta/versions&#x60;, issue #656, applied to this route per user decision on issue #655): the route serves the signed-in app&#39;s credits screen, carries no tenant data and no block-scoped action, so &#x60;Authenticated&#x60; is the whole gate — no handler-internal auth gate needed. The handler performs no I/O.
+  ///
+  /// Parameters:
+  /// * [cancelToken] - A [CancelToken] that can be used to cancel the operation
+  /// * [headers] - Can be used to add additional headers to the request
+  /// * [extras] - Can be used to add flags to the request
+  /// * [validateStatus] - A [ValidateStatus] callback that can be used to determine request success based on the HTTP status of the response
+  /// * [onSendProgress] - A [ProgressCallback] that can be used to get the send progress
+  /// * [onReceiveProgress] - A [ProgressCallback] that can be used to get the receive progress
+  ///
+  /// Returns a [Future] containing a [Response] with a [MetaCreditsResponse] as data
+  /// Throws [DioException] if API call or serialization fails
+  Future<Response<MetaCreditsResponse>> getMetaCredits({
+    CancelToken? cancelToken,
+    Map<String, dynamic>? headers,
+    Map<String, dynamic>? extra,
+    ValidateStatus? validateStatus,
+    ProgressCallback? onSendProgress,
+    ProgressCallback? onReceiveProgress,
+  }) async {
+    final _path = r'/v1/meta/credits';
+    final _options = Options(
+      method: r'GET',
+      headers: <String, dynamic>{
+        ...?headers,
+      },
+      extra: <String, dynamic>{
+        'secure': <Map<String, String>>[],
+        ...?extra,
+      },
+      validateStatus: validateStatus,
+    );
+
+    final _response = await _dio.request<Object>(
+      _path,
+      options: _options,
+      cancelToken: cancelToken,
+      onSendProgress: onSendProgress,
+      onReceiveProgress: onReceiveProgress,
+    );
+
+    MetaCreditsResponse? _responseData;
+
+    try {
+      final rawResponse = _response.data;
+      _responseData = rawResponse == null
+          ? null
+          : _serializers.deserialize(
+              rawResponse,
+              specifiedType: const FullType(MetaCreditsResponse),
+            ) as MetaCreditsResponse;
+    } catch (error, stackTrace) {
+      throw DioException(
+        requestOptions: _response.requestOptions,
+        response: _response,
+        type: DioExceptionType.unknown,
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+
+    return Response<MetaCreditsResponse>(
       data: _responseData,
       headers: _response.headers,
       isRedirect: _response.isRedirect,

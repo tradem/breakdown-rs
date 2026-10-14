@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0
+// Co-authored-by: glm-5.3-flash (neuralwatt)
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: glm-5.3 (neuralwatt)
 
@@ -26,5 +27,15 @@ MetaRepository metaRepository(Ref ref) =>
 @riverpod
 Future<MetaVersionsResponse> metaVersions(Ref ref) async {
   final result = await ref.watch(metaRepositoryProvider).versions();
+  return result.match((err) => throw err, (v) => v);
+}
+
+/// Deduped LLM co-authors + human contributors for the credits screen
+/// (issue #655). Same Result→AsyncValue adaptation as [metaVersions]: the
+/// credits screen shows the honest error copy, it never crashes on a
+/// failed fetch.
+@riverpod
+Future<MetaCreditsResponse> metaCredits(Ref ref) async {
+  final result = await ref.watch(metaRepositoryProvider).credits();
   return result.match((err) => throw err, (v) => v);
 }
