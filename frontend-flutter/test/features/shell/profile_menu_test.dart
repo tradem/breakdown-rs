@@ -1,17 +1,15 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
-// Co-authored-by: deepseek-v4.1-flash (neuralwatt)
-// Co-authored-by: muse-spark-1.3-contributor (opencode-go)
-// Co-authored-by: space-bunny-free (opencode-go)
-// Co-authored-by: deepseek-v4-flash (neuralwatt)
+// Co-authored-by: glm-5.3-flash (neuralwatt)
 
-// The app-menu tests, MIGRATED to the per-view PROFILE affordance (issue
-// #610): the dissolved Mehr destination's entries (identity, About,
-// Settings, Sign out) now live in the profile sheet every view root
-// carries in its app bar. Issue #613 owns the final top-bar design; this
-// change only moves the entries off the dissolved destination.
+// The user ACCOUNT DRAWER tests (issue #653): the profile affordance in
+// the shell top bar opens a Material 3 NavigationDrawer as a side overlay
+// (Spotify-style, scrim included) — explicitly NOT a bottom sheet and NOT
+// a dialog. The drawer's entries are the former profile sheet's: identity,
+// About (→ FULL SCREEN route), Settings (→ full-screen push) and Sign out
+// (→ the OIDC/session-reset flow back to the unauthenticated gate).
 //
-// Entry path: tap `profile-menu-button`, then the labeled sheet entry.
+// Entry path: tap `profile-menu-button`, then the labeled drawer entry.
 // Costume categories are deliberately NOT here (they live with the costume
 // content in the Cast view) — asserted below.
 
@@ -31,8 +29,11 @@ import 'package:frontend_flutter/data/ai_import_providers.dart';
 import 'package:frontend_flutter/data/cache/ai_import_jobs_cache_dao.dart';
 import 'package:frontend_flutter/data/cache/season_cache_dao.dart';
 import 'package:frontend_flutter/data/cache/seasons_cache_providers.dart';
+import 'package:frontend_flutter/design/theme.dart';
 import 'package:frontend_flutter/features/ai_import/import_jobs/jobs_controller.dart';
+import 'package:frontend_flutter/features/app_info/app_info_screen.dart';
 import 'package:frontend_flutter/features/seasons/seasons_controller.dart';
+import 'package:frontend_flutter/l10n/generated/app_localizations.dart';
 
 import '../seasons/seasons_test_fakes.dart';
 import '../ai_import/jobs_screen_test.dart' show FakeJobsRepository;
@@ -104,19 +105,29 @@ void main() {
     await pumpFrames(tester);
   }
 
-  /// Opens the profile sheet (bottom sheet animation needs real frames —
-  /// no wall-clock budget, just enough pumps for the entrance).
-  Future<void> openProfile(WidgetTester tester) async {
+  /// Opens the account drawer (issue #653): the drawer's side-entrance
+  /// animation needs real frames — no wall-clock budget, just enough
+  /// deterministic pumps for the entrance (246ms Material duration).
+  Future<void> openAccountDrawer(WidgetTester tester) async {
     await tester.tap(find.byKey(const Key('profile-menu-button')));
     await pumpFrames(tester, n: 30);
   }
 
-  group('profile menu (issue #610, migrated from the Mehr destination)', () {
-    testWidgets('shows the authenticated identity', (tester) async {
+  group('account drawer (issue #653): side overlay, not a bottom sheet', () {
+    testWidgets('the user icon opens the side NavigationDrawer with entries', (
+      tester,
+    ) async {
       await setupDevAuth();
       await pumpApp(tester);
-      await openProfile(tester);
+      await openAccountDrawer(tester);
 
+      // It is the M3 NavigationDrawer hosted by the shell Scaffold — a
+      // side overlay with scrim, NOT a bottom sheet (nothing slides up
+      // from the bottom) and NOT a dialog.
+      expect(find.byKey(const Key('profile-account-drawer')), findsOneWidget);
+      expect(find.byType(NavigationDrawer), findsOneWidget);
+      expect(find.byType(BottomSheet), findsNothing);
+      expect(find.byType(AlertDialog), findsNothing);
       expect(find.byKey(const Key('profile-identity')), findsOneWidget);
       expect(find.text('dev-user'), findsOneWidget);
       expect(find.byKey(const Key('profile-about')), findsOneWidget);
@@ -128,39 +139,49 @@ void main() {
       expect(find.byKey(const Key('profile-categories')), findsNothing);
     });
 
-    testWidgets('sign out returns to login: no refetch, cache emptied once', (
+    testWidgets('tap-outside (scrim) closes the drawer', (tester) async {
+      await setupDevAuth();
+      await pumpApp(tester);
+      await openAccountDrawer(tester);
+      expect(find.byKey(const Key('profile-account-drawer')), findsOneWidget);
+
+      // Tap the scrim: a point right of the drawer, relative to the
+      // SCREEN (the drawer's own box may span the full screen width, so
+      // its right edge is not a reliable scrim position).
+      final screen = tester.view.physicalSize;
+      await tester.tapAt(Offset(screen.width - 40, screen.height / 2));
+      // Bounded pumps: the drawer exit animation plus the frames the
+      // framework needs to finalize the route removal afterwards.
+      for (var i = 0; i < 40; i++) {
+        await tester.pump(const Duration(milliseconds: 20));
+      }
+
+      expect(find.byKey(const Key('profile-account-drawer')), findsNothing);
+    });
+
+    testWidgets('about opens a FULL SCREEN route, never a dialog', (
       tester,
     ) async {
       await setupDevAuth();
       await pumpApp(tester);
-      // Issue #610: the shell boots into the Cast view, which does NOT read
-      // the seasons projection until a season scope is opened — so the
-      // "no refetch after sign-out" contract is asserted as "the fetch
-      // count never grows during the sign-out", whatever it started at.
-      final fetchesBeforeSignOut = fetchCalls;
 
-      await openProfile(tester);
-      await tester.tap(find.byKey(const Key('profile-signout')));
-      await pumpFrames(tester, n: 30);
-
-      // Root recomposed to LoginScreen; no post-signout projection render.
-      expect(find.byKey(const Key('login-continue-button')), findsOneWidget);
-      expect(find.byKey(const Key('shell-navigation-bar')), findsNothing);
-      expect(fetchCalls, fetchesBeforeSignOut);
-      // Cache emptied exactly once, rows really gone.
-      expect(repo.clearCacheCalls, 1);
-      expect(await SeasonCacheDao(db).readAll(), isEmpty);
-    });
-
-    testWidgets('about opens the info dialog', (tester) async {
-      await setupDevAuth();
-      await pumpApp(tester);
-
-      await openProfile(tester);
+      await openAccountDrawer(tester);
       await tester.tap(find.byKey(const Key('profile-about')));
-      await pumpFrames(tester);
+      await pumpFrames(tester, n: 12);
 
-      expect(find.byKey(const Key('info-dialog')), findsOneWidget);
+      // Issue #653 hard requirement: a full screen route with app-bar back
+      // navigation — no AlertDialog, and the route is a MaterialPageRoute
+      // (a screen route), not a popup/dialog route.
+      expect(find.byKey(const Key('app-info-screen')), findsOneWidget);
+      expect(find.byKey(const Key('app-info-appbar')), findsOneWidget);
+      expect(find.byType(AlertDialog), findsNothing);
+      final route = ModalRoute.of(
+        tester.element(find.byKey(const Key('app-info-screen'))),
+      );
+      expect(route, isA<MaterialPageRoute<void>>());
+      expect(route, isNot(isA<PopupRoute<void>>()));
+      expect(find.byType(AppInfoScreen), findsOneWidget);
+      // Content contract carried over from the former dialog.
       expect(find.byKey(const Key('info-version')), findsOneWidget);
       expect(find.byKey(const Key('info-license')), findsOneWidget);
       expect(find.byKey(const Key('info-ai-notice')), findsOneWidget);
@@ -172,11 +193,17 @@ void main() {
       await setupDevAuth();
       await pumpApp(tester);
 
-      await openProfile(tester);
+      await openAccountDrawer(tester);
       await tester.tap(find.byKey(const Key('profile-settings')));
-      await pumpFrames(tester);
-
-      // Issue #516: a pushed full screen, not a dialog.
+      // Bounded pumps past the drawer's full exit animation — while the
+      // drawer is still sliding out, drag gestures re-engage its gesture
+      // handling and never reach the settings list beneath.
+      for (var i = 0; i < 30; i++) {
+        await tester.pump(const Duration(milliseconds: 20));
+      }
+      // The drawer is gone; the settings screen pushed on the destination
+      // navigator (issue #516: a pushed full screen, not a dialog).
+      expect(find.byKey(const Key('profile-account-drawer')), findsNothing);
       expect(find.byKey(const Key('settings-screen')), findsOneWidget);
       expect(find.byKey(const Key('settings-appbar')), findsOneWidget);
       expect(find.byKey(const Key('settings-egg-karlKlammer')), findsOneWidget);
@@ -190,6 +217,30 @@ void main() {
       );
       await pumpFrames(tester);
       expect(find.byKey(const Key('settings-uri-field')), findsOneWidget);
+    });
+
+    testWidgets('sign out returns to login: no refetch, cache emptied once', (
+      tester,
+    ) async {
+      await setupDevAuth();
+      await pumpApp(tester);
+      // Issue #610: the shell boots into the Cast view, which does NOT read
+      // the seasons projection until a season scope is opened — so the
+      // "no refetch after sign-out" contract is asserted as "the fetch
+      // count never grows during the sign-out", whatever it started at.
+      final fetchesBeforeSignOut = fetchCalls;
+
+      await openAccountDrawer(tester);
+      await tester.tap(find.byKey(const Key('profile-signout')));
+      await pumpFrames(tester, n: 30);
+
+      // Root recomposed to LoginScreen; no post-signout projection render.
+      expect(find.byKey(const Key('login-continue-button')), findsOneWidget);
+      expect(find.byKey(const Key('shell-navigation-bar')), findsNothing);
+      expect(fetchCalls, fetchesBeforeSignOut);
+      // Cache emptied exactly once, rows really gone.
+      expect(repo.clearCacheCalls, 1);
+      expect(await SeasonCacheDao(db).readAll(), isEmpty);
     });
 
     testWidgets('failed sign-out leaves the gate, error surfaced', (
@@ -222,7 +273,7 @@ void main() {
       );
       await container.read(authSessionControllerProvider.notifier).signIn();
       await pumpApp(tester);
-      await openProfile(tester);
+      await openAccountDrawer(tester);
       await tester.tap(find.byKey(const Key('profile-signout')));
       await pumpFrames(tester, n: 30);
 
@@ -230,6 +281,55 @@ void main() {
       expect(find.byKey(const Key('shell-navigation-bar')), findsNothing);
       expect(find.byKey(const Key('login-error-banner')), findsOneWidget);
       expect(find.textContaining('Something went wrong'), findsOneWidget);
+    });
+  });
+
+  group('account drawer goldens (issue #653, German template locale)', () {
+    Future<void> pumpGolden(
+      WidgetTester tester, {
+      required String golden,
+      required ThemeMode mode,
+    }) async {
+      tester.view.physicalSize = const Size(360, 800);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: MaterialApp(
+            theme: AppThemes.light(),
+            darkTheme: AppThemes.dark(),
+            themeMode: mode,
+            // AGENTS.md §6: goldens use the German template locale.
+            locale: const Locale('de'),
+            supportedLocales: AppLocalizations.supportedLocales,
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            home: const App(),
+          ),
+        ),
+      );
+      await pumpFrames(tester, n: 12);
+      await openAccountDrawer(tester);
+      expect(find.byKey(const Key('profile-account-drawer')), findsOneWidget);
+      await expectLater(find.byType(App), matchesGoldenFile('goldens/$golden'));
+    }
+
+    testWidgets('light', (tester) async {
+      await setupDevAuth();
+      await pumpGolden(
+        tester,
+        golden: 'account_drawer_light.png',
+        mode: ThemeMode.light,
+      );
+    });
+
+    testWidgets('dark', (tester) async {
+      await setupDevAuth();
+      await pumpGolden(
+        tester,
+        golden: 'account_drawer_dark.png',
+        mode: ThemeMode.dark,
+      );
     });
   });
 }

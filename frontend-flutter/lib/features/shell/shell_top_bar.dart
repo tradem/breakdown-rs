@@ -84,7 +84,7 @@ class ShellTopBar extends ConsumerWidget {
                 key: const Key('shell-context-bar'),
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  _ScopeRow(location: location, navigatorKey: navigatorKey),
+                  _ScopeRow(location: location),
                   _ViewRow(
                     title: title,
                     location: location,
@@ -101,11 +101,14 @@ class ShellTopBar extends ConsumerWidget {
 }
 
 /// Row 1: profile affordance + the three scope pills.
+///
+/// The profile affordance needs no navigator: it only opens the shell
+/// Scaffold's account drawer (issue #653), whose entries target the
+/// ACTIVE destination's navigator (see `AccountDrawer.navigatorKey`).
 class _ScopeRow extends StatelessWidget {
-  const _ScopeRow({required this.location, required this.navigatorKey});
+  const _ScopeRow({required this.location});
 
   final PlanningLocation? location;
-  final GlobalKey<NavigatorState> navigatorKey;
 
   @override
   Widget build(BuildContext context) {
@@ -113,7 +116,7 @@ class _ScopeRow extends StatelessWidget {
       key: const Key('shell-scope-bar'),
       children: [
         const SizedBox(width: AppSpacing.space4),
-        ProfileMenuButton(navigatorKey: navigatorKey),
+        ProfileMenuButton(),
         const SizedBox(width: AppSpacing.space4),
         // The pill cluster scrolls rather than overflows on a narrow bar
         // (three pills + profile icon on a 360dp phone).

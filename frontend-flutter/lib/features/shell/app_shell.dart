@@ -19,6 +19,7 @@ import '../../auth/active_episode.dart';
 import '../../auth/active_episode_store.dart';
 import '../../auth/auth_providers.dart';
 import 'quick_create_sheet.dart';
+import 'account_drawer.dart';
 import 'cast_tab_screen.dart';
 import 'planning_location_route_observer.dart';
 import 'schedule_tab_screen.dart';
@@ -247,8 +248,19 @@ class AppShellState extends ConsumerState<AppShell> {
     // and DOCKS above the bar (Material's FAB slot); in medium/expanded it
     // floats at the content's bottom-right (no tab root carries its own FAB
     // since #610, so there is no overlap).
+    // Issue #653: the shell hosts the user ACCOUNT DRAWER (M3
+    // NavigationDrawer, Spotify-style side overlay — never a bottom
+    // sheet) on every morphology's Scaffold. It sits on the ROOT
+    // navigator (its scrim covers top bar + destination bar), and its
+    // About/Settings pushes target the ACTIVE destination's nested
+    // navigator, which is passed here so the drawer can never drift from
+    // the shell's destination state.
+    Widget accountDrawer() =>
+        AccountDrawer(navigatorKey: tabNavigatorKeys[state.selectedIndex]);
+
     return switch (sizeClass) {
       WindowSizeClass.compact => Scaffold(
+        drawer: accountDrawer(),
         body: contentWithLocation(
           // CodeRabbit review #623: the extended FAB sits docked above the
           // bar (its 56 height + the 16 docked margin); without clearance
@@ -264,6 +276,7 @@ class AppShellState extends ConsumerState<AppShell> {
         floatingActionButton: plusFab,
       ),
       WindowSizeClass.medium => Scaffold(
+        drawer: accountDrawer(),
         body: Row(
           children: [
             ShellDestinations.navigationRail(
@@ -278,6 +291,7 @@ class AppShellState extends ConsumerState<AppShell> {
         floatingActionButton: plusFab,
       ),
       WindowSizeClass.expanded => Scaffold(
+        drawer: accountDrawer(),
         body: Row(
           children: [
             ShellDestinations.navigationDrawer(
