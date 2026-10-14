@@ -72,22 +72,21 @@ mod tests {
     async fn meta_versions_reports_compile_time_crate_versions() {
         let response = get_meta_versions().await;
         assert_eq!(response.status(), StatusCode::OK);
-        // Shape check via the response body would need axum body buffering;
-        // the struct is built from constants, so assert the constants
-        // directly — this pins the compile-time sourcing contract.
-        let expected = MetaVersionsResponse {
-            api: env!("CARGO_PKG_VERSION"),
-            core: breakdown_core::VERSION,
-            infra: infra::VERSION,
-        };
-        assert!(!expected.api.is_empty());
-        assert!(!expected.core.is_empty());
-        assert!(!expected.infra.is_empty());
-        // The crate versions are distinct lockstep tracks — core must not
-        // accidentally alias the api version (independent bumps per crate).
-        let json = serde_json::to_value(&expected).unwrap();
+        // Assert the ACTUAL response body (not an independently built
+        // struct): the wire JSON must carry each crate's compile-time
+        // version — this pins both the serialization and the sourcing.
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(json["api"], env!("CARGO_PKG_VERSION"));
         assert_eq!(json["core"], breakdown_core::VERSION);
         assert_eq!(json["infra"], infra::VERSION);
+        // No extra fields on the wire (explicit-fields contract).
+        assert_eq!(
+            json.as_object().unwrap().len(),
+            3,
+            "MetaVersionsResponse must expose exactly api/core/infra"
+        );
     }
 }

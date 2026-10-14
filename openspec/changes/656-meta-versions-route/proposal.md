@@ -29,9 +29,8 @@ ops-oriented.
   `pub const VERSION: &str = env!("CARGO_PKG_VERSION")`; `api` reports its
   own `CARGO_PKG_VERSION` plus the two re-exported constants. No runtime
   file reads, no `Cargo.toml` parsing. The three workspace crates carry
-  *independent* versions (currently core 0.28.0 / infra 0.33.0 /
-  api 0.26.0), so the response reports each crate individually.
-- **Response shape:** `{"api": "0.26.0", "core": "0.28.0", "infra": "0.33.0"}`
+  *independent* versions, so the response reports each crate individually.
+- **Response shape:** `{"api": "0.27.0", "core": "0.29.0", "infra": "0.34.0"}`
   — explicit fields (not a map) so the generated Dart client gets typed
   accessors. Additive-only: new crates may later be added as new fields.
 - utoipa path + schema annotations; `backend/openapi.yaml` regenerated via
@@ -51,11 +50,12 @@ ops-oriented.
   `crates/api/src/lib.rs` (ApiDoc), `backend/openapi.yaml`,
   `frontend-flutter/vendor/breakdown_api/**` (generated),
   `frontend-flutter/lib/features/app_info/**` + tests + l10n.
-- **No version bumps** of workspace crates are required by this change (the
-  route *reports* versions; it does not change any crate's public Rust API —
-  the new `VERSION` consts are additive, additive-only changes do not force a
-  bump under the current lockstep discipline; recorded explicitly in the
-  version-bump table).
+- **Version bumps (dependency-order lockstep, additive MINORs):**
+  `core` 0.28.0 → 0.29.0 (new public `VERSION` const), `infra` 0.33.0 →
+  0.34.0 (new public `VERSION` const), `api` 0.26.0 → 0.27.0 (new public
+  route). The route *reports* versions; the bumps are for the new public
+  Rust/wire API surface, not for the reported values — consuming-crate
+  pins are updated in the same PR.
 - **Security:** no tenant data; authed to avoid anonymous version
   fingerprinting. Threat model unaffected (`docs/security/security-architecture.md`
   needs no change — no new authz predicate, no new data flow beyond an
