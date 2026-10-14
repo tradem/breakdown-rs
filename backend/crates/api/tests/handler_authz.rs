@@ -39,6 +39,7 @@ const DEV_SUB: &str = "dev-user";
 fn auth_router(auth: Arc<AuthState>, authz: Arc<AuthorizationState>) -> Router<()> {
     Router::new()
         .route("/seasons", post(|| async { StatusCode::OK }))
+        .route("/meta/versions", get(|| async { StatusCode::OK }))
         .route("/blocks/{id}", get(|| async { StatusCode::OK }))
         .route("/blocks/{id}/members", get(|| async { StatusCode::OK }))
         .route(
@@ -295,6 +296,56 @@ async fn pending_invitee_can_accept_invitation() {
     let req = Request::builder()
         .method("POST")
         .uri(format!("/blocks/{}/members/accept", block.0))
+        .body(AxumBody::empty())
+        .unwrap();
+
+    assert_eq!(status_of(&app, req).await, StatusCode::OK);
+}
+
+#[tokio::test]
+async fn meta_versions_requires_authentication() {
+    // Issue #656: GET /meta/versions is `Authenticated`, not `Public` —
+    // the signed-in app's About screen pays nothing for the token check,
+    // while anonymous probes get no backend version fingerprint. Production
+    // (non-dev) auth state with an empty JWKS: no valid bearer token → 401
+    // before authorization.
+    let auth = Arc::new(AuthState::new(
+        OidcConfig {
+            iss: "https://issuer.example".into(),
+            audience: "https://api.example".into(),
+            jwks_url: "https://issuer.example/.well-known/jwks".into(),
+            algorithm: Algorithm::RS256,
+        },
+        Arc::new(StaticJwksProvider::new(HashMap::new())),
+    ));
+    let repo = Arc::new(FakeMembershipRepo::default());
+    let policy = Arc::new(MembershipAuthorizationPolicy::new(repo));
+    let authz = Arc::new(AuthorizationState::new(policy, /*enforce=*/ true));
+
+    let app = auth_router(auth, authz);
+    let req = Request::builder()
+        .method("GET")
+        .uri("/meta/versions")
+        .body(AxumBody::empty())
+        .unwrap();
+
+    assert_eq!(status_of(&app, req).await, StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn meta_versions_needs_no_block_membership() {
+    // The response carries no tenant data and no block-scoped action:
+    // a valid token without any membership must pass (Authenticated, not
+    // BlockMember). The dev-mode dummy user is not a member of any block.
+    let auth = Arc::new(AuthState::dev(CurrentUser::dummy(DEV_SUB)));
+    let repo = Arc::new(FakeMembershipRepo::default());
+    let policy = Arc::new(MembershipAuthorizationPolicy::new(repo));
+    let authz = Arc::new(AuthorizationState::new(policy, /*enforce=*/ true));
+
+    let app = auth_router(auth, authz);
+    let req = Request::builder()
+        .method("GET")
+        .uri("/meta/versions")
         .body(AxumBody::empty())
         .unwrap();
 

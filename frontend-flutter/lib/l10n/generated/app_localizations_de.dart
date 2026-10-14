@@ -2536,6 +2536,17 @@ class AppLocalizationsDe extends AppLocalizations {
       'Der Quellcode-Link konnte nicht geöffnet werden.';
 
   @override
+  String get infoBackendVersions => 'Backend-Komponenten';
+
+  @override
+  String get infoBackendVersionsSubtitle =>
+      'Vom Backend gemeldete Versionen der Arbeitsbereich-Komponenten.';
+
+  @override
+  String get infoBackendVersionsError =>
+      'Backend-Versionen konnten nicht geladen werden.';
+
+  @override
   String get infoAiUsage => 'KI-Nutzung';
 
   @override

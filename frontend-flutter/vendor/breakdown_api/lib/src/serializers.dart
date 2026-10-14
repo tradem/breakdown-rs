@@ -97,6 +97,7 @@ import 'package:breakdown_api/src/model/membership_state_kind.dart';
 import 'package:breakdown_api/src/model/membership_view.dart';
 import 'package:breakdown_api/src/model/merged_preview.dart';
 import 'package:breakdown_api/src/model/merged_scene.dart';
+import 'package:breakdown_api/src/model/meta_versions_response.dart';
 import 'package:breakdown_api/src/model/model_info.dart';
 import 'package:breakdown_api/src/model/photo_binding.dart';
 import 'package:breakdown_api/src/model/photo_binding_one_of.dart';
@@ -246,6 +247,7 @@ part 'serializers.g.dart';
   MembershipView,
   MergedPreview,
   MergedScene,
+  MetaVersionsResponse,
   ModelInfo,
   PhotoBinding,
   PhotoBindingOneOf,

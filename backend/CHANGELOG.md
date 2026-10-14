@@ -24,6 +24,24 @@ tag. Never edit a released entry afterwards.
 
 ## [Unreleased]
 
+### Added
+
+- **Meta route exposing workspace crate versions (issue #656):**
+  `GET /v1/meta/versions` reports the compile-time versions of the workspace
+  crates meaningful to clients (`api`, `core`, `infra`), sourced from each
+  crate's own `CARGO_PKG_VERSION` (`core::VERSION` / `infra::VERSION` consts
+  re-exported to `api`) — no runtime file reads, no manifest parsing. The
+  route is **authenticated** (valid OIDC token, no block membership —
+  decided in the change proposal: the signed-in app pays nothing for the
+  token check while anonymous probes get no backend version fingerprint).
+  The Flutter About screen (#653) renders the fetched versions via the
+  regenerated Dart client, with graceful loading/error degradation.
+- **Version bumps (dependency-order lockstep, additive MINORs):**
+  `core` 0.28.0 → 0.29.0 (new public `VERSION` const),
+  `infra` 0.33.0 → 0.34.0 (new public `VERSION` const),
+  `api` 0.26.0 → 0.27.0 (new public `GET /v1/meta/versions` route);
+  consuming-crate pins updated in the same PR.
+
 ### Fixed
 
 - **PDF report downloads work again — real font discovery instead of a flat

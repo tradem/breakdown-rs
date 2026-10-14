@@ -21,6 +21,21 @@ releases are cut as `vX.Y.Z` tags (`v<build-name>`, enforced by
 
 ## [Unreleased]
 
+- **Version bump:** `0.4.0-alpha.21+72 → 0.4.0-alpha.22+73` — backend
+  crate versions on the About screen (issue #656): the backend's new
+  `GET /v1/meta/versions` route is exposed
+  through the regenerated Dart client (`MetaVersionsResponse`,
+  `getMetaVersions`) and rendered by `AppInfoScreen` as a new
+  `info-backend-versions` tile (`api x · core y · infra z`) — fetched via
+  the new `MetaRepository` (`Result` discipline, no throw in `data/`) and
+  the `metaVersions` riverpod provider; loading and error states degrade
+  gracefully (riverpod 3 surfaces failed fetches as an `AsyncLoading`
+  state carrying `hasError` — the tile shows the honest localized error
+  copy, never a crash). New ARB keys `infoBackendVersions` /
+  `infoBackendVersionsSubtitle` / `infoBackendVersionsError`; repository
+  Ok/Err unit tests and widget tests for the data/error/loading states;
+  About-screen goldens regenerated.
+
 - **Version bump:** `0.4.0-alpha.19+70 → 0.4.0-alpha.20+71` — persistent
   AI-imports entry in the Settings AI section (issue #644): a dedicated,
   always-present "KI" section groups the AI-configuration entry (#643,

@@ -4228,6 +4228,24 @@ abstract class AppLocalizations {
   /// **'Der Quellcode-Link konnte nicht geöffnet werden.'**
   String get infoSourceError;
 
+  /// No description provided for @infoBackendVersions.
+  ///
+  /// In de, this message translates to:
+  /// **'Backend-Komponenten'**
+  String get infoBackendVersions;
+
+  /// No description provided for @infoBackendVersionsSubtitle.
+  ///
+  /// In de, this message translates to:
+  /// **'Vom Backend gemeldete Versionen der Arbeitsbereich-Komponenten.'**
+  String get infoBackendVersionsSubtitle;
+
+  /// No description provided for @infoBackendVersionsError.
+  ///
+  /// In de, this message translates to:
+  /// **'Backend-Versionen konnten nicht geladen werden.'**
+  String get infoBackendVersionsError;
+
   /// No description provided for @infoAiUsage.
   ///
   /// In de, this message translates to:

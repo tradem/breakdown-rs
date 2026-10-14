@@ -275,6 +275,16 @@ pub fn requirement_for(path: &str) -> Requirement {
     if path == "/health" {
         return Requirement::Public;
     }
+
+    // Meta surface (issue #656): compile-time crate versions for the client's
+    // About screen. `Authenticated`, not `Public` (decided in the change
+    // proposal): the signed-in app pays nothing for the token check, while
+    // anonymous probes get no backend version fingerprint. No tenant data,
+    // no privileged action — so no block membership and no handler-internal
+    // auth gate.
+    if path.starts_with("/meta") {
+        return Requirement::Authenticated;
+    }
     // `/series/{id}/membership` is the series-level counterpart of
     // `/seasons/{id}/membership` (issue #535): the membership self-check is
     // tenant-level data the middleware's `X-Active-Block` scope says nothing
