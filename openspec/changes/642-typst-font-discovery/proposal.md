@@ -39,6 +39,11 @@ discovery** — recurse + `otf`/`ttc` and cover distro-dependent font paths
 - Canonical-path dedupe so XDG overlap doesn't load the same file twice.
 - Still fails (no silent empty result) when nothing is found.
 - `collect_font_files()` split out as a pure, unit-testable walker.
+- CodeRabbit review (PR #651): best-effort fontconfig `<dir>` discovery
+  from `/etc/fonts/fonts.conf` + `/etc/fonts/local.conf` (prefix attribute,
+  `~`/`${...}` substitution) and an explicit `REPORT_FONT_DIRS` override
+  (OS path list, `~`-expanded) that takes precedence over all automatic
+  sources — escape hatch for NixOS-style package font layouts.
 
 ### 2. No silent empty renderer (api, `main.rs`)
 

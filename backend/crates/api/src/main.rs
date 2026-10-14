@@ -570,7 +570,8 @@ async fn main() -> Result<()> {
                 error = %e,
                 "TypstReportRenderer defaults failed — report rendering is misconfigured; \
                  install system fonts (fontconfig-style tree under /usr/share/fonts, \
-                 recursed for ttf/otf/ttc) and restart"
+                 recursed for ttf/otf/ttc) or set REPORT_FONT_DIRS to font \
+                 directories, and restart"
             );
             anyhow::anyhow!("report renderer misconfigured: {e}")
         })?);
