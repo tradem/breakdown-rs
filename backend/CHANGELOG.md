@@ -60,6 +60,17 @@ tag. Never edit a released entry afterwards.
 
 ### Fixed
 
+- **rustls 0.23.45 → 0.23.46** (Cargo.lock-only bump): closes the four
+  advisories published 2026-10-14 — RUSTSEC-2026-0346 (Debug impls of client
+  session values expose TLS secrets), RUSTSEC-2026-0347 (buffered application
+  data sent to outer server after ECH rejection), RUSTSEC-2026-0348 (Brotli
+  certificate decompression can allocate up to 1 GiB before authentication;
+  non-default `brotli` feature) and RUSTSEC-2026-0349 (unauthenticated
+  ServerHello can downgrade later connections to classical key exchange).
+  No API change; landed in the #655 PR because the advisories broke the
+  `cargo-deny` gates (advisories + bans + licenses + sources and the Audit
+  advisories check) on first CI run.
+
 - **PDF report downloads work again — real font discovery instead of a flat
   `ttf`-only scan, and no silent empty-renderer fallback (issue #642).**
   `load_system_fonts()` previously scanned only the top level of four
