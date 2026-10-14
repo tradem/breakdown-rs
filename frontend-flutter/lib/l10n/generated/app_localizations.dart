@@ -4657,8 +4657,20 @@ abstract class AppLocalizations {
   /// No description provided for @settingsEasterEggsDejavuCatSubtitle.
   ///
   /// In de, this message translates to:
-  /// **'Im Oktober läuft eine schwarze Katze über den Startbildschirm.'**
+  /// **'Im Oktober läuft eine schwarze Katze über den Startbildschirm und durch die leere Season-Liste. In der Vorschau hier ist sie jederzeit zu sehen.'**
   String get settingsEasterEggsDejavuCatSubtitle;
+
+  /// No description provided for @settingsEasterEggsPreview.
+  ///
+  /// In de, this message translates to:
+  /// **'Vorschau'**
+  String get settingsEasterEggsPreview;
+
+  /// No description provided for @settingsEasterEggsPreviewSubtitle.
+  ///
+  /// In de, this message translates to:
+  /// **'Jedes Ei lässt sich hier in Ruhe ansehen — unabhängig vom Monat.'**
+  String get settingsEasterEggsPreviewSubtitle;
 
   /// No description provided for @settingsDev.
   ///

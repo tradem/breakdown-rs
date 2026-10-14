@@ -2790,7 +2790,14 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get settingsEasterEggsDejavuCatSubtitle =>
-      'In October a black cat crosses the launch screen.';
+      'In October a black cat crosses the launch screen and the empty seasons list. In the preview here you can see it any time.';
+
+  @override
+  String get settingsEasterEggsPreview => 'Preview';
+
+  @override
+  String get settingsEasterEggsPreviewSubtitle =>
+      'Preview every egg here at your leisure — regardless of the month.';
 
   @override
   String get settingsDev => 'Development';

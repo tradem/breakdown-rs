@@ -40,6 +40,11 @@ stays hidden (graceful-degradation rule).
     { "Karl Klammer" | [x] }
     { "Déjà-vu-Katze" | [x] }
     "Kleine Überraschungen in der App lassen sich ein- und ausschalten."
+    --
+    "Vorschau"
+    {^ [Karl-Klammer-Figur] }
+    {^ [Déjà-vu-Katze auf einem Streifzug] }
+    "Jedes Ei lässt sich hier in Ruhe ansehen — unabhängig vom Monat."
   }
   --
   {^ "Entwicklung"
@@ -65,7 +70,11 @@ note (store compliance).
 | General section | Section header | Groups always-available settings | `settings.general` |
 | Easter-eggs group | Section header | Labels the per-egg switch list | `settings.easterEggs` + `settings.easterEggsSubtitle` |
 | Karl Klammer switch | Switch list tile | Per-egg preference (default ON) | `settings.easterEggsKarlKlammer` + `settings.easterEggsKarlKlammerSubtitle` |
-| Deja-vu Cat switch | Switch list tile | Per-egg preference (default ON; October-only effect) | `settings.easterEggsDejavuCat` + `settings.easterEggsDejavuCatSubtitle` |
+| Deja-vu Cat switch | Switch list tile | Per-egg preference (default ON; October-only effect on live surfaces) | `settings.easterEggsDejavuCat` + `settings.easterEggsDejavuCatSubtitle` |
+| Gallery preview header | Section header | Labels the replay/preview area (issue #640) | `settings.easterEggsPreview` |
+| Gallery preview line | Text | Explains the month-independent preview | `settings.easterEggsPreviewSubtitle` |
+| Karl Klammer preview | Preview card | Static figure render of the egg (issue #640) | n/a (graphic, no copy) |
+| Deja-vu Cat preview | Preview card | Bounded walker render of the egg — shown only while the egg switch is ON (issue #640) | n/a (graphic, no copy) |
 | Development section | Section header | Labels the dev-only area | `settings.dev` |
 | Server address row | List item (read-only) | Active effective API base | `settings.serverAddress` |
 | Flavor row | List item (read-only) | Active build flavor | `settings.flavor` |
@@ -77,16 +86,25 @@ note (store compliance).
 ## States
 Loading: N/A — the screen reads local state synchronously (the
 hydrated per-egg easter-eggs notifiers and the effective base). Data:
-rows as above. Error: an Easter-eggs read failure surfaces as a visible
+rows as above; each gallery preview renders its egg's figure regardless
+of month, and only while that egg's switch is ON — a switched-off egg
+renders no preview (the switch is the master gate; the gallery
+bypasses only the October month gate, never the preference). Error: an Easter-eggs read failure surfaces as a visible
 error state on each egg row (fallback default ON); backend-URI save
 errors render inline keyed on `code` via the validation copy. Stale:
 N/A. Optimistic: each easter-eggs switch flips instantly (local
-preference, no projection involved).
+preference, no projection involved); the matching preview appears /
+disappears with the same flip.
 
 ## Interactions
 - Flipping an Easter-eggs switch persists that egg's value and flips its
 global notifier immediately — the matching consumer (Karl Klammer
-overlay / splash cat) updates live, the other egg is unaffected.
+overlay / splash + empty-state cat) updates live, the other egg is
+unaffected; the egg's gallery preview follows the same flip.
+- The gallery previews are static/bounded renders of the egg figures,
+non-interactive, honoring the system "remove animations" setting —
+they are explicit showcase surfaces, not live egg appearances (issue
+#640: makes every egg discoverable and testable regardless of month).
 - Save (dev): validates inline (`validateApiBase`); on success runs the
   `SessionReset.switchBackend` flow with a linear progress indicator,
   then re-reads the effective base.
@@ -109,10 +127,11 @@ screen-reader friendly by construction.
 
 ## Tests
 - Widget: tile pushes the screen (no dialog); back navigation;
-  general section in both flavors; one switch per egg; dev section
-  dev-only; flipping one egg leaves the other unchanged; save/reset/
-  progress flows; per-egg read-failure error subtitle.
+  general section in both flavors; one switch per egg; gallery preview
+  per egg (visible when ON, absent when OFF, month-independent);
+  dev section dev-only; flipping one egg leaves the other unchanged;
+  save/reset/progress flows; per-egg read-failure error subtitle.
 - Golden: `settings_dev_{light,dark}` + `settings_prod_{light,dark}`
-  (replacing the former dialog goldens).
+  (replacing the former dialog goldens) + gallery-preview golden.
 - Unit: per-egg store Ok/Err branches, legacy migration, default-ON
   fallback.
