@@ -70,6 +70,7 @@ activeBlockProvider (sticky scope)        // lib/auth/active_block.dart
 
 | Package / Artifact | Action | Reason |
 |---|---|---|
-| `frontend-flutter` (`pubspec.yaml`) | (none) | No dependency change |
+| `frontend-flutter` (`pubspec.yaml`) | bump `0.4.0-alpha.18+69` → `0.4.0-alpha.19+70` | New custom feature (release mechanics per ADR-033) |
+| `frontend-flutter/CHANGELOG.md` | Unreleased entry added | Version-bump documentation convention |
 | `breakdown_api` (`vendor/breakdown_api/`) | (none) | `backend/openapi.yaml` unchanged |
 | `*.g.dart` / `*.freezed.dart` | (none) | No codegen annotation changed (the gate reuses existing providers) |

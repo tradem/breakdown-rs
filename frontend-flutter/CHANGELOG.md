@@ -21,6 +21,18 @@ releases are cut as `vX.Y.Z` tags (`v<build-name>`, enforced by
 
 ## [Unreleased]
 
+- **Version bump:** `0.4.0-alpha.18+69 → 0.4.0-alpha.19+70` — central
+  AI-configuration entry on the Settings screen (issue #643): a role-gated
+  tile in the general section pushes the existing `AiConfigScreen`, so the
+  AI provider/model configuration is reachable without starting an import.
+  The entry mirrors the backend's `has_active_credential_role` gate through
+  the existing D2/D3 resolution chain (sticky active-block scope →
+  `currentMembershipProvider` → `hasActiveCostumeRoleInSeason`); an
+  unresolved role renders no tile (D3: hide, never deny), denial on the
+  screen itself stays the localized 403 narrative (documented D4
+  exception). New ARB keys `settingsAiConfig` /
+  `settingsAiConfigSubtitle`. Design docs updated first (glossary,
+  `settings.md`).
 - **Version bump:** `0.4.0-alpha.17+68 → 0.4.0-alpha.18+69` — surface the
   Deja-vu Cat beyond the sub-second splash (issue #640): the cat now also
   crosses the Seasons home empty state (same overlay as the splash —

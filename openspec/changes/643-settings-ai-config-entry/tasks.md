@@ -21,6 +21,8 @@
       `currentMembershipProvider(seasonId)` → visible iff
       `AsyncData && hasActiveCostumeRoleInSeason`; `// AUTHZ-GATE:`
       comment; push `AiConfigScreen`.
+- [x] 2.3 Bump `pubspec.yaml` to `0.4.0-alpha.19+70` and add the
+      Unreleased CHANGELOG entry (ADR-033 release mechanics).
 
 ## 3. Tests
 
