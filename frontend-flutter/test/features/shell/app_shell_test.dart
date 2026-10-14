@@ -792,7 +792,7 @@ void main() {
       expect(find.byKey(const Key('block-scope-picker')), findsOneWidget);
     });
 
-    testWidgets('profile MODALS are shell-level, not destination-level', (
+    testWidgets('the account drawer is shell-level, not destination-level', (
       tester,
     ) async {
       await setupContainer();
@@ -801,39 +801,47 @@ void main() {
       await tester.tap(find.byKey(const Key('profile-menu-button')));
       await pumpFrames(tester, n: 30);
 
-      // The menu sheet is hosted by the ROOT navigator, so its scrim covers
-      // row 1, row 2 and the destination bar. Hosting it in the active
-      // destination's nested navigator would (a) lay the scrim out inside
-      // that destination's box, leaving the top bar and the destination bar
-      // tappable, and (b) keep the sheet alive in the shell's `IndexedStack`
-      // across a destination switch as an invisible route that back pops.
-      final sheetContext = tester.element(
+      // The account drawer (issue #653) is hosted by the shell Scaffold,
+      // so it sits on the ROOT navigator: its scrim covers row 1, row 2
+      // and the destination bar. Hosting it in the active destination's
+      // nested navigator would (a) lay the scrim out inside that
+      // destination's box, leaving the top bar and the destination bar
+      // tappable, and (b) keep the drawer alive in the shell's
+      // `IndexedStack` across a destination switch as an invisible route
+      // that back pops.
+      final drawerContext = tester.element(
         find.byKey(const Key('profile-identity')),
       );
       expect(
-        Navigator.of(sheetContext),
-        same(Navigator.of(sheetContext, rootNavigator: true)),
-        reason: 'the profile sheet must sit on the root navigator',
-      );
-
-      // The About dialog is the second modal and follows the same rule.
-      await tester.tap(find.byKey(const Key('profile-about')));
-      await pumpFrames(tester);
-      final dialogContext = tester.element(
-        find.byKey(const Key('info-dialog')),
-      );
-      expect(
-        Navigator.of(dialogContext),
-        same(Navigator.of(dialogContext, rootNavigator: true)),
-        reason: 'the About dialog must sit on the root navigator',
+        Navigator.of(drawerContext),
+        same(Navigator.of(drawerContext, rootNavigator: true)),
+        reason: 'the account drawer must sit on the root navigator',
       );
     });
 
-    testWidgets('profile SCREENS push into the active destination', (
+    testWidgets('About and Settings push into the active destination', (
       tester,
     ) async {
       await setupContainer();
       await pumpShell(tester, widthDp: 360);
+
+      await tester.tap(find.byKey(const Key('profile-menu-button')));
+      await pumpFrames(tester, n: 30);
+      // Issue #653: About is a full screen route pushed on the destination
+      // navigator (never a dialog).
+      await tester.tap(find.byKey(const Key('profile-about')));
+      await pumpFrames(tester, n: 30);
+      final aboutContext = tester.element(
+        find.byKey(const Key('app-info-screen')),
+      );
+      expect(
+        Navigator.of(aboutContext),
+        isNot(same(Navigator.of(aboutContext, rootNavigator: true))),
+        reason: 'the About screen must sit on the destination navigator',
+      );
+      // Pop back, then verify the same seam for Settings.
+      await tester.pageBack();
+      await pumpFrames(tester, n: 30);
 
       await tester.tap(find.byKey(const Key('profile-menu-button')));
       await pumpFrames(tester, n: 30);

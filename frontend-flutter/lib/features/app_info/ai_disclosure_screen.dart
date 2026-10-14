@@ -9,7 +9,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../data/ai_import_providers.dart';
 import '../../l10n/app_localizations_provider.dart';
-import 'info_dialog.dart';
+import 'app_info_screen.dart';
 
 /// The dedicated About-AI disclosure screen (spec `flutter-app-dialogs`
 /// "Info Dialog Contents → About-AI screen", user decision of issue #538).
