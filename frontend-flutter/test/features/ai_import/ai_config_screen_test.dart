@@ -294,6 +294,34 @@ void main() {
     }
   }
 
+  /// The scoped credential-role denial scenario shared by the
+  /// `ai-config.forbidden` / `settings.forbidden` tests (CodeRabbit
+  /// review, issues #470/#643): dedicated denial card, no retry, the
+  /// "administrator role required" narrative.
+  Future<void> pumpScopedDenial(WidgetTester tester, String code) async {
+    await setupContainer(
+      discoveryValue: Left(ProblemError(code: code, status: 403)),
+    );
+    await pumpScreen(tester);
+
+    // The dedicated denial card renders (not the generic retry card).
+    expect(
+      find.byKey(const Key('ai-config-discovery-forbidden')),
+      findsOneWidget,
+    );
+    expect(find.byKey(const Key('ai-config-discovery-error')), findsNothing);
+    expect(
+      find.byKey(const Key('ai-config-discovery-retry')),
+      findsNothing,
+      reason: 'retrying cannot flip a credential role',
+    );
+    expect(find.byKey(const Key('ai-config-first-run')), findsNothing);
+    // The [aiConfigErrorCopy] narrative — the same copy the screen's
+    // command banner uses for these codes (never the raw code, never
+    // the server detail).
+    expect(find.textContaining('Administrator role required'), findsOneWidget);
+  }
+
   Future<void> refreshDiscovery(WidgetTester tester) async {
     container.invalidate(aiConfigDiscoveryProvider);
     await tester.pumpAndSettle();
@@ -387,6 +415,20 @@ void main() {
       find.textContaining('AI import is not enabled on this instance'),
       findsOneWidget,
     );
+  });
+
+  testWidgets('scoped credential-role denial on discovery (wire code '
+      'ai-config.forbidden): the localized administrator-role narrative '
+      'WITHOUT a retry affordance — a 403 is a denial, not a retryable '
+      'load error (issues #470/#643, CodeRabbit review)', (tester) async {
+    await pumpScopedDenial(tester, 'ai-config.forbidden');
+  });
+
+  testWidgets('scoped credential-role denial on discovery (wire code '
+      'settings.forbidden): same localized denial, no retry (issue #470)', (
+    tester,
+  ) async {
+    await pumpScopedDenial(tester, 'settings.forbidden');
   });
 
   testWidgets('provider discovery refused with the disabled code: the '

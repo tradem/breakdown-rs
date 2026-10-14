@@ -4672,6 +4672,18 @@ abstract class AppLocalizations {
   /// **'Jedes Ei lässt sich hier in Ruhe ansehen — unabhängig vom Monat.'**
   String get settingsEasterEggsPreviewSubtitle;
 
+  /// No description provided for @settingsAiConfig.
+  ///
+  /// In de, this message translates to:
+  /// **'KI-Konfiguration'**
+  String get settingsAiConfig;
+
+  /// No description provided for @settingsAiConfigSubtitle.
+  ///
+  /// In de, this message translates to:
+  /// **'KI-Anbieter und Modelle für den KI-Import verwalten.'**
+  String get settingsAiConfigSubtitle;
+
   /// No description provided for @settingsDev.
   ///
   /// In de, this message translates to:

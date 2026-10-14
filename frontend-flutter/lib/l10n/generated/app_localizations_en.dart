@@ -2800,6 +2800,13 @@ class AppLocalizationsEn extends AppLocalizations {
       'Preview every egg here at your leisure — regardless of the month.';
 
   @override
+  String get settingsAiConfig => 'AI configuration';
+
+  @override
+  String get settingsAiConfigSubtitle =>
+      'Manage the AI provider and models for AI import.';
+
+  @override
   String get settingsDev => 'Development';
 
   @override

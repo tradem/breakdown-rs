@@ -7,10 +7,10 @@
 
 ## Purpose & Context
 The app's dedicated full-screen settings: general app settings (every
-flavor) and, dev-flavor-only, the development backend switch. It
-replaces the former `SettingsDialog` (issue #516). Used occasionally by
-every user (Easter-eggs preference) and regularly by developers
-(backend override).
+flavor) — including the central AI-configuration entry (issue #643) —
+and, dev-flavor-only, the development backend switch. It replaces the
+former `SettingsDialog` (issue #516). Used occasionally by every user
+(Easter-eggs preference) and regularly by developers (backend override).
 
 ## Navigation
 Pushed from the Mehr tab's labeled tile „Einstellungen" (`mehr-settings`)
@@ -21,6 +21,8 @@ post-authentication (Mehr tab lives inside the auth shell); the save /
 reset actions issue requests against the configured backend through the
 existing `SessionReset` coordinator, which owns the auth fence — no
 additional client-side membership gate applies (server-ownership rule).
+The AI-configuration entry is the one general-section element with its
+own gate — see Interactions.
 
 ## Location & Context
 N/A — settings are not a planning-hierarchy surface; the screen is
@@ -45,6 +47,9 @@ stays hidden (graceful-degradation rule).
     {^ [Karl-Klammer-Figur] }
     {^ [Déjà-vu-Katze auf einem Streifzug] }
     "Jedes Ei lässt sich hier in Ruhe ansehen — unabhängig vom Monat."
+    --
+    "KI-Konfiguration"                  <- issue #643
+    "KI-Anbieter und Modelle für den KI-Import verwalten."
   }
   --
   {^ "Entwicklung"
@@ -75,6 +80,7 @@ note (store compliance).
 | Gallery preview line | Text | Explains the month-independent preview | `settings.easterEggsPreviewSubtitle` |
 | Karl Klammer preview | Preview card | Static figure render of the egg (issue #640) | n/a (graphic, no copy) |
 | Deja-vu Cat preview | Preview card | Bounded walker render of the egg — shown only while the egg switch is ON (issue #640) | n/a (graphic, no copy) |
+| AI-configuration entry | List item (push, chevron) | Central entry to `AiConfigScreen` (issue #643); visible only while the season-scoped membership resolves to an active costume-dept role — see Interactions | `settings.aiConfig` + `settings.aiConfigSubtitle` |
 | Development section | Section header | Labels the dev-only area | `settings.dev` |
 | Server address row | List item (read-only) | Active effective API base | `settings.serverAddress` |
 | Flavor row | List item (read-only) | Active build flavor | `settings.flavor` |
@@ -85,14 +91,22 @@ note (store compliance).
 
 ## States
 Loading: N/A — the screen reads local state synchronously (the
-hydrated per-egg easter-eggs notifiers and the effective base). Data:
+hydrated per-egg easter-eggs notifiers and the effective base), except
+the AI-configuration entry's membership gate: while that membership
+fetch is in flight the entry renders nothing (a pending fetch hides,
+never denies — D3), converging to visible/hidden once resolved. Data:
 rows as above; each gallery preview renders its egg's figure regardless
 of month, and only while that egg's switch is ON — a switched-off egg
 renders no preview (the switch is the master gate; the gallery
-bypasses only the October month gate, never the preference). Error: an Easter-eggs read failure surfaces as a visible
+bypasses only the October month gate, never the preference). The
+AI-configuration entry renders only while the season-scoped membership
+resolves with an active costume-dept role (issue #643 — see
+Interactions). Error: an Easter-eggs read failure surfaces as a visible
 error state on each egg row (fallback default ON); backend-URI save
-errors render inline keyed on `code` via the validation copy. Stale:
-N/A. Optimistic: each easter-eggs switch flips instantly (local
+errors render inline keyed on `code` via the validation copy; a failed
+membership fetch renders no AI-configuration entry (hidden, with the
+retry affordance living on the gated surface, not the settings list).
+Stale: N/A. Optimistic: each easter-eggs switch flips instantly (local
 preference, no projection involved); the matching preview appears /
 disappears with the same flip.
 
@@ -105,6 +119,23 @@ unaffected; the egg's gallery preview follows the same flip.
 non-interactive, honoring the system "remove animations" setting —
 they are explicit showcase surfaces, not live egg appearances (issue
 #640: makes every egg discoverable and testable regardless of month).
+- AI-configuration entry (issue #643): `// AUTHZ-GATE:` — the tile is
+  offered only while the client-side membership gate resolves via the
+  sticky active-block scope (`activeBlockProvider` →
+  `currentMembershipProvider(scope.seasonId)` →
+  `hasActiveCostumeRoleInSeason`): no scope, a pending/erroring fetch,
+  or a resolved denial render no tile (D3 — hide, never deny). The
+  server stays authoritative: the AI-config handlers are
+  handler-internally gated by `has_active_credential_role`
+  (`costume_designer`/`costume_assistant`, any active membership — not
+  on the wire, no new API surface). The season predicate the client
+  reads is deliberately wider (adds `wardrobe_supervisor`), so a
+  supervisor-only member may open the screen and receive the existing
+  localized 403 narrative (`AiConfigScreen`'s documented D4 exception)
+  — honest degradation, never a bypass. Tap pushes `AiConfigScreen`
+  (`MaterialPageRoute`, fire-and-forget, same as the wizard and
+  import-submit entries). The touch target is a standard `ListTile`
+  (≥ 48×48 dp).
 - Save (dev): validates inline (`validateApiBase`); on success runs the
   `SessionReset.switchBackend` flow with a linear progress indicator,
   then re-reads the effective base.
@@ -130,8 +161,12 @@ screen-reader friendly by construction.
   general section in both flavors; one switch per egg; gallery preview
   per egg (visible when ON, absent when OFF, month-independent);
   dev section dev-only; flipping one egg leaves the other unchanged;
-  save/reset/progress flows; per-egg read-failure error subtitle.
+  save/reset/progress flows; per-egg read-failure error subtitle;
+  AI-configuration entry visible on an active costume-dept membership,
+  hidden without an active-block scope / while pending / on a resolved
+  denial, tap pushes `AiConfigScreen` (issue #643).
 - Golden: `settings_dev_{light,dark}` + `settings_prod_{light,dark}`
-  (replacing the former dialog goldens) + gallery-preview golden.
+  (replacing the former dialog goldens) + gallery-preview golden +
+  visible AI-configuration entry `{light,dark}` (issue #643).
 - Unit: per-egg store Ok/Err branches, legacy migration, default-ON
   fallback.

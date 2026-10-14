@@ -16,7 +16,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:fpdart/fpdart.dart';
 
 import 'package:frontend_flutter/app_config.dart';
+import 'package:frontend_flutter/auth/active_block.dart';
 import 'package:frontend_flutter/auth/auth_providers.dart';
+import 'package:frontend_flutter/auth/membership/membership_providers.dart';
 import 'package:frontend_flutter/core/problem_error.dart';
 import 'package:frontend_flutter/core/result.dart';
 import 'package:frontend_flutter/data/cache/cache_database.dart';
@@ -25,6 +27,8 @@ import 'package:frontend_flutter/data/cache/seasons_cache_providers.dart';
 import 'package:frontend_flutter/data/settings/api_base_override_store.dart';
 import 'package:frontend_flutter/data/settings/easter_eggs_store.dart';
 import 'package:frontend_flutter/design/theme.dart';
+import 'package:frontend_flutter/domain/reconciliation/reconciliation_scheduler.dart';
+import 'package:frontend_flutter/features/ai_import/ai_config/ai_config_controller.dart';
 import 'package:frontend_flutter/features/easter_eggs/dejavu_cat.dart';
 import 'package:frontend_flutter/features/settings/settings_screen.dart';
 import 'package:frontend_flutter/src/network/api_client.dart';
@@ -53,6 +57,24 @@ Future<void> pumpFrames(WidgetTester tester, {int n = 8}) async {
   for (var i = 0; i < n; i++) {
     await tester.pump(const Duration(milliseconds: 50));
   }
+}
+
+/// A season membership DTO with an explicit backend-computed costume-role
+/// flag (issue #643: the AI-config entry gate input).
+SeasonMembershipDto _membership({required bool hasRole}) => SeasonMembershipDto(
+  (b) => b
+    ..seasonId = 'season-1'
+    ..hasActiveCostumeRoleInSeason = hasRole
+    ..capabilities.replace(const <String>[]),
+);
+
+/// Immediate reconciliation scheduler (issue #643 push test): ticks are
+/// no-ops — no wall-clock gating (AGENTS.md §6).
+class _ImmediateReconciliationScheduler extends ReconciliationScheduler {
+  const _ImmediateReconciliationScheduler();
+
+  @override
+  Future<void> tick(int attempt) => Future<void>.value();
 }
 
 /// In-memory secure-storage double backing [ApiBaseOverrideStore.secure].
@@ -132,6 +154,11 @@ void main() {
     bool easterEggsReadFailed = false,
     // Simulates a failing on-device preference write (snackbar test).
     bool failPrefsWrite = false,
+    // Extra provider overrides appended after the base set (issue #643:
+    // the AI-config entry tests override the season membership fetch).
+    // `List<dynamic>` like app_shell_test's harness — Riverpod 3 does
+    // not export the `Override` type for user code.
+    List<dynamic> extraOverrides = const [],
   }) async {
     platform = _OverridePlatform();
     FlutterSecureStoragePlatform.instance = platform;
@@ -178,6 +205,7 @@ void main() {
           }
           return r.fetchAndCacheList(() async => holder.value);
         }),
+        ...extraOverrides,
       ],
     );
     addTearDown(container.dispose);
@@ -522,6 +550,146 @@ void main() {
     });
   });
 
+  group('SettingsScreen AI-config entry (issue #643)', () {
+    const seasonId = 'season-1';
+
+    /// Marks the sticky active-block scope — the tile's only ambient
+    /// season context. Dev-auth mode short-circuits the membership
+    /// fetch to the permissive DTO, so no network runs.
+    void setActiveScope() => container
+        .read(activeBlockProvider.notifier)
+        .set(seasonId: seasonId, blockId: 'block-1');
+
+    testWidgets('hidden without an active-block scope', (tester) async {
+      await pumpScreen(tester);
+
+      expect(find.byKey(const Key('settings-ai-config')), findsNothing);
+    });
+
+    testWidgets('hidden while the membership fetch is pending (D3: hide, '
+        'never deny)', (tester) async {
+      await pumpScreen(
+        tester,
+        extraOverrides: [
+          // Never-completing fetch: the gate stays unresolved for the
+          // whole test — no wall-clock gating (AGENTS.md §6).
+          membershipFetchProvider(seasonId).overrideWith(
+            (ref) => Completer<Result<SeasonMembershipDto>>().future,
+          ),
+        ],
+      );
+      setActiveScope();
+      await pumpFrames(tester);
+
+      expect(find.byKey(const Key('settings-ai-config')), findsNothing);
+    });
+
+    testWidgets('hidden on a resolved denial', (tester) async {
+      await pumpScreen(
+        tester,
+        extraOverrides: [
+          membershipFetchProvider(seasonId)
+              .overrideWith((ref) async => Right(_membership(hasRole: false))),
+        ],
+      );
+      setActiveScope();
+      await pumpFrames(tester);
+
+      expect(find.byKey(const Key('settings-ai-config')), findsNothing);
+    });
+
+    testWidgets('hidden after a membership fetch failure', (tester) async {
+      await pumpScreen(
+        tester,
+        extraOverrides: [
+          membershipFetchProvider(seasonId).overrideWith(
+            (ref) async =>
+                const Left(ProblemError(code: 'transport.unreachable')),
+          ),
+        ],
+      );
+      setActiveScope();
+      await pumpFrames(tester);
+
+      expect(find.byKey(const Key('settings-ai-config')), findsNothing);
+    });
+
+    testWidgets('visible on an active costume-dept membership, ≥ 48×48 dp', (
+      tester,
+    ) async {
+      await pumpScreen(tester);
+      setActiveScope();
+      await pumpFrames(tester);
+
+      final tile = find.byKey(const Key('settings-ai-config'));
+      expect(tile, findsOneWidget);
+      // Localized general-section copy (glossary keys settings.aiConfig*);
+      // l10nOf falls back to the English catalog in bare test trees.
+      expect(find.text('AI configuration'), findsOneWidget);
+      // Screen-reader semantics (CodeRabbit review): the tile is one
+      // merged, enabled, tappable node whose label carries the visible
+      // title — a future change that makes it unusable with a screen
+      // reader fails here (anchored to the settings-ai-config key).
+      final semanticsHandle = tester.ensureSemantics();
+      final node = tester.getSemantics(
+        find.byKey(const Key('settings-ai-config')),
+      );
+      expect(
+        node,
+        isSemantics(hasEnabledState: true, isEnabled: true, hasTapAction: true),
+      );
+      expect(node.label, contains('AI configuration'));
+      semanticsHandle.dispose();
+      final size = tester.getSize(tile);
+      expect(size.height, greaterThanOrEqualTo(48));
+      expect(size.width, greaterThanOrEqualTo(48));
+    });
+
+    testWidgets('tap pushes the existing AiConfigScreen (no new screen)', (
+      tester,
+    ) async {
+      await pumpScreen(
+        tester,
+        extraOverrides: [
+          // The pushed screen's discovery seams — immediate, benign
+          // first-run values; no network ever runs (same pattern as the
+          // ai_config_screen_test harness).
+          aiConfigDiscoveryProvider.overrideWith(
+            (ref) async => const Right(<AiConfigView>[]),
+          ),
+          aiProvidersProvider.overrideWith(
+            (ref) async => const Right(<AiProviderInfo>[]),
+          ),
+          aiImportDefaultsProvider.overrideWith(
+            (ref) async => Right(
+              AiImportDefaults(
+                (b) => b
+                  ..script = ''
+                  ..schedule = '',
+              ),
+            ),
+          ),
+          reconciliationSchedulerProvider.overrideWith(
+            (ref) => const _ImmediateReconciliationScheduler(),
+          ),
+        ],
+      );
+      setActiveScope();
+      await pumpFrames(tester);
+
+      await tester.tap(find.byKey(const Key('settings-ai-config')));
+      await pumpFrames(tester, n: 12);
+
+      expect(find.byKey(const Key('ai-config-screen')), findsOneWidget);
+      // The settings screen stays below on the same navigator stack
+      // (offstage after the push — finder must include offstage trees).
+      expect(
+        find.byKey(const Key('settings-screen'), skipOffstage: false),
+        findsOneWidget,
+      );
+    });
+  });
+
   group('SettingsScreen goldens (issue #516)', () {
     testWidgets('dev light', (tester) async {
       await pumpScreen(tester, brightness: Brightness.light);
@@ -556,6 +724,37 @@ void main() {
       await expectLater(
         find.byKey(const Key('settings-screen')),
         matchesGoldenFile('goldens/settings_prod_dark.png'),
+      );
+    });
+
+    // Issue #643: the AI-config entry in its VISIBLE state (the four
+    // base goldens above never set an active-block scope, so the gated
+    // entry is absent there and those goldens stay valid).
+    testWidgets('ai-config entry visible, light', (tester) async {
+      await pumpScreen(tester, brightness: Brightness.light);
+      container
+          .read(activeBlockProvider.notifier)
+          .set(seasonId: 'season-1', blockId: 'block-1');
+      await pumpFrames(tester);
+
+      expect(find.byKey(const Key('settings-ai-config')), findsOneWidget);
+      await expectLater(
+        find.byKey(const Key('settings-screen')),
+        matchesGoldenFile('goldens/settings_ai_config_light.png'),
+      );
+    });
+
+    testWidgets('ai-config entry visible, dark', (tester) async {
+      await pumpScreen(tester, brightness: Brightness.dark);
+      container
+          .read(activeBlockProvider.notifier)
+          .set(seasonId: 'season-1', blockId: 'block-1');
+      await pumpFrames(tester);
+
+      expect(find.byKey(const Key('settings-ai-config')), findsOneWidget);
+      await expectLater(
+        find.byKey(const Key('settings-screen')),
+        matchesGoldenFile('goldens/settings_ai_config_dark.png'),
       );
     });
   });
