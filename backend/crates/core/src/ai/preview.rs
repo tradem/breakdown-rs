@@ -1061,7 +1061,26 @@ pub fn plan_scene_apply(
         for (ordinal, character) in draft.characters.iter().enumerate() {
             let name = &character.name;
             let identity = character_identity(name);
-            if identity.is_empty() || characters.iter().any(|known| known.identity == identity) {
+            if identity.is_empty() {
+                continue;
+            }
+            // The same figure is often named by several rows. A later
+            // non-default classification corrects an earlier grounded
+            // default: the cast section is document-global evidence the
+            // first row simply lacked (CodeRabbit #692 — first-wins alone
+            // would freeze a default the document later refines). Among
+            // differing non-default signals the first one wins,
+            // deterministic; the reviewer corrects it in the Cast screen
+            // (#678).
+            if let Some(known) = characters
+                .iter_mut()
+                .find(|known| known.identity == identity)
+            {
+                if known.category == CharacterCategory::default()
+                    && character.category != CharacterCategory::default()
+                {
+                    known.category = character.category;
+                }
                 continue;
             }
             characters.push(CharacterApplyPlan {
@@ -1110,6 +1129,35 @@ pub fn plan_scene_apply(
             costumes,
         });
     }
+    // Issue #677 (CodeRabbit #692): the same figure is often named by several
+    // rows, and the cast section is document-global evidence. Reconcile the
+    // per-row classifications preview-wide by identity: a later non-default
+    // signal corrects an earlier grounded default; among differing
+    // non-default signals the first one wins — deterministic, and the
+    // reviewer corrects it in the Cast screen (#678). The dispatch reads the
+    // plan, so the reconciled category is what every row's figure gets.
+    let mut resolved_categories: std::collections::HashMap<String, CharacterCategory> =
+        std::collections::HashMap::new();
+    for scene in &plan.scenes {
+        for character in &scene.characters {
+            let entry = resolved_categories
+                .entry(character.identity.clone())
+                .or_insert(character.category);
+            if *entry == CharacterCategory::default()
+                && character.category != CharacterCategory::default()
+            {
+                *entry = character.category;
+            }
+        }
+    }
+    for scene in &mut plan.scenes {
+        for character in &mut scene.characters {
+            if let Some(category) = resolved_categories.get(&character.identity) {
+                character.category = *category;
+            }
+        }
+    }
+
     Ok(plan)
 }
 

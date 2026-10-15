@@ -751,6 +751,79 @@ fn a_typed_characters_list_roundtrips_the_extracted_category() {
 }
 
 #[test]
+fn a_later_non_default_category_corrects_an_earlier_default() {
+    // CodeRabbit #692: the cast section is document-global evidence. A row
+    // that names the figure BEFORE the Gastrollen section carries only the
+    // grounded default; the later typed signal must win — first-wins alone
+    // would freeze `main_cast` for a guest.
+    let preview = ScriptContext {
+        scenes: vec![
+            DraftScene {
+                draft_ref: "1. INT. OP".to_owned(),
+                characters: vec![DraftCharacter::from("BEN")],
+                ..Default::default()
+            },
+            DraftScene {
+                draft_ref: "2. INT. KELLER".to_owned(),
+                characters: vec![DraftCharacter {
+                    name: "Ben".to_owned(),
+                    category: CharacterCategory::Guest,
+                }],
+                ..Default::default()
+            },
+        ],
+        ..Default::default()
+    };
+    let plan = plan_of(
+        &preview,
+        &create_decisions(&["1. INT. OP", "2. INT. KELLER"]),
+    );
+    let planed = &plan.scenes[0].characters[0];
+    assert_eq!(planed.identity, "ben");
+    assert_eq!(
+        planed.category,
+        CharacterCategory::Guest,
+        "the later non-default classification must correct the earlier default"
+    );
+}
+
+#[test]
+fn differing_non_default_categories_keep_the_first_signal() {
+    // Genuine conflict (guest vs extra): deterministic first-non-default
+    // wins; the reviewer corrects it in the Cast screen (#678).
+    let preview = ScriptContext {
+        scenes: vec![
+            DraftScene {
+                draft_ref: "1. INT. OP".to_owned(),
+                characters: vec![DraftCharacter {
+                    name: "BEN".to_owned(),
+                    category: CharacterCategory::Guest,
+                }],
+                ..Default::default()
+            },
+            DraftScene {
+                draft_ref: "2. INT. KELLER".to_owned(),
+                characters: vec![DraftCharacter {
+                    name: "Ben".to_owned(),
+                    category: CharacterCategory::Extra,
+                }],
+                ..Default::default()
+            },
+        ],
+        ..Default::default()
+    };
+    let plan = plan_of(
+        &preview,
+        &create_decisions(&["1. INT. OP", "2. INT. KELLER"]),
+    );
+    assert_eq!(
+        plan.scenes[0].characters[0].category,
+        CharacterCategory::Guest,
+        "among non-default signals the first one wins"
+    );
+}
+
+#[test]
 fn the_apply_plan_carries_the_extracted_category() {
     let preview = ScriptContext {
         scenes: vec![DraftScene {
