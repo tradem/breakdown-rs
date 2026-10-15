@@ -31,6 +31,7 @@ import 'package:frontend_flutter/auth/auth_providers.dart';
 import 'package:frontend_flutter/core/problem_error.dart';
 import 'package:frontend_flutter/core/result.dart';
 import 'package:frontend_flutter/data/ai_import_providers.dart';
+import 'package:frontend_flutter/features/blocks/blocks_controller.dart';
 import 'package:frontend_flutter/features/episodes/episodes_controller.dart';
 import 'package:frontend_flutter/l10n/generated/app_localizations.dart';
 import 'package:frontend_flutter/data/ai_import_repository.dart';
@@ -714,7 +715,10 @@ void main() {
 
     test('a 200 apply invalidates the episode/block fetch families '
         '(issue #666 — the new episode reaches the pill navigation)', () async {
-      var fetchCount = 0;
+      // Both fetch families are counted independently (CodeRabbit #691):
+      // removing EITHER invalidate below must fail this test.
+      var episodeFetchCount = 0;
+      var blockFetchCount = 0;
       final scoped = ProviderContainer(
         overrides: [
           appConfigProvider.overrideWithValue(devAuthConfig),
@@ -723,8 +727,12 @@ void main() {
             (ref) => const _ImmediateScheduler(),
           ),
           episodesListFetchProvider('b-1', 's-1').overrideWith((ref) async {
-            fetchCount++;
+            episodeFetchCount++;
             return Right<ProblemError, List<EpisodeView>>(const []);
+          }),
+          blocksListFetchProvider('s-1').overrideWith((ref) async {
+            blockFetchCount++;
+            return Right<ProblemError, List<BlockView>>(const []);
           }),
         ],
       );
@@ -735,19 +743,23 @@ void main() {
       applyController.seedRows(const [
         PreviewRow(draftRef: 'd1', label: 'A'),
       ], const AiJobContext(episodeId: 'ep-1', projectId: 'series-1'));
-      // The stale cache-first read: one fetch.
+      // The stale cache-first reads: one fetch per family.
       await scoped.read(episodesListFetchProvider('b-1', 's-1').future);
-      expect(fetchCount, 1);
+      await scoped.read(blocksListFetchProvider('s-1').future);
+      expect(episodeFetchCount, 1);
+      expect(blockFetchCount, 1);
 
       repo.applyQueue.add(Right(_outcome()));
       final res = await applyController.apply();
       expect(res.getRight().toNullable(), isNotNull);
 
-      // The successful apply invalidated the family — the next read
-      // refetches (the created episode becomes visible without leaving
-      // the flow; the refetch rewrites the block's Drift cache rows).
+      // The successful apply invalidated BOTH families — the next reads
+      // refetch (the created episode becomes visible without leaving the
+      // flow; the refetch rewrites the block's Drift cache rows).
       await scoped.read(episodesListFetchProvider('b-1', 's-1').future);
-      expect(fetchCount, 2);
+      await scoped.read(blocksListFetchProvider('s-1').future);
+      expect(episodeFetchCount, 2);
+      expect(blockFetchCount, 2);
     });
 
     test('immediate 200 → the outcome summary', () async {
