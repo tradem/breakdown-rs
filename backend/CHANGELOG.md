@@ -26,6 +26,28 @@ tag. Never edit a released entry afterwards.
 
 ### Added
 
+- **Create-or-assign recovery on `episode.number-already-exists` (issue
+  #665):** the episode create-number pre-checks (the AI-apply group loop
+  and the manual `POST /v1/episodes`) answer their registered 409 with the
+  S1 extensions `existing_episode_id` (the existing episode's id) and
+  `number` (the requested create number), so the client can flip the
+  affected group to assign-existing without a second lookup round-trip.
+  The projection unique index stays authoritative (#404 doctrine). The
+  Flutter apply card renders a one-tap "assign the existing episode
+  instead" action on that refusal; the retry lands in the existing episode
+  (the idempotent continuation — `resolved_decisions` skips already-applied
+  rows), never a duplicate episode. Older backends without the extensions
+  degrade to the plain narrative.
+
+### Changed
+
+- **Version bumps (dependency-order lockstep, additive MINORs, issue
+  #665):** `core` 0.31.0 → 0.32.0 (`episode.number-already-exists` gains
+  the S1 extension whitelist), `infra` 0.36.0 → 0.37.0 (no code change,
+  re-pins core), `api` 0.30.0 → 0.31.0 (typed
+  `EpisodeNumberAlreadyExists` variant carries the extensions; re-pins
+  core/infra). Internal workspace crates re-pin in the same commit.
+
 - **Resolvable `field_ambiguity` uncertainties + dedicated apply-gate
   problem codes (issue #663):** a preview with blocking uncertainties could
   never be applied — the gate refused with an opaque
