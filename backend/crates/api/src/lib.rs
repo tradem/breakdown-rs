@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 // Co-authored-by: space-bunny-free (opencode-go)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
 // Co-authored-by: gpt-5.6-luna (opencode-go)
@@ -96,6 +97,7 @@ use utoipa::OpenApi;
         handlers::list_characters,
         handlers::update_measurements,
         handlers::update_contact_info,
+        handlers::update_character_category,
         handlers::create_costume,
         handlers::get_costume,
         handlers::list_costumes,

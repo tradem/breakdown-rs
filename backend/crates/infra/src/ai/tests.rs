@@ -2366,6 +2366,14 @@ impl breakdown_core::character::ports::CharacterCommands for FakeCharacterComman
     ) -> Result<breakdown_core::shared::AggregateVersion, DomainError> {
         unexpected_command("update_contact_info")
     }
+
+    async fn update_category(
+        &self,
+        _actor: UserId,
+        _command: breakdown_core::character::commands::UpdateCharacterCategory,
+    ) -> Result<breakdown_core::shared::AggregateVersion, DomainError> {
+        unexpected_command("update_category")
+    }
 }
 
 /// `CostumeCommands` faithful to the aggregate's version chain: every accepted

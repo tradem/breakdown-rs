@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 // Co-authored-by: qwen3.6-35b (neuralwatt)
 // Co-authored-by: deepseek-v4-flash (opencode-go)
 
@@ -90,6 +91,30 @@ impl<'a> EntityEventHandler<CharacterAggregate, Transaction<'a, Postgres>> for C
                 )
                 .bind(id)
                 .bind(measurements_json)
+                .bind(version)
+                .bind(updated_at)
+                .execute(&mut **ctx)
+                .await?;
+            }
+            CharacterEvent::CategoryChanged {
+                id,
+                category,
+                version,
+            } => {
+                // Issue #678: the role type changed — the same shaped UPDATE
+                // as the sibling detail events (version guard by the caller's
+                // at-least-once idempotency).
+                let category_json = serde_json::to_value(category).unwrap_or_default();
+                let version = version.0 as i64;
+                sqlx::query(
+                    r#"
+                    UPDATE projection_character
+                    SET category = $2, version = $3, updated_at = $4
+                    WHERE id = $1
+                    "#,
+                )
+                .bind(id)
+                .bind(category_json)
                 .bind(version)
                 .bind(updated_at)
                 .execute(&mut **ctx)

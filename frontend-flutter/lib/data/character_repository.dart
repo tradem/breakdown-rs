@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 // Co-authored-by: longcat-2.0 (opencode-go)
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
 
@@ -102,6 +103,19 @@ class CharacterRepository extends BaseRepository {
     ),
   );
 
+  /// Role-type correction (issue #678): the manual fix path for a wrong
+  /// import classification (#677). `request.version` is the character's
+  /// own version (stale → 409 concurrency.version-mismatch).
+  Future<Result<int>> updateCategory(
+    String id,
+    UpdateCharacterCategoryRequest request,
+  ) => run(
+    () => api.getHandlersApi().updateCharacterCategory(
+      id: id,
+      updateCharacterCategoryRequest: request,
+    ),
+  );
+
   /// Full-replacement measurements editor (all seven fields required
   /// strings; empty strings remain valid submissions — no client-side
   /// numeric validation).
@@ -172,6 +186,17 @@ UpdateContactInfoRequest buildContactRequest({
   (b) => b
     ..contactInfo.email = email
     ..contactInfo.phone = phone
+    ..version = version,
+);
+
+/// Builds the role-type correction request (issue #678) from the picked
+/// category + the character's own version echo (stale → 409).
+UpdateCharacterCategoryRequest buildCategoryRequest({
+  required CharacterCategory category,
+  required int version,
+}) => UpdateCharacterCategoryRequest(
+  (b) => b
+    ..category = category
     ..version = version,
 );
 

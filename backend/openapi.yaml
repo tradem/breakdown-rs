@@ -3230,6 +3230,16 @@ components:
       required:
       - version
       type: object
+    UpdateCharacterCategoryRequest:
+      properties:
+        category:
+          $ref: '#/components/schemas/CharacterCategory'
+        version:
+          $ref: '#/components/schemas/AggregateVersion'
+      required:
+      - category
+      - version
+      type: object
     UpdateContactInfoRequest:
       properties:
         contact_info:
@@ -4671,6 +4681,42 @@ paths:
         Per-character appearances read model (issue #621): the role extract
         ("Ring binder per role") — every scene the character appears in, in script
         order, each with that character's own ordered costume beats.
+      tags:
+      - handlers
+  /v1/characters/{id}/category:
+    patch:
+      operationId: update_character_category
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          format: uuid
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateCharacterCategoryRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AggregateVersion'
+        '404':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Character not found
+        '409':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Stale version (concurrency.version-mismatch)
       tags:
       - handlers
   /v1/characters/{id}/contact:

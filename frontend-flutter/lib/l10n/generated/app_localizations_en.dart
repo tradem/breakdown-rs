@@ -159,6 +159,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get characterCategoryMain => 'Main cast';
 
   @override
+  String get characterCategoryEditTooltip => 'Change the role type';
+
+  @override
   String get characterCategoryGuest => 'Guest';
 
   @override

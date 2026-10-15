@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 // Co-authored-by: space-bunny-free (opencode-go)
 // Co-authored-by: omen-alpha (opencode-go)
 // Co-authored-by: gpt-5.6-luna (opencode-go)
@@ -18,7 +19,9 @@ use breakdown_core::block::commands::{CreateBlock, UpdateBlockTimeSpan};
 use breakdown_core::block::ports::{BlockCommands, BlockRepository};
 use breakdown_core::block::views::BlockView;
 use breakdown_core::character::category::CharacterCategory;
-use breakdown_core::character::commands::{CreateCharacter, UpdateContactInfo, UpdateMeasurements};
+use breakdown_core::character::commands::{
+    CreateCharacter, UpdateCharacterCategory, UpdateContactInfo, UpdateMeasurements,
+};
 use breakdown_core::character::ports::{CharacterCommands, CharacterRepository};
 use breakdown_core::character::views::{CharacterAppearanceView, CharacterView};
 use breakdown_core::costume::commands::{
@@ -227,6 +230,14 @@ impl CharacterCommands for FakeCharacterCommands {
         &self,
         _actor: UserId,
         _cmd: UpdateContactInfo,
+    ) -> Result<AggregateVersion, DomainError> {
+        Ok(AggregateVersion::INITIAL.next())
+    }
+
+    async fn update_category(
+        &self,
+        _actor: UserId,
+        _cmd: UpdateCharacterCategory,
     ) -> Result<AggregateVersion, DomainError> {
         Ok(AggregateVersion::INITIAL.next())
     }

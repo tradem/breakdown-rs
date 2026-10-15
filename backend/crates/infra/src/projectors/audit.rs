@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024 Breakdown RS Contributors
+// Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 // Co-authored-by: space-bunny-free (opencode-go)
 // Co-authored-by: gpt-5.6-luna (opencode-go)
 // Co-authored-by: qwen3.6-35b (neuralwatt)
@@ -506,7 +507,8 @@ impl<'a> EntityEventHandler<CharacterAggregate, Transaction<'a, Postgres>>
         let entity_id = match &event.data {
             CharacterEvent::CharacterCreated { id, .. }
             | CharacterEvent::MeasurementsUpdated { id, .. }
-            | CharacterEvent::ContactInfoUpdated { id, .. } => id.to_string(),
+            | CharacterEvent::ContactInfoUpdated { id, .. }
+            | CharacterEvent::CategoryChanged { id, .. } => id.to_string(),
         };
         let event_type = event.data.event_type().to_string();
         let (actor, provenance, project_id) = extract_metadata(&event);

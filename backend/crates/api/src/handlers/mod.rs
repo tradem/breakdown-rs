@@ -43,7 +43,9 @@ use breakdown_core::block::commands::{CreateBlock, UpdateBlockTimeSpan};
 use breakdown_core::block::ports::{BlockCommands, BlockRepository};
 use breakdown_core::block::views::BlockView;
 use breakdown_core::character::category::CharacterCategory;
-use breakdown_core::character::commands::{CreateCharacter, UpdateContactInfo, UpdateMeasurements};
+use breakdown_core::character::commands::{
+    CreateCharacter, UpdateCharacterCategory, UpdateContactInfo, UpdateMeasurements,
+};
 use breakdown_core::character::events::{CharacterMeasurements, ContactInfo};
 use breakdown_core::character::ports::{CharacterCommands, CharacterRepository};
 use breakdown_core::character::views::{CharacterAppearanceView, CharacterView};
@@ -313,6 +315,12 @@ pub struct UpdateMeasurementsRequest {
 #[derive(Debug, Clone, Deserialize, ToSchema)]
 pub struct UpdateContactInfoRequest {
     pub contact_info: ContactInfo,
+    pub version: AggregateVersion,
+}
+
+#[derive(Debug, Clone, Deserialize, ToSchema)]
+pub struct UpdateCharacterCategoryRequest {
+    pub category: breakdown_core::character::category::CharacterCategory,
     pub version: AggregateVersion,
 }
 
@@ -2373,6 +2381,37 @@ pub async fn update_contact_info<P: Ports>(
         .ports
         .character_commands()
         .update_contact_info(current_user.sub.clone(), cmd)
+        .await?;
+    Ok((StatusCode::OK, Json(version)))
+}
+
+#[utoipa::path(
+    patch,
+    path = "/characters/{id}/category",
+    request_body = UpdateCharacterCategoryRequest,
+    responses(
+        (status = 200, body = AggregateVersion),
+        (status = 404, body = ProblemDetails, description = "Character not found"),
+        (status = 409, body = ProblemDetails, description = "Stale version (concurrency.version-mismatch)"),
+    ),
+)]
+pub async fn update_character_category<P: Ports>(
+    State(state): State<AppState<P>>,
+    current_user: CurrentUser,
+    Path(id): Path<Uuid>,
+    Json(req): Json<UpdateCharacterCategoryRequest>,
+) -> ApiResult<AggregateVersion> {
+    let project_id = Some(project_id_for_character(&state, id).await?);
+    let cmd = UpdateCharacterCategory {
+        id,
+        project_id,
+        category: req.category,
+        version: req.version,
+    };
+    let version = state
+        .ports
+        .character_commands()
+        .update_category(current_user.sub.clone(), cmd)
         .await?;
     Ok((StatusCode::OK, Json(version)))
 }
@@ -7316,6 +7355,10 @@ pub fn routes() -> Router<AppState<ProductionPorts>> {
         .route(
             "/characters/{id}/contact",
             routing::patch(update_contact_info::<ProductionPorts>),
+        )
+        .route(
+            "/characters/{id}/category",
+            routing::patch(update_character_category::<ProductionPorts>),
         )
         .route(
             "/costumes",

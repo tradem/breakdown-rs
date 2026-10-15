@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Co-authored-by: glm-5.3-flash (neuralwatt)
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 // Co-authored-by: space-bunny-free (opencode-go)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
 // Co-authored-by: gpt-5.6-luna (opencode-go)
@@ -88,7 +89,7 @@ fn api_routes_are_behind_auth_middleware() {
     //  patterns, not method-verb pairs.)
     assert_eq!(
         api.len(),
-        95,
+        96,
         "number of API route path patterns has changed — \
          see doc comment above for update instructions"
     );
@@ -238,6 +239,9 @@ fn api_routes_have_deliberate_authorization_requirement() {
         ("/characters/{id}", Requirement::BlockMember),
         ("/characters/{id}/measurements", Requirement::BlockMember),
         ("/characters/{id}/contact", Requirement::BlockMember),
+        // Issue #678: the role-type correction follows the sibling
+        // character-write routes (block-scoped middleware enforcement).
+        ("/characters/{id}/category", Requirement::BlockMember),
         // Issue #621: the per-character appearances read model is a
         // season-scoped role extract. Authenticated at the middleware (narrow
         // exception) with a handler-internal `// AUTHZ-GATE:` over

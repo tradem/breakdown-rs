@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
 
@@ -345,6 +346,36 @@ class CharactersController extends _$CharactersController {
         measurements: measurements,
         version: character.version,
       ),
+    );
+    return res.match(
+      (err) {
+        ref.read(charactersCommandErrorProvider(seasonId).notifier).set(err);
+        return Left<ProblemError, int>(err);
+      },
+      (version) {
+        ref.read(charactersCommandErrorProvider(seasonId).notifier).clear();
+        unawaited(refresh());
+        return Right<ProblemError, int>(version);
+      },
+    );
+  }
+
+  /// Role-type correction (issue #678): pick one of the three categories in
+  /// the Cast screen; optimistic-after-2xx via the shared refresh
+  /// reconciliation, 409 surfaces through the shared command-error banner.
+  Future<Result<int>> updateCategory({
+    required CharacterView character,
+    required CharacterCategory category,
+  }) async {
+    if (await _resolveSession() == null) {
+      const error = ProblemError(code: 'auth.session_required', status: 403);
+      ref.read(charactersCommandErrorProvider(seasonId).notifier).set(error);
+      return const Left(error);
+    }
+    final repo = ref.read(characterRepositoryProvider);
+    final res = await repo.updateCategory(
+      character.id,
+      buildCategoryRequest(category: category, version: character.version),
     );
     return res.match(
       (err) {

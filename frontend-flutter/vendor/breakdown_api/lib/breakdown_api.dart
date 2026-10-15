@@ -151,6 +151,7 @@ export 'package:breakdown_api/src/model/uncertainty_acknowledgement.dart';
 export 'package:breakdown_api/src/model/uncertainty_kind.dart';
 export 'package:breakdown_api/src/model/update_ai_config_request.dart';
 export 'package:breakdown_api/src/model/update_block_time_span_request.dart';
+export 'package:breakdown_api/src/model/update_character_category_request.dart';
 export 'package:breakdown_api/src/model/update_contact_info_request.dart';
 export 'package:breakdown_api/src/model/update_costume_category_request.dart';
 export 'package:breakdown_api/src/model/update_costume_detail_request.dart';

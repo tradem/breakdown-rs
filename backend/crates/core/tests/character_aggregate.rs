@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 // Co-authored-by: mimo-v2.5 (opencode-go)
 // Co-authored-by: deepseek-v4-flash (opencode-go)
 // Co-authored-by: qwen3.8-flash (opencode-go)
@@ -386,4 +387,83 @@ fn test_create_character_rejects_only_the_empty_string() {
         make_ctx(),
     );
     assert!(result.is_err(), "the empty name must stay refused");
+}
+
+// ===========================================================================
+// UpdateCharacterCategory (issue #678)
+// ===========================================================================
+
+#[test]
+fn test_update_category_success_emits_next_version() {
+    let agg = create_character("BEN", CharacterCategory::MainCast);
+    let result = agg.handle(
+        UpdateCharacterCategory {
+            id: agg.id,
+            project_id: Some(project_id()),
+            category: CharacterCategory::Extra,
+            version: agg.version,
+        },
+        make_ctx(),
+    );
+    let events = result.unwrap();
+    assert_eq!(events.len(), 1);
+    match &events[0] {
+        CharacterEvent::CategoryChanged {
+            id,
+            category,
+            version,
+            ..
+        } => {
+            assert_eq!(*id, agg.id);
+            assert_eq!(*category, CharacterCategory::Extra);
+            assert_eq!(*version, agg.version.next());
+        }
+        other => panic!("Expected CategoryChanged, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_update_category_rejects_a_version_mismatch() {
+    let agg = create_character("BEN", CharacterCategory::MainCast);
+    let result = agg.handle(
+        UpdateCharacterCategory {
+            id: agg.id,
+            project_id: Some(project_id()),
+            category: CharacterCategory::Guest,
+            // Ahead of the aggregate's current state — a stale client view
+            // (the same optimistic-lock shape as the sibling commands).
+            version: AggregateVersion(99),
+        },
+        make_ctx(),
+    );
+    match result {
+        Err(CharacterError::VersionMismatch {
+            expected: AggregateVersion(99),
+            actual: AggregateVersion::INITIAL,
+        }) => {}
+        other => panic!("Expected VersionMismatch, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_update_category_with_an_unchanged_category_is_an_idempotent_no_op() {
+    // CodeRabbit #693: a repeat write with the current category succeeds
+    // with NO event (kameo_es maps the empty list to
+    // `ExecuteResult::Idempotent`, the adapter answers the current
+    // version) — the caller's desired state is already achieved.
+    let agg = create_character("BEN", CharacterCategory::MainCast);
+    let events = agg
+        .handle(
+            UpdateCharacterCategory {
+                id: agg.id,
+                project_id: Some(project_id()),
+                category: CharacterCategory::MainCast,
+                version: agg.version,
+            },
+            make_ctx(),
+        )
+        .unwrap_or_else(|error| {
+            panic!("an unchanged-category write must be an idempotent no-op, got {error:?}")
+        });
+    assert!(events.is_empty(), "no event on an unchanged category");
 }

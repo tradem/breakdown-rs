@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024 Breakdown RS Contributors
+// Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 
 //! Character domain events.
 
@@ -64,6 +65,13 @@ pub enum CharacterEvent {
         contact_info: ContactInfo,
         version: AggregateVersion,
     },
+    /// The role type changed (issue #678) — the manual correction path for a
+    /// wrong import classification (#677).
+    CategoryChanged {
+        id: Uuid,
+        category: CharacterCategory,
+        version: AggregateVersion,
+    },
 }
 
 impl kameo_es::EventType for CharacterEvent {
@@ -72,6 +80,7 @@ impl kameo_es::EventType for CharacterEvent {
             Self::CharacterCreated { .. } => "CharacterCreated",
             Self::MeasurementsUpdated { .. } => "MeasurementsUpdated",
             Self::ContactInfoUpdated { .. } => "ContactInfoUpdated",
+            Self::CategoryChanged { .. } => "CharacterCategoryChanged",
         }
     }
 }

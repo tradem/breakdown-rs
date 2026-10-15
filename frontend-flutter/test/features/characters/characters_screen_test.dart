@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
 // Co-authored-by: glm-5.3-flash (opencode-go)
@@ -110,6 +111,7 @@ class _FakeCharacterRepository extends CharacterRepository {
   int createCalls = 0;
   int contactCalls = 0;
   int measurementsCalls = 0;
+  int categoryCalls = 0;
 
   @override
   Future<Result<IdVersionResponse>> create(CreateCharacterRequest request) {
@@ -144,6 +146,17 @@ class _FakeCharacterRepository extends CharacterRepository {
     UpdateMeasurementsRequest request,
   ) {
     measurementsCalls++;
+    final scripted = nextWrite;
+    if (scripted != null) return Future.value(scripted);
+    return Future.value(const Right(2));
+  }
+
+  @override
+  Future<Result<int>> updateCategory(
+    String id,
+    UpdateCharacterCategoryRequest request,
+  ) {
+    categoryCalls++;
     final scripted = nextWrite;
     if (scripted != null) return Future.value(scripted);
     return Future.value(const Right(2));
@@ -364,6 +377,35 @@ void main() {
       await tester.tap(find.byKey(const Key('character-contact-save-ch-1')));
       await _pumpFrames(tester);
       expect(repo.contactCalls, 1);
+    });
+
+    testWidgets('category edit dispatches the picked role type; a repeat '
+        'pick of the current one does not (issue #678)', (tester) async {
+      await setupContainer(initialRows: [_character('ch-1')]);
+      await pumpDetail(tester);
+      expect(repo.categoryCalls, 0);
+
+      await tester.tap(find.byKey(const Key('character-category-ch-1')));
+      await tester.pumpAndSettle();
+      // The sheet lists all three categories; picking Extra dispatches.
+      expect(
+        find.byKey(const Key('character-category-pick-extra')),
+        findsOneWidget,
+      );
+      await tester.tap(find.byKey(const Key('character-category-pick-extra')));
+      await tester.pumpAndSettle();
+      expect(repo.categoryCalls, 1);
+
+      // Picking the CURRENT category in a re-opened sheet is a no-op —
+      // the aggregate would refuse it anyway ("unchanged").
+      await tester.tap(find.byKey(const Key('character-category-ch-1')));
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.byKey(const Key('character-category-pick-mainCast')),
+        warnIfMissed: false,
+      );
+      await tester.pumpAndSettle();
+      expect(repo.categoryCalls, 1);
     });
 
     testWidgets('409 conflict renders keyed copy, offers refresh', (

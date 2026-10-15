@@ -1,9 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
 
 import 'package:breakdown_api/breakdown_api.dart';
+
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -66,7 +70,7 @@ class CharacterDetailScreen extends ConsumerWidget {
                   text: characterErrorCopy(l10nOf(context), error),
                   onDismiss: controller.dismissCommandError,
                 ),
-              _CategoryRow(character: c),
+              _CategoryRow(season: season, character: c),
               const SizedBox(height: 16),
               _ContactSection(season: season, character: c),
               const Divider(height: 32),
@@ -135,13 +139,52 @@ class _InlineError extends StatelessWidget {
   }
 }
 
-class _CategoryRow extends StatelessWidget {
-  const _CategoryRow({required this.character});
+class _CategoryRow extends ConsumerWidget {
+  const _CategoryRow({required this.season, required this.character});
 
+  final SeasonView season;
   final CharacterView character;
 
+  Future<void> _pickCategory(BuildContext context, WidgetRef ref) async {
+    final picked = await showModalBottomSheet<CharacterCategory>(
+      context: context,
+      builder: (sheetContext) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (final category in CharacterCategory.values)
+              ListTile(
+                key: Key('character-category-pick-${category.name}'),
+                leading: Icon(
+                  character.category == category
+                      ? Icons.radio_button_checked
+                      : Icons.radio_button_off,
+                ),
+                title: Text(
+                  characterCategoryName(l10nOf(sheetContext), category),
+                ),
+                onTap: () => Navigator.of(sheetContext).pop(category),
+              ),
+          ],
+        ),
+      ),
+    );
+    if (picked == null || picked == character.category || !context.mounted) {
+      return;
+    }
+    // Role-type correction (issue #678): optimistic-after-2xx via the
+    // controller's shared refresh reconciliation; a stale version answers
+    // 409 concurrency.version-mismatch through the shared error banner.
+    unawaited(
+      ref
+          .read(charactersControllerProvider(season.id).notifier)
+          .updateCategory(character: character, category: picked)
+          .then((result) => result.match<void>((_) {}, (_) {})),
+    );
+  }
+
   @override
-  Widget build(BuildContext context) => Row(
+  Widget build(BuildContext context, WidgetRef ref) => Row(
     children: [
       const Icon(Icons.person_outline),
       const SizedBox(width: 8),
@@ -151,9 +194,11 @@ class _CategoryRow extends StatelessWidget {
         style: Theme.of(context).textTheme.titleLarge,
       ),
       const SizedBox(width: 8),
-      Chip(
+      ActionChip(
         key: Key('character-category-${character.id}'),
+        tooltip: l10nOf(context).characterCategoryEditTooltip,
         label: Text(characterCategoryLabel(l10nOf(context), character)),
+        onPressed: () => unawaited(_pickCategory(context, ref)),
       ),
     ],
   );
