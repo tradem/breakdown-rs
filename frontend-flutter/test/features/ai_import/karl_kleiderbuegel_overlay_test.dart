@@ -3,7 +3,7 @@
 // Co-authored-by: glm-5.3-flash (opencode-go)
 // Co-authored-by: deepseek-v4.1-flash (neuralwatt)
 
-// Tier-2 widget tests for the Karl Klammer overlay (issue #516, spec
+// Tier-2 widget tests for the Karl Kleiderbügel overlay (issue #516, spec
 // `flutter-easter-eggs`): visibility gated on the Easter-eggs toggle
 // (with live, immediate hide), non-modal + tap-dismissible, deterministic
 // idle triggers via the fake-async clock (no wall clock / randomness),
@@ -20,8 +20,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:frontend_flutter/data/settings/easter_eggs_store.dart';
 import 'package:frontend_flutter/design/theme.dart';
 import 'package:frontend_flutter/features/ai_import/clippy/clippy_trigger.dart';
-import 'package:frontend_flutter/features/ai_import/clippy/karl_klammer_figure.dart';
-import 'package:frontend_flutter/features/ai_import/clippy/karl_klammer_overlay.dart';
+import 'package:frontend_flutter/features/ai_import/clippy/karl_kleiderbuegel_figure.dart';
+import 'package:frontend_flutter/features/ai_import/clippy/karl_kleiderbuegel_overlay.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:shared_preferences_platform_interface/in_memory_shared_preferences_async.dart';
 import 'package:shared_preferences_platform_interface/shared_preferences_async_platform_interface.dart';
@@ -38,9 +38,9 @@ Future<void> pumpOverlay(
   final container = ProviderContainer(
     overrides: [
       if (!easterEggs)
-        easterEggProvider(EasterEggId.karlKlammer).overrideWith(
+        easterEggProvider(EasterEggId.karlKleiderbuegel).overrideWith(
           () => HydratedEasterEggs(
-            EasterEggId.karlKlammer,
+            EasterEggId.karlKleiderbuegel,
             initial: false,
             failed: false,
           ),
@@ -59,7 +59,7 @@ Future<void> pumpOverlay(
         darkTheme: AppThemes.dark(),
         themeMode: ThemeMode.system,
         home: Scaffold(
-          body: KarlKlammerOverlay(
+          body: KarlKleiderbuegelOverlay(
             flowState: flowState,
             idlePeriod: _idlePeriod,
             child: ListView(
@@ -87,7 +87,7 @@ Future<void> pumpOverlay(
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  group('KarlKlammerOverlay visibility (spec flutter-easter-eggs)', () {
+  group('KarlKleiderbuegelOverlay visibility (spec flutter-easter-eggs)', () {
     testWidgets('hidden entirely when Easter eggs are disabled', (
       tester,
     ) async {
@@ -97,8 +97,8 @@ void main() {
         easterEggs: false,
       );
 
-      expect(find.byKey(const Key('karl-klammer-bubble')), findsNothing);
-      expect(find.byKey(const Key('karl-klammer-figure')), findsNothing);
+      expect(find.byKey(const Key('karl-kleiderbuegel-bubble')), findsNothing);
+      expect(find.byKey(const Key('karl-kleiderbuegel-figure')), findsNothing);
       // No residue: the host content is the ONLY thing rendered.
       expect(find.byKey(const Key('host-list')), findsOneWidget);
     });
@@ -106,8 +106,14 @@ void main() {
     testWidgets('reacts immediately to a no-config flow state', (tester) async {
       await pumpOverlay(tester, flowState: ClippyFlowState.noConfig);
 
-      expect(find.byKey(const Key('karl-klammer-bubble')), findsOneWidget);
-      expect(find.byKey(const Key('karl-klammer-figure')), findsOneWidget);
+      expect(
+        find.byKey(const Key('karl-kleiderbuegel-bubble')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const Key('karl-kleiderbuegel-figure')),
+        findsOneWidget,
+      );
       expect(find.textContaining('import a schedule'), findsOneWidget);
     });
 
@@ -126,7 +132,7 @@ void main() {
           container: container,
           child: const MaterialApp(
             home: Scaffold(
-              body: KarlKlammerOverlay(
+              body: KarlKleiderbuegelOverlay(
                 flowState: ClippyFlowState.noConfig,
                 child: SizedBox(key: Key('host-list')),
               ),
@@ -137,19 +143,22 @@ void main() {
       for (var i = 0; i < 4; i++) {
         await tester.pump(const Duration(milliseconds: 50));
       }
-      expect(find.byKey(const Key('karl-klammer-bubble')), findsOneWidget);
+      expect(
+        find.byKey(const Key('karl-kleiderbuegel-bubble')),
+        findsOneWidget,
+      );
 
       // Flip the global toggle OFF — running tips are torn down with the
       // subtree (dispose cancels the timers).
       await container
-          .read(easterEggProvider(EasterEggId.karlKlammer).notifier)
+          .read(easterEggProvider(EasterEggId.karlKleiderbuegel).notifier)
           .toggle(EasterEggsStore(SharedPreferencesAsync()));
       for (var i = 0; i < 4; i++) {
         await tester.pump(const Duration(milliseconds: 50));
       }
 
-      expect(find.byKey(const Key('karl-klammer-bubble')), findsNothing);
-      expect(find.byKey(const Key('karl-klammer-figure')), findsNothing);
+      expect(find.byKey(const Key('karl-kleiderbuegel-bubble')), findsNothing);
+      expect(find.byKey(const Key('karl-kleiderbuegel-figure')), findsNothing);
       expect(find.byKey(const Key('host-list')), findsOneWidget);
     });
 
@@ -158,9 +167,9 @@ void main() {
     ) async {
       await pumpOverlay(tester, flowState: ClippyFlowState.noConfig);
 
-      await tester.tap(find.byKey(const Key('karl-klammer-bubble')));
+      await tester.tap(find.byKey(const Key('karl-kleiderbuegel-bubble')));
       await tester.pump(const Duration(milliseconds: 100));
-      expect(find.byKey(const Key('karl-klammer-bubble')), findsNothing);
+      expect(find.byKey(const Key('karl-kleiderbuegel-bubble')), findsNothing);
     });
 
     testWidgets('non-modal: primary CTA remains hit-testable below', (
@@ -171,7 +180,7 @@ void main() {
       // The bubble sits bottom-LEADING (left); the CTA further up the
       // list is fully visible and tappable (no barrier, no modal).
       final bubble = tester.getRect(
-        find.byKey(const Key('karl-klammer-bubble')),
+        find.byKey(const Key('karl-kleiderbuegel-bubble')),
       );
       final cta = tester.getRect(find.byKey(const Key('host-cta')));
       expect(bubble.bottom, greaterThanOrEqualTo(cta.bottom));
@@ -188,11 +197,14 @@ void main() {
       await pumpOverlay(tester, flowState: ClippyFlowState.idle);
 
       // Entering idle is silent (occasional, not nagging).
-      expect(find.byKey(const Key('karl-klammer-bubble')), findsNothing);
+      expect(find.byKey(const Key('karl-kleiderbuegel-bubble')), findsNothing);
 
       // Fake-async time travel: the FIRST idle tick shows joke 1.
       await tester.pump(_idlePeriod);
-      expect(find.byKey(const Key('karl-klammer-bubble')), findsOneWidget);
+      expect(
+        find.byKey(const Key('karl-kleiderbuegel-bubble')),
+        findsOneWidget,
+      );
       expect(find.textContaining('Klamotten'), findsOneWidget);
 
       // The SECOND tick cycles to joke 2 — deterministic, not random.
@@ -207,7 +219,7 @@ void main() {
         const MaterialApp(
           home: Scaffold(
             body: Center(
-              child: KarlKlammerFigure(
+              child: KarlKleiderbuegelFigure(
                 pose: ClippyPose.excited,
                 animate: false,
               ),
@@ -225,7 +237,10 @@ void main() {
         const MaterialApp(
           home: Scaffold(
             body: Center(
-              child: KarlKlammerFigure(pose: ClippyPose.excited, animate: true),
+              child: KarlKleiderbuegelFigure(
+                pose: ClippyPose.excited,
+                animate: true,
+              ),
             ),
           ),
         ),
@@ -242,13 +257,13 @@ void main() {
       await pumpOverlay(tester, flowState: ClippyFlowState.error);
 
       final node = tester.getSemantics(
-        find.byKey(const Key('karl-klammer-bubble')),
+        find.byKey(const Key('karl-kleiderbuegel-bubble')),
       );
       expect(node.flagsCollection.isButton, isTrue);
       // The tip text itself is announced as the label...
       expect(node.label, contains("didn't work out"));
       // ...and the dismiss affordance is the hint.
-      expect(node.hint, contains('Hide Karl Klammer'));
+      expect(node.hint, contains('Hide Karl Kleiderbügel'));
       handle.dispose();
     });
 
@@ -272,7 +287,7 @@ void main() {
           child: const MaterialApp(
             home: Scaffold(
               body: Center(
-                child: KarlKlammerFigure(
+                child: KarlKleiderbuegelFigure(
                   pose: ClippyPose.excited,
                   animate: true,
                 ),
@@ -285,12 +300,12 @@ void main() {
       // sin(2π·0.5)=0).
       await tester.pump(const Duration(milliseconds: 400));
       await expectLater(
-        find.byType(KarlKlammerFigure),
+        find.byType(KarlKleiderbuegelFigure),
         matchesGoldenFile('goldens/clippy_excited_phase_a.png'),
       );
       await tester.pump(const Duration(milliseconds: 400));
       await expectLater(
-        find.byType(KarlKlammerFigure),
+        find.byType(KarlKleiderbuegelFigure),
         matchesGoldenFile('goldens/clippy_excited_phase_b.png'),
       );
     });
@@ -311,25 +326,27 @@ void main() {
     });
   });
 
-  group('KarlKlammerOverlay goldens (issue #516)', () {
-    testWidgets('ai import with Karl Klammer (no-config tip, light)', (
+  group('KarlKleiderbuegelOverlay goldens (issue #516)', () {
+    testWidgets('ai import with Karl Kleiderbügel (no-config tip, light)', (
       tester,
     ) async {
       await pumpOverlay(tester, flowState: ClippyFlowState.noConfig);
       await expectLater(
-        find.byType(KarlKlammerOverlay),
+        find.byType(KarlKleiderbuegelOverlay),
         matchesGoldenFile('goldens/clippy_no_config_light.png'),
       );
     });
 
-    testWidgets('ai import WITHOUT Karl Klammer (toggle off)', (tester) async {
+    testWidgets('ai import WITHOUT Karl Kleiderbügel (toggle off)', (
+      tester,
+    ) async {
       await pumpOverlay(
         tester,
         flowState: ClippyFlowState.noConfig,
         easterEggs: false,
       );
       await expectLater(
-        find.byType(KarlKlammerOverlay),
+        find.byType(KarlKleiderbuegelOverlay),
         matchesGoldenFile('goldens/clippy_disabled_light.png'),
       );
     });
@@ -337,7 +354,7 @@ void main() {
     testWidgets('error droop pose (light)', (tester) async {
       await pumpOverlay(tester, flowState: ClippyFlowState.error);
       await expectLater(
-        find.byType(KarlKlammerOverlay),
+        find.byType(KarlKleiderbuegelOverlay),
         matchesGoldenFile('goldens/clippy_error_light.png'),
       );
     });

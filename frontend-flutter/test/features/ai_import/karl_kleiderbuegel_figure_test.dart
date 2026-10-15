@@ -2,7 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: deepseek-v4.1-flash (neuralwatt)
 
-// Tier-1 + Tier-2 tests for the redesigned Karl Klammer figure (issue
+// Tier-1 + Tier-2 tests for the redesigned Karl Kleiderbügel figure (issue
 // #614): the pure blink curve, the comic-vector pose rendering (goldens
 // per ClippyPose), the deterministic repaint/blink phase proofs, and the
 // design-token discipline (no raw color literals in the painter).
@@ -15,7 +15,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:frontend_flutter/design/theme.dart';
 import 'package:frontend_flutter/features/ai_import/clippy/clippy_trigger.dart';
-import 'package:frontend_flutter/features/ai_import/clippy/karl_klammer_figure.dart';
+import 'package:frontend_flutter/features/ai_import/clippy/karl_kleiderbuegel_figure.dart';
 
 Future<void> pumpFigure(
   WidgetTester tester, {
@@ -28,7 +28,7 @@ Future<void> pumpFigure(
       theme: dark ? AppThemes.dark() : AppThemes.light(),
       home: Scaffold(
         body: Center(
-          child: KarlKlammerFigure(pose: pose, animate: animate),
+          child: KarlKleiderbuegelFigure(pose: pose, animate: animate),
         ),
       ),
     ),
@@ -72,7 +72,7 @@ void main() {
             'golden)', (tester) async {
           await pumpFigure(tester, pose: pose, animate: false, dark: dark);
           await expectLater(
-            find.byType(KarlKlammerFigure),
+            find.byType(KarlKleiderbuegelFigure),
             matchesGoldenFile('goldens/karl_pose_${pose.name}$suffix.png'),
           );
         });
@@ -108,12 +108,12 @@ void main() {
       // Two distinct body-motion phases of the neutral signature.
       await tester.pump(const Duration(milliseconds: 900));
       await expectLater(
-        find.byType(KarlKlammerFigure),
+        find.byType(KarlKleiderbuegelFigure),
         matchesGoldenFile('goldens/karl_motion_phase_a.png'),
       );
       await tester.pump(const Duration(milliseconds: 900));
       await expectLater(
-        find.byType(KarlKlammerFigure),
+        find.byType(KarlKleiderbuegelFigure),
         matchesGoldenFile('goldens/karl_motion_phase_b.png'),
       );
     });
@@ -134,13 +134,13 @@ void main() {
       await pumpFigure(tester, pose: ClippyPose.neutral, animate: true);
       // Phase 0.0 → eyes open.
       await expectLater(
-        find.byType(KarlKlammerFigure),
+        find.byType(KarlKleiderbuegelFigure),
         matchesGoldenFile('goldens/karl_blink_open.png'),
       );
       // Phase 0.5 → inside the deterministic blink window (eyes closed).
       await tester.pump(const Duration(milliseconds: 2100));
       await expectLater(
-        find.byType(KarlKlammerFigure),
+        find.byType(KarlKleiderbuegelFigure),
         matchesGoldenFile('goldens/karl_blink_closed.png'),
       );
     });
@@ -165,20 +165,39 @@ void main() {
       await tester.pump(const Duration(milliseconds: 2100));
       await pumpFigure(tester, pose: ClippyPose.neutral, animate: false);
       await expectLater(
-        find.byType(KarlKlammerFigure),
+        find.byType(KarlKleiderbuegelFigure),
         matchesGoldenFile('goldens/karl_pose_neutral.png'),
       );
     });
   });
 
-  group('design-token discipline (issue #614)', () {
-    test('the figure source contains no raw color literals', () {
+  group('design-token discipline (issue #614, #670)', () {
+    test('raw color literals are confined to the approved _Art palette', () {
+      // Issue #670 (decision D3): the approved artwork ships a fixed
+      // palette, which lives in exactly one documented `_Art` block.
+      // No Material convenience colors, and no color literal outside
+      // that block.
       final source = File(
-        'lib/features/ai_import/clippy/karl_klammer_figure.dart',
+        'lib/features/ai_import/clippy/karl_kleiderbuegel_figure.dart',
       ).readAsStringSync();
-      expect(source.contains('Color(0x'), isFalse);
-      expect(source.contains('Color.fromARGB'), isFalse);
       expect(source.contains('Colors.'), isFalse);
+      expect(source.contains('Color.fromARGB'), isFalse);
+      final paletteStart = source.indexOf('abstract final class _Art');
+      expect(paletteStart, greaterThan(0));
+      final paletteEnd = source.indexOf('}', source.indexOf('faceShadow'));
+      for (var i = source.indexOf('Color(0x'); i != -1;) {
+        expect(
+          i,
+          greaterThan(paletteStart),
+          reason: 'color literal outside the _Art palette block',
+        );
+        expect(
+          i,
+          lessThan(paletteEnd),
+          reason: 'color literal outside the _Art palette block',
+        );
+        i = source.indexOf('Color(0x', i + 1);
+      }
     });
   });
 }

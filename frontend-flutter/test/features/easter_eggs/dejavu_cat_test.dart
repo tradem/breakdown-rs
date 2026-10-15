@@ -166,12 +166,12 @@ void main() {
       );
     });
 
-    testWidgets('static pose golden — dark theme keeps the cat black', (
+    testWidgets('static pose golden — dark theme keeps the cat readable', (
       tester,
     ) async {
-      // CodeRabbit review #628: `onSurface` would render a LIGHT cat in
-      // dark mode. The body is `colorScheme.shadow` (the black token) with
-      // an `onSurface` rim; this golden protects the black-cat requirement.
+      // Issue #670: the approved fixed palette (near-black fur + soft
+      // blue-grey rim light) is designed to keep the silhouette readable
+      // in BOTH themes; this golden protects that.
       await pumpWalker(tester, animate: false, brightness: Brightness.dark);
       await expectLater(
         find.byType(DejaVuCatWalker),

@@ -190,8 +190,8 @@ establishing change).
 | `—` *(no icon)* | **Allgemein** | Settings screen — general app-settings section header (every flavor) | `settings.general` |
 | `—` *(no icon)* | **Easter-Eggs** | Settings — Easter-eggs group header (per-egg switches, default ON, issue #615) | `settings.easterEggs` |
 | `—` *(no icon)* | **Kleine Überraschungen in der App lassen sich ein- und ausschalten.** | Settings — Easter-eggs group explanatory line | `settings.easterEggsSubtitle` |
-| `celebration_outlined` | **Karl Klammer** | Settings — Karl Klammer egg switch (default ON) | `settings.easterEggsKarlKlammer` |
-| `—` *(no icon)* | **Der Kleiderbügel-Assistent hilft im KI-Import mit Tipps und Sprüchen.** | Settings — Karl Klammer egg description | `settings.easterEggsKarlKlammerSubtitle` |
+| `checkroom` | **Karl Kleiderbügel** | Settings — Karl Kleiderbügel egg switch (default ON) | `settings.easterEggsKarlKleiderbuegel` |
+| `—` *(no icon)* | **Der Kleiderbügel-Assistent hilft im KI-Import mit Tipps und Sprüchen.** | Settings — Karl Kleiderbügel egg description | `settings.easterEggsKarlKleiderbuegelSubtitle` |
 | `pets_outlined` | **Déjà-vu-Katze** | Settings — Deja-vu Cat egg switch (default ON; October-only effect) | `settings.easterEggsDejavuCat` |
 | `—` *(no icon)* | **Im Oktober läuft eine schwarze Katze über den Startbildschirm und durch die leere Season-Liste. In der Vorschau hier ist sie jederzeit zu sehen.** | Settings — Deja-vu Cat egg description (issue #640: surfaces = splash + empty seasons home + gallery preview) | `settings.easterEggsDejavuCatSubtitle` |
 | `—` *(no icon)* | **Vorschau** | Settings — Easter-eggs gallery preview label (per-egg replay/preview regardless of month, issue #640) | `settings.easterEggsPreview` |
@@ -268,12 +268,12 @@ establishing change).
 | `balance` | **Lizenz** | App info — license entry (AGPL-3.0) | `common.license` |
 | `tag` | **Version** | App info — version entry | `common.version` |
 | `dns_outlined` | **Serveradresse** | Settings — backend endpoint display | `settings.serverUrl` |
-| `—` *(no icon)* | **Es sieht so aus, als wolltest du einen Spielplan importieren…** | Karl Klammer (Easter egg, AI Import) — no-config allusion offering the AI-config entry | `aiImport.clippy.noConfig` |
-| `—` *(no icon)* | **Ich bin ganz Ohr!** | Karl Klammer — import-job-running reaction (excited swing pose) | `aiImport.clippy.running` |
-| `—` *(no icon)* | **Hmm, lass mich kurz überlegen…** | Karl Klammer — job queued (not yet running) reaction (thinking pose, issue #614) | `aiImport.clippy.queued` |
-| `—` *(no icon)* | **Das hat leider nicht geklappt. Aber gemeinsam kriegen wir das hin!** | Karl Klammer — error consolation (droop pose) | `aiImport.clippy.error` |
-| `—` *(no icon)* | **Klasse! Der Import sitzt wie maßgeschneidert.** | Karl Klammer — success praise (proud pose) | `aiImport.clippy.success` |
-| `—` *(no icon)* | *(fixed joke set of five)* | Karl Klammer — idle jokes from the Clippy canon (`aiImport.clippy.idle1..5`, issue #614) | `aiImport.clippy.idle` |
+| `—` *(no icon)* | **Es sieht so aus, als wolltest du einen Spielplan importieren…** | Karl Kleiderbügel (Easter egg, AI Import) — no-config allusion offering the AI-config entry | `aiImport.clippy.noConfig` |
+| `—` *(no icon)* | **Ich bin ganz Ohr!** | Karl Kleiderbügel — import-job-running reaction (excited swing pose) | `aiImport.clippy.running` |
+| `—` *(no icon)* | **Hmm, lass mich kurz überlegen…** | Karl Kleiderbügel — job queued (not yet running) reaction (thinking pose, issue #614) | `aiImport.clippy.queued` |
+| `—` *(no icon)* | **Das hat leider nicht geklappt. Aber gemeinsam kriegen wir das hin!** | Karl Kleiderbügel — error consolation (droop pose) | `aiImport.clippy.error` |
+| `—` *(no icon)* | **Klasse! Der Import sitzt wie maßgeschneidert.** | Karl Kleiderbügel — success praise (proud pose) | `aiImport.clippy.success` |
+| `—` *(no icon)* | *(fixed joke set of five)* | Karl Kleiderbügel — idle jokes from the Clippy canon (`aiImport.clippy.idle1..5`, issue #614) | `aiImport.clippy.idle` |
 | `pets_outlined` | *(no copy — pure animation)* | Deja-vu Cat — original black cat crossing the splash in October (issue #615; no caption) | *(splash-only egg)* |
 | `science_outlined` | **Experimentelle Funktionen** | Settings — experimental features | `settings.experimental` |
 | `psychology_alt_outlined` | **KI-Konfiguration** | AI provider/model configuration | `ai.config` |

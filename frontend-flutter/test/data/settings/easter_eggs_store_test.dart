@@ -57,7 +57,10 @@ void main() {
 
   group('EasterEggId (issue #615)', () {
     test('uses flat per-egg spec keys + the legacy key', () {
-      expect(EasterEggId.karlKlammer.prefsKey, 'easter_eggs.karl_klammer');
+      expect(
+        EasterEggId.karlKleiderbuegel.prefsKey,
+        'easter_eggs.karl_kleiderbuegel',
+      );
       expect(EasterEggId.dejaVuCat.prefsKey, 'easter_eggs.dejavu_cat');
       expect(EasterEggsStore.legacyKey, 'easter_eggs');
     });
@@ -69,7 +72,9 @@ void main() {
       () async {
         final store = EasterEggsStore(SharedPreferencesAsync());
         expect(
-          (await store.read(EasterEggId.karlKlammer)).getRight().toNullable(),
+          (await store.read(EasterEggId.karlKleiderbuegel))
+              .getRight()
+              .toNullable(),
           isNull,
         );
         expect(
@@ -83,11 +88,13 @@ void main() {
       final store = EasterEggsStore(SharedPreferencesAsync());
 
       expect(
-        (await store.write(EasterEggId.karlKlammer, false)).isRight(),
+        (await store.write(EasterEggId.karlKleiderbuegel, false)).isRight(),
         isTrue,
       );
       expect(
-        (await store.read(EasterEggId.karlKlammer)).getRight().toNullable(),
+        (await store.read(EasterEggId.karlKleiderbuegel))
+            .getRight()
+            .toNullable(),
         isFalse,
       );
       // The other egg stays unset.
@@ -112,7 +119,7 @@ void main() {
 
       // Err branches asserted explicitly (Err-branch rule).
       expect(
-        (await store.read(EasterEggId.karlKlammer))
+        (await store.read(EasterEggId.karlKleiderbuegel))
             .getLeft()
             .toNullable()
             ?.code,
@@ -120,7 +127,7 @@ void main() {
       );
       expect(
         (await store.write(
-          EasterEggId.karlKlammer,
+          EasterEggId.karlKleiderbuegel,
           false,
         )).getLeft().toNullable()?.code,
         'settings.easter_eggs_write_failed',
@@ -159,7 +166,7 @@ void main() {
         ).readAll()).getRight().toNullable()!;
 
         expect(snapshot.migratedLegacy, isTrue);
-        expect(snapshot.values[EasterEggId.karlKlammer], isFalse);
+        expect(snapshot.values[EasterEggId.karlKleiderbuegel], isFalse);
         expect(snapshot.values[EasterEggId.dejaVuCat], isFalse);
         // The legacy key is removed.
         expect(
@@ -172,14 +179,14 @@ void main() {
     test('readAll migration preserves an explicit per-egg choice', () async {
       final prefs = SharedPreferencesAsync();
       await prefs.setBool(EasterEggsStore.legacyKey, true);
-      await prefs.setBool(EasterEggId.karlKlammer.prefsKey, false);
+      await prefs.setBool(EasterEggId.karlKleiderbuegel.prefsKey, false);
 
       final snapshot = (await EasterEggsStore(
         prefs,
       ).readAll()).getRight().toNullable()!;
 
       // Explicit value kept; the unset egg seeded from the legacy value.
-      expect(snapshot.values[EasterEggId.karlKlammer], isFalse);
+      expect(snapshot.values[EasterEggId.karlKleiderbuegel], isFalse);
       expect(snapshot.values[EasterEggId.dejaVuCat], isTrue);
       expect(await prefs.getBool(EasterEggsStore.legacyKey), isNull);
     });
@@ -196,11 +203,51 @@ void main() {
         ).readAll()).getRight().toNullable()!;
 
         expect(snapshot.migratedLegacy, isTrue);
-        expect(snapshot.values[EasterEggId.karlKlammer], isFalse);
+        expect(snapshot.values[EasterEggId.karlKleiderbuegel], isFalse);
         // The leftover legacy key is harmless and ignored on the next boot.
         expect(await prefs.getBool(EasterEggsStore.legacyKey), isFalse);
       },
     );
+  });
+
+  group('Karl rename migration (issue #670)', () {
+    test('readAll carries the old karl_klammer value to the renamed key '
+        'and drops the old key', () async {
+      final prefs = SharedPreferencesAsync();
+      await prefs.setBool(EasterEggsStore.legacyKarlKlammerKey, false);
+
+      final snapshot = (await EasterEggsStore(
+        prefs,
+      ).readAll()).getRight().toNullable()!;
+
+      expect(snapshot.values[EasterEggId.karlKleiderbuegel], isFalse);
+      // The old key is removed.
+      expect(await prefs.getBool(EasterEggsStore.legacyKarlKlammerKey), isNull);
+    });
+
+    test('readAll migration keeps an explicit post-rename choice over the '
+        'old key', () async {
+      final prefs = SharedPreferencesAsync();
+      await prefs.setBool(EasterEggsStore.legacyKarlKlammerKey, false);
+      await prefs.setBool(EasterEggId.karlKleiderbuegel.prefsKey, true);
+
+      final snapshot = (await EasterEggsStore(
+        prefs,
+      ).readAll()).getRight().toNullable()!;
+
+      // The explicit new-key value wins; the old key is still removed.
+      expect(snapshot.values[EasterEggId.karlKleiderbuegel], isTrue);
+      expect(await prefs.getBool(EasterEggsStore.legacyKarlKlammerKey), isNull);
+    });
+
+    test('readAll without an old key leaves the renamed egg unset', () async {
+      final snapshot = (await EasterEggsStore(
+        SharedPreferencesAsync(),
+      ).readAll()).getRight().toNullable()!;
+
+      expect(snapshot.values[EasterEggId.karlKleiderbuegel], isNull);
+      expect(snapshot.effective(EasterEggId.karlKleiderbuegel), isTrue);
+    });
   });
 
   group('EasterEggs notifier family (issue #615)', () {
@@ -220,9 +267,9 @@ void main() {
     test('bootstrap seeds a persisted false per egg', () {
       final container = ProviderContainer(
         overrides: [
-          easterEggProvider(EasterEggId.karlKlammer).overrideWith(
+          easterEggProvider(EasterEggId.karlKleiderbuegel).overrideWith(
             () => HydratedEasterEggs(
-              EasterEggId.karlKlammer,
+              EasterEggId.karlKleiderbuegel,
               initial: false,
               failed: false,
             ),
@@ -232,7 +279,7 @@ void main() {
       addTearDown(container.dispose);
 
       expect(
-        container.read(easterEggProvider(EasterEggId.karlKlammer)),
+        container.read(easterEggProvider(EasterEggId.karlKleiderbuegel)),
         isFalse,
       );
       expect(container.read(easterEggProvider(EasterEggId.dejaVuCat)), isTrue);
@@ -244,23 +291,23 @@ void main() {
 
       final flips = <bool>[];
       container.listen(
-        easterEggProvider(EasterEggId.karlKlammer),
+        easterEggProvider(EasterEggId.karlKleiderbuegel),
         (_, v) => flips.add(v),
       );
 
       await container
-          .read(easterEggProvider(EasterEggId.karlKlammer).notifier)
+          .read(easterEggProvider(EasterEggId.karlKleiderbuegel).notifier)
           .toggle(EasterEggsStore(SharedPreferencesAsync()));
 
       expect(
-        container.read(easterEggProvider(EasterEggId.karlKlammer)),
+        container.read(easterEggProvider(EasterEggId.karlKleiderbuegel)),
         isFalse,
       );
       expect(container.read(easterEggProvider(EasterEggId.dejaVuCat)), isTrue);
       expect(flips, [false]);
       expect(
         await SharedPreferencesAsync().getBool(
-          EasterEggId.karlKlammer.prefsKey,
+          EasterEggId.karlKleiderbuegel.prefsKey,
         ),
         isFalse,
       );
@@ -295,7 +342,7 @@ void main() {
         final container = ProviderContainer();
         addTearDown(container.dispose);
         final notifier = container.read(
-          easterEggProvider(EasterEggId.karlKlammer).notifier,
+          easterEggProvider(EasterEggId.karlKleiderbuegel).notifier,
         );
 
         platform.failAll = true;
@@ -308,7 +355,7 @@ void main() {
         );
         // The in-memory flip still happened.
         expect(
-          container.read(easterEggProvider(EasterEggId.karlKlammer)),
+          container.read(easterEggProvider(EasterEggId.karlKleiderbuegel)),
           isFalse,
         );
       },
