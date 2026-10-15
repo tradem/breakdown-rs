@@ -185,7 +185,12 @@ void main() {
       await pumpScreen(tester);
 
       expect(find.byKey(const Key('scene-s1')), findsOneWidget);
+      // Issue #668 list design: the tile TITLE is the scene number; the
+      // summary renders as the truncated excerpt line below it.
+      expect(find.text('Scene s1'), findsOneWidget);
+      // Single-sentence summary → excerpt without ellipsis.
       expect(find.text('A scene s1'), findsOneWidget);
+      expect(find.byKey(const Key('scene-excerpt-s1')), findsOneWidget);
       // Read-only detail data: mood, location, script day, schedule flag,
       // character / shooting-day counts.
       expect(find.textContaining('Mood: tense'), findsOneWidget);
@@ -214,6 +219,42 @@ void main() {
       expect(find.byKey(const Key('scene-ai-badge-s-ai')), findsOneWidget);
       expect(find.byKey(const Key('scene-ai-badge-s-m')), findsNothing);
       expect(find.byKey(const Key('scene-ai-badge-s-absent')), findsNothing);
+    });
+
+    testWidgets(
+      'long multi-sentence summary: excerpt is first sentence + ellipsis, '
+      'no mid-sentence hard cut (issue #668)',
+      (tester) async {
+        await setupContainer(
+          initialRows: [
+            _scene(
+              'long',
+              summary:
+                  'Outline-style block with heading and day marker only. '
+                  'No characters, costumes, or props described.',
+            ),
+          ],
+        );
+        await pumpScreen(tester);
+
+        // Title = scene number, never the giant summary line.
+        expect(find.text('Scene long'), findsOneWidget);
+        // Excerpt = first sentence + `…`.
+        expect(
+          find.text('Outline-style block with heading and day marker only. …'),
+          findsOneWidget,
+        );
+      },
+    );
+
+    testWidgets('null summary: no excerpt row at all (issue #668)', (
+      tester,
+    ) async {
+      await setupContainer(initialRows: [_scene('bare', summary: '')]);
+      await pumpScreen(tester);
+
+      expect(find.text('Scene bare'), findsOneWidget);
+      expect(find.byKey(const Key('scene-excerpt-bare')), findsNothing);
     });
 
     testWidgets('empty: plain-language state with create CTA', (tester) async {

@@ -403,6 +403,71 @@ pub fn verify_draft_costumes(scene: &mut DraftScene, chunk_text: &str) -> Vec<Re
     rejected
 }
 
+/// Conservative markers of a META-summary (issue #668): prose that describes
+/// a block's *shape or emptiness* instead of its content. Matched
+/// case-insensitively against the whitespace-folded summary.
+const META_SUMMARY_MARKERS: &[&str] = &[
+    // The six textual variants observed live (issue #668 test session,
+    // mistral-large-3 via eurouter, 45 of 95 scenes) all descend from this
+    // shape: "Outline-style block with heading and day marker only. No
+    // characters, costumes, or props described."
+    "outline-style block",
+    "outline style block",
+    "outline-style-block",
+    "heading and day marker only",
+    "no characters, costumes, or props",
+    "no characters, costumes or props",
+    "nothing happens in this",
+    "this block contains no",
+    // German variants of the same meta-sentence (the extraction prompt's
+    // other language) — conservative, content-describing phrasings only.
+    "keine charaktere, kostüme",
+    "keine figuren, kostüme",
+    "nichts passiert in dieser szene",
+    "nichts passiert in diesem block",
+    "kein inhalt",
+    "keine handlung",
+    "nur eine überschrift",
+    "nur eine zwischenüberschrift",
+];
+
+/// Whether `summary` is a meta-description of the block's shape/emptiness
+/// rather than scene content (issue #668).
+///
+/// Deliberately conservative: only the closed marker list above matches —
+/// a leading-phrase heuristic ("This block …") was evaluated and rejected:
+/// "This block party turns chaotic…" is a legitimate summary a false
+/// positive would destroy. The cost of a missed meta-sentence is one ugly
+/// list row; the cost of a false positive is a destroyed scene summary.
+#[must_use]
+pub fn is_meta_summary(summary: &str) -> bool {
+    let folded = grounded_text(summary).to_lowercase();
+    !folded.is_empty()
+        && META_SUMMARY_MARKERS
+            .iter()
+            .any(|marker| folded.contains(marker))
+}
+
+/// Deterministic post-extraction guard (issue #668): the hardened prompt
+/// (issue #607) bans meta-summaries, but a prompt is an instruction, not a
+/// guarantee — the test session's model ignored the ban in 45 of 95 scenes
+/// and the garbage flowed through preview → apply → projection → app.
+///
+/// This is the #607 intent enforced mechanically, independent of model
+/// compliance: a summary that describes the block's shape/emptiness instead
+/// of scene content is set to `null` before the preview is stored. Returns
+/// whether a rewrite happened so the caller can log/count it (prompt/model
+/// regression observability).
+pub fn sanitize_meta_summary(scene: &mut DraftScene) -> bool {
+    match scene.summary.as_deref() {
+        Some(summary) if is_meta_summary(summary) => {
+            scene.summary = None;
+            true
+        }
+        _ => false,
+    }
+}
+
 impl DraftScene {
     pub fn scene_details(&self) -> SceneDetails {
         SceneDetails {

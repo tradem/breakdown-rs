@@ -18,8 +18,8 @@ use breakdown_core::ai::{
     PlannedEpisode, SceneApplyCommand, SceneApplyPlan, ScriptContext, ShootingSchedule,
     SourceFormat, Telemetry, TelemetryApplyState, UnappliedCostume, UnappliedCostumeReason,
     Uncertainty, UncertaintyKind, character_mapping_ref, draft_row_ref, ensure_merge_applyable,
-    extract_scenes, mapping_kind, merge_schedule_to_scenes, plan_scene_apply, scene_beat_lanes,
-    stable_draft_ref, verify_draft_costumes,
+    extract_scenes, mapping_kind, merge_schedule_to_scenes, plan_scene_apply,
+    sanitize_meta_summary, scene_beat_lanes, stable_draft_ref, verify_draft_costumes,
 };
 use breakdown_core::character::category::CharacterCategory;
 use breakdown_core::character::commands::CreateCharacter;
@@ -353,6 +353,10 @@ where
         // `stable_draft_ref`, which needs a stable identity per preview row
         // that survives the model's own (hallucinated) `draft_ref`.
         let mut scene_ordinal = 0usize;
+        // Issue #668: count of meta-summaries the deterministic guard
+        // rewrote to `null` across the whole job — the prompt/model
+        // regression signal logged before the job succeeds.
+        let mut meta_rewrites = 0usize;
         for chunk in chunks {
             // Hoisted because the grounding check below must verify a quote
             // against *exactly* the bytes the model was given. Grounding against
@@ -410,6 +414,23 @@ where
                         if scene.episode.is_none() {
                             scene.episode = chunk.episode.clone();
                         }
+                        // Issue #668: deterministic post-extraction guard —
+                        // the prompt bans meta-summaries, but a prompt is an
+                        // instruction, not a guarantee (same doctrine as the
+                        // costume check below). A summary that describes the
+                        // block's shape/emptiness instead of scene content is
+                        // set to `null` BEFORE the preview is stored, so the
+                        // garbage can no longer flow through apply →
+                        // projection → app. Each rewrite is counted and
+                        // logged so prompt/model regressions stay observable.
+                        if sanitize_meta_summary(&mut scene) {
+                            meta_rewrites += 1;
+                            tracing::warn!(
+                                job_id = %job.id.as_uuid(),
+                                draft_ref = %scene.draft_ref,
+                                "ai-extraction: meta-summary rewritten to null — model violated the #607 prompt ban (issue #668)"
+                            );
+                        }
                         // Server-side truth beats the prompt too (design D5): a
                         // prompt forbids inventing a costume, but a prompt is an
                         // instruction, not a guarantee. Everything the check drops
@@ -451,6 +472,18 @@ where
         let payload = to_vec(&context).map_err(|error| {
             DomainError::validation(format!("could not serialize script preview: {error}"))
         })?;
+        // Issue #668: the job-level rewrite count as the counter signal —
+        // nonzero means the configured extraction model ignored the #607
+        // prompt ban and the guard had to enforce it mechanically.
+        if meta_rewrites > 0 {
+            tracing::warn!(
+                job_id = %job.id.as_uuid(),
+                rewrites = meta_rewrites,
+                chunks = chunk_count,
+                "ai-extraction: meta-summary guard rewrote {} scene summaries to null (issue #668)",
+                meta_rewrites
+            );
+        }
         let handle = self.previews.put(job.id, payload).await?;
         // Stop renewing before the terminal writes so a heartbeat cannot race
         // the completion and re-extend a lease that is about to be released.
