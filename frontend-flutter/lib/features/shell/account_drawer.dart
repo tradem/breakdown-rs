@@ -10,6 +10,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../auth/auth_providers.dart';
 import '../../l10n/app_localizations_provider.dart';
 import '../app_info/app_info_screen.dart';
+import '../ai_import/import_jobs/jobs_screen.dart';
 import '../auth/sign_out.dart';
 import '../settings/settings_screen.dart';
 import 'backend_health_pill.dart';
@@ -111,6 +112,38 @@ class AccountDrawer extends ConsumerWidget {
                 navigator.push(
                   MaterialPageRoute<void>(
                     builder: (_) => const SettingsScreen(),
+                  ),
+                ),
+              );
+            }
+          },
+        ),
+        ListTile(
+          key: const Key('profile-ai-imports'),
+          leading: const Icon(Icons.auto_awesome),
+          // Issue #672: the AI-import jobs list is the operational screen
+          // users check repeatedly during import testing — it gets its own
+          // directly reachable drawer entry (no Settings detour; the
+          // redundant Settings entry was removed in the same change).
+          title: Text(l10n.commonAiImportJobs),
+          onTap: () {
+            // Same seam as Settings above: capture the destination
+            // navigator BEFORE the pop, then push the full-screen jobs
+            // screen inside the active destination's stack (drawer only
+            // opens, never hosts; issue #653/#638 pattern).
+            //
+            // The named route is the apply-outcome button's pop target
+            // ("back to imports" `popUntil` contract, apply_screen.dart) —
+            // the same name the former Settings entry and the production
+            // overview's active-jobs row push under.
+            final navigator = navigatorKey?.currentState;
+            Navigator.of(context).pop();
+            if (navigator != null) {
+              unawaited(
+                navigator.push(
+                  MaterialPageRoute<void>(
+                    settings: const RouteSettings(name: 'ai-import-jobs'),
+                    builder: (_) => const AiImportJobsScreen(),
                   ),
                 ),
               );

@@ -3670,6 +3670,12 @@ abstract class AppLocalizations {
   /// **'Einstellungen'**
   String get commonSettings;
 
+  /// No description provided for @commonAiImportJobs.
+  ///
+  /// In de, this message translates to:
+  /// **'KI-Import-Aufträge'**
+  String get commonAiImportJobs;
+
   /// No description provided for @commonSignOut.
   ///
   /// In de, this message translates to:
@@ -4821,18 +4827,6 @@ abstract class AppLocalizations {
   /// In de, this message translates to:
   /// **'KI'**
   String get settingsAi;
-
-  /// No description provided for @settingsAiImports.
-  ///
-  /// In de, this message translates to:
-  /// **'KI-Import-Aufträge'**
-  String get settingsAiImports;
-
-  /// No description provided for @settingsAiImportsSubtitle.
-  ///
-  /// In de, this message translates to:
-  /// **'Status deiner KI-Importe ansehen.'**
-  String get settingsAiImportsSubtitle;
 
   /// No description provided for @settingsDev.
   ///

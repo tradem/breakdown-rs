@@ -242,6 +242,51 @@ void main() {
       expect(find.byKey(const Key('settings-uri-field')), findsOneWidget);
     });
 
+    testWidgets(
+      'AI-import jobs entry (issue #672): visible when authenticated, sits '
+      "between Settings and Sign out, opens the jobs screen full-screen "
+      'under the named route "ai-import-jobs" (apply-outcome popUntil target)',
+      (tester) async {
+        await setupDevAuth();
+        await pumpApp(tester);
+
+        await openAccountDrawer(tester);
+        // The entry exists and sits between Einstellungen and Abmelden
+        // (operational entry above the destructive sign-out).
+        final aiImports = find.byKey(const Key('profile-ai-imports'));
+        expect(aiImports, findsOneWidget);
+        expect(find.byKey(const Key('profile-settings')), findsOneWidget);
+        expect(
+          tester.getTopLeft(aiImports).dy,
+          greaterThan(
+            tester.getTopLeft(find.byKey(const Key('profile-settings'))).dy,
+          ),
+        );
+        expect(
+          tester.getTopLeft(aiImports).dy,
+          lessThan(
+            tester.getTopLeft(find.byKey(const Key('profile-signout'))).dy,
+          ),
+        );
+
+        // Tap → jobs screen pushed FULL SCREEN inside the active
+        // destination's stack (same seam as Settings; never a dialog),
+        // under the named route the apply outcome pops back to.
+        await tester.tap(aiImports);
+        for (var i = 0; i < 30; i++) {
+          await tester.pump(const Duration(milliseconds: 20));
+        }
+        expect(find.byKey(const Key('profile-account-drawer')), findsNothing);
+        expect(find.byType(AlertDialog), findsNothing);
+        expect(find.byKey(const Key('ai-jobs-empty')), findsOneWidget);
+        final route = ModalRoute.of(
+          tester.element(find.byKey(const Key('ai-jobs-empty'))),
+        );
+        expect(route, isA<MaterialPageRoute<void>>());
+        expect(route!.settings.name, 'ai-import-jobs');
+      },
+    );
+
     testWidgets('sign out returns to login: no refetch, cache emptied once', (
       tester,
     ) async {

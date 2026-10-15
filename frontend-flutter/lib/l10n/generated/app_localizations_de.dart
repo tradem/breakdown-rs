@@ -2194,6 +2194,9 @@ class AppLocalizationsDe extends AppLocalizations {
   String get commonSettings => 'Einstellungen';
 
   @override
+  String get commonAiImportJobs => 'KI-Import-Aufträge';
+
+  @override
   String get commonSignOut => 'Abmelden';
 
   @override
@@ -2915,12 +2918,6 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get settingsAi => 'KI';
-
-  @override
-  String get settingsAiImports => 'KI-Import-Aufträge';
-
-  @override
-  String get settingsAiImportsSubtitle => 'Status deiner KI-Importe ansehen.';
 
   @override
   String get settingsDev => 'Entwicklung';

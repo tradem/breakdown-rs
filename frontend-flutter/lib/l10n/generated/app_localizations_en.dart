@@ -2167,6 +2167,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get commonSettings => 'Settings';
 
   @override
+  String get commonAiImportJobs => 'AI import jobs';
+
+  @override
   String get commonSignOut => 'Sign out';
 
   @override
@@ -2882,13 +2885,6 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get settingsAi => 'AI';
-
-  @override
-  String get settingsAiImports => 'AI imports';
-
-  @override
-  String get settingsAiImportsSubtitle =>
-      'Check the status of your AI imports.';
 
   @override
   String get settingsDev => 'Development';
