@@ -21,6 +21,17 @@ releases are cut as `vX.Y.Z` tags (`v<build-name>`, enforced by
 
 ## [Unreleased]
 
+- **Version bump:** `0.4.0-alpha.31+82 → 0.4.0-alpha.32+83` — issue #678,
+  the editable role type:
+  * The Cast screen's read-only category chip becomes an `ActionChip`:
+    tap opens the three-category picker sheet (current one pre-selected);
+    the dispatch carries the acted-on row's version echo and reconciles
+    through the shared refresh + command-error banner (stale version →
+    the established refresh-retry UX).
+  * Picking the current category is a client-side no-op. Manual
+    correction path for #677's import classifications.
+  * Generated Dart client rebuilt for `PATCH /v1/characters/{id}/category`.
+
 - **Version bump:** `0.4.0-alpha.30+81 → 0.4.0-alpha.31+82` — issue #677,
   the extracted character categories:
   * Generated Dart client rebuilt for the widened preview wire shape

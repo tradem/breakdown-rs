@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Co-authored-by: glm-5.3-flash (neuralwatt)
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 // Co-authored-by: space-bunny-free (opencode-go)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
 // Co-authored-by: gpt-5.6-luna (opencode-go)

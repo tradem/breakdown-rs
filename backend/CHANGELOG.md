@@ -30,15 +30,14 @@ tag. Never edit a released entry afterwards.
   /v1/characters/{id}/category` dispatches the new `UpdateCharacterCategory`
   command (`CharacterCategoryChanged` event → aggregate apply → projector
   updates `projection_character.category`), with the established optimistic
-  409 `concurrency.version-mismatch` on a stale version. Block-scoped
-  middleware enforcement like the sibling character-write routes. The Cast
-  screen's role-type chip is now an `ActionChip` opening the three-category
-  picker sheet; picking the current category is a no-op, a change
-  dispatches with the acted-on row's version and reconciles through the
-  shared refresh. The manual correction path for #677's import
-  classification.
-
-### Added
+  409 `concurrency.version-mismatch` on a stale version and the
+  state-based unchanged-category refusal (idempotent no-op pattern).
+  Block-scoped middleware enforcement like the sibling character-write
+  routes. The Cast screen's role-type chip is now an `ActionChip` opening
+  the three-category picker sheet; picking the current category is a
+  no-op, a change dispatches with the acted-on row's version echo and
+  reconciles through the shared refresh. The manual correction path for
+  #677's import classification.
 
 - **Extracted character categories flow through the AI script import
   (issue #677):** the extraction prompt classifies each named figure from
@@ -74,29 +73,6 @@ tag. Never edit a released entry afterwards.
   rows), never a duplicate episode. Older backends without the extensions
   degrade to the plain narrative.
 
-### Changed
-
-- **Version bumps (dependency-order lockstep, MAJOR — 0.x
-  minor-position encoding per D2/D8, issue #677; reclassified from
-  additive-MINOR per the CodeRabbit #692 review):** the change breaks the
-  Rust public surface — `DraftScene.characters` changes its `pub` field
-  type (`Vec<String>` → `Vec<DraftCharacter>`) and `CharacterApplyPlan`
-  gains a field (struct-literal consumers break) — so this is **MAJOR**,
-  not additive, even though the *wire* stays input-compatible via the
-  serde-untagged shim. `core` 0.32.0 → 0.33.0 (typed `DraftCharacter`,
-  preview-wide category reconciliation), `infra` 0.37.0 → 0.38.0 (the
-  apply worker dispatches `CreateCharacter` with the reconciled
-  classification; re-pins core), `api` 0.31.0 → 0.32.0 (no code change,
-  re-pins core/infra; the Dart client is regenerated for the widened
-  preview schema). Internal workspace crates re-pin in the same commit.
-
-- **Version bumps (dependency-order lockstep, additive MINORs, issue
-  #665):** `core` 0.31.0 → 0.32.0 (`episode.number-already-exists` gains
-  the S1 extension whitelist), `infra` 0.36.0 → 0.37.0 (no code change,
-  re-pins core), `api` 0.30.0 → 0.31.0 (typed
-  `EpisodeNumberAlreadyExists` variant carries the extensions; re-pins
-  core/infra). Internal workspace crates re-pin in the same commit.
-
 - **Resolvable `field_ambiguity` uncertainties + dedicated apply-gate
   problem codes (issue #663):** a preview with blocking uncertainties could
   never be applied — the gate refused with an opaque
@@ -118,6 +94,34 @@ tag. Never edit a released entry afterwards.
   from the response extensions (`ProblemError` now carries `extensions`).
 
 ### Changed
+
+- **Version bumps (dependency-order lockstep, additive MINORs, issue
+  #678):** `core` 0.33.0 → 0.34.0 (`UpdateCharacterCategory` command +
+  `CharacterCategoryChanged` event + aggregate arm), `infra` 0.38.0 →
+  0.39.0 (command adapter + character projector `category` UPDATE; re-pins
+  core), `api` 0.32.0 → 0.33.0 (the new PATCH route + handler; re-pins
+  core/infra). Internal workspace crates re-pin in the same commit.
+
+- **Version bumps (dependency-order lockstep, MAJOR — 0.x
+  minor-position encoding per D2/D8, issue #677; reclassified from
+  additive-MINOR per the CodeRabbit #692 review):** the change breaks the
+  Rust public surface — `DraftScene.characters` changes its `pub` field
+  type (`Vec<String>` → `Vec<DraftCharacter>`) and `CharacterApplyPlan`
+  gains a field (struct-literal consumers break) — so this is **MAJOR**,
+  not additive, even though the *wire* stays input-compatible via the
+  serde-untagged shim. `core` 0.32.0 → 0.33.0 (typed `DraftCharacter`,
+  preview-wide category reconciliation), `infra` 0.37.0 → 0.38.0 (the
+  apply worker dispatches `CreateCharacter` with the reconciled
+  classification; re-pins core), `api` 0.31.0 → 0.32.0 (no code change,
+  re-pins core/infra; the Dart client is regenerated for the widened
+  preview schema). Internal workspace crates re-pin in the same commit.
+
+- **Version bumps (dependency-order lockstep, additive MINORs, issue
+  #665):** `core` 0.31.0 → 0.32.0 (`episode.number-already-exists` gains
+  the S1 extension whitelist), `infra` 0.36.0 → 0.37.0 (no code change,
+  re-pins core), `api` 0.30.0 → 0.31.0 (typed
+  `EpisodeNumberAlreadyExists` variant carries the extensions; re-pins
+  core/infra). Internal workspace crates re-pin in the same commit.
 
 - **Version bumps (dependency-order lockstep, additive MINORs, issue
   #663):** `core` 0.30.0 → 0.31.0 (`UncertaintyAcknowledgement`,
