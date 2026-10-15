@@ -270,6 +270,7 @@
   "aiApplyErrorMissingEpisodeGroup": "Ein Episoden-Ziel passt nicht mehr zur Vorschau – lade die Vorschau neu und übernimm erneut.",
   "aiApplyUncertaintiesTitle": "Offene Prüffragen – zum Übernehmen bestätigen:",
   "aiApplyAcknowledgeUncertainty": "Als geklärt bestätigen und wie extrahiert übernehmen",
+  "aiApplyAssignExistingInstead": "Stattdessen die vorhandene Episode zuordnen",
   "aiApplyTitle": "Auf Episode anwenden",
   "aiApplyContextEpisode": "Episode {id}",
   "aiApplyContextRemembered": "Mit diesem Auftrag gemerkt – unten bei Bedarf ändern.",

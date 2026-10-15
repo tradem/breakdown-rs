@@ -8166,7 +8166,9 @@ x-code-registry:
   title: Episode not found
   type: https://docs.breakdown.example/problems/episode.not-found
 - code: episode.number-already-exists
-  extensions: []
+  extensions:
+  - existing_episode_id
+  - number
   status: 409
   title: Episode number already exists
   type: https://docs.breakdown.example/problems/episode.number-already-exists

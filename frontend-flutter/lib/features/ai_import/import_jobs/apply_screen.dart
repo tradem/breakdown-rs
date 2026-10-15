@@ -217,6 +217,45 @@ class _AiApplySectionState extends ConsumerState<AiApplySection> {
                           color: Theme.of(context).colorScheme.error,
                         ),
                       ),
+                    // Issue #665: one-tap recovery from the create-number
+                    // collision — flip the affected group(s) to assign-existing
+                    // with the id the 409 carried; the retry then lands in the
+                    // existing episode (idempotent continuation: the backend
+                    // skips already-applied rows).
+                    Builder(
+                      builder: (context) {
+                        final conflict = episodeNumberConflict(
+                          state.commandError!,
+                        );
+                        if (conflict == null) return const SizedBox.shrink();
+                        return TextButton(
+                          key: const Key('ai-apply-assign-existing-instead'),
+                          onPressed: () {
+                            final controller = ref.read(
+                              aiApplyControllerProvider(jobId).notifier,
+                            );
+                            final label = l10nOf(context)
+                                .episodeTileLabel('${conflict.$2}');
+                            for (final groupRef in groupRefsForCreateNumber(
+                              state,
+                              conflict.$2,
+                            )) {
+                              controller.setGroupTarget(
+                                groupRef,
+                                ExistingEpisodeGroupTarget(
+                                  episodeId: conflict.$1,
+                                  label: label,
+                                ),
+                              );
+                            }
+                            controller.dismissCommandError();
+                          },
+                          child: Text(
+                            l10nOf(context).aiApplyAssignExistingInstead,
+                          ),
+                        );
+                      },
+                    ),
                   ],
                 ),
               ),

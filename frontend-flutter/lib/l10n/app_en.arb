@@ -264,6 +264,7 @@
   "aiApplyErrorMissingEpisodeGroup": "An episode target no longer matches the preview — refresh the preview and re-apply.",
   "aiApplyUncertaintiesTitle": "Open review questions — confirm to apply:",
   "aiApplyAcknowledgeUncertainty": "Confirm as resolved and apply as extracted",
+  "aiApplyAssignExistingInstead": "Assign the existing episode instead",
   "aiApplyTitle": "Apply to episode",
   "aiApplyContextEpisode": "Episode {id}",
   "aiApplyContextRemembered": "Remembered with this job — change below if needed.",

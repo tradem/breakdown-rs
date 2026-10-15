@@ -1016,6 +1016,10 @@ class AppLocalizationsDe extends AppLocalizations {
       'Als geklärt bestätigen und wie extrahiert übernehmen';
 
   @override
+  String get aiApplyAssignExistingInstead =>
+      'Stattdessen die vorhandene Episode zuordnen';
+
+  @override
   String get aiApplyTitle => 'Auf Episode anwenden';
 
   @override

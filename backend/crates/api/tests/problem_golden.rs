@@ -70,6 +70,9 @@ fn sample_extension_value(field: &str) -> serde_json::Value {
         // Issue #663: stable refs the apply-gate refusals point at.
         "draft_ref" => serde_json::json!("scene-1"),
         "episode_ref" => serde_json::json!("ep:3"),
+        // Issue #665: the existing episode's id + the requested number.
+        "existing_episode_id" => serde_json::json!("00000000-0000-0000-0000-000000000001"),
+        "number" => serde_json::json!(7),
         // UUID-typed S1 fields (character/shooting-day/photo ids): a
         // syntactically valid placeholder id.
         _ => serde_json::json!("00000000-0000-0000-0000-000000000001"),

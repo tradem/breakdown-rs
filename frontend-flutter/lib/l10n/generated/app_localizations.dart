@@ -1690,6 +1690,12 @@ abstract class AppLocalizations {
   /// **'Als geklärt bestätigen und wie extrahiert übernehmen'**
   String get aiApplyAcknowledgeUncertainty;
 
+  /// No description provided for @aiApplyAssignExistingInstead.
+  ///
+  /// In de, this message translates to:
+  /// **'Stattdessen die vorhandene Episode zuordnen'**
+  String get aiApplyAssignExistingInstead;
+
   /// No description provided for @aiApplyTitle.
   ///
   /// In de, this message translates to:

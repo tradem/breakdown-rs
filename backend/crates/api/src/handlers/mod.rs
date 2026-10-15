@@ -66,8 +66,8 @@ use breakdown_core::episode::views::EpisodeView;
 use breakdown_core::error::DomainError;
 use breakdown_core::error_registry::{
     BLOCK_NUMBER_ALREADY_EXISTS, COSTUME_CATEGORY_ARCHIVED, COSTUME_CONTAINER_UNRESOLVED,
-    EPISODE_NUMBER_ALREADY_EXISTS, MEMBERSHIP_NOT_FOUND, SCENE_SHOOT_PAIR_ALREADY_EXISTS,
-    SEASON_ARCHIVED, SEASON_NOT_FOUND, SEASON_NUMBER_ALREADY_EXISTS,
+    MEMBERSHIP_NOT_FOUND, SCENE_SHOOT_PAIR_ALREADY_EXISTS, SEASON_ARCHIVED, SEASON_NOT_FOUND,
+    SEASON_NUMBER_ALREADY_EXISTS,
 };
 use breakdown_core::membership::policy::{Action, PolicyDecision, SeasonAuthContext};
 use breakdown_core::membership::views::MembershipView;
@@ -1503,18 +1503,18 @@ pub async fn create_episode<P: Ports>(
     // enforced authoritatively by idx_projection_episode_project_number; this
     // handler-side read-model lookup — the only legitimate CQRS consumer —
     // turns a violation into a clean 409 before dispatch instead of a 2xx
-    // plus a poison event for the projector.
-    if state
+    // plus a poison event for the projector. The S1 `existing_episode_id`
+    // extension (issue #665) lets a client offer assign-existing in one tap.
+    if let Some(existing) = state
         .ports
         .episode_repo()
         .find_by_project_and_number(req.project_id, req.number)
         .await?
-        .is_some()
     {
-        return Err(ApiError::Domain(DomainError::Conflict {
-            code: &EPISODE_NUMBER_ALREADY_EXISTS,
-            reason: "episode number already taken".into(),
-        }));
+        return Err(ApiError::EpisodeNumberAlreadyExists(
+            EpisodeId::from_uuid(existing.id),
+            req.number,
+        ));
     }
     let id = Uuid::now_v7();
     let cmd = CreateEpisode {
@@ -6284,17 +6284,19 @@ pub async fn apply_ai_import<P: Ports>(
                             "two episode groups create the same episode number",
                         ));
                     }
-                    if state
+                    // Issue #665: the existing episode's id travels as the
+                    // S1 `existing_episode_id` extension so the client can
+                    // offer the assign-existing recovery in one tap.
+                    if let Some(existing) = state
                         .ports
                         .episode_repo()
                         .find_by_project_and_number(episode.project_id, *number)
                         .await?
-                        .is_some()
                     {
-                        return Err(ApiError::Domain(DomainError::Conflict {
-                            code: &EPISODE_NUMBER_ALREADY_EXISTS,
-                            reason: "episode number already taken".into(),
-                        }));
+                        return Err(ApiError::EpisodeNumberAlreadyExists(
+                            EpisodeId::from_uuid(existing.id),
+                            *number,
+                        ));
                     }
                 }
             }
