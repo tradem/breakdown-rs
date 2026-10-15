@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 // Co-authored-by: glm-5.3-flash (neuralwatt)
 // Co-authored-by: omen-alpha (opencode-go)
 // Co-authored-by: space-bunny-free (opencode-go)
@@ -32,9 +33,10 @@ use axum::{Router, routing};
 use breakdown_core::ai::{
     AiConfigCommands, AiConfigRepository, AiConfigView, AiImportEnqueueRequest,
     AiImportEnqueueResult, AiImportJobId, AiImportPreviewResponse, AiImportQueue, AiPreviewPayload,
-    ApplyMapping, CreateAiConfig, DocumentKind, EpisodeGroupPlan, EpisodeTarget, LlmProvider,
-    MergedPreview, ModelInfo, RevokeAiConfig, ScriptContext, ShootingSchedule, SourceFormat,
-    Telemetry, TelemetryApplyState, UpdateAiConfig, episode_group_refs,
+    ApplyGateError, ApplyMapping, CreateAiConfig, DocumentKind, EpisodeGroupPlan, EpisodeTarget,
+    LlmProvider, MergedPreview, ModelInfo, RevokeAiConfig, ScriptContext, ShootingSchedule,
+    SourceFormat, Telemetry, TelemetryApplyState, Uncertainty, UncertaintyAcknowledgement,
+    UpdateAiConfig, ensure_script_applyable, episode_group_refs,
 };
 use breakdown_core::audit::{AuditEntry, AuditRepository};
 use breakdown_core::block::commands::{CreateBlock, UpdateBlockTimeSpan};
@@ -6068,6 +6070,17 @@ pub struct ApplyAiImportRequest {
     /// (#404 doctrine — the projection unique index stays authoritative).
     #[serde(default)]
     pub episode_groups: Vec<ApplyEpisodeGroupRequest>,
+    /// Reviewer acknowledgements of blocking `field_ambiguity` uncertainties
+    /// (issue #663). Acknowledge semantics: the listed ambiguity is accepted
+    /// as-is and its row applies as extracted (`suggested_value` is
+    /// display-only; correcting a wrong value happens post-apply via normal
+    /// scene editing). Request-carried because a stored preview is an
+    /// immutable payload blob. Every entry must reference a blocking
+    /// uncertainty the preview actually carries; anything else — and any
+    /// duplicate — is a validation error. Old clients omit the field (serde
+    /// default = empty), so previews stored before this change still apply.
+    #[serde(default)]
+    pub uncertainty_acknowledgements: Vec<UncertaintyAcknowledgement>,
 }
 
 /// One episode group's reviewer decision on the wire (issue #581). `target`
@@ -6285,6 +6298,60 @@ pub async fn apply_ai_import<P: Ports>(
                     }
                 }
             }
+            // Issue #663: acknowledgements must reference a blocking
+            // uncertainty the preview actually carries — anything else is a
+            // client bug answered with a clean 400, and a duplicate would
+            // silently over-acknowledge.
+            let mut seen_acknowledgements = std::collections::HashSet::new();
+            for acknowledgement in &request.uncertainty_acknowledgements {
+                if !seen_acknowledgements
+                    .insert((acknowledgement.scene_index, acknowledgement.field.clone()))
+                {
+                    return Err(ApiError::Validation(
+                        "duplicate uncertainty acknowledgement in apply request",
+                    ));
+                }
+                if !preview.uncertainties.iter().any(|uncertainty| {
+                    uncertainty.kind.blocks_apply()
+                        && uncertainty.scene_index == acknowledgement.scene_index
+                        && uncertainty.field == acknowledgement.field
+                }) {
+                    return Err(ApiError::Validation(
+                        "acknowledgement references an uncertainty the preview does not carry",
+                    ));
+                }
+            }
+            // Issue #663: render the uncertainty-gate refusal as a branchable
+            // problem at the API edge — the preview is already loaded here and
+            // the gate is pure, so the apply screen gets the remaining
+            // blocking items inline (409 `ai-import.apply-blocked` with the
+            // S1 `blocking_uncertainties` extension) instead of the opaque
+            // `domain.conflict`. Advisory pre-check in the #404 doctrine
+            // sense: the worker's authoritative gate below still refuses if
+            // state drifted. Only the uncertainty gate is pre-checked — the
+            // plan-level refusals depend on the mapping-reservation state the
+            // worker reconciles first (`resolved_decisions`), so pre-checking
+            // them against raw request mappings would false-positive on an
+            // idempotent retry; the worker renders the `apply-missing-*`
+            // codes for those.
+            if let Err(ApplyGateError::OpenUncertainties(_)) =
+                ensure_script_applyable(&preview, &request.uncertainty_acknowledgements)
+            {
+                let acknowledged = &request.uncertainty_acknowledgements;
+                let blocking: Vec<Uncertainty> = preview
+                    .uncertainties
+                    .iter()
+                    .filter(|uncertainty| {
+                        uncertainty.kind.blocks_apply()
+                            && !acknowledged.iter().any(|ack| {
+                                ack.scene_index == uncertainty.scene_index
+                                    && ack.field == uncertainty.field
+                            })
+                    })
+                    .cloned()
+                    .collect();
+                return Err(ApiError::AiImportApplyBlocked(blocking));
+            }
             let episode_groups: Vec<EpisodeGroupPlan> = request
                 .episode_groups
                 .iter()
@@ -6314,6 +6381,7 @@ pub async fn apply_ai_import<P: Ports>(
                     // the same block the AUTHZ-GATE above tied to the job.
                     block_id: episode.block_id,
                     episode_groups,
+                    acknowledged_uncertainties: request.uncertainty_acknowledgements.clone(),
                     telemetry: Some(telemetry),
                 })
                 .await?;

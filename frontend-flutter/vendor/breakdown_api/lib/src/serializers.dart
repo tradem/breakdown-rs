@@ -148,6 +148,7 @@ import 'package:breakdown_api/src/model/start_scene_shoot_request.dart';
 import 'package:breakdown_api/src/model/unapplied_costume.dart';
 import 'package:breakdown_api/src/model/unapplied_costume_reason.dart';
 import 'package:breakdown_api/src/model/uncertainty.dart';
+import 'package:breakdown_api/src/model/uncertainty_acknowledgement.dart';
 import 'package:breakdown_api/src/model/uncertainty_kind.dart';
 import 'package:breakdown_api/src/model/update_ai_config_request.dart';
 import 'package:breakdown_api/src/model/update_block_time_span_request.dart';
@@ -300,6 +301,7 @@ part 'serializers.g.dart';
   UnappliedCostume,
   UnappliedCostumeReason,
   Uncertainty,
+  UncertaintyAcknowledgement,
   UncertaintyKind,
   UpdateAiConfigRequest,
   UpdateBlockTimeSpanRequest,
@@ -400,6 +402,10 @@ Serializers serializers = (_$serializers.toBuilder()
       ..addBuilderFactory(
         const FullType(BuiltList, [FullType(CheckpointProgress)]),
         () => ListBuilder<CheckpointProgress>(),
+      )
+      ..addBuilderFactory(
+        const FullType(BuiltList, [FullType(UncertaintyAcknowledgement)]),
+        () => ListBuilder<UncertaintyAcknowledgement>(),
       )
       ..addBuilderFactory(
         const FullType(BuiltList, [FullType(ModelInfo)]),

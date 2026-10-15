@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 // Co-authored-by: gpt-5.6-luna (opencode-go)
 // Co-authored-by: deepseek-v4-flash (opencode-go)
 // Co-authored-by: longcat-2.0-free (opencode)
@@ -14,13 +15,14 @@ use std::collections::HashMap;
 
 use breakdown_core::ai::{
     AiImportBounds, AiImportJob, AiImportJobId, AiImportMapping, AiImportMappingRepository,
-    AiImportQueue, ApplyMapping, ApplyMappingDecision, CharacterApplyPlan, CostumeApplyPlan,
-    DocumentKind, EpisodeGroupPlan, LlmChatRequest, LlmClient, MergedPreview, PRIMARY_ORDINAL,
-    PlannedEpisode, SceneApplyCommand, SceneApplyPlan, ScriptContext, ShootingSchedule,
-    SourceFormat, Telemetry, TelemetryApplyState, UnappliedCostume, UnappliedCostumeReason,
-    Uncertainty, UncertaintyKind, character_mapping_ref, draft_row_ref, ensure_merge_applyable,
-    extract_scenes, mapping_kind, merge_schedule_to_scenes, plan_scene_apply,
-    sanitize_meta_summary, scene_beat_lanes, stable_draft_ref, verify_draft_costumes,
+    AiImportQueue, ApplyGateError, ApplyMapping, ApplyMappingDecision, CharacterApplyPlan,
+    CostumeApplyPlan, DocumentKind, EpisodeGroupPlan, LlmChatRequest, LlmClient, MergedPreview,
+    PRIMARY_ORDINAL, PlannedEpisode, SceneApplyCommand, SceneApplyPlan, ScriptContext,
+    ShootingSchedule, SourceFormat, Telemetry, TelemetryApplyState, UnappliedCostume,
+    UnappliedCostumeReason, Uncertainty, UncertaintyAcknowledgement, UncertaintyKind,
+    character_mapping_ref, draft_row_ref, ensure_merge_applyable, extract_scenes, mapping_kind,
+    merge_schedule_to_scenes, plan_scene_apply, sanitize_meta_summary, scene_beat_lanes,
+    stable_draft_ref, verify_draft_costumes,
 };
 use breakdown_core::character::category::CharacterCategory;
 use breakdown_core::character::commands::CreateCharacter;
@@ -32,6 +34,9 @@ use breakdown_core::costume::ports::CostumeCommands;
 use breakdown_core::episode::commands::CreateEpisode;
 use breakdown_core::episode::ports::EpisodeCommands;
 use breakdown_core::error::DomainError;
+use breakdown_core::error_registry::{
+    AI_IMPORT_APPLY_MISSING_EPISODE_GROUP, AI_IMPORT_APPLY_MISSING_MAPPING,
+};
 use breakdown_core::error_registry::{SCENE_CHARACTER_ALREADY_ASSIGNED, SCENE_VALIDATION};
 use breakdown_core::scene::commands::{AddCostumeBeat, AssignCharacter, CreateScene};
 use breakdown_core::scene::events::{SceneDetails, SceneSource};
@@ -990,6 +995,11 @@ pub struct ApplyScriptRequest<'a> {
     /// Per-group episode targets keyed by the preview's group refs. Absent
     /// groups (rows without episode metadata) apply to `episode_id`.
     pub episode_groups: Vec<EpisodeGroupPlan>,
+    /// Reviewer acknowledgements of blocking uncertainties (issue #663).
+    /// Request-carried: the stored preview is immutable, so the resolution
+    /// travels with the other reviewer decisions and the apply gate counts
+    /// only unacknowledged blockers.
+    pub acknowledged_uncertainties: Vec<UncertaintyAcknowledgement>,
     pub telemetry: Option<Telemetry>,
 }
 
@@ -1040,6 +1050,7 @@ where
             project_id,
             block_id,
             episode_groups,
+            acknowledged_uncertainties,
             telemetry,
         } = request;
         // The planner is the single source of what an apply dispatches; the
@@ -1048,6 +1059,12 @@ where
         let decisions = self
             .resolved_decisions(preview_id, preview, decisions)
             .await?;
+        // The two client-bug refusals answer their own registered codes
+        // (issue #663) so the grouped apply screen can point at the stale
+        // row/group instead of rendering the generic `domain.conflict`. The
+        // uncertainty refusal keeps the generic conflict here: the API-edge
+        // pre-check renders it as 409 `ai-import.apply-blocked` with the
+        // blocking items in its extensions (this check stays authoritative).
         let plan = plan_scene_apply(
             preview,
             &decisions,
@@ -1055,8 +1072,19 @@ where
             project_id,
             preview_id,
             &episode_groups,
+            &acknowledged_uncertainties,
         )
-        .map_err(|error| DomainError::conflict(error.to_string()))?;
+        .map_err(|error| match error {
+            ApplyGateError::MissingMapping(draft_ref) => DomainError::Conflict {
+                code: &AI_IMPORT_APPLY_MISSING_MAPPING,
+                reason: format!("no mapping decision for draft row {draft_ref}"),
+            },
+            ApplyGateError::MissingEpisodeGroup(episode_ref) => DomainError::Conflict {
+                code: &AI_IMPORT_APPLY_MISSING_EPISODE_GROUP,
+                reason: format!("no episode group {episode_ref} in the preview"),
+            },
+            other => DomainError::conflict(other.to_string()),
+        })?;
         // Fully specified (no `..Default` spread) so a deleted field is a
         // compile error instead of a silent default (mutation hardening,
         // issue #585; same pattern as PR #358).

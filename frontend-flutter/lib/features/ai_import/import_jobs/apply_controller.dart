@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 // Co-authored-by: omen-alpha (opencode-go)
 // Co-authored-by: glm-5.3-flash (neuralwatt)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
@@ -204,6 +205,8 @@ class AiApplyState {
     this.outcome,
     this.commandError,
     this.groupTargets = const <String, EpisodeGroupTarget>{},
+    this.blockingUncertainties = const <Uncertainty>[],
+    this.acknowledgedKeys = const <String>{},
   });
 
   /// The actionable rows with their decisions. Degraded/unmatched rows
@@ -229,6 +232,48 @@ class AiApplyState {
   /// here, so the map stays small and the default derivation lives in one
   /// place.
   final Map<String, EpisodeGroupTarget> groupTargets;
+
+  /// The preview's blocking (`field_ambiguity`) uncertainties (issue #663).
+  /// Advisory (`dropped_row`) entries are filtered out at seed time — they
+  /// never gate. Apply stays disabled until every entry is acknowledged;
+  /// the server's gate answers `ai-import.apply-blocked` otherwise.
+  final List<Uncertainty> blockingUncertainties;
+
+  /// The acknowledged blocking uncertainties, keyed by
+  /// [uncertaintyAcknowledgementKey]. Acknowledge semantics: the reviewer
+  /// confirms the ambiguous (or absent) value is acceptable and the row
+  /// applies as extracted.
+  final Set<String> acknowledgedKeys;
+
+  /// True while at least one blocking uncertainty is unacknowledged — the
+  /// client-side mirror of the backend apply gate, so the button explains
+  /// itself instead of producing a guaranteed 409.
+  bool get hasUnacknowledgedBlockers => blockingUncertainties.any(
+    (uncertainty) => !acknowledgedKeys.contains(
+      AiApplyController.acknowledgementKey(
+        uncertainty.sceneIndex,
+        uncertainty.field,
+      ),
+    ),
+  );
+
+  /// The wire acknowledgements: one entry per acknowledged key, in the
+  /// preview's own order (stable, testable).
+  BuiltList<UncertaintyAcknowledgement> buildAcknowledgements() =>
+      BuiltList<UncertaintyAcknowledgement>([
+        for (final uncertainty in blockingUncertainties)
+          if (acknowledgedKeys.contains(
+            AiApplyController.acknowledgementKey(
+              uncertainty.sceneIndex,
+              uncertainty.field,
+            ),
+          ))
+            UncertaintyAcknowledgement(
+              (b) => b
+                ..sceneIndex = uncertainty.sceneIndex
+                ..field = uncertainty.field,
+            ),
+      ]);
 
   /// True when the user made zero decision edits.
   bool get acceptAsIs => editDistance == 0;
@@ -439,8 +484,48 @@ class AiApplyController extends _$AiApplyController {
   /// typed payload is in hand; the rows carry the payload's verbatim
   /// `draft_ref`s. Group targets RESET to the seeded defaults: a fresh
   /// payload is a fresh review, never one carrying over stale picks.
-  void seedRows(List<PreviewRow> rows, AiJobContext? context) {
-    state = AiApplyState(rows: rows, context: context);
+  /// The payload's blocking uncertainties seed the acknowledgement panel
+  /// (issue #663); advisory `dropped_row` entries are filtered out — they
+  /// never gate the apply.
+  void seedRows(
+    List<PreviewRow> rows,
+    AiJobContext? context, {
+    List<Uncertainty> uncertainties = const <Uncertainty>[],
+  }) {
+    state = AiApplyState(
+      rows: rows,
+      context: context,
+      blockingUncertainties: uncertainties
+          .where(
+            (uncertainty) => uncertainty.kind == UncertaintyKind.fieldAmbiguity,
+          )
+          .toList(),
+    );
+  }
+
+  /// The stable key one blocking uncertainty is acknowledged by: the
+  /// `(scene_index, field)` pair the extraction reports it with.
+  static String acknowledgementKey(int sceneIndex, String field) =>
+      '$sceneIndex\u0000$field';
+
+  /// Acknowledge (or revoke) ONE blocking uncertainty (issue #663).
+  void acknowledgeUncertainty(int sceneIndex, String field, bool acknowledged) {
+    final key = AiApplyController.acknowledgementKey(sceneIndex, field);
+    final next = {...state.acknowledgedKeys};
+    if (acknowledged) {
+      next.add(key);
+    } else {
+      next.remove(key);
+    }
+    state = AiApplyState(
+      rows: state.rows,
+      context: state.context,
+      outcome: state.outcome,
+      commandError: state.commandError,
+      groupTargets: state.groupTargets,
+      blockingUncertainties: state.blockingUncertainties,
+      acknowledgedKeys: next,
+    );
   }
 
   /// Records the reviewer's target for one episode group (existing episode
@@ -452,6 +537,8 @@ class AiApplyController extends _$AiApplyController {
       outcome: state.outcome,
       commandError: state.commandError,
       groupTargets: {...state.groupTargets, groupRef: target},
+      blockingUncertainties: state.blockingUncertainties,
+      acknowledgedKeys: state.acknowledgedKeys,
     );
   }
 
@@ -464,6 +551,8 @@ class AiApplyController extends _$AiApplyController {
       context: context,
       outcome: state.outcome,
       commandError: state.commandError,
+      blockingUncertainties: state.blockingUncertainties,
+      acknowledgedKeys: state.acknowledgedKeys,
     );
   }
 
@@ -477,6 +566,8 @@ class AiApplyController extends _$AiApplyController {
       outcome: state.outcome,
       commandError: state.commandError,
       groupTargets: state.groupTargets,
+      blockingUncertainties: state.blockingUncertainties,
+      acknowledgedKeys: state.acknowledgedKeys,
     );
   }
 
@@ -496,6 +587,8 @@ class AiApplyController extends _$AiApplyController {
       outcome: state.outcome,
       commandError: state.commandError,
       groupTargets: state.groupTargets,
+      blockingUncertainties: state.blockingUncertainties,
+      acknowledgedKeys: state.acknowledgedKeys,
     );
   }
 
@@ -505,6 +598,8 @@ class AiApplyController extends _$AiApplyController {
       context: state.context,
       outcome: state.outcome,
       groupTargets: state.groupTargets,
+      blockingUncertainties: state.blockingUncertainties,
+      acknowledgedKeys: state.acknowledgedKeys,
     );
   }
 
@@ -515,7 +610,11 @@ class AiApplyController extends _$AiApplyController {
       // A group create target without its wire-required number (a marker
       // without `Ep.: <n>`) or two groups on one number keep apply disabled.
       state.hasCompleteGroupTargets &&
-      !state.hasDuplicateCreateNumbers;
+      !state.hasDuplicateCreateNumbers &&
+      // Issue #663: apply stays disabled while a blocking uncertainty is
+      // unacknowledged — the client-side mirror of the backend gate, so the
+      // button explains itself instead of producing a guaranteed 409.
+      !state.hasUnacknowledgedBlockers;
 
   /// The explicit apply dispatch with the ambiguous-timeout
   /// reconciliation (task 4.2 / design §1): a timeout re-reads the
@@ -536,6 +635,8 @@ class AiApplyController extends _$AiApplyController {
         context: null,
         outcome: null,
         commandError: error,
+        blockingUncertainties: state.blockingUncertainties,
+        acknowledgedKeys: state.acknowledgedKeys,
       );
       return const Left(error);
     }
@@ -552,7 +653,12 @@ class AiApplyController extends _$AiApplyController {
         // the single-episode flow (backend treats empty as absent).
         ..episodeGroups = episodeGroups.isEmpty
             ? null
-            : episodeGroups.toBuilder(),
+            : episodeGroups.toBuilder()
+        // Issue #663: the reviewer's acknowledgements travel with the other
+        // reviewer decisions; empty stays absent on the wire.
+        ..uncertaintyAcknowledgements = state.buildAcknowledgements().isEmpty
+            ? null
+            : state.buildAcknowledgements().toBuilder(),
     );
     final outcome = await repo.applyWithReconciliation(
       jobId,
@@ -571,6 +677,8 @@ class AiApplyController extends _$AiApplyController {
           context: context,
           outcome: response,
           groupTargets: state.groupTargets,
+          blockingUncertainties: state.blockingUncertainties,
+          acknowledgedKeys: state.acknowledgedKeys,
         );
         return Right(response);
       case ApplyBlocked(:final error):
@@ -581,6 +689,8 @@ class AiApplyController extends _$AiApplyController {
           outcome: null,
           commandError: error,
           groupTargets: state.groupTargets,
+          blockingUncertainties: state.blockingUncertainties,
+          acknowledgedKeys: state.acknowledgedKeys,
         );
         return Left(error);
       case ApplyUnresolved(:final error):
@@ -591,6 +701,8 @@ class AiApplyController extends _$AiApplyController {
           outcome: null,
           commandError: error,
           groupTargets: state.groupTargets,
+          blockingUncertainties: state.blockingUncertainties,
+          acknowledgedKeys: state.acknowledgedKeys,
         );
         return Left(error);
     }
@@ -613,9 +725,39 @@ String aiApplyErrorCopy(AppLocalizations l10n, ProblemError error) =>
       // Issue #581: the API-edge create-number pre-check (#404 doctrine) —
       // the reviewer picked a number the series already uses.
       'episode.number-already-exists' => l10n.aiApplyErrorEpisodeNumberTaken,
+      // Issue #663: dedicated apply-gate codes. `apply-blocked` surfaces the
+      // blocking items from its extensions inline (the widget appends them);
+      // the copy here is the narrative header.
+      'ai-import.apply-blocked' => l10n.aiApplyErrorApplyBlocked,
+      'ai-import.apply-missing-mapping' => l10n.aiApplyErrorMissingMapping,
+      'ai-import.apply-missing-episode-group' =>
+        l10n.aiApplyErrorMissingEpisodeGroup,
       _ when error.code.startsWith('transport.') => l10n.aiApplyErrorNetwork,
       _ => l10n.aiApplyErrorGeneric(error.code),
     };
+
+/// Parses the S1 `blocking_uncertainties` extension of an
+/// `ai-import.apply-blocked` problem (issue #663) into renderable
+/// `(scene_index, field, note)` triples. Defensive by design: the extension
+/// is optional wire metadata; a shape the client does not understand
+/// degrades to an empty list — the narrative copy still explains the
+/// refusal, and the apply card's acknowledge panel carries the actions.
+List<(int, String, String)> blockingUncertaintyItems(ProblemError error) {
+  final items = error.extensions?['blocking_uncertainties'];
+  if (items is! List) return const [];
+  return [
+    for (final item in items)
+      if (item is Map &&
+          item['scene_index'] is int &&
+          item['field'] is String &&
+          item['note'] is String)
+        (
+          item['scene_index'] as int,
+          item['field'] as String,
+          item['note'] as String,
+        ),
+  ];
+}
 
 /// Composed human label for a draft episode: `Episode 3 · Titel` /
 /// `Episode 3` / `„Titel“`. Empty only when both parts are absent — such a

@@ -146,6 +146,7 @@ export 'package:breakdown_api/src/model/start_scene_shoot_request.dart';
 export 'package:breakdown_api/src/model/unapplied_costume.dart';
 export 'package:breakdown_api/src/model/unapplied_costume_reason.dart';
 export 'package:breakdown_api/src/model/uncertainty.dart';
+export 'package:breakdown_api/src/model/uncertainty_acknowledgement.dart';
 export 'package:breakdown_api/src/model/uncertainty_kind.dart';
 export 'package:breakdown_api/src/model/update_ai_config_request.dart';
 export 'package:breakdown_api/src/model/update_block_time_span_request.dart';

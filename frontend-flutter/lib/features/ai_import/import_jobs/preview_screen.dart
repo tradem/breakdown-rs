@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 // Co-authored-by: omen-alpha (opencode-go)
 // Co-authored-by: glm-5.3-flash (neuralwatt)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
@@ -160,7 +161,16 @@ class _TypedPreviewBodyState extends ConsumerState<_TypedPreviewBody> {
         if (!mounted) return;
         ref
             .read(aiApplyControllerProvider(widget.jobId).notifier)
-            .seedRows(_actionableRows(this.context, payload), context);
+            .seedRows(
+              _actionableRows(this.context, payload),
+              context,
+              // Issue #663: the script payload's uncertainties seed the
+              // apply card's acknowledgement panel (blocking
+              // `field_ambiguity` entries only — the controller filters).
+              uncertainties: payload is AiPreviewPayloadOneOf
+                  ? payload.data.uncertainties.toList()
+                  : const <Uncertainty>[],
+            );
       }());
     }
 

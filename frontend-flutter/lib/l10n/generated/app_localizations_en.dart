@@ -981,6 +981,26 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String get aiApplyErrorApplyBlocked =>
+      'The preview still carries unresolved review questions — confirm them below to apply.';
+
+  @override
+  String get aiApplyErrorMissingMapping =>
+      'A script row has no review decision — refresh the preview and re-apply.';
+
+  @override
+  String get aiApplyErrorMissingEpisodeGroup =>
+      'An episode target no longer matches the preview — refresh the preview and re-apply.';
+
+  @override
+  String get aiApplyUncertaintiesTitle =>
+      'Open review questions — confirm to apply:';
+
+  @override
+  String get aiApplyAcknowledgeUncertainty =>
+      'Confirm as resolved and apply as extracted';
+
+  @override
   String get aiApplyTitle => 'Apply to episode';
 
   @override

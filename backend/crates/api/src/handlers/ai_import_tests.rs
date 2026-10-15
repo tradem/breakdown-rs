@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 // Co-authored-by: gpt-5.6-luna (opencode-go)
 // Co-authored-by: deepseek-v4-flash (opencode-go)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
@@ -129,7 +130,7 @@ fn apply_gate_rejects_open_uncertainties() {
         ..ScriptContext::default()
     };
     assert!(matches!(
-        ensure_script_applyable(&preview),
+        ensure_script_applyable(&preview, &[]),
         Err(ApplyGateError::OpenUncertainties(1))
     ));
 }
@@ -157,6 +158,7 @@ fn crash_retry_mapping_plans_update_instead_of_duplicate_create() {
         EpisodeId::new(),
         None,
         breakdown_core::ai::AiImportJobId(Uuid::now_v7()),
+        &[],
         &[],
     )
     .expect("mapped retry is valid in test");

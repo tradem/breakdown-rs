@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: AGPL-3.0
 # Copyright (C) 2024-2026 Breakdown RS Contributors
+# Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 # Co-authored-by: space-bunny-free (opencode-go)
 # Co-authored-by: kimi-k3 (neuralwatt)
 # Co-authored-by: omen-alpha (opencode-go)
@@ -48,6 +49,15 @@ problem-ai-import-not-found =
 
 problem-ai-import-unsupported-media-type =
     Dieser Dokumenttyp wird für den KI-Import nicht unterstützt.
+
+problem-ai-import-apply-blocked =
+    Der Vorschau sind noch ungelöste Prüffragen zugeordnet. Bestätigen Sie diese im Übernehmen-Bildschirm und versuchen Sie es erneut.
+
+problem-ai-import-apply-missing-mapping =
+    Eine Skriptzeile hat keine Prüfentscheidung. Laden Sie die Vorschau neu und übernehmen Sie erneut.
+
+problem-ai-import-apply-missing-episode-group =
+    Ein Episoden-Ziel passt nicht mehr zur Vorschau. Laden Sie die Vorschau neu und übernehmen Sie erneut.
 
 problem-ai-config-version-mismatch =
     Die KI-Konfiguration wurde zwischenzeitlich geändert. Aktualisieren Sie die Bearbeitung und wiederholen Sie den Vorgang.

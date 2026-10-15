@@ -1,0 +1,10 @@
+{
+  "code": "ai-import.apply-missing-episode-group",
+  "detail": "Ein Episoden-Ziel passt nicht mehr zur Vorschau. Laden Sie die Vorschau neu und übernehmen Sie erneut.",
+  "extensions": {
+    "episode_ref": "ep:3"
+  },
+  "status": 409,
+  "title": "AI import apply maps an episode group the preview does not carry",
+  "type": "https://docs.breakdown.example/problems/ai-import.apply-missing-episode-group"
+}

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 // Co-authored-by: mimo-v2.5 (opencode-go)
 // Co-authored-by: qwen3.8-flash (opencode-go)
 
@@ -510,6 +511,7 @@ async fn ai_payload_apply_round_trips_through_projection() -> Result<()> {
             // Single-episode flow: no group targets and no episode creation.
             block_id: BlockId::from_uuid(Uuid::now_v7()),
             episode_groups: Vec::new(),
+            acknowledged_uncertainties: Vec::new(),
             telemetry: Some(Telemetry {
                 doc_kind: Some(DocumentKind::Script),
                 apply_state: TelemetryApplyState::NotApplied,

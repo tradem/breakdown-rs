@@ -26,6 +26,41 @@ tag. Never edit a released entry afterwards.
 
 ### Added
 
+- **Resolvable `field_ambiguity` uncertainties + dedicated apply-gate
+  problem codes (issue #663):** a preview with blocking uncertainties could
+  never be applied — the gate refused with an opaque
+  `409 domain.conflict` and no resolution path existed. The apply request
+  now carries reviewer acknowledgements (`uncertainty_acknowledgements`,
+  acknowledge semantics: the reviewer confirms the ambiguity and the row
+  applies as extracted; stored previews stay immutable, old previews load
+  unchanged) validated at the API edge (unknown reference / duplicate →
+  `400 domain.validation`). The handler pre-checks the pure uncertainty
+  gate (#404 doctrine) and renders three registered codes instead of the
+  generic conflict: `409 ai-import.apply-blocked` (S1
+  `blocking_uncertainties` extension listing the remaining blockers),
+  `409 ai-import.apply-missing-mapping` (`draft_ref`) and
+  `409 ai-import.apply-missing-episode-group` (`episode_ref`) — the latter
+  two answered by the worker's authoritative plan check. Fluent de/en +
+  goldens + `openapi.yaml`. The Flutter apply card renders the blocking
+  items with one-tap acknowledge checkboxes (apply disabled until every
+  blocker is confirmed) and surfaces an `apply-blocked` refusal inline
+  from the response extensions (`ProblemError` now carries `extensions`).
+
+### Changed
+
+- **Version bumps (dependency-order lockstep, additive MINORs, issue
+  #663):** `core` 0.30.0 → 0.31.0 (`UncertaintyAcknowledgement`,
+  `ensure_script_applyable`/`plan_scene_apply` take the acknowledgements;
+  three new registry codes), `infra` 0.35.0 → 0.36.0 (the apply worker
+  passes acknowledgements through the port and answers the two client-bug
+  refusals with their own codes; re-pins core), `api` 0.29.0 → 0.30.0
+  (acknowledgement validation + the API-edge gate pre-check; re-pins
+  core/infra). The internal workspace crates (`test_support`,
+  `integration-tests`, `architecture`, `fuzz-targets`) re-pin their path
+  dependencies in the same commit.
+
+### Added
+
 - **Deterministic post-extraction meta-summary guard (issue #668):** the
   hardened extraction prompt (issue #607) bans meta-summaries, but the
   2026-10-14 test session's model ignored the ban in 45 of 95 scenes

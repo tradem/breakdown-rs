@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 // Co-authored-by: gpt-5.6-luna (opencode-go)
 // Co-authored-by: deepseek-v4-flash (opencode-go)
 // Co-authored-by: qwen3.8-flash (opencode-go)
@@ -38,11 +39,11 @@ pub use preview::{
     DraftEpisode, DraftScene, EpisodeGroupPlan, EpisodeTarget, MergeInput, MergedPreview,
     MergedScene, PlannedEpisode, RejectedCostume, RejectedCostumeReason, SceneApplyCommand,
     SceneApplyPlan, SceneBeatLane, SceneChunk, ScriptApplyPlan, ScriptContext, ShootingSchedule,
-    ShootingScheduleRow, UnappliedCostume, UnappliedCostumeReason, Uncertainty, UncertaintyKind,
-    character_identity, character_mapping_ref, draft_row_ref, ensure_merge_applyable,
-    ensure_script_applyable, episode_group_refs, extract_scenes, is_meta_summary, merge_from_input,
-    merge_schedule_to_scenes, plan_scene_apply, sanitize_meta_summary, scene_beat_lanes,
-    stable_draft_ref, verify_draft_costumes,
+    ShootingScheduleRow, UnappliedCostume, UnappliedCostumeReason, Uncertainty,
+    UncertaintyAcknowledgement, UncertaintyKind, character_identity, character_mapping_ref,
+    draft_row_ref, ensure_merge_applyable, ensure_script_applyable, episode_group_refs,
+    extract_scenes, is_meta_summary, merge_from_input, merge_schedule_to_scenes, plan_scene_apply,
+    sanitize_meta_summary, scene_beat_lanes, stable_draft_ref, verify_draft_costumes,
 };
 pub use views::{
     AiConfigView, AiImportAttempt, AiImportJob, AiImportJobId, DocumentKind, JobStatus,

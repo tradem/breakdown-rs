@@ -1,0 +1,18 @@
+{
+  "code": "ai-import.apply-blocked",
+  "detail": "Der Vorschau sind noch ungelöste Prüffragen zugeordnet. Bestätigen Sie diese im Übernehmen-Bildschirm und versuchen Sie es erneut.",
+  "extensions": {
+    "blocking_uncertainties": [
+      {
+        "field": "location",
+        "kind": "field_ambiguity",
+        "note": "unclear location heading",
+        "scene_index": 0,
+        "suggested_value": null
+      }
+    ]
+  },
+  "status": 409,
+  "title": "AI import apply blocked by unresolved uncertainties",
+  "type": "https://docs.breakdown.example/problems/ai-import.apply-blocked"
+}

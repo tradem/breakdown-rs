@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 // Co-authored-by: hy3 (opencode-go)
 
 import 'package:dio/dio.dart';
@@ -18,6 +19,7 @@ class ProblemError {
     this.detail,
     this.status,
     this.traceId,
+    this.extensions,
   });
 
   /// Stable machine identity, e.g. `season.not_found`.
@@ -35,6 +37,12 @@ class ProblemError {
   /// otel trace id for server-side correlation.
   final String? traceId;
 
+  /// The problem's declared S0/S1 extension fields (ADR-031 D4), verbatim
+  /// JSON. Callers branch on the stable `code` first and only read typed
+  /// extensions of codes they know — e.g. `blocking_uncertainties` on
+  /// `ai-import.apply-blocked` (issue #663).
+  final Map<String, dynamic>? extensions;
+
   /// Parses an RFC 9457 problem document. Returns `null` when the body is not a
   /// problem document, so callers can fall back to a transport-level error.
   factory ProblemError.fromJson(Map<String, dynamic> json) {
@@ -44,6 +52,9 @@ class ProblemError {
       detail: json['detail'] as String?,
       status: json['status'] as int?,
       traceId: json['trace_id'] as String?,
+      extensions: json['extensions'] is Map<String, dynamic>
+          ? json['extensions'] as Map<String, dynamic>
+          : null,
     );
   }
 

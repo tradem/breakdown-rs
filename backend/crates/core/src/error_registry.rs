@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 // Co-authored-by: space-bunny-free (opencode-go)
 // Co-authored-by: omen-alpha (opencode-go)
 // Co-authored-by: kimi-k3 (neuralwatt)
@@ -38,7 +39,7 @@ pub const PROBLEM_DOCS_BASE: &str = "https://docs.breakdown.example";
 /// Kept in sync with the `problem_codes!` invocation below by a compile-time
 /// assertion — adding or removing a code without deliberately updating this
 /// count fails the build (issue #232).
-const PROBLEM_CODE_COUNT: usize = 94;
+const PROBLEM_CODE_COUNT: usize = 97;
 
 /// One registered problem code (ADR-031 D2/D4).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -986,6 +987,43 @@ problem_codes! {
         status: 409,
         title: "AI configuration version conflict",
         extensions: &["expected_version", "current_version"],
+    },
+
+    /// 409 — the script-apply gate refused because the preview still carries
+    /// blocking (`field_ambiguity`) uncertainties the reviewer did not
+    /// acknowledge (issue #663). Distinct from the generic `domain.conflict`
+    /// so the apply screen can render the blocking items inline; the S1
+    /// `blocking_uncertainties` extension lists exactly the remaining
+    /// blockers (kind, scene index, field, note, suggested value —
+    /// content-free extraction metadata, S2-safe).
+    AI_IMPORT_APPLY_BLOCKED {
+        code: "ai-import.apply-blocked",
+        status: 409,
+        title: "AI import apply blocked by unresolved uncertainties",
+        extensions: &["blocking_uncertainties"],
+    },
+
+    /// 409 — the apply request carried no mapping decision for a draft row
+    /// the preview contains (client bug; issue #663). Distinct from
+    /// `ai-import.apply-blocked` so the client can point at the stale row
+    /// instead of rendering an uncertainty narrative; the S1 `draft_ref`
+    /// extension names the offending row.
+    AI_IMPORT_APPLY_MISSING_MAPPING {
+        code: "ai-import.apply-missing-mapping",
+        status: 409,
+        title: "AI import apply has a draft row without a mapping decision",
+        extensions: &["draft_ref"],
+    },
+
+    /// 409 — the apply request mapped an episode group the preview does not
+    /// carry (client bug, issue #581/#663). Distinct from
+    /// `ai-import.apply-blocked` so the grouped apply screen can point at
+    /// the stale group; the S1 `episode_ref` extension names it.
+    AI_IMPORT_APPLY_MISSING_EPISODE_GROUP {
+        code: "ai-import.apply-missing-episode-group",
+        status: 409,
+        title: "AI import apply maps an episode group the preview does not carry",
+        extensions: &["episode_ref"],
     },
 
 }

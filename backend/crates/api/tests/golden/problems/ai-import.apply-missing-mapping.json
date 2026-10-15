@@ -1,0 +1,10 @@
+{
+  "code": "ai-import.apply-missing-mapping",
+  "detail": "Eine Skriptzeile hat keine Prüfentscheidung. Laden Sie die Vorschau neu und übernehmen Sie erneut.",
+  "extensions": {
+    "draft_ref": "scene-1"
+  },
+  "status": 409,
+  "title": "AI import apply has a draft row without a mapping decision",
+  "type": "https://docs.breakdown.example/problems/ai-import.apply-missing-mapping"
+}

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 // Co-authored-by: space-bunny-free (opencode-go)
 // Co-authored-by: gpt-5.6-luna (opencode-go)
 // Co-authored-by: deepseek-v4-flash (opencode-go)
@@ -1940,6 +1941,7 @@ async fn apply_retry_is_a_noop_for_confirmed_mappings() {
     let decision = create_decision(&row_ref);
     let first = worker
         .apply_script(ApplyScriptRequest {
+            acknowledged_uncertainties: Vec::new(),
             actor: UserId::from_sub("ai-test-user"),
             preview_id: job.id,
             preview: &preview,
@@ -1965,6 +1967,7 @@ async fn apply_retry_is_a_noop_for_confirmed_mappings() {
         .unwrap();
     let second = worker
         .apply_script(ApplyScriptRequest {
+            acknowledged_uncertainties: Vec::new(),
             actor: UserId::from_sub("ai-test-user"),
             preview_id: job.id,
             preview: &preview,
@@ -2049,6 +2052,7 @@ async fn apply_script_concurrent_applies_create_one_scene_per_draft() {
             barrier.wait().await;
             worker
                 .apply_script(ApplyScriptRequest {
+                    acknowledged_uncertainties: Vec::new(),
                     actor: UserId::from_sub("ai-test-user"),
                     preview_id,
                     preview: &preview,
@@ -2195,6 +2199,7 @@ async fn script_pdf_round_trip_reaches_scene_apply() {
     let decision = create_decision(&preview.scenes[0].draft_ref);
     apply_worker
         .apply_script(ApplyScriptRequest {
+            acknowledged_uncertainties: Vec::new(),
             actor: UserId::from_sub("script-round-trip"),
             preview_id: job.id,
             preview: &preview,
@@ -2612,6 +2617,7 @@ impl ScriptApplyFixture {
     ) -> Result<super::ScriptApplyResult, DomainError> {
         self.worker()
             .apply_script(ApplyScriptRequest {
+                acknowledged_uncertainties: Vec::new(),
                 actor: UserId::from_sub("apply-test-user"),
                 preview_id: self.preview_id,
                 preview,
@@ -2633,6 +2639,7 @@ impl ScriptApplyFixture {
     ) -> Result<super::ScriptApplyResult, DomainError> {
         self.worker()
             .apply_script(ApplyScriptRequest {
+                acknowledged_uncertainties: Vec::new(),
                 actor: UserId::from_sub("apply-test-user"),
                 preview_id: self.preview_id,
                 preview,
@@ -2698,6 +2705,34 @@ fn row_with_costume(draft_ref: &str, characters: &[&str], costumes: &[(&str, &st
             )
             .collect(),
         ..Default::default()
+    }
+}
+
+/// Issue #663: a draft row without a mapping decision answers its own
+/// registered code so the client can point at the stale row instead of
+/// rendering the generic `domain.conflict`.
+#[tokio::test]
+async fn script_apply_without_a_mapping_decision_answers_the_dedicated_code() {
+    let fixture = ScriptApplyFixture::new();
+    let preview = ScriptContext {
+        scenes: vec![row_with_costume(
+            "1. INT. OP",
+            &["BEN"],
+            &[("Ben", "ölverschmierter Mechaniker-Overall")],
+        )],
+        ..Default::default()
+    };
+    // No decisions at all: the planner must refuse the row.
+    let error = fixture.apply(&preview, &[]).await.unwrap_err();
+    match error {
+        DomainError::Conflict { code, .. } => {
+            assert_eq!(
+                code.code, "ai-import.apply-missing-mapping",
+                "the refusal must carry the dedicated code, got {}",
+                code.code
+            );
+        }
+        other => panic!("expected Conflict, got {other:?}"),
     }
 }
 
@@ -3247,7 +3282,7 @@ async fn extraction_drops_an_ungrounded_costume_and_records_an_uncertainty() {
         "the note must carry the stable reason slug: {}",
         uncertainty.note
     );
-    assert!(breakdown_core::ai::ensure_script_applyable(&preview).is_ok());
+    assert!(breakdown_core::ai::ensure_script_applyable(&preview, &[]).is_ok());
 }
 
 // ── Scene-relation persistence (issue #546 §5.8) ────────────────────────────

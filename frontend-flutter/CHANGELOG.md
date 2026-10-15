@@ -21,6 +21,18 @@ releases are cut as `vX.Y.Z` tags (`v<build-name>`, enforced by
 
 ## [Unreleased]
 
+- **Version bump:** `0.4.0-alpha.27+78 → 0.4.0-alpha.28+79` — issue #663,
+  the AI-import apply-gate rework:
+  * The apply card renders blocking `field_ambiguity` uncertainties with
+    one-tap acknowledge checkboxes; apply stays disabled until every
+    blocker is confirmed (the client-side mirror of the backend gate, so
+    the button explains itself instead of producing a guaranteed 409).
+  * An `ai-import.apply-blocked` refusal renders the server's remaining
+    blocking items inline (localized per stable `code`, never the bare
+    code): `ProblemError` now carries the problem `extensions`.
+  * Generated Dart client rebuilt for the `uncertainty_acknowledgements`
+    request field (rebuild-only via `scripts/regen-client.sh`).
+
 - **Version bump:** `0.4.0-alpha.26+77 → 0.4.0-alpha.27+78` — issue #670,
   the Easter-egg redesign session outcome:
   * **Déja-vu cat restyled** to the approved Ghibli-inspired artwork
