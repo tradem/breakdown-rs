@@ -17,6 +17,7 @@ import 'package:frontend_flutter/auth/active_block_store.dart';
 import 'package:frontend_flutter/core/problem_error.dart';
 import 'package:frontend_flutter/core/result.dart';
 import 'package:frontend_flutter/features/blocks/active_block_gate.dart';
+import 'package:frontend_flutter/features/shell/active_scope_chip.dart';
 import 'package:frontend_flutter/features/blocks/blocks_controller.dart';
 
 BlockView _block(String id, {int number = 1, String seasonId = 'season-1'}) =>
@@ -331,6 +332,48 @@ void main() {
       expect(resolution, isA<AsyncError<BlockScopeResolution>>());
       final error = (resolution as AsyncError<BlockScopeResolution>).error;
       expect((error as ProblemError).code, 'transport.connectionError');
+    });
+  });
+
+  group('BlockScopePickerScaffold (issue #666 sibling audit)', () {
+    testWidgets('pull-to-refresh invalidates the shared blocks seam', (
+      tester,
+    ) async {
+      var fetchCount = 0;
+      final container = ProviderContainer(
+        overrides: [
+          blocksListFetchProvider('season-1').overrideWith((ref) async {
+            fetchCount++;
+            return const Right<ProblemError, List<BlockView>>([]);
+          }),
+        ],
+      );
+      addTearDown(container.dispose);
+      // Drive through the SCREEN that watches the seam (the scaffold only
+      // renders the candidates it is handed).
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: const MaterialApp(
+            home: ScopeChipPickerScreen(seasonId: 'season-1'),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(fetchCount, 1);
+
+      // Pull to refresh: the invalidate re-runs the shared fetch.
+      final gesture = await tester.startGesture(
+        tester.getCenter(find.byKey(const Key('block-scope-picker'))),
+      );
+      await gesture.moveBy(const Offset(0, 100));
+      await tester.pump(const Duration(milliseconds: 100));
+      await gesture.moveBy(const Offset(0, 300));
+      await tester.pump(const Duration(milliseconds: 100));
+      await gesture.up();
+      await tester.pumpAndSettle();
+
+      expect(fetchCount, greaterThan(1));
     });
   });
 

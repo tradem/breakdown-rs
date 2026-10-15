@@ -294,26 +294,33 @@ class BlockScopePickerScaffold extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) => Scaffold(
     appBar: AppBar(title: Text(title)),
-    body: ListView.builder(
-      key: const Key('block-scope-picker'),
-      itemCount: candidates.length,
-      itemBuilder: (context, i) {
-        final block = candidates[i];
-        return ListTile(
-          key: Key('block-scope-pick-${block.id}'),
-          title: Text(l10nOf(context).blockTileLabel('${block.number}')),
-          onTap: () {
-            ref
-                .read(activeBlockProvider.notifier)
-                .set(
-                  seasonId: seasonId,
-                  blockId: block.id,
-                  blockNumber: block.number,
-                );
-            onPicked?.call();
-          },
-        );
-      },
+    // Issue #666 (sibling audit): pull-to-refresh, same as the episode and
+    // season chips — the cache-first seam's TTL window is recoverable from
+    // the picker itself.
+    body: RefreshIndicator(
+      onRefresh: () async => ref.invalidate(blocksListFetchProvider(seasonId)),
+      child: ListView.builder(
+        key: const Key('block-scope-picker'),
+        physics: const AlwaysScrollableScrollPhysics(),
+        itemCount: candidates.length,
+        itemBuilder: (context, i) {
+          final block = candidates[i];
+          return ListTile(
+            key: Key('block-scope-pick-${block.id}'),
+            title: Text(l10nOf(context).blockTileLabel('${block.number}')),
+            onTap: () {
+              ref
+                  .read(activeBlockProvider.notifier)
+                  .set(
+                    seasonId: seasonId,
+                    blockId: block.id,
+                    blockNumber: block.number,
+                  );
+              onPicked?.call();
+            },
+          );
+        },
+      ),
     ),
   );
 }

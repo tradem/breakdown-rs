@@ -157,20 +157,29 @@ class _EpisodePickerScaffold extends ConsumerWidget {
     final l10n = l10nOf(context);
     return Scaffold(
       appBar: AppBar(title: Text(l10n.episodeChipPickTitle)),
-      body: episodes.isEmpty
-          ? Center(
-              child: Text(
-                l10n.episodeChipEmpty,
-                key: const Key('episode-scope-empty'),
-                textAlign: TextAlign.center,
-              ),
-            )
-          : ListView.builder(
-              key: const Key('episode-scope-picker'),
-              itemCount: episodes.length,
-              itemBuilder: (context, i) {
-                final episode = episodes[i];
-                return ListTile(
+      // Issue #666: pull-to-refresh on the shared cache-first seam — a stale
+      // list (TTL window, or an AI apply that created an episode server-side)
+      // is recoverable from the picker itself, consistent with the episodes
+      // screen and the season chip. One scrollable hosts rows AND the empty
+      // state so the pull gesture works in both.
+      body: RefreshIndicator(
+        onRefresh: () async =>
+            ref.invalidate(episodesListFetchProvider(blockId, seasonId)),
+        child: ListView(
+          key: const Key('episode-scope-picker'),
+          physics: const AlwaysScrollableScrollPhysics(),
+          children: [
+            if (episodes.isEmpty)
+              Center(
+                child: Text(
+                  l10n.episodeChipEmpty,
+                  key: const Key('episode-scope-empty'),
+                  textAlign: TextAlign.center,
+                ),
+              )
+            else
+              for (final episode in episodes)
+                ListTile(
                   key: Key('episode-scope-pick-${episode.id}'),
                   title: Text(
                     episode.name ?? l10n.episodeTileLabel('${episode.number}'),
@@ -190,9 +199,10 @@ class _EpisodePickerScaffold extends ConsumerWidget {
                         );
                     Navigator.of(context).pop();
                   },
-                );
-              },
-            ),
+                ),
+          ],
+        ),
+      ),
     );
   }
 }

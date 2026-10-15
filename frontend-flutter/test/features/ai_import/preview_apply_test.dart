@@ -31,6 +31,7 @@ import 'package:frontend_flutter/auth/auth_providers.dart';
 import 'package:frontend_flutter/core/problem_error.dart';
 import 'package:frontend_flutter/core/result.dart';
 import 'package:frontend_flutter/data/ai_import_providers.dart';
+import 'package:frontend_flutter/features/episodes/episodes_controller.dart';
 import 'package:frontend_flutter/l10n/generated/app_localizations.dart';
 import 'package:frontend_flutter/data/ai_import_repository.dart';
 import 'package:frontend_flutter/data/cache/ai_import_jobs_cache_dao.dart';
@@ -710,6 +711,44 @@ void main() {
       ], const AiJobContext(episodeId: 'ep-1', projectId: 'series-1'));
       return controller.apply();
     }
+
+    test('a 200 apply invalidates the episode/block fetch families '
+        '(issue #666 — the new episode reaches the pill navigation)', () async {
+      var fetchCount = 0;
+      final scoped = ProviderContainer(
+        overrides: [
+          appConfigProvider.overrideWithValue(devAuthConfig),
+          aiImportRepositoryProvider.overrideWithValue(repo),
+          reconciliationSchedulerProvider.overrideWith(
+            (ref) => const _ImmediateScheduler(),
+          ),
+          episodesListFetchProvider('b-1', 's-1').overrideWith((ref) async {
+            fetchCount++;
+            return Right<ProblemError, List<EpisodeView>>(const []);
+          }),
+        ],
+      );
+      addTearDown(scoped.dispose);
+      final applyController = scoped.read(
+        aiApplyControllerProvider('job-1').notifier,
+      );
+      applyController.seedRows(const [
+        PreviewRow(draftRef: 'd1', label: 'A'),
+      ], const AiJobContext(episodeId: 'ep-1', projectId: 'series-1'));
+      // The stale cache-first read: one fetch.
+      await scoped.read(episodesListFetchProvider('b-1', 's-1').future);
+      expect(fetchCount, 1);
+
+      repo.applyQueue.add(Right(_outcome()));
+      final res = await applyController.apply();
+      expect(res.getRight().toNullable(), isNotNull);
+
+      // The successful apply invalidated the family — the next read
+      // refetches (the created episode becomes visible without leaving
+      // the flow; the refetch rewrites the block's Drift cache rows).
+      await scoped.read(episodesListFetchProvider('b-1', 's-1').future);
+      expect(fetchCount, 2);
+    });
 
     test('immediate 200 → the outcome summary', () async {
       repo.applyQueue.add(Right(_outcome()));
