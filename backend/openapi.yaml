@@ -545,6 +545,20 @@ components:
           oneOf:
           - $ref: '#/components/schemas/ProjectId'
           - type: 'null'
+        uncertainty_acknowledgements:
+          description: |-
+            Reviewer acknowledgements of blocking `field_ambiguity` uncertainties
+            (issue #663). Acknowledge semantics: the listed ambiguity is accepted
+            as-is and its row applies as extracted (`suggested_value` is
+            display-only; correcting a wrong value happens post-apply via normal
+            scene editing). Request-carried because a stored preview is an
+            immutable payload blob. Every entry must reference a blocking
+            uncertainty the preview actually carries; anything else — and any
+            duplicate — is a validation error. Old clients omit the field (serde
+            default = empty), so previews stored before this change still apply.
+          items:
+            $ref: '#/components/schemas/UncertaintyAcknowledgement'
+          type: array
       required:
       - episode_id
       - mappings
@@ -3101,6 +3115,31 @@ components:
       - scene_index
       - field
       - note
+      type: object
+    UncertaintyAcknowledgement:
+      description: |-
+        The reviewer's acknowledgement of ONE blocking uncertainty (issue #663).
+
+        Request-carried by design: a stored preview is an immutable payload blob
+        (content-addressed handle, no update path), so the resolution lives in the
+        apply request next to the other reviewer decisions (`mappings`,
+        `episode_groups`) instead of mutating the preview. Acknowledge semantics:
+        the reviewer confirms the ambiguous (or absent) value is acceptable and the
+        row applies as extracted — `Uncertainty.suggested_value` is display-only;
+        correcting a *wrong* value happens post-apply via normal scene editing.
+        Identifying pair is `(scene_index, field)` — exactly the fields the
+        extraction prompt reports an uncertainty with.
+      properties:
+        field:
+          description: The field the uncertainty names (`Uncertainty.field`).
+          type: string
+        scene_index:
+          description: The scene the uncertainty is attached to (`Uncertainty.scene_index`).
+          minimum: 0
+          type: integer
+      required:
+      - scene_index
+      - field
       type: object
     UncertaintyKind:
       description: |-
@@ -8469,3 +8508,21 @@ x-code-registry:
   status: 409
   title: AI configuration version conflict
   type: https://docs.breakdown.example/problems/ai-config.version-mismatch
+- code: ai-import.apply-blocked
+  extensions:
+  - blocking_uncertainties
+  status: 409
+  title: AI import apply blocked by unresolved uncertainties
+  type: https://docs.breakdown.example/problems/ai-import.apply-blocked
+- code: ai-import.apply-missing-mapping
+  extensions:
+  - draft_ref
+  status: 409
+  title: AI import apply has a draft row without a mapping decision
+  type: https://docs.breakdown.example/problems/ai-import.apply-missing-mapping
+- code: ai-import.apply-missing-episode-group
+  extensions:
+  - episode_ref
+  status: 409
+  title: AI import apply maps an episode group the preview does not carry
+  type: https://docs.breakdown.example/problems/ai-import.apply-missing-episode-group

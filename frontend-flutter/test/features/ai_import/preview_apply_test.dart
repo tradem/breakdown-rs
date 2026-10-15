@@ -30,6 +30,7 @@ import 'package:frontend_flutter/auth/auth_providers.dart';
 import 'package:frontend_flutter/core/problem_error.dart';
 import 'package:frontend_flutter/core/result.dart';
 import 'package:frontend_flutter/data/ai_import_providers.dart';
+import 'package:frontend_flutter/l10n/generated/app_localizations.dart';
 import 'package:frontend_flutter/data/ai_import_repository.dart';
 import 'package:frontend_flutter/data/cache/ai_import_jobs_cache_dao.dart';
 import 'package:frontend_flutter/data/cache/cache_database.dart';
@@ -1854,7 +1855,297 @@ void main() {
       });
     });
   });
+
+  // =========================================================================
+  // Issue #663: blocking-uncertainty acknowledgements + dedicated gate codes
+  // =========================================================================
+
+  group('Uncertainty acknowledgements (controller)', () {
+    late CacheDatabase db;
+    late AiImportJobsCacheDao dao;
+    late ProviderContainer container;
+
+    setUp(() async {
+      db = CacheDatabase(NativeDatabase.memory());
+      dao = AiImportJobsCacheDao(db);
+      container = ProviderContainer(
+        overrides: [
+          appConfigProvider.overrideWithValue(devAuthConfig),
+          aiImportRepositoryProvider.overrideWithValue(
+            FakeAiImportRepository(BreakdownApi(), dao),
+          ),
+          reconciliationSchedulerProvider.overrideWith(
+            (ref) => const _ImmediateScheduler(),
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+      addTearDown(db.close);
+    });
+
+    AiApplyController controller() =>
+        container.read(aiApplyControllerProvider('job-1').notifier);
+
+    test('a blocking uncertainty gates apply until acknowledged; '
+        'dropped_row never gates', () {
+      controller().seedRows(
+        const [PreviewRow(draftRef: 'd1', label: 'A')],
+        const AiJobContext(episodeId: 'ep-1', projectId: 'series-1'),
+        uncertainties: [
+          _blockingUncertainty(),
+          Uncertainty(
+            (u) => u
+              ..sceneIndex = 0
+              ..field = 'costume'
+              ..note = 'dropped'
+              ..kind = UncertaintyKind.droppedRow,
+          ),
+        ],
+      );
+
+      final state = container.read(aiApplyControllerProvider('job-1'));
+      // Only the field_ambiguity is blocking — the advisory dropped_row is
+      // filtered at seed time.
+      expect(state.blockingUncertainties, hasLength(1));
+      expect(state.hasUnacknowledgedBlockers, isTrue);
+      expect(controller().canApply, isFalse);
+
+      controller().acknowledgeUncertainty(0, 'location', true);
+      expect(
+        container
+            .read(aiApplyControllerProvider('job-1'))
+            .hasUnacknowledgedBlockers,
+        isFalse,
+      );
+      expect(controller().canApply, isTrue);
+
+      // Revoking re-gates.
+      controller().acknowledgeUncertainty(0, 'location', false);
+      expect(controller().canApply, isFalse);
+    });
+
+    test('acknowledgements map to the wire entries in preview order', () {
+      controller().seedRows(
+        const [PreviewRow(draftRef: 'd1', label: 'A')],
+        const AiJobContext(episodeId: 'ep-1', projectId: 'series-1'),
+        uncertainties: [_blockingUncertainty()],
+      );
+      controller().acknowledgeUncertainty(0, 'location', true);
+
+      final acks = container
+          .read(aiApplyControllerProvider('job-1'))
+          .buildAcknowledgements();
+      expect(acks, hasLength(1));
+      expect(acks.first.sceneIndex, 0);
+      expect(acks.first.field, 'location');
+    });
+
+    test('apply-blocked copy branches + extension parsing', () {
+      const error = ProblemError(
+        code: 'ai-import.apply-blocked',
+        status: 409,
+        extensions: {
+          'blocking_uncertainties': [
+            {
+              'kind': 'field_ambiguity',
+              'scene_index': 3,
+              'field': 'location',
+              'note': 'unclear',
+              'suggested_value': null,
+            },
+            {'garbage': true},
+          ],
+        },
+      );
+      expect(
+        aiApplyErrorCopy(lookupAppLocalizations(const Locale('en')), error),
+        contains('unresolved review questions'),
+      );
+      final items = blockingUncertaintyItems(error);
+      expect(items, hasLength(1));
+      expect(items.single, (3, 'location', 'unclear'));
+      // An unrecognized shape degrades to no items, never a throw.
+      expect(
+        blockingUncertaintyItems(
+          const ProblemError(code: 'ai-import.apply-blocked'),
+        ),
+        isEmpty,
+      );
+    });
+
+    test('the sibling gate codes get their own copy', () {
+      expect(
+        aiApplyErrorCopy(
+          lookupAppLocalizations(const Locale('en')),
+          const ProblemError(code: 'ai-import.apply-missing-mapping'),
+        ),
+        isNot(contains('domain.conflict')),
+      );
+      expect(
+        aiApplyErrorCopy(
+          lookupAppLocalizations(const Locale('en')),
+          const ProblemError(code: 'ai-import.apply-missing-episode-group'),
+        ),
+        isNot(contains('domain.conflict')),
+      );
+    });
+  });
+
+  group('Uncertainty acknowledgements (apply card widget)', () {
+    late CacheDatabase db;
+    late AiImportJobsCacheDao dao;
+    late FakeAiImportRepository repo;
+    late ProviderContainer container;
+
+    Future<void> setupContainer({
+      List<Result<ApplyAiImportResponse>> applyQueue = const [],
+    }) async {
+      db = CacheDatabase(NativeDatabase.memory());
+      addTearDown(db.close);
+      dao = AiImportJobsCacheDao(db);
+      repo = FakeAiImportRepository(BreakdownApi(), dao);
+      repo.applyQueue.addAll(applyQueue);
+      container = ProviderContainer(
+        overrides: [
+          appConfigProvider.overrideWithValue(devAuthConfig),
+          aiImportRepositoryProvider.overrideWithValue(repo),
+          reconciliationSchedulerProvider.overrideWith(
+            (ref) => const _ImmediateScheduler(),
+          ),
+          aiPreviewProvider.overrideWith(
+            (ref, jobId) async => Right(
+              _previewResponse(
+                _scriptPayloadWith(
+                  [_draft('draft-1')],
+                  uncertainties: [_blockingUncertainty()],
+                ),
+              ),
+            ),
+          ),
+          aiJobContextProvider.overrideWith(
+            (ref, jobId) async =>
+                const AiJobContext(episodeId: 'ep-1', projectId: 'series-1'),
+          ),
+          scenesListFetchProvider.overrideWith((ref, episodeId) async {
+            return Right([_scene('sc-9')]);
+          }),
+          configuredAiNamingProvider.overrideWith((ref) => Future.value(null)),
+        ],
+      );
+      addTearDown(container.dispose);
+      await container.read(authSessionControllerProvider.notifier).signIn();
+    }
+
+    Future<void> pumpPreview(WidgetTester tester) async {
+      tester.view.physicalSize = const Size(800, 1400);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: const MaterialApp(home: AiPreviewScreen(jobId: 'job-1')),
+        ),
+      );
+      for (var i = 0; i < 6; i++) {
+        await tester.pump(const Duration(milliseconds: 10));
+      }
+    }
+
+    testWidgets('the apply card renders the acknowledge panel; apply stays '
+        'disabled until every blocker is confirmed', (tester) async {
+      await setupContainer();
+      await pumpPreview(tester);
+
+      expect(
+        find.byKey(const Key('ai-apply-uncertainties-title')),
+        findsOneWidget,
+      );
+      final checkbox = tester.widget<CheckboxListTile>(
+        find.byKey(const Key('ai-apply-uncertainty-ack-0')),
+      );
+      expect(checkbox.value, isFalse);
+      final apply = tester.widget<FilledButton>(
+        find.byKey(const Key('ai-apply-submit')),
+      );
+      expect(apply.onPressed, isNull);
+
+      // One tap resolves the blocker — the apply affordance opens.
+      await tester.tap(find.byKey(const Key('ai-apply-uncertainty-ack-0')));
+      await tester.pump();
+      expect(
+        tester
+            .widget<CheckboxListTile>(
+              find.byKey(const Key('ai-apply-uncertainty-ack-0')),
+            )
+            .value,
+        isTrue,
+        reason: 'the acknowledge tap must register',
+      );
+      // The dispatch additionally needs the standing review acknowledgement.
+      await tester.tap(find.byKey(const Key('ai-apply-review-checkbox')));
+      await tester.pump();
+      final applyAfter = tester.widget<FilledButton>(
+        find.byKey(const Key('ai-apply-submit')),
+      );
+      expect(applyAfter.onPressed, isNotNull);
+    });
+
+    testWidgets('an apply-blocked refusal renders the blocking items from '
+        'the extensions inline (never a bare code)', (tester) async {
+      await setupContainer(
+        applyQueue: [
+          const Left(
+            ProblemError(
+              code: 'ai-import.apply-blocked',
+              status: 409,
+              extensions: {
+                'blocking_uncertainties': [
+                  {
+                    'kind': 'field_ambiguity',
+                    'scene_index': 0,
+                    'field': 'location',
+                    'note': 'Ambiguous stage',
+                    'suggested_value': null,
+                  },
+                ],
+              },
+            ),
+          ),
+        ],
+      );
+      await pumpPreview(tester);
+
+      // Acknowledge the client-side gate AND the review checkbox, then
+      // dispatch — the faked server refusal (a stale preview) must render
+      // its items.
+      await tester.tap(find.byKey(const Key('ai-apply-uncertainty-ack-0')));
+      await tester.pump();
+      await tester.tap(find.byKey(const Key('ai-apply-review-checkbox')));
+      await tester.pump();
+      await tester.tap(find.byKey(const Key('ai-apply-submit')));
+      await tester.pump();
+
+      expect(find.byKey(const Key('ai-apply-error')), findsOneWidget);
+      expect(
+        find.byKey(const Key('ai-apply-error-blocker-0-location')),
+        findsOneWidget,
+      );
+      expect(
+        find.textContaining('unresolved review questions'),
+        findsOneWidget,
+      );
+    });
+  });
 }
+
+Uncertainty _blockingUncertainty() => Uncertainty(
+  (u) => u
+    ..sceneIndex = 0
+    ..field = 'location'
+    ..note = 'Ambiguous stage'
+    ..suggestedValue = 'Keller'
+    ..kind = UncertaintyKind.fieldAmbiguity,
+);
 
 class _ImmediateScheduler extends ReconciliationScheduler {
   const _ImmediateScheduler();

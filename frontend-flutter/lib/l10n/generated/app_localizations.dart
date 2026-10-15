@@ -1660,6 +1660,36 @@ abstract class AppLocalizations {
   /// **'Das Anwenden ist fehlgeschlagen ({code}).'**
   String aiApplyErrorGeneric(Object code);
 
+  /// No description provided for @aiApplyErrorApplyBlocked.
+  ///
+  /// In de, this message translates to:
+  /// **'Der Vorschau sind noch ungelöste Prüffragen zugeordnet – bestätige sie unten, um anzuwenden.'**
+  String get aiApplyErrorApplyBlocked;
+
+  /// No description provided for @aiApplyErrorMissingMapping.
+  ///
+  /// In de, this message translates to:
+  /// **'Eine Skriptzeile hat keine Prüfentscheidung – lade die Vorschau neu und übernimm erneut.'**
+  String get aiApplyErrorMissingMapping;
+
+  /// No description provided for @aiApplyErrorMissingEpisodeGroup.
+  ///
+  /// In de, this message translates to:
+  /// **'Ein Episoden-Ziel passt nicht mehr zur Vorschau – lade die Vorschau neu und übernimm erneut.'**
+  String get aiApplyErrorMissingEpisodeGroup;
+
+  /// No description provided for @aiApplyUncertaintiesTitle.
+  ///
+  /// In de, this message translates to:
+  /// **'Offene Prüffragen – zum Übernehmen bestätigen:'**
+  String get aiApplyUncertaintiesTitle;
+
+  /// No description provided for @aiApplyAcknowledgeUncertainty.
+  ///
+  /// In de, this message translates to:
+  /// **'Als geklärt bestätigen und wie extrahiert übernehmen'**
+  String get aiApplyAcknowledgeUncertainty;
+
   /// No description provided for @aiApplyTitle.
   ///
   /// In de, this message translates to:

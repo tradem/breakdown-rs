@@ -49,6 +49,15 @@ problem-ai-import-not-found =
 problem-ai-import-unsupported-media-type =
     This document type is not supported for AI import.
 
+problem-ai-import-apply-blocked =
+    The preview still carries unresolved review questions. Confirm them on the apply screen and retry.
+
+problem-ai-import-apply-missing-mapping =
+    A script row has no review decision. Refresh the preview and re-apply.
+
+problem-ai-import-apply-missing-episode-group =
+    An episode target no longer matches the preview. Refresh the preview and re-apply.
+
 problem-ai-config-version-mismatch =
     The AI configuration changed elsewhere. Refresh and re-apply your edit.
 

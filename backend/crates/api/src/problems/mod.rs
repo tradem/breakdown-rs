@@ -24,7 +24,8 @@ use axum::response::{IntoResponse, Response};
 use breakdown_core::error::DomainError;
 use breakdown_core::error_registry::{
     AI_CONFIG_FORBIDDEN, AI_CONFIG_PROVIDER_MISMATCH, AI_CONFIG_VAULT_KEY_FORBIDDEN,
-    AI_CONFIG_VERSION_MISMATCH, AI_IMPORT_DISABLED, AI_IMPORT_FORBIDDEN, AI_IMPORT_NOT_FOUND,
+    AI_CONFIG_VERSION_MISMATCH, AI_IMPORT_APPLY_BLOCKED, AI_IMPORT_APPLY_MISSING_EPISODE_GROUP,
+    AI_IMPORT_APPLY_MISSING_MAPPING, AI_IMPORT_DISABLED, AI_IMPORT_FORBIDDEN, AI_IMPORT_NOT_FOUND,
     AI_IMPORT_UNSUPPORTED_MEDIA_TYPE, DOMAIN_CONFLICT, DOMAIN_FORBIDDEN, DOMAIN_NOT_FOUND,
     DOMAIN_SERVICE_UNAVAILABLE, DOMAIN_VALIDATION, HTTP_BAD_JSON_BODY, HTTP_BAD_PATH_PARAM,
     HTTP_BAD_QUERY_PARAM, HTTP_BAD_REQUEST, HTTP_INTERNAL_ERROR, HTTP_PAYLOAD_TOO_LARGE,
@@ -356,6 +357,20 @@ pub enum ApiError {
     /// collapse into this code; legacy unknown-owner bindings fail closed
     /// into it as well.
     AiConfigVaultKeyForbidden(&'static str),
+    /// 409 `ai-import.apply-blocked` — the script-apply gate refused because
+    /// the preview still carries blocking uncertainties the reviewer did not
+    /// acknowledge (issue #663). The remaining blockers travel as the S1
+    /// `blocking_uncertainties` extension so the apply screen can render
+    /// them inline with acknowledge actions.
+    AiImportApplyBlocked(Vec<breakdown_core::ai::Uncertainty>),
+    /// 409 `ai-import.apply-missing-mapping` — the apply request carries no
+    /// mapping decision for a draft row the preview contains (client bug,
+    /// issue #663); the S1 `draft_ref` extension names the offending row.
+    AiImportApplyMissingMapping(String),
+    /// 409 `ai-import.apply-missing-episode-group` — the apply request maps
+    /// an episode group the preview does not carry (client bug, issue
+    /// #581/#663); the S1 `episode_ref` extension names it.
+    AiImportApplyMissingEpisodeGroup(String),
     /// 500 `http.internal-error` — `detail` is always static text; the real
     /// error must be logged by the caller (internal text never leaves the
     /// server, ADR-031 decision 6).
@@ -460,6 +475,19 @@ impl ApiError {
                 problem(AI_CONFIG_VERSION_MISMATCH)
                     .extension("expected_version", expected)
                     .extension("current_version", current)
+                    .build()
+            }
+            ApiError::AiImportApplyBlocked(blocking) => problem(AI_IMPORT_APPLY_BLOCKED)
+                .extension("blocking_uncertainties", blocking)
+                .build(),
+            ApiError::AiImportApplyMissingMapping(draft_ref) => {
+                problem(AI_IMPORT_APPLY_MISSING_MAPPING)
+                    .extension("draft_ref", draft_ref)
+                    .build()
+            }
+            ApiError::AiImportApplyMissingEpisodeGroup(episode_ref) => {
+                problem(AI_IMPORT_APPLY_MISSING_EPISODE_GROUP)
+                    .extension("episode_ref", episode_ref)
                     .build()
             }
             ApiError::AiConfigProviderMismatch(msg) => {

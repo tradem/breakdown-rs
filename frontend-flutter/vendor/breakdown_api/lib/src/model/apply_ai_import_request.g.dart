@@ -19,6 +19,8 @@ class _$ApplyAiImportRequest extends ApplyAiImportRequest {
   final BuiltList<ApplyMapping> mappings;
   @override
   final String? projectId;
+  @override
+  final BuiltList<UncertaintyAcknowledgement>? uncertaintyAcknowledgements;
 
   factory _$ApplyAiImportRequest(
           [void Function(ApplyAiImportRequestBuilder)? updates]) =>
@@ -30,7 +32,8 @@ class _$ApplyAiImportRequest extends ApplyAiImportRequest {
       this.episodeGroups,
       required this.episodeId,
       required this.mappings,
-      this.projectId})
+      this.projectId,
+      this.uncertaintyAcknowledgements})
       : super._();
   @override
   ApplyAiImportRequest rebuild(
@@ -50,7 +53,8 @@ class _$ApplyAiImportRequest extends ApplyAiImportRequest {
         episodeGroups == other.episodeGroups &&
         episodeId == other.episodeId &&
         mappings == other.mappings &&
-        projectId == other.projectId;
+        projectId == other.projectId &&
+        uncertaintyAcknowledgements == other.uncertaintyAcknowledgements;
   }
 
   @override
@@ -62,6 +66,7 @@ class _$ApplyAiImportRequest extends ApplyAiImportRequest {
     _$hash = $jc(_$hash, episodeId.hashCode);
     _$hash = $jc(_$hash, mappings.hashCode);
     _$hash = $jc(_$hash, projectId.hashCode);
+    _$hash = $jc(_$hash, uncertaintyAcknowledgements.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
   }
@@ -74,7 +79,8 @@ class _$ApplyAiImportRequest extends ApplyAiImportRequest {
           ..add('episodeGroups', episodeGroups)
           ..add('episodeId', episodeId)
           ..add('mappings', mappings)
-          ..add('projectId', projectId))
+          ..add('projectId', projectId)
+          ..add('uncertaintyAcknowledgements', uncertaintyAcknowledgements))
         .toString();
   }
 }
@@ -111,6 +117,15 @@ class ApplyAiImportRequestBuilder
   String? get projectId => _$this._projectId;
   set projectId(String? projectId) => _$this._projectId = projectId;
 
+  ListBuilder<UncertaintyAcknowledgement>? _uncertaintyAcknowledgements;
+  ListBuilder<UncertaintyAcknowledgement> get uncertaintyAcknowledgements =>
+      _$this._uncertaintyAcknowledgements ??=
+          ListBuilder<UncertaintyAcknowledgement>();
+  set uncertaintyAcknowledgements(
+          ListBuilder<UncertaintyAcknowledgement>?
+              uncertaintyAcknowledgements) =>
+      _$this._uncertaintyAcknowledgements = uncertaintyAcknowledgements;
+
   ApplyAiImportRequestBuilder() {
     ApplyAiImportRequest._defaults(this);
   }
@@ -124,6 +139,8 @@ class ApplyAiImportRequestBuilder
       _episodeId = $v.episodeId;
       _mappings = $v.mappings.toBuilder();
       _projectId = $v.projectId;
+      _uncertaintyAcknowledgements =
+          $v.uncertaintyAcknowledgements?.toBuilder();
       _$v = null;
     }
     return this;
@@ -156,6 +173,7 @@ class ApplyAiImportRequestBuilder
                 episodeId, r'ApplyAiImportRequest', 'episodeId'),
             mappings: mappings.build(),
             projectId: projectId,
+            uncertaintyAcknowledgements: _uncertaintyAcknowledgements?.build(),
           );
     } catch (_) {
       late String _$failedField;
@@ -165,6 +183,9 @@ class ApplyAiImportRequestBuilder
 
         _$failedField = 'mappings';
         mappings.build();
+
+        _$failedField = 'uncertaintyAcknowledgements';
+        _uncertaintyAcknowledgements?.build();
       } catch (e) {
         throw BuiltValueNestedFieldError(
             r'ApplyAiImportRequest', _$failedField, e.toString());

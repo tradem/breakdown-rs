@@ -56,6 +56,19 @@ fn sample_extension_value(field: &str) -> serde_json::Value {
         // current_version: 3`).
         "expected_version" => serde_json::json!(2),
         "current_version" => serde_json::json!(3),
+        // Issue #663: the blocking-uncertainties extension is an array of
+        // content-free extraction metadata items (shape mirrors core's
+        // `Uncertainty`).
+        "blocking_uncertainties" => serde_json::json!([{
+            "kind": "field_ambiguity",
+            "scene_index": 0,
+            "field": "location",
+            "note": "unclear location heading",
+            "suggested_value": null,
+        }]),
+        // Issue #663: stable refs the apply-gate refusals point at.
+        "draft_ref" => serde_json::json!("scene-1"),
+        "episode_ref" => serde_json::json!("ep:3"),
         // UUID-typed S1 fields (character/shooting-day/photo ids): a
         // syntactically valid placeholder id.
         _ => serde_json::json!("00000000-0000-0000-0000-000000000001"),

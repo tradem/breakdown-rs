@@ -546,6 +546,25 @@ pub struct Uncertainty {
     pub kind: UncertaintyKind,
 }
 
+/// The reviewer's acknowledgement of ONE blocking uncertainty (issue #663).
+///
+/// Request-carried by design: a stored preview is an immutable payload blob
+/// (content-addressed handle, no update path), so the resolution lives in the
+/// apply request next to the other reviewer decisions (`mappings`,
+/// `episode_groups`) instead of mutating the preview. Acknowledge semantics:
+/// the reviewer confirms the ambiguous (or absent) value is acceptable and the
+/// row applies as extracted — `Uncertainty.suggested_value` is display-only;
+/// correcting a *wrong* value happens post-apply via normal scene editing.
+/// Identifying pair is `(scene_index, field)` — exactly the fields the
+/// extraction prompt reports an uncertainty with.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct UncertaintyAcknowledgement {
+    /// The scene the uncertainty is attached to (`Uncertainty.scene_index`).
+    pub scene_index: usize,
+    /// The field the uncertainty names (`Uncertainty.field`).
+    pub field: String,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct ShootingSchedule {
     pub block_id: Option<BlockId>,
@@ -833,11 +852,21 @@ pub enum ApplyGateError {
     MissingEpisodeGroup(String),
 }
 
-pub fn ensure_script_applyable(preview: &ScriptContext) -> Result<(), ApplyGateError> {
+pub fn ensure_script_applyable(
+    preview: &ScriptContext,
+    acknowledged: &[UncertaintyAcknowledgement],
+) -> Result<(), ApplyGateError> {
     let blocking = preview
         .uncertainties
         .iter()
         .filter(|uncertainty| uncertainty.kind.blocks_apply())
+        // An acknowledged uncertainty is resolved: the reviewer confirmed the
+        // ambiguous (or absent) value is acceptable (issue #663).
+        .filter(|uncertainty| {
+            !acknowledged.iter().any(|ack| {
+                ack.scene_index == uncertainty.scene_index && ack.field == uncertainty.field
+            })
+        })
         .count();
     if blocking == 0 {
         Ok(())
@@ -888,8 +917,9 @@ pub fn plan_scene_apply(
     project_id: Option<ProjectId>,
     preview_id: AiImportJobId,
     episode_groups: &[EpisodeGroupPlan],
+    acknowledged: &[UncertaintyAcknowledgement],
 ) -> Result<ScriptApplyPlan, ApplyGateError> {
-    ensure_script_applyable(preview)?;
+    ensure_script_applyable(preview, acknowledged)?;
     let mut plan = ScriptApplyPlan::default();
 
     for (index, draft) in preview.scenes.iter().enumerate() {

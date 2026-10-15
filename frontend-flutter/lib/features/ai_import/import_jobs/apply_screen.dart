@@ -144,13 +144,79 @@ class _AiApplySectionState extends ConsumerState<AiApplySection> {
                 ),
               ),
             const SizedBox(height: 12),
+            // Issue #663: blocking uncertainties are resolved IN the apply
+            // card — one acknowledge checkbox each. Apply stays disabled
+            // until every entry is confirmed, so the gate never produces a
+            // surprise 409; the copy says what confirming means.
+            if (state.blockingUncertainties.isNotEmpty) ...[
+              Text(
+                key: const Key('ai-apply-uncertainties-title'),
+                l10nOf(context).aiApplyUncertaintiesTitle,
+                style: Theme.of(context).textTheme.titleSmall,
+              ),
+              for (var i = 0; i < state.blockingUncertainties.length; i++)
+                Builder(
+                  builder: (context) {
+                    final uncertainty = state.blockingUncertainties[i];
+                    final acknowledged = state.acknowledgedKeys.contains(
+                      AiApplyController.acknowledgementKey(
+                        uncertainty.sceneIndex,
+                        uncertainty.field,
+                      ),
+                    );
+                    return CheckboxListTile(
+                      key: Key('ai-apply-uncertainty-ack-$i'),
+                      dense: true,
+                      contentPadding: EdgeInsets.zero,
+                      controlAffinity: ListTileControlAffinity.leading,
+                      value: acknowledged,
+                      onChanged: (checked) => controller.acknowledgeUncertainty(
+                        uncertainty.sceneIndex,
+                        uncertainty.field,
+                        checked ?? false,
+                      ),
+                      title: Text(
+                        l10nOf(context).aiPreviewUncertainty(
+                          uncertainty.field,
+                          uncertainty.note,
+                        ),
+                      ),
+                      subtitle: Text(
+                        l10nOf(context).aiApplyAcknowledgeUncertainty,
+                      ),
+                    );
+                  },
+                ),
+              const SizedBox(height: 4),
+            ],
             if (state.commandError != null)
               Padding(
                 padding: const EdgeInsets.only(bottom: 12),
-                child: Text(
-                  key: const Key('ai-apply-error'),
-                  aiApplyErrorCopy(l10nOf(context), state.commandError!),
-                  style: TextStyle(color: Theme.of(context).colorScheme.error),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      key: const Key('ai-apply-error'),
+                      aiApplyErrorCopy(l10nOf(context), state.commandError!),
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.error,
+                      ),
+                    ),
+                    // Issue #663: the server's `blocking_uncertainties`
+                    // extension lists exactly what still blocks — render the
+                    // items inline so the reviewer can resolve without
+                    // leaving the card (the shape is optional wire metadata;
+                    // an unrecognized shape degrades to no items).
+                    for (final (sceneIndex, field, note)
+                        in blockingUncertaintyItems(state.commandError!))
+                      Text(
+                        key: Key('ai-apply-error-blocker-$sceneIndex-$field'),
+                        l10nOf(context).aiPreviewUncertainty(field, note),
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.error,
+                        ),
+                      ),
+                  ],
                 ),
               ),
             if (state.outcome != null)

@@ -510,6 +510,7 @@ async fn ai_payload_apply_round_trips_through_projection() -> Result<()> {
             // Single-episode flow: no group targets and no episode creation.
             block_id: BlockId::from_uuid(Uuid::now_v7()),
             episode_groups: Vec::new(),
+            acknowledged_uncertainties: Vec::new(),
             telemetry: Some(Telemetry {
                 doc_kind: Some(DocumentKind::Script),
                 apply_state: TelemetryApplyState::NotApplied,

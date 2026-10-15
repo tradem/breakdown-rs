@@ -144,6 +144,7 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..add(UnappliedCostume.serializer)
       ..add(UnappliedCostumeReason.serializer)
       ..add(Uncertainty.serializer)
+      ..add(UncertaintyAcknowledgement.serializer)
       ..add(UncertaintyKind.serializer)
       ..add(UpdateAiConfigRequest.serializer)
       ..add(UpdateBlockTimeSpanRequest.serializer)
@@ -177,6 +178,10 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..addBuilderFactory(
           const FullType(BuiltList, const [const FullType(ApplyMapping)]),
           () => ListBuilder<ApplyMapping>())
+      ..addBuilderFactory(
+          const FullType(
+              BuiltList, const [const FullType(UncertaintyAcknowledgement)]),
+          () => ListBuilder<UncertaintyAcknowledgement>())
       ..addBuilderFactory(
           const FullType(BuiltList, const [const FullType(CheckpointProgress)]),
           () => ListBuilder<CheckpointProgress>())

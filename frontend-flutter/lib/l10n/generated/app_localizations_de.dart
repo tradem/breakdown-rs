@@ -996,6 +996,26 @@ class AppLocalizationsDe extends AppLocalizations {
   }
 
   @override
+  String get aiApplyErrorApplyBlocked =>
+      'Der Vorschau sind noch ungelöste Prüffragen zugeordnet – bestätige sie unten, um anzuwenden.';
+
+  @override
+  String get aiApplyErrorMissingMapping =>
+      'Eine Skriptzeile hat keine Prüfentscheidung – lade die Vorschau neu und übernimm erneut.';
+
+  @override
+  String get aiApplyErrorMissingEpisodeGroup =>
+      'Ein Episoden-Ziel passt nicht mehr zur Vorschau – lade die Vorschau neu und übernimm erneut.';
+
+  @override
+  String get aiApplyUncertaintiesTitle =>
+      'Offene Prüffragen – zum Übernehmen bestätigen:';
+
+  @override
+  String get aiApplyAcknowledgeUncertainty =>
+      'Als geklärt bestätigen und wie extrahiert übernehmen';
+
+  @override
   String get aiApplyTitle => 'Auf Episode anwenden';
 
   @override

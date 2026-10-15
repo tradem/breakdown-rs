@@ -44,7 +44,7 @@ use breakdown_core::ai::{
     AiConfigView, AiImportJob, AiImportJobId, AiImportMappingRepository, AiImportPreviewResponse,
     AiImportQueue, AiPreviewPayload, ApplyMapping, ApplyMappingDecision, DocumentKind, DraftScene,
     EpisodeTarget, JobStatus, LlmProvider, MergedPreview, ScriptContext, ShootingSchedule,
-    SourceFormat, TelemetryApplyState,
+    SourceFormat, TelemetryApplyState, Uncertainty, UncertaintyAcknowledgement, UncertaintyKind,
 };
 use breakdown_core::block::BlockView;
 use breakdown_core::episode::views::EpisodeView;
@@ -536,6 +536,7 @@ async fn apply_ai_import_drives_the_script_worker_through_the_ports_seam() {
         Json(ApplyAiImportRequest {
             episode_id: EpisodeId::new(),
             project_id: None,
+            uncertainty_acknowledgements: Vec::new(),
             mappings: vec![
                 ApplyMapping {
                     draft_ref: "scene-0".to_owned(),
@@ -611,6 +612,7 @@ async fn apply_ai_import_rejects_an_episode_from_another_block() {
         Json(ApplyAiImportRequest {
             episode_id: EpisodeId::new(),
             project_id: None,
+            uncertainty_acknowledgements: Vec::new(),
             mappings: vec![ApplyMapping {
                 draft_ref: "scene-0".to_owned(),
                 decision: ApplyMappingDecision::Create,
@@ -663,6 +665,7 @@ async fn apply_ai_import_rejects_accept_as_is_with_a_nonzero_edit_distance() {
         Json(ApplyAiImportRequest {
             episode_id: EpisodeId::new(),
             project_id: None,
+            uncertainty_acknowledgements: Vec::new(),
             mappings: vec![ApplyMapping {
                 draft_ref: "scene-0".to_owned(),
                 decision: ApplyMappingDecision::Create,
@@ -1719,6 +1722,7 @@ async fn apply_ai_import_rejects_an_episode_group_the_preview_does_not_carry() {
         Json(ApplyAiImportRequest {
             episode_id: EpisodeId::new(),
             project_id: None,
+            uncertainty_acknowledgements: Vec::new(),
             mappings: vec![ApplyMapping {
                 draft_ref: "scene-0".to_owned(),
                 decision: ApplyMappingDecision::Create,
@@ -1784,6 +1788,7 @@ async fn apply_ai_import_prechecks_a_taken_episode_number_with_409() {
         Json(ApplyAiImportRequest {
             episode_id: EpisodeId::from_uuid(target.id),
             project_id: None,
+            uncertainty_acknowledgements: Vec::new(),
             mappings: vec![ApplyMapping {
                 draft_ref: "scene-0".to_owned(),
                 decision: ApplyMappingDecision::Create,
@@ -1838,6 +1843,7 @@ async fn apply_ai_import_creates_an_episode_for_a_free_group_number() {
         Json(ApplyAiImportRequest {
             episode_id: EpisodeId::from_uuid(target.id),
             project_id: None,
+            uncertainty_acknowledgements: Vec::new(),
             mappings: vec![ApplyMapping {
                 draft_ref: "scene-0".to_owned(),
                 decision: ApplyMappingDecision::Create,
@@ -1879,6 +1885,7 @@ async fn apply_ai_import_rejects_more_episode_groups_than_the_preview_carries() 
         Json(ApplyAiImportRequest {
             episode_id: EpisodeId::new(),
             project_id: None,
+            uncertainty_acknowledgements: Vec::new(),
             mappings: vec![ApplyMapping {
                 draft_ref: "scene-0".to_owned(),
                 decision: ApplyMappingDecision::Create,
@@ -1892,6 +1899,221 @@ async fn apply_ai_import_rejects_more_episode_groups_than_the_preview_carries() 
     .await
     .expect_err("an oversized group list must be rejected before any read")
     .into_problem();
+    assert_eq!(problem.status, StatusCode::UNPROCESSABLE_ENTITY.as_u16());
+    assert_eq!(problem.code, "domain.validation");
+}
+
+// ===========================================================================
+// Issue #663: uncertainty acknowledgements + dedicated apply-gate codes
+// ===========================================================================
+
+/// Seeds a succeeded script job whose preview carries ONE blocking
+/// `field_ambiguity` uncertainty on scene 0 (plus a non-blocking
+/// `dropped_row` that must never gate) and returns the job id.
+async fn seed_blocking_uncertainty_job(
+    ports: &FakePorts,
+    block_id: Option<BlockId>,
+) -> AiImportJobId {
+    let preview = ScriptContext {
+        title: Some("blocked script".to_owned()),
+        scenes: (0..2)
+            .map(|i| DraftScene {
+                draft_ref: format!("scene-{i}"),
+                scene_number: Some(i as u32 + 1),
+                ..DraftScene::default()
+            })
+            .collect(),
+        uncertainties: vec![
+            Uncertainty {
+                scene_index: 0,
+                field: "location".to_owned(),
+                note: "ambiguous heading".to_owned(),
+                suggested_value: Some("Keller".to_owned()),
+                kind: UncertaintyKind::FieldAmbiguity,
+            },
+            Uncertainty {
+                scene_index: 0,
+                field: "costume".to_owned(),
+                note: "dropped row".to_owned(),
+                suggested_value: None,
+                kind: UncertaintyKind::DroppedRow,
+            },
+        ],
+    };
+    let mut job = succeeded_job("placeholder");
+    job.block_id = block_id;
+    let handle = ports
+        .ai_payload_store
+        .put(
+            job.id,
+            serde_json::to_vec(&preview).expect("preview serializes"),
+        )
+        .await
+        .expect("preview store write should succeed");
+    job.preview_handle = Some(handle);
+    let job_id = job.id;
+    ports.ai_import_queue.seed(job).await;
+    job_id
+}
+
+fn create_mappings() -> Vec<ApplyMapping> {
+    (0..2)
+        .map(|i| ApplyMapping {
+            draft_ref: format!("scene-{i}"),
+            decision: ApplyMappingDecision::Create,
+            costume_decisions: Vec::new(),
+        })
+        .collect()
+}
+
+#[tokio::test]
+async fn apply_with_blocking_uncertainty_answers_apply_blocked_with_the_items() {
+    let ports = FakePorts::default();
+    let block_id = BlockId::from_uuid(Uuid::now_v7());
+    *ports.episode_repo.block_id_override.lock().await = Some(block_id);
+    seed_ai_block_access(&ports, block_id).await;
+    let job_id = seed_blocking_uncertainty_job(&ports, Some(block_id)).await;
+
+    let problem = apply_ai_import::<FakePorts>(
+        State(state(ports)),
+        user(),
+        Path(job_id),
+        Json(ApplyAiImportRequest {
+            episode_id: EpisodeId::new(),
+            project_id: None,
+            uncertainty_acknowledgements: Vec::new(),
+            mappings: create_mappings(),
+            accept_as_is: false,
+            edit_distance: 0,
+            episode_groups: Vec::new(),
+        }),
+    )
+    .await
+    .expect_err("an unacknowledged blocking uncertainty must refuse the apply")
+    .into_problem();
+
+    assert_eq!(problem.status, StatusCode::CONFLICT.as_u16());
+    assert_eq!(problem.code, "ai-import.apply-blocked");
+    assert!(!problem.detail.is_empty());
+    // The S1 extension names exactly the remaining blocking items — the
+    // advisory `dropped_row` is not among them (it never gates).
+    let items = problem
+        .extensions
+        .as_ref()
+        .and_then(|ext| ext.get("blocking_uncertainties"))
+        .cloned()
+        .unwrap_or_default();
+    let items = items.as_array().cloned().unwrap_or_default();
+    assert_eq!(items.len(), 1, "only the field_ambiguity blocks: {items:?}");
+    assert_eq!(items[0]["field"], "location");
+    assert_eq!(items[0]["kind"], "field_ambiguity");
+    assert_eq!(items[0]["scene_index"], 0);
+}
+
+#[tokio::test]
+async fn apply_with_acknowledged_uncertainties_reaches_the_worker() {
+    let ports = FakePorts::default();
+    let block_id = BlockId::from_uuid(Uuid::now_v7());
+    *ports.episode_repo.block_id_override.lock().await = Some(block_id);
+    let mappings = ports.ai_import_mapping.clone();
+    seed_ai_block_access(&ports, block_id).await;
+    let job_id = seed_blocking_uncertainty_job(&ports, Some(block_id)).await;
+
+    let (status, _) = apply_ai_import::<FakePorts>(
+        State(state(ports)),
+        user(),
+        Path(job_id),
+        Json(ApplyAiImportRequest {
+            episode_id: EpisodeId::new(),
+            project_id: None,
+            // Acknowledging the single blocker lets the apply through; the
+            // advisory `dropped_row` needs no acknowledgement.
+            uncertainty_acknowledgements: vec![UncertaintyAcknowledgement {
+                scene_index: 0,
+                field: "location".to_owned(),
+            }],
+            mappings: create_mappings(),
+            accept_as_is: false,
+            edit_distance: 0,
+            episode_groups: Vec::new(),
+        }),
+    )
+    .await
+    .expect("the acknowledged apply must pass the gate");
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        !mappings
+            .list_by_preview(job_id)
+            .await
+            .expect("mapping read should succeed")
+            .is_empty(),
+        "the worker must have recorded the apply mappings"
+    );
+}
+
+#[tokio::test]
+async fn apply_rejects_an_acknowledgement_for_an_uncertainty_the_preview_does_not_carry() {
+    let ports = FakePorts::default();
+    let block_id = BlockId::from_uuid(Uuid::now_v7());
+    *ports.episode_repo.block_id_override.lock().await = Some(block_id);
+    seed_ai_block_access(&ports, block_id).await;
+    let job_id = seed_blocking_uncertainty_job(&ports, Some(block_id)).await;
+
+    let problem = apply_ai_import::<FakePorts>(
+        State(state(ports)),
+        user(),
+        Path(job_id),
+        Json(ApplyAiImportRequest {
+            episode_id: EpisodeId::new(),
+            project_id: None,
+            uncertainty_acknowledgements: vec![UncertaintyAcknowledgement {
+                scene_index: 99,
+                field: "location".to_owned(),
+            }],
+            mappings: create_mappings(),
+            accept_as_is: false,
+            edit_distance: 0,
+            episode_groups: Vec::new(),
+        }),
+    )
+    .await
+    .expect_err("a foreign acknowledgement is a client bug")
+    .into_problem();
+
+    assert_eq!(problem.status, StatusCode::UNPROCESSABLE_ENTITY.as_u16());
+    assert_eq!(problem.code, "domain.validation");
+}
+
+#[tokio::test]
+async fn apply_rejects_a_duplicate_acknowledgement() {
+    let ports = FakePorts::default();
+    let block_id = BlockId::from_uuid(Uuid::now_v7());
+    *ports.episode_repo.block_id_override.lock().await = Some(block_id);
+    seed_ai_block_access(&ports, block_id).await;
+    let job_id = seed_blocking_uncertainty_job(&ports, Some(block_id)).await;
+
+    let ack = UncertaintyAcknowledgement {
+        scene_index: 0,
+        field: "location".to_owned(),
+    };
+    let problem = apply_ai_import::<FakePorts>(
+        State(state(ports)),
+        user(),
+        Path(job_id),
+        Json(ApplyAiImportRequest {
+            episode_id: EpisodeId::new(),
+            project_id: None,
+            uncertainty_acknowledgements: vec![ack.clone(), ack],
+            mappings: create_mappings(),
+            accept_as_is: false,
+            edit_distance: 0,
+            episode_groups: Vec::new(),
+        }),
+    )
+    .await
+    .expect_err("a duplicate acknowledgement would over-acknowledge")
+    .into_problem();
+
     assert_eq!(problem.status, StatusCode::UNPROCESSABLE_ENTITY.as_u16());
     assert_eq!(problem.code, "domain.validation");
 }

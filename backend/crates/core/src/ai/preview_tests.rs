@@ -94,6 +94,7 @@ fn planner_uses_update_for_a_previously_mapped_row() {
         None,
         AiImportJobId(Uuid::now_v7()),
         &[],
+        &[],
     )
     .unwrap();
     assert_eq!(plan.scenes.len(), 1);
@@ -115,7 +116,7 @@ fn open_uncertainties_and_unmatched_rows_block_apply() {
         ..Default::default()
     };
     assert!(matches!(
-        ensure_script_applyable(&script),
+        ensure_script_applyable(&script, &[]),
         Err(ApplyGateError::OpenUncertainties(1))
     ));
 
@@ -150,7 +151,8 @@ fn open_uncertainties_and_unmatched_rows_block_apply() {
             EpisodeId::new(),
             None,
             AiImportJobId(Uuid::now_v7()),
-            &[]
+            &[],
+            &[],
         ),
         Err(ApplyGateError::MissingMapping(_))
     ));
@@ -167,6 +169,7 @@ fn plan_of(preview: &ScriptContext, decisions: &[ApplyMapping]) -> ScriptApplyPl
         EpisodeId::new(),
         None,
         AiImportJobId(Uuid::now_v7()),
+        &[],
         &[],
     )
     .expect("plan")
@@ -581,6 +584,77 @@ fn a_quote_that_only_differs_in_line_wrapping_is_still_grounded() {
 }
 
 #[test]
+fn an_acknowledged_blocking_uncertainty_resolves_the_gate() {
+    // Issue #663: the reviewer acknowledges the ambiguity in the apply
+    // request, so the gate counts only the *unacknowledged* blockers.
+    let preview = ScriptContext {
+        uncertainties: vec![
+            Uncertainty {
+                scene_index: 1,
+                field: "location".into(),
+                note: "illegible".into(),
+                suggested_value: None,
+                kind: UncertaintyKind::FieldAmbiguity,
+            },
+            Uncertainty {
+                scene_index: 2,
+                field: "mood".into(),
+                note: "two readings".into(),
+                suggested_value: None,
+                kind: UncertaintyKind::FieldAmbiguity,
+            },
+        ],
+        ..Default::default()
+    };
+    // Both acknowledged: the gate opens.
+    assert!(
+        ensure_script_applyable(
+            &preview,
+            &[
+                UncertaintyAcknowledgement {
+                    scene_index: 1,
+                    field: "location".into(),
+                },
+                UncertaintyAcknowledgement {
+                    scene_index: 2,
+                    field: "mood".into(),
+                },
+            ]
+        )
+        .is_ok()
+    );
+    // One acknowledged: exactly the other one still blocks.
+    assert!(matches!(
+        ensure_script_applyable(
+            &preview,
+            &[UncertaintyAcknowledgement {
+                scene_index: 1,
+                field: "location".into(),
+            }],
+        ),
+        Err(ApplyGateError::OpenUncertainties(1))
+    ));
+    // An acknowledgement that matches nothing (wrong scene or wrong field)
+    // resolves nothing — the API edge rejects it, the gate must not honor it.
+    assert!(matches!(
+        ensure_script_applyable(
+            &preview,
+            &[
+                UncertaintyAcknowledgement {
+                    scene_index: 1,
+                    field: "mood".into(),
+                },
+                UncertaintyAcknowledgement {
+                    scene_index: 9,
+                    field: "location".into(),
+                },
+            ],
+        ),
+        Err(ApplyGateError::OpenUncertainties(2))
+    ));
+}
+
+#[test]
 fn only_a_field_ambiguity_blocks_the_apply() {
     // Design D8: a server-dropped row is reported, but must not make the whole
     // preview unappliable — one unverifiable costume may not cost the reviewer a
@@ -595,7 +669,7 @@ fn only_a_field_ambiguity_blocks_the_apply() {
         }],
         ..Default::default()
     };
-    assert!(ensure_script_applyable(&dropped).is_ok());
+    assert!(ensure_script_applyable(&dropped, &[]).is_ok());
 
     let mut blocking = dropped.clone();
     blocking.uncertainties.push(Uncertainty {
@@ -606,7 +680,7 @@ fn only_a_field_ambiguity_blocks_the_apply() {
         kind: UncertaintyKind::FieldAmbiguity,
     });
     assert!(matches!(
-        ensure_script_applyable(&blocking),
+        ensure_script_applyable(&blocking, &[]),
         Err(ApplyGateError::OpenUncertainties(1))
     ));
 }
@@ -1201,6 +1275,7 @@ fn plan_resolves_a_create_group_to_a_new_episode() {
                 name: Some("Der Unfall".into()),
             },
         }],
+        &[],
     )
     .expect("plan");
     assert!(matches!(
@@ -1229,6 +1304,7 @@ fn plan_resolves_an_existing_group_target() {
                 episode_id: existing,
             },
         }],
+        &[],
     )
     .expect("plan");
     match &plan.scenes[0].episode {
@@ -1247,6 +1323,7 @@ fn plan_defaults_rows_without_episode_metadata_to_the_picked_episode() {
         default_episode,
         None,
         AiImportJobId(Uuid::now_v7()),
+        &[],
         &[],
     )
     .expect("plan");
@@ -1269,6 +1346,7 @@ fn plan_ignores_groups_for_ungroupable_episode_metadata() {
         None,
         AiImportJobId(Uuid::now_v7()),
         &[],
+        &[],
     )
     .expect("plan");
     assert_eq!(
@@ -1289,6 +1367,7 @@ fn plan_rejects_a_group_the_request_forgot() {
         EpisodeId::new(),
         None,
         AiImportJobId(Uuid::now_v7()),
+        &[],
         &[],
     )
     .expect_err("ungrouped episode must not silently apply to the default");
