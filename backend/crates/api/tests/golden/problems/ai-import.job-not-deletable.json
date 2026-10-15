@@ -1,0 +1,7 @@
+{
+  "code": "ai-import.job-not-deletable",
+  "detail": "Dieser Import wird noch verarbeitet und kann noch nicht gelöscht werden. Versuchen Sie es erneut, sobald er abgeschlossen ist.",
+  "status": 409,
+  "title": "AI import job is not in a deletable state",
+  "type": "https://docs.breakdown.example/problems/ai-import.job-not-deletable"
+}

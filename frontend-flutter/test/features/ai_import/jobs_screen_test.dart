@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 // Co-authored-by: glm-5.3-flash (opencode-go)
 
 // Tier-1 + Tier-2 tests for the AI-import jobs view (issue #547):
@@ -119,6 +120,18 @@ class FakeJobsRepository extends AiImportRepository {
   /// MUST stay zero forever: a watch in the list controller is a
   /// regression of D5 (one foreground watch, owned by the status screen).
   int watchCalls = 0;
+
+  /// The delete seam (issue #671): scriptable outcome + call counter.
+  Result<void>? deleteResult;
+  int deleteCalls = 0;
+
+  @override
+  Future<Result<void>> deleteJob(String id) async {
+    deleteCalls++;
+    final result = deleteResult;
+    if (result != null) return result;
+    return const Right<ProblemError, void>(null);
+  }
 
   @override
   Future<Result<List<AiImportJob>>> listJobsAndCache({
@@ -356,6 +369,93 @@ void main() {
     });
   });
 
+  group('AiImportJobsViewController — deleteJob (issue #671, tier 1)', () {
+    test('a successful delete removes the row optimistically and '
+        'reconciles via exactly ONE list re-run', () async {
+      await setupContainer(
+        listResult: Right([_job('job-d', status: JobStatus.deadLetter)]),
+      );
+      keepController();
+      await drain();
+      expect(container!.read(aiImportJobsView).rows.map((r) => r.id), [
+        'job-d',
+      ]);
+      final listCallsBefore = repo!.listCalls;
+      // The server no longer knows the job: the reconcile read must not
+      // return it (the fake's list result mirrors the post-delete state).
+      repo!.listResult = Right(const []);
+
+      final result = await container!
+          .read(aiImportJobsViewControllerProvider.notifier)
+          .deleteJob('job-d');
+      expect(result.isRight(), isTrue);
+      expect(repo!.deleteCalls, 1);
+      // The reconcile re-runs exactly the list route — no watch (D5).
+      expect(repo!.listCalls, listCallsBefore + 1);
+      expect(repo!.watchCalls, 0);
+      // The deleted row is gone from the view.
+      expect(container!.read(aiImportJobsView).rows, isEmpty);
+      container!.dispose();
+    });
+
+    test('a failed delete rolls the optimistic removal back and '
+        'surfaces the error (no silent failure)', () async {
+      await setupContainer(
+        listResult: Right([_job('job-d', status: JobStatus.deadLetter)]),
+      );
+      keepController();
+      await drain();
+      repo!.deleteResult = const Left(
+        ProblemError(code: 'ai-import.job-not-deletable'),
+      );
+
+      final result = await container!
+          .read(aiImportJobsViewControllerProvider.notifier)
+          .deleteJob('job-d');
+      expect(
+        result.getLeft().toNullable()!.code,
+        'ai-import.job-not-deletable',
+      );
+      expect(repo!.deleteCalls, 1);
+      // No reconcile read on failure — and the row is back (the server
+      // still knows the job).
+      expect(repo!.listCalls, 1);
+      expect(container!.read(aiImportJobsView).rows.map((r) => r.id), [
+        'job-d',
+      ]);
+      container!.dispose();
+    });
+
+    test('isDeletable: dead_letter only — non-terminal and the other '
+        'terminal rows carry no delete affordance', () {
+      expect(
+        jobRowViewFromJob(_job('j', status: JobStatus.deadLetter)).isDeletable,
+        isTrue,
+      );
+      expect(
+        jobRowViewFromJob(_job('j', status: JobStatus.pending)).isDeletable,
+        isFalse,
+      );
+      expect(
+        jobRowViewFromJob(_job('j', status: JobStatus.running)).isDeletable,
+        isFalse,
+      );
+      expect(
+        jobRowViewFromJob(_job('j', status: JobStatus.failed)).isDeletable,
+        isFalse,
+      );
+      expect(
+        jobRowViewFromJob(_job('j', status: JobStatus.succeeded)).isDeletable,
+        isFalse,
+      );
+      expect(
+        jobRowViewFromJob(_job('j', status: JobStatus.payloadUnavailable))
+            .isDeletable,
+        isFalse,
+      );
+    });
+  });
+
   group('pure mappers + copy (tier 1, no Flutter imports needed)', () {
     test('jobRowViewFromJob maps the DTO fields verbatim', () {
       final view = jobRowViewFromJob(
@@ -489,6 +589,46 @@ void main() {
         contains('weird.future_code'),
       );
     });
+
+    test('aiJobsDeleteErrorCopy is keyed on the stable problem code '
+        '(issue #671: the 409 refusal gets its own narrative)', () {
+      final l10n = AppLocalizationsEn();
+      expect(
+        aiJobsDeleteErrorCopy(
+          l10n,
+          const ProblemError(code: 'ai-import.job-not-deletable'),
+        ),
+        contains('still being processed'),
+      );
+      expect(
+        aiJobsDeleteErrorCopy(
+          l10n,
+          const ProblemError(code: 'ai-import.forbidden'),
+        ),
+        contains('do not have access'),
+      );
+      expect(
+        aiJobsDeleteErrorCopy(
+          l10n,
+          const ProblemError(code: 'ai-import.not-found'),
+        ),
+        contains('does not exist'),
+      );
+      expect(
+        aiJobsDeleteErrorCopy(
+          l10n,
+          const ProblemError(code: 'transport.connectionError'),
+        ),
+        contains('Network problem'),
+      );
+      expect(
+        aiJobsDeleteErrorCopy(
+          l10n,
+          const ProblemError(code: 'weird.future_code'),
+        ),
+        contains('weird.future_code'),
+      );
+    });
   });
 
   group('AiImportJobsScreen (tier 2)', () {
@@ -610,6 +750,68 @@ void main() {
       expect(deadIcon.color, errorColor);
       expect(okIcon.color, isNot(errorColor));
       await tester.pump();
+    });
+
+    testWidgets('dead_letter rows carry the delete affordance → confirm → '
+        'the row is gone; non-terminal rows show none (issue #671)', (
+      tester,
+    ) async {
+      await setupContainer(
+        listResult: Right([
+          _job('job-d', status: JobStatus.deadLetter),
+          _job('job-p', status: JobStatus.pending),
+        ]),
+      );
+      await pumpScreen(tester);
+
+      // The affordance exists on the dead_letter row ONLY.
+      expect(find.byKey(const Key('ai-jobs-row-delete-job-d')), findsOneWidget);
+      expect(find.byKey(const Key('ai-jobs-row-delete-job-p')), findsNothing);
+
+      // Cancel path: the dialog opens, cancel keeps the row, no dispatch.
+      await tester.tap(find.byKey(const Key('ai-jobs-row-delete-job-d')));
+      await tester.pump();
+      expect(find.text('Delete import?'), findsOneWidget);
+      expect(find.textContaining('duplicate lock'), findsOneWidget);
+      await tester.tap(find.byKey(const Key('ai-jobs-delete-cancel')));
+      await tester.pump();
+      expect(find.byKey(const Key('ai-jobs-row-job-d')), findsOneWidget);
+      expect(repo!.deleteCalls, 0);
+
+      // Confirm path: the reconcile read no longer returns the row —
+      // after the delete the list paints without it.
+      await tester.tap(find.byKey(const Key('ai-jobs-row-delete-job-d')));
+      await tester.pump();
+      repo!.listResult = Right([_job('job-p', status: JobStatus.pending)]);
+      await tester.tap(find.byKey(const Key('ai-jobs-delete-confirm')));
+      for (var i = 0; i < 8; i++) {
+        await tester.pump(const Duration(milliseconds: 10));
+      }
+      expect(repo!.deleteCalls, 1);
+      expect(find.byKey(const Key('ai-jobs-row-job-d')), findsNothing);
+      expect(find.byKey(const Key('ai-jobs-row-job-p')), findsOneWidget);
+    });
+
+    testWidgets('a failed delete restores the row and surfaces the '
+        'code-keyed message (no silent failure, issue #671)', (tester) async {
+      await setupContainer(
+        listResult: Right([_job('job-d', status: JobStatus.deadLetter)]),
+      );
+      await pumpScreen(tester);
+      repo!.deleteResult = const Left(
+        ProblemError(code: 'ai-import.job-not-deletable'),
+      );
+
+      await tester.tap(find.byKey(const Key('ai-jobs-row-delete-job-d')));
+      await tester.pump();
+      await tester.tap(find.byKey(const Key('ai-jobs-delete-confirm')));
+      for (var i = 0; i < 8; i++) {
+        await tester.pump(const Duration(milliseconds: 10));
+      }
+      // The row came back and the refusal message is keyed on the code.
+      expect(find.byKey(const Key('ai-jobs-row-job-d')), findsOneWidget);
+      expect(find.byKey(const Key('ai-jobs-delete-error')), findsOneWidget);
+      expect(find.textContaining('still being processed'), findsOneWidget);
     });
 
     testWidgets('tapping a row pushes AiJobStatusScreen — the screen that '

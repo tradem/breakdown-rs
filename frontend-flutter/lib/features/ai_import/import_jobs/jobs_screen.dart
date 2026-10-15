@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 // Co-authored-by: glm-5.3-flash (opencode-go)
 // Co-authored-by: deepseek-v4.1-flash (neuralwatt)
 
@@ -192,9 +193,7 @@ class _JobRow extends StatelessWidget {
             ),
         ],
       ),
-      trailing: job.hasLastError
-          ? Icon(Icons.error_outline, color: scheme.error)
-          : const Icon(Icons.chevron_right),
+      trailing: _JobRowTrailing(job: job),
       onTap: () {
         // Fire-and-forget navigation (no result consumed). The pushed
         // status screen arms the single watch; leaving it disposes it.
@@ -206,6 +205,85 @@ class _JobRow extends StatelessWidget {
           ),
         );
       },
+    );
+  }
+}
+
+/// The row's trailing affordances (issue #671): the retained error
+/// presence indicator, a delete icon on `dead_letter` rows only, and the
+/// navigation chevron. Terminal-failure rows without the delete stay
+/// unchanged; non-terminal rows never render the affordance.
+class _JobRowTrailing extends ConsumerWidget {
+  const _JobRowTrailing({required this.job});
+
+  final AiImportJobRowView job;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final l10n = l10nOf(context);
+    final scheme = Theme.of(context).colorScheme;
+    final children = <Widget>[
+      if (job.hasLastError) Icon(Icons.error_outline, color: scheme.error),
+      // Delete affordance on dead-letter rows ONLY (issue #671): a stuck
+      // failed import is the dead end this closes. The confirm dialog
+      // names the dedup-lock release — the feature's point for testing
+      // workflows.
+      if (job.isDeletable)
+        IconButton(
+          key: Key('ai-jobs-row-delete-${job.id}'),
+          icon: const Icon(Icons.delete_outline),
+          tooltip: l10n.aiJobsDeleteTooltip,
+          onPressed: () => unawaited(_confirmDelete(context, ref)),
+        ),
+      const Icon(Icons.chevron_right),
+    ];
+    if (children.length == 1) return children.single;
+    return Row(mainAxisSize: MainAxisSize.min, children: children);
+  }
+
+  /// Confirm dialog, then dispatch through the view controller. A failed
+  /// delete surfaces as a SnackBar keyed on the stable problem `code`
+  /// (the #665 class — a readable message, never a silent failure); a
+  /// successful one is already visible (the controller's reconcile
+  /// refetch drops the row).
+  Future<void> _confirmDelete(BuildContext context, WidgetRef ref) async {
+    final l10n = l10nOf(context);
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(l10n.aiJobsDeleteConfirmTitle),
+        content: Text(l10n.aiJobsDeleteConfirmBody),
+        actions: [
+          TextButton(
+            key: const Key('ai-jobs-delete-cancel'),
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: Text(l10n.aiJobsDeleteConfirmCancel),
+          ),
+          FilledButton(
+            key: const Key('ai-jobs-delete-confirm'),
+            style: FilledButton.styleFrom(
+              foregroundColor: Theme.of(dialogContext)
+                  .colorScheme
+                  .onErrorContainer,
+              backgroundColor: Theme.of(dialogContext).colorScheme.error,
+            ),
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: Text(l10n.aiJobsDeleteConfirmDelete),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !context.mounted) return;
+    final result = await ref
+        .read(aiImportJobsViewControllerProvider.notifier)
+        .deleteJob(job.id);
+    final error = result.getLeft().toNullable();
+    if (error == null || !context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        key: const Key('ai-jobs-delete-error'),
+        content: Text(aiJobsDeleteErrorCopy(l10n, error)),
+      ),
     );
   }
 }

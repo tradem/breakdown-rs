@@ -37,8 +37,8 @@ use api::auth::CurrentUser;
 use api::handlers::{
     AiImportJobResponse, ApplyAiImportRequest, ApplyEpisodeGroupRequest, CreateAiConfigRequest,
     ListParams, RevokeAiConfigRequest, UpdateAiConfigRequest, apply_ai_import, create_ai_config,
-    get_ai_config, get_ai_import_job, get_ai_import_preview, list_ai_configs, list_ai_import_jobs,
-    revoke_ai_config, update_ai_config, upload_ai_schedule, upload_ai_script,
+    delete_ai_import_job, get_ai_config, get_ai_import_job, get_ai_import_preview, list_ai_configs,
+    list_ai_import_jobs, revoke_ai_config, update_ai_config, upload_ai_schedule, upload_ai_script,
 };
 use api::state::AppState;
 use breakdown_core::ai::{
@@ -53,7 +53,7 @@ use breakdown_core::membership::Role;
 use breakdown_core::shared::{AggregateVersion, BlockId, EpisodeId, ProjectId, SeasonId, UserId};
 use chrono::Utc;
 use common::FakePorts;
-use infra::ai::AiPreviewStore;
+use infra::ai::{AiDocumentStore, AiPreviewStore};
 use std::collections::HashMap;
 use uuid::Uuid;
 
@@ -434,6 +434,206 @@ async fn get_ai_import_job_not_found_is_ai_import_not_found() {
     assert_eq!(problem.status, StatusCode::NOT_FOUND.as_u16());
     assert_eq!(problem.code, "ai-import.not-found");
     assert!(!problem.detail.is_empty());
+}
+
+/// Seed a terminal (deletable) job with both payload objects present in the
+/// in-memory store — the pre-delete state the no-orphan assertion needs.
+async fn seed_terminal_job_with_payloads(
+    ports: &FakePorts,
+    status: JobStatus,
+) -> (AiImportJob, String) {
+    let mut job = succeeded_job("placeholder");
+    job.status = status;
+    // The source payload is stored through the port itself so the handle is
+    // exactly the one the production store would mint for this job.
+    let source_handle = ports
+        .ai_payload_store
+        .put_source(job.id, b"source-bytes".to_vec())
+        .await
+        .expect("source store write should succeed");
+    job.source_handle = source_handle.clone();
+    let preview_handle = ports
+        .ai_payload_store
+        .put(job.id, b"preview-bytes".to_vec())
+        .await
+        .expect("preview store write should succeed");
+    job.preview_handle = Some(preview_handle);
+    ports.ai_import_queue.seed(job.clone()).await;
+    (job, source_handle)
+}
+
+#[tokio::test]
+async fn delete_ai_import_job_removes_a_terminal_job_and_its_payloads() {
+    let ports = FakePorts::default();
+    let (job, source_handle) = seed_terminal_job_with_payloads(&ports, JobStatus::DeadLetter).await;
+    let job_id = job.id;
+    let preview_handle = job.preview_handle.clone().expect("seeded preview handle");
+
+    let (status, Json(())) =
+        delete_ai_import_job::<FakePorts>(State(state(ports.clone())), user(), Path(job_id))
+            .await
+            .expect("the owner should delete their own terminal job");
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    // The job row is gone …
+    assert!(
+        ports
+            .ai_import_queue
+            .get(job_id)
+            .await
+            .expect("queue read should succeed")
+            .is_none()
+    );
+    // … and both payload objects are gone — no orphans for the GC to miss.
+    assert!(
+        ports
+            .ai_payload_store
+            .get_source(&source_handle)
+            .await
+            .expect("source read should succeed")
+            .is_none()
+    );
+    assert!(
+        ports
+            .ai_payload_store
+            .get(&preview_handle)
+            .await
+            .expect("preview read should succeed")
+            .is_none()
+    );
+    // The dedup key is freed with the row: re-uploading the same document
+    // enqueues a fresh job instead of bouncing off the old one.
+    assert!(
+        !ports
+            .ai_import_queue
+            .dedup
+            .lock()
+            .await
+            .values()
+            .any(|existing| *existing == job_id)
+    );
+}
+
+#[tokio::test]
+async fn delete_ai_import_job_refuses_a_non_terminal_job_with_the_registered_409() {
+    let ports = FakePorts::default();
+    let (job, source_handle) = seed_terminal_job_with_payloads(&ports, JobStatus::Failed).await;
+    let job_id = job.id;
+    // A `failed` job is the retryable backoff state: its source document is
+    // still scheduled to run, so nothing may be deleted.
+    let problem =
+        delete_ai_import_job::<FakePorts>(State(state(ports.clone())), user(), Path(job_id))
+            .await
+            .expect_err("a non-terminal job must be refused")
+            .into_problem();
+    assert_eq!(problem.status, StatusCode::CONFLICT.as_u16());
+    assert_eq!(problem.code, "ai-import.job-not-deletable");
+    assert!(!problem.detail.is_empty());
+    // The refusal is side-effect-free: row and payloads stay in place.
+    assert!(
+        ports
+            .ai_import_queue
+            .get(job_id)
+            .await
+            .expect("queue read should succeed")
+            .is_some()
+    );
+    assert!(
+        ports
+            .ai_payload_store
+            .get_source(&source_handle)
+            .await
+            .expect("source read should succeed")
+            .is_some()
+    );
+}
+
+#[tokio::test]
+async fn delete_ai_import_job_denies_a_foreign_owner() {
+    let ports = FakePorts::default();
+    let mut job = succeeded_job("placeholder");
+    job.status = JobStatus::DeadLetter;
+    job.user_id = UserId::from_sub("someone-else");
+    let job_id = job.id;
+    ports.ai_import_queue.seed(job).await;
+
+    let problem =
+        delete_ai_import_job::<FakePorts>(State(state(ports.clone())), user(), Path(job_id))
+            .await
+            .expect_err("a foreign owner must be denied")
+            .into_problem();
+    assert_eq!(problem.status, StatusCode::FORBIDDEN.as_u16());
+    assert_eq!(problem.code, "ai-import.forbidden");
+    assert!(!problem.detail.is_empty());
+}
+
+#[tokio::test]
+async fn delete_ai_import_job_missing_row_is_ai_import_not_found() {
+    let ports = FakePorts::default();
+    let missing = AiImportJobId::new();
+
+    let problem =
+        delete_ai_import_job::<FakePorts>(State(state(ports.clone())), user(), Path(missing))
+            .await
+            .expect_err("a missing job must be reported as not-found")
+            .into_problem();
+    assert_eq!(problem.status, StatusCode::NOT_FOUND.as_u16());
+    assert_eq!(problem.code, "ai-import.not-found");
+}
+
+#[tokio::test]
+async fn delete_frees_the_dedup_key_so_the_same_document_reuploads() {
+    let ports = FakePorts::default();
+    let block_id = BlockId::from_uuid(Uuid::now_v7());
+    seed_ai_block_access(&ports, block_id).await;
+    let bytes = axum::body::Bytes::from_static(b"%PDF-1.7 round-trip");
+    let (first_status, Json(first_id)) = upload_ai_script::<FakePorts>(
+        State(state(ports.clone())),
+        user(),
+        pdf_headers(block_id),
+        api::problems::Bytes(bytes.clone()),
+    )
+    .await
+    .expect("first upload should enqueue");
+    assert_eq!(first_status, StatusCode::ACCEPTED);
+    // A second upload of the same bytes dedups onto the first job (200).
+    let (second_status, Json(job_id)) = upload_ai_script::<FakePorts>(
+        State(state(ports.clone())),
+        user(),
+        pdf_headers(block_id),
+        api::problems::Bytes(bytes.clone()),
+    )
+    .await
+    .expect("duplicate upload should dedup");
+    assert_eq!(second_status, StatusCode::OK);
+    assert_eq!(job_id, first_id);
+
+    // Dead-letter the job (as a budget-exhausted worker would), then delete
+    // it from the jobs list — the user's escape hatch for a stuck import.
+    let mut job = ports
+        .ai_import_queue
+        .get(job_id)
+        .await
+        .expect("queue read should succeed")
+        .expect("enqueued job should be retrievable");
+    job.status = JobStatus::DeadLetter;
+    ports.ai_import_queue.seed(job).await;
+    let (status, Json(())) =
+        delete_ai_import_job::<FakePorts>(State(state(ports.clone())), user(), Path(job_id))
+            .await
+            .expect("owner should delete their dead-letter job");
+    assert_eq!(status, StatusCode::NO_CONTENT);
+
+    // The dedup block is gone: the same document enqueues a fresh job (202).
+    let (third_status, Json(fresh_id)) = upload_ai_script::<FakePorts>(
+        State(state(ports.clone())),
+        user(),
+        pdf_headers(block_id),
+        api::problems::Bytes(bytes),
+    )
+    .await
+    .expect("re-upload after delete should enqueue");
+    assert_eq!(third_status, StatusCode::ACCEPTED);
+    assert_ne!(fresh_id, job_id, "the re-upload must be a fresh job");
 }
 
 #[tokio::test]

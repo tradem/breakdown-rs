@@ -7,7 +7,7 @@
 
 [package]
 name = "api"
-version = "0.33.0"
+version = "0.34.0"
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
@@ -24,8 +24,8 @@ test-support = []
 
 [dependencies]
 # Domäne & Infrastruktur
-breakdown_core = { path = "../core", version = "0.34.0" }
-infra = { path = "../infra", version = "0.39.0" }
+breakdown_core = { path = "../core", version = "0.35.0" }
+infra = { path = "../infra", version = "0.40.0" }
 
 # Web-Framework
 axum.workspace = true

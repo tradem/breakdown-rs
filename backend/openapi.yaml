@@ -3675,6 +3675,44 @@ paths:
       tags:
       - handlers
   /v1/ai-import/jobs/{id}:
+    delete:
+      operationId: delete_ai_import_job
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          format: uuid
+          type: string
+      responses:
+        '204':
+          description: AI import job deleted; payloads removed and the dedup key freed
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Not authorized for this job
+        '404':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Job not found (or already deleted)
+        '409':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Job is not in a deletable (terminal) state
+        '503':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Payload storage unavailable; nothing was deleted
+      tags:
+      - handlers
     get:
       operationId: get_ai_import_job
       parameters:
@@ -8576,6 +8614,11 @@ x-code-registry:
   status: 404
   title: AI import job not found
   type: https://docs.breakdown.example/problems/ai-import.not-found
+- code: ai-import.job-not-deletable
+  extensions: []
+  status: 409
+  title: AI import job is not in a deletable state
+  type: https://docs.breakdown.example/problems/ai-import.job-not-deletable
 - code: ai-config.version-mismatch
   extensions:
   - expected_version

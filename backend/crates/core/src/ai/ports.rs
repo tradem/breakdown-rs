@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
 // Co-authored-by: gpt-5.6-luna (opencode-go)
 // Co-authored-by: longcat-2.0-free (opencode)
@@ -410,6 +411,31 @@ pub trait AiImportQueue: Send + Sync {
         _limit: i64,
     ) -> Result<Vec<AiImportAttempt>, DomainError> {
         Ok(Vec::new())
+    }
+
+    /// Delete a **terminal** job row (issue #671).
+    ///
+    /// Backs `DELETE /v1/ai-import/jobs/{id}`. Only terminal jobs
+    /// (`succeeded`, `dead_letter`, `payload_unavailable` — the exact set of
+    /// [`JobStatus::is_terminal`](super::views::JobStatus::is_terminal)) may
+    /// be deleted: `pending`/`running`/`failed` rows are leased, queued or
+    /// backed off, and removing one would corrupt the claim/permit machinery.
+    /// The API handler refuses those with the registered
+    /// `ai-import.job-not-deletable` 409 before this method is reached; the
+    /// status predicate in the adapter's statement is the authoritative
+    /// backstop, not the only defense.
+    ///
+    /// Returns `true` when a row was deleted, `false` when no terminal row
+    /// existed for `id` (never existed, already gone, or non-terminal — the
+    /// caller maps `false` to the established `ai-import.not-found` 404).
+    /// Attempt-history and payload-cleanup rows go via their
+    /// `ON DELETE CASCADE` foreign keys; the adapter MUST also remove the
+    /// apply-idempotency mapping rows, which have no FK to the job row.
+    ///
+    /// The default reports "not deleted" for backends without row deletion
+    /// (in-memory and test queues); production adapters MUST override it.
+    async fn delete_terminal(&self, _id: AiImportJobId) -> Result<bool, DomainError> {
+        Ok(false)
     }
 }
 

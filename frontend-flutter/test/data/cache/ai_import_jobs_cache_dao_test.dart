@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 // Co-authored-by: omen-alpha (opencode-go)
 
 // Tier-1 unit tests for the AI-import job cache DAO (`flutter-ai-import`
@@ -180,4 +181,16 @@ void main() {
     await dao.clear();
     expect(await dao.readAll('user-a'), isEmpty);
   });
+
+  test(
+    'deleteById removes exactly one row (issue #671 delete eviction)',
+    () async {
+      await dao.upsertAll([_job('j1'), _job('j2')], DateTime.utc(2026, 1, 1));
+      await dao.deleteById('j1');
+      expect((await dao.readAll('user-a')).map((r) => r.id), ['j2']);
+      // Missing id: no throw, no collateral deletion.
+      await dao.deleteById('ghost');
+      expect((await dao.readAll('user-a')).map((r) => r.id), ['j2']);
+    },
+  );
 }

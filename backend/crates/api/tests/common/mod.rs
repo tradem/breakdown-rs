@@ -2291,6 +2291,24 @@ impl AiImportQueue for FakeAiImportQueue {
         Ok(jobs.into_iter().skip(offset).take(limit).collect())
     }
 
+    /// Mirrors the Postgres adapter: only terminal rows are removed, and the
+    /// dedup index entry is released with the row (issue #671).
+    async fn delete_terminal(&self, id: AiImportJobId) -> Result<bool, DomainError> {
+        let terminal = matches!(
+            self.jobs.lock().await.get(&id.as_uuid()),
+            Some(job) if job.status.is_terminal()
+        );
+        if !terminal {
+            return Ok(false);
+        }
+        self.jobs.lock().await.remove(&id.as_uuid());
+        self.dedup
+            .lock()
+            .await
+            .retain(|_, existing| *existing != id);
+        Ok(true)
+    }
+
     async fn mark_running(&self, id: AiImportJobId, _worker_id: &str) -> Result<(), DomainError> {
         if let Some(job) = self.jobs.lock().await.get_mut(&id.as_uuid()) {
             job.status = JobStatus::Running;

@@ -47,6 +47,9 @@ problem-ai-import-forbidden =
 problem-ai-import-not-found =
     This AI import job does not exist.
 
+problem-ai-import-job-not-deletable =
+    This import is still being processed and cannot be deleted yet. Try again once it has finished.
+
 problem-ai-import-unsupported-media-type =
     This document type is not supported for AI import.
 

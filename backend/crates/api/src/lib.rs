@@ -141,6 +141,7 @@ use utoipa::OpenApi;
         handlers::upload_ai_schedule,
         handlers::list_ai_import_jobs,
         handlers::get_ai_import_job,
+        handlers::delete_ai_import_job,
         handlers::get_ai_import_preview,
         handlers::apply_ai_import,
         handlers::create_gdrive_credential,

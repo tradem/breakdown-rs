@@ -47,6 +47,9 @@ problem-ai-import-forbidden =
 problem-ai-import-not-found =
     Dieser KI-Importauftrag existiert nicht.
 
+problem-ai-import-job-not-deletable =
+    Dieser Import wird noch verarbeitet und kann noch nicht gelöscht werden. Versuchen Sie es erneut, sobald er abgeschlossen ist.
+
 problem-ai-import-unsupported-media-type =
     Dieser Dokumenttyp wird für den KI-Import nicht unterstützt.
 
