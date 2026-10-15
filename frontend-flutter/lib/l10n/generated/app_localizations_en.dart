@@ -1742,6 +1742,10 @@ class AppLocalizationsEn extends AppLocalizations {
       'No shooting day in this episode yet — create one first or import the schedule.';
 
   @override
+  String get sceneDetailAllDaysScheduled =>
+      'All shooting days in this episode are already scheduled or archived.';
+
+  @override
   String get sceneDetailCreateFirstDay => 'Create shooting day';
 
   @override

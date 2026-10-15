@@ -475,6 +475,7 @@
   "sceneDetailOpenDayBoard": "Open day board",
   "sceneDetailScheduleOnDay": "Schedule on day",
   "sceneDetailNoDayCandidatesHint": "No shooting day in this episode yet — create one first or import the schedule.",
+  "sceneDetailAllDaysScheduled": "All shooting days in this episode are already scheduled or archived.",
   "sceneDetailCreateFirstDay": "Create shooting day",
   "sceneDetailScheduleTitle": "Schedule on shooting day",
   "sceneDetailFetchError": "Could not load the scene ({code}).",

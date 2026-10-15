@@ -548,6 +548,39 @@ void main() {
   // what to do next.
   group('SceneDetailScreen empty day candidates hint (issue #669)', () {
     testWidgets(
+      'days exist but ALL ineligible (scheduled/archived): factual note, '
+      'NO create affordance (CodeRabbit review)',
+      (tester) async {
+        // One day, already scheduled on this scene → candidates empty but
+        // the episode HAS a shooting day. The hint must not claim "no
+        // shooting day in this episode yet" and must not offer creating
+        // another one.
+        await setupContainer(
+          scene: _scene(days: ['d-1']),
+          dayRows: [_day('d-1', label: '1. Tag')],
+        );
+        await pumpDetail(tester);
+
+        final button = tester.widget<FilledButton>(
+          find.byKey(const Key('scene-shooting-day-schedule-scene-1')),
+        );
+        expect(button.onPressed, isNull);
+        expect(
+          find.byKey(const Key('scene-shooting-day-no-candidates-scene-1')),
+          findsOneWidget,
+        );
+        expect(
+          find.textContaining('already scheduled or archived'),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const Key('scene-shooting-day-create-scene-1')),
+          findsNothing,
+        );
+      },
+    );
+
+    testWidgets(
       'imported episode with 0 shooting days: button disabled WITH inline '
       'hint and quick-create affordance',
       (tester) async {

@@ -71,8 +71,21 @@ final class ConnectivityPlusSource implements PassiveConnectivitySource {
   const ConnectivityPlusSource();
 
   @override
-  Stream<List<ConnectivityResult>> get onConnectivityChanged =>
-      Connectivity().onConnectivityChanged;
+  Stream<List<ConnectivityResult>> get onConnectivityChanged async* {
+    // connectivity_plus 7.x does NOT guarantee that `onConnectivityChanged`
+    // emits the CURRENT state on subscription — `checkConnectivity()` is
+    // the separate current-state API. A connected device could otherwise
+    // receive no event at all, stay optimistically `online`, and never
+    // reach the degraded probe (CodeRabbit review, issue #667 D2
+    // follow-up). Read the current state explicitly ONCE, then forward
+    // the platform stream. A throwing read (platform channel unavailable,
+    // e.g. widget tests) is swallowed: without a signal the controller
+    // stays optimistic `online` — it never invents offline.
+    try {
+      yield await Connectivity().checkConnectivity();
+    } catch (_) {}
+    yield* Connectivity().onConnectivityChanged;
+  }
 }
 
 /// Secondary HTTP liveness probe seam (issue #654): returns `true` when ANY
@@ -167,6 +180,12 @@ class ConnectivityController extends _$ConnectivityController {
   /// the battery rule returns: while healthy, passive signals only.
   bool _everConfirmed = false;
 
+  /// Whether the LAST passive event reported a carrier. Repeated carrier
+  /// signals (iOS/macOS need not deliver distinct events) are not
+  /// transitions and must not restart the confirmation chain (CodeRabbit
+  /// review, issue #667 D2 follow-up).
+  bool _carrierPresent = false;
+
   @override
   ConnectivityStatus build() {
     final source = ref.watch(passiveConnectivitySourceProvider);
@@ -195,22 +214,39 @@ class ConnectivityController extends _$ConnectivityController {
       // Cancel any in-flight probe chain, reset the backoff, show the pill.
       _generation++;
       _failedAttempts = 0;
+      _carrierPresent = false;
       state = ConnectivityStatus.offline;
       return;
     }
     // OS reports a carrier.
+    //
+    // CodeRabbit review (repeated-signal guard): connectivity_plus warns
+    // that iOS/macOS events need not be distinct — a REPEATED "carrier
+    // present" signal is not a transition. Restarting confirmation on it
+    // would (a) start a second HTTP probe that invalidates the in-flight
+    // chain's generation and (b) bypass the scheduled exponential backoff
+    // after a failure. Only a genuine carrier TRANSITION (no carrier
+    // before) may start/restart the confirmation chain.
+    final wasCarrierPresent = _carrierPresent;
+    _carrierPresent = true;
     if (state == ConnectivityStatus.online && _everConfirmed) {
       // Battery-friendly: while CONFIRMED-healthy, passive signals only —
       // no probe.
       return;
     }
+    if (wasCarrierPresent) {
+      // Repeated signal during an in-flight/parked confirmation chain:
+      // leave the chain alone (its generation stays valid, the backoff
+      // schedule stays intact).
+      return;
+    }
     // First carrier event of this session (optimistic `online` never
-    // confirmed) or reconnection from offline/degraded: confirm with ONE
-    // HTTP probe (captive portals report carriers too; a dead route behind
-    // a live Wi-Fi carrier is exactly the degraded case the pill exists
-    // for — issue #667 D2). Fire-and-forget by design (a passive event
-    // callback cannot await); the chain self-terminates on generation
-    // mismatch (see below).
+    // confirmed) or reconnection from a real offline spell: confirm with
+    // ONE HTTP probe (captive portals report carriers too; a dead route
+    // behind a live Wi-Fi carrier is exactly the degraded case the pill
+    // exists for — issue #667 D2). Fire-and-forget by design (a passive
+    // event callback cannot await); the chain self-terminates on
+    // generation mismatch (see below).
     unawaited(_runConfirmationProbe());
   }
 

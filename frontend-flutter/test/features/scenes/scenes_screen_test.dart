@@ -247,6 +247,31 @@ void main() {
       },
     );
 
+    testWidgets(
+      'excerpt sentence boundary: abbreviations and decimals never split '
+      '(CodeRabbit review)',
+      (tester) async {
+        await setupContainer(
+          initialRows: [
+            // "Dr." is an abbreviation, "3.5" a decimal — the first TRUE
+            // sentence end comes after "enters".
+            _scene(
+              'abbrev',
+              summary: 'Dr. Müller tritt ein. Sie sieht Version 3.5 des Plans.',
+            ),
+            // Single-initial + abbreviation-only summary: no true sentence
+            // end inside → excerpt is the whole text, no ellipsis.
+            _scene('abbr-only', summary: 'Prof. A. Weber bemerkt nichts.'),
+          ],
+        );
+        await pumpScreen(tester);
+
+        expect(find.text('Dr. Müller tritt ein. …'), findsOneWidget);
+        // "Prof. A." must not split; the only true end is the final one.
+        expect(find.text('Prof. A. Weber bemerkt nichts.'), findsOneWidget);
+      },
+    );
+
     testWidgets('null summary: no excerpt row at all (issue #668)', (
       tester,
     ) async {

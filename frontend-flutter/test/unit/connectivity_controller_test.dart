@@ -110,6 +110,61 @@ _harness() {
 void main() {
   tearDown(() {});
 
+  test(
+    'a REPEATED carrier signal during a pending probe does not restart the '
+    'chain (CodeRabbit review: no double probe, no backoff bypass)',
+    () async {
+      final h = _harness();
+      addTearDown(h.container.dispose);
+      h.container.read(connectivityControllerProvider);
+      // Park the backoff chain manually so the chain stays in flight.
+      h.delay.autoComplete = false;
+
+      // Cold start: first carrier event → exactly one probe, failing.
+      h.probe.enqueue([false]);
+      h.source.emit([ConnectivityResult.wifi]);
+      await drainEvents();
+      expect(
+        h.container.read(connectivityControllerProvider),
+        ConnectivityStatus.degraded,
+      );
+      expect(h.probe.calls, 1);
+      expect(h.delay.recorded, [connectivityProbeBackoff(1)]);
+
+      // A repeated carrier signal (iOS/macOS need not deliver distinct
+      // events) must NOT start a second probe nor invalidate the parked
+      // chain's generation.
+      h.source.emit([ConnectivityResult.wifi]);
+      await drainEvents();
+      h.source.emit([ConnectivityResult.mobile]);
+      await drainEvents();
+      expect(
+        h.probe.calls,
+        1,
+        reason: 'repeated carrier signals never restart the chain',
+      );
+      expect(
+        h.delay.recorded.length,
+        1,
+        reason: 'the scheduled backoff is not bypassed',
+      );
+      expect(
+        h.container.read(connectivityControllerProvider),
+        ConnectivityStatus.degraded,
+      );
+
+      // The parked chain still recovers when its backoff completes.
+      h.probe.enqueue([true]);
+      h.delay.flush();
+      await drainEvents();
+      expect(
+        h.container.read(connectivityControllerProvider),
+        ConnectivityStatus.online,
+      );
+      expect(h.probe.calls, 2);
+    },
+  );
+
   group('connectivityProbeBackoff (analytical schedule, issue #654)', () {
     test('starts at the 15 s base and doubles per consecutive failure', () {
       expect(connectivityProbeBackoff(1), const Duration(seconds: 15));

@@ -30,13 +30,64 @@ import '../scenes_state.dart';
 String? sceneSummaryExcerpt(String? summary) {
   final trimmed = summary?.trim() ?? '';
   if (trimmed.isEmpty) return null;
-  // First sentence: first `.`, `!` or `?` followed by whitespace or end —
-  // never a mid-sentence hard cut.
-  final match = RegExp(r'[.!?]').firstMatch(trimmed);
-  if (match == null) return trimmed;
-  final firstSentence = trimmed.substring(0, match.end);
-  final remainder = trimmed.substring(match.end).trim();
-  return remainder.isEmpty ? firstSentence : '$firstSentence …';
+  // First TRUE sentence end (CodeRabbit review): a `.`, `!` or `?` only
+  // ends the excerpt when it is a real sentence boundary — never an
+  // abbreviation period ("Dr. Müller enters.") and never a decimal point
+  // ("Version 3.5"). No mid-sentence hard cut.
+  for (final match in RegExp(r'[.!?]').allMatches(trimmed)) {
+    if (!_isSentenceEnd(trimmed, match.end)) continue;
+    final firstSentence = trimmed.substring(0, match.end);
+    final remainder = trimmed.substring(match.end).trim();
+    return remainder.isEmpty ? firstSentence : '$firstSentence …';
+  }
+  return trimmed;
+}
+
+/// Common German/English abbreviations the excerpt must not split at
+/// (conservative closed list; anything longer than these tokens is a
+/// word, not a title).
+const _sentenceAbbreviations = <String>{
+  'dr',
+  'prof',
+  'nr',
+  'z.b',
+  'bzw',
+  'usw',
+  'evtl',
+  'ggf',
+  'inkl',
+  'zzgl',
+  'ca',
+  'mr',
+  'mrs',
+  'ms',
+  'st',
+  'str',
+  'bd',
+  'aufl',
+};
+
+bool _isSentenceEnd(String text, int end) {
+  // A sentence end must be followed by whitespace or end of text — a
+  // period inside a token ("3.5", "z.B.") never splits.
+  if (end < text.length && RegExp(r'\S').hasMatch(text[end])) return false;
+  // Decimal protection: "Version 3.5 ist fertig" — a period between two
+  // digits is a decimal point, not a sentence end.
+  if (end < text.length &&
+      end > 0 &&
+      RegExp(r'[0-9]').hasMatch(text[end - 1]) &&
+      RegExp(r'\s*[0-9]').hasMatch(text.substring(end))) {
+    return false;
+  }
+  // Abbreviation protection: the token immediately before the punctuation
+  // is a known abbreviation or a single initial ("Dr.", "A.").
+  final before = text.substring(0, end - 1); // strip the punctuation
+  final lastWord = before.split(RegExp(r'\s')).last.toLowerCase();
+  if (_sentenceAbbreviations.contains(lastWord)) return false;
+  if (lastWord.length == 1 && RegExp(r'[a-zA-ZäöüÄÖÜ]').hasMatch(lastWord)) {
+    return false;
+  }
+  return true;
 }
 
 class SceneTile extends StatelessWidget {

@@ -446,7 +446,28 @@ pub fn is_meta_summary(summary: &str) -> bool {
     !folded.is_empty()
         && META_SUMMARY_MARKERS
             .iter()
-            .any(|marker| folded.contains(marker))
+            .any(|marker| contains_marker_word(&folded, marker))
+}
+
+/// Boundary-aware marker match (CodeRabbit review, issue #668): a marker
+/// must end at a non-alphabetic boundary so a SUBSTRING of real content
+/// can never trigger it — "keine handlung" must not match inside
+/// "keine Handlungsmöglichkeit und flieht", which describes what the
+/// scene's figure does, not the block's emptiness.
+fn contains_marker_word(haystack: &str, marker: &str) -> bool {
+    let mut from = 0;
+    while let Some(rel) = haystack[from..].find(marker) {
+        let end = from + rel + marker.len();
+        let boundary = haystack[end..]
+            .chars()
+            .next()
+            .is_none_or(|c| !c.is_alphabetic());
+        if boundary {
+            return true;
+        }
+        from = end;
+    }
+    false
 }
 
 /// Deterministic post-extraction guard (issue #668): the hardened prompt

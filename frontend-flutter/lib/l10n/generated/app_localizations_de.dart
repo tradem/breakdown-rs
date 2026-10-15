@@ -1766,6 +1766,10 @@ class AppLocalizationsDe extends AppLocalizations {
       'Noch kein Drehtag in dieser Episode — lege zuerst einen an oder importiere die Dispo.';
 
   @override
+  String get sceneDetailAllDaysScheduled =>
+      'Alle Drehtage dieser Episode sind bereits geplant oder archiviert.';
+
+  @override
   String get sceneDetailCreateFirstDay => 'Drehtag anlegen';
 
   @override

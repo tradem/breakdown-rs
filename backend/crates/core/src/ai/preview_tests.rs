@@ -1408,3 +1408,37 @@ fn meta_summary_guard_leaves_a_null_summary_alone() {
     assert!(!sanitize_meta_summary(&mut scene));
     assert_eq!(scene.summary, None);
 }
+
+#[test]
+fn meta_summary_guard_preserves_content_with_marker_substring() {
+    // CodeRabbit review (issue #668): "keine handlung" must not match as a
+    // SUBSTRING of real scene content — "keine Handlungsmöglichkeit" names
+    // what the figure does, not the block's emptiness. The marker must end
+    // at a non-alphabetic boundary.
+    let content = "Sie sieht keine Handlungsmöglichkeit und flieht.";
+    assert!(!is_meta_summary(content));
+    let mut scene = DraftScene {
+        summary: Some(content.to_owned()),
+        ..Default::default()
+    };
+    assert!(!sanitize_meta_summary(&mut scene));
+    assert_eq!(scene.summary, Some(content.to_owned()));
+}
+
+#[test]
+fn meta_summary_guard_boundary_still_matches_the_observed_variants() {
+    // The observed meta-sentences end each marker at punctuation or end of
+    // text — the boundary rule must not weaken the original detection.
+    for variant in [
+        "In diesem Block passiert nichts. Keine Charaktere, Kostüme oder Requisiten.",
+        "Der Block hat keine Handlung.",
+        "Outline-style block with heading and day marker only. No characters, costumes, or props described.",
+        "Kein Inhalt",
+        "Nur eine Überschrift",
+    ] {
+        assert!(
+            is_meta_summary(variant),
+            "boundary rule must keep detection: {variant:?}"
+        );
+    }
+}

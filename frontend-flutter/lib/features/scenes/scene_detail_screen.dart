@@ -772,10 +772,13 @@ class _SceneShootingDaysSection extends ConsumerWidget {
         // days, so the picker candidates are empty for every imported
         // episode — the disabled button was silent and non-actionable
         // (same UX-defect class as #665). When there is nothing to pick,
-        // keep the button disabled BUT make the state explain itself:
-        // an inline hint names the missing prerequisite and offers the
-        // quick-create path directly (the schedule import stays the other
-        // route; script imports deliberately do not invent shooting days).
+        // keep the button disabled BUT make the state explain itself.
+        // Two DISTINCT empty states (CodeRabbit review): the episode has
+        // NO days at all → the hint names the missing prerequisite and
+        // offers the quick-create path directly; the episode HAS days but
+        // none eligible (already scheduled on this scene or archived) → a
+        // factual note without the create affordance (creating another day
+        // would not change anything).
         if (candidates.isEmpty)
           Padding(
             key: Key('scene-shooting-day-no-candidates-${scene.id}'),
@@ -794,7 +797,9 @@ class _SceneShootingDaysSection extends ConsumerWidget {
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
-                        l10nOf(context).sceneDetailNoDayCandidatesHint,
+                        days.rows.isEmpty
+                            ? l10nOf(context).sceneDetailNoDayCandidatesHint
+                            : l10nOf(context).sceneDetailAllDaysScheduled,
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
                           color: Theme.of(context).colorScheme.onSurfaceVariant,
                         ),
@@ -802,13 +807,21 @@ class _SceneShootingDaysSection extends ConsumerWidget {
                     ),
                   ],
                 ),
-                const SizedBox(height: 8),
-                FilledButton.tonal(
-                  key: Key('scene-shooting-day-create-${scene.id}'),
-                  onPressed: () =>
-                      unawaited(showCreateShootingDaySheet(context, episode)),
-                  child: Text(l10nOf(context).sceneDetailCreateFirstDay),
-                ),
+                // The create affordance only makes sense when the episode
+                // genuinely has NO shooting days — with days present but
+                // ineligible, creating another would not enable the picker
+                // (the new day would also be a candidate, though — BUT the
+                // accurate note without the CTA is the honest state; the
+                // user can always use the episode's day screen).
+                if (days.rows.isEmpty) ...[
+                  const SizedBox(height: 8),
+                  FilledButton.tonal(
+                    key: Key('scene-shooting-day-create-${scene.id}'),
+                    onPressed: () =>
+                        unawaited(showCreateShootingDaySheet(context, episode)),
+                    child: Text(l10nOf(context).sceneDetailCreateFirstDay),
+                  ),
+                ],
               ],
             ),
           ),

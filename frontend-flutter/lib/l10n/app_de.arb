@@ -481,6 +481,7 @@
   "sceneDetailOpenDayBoard": "Day-Board öffnen",
   "sceneDetailScheduleOnDay": "Auf Drehtag planen",
   "sceneDetailNoDayCandidatesHint": "Noch kein Drehtag in dieser Episode — lege zuerst einen an oder importiere die Dispo.",
+  "sceneDetailAllDaysScheduled": "Alle Drehtage dieser Episode sind bereits geplant oder archiviert.",
   "sceneDetailCreateFirstDay": "Drehtag anlegen",
   "sceneDetailScheduleTitle": "Auf Drehtag planen",
   "sceneDetailFetchError": "Szene konnte nicht geladen werden ({code}).",
