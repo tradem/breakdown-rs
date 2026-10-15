@@ -21,6 +21,18 @@ releases are cut as `vX.Y.Z` tags (`v<build-name>`, enforced by
 
 ## [Unreleased]
 
+- **Version bump:** `0.4.0-alpha.28+79 → 0.4.0-alpha.29+80` — issue #665,
+  the apply create-or-assign recovery:
+  * A refused apply (`409 episode.number-already-exists`) renders a
+    one-tap "assign the existing episode instead" action in the error
+    card: the affected group(s) — found by the requested create number —
+    flip to existing with the id the 409 carried, and the retry lands in
+    the existing episode (idempotent continuation, no duplicate episode).
+  * Older backends without the S1 extensions degrade to the plain
+    narrative; the create default from the draft's `Ep.:` marker
+    (pre-existing) is now regression-covered by the recovery test.
+  * Generated Dart client rebuilt for the response extensions.
+
 - **Version bump:** `0.4.0-alpha.27+78 → 0.4.0-alpha.28+79` — issue #663,
   the AI-import apply-gate rework:
   * The apply card renders blocking `field_ambiguity` uncertainties with

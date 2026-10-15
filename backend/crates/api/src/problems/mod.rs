@@ -28,10 +28,11 @@ use breakdown_core::error_registry::{
     AI_CONFIG_VERSION_MISMATCH, AI_IMPORT_APPLY_BLOCKED, AI_IMPORT_APPLY_MISSING_EPISODE_GROUP,
     AI_IMPORT_APPLY_MISSING_MAPPING, AI_IMPORT_DISABLED, AI_IMPORT_FORBIDDEN, AI_IMPORT_NOT_FOUND,
     AI_IMPORT_UNSUPPORTED_MEDIA_TYPE, DOMAIN_CONFLICT, DOMAIN_FORBIDDEN, DOMAIN_NOT_FOUND,
-    DOMAIN_SERVICE_UNAVAILABLE, DOMAIN_VALIDATION, HTTP_BAD_JSON_BODY, HTTP_BAD_PATH_PARAM,
-    HTTP_BAD_QUERY_PARAM, HTTP_BAD_REQUEST, HTTP_INTERNAL_ERROR, HTTP_PAYLOAD_TOO_LARGE,
-    HTTP_REQUEST_TIMEOUT, HTTP_ROUTE_NOT_FOUND, HTTP_UNSUPPORTED_MEDIA_TYPE, ProblemCode,
-    REPORT_RENDERER_UNAVAILABLE, SETTINGS_BINDING_FORBIDDEN, SETTINGS_FORBIDDEN,
+    DOMAIN_SERVICE_UNAVAILABLE, DOMAIN_VALIDATION, EPISODE_NUMBER_ALREADY_EXISTS,
+    HTTP_BAD_JSON_BODY, HTTP_BAD_PATH_PARAM, HTTP_BAD_QUERY_PARAM, HTTP_BAD_REQUEST,
+    HTTP_INTERNAL_ERROR, HTTP_PAYLOAD_TOO_LARGE, HTTP_REQUEST_TIMEOUT, HTTP_ROUTE_NOT_FOUND,
+    HTTP_UNSUPPORTED_MEDIA_TYPE, ProblemCode, REPORT_RENDERER_UNAVAILABLE,
+    SETTINGS_BINDING_FORBIDDEN, SETTINGS_FORBIDDEN,
 };
 
 use serde::Serialize;
@@ -372,6 +373,12 @@ pub enum ApiError {
     /// an episode group the preview does not carry (client bug, issue
     /// #581/#663); the S1 `episode_ref` extension names it.
     AiImportApplyMissingEpisodeGroup(String),
+    /// 409 `episode.number-already-exists` — the create-number pre-check
+    /// (#404 doctrine) found the number taken. The S1 `existing_episode_id`
+    /// extension carries the existing episode's id and `number` the
+    /// requested create number, so the client can flip the affected group to
+    /// assign-existing in one tap (issue #665) without a second round-trip.
+    EpisodeNumberAlreadyExists(breakdown_core::shared::EpisodeId, i32),
     /// 500 `http.internal-error` — `detail` is always static text; the real
     /// error must be logged by the caller (internal text never leaves the
     /// server, ADR-031 decision 6).
@@ -489,6 +496,12 @@ impl ApiError {
             ApiError::AiImportApplyMissingEpisodeGroup(episode_ref) => {
                 problem(AI_IMPORT_APPLY_MISSING_EPISODE_GROUP)
                     .extension("episode_ref", episode_ref)
+                    .build()
+            }
+            ApiError::EpisodeNumberAlreadyExists(existing_episode_id, number) => {
+                problem(EPISODE_NUMBER_ALREADY_EXISTS)
+                    .extension("existing_episode_id", existing_episode_id)
+                    .extension("number", number)
                     .build()
             }
             ApiError::AiConfigProviderMismatch(msg) => {

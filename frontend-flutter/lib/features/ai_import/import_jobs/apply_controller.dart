@@ -759,6 +759,28 @@ List<(int, String, String)> blockingUncertaintyItems(ProblemError error) {
   ];
 }
 
+/// Parses the S1 extensions of `409 episode.number-already-exists` (issue
+/// #665): the existing episode's id and the requested create number.
+/// `null` when the problem is not that code or the extensions are absent
+/// (an older backend — the client then falls back to the manual re-pick).
+(String episodeId, int number)? episodeNumberConflict(ProblemError error) {
+  if (error.code != 'episode.number-already-exists') return null;
+  final ext = error.extensions;
+  final id = ext?['existing_episode_id'];
+  final number = ext?['number'];
+  if (id is! String || id.isEmpty || number is! int) return null;
+  return (id, number);
+}
+
+/// The group refs whose effective target CREATES [number] — the group(s) a
+/// `episode.number-already-exists` 409 is about (issue #665).
+List<String> groupRefsForCreateNumber(AiApplyState state, int number) => [
+  for (final ref in state.groupRefs)
+    if (state.targetFor(ref) case CreateEpisodeGroupTarget(number: final n)
+        when n == number)
+      ref,
+];
+
 /// Composed human label for a draft episode: `Episode 3 · Titel` /
 /// `Episode 3` / `„Titel“`. Empty only when both parts are absent — such a
 /// draft episode yields no group ref either ([draftEpisodeGroupRef]).

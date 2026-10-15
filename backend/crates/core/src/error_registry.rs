@@ -426,7 +426,13 @@ problem_codes! {
         code: "episode.number-already-exists",
         status: 409,
         title: "Episode number already exists",
-        extensions: &[],
+        // Issue #665: the S1 `existing_episode_id` lets the AI-apply screen
+        // flip the affected group to assign-existing in one tap instead of a
+        // second lookup round-trip; `number` names the requested create
+        // number so the client can find the affected group. The manual
+        // create handler uses the same variant, so both write paths answer
+        // the identical shape.
+        extensions: &["existing_episode_id", "number"],
     },
 
 

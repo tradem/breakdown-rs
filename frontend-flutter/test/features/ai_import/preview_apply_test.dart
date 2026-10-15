@@ -1974,6 +1974,65 @@ void main() {
       );
     });
 
+    test('episodeNumberConflict parses the 409 extensions; other codes and '
+        'missing extensions degrade to null', () {
+      expect(
+        episodeNumberConflict(
+          const ProblemError(
+            code: 'episode.number-already-exists',
+            status: 409,
+            extensions: {'existing_episode_id': 'ep-existing', 'number': 7},
+          ),
+        ),
+        ('ep-existing', 7),
+      );
+      expect(
+        episodeNumberConflict(
+          const ProblemError(code: 'episode.number-already-exists'),
+        ),
+        isNull,
+        reason: 'an older backend without the extension degrades to null',
+      );
+      expect(
+        episodeNumberConflict(const ProblemError(code: 'domain.conflict')),
+        isNull,
+      );
+    });
+
+    test('groupRefsForCreateNumber finds the group whose create target '
+        'carries the colliding number', () {
+      controller().seedRows([
+        PreviewRow(
+          draftRef: 'd1',
+          label: 'A',
+          episode: DraftEpisode(
+            (b) => b
+              ..number = 7
+              ..title = 'Sieben',
+          ),
+        ),
+        PreviewRow(
+          draftRef: 'd2',
+          label: 'B',
+          episode: DraftEpisode((b) => b..number = 8),
+        ),
+      ], const AiJobContext(episodeId: 'ep-1', projectId: 'series-1'));
+      // Explicit picks for BOTH groups; the seeded defaults would equal the
+      // marker numbers anyway — an explicit pick keeps the test independent
+      // of the default derivation.
+      controller().setGroupTarget(
+        'ep:7',
+        const CreateEpisodeGroupTarget(number: 7, name: 'Sieben'),
+      );
+      controller().setGroupTarget(
+        'ep:8',
+        const CreateEpisodeGroupTarget(number: 8),
+      );
+      final state = container.read(aiApplyControllerProvider('job-1'));
+      expect(groupRefsForCreateNumber(state, 7), ['ep:7']);
+      expect(groupRefsForCreateNumber(state, 9), isEmpty);
+    });
+
     test('the sibling gate codes get their own copy', () {
       expect(
         aiApplyErrorCopy(
@@ -2000,6 +2059,7 @@ void main() {
 
     Future<void> setupContainer({
       List<Result<ApplyAiImportResponse>> applyQueue = const [],
+      AiPreviewPayload? payload,
     }) async {
       db = CacheDatabase(NativeDatabase.memory());
       addTearDown(db.close);
@@ -2016,10 +2076,11 @@ void main() {
           aiPreviewProvider.overrideWith(
             (ref, jobId) async => Right(
               _previewResponse(
-                _scriptPayloadWith(
-                  [_draft('draft-1')],
-                  uncertainties: [_blockingUncertainty()],
-                ),
+                payload ??
+                    _scriptPayloadWith(
+                      [_draft('draft-1')],
+                      uncertainties: [_blockingUncertainty()],
+                    ),
               ),
             ),
           ),
@@ -2089,6 +2150,109 @@ void main() {
         find.byKey(const Key('ai-apply-submit')),
       );
       expect(applyAfter.onPressed, isNotNull);
+    });
+
+    testWidgets('a taken-episode-number 409 offers the one-tap '
+        'assign-existing recovery; the retry lands in the EXISTING episode '
+        '(issue #665 — no duplicate episode)', (tester) async {
+      await setupContainer(
+        applyQueue: [
+          const Left(
+            ProblemError(
+              code: 'episode.number-already-exists',
+              status: 409,
+              extensions: {'existing_episode_id': 'ep-existing', 'number': 7},
+            ),
+          ),
+          Right(_outcome()),
+        ],
+        // The row's Ep.: 7 marker seeds the group default create-7 — the
+        // number the create target collides on.
+        payload: _scriptPayloadWith([
+          _draft('draft-1', episode: _episodeMeta(7, 'Sieben')),
+        ]),
+      );
+      await pumpPreview(tester);
+
+      // Dispatch: the review checkbox + submit produce the 409 first.
+      await tester.tap(find.byKey(const Key('ai-apply-review-checkbox')));
+      await tester.pump();
+      await tester.tap(find.byKey(const Key('ai-apply-submit')));
+      await tester.pump();
+
+      // The refusal must render its recovery affordance.
+      expect(
+        find.byKey(const Key('ai-apply-assign-existing-instead')),
+        findsOneWidget,
+      );
+      await tester.tap(
+        find.byKey(const Key('ai-apply-assign-existing-instead')),
+      );
+      await tester.pump();
+
+      // The group target flipped to existing; the error card is dismissed.
+      expect(
+        find.byKey(const Key('ai-apply-assign-existing-instead')),
+        findsNothing,
+      );
+      expect(
+        find.byKey(const Key('ai-apply-group-target-ep:7')),
+        findsOneWidget,
+      );
+
+      // Dispatch the recovery apply: the review acknowledgement persists
+      // from the first dispatch — submit again.
+      await tester.tap(find.byKey(const Key('ai-apply-submit')));
+      await tester.pump();
+
+      // The retry request carries the EXISTING episode target — no second
+      // create, the idempotent continuation lands in episode ep-existing.
+      final retry = repo.applyRequests[1];
+      final groups = retry.episodeGroups!.toList();
+      expect(groups, hasLength(1));
+      expect(groups.first.episodeRef, 'ep:7');
+      final target = groups.first.target.oneOf.value as EpisodeTargetOneOf;
+      expect(target.kind, EpisodeTargetOneOfKindEnum.existing);
+      expect(target.episodeId, 'ep-existing');
+      // The 200 outcome card renders.
+      expect(find.byKey(const Key('ai-apply-outcome')), findsOneWidget);
+    });
+
+    testWidgets('a 409 whose number no group creates any more hides the '
+        'recovery button instead of dismissing the error without a change '
+        '(CodeRabbit #690)', (tester) async {
+      await setupContainer(
+        applyQueue: [
+          const Left(
+            ProblemError(
+              code: 'episode.number-already-exists',
+              status: 409,
+              extensions: {
+                'existing_episode_id': 'ep-existing',
+                'number': 9, // no group creates 9 — the marker says 7
+              },
+            ),
+          ),
+        ],
+        payload: _scriptPayloadWith([
+          _draft('draft-1', episode: _episodeMeta(7, 'Sieben')),
+        ]),
+      );
+      await pumpPreview(tester);
+
+      await tester.tap(find.byKey(const Key('ai-apply-review-checkbox')));
+      await tester.pump();
+      await tester.tap(find.byKey(const Key('ai-apply-submit')));
+      await tester.pump();
+
+      // The refusal narrative renders, but the recovery affordance must NOT:
+      // tapping it would dismiss the error without changing any target and
+      // the next apply would hit the same 409.
+      expect(find.byKey(const Key('ai-apply-error')), findsOneWidget);
+      expect(
+        find.byKey(const Key('ai-apply-assign-existing-instead')),
+        findsNothing,
+      );
     });
 
     testWidgets('an apply-blocked refusal renders the blocking items from '

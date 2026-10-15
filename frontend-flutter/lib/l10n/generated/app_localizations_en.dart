@@ -1001,6 +1001,10 @@ class AppLocalizationsEn extends AppLocalizations {
       'Confirm as resolved and apply as extracted';
 
   @override
+  String get aiApplyAssignExistingInstead =>
+      'Assign the existing episode instead';
+
+  @override
   String get aiApplyTitle => 'Apply to episode';
 
   @override

@@ -1769,6 +1769,7 @@ async fn apply_ai_import_prechecks_a_taken_episode_number_with_409() {
         version: AggregateVersion::INITIAL,
         updated_at: chrono::Utc::now(),
     };
+    let taken_id = taken.id;
     ports
         .episode_repo
         .episodes
@@ -1807,6 +1808,24 @@ async fn apply_ai_import_prechecks_a_taken_episode_number_with_409() {
     // unique index stays authoritative.
     assert_eq!(problem.status, StatusCode::CONFLICT.as_u16());
     assert_eq!(problem.code, "episode.number-already-exists");
+    // Issue #665: the S1 `existing_episode_id` extension carries the existing
+    // episode's id, so the client can offer assign-existing in one tap.
+    assert_eq!(
+        problem
+            .extensions
+            .as_ref()
+            .and_then(|ext| ext.get("existing_episode_id"))
+            .and_then(|value| value.as_str()),
+        Some(taken_id.to_string().as_str())
+    );
+    assert_eq!(
+        problem
+            .extensions
+            .as_ref()
+            .and_then(|ext| ext.get("number"))
+            .and_then(|value| value.as_i64()),
+        Some(7)
+    );
     // The pre-check fires BEFORE any dispatch: nothing was created.
     assert!(
         ports.episode_commands.created.lock().await.is_empty(),
