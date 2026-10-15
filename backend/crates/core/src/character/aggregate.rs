@@ -186,11 +186,13 @@ impl Command<UpdateCharacterCategory> for CharacterAggregate {
         }
         if cmd.category == self.category {
             // State-based idempotent no-op (same pattern as the costume
-            // category set): a repeat write changes nothing and emits no
-            // event.
-            return Err(CharacterError::ValidationError(
-                "Category unchanged".to_string(),
-            ));
+            // repertoire add/remove): a repeat write with the current
+            // category changes nothing and emits no event. kameo_es maps
+            // the empty event list to `ExecuteResult::Idempotent`, which
+            // the command adapter answers with the CURRENT version — a
+            // repeat caller gets 200 + the version it already knew
+            // (CodeRabbit #693), not a 422 refusal.
+            return Ok(vec![]);
         }
         let new_version = self.version.next();
         Ok(vec![CharacterEvent::CategoryChanged {

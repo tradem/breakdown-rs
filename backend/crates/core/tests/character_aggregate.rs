@@ -446,21 +446,24 @@ fn test_update_category_rejects_a_version_mismatch() {
 }
 
 #[test]
-fn test_update_category_rejects_an_unchanged_category() {
+fn test_update_category_with_an_unchanged_category_is_an_idempotent_no_op() {
+    // CodeRabbit #693: a repeat write with the current category succeeds
+    // with NO event (kameo_es maps the empty list to
+    // `ExecuteResult::Idempotent`, the adapter answers the current
+    // version) — the caller's desired state is already achieved.
     let agg = create_character("BEN", CharacterCategory::MainCast);
-    let result = agg.handle(
-        UpdateCharacterCategory {
-            id: agg.id,
-            project_id: Some(project_id()),
-            category: CharacterCategory::MainCast,
-            version: agg.version,
-        },
-        make_ctx(),
-    );
-    match result {
-        Err(CharacterError::ValidationError(message)) => {
-            assert!(message.contains("unchanged"));
-        }
-        other => panic!("Expected ValidationError, got {other:?}"),
-    }
+    let events = agg
+        .handle(
+            UpdateCharacterCategory {
+                id: agg.id,
+                project_id: Some(project_id()),
+                category: CharacterCategory::MainCast,
+                version: agg.version,
+            },
+            make_ctx(),
+        )
+        .unwrap_or_else(|error| {
+            panic!("an unchanged-category write must be an idempotent no-op, got {error:?}")
+        });
+    assert!(events.is_empty(), "no event on an unchanged category");
 }

@@ -30,8 +30,9 @@ tag. Never edit a released entry afterwards.
   /v1/characters/{id}/category` dispatches the new `UpdateCharacterCategory`
   command (`CharacterCategoryChanged` event → aggregate apply → projector
   updates `projection_character.category`), with the established optimistic
-  409 `concurrency.version-mismatch` on a stale version and the
-  state-based unchanged-category refusal (idempotent no-op pattern).
+  409 `concurrency.version-mismatch` on a stale version; an
+  unchanged-category write is a true idempotent no-op (no event, the
+  current version is echoed — kameo_es `ExecuteResult::Idempotent`).
   Block-scoped middleware enforcement like the sibling character-write
   routes. The Cast screen's role-type chip is now an `ActionChip` opening
   the three-category picker sheet; picking the current category is a
