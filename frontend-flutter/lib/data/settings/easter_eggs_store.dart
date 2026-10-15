@@ -16,7 +16,7 @@ import '../../core/result.dart';
 /// `615-dejavu-cat-easter-egg`).
 enum EasterEggId {
   /// The Karl Kleiderbügel clothes-hanger assistant in the AI Import
-  /// view (renamed from "Karl Kleiderbügel" in issue #670).
+  /// view (renamed from "Karl Klammer" in issue #670).
   karlKleiderbuegel('easter_eggs.karl_kleiderbuegel'),
 
   /// The October-only Deja-vu Cat on the launch splash.
@@ -52,7 +52,7 @@ final class EasterEggsSnapshot {
 /// The flags are **not secrets** (no token, no credential), so they live in
 /// plain `shared_preferences` — deliberately NOT in
 /// `flutter_secure_storage`, which would misuse the secure enclave
-/// (Decision D1 of `add-karl-kleiderbuegel-easter-egg`; contrast
+/// (Decision D1 of `add-karl-klammer-easter-egg`; contrast
 /// [ApiBaseOverrideStore], which holds a dev-only endpoint override).
 ///
 /// All methods are [Result]-typed; storage failures are values, never
@@ -65,7 +65,7 @@ class EasterEggsStore {
   /// removed; a leftover is harmless and ignored on the next boot.
   static const String legacyKey = 'easter_eggs';
 
-  /// The pre-#670 per-egg key of the Karl egg (then "Karl Kleiderbügel").
+  /// The pre-#670 per-egg key of the Karl egg (then "Karl Klammer").
   /// Read once during migration, then removed; a leftover is harmless
   /// and ignored on the next boot (issue #670 rename).
   static const String legacyKarlKlammerKey = 'easter_eggs.karl_klammer';

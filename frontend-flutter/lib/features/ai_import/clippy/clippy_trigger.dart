@@ -4,7 +4,7 @@
 // Co-authored-by: deepseek-v4.1-flash (neuralwatt)
 
 /// Pure Karl Kleiderbügel trigger logic (issue #516, Decision D4 of
-/// `add-karl-kleiderbuegel-easter-egg`): maps an AI-Import flow state to a tip
+/// `add-karl-klammer-easter-egg`): maps an AI-Import flow state to a tip
 /// (copy key) + pose. Deterministic — no wall clock, no randomness, no
 /// Flutter imports (Tier-1 unit testable).
 ///
