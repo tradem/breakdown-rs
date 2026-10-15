@@ -1738,6 +1738,17 @@ class AppLocalizationsEn extends AppLocalizations {
   String get sceneDetailScheduleOnDay => 'Schedule on day';
 
   @override
+  String get sceneDetailNoDayCandidatesHint =>
+      'No shooting day in this episode yet — create one first or import the schedule.';
+
+  @override
+  String get sceneDetailAllDaysScheduled =>
+      'All shooting days in this episode are already scheduled or archived.';
+
+  @override
+  String get sceneDetailCreateFirstDay => 'Create shooting day';
+
+  @override
   String get sceneDetailScheduleTitle => 'Schedule on shooting day';
 
   @override
@@ -2165,6 +2176,9 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get commonSettings => 'Settings';
+
+  @override
+  String get commonAiImportJobs => 'AI import jobs';
 
   @override
   String get commonSignOut => 'Sign out';
@@ -2882,13 +2896,6 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get settingsAi => 'AI';
-
-  @override
-  String get settingsAiImports => 'AI imports';
-
-  @override
-  String get settingsAiImportsSubtitle =>
-      'Check the status of your AI imports.';
 
   @override
   String get settingsDev => 'Development';

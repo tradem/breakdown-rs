@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: gpt-5.6-luna (opencode-go)
 // Co-authored-by: qwen3.8-flash (opencode-go)
+// Co-authored-by: glm-5.3-flash (neuralwatt)
 
 use chrono::NaiveDate;
 use serde::{Deserialize, Serialize};
@@ -401,6 +402,92 @@ pub fn verify_draft_costumes(scene: &mut DraftScene, chunk_text: &str) -> Vec<Re
     }
     scene.costumes = kept;
     rejected
+}
+
+/// Conservative markers of a META-summary (issue #668): prose that describes
+/// a block's *shape or emptiness* instead of its content. Matched
+/// case-insensitively against the whitespace-folded summary.
+const META_SUMMARY_MARKERS: &[&str] = &[
+    // The six textual variants observed live (issue #668 test session,
+    // mistral-large-3 via eurouter, 45 of 95 scenes) all descend from this
+    // shape: "Outline-style block with heading and day marker only. No
+    // characters, costumes, or props described."
+    "outline-style block",
+    "outline style block",
+    "outline-style-block",
+    "heading and day marker only",
+    "no characters, costumes, or props",
+    "no characters, costumes or props",
+    "nothing happens in this",
+    "this block contains no",
+    // German variants of the same meta-sentence (the extraction prompt's
+    // other language) — conservative, content-describing phrasings only.
+    "keine charaktere, kostüme",
+    "keine figuren, kostüme",
+    "nichts passiert in dieser szene",
+    "nichts passiert in diesem block",
+    "kein inhalt",
+    "keine handlung",
+    "nur eine überschrift",
+    "nur eine zwischenüberschrift",
+];
+
+/// Whether `summary` is a meta-description of the block's shape/emptiness
+/// rather than scene content (issue #668).
+///
+/// Deliberately conservative: only the closed marker list above matches —
+/// a leading-phrase heuristic ("This block …") was evaluated and rejected:
+/// "This block party turns chaotic…" is a legitimate summary a false
+/// positive would destroy. The cost of a missed meta-sentence is one ugly
+/// list row; the cost of a false positive is a destroyed scene summary.
+#[must_use]
+pub fn is_meta_summary(summary: &str) -> bool {
+    let folded = grounded_text(summary).to_lowercase();
+    !folded.is_empty()
+        && META_SUMMARY_MARKERS
+            .iter()
+            .any(|marker| contains_marker_word(&folded, marker))
+}
+
+/// Boundary-aware marker match (CodeRabbit review, issue #668): a marker
+/// must end at a non-alphabetic boundary so a SUBSTRING of real content
+/// can never trigger it — "keine handlung" must not match inside
+/// "keine Handlungsmöglichkeit und flieht", which describes what the
+/// scene's figure does, not the block's emptiness.
+fn contains_marker_word(haystack: &str, marker: &str) -> bool {
+    let mut from = 0;
+    while let Some(rel) = haystack[from..].find(marker) {
+        let end = from + rel + marker.len();
+        let boundary = haystack[end..]
+            .chars()
+            .next()
+            .is_none_or(|c| !c.is_alphabetic());
+        if boundary {
+            return true;
+        }
+        from = end;
+    }
+    false
+}
+
+/// Deterministic post-extraction guard (issue #668): the hardened prompt
+/// (issue #607) bans meta-summaries, but a prompt is an instruction, not a
+/// guarantee — the test session's model ignored the ban in 45 of 95 scenes
+/// and the garbage flowed through preview → apply → projection → app.
+///
+/// This is the #607 intent enforced mechanically, independent of model
+/// compliance: a summary that describes the block's shape/emptiness instead
+/// of scene content is set to `null` before the preview is stored. Returns
+/// whether a rewrite happened so the caller can log/count it (prompt/model
+/// regression observability).
+pub fn sanitize_meta_summary(scene: &mut DraftScene) -> bool {
+    match scene.summary.as_deref() {
+        Some(summary) if is_meta_summary(summary) => {
+            scene.summary = None;
+            true
+        }
+        _ => false,
+    }
 }
 
 impl DraftScene {

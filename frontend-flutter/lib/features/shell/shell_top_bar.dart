@@ -1,12 +1,15 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: deepseek-v4.1-flash (neuralwatt)
+// Co-authored-by: glm-5.3-flash (neuralwatt)
 
 import 'dart:async' show unawaited;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../auth/active_block.dart';
+import '../../auth/active_episode.dart';
 import '../../design/spacing.dart';
 import 'active_episode_chip.dart';
 import 'active_scope_chip.dart';
@@ -100,7 +103,17 @@ class ShellTopBar extends ConsumerWidget {
   }
 }
 
-/// Row 1: profile affordance + the three scope pills.
+/// The scope bar (issue #667, agreed #638 design): TWO pill rows —
+///
+/// * row 1: profile affordance + Season + Block pills,
+/// * row 2: the Episode chip on its own line — the hierarchy reads
+///   top-down and the episode chip gets room instead of competing with
+///   two other pills in one horizontally scrollable cluster. The row
+///   collapses entirely while the chip is hidden (no #638 prerequisite
+///   met yet) so no empty second line remains.
+///
+/// The horizontal-scroll fallback stays on row 1 (three pills + profile
+/// icon on a 360dp phone); the episode row never scrolls — one chip.
 ///
 /// The profile affordance needs no navigator: it only opens the shell
 /// Scaffold's account drawer (issue #653), whose entries target the
@@ -112,46 +125,43 @@ class _ScopeRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Row(
+    return Column(
       key: const Key('shell-scope-bar'),
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const SizedBox(width: AppSpacing.space4),
-        ProfileMenuButton(),
-        const SizedBox(width: AppSpacing.space4),
-        // The pill cluster scrolls rather than overflows on a narrow bar
-        // (three pills + profile icon on a 360dp phone).
-        Expanded(
-          child: SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                SeasonScopeChip(
-                  onOpenPicker: () =>
-                      _push(context, const SeasonScopePickerScreen()),
-                ),
-                const SizedBox(width: AppSpacing.space8),
-                ActiveScopeChip(
-                  location: location,
-                  onOpenPicker: (seasonId) =>
-                      _push(context, ScopeChipPickerScreen(seasonId: seasonId)),
-                ),
-                const SizedBox(width: AppSpacing.space8),
-                ActiveEpisodeChip(
-                  location: location,
-                  onOpenPicker: (seasonId, blockId) => _push(
-                    context,
-                    EpisodeScopePickerScreen(
-                      seasonId: seasonId,
-                      blockId: blockId,
+        Row(
+          children: [
+            const SizedBox(width: AppSpacing.space4),
+            ProfileMenuButton(),
+            const SizedBox(width: AppSpacing.space4),
+            // The pill cluster scrolls rather than overflows on a narrow bar.
+            Expanded(
+              child: SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    SeasonScopeChip(
+                      onOpenPicker: () =>
+                          _push(context, const SeasonScopePickerScreen()),
                     ),
-                  ),
+                    const SizedBox(width: AppSpacing.space8),
+                    ActiveScopeChip(
+                      location: location,
+                      onOpenPicker: (seasonId) => _push(
+                        context,
+                        ScopeChipPickerScreen(seasonId: seasonId),
+                      ),
+                    ),
+                  ],
                 ),
-              ],
+              ),
             ),
-          ),
+            const SizedBox(width: AppSpacing.space4),
+          ],
         ),
-        const SizedBox(width: AppSpacing.space4),
+        _ScopeEpisodeRow(location: location),
       ],
     );
   }
@@ -163,6 +173,51 @@ class _ScopeRow extends StatelessWidget {
   /// targets the DESTINATION navigator — the opposite direction.
   void _push(BuildContext context, Widget screen) {
     // Fire-and-forget navigation (no result consumed).
+    unawaited(
+      Navigator.of(context)
+          .push(MaterialPageRoute<void>(builder: (_) => screen)),
+    );
+  }
+}
+
+/// Row 2 of the scope bar (issue #667): the episode chip alone, indented
+/// under the profile affordance so the hierarchy reads top-down
+/// (Season/Block above, Episode below). Collapses WITH the chip — while
+/// the #638 prerequisite is unmet there is no second row at all.
+class _ScopeEpisodeRow extends ConsumerWidget {
+  const _ScopeEpisodeRow({required this.location});
+
+  final PlanningLocation? location;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    // Same predicate as the chip itself (shared via the chip's static
+    // helper) — no drift between "row hidden" and "chip hidden".
+    final visible = ActiveEpisodeChip.visibleFor(
+      ref.watch(activeBlockProvider),
+      ref.watch(activeEpisodeProvider),
+    );
+    if (!visible) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.space4,
+        0,
+        AppSpacing.space4,
+        AppSpacing.space8,
+      ),
+      child: ActiveEpisodeChip(
+        location: location,
+        onOpenPicker: (seasonId, blockId) => _pushRow(
+          context,
+          EpisodeScopePickerScreen(seasonId: seasonId, blockId: blockId),
+        ),
+      ),
+    );
+  }
+
+  void _pushRow(BuildContext context, Widget screen) {
+    // Fire-and-forget navigation (no result consumed); same root-navigator
+    // seam as the row-1 pills (see _ScopeRow._push).
     unawaited(
       Navigator.of(context)
           .push(MaterialPageRoute<void>(builder: (_) => screen)),

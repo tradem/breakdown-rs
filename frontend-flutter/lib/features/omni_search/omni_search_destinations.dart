@@ -38,11 +38,7 @@ Widget omniSearchDestinationScreen({
     // Script-view semantics: scene detail with the hierarchy chain built
     // from the DTOs the hit carried (read-DTO join, never a second
     // projection lookup — CQRS boundary).
-    SceneDetailScreen(
-      seasonId: season.id,
-      episodeId: episode.id,
-      sceneId: scene.id,
-    ),
+    SceneDetailScreen(seasonId: season.id, episode: episode, sceneId: scene.id),
   CharacterOmniHit(:final character) =>
     // Cast-view semantics (issue #611): the character row lands on the
     // role extract route.

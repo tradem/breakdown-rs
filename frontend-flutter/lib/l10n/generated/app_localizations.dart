@@ -2950,6 +2950,24 @@ abstract class AppLocalizations {
   /// **'Auf Drehtag planen'**
   String get sceneDetailScheduleOnDay;
 
+  /// No description provided for @sceneDetailNoDayCandidatesHint.
+  ///
+  /// In de, this message translates to:
+  /// **'Noch kein Drehtag in dieser Episode — lege zuerst einen an oder importiere die Dispo.'**
+  String get sceneDetailNoDayCandidatesHint;
+
+  /// No description provided for @sceneDetailAllDaysScheduled.
+  ///
+  /// In de, this message translates to:
+  /// **'Alle Drehtage dieser Episode sind bereits geplant oder archiviert.'**
+  String get sceneDetailAllDaysScheduled;
+
+  /// No description provided for @sceneDetailCreateFirstDay.
+  ///
+  /// In de, this message translates to:
+  /// **'Drehtag anlegen'**
+  String get sceneDetailCreateFirstDay;
+
   /// No description provided for @sceneDetailScheduleTitle.
   ///
   /// In de, this message translates to:
@@ -3669,6 +3687,12 @@ abstract class AppLocalizations {
   /// In de, this message translates to:
   /// **'Einstellungen'**
   String get commonSettings;
+
+  /// No description provided for @commonAiImportJobs.
+  ///
+  /// In de, this message translates to:
+  /// **'KI-Import-Aufträge'**
+  String get commonAiImportJobs;
 
   /// No description provided for @commonSignOut.
   ///
@@ -4821,18 +4845,6 @@ abstract class AppLocalizations {
   /// In de, this message translates to:
   /// **'KI'**
   String get settingsAi;
-
-  /// No description provided for @settingsAiImports.
-  ///
-  /// In de, this message translates to:
-  /// **'KI-Import-Aufträge'**
-  String get settingsAiImports;
-
-  /// No description provided for @settingsAiImportsSubtitle.
-  ///
-  /// In de, this message translates to:
-  /// **'Status deiner KI-Importe ansehen.'**
-  String get settingsAiImportsSubtitle;
 
   /// No description provided for @settingsDev.
   ///

@@ -1762,6 +1762,17 @@ class AppLocalizationsDe extends AppLocalizations {
   String get sceneDetailScheduleOnDay => 'Auf Drehtag planen';
 
   @override
+  String get sceneDetailNoDayCandidatesHint =>
+      'Noch kein Drehtag in dieser Episode — lege zuerst einen an oder importiere die Dispo.';
+
+  @override
+  String get sceneDetailAllDaysScheduled =>
+      'Alle Drehtage dieser Episode sind bereits geplant oder archiviert.';
+
+  @override
+  String get sceneDetailCreateFirstDay => 'Drehtag anlegen';
+
+  @override
   String get sceneDetailScheduleTitle => 'Auf Drehtag planen';
 
   @override
@@ -2192,6 +2203,9 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get commonSettings => 'Einstellungen';
+
+  @override
+  String get commonAiImportJobs => 'KI-Import-Aufträge';
 
   @override
   String get commonSignOut => 'Abmelden';
@@ -2915,12 +2929,6 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get settingsAi => 'KI';
-
-  @override
-  String get settingsAiImports => 'KI-Import-Aufträge';
-
-  @override
-  String get settingsAiImportsSubtitle => 'Status deiner KI-Importe ansehen.';
 
   @override
   String get settingsDev => 'Entwicklung';

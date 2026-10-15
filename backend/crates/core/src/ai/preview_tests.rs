@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: gpt-5.6-luna (opencode-go)
 // Co-authored-by: qwen3.8-flash (opencode-go)
+// Co-authored-by: glm-5.3-flash (neuralwatt)
 
 use chrono::{TimeZone, Utc};
 use uuid::Uuid;
@@ -1317,4 +1318,127 @@ fn episode_word_alone_is_not_a_marker() {
     // title, so the scan moves on — the line carries no marker.
     let chunks = SceneChunk::extract_scenes("Episode 12 beginnt hier.\n\n1. INT. OP\nA\n");
     assert!(chunks[0].episode.is_none());
+}
+
+// ── Meta-summary guard (issue #668) ─────────────────────────────────────
+
+#[test]
+fn meta_summary_guard_nulls_the_observed_live_variant() {
+    // The exact shape the test session observed (45 of 95 scenes,
+    // mistral-large-3 via eurouter): a meta-description of the block's
+    // shape, not scene content.
+    let mut scene = DraftScene {
+        summary: Some(
+            "Outline-style block with heading and day marker only. \
+             No characters, costumes, or props described."
+                .to_owned(),
+        ),
+        ..Default::default()
+    };
+    assert!(sanitize_meta_summary(&mut scene));
+    assert_eq!(scene.summary, None);
+}
+
+#[test]
+fn meta_summary_guard_covers_the_observed_textual_variants() {
+    // The six variants were minor rewordings of the same meta-sentence;
+    // the marker set must survive case, dash and whitespace drift.
+    for variant in [
+        "Outline-style block with heading and day marker only.",
+        "This is an outline style block — heading and day marker only.",
+        "Outline-style-block: heading and day marker only",
+        "The block contains no characters, costumes or props.",
+        "This block contains no content worth extracting.",
+        "NOTHING HAPPENS IN THIS BLOCK — it only carries a heading.",
+    ] {
+        assert!(
+            is_meta_summary(variant),
+            "variant must be detected: {variant:?}"
+        );
+    }
+}
+
+#[test]
+fn meta_summary_guard_covers_german_variants() {
+    for variant in [
+        "Outline-Style-Block nur mit Überschrift und Tagesmarkierung.",
+        "In diesem Block passiert nichts. Keine Charaktere, Kostüme oder Requisiten.",
+        "Kein Inhalt — nur eine Überschrift.",
+        "Dieser Block enthält nur eine Zwischenüberschrift.",
+        "Der Block hat keine Handlung.",
+    ] {
+        assert!(
+            is_meta_summary(variant),
+            "German variant must be detected: {variant:?}"
+        );
+    }
+}
+
+#[test]
+fn meta_summary_guard_keeps_real_scene_summaries() {
+    for content in [
+        "Alice enters the kitchen and finds the broken vase.",
+        "Ben verabschiedet sich von Clara und verlässt das Haus.",
+        "The crew rehearses the costume change before the take.",
+        "Outline of the heist shown as a flashback.",
+    ] {
+        assert!(
+            !is_meta_summary(content),
+            "legitimate summary must survive: {content:?}"
+        );
+    }
+}
+
+#[test]
+fn meta_summary_guard_is_conservative_on_edge_cases() {
+    // Empty and whitespace-only summaries are not meta-summaries — they
+    // are already honest absences.
+    assert!(!is_meta_summary(""));
+    assert!(!is_meta_summary("   "));
+    // A scene titled "This Block" quoting real dialogue must survive:
+    // only the LEADING position triggers, and the marker set is closed.
+    assert!(!is_meta_summary(
+        "This block party turns chaotic when the power fails."
+    ));
+}
+
+#[test]
+fn meta_summary_guard_leaves_a_null_summary_alone() {
+    let mut scene = DraftScene::default();
+    assert!(!sanitize_meta_summary(&mut scene));
+    assert_eq!(scene.summary, None);
+}
+
+#[test]
+fn meta_summary_guard_preserves_content_with_marker_substring() {
+    // CodeRabbit review (issue #668): "keine handlung" must not match as a
+    // SUBSTRING of real scene content — "keine Handlungsmöglichkeit" names
+    // what the figure does, not the block's emptiness. The marker must end
+    // at a non-alphabetic boundary.
+    let content = "Sie sieht keine Handlungsmöglichkeit und flieht.";
+    assert!(!is_meta_summary(content));
+    let mut scene = DraftScene {
+        summary: Some(content.to_owned()),
+        ..Default::default()
+    };
+    assert!(!sanitize_meta_summary(&mut scene));
+    assert_eq!(scene.summary, Some(content.to_owned()));
+}
+
+#[test]
+fn meta_summary_guard_boundary_still_matches_the_observed_variants() {
+    // The observed meta-sentences end each marker at punctuation or end of
+    // text — the boundary rule must not weaken the original detection.
+    for variant in [
+        "In diesem Block passiert nichts. Keine Charaktere, Kostüme oder Requisiten.",
+        "Der Block hat keine Handlung.",
+        "Outline-style block with heading and day marker only. No characters, costumes, or props described.",
+        "Kein Inhalt",
+        "Nur eine Überschrift",
+    ] {
+        assert!(
+            is_meta_summary(variant),
+            "boundary rule must keep detection: {variant:?}"
+        );
+    }
 }

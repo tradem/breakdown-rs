@@ -185,7 +185,12 @@ void main() {
       await pumpScreen(tester);
 
       expect(find.byKey(const Key('scene-s1')), findsOneWidget);
+      // Issue #668 list design: the tile TITLE is the scene number; the
+      // summary renders as the truncated excerpt line below it.
+      expect(find.text('Scene s1'), findsOneWidget);
+      // Single-sentence summary → excerpt without ellipsis.
       expect(find.text('A scene s1'), findsOneWidget);
+      expect(find.byKey(const Key('scene-excerpt-s1')), findsOneWidget);
       // Read-only detail data: mood, location, script day, schedule flag,
       // character / shooting-day counts.
       expect(find.textContaining('Mood: tense'), findsOneWidget);
@@ -214,6 +219,67 @@ void main() {
       expect(find.byKey(const Key('scene-ai-badge-s-ai')), findsOneWidget);
       expect(find.byKey(const Key('scene-ai-badge-s-m')), findsNothing);
       expect(find.byKey(const Key('scene-ai-badge-s-absent')), findsNothing);
+    });
+
+    testWidgets(
+      'long multi-sentence summary: excerpt is first sentence + ellipsis, '
+      'no mid-sentence hard cut (issue #668)',
+      (tester) async {
+        await setupContainer(
+          initialRows: [
+            _scene(
+              'long',
+              summary:
+                  'Outline-style block with heading and day marker only. '
+                  'No characters, costumes, or props described.',
+            ),
+          ],
+        );
+        await pumpScreen(tester);
+
+        // Title = scene number, never the giant summary line.
+        expect(find.text('Scene long'), findsOneWidget);
+        // Excerpt = first sentence + `…`.
+        expect(
+          find.text('Outline-style block with heading and day marker only. …'),
+          findsOneWidget,
+        );
+      },
+    );
+
+    testWidgets(
+      'excerpt sentence boundary: abbreviations and decimals never split '
+      '(CodeRabbit review)',
+      (tester) async {
+        await setupContainer(
+          initialRows: [
+            // "Dr." is an abbreviation, "3.5" a decimal — the first TRUE
+            // sentence end comes after "enters".
+            _scene(
+              'abbrev',
+              summary: 'Dr. Müller tritt ein. Sie sieht Version 3.5 des Plans.',
+            ),
+            // Single-initial + abbreviation-only summary: no true sentence
+            // end inside → excerpt is the whole text, no ellipsis.
+            _scene('abbr-only', summary: 'Prof. A. Weber bemerkt nichts.'),
+          ],
+        );
+        await pumpScreen(tester);
+
+        expect(find.text('Dr. Müller tritt ein. …'), findsOneWidget);
+        // "Prof. A." must not split; the only true end is the final one.
+        expect(find.text('Prof. A. Weber bemerkt nichts.'), findsOneWidget);
+      },
+    );
+
+    testWidgets('null summary: no excerpt row at all (issue #668)', (
+      tester,
+    ) async {
+      await setupContainer(initialRows: [_scene('bare', summary: '')]);
+      await pumpScreen(tester);
+
+      expect(find.text('Scene bare'), findsOneWidget);
+      expect(find.byKey(const Key('scene-excerpt-bare')), findsNothing);
     });
 
     testWidgets('empty: plain-language state with create CTA', (tester) async {

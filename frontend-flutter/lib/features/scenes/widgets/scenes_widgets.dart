@@ -4,6 +4,7 @@
 // Co-authored-by: space-bunny-free (opencode-go)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
 // Co-authored-by: qwen3.8-flash (opencode-go)
+// Co-authored-by: glm-5.3-flash (neuralwatt)
 
 import 'package:flutter/material.dart';
 
@@ -19,6 +20,76 @@ import '../scenes_state.dart';
 ///
 /// Scene detail data (mood, location, summary, script day, schedule flag,
 /// character / shooting-day counts) renders read-only in Phase 1b.
+///
+/// Agreed list design (issue #668): the tile TITLE is the scene number,
+/// below it a TRUNCATED EXCERPT of the summary — first sentence, then `…`
+/// (no mid-sentence hard cut). An empty/`null` summary omits the excerpt
+/// row entirely. The full summary stays visible in the scene detail
+/// screen; the excerpt only fixes the list, which previously rendered a
+/// whole meta-summary as one giant ellipsized title line.
+String? sceneSummaryExcerpt(String? summary) {
+  final trimmed = summary?.trim() ?? '';
+  if (trimmed.isEmpty) return null;
+  // First TRUE sentence end (CodeRabbit review): a `.`, `!` or `?` only
+  // ends the excerpt when it is a real sentence boundary — never an
+  // abbreviation period ("Dr. Müller enters.") and never a decimal point
+  // ("Version 3.5"). No mid-sentence hard cut.
+  for (final match in RegExp(r'[.!?]').allMatches(trimmed)) {
+    if (!_isSentenceEnd(trimmed, match.end)) continue;
+    final firstSentence = trimmed.substring(0, match.end);
+    final remainder = trimmed.substring(match.end).trim();
+    return remainder.isEmpty ? firstSentence : '$firstSentence …';
+  }
+  return trimmed;
+}
+
+/// Common German/English abbreviations the excerpt must not split at
+/// (conservative closed list; anything longer than these tokens is a
+/// word, not a title).
+const _sentenceAbbreviations = <String>{
+  'dr',
+  'prof',
+  'nr',
+  'z.b',
+  'bzw',
+  'usw',
+  'evtl',
+  'ggf',
+  'inkl',
+  'zzgl',
+  'ca',
+  'mr',
+  'mrs',
+  'ms',
+  'st',
+  'str',
+  'bd',
+  'aufl',
+};
+
+bool _isSentenceEnd(String text, int end) {
+  // A sentence end must be followed by whitespace or end of text — a
+  // period inside a token ("3.5", "z.B.") never splits.
+  if (end < text.length && RegExp(r'\S').hasMatch(text[end])) return false;
+  // Decimal protection: "Version 3.5 ist fertig" — a period between two
+  // digits is a decimal point, not a sentence end.
+  if (end < text.length &&
+      end > 0 &&
+      RegExp(r'[0-9]').hasMatch(text[end - 1]) &&
+      RegExp(r'\s*[0-9]').hasMatch(text.substring(end))) {
+    return false;
+  }
+  // Abbreviation protection: the token immediately before the punctuation
+  // is a known abbreviation or a single initial ("Dr.", "A.").
+  final before = text.substring(0, end - 1); // strip the punctuation
+  final lastWord = before.split(RegExp(r'\s')).last.toLowerCase();
+  if (_sentenceAbbreviations.contains(lastWord)) return false;
+  if (lastWord.length == 1 && RegExp(r'[a-zA-ZäöüÄÖÜ]').hasMatch(lastWord)) {
+    return false;
+  }
+  return true;
+}
+
 class SceneTile extends StatelessWidget {
   const SceneTile({super.key, required this.row, this.onTap});
 
@@ -45,37 +116,47 @@ class SceneTile extends StatelessWidget {
               mainAxisSize: MainAxisSize.min,
               children: [
                 AiProvenanceBadge(semanticKey: 'scene-ai-badge-${scene.id}'),
-                Flexible(
-                  child: Text(
-                    scene.summary?.isNotEmpty == true
-                        ? scene.summary!
-                        : tileLabel(scene.sceneNumber),
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
+                // Issue #668: the title is the scene NUMBER — the summary
+                // moved to the truncated excerpt line below.
+                Flexible(child: Text(tileLabel(scene.sceneNumber ?? scene.id))),
               ],
             ),
-            _ => Text(
-              scene.summary?.isNotEmpty == true
-                  ? scene.summary!
-                  : tileLabel(scene.sceneNumber),
-            ),
+            _ => Text(tileLabel(scene.sceneNumber ?? scene.id)),
           },
-          subtitle: Text(
-            [
-              if (scene.mood case final mood?) l10n.sceneMood(mood),
-              if (scene.location case final location?) l10n.sceneLoc(location),
-              if (scene.scriptDay case final day?) l10n.sceneDay(day),
-              scene.isScheduleSet ? l10n.sceneScheduled : l10n.sceneUnscheduled,
-              // Defensive dedup (issue #550): the tile counts must survive a
-              // read-model fan-out regression without inflating.
-              l10n.sceneCharacterCount(
-                '${scene.assignedCharacters.toSet().length}',
+          subtitle: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Issue #668: truncated excerpt (first sentence + `…`),
+              // omitted entirely for a null/empty summary. The full
+              // summary stays visible in the scene detail screen.
+              if (sceneSummaryExcerpt(scene.summary) case final excerpt?)
+                Text(
+                  excerpt,
+                  key: Key('scene-excerpt-${scene.id}'),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              Text(
+                [
+                  if (scene.mood case final mood?) l10n.sceneMood(mood),
+                  if (scene.location case final location?)
+                    l10n.sceneLoc(location),
+                  if (scene.scriptDay case final day?) l10n.sceneDay(day),
+                  scene.isScheduleSet
+                      ? l10n.sceneScheduled
+                      : l10n.sceneUnscheduled,
+                  // Defensive dedup (issue #550): the tile counts must survive a
+                  // read-model fan-out regression without inflating.
+                  l10n.sceneCharacterCount(
+                    '${scene.assignedCharacters.toSet().length}',
+                  ),
+                  l10n.sceneShootingDayCount(
+                    '${scene.shootingDayIds.toSet().length}',
+                  ),
+                ].join(' · '),
               ),
-              l10n.sceneShootingDayCount(
-                '${scene.shootingDayIds.toSet().length}',
-              ),
-            ].join(' · '),
+            ],
           ),
         ),
       ),

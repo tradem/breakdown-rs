@@ -184,7 +184,7 @@ class _ScriptRowTile extends ConsumerWidget {
           ),
           builder: (_) => SceneDetailScreen(
             seasonId: season.id,
-            episodeId: row.episode.id,
+            episode: row.episode,
             sceneId: row.scene.id,
           ),
         ),

@@ -147,6 +147,19 @@ ShootingDayView _day(String id, {String? label, bool archived = false}) =>
         ..version = 1,
     );
 
+/// The parent episode the detail screen is navigated from (issue #669:
+/// the day empty-state's quick-create affordance is sourced from this
+/// read DTO — no second projection lookup).
+EpisodeView _episode() => EpisodeView(
+  (b) => b
+    ..id = 'episode-1'
+    ..blockId = 'block-1'
+    ..number = 1
+    ..projectId = 'series-1'
+    ..updatedAt = DateTime.utc(2026, 1, 1)
+    ..version = 1,
+);
+
 SeasonMembershipDto _membership({
   List<String> capabilities = const ['assign_costumes'],
 }) => SeasonMembershipDto(
@@ -292,6 +305,12 @@ void main() {
     SceneView? scene,
     List<CharacterView> characterRows = const [],
     List<ShootingDayView> dayRows = const [],
+
+    /// Issue #669 enable-path: a live holder the day-list fetch override
+    /// reads on every (re)run — updating it + invalidating the fetch
+    /// provider simulates the projection reconciling a newly created day,
+    /// deterministically (no wall-clock, no real network).
+    ValueNotifier<List<ShootingDayView>>? dayRowsLive,
     List<int>? scenesFetchLog,
     List<String> membershipCapabilities = const ['assign_costumes'],
     List<CostumeView> costumeRows = const [],
@@ -330,7 +349,7 @@ void main() {
         charactersListFetchProvider('season-1')
             .overrideWith((ref) async => Right(characterRows)),
         shootingDaysListFetchProvider('episode-1')
-            .overrideWith((ref) async => Right(dayRows)),
+            .overrideWith((ref) async => Right(dayRowsLive?.value ?? dayRows)),
       ],
     );
     addTearDown(container.dispose);
@@ -344,10 +363,13 @@ void main() {
     await tester.pumpWidget(
       UncontrolledProviderScope(
         container: container,
-        child: const MaterialApp(
+        child: MaterialApp(
           home: SceneDetailScreen(
             seasonId: 'season-1',
-            episodeId: 'episode-1',
+            // Issue #669: the screen carries the parent EpisodeView the
+            // user navigated from (quick-create affordance in the day
+            // empty state is sourced from this DTO, never a re-fetch).
+            episode: _episode(),
             sceneId: 'scene-1',
           ),
         ),
@@ -515,6 +537,142 @@ void main() {
       expect(
         find.text('Changed elsewhere — refresh and try again.'),
         findsOneWidget,
+      );
+    });
+  });
+
+  // Issue #669 — a fresh script import creates scenes but NO shooting days
+  // (days come from the schedule import or manual quick-create), so every
+  // imported scene had an empty picker candidate list: the schedule button
+  // was permanently disabled AND silent — the user could not know why or
+  // what to do next.
+  group('SceneDetailScreen empty day candidates hint (issue #669)', () {
+    testWidgets(
+      'days exist but ALL ineligible (scheduled/archived): factual note, '
+      'NO create affordance (CodeRabbit review)',
+      (tester) async {
+        // One day, already scheduled on this scene → candidates empty but
+        // the episode HAS a shooting day. The hint must not claim "no
+        // shooting day in this episode yet" and must not offer creating
+        // another one.
+        await setupContainer(
+          scene: _scene(days: ['d-1']),
+          dayRows: [_day('d-1', label: '1. Tag')],
+        );
+        await pumpDetail(tester);
+
+        final button = tester.widget<FilledButton>(
+          find.byKey(const Key('scene-shooting-day-schedule-scene-1')),
+        );
+        expect(button.onPressed, isNull);
+        expect(
+          find.byKey(const Key('scene-shooting-day-no-candidates-scene-1')),
+          findsOneWidget,
+        );
+        expect(
+          find.textContaining('already scheduled or archived'),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const Key('scene-shooting-day-create-scene-1')),
+          findsNothing,
+        );
+      },
+    );
+
+    testWidgets(
+      'imported episode with 0 shooting days: button disabled WITH inline '
+      'hint and quick-create affordance',
+      (tester) async {
+        await setupContainer(scene: _scene(), dayRows: const []);
+        await pumpDetail(tester);
+
+        // The schedule button stays disabled (nothing to pick).
+        final button = tester.widget<FilledButton>(
+          find.byKey(const Key('scene-shooting-day-schedule-scene-1')),
+        );
+        expect(button.onPressed, isNull);
+        // …but the state explains itself: inline hint naming the missing
+        // prerequisite + the direct quick-create path.
+        expect(
+          find.byKey(const Key('scene-shooting-day-no-candidates-scene-1')),
+          findsOneWidget,
+        );
+        expect(
+          find.textContaining('No shooting day in this episode yet'),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const Key('scene-shooting-day-create-scene-1')),
+          findsOneWidget,
+        );
+      },
+    );
+
+    testWidgets(
+      'after a day exists (projection reconciles) the button enables and '
+      'the hint disappears',
+      (tester) async {
+        final dayRowsLive = ValueNotifier<List<ShootingDayView>>(const []);
+        addTearDown(dayRowsLive.dispose);
+        await setupContainer(scene: _scene(), dayRowsLive: dayRowsLive);
+        await pumpDetail(tester);
+        expect(
+          find.byKey(const Key('scene-shooting-day-no-candidates-scene-1')),
+          findsOneWidget,
+        );
+
+        // The quick-create sheet shares the same episode-scoped controller
+        // store the section watches — a created day reconciles the view
+        // provider and re-enables the picker without a full screen reload.
+        await tester.tap(
+          find.byKey(const Key('scene-shooting-day-create-scene-1')),
+        );
+        await tester.pumpAndSettle();
+        expect(find.byType(BottomSheet), findsOneWidget);
+        // Dismiss the sheet (no Cupertino back button on a modal sheet —
+        // pop the topmost route programmatically).
+        final navigator = tester.state<NavigatorState>(
+          find.byType(Navigator).first,
+        );
+        navigator.pop();
+        await tester.pumpAndSettle();
+
+        // The day projection reconciles the created day (deterministic:
+        // the live fetch holder updates + the fetch provider re-runs —
+        // exactly what a real refetch cycle does, without wall-clock).
+        dayRowsLive.value = [_day('d-new', label: 'Neuer Tag')];
+        container.invalidate(shootingDaysListFetchProvider('episode-1'));
+        await _pumpFrames(tester, n: 30);
+
+        final button = tester.widget<FilledButton>(
+          find.byKey(const Key('scene-shooting-day-schedule-scene-1')),
+        );
+        expect(button.onPressed, isNotNull);
+        expect(
+          find.byKey(const Key('scene-shooting-day-no-candidates-scene-1')),
+          findsNothing,
+        );
+      },
+    );
+
+    testWidgets('days present: no hint, button enabled (no regression)', (
+      tester,
+    ) async {
+      await setupContainer(scene: _scene(), dayRows: [_day('d-1')]);
+      await pumpDetail(tester);
+
+      final button = tester.widget<FilledButton>(
+        find.byKey(const Key('scene-shooting-day-schedule-scene-1')),
+      );
+      expect(button.onPressed, isNotNull);
+      expect(
+        find.byKey(const Key('scene-shooting-day-no-candidates-scene-1')),
+        findsNothing,
+      );
+      expect(
+        find.byKey(const Key('scene-shooting-day-create-scene-1')),
+        findsNothing,
       );
     });
   });
@@ -876,9 +1034,9 @@ void main() {
             locale: const Locale('de'),
             supportedLocales: AppLocalizations.supportedLocales,
             localizationsDelegates: AppLocalizations.localizationsDelegates,
-            home: const SceneDetailScreen(
+            home: SceneDetailScreen(
               seasonId: 'season-1',
-              episodeId: 'episode-1',
+              episode: _episode(),
               sceneId: 'scene-1',
             ),
           ),
