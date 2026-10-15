@@ -44,6 +44,12 @@ class ActiveEpisodeChip extends ConsumerWidget {
   /// The active tab's location — only used for the foreign-season check.
   final PlanningLocation? location;
 
+  /// The chip's visibility predicate (the #638 prerequisite), shared with
+  /// the shell's dedicated episode row so that row collapses WITH the chip
+  /// (issue #667) instead of leaving an empty pill-sized second row.
+  static bool visibleFor(ActiveScope? block, ActiveEpisodeScope? scope) =>
+      block != null || scope != null;
+
   /// Opens the episode picker for the scope's block (injected so the chip
   /// stays a leaf widget the tests can pump standalone).
   final void Function(String seasonId, String blockId) onOpenPicker;
@@ -55,7 +61,7 @@ class ActiveEpisodeChip extends ConsumerWidget {
     // Issue #638 prerequisite: the episode picker needs a block, so the
     // pill is hidden until a block scope is set — or an episode scope is
     // already set (restored before the block scope resolves).
-    if (block == null && scope == null) return const SizedBox.shrink();
+    if (!visibleFor(block, scope)) return const SizedBox.shrink();
 
     final l10n = l10nOf(context);
     final scheme = Theme.of(context).colorScheme;

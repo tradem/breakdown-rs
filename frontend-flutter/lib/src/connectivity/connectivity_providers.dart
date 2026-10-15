@@ -130,13 +130,13 @@ ConnectivityDelay connectivityDelay(Ref ref) =>
 /// 1. Passive OS signals (`PassiveConnectivitySource`) are the primary
 ///    source — no polling loop. `none` → [ConnectivityStatus.offline]
 ///    immediately.
-/// 2. When the OS transitions offline → connected while the app was NOT
-///    online, ONE lightweight HTTP probe confirms the route (captive
-///    portals report carriers too). Success → [ConnectivityStatus.online];
-///    failure → [ConnectivityStatus.degraded] and re-probes run on the
-///    [connectivityProbeBackoff] schedule.
-/// 3. While healthy (`online`) the controller NEVER probes — passive
-///    signals only.
+/// 2. The FIRST carrier event of a session — and every reconnection from
+///    offline/degraded — runs ONE lightweight HTTP probe to confirm the
+///    route (captive portals report carriers too). Success →
+///    [ConnectivityStatus.online]; failure → [ConnectivityStatus.degraded]
+///    and re-probes run on the [connectivityProbeBackoff] schedule.
+/// 3. While confirmed-healthy (`online` after a successful probe) the
+///    controller NEVER probes — passive signals only.
 /// 4. A generation counter cancels pending probe chains: a new passive
 ///    event (e.g. carrier lost again) supersedes any in-flight retry, so
 ///    a flapping link cannot trigger request storms.
@@ -157,6 +157,15 @@ class ConnectivityController extends _$ConnectivityController {
 
   /// Consecutive failed confirmation probes (drives the backoff schedule).
   int _failedAttempts = 0;
+
+  /// Whether the route was EVER confirmed by a successful probe. The
+  /// initial state is optimistically `online` without evidence — the
+  /// first passive "carrier present" event therefore runs the ONE
+  /// confirmation probe (issue #667 D2: a cold start with Wi-Fi on but
+  /// backend unreachable never reached the degraded path before, because
+  /// the probe ran only on RE-connections from offline). Once confirmed,
+  /// the battery rule returns: while healthy, passive signals only.
+  bool _everConfirmed = false;
 
   @override
   ConnectivityStatus build() {
@@ -190,13 +199,18 @@ class ConnectivityController extends _$ConnectivityController {
       return;
     }
     // OS reports a carrier.
-    if (state == ConnectivityStatus.online) {
-      // Battery-friendly: while healthy, passive signals only — no probe.
+    if (state == ConnectivityStatus.online && _everConfirmed) {
+      // Battery-friendly: while CONFIRMED-healthy, passive signals only —
+      // no probe.
       return;
     }
-    // Reconnection from offline/degraded: confirm with ONE HTTP probe.
-    // Fire-and-forget by design (a passive event callback cannot await);
-    // the chain self-terminates on generation mismatch (see below).
+    // First carrier event of this session (optimistic `online` never
+    // confirmed) or reconnection from offline/degraded: confirm with ONE
+    // HTTP probe (captive portals report carriers too; a dead route behind
+    // a live Wi-Fi carrier is exactly the degraded case the pill exists
+    // for — issue #667 D2). Fire-and-forget by design (a passive event
+    // callback cannot await); the chain self-terminates on generation
+    // mismatch (see below).
     unawaited(_runConfirmationProbe());
   }
 
@@ -216,6 +230,7 @@ class ConnectivityController extends _$ConnectivityController {
     if (generation != _generation) return; // superseded
     if (reachable) {
       _failedAttempts = 0;
+      _everConfirmed = true;
       state = ConnectivityStatus.online;
       return;
     }

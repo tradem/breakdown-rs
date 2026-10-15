@@ -14,6 +14,9 @@
 // tab roots; exit intent consumed at the initial tab root).
 
 import 'package:breakdown_api/breakdown_api.dart';
+
+import 'dart:io' show SecurityContext;
+
 import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -22,6 +25,7 @@ import 'package:fpdart/fpdart.dart';
 
 import 'package:flutter/semantics.dart';
 import 'package:flutter_secure_storage_platform_interface/flutter_secure_storage_platform_interface.dart';
+import 'package:frontend_flutter/src/network/api_client.dart';
 import 'package:frontend_flutter/auth/active_episode.dart';
 import 'package:frontend_flutter/auth/active_episode_store.dart';
 import 'package:frontend_flutter/auth/active_block.dart';
@@ -112,6 +116,12 @@ void main() {
       retry: (_, _) => null,
       overrides: [
         appConfigProvider.overrideWithValue(_appConfig),
+        // Issue #667: setting a full scope chain in the two-row scope test
+        // re-drives scope-dependent seams (episode scope → characters
+        // fetch) whose client watches the pinned TLS context — the harness
+        // never boots a real one, so provide the test value (same pattern
+        // as settings/omni-search harnesses).
+        pinnedSecurityContextProvider.overrideWithValue(SecurityContext()),
         // Issue #654: the offline pill's connectivity controller is kept
         // alive by the shell — hand it a quiet fake passive source so the
         // real connectivity_plus channel is never activated in tests (its
@@ -755,6 +765,68 @@ void main() {
         ),
         findsOneWidget,
       );
+    });
+
+    testWidgets('scope pills split across TWO rows: episode chip on its own '
+        'line (issue #667 D1)', (tester) async {
+      await setupContainer();
+      await pumpShell(tester, widthDp: 360);
+
+      // Before any scope: the episode chip (and its dedicated row) are
+      // hidden — the #638 prerequisite is unmet.
+      expect(find.byKey(const Key('active-episode-chip')), findsNothing);
+
+      // Scope the full chain like the pick paths do.
+      container
+          .read(shellControllerProvider.notifier)
+          .setActiveSeason(
+            season('season-1', number: 1, title: 'Shell Season'),
+          );
+      await pumpFrames(tester, n: 8);
+      container
+          .read(activeBlockProvider.notifier)
+          .set(seasonId: 'season-1', blockId: 'b-1', blockNumber: 2);
+      await pumpFrames(tester, n: 8);
+      container
+          .read(activeEpisodeProvider.notifier)
+          .set(
+            seasonId: 'season-1',
+            blockId: 'b-1',
+            episodeId: 'e-1',
+            episodeNumber: 3,
+            episodeName: 'Pilot',
+          );
+      await pumpFrames(tester, n: 12);
+
+      // Agreed design: Season + Block in row 1 (with the profile
+      // affordance), the Episode chip BELOW them on its own row — the
+      // hierarchy reads top-down and the episode chip no longer competes
+      // with two other pills in one scrollable cluster.
+      final episodeTop = tester
+          .getTopLeft(find.byKey(const Key('active-episode-chip')))
+          .dy;
+      final blockBottom = tester
+          .getBottomLeft(find.byKey(const Key('active-scope-chip')))
+          .dy;
+      expect(episodeTop, greaterThanOrEqualTo(blockBottom));
+      final profileTop = tester
+          .getTopLeft(find.byKey(const Key('profile-menu-button')))
+          .dy;
+      expect(profileTop, lessThan(episodeTop));
+
+      // Clearing the block scope hides the chip again AND collapses its
+      // dedicated row (no empty second line remains).
+      final twoRowHeight = tester
+          .getSize(find.byKey(const Key('shell-scope-bar')))
+          .height;
+      container.read(activeBlockProvider.notifier).clear();
+      container.read(activeEpisodeProvider.notifier).clear();
+      await pumpFrames(tester, n: 12);
+      expect(find.byKey(const Key('active-episode-chip')), findsNothing);
+      final oneRowHeight = tester
+          .getSize(find.byKey(const Key('shell-scope-bar')))
+          .height;
+      expect(oneRowHeight, lessThan(twoRowHeight - 24));
     });
 
     testWidgets('the destination roots render no app bar of their own', (
