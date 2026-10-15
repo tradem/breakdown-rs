@@ -70,6 +70,7 @@ export 'package:breakdown_api/src/model/credential_binding_state.dart';
 export 'package:breakdown_api/src/model/dead_letter_entry.dart';
 export 'package:breakdown_api/src/model/dispo_row.dart';
 export 'package:breakdown_api/src/model/document_kind.dart';
+export 'package:breakdown_api/src/model/draft_character.dart';
 export 'package:breakdown_api/src/model/draft_costume.dart';
 export 'package:breakdown_api/src/model/draft_episode.dart';
 export 'package:breakdown_api/src/model/draft_scene.dart';

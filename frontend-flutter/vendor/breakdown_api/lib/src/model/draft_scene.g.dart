@@ -8,7 +8,7 @@ part of 'draft_scene.dart';
 
 class _$DraftScene extends DraftScene {
   @override
-  final BuiltList<String> characters;
+  final BuiltList<DraftCharacter>? characters;
   @override
   final BuiltList<DraftCostume>? costumes;
   @override
@@ -30,7 +30,7 @@ class _$DraftScene extends DraftScene {
       (DraftSceneBuilder()..update(updates))._build();
 
   _$DraftScene._(
-      {required this.characters,
+      {this.characters,
       this.costumes,
       required this.draftRef,
       this.episode,
@@ -97,10 +97,10 @@ class _$DraftScene extends DraftScene {
 class DraftSceneBuilder implements Builder<DraftScene, DraftSceneBuilder> {
   _$DraftScene? _$v;
 
-  ListBuilder<String>? _characters;
-  ListBuilder<String> get characters =>
-      _$this._characters ??= ListBuilder<String>();
-  set characters(ListBuilder<String>? characters) =>
+  ListBuilder<DraftCharacter>? _characters;
+  ListBuilder<DraftCharacter> get characters =>
+      _$this._characters ??= ListBuilder<DraftCharacter>();
+  set characters(ListBuilder<DraftCharacter>? characters) =>
       _$this._characters = characters;
 
   ListBuilder<DraftCostume>? _costumes;
@@ -144,7 +144,7 @@ class DraftSceneBuilder implements Builder<DraftScene, DraftSceneBuilder> {
   DraftSceneBuilder get _$this {
     final $v = _$v;
     if ($v != null) {
-      _characters = $v.characters.toBuilder();
+      _characters = $v.characters?.toBuilder();
       _costumes = $v.costumes?.toBuilder();
       _draftRef = $v.draftRef;
       _episode = $v.episode?.toBuilder();
@@ -176,7 +176,7 @@ class DraftSceneBuilder implements Builder<DraftScene, DraftSceneBuilder> {
     try {
       _$result = _$v ??
           _$DraftScene._(
-            characters: characters.build(),
+            characters: _characters?.build(),
             costumes: _costumes?.build(),
             draftRef: BuiltValueNullFieldError.checkNotNull(
                 draftRef, r'DraftScene', 'draftRef'),
@@ -191,7 +191,7 @@ class DraftSceneBuilder implements Builder<DraftScene, DraftSceneBuilder> {
       late String _$failedField;
       try {
         _$failedField = 'characters';
-        characters.build();
+        _characters?.build();
         _$failedField = 'costumes';
         _costumes?.build();
 

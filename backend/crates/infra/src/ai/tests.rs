@@ -2693,7 +2693,13 @@ fn row_with_costume(draft_ref: &str, characters: &[&str], costumes: &[(&str, &st
     DraftScene {
         draft_ref: draft_ref.to_owned(),
         scene_number: Some(1),
-        characters: characters.iter().map(|name| (*name).to_owned()).collect(),
+        characters: characters
+            .iter()
+            .map(|name| breakdown_core::ai::DraftCharacter {
+                name: (*name).to_owned(),
+                category: Default::default(),
+            })
+            .collect(),
         costumes: costumes
             .iter()
             .map(
@@ -2734,6 +2740,42 @@ async fn script_apply_without_a_mapping_decision_answers_the_dedicated_code() {
         }
         other => panic!("expected Conflict, got {other:?}"),
     }
+}
+
+/// Issue #677: the draft character's extracted category flows end-to-end
+/// into the CreateCharacter dispatch (no hard-coded MainCast).
+#[tokio::test]
+async fn script_apply_carries_the_extracted_category_into_the_character() {
+    let fixture = ScriptApplyFixture::new();
+    let preview = ScriptContext {
+        scenes: vec![DraftScene {
+            draft_ref: "1. INT. OP".to_owned(),
+            characters: vec![breakdown_core::ai::DraftCharacter {
+                name: "BEN".to_owned(),
+                category: breakdown_core::character::category::CharacterCategory::Guest,
+            }],
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    fixture
+        .apply(&preview, &[create_decision("1. INT. OP")])
+        .await
+        .unwrap();
+
+    let created = fixture.characters.created.lock().unwrap();
+    let ben = created
+        .iter()
+        .find(|command| command.name == "BEN")
+        .unwrap_or_else(|| panic!("no CreateCharacter was dispatched"));
+    assert!(
+        matches!(
+            ben.category,
+            breakdown_core::character::category::CharacterCategory::Guest
+        ),
+        "the extracted Guest category must reach the dispatch, got {:?}",
+        ben.category
+    );
 }
 
 /// Task 3.4: the figure must exist before its costume binds to it.
@@ -3208,7 +3250,10 @@ impl LlmClient for CostumeClient {
             scenes: vec![DraftScene {
                 draft_ref: String::new(),
                 scene_number: Some(1),
-                characters: vec!["RENEE".to_owned()],
+                characters: vec![breakdown_core::ai::DraftCharacter {
+                    name: "RENEE".to_owned(),
+                    category: Default::default(),
+                }],
                 costumes: self.costumes.clone(),
                 ..Default::default()
             }],

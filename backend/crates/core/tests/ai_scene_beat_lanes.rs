@@ -39,6 +39,7 @@ fn character(ordinal: usize, name: &str, identity: &str) -> CharacterApplyPlan {
         ordinal,
         name: name.to_owned(),
         identity: identity.to_owned(),
+        category: Default::default(),
     }
 }
 

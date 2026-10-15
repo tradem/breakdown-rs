@@ -103,7 +103,7 @@ DraftScene _draftScene(String ref) => DraftScene(
     ..draftRef = ref
     ..sceneNumber = 12
     ..summary = 'A scene'
-    ..characters.replace(const <String>['char-1']),
+    ..characters.replace(const <DraftCharacter>[]),
 );
 
 ScriptContext _scriptContext() => ScriptContext(

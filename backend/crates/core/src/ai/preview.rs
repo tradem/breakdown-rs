@@ -11,6 +11,7 @@ use utoipa::ToSchema;
 use uuid::Uuid;
 
 use super::views::{AiImportJobId, DocumentKind, JobStatus};
+use crate::character::category::CharacterCategory;
 use crate::error::DomainError;
 use crate::scene::commands::{CreateScene, UpdateSceneDetails};
 use crate::scene::events::{SceneDetails, SceneSource};
@@ -231,6 +232,64 @@ pub struct DraftCostume {
     pub source_quote: String,
 }
 
+/// One figure a draft row names, with its extracted role type (issue #677).
+///
+/// The category is **grounded**: `MainCast` only when the document truly does
+/// not say otherwise (the prompt classifies from the cast-section headings —
+/// "Darsteller" / "Gastrollen" / "Statisten" / "Komparseren" — and inline
+/// notes). A classification the model is unsure about surfaces as an
+/// `Uncertainty` instead of silently shipping a wrong category.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct DraftCharacter {
+    /// The name **verbatim** from the script (the same contract as the
+    /// pre-#677 plain string entries).
+    pub name: String,
+    /// `serde(default)` so a preview (or a model response) without the field
+    /// keeps the grounded default — old stored previews load unchanged.
+    #[serde(default)]
+    pub category: CharacterCategory,
+}
+
+impl From<&str> for DraftCharacter {
+    /// The wire-compatibility construction: a plain name string becomes a
+    /// figure with the grounded default category (exactly what the
+    /// untagged deserializer does for pre-#677 stored previews).
+    fn from(name: &str) -> Self {
+        Self {
+            name: name.to_owned(),
+            category: CharacterCategory::default(),
+        }
+    }
+}
+
+/// Backward-compatible shape for the draft row's `characters` list: plain
+/// name strings (pre-#677 stored previews and model responses) and the typed
+/// [`DraftCharacter`] objects both deserialize.
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum DraftCharacterRepr {
+    Named(String),
+    Typed(DraftCharacter),
+}
+
+/// `serde(deserialize_with)` for [`DraftScene::characters`] (issue #677).
+fn deserialize_draft_characters<'de, D>(deserializer: D) -> Result<Vec<DraftCharacter>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let reprs = Vec::<DraftCharacterRepr>::deserialize(deserializer)?;
+    Ok(reprs
+        .into_iter()
+        .map(|repr| match repr {
+            DraftCharacterRepr::Named(name) => DraftCharacter {
+                name,
+                category: CharacterCategory::default(),
+            },
+            DraftCharacterRepr::Typed(character) => character,
+        })
+        .collect())
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct DraftScene {
     pub draft_ref: String,
@@ -239,7 +298,12 @@ pub struct DraftScene {
     pub mood: Option<String>,
     pub summary: Option<String>,
     pub script_day: Option<String>,
-    pub characters: Vec<String>,
+    /// The figures this row names, each with its extracted role type (issue
+    /// #677). Backward compatible on the wire: a preview stored before the
+    /// category existed carries plain name strings, which deserialize to the
+    /// grounded `MainCast` default via [`deserialize_draft_characters`].
+    #[serde(default, deserialize_with = "deserialize_draft_characters")]
+    pub characters: Vec<DraftCharacter>,
     /// Costumes worn by this scene's characters. Additive on the wire with a
     /// default so previews stored before this field existed still load; a
     /// preview written by this version loses the field when read by an older
@@ -375,7 +439,7 @@ pub fn verify_draft_costumes(scene: &mut DraftScene, chunk_text: &str) -> Vec<Re
     let characters: Vec<String> = scene
         .characters
         .iter()
-        .map(|n| character_identity(n))
+        .map(|c| character_identity(&c.name))
         .collect();
     let haystack = grounded_text(chunk_text);
 
@@ -746,6 +810,10 @@ pub struct CharacterApplyPlan {
     pub name: String,
     /// [`character_identity`] of `name` — the preview-wide key of this figure.
     pub identity: String,
+    /// The extracted role type (issue #677): the classification the extraction
+    /// read from the document's cast sections. `MainCast` when the document
+    /// does not say otherwise — the grounded default, never an invented guess.
+    pub category: CharacterCategory,
 }
 
 /// One costume of a draft row, planned as `CreateCostume` +
@@ -990,7 +1058,8 @@ pub fn plan_scene_apply(
         // A row that names no figure plans none (the "Block 100 / Tag 1" outline
         // case), and a name written twice inside one row is still one figure.
         let mut characters: Vec<CharacterApplyPlan> = Vec::with_capacity(draft.characters.len());
-        for (ordinal, name) in draft.characters.iter().enumerate() {
+        for (ordinal, character) in draft.characters.iter().enumerate() {
+            let name = &character.name;
             let identity = character_identity(name);
             if identity.is_empty() || characters.iter().any(|known| known.identity == identity) {
                 continue;
@@ -999,6 +1068,7 @@ pub fn plan_scene_apply(
                 ordinal,
                 name: name.clone(),
                 identity,
+                category: character.category,
             });
         }
 

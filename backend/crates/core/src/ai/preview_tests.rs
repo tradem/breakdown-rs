@@ -193,7 +193,7 @@ fn planner_plans_the_figures_a_row_names() {
     let preview = ScriptContext {
         scenes: vec![DraftScene {
             draft_ref: "1. INT. OP".into(),
-            characters: vec!["BEN".into(), "Leyla".into()],
+            characters: vec![DraftCharacter::from("BEN"), DraftCharacter::from("Leyla")],
             ..Default::default()
         }],
         ..Default::default()
@@ -206,11 +206,13 @@ fn planner_plans_the_figures_a_row_names() {
                 ordinal: 0,
                 name: "BEN".into(),
                 identity: "ben".into(),
+                category: Default::default(),
             },
             CharacterApplyPlan {
                 ordinal: 1,
                 name: "Leyla".into(),
                 identity: "leyla".into(),
+                category: Default::default(),
             },
         ]
     );
@@ -223,7 +225,7 @@ fn planner_plans_no_figures_for_an_outline_row() {
     let preview = ScriptContext {
         scenes: vec![DraftScene {
             draft_ref: "1. A/T - VOR KLINIK".into(),
-            characters: vec!["   ".into()],
+            characters: vec![DraftCharacter::from("   ")],
             ..Default::default()
         }],
         ..Default::default()
@@ -242,7 +244,7 @@ fn planner_plans_one_figure_per_name_even_when_a_row_names_it_twice() {
     let preview = ScriptContext {
         scenes: vec![DraftScene {
             draft_ref: "1. INT. OP".into(),
-            characters: vec!["BEN".into(), "Ben ".into()],
+            characters: vec![DraftCharacter::from("BEN"), DraftCharacter::from("Ben ")],
             ..Default::default()
         }],
         ..Default::default()
@@ -264,7 +266,7 @@ fn planner_keeps_the_drafts_name_form_verbatim_while_matching_case_insensitively
     let preview = ScriptContext {
         scenes: vec![DraftScene {
             draft_ref: "1. INT. OP".into(),
-            characters: vec![" RENEE SANDERS ".into()],
+            characters: vec![DraftCharacter::from(" RENEE SANDERS ")],
             costumes: vec![costume(
                 "renee sanders",
                 "ölverschmierter Mechaniker-Overall",
@@ -289,7 +291,7 @@ fn planner_plans_a_costume_bound_to_the_figure_of_the_same_row() {
     let preview = ScriptContext {
         scenes: vec![DraftScene {
             draft_ref: "1. INT. OP".into(),
-            characters: vec!["BEN".into()],
+            characters: vec![DraftCharacter::from("BEN")],
             costumes: vec![costume("Ben", "Marineblau", "BEN in Marineblau")],
             ..Default::default()
         }],
@@ -315,7 +317,7 @@ fn two_costumes_of_one_figure_in_one_row_keep_distinct_ordinals() {
     let preview = ScriptContext {
         scenes: vec![DraftScene {
             draft_ref: "1. INT. OP".into(),
-            characters: vec!["BEN".into()],
+            characters: vec![DraftCharacter::from("BEN")],
             costumes: vec![
                 costume("Ben", "Marineblau", "BEN in Marineblau"),
                 costume("Ben", "Silberkette", "Schmuck: Silberkette"),
@@ -336,7 +338,7 @@ fn planner_reports_a_costume_whose_figure_the_row_does_not_plan() {
     let preview = ScriptContext {
         scenes: vec![DraftScene {
             draft_ref: "1. INT. OP".into(),
-            characters: vec!["BEN".into()],
+            characters: vec![DraftCharacter::from("BEN")],
             costumes: vec![costume("Anna", "Mantel", "im Mantel")],
             ..Default::default()
         }],
@@ -357,7 +359,7 @@ fn planner_skips_only_the_costume_rows_the_reviewer_rejected() {
     let preview = ScriptContext {
         scenes: vec![DraftScene {
             draft_ref: "1. INT. OP".into(),
-            characters: vec!["BEN".into()],
+            characters: vec![DraftCharacter::from("BEN")],
             costumes: vec![
                 costume("Ben", "Marineblau", "BEN in Marineblau"),
                 costume("Ben", "Silberkette", "Schmuck: Silberkette"),
@@ -472,7 +474,7 @@ const CHUNK: &str = "Renee Sanders (39) steigt aus dem Auto, trägt einen leicht
 #[test]
 fn grounded_costume_for_a_listed_character_is_kept() {
     let mut scene = DraftScene {
-        characters: vec!["Renee Sanders".to_owned()],
+        characters: vec![DraftCharacter::from("Renee Sanders")],
         costumes: vec![costume(
             "Renee Sanders",
             "ölverschmierter Mechaniker-Overall",
@@ -489,7 +491,7 @@ fn grounded_costume_for_a_listed_character_is_kept() {
 #[test]
 fn costume_whose_quote_is_absent_from_the_chunk_is_dropped() {
     let mut scene = DraftScene {
-        characters: vec!["Renee Sanders".to_owned()],
+        characters: vec![DraftCharacter::from("Renee Sanders")],
         costumes: vec![costume(
             "Renee Sanders",
             "Seidenkleid",
@@ -512,7 +514,7 @@ fn costume_whose_quote_is_absent_from_the_chunk_is_dropped() {
 #[test]
 fn costume_for_an_unlisted_character_is_dropped() {
     let mut scene = DraftScene {
-        characters: vec!["Renee Sanders".to_owned()],
+        characters: vec![DraftCharacter::from("Renee Sanders")],
         costumes: vec![costume("Unbekannt", "Mantel", "im Mantel")],
         ..DraftScene::default()
     };
@@ -531,7 +533,7 @@ fn costume_for_an_unlisted_character_is_dropped() {
 #[test]
 fn costume_with_an_empty_quote_is_dropped() {
     let mut scene = DraftScene {
-        characters: vec!["Renee Sanders".to_owned()],
+        characters: vec![DraftCharacter::from("Renee Sanders")],
         costumes: vec![costume("Renee Sanders", "Mantel", "   ")],
         ..DraftScene::default()
     };
@@ -545,7 +547,7 @@ fn character_matching_ignores_case_and_surrounding_space() {
     // Models are inconsistent about casing ("BEN" vs "Ben"); the script's own
     // name is kept in the costume, only the MATCH is normalised.
     let mut scene = DraftScene {
-        characters: vec!["BEN".to_owned()],
+        characters: vec![DraftCharacter::from("BEN")],
         costumes: vec![costume(" ben ", "Mantel", "im Mantel")],
         ..DraftScene::default()
     };
@@ -562,7 +564,7 @@ fn a_quote_that_only_differs_in_line_wrapping_is_still_grounded() {
     // hallucination would reject legitimate costumes on every typeset script.
     let wrapped = "Renee steigt aus.\n  einem\n\nAuto, trägt einen leicht ölverschmierten\nMechaniker-Overall.";
     let mut scene = DraftScene {
-        characters: vec!["Renee".into()],
+        characters: vec![DraftCharacter::from("Renee")],
         costumes: vec![costume(
             "RENEE",
             "Overall",
@@ -716,7 +718,65 @@ fn costumes_field_defaults_for_previews_stored_before_it_existed() {
     let json = r#"{"draft_ref":"1. INT. KITCHEN","characters":["ANNA"]}"#;
     let scene: DraftScene = serde_json::from_str(json).expect("old preview must parse");
     assert!(scene.costumes.is_empty());
-    assert_eq!(scene.characters, vec!["ANNA".to_owned()]);
+    assert_eq!(scene.characters, vec![DraftCharacter::from("ANNA")]);
+}
+
+#[test]
+fn a_typed_characters_list_roundtrips_the_extracted_category() {
+    // Issue #677: the extraction's classification survives the serde
+    // roundtrip, and the grounded default applies when the field is absent.
+    let scene = DraftScene {
+        draft_ref: "1. INT. OP".to_owned(),
+        characters: vec![
+            DraftCharacter {
+                name: "BEN".to_owned(),
+                category: CharacterCategory::Guest,
+            },
+            DraftCharacter {
+                name: "STATIST".to_owned(),
+                category: CharacterCategory::Extra,
+            },
+        ],
+        ..Default::default()
+    };
+    let json = serde_json::to_string(&scene).expect("preview serializes");
+    let roundtripped: DraftScene = serde_json::from_str(&json).expect("roundtrip parses");
+    assert_eq!(roundtripped, scene);
+
+    // A typed entry WITHOUT the category field keeps the grounded default —
+    // the model omitting the field must never invent a classification.
+    let json = r#"{"draft_ref":"x","characters":[{"name":"ANNA"}]}"#;
+    let scene: DraftScene = serde_json::from_str(json).expect("typed entry without category");
+    assert_eq!(scene.characters[0].category, CharacterCategory::MainCast);
+}
+
+#[test]
+fn the_apply_plan_carries_the_extracted_category() {
+    let preview = ScriptContext {
+        scenes: vec![DraftScene {
+            draft_ref: "1. INT. OP".to_owned(),
+            characters: vec![
+                DraftCharacter::from("BEN"),
+                DraftCharacter {
+                    name: "KELLNER".to_owned(),
+                    category: CharacterCategory::Extra,
+                },
+            ],
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    let plan = plan_of(&preview, &create_decisions(&["1. INT. OP"]));
+    let categories: Vec<_> = plan.scenes[0]
+        .characters
+        .iter()
+        .map(|character| character.category)
+        .collect();
+    assert_eq!(
+        categories,
+        vec![CharacterCategory::MainCast, CharacterCategory::Extra],
+        "the plan carries each figure's extracted classification verbatim"
+    );
 }
 
 // ===========================================================================

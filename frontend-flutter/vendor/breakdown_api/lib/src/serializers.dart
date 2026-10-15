@@ -72,6 +72,7 @@ import 'package:breakdown_api/src/model/credential_binding_state.dart';
 import 'package:breakdown_api/src/model/dead_letter_entry.dart';
 import 'package:breakdown_api/src/model/dispo_row.dart';
 import 'package:breakdown_api/src/model/document_kind.dart';
+import 'package:breakdown_api/src/model/draft_character.dart';
 import 'package:breakdown_api/src/model/draft_costume.dart';
 import 'package:breakdown_api/src/model/draft_episode.dart';
 import 'package:breakdown_api/src/model/draft_scene.dart';
@@ -224,6 +225,7 @@ part 'serializers.g.dart';
   DeadLetterEntry,
   DispoRow,
   DocumentKind,
+  DraftCharacter,
   DraftCostume,
   DraftEpisode,
   DraftScene,
@@ -406,6 +408,10 @@ Serializers serializers = (_$serializers.toBuilder()
       ..addBuilderFactory(
         const FullType(BuiltList, [FullType(UncertaintyAcknowledgement)]),
         () => ListBuilder<UncertaintyAcknowledgement>(),
+      )
+      ..addBuilderFactory(
+        const FullType(BuiltList, [FullType(DraftCharacter)]),
+        () => ListBuilder<DraftCharacter>(),
       )
       ..addBuilderFactory(
         const FullType(BuiltList, [FullType(ModelInfo)]),
