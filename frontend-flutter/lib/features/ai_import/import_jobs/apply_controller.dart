@@ -776,8 +776,8 @@ List<(int, String, String)> blockingUncertaintyItems(ProblemError error) {
 /// `episode.number-already-exists` 409 is about (issue #665).
 List<String> groupRefsForCreateNumber(AiApplyState state, int number) => [
   for (final ref in state.groupRefs)
-    if (state.targetFor(ref) is CreateEpisodeGroupTarget &&
-        (state.targetFor(ref) as CreateEpisodeGroupTarget).number == number)
+    if (state.targetFor(ref) case CreateEpisodeGroupTarget(number: final n)
+        when n == number)
       ref,
 ];
 

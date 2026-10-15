@@ -228,6 +228,18 @@ class _AiApplySectionState extends ConsumerState<AiApplySection> {
                           state.commandError!,
                         );
                         if (conflict == null) return const SizedBox.shrink();
+                        // CodeRabbit #690: hide the recovery affordance when
+                        // no group's effective create target carries the
+                        // colliding number any more (the reviewer changed it
+                        // after the 409, or the number belongs to a group
+                        // the preview does not carry) — dismissing the error
+                        // without changing any target would make the next
+                        // apply hit the same 409 with the recovery gone.
+                        final matching = groupRefsForCreateNumber(
+                          state,
+                          conflict.$2,
+                        );
+                        if (matching.isEmpty) return const SizedBox.shrink();
                         return TextButton(
                           key: const Key('ai-apply-assign-existing-instead'),
                           onPressed: () {
@@ -236,10 +248,7 @@ class _AiApplySectionState extends ConsumerState<AiApplySection> {
                             );
                             final label = l10nOf(context)
                                 .episodeTileLabel('${conflict.$2}');
-                            for (final groupRef in groupRefsForCreateNumber(
-                              state,
-                              conflict.$2,
-                            )) {
+                            for (final groupRef in matching) {
                               controller.setGroupTarget(
                                 groupRef,
                                 ExistingEpisodeGroupTarget(
@@ -248,6 +257,7 @@ class _AiApplySectionState extends ConsumerState<AiApplySection> {
                                 ),
                               );
                             }
+                            // Dismiss only after a target actually changed.
                             controller.dismissCommandError();
                           },
                           child: Text(

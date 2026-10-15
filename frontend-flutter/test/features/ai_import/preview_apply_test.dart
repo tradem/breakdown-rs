@@ -2218,6 +2218,43 @@ void main() {
       expect(find.byKey(const Key('ai-apply-outcome')), findsOneWidget);
     });
 
+    testWidgets('a 409 whose number no group creates any more hides the '
+        'recovery button instead of dismissing the error without a change '
+        '(CodeRabbit #690)', (tester) async {
+      await setupContainer(
+        applyQueue: [
+          const Left(
+            ProblemError(
+              code: 'episode.number-already-exists',
+              status: 409,
+              extensions: {
+                'existing_episode_id': 'ep-existing',
+                'number': 9, // no group creates 9 — the marker says 7
+              },
+            ),
+          ),
+        ],
+        payload: _scriptPayloadWith([
+          _draft('draft-1', episode: _episodeMeta(7, 'Sieben')),
+        ]),
+      );
+      await pumpPreview(tester);
+
+      await tester.tap(find.byKey(const Key('ai-apply-review-checkbox')));
+      await tester.pump();
+      await tester.tap(find.byKey(const Key('ai-apply-submit')));
+      await tester.pump();
+
+      // The refusal narrative renders, but the recovery affordance must NOT:
+      // tapping it would dismiss the error without changing any target and
+      // the next apply would hit the same 409.
+      expect(find.byKey(const Key('ai-apply-error')), findsOneWidget);
+      expect(
+        find.byKey(const Key('ai-apply-assign-existing-instead')),
+        findsNothing,
+      );
+    });
+
     testWidgets('an apply-blocked refusal renders the blocking items from '
         'the extensions inline (never a bare code)', (tester) async {
       await setupContainer(
