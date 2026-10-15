@@ -21,6 +21,18 @@ releases are cut as `vX.Y.Z` tags (`v<build-name>`, enforced by
 
 ## [Unreleased]
 
+- **Version bump:** `0.4.0-alpha.29+80 → 0.4.0-alpha.30+81` — issue #666,
+  the scope-picker staleness fix:
+  * The episode and block scope pickers wrap their list in a
+    `RefreshIndicator` invalidating the shared cache-first seam
+    (`episodesListFetchProvider` / `blocksListFetchProvider`) — a stale
+    list is recoverable from the picker itself; the season chip already
+    had pull-to-refresh (sibling audit: N/A).
+  * A successful AI apply invalidates both fetch families in the
+    apply-result handling, so the created episode is visible in the pill
+    navigation without leaving the flow (the refetch rewrites the block's
+    Drift cache rows).
+
 - **Version bump:** `0.4.0-alpha.28+79 → 0.4.0-alpha.29+80` — issue #665,
   the apply create-or-assign recovery:
   * A refused apply (`409 episode.number-already-exists`) renders a

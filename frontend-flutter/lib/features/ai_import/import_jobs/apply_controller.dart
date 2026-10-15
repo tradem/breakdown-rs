@@ -17,6 +17,8 @@ import '../../../data/ai_import_providers.dart';
 import '../../../data/ai_import_repository.dart';
 import '../../../domain/reconciliation/reconciliation_scheduler.dart';
 import '../../../l10n/generated/app_localizations.dart';
+import '../../blocks/blocks_controller.dart';
+import '../../episodes/episodes_controller.dart';
 import 'job_status_controller.dart';
 
 part 'apply_controller.g.dart';
@@ -672,6 +674,15 @@ class AiApplyController extends _$AiApplyController {
         // user left the preview — writing `state` on a disposed notifier
         // throws. The RESULT still returns (the caller is gone anyway).
         if (!ref.mounted) return Right(response);
+        // Issue #666: the apply created episodes server-side without any
+        // client-side cache invalidation — the scope pickers served a stale
+        // list until the TTL expired. Invalidate the whole episode/block
+        // fetch families (the affected block's instances included) so the
+        // new episode is visible in the pill navigation without leaving the
+        // flow; the refetch rewrites the Drift cache rows for the block.
+        ref
+          ..invalidate(episodesListFetchProvider)
+          ..invalidate(blocksListFetchProvider);
         state = AiApplyState(
           rows: state.rows,
           context: context,

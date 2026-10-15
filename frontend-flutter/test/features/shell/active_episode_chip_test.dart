@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 // Co-authored-by: deepseek-v4.1-flash (neuralwatt)
 
 import 'package:breakdown_api/breakdown_api.dart';
@@ -232,6 +233,73 @@ void main() {
       // Popped back to the opener.
       expect(find.byKey(const Key('open-picker')), findsOneWidget);
       expect(find.byKey(const Key('episode-scope-picker')), findsNothing);
+    });
+
+    testWidgets('pull-to-refresh refetches the shared seam and shows the '
+        'created episode (issue #666 — no stale list)', (tester) async {
+      // Cache-first seam: the first fetch serves the STALE list; after the
+      // invalidate the fetch serves the post-apply list with the new episode.
+      var fetchCount = 0;
+      final container = ProviderContainer(
+        overrides: [
+          episodesListFetchProvider('block-1', 'season-1').overrideWith((
+            ref,
+          ) async {
+            fetchCount++;
+            if (fetchCount == 1) {
+              return Right<ProblemError, List<EpisodeView>>([
+                _episode('episode-1', number: 1, name: 'Pilot'),
+              ]);
+            }
+            return Right<ProblemError, List<EpisodeView>>([
+              _episode('episode-1', number: 1, name: 'Pilot'),
+              _episode('episode-293', number: 293),
+            ]);
+          }),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: MaterialApp(
+            locale: const Locale('de'),
+            supportedLocales: AppLocalizations.supportedLocales,
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            home: const EpisodeScopePickerScreen(
+              seasonId: 'season-1',
+              blockId: 'block-1',
+            ),
+          ),
+        ),
+      );
+      await settle(tester);
+      expect(
+        find.byKey(const Key('episode-scope-pick-episode-1')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const Key('episode-scope-pick-episode-293')),
+        findsNothing,
+      );
+
+      // Pull to refresh: the invalidate re-runs the fetch, which now
+      // returns the post-apply rows.
+      final gesture = await tester.startGesture(
+        tester.getCenter(find.byKey(const Key('episode-scope-picker'))),
+      );
+      await gesture.moveBy(const Offset(0, 100));
+      await tester.pump(const Duration(milliseconds: 100));
+      await gesture.moveBy(const Offset(0, 300));
+      await tester.pump(const Duration(milliseconds: 100));
+      await gesture.up();
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const Key('episode-scope-pick-episode-293')),
+        findsOneWidget,
+      );
     });
 
     testWidgets('empty list → the honest empty narrative', (tester) async {
