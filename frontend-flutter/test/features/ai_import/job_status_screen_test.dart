@@ -161,7 +161,7 @@ void main() {
             supportedLocales: const [Locale('en'), Locale('de')],
             localizationsDelegates: AppLocalizations.localizationsDelegates,
             // Goldens must be deterministic (AGENTS.md §6): the Karl
-            // Klammer excited wobble is time-driven, so the golden
+            // Kleiderbügel excited wobble is time-driven, so the golden
             // pumps freeze animations — the static excited pose is
             // exactly the remove-animations rendering (spec
             // `flutter-easter-eggs`).

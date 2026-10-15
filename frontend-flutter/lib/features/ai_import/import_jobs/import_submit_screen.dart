@@ -13,7 +13,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../l10n/app_localizations_provider.dart';
 import '../clippy/clippy_trigger.dart';
-import '../clippy/karl_klammer_overlay.dart';
+import '../clippy/karl_kleiderbuegel_overlay.dart';
 import '../ai_config/ai_config_screen.dart';
 import 'import_state.dart';
 import '../naming_line.dart';
@@ -58,10 +58,10 @@ class AiImportSubmitScreen extends ConsumerWidget {
           ),
         ],
       ),
-      // Karl Klammer (issue #516): the submit screen is always idle-flow
+      // Karl Kleiderbügel (issue #516): the submit screen is always idle-flow
       // (the upload progress is a dialog-free inline row; job lifecycle
       // reactions live on the jobs/status screens).
-      body: KarlKlammerOverlay(
+      body: KarlKleiderbuegelOverlay(
         flowState: ClippyFlowState.idle,
         child: ListView(
           key: const Key('ai-import-submit-screen'),

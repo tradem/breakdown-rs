@@ -180,7 +180,7 @@ void main() {
       UncontrolledProviderScope(
         container: container,
         child: MaterialApp(
-          // Deterministic host tests (AGENTS.md §6): the Karl Klammer
+          // Deterministic host tests (AGENTS.md §6): the Karl Kleiderbügel
           // figure is time-driven, so freeze animations (spec
           // `flutter-easter-eggs`).
           builder: (context, child) => MediaQuery(

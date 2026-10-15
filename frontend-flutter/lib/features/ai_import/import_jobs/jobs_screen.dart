@@ -12,7 +12,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../design/spacing.dart';
 import '../../../l10n/app_localizations_provider.dart';
 import '../clippy/clippy_trigger.dart';
-import '../clippy/karl_klammer_overlay.dart';
+import '../clippy/karl_kleiderbuegel_overlay.dart';
 import '../../../l10n/locale_formatters.dart';
 import 'import_submit_screen.dart' show AiImportSubmitScreen;
 import 'job_status_screen.dart';
@@ -46,7 +46,7 @@ class AiImportJobsScreen extends ConsumerWidget {
         ref.watch(aiImportJobsViewControllerProvider).isLoading &&
         state.rows.isEmpty;
 
-    // Karl Klammer flow state (issue #516): derived ONLY from this
+    // Karl Kleiderbügel flow state (issue #516): derived ONLY from this
     // screen's own watched state — never from a second projection call.
     final clippyState = state.error != null && state.rows.isEmpty
         ? ClippyFlowState.error
@@ -58,7 +58,7 @@ class AiImportJobsScreen extends ConsumerWidget {
 
     return Scaffold(
       appBar: AppBar(title: Text(l10n.aiJobsTitle)),
-      body: KarlKlammerOverlay(
+      body: KarlKleiderbuegelOverlay(
         flowState: clippyState,
         child: RefreshIndicator(
           onRefresh: () =>

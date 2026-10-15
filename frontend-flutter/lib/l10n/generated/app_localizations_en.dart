@@ -2867,10 +2867,10 @@ class AppLocalizationsEn extends AppLocalizations {
       'The setting could not be read – the default (enabled) stays active.';
 
   @override
-  String get settingsEasterEggsKarlKlammer => 'Karl Klammer';
+  String get settingsEasterEggsKarlKleiderbuegel => 'Karl Kleiderbügel';
 
   @override
-  String get settingsEasterEggsKarlKlammerSubtitle =>
+  String get settingsEasterEggsKarlKleiderbuegelSubtitle =>
       'The clothes-hanger assistant helps in AI import with tips and quips.';
 
   @override
@@ -2937,7 +2937,7 @@ class AppLocalizationsEn extends AppLocalizations {
       'Order is half the battle. The other half is the right hanger.';
 
   @override
-  String get aiImportClippyDismissTooltip => 'Hide Karl Klammer';
+  String get aiImportClippyDismissTooltip => 'Hide Karl Kleiderbügel';
 
   @override
   String get seasonsArchivedBadge => 'Archived';

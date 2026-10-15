@@ -12,15 +12,15 @@ import '../../../data/settings/easter_eggs_store.dart';
 import '../../../l10n/app_localizations_provider.dart';
 import '../../../design/spacing.dart';
 import 'clippy_trigger.dart';
-import 'karl_klammer_figure.dart';
+import 'karl_kleiderbuegel_figure.dart';
 
-/// Karl Klammer overlay (issue #516, capability `flutter-easter-eggs`):
+/// Karl Kleiderbügel overlay (issue #516, capability `flutter-easter-eggs`):
 /// wraps an AI-Import screen's body and shows the clothes-hanger
 /// assistant reacting to the given [ClippyFlowState].
 ///
 /// Hard requirements (spec `flutter-easter-eggs`):
 /// - **Visible only while its own egg flag is enabled** — `ref.watch`es
-///   [easterEggProvider] for [EasterEggId.karlKlammer]; toggled off, the
+///   [easterEggProvider] for [EasterEggId.karlKleiderbuegel]; toggled off, the
 ///   bubble (and any running timers/animations) disappear immediately
 ///   without residue.
 /// - **Non-modal** — an `Align(bottomLeft)` bubble above the content;
@@ -34,8 +34,8 @@ import 'karl_klammer_figure.dart';
 ///   label announces the tip; the figure internals are excluded. The
 ///   system "remove animations" setting renders a static pose.
 /// - No network calls, no event tracking.
-class KarlKlammerOverlay extends ConsumerStatefulWidget {
-  const KarlKlammerOverlay({
+class KarlKleiderbuegelOverlay extends ConsumerStatefulWidget {
+  const KarlKleiderbuegelOverlay({
     required this.flowState,
     required this.child,
     this.idlePeriod,
@@ -55,10 +55,12 @@ class KarlKlammerOverlay extends ConsumerStatefulWidget {
   final Duration? idlePeriod;
 
   @override
-  ConsumerState<KarlKlammerOverlay> createState() => _KarlKlammerOverlayState();
+  ConsumerState<KarlKleiderbuegelOverlay> createState() =>
+      _KarlKleiderbuegelOverlayState();
 }
 
-class _KarlKlammerOverlayState extends ConsumerState<KarlKlammerOverlay> {
+class _KarlKleiderbuegelOverlayState
+    extends ConsumerState<KarlKleiderbuegelOverlay> {
   static const _defaultIdlePeriod = Duration(seconds: 45);
 
   bool _dismissed = false;
@@ -73,7 +75,7 @@ class _KarlKlammerOverlayState extends ConsumerState<KarlKlammerOverlay> {
   }
 
   @override
-  void didUpdateWidget(KarlKlammerOverlay oldWidget) {
+  void didUpdateWidget(KarlKleiderbuegelOverlay oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.flowState != widget.flowState) {
       _onFlowState();
@@ -142,7 +144,7 @@ class _KarlKlammerOverlayState extends ConsumerState<KarlKlammerOverlay> {
   @override
   Widget build(BuildContext context) {
     final easterEggsEnabled = ref.watch(
-      easterEggProvider(EasterEggId.karlKlammer),
+      easterEggProvider(EasterEggId.karlKleiderbuegel),
     );
     if (!easterEggsEnabled) {
       // Immediate, residue-free disappearance: no bubble, no skeleton,
@@ -179,7 +181,7 @@ class _KarlKlammerOverlayState extends ConsumerState<KarlKlammerOverlay> {
                   borderRadius: BorderRadius.circular(AppSpacing.space12),
                   elevation: 2,
                   child: InkWell(
-                    key: const Key('karl-klammer-bubble'),
+                    key: const Key('karl-kleiderbuegel-bubble'),
                     borderRadius: BorderRadius.circular(AppSpacing.space12),
                     onTap: _dismiss,
                     child: Padding(
@@ -188,8 +190,8 @@ class _KarlKlammerOverlayState extends ConsumerState<KarlKlammerOverlay> {
                         mainAxisSize: MainAxisSize.min,
                         crossAxisAlignment: CrossAxisAlignment.end,
                         children: [
-                          KarlKlammerFigure(
-                            key: const Key('karl-klammer-figure'),
+                          KarlKleiderbuegelFigure(
+                            key: const Key('karl-kleiderbuegel-figure'),
                             pose: tip.pose,
                             animate: !disableAnimations,
                           ),

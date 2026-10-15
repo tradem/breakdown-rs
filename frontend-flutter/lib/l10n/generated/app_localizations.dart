@@ -4792,17 +4792,17 @@ abstract class AppLocalizations {
   /// **'Die Einstellung konnte nicht gelesen werden – Standard (eingeschaltet) bleibt aktiv.'**
   String get settingsEasterEggsError;
 
-  /// No description provided for @settingsEasterEggsKarlKlammer.
+  /// No description provided for @settingsEasterEggsKarlKleiderbuegel.
   ///
   /// In de, this message translates to:
-  /// **'Karl Klammer'**
-  String get settingsEasterEggsKarlKlammer;
+  /// **'Karl Kleiderbügel'**
+  String get settingsEasterEggsKarlKleiderbuegel;
 
-  /// No description provided for @settingsEasterEggsKarlKlammerSubtitle.
+  /// No description provided for @settingsEasterEggsKarlKleiderbuegelSubtitle.
   ///
   /// In de, this message translates to:
   /// **'Der Kleiderbügel-Assistent hilft im KI-Import mit Tipps und Sprüchen.'**
-  String get settingsEasterEggsKarlKlammerSubtitle;
+  String get settingsEasterEggsKarlKleiderbuegelSubtitle;
 
   /// No description provided for @settingsEasterEggsDejavuCat.
   ///
@@ -4915,7 +4915,7 @@ abstract class AppLocalizations {
   /// No description provided for @aiImportClippyDismissTooltip.
   ///
   /// In de, this message translates to:
-  /// **'Karl Klammer ausblenden'**
+  /// **'Karl Kleiderbügel ausblenden'**
   String get aiImportClippyDismissTooltip;
 
   /// No description provided for @seasonsArchivedBadge.

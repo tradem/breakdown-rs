@@ -15,8 +15,9 @@ import '../../core/result.dart';
 /// partial write stays recoverable (Decision D1 of
 /// `615-dejavu-cat-easter-egg`).
 enum EasterEggId {
-  /// The Karl Klammer clothes-hanger assistant in the AI Import view.
-  karlKlammer('easter_eggs.karl_klammer'),
+  /// The Karl Kleiderbügel clothes-hanger assistant in the AI Import
+  /// view (renamed from "Karl Klammer" in issue #670).
+  karlKleiderbuegel('easter_eggs.karl_kleiderbuegel'),
 
   /// The October-only Deja-vu Cat on the launch splash.
   dejaVuCat('easter_eggs.dejavu_cat');
@@ -64,6 +65,11 @@ class EasterEggsStore {
   /// removed; a leftover is harmless and ignored on the next boot.
   static const String legacyKey = 'easter_eggs';
 
+  /// The pre-#670 per-egg key of the Karl egg (then "Karl Klammer").
+  /// Read once during migration, then removed; a leftover is harmless
+  /// and ignored on the next boot (issue #670 rename).
+  static const String legacyKarlKlammerKey = 'easter_eggs.karl_klammer';
+
   final SharedPreferencesAsync _prefs;
 
   /// Reads one egg; `null` when none is stored yet (first launch —
@@ -104,6 +110,26 @@ class EasterEggsStore {
       final values = <EasterEggId, bool?>{};
       for (final id in EasterEggId.values) {
         values[id] = await _prefs.getBool(id.prefsKey);
+      }
+
+      // One-time rename migration (issue #670): carry the stored
+      // "Karl Klammer" toggle over to the renamed key. Only fires when
+      // the new key holds no value yet — an explicit post-rename choice
+      // always wins. The old key is removed in either case (a leftover
+      // would be harmless, but a clean cut keeps the store tidy).
+      const karl = EasterEggId.karlKleiderbuegel;
+      final oldKarl = await _prefs.getBool(legacyKarlKlammerKey);
+      if (oldKarl != null) {
+        if (values[karl] == null) {
+          await _prefs.setBool(karl.prefsKey, oldKarl);
+          values[karl] = oldKarl;
+        }
+        try {
+          await _prefs.remove(legacyKarlKlammerKey);
+        } on Exception {
+          // Non-fatal: the leftover old key is ignored on the next
+          // boot (the renamed value already won the migration).
+        }
       }
 
       final legacy = await _prefs.getBool(legacyKey);
