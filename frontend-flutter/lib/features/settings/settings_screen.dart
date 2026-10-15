@@ -22,7 +22,7 @@ import '../../l10n/app_localizations_provider.dart';
 import '../../l10n/generated/app_localizations.dart';
 import '../ai_import/ai_config/ai_config_screen.dart';
 import '../ai_import/clippy/clippy_trigger.dart';
-import '../ai_import/clippy/karl_klammer_figure.dart';
+import '../ai_import/clippy/karl_kleiderbuegel_figure.dart';
 import '../easter_eggs/dejavu_cat.dart';
 
 /// Full-screen settings (issue #516, capability `flutter-settings-screen`):
@@ -379,7 +379,7 @@ class _EggSwitchRow extends ConsumerWidget {
 
 /// The localized name of an Easter egg (issue #615).
 String _eggTitle(AppLocalizations l10n, EasterEggId id) => switch (id) {
-  EasterEggId.karlKlammer => l10n.settingsEasterEggsKarlKlammer,
+  EasterEggId.karlKleiderbuegel => l10n.settingsEasterEggsKarlKleiderbuegel,
   EasterEggId.dejaVuCat => l10n.settingsEasterEggsDejavuCat,
 };
 
@@ -423,7 +423,7 @@ class _EggPreviewRow extends ConsumerWidget {
           width: double.infinity,
           child: Center(
             child: switch (id) {
-              EasterEggId.karlKlammer => KarlKlammerFigure(
+              EasterEggId.karlKleiderbuegel => KarlKleiderbuegelFigure(
                 pose: ClippyPose.neutral,
                 animate: !disableAnimations,
               ),
@@ -444,12 +444,13 @@ class _EggPreviewRow extends ConsumerWidget {
 
 /// The localized short description of an Easter egg (issue #615).
 String _eggSubtitle(AppLocalizations l10n, EasterEggId id) => switch (id) {
-  EasterEggId.karlKlammer => l10n.settingsEasterEggsKarlKlammerSubtitle,
+  EasterEggId.karlKleiderbuegel =>
+    l10n.settingsEasterEggsKarlKleiderbuegelSubtitle,
   EasterEggId.dejaVuCat => l10n.settingsEasterEggsDejavuCatSubtitle,
 };
 
 /// The row icon of an Easter egg (issue #615).
 IconData _eggIcon(EasterEggId id) => switch (id) {
-  EasterEggId.karlKlammer => Icons.celebration_outlined,
+  EasterEggId.karlKleiderbuegel => Icons.checkroom,
   EasterEggId.dejaVuCat => Icons.pets_outlined,
 };

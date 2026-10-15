@@ -3,8 +3,8 @@
 // Co-authored-by: glm-5.3-flash (opencode-go)
 // Co-authored-by: deepseek-v4.1-flash (neuralwatt)
 
-/// Pure Karl Klammer trigger logic (issue #516, Decision D4 of
-/// `add-karl-klammer-easter-egg`): maps an AI-Import flow state to a tip
+/// Pure Karl Kleiderbügel trigger logic (issue #516, Decision D4 of
+/// `add-karl-kleiderbuegel-easter-egg`): maps an AI-Import flow state to a tip
 /// (copy key) + pose. Deterministic — no wall clock, no randomness, no
 /// Flutter imports (Tier-1 unit testable).
 ///
@@ -13,7 +13,7 @@
 /// programmatic hanger figure.
 library;
 
-/// The AI-Import flow states Karl Klammer reacts to (issue §C).
+/// The AI-Import flow states Karl Kleiderbügel reacts to (issue §C).
 enum ClippyFlowState {
   /// No AI config present yet — the "It looks like you're writing a
   /// letter…" allusion offering the AI-config entry.

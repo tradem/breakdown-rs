@@ -410,7 +410,10 @@ void main() {
       expect(find.byKey(const Key('settings-save')), findsNothing);
       expect(find.byKey(const Key('settings-reset')), findsNothing);
       // …while general settings (per-egg Easter-eggs) stay available.
-      expect(find.byKey(const Key('settings-egg-karlKlammer')), findsOneWidget);
+      expect(
+        find.byKey(const Key('settings-egg-karlKleiderbuegel')),
+        findsOneWidget,
+      );
       expect(find.byKey(const Key('settings-egg-dejaVuCat')), findsOneWidget);
       expect(find.byKey(const Key('settings-prod-note')), findsOneWidget);
     });
@@ -424,15 +427,15 @@ void main() {
 
       final karlFlips = <bool>[];
       container.listen(
-        easterEggProvider(EasterEggId.karlKlammer),
+        easterEggProvider(EasterEggId.karlKleiderbuegel),
         (_, v) => karlFlips.add(v),
       );
 
-      await tester.tap(find.byKey(const Key('settings-egg-karlKlammer')));
+      await tester.tap(find.byKey(const Key('settings-egg-karlKleiderbuegel')));
       await pumpFrames(tester);
 
       expect(
-        container.read(easterEggProvider(EasterEggId.karlKlammer)),
+        container.read(easterEggProvider(EasterEggId.karlKleiderbuegel)),
         isFalse,
       );
       // The other egg is untouched (per-egg independence).
@@ -441,7 +444,7 @@ void main() {
       // Persisted on-device under the flat per-egg key.
       expect(
         await SharedPreferencesAsync().getBool(
-          EasterEggId.karlKlammer.prefsKey,
+          EasterEggId.karlKleiderbuegel.prefsKey,
         ),
         isFalse,
       );
@@ -491,7 +494,7 @@ void main() {
       await pumpScreen(tester);
 
       expect(
-        find.byKey(const Key('settings-egg-preview-karlKlammer')),
+        find.byKey(const Key('settings-egg-preview-karlKleiderbuegel')),
         findsOneWidget,
       );
       expect(
@@ -514,7 +517,7 @@ void main() {
       );
       // The other egg's preview is untouched (per-egg independence).
       expect(
-        find.byKey(const Key('settings-egg-preview-karlKlammer')),
+        find.byKey(const Key('settings-egg-preview-karlKleiderbuegel')),
         findsOneWidget,
       );
     });

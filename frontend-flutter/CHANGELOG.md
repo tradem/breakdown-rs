@@ -21,6 +21,24 @@ releases are cut as `vX.Y.Z` tags (`v<build-name>`, enforced by
 
 ## [Unreleased]
 
+- **Version bump:** `0.4.0-alpha.26+77 → 0.4.0-alpha.27+78` — issue #670,
+  the Easter-egg redesign session outcome:
+  * **Déja-vu cat restyled** to the approved Ghibli-inspired artwork
+    (seated cat, big alert camera-facing eyes, tail around the front
+    paws; near-black radial fur gradient + blue-grey rim light, readable
+    in both themes). Hand-ported `CustomPainter` (decision D1 of
+    `670-easter-egg-redesign-karl-kleiderbuegel`); walk/glance/October
+    contracts unchanged. Cat + host-surface goldens regenerated.
+  * **"Karl Klammer" → "Karl Kleiderbügel"** app-wide: classes, files,
+    test keys, l10n strings (de/en) and the persisted prefs key
+    `easter_eggs.karl_klammer` → `easter_eggs.karl_kleiderbuegel` with a
+    one-time value migration. The figure is redrawn from the approved
+    user-drawn hanger SVG (wire twist, inner strut, glint lines,
+    expressive face); the SVG's `feDropShadow` is rebuilt Flutter-natively
+    (`MaskFilter.blur`). Settings row icon → `Icons.checkroom`.
+  * Historical references (archived OpenSpec change id
+    `add-karl-klammer-easter-egg`, issue titles) keep the old name.
+
 - **Version bump:** `0.4.0-alpha.25+76 → 0.4.0-alpha.26+77` — the
   2026-10-14 test-session fixes, four issues in one change chain:
   * issue #672: the "KI-Import-Aufträge" list gets its own account-drawer

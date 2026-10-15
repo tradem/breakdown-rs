@@ -14,7 +14,7 @@ import '../../../design/components/xml_prompt_editor.dart';
 import '../../../design/spacing.dart';
 import '../../../l10n/app_localizations_provider.dart';
 import '../clippy/clippy_trigger.dart';
-import '../clippy/karl_klammer_overlay.dart';
+import '../clippy/karl_kleiderbuegel_overlay.dart';
 import 'ai_config_controller.dart';
 import 'ai_config_state.dart';
 
@@ -40,7 +40,7 @@ class AiConfigScreen extends ConsumerWidget {
     final state = ref.watch(aiConfigControllerProvider);
     final controller = ref.read(aiConfigControllerProvider.notifier);
 
-    // Karl Klammer flow state (issue #516): first-run (no config) is
+    // Karl Kleiderbügel flow state (issue #516): first-run (no config) is
     // the classic Clippy trigger; command errors console; otherwise
     // idle. Derived ONLY from this screen's own watched state.
     final clippyState = state.commandError != null
@@ -51,7 +51,7 @@ class AiConfigScreen extends ConsumerWidget {
 
     return Scaffold(
       appBar: AppBar(title: Text(l10nOf(context).aiConfigTitle)),
-      body: KarlKlammerOverlay(
+      body: KarlKleiderbuegelOverlay(
         flowState: clippyState,
         child: ListView(
           key: const Key('ai-config-screen'),

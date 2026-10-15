@@ -2900,10 +2900,10 @@ class AppLocalizationsDe extends AppLocalizations {
       'Die Einstellung konnte nicht gelesen werden – Standard (eingeschaltet) bleibt aktiv.';
 
   @override
-  String get settingsEasterEggsKarlKlammer => 'Karl Klammer';
+  String get settingsEasterEggsKarlKleiderbuegel => 'Karl Kleiderbügel';
 
   @override
-  String get settingsEasterEggsKarlKlammerSubtitle =>
+  String get settingsEasterEggsKarlKleiderbuegelSubtitle =>
       'Der Kleiderbügel-Assistent hilft im KI-Import mit Tipps und Sprüchen.';
 
   @override
@@ -2970,7 +2970,7 @@ class AppLocalizationsDe extends AppLocalizations {
       'Ordnung ist das halbe Leben. Die andere Hälfte ist der passende Bügel.';
 
   @override
-  String get aiImportClippyDismissTooltip => 'Karl Klammer ausblenden';
+  String get aiImportClippyDismissTooltip => 'Karl Kleiderbügel ausblenden';
 
   @override
   String get seasonsArchivedBadge => 'Archiviert';

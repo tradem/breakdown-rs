@@ -3,7 +3,7 @@
 // Co-authored-by: glm-5.3-flash (opencode-go)
 // Co-authored-by: deepseek-v4.1-flash (neuralwatt)
 
-// Tier-1 unit tests for the pure Karl Klammer trigger logic (issue #516,
+// Tier-1 unit tests for the pure Karl Kleiderbügel trigger logic (issue #516,
 // Decision D4): state → tip/pose mapping, deterministic idle cycling.
 
 import 'package:flutter_test/flutter_test.dart';

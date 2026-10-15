@@ -229,7 +229,10 @@ void main() {
       expect(find.byKey(const Key('profile-account-drawer')), findsNothing);
       expect(find.byKey(const Key('settings-screen')), findsOneWidget);
       expect(find.byKey(const Key('settings-appbar')), findsOneWidget);
-      expect(find.byKey(const Key('settings-egg-karlKlammer')), findsOneWidget);
+      expect(
+        find.byKey(const Key('settings-egg-karlKleiderbuegel')),
+        findsOneWidget,
+      );
       // Issue #644: the AI section grew the list — the dev URI field now
       // sits below the fold at this viewport (the ListView builds lazily,
       // so the key is not even IN the tree until scrolled to).

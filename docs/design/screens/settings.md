@@ -41,12 +41,12 @@ stays hidden (graceful-degradation rule).
   {^ "Allgemein"
     --
     "Easter-Eggs"
-    { "Karl Klammer" | [x] }
+    { "Karl Kleiderbügel" | [x] }
     { "Déjà-vu-Katze" | [x] }
     "Kleine Überraschungen in der App lassen sich ein- und ausschalten."
     --
     "Vorschau"
-    {^ [Karl-Klammer-Figur] }
+    {^ [Karl-Kleiderbügel-Figur] }
     {^ [Déjà-vu-Katze auf einem Streifzug] }
     "Jedes Ei lässt sich hier in Ruhe ansehen — unabhängig vom Monat."
     --
@@ -79,11 +79,11 @@ note (store compliance).
 | App bar title | Top app bar | Screen identity | `settings.title` |
 | General section | Section header | Groups always-available settings | `settings.general` |
 | Easter-eggs group | Section header | Labels the per-egg switch list | `settings.easterEggs` + `settings.easterEggsSubtitle` |
-| Karl Klammer switch | Switch list tile | Per-egg preference (default ON) | `settings.easterEggsKarlKlammer` + `settings.easterEggsKarlKlammerSubtitle` |
+| Karl Kleiderbügel switch | Switch list tile | Per-egg preference (default ON) | `settings.easterEggsKarlKleiderbuegel` + `settings.easterEggsKarlKleiderbuegelSubtitle` |
 | Deja-vu Cat switch | Switch list tile | Per-egg preference (default ON; October-only effect on live surfaces) | `settings.easterEggsDejavuCat` + `settings.easterEggsDejavuCatSubtitle` |
 | Gallery preview header | Section header | Labels the replay/preview area (issue #640) | `settings.easterEggsPreview` |
 | Gallery preview line | Text | Explains the month-independent preview | `settings.easterEggsPreviewSubtitle` |
-| Karl Klammer preview | Preview card | Static figure render of the egg (issue #640) | n/a (graphic, no copy) |
+| Karl Kleiderbügel preview | Preview card | Static figure render of the egg (issue #640) | n/a (graphic, no copy) |
 | Deja-vu Cat preview | Preview card | Bounded walker render of the egg — shown only while the egg switch is ON (issue #640) | n/a (graphic, no copy) |
 | AI section | Section header | Groups the AI-configuration and AI-imports entries (issue #644) | `settings.ai` |
 | AI-configuration entry | List item (push, chevron) | Central entry to `AiConfigScreen` (issue #643); visible only while the season-scoped membership resolves to an active costume-dept role — see Interactions | `settings.aiConfig` + `settings.aiConfigSubtitle` |
@@ -120,7 +120,7 @@ disappears with the same flip.
 
 ## Interactions
 - Flipping an Easter-eggs switch persists that egg's value and flips its
-global notifier immediately — the matching consumer (Karl Klammer
+global notifier immediately — the matching consumer (Karl Kleiderbügel
 overlay / splash + empty-state cat) updates live, the other egg is
 unaffected; the egg's gallery preview follows the same flip.
 - The gallery previews are static/bounded renders of the egg figures,
