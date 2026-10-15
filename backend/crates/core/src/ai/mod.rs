@@ -3,6 +3,7 @@
 // Co-authored-by: gpt-5.6-luna (opencode-go)
 // Co-authored-by: deepseek-v4-flash (opencode-go)
 // Co-authored-by: qwen3.8-flash (opencode-go)
+// Co-authored-by: glm-5.3-flash (neuralwatt)
 
 //! AI-assisted script and shooting-schedule import bounded context.
 //!

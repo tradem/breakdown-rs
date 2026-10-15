@@ -21,6 +21,37 @@ releases are cut as `vX.Y.Z` tags (`v<build-name>`, enforced by
 
 ## [Unreleased]
 
+- **Version bump:** `0.4.0-alpha.25+76 → 0.4.0-alpha.26+77` — the
+  2026-10-14 test-session fixes, four issues in one change chain:
+  * issue #672: the "KI-Import-Aufträge" list gets its own account-drawer
+    entry (`profile-ai-imports`) between Einstellungen and Abmelden,
+    pushing the jobs screen via the destination-navigator seam under the
+    named route `ai-import-jobs` (the apply outcome's `popUntil` target);
+    the redundant Settings entry was REMOVED (the jobs list is
+    operational, not a setting — Settings keeps the AI-configuration
+    entry). New ARB key `commonAiImportJobs`; `settingsAiImports` /
+    `settingsAiImportsSubtitle` removed; drawer + settings goldens
+    regenerated.
+  * issue #668 (L2): `SceneTile` renders the scene NUMBER as the title
+    with a truncated excerpt below it (first sentence + `…`, no
+    mid-sentence hard cut; `null`/empty summary → no excerpt row) — a
+    long summary no longer renders as one giant ellipsized line. The full
+    summary stays in the scene detail screen. Scenes goldens regenerated.
+  * issue #669: the disabled "Auf Drehtag planen" button explains itself
+    when the episode has no shooting days (fresh script imports create
+    none by design): inline hint + "Drehtag anlegen" quick-create
+    affordance opening the existing `CreateShootingDaySheet`, sourced
+    from the parent `EpisodeView` the user navigated from (no second
+    projection lookup). `SceneDetailScreen` carries the episode DTO at
+    all three push sites. New ARB keys `sceneDetailNoDayCandidatesHint` /
+    `sceneDetailCreateFirstDay`; scene-detail golden regenerated.
+  * issue #667: scope pills split across TWO rows per the agreed #638
+    design (row 1 profile + Season + Block, row 2 the Episode chip, which
+    collapses with its chip); the offline pill's degraded path is now
+    reachable at cold start — the first passive carrier event runs the
+    single HTTP confirmation probe (previously only re-connections
+    probed, so "Wi-Fi on, backend unreachable" stayed silently online).
+
 - **Version bump:** `0.4.0-alpha.21+72 → 0.4.0-alpha.22+73` — backend
   crate versions on the About screen (issue #656): the backend's new
   `GET /v1/meta/versions` route is exposed

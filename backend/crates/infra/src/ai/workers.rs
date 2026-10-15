@@ -4,6 +4,7 @@
 // Co-authored-by: deepseek-v4-flash (opencode-go)
 // Co-authored-by: longcat-2.0-free (opencode)
 // Co-authored-by: qwen3.8-flash (opencode-go)
+// Co-authored-by: glm-5.3-flash (neuralwatt)
 
 use std::sync::Arc;
 use std::time::Instant;

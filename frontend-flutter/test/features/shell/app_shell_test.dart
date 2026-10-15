@@ -5,6 +5,7 @@
 // Co-authored-by: space-bunny-free (opencode-go)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
 // Co-authored-by: deepseek-v4.1-flash (neuralwatt)
+// Co-authored-by: glm-5.3-flash (neuralwatt)
 
 // Widget tests for the adaptive navigation shell (`redesign-app-shell-navigation`
 // tasks 5.1/5.2): three morphologies via `tester.view.physicalSize`

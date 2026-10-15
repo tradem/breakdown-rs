@@ -26,6 +26,26 @@ tag. Never edit a released entry afterwards.
 
 ### Added
 
+- **Deterministic post-extraction meta-summary guard (issue #668):** the
+  hardened extraction prompt (issue #607) bans meta-summaries, but the
+  2026-10-14 test session's model ignored the ban in 45 of 95 scenes
+  ("Outline-style block with heading and day marker only. No characters,
+  costumes, or props described." — six textual variants) and the garbage
+  flowed through preview → apply → projection → app. The #607 intent is
+  now enforced mechanically in the script-extraction pipeline BEFORE the
+  preview is stored: `is_meta_summary` / `sanitize_meta_summary`
+  (`breakdown_core::ai::preview`) match conservatively on the observed
+  meta-shapes — a closed marker list (observed English variants plus
+  conservative German ones), case- and whitespace-folded; a leading-phrase
+  heuristic was evaluated and deliberately rejected (a false positive
+  would destroy a legitimate summary such as "This block party turns
+  chaotic…"). Each rewrite is `warn!`-logged with the job id and
+  `draft_ref`, and the job-level rewrite count is logged on success — the
+  prompt/model regression signal. No wire change (`openapi.yaml`
+  untouched, telemetry struct and DB schema untouched); previews already
+  stored with meta-summaries stay as they are (immutability) — a re-import
+  re-extracts cleanly and the Flutter fix (frontend-flutter CHANGELOG,
+  issue #668) renders the old rows harmlessly.
 - **Credits route with deduped co-authors + human roles (issue #655):**
   `GET /v1/meta/credits` returns the LLM co-authors (deduped per
   `model + provider` from the repo AGENTS.md `Co-authored-by:` headers;
@@ -258,6 +278,14 @@ tag. Never edit a released entry afterwards.
   chunk (the heading is that scene's heading).
 
 ### Changed
+- **Version bumps (dependency-order lockstep, additive MINORs, issue
+  #668):** `core` 0.29.0 → 0.30.0 (new public `is_meta_summary` /
+  `sanitize_meta_summary` in `breakdown_core::ai::preview`), `infra`
+  0.34.0 → 0.35.0 (script-extraction worker wires the guard into
+  `process_text` before the preview is stored; re-pins core), `api`
+  0.28.0 → 0.29.0 (re-pins core/infra; no code change). The internal
+  workspace crates (`test_support`, `integration-tests`, `architecture`,
+  `fuzz-targets`) re-pin their path dependencies in the same commit;
 - **Version bumps (MSRV, issue `#605`).** `core 0.23.0 → 0.24.0`,
   `infra 0.28.0 → 0.29.0` (re-pins core), `api 0.21.0 → 0.22.0` (re-pins
   core/infra); MSRV `rust-version = 1.98 → 1.99` (Rust 1.99.0, stable
