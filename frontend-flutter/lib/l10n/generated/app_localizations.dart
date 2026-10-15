@@ -2950,6 +2950,18 @@ abstract class AppLocalizations {
   /// **'Auf Drehtag planen'**
   String get sceneDetailScheduleOnDay;
 
+  /// No description provided for @sceneDetailNoDayCandidatesHint.
+  ///
+  /// In de, this message translates to:
+  /// **'Noch kein Drehtag in dieser Episode — lege zuerst einen an oder importiere die Dispo.'**
+  String get sceneDetailNoDayCandidatesHint;
+
+  /// No description provided for @sceneDetailCreateFirstDay.
+  ///
+  /// In de, this message translates to:
+  /// **'Drehtag anlegen'**
+  String get sceneDetailCreateFirstDay;
+
   /// No description provided for @sceneDetailScheduleTitle.
   ///
   /// In de, this message translates to:

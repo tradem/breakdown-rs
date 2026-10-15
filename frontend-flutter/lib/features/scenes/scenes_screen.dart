@@ -136,7 +136,7 @@ class ScenesScreen extends ConsumerWidget {
                                             ),
                                             builder: (_) => SceneDetailScreen(
                                               seasonId: seasonId,
-                                              episodeId: episode.id,
+                                              episode: episode,
                                               sceneId:
                                                   (rows[i] as ProjectedSceneRow)
                                                       .scene

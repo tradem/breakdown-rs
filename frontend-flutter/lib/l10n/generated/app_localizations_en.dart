@@ -1738,6 +1738,13 @@ class AppLocalizationsEn extends AppLocalizations {
   String get sceneDetailScheduleOnDay => 'Schedule on day';
 
   @override
+  String get sceneDetailNoDayCandidatesHint =>
+      'No shooting day in this episode yet — create one first or import the schedule.';
+
+  @override
+  String get sceneDetailCreateFirstDay => 'Create shooting day';
+
+  @override
   String get sceneDetailScheduleTitle => 'Schedule on shooting day';
 
   @override

@@ -474,6 +474,8 @@
 "sceneDetailNoShootingDaysReportHint": "Schedule the scene on a shooting day – the planned-vs-actual (Soll/Ist) report then opens from that day's board.",
   "sceneDetailOpenDayBoard": "Open day board",
   "sceneDetailScheduleOnDay": "Schedule on day",
+  "sceneDetailNoDayCandidatesHint": "No shooting day in this episode yet — create one first or import the schedule.",
+  "sceneDetailCreateFirstDay": "Create shooting day",
   "sceneDetailScheduleTitle": "Schedule on shooting day",
   "sceneDetailFetchError": "Could not load the scene ({code}).",
   "sceneDetailGone": "This scene is no longer available.",
