@@ -102,6 +102,19 @@ class CharacterRepository extends BaseRepository {
     ),
   );
 
+  /// Role-type correction (issue #678): the manual fix path for a wrong
+  /// import classification (#677). `request.version` is the character's
+  /// own version (stale → 409 concurrency.version-mismatch).
+  Future<Result<int>> updateCategory(
+    String id,
+    UpdateCharacterCategoryRequest request,
+  ) => run(
+    () => api.getHandlersApi().updateCharacterCategory(
+      id: id,
+      updateCharacterCategoryRequest: request,
+    ),
+  );
+
   /// Full-replacement measurements editor (all seven fields required
   /// strings; empty strings remain valid submissions — no client-side
   /// numeric validation).
@@ -172,6 +185,17 @@ UpdateContactInfoRequest buildContactRequest({
   (b) => b
     ..contactInfo.email = email
     ..contactInfo.phone = phone
+    ..version = version,
+);
+
+/// Builds the role-type correction request (issue #678) from the picked
+/// category + the character's own version echo (stale → 409).
+UpdateCharacterCategoryRequest buildCategoryRequest({
+  required CharacterCategory category,
+  required int version,
+}) => UpdateCharacterCategoryRequest(
+  (b) => b
+    ..category = category
     ..version = version,
 );
 

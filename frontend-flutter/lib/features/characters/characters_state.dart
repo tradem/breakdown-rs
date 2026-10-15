@@ -136,6 +136,20 @@ class CharactersScreenState {
 /// Category chip label for the exhaustive `main_cast|guest|extra`
 /// discriminator (unknown variants never reach the UI — the DTO strictly
 /// rejects them at parse time).
+/// Localized name for ONE category (the picker sheet, issue #678).
+// The wildcard is forward-compat: a category the current build does not know
+// degrades to the shared unknown copy instead of failing the sheet.
+// ignore: unnecessary_wildcard_pattern
+String characterCategoryName(
+  AppLocalizations l10n,
+  CharacterCategory category,
+) => switch (category) {
+  CharacterCategory.mainCast => l10n.characterCategoryMain,
+  CharacterCategory.guest => l10n.characterCategoryGuest,
+  CharacterCategory.extra => l10n.characterCategoryExtra,
+  _ => l10n.commonUnknown,
+};
+
 String characterCategoryLabel(AppLocalizations l10n, CharacterView character) {
   final wire = serializers.serializeWith(
     CharacterCategory.serializer,

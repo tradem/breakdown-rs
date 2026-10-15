@@ -96,6 +96,7 @@ use utoipa::OpenApi;
         handlers::list_characters,
         handlers::update_measurements,
         handlers::update_contact_info,
+        handlers::update_character_category,
         handlers::create_costume,
         handlers::get_costume,
         handlers::list_costumes,

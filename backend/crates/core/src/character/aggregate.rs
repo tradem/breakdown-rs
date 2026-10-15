@@ -11,7 +11,9 @@ use uuid::Uuid;
 use crate::shared::{AggregateVersion, EventMetadata, SeasonId};
 
 use super::category::CharacterCategory;
-use super::commands::{CreateCharacter, UpdateContactInfo, UpdateMeasurements};
+use super::commands::{
+    CreateCharacter, UpdateCharacterCategory, UpdateContactInfo, UpdateMeasurements,
+};
 use super::error::CharacterError;
 use super::events::{CharacterEvent, CharacterMeasurements, ContactInfo};
 
@@ -76,6 +78,12 @@ impl Apply for CharacterAggregate {
                 ..
             } => {
                 self.contact_info = contact_info;
+                self.version = version;
+            }
+            CharacterEvent::CategoryChanged {
+                category, version, ..
+            } => {
+                self.category = category;
                 self.version = version;
             }
         }
@@ -157,6 +165,36 @@ impl Command<UpdateContactInfo> for CharacterAggregate {
         Ok(vec![CharacterEvent::ContactInfoUpdated {
             id: self.id,
             contact_info: cmd.contact_info,
+            version: new_version,
+        }])
+    }
+}
+
+impl Command<UpdateCharacterCategory> for CharacterAggregate {
+    type Error = CharacterError;
+    fn handle(
+        &self,
+        cmd: UpdateCharacterCategory,
+        _ctx: Context<'_, Self>,
+    ) -> Result<Vec<Self::Event>, Self::Error> {
+        if cmd.version != self.version {
+            return Err(CharacterError::VersionMismatch {
+                expected: cmd.version,
+                actual: self.version,
+            });
+        }
+        if cmd.category == self.category {
+            // State-based idempotent no-op (same pattern as the costume
+            // category set): a repeat write changes nothing and emits no
+            // event.
+            return Err(CharacterError::ValidationError(
+                "Category unchanged".to_string(),
+            ));
+        }
+        let new_version = self.version.next();
+        Ok(vec![CharacterEvent::CategoryChanged {
+            id: self.id,
+            category: cmd.category,
             version: new_version,
         }])
     }

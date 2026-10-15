@@ -26,6 +26,20 @@ tag. Never edit a released entry afterwards.
 
 ### Added
 
+- **Editable character role type (issue #678):** `PATCH
+  /v1/characters/{id}/category` dispatches the new `UpdateCharacterCategory`
+  command (`CharacterCategoryChanged` event → aggregate apply → projector
+  updates `projection_character.category`), with the established optimistic
+  409 `concurrency.version-mismatch` on a stale version. Block-scoped
+  middleware enforcement like the sibling character-write routes. The Cast
+  screen's role-type chip is now an `ActionChip` opening the three-category
+  picker sheet; picking the current category is a no-op, a change
+  dispatches with the acted-on row's version and reconciles through the
+  shared refresh. The manual correction path for #677's import
+  classification.
+
+### Added
+
 - **Extracted character categories flow through the AI script import
   (issue #677):** the extraction prompt classifies each named figure from
   the document's cast sections ("Darsteller" / "Gastrollen" / "Statisten" /

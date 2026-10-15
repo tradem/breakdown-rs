@@ -13,7 +13,9 @@ pub mod views;
 
 pub use aggregate::CharacterAggregate;
 pub use category::CharacterCategory;
-pub use commands::{CreateCharacter, UpdateContactInfo, UpdateMeasurements};
+pub use commands::{
+    CreateCharacter, UpdateCharacterCategory, UpdateContactInfo, UpdateMeasurements,
+};
 pub use error::CharacterError;
 pub use events::{CharacterEvent, CharacterMeasurements, ContactInfo};
 pub use ports::{CharacterCommands, CharacterRepository};

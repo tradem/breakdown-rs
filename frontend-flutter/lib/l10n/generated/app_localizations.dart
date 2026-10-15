@@ -362,6 +362,12 @@ abstract class AppLocalizations {
   /// **'Hauptbesetzung'**
   String get characterCategoryMain;
 
+  /// No description provided for @characterCategoryEditTooltip.
+  ///
+  /// In de, this message translates to:
+  /// **'Rollentyp ändern'**
+  String get characterCategoryEditTooltip;
+
   /// No description provided for @characterCategoryGuest.
   ///
   /// In de, this message translates to:

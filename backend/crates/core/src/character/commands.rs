@@ -53,6 +53,18 @@ pub struct UpdateContactInfo {
     pub version: AggregateVersion,
 }
 
+/// Change the role type of a Character (issue #678): the manual correction
+/// path for a wrong import classification (#677). Metadata correction only —
+/// no repertoire/appearance recomputation, consumers read the *current*
+/// category from the projection.
+#[derive(Debug, Clone, serde::Deserialize, utoipa::ToSchema)]
+pub struct UpdateCharacterCategory {
+    pub id: Uuid,
+    pub project_id: Option<ProjectId>,
+    pub category: CharacterCategory,
+    pub version: AggregateVersion,
+}
+
 impl kameo_es::CommandName for CreateCharacter {
     fn command_name() -> &'static str {
         "CreateCharacter"
@@ -68,5 +80,11 @@ impl kameo_es::CommandName for UpdateMeasurements {
 impl kameo_es::CommandName for UpdateContactInfo {
     fn command_name() -> &'static str {
         "UpdateContactInfo"
+    }
+}
+
+impl kameo_es::CommandName for UpdateCharacterCategory {
+    fn command_name() -> &'static str {
+        "UpdateCharacterCategory"
     }
 }

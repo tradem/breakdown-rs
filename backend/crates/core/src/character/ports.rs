@@ -13,7 +13,9 @@ use crate::error::DomainError;
 use crate::shared::{AggregateVersion, SeasonId, UserId};
 
 use super::category::CharacterCategory;
-use super::commands::{CreateCharacter, UpdateContactInfo, UpdateMeasurements};
+use super::commands::{
+    CreateCharacter, UpdateCharacterCategory, UpdateContactInfo, UpdateMeasurements,
+};
 use super::views::{CharacterAppearanceView, CharacterView};
 
 /// Async write port for the `CharacterAggregate`.
@@ -33,6 +35,12 @@ pub trait CharacterCommands: Send + Sync {
         &self,
         actor: UserId,
         cmd: UpdateContactInfo,
+    ) -> Result<AggregateVersion, DomainError>;
+    /// Change the role type (issue #678).
+    async fn update_category(
+        &self,
+        actor: UserId,
+        cmd: UpdateCharacterCategory,
     ) -> Result<AggregateVersion, DomainError>;
 }
 

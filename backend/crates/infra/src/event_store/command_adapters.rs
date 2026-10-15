@@ -36,7 +36,9 @@ use breakdown_core::block::aggregate::BlockAggregate;
 use breakdown_core::block::commands::{CreateBlock, UpdateBlockTimeSpan};
 use breakdown_core::block::ports::BlockCommands;
 use breakdown_core::character::aggregate::CharacterAggregate;
-use breakdown_core::character::commands::{CreateCharacter, UpdateContactInfo, UpdateMeasurements};
+use breakdown_core::character::commands::{
+    CreateCharacter, UpdateCharacterCategory, UpdateContactInfo, UpdateMeasurements,
+};
 use breakdown_core::character::ports::CharacterCommands;
 use breakdown_core::costume::aggregate::CostumeAggregate;
 use breakdown_core::costume::commands::{
@@ -624,6 +626,26 @@ impl CharacterCommands for CharacterCommandsImpl {
         &self,
         actor: UserId,
         cmd: UpdateContactInfo,
+    ) -> Result<AggregateVersion, DomainError> {
+        let id = cmd.id;
+        let version = cmd.version;
+        check_nonzero_version(version)?;
+        let project_id = cmd.project_id;
+        let result = CharacterAggregate::execute(&self.cmd_service, id, cmd)
+            .expected_version(ExpectedVersion::Exact(domain_to_stream_checked(version)?))
+            .metadata(EventMetadata {
+                actor: Some(actor),
+                provenance: Provenance::Human,
+                project_id,
+            })
+            .await;
+        map_version_only(result)
+    }
+
+    async fn update_category(
+        &self,
+        actor: UserId,
+        cmd: UpdateCharacterCategory,
     ) -> Result<AggregateVersion, DomainError> {
         let id = cmd.id;
         let version = cmd.version;

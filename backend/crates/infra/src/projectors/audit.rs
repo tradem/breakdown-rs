@@ -506,7 +506,8 @@ impl<'a> EntityEventHandler<CharacterAggregate, Transaction<'a, Postgres>>
         let entity_id = match &event.data {
             CharacterEvent::CharacterCreated { id, .. }
             | CharacterEvent::MeasurementsUpdated { id, .. }
-            | CharacterEvent::ContactInfoUpdated { id, .. } => id.to_string(),
+            | CharacterEvent::ContactInfoUpdated { id, .. }
+            | CharacterEvent::CategoryChanged { id, .. } => id.to_string(),
         };
         let event_type = event.data.event_type().to_string();
         let (actor, provenance, project_id) = extract_metadata(&event);

@@ -44,6 +44,7 @@
   "characterNameRequired": "A name is required",
   "characterCategoryLabelName": "Category",
   "characterCategoryMain": "Main cast",
+"characterCategoryEditTooltip": "Change the role type",
   "characterCategoryGuest": "Guest",
   "characterCategoryExtra": "Extra",
   "charactersFetchError": "Could not load characters ({code}).",

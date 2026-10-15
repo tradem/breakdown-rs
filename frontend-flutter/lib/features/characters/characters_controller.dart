@@ -359,6 +359,36 @@ class CharactersController extends _$CharactersController {
     );
   }
 
+  /// Role-type correction (issue #678): pick one of the three categories in
+  /// the Cast screen; optimistic-after-2xx via the shared refresh
+  /// reconciliation, 409 surfaces through the shared command-error banner.
+  Future<Result<int>> updateCategory({
+    required CharacterView character,
+    required CharacterCategory category,
+  }) async {
+    if (await _resolveSession() == null) {
+      const error = ProblemError(code: 'auth.session_required', status: 403);
+      ref.read(charactersCommandErrorProvider(seasonId).notifier).set(error);
+      return const Left(error);
+    }
+    final repo = ref.read(characterRepositoryProvider);
+    final res = await repo.updateCategory(
+      character.id,
+      buildCategoryRequest(category: category, version: character.version),
+    );
+    return res.match(
+      (err) {
+        ref.read(charactersCommandErrorProvider(seasonId).notifier).set(err);
+        return Left<ProblemError, int>(err);
+      },
+      (version) {
+        ref.read(charactersCommandErrorProvider(seasonId).notifier).clear();
+        unawaited(refresh());
+        return Right<ProblemError, int>(version);
+      },
+    );
+  }
+
   /// Scene-character binding: assign (picker over the season's characters;
   /// the scene `version` comes from the acted-on `SceneView`).
   ///

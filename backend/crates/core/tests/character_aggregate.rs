@@ -387,3 +387,79 @@ fn test_create_character_rejects_only_the_empty_string() {
     );
     assert!(result.is_err(), "the empty name must stay refused");
 }
+
+// ===========================================================================
+// UpdateCharacterCategory (issue #678)
+// ===========================================================================
+
+#[test]
+fn test_update_category_success_emits_next_version() {
+    let agg = create_character("BEN", CharacterCategory::MainCast);
+    let result = agg.handle(
+        UpdateCharacterCategory {
+            id: agg.id,
+            project_id: Some(project_id()),
+            category: CharacterCategory::Extra,
+            version: agg.version,
+        },
+        make_ctx(),
+    );
+    let events = result.unwrap();
+    assert_eq!(events.len(), 1);
+    match &events[0] {
+        CharacterEvent::CategoryChanged {
+            id,
+            category,
+            version,
+            ..
+        } => {
+            assert_eq!(*id, agg.id);
+            assert_eq!(*category, CharacterCategory::Extra);
+            assert_eq!(*version, agg.version.next());
+        }
+        other => panic!("Expected CategoryChanged, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_update_category_rejects_a_version_mismatch() {
+    let agg = create_character("BEN", CharacterCategory::MainCast);
+    let result = agg.handle(
+        UpdateCharacterCategory {
+            id: agg.id,
+            project_id: Some(project_id()),
+            category: CharacterCategory::Guest,
+            // Ahead of the aggregate's current state — a stale client view
+            // (the same optimistic-lock shape as the sibling commands).
+            version: AggregateVersion(99),
+        },
+        make_ctx(),
+    );
+    match result {
+        Err(CharacterError::VersionMismatch {
+            expected: AggregateVersion(99),
+            actual: AggregateVersion::INITIAL,
+        }) => {}
+        other => panic!("Expected VersionMismatch, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_update_category_rejects_an_unchanged_category() {
+    let agg = create_character("BEN", CharacterCategory::MainCast);
+    let result = agg.handle(
+        UpdateCharacterCategory {
+            id: agg.id,
+            project_id: Some(project_id()),
+            category: CharacterCategory::MainCast,
+            version: agg.version,
+        },
+        make_ctx(),
+    );
+    match result {
+        Err(CharacterError::ValidationError(message)) => {
+            assert!(message.contains("unchanged"));
+        }
+        other => panic!("Expected ValidationError, got {other:?}"),
+    }
+}

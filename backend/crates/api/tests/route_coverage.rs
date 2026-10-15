@@ -88,7 +88,7 @@ fn api_routes_are_behind_auth_middleware() {
     //  patterns, not method-verb pairs.)
     assert_eq!(
         api.len(),
-        95,
+        96,
         "number of API route path patterns has changed — \
          see doc comment above for update instructions"
     );
@@ -238,6 +238,9 @@ fn api_routes_have_deliberate_authorization_requirement() {
         ("/characters/{id}", Requirement::BlockMember),
         ("/characters/{id}/measurements", Requirement::BlockMember),
         ("/characters/{id}/contact", Requirement::BlockMember),
+        // Issue #678: the role-type correction follows the sibling
+        // character-write routes (block-scoped middleware enforcement).
+        ("/characters/{id}/category", Requirement::BlockMember),
         // Issue #621: the per-character appearances read model is a
         // season-scoped role extract. Authenticated at the middleware (narrow
         // exception) with a handler-internal `// AUTHZ-GATE:` over

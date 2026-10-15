@@ -95,6 +95,30 @@ impl<'a> EntityEventHandler<CharacterAggregate, Transaction<'a, Postgres>> for C
                 .execute(&mut **ctx)
                 .await?;
             }
+            CharacterEvent::CategoryChanged {
+                id,
+                category,
+                version,
+            } => {
+                // Issue #678: the role type changed — the same shaped UPDATE
+                // as the sibling detail events (version guard by the caller's
+                // at-least-once idempotency).
+                let category_json = serde_json::to_value(category).unwrap_or_default();
+                let version = version.0 as i64;
+                sqlx::query(
+                    r#"
+                    UPDATE projection_character
+                    SET category = $2, version = $3, updated_at = $4
+                    WHERE id = $1
+                    "#,
+                )
+                .bind(id)
+                .bind(category_json)
+                .bind(version)
+                .bind(updated_at)
+                .execute(&mut **ctx)
+                .await?;
+            }
             CharacterEvent::ContactInfoUpdated {
                 id,
                 contact_info,

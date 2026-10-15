@@ -162,6 +162,9 @@ class AppLocalizationsDe extends AppLocalizations {
   String get characterCategoryMain => 'Hauptbesetzung';
 
   @override
+  String get characterCategoryEditTooltip => 'Rollentyp ändern';
+
+  @override
   String get characterCategoryGuest => 'Gast';
 
   @override
