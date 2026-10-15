@@ -24,7 +24,6 @@ use breakdown_core::ai::{
     merge_schedule_to_scenes, plan_scene_apply, sanitize_meta_summary, scene_beat_lanes,
     stable_draft_ref, verify_draft_costumes,
 };
-use breakdown_core::character::category::CharacterCategory;
 use breakdown_core::character::commands::CreateCharacter;
 use breakdown_core::character::ports::CharacterCommands;
 use breakdown_core::costume::commands::{
@@ -1547,11 +1546,14 @@ where
                     // Verbatim: the script's own wording is the figure's name.
                     // `character_identity` is a matching key, never a value.
                     name: character.name.clone(),
-                    // The extraction carries no role type, so the figure enters
-                    // as the category default and the reviewer refines it. An
-                    // invented guess at Main/Guest/Extra would be data the script
-                    // never stated.
-                    category: CharacterCategory::MainCast,
+                    // The extracted role type (issue #677): the
+                    // classification the extraction read from the
+                    // document's cast sections. The serde default keeps
+                    // this MainCast when the document does not say
+                    // otherwise — a grounded default, never an invented
+                    // guess; the reviewer corrects it in the Cast screen
+                    // (issue #678) when the classification was wrong.
+                    category: character.category,
                 },
             )
             .await;

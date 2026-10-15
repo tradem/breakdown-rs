@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 // Co-authored-by: omen-alpha (opencode-go)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
 
@@ -103,7 +104,7 @@ DraftScene _draftScene(String ref) => DraftScene(
     ..draftRef = ref
     ..sceneNumber = 12
     ..summary = 'A scene'
-    ..characters.replace(const <String>['char-1']),
+    ..characters.replace(const <DraftCharacter>[]),
 );
 
 ScriptContext _scriptContext() => ScriptContext(

@@ -26,6 +26,27 @@ tag. Never edit a released entry afterwards.
 
 ### Added
 
+- **Extracted character categories flow through the AI script import
+  (issue #677):** the extraction prompt classifies each named figure from
+  the document's cast sections ("Darsteller" / "Gastrollen" / "Statisten" /
+  "Komparseren") and inline background notes, grounded — `main_cast` when
+  the document gives no signal at all (a missing signal is the default,
+  NOT an ambiguity; an uncertainty is recorded only for genuinely
+  conflicting evidence, CodeRabbit #692). The wire shape of
+  `DraftScene.characters` widens from plain name strings to
+  `DraftCharacter { name, category }` objects (`openapi.yaml` + Dart client
+  regenerated); stored previews deserialize either shape, an absent
+  category keeping the grounded default, so old previews apply unchanged.
+  The apply plan reconciles the per-row classifications preview-wide by
+  identity — a later non-default signal (the cast section is
+  document-global evidence) corrects an earlier grounded default; among
+  differing non-default signals the first wins (deterministic, reviewer-
+  correctable). The apply worker dispatches `CreateCharacter` with the
+  reconciled category instead of the hard-coded `MainCast`, so cast views,
+  appearance reports (#621) and the cast-type-scoped AI proposal images
+  (#673/#676) see the right classification end-to-end. Manual correction
+  lands with #678.
+
 - **Create-or-assign recovery on `episode.number-already-exists` (issue
   #665):** the episode create-number pre-checks (the AI-apply group loop
   and the manual `POST /v1/episodes`) answer their registered 409 with the
@@ -40,6 +61,20 @@ tag. Never edit a released entry afterwards.
   degrade to the plain narrative.
 
 ### Changed
+
+- **Version bumps (dependency-order lockstep, MAJOR — 0.x
+  minor-position encoding per D2/D8, issue #677; reclassified from
+  additive-MINOR per the CodeRabbit #692 review):** the change breaks the
+  Rust public surface — `DraftScene.characters` changes its `pub` field
+  type (`Vec<String>` → `Vec<DraftCharacter>`) and `CharacterApplyPlan`
+  gains a field (struct-literal consumers break) — so this is **MAJOR**,
+  not additive, even though the *wire* stays input-compatible via the
+  serde-untagged shim. `core` 0.32.0 → 0.33.0 (typed `DraftCharacter`,
+  preview-wide category reconciliation), `infra` 0.37.0 → 0.38.0 (the
+  apply worker dispatches `CreateCharacter` with the reconciled
+  classification; re-pins core), `api` 0.31.0 → 0.32.0 (no code change,
+  re-pins core/infra; the Dart client is regenerated for the widened
+  preview schema). Internal workspace crates re-pin in the same commit.
 
 - **Version bumps (dependency-order lockstep, additive MINORs, issue
   #665):** `core` 0.31.0 → 0.32.0 (`episode.number-already-exists` gains

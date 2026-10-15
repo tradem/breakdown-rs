@@ -1441,6 +1441,29 @@ components:
       - script
       - schedule
       type: string
+    DraftCharacter:
+      description: |-
+        One figure a draft row names, with its extracted role type (issue #677).
+
+        The category is **grounded**: `MainCast` only when the document truly does
+        not say otherwise (the prompt classifies from the cast-section headings —
+        "Darsteller" / "Gastrollen" / "Statisten" / "Komparseren" — and inline
+        notes). A classification the model is unsure about surfaces as an
+        `Uncertainty` instead of silently shipping a wrong category.
+      properties:
+        category:
+          $ref: '#/components/schemas/CharacterCategory'
+          description: |-
+            `serde(default)` so a preview (or a model response) without the field
+            keeps the grounded default — old stored previews load unchanged.
+        name:
+          description: |-
+            The name **verbatim** from the script (the same contract as the
+            pre-#677 plain string entries).
+          type: string
+      required:
+      - name
+      type: object
     DraftCostume:
       description: |-
         One costume extracted for a character of a draft scene.
@@ -1489,8 +1512,13 @@ components:
     DraftScene:
       properties:
         characters:
+          description: |-
+            The figures this row names, each with its extracted role type (issue
+            #677). Backward compatible on the wire: a preview stored before the
+            category existed carries plain name strings, which deserialize to the
+            grounded `MainCast` default via [`deserialize_draft_characters`].
           items:
-            type: string
+            $ref: '#/components/schemas/DraftCharacter'
           type: array
         costumes:
           description: |-
@@ -1535,7 +1563,6 @@ components:
           - 'null'
       required:
       - draft_ref
-      - characters
       type: object
     EpisodeId:
       description: Opaque identifier for an `Episode` aggregate.

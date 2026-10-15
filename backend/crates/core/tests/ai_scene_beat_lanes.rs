@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 // Co-authored-by: glm-5.3-flash (neuralwatt)
 
 //! Pure re-grouping of a draft row's flat costume list into per-figure beat
@@ -39,6 +40,7 @@ fn character(ordinal: usize, name: &str, identity: &str) -> CharacterApplyPlan {
         ordinal,
         name: name.to_owned(),
         identity: identity.to_owned(),
+        category: Default::default(),
     }
 }
 

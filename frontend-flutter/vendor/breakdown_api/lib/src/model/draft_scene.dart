@@ -8,6 +8,7 @@
 import 'package:breakdown_api/src/model/draft_episode.dart';
 import 'package:built_collection/built_collection.dart';
 import 'package:breakdown_api/src/model/draft_costume.dart';
+import 'package:breakdown_api/src/model/draft_character.dart';
 import 'package:built_value/built_value.dart';
 import 'package:built_value/serializer.dart';
 
@@ -16,7 +17,7 @@ part 'draft_scene.g.dart';
 /// DraftScene
 ///
 /// Properties:
-/// * [characters]
+/// * [characters] - The figures this row names, each with its extracted role type (issue #677). Backward compatible on the wire: a preview stored before the category existed carries plain name strings, which deserialize to the grounded `MainCast` default via [`deserialize_draft_characters`].
 /// * [costumes] - Costumes worn by this scene's characters. Additive on the wire with a default so previews stored before this field existed still load; a preview written by this version loses the field when read by an older binary (breaking, see the change proposal).
 /// * [draftRef]
 /// * [episode] - The episode this row belongs to (issue #581). Additive on the wire with a default so previews stored before this field existed still load; `None` applies the row to the explicitly picked target episode.
@@ -27,8 +28,9 @@ part 'draft_scene.g.dart';
 /// * [summary]
 @BuiltValue()
 abstract class DraftScene implements Built<DraftScene, DraftSceneBuilder> {
+  /// The figures this row names, each with its extracted role type (issue #677). Backward compatible on the wire: a preview stored before the category existed carries plain name strings, which deserialize to the grounded `MainCast` default via [`deserialize_draft_characters`].
   @BuiltValueField(wireName: r'characters')
-  BuiltList<String> get characters;
+  BuiltList<DraftCharacter>? get characters;
 
   /// Costumes worn by this scene's characters. Additive on the wire with a default so previews stored before this field existed still load; a preview written by this version loses the field when read by an older binary (breaking, see the change proposal).
   @BuiltValueField(wireName: r'costumes')
@@ -79,11 +81,13 @@ class _$DraftSceneSerializer implements PrimitiveSerializer<DraftScene> {
     DraftScene object, {
     FullType specifiedType = FullType.unspecified,
   }) sync* {
-    yield r'characters';
-    yield serializers.serialize(
-      object.characters,
-      specifiedType: const FullType(BuiltList, [FullType(String)]),
-    );
+    if (object.characters != null) {
+      yield r'characters';
+      yield serializers.serialize(
+        object.characters,
+        specifiedType: const FullType(BuiltList, [FullType(DraftCharacter)]),
+      );
+    }
     if (object.costumes != null) {
       yield r'costumes';
       yield serializers.serialize(
@@ -166,8 +170,10 @@ class _$DraftSceneSerializer implements PrimitiveSerializer<DraftScene> {
         case r'characters':
           final valueDes = serializers.deserialize(
             value,
-            specifiedType: const FullType(BuiltList, [FullType(String)]),
-          ) as BuiltList<String>;
+            specifiedType:
+                const FullType.nullable(BuiltList, [FullType(DraftCharacter)]),
+          ) as BuiltList<DraftCharacter>?;
+          if (valueDes == null) continue;
           result.characters.replace(valueDes);
           break;
         case r'costumes':

@@ -67,6 +67,7 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..add(DeadLetterEntry.serializer)
       ..add(DispoRow.serializer)
       ..add(DocumentKind.serializer)
+      ..add(DraftCharacter.serializer)
       ..add(DraftCostume.serializer)
       ..add(DraftEpisode.serializer)
       ..add(DraftScene.serializer)
@@ -211,6 +212,12 @@ Serializers _$serializers = (Serializers().toBuilder()
           const FullType(BuiltList, const [const FullType(DocumentKind)]),
           () => ListBuilder<DocumentKind>())
       ..addBuilderFactory(
+          const FullType(BuiltList, const [const FullType(DraftCharacter)]),
+          () => ListBuilder<DraftCharacter>())
+      ..addBuilderFactory(
+          const FullType(BuiltList, const [const FullType(DraftCostume)]),
+          () => ListBuilder<DraftCostume>())
+      ..addBuilderFactory(
           const FullType(BuiltList, const [const FullType(DraftScene)]),
           () => ListBuilder<DraftScene>())
       ..addBuilderFactory(
@@ -262,12 +269,6 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..addBuilderFactory(
           const FullType(BuiltList, const [const FullType(String)]),
           () => ListBuilder<String>())
-      ..addBuilderFactory(
-          const FullType(BuiltList, const [const FullType(String)]),
-          () => ListBuilder<String>())
-      ..addBuilderFactory(
-          const FullType(BuiltList, const [const FullType(DraftCostume)]),
-          () => ListBuilder<DraftCostume>())
       ..addBuilderFactory(
           const FullType(BuiltList, const [const FullType(String)]),
           () => ListBuilder<String>())

@@ -84,7 +84,7 @@ DraftScene _draft(
     ..draftRef = ref
     ..sceneNumber = number
     ..summary = 'Scene $ref'
-    ..characters.replace(const <String>['ch-1'])
+    ..characters.replace(const <DraftCharacter>[])
     ..costumes.replace(costumes);
   // A complex built_value field is set through its builder; an absent
   // marker stays UNSET (null on the wire — the single-episode flow).

@@ -21,6 +21,16 @@ releases are cut as `vX.Y.Z` tags (`v<build-name>`, enforced by
 
 ## [Unreleased]
 
+- **Version bump:** `0.4.0-alpha.30+81 → 0.4.0-alpha.31+82` — issue #677,
+  the extracted character categories:
+  * Generated Dart client rebuilt for the widened preview wire shape
+    (`DraftScene.characters`: plain name strings → typed
+    `DraftCharacter { name, category }` objects, additive with serde
+    defaults server-side). Test fixtures updated for the typed shape; no
+    app code consumes the list today.
+  * The apply flow now carries the extracted classification end-to-end;
+    manual correction lands with #678.
+
 - **Version bump:** `0.4.0-alpha.29+80 → 0.4.0-alpha.30+81` — issue #666,
   the scope-picker staleness fix:
   * The episode and block scope pickers wrap their list in a
