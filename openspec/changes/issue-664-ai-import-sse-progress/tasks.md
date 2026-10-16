@@ -31,4 +31,4 @@
 ## 5. Verification & Version Bumps
 
 - [x] 5.1 Bump crate versions (`core` MINOR, `infra` MINOR, `api` MINOR) and `frontend-flutter/pubspec.yaml` in lockstep, and update `backend/CHANGELOG.md` and `frontend-flutter/CHANGELOG.md`.
-- [ ] 5.2 Run `cargo test`, `cargo clippy --workspace --all-targets -- -D warnings`, `UPDATE_OPENAPI=1 cargo test -p api --test contract openapi_drift`, `dart format --set-exit-if-changed`, `flutter analyze`, `breakdown_lints_runner`, and `flutter test`.
+- [x] 5.2 Run `cargo test`, `cargo clippy --workspace --all-targets -- -D warnings`, `UPDATE_OPENAPI=1 cargo test -p api --test contract openapi_drift`, `dart format --set-exit-if-changed`, `flutter analyze`, `breakdown_lints_runner`, and `flutter test`.
