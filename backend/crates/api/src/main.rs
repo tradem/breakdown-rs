@@ -485,6 +485,10 @@ async fn main() -> Result<()> {
     // --- Report archival (staging + external + worker + triggers) ---
     let report_archival_queue = PgReportArchivalQueue::new(pool.clone());
     let ai_import_queue = infra::ai::PgAiImportQueue::new(pool.clone());
+    // Capture the SSE event hub before the queue moves into `ProductionPorts`
+    // (issue #664): the PgListener bridge forwards cross-instance pg_notify
+    // payloads into this same fan-out.
+    let ai_job_event_hub = ai_import_queue.event_hub();
     let ai_import_mapping = infra::ai::PgAiImportMappingRepository::new(pool.clone());
     let ai_import_enabled = env::var("AI_IMPORT_ENABLED")
         .ok()
@@ -728,10 +732,22 @@ async fn main() -> Result<()> {
         ai_shutdown_tx = Some(shutdown_tx);
         ai_reclaimer = Some(reclaimer);
         ai_limiter_arc = Some(limiter_arc);
+
+        // Shared PgListener bridge for the SSE job-event stream (issue #664,
+        // ADR-038 D4): ONE listening connection per API instance forwards
+        // cross-instance `pg_notify('ai_import_job_events', ...)` payloads
+        // into the queue's in-process broadcast hub — never one connection
+        // per SSE client. Joins in the shutdown sequence below.
+        let (_listener_shutdown_tx, listener_shutdown_rx) = shutdown_signal();
+        ai_worker_handles.push(infra::ai::spawn_pg_job_event_listener(
+            pool.clone(),
+            ai_job_event_hub,
+            listener_shutdown_rx,
+        ));
         info!(
             max_global = bounds.max_concurrent_jobs_global,
             max_per_user = bounds.max_concurrent_jobs_per_user,
-            "AI import concurrency limiter + workers spawned"
+            "AI import concurrency limiter + workers + job event listener spawned"
         );
     }
 

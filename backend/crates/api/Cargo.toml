@@ -29,6 +29,8 @@ infra = { path = "../infra", version = "0.40.0" }
 
 # Web-Framework
 axum.workspace = true
+# SSE stream typing for the AI import job events endpoint (issue #664)
+futures = "0.3"
 tokio.workspace = true
 
 # Serialisierung / IDs / Zeit

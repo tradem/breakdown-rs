@@ -183,6 +183,7 @@ dependencies = [
  "fluent",
  "fluent-bundle",
  "fluent-syntax",
+ "futures",
  "http-body-util",
  "httpdate",
  "hyper",

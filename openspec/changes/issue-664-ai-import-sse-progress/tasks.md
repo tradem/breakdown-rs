@@ -17,9 +17,9 @@
 
 ## 3. API — SSE Endpoint & OpenAPI Contract (`crates/api`)
 
-- [ ] 3.1 Implement `GET /v1/ai-import/jobs/{id}/events` (`stream_ai_import_job_events` in `crates/api/src/handlers/mod.rs`) using `axum::response::sse::Sse` with `Cache-Control: no-store, no-transform` and `X-Accel-Buffering: no`: enforce `ai_import_enabled`, job existence (`404 ai-import.not-found`), and `// AUTHZ-GATE: authorize_ai_job(&state, &current_user, &job, Action::Read)` (`403 ai-import.forbidden`); subscribe before reading the initial snapshot; emit `event: job` (`AiImportJobResponse`) with `id` watermark on initial connect and `Last-Event-ID` reconnect; send 30 s keep-alive comments; close stream immediately on terminal `JobStatus`.
-- [ ] 3.2 Register `stream_ai_import_job_events`, `AiImportProgress`, and `AiImportStage` in `crates/api/src/lib.rs`, wire `spawn_pg_job_event_listener` in `crates/api/src/main.rs` when AI import is enabled, and regenerate `backend/openapi.yaml` (`UPDATE_OPENAPI=1 cargo test -p api --test contract openapi_drift`).
-- [ ] 3.3 Add API handler tests in `crates/api/tests/` covering SSE snapshot-first delivery, `Last-Event-ID` resume, live progress/status frame push, terminal auto-close, and `403`/`404` `AUTHZ-GATE` rejections before stream open.
+- [x] 3.1 Implement `GET /v1/ai-import/jobs/{id}/events` (`stream_ai_import_job_events` in `crates/api/src/handlers/mod.rs`) using `axum::response::sse::Sse` with `Cache-Control: no-store, no-transform` and `X-Accel-Buffering: no`: enforce `ai_import_enabled`, job existence (`404 ai-import.not-found`), and `// AUTHZ-GATE: authorize_ai_job(&state, &current_user, &job, Action::Read)` (`403 ai-import.forbidden`); subscribe before reading the initial snapshot; emit `event: job` (`AiImportJobResponse`) with `id` watermark on initial connect and `Last-Event-ID` reconnect; send 30 s keep-alive comments; close stream immediately on terminal `JobStatus`.
+- [x] 3.2 Register `stream_ai_import_job_events`, `AiImportProgress`, and `AiImportStage` in `crates/api/src/lib.rs`, wire `spawn_pg_job_event_listener` in `crates/api/src/main.rs` when AI import is enabled, and regenerate `backend/openapi.yaml` (`UPDATE_OPENAPI=1 cargo test -p api --test contract openapi_drift`).
+- [x] 3.3 Add API handler tests in `crates/api/tests/` covering SSE snapshot-first delivery, `Last-Event-ID` resume, live progress/status frame push, terminal auto-close, and `403`/`404` `AUTHZ-GATE` rejections before stream open.
 
 ## 4. Flutter Client — Pinned-TLS SSE, Battery Contract & Progress UI (`frontend-flutter/`)
 

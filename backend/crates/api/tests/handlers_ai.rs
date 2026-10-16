@@ -16,5 +16,8 @@ mod handler_ai_import_authz;
 #[path = "handler_ai_import_ports.rs"]
 mod handler_ai_import_ports;
 
+#[path = "handler_ai_import_sse.rs"]
+mod handler_ai_import_sse;
+
 #[path = "handler_audit.rs"]
 mod handler_audit;
