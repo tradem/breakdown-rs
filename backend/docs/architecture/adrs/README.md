@@ -3,6 +3,7 @@
 <!-- Co-authored-by: gpt-5.6-luna (opencode-go) -->
 <!-- Co-authored-by: deepseek-v4-flash (opencode-go) -->
 <!-- Co-authored-by: deepseek-v4-flash (neuralwatt) -->
+<!-- Co-authored-by: gemini-4-argon (google) -->
 
 # Architecture Decision Records (ADRs)
 
@@ -66,6 +67,7 @@ and their consequences.
 | [035](ADR-035-production-kind-flexible-hierarchy.md) | Production-Kind-Flexible Hierarchy — `Project` as the Container Target | Accepted | 2026-10-05 | Tobias Rademacher (@tradem); space-bunny-free (opencode-go) |
 | [036](ADR-036-es-native-reservation-streams-cross-aggregate-uniqueness.md) | ES-native Reservation Streams for Cross-Aggregate Uniqueness | Accepted | 2026-10-07 | Tobias Rademacher (@tradem); glm-5.3 (neuralwatt); glm-5.3-flash (opencode-go) |
 | [037](ADR-037-sceneshoot-provenance-pair-join-derivation.md) | SceneShoot AI Provenance — Derive via the Pair Join, No First-Class Field | Accepted | 2026-10-07 | Tobias Rademacher (@tradem); glm-5.3-flash (opencode-go) |
+| [038](ADR-038-ai-import-sse-progress-and-event-hub.md) | AI Import Push-Based Job Progress — SSE Snapshot+Deltas, Hexagonal Event Hub (Postgres `NOTIFY` + SQLite Seam), and Client Battery Contract | Proposed | 2026-10-16 | Tobias Rademacher (@tradem); gemini-4-argon (google) |
 
 ## Creating a New ADR
 
