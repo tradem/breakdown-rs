@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
-// Co-authored-by: glm-5.3 (neuralwatt)
+// Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 
 //! Handler tests for the SSE job-event stream (issue #664, ADR-038 D1):
 //! snapshot-first delivery, `Last-Event-ID` reconnect, live frame push,
