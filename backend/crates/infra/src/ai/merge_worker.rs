@@ -6,8 +6,8 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use breakdown_core::ai::{
-    AiImportJobId, AiImportQueue, DocumentKind, MergeInput, MergedPreview, Telemetry,
-    TelemetryApplyState, merge_from_input,
+    AiImportJobId, AiImportProgress, AiImportQueue, AiImportStage, DocumentKind, MergeInput,
+    MergedPreview, Telemetry, TelemetryApplyState, merge_from_input,
 };
 use breakdown_core::error::DomainError;
 use serde_json::{from_slice, to_vec};
@@ -40,6 +40,15 @@ where
             return Ok(false);
         };
         let started = Instant::now();
+        // Throttled live progress (issue #664): the merge worker's two stage
+        // boundaries — deterministic join start and preview upload.
+        let mut progress = AiImportProgress {
+            stage: AiImportStage::Merging,
+            ..AiImportProgress::default()
+        };
+        self.queue
+            .mark_progress(job.id, worker_id, &progress)
+            .await?;
         let Some(preview_handle) = job.preview_handle.as_deref() else {
             let error = DomainError::validation("schedule job has no preview handle for merge");
             self.fail(job.id, worker_id, &error, false).await?;
@@ -107,6 +116,10 @@ where
         let payload = to_vec(&merged).map_err(|error| {
             DomainError::validation(format!("could not serialize merged preview: {error}"))
         })?;
+        progress.stage = AiImportStage::StoringPreview;
+        self.queue
+            .mark_progress(job.id, worker_id, &progress)
+            .await?;
         let handle = self.previews.put(job.id, payload).await?;
         // The merge is a pure in-process transform (no LLM call), so it cannot
         // outlive the lease and needs no heartbeat. The telemetry write is

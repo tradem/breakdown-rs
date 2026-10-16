@@ -770,6 +770,7 @@ version = "0.35.0"
 dependencies = [
  "async-trait",
  "chrono",
+ "futures",
  "kameo",
  "kameo_es",
  "proptest",

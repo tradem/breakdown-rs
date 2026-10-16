@@ -46,6 +46,6 @@ pub use preview::{
     sanitize_meta_summary, scene_beat_lanes, stable_draft_ref, verify_draft_costumes,
 };
 pub use views::{
-    AiConfigView, AiImportAttempt, AiImportJob, AiImportJobId, DocumentKind, JobStatus,
-    SourceFormat, Telemetry, TelemetryApplyState,
+    AiConfigView, AiImportAttempt, AiImportJob, AiImportJobId, AiImportProgress, AiImportStage,
+    DocumentKind, JobStatus, SourceFormat, Telemetry, TelemetryApplyState,
 };

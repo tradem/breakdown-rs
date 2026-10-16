@@ -69,6 +69,22 @@ impl DraftEpisode {
             _ => None,
         }
     }
+
+    /// The compact progress label surfaced in `AiImportProgress::
+    /// episodes_seen` (issue #664): `"Ep. {number}"` when the marker carried
+    /// a number, else the trimmed title when present, else `None` — an
+    /// episode with neither cannot be surfaced. Deliberately *not* the raw
+    /// marker text: the label is content-free metadata safe to persist.
+    #[must_use]
+    pub fn display_label(&self) -> Option<String> {
+        if let Some(number) = self.number {
+            return Some(format!("Ep. {number}"));
+        }
+        match self.title.as_deref() {
+            Some(title) if !title.trim().is_empty() => Some(title.trim().to_owned()),
+            _ => None,
+        }
+    }
 }
 
 /// Read one `Ep.: 3 (Titel)` / `Ep: 3 (Titel)` marker out of a line.

@@ -15,14 +15,14 @@ use std::collections::HashMap;
 
 use breakdown_core::ai::{
     AiImportBounds, AiImportJob, AiImportJobId, AiImportMapping, AiImportMappingRepository,
-    AiImportQueue, ApplyGateError, ApplyMapping, ApplyMappingDecision, CharacterApplyPlan,
-    CostumeApplyPlan, DocumentKind, EpisodeGroupPlan, LlmChatRequest, LlmClient, MergedPreview,
-    PRIMARY_ORDINAL, PlannedEpisode, SceneApplyCommand, SceneApplyPlan, ScriptContext,
-    ShootingSchedule, SourceFormat, Telemetry, TelemetryApplyState, UnappliedCostume,
-    UnappliedCostumeReason, Uncertainty, UncertaintyAcknowledgement, UncertaintyKind,
-    character_mapping_ref, draft_row_ref, ensure_merge_applyable, extract_scenes, mapping_kind,
-    merge_schedule_to_scenes, plan_scene_apply, sanitize_meta_summary, scene_beat_lanes,
-    stable_draft_ref, verify_draft_costumes,
+    AiImportProgress, AiImportQueue, AiImportStage, ApplyGateError, ApplyMapping,
+    ApplyMappingDecision, CharacterApplyPlan, CostumeApplyPlan, DocumentKind, EpisodeGroupPlan,
+    LlmChatRequest, LlmClient, MergedPreview, PRIMARY_ORDINAL, PlannedEpisode, SceneApplyCommand,
+    SceneApplyPlan, ScriptContext, ShootingSchedule, SourceFormat, Telemetry, TelemetryApplyState,
+    UnappliedCostume, UnappliedCostumeReason, Uncertainty, UncertaintyAcknowledgement,
+    UncertaintyKind, character_mapping_ref, draft_row_ref, ensure_merge_applyable, extract_scenes,
+    mapping_kind, merge_schedule_to_scenes, plan_scene_apply, sanitize_meta_summary,
+    scene_beat_lanes, stable_draft_ref, verify_draft_costumes,
 };
 use breakdown_core::character::commands::CreateCharacter;
 use breakdown_core::character::ports::CharacterCommands;
@@ -362,7 +362,23 @@ where
         // rewrote to `null` across the whole job — the prompt/model
         // regression signal logged before the job succeeds.
         let mut meta_rewrites = 0usize;
-        for chunk in chunks {
+        // Throttled live progress (issue #664): published once after
+        // chunking, once per completed chunk, and at the storing boundary —
+        // NEVER per LLM token. Owner-fenced, so a displaced worker's write
+        // is rejected and it aborts before its next billable call.
+        let mut progress = AiImportProgress {
+            stage: AiImportStage::Extracting,
+            chunk: Some(0),
+            chunks_total: Some(chunk_count),
+            episodes_seen: Vec::new(),
+        };
+        if let Some(first) = chunks.first() {
+            progress.record_episode(first.episode.as_ref());
+        }
+        self.queue
+            .mark_progress(job.id, worker_id, &progress)
+            .await?;
+        for (chunk_index, chunk) in chunks.into_iter().enumerate() {
             // Hoisted because the grounding check below must verify a quote
             // against *exactly* the bytes the model was given. Grounding against
             // a differently assembled string would drop real quotes and pass
@@ -473,7 +489,25 @@ where
                     return Err(error);
                 }
             }
+            // Chunk completed (issue #664): 1-based counter + episodes
+            // discovered up to and including this chunk, in first-seen order.
+            progress.chunk = Some(u32::try_from(chunk_index + 1).map_err(|error| {
+                DomainError::validation(format!(
+                    "script chunk index exceeds telemetry range: {error}"
+                ))
+            })?);
+            progress.record_episode(chunk.episode.as_ref());
+            self.queue
+                .mark_progress(job.id, worker_id, &progress)
+                .await?;
         }
+        // Storing boundary (issue #664): the last visibility gap is the
+        // preview upload, not a silent stall at "extracting".
+        progress.stage = AiImportStage::StoringPreview;
+        progress.chunk = Some(chunk_count);
+        self.queue
+            .mark_progress(job.id, worker_id, &progress)
+            .await?;
         let payload = to_vec(&context).map_err(|error| {
             DomainError::validation(format!("could not serialize script preview: {error}"))
         })?;
@@ -671,6 +705,22 @@ where
         let heartbeat = (!native_csv)
             .then(|| self.start_heartbeat(job.id, worker_id))
             .flatten();
+        // Throttled live progress (issue #664): one frame at the extraction
+        // boundary and one at the storing boundary — a schedule job is a
+        // single LLM/Native-CSV unit, so there is no per-chunk cadence.
+        let mut progress = AiImportProgress {
+            stage: if native_csv {
+                AiImportStage::Extracting
+            } else {
+                AiImportStage::ExtractingText
+            },
+            chunk: Some(0),
+            chunks_total: Some(1),
+            episodes_seen: Vec::new(),
+        };
+        self.queue
+            .mark_progress(job.id, worker_id, &progress)
+            .await?;
         let mut schedule = if native_csv {
             super::csv_schedule::parse_schedule_csv(bytes)?
         } else {
@@ -700,6 +750,12 @@ where
         if schedule.block_id.is_none() {
             schedule.block_id = job.block_id;
         }
+        // After extraction, before the preview upload (issue #664).
+        progress.stage = AiImportStage::StoringPreview;
+        progress.chunk = Some(1);
+        self.queue
+            .mark_progress(job.id, worker_id, &progress)
+            .await?;
         let payload = to_vec(&schedule).map_err(|error| {
             DomainError::validation(format!("could not serialize schedule preview: {error}"))
         })?;

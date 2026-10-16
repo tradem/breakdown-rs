@@ -21,6 +21,7 @@ pub mod client;
 pub mod concurrency;
 pub mod credentials;
 pub mod csv_schedule;
+pub mod events;
 pub mod gdrive_source;
 pub mod heartbeat;
 pub mod mapping;
@@ -47,6 +48,7 @@ pub use client::{OpenAiCompatibleChatClient, classify_http_status, classify_tran
 pub use concurrency::{AiConcurrencyLimiter, AiConcurrencyPermit};
 pub use credentials::AiCredentialResolver;
 pub use csv_schedule::parse_schedule_csv;
+pub use events::{AiJobEventHub, JOB_EVENTS_CHANNEL, spawn_pg_job_event_listener};
 pub use gdrive_source::{GDriveDocument, GDriveDocumentSource};
 pub use heartbeat::{LeaseHeartbeat, renewal_interval};
 pub use mapping::PgAiImportMappingRepository;

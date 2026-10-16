@@ -2243,6 +2243,7 @@ impl AiImportQueue for FakeAiImportQueue {
                 preview_handle: None,
                 last_error: None,
                 retries: 0,
+                progress: None,
                 next_attempt_at: None,
                 attempts: Vec::new(),
                 max_retries: 5,

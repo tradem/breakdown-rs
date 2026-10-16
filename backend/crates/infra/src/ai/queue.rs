@@ -5,17 +5,21 @@
 // Co-authored-by: deepseek-v4-flash (opencode-go)
 // Co-authored-by: longcat-2.0-free (opencode)
 
+use std::pin::Pin;
 use std::time::Duration;
 
 use breakdown_core::ai::{
     AiImportAttempt, AiImportEnqueueRequest, AiImportEnqueueResult, AiImportJob, AiImportJobId,
-    AiImportQueue, DocumentKind, JobStatus, SourceFormat, Telemetry,
+    AiImportProgress, AiImportQueue, DocumentKind, JobStatus, SourceFormat, Telemetry,
 };
 use breakdown_core::error::DomainError;
 use breakdown_core::shared::UserId;
 use chrono::{DateTime, Utc};
+use futures::Stream;
 use sqlx::{PgPool, Row};
 use uuid::Uuid;
+
+use super::events::AiJobEventHub;
 
 /// The one named unit the whole lease window is derived from.
 ///
@@ -57,6 +61,11 @@ const ATTEMPT_HISTORY_LIMIT: i64 = 20;
 pub struct PgAiImportQueue {
     pool: PgPool,
     lease: Duration,
+    /// In-process fan-out for SSE wake-ups (issue #664). Every fenced
+    /// lifecycle/progress write notifies it directly after commit; in
+    /// PostgreSQL mode the shared `PgListener` task additionally forwards
+    /// cross-instance `pg_notify` payloads into the same hub.
+    hub: AiJobEventHub,
 }
 
 impl PgAiImportQueue {
@@ -66,6 +75,7 @@ impl PgAiImportQueue {
         Self {
             pool,
             lease: lease_from_env(),
+            hub: AiJobEventHub::new(),
         }
     }
 
@@ -85,6 +95,14 @@ impl PgAiImportQueue {
     /// The active claim lease window.
     pub const fn lease(&self) -> Duration {
         self.lease
+    }
+
+    /// The event hub this queue publishes job wake-ups to (issue #664).
+    /// The composition root forwards it to
+    /// [`spawn_pg_job_event_listener`](super::events::spawn_pg_job_event_listener)
+    /// so cross-instance `pg_notify` payloads land in the same fan-out.
+    pub fn event_hub(&self) -> AiJobEventHub {
+        self.hub.clone()
     }
 
     fn lease_secs(&self) -> f64 {
@@ -112,6 +130,15 @@ fn parse_lease(raw: Option<&str>) -> Duration {
 
 #[async_trait::async_trait]
 impl AiImportQueue for PgAiImportQueue {
+    /// Push wake-ups for this job through the in-process hub (issue #664).
+    /// The hub is also fed by the shared `PgListener` task for
+    /// cross-instance `pg_notify` payloads; duplicate local + echoed
+    /// notifications are deduplicated by the SSE handler's watermark
+    /// comparison.
+    fn subscribe(&self, id: AiImportJobId) -> Pin<Box<dyn Stream<Item = AiImportJobId> + Send>> {
+        self.hub.subscribe(id)
+    }
+
     async fn enqueue(
         &self,
         request: AiImportEnqueueRequest,
@@ -144,6 +171,10 @@ impl AiImportQueue for PgAiImportQueue {
         .map_err(map_sqlx_error)?;
         let id = AiImportJobId::from_uuid(row.try_get::<Uuid, _>("id").map_err(map_sqlx_error)?);
         let inserted = row.try_get::<bool, _>("inserted").map_err(map_sqlx_error)?;
+        // A newly enqueued job may be claimed within milliseconds; an
+        // existing (deduplicated) one may just have transitioned. Either way
+        // a watcher benefits from a wake-up (issue #664).
+        self.hub.notify(id);
         if inserted {
             Ok(AiImportEnqueueResult::Enqueued(id))
         } else {
@@ -182,11 +213,15 @@ impl AiImportQueue for PgAiImportQueue {
                 -- `permit_id` forward would let a later reconciling reclaim
                 -- delete a permit this worker never attached.
                 permit_id = NULL,
+                -- Stale progress from a prior attempt must never flash
+                -- before the new attempt's first `mark_progress` (issue #664).
+                progress = NULL,
                 lease_expires_at = now() + make_interval(secs => $2),
                 updated_at = now()
             FROM next_job
             WHERE job.id = next_job.id
-            RETURNING job.*
+            RETURNING job.*,
+                pg_notify('ai_import_job_events', job.id::text)
             "#,
         )
         .bind(worker_id)
@@ -194,7 +229,11 @@ impl AiImportQueue for PgAiImportQueue {
         .fetch_optional(&self.pool)
         .await
         .map_err(map_sqlx_error)?;
-        row.map(map_job_row).transpose()
+        let job = row.map(map_job_row).transpose()?;
+        if let Some(job) = &job {
+            self.hub.notify(job.id);
+        }
+        Ok(job)
     }
 
     /// Kind-filtered variant of [`claim_next`](Self::claim_next) with identical
@@ -224,11 +263,14 @@ impl AiImportQueue for PgAiImportQueue {
                 worker_id = $2,
                 -- See `claim_next`: every claim path clears the permit link.
                 permit_id = NULL,
+                -- See `claim_next`: no stale progress across attempts.
+                progress = NULL,
                 lease_expires_at = now() + make_interval(secs => $3),
                 updated_at = now()
             FROM next_job
             WHERE job.id = next_job.id
-            RETURNING job.*
+            RETURNING job.*,
+                pg_notify('ai_import_job_events', job.id::text)
             "#,
         )
         .bind(kind.as_str())
@@ -237,7 +279,11 @@ impl AiImportQueue for PgAiImportQueue {
         .fetch_optional(&self.pool)
         .await
         .map_err(map_sqlx_error)?;
-        row.map(map_job_row).transpose()
+        let job = row.map(map_job_row).transpose()?;
+        if let Some(job) = &job {
+            self.hub.notify(job.id);
+        }
+        Ok(job)
     }
 
     fn lease_window(&self) -> Option<Duration> {
@@ -279,11 +325,13 @@ impl AiImportQueue for PgAiImportQueue {
                 SET status = 'running',
                     worker_id = $1,
                     permit_id = NULL,
+                    progress = NULL,
                     lease_expires_at = now() + make_interval(secs => $2),
                     updated_at = now()
                 FROM next_job
                 WHERE job.id = next_job.id
-                RETURNING job.*, next_job.orphan_permit_id
+                RETURNING job.*, next_job.orphan_permit_id,
+                    pg_notify('ai_import_job_events', job.id::text)
             ),
             released AS (
                 DELETE FROM ai_import.concurrency_permit
@@ -299,7 +347,11 @@ impl AiImportQueue for PgAiImportQueue {
         .fetch_optional(&self.pool)
         .await
         .map_err(map_sqlx_error)?;
-        map_reconciling_claim(row, worker_id)
+        let claimed = map_reconciling_claim(row, worker_id)?;
+        if let Some((job, _)) = &claimed {
+            self.hub.notify(job.id);
+        }
+        Ok(claimed)
     }
 
     /// Kind-filtered [`claim_next_reconciling`](AiImportQueue::claim_next_reconciling).
@@ -328,11 +380,13 @@ impl AiImportQueue for PgAiImportQueue {
                 SET status = 'running',
                     worker_id = $2,
                     permit_id = NULL,
+                    progress = NULL,
                     lease_expires_at = now() + make_interval(secs => $3),
                     updated_at = now()
                 FROM next_job
                 WHERE job.id = next_job.id
-                RETURNING job.*, next_job.orphan_permit_id
+                RETURNING job.*, next_job.orphan_permit_id,
+                    pg_notify('ai_import_job_events', job.id::text)
             ),
             released AS (
                 DELETE FROM ai_import.concurrency_permit
@@ -349,7 +403,11 @@ impl AiImportQueue for PgAiImportQueue {
         .fetch_optional(&self.pool)
         .await
         .map_err(map_sqlx_error)?;
-        map_reconciling_claim(row, worker_id)
+        let claimed = map_reconciling_claim(row, worker_id)?;
+        if let Some((job, _)) = &claimed {
+            self.hub.notify(job.id);
+        }
+        Ok(claimed)
     }
 
     /// Link the permit acquired for this job's own user to the claim.
@@ -368,6 +426,7 @@ impl AiImportQueue for PgAiImportQueue {
             UPDATE ai_import.ai_import_job
             SET permit_id = $3, updated_at = now()
             WHERE id = $1 AND status = 'running' AND worker_id = $2
+            RETURNING pg_notify('ai_import_job_events', id::text)
             "#,
         )
         .bind(id.as_uuid())
@@ -376,7 +435,9 @@ impl AiImportQueue for PgAiImportQueue {
         .execute(&self.pool)
         .await
         .map_err(map_sqlx_error)?;
-        ensure_claim_owned(result.rows_affected(), id, worker_id, "attach a permit to")
+        ensure_claim_owned(result.rows_affected(), id, worker_id, "attach a permit to")?;
+        self.hub.notify(id);
+        Ok(())
     }
 
     /// Hand a claimed job back without charging it an attempt.
@@ -394,6 +455,7 @@ impl AiImportQueue for PgAiImportQueue {
                 lease_expires_at = NULL,
                 updated_at = now()
             WHERE id = $1 AND status = 'running' AND worker_id = $2
+            RETURNING pg_notify('ai_import_job_events', id::text)
             "#,
         )
         .bind(id.as_uuid())
@@ -406,7 +468,9 @@ impl AiImportQueue for PgAiImportQueue {
             id,
             worker_id,
             "release the claim of",
-        )
+        )?;
+        self.hub.notify(id);
+        Ok(())
     }
 
     async fn get(&self, id: AiImportJobId) -> Result<Option<AiImportJob>, DomainError> {
@@ -474,6 +538,7 @@ impl AiImportQueue for PgAiImportQueue {
                 lease_expires_at = now() + make_interval(secs => $3),
                 updated_at = now()
             WHERE id = $1 AND status = 'running' AND worker_id = $2
+            RETURNING pg_notify('ai_import_job_events', id::text)
             "#,
         )
         .bind(id.as_uuid())
@@ -482,7 +547,9 @@ impl AiImportQueue for PgAiImportQueue {
         .execute(&self.pool)
         .await
         .map_err(map_sqlx_error)?;
-        ensure_claim_owned(result.rows_affected(), id, worker_id, "renew the lease of")
+        ensure_claim_owned(result.rows_affected(), id, worker_id, "renew the lease of")?;
+        self.hub.notify(id);
+        Ok(())
     }
 
     async fn mark_succeeded(
@@ -504,6 +571,7 @@ impl AiImportQueue for PgAiImportQueue {
                 permit_id = NULL,
                 updated_at = now()
             WHERE id = $1 AND status = 'running' AND worker_id = $2
+            RETURNING pg_notify('ai_import_job_events', id::text)
             "#,
         )
         .bind(id.as_uuid())
@@ -512,7 +580,9 @@ impl AiImportQueue for PgAiImportQueue {
         .execute(&self.pool)
         .await
         .map_err(map_sqlx_error)?;
-        ensure_claim_owned(result.rows_affected(), id, worker_id, "complete")
+        ensure_claim_owned(result.rows_affected(), id, worker_id, "complete")?;
+        self.hub.notify(id);
+        Ok(())
     }
 
     async fn mark_failed(
@@ -562,7 +632,8 @@ impl AiImportQueue for PgAiImportQueue {
                     permit_id = NULL,
                     updated_at = now()
                 WHERE id = $1 AND status = 'running' AND worker_id = $2
-                RETURNING id, retries, status, last_error
+                RETURNING id, retries, status, last_error,
+                    pg_notify('ai_import_job_events', id::text)
             )
             INSERT INTO ai_import.ai_import_job_attempt
                 (id, job_id, attempt_no, status, error_summary, error_code, retryable)
@@ -579,7 +650,9 @@ impl AiImportQueue for PgAiImportQueue {
         .execute(&self.pool)
         .await
         .map_err(map_sqlx_error)?;
-        ensure_claim_owned(result.rows_affected(), id, worker_id, "fail")
+        ensure_claim_owned(result.rows_affected(), id, worker_id, "fail")?;
+        self.hub.notify(id);
+        Ok(())
     }
 
     /// Terminate a job whose durable payload is gone (issue #181).
@@ -612,7 +685,8 @@ impl AiImportQueue for PgAiImportQueue {
                     permit_id = NULL,
                     updated_at = now()
                 WHERE id = $1 AND status = 'running' AND worker_id = $2
-                RETURNING id, retries, status, last_error
+                RETURNING id, retries, status, last_error,
+                    pg_notify('ai_import_job_events', id::text)
             )
             INSERT INTO ai_import.ai_import_job_attempt
                 (id, job_id, attempt_no, status, error_summary, error_code, retryable)
@@ -631,7 +705,48 @@ impl AiImportQueue for PgAiImportQueue {
         .execute(&self.pool)
         .await
         .map_err(map_sqlx_error)?;
-        ensure_claim_owned(result.rows_affected(), id, worker_id, "mark the payload of")
+        ensure_claim_owned(result.rows_affected(), id, worker_id, "mark the payload of")?;
+        self.hub.notify(id);
+        Ok(())
+    }
+
+    /// Owner-fenced, throttled progress write (issue #664, ADR-038 D3).
+    ///
+    /// Same fence as every other worker transition: a worker whose lease
+    /// lapsed gets `Conflict` here instead of overwriting the new owner's
+    /// progress — and aborts before its next billable LLM call. Called only
+    /// at stage boundaries and completed chunks, never per LLM token.
+    async fn mark_progress(
+        &self,
+        id: AiImportJobId,
+        worker_id: &str,
+        progress: &AiImportProgress,
+    ) -> Result<(), DomainError> {
+        let payload = serde_json::to_value(progress).map_err(|error| {
+            DomainError::validation(format!("AI import progress is not serializable: {error}"))
+        })?;
+        let result = sqlx::query(
+            r#"
+            UPDATE ai_import.ai_import_job
+            SET progress = $3, updated_at = now()
+            WHERE id = $1 AND status = 'running' AND worker_id = $2
+            RETURNING pg_notify('ai_import_job_events', id::text)
+            "#,
+        )
+        .bind(id.as_uuid())
+        .bind(worker_id)
+        .bind(payload)
+        .execute(&self.pool)
+        .await
+        .map_err(map_sqlx_error)?;
+        ensure_claim_owned(
+            result.rows_affected(),
+            id,
+            worker_id,
+            "publish progress for",
+        )?;
+        self.hub.notify(id);
+        Ok(())
     }
 
     /// Owner-fenced telemetry write for a worker that still holds the claim.
@@ -655,6 +770,7 @@ impl AiImportQueue for PgAiImportQueue {
                 tokens_in = $6, tokens_out = $7, latency_total_ms = $8,
                 accept_as_is = $9, edit_distance = $10, updated_at = now()
             WHERE id = $1 AND status = 'running' AND worker_id = $2
+            RETURNING pg_notify('ai_import_job_events', id::text)
             "#,
                 )
                 .bind(id.as_uuid())
@@ -668,7 +784,9 @@ impl AiImportQueue for PgAiImportQueue {
             id,
             worker_id,
             "record telemetry for",
-        )
+        )?;
+        self.hub.notify(id);
+        Ok(())
     }
 
     async fn record_telemetry(
@@ -884,6 +1002,28 @@ fn map_reconciling_claim(
     Ok(Some((job, released)))
 }
 
+/// Decode the nullable `progress` JSONB column into the core view type.
+///
+/// Progress is advisory visibility data: a `NULL` column or an undecodable
+/// payload degrades to `None` instead of failing the whole job read.
+fn decode_progress(row: &sqlx::postgres::PgRow) -> Option<AiImportProgress> {
+    let value: Option<serde_json::Value> = row
+        .try_get("progress")
+        .map_err(|err| {
+            tracing::warn!(error = %err, "failed to read ai_import progress column");
+            err
+        })
+        .ok()
+        .flatten()?;
+    match serde_json::from_value::<AiImportProgress>(value?) {
+        Ok(progress) => Some(progress),
+        Err(err) => {
+            tracing::warn!(error = %err, "failed to decode ai_import progress payload");
+            None
+        }
+    }
+}
+
 fn map_job_row(row: sqlx::postgres::PgRow) -> Result<AiImportJob, DomainError> {
     let kind = parse_document_kind(row.try_get("document_kind").map_err(map_sqlx_error)?)?;
     let status = parse_status(row.try_get("status").map_err(map_sqlx_error)?)?;
@@ -917,6 +1057,10 @@ fn map_job_row(row: sqlx::postgres::PgRow) -> Result<AiImportJob, DomainError> {
             .map_err(map_sqlx_error)?
             .max(0) as u32,
         next_attempt_at: row.try_get("next_attempt_at").map_err(map_sqlx_error)?,
+        // JSONB decoded through the core view type; `NULL`/undecodable
+        // payloads degrade to `None` rather than failing the whole read —
+        // progress is advisory visibility data, never correctness state.
+        progress: decode_progress(&row),
         created_at,
         updated_at,
         // Populated by `get` (single-job read); list/claim contexts leave it
