@@ -16,6 +16,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:breakdown_api/breakdown_api.dart';
+import 'package:dio/dio.dart' show CancelToken;
 import 'package:built_collection/built_collection.dart';
 import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
@@ -107,6 +108,8 @@ class FakePipelineRepository extends AiImportRepository {
     String jobId, {
     ReconciliationScheduler scheduler = const ExponentialBackoffScheduler(),
     int maxAttempts = 30,
+    Duration? receiveTimeout,
+    CancelToken? cancelToken,
   }) async* {
     yield Right(_job(jobId, JobStatus.succeeded));
   }

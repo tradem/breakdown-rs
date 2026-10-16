@@ -28,6 +28,8 @@ import 'package:breakdown_api/src/model/ai_import_defaults.dart';
 import 'package:breakdown_api/src/model/ai_import_job.dart';
 import 'package:breakdown_api/src/model/ai_import_job_response.dart';
 import 'package:breakdown_api/src/model/ai_import_preview_response.dart';
+import 'package:breakdown_api/src/model/ai_import_progress.dart';
+import 'package:breakdown_api/src/model/ai_import_stage.dart';
 import 'package:breakdown_api/src/model/ai_preview_payload.dart';
 import 'package:breakdown_api/src/model/ai_preview_payload_one_of.dart';
 import 'package:breakdown_api/src/model/ai_preview_payload_one_of1.dart';
@@ -182,6 +184,8 @@ part 'serializers.g.dart';
   AiImportJob,
   AiImportJobResponse,
   AiImportPreviewResponse,
+  AiImportProgress,
+  AiImportStage,
   AiPreviewPayload,
   AiPreviewPayloadOneOf,
   AiPreviewPayloadOneOf1,
@@ -505,12 +509,12 @@ Serializers serializers = (_$serializers.toBuilder()
         () => ListBuilder<DocumentKind>(),
       )
       ..addBuilderFactory(
-        const FullType(BuiltList, [FullType(AppearanceCostumeView)]),
-        () => ListBuilder<AppearanceCostumeView>(),
-      )
-      ..addBuilderFactory(
         const FullType(BuiltList, [FullType(String)]),
         () => ListBuilder<String>(),
+      )
+      ..addBuilderFactory(
+        const FullType(BuiltList, [FullType(AppearanceCostumeView)]),
+        () => ListBuilder<AppearanceCostumeView>(),
       )
       ..add(GDriveCredentialRequest.serializer)
       ..add(const OneOfSerializer())

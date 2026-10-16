@@ -8,39 +8,69 @@ part of 'job_status_controller.dart';
 
 // GENERATED CODE - DO NOT MODIFY BY HAND
 // ignore_for_file: type=lint, type=warning
-/// The job-status controller (`flutter-ai-import-workflow` task 3.2).
+/// The job-status controller (`flutter-ai-import-workflow` task 3.2, issue
+/// #664 battery contract D5).
 ///
-/// Subscribes to `jobRepository.watch(jobId)` — the bounded,
-/// foreground-only backoff watch (D5). The subscription lives exactly as
-/// long as this provider: leaving the screen disposes the provider, which
-/// cancels the subscription and STOPS the watch (unsubscribe stop);
-/// re-entering re-arms it. Terminal statuses end the stream by
-/// themselves. There is no cancel affordance (D3 — no server route): the
-/// copy says processing continues; the user can only close the screen.
+/// The ONLY SSE consumer in the app: subscribes to
+/// `jobRepository.watch(jobId)` — the push-based, foreground-only event
+/// stream. The subscription lives exactly as long as this provider AND the
+/// app is foregrounded:
+///
+/// * leaving the screen disposes the provider → the subscription (and its
+///   Dio cancel token) is cancelled — no stream survives the screen;
+/// * the app transitioning to the background (`paused`/`hidden`/
+///   `detached`) cancels the subscription immediately — zero background
+///   network wake-ups;
+/// * returning to the foreground (`resumed`) performs exactly ONE
+///   snapshot `GET /v1/ai-import/jobs/{id}` and re-subscribes only if the
+///   job is still non-terminal.
+///
+/// There is no cancel affordance (D3 — no server route): the copy says
+/// processing continues; the user can only close the screen.
 
 @ProviderFor(AiJobStatusController)
 final aiJobStatusControllerProvider = AiJobStatusControllerFamily._();
 
-/// The job-status controller (`flutter-ai-import-workflow` task 3.2).
+/// The job-status controller (`flutter-ai-import-workflow` task 3.2, issue
+/// #664 battery contract D5).
 ///
-/// Subscribes to `jobRepository.watch(jobId)` — the bounded,
-/// foreground-only backoff watch (D5). The subscription lives exactly as
-/// long as this provider: leaving the screen disposes the provider, which
-/// cancels the subscription and STOPS the watch (unsubscribe stop);
-/// re-entering re-arms it. Terminal statuses end the stream by
-/// themselves. There is no cancel affordance (D3 — no server route): the
-/// copy says processing continues; the user can only close the screen.
+/// The ONLY SSE consumer in the app: subscribes to
+/// `jobRepository.watch(jobId)` — the push-based, foreground-only event
+/// stream. The subscription lives exactly as long as this provider AND the
+/// app is foregrounded:
+///
+/// * leaving the screen disposes the provider → the subscription (and its
+///   Dio cancel token) is cancelled — no stream survives the screen;
+/// * the app transitioning to the background (`paused`/`hidden`/
+///   `detached`) cancels the subscription immediately — zero background
+///   network wake-ups;
+/// * returning to the foreground (`resumed`) performs exactly ONE
+///   snapshot `GET /v1/ai-import/jobs/{id}` and re-subscribes only if the
+///   job is still non-terminal.
+///
+/// There is no cancel affordance (D3 — no server route): the copy says
+/// processing continues; the user can only close the screen.
 final class AiJobStatusControllerProvider
     extends $NotifierProvider<AiJobStatusController, AsyncValue<AiImportJob>> {
-  /// The job-status controller (`flutter-ai-import-workflow` task 3.2).
+  /// The job-status controller (`flutter-ai-import-workflow` task 3.2, issue
+  /// #664 battery contract D5).
   ///
-  /// Subscribes to `jobRepository.watch(jobId)` — the bounded,
-  /// foreground-only backoff watch (D5). The subscription lives exactly as
-  /// long as this provider: leaving the screen disposes the provider, which
-  /// cancels the subscription and STOPS the watch (unsubscribe stop);
-  /// re-entering re-arms it. Terminal statuses end the stream by
-  /// themselves. There is no cancel affordance (D3 — no server route): the
-  /// copy says processing continues; the user can only close the screen.
+  /// The ONLY SSE consumer in the app: subscribes to
+  /// `jobRepository.watch(jobId)` — the push-based, foreground-only event
+  /// stream. The subscription lives exactly as long as this provider AND the
+  /// app is foregrounded:
+  ///
+  /// * leaving the screen disposes the provider → the subscription (and its
+  ///   Dio cancel token) is cancelled — no stream survives the screen;
+  /// * the app transitioning to the background (`paused`/`hidden`/
+  ///   `detached`) cancels the subscription immediately — zero background
+  ///   network wake-ups;
+  /// * returning to the foreground (`resumed`) performs exactly ONE
+  ///   snapshot `GET /v1/ai-import/jobs/{id}` and re-subscribes only if the
+  ///   job is still non-terminal.
+  ///
+  /// There is no cancel affordance (D3 — no server route): the copy says
+  /// processing continues; the user can only close the screen.
   AiJobStatusControllerProvider._({
     required AiJobStatusControllerFamily super.from,
     required String super.argument,
@@ -86,17 +116,27 @@ final class AiJobStatusControllerProvider
 }
 
 String _$aiJobStatusControllerHash() =>
-    r'd43b6c8d830217b083ea50f9b47da77fe294cac9';
+    r'577296d6e845f3d7ccc914aff1127c482b22db35';
 
-/// The job-status controller (`flutter-ai-import-workflow` task 3.2).
+/// The job-status controller (`flutter-ai-import-workflow` task 3.2, issue
+/// #664 battery contract D5).
 ///
-/// Subscribes to `jobRepository.watch(jobId)` — the bounded,
-/// foreground-only backoff watch (D5). The subscription lives exactly as
-/// long as this provider: leaving the screen disposes the provider, which
-/// cancels the subscription and STOPS the watch (unsubscribe stop);
-/// re-entering re-arms it. Terminal statuses end the stream by
-/// themselves. There is no cancel affordance (D3 — no server route): the
-/// copy says processing continues; the user can only close the screen.
+/// The ONLY SSE consumer in the app: subscribes to
+/// `jobRepository.watch(jobId)` — the push-based, foreground-only event
+/// stream. The subscription lives exactly as long as this provider AND the
+/// app is foregrounded:
+///
+/// * leaving the screen disposes the provider → the subscription (and its
+///   Dio cancel token) is cancelled — no stream survives the screen;
+/// * the app transitioning to the background (`paused`/`hidden`/
+///   `detached`) cancels the subscription immediately — zero background
+///   network wake-ups;
+/// * returning to the foreground (`resumed`) performs exactly ONE
+///   snapshot `GET /v1/ai-import/jobs/{id}` and re-subscribes only if the
+///   job is still non-terminal.
+///
+/// There is no cancel affordance (D3 — no server route): the copy says
+/// processing continues; the user can only close the screen.
 
 final class AiJobStatusControllerFamily extends $Family
     with
@@ -116,15 +156,25 @@ final class AiJobStatusControllerFamily extends $Family
         isAutoDispose: true,
       );
 
-  /// The job-status controller (`flutter-ai-import-workflow` task 3.2).
+  /// The job-status controller (`flutter-ai-import-workflow` task 3.2, issue
+  /// #664 battery contract D5).
   ///
-  /// Subscribes to `jobRepository.watch(jobId)` — the bounded,
-  /// foreground-only backoff watch (D5). The subscription lives exactly as
-  /// long as this provider: leaving the screen disposes the provider, which
-  /// cancels the subscription and STOPS the watch (unsubscribe stop);
-  /// re-entering re-arms it. Terminal statuses end the stream by
-  /// themselves. There is no cancel affordance (D3 — no server route): the
-  /// copy says processing continues; the user can only close the screen.
+  /// The ONLY SSE consumer in the app: subscribes to
+  /// `jobRepository.watch(jobId)` — the push-based, foreground-only event
+  /// stream. The subscription lives exactly as long as this provider AND the
+  /// app is foregrounded:
+  ///
+  /// * leaving the screen disposes the provider → the subscription (and its
+  ///   Dio cancel token) is cancelled — no stream survives the screen;
+  /// * the app transitioning to the background (`paused`/`hidden`/
+  ///   `detached`) cancels the subscription immediately — zero background
+  ///   network wake-ups;
+  /// * returning to the foreground (`resumed`) performs exactly ONE
+  ///   snapshot `GET /v1/ai-import/jobs/{id}` and re-subscribes only if the
+  ///   job is still non-terminal.
+  ///
+  /// There is no cancel affordance (D3 — no server route): the copy says
+  /// processing continues; the user can only close the screen.
 
   AiJobStatusControllerProvider call(String jobId) =>
       AiJobStatusControllerProvider._(argument: jobId, from: this);
@@ -133,15 +183,25 @@ final class AiJobStatusControllerFamily extends $Family
   String toString() => r'aiJobStatusControllerProvider';
 }
 
-/// The job-status controller (`flutter-ai-import-workflow` task 3.2).
+/// The job-status controller (`flutter-ai-import-workflow` task 3.2, issue
+/// #664 battery contract D5).
 ///
-/// Subscribes to `jobRepository.watch(jobId)` — the bounded,
-/// foreground-only backoff watch (D5). The subscription lives exactly as
-/// long as this provider: leaving the screen disposes the provider, which
-/// cancels the subscription and STOPS the watch (unsubscribe stop);
-/// re-entering re-arms it. Terminal statuses end the stream by
-/// themselves. There is no cancel affordance (D3 — no server route): the
-/// copy says processing continues; the user can only close the screen.
+/// The ONLY SSE consumer in the app: subscribes to
+/// `jobRepository.watch(jobId)` — the push-based, foreground-only event
+/// stream. The subscription lives exactly as long as this provider AND the
+/// app is foregrounded:
+///
+/// * leaving the screen disposes the provider → the subscription (and its
+///   Dio cancel token) is cancelled — no stream survives the screen;
+/// * the app transitioning to the background (`paused`/`hidden`/
+///   `detached`) cancels the subscription immediately — zero background
+///   network wake-ups;
+/// * returning to the foreground (`resumed`) performs exactly ONE
+///   snapshot `GET /v1/ai-import/jobs/{id}` and re-subscribes only if the
+///   job is still non-terminal.
+///
+/// There is no cancel affordance (D3 — no server route): the copy says
+/// processing continues; the user can only close the screen.
 
 abstract class _$AiJobStatusController
     extends $Notifier<AsyncValue<AiImportJob>> {

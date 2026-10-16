@@ -1335,6 +1335,38 @@ fn draft_episode_group_key_prefers_the_number() {
     assert_eq!(DraftEpisode::default().group_key(), None);
 }
 
+// ===========================================================================
+// DraftEpisode::display_label — progress label for episodes_seen (issue #664)
+// ===========================================================================
+
+#[test]
+fn draft_episode_display_label_prefers_the_number() {
+    let episode = DraftEpisode {
+        number: Some(3),
+        title: Some("Titel".into()),
+    };
+    assert_eq!(episode.display_label().as_deref(), Some("Ep. 3"));
+}
+
+#[test]
+fn draft_episode_display_label_falls_back_to_the_trimmed_title() {
+    let episode = DraftEpisode {
+        number: None,
+        title: Some("  Der Unfall  ".into()),
+    };
+    assert_eq!(episode.display_label().as_deref(), Some("Der Unfall"));
+}
+
+#[test]
+fn draft_episode_display_label_is_none_without_number_or_title() {
+    assert_eq!(DraftEpisode::default().display_label(), None);
+    let blank = DraftEpisode {
+        number: None,
+        title: Some("   ".into()),
+    };
+    assert_eq!(blank.display_label(), None);
+}
+
 #[test]
 fn episode_group_refs_lists_distinct_group_refs_in_order() {
     let preview = ScriptContext {

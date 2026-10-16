@@ -84,6 +84,20 @@ bool jobStatusInProgress(JobStatus status) =>
 bool jobStatusTerminalError(JobStatus status) =>
     status == JobStatus.deadLetter || status == JobStatus.payloadUnavailable;
 
+/// Localized client-side copy for an extraction stage (issue #664). `null`
+/// (job carries no progress yet) falls back to the plain running copy the
+/// status matrix already provides — never a fabricated stage.
+String aiJobStageCopy(AppLocalizations l10n, AiImportStage? stage) =>
+    switch (stage) {
+      AiImportStage.extractingText => l10n.aiJobStageExtractingText,
+      AiImportStage.extracting => l10n.aiJobStageExtracting,
+      AiImportStage.merging => l10n.aiJobStageMerging,
+      AiImportStage.storingPreview => l10n.aiJobStageStoringPreview,
+      // A future backend stage the client does not know: honest copy keyed
+      // on the stable enum name, never a guessed meaning.
+      _ => l10n.aiJobStageUnknown(stage?.name ?? ''),
+    };
+
 /// Localized client-side copy for the failure of an AI-import attempt, keyed
 /// on the attempt's stable problem `code` (issue #639). The backend
 /// `error_summary` is free-form `DomainError` log text and is NEVER used as

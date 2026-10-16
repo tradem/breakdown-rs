@@ -106,8 +106,8 @@ use api::state::Ports;
 use breakdown_core::ai::{
     AiConfigCommands, AiConfigRepository, AiConfigView, AiImportEnqueueRequest,
     AiImportEnqueueResult, AiImportJob, AiImportJobId, AiImportMapping, AiImportMappingRepository,
-    AiImportQueue, CreateAiConfig, DocumentKind, JobStatus, RevokeAiConfig, Telemetry,
-    UpdateAiConfig,
+    AiImportProgress, AiImportQueue, CreateAiConfig, DocumentKind, JobStatus, RevokeAiConfig,
+    Telemetry, UpdateAiConfig,
 };
 use infra::ai::MemoryAiPreviewStore;
 
@@ -2205,6 +2205,9 @@ pub struct FakeAiImportQueue {
     /// Dedup index (`dedup_key` → job id), mirroring the Postgres unique index.
     pub dedup: Arc<Mutex<HashMap<String, AiImportJobId>>>,
     pub telemetry: Arc<Mutex<Vec<(AiImportJobId, Telemetry)>>>,
+    /// In-process job-event fan-out (issue #664): SSE handler tests subscribe
+    /// through the port and publish updates via `publish`.
+    pub hub: infra::ai::AiJobEventHub,
 }
 
 #[allow(dead_code)]
@@ -2213,6 +2216,13 @@ impl FakeAiImportQueue {
     /// in any lifecycle state (e.g. `Succeeded` with a preview handle).
     pub async fn seed(&self, job: AiImportJob) {
         self.jobs.lock().await.insert(job.id.as_uuid(), job);
+    }
+
+    /// Overwrite a stored job and publish a wake-up for it (issue #664) —
+    /// the in-memory analogue of the queue's fenced-write notifications.
+    pub async fn update_and_notify(&self, job: AiImportJob) {
+        self.jobs.lock().await.insert(job.id.as_uuid(), job.clone());
+        self.hub.notify(job.id);
     }
 }
 
@@ -2243,6 +2253,7 @@ impl AiImportQueue for FakeAiImportQueue {
                 preview_handle: None,
                 last_error: None,
                 retries: 0,
+                progress: None,
                 next_attempt_at: None,
                 attempts: Vec::new(),
                 max_retries: 5,
@@ -2312,7 +2323,9 @@ impl AiImportQueue for FakeAiImportQueue {
     async fn mark_running(&self, id: AiImportJobId, _worker_id: &str) -> Result<(), DomainError> {
         if let Some(job) = self.jobs.lock().await.get_mut(&id.as_uuid()) {
             job.status = JobStatus::Running;
+            job.updated_at = Utc::now();
         }
+        self.hub.notify(id);
         Ok(())
     }
 
@@ -2325,7 +2338,9 @@ impl AiImportQueue for FakeAiImportQueue {
         if let Some(job) = self.jobs.lock().await.get_mut(&id.as_uuid()) {
             job.status = JobStatus::Succeeded;
             job.preview_handle = Some(preview_handle.to_owned());
+            job.updated_at = Utc::now();
         }
+        self.hub.notify(id);
         Ok(())
     }
 
@@ -2340,8 +2355,33 @@ impl AiImportQueue for FakeAiImportQueue {
         if let Some(job) = self.jobs.lock().await.get_mut(&id.as_uuid()) {
             job.status = JobStatus::Failed;
             job.last_error = Some(error_summary.to_owned());
+            job.updated_at = Utc::now();
         }
+        self.hub.notify(id);
         Ok(())
+    }
+
+    /// Records progress and wakes the hub, mirroring the production queue.
+    async fn mark_progress(
+        &self,
+        id: AiImportJobId,
+        _worker_id: &str,
+        progress: &AiImportProgress,
+    ) -> Result<(), DomainError> {
+        if let Some(job) = self.jobs.lock().await.get_mut(&id.as_uuid()) {
+            job.progress = Some(progress.clone());
+            job.updated_at = Utc::now();
+        }
+        self.hub.notify(id);
+        Ok(())
+    }
+
+    /// Push wake-ups through the same in-process hub the SSE handler reads.
+    fn subscribe(
+        &self,
+        id: AiImportJobId,
+    ) -> std::pin::Pin<Box<dyn futures::Stream<Item = AiImportJobId> + Send>> {
+        self.hub.subscribe(id)
     }
 
     async fn record_worker_telemetry(

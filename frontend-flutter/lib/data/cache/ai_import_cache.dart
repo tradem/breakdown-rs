@@ -59,6 +59,13 @@ class AiImportJobCacheRows extends Table {
   IntColumn get retries => integer()();
   IntColumn get maxRetries => integer()();
 
+  /// Live extraction progress of a running job (backend issue #664),
+  /// serialized as the generated [AiImportProgress] JSON object — `null`
+  /// for pending jobs and freshly re-claimed retry attempts. Text (not a
+  /// typed column) so an unknown future stage degrades to a parse failure
+  /// at read, not a DB fault.
+  TextColumn get progressJson => text().nullable()();
+
   DateTimeColumn get createdAt => dateTime()();
   DateTimeColumn get updatedAt => dateTime()();
 

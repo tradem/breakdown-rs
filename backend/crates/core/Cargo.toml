@@ -6,7 +6,7 @@
 
 [package]
 name = "breakdown_core"
-version = "0.35.0"
+version = "0.36.0"
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
@@ -37,6 +37,8 @@ utoipa.workspace = true
 
 # Async traits für Ports (object-safe, mockierbar)
 async-trait.workspace = true
+# Port-Stream-Typ für die storage-agnostische Job-Event-Subscription (issue #664)
+futures = "0.3"
 zeroize.workspace = true
 subtle = "2.6"
 

@@ -22,6 +22,7 @@
 import 'dart:async';
 
 import 'package:breakdown_api/breakdown_api.dart';
+import 'package:dio/dio.dart' show CancelToken;
 import 'package:built_collection/built_collection.dart';
 import 'package:drift/native.dart';
 import 'package:flutter/foundation.dart';
@@ -148,6 +149,8 @@ class FakeJobsRepository extends AiImportRepository {
     String jobId, {
     ReconciliationScheduler scheduler = const ExponentialBackoffScheduler(),
     int maxAttempts = 30,
+    Duration? receiveTimeout,
+    CancelToken? cancelToken,
   }) {
     watchCalls++;
     return const Stream<Result<AiImportJob>>.empty();

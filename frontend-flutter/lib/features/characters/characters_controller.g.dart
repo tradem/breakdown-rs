@@ -841,7 +841,7 @@ final class CharactersControllerProvider
 }
 
 String _$charactersControllerHash() =>
-    r'111f4352f6f7011283ba1abd91505e0695e99331';
+    r'11d764f328278d52002566aa3ae5105e94c2b6fa';
 
 /// `CharactersController(seasonId)` on the shared reconciliation runner:
 /// create follows the optimistic-overlay pattern; contact/measurements are

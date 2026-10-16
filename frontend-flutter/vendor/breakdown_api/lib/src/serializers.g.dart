@@ -20,6 +20,8 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..add(AiImportJob.serializer)
       ..add(AiImportJobResponse.serializer)
       ..add(AiImportPreviewResponse.serializer)
+      ..add(AiImportProgress.serializer)
+      ..add(AiImportStage.serializer)
       ..add(AiPreviewPayload.serializer)
       ..add(AiPreviewPayloadOneOf.serializer)
       ..add(AiPreviewPayloadOneOf1.serializer)
@@ -258,6 +260,9 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..addBuilderFactory(
           const FullType(BuiltList, const [const FullType(SollIstDiffRow)]),
           () => ListBuilder<SollIstDiffRow>())
+      ..addBuilderFactory(
+          const FullType(BuiltList, const [const FullType(String)]),
+          () => ListBuilder<String>())
       ..addBuilderFactory(
           const FullType(BuiltList, const [const FullType(String)]),
           () => ListBuilder<String>())

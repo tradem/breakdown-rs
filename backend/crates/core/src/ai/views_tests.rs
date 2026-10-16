@@ -183,3 +183,113 @@ fn dead_letter_is_resumable() {
 fn failed_is_resumable() {
     assert!(!super::JobStatus::Failed.is_non_resumable());
 }
+
+// ===========================================================================
+// AiImportStage / AiImportProgress — job progress view (issue #664)
+// ===========================================================================
+
+use super::{AiImportProgress, AiImportStage, DraftEpisode};
+
+#[test]
+fn ai_import_stage_as_str_matches_the_wire_snake_case() {
+    for (stage, text) in [
+        (AiImportStage::ExtractingText, "extracting_text"),
+        (AiImportStage::Extracting, "extracting"),
+        (AiImportStage::Merging, "merging"),
+        (AiImportStage::StoringPreview, "storing_preview"),
+    ] {
+        assert_eq!(stage.as_str(), text);
+        assert_eq!(
+            serde_json::to_value(stage)
+                .ok()
+                .and_then(|v| v.as_str().map(str::to_owned)),
+            Some(text.to_owned())
+        );
+    }
+}
+
+#[test]
+fn ai_import_progress_default_is_extracting_text_without_counts() {
+    let progress = AiImportProgress::default();
+    assert_eq!(progress.stage, AiImportStage::ExtractingText);
+    assert_eq!(progress.chunk, None);
+    assert_eq!(progress.chunks_total, None);
+    assert!(progress.episodes_seen.is_empty());
+}
+
+#[test]
+fn record_episode_appends_labels_in_first_seen_order() {
+    let mut progress = AiImportProgress::default();
+    progress.record_episode(Some(&DraftEpisode {
+        number: Some(3),
+        title: None,
+    }));
+    progress.record_episode(Some(&DraftEpisode {
+        number: Some(4),
+        title: None,
+    }));
+    assert_eq!(
+        progress.episodes_seen,
+        vec!["Ep. 3".to_owned(), "Ep. 4".to_owned()]
+    );
+}
+
+#[test]
+fn record_episode_deduplicates_repeated_markers() {
+    let mut progress = AiImportProgress::default();
+    let episode = DraftEpisode {
+        number: Some(3),
+        title: None,
+    };
+    // Page headers repeat the marker on every chunk — it stays a single entry.
+    for _ in 0..3 {
+        progress.record_episode(Some(&episode));
+    }
+    assert_eq!(progress.episodes_seen, vec!["Ep. 3".to_owned()]);
+}
+
+#[test]
+fn record_episode_ignores_episodes_without_a_label() {
+    let mut progress = AiImportProgress::default();
+    progress.record_episode(None);
+    progress.record_episode(Some(&DraftEpisode {
+        number: None,
+        title: Some("   ".into()),
+    }));
+    assert!(progress.episodes_seen.is_empty());
+}
+
+#[test]
+fn ai_import_job_progress_is_optional_on_the_wire() {
+    // An older payload without `progress` deserializes to `None` (additive).
+    let job: super::AiImportJob = serde_json::from_str(
+        r#"{
+            "id": "01950000-0000-7000-8000-000000000001",
+            "user_id": "user-1",
+            "document_kind": "script",
+            "source_format": "pdf",
+            "dedup_key": "k",
+            "document_digest": "d",
+            "source_handle": "h",
+            "status": "running",
+            "retries": 0,
+            "max_retries": 5,
+            "created_at": "2026-10-12T00:00:00Z",
+            "updated_at": "2026-10-12T00:00:00Z"
+        }"#,
+    )
+    .expect("test fixture deserializes");
+    assert_eq!(job.progress, None);
+
+    let with_progress = AiImportProgress {
+        stage: AiImportStage::Extracting,
+        chunk: Some(4),
+        chunks_total: Some(12),
+        episodes_seen: vec!["Ep. 3".to_owned(), "Ep. 4".to_owned()],
+    };
+    let json = serde_json::to_value(&with_progress).ok();
+    assert_eq!(
+        json.map(|v| v["stage"].as_str().map(str::to_owned)),
+        Some(Some("extracting".to_owned()))
+    );
+}

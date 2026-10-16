@@ -3,6 +3,8 @@
 // Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 // Co-authored-by: omen-alpha (opencode-go)
 
+import 'dart:convert';
+
 import 'package:breakdown_api/breakdown_api.dart';
 import 'package:built_value/serializer.dart';
 import 'package:drift/drift.dart';
@@ -161,6 +163,18 @@ class AiImportJobsCacheDao {
     previewHandle: Value(job.previewHandle),
     retries: job.retries,
     maxRetries: job.maxRetries,
+    // Serialized generated `AiImportProgress` (issue #664) via the generated
+    // serializers — the same encode/decode pattern as the scene-shoot notes.
+    progressJson: job.progress == null
+        ? const Value(null)
+        : Value(
+            jsonEncode(
+              serializers.serializeWith(
+                AiImportProgress.serializer,
+                job.progress,
+              ),
+            ),
+          ),
     createdAt: job.createdAt,
     updatedAt: job.updatedAt,
     cachedAt: cachedAt,
@@ -180,6 +194,21 @@ DocumentKind? documentKindFromWire(String wire) =>
 /// Parses a cached row's source-format wire string, or `null` (strict).
 SourceFormat? sourceFormatFromWire(String wire) =>
     _parseWire(SourceFormat.serializer, wire);
+
+/// Parses a cached row's serialized [AiImportProgress] (issue #664) back to
+/// the generated DTO, or `null` for an absent or undecodable payload
+/// (strict — the UI renders the honest no-progress state).
+AiImportProgress? aiImportProgressFromWire(String? wire) {
+  if (wire == null || wire.isEmpty) return null;
+  try {
+    return serializers.deserializeWith(
+      AiImportProgress.serializer,
+      jsonDecode(wire),
+    );
+  } on Object {
+    return null;
+  }
+}
 
 T? _parseWire<T>(Serializer<T> serializer, String wire) {
   try {

@@ -8,7 +8,9 @@
 // Co-authored-by: qwen3.8-flash (opencode-go)
 
 use async_trait::async_trait;
+use futures::Stream;
 use serde::{Deserialize, Serialize};
+use std::pin::Pin;
 use utoipa::ToSchema;
 use uuid::Uuid;
 
@@ -21,7 +23,8 @@ use crate::shared::{AggregateVersion, BlockId, UserId};
 
 use super::preview::{ScriptContext, ShootingSchedule};
 use super::views::{
-    AiImportAttempt, AiImportJob, AiImportJobId, DocumentKind, SourceFormat, Telemetry,
+    AiImportAttempt, AiImportJob, AiImportJobId, AiImportProgress, DocumentKind, SourceFormat,
+    Telemetry,
 };
 
 /// Curated providers. The enum is intentionally non-exhaustive so adding a
@@ -373,6 +376,45 @@ pub trait AiImportQueue: Send + Sync {
     ) -> Result<(), DomainError> {
         self.mark_failed(id, worker_id, error_summary, error_code, false)
             .await
+    }
+
+    /// Publish live extraction progress for a claimed job (issue #664).
+    ///
+    /// Owner-fenced like every other worker transition: a worker whose lease
+    /// lapsed and whose job was reclaimed gets [`DomainError::Conflict`]
+    /// rather than overwriting the new owner's progress — the displaced
+    /// worker aborts before its next billable LLM call.
+    ///
+    /// Throttling contract (ADR-038 D3): called only at stage boundaries and
+    /// once per completed chunk (`1..=chunks_total`), NEVER per generated
+    /// LLM token.
+    ///
+    /// The default is a no-op for backends and test fakes that do not track
+    /// progress.
+    async fn mark_progress(
+        &self,
+        _id: AiImportJobId,
+        _worker_id: &str,
+        _progress: &AiImportProgress,
+    ) -> Result<(), DomainError> {
+        Ok(())
+    }
+
+    /// Subscribe to wake-up notifications for one job (issue #664).
+    ///
+    /// Storage-agnostic push seam for the SSE endpoint: every adapter that
+    /// changes a job's state or progress is expected to wake the stream — in
+    /// PostgreSQL mode via `pg_notify` bridged into the in-process hub, in
+    /// in-process modes (test fakes, future SQLite) by direct publication.
+    /// The stream yields the job id itself; receivers always re-read the
+    /// authoritative row via [`AiImportQueue::get`], so duplicate or lagged
+    /// notifications are harmless.
+    ///
+    /// The default is an empty stream for backends without push distribution
+    /// (existing in-memory fakes keep compiling and simply never wake — the
+    /// SSE snapshot is still delivered).
+    fn subscribe(&self, _id: AiImportJobId) -> Pin<Box<dyn Stream<Item = AiImportJobId> + Send>> {
+        Box::pin(futures::stream::empty())
     }
 
     /// Record telemetry produced by a *worker* while it holds the claim.

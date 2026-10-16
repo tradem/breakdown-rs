@@ -113,6 +113,15 @@ yanked = "deny"
 # archived upstream; no fixed release exists and no maintained path is
 # available at the pinned typst version. Revisit on typst upgrade (or on a
 # `serde_yaml` replacement in the dev-only test).
+#
+# Yanked `zip 8.6.0`: the sole 8.6.x release on crates.io, hard-required by
+# `utoipa-swagger-ui 10.0.1` (latest release, exact `zip = "^8.6"` spec) —
+# so there is no resolvable non-yanked path at the pinned utoipa-swagger-ui
+# version, and zip 9.x is semver-incompatible with that requirement. The
+# crate is a build-time asset packager for the embedded Swagger UI, not a
+# runtime attack surface. Ignore is version-scoped to 8.6.0 so a future
+# yanked successor still fails. Revisit on the next utoipa-swagger-ui
+# release that permits zip 9.x.
 ignore = [
     "RUSTSEC-2023-0071",
     "RUSTSEC-2026-0194",
@@ -124,4 +133,5 @@ ignore = [
     "RUSTSEC-2026-0192", # ttf-parser via typst/usvg
     "RUSTSEC-2026-0206", # rustybuzz via typst/krilla
     "RUSTSEC-2024-0449", # unsafe-libyaml via serde_yaml (typst/hayagriva + dev-only openapi test)
+    { crate = "zip", version = "8.6.0", reason = "yanked upstream; sole 8.6.x, hard-required by utoipa-swagger-ui 10.0.1 — unblock when a release permits zip 9.x" },
 ]

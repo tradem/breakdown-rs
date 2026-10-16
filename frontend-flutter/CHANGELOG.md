@@ -22,6 +22,24 @@ releases are cut as `vX.Y.Z` tags (`v<build-name>`, enforced by
 
 ## [Unreleased]
 
+- **Version bump:** `0.4.0-alpha.33+84 → 0.4.0-alpha.34+85` — issue #664,
+  AI-import SSE progress:
+  * Regenerated `vendor/breakdown_api/` (`AiImportProgress`, `progress`
+    on `AiImportJob`, the `/events` SSE route).
+  * Drift cache v15: the nullable `progress_json` column on the AI job
+    cache (guarded ADD COLUMN migration) + `aiImportProgressFromWire`.
+  * `AiImportRepository.watch(jobId)` now consumes the SSE stream
+    (`ResponseType.stream` over the pinned-CA Dio client, 65 s read-idle
+    watchdog, `Last-Event-ID` reconnects, success-only cache writes) —
+    no periodic polling anymore.
+  * `AiJobStatusController` enforces the battery contract: cancel on
+    screen disposal or app backgrounding; on resume ONE snapshot GET and
+    a re-subscribe only for non-terminal jobs.
+  * Progress UI: localized stage copy, `chunk / chunks_total` with a
+    determinate bar (only when the backend carries a positive total) and
+    episode chips on the status screen; compact stage/episode subtitle
+    on the jobs list (still zero SSE streams there).
+
 - **Version bump:** `0.4.0-alpha.32+83 → 0.4.0-alpha.33+84` — issue #671,
   the jobs-list delete affordance:
   * `DELETE /v1/ai-import/jobs/{id}` (backend issue #671): dead-letter

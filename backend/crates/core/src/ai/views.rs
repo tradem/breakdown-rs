@@ -14,6 +14,7 @@ use uuid::Uuid;
 use crate::shared::{AggregateVersion, BlockId, UserId};
 
 use super::ports::LlmProvider;
+use super::preview::DraftEpisode;
 
 /// The two document kinds supported by the import pipeline.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, ToSchema)]
@@ -148,6 +149,78 @@ impl Default for AiImportJobId {
     }
 }
 
+/// The extraction stage an AI import job is currently in (issue #664).
+///
+/// Surfaces *where* in the pipeline a running job is, so the client can show
+/// something more informative than an indeterminate spinner. Never per-LLM-
+/// token — it only advances at stage boundaries and completed chunks.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum AiImportStage {
+    /// Extracting text from the PDF and scanning the deterministic
+    /// scene/episode markers.
+    #[default]
+    ExtractingText,
+    /// Running per-chunk LLM or CSV extraction.
+    Extracting,
+    /// Running the deterministic schedule-to-scene merge.
+    Merging,
+    /// Writing the extracted preview payload to durable object storage.
+    StoringPreview,
+}
+
+impl AiImportStage {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::ExtractingText => "extracting_text",
+            Self::Extracting => "extracting",
+            Self::Merging => "merging",
+            Self::StoringPreview => "storing_preview",
+        }
+    }
+}
+
+/// Live progress of a running AI import job (issue #664).
+///
+/// Additive and optional on [`AiImportJob`]: `None` for jobs that have not
+/// reached a `mark_progress` call yet (fresh `pending` claims, retried
+/// attempts before their first stage boundary — the claim SQL resets it).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct AiImportProgress {
+    pub stage: AiImportStage,
+    /// Chunk counter of the extraction progress. `0` is a deliberate
+    /// published state — "chunking finished, the first chunk has not yet
+    /// completed" (the frame emitted right after the deterministic scan) —
+    /// so the schema floor is 0, not 1. For every later frame this is the
+    /// 1-based index of the last **completed** chunk (`1..=chunks_total`).
+    #[serde(default)]
+    pub chunk: Option<u32>,
+    /// Total chunks in the document (known once chunking finishes).
+    #[serde(default)]
+    pub chunks_total: Option<u32>,
+    /// Human-readable episode labels discovered so far, in first-seen order,
+    /// deduplicated (e.g. `["Ep. 3", "Ep. 4"]`). Built at zero extra LLM
+    /// token cost from the deterministic `Ep.:` marker scan and per-chunk
+    /// extracted `DraftEpisode` metadata — never script prose.
+    #[serde(default)]
+    pub episodes_seen: Vec<String>,
+}
+
+impl AiImportProgress {
+    /// Record one episode label in first-seen order, deduplicating (issue
+    /// #664). `None` episodes (chunk without a marker and without extracted
+    /// episode metadata) are ignored. Pure, so the workers can accumulate
+    /// across chunks/scenes and tests can assert on it.
+    pub fn record_episode(&mut self, episode: Option<&DraftEpisode>) {
+        let Some(label) = episode.and_then(DraftEpisode::display_label) else {
+            return;
+        };
+        if !self.episodes_seen.contains(&label) {
+            self.episodes_seen.push(label);
+        }
+    }
+}
+
 /// Public AI configuration view. It contains only the opaque vault reference,
 /// never a key or other secret material.
 ///
@@ -215,6 +288,11 @@ pub struct AiImportJob {
     pub next_attempt_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    /// Live extraction progress of a running job, when the worker already
+    /// published it (issue #664). `None` for pending jobs and freshly
+    /// re-claimed retry attempts (the claim SQL resets stale progress).
+    #[serde(default)]
+    pub progress: Option<AiImportProgress>,
     /// Per-attempt failure history, newest first (issue #637).
     ///
     /// `last_error` is overwritten by every `mark_failed`, so the reason an

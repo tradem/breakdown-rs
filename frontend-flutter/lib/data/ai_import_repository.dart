@@ -16,18 +16,25 @@ import 'base_repository.dart';
 import 'cache/ai_import_jobs_cache_dao.dart';
 import 'cache/cache_database.dart';
 import 'cache/clock.dart';
-
-/// Bounded attempt budget for the job watch (design D5): the first fetch
-/// runs immediately, later attempts back off via the shared scheduler.
-/// Foreground-only — the watching screen's provider disposal cancels the
-/// subscription, which ends the loop (no background polling/wake-ups).
-const int kMaxJobWatchAttempts = 30;
+import 'sse_event_parser.dart';
 
 /// Bounded attempt budget for the apply reconciliation (task 1.2): an
 /// ambiguous-timeout apply re-reads the job first, then retries — never
 /// blind re-dispatch (server-side idempotency per backend issue #338 /
 /// PR #351 makes the bounded retry safe).
 const int kMaxApplyAttempts = 3;
+
+/// Bounded reconnect budget of the SSE job watch (issue #664): each
+/// attempt opens one `GET /v1/ai-import/jobs/{id}/events` connection;
+/// the first frame is always a fresh snapshot, so a reconnect converges
+/// without catch-up polling.
+const int kMaxJobWatchAttempts = 30;
+
+/// Read-idle watchdog of the SSE connection (issue #664, ADR-038 D5):
+/// strictly above 2× the server's 30 s `: keep-alive` cadence, so a silent
+/// middlebox/NAT drop (half-open socket) is detected and triggers the
+/// bounded `Last-Event-ID` reconnect instead of hanging the watch.
+const Duration kSseReceiveTimeout = Duration(seconds: 65);
 
 /// The declared raw-body content types the schedule upload accepts
 /// (backend `upload_ai_schedule` contract; anything else is a 415).
@@ -332,34 +339,128 @@ class AiImportRepository extends BaseRepository {
     return const Right<ProblemError, void>(null);
   }
 
-  /// Watches a job's status with bounded, foreground-only refetching
-  /// (design D5, task 3.2): the first fetch runs immediately, later
-  /// attempts wait on the shared bounded-backoff [scheduler]; terminal
-  /// statuses (`succeeded`, `dead_letter`, `payload_unavailable`) end the
-  /// watch. A cancelled subscription ends the loop at the next suspension
-  /// (unsubscribe stop) — no background polling survives the screen.
+  /// Watches a job's live state over the push-based SSE stream (issue
+  /// #664, ADR-038 D5/D6): `GET /v1/ai-import/jobs/{id}/events` on the
+  /// existing pinned-CA Dio client ([`api.dio`] — ADR-024/ADR-032), with
+  /// `ResponseType.stream` and a [kSseReceiveTimeout] read-idle watchdog.
+  /// NO periodic polling: the server pushes every fenced status/progress
+  /// write, and the first frame on every connect/reconnect is a full
+  /// snapshot, so no catch-up poll exists anywhere in the loop.
   ///
-  /// Yields `Right(job)` on every successful read and `Left(error)` on a
-  /// failed one (transient transport failures are retried within the
-  /// budget, not fatal). After [maxAttempts] the watch yields
-  /// `ai_import.watch_exhausted` and stops — the UI offers a manual
-  /// re-arming, it never fabricates a terminal state.
+  /// Reconnect contract: a transient drop or read-idle timeout while the
+  /// watch is still alive reconnects via the bounded [scheduler] with the
+  /// last received SSE `id` in the `Last-Event-ID` header. After
+  /// [maxAttempts] failed opens the watch yields `ai_import.watch_exhausted`
+  /// and stops — the UI offers a manual re-arm, it never fabricates state.
+  ///
+  /// Foreground-only (battery contract, D5): the watching screen's provider
+  /// disposal cancels the subscription, which cancels the Dio request
+  /// token and closes the HTTP stream — no background wake-ups. Received
+  /// job snapshots upsert into Drift (same success-only cache writes as
+  /// the snapshot GET).
   Stream<Result<AiImportJob>> watch(
     String jobId, {
     ReconciliationScheduler scheduler = const ExponentialBackoffScheduler(),
     int maxAttempts = kMaxJobWatchAttempts,
+    Duration receiveTimeout = kSseReceiveTimeout,
+    CancelToken? cancelToken,
   }) async* {
+    String? lastEventId;
     for (var attempt = 0; attempt < maxAttempts; attempt++) {
       if (attempt > 0) await scheduler.tick(attempt - 1);
-      final res = await getJobAndCache(jobId);
-      // A cancelled subscription ends the generator at the next yield
-      // (unsubscribe stop); the only work between yields is the awaited
-      // refetch/tick — no background polling survives the screen.
-      yield res;
-      final job = res.getRight().toNullable();
-      if (job != null && isTerminalJobStatus(job.status)) return;
+      Response<ResponseBody> response;
+      try {
+        response = await api.dio.get<ResponseBody>(
+          '/v1/ai-import/jobs/$jobId/events',
+          options: Options(
+            // ADR-038 D6: stream the SSE body over the SAME pinned-CA Dio
+            // client (SecurityContext withTrustedRoots: false) — never a
+            // third-party SSE package with its own unpinned HttpClient.
+            responseType: ResponseType.stream,
+            // Read-idle watchdog (> 2× the 30 s keep-alive): a silent
+            // middlebox drop surfaces as a receiveTimeout DioException and
+            // reconnects with Last-Event-ID instead of hanging.
+            receiveTimeout: receiveTimeout,
+            headers: {
+              'Accept': 'text/event-stream',
+              'Last-Event-ID': ?lastEventId,
+            },
+          ),
+          cancelToken: cancelToken,
+        );
+      } on DioException catch (e) {
+        // Definitive open failures cannot succeed on retry: 403
+        // `ai-import.forbidden`, 404 `ai-import.not-found`, and 404
+        // `ai-import.disabled` (the feature gate) are deterministic answers
+        // for this identity/job — yield the error and STOP instead of
+        // burning the reconnect budget on 30 futile backed-off opens.
+        final status = e.response?.statusCode;
+        if (status == 403 || status == 404) {
+          yield Left(problemErrorFromDio(e));
+          return;
+        }
+        // Transient open failure (5xx/timeout/network): surface it, then
+        // reconnect within the bounded budget — the first frame of the
+        // next attempt is a fresh snapshot, so nothing is missed.
+        yield Left(problemErrorFromDio(e));
+        continue;
+      }
+      var terminal = false;
+      try {
+        final parser = SseEventParser();
+        final lines = response.data!.stream
+            .cast<List<int>>()
+            .transform(utf8.decoder)
+            .transform(const LineSplitter());
+        await for (final line in lines) {
+          final event = parser.addLine(line);
+          // `: keep-alive` comments and frame-interior lines yield null.
+          if (event == null) continue;
+          if (event.id != null) lastEventId = event.id;
+          if (event.event != 'job' || event.data.isEmpty) continue;
+          final job = _decodeJobFrame(event.data);
+          if (job == null) {
+            yield const Left(ProblemError(code: 'ai_import.dto_invalid'));
+            continue;
+          }
+          // Success-only cache write, same discipline as getJobAndCache.
+          try {
+            await cache.upsertAll([job], Clock.system.now());
+          } on Object {
+            // Best-effort: keep the pushed job.
+          }
+          yield Right(job);
+          if (isTerminalJobStatus(job.status)) terminal = true;
+        }
+      } on DioException catch (e) {
+        // Mid-stream failure (read-idle timeout / connection reset):
+        // surface it, then reconnect with Last-Event-ID.
+        yield Left(problemErrorFromDio(e));
+      }
+      if (terminal) {
+        // The server closes the stream after the terminal frame; no
+        // reconnect — the watch is done.
+        return;
+      }
+      // Connection ended without a terminal frame (drop / transaction
+      // limit): loop to the bounded reconnect.
     }
     yield const Left(ProblemError(code: 'ai_import.watch_exhausted'));
+  }
+
+  /// Decodes one `event: job` SSE data payload into the generated
+  /// [AiImportJob]. A body the serializers reject (unknown future field
+  /// shape) is a malformed frame — surfaced as
+  /// `ai_import.dto_invalid`, never thrown.
+  static AiImportJob? _decodeJobFrame(String data) {
+    try {
+      final decoded = jsonDecode(data);
+      return serializers
+          .deserializeWith(AiImportJobResponse.serializer, decoded)
+          ?.job;
+    } on Object {
+      return null;
+    }
   }
 
   // --- Preview (never cached) --------------------------------------------------

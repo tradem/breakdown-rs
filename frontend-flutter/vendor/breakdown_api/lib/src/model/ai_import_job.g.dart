@@ -30,6 +30,8 @@ class _$AiImportJob extends AiImportJob {
   @override
   final String? previewHandle;
   @override
+  final AiImportProgress? progress;
+  @override
   final int retries;
   @override
   final SourceFormat sourceFormat;
@@ -57,6 +59,7 @@ class _$AiImportJob extends AiImportJob {
       required this.maxRetries,
       this.nextAttemptAt,
       this.previewHandle,
+      this.progress,
       required this.retries,
       required this.sourceFormat,
       required this.sourceHandle,
@@ -86,6 +89,7 @@ class _$AiImportJob extends AiImportJob {
         maxRetries == other.maxRetries &&
         nextAttemptAt == other.nextAttemptAt &&
         previewHandle == other.previewHandle &&
+        progress == other.progress &&
         retries == other.retries &&
         sourceFormat == other.sourceFormat &&
         sourceHandle == other.sourceHandle &&
@@ -108,6 +112,7 @@ class _$AiImportJob extends AiImportJob {
     _$hash = $jc(_$hash, maxRetries.hashCode);
     _$hash = $jc(_$hash, nextAttemptAt.hashCode);
     _$hash = $jc(_$hash, previewHandle.hashCode);
+    _$hash = $jc(_$hash, progress.hashCode);
     _$hash = $jc(_$hash, retries.hashCode);
     _$hash = $jc(_$hash, sourceFormat.hashCode);
     _$hash = $jc(_$hash, sourceHandle.hashCode);
@@ -132,6 +137,7 @@ class _$AiImportJob extends AiImportJob {
           ..add('maxRetries', maxRetries)
           ..add('nextAttemptAt', nextAttemptAt)
           ..add('previewHandle', previewHandle)
+          ..add('progress', progress)
           ..add('retries', retries)
           ..add('sourceFormat', sourceFormat)
           ..add('sourceHandle', sourceHandle)
@@ -195,6 +201,12 @@ class AiImportJobBuilder implements Builder<AiImportJob, AiImportJobBuilder> {
   set previewHandle(String? previewHandle) =>
       _$this._previewHandle = previewHandle;
 
+  AiImportProgressBuilder? _progress;
+  AiImportProgressBuilder get progress =>
+      _$this._progress ??= AiImportProgressBuilder();
+  set progress(AiImportProgressBuilder? progress) =>
+      _$this._progress = progress;
+
   int? _retries;
   int? get retries => _$this._retries;
   set retries(int? retries) => _$this._retries = retries;
@@ -238,6 +250,7 @@ class AiImportJobBuilder implements Builder<AiImportJob, AiImportJobBuilder> {
       _maxRetries = $v.maxRetries;
       _nextAttemptAt = $v.nextAttemptAt;
       _previewHandle = $v.previewHandle;
+      _progress = $v.progress?.toBuilder();
       _retries = $v.retries;
       _sourceFormat = $v.sourceFormat;
       _sourceHandle = $v.sourceHandle;
@@ -283,6 +296,7 @@ class AiImportJobBuilder implements Builder<AiImportJob, AiImportJobBuilder> {
                 maxRetries, r'AiImportJob', 'maxRetries'),
             nextAttemptAt: nextAttemptAt,
             previewHandle: previewHandle,
+            progress: _progress?.build(),
             retries: BuiltValueNullFieldError.checkNotNull(
                 retries, r'AiImportJob', 'retries'),
             sourceFormat: BuiltValueNullFieldError.checkNotNull(
@@ -301,6 +315,9 @@ class AiImportJobBuilder implements Builder<AiImportJob, AiImportJobBuilder> {
       try {
         _$failedField = 'attempts';
         _attempts?.build();
+
+        _$failedField = 'progress';
+        _progress?.build();
       } catch (e) {
         throw BuiltValueNestedFieldError(
             r'AiImportJob', _$failedField, e.toString());

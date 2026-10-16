@@ -1436,6 +1436,48 @@ abstract class AppLocalizations {
   /// **'Versuch {attemptNo}: {reason}'**
   String aiJobAttemptRow(Object attemptNo, Object reason);
 
+  /// No description provided for @aiJobStageExtractingText.
+  ///
+  /// In de, this message translates to:
+  /// **'Text wird extrahiert …'**
+  String get aiJobStageExtractingText;
+
+  /// No description provided for @aiJobStageExtracting.
+  ///
+  /// In de, this message translates to:
+  /// **'Szenen werden extrahiert …'**
+  String get aiJobStageExtracting;
+
+  /// No description provided for @aiJobStageMerging.
+  ///
+  /// In de, this message translates to:
+  /// **'Spielplan wird zusammengeführt …'**
+  String get aiJobStageMerging;
+
+  /// No description provided for @aiJobStageStoringPreview.
+  ///
+  /// In de, this message translates to:
+  /// **'Vorschau wird gespeichert …'**
+  String get aiJobStageStoringPreview;
+
+  /// No description provided for @aiJobStageUnknown.
+  ///
+  /// In de, this message translates to:
+  /// **'Unbekannte Phase ({name}).'**
+  String aiJobStageUnknown(Object name);
+
+  /// No description provided for @aiJobChunkProgress.
+  ///
+  /// In de, this message translates to:
+  /// **'Abschnitt {chunk} von {chunksTotal}'**
+  String aiJobChunkProgress(Object chunk, Object chunksTotal);
+
+  /// No description provided for @aiJobEpisodesSeenLabel.
+  ///
+  /// In de, this message translates to:
+  /// **'Gefundene Episoden:'**
+  String get aiJobEpisodesSeenLabel;
+
   /// No description provided for @aiPreviewTitle.
   ///
   /// In de, this message translates to:

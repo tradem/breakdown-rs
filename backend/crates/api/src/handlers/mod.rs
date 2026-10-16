@@ -24,10 +24,14 @@
 use std::collections::HashMap;
 use std::future::Future;
 use std::sync::Arc;
+use std::time::Duration;
+
+use futures::StreamExt;
 
 use crate::problems::{ApiError, Bytes, Json, Path, ProblemDetails, Query};
 use axum::extract::{DefaultBodyLimit, State};
 use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
+use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{IntoResponse, Response};
 use axum::{Router, routing};
 use breakdown_core::ai::{
@@ -5965,6 +5969,188 @@ pub async fn get_ai_import_job<P: Ports>(
     Ok(no_store_json(StatusCode::OK, AiImportJobResponse { job }))
 }
 
+/// Keep-alive cadence of the SSE stream (issue #664, ADR-038 D1): well under
+/// typical reverse-proxy idle timeouts (60 s+); the client's read-idle
+/// watchdog is 2× this value.
+const SSE_KEEP_ALIVE_SECS: u64 = 30;
+
+/// Push-based job progress stream (issue #664, ADR-038 D1).
+///
+/// Snapshot-first: the first frame on every initial connect AND every
+/// `Last-Event-ID` reconnect is the full authoritative
+/// [`AiImportJobResponse`] — no catch-up polling and no server-side replay
+/// buffer are needed (the header is accepted per the SSE contract, but a
+/// fresh snapshot makes replaying old events unnecessary).
+///
+/// Subsequent frames are pushed via the queue's storage-agnostic
+/// [`subscribe`](breakdown_core::ai::AiImportQueue::subscribe) wake-up port;
+/// every frame re-reads the authoritative row, so duplicate notifications
+/// (local hub + echoed `pg_notify`) and receiver lag are harmless.
+///
+/// The stream closes immediately after emitting a frame whose job status is
+/// terminal (`succeeded`, `dead_letter`, `payload_unavailable`); retryable
+/// `failed` keeps it open across the backoff window.
+#[utoipa::path(
+    get,
+    path = "/ai-import/jobs/{id}/events",
+    params(("id" = Uuid, Path)),
+    responses(
+        (status = 200, description = "SSE stream of AiImportJobResponse frames (event: job)",
+            content_type = "text/event-stream"),
+        (status = 403, body = ProblemDetails, description = "Not authorized"),
+        (status = 404, body = ProblemDetails, description = "Job not found or AI import disabled")
+    )
+)]
+pub async fn stream_ai_import_job_events<P: Ports>(
+    State(state): State<AppState<P>>,
+    current_user: CurrentUser,
+    Path(id): Path<AiImportJobId>,
+    headers: HeaderMap,
+) -> Result<Response, ApiError> {
+    if !state.ai_import_enabled {
+        return Err(ApiError::FeatureDisabled("AI import is disabled"));
+    }
+    // Accepted per the SSE contract; snapshot-first makes the value
+    // informational (no replay buffer is consulted).
+    let _last_event_id = headers
+        .get("last-event-id")
+        .and_then(|value| value.to_str().ok());
+
+    let queue = state.ports.ai_import_queue().clone();
+    // Subscribe BEFORE reading the snapshot (race-free subscription order):
+    // a transition committed between the initial read and the stream loop
+    // start then wakes the stream instead of being missed.
+    let wakeups = queue.subscribe(id);
+    let job = queue.get(id).await?;
+    let job = job.ok_or(ApiError::AiImportNotFound("AI import job not found"))?;
+    // AUTHZ-GATE: the SSE stream is privileged exactly like the single-job
+    // read — the caller must own the job (and hold an active costume-dept
+    // role in the job's season). Runs BEFORE the stream opens so a rejected
+    // caller gets a problem document, not an open text/event-stream.
+    authorize_ai_job(&state, &current_user, &job, Action::Read).await?;
+
+    let stream = sse_job_stream(queue, id, job, wakeups);
+    let mut response = Sse::new(stream)
+        .keep_alive(
+            KeepAlive::new()
+                .interval(Duration::from_secs(SSE_KEEP_ALIVE_SECS))
+                .text("keep-alive"),
+        )
+        .into_response();
+    // Anti-buffering headers (ADR-038 D1): `no-transform` per RFC 9111
+    // §5.2.2.4 stops enterprise ADCs from gzip-compressing/transforming the
+    // stream; `X-Accel-Buffering: no` disables nginx-style response
+    // buffering.
+    let headers = response.headers_mut();
+    headers.insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static("no-store, no-transform"),
+    );
+    headers.insert(
+        axum::http::HeaderName::from_static("x-accel-buffering"),
+        HeaderValue::from_static("no"),
+    );
+    Ok(response)
+}
+
+/// Watermark of one emitted SSE frame: the job's status + `updated_at`.
+/// Duplicate wake-ups (local hub + echoed `pg_notify`) compare equal and
+/// never emit a second frame; `updated_at` changes on every fenced write,
+/// including pure progress updates.
+type JobWatermark = (String, chrono::DateTime<chrono::Utc>);
+
+/// Interior state of the SSE unfold loop.
+struct SseJobStream<Q: AiImportQueue> {
+    queue: Q,
+    id: AiImportJobId,
+    wakeups: std::pin::Pin<Box<dyn futures::Stream<Item = AiImportJobId> + Send>>,
+    /// Snapshot waiting to be emitted (initial connect / reconnect).
+    pending: Option<breakdown_core::ai::AiImportJob>,
+    last_emitted: Option<JobWatermark>,
+    /// Set after emitting a terminal frame; the next loop pass closes.
+    done: bool,
+}
+
+/// Build the per-job SSE frame stream (see [`stream_ai_import_job_events`]).
+fn sse_job_stream<Q>(
+    queue: Q,
+    id: AiImportJobId,
+    initial: breakdown_core::ai::AiImportJob,
+    wakeups: std::pin::Pin<Box<dyn futures::Stream<Item = AiImportJobId> + Send>>,
+) -> impl futures::Stream<Item = Result<Event, std::convert::Infallible>> + Send
+where
+    Q: AiImportQueue + Send + Sync + 'static,
+{
+    futures::stream::unfold(
+        SseJobStream {
+            queue,
+            id,
+            wakeups,
+            pending: Some(initial),
+            last_emitted: None,
+            done: false,
+        },
+        |mut state| async move {
+            loop {
+                if state.done {
+                    // Terminal frame already delivered — close the stream.
+                    return None;
+                }
+                let job = if let Some(job) = state.pending.take() {
+                    job
+                } else {
+                    // Keep-alive comment frames are emitted independently by
+                    // axum's `KeepAlive`; this loop only advances on wake-ups.
+                    state.wakeups.as_mut().next().await?;
+
+                    match state.queue.get(state.id).await {
+                        Ok(Some(job)) => job,
+                        // Job deleted while watching (issue #671 route):
+                        // end the stream — there is nothing left to push.
+                        Ok(None) => return None,
+                        // Transient read failure: skip the frame and wait
+                        // for the next wake-up rather than tearing the
+                        // stream down.
+                        Err(error) => {
+                            tracing::warn!(
+                                job_id = %state.id.as_uuid(),
+                                %error,
+                                "failed to re-read AI import job for SSE frame; waiting for the next wake-up"
+                            );
+                            continue;
+                        }
+                    }
+                };
+                let watermark: JobWatermark = (job.status.as_str().to_owned(), job.updated_at);
+                if state.last_emitted.as_ref() == Some(&watermark) {
+                    // Duplicate notification (local hub + echoed pg_notify):
+                    // nothing changed since the last frame.
+                    continue;
+                }
+                state.done = job.status.is_terminal();
+                state.last_emitted = Some(watermark);
+                let event_id = job.updated_at.timestamp_micros().to_string();
+                match serde_json::to_string(&AiImportJobResponse { job }) {
+                    Ok(payload) => {
+                        let event = Event::default().event("job").id(event_id).data(payload);
+                        return Some((Ok(event), state));
+                    }
+                    Err(error) => {
+                        // Serialization cannot realistically fail for a
+                        // DB-backed view; log-and-close rather than poison.
+                        tracing::error!(
+                            job_id = %state.id.as_uuid(),
+                            %error,
+                            "failed to serialize AI import job SSE frame; closing stream"
+                        );
+                        return None;
+                    }
+                }
+            }
+        },
+    )
+}
+
 /// Stored-row scan window for `list_ai_import_jobs` (issue #337 review).
 ///
 /// Every `list_for_user` backend clamps `LIMIT` to `1..=100`, so a wider
@@ -7238,6 +7424,10 @@ pub fn routes() -> Router<AppState<ProductionPorts>> {
             "/ai-import/jobs/{id}",
             routing::get(get_ai_import_job::<ProductionPorts>)
                 .delete(delete_ai_import_job::<ProductionPorts>),
+        )
+        .route(
+            "/ai-import/jobs/{id}/events",
+            routing::get(stream_ai_import_job_events::<ProductionPorts>),
         )
         .route(
             "/ai-import/jobs/{id}/preview",

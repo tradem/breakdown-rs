@@ -364,6 +364,14 @@ components:
           type:
           - string
           - 'null'
+        progress:
+          oneOf:
+          - $ref: '#/components/schemas/AiImportProgress'
+            description: |-
+              Live extraction progress of a running job, when the worker already
+              published it (issue #664). `None` for pending jobs and freshly
+              re-claimed retry attempts (the claim SQL resets stale progress).
+          - type: 'null'
         retries:
           format: int32
           minimum: 0
@@ -426,6 +434,60 @@ components:
       - status
       - preview
       type: object
+    AiImportProgress:
+      description: |-
+        Live progress of a running AI import job (issue #664).
+
+        Additive and optional on [`AiImportJob`]: `None` for jobs that have not
+        reached a `mark_progress` call yet (fresh `pending` claims, retried
+        attempts before their first stage boundary — the claim SQL resets it).
+      properties:
+        chunk:
+          description: |-
+            Chunk counter of the extraction progress. `0` is a deliberate
+            published state — "chunking finished, the first chunk has not yet
+            completed" (the frame emitted right after the deterministic scan) —
+            so the schema floor is 0, not 1. For every later frame this is the
+            1-based index of the last **completed** chunk (`1..=chunks_total`).
+          format: int32
+          minimum: 0
+          type:
+          - integer
+          - 'null'
+        chunks_total:
+          description: Total chunks in the document (known once chunking finishes).
+          format: int32
+          minimum: 0
+          type:
+          - integer
+          - 'null'
+        episodes_seen:
+          description: |-
+            Human-readable episode labels discovered so far, in first-seen order,
+            deduplicated (e.g. `["Ep. 3", "Ep. 4"]`). Built at zero extra LLM
+            token cost from the deterministic `Ep.:` marker scan and per-chunk
+            extracted `DraftEpisode` metadata — never script prose.
+          items:
+            type: string
+          type: array
+        stage:
+          $ref: '#/components/schemas/AiImportStage'
+      required:
+      - stage
+      type: object
+    AiImportStage:
+      description: |-
+        The extraction stage an AI import job is currently in (issue #664).
+
+        Surfaces *where* in the pipeline a running job is, so the client can show
+        something more informative than an indeterminate spinner. Never per-LLM-
+        token — it only advances at stage boundaries and completed chunks.
+      enum:
+      - extracting_text
+      - extracting
+      - merging
+      - storing_preview
+      type: string
     AiPreviewPayload:
       description: |-
         Typed preview payload served by `GET /v1/ai-import/jobs/{id}/preview`
@@ -3762,6 +3824,51 @@ paths:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
+      tags:
+      - handlers
+  /v1/ai-import/jobs/{id}/events:
+    get:
+      description: |-
+        Snapshot-first: the first frame on every initial connect AND every
+        `Last-Event-ID` reconnect is the full authoritative
+        [`AiImportJobResponse`] — no catch-up polling and no server-side replay
+        buffer are needed (the header is accepted per the SSE contract, but a
+        fresh snapshot makes replaying old events unnecessary).
+
+        Subsequent frames are pushed via the queue's storage-agnostic
+        [`subscribe`](breakdown_core::ai::AiImportQueue::subscribe) wake-up port;
+        every frame re-reads the authoritative row, so duplicate notifications
+        (local hub + echoed `pg_notify`) and receiver lag are harmless.
+
+        The stream closes immediately after emitting a frame whose job status is
+        terminal (`succeeded`, `dead_letter`, `payload_unavailable`); retryable
+        `failed` keeps it open across the backoff window.
+      operationId: stream_ai_import_job_events
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          format: uuid
+          type: string
+      responses:
+        '200':
+          content:
+            text/event-stream: {}
+          description: 'SSE stream of AiImportJobResponse frames (event: job)'
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Not authorized
+        '404':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Job not found or AI import disabled
+      summary: 'Push-based job progress stream (issue #664, ADR-038 D1).'
       tags:
       - handlers
   /v1/ai-import/jobs/{id}/preview:

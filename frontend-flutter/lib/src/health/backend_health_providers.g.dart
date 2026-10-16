@@ -239,7 +239,7 @@ final class BackendHealthControllerProvider
 }
 
 String _$backendHealthControllerHash() =>
-    r'1a406c3f0dfc5e3f133338a39629dff789ac3900';
+    r'4753ea58a55a16b7ecf239171bb730259746dafd';
 
 /// Backend health controller (issue #657): polls the public
 /// `GET /v1/health` on a battery-friendly schedule and exposes the coarse

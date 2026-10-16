@@ -24,6 +24,18 @@ tag. Never edit a released entry afterwards.
 
 ## [Unreleased]
 
+### Changed
+
+- **Version bump (issue #664):** `core 0.35.0 → 0.36.0`, `infra 0.40.0 →
+  0.41.0`, `api 0.34.0 → 0.35.0` — AI-import SSE progress & event hub
+  (ADR-038): new `AiImportStage`/`AiImportProgress` wire types + additive
+  `progress` on `AiImportJob`, new SSE route `GET
+  /v1/ai-import/jobs/{id}/events`, `ai_import.ai_import_job.progress`
+  JSONB column (migration `20261012000001`), owner-fenced
+  `AiImportQueue::mark_progress` + storage-agnostic `subscribe` port,
+  `AiJobEventHub` broadcast fan-out with the shared `PgListener`
+  `pg_notify` bridge.
+
 ### Added
 
 - **Delete AI import jobs from the app (issue #671):** `DELETE

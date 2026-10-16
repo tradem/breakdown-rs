@@ -159,13 +159,13 @@ String _$connectivityDelayHash() => r'd856b32dd9fa6a5d6e33d382812481403dabe220';
 /// 1. Passive OS signals (`PassiveConnectivitySource`) are the primary
 ///    source — no polling loop. `none` → [ConnectivityStatus.offline]
 ///    immediately.
-/// 2. When the OS transitions offline → connected while the app was NOT
-///    online, ONE lightweight HTTP probe confirms the route (captive
-///    portals report carriers too). Success → [ConnectivityStatus.online];
-///    failure → [ConnectivityStatus.degraded] and re-probes run on the
-///    [connectivityProbeBackoff] schedule.
-/// 3. While healthy (`online`) the controller NEVER probes — passive
-///    signals only.
+/// 2. The FIRST carrier event of a session — and every reconnection from
+///    offline/degraded — runs ONE lightweight HTTP probe to confirm the
+///    route (captive portals report carriers too). Success →
+///    [ConnectivityStatus.online]; failure → [ConnectivityStatus.degraded]
+///    and re-probes run on the [connectivityProbeBackoff] schedule.
+/// 3. While confirmed-healthy (`online` after a successful probe) the
+///    controller NEVER probes — passive signals only.
 /// 4. A generation counter cancels pending probe chains: a new passive
 ///    event (e.g. carrier lost again) supersedes any in-flight retry, so
 ///    a flapping link cannot trigger request storms.
@@ -187,13 +187,13 @@ final connectivityControllerProvider = ConnectivityControllerProvider._();
 /// 1. Passive OS signals (`PassiveConnectivitySource`) are the primary
 ///    source — no polling loop. `none` → [ConnectivityStatus.offline]
 ///    immediately.
-/// 2. When the OS transitions offline → connected while the app was NOT
-///    online, ONE lightweight HTTP probe confirms the route (captive
-///    portals report carriers too). Success → [ConnectivityStatus.online];
-///    failure → [ConnectivityStatus.degraded] and re-probes run on the
-///    [connectivityProbeBackoff] schedule.
-/// 3. While healthy (`online`) the controller NEVER probes — passive
-///    signals only.
+/// 2. The FIRST carrier event of a session — and every reconnection from
+///    offline/degraded — runs ONE lightweight HTTP probe to confirm the
+///    route (captive portals report carriers too). Success →
+///    [ConnectivityStatus.online]; failure → [ConnectivityStatus.degraded]
+///    and re-probes run on the [connectivityProbeBackoff] schedule.
+/// 3. While confirmed-healthy (`online` after a successful probe) the
+///    controller NEVER probes — passive signals only.
 /// 4. A generation counter cancels pending probe chains: a new passive
 ///    event (e.g. carrier lost again) supersedes any in-flight retry, so
 ///    a flapping link cannot trigger request storms.
@@ -213,13 +213,13 @@ final class ConnectivityControllerProvider
   /// 1. Passive OS signals (`PassiveConnectivitySource`) are the primary
   ///    source — no polling loop. `none` → [ConnectivityStatus.offline]
   ///    immediately.
-  /// 2. When the OS transitions offline → connected while the app was NOT
-  ///    online, ONE lightweight HTTP probe confirms the route (captive
-  ///    portals report carriers too). Success → [ConnectivityStatus.online];
-  ///    failure → [ConnectivityStatus.degraded] and re-probes run on the
-  ///    [connectivityProbeBackoff] schedule.
-  /// 3. While healthy (`online`) the controller NEVER probes — passive
-  ///    signals only.
+  /// 2. The FIRST carrier event of a session — and every reconnection from
+  ///    offline/degraded — runs ONE lightweight HTTP probe to confirm the
+  ///    route (captive portals report carriers too). Success →
+  ///    [ConnectivityStatus.online]; failure → [ConnectivityStatus.degraded]
+  ///    and re-probes run on the [connectivityProbeBackoff] schedule.
+  /// 3. While confirmed-healthy (`online` after a successful probe) the
+  ///    controller NEVER probes — passive signals only.
   /// 4. A generation counter cancels pending probe chains: a new passive
   ///    event (e.g. carrier lost again) supersedes any in-flight retry, so
   ///    a flapping link cannot trigger request storms.
@@ -258,7 +258,7 @@ final class ConnectivityControllerProvider
 }
 
 String _$connectivityControllerHash() =>
-    r'896d08a461c11be82a0c36560ebf38108b9e3d1b';
+    r'771963244b7efccf1d2c07036ecea412f9bac966';
 
 /// Connectivity controller (issue #654): passive-first detection with a
 /// conservative HTTP confirmation probe.
@@ -267,13 +267,13 @@ String _$connectivityControllerHash() =>
 /// 1. Passive OS signals (`PassiveConnectivitySource`) are the primary
 ///    source — no polling loop. `none` → [ConnectivityStatus.offline]
 ///    immediately.
-/// 2. When the OS transitions offline → connected while the app was NOT
-///    online, ONE lightweight HTTP probe confirms the route (captive
-///    portals report carriers too). Success → [ConnectivityStatus.online];
-///    failure → [ConnectivityStatus.degraded] and re-probes run on the
-///    [connectivityProbeBackoff] schedule.
-/// 3. While healthy (`online`) the controller NEVER probes — passive
-///    signals only.
+/// 2. The FIRST carrier event of a session — and every reconnection from
+///    offline/degraded — runs ONE lightweight HTTP probe to confirm the
+///    route (captive portals report carriers too). Success →
+///    [ConnectivityStatus.online]; failure → [ConnectivityStatus.degraded]
+///    and re-probes run on the [connectivityProbeBackoff] schedule.
+/// 3. While confirmed-healthy (`online` after a successful probe) the
+///    controller NEVER probes — passive signals only.
 /// 4. A generation counter cancels pending probe chains: a new passive
 ///    event (e.g. carrier lost again) supersedes any in-flight retry, so
 ///    a flapping link cannot trigger request storms.
