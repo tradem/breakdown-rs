@@ -221,6 +221,12 @@ class AiImportJobsViewController extends _$AiImportJobsViewController {
         .set(prev.where((row) => row.id != id).toList());
     final result = await ref.read(aiImportRepositoryProvider).deleteJob(id);
     if (result.isRight()) {
+      // The user may have left the screen while the DELETE was in flight:
+      // the autoDispose controller is then disposed, and touching the ref
+      // would throw on the caller (an unhandled error where a successful
+      // result was expected). The disposed provider has no list left to
+      // reconcile — the next mount re-runs the fetch anyway.
+      if (!ref.mounted) return result;
       // Reconcile: re-run exactly the list route and wait for the fresh
       // rows, so the returned future resolves with the deletion visible.
       // The reconcile read's outcome is already visible through the list

@@ -729,20 +729,15 @@ impl AiImportQueue for PgAiImportQueue {
     /// `ai_import.projection_ai_import_mapping` has **no** foreign key to the
     /// job row (the apply-idempotency mapping predates the delete affordance),
     /// so its rows are removed explicitly in the same transaction — a deleted
-    /// `succeeded` job must not leave dangling mapping rows. Attempt-history
-    /// and payload-cleanup rows go via their `ON DELETE CASCADE` FKs.
+    /// `succeeded` job must not leave dangling mapping rows. The mapping
+    /// delete is gated on the job DELETE having affected a row: a guarded
+    /// zero-row delete (a direct non-terminal call, or a concurrent delete
+    /// that won the race) must leave the mapping state untouched — losing
+    /// the idempotency mappings of a job that still exists would let a
+    /// re-apply duplicate its aggregates. Attempt-history and
+    /// payload-cleanup rows go via their `ON DELETE CASCADE` FKs.
     async fn delete_terminal(&self, id: AiImportJobId) -> Result<bool, DomainError> {
         let mut tx = self.pool.begin().await.map_err(map_sqlx_error)?;
-        sqlx::query(
-            r#"
-            DELETE FROM ai_import.projection_ai_import_mapping
-            WHERE preview_id = $1
-            "#,
-        )
-        .bind(id.as_uuid())
-        .execute(&mut *tx)
-        .await
-        .map_err(map_sqlx_error)?;
         let result = sqlx::query(
             r#"
             DELETE FROM ai_import.ai_import_job
@@ -754,6 +749,18 @@ impl AiImportQueue for PgAiImportQueue {
         .execute(&mut *tx)
         .await
         .map_err(map_sqlx_error)?;
+        if result.rows_affected() == 1 {
+            sqlx::query(
+                r#"
+                DELETE FROM ai_import.projection_ai_import_mapping
+                WHERE preview_id = $1
+                "#,
+            )
+            .bind(id.as_uuid())
+            .execute(&mut *tx)
+            .await
+            .map_err(map_sqlx_error)?;
+        }
         tx.commit().await.map_err(map_sqlx_error)?;
         Ok(result.rows_affected() == 1)
     }

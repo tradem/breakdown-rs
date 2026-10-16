@@ -132,6 +132,23 @@ async fn delete_terminal_refuses_non_terminal_rows() -> Result<()> {
         )
         .await;
         force_status(&pool, id, status).await;
+        // Seed a mapping row for the non-terminal job (only reachable via
+        // raw SQL — apply never writes mappings for a non-succeeded job).
+        // The guarded zero-row delete must leave it untouched: losing the
+        // idempotency mappings of a job that still exists would let a
+        // re-apply duplicate its aggregates.
+        sqlx::query(
+            r#"
+            INSERT INTO ai_import.projection_ai_import_mapping
+                (preview_id, draft_ref, aggregate_kind, aggregate_id, aggregate_version)
+            VALUES ($1, 'scene-0', 'scene', $2, 3)
+            "#,
+        )
+        .bind(id.as_uuid())
+        .bind(uuid::Uuid::now_v7())
+        .execute(&pool)
+        .await
+        .unwrap();
 
         let deleted = queue.delete_terminal(id).await.unwrap();
         assert!(
@@ -139,6 +156,17 @@ async fn delete_terminal_refuses_non_terminal_rows() -> Result<()> {
             "a {status} row must not be deletable (claim/permit corruption)"
         );
         assert!(row_exists(&pool, id).await, "the {status} row must stay");
+        let mappings: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM ai_import.projection_ai_import_mapping WHERE preview_id = $1",
+        )
+        .bind(id.as_uuid())
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            mappings, 1,
+            "a refused delete must not touch the mapping rows"
+        );
     }
     Ok(())
 }
