@@ -15,14 +15,14 @@ part 'ai_import_progress.g.dart';
 /// Live progress of a running AI import job (issue #664).  Additive and optional on [`AiImportJob`]: `None` for jobs that have not reached a `mark_progress` call yet (fresh `pending` claims, retried attempts before their first stage boundary — the claim SQL resets it).
 ///
 /// Properties:
-/// * [chunk] - 1-based index of the chunk currently being processed or just completed; `None` when the stage carries no chunk notion.
+/// * [chunk] - Chunk counter of the extraction progress. `0` is a deliberate published state — \"chunking finished, the first chunk has not yet completed\" (the frame emitted right after the deterministic scan) — so the schema floor is 0, not 1. For every later frame this is the 1-based index of the last **completed** chunk (`1..=chunks_total`).
 /// * [chunksTotal] - Total chunks in the document (known once chunking finishes).
 /// * [episodesSeen] - Human-readable episode labels discovered so far, in first-seen order, deduplicated (e.g. `[\"Ep. 3\", \"Ep. 4\"]`). Built at zero extra LLM token cost from the deterministic `Ep.:` marker scan and per-chunk extracted `DraftEpisode` metadata — never script prose.
 /// * [stage]
 @BuiltValue()
 abstract class AiImportProgress
     implements Built<AiImportProgress, AiImportProgressBuilder> {
-  /// 1-based index of the chunk currently being processed or just completed; `None` when the stage carries no chunk notion.
+  /// Chunk counter of the extraction progress. `0` is a deliberate published state — \"chunking finished, the first chunk has not yet completed\" (the frame emitted right after the deterministic scan) — so the schema floor is 0, not 1. For every later frame this is the 1-based index of the last **completed** chunk (`1..=chunks_total`).
   @BuiltValueField(wireName: r'chunk')
   int? get chunk;
 
