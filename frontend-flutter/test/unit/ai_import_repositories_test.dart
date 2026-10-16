@@ -16,6 +16,9 @@
 // gitleaks is a repo-wide CI control, NOT runtime evidence — it is NOT
 // cited here; these assertions are the runtime proof.
 
+import 'dart:convert';
+import 'dart:typed_data';
+
 import 'package:breakdown_api/breakdown_api.dart';
 import 'package:built_collection/built_collection.dart';
 import 'package:built_value/serializer.dart';
@@ -25,6 +28,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_secure_storage_platform_interface/flutter_secure_storage_platform_interface.dart';
 import 'package:one_of/one_of.dart';
 
+import 'package:built_collection/built_collection.dart' show BuiltList;
 import 'package:frontend_flutter/data/ai_config_repository.dart';
 import 'package:frontend_flutter/data/ai_import_repository.dart';
 import 'package:frontend_flutter/data/cache/ai_import_jobs_cache_dao.dart';
@@ -193,6 +197,70 @@ _ScriptInterceptor _scripted(List<Object?> responses, {int? failAfter}) {
 
 _ScriptInterceptor _scriptOf(BreakdownApi api) =>
     api.dio.interceptors.whereType<_ScriptInterceptor>().single;
+
+/// One SSE wire frame for the pushed `event: job` payload. [id] sets the
+/// frame watermark (the `id:` field the reconnect resumes from).
+String _sseFrame(AiImportJob job, {String? id}) =>
+    'event: job\n${id != null ? 'id: $id\n' : ''}'
+    'data: ${jsonEncode(serializers.serializeWith(AiImportJobResponse.serializer, _jobResponse(job)))}\n\n';
+
+/// Scriptable SSE transport: every open resolves with a `ResponseBody`
+/// whose stream replays one script entry per connection (frames written
+/// verbatim). [closeStream] false leaves the stream open forever — the
+/// unsubscribe test's only exit.
+class _SseInterceptor extends Interceptor {
+  _SseInterceptor(this.connections, {this.closeStream = true});
+
+  final List<String> connections;
+  final bool closeStream;
+
+  int index = 0;
+  final List<RequestOptions> requests = [];
+
+  @override
+  void onRequest(RequestOptions options, RequestInterceptorHandler handler) {
+    requests.add(options);
+    final script = connections[index.clamp(0, connections.length - 1)];
+    if (index < connections.length) index++;
+    handler.resolve(
+      Response(
+        requestOptions: options,
+        statusCode: 200,
+        data: ResponseBody(
+          Stream.fromIterable(<Uint8List>[
+            if (closeStream) Uint8List.fromList(utf8.encode(script)),
+          ]),
+          200,
+        ),
+      ),
+    );
+  }
+}
+
+_SseInterceptor _sseOf(BreakdownApi api) =>
+    api.dio.interceptors.whereType<_SseInterceptor>().single;
+
+/// Rejects every request with a 500 problem+json — the always-failing
+/// transport for the bounded-reconnect assertions.
+class _RejectingInterceptor extends Interceptor {
+  int calls = 0;
+
+  @override
+  void onRequest(RequestOptions options, RequestInterceptorHandler handler) {
+    calls++;
+    handler.reject(
+      DioException(
+        requestOptions: options,
+        response: Response(
+          requestOptions: options,
+          statusCode: 500,
+          data: {'code': 'server.down', 'status': 500},
+        ),
+        type: DioExceptionType.badResponse,
+      ),
+    );
+  }
+}
 
 BreakdownApi _api(Interceptor interceptor) {
   final dio = Dio(BaseOptions(baseUrl: 'https://api.invalid'));
@@ -1243,21 +1311,18 @@ void main() {
     });
 
     test('job watch: pending → running → succeeded stops at the terminal '
-        'status (fake scheduler, no wall-clock)', () async {
+        'frame (SSE, fake scheduler, no wall-clock)', () async {
       final statuses = [
         JobStatus.pending,
         JobStatus.running,
         JobStatus.succeeded,
       ];
-      final api = _api(
-        _scripted([
-          for (final status in statuses)
-            serializers.serializeWith(
-              AiImportJobResponse.serializer,
-              _jobResponse(_job('j1', status: status)),
-            )!,
-        ]),
-      );
+      // ONE connection carrying all three frames.
+      final interceptor = _SseInterceptor([
+        [for (final status in statuses) _sseFrame(_job('j1', status: status))]
+            .join(),
+      ]);
+      final api = _api(interceptor);
       final scheduler = _FakeScheduler();
       final events = await AiImportRepository(
         api,
@@ -1268,34 +1333,21 @@ void main() {
         events.map((e) => e.getRight().toNullable()!.status).toList(),
         statuses,
       );
-      expect(scheduler.ticks, 2, reason: 'no tick before the first fetch');
+      expect(scheduler.ticks, 0, reason: 'push stream — no backoff ticks');
+      expect(
+        interceptor.requests.single.uri.path,
+        '/v1/ai-import/jobs/j1/events',
+      );
     });
 
     test(
-      'job watch: transient failures yield Left and keep watching',
+      'job watch: transient open failures yield Left and keep watching',
       () async {
-        final dio = Dio(BaseOptions(baseUrl: 'https://api.invalid'));
-        dio.interceptors.add(
-          InterceptorsWrapper(
-            onRequest: (options, handler) {
-              handler.reject(
-                DioException(
-                  requestOptions: options,
-                  response: Response(
-                    requestOptions: options,
-                    statusCode: 500,
-                    data: {'code': 'server.down', 'status': 500},
-                  ),
-                  type: DioExceptionType.badResponse,
-                ),
-              );
-            },
-          ),
-        );
-        // The fake transport always fails; watch exactly 2 bounded attempts
-        // and assert every failure is surfaced (no silent swallow).
+        final api = _api(_RejectingInterceptor());
+        // The fake transport always fails the SSE open; watch exactly 2
+        // bounded attempts and assert every failure is surfaced.
         final events = await AiImportRepository(
-          BreakdownApi(dio: dio),
+          api,
           _dao(),
         ).watch('j1', scheduler: _FakeScheduler(), maxAttempts: 2).toList();
         expect(events, hasLength(3));
@@ -1308,14 +1360,7 @@ void main() {
     );
 
     test('job watch: exhaustion yields watch_exhausted and stops', () async {
-      final api = _api(
-        _scripted([
-          serializers.serializeWith(
-            AiImportJobResponse.serializer,
-            _jobResponse(_job('j1')),
-          )!,
-        ]),
-      );
+      final api = _api(_RejectingInterceptor());
       final events = await AiImportRepository(
         api,
         _dao(),
@@ -1330,26 +1375,19 @@ void main() {
     test(
       'job watch: unsubscribe stops the loop (foreground-only, D5)',
       () async {
-        final api = _api(
-          _scripted([
-            serializers.serializeWith(
-              AiImportJobResponse.serializer,
-              _jobResponse(_job('j1', status: JobStatus.running)),
-            )!,
-          ]),
-        );
-        final scheduler = _FakeScheduler();
+        // A connection that never sends frames and never closes: the only
+        // way out is the subscription cancellation.
+        final interceptor = _SseInterceptor(const [], closeStream: false);
+        final api = _api(interceptor);
         final sub = AiImportRepository(
           api,
           _dao(),
-        ).watch('j1', scheduler: scheduler).listen((_) {});
+        ).watch('j1', scheduler: _FakeScheduler()).listen((_) {});
         await sub.cancel();
         // Give the generator a chance to observe the cancellation.
         await Future<void>.delayed(Duration.zero);
-        final callsAtCancel = _scriptOf(api).calls;
-        await Future<void>.delayed(Duration.zero);
-        // No further refetches after the cancellation (bounded waste only).
-        expect(_scriptOf(api).calls, lessThanOrEqualTo(callsAtCancel + 1));
+        // No reconnect was opened after the cancellation (one connection).
+        expect(interceptor.requests, hasLength(1));
       },
     );
 
@@ -1360,12 +1398,7 @@ void main() {
         JobStatus.payloadUnavailable,
       ]) {
         final api = _api(
-          _scripted([
-            serializers.serializeWith(
-              AiImportJobResponse.serializer,
-              _jobResponse(_job('j1', status: terminal)),
-            )!,
-          ]),
+          _SseInterceptor([_sseFrame(_job('j1', status: terminal))]),
         );
         final events = await AiImportRepository(
           api,
@@ -1380,17 +1413,11 @@ void main() {
       'retryable failed does NOT end the watch (retries/max_retries)',
       () async {
         final api = _api(
-          _scripted([
-            serializers.serializeWith(
-              AiImportJobResponse.serializer,
-              _jobResponse(
-                _job('j1', status: JobStatus.failed, retries: 1, maxRetries: 3),
-              ),
-            )!,
-            serializers.serializeWith(
-              AiImportJobResponse.serializer,
-              _jobResponse(_job('j1', status: JobStatus.succeeded)),
-            )!,
+          _SseInterceptor([
+            _sseFrame(
+              _job('j1', status: JobStatus.failed, retries: 1, maxRetries: 3),
+            ),
+            _sseFrame(_job('j1', status: JobStatus.succeeded)),
           ]),
         );
         final events = await AiImportRepository(
@@ -1399,6 +1426,111 @@ void main() {
         ).watch('j1', scheduler: _FakeScheduler()).toList();
         expect(events.length, 2);
         expect(events.first.getRight().toNullable()!.retries, 1);
+      },
+    );
+
+    test('job watch: reconnect after a drop carries Last-Event-ID '
+        'and converges on the fresh snapshot', () async {
+      final api = _api(
+        _SseInterceptor([
+          // Connection 1: one running frame (id: 42), then the stream
+          // closes without a terminal frame — a silent middlebox drop.
+          _sseFrame(_job('j1', status: JobStatus.running), id: '42'),
+          // Connection 2 (reconnect): the fresh authoritative snapshot.
+          _sseFrame(_job('j1', status: JobStatus.succeeded)),
+        ]),
+      );
+      final scheduler = _FakeScheduler();
+      final events = await AiImportRepository(
+        api,
+        _dao(),
+      ).watch('j1', scheduler: scheduler, maxAttempts: 3).toList();
+      expect(events, hasLength(2));
+      expect(events.map((e) => e.getRight().toNullable()!.status).toList(), [
+        JobStatus.running,
+        JobStatus.succeeded,
+      ]);
+      expect(_sseOf(api).requests, hasLength(2));
+      expect(
+        _sseOf(api).requests.last.headers['Last-Event-ID'],
+        '42',
+        reason: 'the reconnect resumes from the last received watermark',
+      );
+      expect(scheduler.ticks, 1, reason: 'one backoff tick before reconnect');
+    });
+
+    test('job watch: a malformed job frame yields dto_invalid and the '
+        'stream keeps consuming', () async {
+      final api = _api(
+        _SseInterceptor([
+          'event: job\ndata: not-json\n\n',
+          _sseFrame(_job('j1', status: JobStatus.succeeded)),
+        ]),
+      );
+      final events = await AiImportRepository(
+        api,
+        _dao(),
+      ).watch('j1', scheduler: _FakeScheduler()).toList();
+      expect(events.first.isLeft(), isTrue);
+      expect(
+        events.first.getLeft().toNullable()!.code,
+        'ai_import.dto_invalid',
+      );
+      expect(events.last.getRight().toNullable()!.status, JobStatus.succeeded);
+    });
+
+    test('job watch: keep-alive comments never surface as frames', () async {
+      final api = _api(
+        _SseInterceptor([
+          ': keep-alive\n\n',
+          _sseFrame(_job('j1', status: JobStatus.succeeded)),
+        ]),
+      );
+      final events = await AiImportRepository(
+        api,
+        _dao(),
+      ).watch('j1', scheduler: _FakeScheduler()).toList();
+      expect(events, hasLength(1));
+      expect(
+        events.single.getRight().toNullable()!.status,
+        JobStatus.succeeded,
+      );
+    });
+
+    test(
+      'job watch: pushed snapshots upsert into Drift including progress',
+      () async {
+        final dao = _dao();
+        var job = _job('j1', status: JobStatus.running).rebuild(
+          (b) => b
+            ..progress = AiImportProgressBuilder()
+            ..progress.stage = AiImportStage.extracting
+            ..progress.chunk = 4
+            ..progress.chunksTotal = 12
+            ..progress.episodesSeen.replace(
+              BuiltList<String>(const ['Ep. 3', 'Ep. 4']),
+            ),
+        );
+        final api = _api(
+          _SseInterceptor([
+            _sseFrame(job),
+            _sseFrame(job.rebuild((b) => b..status = JobStatus.succeeded)),
+          ]),
+        );
+        await AiImportRepository(
+          api,
+          dao,
+        ).watch('j1', scheduler: _FakeScheduler()).toList();
+        final rows = await dao.readAll('user-a');
+        expect(rows, hasLength(1));
+        expect(
+          jobStatusFromWire(rows.single.status),
+          JobStatus.succeeded,
+          reason: 'the last pushed snapshot wins',
+        );
+        final progress = aiImportProgressFromWire(rows.single.progressJson);
+        expect(progress?.chunksTotal, 12);
+        expect(progress?.episodesSeen, contains('Ep. 3'));
       },
     );
 

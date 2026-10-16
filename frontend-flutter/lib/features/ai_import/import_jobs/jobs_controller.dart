@@ -332,6 +332,7 @@ class AiImportJobRowView {
     required this.retries,
     required this.maxRetries,
     this.lastError,
+    this.progress,
   });
 
   /// Server-assigned job id (row key + `AiJobStatusScreen` parameter).
@@ -358,6 +359,10 @@ class AiImportJobRowView {
   /// Server error detail. Presence indicator only — the raw text renders
   /// as SECONDARY detail on the status screen, never as row copy.
   final String? lastError;
+
+  /// Live extraction progress (issue #664) — the compact stage/episode
+  /// subtitle source for running rows. `null` renders nothing extra.
+  final AiImportProgress? progress;
 
   /// True when the row carries a server-side error detail (the
   /// `last_error` presence indicator).
@@ -409,7 +414,8 @@ class AiImportJobRowView {
           other.updatedAt == updatedAt &&
           other.retries == retries &&
           other.maxRetries == maxRetries &&
-          other.lastError == lastError;
+          other.lastError == lastError &&
+          other.progress == progress;
 
   @override
   int get hashCode => Object.hash(
@@ -422,6 +428,7 @@ class AiImportJobRowView {
     retries,
     maxRetries,
     lastError,
+    progress,
   );
 
   @override
@@ -439,6 +446,7 @@ AiImportJobRowView jobRowViewFromJob(AiImportJob job) => AiImportJobRowView(
   retries: job.retries,
   maxRetries: job.maxRetries,
   lastError: job.lastError,
+  progress: job.progress,
 );
 
 /// Maps a cached row to the renderable row (pure, Tier-1 testable).
@@ -458,6 +466,7 @@ AiImportJobRowView jobRowViewFromCacheRow(AiImportJobCacheRow row) =>
       retries: row.retries,
       maxRetries: row.maxRetries,
       lastError: row.lastError,
+      progress: aiImportProgressFromWire(row.progressJson),
     );
 
 /// Cache-first seed merge (pure, Tier-1 testable): remembered ids paint

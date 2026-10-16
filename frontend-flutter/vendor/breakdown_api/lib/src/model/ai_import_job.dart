@@ -9,6 +9,7 @@ import 'package:breakdown_api/src/model/document_kind.dart';
 import 'package:breakdown_api/src/model/job_status.dart';
 import 'package:built_collection/built_collection.dart';
 import 'package:breakdown_api/src/model/source_format.dart';
+import 'package:breakdown_api/src/model/ai_import_progress.dart';
 import 'package:breakdown_api/src/model/ai_import_attempt.dart';
 import 'package:built_value/built_value.dart';
 import 'package:built_value/serializer.dart';
@@ -29,6 +30,7 @@ part 'ai_import_job.g.dart';
 /// * [maxRetries]
 /// * [nextAttemptAt] - When a retryable `failed` job becomes claimable again (issue #637).  `None` for every other state: `pending`/`running` have no backoff, and a terminal job never retries. The column always existed; the wire view omitted it, so neither the UI nor operators could explain a stalled import (\"why is this job not running yet?\").
 /// * [previewHandle]
+/// * [progress] - Live extraction progress of a running job, when the worker already published it (issue #664). `None` for pending jobs and freshly re-claimed retry attempts (the claim SQL resets stale progress).
 /// * [retries]
 /// * [sourceFormat]
 /// * [sourceHandle]
@@ -74,6 +76,10 @@ abstract class AiImportJob implements Built<AiImportJob, AiImportJobBuilder> {
 
   @BuiltValueField(wireName: r'preview_handle')
   String? get previewHandle;
+
+  /// Live extraction progress of a running job, when the worker already published it (issue #664). `None` for pending jobs and freshly re-claimed retry attempts (the claim SQL resets stale progress).
+  @BuiltValueField(wireName: r'progress')
+  AiImportProgress? get progress;
 
   @BuiltValueField(wireName: r'retries')
   int get retries;
@@ -182,6 +188,13 @@ class _$AiImportJobSerializer implements PrimitiveSerializer<AiImportJob> {
       yield serializers.serialize(
         object.previewHandle,
         specifiedType: const FullType.nullable(String),
+      );
+    }
+    if (object.progress != null) {
+      yield r'progress';
+      yield serializers.serialize(
+        object.progress,
+        specifiedType: const FullType.nullable(AiImportProgress),
       );
     }
     yield r'retries';
@@ -321,6 +334,14 @@ class _$AiImportJobSerializer implements PrimitiveSerializer<AiImportJob> {
           ) as String?;
           if (valueDes == null) continue;
           result.previewHandle = valueDes;
+          break;
+        case r'progress':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType.nullable(AiImportProgress),
+          ) as AiImportProgress?;
+          if (valueDes == null) continue;
+          result.progress.replace(valueDes);
           break;
         case r'retries':
           final valueDes = serializers.deserialize(

@@ -272,7 +272,7 @@ final class AiImportJobsViewControllerProvider
 }
 
 String _$aiImportJobsViewControllerHash() =>
-    r'a9f6486e2f849a39e53c07768e81d018c940f86a';
+    r'63364bee905bff3f9e91e63b05c49ea6a96e4808';
 
 /// Read-projection controller. A sync `Notifier` (not an `AsyncNotifier`)
 /// so a fetch `Err` surfaces as `AsyncError` rather than triggering

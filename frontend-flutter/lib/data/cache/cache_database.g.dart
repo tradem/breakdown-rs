@@ -7297,6 +7297,17 @@ class $AiImportJobCacheRowsTable extends AiImportJobCacheRows
     type: DriftSqlType.int,
     requiredDuringInsert: true,
   );
+  static const VerificationMeta _progressJsonMeta = const VerificationMeta(
+    'progressJson',
+  );
+  @override
+  late final GeneratedColumn<String> progressJson = GeneratedColumn<String>(
+    'progress_json',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
   static const VerificationMeta _createdAtMeta = const VerificationMeta(
     'createdAt',
   );
@@ -7347,6 +7358,7 @@ class $AiImportJobCacheRowsTable extends AiImportJobCacheRows
     previewHandle,
     retries,
     maxRetries,
+    progressJson,
     createdAt,
     updatedAt,
     cachedAt,
@@ -7485,6 +7497,15 @@ class $AiImportJobCacheRowsTable extends AiImportJobCacheRows
     } else if (isInserting) {
       context.missing(_maxRetriesMeta);
     }
+    if (data.containsKey('progress_json')) {
+      context.handle(
+        _progressJsonMeta,
+        progressJson.isAcceptableOrUnknown(
+          data['progress_json']!,
+          _progressJsonMeta,
+        ),
+      );
+    }
     if (data.containsKey('created_at')) {
       context.handle(
         _createdAtMeta,
@@ -7578,6 +7599,10 @@ class $AiImportJobCacheRowsTable extends AiImportJobCacheRows
         DriftSqlType.int,
         data['${effectivePrefix}max_retries'],
       )!,
+      progressJson: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}progress_json'],
+      ),
       createdAt: attachedDatabase.typeMapping.read(
         DriftSqlType.dateTime,
         data['${effectivePrefix}created_at'],
@@ -7630,6 +7655,13 @@ class AiImportJobCacheRow extends DataClass
   final String? previewHandle;
   final int retries;
   final int maxRetries;
+
+  /// Live extraction progress of a running job (backend issue #664),
+  /// serialized as the generated [AiImportProgress] JSON object — `null`
+  /// for pending jobs and freshly re-claimed retry attempts. Text (not a
+  /// typed column) so an unknown future stage degrades to a parse failure
+  /// at read, not a DB fault.
+  final String? progressJson;
   final DateTime createdAt;
   final DateTime updatedAt;
 
@@ -7651,6 +7683,7 @@ class AiImportJobCacheRow extends DataClass
     this.previewHandle,
     required this.retries,
     required this.maxRetries,
+    this.progressJson,
     required this.createdAt,
     required this.updatedAt,
     required this.cachedAt,
@@ -7683,6 +7716,9 @@ class AiImportJobCacheRow extends DataClass
     }
     map['retries'] = Variable<int>(retries);
     map['max_retries'] = Variable<int>(maxRetries);
+    if (!nullToAbsent || progressJson != null) {
+      map['progress_json'] = Variable<String>(progressJson);
+    }
     map['created_at'] = Variable<DateTime>(createdAt);
     map['updated_at'] = Variable<DateTime>(updatedAt);
     map['cached_at'] = Variable<DateTime>(cachedAt);
@@ -7716,6 +7752,9 @@ class AiImportJobCacheRow extends DataClass
           : Value(previewHandle),
       retries: Value(retries),
       maxRetries: Value(maxRetries),
+      progressJson: progressJson == null && nullToAbsent
+          ? const Value.absent()
+          : Value(progressJson),
       createdAt: Value(createdAt),
       updatedAt: Value(updatedAt),
       cachedAt: Value(cachedAt),
@@ -7743,6 +7782,7 @@ class AiImportJobCacheRow extends DataClass
       previewHandle: serializer.fromJson<String?>(json['previewHandle']),
       retries: serializer.fromJson<int>(json['retries']),
       maxRetries: serializer.fromJson<int>(json['maxRetries']),
+      progressJson: serializer.fromJson<String?>(json['progressJson']),
       createdAt: serializer.fromJson<DateTime>(json['createdAt']),
       updatedAt: serializer.fromJson<DateTime>(json['updatedAt']),
       cachedAt: serializer.fromJson<DateTime>(json['cachedAt']),
@@ -7767,6 +7807,7 @@ class AiImportJobCacheRow extends DataClass
       'previewHandle': serializer.toJson<String?>(previewHandle),
       'retries': serializer.toJson<int>(retries),
       'maxRetries': serializer.toJson<int>(maxRetries),
+      'progressJson': serializer.toJson<String?>(progressJson),
       'createdAt': serializer.toJson<DateTime>(createdAt),
       'updatedAt': serializer.toJson<DateTime>(updatedAt),
       'cachedAt': serializer.toJson<DateTime>(cachedAt),
@@ -7789,6 +7830,7 @@ class AiImportJobCacheRow extends DataClass
     Value<String?> previewHandle = const Value.absent(),
     int? retries,
     int? maxRetries,
+    Value<String?> progressJson = const Value.absent(),
     DateTime? createdAt,
     DateTime? updatedAt,
     DateTime? cachedAt,
@@ -7810,6 +7852,7 @@ class AiImportJobCacheRow extends DataClass
         : this.previewHandle,
     retries: retries ?? this.retries,
     maxRetries: maxRetries ?? this.maxRetries,
+    progressJson: progressJson.present ? progressJson.value : this.progressJson,
     createdAt: createdAt ?? this.createdAt,
     updatedAt: updatedAt ?? this.updatedAt,
     cachedAt: cachedAt ?? this.cachedAt,
@@ -7843,6 +7886,9 @@ class AiImportJobCacheRow extends DataClass
       maxRetries: data.maxRetries.present
           ? data.maxRetries.value
           : this.maxRetries,
+      progressJson: data.progressJson.present
+          ? data.progressJson.value
+          : this.progressJson,
       createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
       updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
       cachedAt: data.cachedAt.present ? data.cachedAt.value : this.cachedAt,
@@ -7867,6 +7913,7 @@ class AiImportJobCacheRow extends DataClass
           ..write('previewHandle: $previewHandle, ')
           ..write('retries: $retries, ')
           ..write('maxRetries: $maxRetries, ')
+          ..write('progressJson: $progressJson, ')
           ..write('createdAt: $createdAt, ')
           ..write('updatedAt: $updatedAt, ')
           ..write('cachedAt: $cachedAt')
@@ -7891,6 +7938,7 @@ class AiImportJobCacheRow extends DataClass
     previewHandle,
     retries,
     maxRetries,
+    progressJson,
     createdAt,
     updatedAt,
     cachedAt,
@@ -7914,6 +7962,7 @@ class AiImportJobCacheRow extends DataClass
           other.previewHandle == this.previewHandle &&
           other.retries == this.retries &&
           other.maxRetries == this.maxRetries &&
+          other.progressJson == this.progressJson &&
           other.createdAt == this.createdAt &&
           other.updatedAt == this.updatedAt &&
           other.cachedAt == this.cachedAt);
@@ -7936,6 +7985,7 @@ class AiImportJobCacheRowsCompanion
   final Value<String?> previewHandle;
   final Value<int> retries;
   final Value<int> maxRetries;
+  final Value<String?> progressJson;
   final Value<DateTime> createdAt;
   final Value<DateTime> updatedAt;
   final Value<DateTime> cachedAt;
@@ -7956,6 +8006,7 @@ class AiImportJobCacheRowsCompanion
     this.previewHandle = const Value.absent(),
     this.retries = const Value.absent(),
     this.maxRetries = const Value.absent(),
+    this.progressJson = const Value.absent(),
     this.createdAt = const Value.absent(),
     this.updatedAt = const Value.absent(),
     this.cachedAt = const Value.absent(),
@@ -7977,6 +8028,7 @@ class AiImportJobCacheRowsCompanion
     this.previewHandle = const Value.absent(),
     required int retries,
     required int maxRetries,
+    this.progressJson = const Value.absent(),
     required DateTime createdAt,
     required DateTime updatedAt,
     required DateTime cachedAt,
@@ -8010,6 +8062,7 @@ class AiImportJobCacheRowsCompanion
     Expression<String>? previewHandle,
     Expression<int>? retries,
     Expression<int>? maxRetries,
+    Expression<String>? progressJson,
     Expression<DateTime>? createdAt,
     Expression<DateTime>? updatedAt,
     Expression<DateTime>? cachedAt,
@@ -8031,6 +8084,7 @@ class AiImportJobCacheRowsCompanion
       if (previewHandle != null) 'preview_handle': previewHandle,
       if (retries != null) 'retries': retries,
       if (maxRetries != null) 'max_retries': maxRetries,
+      if (progressJson != null) 'progress_json': progressJson,
       if (createdAt != null) 'created_at': createdAt,
       if (updatedAt != null) 'updated_at': updatedAt,
       if (cachedAt != null) 'cached_at': cachedAt,
@@ -8054,6 +8108,7 @@ class AiImportJobCacheRowsCompanion
     Value<String?>? previewHandle,
     Value<int>? retries,
     Value<int>? maxRetries,
+    Value<String?>? progressJson,
     Value<DateTime>? createdAt,
     Value<DateTime>? updatedAt,
     Value<DateTime>? cachedAt,
@@ -8075,6 +8130,7 @@ class AiImportJobCacheRowsCompanion
       previewHandle: previewHandle ?? this.previewHandle,
       retries: retries ?? this.retries,
       maxRetries: maxRetries ?? this.maxRetries,
+      progressJson: progressJson ?? this.progressJson,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
       cachedAt: cachedAt ?? this.cachedAt,
@@ -8130,6 +8186,9 @@ class AiImportJobCacheRowsCompanion
     if (maxRetries.present) {
       map['max_retries'] = Variable<int>(maxRetries.value);
     }
+    if (progressJson.present) {
+      map['progress_json'] = Variable<String>(progressJson.value);
+    }
     if (createdAt.present) {
       map['created_at'] = Variable<DateTime>(createdAt.value);
     }
@@ -8163,6 +8222,7 @@ class AiImportJobCacheRowsCompanion
           ..write('previewHandle: $previewHandle, ')
           ..write('retries: $retries, ')
           ..write('maxRetries: $maxRetries, ')
+          ..write('progressJson: $progressJson, ')
           ..write('createdAt: $createdAt, ')
           ..write('updatedAt: $updatedAt, ')
           ..write('cachedAt: $cachedAt, ')
@@ -11992,6 +12052,7 @@ typedef $$AiImportJobCacheRowsTableCreateCompanionBuilder =
       Value<String?> previewHandle,
       required int retries,
       required int maxRetries,
+      Value<String?> progressJson,
       required DateTime createdAt,
       required DateTime updatedAt,
       required DateTime cachedAt,
@@ -12014,6 +12075,7 @@ typedef $$AiImportJobCacheRowsTableUpdateCompanionBuilder =
       Value<String?> previewHandle,
       Value<int> retries,
       Value<int> maxRetries,
+      Value<String?> progressJson,
       Value<DateTime> createdAt,
       Value<DateTime> updatedAt,
       Value<DateTime> cachedAt,
@@ -12101,6 +12163,11 @@ class $$AiImportJobCacheRowsTableFilterComposer
 
   ColumnFilters<int> get maxRetries => $composableBuilder(
     column: $table.maxRetries,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get progressJson => $composableBuilder(
+    column: $table.progressJson,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -12204,6 +12271,11 @@ class $$AiImportJobCacheRowsTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<String> get progressJson => $composableBuilder(
+    column: $table.progressJson,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<DateTime> get createdAt => $composableBuilder(
     column: $table.createdAt,
     builder: (column) => ColumnOrderings(column),
@@ -12286,6 +12358,11 @@ class $$AiImportJobCacheRowsTableAnnotationComposer
     builder: (column) => column,
   );
 
+  GeneratedColumn<String> get progressJson => $composableBuilder(
+    column: $table.progressJson,
+    builder: (column) => column,
+  );
+
   GeneratedColumn<DateTime> get createdAt =>
       $composableBuilder(column: $table.createdAt, builder: (column) => column);
 
@@ -12354,6 +12431,7 @@ class $$AiImportJobCacheRowsTableTableManager
                 Value<String?> previewHandle = const Value.absent(),
                 Value<int> retries = const Value.absent(),
                 Value<int> maxRetries = const Value.absent(),
+                Value<String?> progressJson = const Value.absent(),
                 Value<DateTime> createdAt = const Value.absent(),
                 Value<DateTime> updatedAt = const Value.absent(),
                 Value<DateTime> cachedAt = const Value.absent(),
@@ -12374,6 +12452,7 @@ class $$AiImportJobCacheRowsTableTableManager
                 previewHandle: previewHandle,
                 retries: retries,
                 maxRetries: maxRetries,
+                progressJson: progressJson,
                 createdAt: createdAt,
                 updatedAt: updatedAt,
                 cachedAt: cachedAt,
@@ -12396,6 +12475,7 @@ class $$AiImportJobCacheRowsTableTableManager
                 Value<String?> previewHandle = const Value.absent(),
                 required int retries,
                 required int maxRetries,
+                Value<String?> progressJson = const Value.absent(),
                 required DateTime createdAt,
                 required DateTime updatedAt,
                 required DateTime cachedAt,
@@ -12416,6 +12496,7 @@ class $$AiImportJobCacheRowsTableTableManager
                 previewHandle: previewHandle,
                 retries: retries,
                 maxRetries: maxRetries,
+                progressJson: progressJson,
                 createdAt: createdAt,
                 updatedAt: updatedAt,
                 cachedAt: cachedAt,

@@ -248,8 +248,10 @@ void main() {
       // columns mirroring the wire rename (migration v12 → v13, guarded ADD
       // COLUMN — additive by policy, never a destructive rename); issue
       // #625 adds the project-scoped fundus slice (migration v13 → v14,
-      // fresh table — `createTable`, no data to migrate).
-      expect(db.schemaVersion, 14);
+      // fresh table — `createTable`, no data to migrate); issue #664 adds
+      // the nullable AI import `progress_json` column (migration v14 → v15,
+      // guarded ADD COLUMN).
+      expect(db.schemaVersion, 15);
       // Every table round-trips (migration created them).
       await BlockCacheDao(db).applySnapshotForSeason('s', [
         _block('b', seasonId: 's'),

@@ -19,9 +19,11 @@
 import 'dart:async';
 
 import 'package:breakdown_api/breakdown_api.dart';
+import 'package:dio/dio.dart';
 import 'package:drift/native.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter/widgets.dart' show AppLifecycleState;
 import 'package:flutter_secure_storage_platform_interface/flutter_secure_storage_platform_interface.dart';
 import 'package:fpdart/fpdart.dart';
 
@@ -99,6 +101,10 @@ class FakeAiImportRepository extends AiImportRepository {
   /// The scripted watch stream (a controllable controller per test).
   StreamController<Result<AiImportJob>>? watchController;
 
+  /// Additional scripted streams, consumed one per subsequent `watch`
+  /// call (the resume re-subscription opens a NEW connection).
+  final List<StreamController<Result<AiImportJob>>> watchQueue = [];
+
   @override
   Future<Result<AiUploadAck>> uploadSchedule({
     required Object body,
@@ -156,7 +162,12 @@ class FakeAiImportRepository extends AiImportRepository {
     String jobId, {
     ReconciliationScheduler scheduler = const ExponentialBackoffScheduler(),
     int maxAttempts = 30,
-  }) => (watchController ??= StreamController<Result<AiImportJob>>()).stream;
+    Duration? receiveTimeout,
+    CancelToken? cancelToken,
+  }) {
+    if (watchQueue.isNotEmpty) return watchQueue.removeAt(0).stream;
+    return (watchController ??= StreamController<Result<AiImportJob>>()).stream;
+  }
 }
 
 /// The sticky active-block scope stubbed to a resolved scope.
@@ -562,6 +573,97 @@ void main() {
       events.add(Right(_job('job-1', status: JobStatus.running)));
       await tester.pump();
       expect(received, isEmpty);
+    });
+
+    testWidgets('battery contract: backgrounding cancels the SSE stream; '
+        'resume does ONE snapshot GET and re-subscribes (non-terminal)', (
+      tester,
+    ) async {
+      await setupContainer();
+      final events = StreamController<Result<AiImportJob>>();
+      addTearDown(events.close);
+      final resumeEvents = StreamController<Result<AiImportJob>>();
+      addTearDown(resumeEvents.close);
+      // The first watch connection AND the resume re-subscription both
+      // come from the queue, in order.
+      repo.watchQueue
+        ..add(events)
+        ..add(resumeEvents);
+      final received = <AiImportJob>[];
+      final sub = container.listen(aiJobStatusControllerProvider('job-1'), (
+        _,
+        job,
+      ) {
+        final value = job.value;
+        if (value != null) received.add(value);
+      });
+      addTearDown(sub.close);
+
+      events.add(Right(_job('job-1', status: JobStatus.running)));
+      await tester.pump();
+      expect(received, isNotEmpty);
+
+      // Background (paused): the stream is cancelled immediately — a
+      // later event is NEVER delivered (zero background wake-ups, D5).
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+      await tester.pump();
+      received.clear();
+      events.add(Right(_job('job-1', status: JobStatus.running)));
+      await tester.pump();
+      expect(received, isEmpty);
+
+      // Hidden/detached stay cancelled too (no state change, no streams).
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
+      await tester.pump();
+      expect(received, isEmpty);
+
+      // Resume: exactly ONE snapshot GET, then a fresh subscription.
+      final snapshotJob = _job('job-1', status: JobStatus.running);
+      repo.jobResult = Right(snapshotJob);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pump();
+      await tester.pump();
+      expect(repo.jobCalls, 1, reason: 'exactly one snapshot read on resume');
+      // The snapshot landed in the controller state.
+      expect(
+        container.read(aiJobStatusControllerProvider('job-1')).value!.status,
+        JobStatus.running,
+      );
+      // The re-subscribed stream delivers live frames again.
+      resumeEvents.add(Right(_job('job-1', status: JobStatus.succeeded)));
+      await tester.pump();
+      expect(
+        container.read(aiJobStatusControllerProvider('job-1')).value!.status,
+        JobStatus.succeeded,
+      );
+    });
+
+    testWidgets('battery contract: resume with a terminal snapshot does '
+        'NOT re-subscribe', (tester) async {
+      await setupContainer();
+      final events = StreamController<Result<AiImportJob>>();
+      addTearDown(events.close);
+      repo.watchController = events;
+      final sub = container.listen(
+        aiJobStatusControllerProvider('job-1'),
+        (_, _) {},
+      );
+      addTearDown(sub.close);
+      events.add(Right(_job('job-1', status: JobStatus.running)));
+      await tester.pump();
+
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+      await tester.pump();
+      repo.jobResult = Right(_job('job-1', status: JobStatus.succeeded));
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pump();
+      await tester.pump();
+      expect(repo.jobCalls, 1);
+      // No new watch connection was opened (the queue stays unconsumed).
+      expect(
+        container.read(aiJobStatusControllerProvider('job-1')).value!.status,
+        JobStatus.succeeded,
+      );
     });
 
     testWidgets('a watch failure surfaces as AsyncError (no silent '

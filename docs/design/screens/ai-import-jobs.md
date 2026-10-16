@@ -66,6 +66,8 @@ screen, on every window size.
 | Row status | Text | One of the six honest status copies, always visible next to the icon | `aiImport.jobStatus` |
 | Status icon | Icon | Per-status glyph (see glossary); error-colored for terminal failures — reinforcement only, never the sole carrier | status glyphs |
 | Retry budget | Text | Retryable `failed` rows show `Versuch {retries} von {maxRetries}` | `aiJobRetryBudget` |
+| Row stage | Text | Running rows with a published `progress` show the localized extraction stage (issue #664) | `aiJobStage*` |
+| Row episodes label | Text | Running rows with discovered episodes show the `Gefundene Episoden:` summary line (issue #664) | `aiJobEpisodesSeenLabel` |
 | Last-error indicator | Icon | Presence indicator on rows carrying a server error detail; the raw text renders only on the status screen, as secondary detail | status glyph |
 | Stale banner | Banner | Failed refetch serving retained cached rows | `seasonsStaleBanner` |
 | Error state | Card + button | Copy keyed on the problem `code`; retry re-runs the list route | `aiJobsLoadError` / `aiJobCheckAgain` |
@@ -92,9 +94,13 @@ watch (D5) and owns the re-arm (`aiJobCheckAgain`) and preview
 list itself arms NO watch and dispatches nothing — pull-to-refresh
 re-runs exactly the list route, which is the status authority for rows;
 there is no per-row polling and no fabricated progress indicator (the
-wire carries `retries`/`max_retries`, never a percentage). The
-production-overview summary row and the Settings AI-imports entry push
-this screen and never arm a watch.
+wire carries `retries`/`max_retries`, never a percentage; since issue
+#664 a running row MAY carry a server-published `progress` stage/chunk
+summary — rendered from the fetched row only, never from a client-side
+stream or fabricated count). The production-overview summary row and the
+Settings AI-imports entry push this screen and never arm a watch — the
+SSE stream (`GET /v1/ai-import/jobs/{id}/events`, issue #664) is opened
+exclusively by the job status screen while foregrounded.
 
 ## Input & Validation
 
@@ -103,9 +109,10 @@ N/A — read-only screen (no forms, no commands).
 ## Accessibility & i18n
 
 Every row renders its meaning as visible text (kind, date, status, retry
-budget); icons reinforce only and terminal failures additionally use the
-error color, so color is never the sole carrier either. All copy via the
-ARB catalogs (`aiJobs*`, `jobStatus*`, `jobWatch*`, `aiJobRetryBudget`); 
+budget, and for running rows the stage/episode summary); icons reinforce
+only and terminal failures additionally use the error color, so color is
+never the sole carrier either. All copy via the ARB catalogs (`aiJobs*`,
+`jobStatus*`, `jobWatch*`, `aiJobRetryBudget`, `aiJobStage*`); 
 backend `detail` text never renders on this screen. Row semantics announce
 kind + date + status.
 

@@ -835,6 +835,31 @@ class AppLocalizationsDe extends AppLocalizations {
   }
 
   @override
+  String get aiJobStageExtractingText => 'Text wird extrahiert …';
+
+  @override
+  String get aiJobStageExtracting => 'Szenen werden extrahiert …';
+
+  @override
+  String get aiJobStageMerging => 'Spielplan wird zusammengeführt …';
+
+  @override
+  String get aiJobStageStoringPreview => 'Vorschau wird gespeichert …';
+
+  @override
+  String aiJobStageUnknown(Object name) {
+    return 'Unbekannte Phase ($name).';
+  }
+
+  @override
+  String aiJobChunkProgress(Object chunk, Object chunksTotal) {
+    return 'Abschnitt $chunk von $chunksTotal';
+  }
+
+  @override
+  String get aiJobEpisodesSeenLabel => 'Gefundene Episoden:';
+
+  @override
   String get aiPreviewTitle => 'Import-Vorschau';
 
   @override

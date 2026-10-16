@@ -12,6 +12,8 @@
 import 'dart:async';
 
 import 'package:breakdown_api/breakdown_api.dart';
+import 'package:dio/dio.dart' show CancelToken;
+import 'package:built_collection/built_collection.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -39,6 +41,7 @@ AiImportJob _job(
   String? lastError,
   DateTime? nextAttemptAt,
   List<AiImportAttempt> attempts = const [],
+  AiImportProgress? progress,
 }) => AiImportJob(
   (b) => b
     ..id = 'job-1'
@@ -54,6 +57,15 @@ AiImportJob _job(
     ..lastError = lastError
     ..nextAttemptAt = nextAttemptAt
     ..attempts.addAll(attempts)
+    ..progress = progress == null
+        ? null
+        : (AiImportProgressBuilder()
+            ..stage = progress.stage
+            ..chunk = progress.chunk
+            ..chunksTotal = progress.chunksTotal
+            ..episodesSeen.replace(
+              progress.episodesSeen ?? BuiltList<String>(),
+            ))
     ..createdAt = DateTime.utc(2026, 1, 1)
     ..updatedAt = DateTime.utc(2026, 1, 1),
 );
@@ -196,6 +208,98 @@ void main() {
     }
     expect(find.textContaining('Processing your document'), findsOneWidget);
     await tester.pump();
+  });
+
+  AiImportProgress buildProgress({
+    AiImportStage stage = AiImportStage.extracting,
+    int? chunk = 4,
+    int? chunksTotal = 12,
+    List<String> episodes = const ['Ep. 3', 'Ep. 4'],
+  }) => AiImportProgress(
+    (b) => b
+      ..stage = stage
+      ..chunk = chunk
+      ..chunksTotal = chunksTotal
+      ..episodesSeen.replace(BuiltList<String>(episodes)),
+  );
+
+  testWidgets('live SSE progress renders the localized stage, the chunk '
+      'counter with a determinate bar, and episode chips (issue #664)', (
+    tester,
+  ) async {
+    await setupContainer(
+      Right(_job(JobStatus.running, progress: buildProgress())),
+    );
+    await pumpScreen(tester);
+    expect(find.byKey(const Key('ai-job-in-progress')), findsOneWidget);
+    // Stage copy replaces the plain status line.
+    expect(find.byKey(const Key('ai-job-stage')), findsOneWidget);
+    expect(find.textContaining('Extracting scenes'), findsOneWidget);
+    // Determinate bar + honest counter (no fabricated percentage text).
+    expect(find.byKey(const Key('ai-job-chunk-progress')), findsOneWidget);
+    expect(find.byKey(const Key('ai-job-chunk-counter')), findsOneWidget);
+    expect(find.textContaining('Chunk 4 of 12'), findsOneWidget);
+    // Episode chips, one per discovered episode.
+    expect(find.byKey(const Key('ai-job-episodes-chips')), findsOneWidget);
+    expect(find.text('Ep. 3'), findsOneWidget);
+    expect(find.text('Ep. 4'), findsOneWidget);
+  });
+
+  testWidgets('a live progress update swaps the stage copy (SSE push)', (
+    tester,
+  ) async {
+    await setupContainer(
+      Right(
+        _job(
+          JobStatus.running,
+          progress: buildProgress(stage: AiImportStage.extractingText),
+        ),
+      ),
+    );
+    await pumpScreen(tester);
+    expect(find.textContaining('Extracting text'), findsOneWidget);
+
+    job.value = Right(
+      _job(
+        JobStatus.running,
+        progress: buildProgress(stage: AiImportStage.storingPreview),
+      ),
+    );
+    for (var i = 0; i < 6; i++) {
+      await tester.pump(const Duration(milliseconds: 10));
+    }
+    expect(find.textContaining('Storing preview'), findsOneWidget);
+  });
+
+  testWidgets('running WITHOUT chunk counts keeps the indeterminate '
+      'affordance — never a fabricated percentage', (tester) async {
+    await setupContainer(
+      Right(
+        _job(
+          JobStatus.running,
+          // chunks_total null → no determinate bar.
+          progress: buildProgress(
+            chunksTotal: null,
+            chunk: null,
+            episodes: const [],
+          ),
+        ),
+      ),
+    );
+    await pumpScreen(tester);
+    expect(find.byKey(const Key('ai-job-indeterminate')), findsOneWidget);
+    expect(find.byKey(const Key('ai-job-chunk-progress')), findsNothing);
+    expect(find.byKey(const Key('ai-job-chunk-counter')), findsNothing);
+  });
+
+  testWidgets('running without progress renders the plain status copy '
+      '(no stage fabrication)', (tester) async {
+    await setupContainer(Right(_job(JobStatus.running)));
+    await pumpScreen(tester);
+    expect(find.byKey(const Key('ai-job-indeterminate')), findsOneWidget);
+    expect(find.byKey(const Key('ai-job-stage')), findsOneWidget);
+    expect(find.textContaining('Processing your document'), findsOneWidget);
+    expect(find.byKey(const Key('ai-job-episodes-chips')), findsNothing);
   });
 
   testWidgets('retryable failed shows the retry budget (retries/'
@@ -551,6 +655,8 @@ class _StubRepository extends AiImportRepository {
     String jobId, {
     ReconciliationScheduler scheduler = const ExponentialBackoffScheduler(),
     int maxAttempts = 30,
+    Duration? receiveTimeout,
+    CancelToken? cancelToken,
   }) {
     late StreamController<Result<AiImportJob>> controller;
     void onChange() => controller.add(jobNotifier.value);

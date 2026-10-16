@@ -49,7 +49,7 @@ class CacheDatabase extends _$CacheDatabase {
   CacheDatabase.connect(super.executor);
 
   @override
-  int get schemaVersion => 14;
+  int get schemaVersion => 15;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -270,6 +270,27 @@ class CacheDatabase extends _$CacheDatabase {
           await m.addColumn(
             aiImportJobCacheRows,
             aiImportJobCacheRows.projectId,
+          );
+        }
+      }
+      if (from < 15) {
+        // `issue-664-ai-import-sse-progress` (v15): the nullable
+        // `progressJson` column on the AI import job cache — the serialized
+        // generated `AiImportProgress` object. Guarded by table AND column
+        // presence (same tolerance as the v13 branch): a fresh-create path
+        // already carries the column (a duplicate ADD COLUMN would abort
+        // the batch), and a probe DB that emulates a pre-v6 install
+        // legitimately has no AI job table yet (its real counterpart was
+        // created on the v6 upgrade).
+        if (await _tableExists(m.database, 'ai_import_job_cache_rows') &&
+            !(await _columnExists(
+              m.database,
+              'ai_import_job_cache_rows',
+              'progress_json',
+            ))) {
+          await m.addColumn(
+            aiImportJobCacheRows,
+            aiImportJobCacheRows.progressJson,
           );
         }
       }

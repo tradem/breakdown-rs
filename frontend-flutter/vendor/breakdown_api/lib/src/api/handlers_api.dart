@@ -8711,6 +8711,56 @@ class HandlersApi {
     );
   }
 
+  /// Push-based job progress stream (issue #664, ADR-038 D1).
+  /// Snapshot-first: the first frame on every initial connect AND every &#x60;Last-Event-ID&#x60; reconnect is the full authoritative [&#x60;AiImportJobResponse&#x60;] — no catch-up polling and no server-side replay buffer are needed (the header is accepted per the SSE contract, but a fresh snapshot makes replaying old events unnecessary).  Subsequent frames are pushed via the queue&#39;s storage-agnostic [&#x60;subscribe&#x60;](breakdown_core::ai::AiImportQueue::subscribe) wake-up port; every frame re-reads the authoritative row, so duplicate notifications (local hub + echoed &#x60;pg_notify&#x60;) and receiver lag are harmless.  The stream closes immediately after emitting a frame whose job status is terminal (&#x60;succeeded&#x60;, &#x60;dead_letter&#x60;, &#x60;payload_unavailable&#x60;); retryable &#x60;failed&#x60; keeps it open across the backoff window.
+  ///
+  /// Parameters:
+  /// * [id]
+  /// * [cancelToken] - A [CancelToken] that can be used to cancel the operation
+  /// * [headers] - Can be used to add additional headers to the request
+  /// * [extras] - Can be used to add flags to the request
+  /// * [validateStatus] - A [ValidateStatus] callback that can be used to determine request success based on the HTTP status of the response
+  /// * [onSendProgress] - A [ProgressCallback] that can be used to get the send progress
+  /// * [onReceiveProgress] - A [ProgressCallback] that can be used to get the receive progress
+  ///
+  /// Returns a [Future]
+  /// Throws [DioException] if API call or serialization fails
+  Future<Response<void>> streamAiImportJobEvents({
+    required String id,
+    CancelToken? cancelToken,
+    Map<String, dynamic>? headers,
+    Map<String, dynamic>? extra,
+    ValidateStatus? validateStatus,
+    ProgressCallback? onSendProgress,
+    ProgressCallback? onReceiveProgress,
+  }) async {
+    final _path = r'/v1/ai-import/jobs/{id}/events'.replaceAll(
+        '{' r'id' '}',
+        encodeQueryParameter(_serializers, id, const FullType(String))
+            .toString());
+    final _options = Options(
+      method: r'GET',
+      headers: <String, dynamic>{
+        ...?headers,
+      },
+      extra: <String, dynamic>{
+        'secure': <Map<String, String>>[],
+        ...?extra,
+      },
+      validateStatus: validateStatus,
+    );
+
+    final _response = await _dio.request<Object>(
+      _path,
+      options: _options,
+      cancelToken: cancelToken,
+      onSendProgress: onSendProgress,
+      onReceiveProgress: onReceiveProgress,
+    );
+
+    return _response;
+  }
+
   /// unassignCostume
   ///
   ///

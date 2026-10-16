@@ -17,6 +17,7 @@ import '../clippy/karl_kleiderbuegel_overlay.dart';
 import '../../../l10n/locale_formatters.dart';
 import 'import_submit_screen.dart' show AiImportSubmitScreen;
 import 'job_status_screen.dart';
+import 'import_state.dart' show aiJobStageCopy;
 import 'jobs_controller.dart';
 
 /// The AI-import **jobs screen** (issue #547): the "what did I import"
@@ -182,6 +183,22 @@ class _JobRow extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(job.statusLabel(l10n), key: Key('ai-jobs-row-status-${job.id}')),
+          // Compact stage/episode progress summary (issue #664): from the
+          // fetched row's progress — the list screen never opens an SSE
+          // stream (zero watches, #547 battery contract).
+          if (job.progress != null) ...[
+            Text(
+              key: Key('ai-jobs-row-stage-${job.id}'),
+              aiJobStageCopy(l10n, job.progress!.stage),
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+            if (job.progress!.episodesSeen?.isNotEmpty ?? false)
+              Text(
+                key: Key('ai-jobs-row-episodes-${job.id}'),
+                l10n.aiJobEpisodesSeenLabel,
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+          ],
           if (job.status == JobStatus.failed)
             Text(
               l10n.aiJobRetryBudget(

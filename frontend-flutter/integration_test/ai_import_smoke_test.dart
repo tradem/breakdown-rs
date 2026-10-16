@@ -14,6 +14,7 @@
 import 'dart:async';
 
 import 'package:breakdown_api/breakdown_api.dart';
+import 'package:dio/dio.dart' show CancelToken;
 import 'package:built_collection/built_collection.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -130,6 +131,8 @@ class FakePipelineRepository extends AiImportRepository {
     String jobId, {
     ReconciliationScheduler scheduler = const ExponentialBackoffScheduler(),
     int maxAttempts = 30,
+    Duration? receiveTimeout,
+    CancelToken? cancelToken,
   }) async* {
     // The fake LLM path: pending → succeeded (one scripted transition,
     // no wall-clock gating).

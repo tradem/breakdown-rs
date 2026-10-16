@@ -190,20 +190,86 @@ class _JobCard extends ConsumerWidget {
     }
 
     if (jobStatusInProgress(job.status)) {
+      final progress = job.progress;
+      final chunksTotal = progress?.chunksTotal;
+      final chunk = progress?.chunk;
+      final episodes = progress?.episodesSeen;
+      // Determinate progress ONLY when the backend carries a positive
+      // total — never a fabricated percentage (spec: indeterminate
+      // affordance otherwise).
+      final determinate = chunksTotal != null && chunksTotal > 0;
       return Card(
         key: const Key('ai-job-in-progress'),
         child: Padding(
           padding: const EdgeInsets.all(12),
-          child: Row(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const SizedBox(
-                key: Key('ai-job-indeterminate'),
-                width: 24,
-                height: 24,
-                child: CircularProgressIndicator(strokeWidth: 3),
+              Row(
+                children: [
+                  SizedBox(
+                    key: const Key('ai-job-indeterminate'),
+                    width: 24,
+                    height: 24,
+                    child: determinate
+                        ? null
+                        : const CircularProgressIndicator(strokeWidth: 3),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      // The localized stage when the job publishes one;
+                      // the plain status copy otherwise.
+                      key: const Key('ai-job-stage'),
+                      progress == null
+                          ? jobStatusCopy(l10nOf(context), job.status)
+                          : aiJobStageCopy(l10nOf(context), progress.stage),
+                    ),
+                  ),
+                ],
               ),
-              const SizedBox(width: 12),
-              Expanded(child: Text(jobStatusCopy(l10nOf(context), job.status))),
+              if (determinate) ...[
+                const SizedBox(height: 8),
+                LinearProgressIndicator(
+                  key: const Key('ai-job-chunk-progress'),
+                  value: (chunk ?? 0) / chunksTotal,
+                  minHeight: 6,
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  key: const Key('ai-job-chunk-counter'),
+                  l10nOf(context)
+                      .aiJobChunkProgress('${chunk ?? 0}', '$chunksTotal'),
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ],
+              if (episodes != null && episodes.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                Text(
+                  key: const Key('ai-job-episodes-label'),
+                  l10nOf(context).aiJobEpisodesSeenLabel,
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+                const SizedBox(height: 4),
+                Wrap(
+                  key: const Key('ai-job-episodes-chips'),
+                  spacing: 6,
+                  runSpacing: 4,
+                  children: [
+                    for (final label in episodes)
+                      Chip(
+                        key: Key(
+                          'ai-job-episode-'
+                          '${label.replaceAll(' ', '-')}',
+                        ),
+                        label: Text(label),
+                        visualDensity: VisualDensity.compact,
+                        padding: EdgeInsets.zero,
+                        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      ),
+                  ],
+                ),
+              ],
             ],
           ),
         ),

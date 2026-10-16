@@ -821,6 +821,31 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String get aiJobStageExtractingText => 'Extracting text …';
+
+  @override
+  String get aiJobStageExtracting => 'Extracting scenes …';
+
+  @override
+  String get aiJobStageMerging => 'Merging schedule …';
+
+  @override
+  String get aiJobStageStoringPreview => 'Storing preview …';
+
+  @override
+  String aiJobStageUnknown(Object name) {
+    return 'Unknown stage ($name).';
+  }
+
+  @override
+  String aiJobChunkProgress(Object chunk, Object chunksTotal) {
+    return 'Chunk $chunk of $chunksTotal';
+  }
+
+  @override
+  String get aiJobEpisodesSeenLabel => 'Episodes discovered:';
+
+  @override
   String get aiPreviewTitle => 'Import preview';
 
   @override
