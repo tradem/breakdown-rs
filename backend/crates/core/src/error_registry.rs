@@ -39,7 +39,7 @@ pub const PROBLEM_DOCS_BASE: &str = "https://docs.breakdown.example";
 /// Kept in sync with the `problem_codes!` invocation below by a compile-time
 /// assertion — adding or removing a code without deliberately updating this
 /// count fails the build (issue #232).
-const PROBLEM_CODE_COUNT: usize = 97;
+const PROBLEM_CODE_COUNT: usize = 98;
 
 /// One registered problem code (ADR-031 D2/D4).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -979,6 +979,21 @@ problem_codes! {
         code: "ai-import.not-found",
         status: 404,
         title: "AI import job not found",
+        extensions: &[],
+    },
+
+    /// 409 — a delete was requested for an AI import job that is not in a
+    /// terminal state (`succeeded`, `dead_letter`, `payload_unavailable`)
+    /// (issue #671). Non-terminal rows are leased, queued or backed off, so
+    /// deleting one would corrupt the claim/permit machinery; the API-edge
+    /// check refuses them with this code, the terminal predicate in the
+    /// queue adapter's DELETE statement is the authoritative backstop.
+    /// Distinct from the generic `domain.conflict` so the jobs screen can
+    /// render a "this import is still working — try again later" narrative.
+    AI_IMPORT_JOB_NOT_DELETABLE {
+        code: "ai-import.job-not-deletable",
+        status: 409,
+        title: "AI import job is not in a deletable state",
         extensions: &[],
     },
 

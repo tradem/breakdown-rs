@@ -26,6 +26,33 @@ tag. Never edit a released entry afterwards.
 
 ### Added
 
+- **Delete AI import jobs from the app (issue #671):** `DELETE
+  /v1/ai-import/jobs/{id}` (204/403/404/409) lets users clean up stuck
+  imports from the jobs list — a dead-letter job previously had to be
+  removed via SQL and permanently blocked re-uploading the same document
+  (the `(user_id, dedup_key)` unique constraint is status-independent).
+  Terminal states only (`succeeded`, `dead_letter`, `payload_unavailable`,
+  the exact `JobStatus::is_terminal` set): non-terminal rows are refused
+  with the registered 409 `ai-import.job-not-deletable` — deleting a
+  leased/queued row would corrupt the claim/permit machinery; the terminal
+  predicate in `PgAiImportQueue::delete_terminal` is the authoritative
+  backstop. Owner-fenced plus the `authorize_ai_job(… Action::Write)`
+  handler-internal AUTHZ-GATE, mirroring the status/preview/apply handlers
+  (foreign job → 403 `ai-import.forbidden`, per the established screen-family
+  surface — note the issue text's "404, no existence leak" was superseded by
+  this consistency decision). The endpoint deletes both payload objects
+  (source + preview) **inline and idempotently** before the row delete —
+  the payload GC sweep selects terminal rows, so a deleted row would orphan
+  its Garage objects forever; on a storage failure the row stays and the
+  user can retry. The apply-idempotency mapping rows (no FK) are removed in
+  the same transaction; attempt/cleanup rows cascade. Deleting the row
+  frees the dedup key → the same document can be re-uploaded (202).
+  `core` 0.34.0 → 0.35.0 (new `AiImportQueue::delete_terminal` port method +
+  `ai-import.job-not-deletable` registry entry; re-pins), `infra` 0.39.0 →
+  0.40.0 (PG adapter + mapping-row cleanup; re-pins core), `api` 0.33.0 →
+  0.34.0 (the new DELETE route + `AiImportJobNotDeletable` variant;
+  re-pins core/infra).
+
 - **Editable character role type (issue #678):** `PATCH
   /v1/characters/{id}/category` dispatches the new `UpdateCharacterCategory`
   command (`CharacterCategoryChanged` event → aggregate apply → projector

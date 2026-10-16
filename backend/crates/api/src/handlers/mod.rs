@@ -6064,6 +6064,81 @@ pub async fn get_ai_import_preview<P: Ports>(
     ))
 }
 
+#[utoipa::path(
+    delete,
+    path = "/ai-import/jobs/{id}",
+    params(("id" = Uuid, Path)),
+    responses(
+        (status = 204, description = "AI import job deleted; payloads removed and the dedup key freed"),
+        (status = 403, body = ProblemDetails, description = "Not authorized for this job"),
+        (status = 404, body = ProblemDetails, description = "Job not found (or already deleted)"),
+        (status = 409, body = ProblemDetails, description = "Job is not in a deletable (terminal) state"),
+        (status = 503, body = ProblemDetails, description = "Payload storage unavailable; nothing was deleted")
+    )
+)]
+pub async fn delete_ai_import_job<P: Ports>(
+    State(state): State<AppState<P>>,
+    current_user: CurrentUser,
+    Path(id): Path<AiImportJobId>,
+) -> ApiResult<()> {
+    let job = state.ports.ai_import_queue().get(id).await?;
+    let job = job.ok_or(ApiError::AiImportNotFound("AI import job not found"))?;
+    // AUTHZ-GATE: deleting an AI import job is owner- and season-gated,
+    // mirroring the status/preview/apply handlers of the same screen family.
+    authorize_ai_job(&state, &current_user, &job, Action::Write).await?;
+    // Terminal-only (issue #671): `pending`/`running`/`failed` rows are
+    // leased, queued or backed off — removing one would corrupt the
+    // claim/permit machinery. The terminal predicate in the queue adapter's
+    // DELETE statement is the authoritative backstop behind this pre-check.
+    if !job.status.is_terminal() {
+        return Err(ApiError::AiImportJobNotDeletable(
+            "only terminal AI import jobs can be deleted",
+        ));
+    }
+    // Inline payload cleanup BEFORE the row delete (issue #671): the payload
+    // GC sweep selects *terminal job rows*, so a deleted row would orphan its
+    // Garage objects forever. Both store deletes are idempotent (missing
+    // handles are a no-op at the adapter, the same tolerance the GC sweep
+    // relies on), so a retried delete converges. On a storage failure the
+    // row is deliberately left in place: the GC sweep keeps covering it and
+    // the user can retry, so no payload is ever orphaned.
+    if let Err(error) = state
+        .ports
+        .ai_document_store()
+        .delete_source(&job.source_handle)
+        .await
+    {
+        tracing::warn!(
+            job_id = %id.as_uuid(),
+            error = %error,
+            "failed to delete AI source payload; job row kept for retry"
+        );
+        return Err(ApiError::from(error));
+    }
+    if let Some(preview_handle) = job.preview_handle.as_deref()
+        && let Err(error) = state.ports.ai_preview_store().delete(preview_handle).await
+    {
+        tracing::warn!(
+            job_id = %id.as_uuid(),
+            error = %error,
+            "failed to delete AI preview payload; job row kept for retry"
+        );
+        return Err(ApiError::from(error));
+    }
+    let deleted = state.ports.ai_import_queue().delete_terminal(id).await?;
+    if !deleted {
+        // The row vanished between the read and the delete (or was never
+        // terminal): the established not-found surface.
+        return Err(ApiError::AiImportNotFound("AI import job not found"));
+    }
+    tracing::info!(
+        job_id = %id.as_uuid(),
+        status = job.status.as_str(),
+        "deleted AI import job; dedup key freed for re-upload (issue #671)"
+    );
+    Ok((StatusCode::NO_CONTENT, Json(())))
+}
+
 /// Parse the stored preview bytes into the typed union (issue #337).
 ///
 /// Script jobs persist `ScriptContext`; schedule jobs persist
@@ -7161,7 +7236,8 @@ pub fn routes() -> Router<AppState<ProductionPorts>> {
         )
         .route(
             "/ai-import/jobs/{id}",
-            routing::get(get_ai_import_job::<ProductionPorts>),
+            routing::get(get_ai_import_job::<ProductionPorts>)
+                .delete(delete_ai_import_job::<ProductionPorts>),
         )
         .route(
             "/ai-import/jobs/{id}/preview",

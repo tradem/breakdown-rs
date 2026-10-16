@@ -1310,6 +1310,48 @@ abstract class AppLocalizations {
   /// **'Die Auftragsliste konnte nicht geladen werden ({code}).'**
   String aiJobsLoadError(Object code);
 
+  /// No description provided for @aiJobsDeleteTooltip.
+  ///
+  /// In de, this message translates to:
+  /// **'Import löschen'**
+  String get aiJobsDeleteTooltip;
+
+  /// No description provided for @aiJobsDeleteConfirmTitle.
+  ///
+  /// In de, this message translates to:
+  /// **'Import löschen?'**
+  String get aiJobsDeleteConfirmTitle;
+
+  /// No description provided for @aiJobsDeleteConfirmBody.
+  ///
+  /// In de, this message translates to:
+  /// **'Dadurch wird auch die Duplikat-Sperre aufgehoben – das Dokument kann erneut importiert werden.'**
+  String get aiJobsDeleteConfirmBody;
+
+  /// No description provided for @aiJobsDeleteConfirmDelete.
+  ///
+  /// In de, this message translates to:
+  /// **'Löschen'**
+  String get aiJobsDeleteConfirmDelete;
+
+  /// No description provided for @aiJobsDeleteConfirmCancel.
+  ///
+  /// In de, this message translates to:
+  /// **'Abbrechen'**
+  String get aiJobsDeleteConfirmCancel;
+
+  /// No description provided for @aiJobsDeleteNotDeletable.
+  ///
+  /// In de, this message translates to:
+  /// **'Dieser Import wird noch verarbeitet und kann noch nicht gelöscht werden.'**
+  String get aiJobsDeleteNotDeletable;
+
+  /// No description provided for @aiJobsDeleteFailed.
+  ///
+  /// In de, this message translates to:
+  /// **'Der Import konnte nicht gelöscht werden ({code}).'**
+  String aiJobsDeleteFailed(Object code);
+
   /// No description provided for @aiJobReviewPreview.
   ///
   /// In de, this message translates to:

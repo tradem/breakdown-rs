@@ -26,13 +26,13 @@ use breakdown_core::error::DomainError;
 use breakdown_core::error_registry::{
     AI_CONFIG_FORBIDDEN, AI_CONFIG_PROVIDER_MISMATCH, AI_CONFIG_VAULT_KEY_FORBIDDEN,
     AI_CONFIG_VERSION_MISMATCH, AI_IMPORT_APPLY_BLOCKED, AI_IMPORT_APPLY_MISSING_EPISODE_GROUP,
-    AI_IMPORT_APPLY_MISSING_MAPPING, AI_IMPORT_DISABLED, AI_IMPORT_FORBIDDEN, AI_IMPORT_NOT_FOUND,
-    AI_IMPORT_UNSUPPORTED_MEDIA_TYPE, DOMAIN_CONFLICT, DOMAIN_FORBIDDEN, DOMAIN_NOT_FOUND,
-    DOMAIN_SERVICE_UNAVAILABLE, DOMAIN_VALIDATION, EPISODE_NUMBER_ALREADY_EXISTS,
-    HTTP_BAD_JSON_BODY, HTTP_BAD_PATH_PARAM, HTTP_BAD_QUERY_PARAM, HTTP_BAD_REQUEST,
-    HTTP_INTERNAL_ERROR, HTTP_PAYLOAD_TOO_LARGE, HTTP_REQUEST_TIMEOUT, HTTP_ROUTE_NOT_FOUND,
-    HTTP_UNSUPPORTED_MEDIA_TYPE, ProblemCode, REPORT_RENDERER_UNAVAILABLE,
-    SETTINGS_BINDING_FORBIDDEN, SETTINGS_FORBIDDEN,
+    AI_IMPORT_APPLY_MISSING_MAPPING, AI_IMPORT_DISABLED, AI_IMPORT_FORBIDDEN,
+    AI_IMPORT_JOB_NOT_DELETABLE, AI_IMPORT_NOT_FOUND, AI_IMPORT_UNSUPPORTED_MEDIA_TYPE,
+    DOMAIN_CONFLICT, DOMAIN_FORBIDDEN, DOMAIN_NOT_FOUND, DOMAIN_SERVICE_UNAVAILABLE,
+    DOMAIN_VALIDATION, EPISODE_NUMBER_ALREADY_EXISTS, HTTP_BAD_JSON_BODY, HTTP_BAD_PATH_PARAM,
+    HTTP_BAD_QUERY_PARAM, HTTP_BAD_REQUEST, HTTP_INTERNAL_ERROR, HTTP_PAYLOAD_TOO_LARGE,
+    HTTP_REQUEST_TIMEOUT, HTTP_ROUTE_NOT_FOUND, HTTP_UNSUPPORTED_MEDIA_TYPE, ProblemCode,
+    REPORT_RENDERER_UNAVAILABLE, SETTINGS_BINDING_FORBIDDEN, SETTINGS_FORBIDDEN,
 };
 
 use serde::Serialize;
@@ -339,6 +339,11 @@ pub enum ApiError {
     /// deliberately hidden per the existence-oracle policy). Scoped per
     /// aggregate (issue #481).
     AiImportNotFound(&'static str),
+    /// 409 `ai-import.job-not-deletable` — a delete was requested for an AI
+    /// import job that is not in a terminal state (issue #671). Non-terminal
+    /// rows are leased, queued or backed off; deleting one would corrupt the
+    /// claim/permit machinery.
+    AiImportJobNotDeletable(&'static str),
     /// 409 `ai-config.version-mismatch` — optimistic-lock version conflict on
     /// an AI-config edit/revoke. Scoped per aggregate (issue #481); carries
     /// the same S0 `expected_version`/`current_version` extensions as the
@@ -478,6 +483,13 @@ impl ApiError {
             ApiError::AiImportNotFound(msg) => {
                 tracing::debug!(reason = msg, "rendering ai-import not-found problem");
                 problem(AI_IMPORT_NOT_FOUND).build()
+            }
+            ApiError::AiImportJobNotDeletable(msg) => {
+                tracing::debug!(
+                    reason = msg,
+                    "rendering ai-import job-not-deletable problem"
+                );
+                problem(AI_IMPORT_JOB_NOT_DELETABLE).build()
             }
             ApiError::AiConfigVersionMismatch(expected, current) => {
                 problem(AI_CONFIG_VERSION_MISMATCH)

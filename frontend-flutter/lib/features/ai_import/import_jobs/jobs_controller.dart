@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 // Co-authored-by: glm-5.3-flash (opencode-go)
 
 import 'dart:async';
@@ -197,6 +198,51 @@ class AiImportJobsViewController extends _$AiImportJobsViewController {
     ref.invalidate(aiImportJobsFetchProvider);
     return ref.read(aiImportJobsFetchProvider.future);
   }
+
+  /// Deletes a terminal job from the list (issue #671) — the escape hatch
+  /// for a stuck `dead_letter` import that would otherwise permanently
+  /// block re-uploading the same document (the `(user_id, dedup_key)`
+  /// unique slot is status-independent server-side; the row deletion
+  /// frees it).
+  ///
+  /// Optimistic removal first: the row is dropped from the retained
+  /// snapshot, which is exactly what the view serves while the reconcile
+  /// refetch is loading — the row disappears immediately, never flickers
+  /// back. On success the list route re-runs (the authoritative
+  /// reconcile read; the repository already evicted the Drift row). On
+  /// failure the snapshot is restored (the row comes back — the server
+  /// still knows the job) and the error travels to the screen keyed on
+  /// the stable problem `code` (`aiJobsDeleteErrorCopy` — the #665
+  /// class: a readable message, never a silent failure).
+  Future<Result<void>> deleteJob(String id) async {
+    final prev = ref.read(aiImportJobsPrevRowsProvider);
+    ref
+        .read(aiImportJobsPrevRowsProvider.notifier)
+        .set(prev.where((row) => row.id != id).toList());
+    final result = await ref.read(aiImportRepositoryProvider).deleteJob(id);
+    if (result.isRight()) {
+      // The user may have left the screen while the DELETE was in flight:
+      // the autoDispose controller is then disposed, and touching the ref
+      // would throw on the caller (an unhandled error where a successful
+      // result was expected). The disposed provider has no list left to
+      // reconcile — the next mount re-runs the fetch anyway.
+      if (!ref.mounted) return result;
+      // Reconcile: re-run exactly the list route and wait for the fresh
+      // rows, so the returned future resolves with the deletion visible.
+      // The reconcile read's outcome is already visible through the list
+      // state itself (the view's data/error branches) — explicitly
+      // consumed, nothing further to do.
+      ref.invalidate(aiImportJobsFetchProvider);
+      (await ref.read(aiImportJobsFetchProvider.future))
+          .match<void>((_) {}, (_) {});
+    } else {
+      // Roll the optimistic removal back — the deletion did not happen.
+      if (ref.mounted) {
+        ref.read(aiImportJobsPrevRowsProvider.notifier).set(prev);
+      }
+    }
+    return result;
+  }
 }
 
 /// The projection a screen reads (selector) — `aiImportJobsView` per the
@@ -330,6 +376,16 @@ class AiImportJobRowView {
       status == JobStatus.running ||
       status == JobStatus.failed;
 
+  /// True when the row may be deleted from the list (issue #671): only a
+  /// `dead_letter` row carries the affordance. The backend accepts every
+  /// terminal state (`succeeded`/`payload_unavailable` too, same
+  /// mechanics), but a stuck failed import is the user-facing dead end the
+  /// delete exists for — `succeeded` rows keep their preview/apply
+  /// history, and a `payload_unavailable` row still documents what
+  /// happened. The server stays authoritative: it refuses non-terminal
+  /// deletes with 409 `ai-import.job-not-deletable` regardless.
+  bool get isDeletable => status == JobStatus.deadLetter;
+
   /// True unless the import completed — the summary row shows for every
   /// job that still needs attention, INCLUDING the terminal failures
   /// (a silent dead-letter must keep summoning the row).
@@ -451,4 +507,18 @@ String aiJobsListErrorCopy(AppLocalizations l10n, ProblemError error) =>
       'ai-import.not-found' => l10n.jobWatchNotFound,
       _ when error.code.startsWith('transport.') => l10n.jobWatchNetwork,
       _ => l10n.aiJobsLoadError(error.code),
+    };
+
+/// Localized copy for a **failed delete** (issue #671), keyed on the
+/// stable problem `code` (never the server `detail`).
+/// `ai-import.job-not-deletable` gets its own arm — the server refuses a
+/// non-terminal delete with it, and the narrative differs from the
+/// generic failure (the job is still working, try again later).
+String aiJobsDeleteErrorCopy(AppLocalizations l10n, ProblemError error) =>
+    switch (error.code) {
+      'ai-import.job-not-deletable' => l10n.aiJobsDeleteNotDeletable,
+      'ai-import.forbidden' || 'authz.denied' => l10n.jobWatchForbidden,
+      'ai-import.not-found' => l10n.jobWatchNotFound,
+      _ when error.code.startsWith('transport.') => l10n.jobWatchNetwork,
+      _ => l10n.aiJobsDeleteFailed(error.code),
     };

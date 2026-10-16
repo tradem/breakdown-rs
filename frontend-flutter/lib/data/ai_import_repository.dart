@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 // Co-authored-by: omen-alpha (opencode-go)
 
 import 'dart:convert';
@@ -304,6 +305,31 @@ class AiImportRepository extends BaseRepository {
     } on Object {
       return const Left(ProblemError(code: 'cache.clear_failed'));
     }
+  }
+
+  /// `DELETE /v1/ai-import/jobs/{id}` (backend issue #671): deletes a
+  /// **terminal** job (204). The server refuses non-terminal rows with the
+  /// registered 409 `ai-import.job-not-deletable` and foreign ones with
+  /// 403 `ai-import.forbidden`; the surface is server-owned, the client
+  /// only branches on the stable `code`. On success the server freed the
+  /// job's dedup key (the same document can be re-uploaded) and removed
+  /// its payload objects; the local cache row is evicted best-effort (a
+  /// locked DB must not discard a successful command acknowledgement —
+  /// the next list refetch converges the cache).
+  Future<Result<void>> deleteJob(String id) async {
+    try {
+      // A 204 has no body: `null` data is success, never `dto.invalid` —
+      // same shape as the photo delete.
+      await api.getHandlersApi().deleteAiImportJob(id: id);
+    } on DioException catch (e) {
+      return Left(problemErrorFromDio(e));
+    }
+    try {
+      await cache.deleteById(id);
+    } on Object {
+      // Best-effort: keep the server acknowledgement.
+    }
+    return const Right<ProblemError, void>(null);
   }
 
   /// Watches a job's status with bounded, foreground-only refetching

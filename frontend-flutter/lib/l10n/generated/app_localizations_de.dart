@@ -754,6 +754,31 @@ class AppLocalizationsDe extends AppLocalizations {
   }
 
   @override
+  String get aiJobsDeleteTooltip => 'Import löschen';
+
+  @override
+  String get aiJobsDeleteConfirmTitle => 'Import löschen?';
+
+  @override
+  String get aiJobsDeleteConfirmBody =>
+      'Dadurch wird auch die Duplikat-Sperre aufgehoben – das Dokument kann erneut importiert werden.';
+
+  @override
+  String get aiJobsDeleteConfirmDelete => 'Löschen';
+
+  @override
+  String get aiJobsDeleteConfirmCancel => 'Abbrechen';
+
+  @override
+  String get aiJobsDeleteNotDeletable =>
+      'Dieser Import wird noch verarbeitet und kann noch nicht gelöscht werden.';
+
+  @override
+  String aiJobsDeleteFailed(Object code) {
+    return 'Der Import konnte nicht gelöscht werden ($code).';
+  }
+
+  @override
   String get aiJobReviewPreview => 'Vorschau prüfen';
 
   @override

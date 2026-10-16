@@ -741,6 +741,31 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String get aiJobsDeleteTooltip => 'Delete import';
+
+  @override
+  String get aiJobsDeleteConfirmTitle => 'Delete import?';
+
+  @override
+  String get aiJobsDeleteConfirmBody =>
+      'This also removes the duplicate lock — the document can be imported again.';
+
+  @override
+  String get aiJobsDeleteConfirmDelete => 'Delete';
+
+  @override
+  String get aiJobsDeleteConfirmCancel => 'Cancel';
+
+  @override
+  String get aiJobsDeleteNotDeletable =>
+      'This import is still being processed and cannot be deleted yet.';
+
+  @override
+  String aiJobsDeleteFailed(Object code) {
+    return 'The import could not be deleted ($code).';
+  }
+
+  @override
   String get aiJobReviewPreview => 'Review preview';
 
   @override

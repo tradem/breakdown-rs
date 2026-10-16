@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 // Co-authored-by: gpt-5.6-luna (opencode-go)
 // Co-authored-by: deepseek-v4-flash (opencode-go)
 // Co-authored-by: longcat-2.0-free (opencode)
@@ -716,6 +717,52 @@ impl AiImportQueue for PgAiImportQueue {
         .await
         .map_err(map_sqlx_error)?;
         rows.into_iter().map(map_attempt_row).collect()
+    }
+
+    /// Delete a terminal job row (issue #671).
+    ///
+    /// The terminal predicate in the statement is the authoritative backstop
+    /// behind the handler's `ai-import.job-not-deletable` 409 pre-check: a
+    /// `pending`/`running`/`failed` row is leased, queued or backed off, and
+    /// removing one would corrupt the claim/permit machinery.
+    ///
+    /// `ai_import.projection_ai_import_mapping` has **no** foreign key to the
+    /// job row (the apply-idempotency mapping predates the delete affordance),
+    /// so its rows are removed explicitly in the same transaction — a deleted
+    /// `succeeded` job must not leave dangling mapping rows. The mapping
+    /// delete is gated on the job DELETE having affected a row: a guarded
+    /// zero-row delete (a direct non-terminal call, or a concurrent delete
+    /// that won the race) must leave the mapping state untouched — losing
+    /// the idempotency mappings of a job that still exists would let a
+    /// re-apply duplicate its aggregates. Attempt-history and
+    /// payload-cleanup rows go via their `ON DELETE CASCADE` FKs.
+    async fn delete_terminal(&self, id: AiImportJobId) -> Result<bool, DomainError> {
+        let mut tx = self.pool.begin().await.map_err(map_sqlx_error)?;
+        let result = sqlx::query(
+            r#"
+            DELETE FROM ai_import.ai_import_job
+            WHERE id = $1
+              AND status IN ('succeeded', 'dead_letter', 'payload_unavailable')
+            "#,
+        )
+        .bind(id.as_uuid())
+        .execute(&mut *tx)
+        .await
+        .map_err(map_sqlx_error)?;
+        if result.rows_affected() == 1 {
+            sqlx::query(
+                r#"
+                DELETE FROM ai_import.projection_ai_import_mapping
+                WHERE preview_id = $1
+                "#,
+            )
+            .bind(id.as_uuid())
+            .execute(&mut *tx)
+            .await
+            .map_err(map_sqlx_error)?;
+        }
+        tx.commit().await.map_err(map_sqlx_error)?;
+        Ok(result.rows_affected() == 1)
     }
 }
 

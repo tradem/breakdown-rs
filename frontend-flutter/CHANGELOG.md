@@ -1,5 +1,6 @@
 <!-- SPDX-License-Identifier: AGPL-3.0 -->
 <!-- Copyright (C) 2024-2026 Breakdown RS Contributors -->
+<!-- Co-authored-by: glm-5.3-flash-flex (neuralwatt) -->
 <!-- Co-authored-by: muse-spark-1.3-contributor (opencode-go) -->
 <!-- Co-authored-by: omen-alpha (opencode-go) -->
 <!-- Co-authored-by: deepseek-v4-flash (neuralwatt) -->
@@ -20,6 +21,20 @@ releases are cut as `vX.Y.Z` tags (`v<build-name>`, enforced by
 `scripts/release/version-gate.sh`).
 
 ## [Unreleased]
+
+- **Version bump:** `0.4.0-alpha.32+83 → 0.4.0-alpha.33+84` — issue #671,
+  the jobs-list delete affordance:
+  * `DELETE /v1/ai-import/jobs/{id}` (backend issue #671): dead-letter
+    rows carry a delete affordance (delete icon in the row trailing,
+    absent on every other status) with the localized confirm dialog
+    naming the dedup-lock release — a stuck import no longer permanently
+    blocks re-uploading the same document.
+  * Optimistic removal + Drift cache eviction (`deleteById`) + reconcile
+    refetch in `jobs_controller`; a failed delete rolls the optimistic
+    removal back and surfaces a code-keyed SnackBar (`ai-import.
+    job-not-deletable` gets its own narrative — the #665 class).
+  * Generated Dart client rebuilt for the DELETE operation
+    (`scripts/regen-client.sh`).
 
 - **Version bump:** `0.4.0-alpha.31+82 → 0.4.0-alpha.32+83` — issue #678,
   the editable role type:

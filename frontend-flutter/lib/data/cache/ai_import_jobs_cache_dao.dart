@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 // Co-authored-by: omen-alpha (opencode-go)
 
 import 'package:breakdown_api/breakdown_api.dart';
@@ -121,6 +122,14 @@ class AiImportJobsCacheDao {
 
   /// Wipes the table (sign-out / backend-switch resets — identity-scoped).
   Future<void> clear() => _db.delete(_db.aiImportJobCacheRows).go();
+
+  /// Removes one cached job row (issue #671): the delete command's local
+  /// cache eviction. The server no longer knows the job (the row deletion
+  /// freed its dedup key), so the cache must not keep serving it — a later
+  /// list refetch never re-upserts it.
+  Future<void> deleteById(String id) => (_db.delete(
+    _db.aiImportJobCacheRows,
+  )..where((tbl) => tbl.id.equals(id))).go();
 
   AiImportJobCacheRowsCompanion _companion(
     AiImportJob job,
