@@ -118,18 +118,26 @@ class AiJobStatusController extends _$AiJobStatusController {
   }
 
   /// Battery contract (D5): back in the foreground — exactly ONE snapshot
-  /// GET, and a fresh SSE subscription only if the job is non-terminal.
+  /// GET, and a fresh SSE subscription unless the job is terminal or the
+  /// app backgrounded again while the GET was in flight.
   Future<void> _onResumed() async {
     if (!_backgrounded || !ref.mounted) return;
     _backgrounded = false;
     final snapshot = await _repo.getJobAndCache(_jobId);
-    if (!ref.mounted) return;
+    // A backgrounding DURING the in-flight snapshot must not reopen the
+    // watch (battery contract): re-check the lifecycle state after the
+    // await — the snapshot itself may still complete, but no subscription
+    // is armed while the app is backgrounded.
+    if (_backgrounded || !ref.mounted) return;
     state = snapshot.match(
       (err) => AsyncValue<AiImportJob>.error(err, StackTrace.current),
       (job) => AsyncValue<AiImportJob>.data(job),
     );
     final job = snapshot.getRight().toNullable();
-    if (job == null || isTerminalJobStatus(job.status)) return;
+    if (job != null && isTerminalJobStatus(job.status)) return;
+    // A FAILED snapshot must not leave the watch cancelled: the error
+    // stays visible in the state, and the re-subscribed SSE stream is
+    // itself the recovery path — its first frame is a fresh snapshot.
     _subscribe();
   }
 

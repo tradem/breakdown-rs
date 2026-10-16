@@ -188,8 +188,11 @@ impl AiImportStage {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct AiImportProgress {
     pub stage: AiImportStage,
-    /// 1-based index of the chunk currently being processed or just
-    /// completed; `None` when the stage carries no chunk notion.
+    /// Chunk counter of the extraction progress. `0` is a deliberate
+    /// published state — "chunking finished, the first chunk has not yet
+    /// completed" (the frame emitted right after the deterministic scan) —
+    /// so the schema floor is 0, not 1. For every later frame this is the
+    /// 1-based index of the last **completed** chunk (`1..=chunks_total`).
     #[serde(default)]
     pub chunk: Option<u32>,
     /// Total chunks in the document (known once chunking finishes).

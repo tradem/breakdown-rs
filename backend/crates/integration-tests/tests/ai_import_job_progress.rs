@@ -98,7 +98,7 @@ async fn displaced_worker_cannot_overwrite_progress() -> Result<()> {
 
     // The lease of worker-1 never expires, so a plain re-claim finds nothing;
     // simulate the displaced worker by publishing under a foreign id: the
-    // owner fence (status = 'running' AND claimed_by = worker) must reject it.
+    // owner fence (status = 'running' AND worker_id = worker) must reject it.
     let outcome = queue
         .mark_progress(id, "worker-2", &progress(AiImportStage::Extracting, 2, &[]))
         .await;

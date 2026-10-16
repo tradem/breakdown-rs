@@ -46,9 +46,7 @@ where
             stage: AiImportStage::Merging,
             ..AiImportProgress::default()
         };
-        self.queue
-            .mark_progress(job.id, worker_id, &progress)
-            .await?;
+        super::workers::publish_progress(&*self.queue, job.id, worker_id, &progress).await?;
         let Some(preview_handle) = job.preview_handle.as_deref() else {
             let error = DomainError::validation("schedule job has no preview handle for merge");
             self.fail(job.id, worker_id, &error, false).await?;
@@ -117,9 +115,7 @@ where
             DomainError::validation(format!("could not serialize merged preview: {error}"))
         })?;
         progress.stage = AiImportStage::StoringPreview;
-        self.queue
-            .mark_progress(job.id, worker_id, &progress)
-            .await?;
+        super::workers::publish_progress(&*self.queue, job.id, worker_id, &progress).await?;
         let handle = self.previews.put(job.id, payload).await?;
         // The merge is a pure in-process transform (no LLM call), so it cannot
         // outlive the lease and needs no heartbeat. The telemetry write is

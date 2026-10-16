@@ -9,6 +9,7 @@
 // 403), the raw-body declared content types, the two-step credential
 // hand-off, the SECRET-IN-PAYLOAD-ONLY assertion covering ALL sinks
 // (secure-storage interception, Drift cache writes, transport metadata,
+import 'dart:async';
 // returned values) on success AND failure, the bounded rollback, the
 // ambiguous-timeout reconciliation, the job-watch state machine, and the
 // config-create reconciliation.
@@ -209,10 +210,21 @@ String _sseFrame(AiImportJob job, {String? id}) =>
 /// verbatim). [closeStream] false leaves the stream open forever — the
 /// unsubscribe test's only exit.
 class _SseInterceptor extends Interceptor {
-  _SseInterceptor(this.connections, {this.closeStream = true});
+  _SseInterceptor(
+    this.connections, {
+    this.closeStream = true,
+    this.openStreamFactory,
+  });
 
   final List<String> connections;
   final bool closeStream;
+
+  /// When [closeStream] is false, every open response body replays a
+  /// FRESH never-closed stream from this factory — an established, idle
+  /// connection whose only exit is subscription cancellation (the
+  /// unsubscribe test's scenario). A factory (not a shared instance)
+  /// keeps each connection independently listenable.
+  final Stream<Uint8List> Function()? openStreamFactory;
 
   int index = 0;
   final List<RequestOptions> requests = [];
@@ -220,18 +232,20 @@ class _SseInterceptor extends Interceptor {
   @override
   void onRequest(RequestOptions options, RequestInterceptorHandler handler) {
     requests.add(options);
-    final script = connections[index.clamp(0, connections.length - 1)];
+    final body = closeStream
+        ? Stream.fromIterable(<Uint8List>[
+            // An empty connection list is a script bug — surface it.
+            Uint8List.fromList(
+              utf8.encode(connections[index.clamp(0, connections.length - 1)]),
+            ),
+          ])
+        : openStreamFactory!();
     if (index < connections.length) index++;
     handler.resolve(
       Response(
         requestOptions: options,
         statusCode: 200,
-        data: ResponseBody(
-          Stream.fromIterable(<Uint8List>[
-            if (closeStream) Uint8List.fromList(utf8.encode(script)),
-          ]),
-          200,
-        ),
+        data: ResponseBody(body, 200),
       ),
     );
   }
@@ -1375,16 +1389,43 @@ void main() {
     test(
       'job watch: unsubscribe stops the loop (foreground-only, D5)',
       () async {
-        // A connection that never sends frames and never closes: the only
-        // way out is the subscription cancellation.
-        final interceptor = _SseInterceptor(const [], closeStream: false);
+        // An established, idle connection (frames flow, stream never
+        // closes): the only way out is the subscription cancellation.
+        final idleControllers = <StreamController<Uint8List>>[];
+        addTearDown(() {
+          for (final c in idleControllers) {
+            unawaited(c.close());
+          }
+        });
+        final interceptor = _SseInterceptor(
+          const [],
+          closeStream: false,
+          openStreamFactory: () {
+            final controller = StreamController<Uint8List>();
+            idleControllers.add(controller);
+            return controller.stream;
+          },
+        );
         final api = _api(interceptor);
         final sub = AiImportRepository(
           api,
           _dao(),
         ).watch('j1', scheduler: _FakeScheduler()).listen((_) {});
-        await sub.cancel();
-        // Give the generator a chance to observe the cancellation.
+        // Wait until the connection is actually OPEN before cancelling
+        // (bounded polling — never a wall-clock sleep).
+        for (var i = 0; i < 50 && interceptor.requests.isEmpty; i++) {
+          await Future<void>.delayed(Duration.zero);
+        }
+        expect(interceptor.requests, hasLength(1));
+        // Cancel WITHOUT awaiting the cancel future: awaiting it hangs on
+        // a generator suspended inside `await for` over a never-emitting
+        // stream (Dart teardown of the transform chain), which is an
+        // artifact of the fixture, not of the watch. The cancellation
+        // still takes effect immediately — verified by the assertion
+        // below that no further connection is opened.
+        unawaited(sub.cancel());
+        // Let the generator observe the cancellation.
+        await Future<void>.delayed(Duration.zero);
         await Future<void>.delayed(Duration.zero);
         // No reconnect was opened after the cancellation (one connection).
         expect(interceptor.requests, hasLength(1));
@@ -1461,16 +1502,20 @@ void main() {
 
     test('job watch: a malformed job frame yields dto_invalid and the '
         'stream keeps consuming', () async {
+      // BOTH frames travel on ONE connection — the parser must continue
+      // consuming the original stream after a malformed frame (no
+      // reconnect in between).
       final api = _api(
         _SseInterceptor([
-          'event: job\ndata: not-json\n\n',
-          _sseFrame(_job('j1', status: JobStatus.succeeded)),
+          'event: job\ndata: not-json\n\n'
+              '${_sseFrame(_job('j1', status: JobStatus.succeeded))}',
         ]),
       );
       final events = await AiImportRepository(
         api,
         _dao(),
       ).watch('j1', scheduler: _FakeScheduler()).toList();
+      expect(_sseOf(api).requests, hasLength(1));
       expect(events.first.isLeft(), isTrue);
       expect(
         events.first.getLeft().toNullable()!.code,
@@ -1480,16 +1525,19 @@ void main() {
     });
 
     test('job watch: keep-alive comments never surface as frames', () async {
+      // Comment + data frame on ONE connection — keep-alive lines never
+      // surface as frames and never break the original stream.
       final api = _api(
         _SseInterceptor([
-          ': keep-alive\n\n',
-          _sseFrame(_job('j1', status: JobStatus.succeeded)),
+          ': keep-alive\n\n'
+              '${_sseFrame(_job('j1', status: JobStatus.succeeded))}',
         ]),
       );
       final events = await AiImportRepository(
         api,
         _dao(),
       ).watch('j1', scheduler: _FakeScheduler()).toList();
+      expect(_sseOf(api).requests, hasLength(1));
       expect(events, hasLength(1));
       expect(
         events.single.getRight().toNullable()!.status,

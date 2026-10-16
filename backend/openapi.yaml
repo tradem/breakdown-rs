@@ -444,8 +444,11 @@ components:
       properties:
         chunk:
           description: |-
-            1-based index of the chunk currently being processed or just
-            completed; `None` when the stage carries no chunk notion.
+            Chunk counter of the extraction progress. `0` is a deliberate
+            published state — "chunking finished, the first chunk has not yet
+            completed" (the frame emitted right after the deterministic scan) —
+            so the schema floor is 0, not 1. For every later frame this is the
+            1-based index of the last **completed** chunk (`1..=chunks_total`).
           format: int32
           minimum: 0
           type:

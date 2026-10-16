@@ -683,6 +683,13 @@ async fn main() -> Result<()> {
     // lifetime so its reclaimer's sender clone stays alive; dropping it is
     // step 2 of the shutdown sequence below.
     let mut ai_shutdown_tx = None;
+    // Holds the PgListener bridge's shutdown SENDER for the process lifetime
+    // (issue #664 review): a sender dropped at the end of the
+    // `ai_import_enabled` block would close the watch channel, making
+    // `shutdown.changed()` complete immediately and silently killing the
+    // listener task right after it connects — cross-instance `pg_notify`
+    // payloads would never reach the hub.
+    let mut ai_listener_shutdown_tx = None;
     let mut ai_reclaimer = None;
     let mut ai_limiter_arc = None;
     let mut ai_runtime = None;
@@ -737,13 +744,16 @@ async fn main() -> Result<()> {
         // ADR-038 D4): ONE listening connection per API instance forwards
         // cross-instance `pg_notify('ai_import_job_events', ...)` payloads
         // into the queue's in-process broadcast hub — never one connection
-        // per SSE client. Joins in the shutdown sequence below.
-        let (_listener_shutdown_tx, listener_shutdown_rx) = shutdown_signal();
+        // per SSE client. Joins in the shutdown sequence below; the sender
+        // is held at main scope (see `ai_listener_shutdown_tx`) so the watch
+        // channel stays open for the process lifetime.
+        let (listener_shutdown_tx, listener_shutdown_rx) = shutdown_signal();
         ai_worker_handles.push(infra::ai::spawn_pg_job_event_listener(
             pool.clone(),
             ai_job_event_hub,
             listener_shutdown_rx,
         ));
+        ai_listener_shutdown_tx = Some(listener_shutdown_tx);
         info!(
             max_global = bounds.max_concurrent_jobs_global,
             max_per_user = bounds.max_concurrent_jobs_per_user,
@@ -788,6 +798,7 @@ async fn main() -> Result<()> {
 
     shutdown_ai_import(
         ai_shutdown_tx,
+        ai_listener_shutdown_tx.take(),
         ai_reclaimer,
         ai_limiter_arc,
         ai_runtime,
@@ -849,6 +860,7 @@ async fn wait_for_shutdown() {
 /// 3. Drop the limiter clone held here, then `reclaimer.shutdown()`.
 async fn shutdown_ai_import(
     shutdown_tx: Option<tokio::sync::watch::Sender<bool>>,
+    listener_shutdown_tx: Option<tokio::sync::watch::Sender<bool>>,
     reclaimer: Option<PermitReclaimer>,
     limiter_arc: Option<Arc<PgAiConcurrencyLimiter>>,
     runtime: Option<Arc<AiWorkerRuntime>>,
@@ -858,13 +870,22 @@ async fn shutdown_ai_import(
         return;
     };
 
-    // Step 1: signal workers to stop, then bounded drain of in-flight permits.
-    // The drain is bounded by DRAIN_TIMEOUT (15s) so a stuck job cannot block
-    // shutdown indefinitely.
+    // Step 1: signal workers AND the SSE job-event PgListener bridge to
+    // stop, then bounded drain of in-flight permits. The drain is bounded
+    // by DRAIN_TIMEOUT (15s) so a stuck job cannot block shutdown
+    // indefinitely.
     if let Some(tx) = shutdown_tx
         && let Err(error) = tx.send(true)
     {
         warn!(error = %error, "failed to send AI import shutdown signal");
+    }
+    // The listener's sender is held at main scope for the process lifetime
+    // (dropping it early would close the watch channel and silently kill
+    // the listener right after connect) — it is READ here, at shutdown.
+    if let Some(tx) = listener_shutdown_tx
+        && let Err(error) = tx.send(true)
+    {
+        warn!(error = %error, "failed to send AI import listener shutdown signal");
     }
     if let Some(runtime) = &runtime {
         info!("AI import: draining in-flight permits (bounded by DRAIN_TIMEOUT)");

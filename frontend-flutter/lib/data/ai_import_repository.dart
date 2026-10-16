@@ -389,9 +389,19 @@ class AiImportRepository extends BaseRepository {
           cancelToken: cancelToken,
         );
       } on DioException catch (e) {
-        // Open failure (403/404/5xx/timeout): surface it, then reconnect
-        // within the bounded budget — the first frame of the next attempt
-        // is a fresh snapshot, so nothing is missed.
+        // Definitive open failures cannot succeed on retry: 403
+        // `ai-import.forbidden`, 404 `ai-import.not-found`, and 404
+        // `ai-import.disabled` (the feature gate) are deterministic answers
+        // for this identity/job — yield the error and STOP instead of
+        // burning the reconnect budget on 30 futile backed-off opens.
+        final status = e.response?.statusCode;
+        if (status == 403 || status == 404) {
+          yield Left(problemErrorFromDio(e));
+          return;
+        }
+        // Transient open failure (5xx/timeout/network): surface it, then
+        // reconnect within the bounded budget — the first frame of the
+        // next attempt is a fresh snapshot, so nothing is missed.
         yield Left(problemErrorFromDio(e));
         continue;
       }

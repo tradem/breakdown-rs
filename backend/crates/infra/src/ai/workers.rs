@@ -125,6 +125,34 @@ async fn acquire_for_claim<Q: AiImportQueue + ?Sized>(
     Ok(Some(permit))
 }
 
+/// Publish throttled extraction progress (issue #664), treating the write
+/// as **advisory**: a lost claim ([`DomainError::Conflict`]) still propagates
+/// — a displaced worker must abort before its next billable LLM call — but
+/// every other error (e.g. a transient queue/DB failure) is logged and
+/// swallowed. Propagating those would abort the job WITHOUT a `mark_failed`
+/// call, leaving it stuck `running` until its lease lapses; a missed
+/// progress frame costs a stale-looking spinner for one stage interval, a
+/// killed job costs the whole run.
+pub(crate) async fn publish_progress<Q: AiImportQueue + ?Sized>(
+    queue: &Q,
+    id: AiImportJobId,
+    worker_id: &str,
+    progress: &AiImportProgress,
+) -> Result<(), DomainError> {
+    if let Err(error) = queue.mark_progress(id, worker_id, progress).await {
+        if matches!(error, DomainError::Conflict { .. }) {
+            return Err(error);
+        }
+        tracing::warn!(
+            job_id = %id.as_uuid(),
+            worker_id,
+            %error,
+            "advisory AI import progress write failed; continuing the job"
+        );
+    }
+    Ok(())
+}
+
 /// Terminate a job whose payload could not be loaded, choosing the terminal
 /// state by *why* the load failed (issue #181).
 ///
@@ -375,9 +403,7 @@ where
         if let Some(first) = chunks.first() {
             progress.record_episode(first.episode.as_ref());
         }
-        self.queue
-            .mark_progress(job.id, worker_id, &progress)
-            .await?;
+        super::workers::publish_progress(&*self.queue, job.id, worker_id, &progress).await?;
         for (chunk_index, chunk) in chunks.into_iter().enumerate() {
             // Hoisted because the grounding check below must verify a quote
             // against *exactly* the bytes the model was given. Grounding against
@@ -497,17 +523,13 @@ where
                 ))
             })?);
             progress.record_episode(chunk.episode.as_ref());
-            self.queue
-                .mark_progress(job.id, worker_id, &progress)
-                .await?;
+            super::workers::publish_progress(&*self.queue, job.id, worker_id, &progress).await?;
         }
         // Storing boundary (issue #664): the last visibility gap is the
         // preview upload, not a silent stall at "extracting".
         progress.stage = AiImportStage::StoringPreview;
         progress.chunk = Some(chunk_count);
-        self.queue
-            .mark_progress(job.id, worker_id, &progress)
-            .await?;
+        super::workers::publish_progress(&*self.queue, job.id, worker_id, &progress).await?;
         let payload = to_vec(&context).map_err(|error| {
             DomainError::validation(format!("could not serialize script preview: {error}"))
         })?;
@@ -718,9 +740,7 @@ where
             chunks_total: Some(1),
             episodes_seen: Vec::new(),
         };
-        self.queue
-            .mark_progress(job.id, worker_id, &progress)
-            .await?;
+        super::workers::publish_progress(&*self.queue, job.id, worker_id, &progress).await?;
         let mut schedule = if native_csv {
             super::csv_schedule::parse_schedule_csv(bytes)?
         } else {
@@ -753,9 +773,7 @@ where
         // After extraction, before the preview upload (issue #664).
         progress.stage = AiImportStage::StoringPreview;
         progress.chunk = Some(1);
-        self.queue
-            .mark_progress(job.id, worker_id, &progress)
-            .await?;
+        super::workers::publish_progress(&*self.queue, job.id, worker_id, &progress).await?;
         let payload = to_vec(&schedule).map_err(|error| {
             DomainError::validation(format!("could not serialize schedule preview: {error}"))
         })?;
