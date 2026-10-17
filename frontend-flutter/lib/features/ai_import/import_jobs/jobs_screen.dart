@@ -15,6 +15,7 @@ import '../../../l10n/app_localizations_provider.dart';
 import '../clippy/clippy_trigger.dart';
 import '../clippy/karl_kleiderbuegel_overlay.dart';
 import '../../../l10n/locale_formatters.dart';
+import '../../../data/ai_import_providers.dart';
 import 'import_submit_screen.dart' show AiImportSubmitScreen;
 import 'job_status_screen.dart';
 import 'import_state.dart' show aiJobStageCopy;
@@ -151,13 +152,13 @@ class _JobsList extends ConsumerWidget {
 /// icons are never the sole carrier of meaning); terminal failures are
 /// additionally error-colored so `dead_letter`/`payload_unavailable`
 /// are visibly distinct at a glance.
-class _JobRow extends StatelessWidget {
+class _JobRow extends ConsumerWidget {
   const _JobRow({required this.job});
 
   final AiImportJobRowView job;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final l10n = l10nOf(context);
     final scheme = Theme.of(context).colorScheme;
     final kind = switch (job.documentKind) {
@@ -169,6 +170,13 @@ class _JobRow extends StatelessWidget {
     final statusColor = job.isTerminalFailure || job.hasLastError
         ? scheme.error
         : scheme.primary;
+    // The compact cost line (issue #675): primary figure per the user's
+    // `cost_display_preference` — never `0` for unknown pricing.
+    final costLine = aiJobCostCompactCopy(
+      l10n,
+      job.cost,
+      ref.watch(aiCostDisplayPreferenceProvider),
+    );
 
     return ListTile(
       key: Key('ai-jobs-row-${job.id}'),
@@ -199,6 +207,12 @@ class _JobRow extends StatelessWidget {
                 style: Theme.of(context).textTheme.bodySmall,
               ),
           ],
+          if (costLine != null)
+            Text(
+              costLine,
+              key: Key('ai-jobs-row-cost-${job.id}'),
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
           if (job.status == JobStatus.failed)
             Text(
               l10n.aiJobRetryBudget(

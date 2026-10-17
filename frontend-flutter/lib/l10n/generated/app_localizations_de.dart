@@ -1029,6 +1029,91 @@ class AppLocalizationsDe extends AppLocalizations {
       'Kein gespeicherter Prompt – die Deployment-Voreinstellung gilt.';
 
   @override
+  String aiModelPriceInOut(Object input, Object output) {
+    return '$input → $output / 1M Tokens';
+  }
+
+  @override
+  String aiModelEnergyRate(Object price) {
+    return '$price / kWh';
+  }
+
+  @override
+  String get aiConfigCostDisplayLabel => 'Bevorzugte Kostenanzeige';
+
+  @override
+  String get aiConfigCostDisplayToken => 'Tokens';
+
+  @override
+  String get aiConfigCostDisplayEnergy => 'Energie';
+
+  @override
+  String aiJobCostCompact(Object value) {
+    return 'Kosten: $value';
+  }
+
+  @override
+  String get aiJobCostNotApplicable =>
+      'Kein KI-Modell abgerechnet – nativer CSV-Import ohne LLM.';
+
+  @override
+  String get aiJobCostTitle => 'Kosten dieses Imports';
+
+  @override
+  String aiJobCostModel(Object model) {
+    return 'Modell: $model';
+  }
+
+  @override
+  String aiJobCostTokensIn(Object count) {
+    return 'Tokens rein: $count';
+  }
+
+  @override
+  String aiJobCostTokensOut(Object count) {
+    return 'Tokens raus: $count';
+  }
+
+  @override
+  String aiJobCostCachedTokens(Object count) {
+    return 'davon aus dem Cache: $count';
+  }
+
+  @override
+  String aiJobCostTokenTotal(Object price) {
+    return 'Token-Kosten: $price';
+  }
+
+  @override
+  String aiJobCostEnergyTotal(Object price) {
+    return 'Energie-Kosten: $price';
+  }
+
+  @override
+  String aiJobCostEnergyConsumption(Object wh) {
+    return 'Energieverbrauch: $wh Wh';
+  }
+
+  @override
+  String get aiJobCostEnergyCapped =>
+      'Energiekosten durch Token-Kosten gedeckelt.';
+
+  @override
+  String aiJobCostRateInput(Object price) {
+    return 'Eingabepreis: $price / 1M Tokens';
+  }
+
+  @override
+  String aiJobCostRateOutput(Object price) {
+    return 'Ausgabepreis: $price / 1M Tokens';
+  }
+
+  @override
+  String aiJobCostPriceAsOf(Object date) {
+    return 'Preisstand: $date';
+  }
+
+  @override
   String get aiApplyErrorNotSucceeded =>
       'Die Vorschau kann nicht mehr angewendet werden – prüfe den Auftragsstatus.';
 
