@@ -12,6 +12,8 @@ class _$ModelInfo extends ModelInfo {
   @override
   final String id;
   @override
+  final ModelPricing? pricing;
+  @override
   final LlmProvider provider;
   @override
   final bool? recommended;
@@ -22,6 +24,7 @@ class _$ModelInfo extends ModelInfo {
   _$ModelInfo._(
       {this.displayName,
       required this.id,
+      this.pricing,
       required this.provider,
       this.recommended})
       : super._();
@@ -38,6 +41,7 @@ class _$ModelInfo extends ModelInfo {
     return other is ModelInfo &&
         displayName == other.displayName &&
         id == other.id &&
+        pricing == other.pricing &&
         provider == other.provider &&
         recommended == other.recommended;
   }
@@ -47,6 +51,7 @@ class _$ModelInfo extends ModelInfo {
     var _$hash = 0;
     _$hash = $jc(_$hash, displayName.hashCode);
     _$hash = $jc(_$hash, id.hashCode);
+    _$hash = $jc(_$hash, pricing.hashCode);
     _$hash = $jc(_$hash, provider.hashCode);
     _$hash = $jc(_$hash, recommended.hashCode);
     _$hash = $jf(_$hash);
@@ -58,6 +63,7 @@ class _$ModelInfo extends ModelInfo {
     return (newBuiltValueToStringHelper(r'ModelInfo')
           ..add('displayName', displayName)
           ..add('id', id)
+          ..add('pricing', pricing)
           ..add('provider', provider)
           ..add('recommended', recommended))
         .toString();
@@ -74,6 +80,10 @@ class ModelInfoBuilder implements Builder<ModelInfo, ModelInfoBuilder> {
   String? _id;
   String? get id => _$this._id;
   set id(String? id) => _$this._id = id;
+
+  ModelPricingBuilder? _pricing;
+  ModelPricingBuilder get pricing => _$this._pricing ??= ModelPricingBuilder();
+  set pricing(ModelPricingBuilder? pricing) => _$this._pricing = pricing;
 
   LlmProvider? _provider;
   LlmProvider? get provider => _$this._provider;
@@ -92,6 +102,7 @@ class ModelInfoBuilder implements Builder<ModelInfo, ModelInfoBuilder> {
     if ($v != null) {
       _displayName = $v.displayName;
       _id = $v.id;
+      _pricing = $v.pricing?.toBuilder();
       _provider = $v.provider;
       _recommended = $v.recommended;
       _$v = null;
@@ -113,14 +124,28 @@ class ModelInfoBuilder implements Builder<ModelInfo, ModelInfoBuilder> {
   ModelInfo build() => _build();
 
   _$ModelInfo _build() {
-    final _$result = _$v ??
-        _$ModelInfo._(
-          displayName: displayName,
-          id: BuiltValueNullFieldError.checkNotNull(id, r'ModelInfo', 'id'),
-          provider: BuiltValueNullFieldError.checkNotNull(
-              provider, r'ModelInfo', 'provider'),
-          recommended: recommended,
-        );
+    _$ModelInfo _$result;
+    try {
+      _$result = _$v ??
+          _$ModelInfo._(
+            displayName: displayName,
+            id: BuiltValueNullFieldError.checkNotNull(id, r'ModelInfo', 'id'),
+            pricing: _pricing?.build(),
+            provider: BuiltValueNullFieldError.checkNotNull(
+                provider, r'ModelInfo', 'provider'),
+            recommended: recommended,
+          );
+    } catch (_) {
+      late String _$failedField;
+      try {
+        _$failedField = 'pricing';
+        _pricing?.build();
+      } catch (e) {
+        throw BuiltValueNestedFieldError(
+            r'ModelInfo', _$failedField, e.toString());
+      }
+      rethrow;
+    }
     replace(_$result);
     return _$result;
   }

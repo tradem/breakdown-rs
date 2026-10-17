@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 // Co-authored-by: mimo-v2.5 (opencode-go)
 
 //! Unit tests for workers.rs — kills mutations in acquire_for_claim,
@@ -11,8 +12,8 @@ use std::time::Duration;
 use breakdown_core::ai::{
     AiImportBounds, AiImportEnqueueResult, AiImportJob, AiImportJobId, AiImportProgress,
     AiImportQueue, AiImportStage, DocumentKind, DraftEpisode, DraftScene, JobStatus,
-    LlmChatRequest, LlmClient, LlmProvider, ScriptContext, SourceFormat, Telemetry,
-    TelemetryApplyState,
+    LlmCallOutcome, LlmCallUsage, LlmChatRequest, LlmClient, LlmProvider, ScriptContext,
+    SourceFormat, Telemetry, TelemetryApplyState,
 };
 use breakdown_core::error::DomainError;
 use breakdown_core::shared::UserId;
@@ -74,6 +75,8 @@ impl MockQueue {
             max_retries: 5,
             created_at: chrono::Utc::now(),
             updated_at: chrono::Utc::now(),
+            telemetry: None,
+            cost: None,
         };
         self.jobs.lock().await.push(job);
         id
@@ -105,6 +108,8 @@ impl AiImportQueue for MockQueue {
             max_retries: 5,
             created_at: chrono::Utc::now(),
             updated_at: chrono::Utc::now(),
+            telemetry: None,
+            cost: None,
         };
         self.jobs.lock().await.push(job);
         Ok(AiImportEnqueueResult::Enqueued(request.id))
@@ -210,8 +215,14 @@ struct MockClient;
 
 #[async_trait::async_trait]
 impl LlmClient for MockClient {
-    async fn chat_constrained(&self, _: LlmChatRequest) -> Result<ScriptContext, DomainError> {
-        Ok(ScriptContext::default())
+    async fn chat_constrained(
+        &self,
+        _: LlmChatRequest,
+    ) -> Result<LlmCallOutcome<ScriptContext>, DomainError> {
+        Ok(LlmCallOutcome::new(
+            ScriptContext::default(),
+            LlmCallUsage::default(),
+        ))
     }
 }
 
@@ -262,6 +273,7 @@ async fn script_worker_returns_false_when_no_jobs() {
         model: "gpt-4o".into(),
         prompt: "test".into(),
         bounds: AiImportBounds::default(),
+        pricing: None,
     };
 
     let result = worker
@@ -291,6 +303,7 @@ async fn schedule_worker_returns_false_when_no_jobs() {
         model: "gpt-4o".into(),
         prompt: "test".into(),
         bounds: AiImportBounds::default(),
+        pricing: None,
     };
 
     let result = worker
@@ -321,6 +334,7 @@ async fn script_worker_skips_wrong_kind() {
         model: "gpt-4o".into(),
         prompt: "test".into(),
         bounds: AiImportBounds::default(),
+        pricing: None,
     };
 
     let result = worker
@@ -374,6 +388,7 @@ async fn start_heartbeat_returns_none_without_lease() {
         model: "gpt-4o".into(),
         prompt: "test".into(),
         bounds: AiImportBounds::default(),
+        pricing: None,
     };
 
     let heartbeat = worker.start_heartbeat(AiImportJobId::new(), "worker-1");
@@ -398,6 +413,7 @@ async fn start_heartbeat_returns_some_with_lease() {
         model: "gpt-4o".into(),
         prompt: "test".into(),
         bounds: AiImportBounds::default(),
+        pricing: None,
     };
 
     let heartbeat = worker.start_heartbeat(AiImportJobId::new(), "worker-1");
@@ -448,17 +464,23 @@ struct EpisodeMockClient;
 
 #[async_trait::async_trait]
 impl LlmClient for EpisodeMockClient {
-    async fn chat_constrained(&self, _: LlmChatRequest) -> Result<ScriptContext, DomainError> {
-        Ok(ScriptContext {
-            scenes: vec![DraftScene {
-                episode: Some(DraftEpisode {
-                    number: Some(3),
-                    title: None,
-                }),
+    async fn chat_constrained(
+        &self,
+        _: LlmChatRequest,
+    ) -> Result<LlmCallOutcome<ScriptContext>, DomainError> {
+        Ok(LlmCallOutcome::new(
+            ScriptContext {
+                scenes: vec![DraftScene {
+                    episode: Some(DraftEpisode {
+                        number: Some(3),
+                        title: None,
+                    }),
+                    ..Default::default()
+                }],
                 ..Default::default()
-            }],
-            ..Default::default()
-        })
+            },
+            LlmCallUsage::default(),
+        ))
     }
 }
 
@@ -475,6 +497,7 @@ fn script_worker<C: LlmClient + 'static>(
         model: "gpt-4o".into(),
         prompt: "test".into(),
         bounds: AiImportBounds::default(),
+        pricing: None,
     }
 }
 
@@ -559,6 +582,7 @@ async fn schedule_worker_publishes_extraction_and_storing_progress() {
         model: "gpt-4o".into(),
         prompt: "test".into(),
         bounds: AiImportBounds::default(),
+        pricing: None,
     };
     // The mock source returns plain text; the job fixture is CSV, so the
     // worker parses it natively (see MockSource/MockQueue fixtures).

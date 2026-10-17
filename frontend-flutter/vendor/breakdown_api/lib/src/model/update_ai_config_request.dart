@@ -7,6 +7,7 @@
 // ignore_for_file: unused_element
 import 'package:breakdown_api/src/model/llm_provider.dart';
 import 'package:built_collection/built_collection.dart';
+import 'package:breakdown_api/src/model/cost_display_preference.dart';
 import 'package:built_value/built_value.dart';
 import 'package:built_value/serializer.dart';
 
@@ -16,6 +17,7 @@ part 'update_ai_config_request.g.dart';
 ///
 /// Properties:
 /// * [assistantModel]
+/// * [costDisplayPreference] - See [`CreateAiConfigRequest`] (issue #675). `None` (omitted) keeps the stored preference — an omitted field must not reset an existing `energy` preference back to `token`.
 /// * [imageModel]
 /// * [prompts]
 /// * [provider]
@@ -27,6 +29,11 @@ abstract class UpdateAiConfigRequest
   @BuiltValueField(wireName: r'assistant_model')
   String get assistantModel;
 
+  /// See [`CreateAiConfigRequest`] (issue #675). `None` (omitted) keeps the stored preference — an omitted field must not reset an existing `energy` preference back to `token`.
+  @BuiltValueField(wireName: r'cost_display_preference')
+  CostDisplayPreference? get costDisplayPreference;
+  // enum costDisplayPreferenceEnum {  token,  energy,  };
+
   @BuiltValueField(wireName: r'image_model')
   String? get imageModel;
 
@@ -35,7 +42,7 @@ abstract class UpdateAiConfigRequest
 
   @BuiltValueField(wireName: r'provider')
   LlmProvider get provider;
-  // enum providerEnum {  openai,  openrouter,  eurouter,  neuralwatt,  opencode-go,  opencode,  ollama,  };
+  // enum providerEnum {  openai,  gemini,  openrouter,  eurouter,  neuralwatt,  opencode-go,  opencode,  ollama,  };
 
   @BuiltValueField(wireName: r'vault_key_id')
   String get vaultKeyId;
@@ -78,6 +85,13 @@ class _$UpdateAiConfigRequestSerializer
       object.assistantModel,
       specifiedType: const FullType(String),
     );
+    if (object.costDisplayPreference != null) {
+      yield r'cost_display_preference';
+      yield serializers.serialize(
+        object.costDisplayPreference,
+        specifiedType: const FullType.nullable(CostDisplayPreference),
+      );
+    }
     if (object.imageModel != null) {
       yield r'image_model';
       yield serializers.serialize(
@@ -137,6 +151,14 @@ class _$UpdateAiConfigRequestSerializer
             specifiedType: const FullType(String),
           ) as String;
           result.assistantModel = valueDes;
+          break;
+        case r'cost_display_preference':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType.nullable(CostDisplayPreference),
+          ) as CostDisplayPreference?;
+          if (valueDes == null) continue;
+          result.costDisplayPreference = valueDes;
           break;
         case r'image_model':
           final valueDes = serializers.deserialize(

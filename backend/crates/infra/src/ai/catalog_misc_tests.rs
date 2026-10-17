@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
 // Co-authored-by: mimo-v2.5 (opencode-go)
 
@@ -229,7 +230,19 @@ fn base_url_for_each_provider_is_unique() {
 #[test]
 fn list_providers_returns_all_curated_providers() {
     let providers = super::provider_registry::list_providers();
-    assert_eq!(providers.len(), 7, "should have 7 curated providers");
+    assert_eq!(providers.len(), 8, "should have 8 curated providers");
+}
+
+#[test]
+fn resolve_provider_accepts_gemini_and_google_alias() {
+    assert_eq!(
+        super::provider_registry::resolve_provider("gemini"),
+        Some(LlmProvider::Gemini)
+    );
+    assert_eq!(
+        super::provider_registry::resolve_provider("google"),
+        Some(LlmProvider::Gemini)
+    );
 }
 
 #[test]

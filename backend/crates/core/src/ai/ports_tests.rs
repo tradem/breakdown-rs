@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 // Co-authored-by: mimo-v2.5 (opencode-go)
 // Co-authored-by: qwen3.8-flash (opencode-go)
 
@@ -16,6 +17,7 @@ use super::{AggregateVersion, AiImportMapping, CURATED_PROVIDERS, DocumentKind, 
 #[test]
 fn llm_provider_as_str_matches_variant_name() {
     assert_eq!(LlmProvider::OpenAI.as_str(), "openai");
+    assert_eq!(LlmProvider::Gemini.as_str(), "gemini");
     assert_eq!(LlmProvider::OpenRouter.as_str(), "openrouter");
     assert_eq!(LlmProvider::EURouter.as_str(), "eurouter");
     assert_eq!(LlmProvider::Neuralwatt.as_str(), "neuralwatt");
@@ -40,6 +42,33 @@ fn llm_provider_as_str_never_xyzzy() {
             "{provider:?} returns wrong value"
         );
     }
+}
+
+// --- LlmProvider::Gemini wire keys (issue #675) ---------------------------
+
+#[test]
+fn gemini_serializes_as_canonical_key() {
+    assert_eq!(
+        serde_json::to_string(&LlmProvider::Gemini).unwrap(),
+        "\"gemini\""
+    );
+}
+
+#[test]
+fn gemini_deserializes_from_canonical_and_google_alias() {
+    assert_eq!(
+        serde_json::from_str::<LlmProvider>("\"gemini\"").unwrap(),
+        LlmProvider::Gemini
+    );
+    assert_eq!(
+        serde_json::from_str::<LlmProvider>("\"google\"").unwrap(),
+        LlmProvider::Gemini
+    );
+}
+
+#[test]
+fn gemini_is_not_local() {
+    assert!(!LlmProvider::Gemini.is_local());
 }
 
 // --- LlmProvider::curated_base_url_key (kills return "" / "xyzzy") --------
@@ -162,13 +191,14 @@ fn mapping_kinds_are_the_discriminators_of_one_rows_mapping_key() {
 // --- CURATED_PROVIDERS constant -------------------------------------------
 
 #[test]
-fn curated_providers_has_seven_entries() {
-    assert_eq!(CURATED_PROVIDERS.len(), 7);
+fn curated_providers_has_eight_entries() {
+    assert_eq!(CURATED_PROVIDERS.len(), 8);
 }
 
 #[test]
 fn curated_providers_contains_all_variants() {
     assert!(CURATED_PROVIDERS.contains(&LlmProvider::OpenAI));
+    assert!(CURATED_PROVIDERS.contains(&LlmProvider::Gemini));
     assert!(CURATED_PROVIDERS.contains(&LlmProvider::OpenRouter));
     assert!(CURATED_PROVIDERS.contains(&LlmProvider::EURouter));
     assert!(CURATED_PROVIDERS.contains(&LlmProvider::Neuralwatt));

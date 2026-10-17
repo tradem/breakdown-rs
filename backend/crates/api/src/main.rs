@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 // Co-authored-by: omen-alpha (opencode-go)
 // Co-authored-by: gpt-5.6-luna (opencode-go)
 // Co-authored-by: deepseek-v4-flash (opencode-go)
@@ -669,6 +670,7 @@ async fn main() -> Result<()> {
             config_repo: ai_config_repo,
             import_queue: ai_import_queue,
             import_mapping: ai_import_mapping,
+            model_pricing: infra::ai::PgAiModelPricingRepository::new(pool.clone()),
             preview_store: ai_preview_store,
             document_store: ai_document_store,
             document_source: ai_document_source,
@@ -711,6 +713,11 @@ async fn main() -> Result<()> {
         // the workers get their own clones inside `WorkerDeps`.
         ai_runtime = Some(Arc::clone(&runtime));
 
+        // Pricing read model (issue #675): shared by the worker cost
+        // snapshots and the model-catalog enrichment handler.
+        let worker_pricing: std::sync::Arc<dyn breakdown_core::ai::AiModelPricingRepository> =
+            std::sync::Arc::new(infra::ai::PgAiModelPricingRepository::new(pool.clone()));
+
         ai_worker_handles.push(spawn_script_import_worker(
             WorkerDeps {
                 runtime: Arc::clone(&runtime),
@@ -720,6 +727,7 @@ async fn main() -> Result<()> {
                 config_repo: worker_ai_config_repo.clone(),
                 credentials: worker_credential_vault.clone(),
                 bounds,
+                pricing: Some(std::sync::Arc::clone(&worker_pricing)),
             },
             shutdown_rx.clone(),
         ));
@@ -732,9 +740,22 @@ async fn main() -> Result<()> {
                 config_repo: worker_ai_config_repo,
                 credentials: worker_credential_vault,
                 bounds,
+                pricing: Some(worker_pricing),
             },
-            shutdown_rx,
+            shutdown_rx.clone(),
         ));
+
+        // Pricing refresh worker (issue #675): one non-blocking refresh right
+        // after boot, then every AI_PRICING_REFRESH_INTERVAL_SECS, guarded by
+        // a Postgres advisory lock. Observes the shared shutdown signal so
+        // graceful shutdown is prompt (no 10 s join-budget timeout).
+        let refresh_config = infra::ai::PricingRefreshConfig::from_env();
+        if refresh_config.enabled {
+            let pricing_repo =
+                std::sync::Arc::new(infra::ai::PgAiModelPricingRepository::new(pool.clone()));
+            let refresh_worker = infra::ai::AiPricingRefreshWorker::new(pool.clone(), pricing_repo);
+            ai_worker_handles.push(refresh_worker.spawn(refresh_config, shutdown_rx));
+        }
 
         ai_shutdown_tx = Some(shutdown_tx);
         ai_reclaimer = Some(reclaimer);

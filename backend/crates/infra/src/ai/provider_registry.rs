@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
 // Co-authored-by: mimo-v2.5 (opencode-go)
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
@@ -32,6 +33,11 @@ pub const PROVIDER_REGISTRY: &[ProviderEntry] = &[
         variant: LlmProvider::OpenAI,
         key: "openai",
         aliases: &[],
+    },
+    ProviderEntry {
+        variant: LlmProvider::Gemini,
+        key: "gemini",
+        aliases: &["google"],
     },
     ProviderEntry {
         variant: LlmProvider::OpenRouter,
@@ -99,37 +105,43 @@ pub fn resolve_provider(value: &str) -> Option<LlmProvider> {
     None
 }
 
-/// Curated model IDs per provider. Single source for the models endpoint;
-/// a new `LlmProvider` variant must be added here and to the exhaustive
-/// `as_str` match in core.
+/// Curated assistant model IDs per provider, refreshed against the live
+/// catalogs at the time of issue #675. Previously curated (now rotated-out)
+/// legacy model IDs stay in [`default_allowlist`] and the `ai_model_pricing`
+/// seed migration so existing persisted `AiConfig` records remain valid.
+/// Single source for the models endpoint; a new `LlmProvider` variant must
+/// be added here and to the exhaustive `as_str` match in core.
 pub fn curated_model_ids(provider: LlmProvider) -> &'static [&'static str] {
     match provider {
         LlmProvider::OpenAI => &["gpt-5.6-luna", "gpt-5.6-terra", "gpt-4.1-mini"],
+        LlmProvider::Gemini => &[
+            "gemini-3.6-flash",
+            "gemini-3.5-flash-lite",
+            "gemini-3.1-pro-preview",
+            "gemini-2.5-flash",
+            "gemini-2.5-pro",
+        ],
         LlmProvider::OpenRouter => &[
             "openai/gpt-5-mini",
             "deepseek/deepseek-v4-flash",
-            "nvidia/nemotron-3-nano:free",
+            "deepseek/deepseek-v4.1-flash",
+            "nvidia/nemotron-3.5-lightning:free",
         ],
         LlmProvider::EURouter => &[
             "mistral-large-3",
-            "mistral-small-3.1",
+            "mistral-small-4",
             "deepseek-v4-flash",
             "deepseek-v4-pro",
             "mistral-medium-3.5",
         ],
         LlmProvider::Neuralwatt => &[
+            "deepseek-v4.1-flash",
             "deepseek-v4-flash",
-            "glm-5.2",
-            "glm-5.2-fast",
-            "glm-5.2-flex",
-            "glm-5.2-short",
             "glm-5.3",
             "glm-5.3-fast",
             "glm-5.3-flex",
+            "glm-5.3-flash",
             "glm-5.3-short",
-            "kimi-k2.7-code",
-            "kimi-k2.7-code-fast",
-            "kimi-k2.7-code-flex",
             "kimi-k3",
             "kimi-k3-fast",
             "kimi-k3-flex",
@@ -146,13 +158,29 @@ pub fn curated_model_ids(provider: LlmProvider) -> &'static [&'static str] {
             "kimi-k2.7-code",
             "minimax-m3",
             "minimax-m2.7",
-            "mimo-v2.5",
+            "mimo-v2.6-pro",
             "grok-4.5",
             "grok-4.6",
         ],
         LlmProvider::Ollama => &["qwen3:8b", "llama3.2", "qwen2.5-coder:7b"],
         // LlmProvider is #[non_exhaustive]; future variants get an empty
         // list so the registry stays backward-compatible without a catch-all.
+        _ => &[],
+    }
+}
+
+/// Curated image-generation model IDs per provider (issue #675, preparing
+/// for #673). Empty for text-only providers. Seeded in `ai_model_pricing`
+/// with their image rates so #673 can consume them directly.
+pub fn curated_image_model_ids(provider: LlmProvider) -> &'static [&'static str] {
+    match provider {
+        LlmProvider::Gemini => &[
+            "gemini-3.1-flash-image",
+            "gemini-3.1-flash-lite-image",
+            "gemini-3-pro-image",
+            "gemini-2.5-flash-image",
+        ],
+        LlmProvider::OpenAI => &["gpt-image-2", "gpt-image-1"],
         _ => &[],
     }
 }
@@ -164,6 +192,7 @@ pub fn curated_model_ids(provider: LlmProvider) -> &'static [&'static str] {
 pub fn recommended_model(provider: LlmProvider) -> Option<&'static str> {
     match provider {
         LlmProvider::OpenAI => Some("gpt-5.6-luna"),
+        LlmProvider::Gemini => Some("gemini-3.6-flash"),
         LlmProvider::OpenRouter => Some("openai/gpt-5-mini"),
         LlmProvider::EURouter => Some("mistral-large-3"),
         LlmProvider::Neuralwatt => Some("glm-5.3"),
@@ -185,6 +214,7 @@ pub fn curated_models(provider: LlmProvider) -> Vec<ModelInfo> {
             display_name: None,
             provider,
             recommended: Some(*id) == recommended,
+            pricing: None,
         })
         .collect()
 }

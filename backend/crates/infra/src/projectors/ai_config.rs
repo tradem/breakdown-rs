@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 // Co-authored-by: gpt-5.6-luna (opencode-go)
 // Co-authored-by: deepseek-v4-flash (opencode-go)
 
@@ -36,6 +37,7 @@ impl<'a> EntityEventHandler<AiConfig, Transaction<'a, Postgres>> for AiConfigPro
                 image_model,
                 prompts,
                 vault_key_id,
+                cost_display_preference,
                 version,
             } => {
                 let prompts = serde_json::to_value(prompts).map_err(|error| {
@@ -45,8 +47,9 @@ impl<'a> EntityEventHandler<AiConfig, Transaction<'a, Postgres>> for AiConfigPro
                     r#"
                     INSERT INTO ai_import.projection_ai_config
                         (id, user_id, provider, assistant_model, image_model,
-                         prompts, vault_key_id, revoked, version, projector_version, updated_at)
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, FALSE, $8, $9, $10)
+                         prompts, vault_key_id, cost_display_preference,
+                         revoked, version, projector_version, updated_at)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, FALSE, $9, $10, $11)
                     ON CONFLICT (id) DO UPDATE SET
                         user_id = EXCLUDED.user_id,
                         provider = EXCLUDED.provider,
@@ -54,6 +57,7 @@ impl<'a> EntityEventHandler<AiConfig, Transaction<'a, Postgres>> for AiConfigPro
                         image_model = EXCLUDED.image_model,
                         prompts = EXCLUDED.prompts,
                         vault_key_id = EXCLUDED.vault_key_id,
+                        cost_display_preference = EXCLUDED.cost_display_preference,
                         revoked = EXCLUDED.revoked,
                         version = EXCLUDED.version,
                         projector_version = EXCLUDED.projector_version,
@@ -68,6 +72,7 @@ impl<'a> EntityEventHandler<AiConfig, Transaction<'a, Postgres>> for AiConfigPro
                 .bind(image_model)
                 .bind(prompts)
                 .bind(vault_key_id)
+                .bind(cost_display_preference.as_str())
                 .bind(i64::try_from(version.0).map_err(|error| {
                     sqlx::Error::Protocol(format!(
                         "AI config aggregate version exceeds database range: {error}"
@@ -85,6 +90,7 @@ impl<'a> EntityEventHandler<AiConfig, Transaction<'a, Postgres>> for AiConfigPro
                 image_model,
                 prompts,
                 vault_key_id,
+                cost_display_preference,
                 version,
             } => {
                 let prompts = serde_json::to_value(prompts).map_err(|error| {
@@ -94,9 +100,11 @@ impl<'a> EntityEventHandler<AiConfig, Transaction<'a, Postgres>> for AiConfigPro
                     r#"
                     UPDATE ai_import.projection_ai_config
                     SET provider = $2, assistant_model = $3, image_model = $4,
-                        prompts = $5, vault_key_id = $6, revoked = FALSE,
-                        version = $7, updated_at = $8
-                    WHERE id = $1 AND version < $7
+                        prompts = $5, vault_key_id = $6,
+                        cost_display_preference = COALESCE($7, cost_display_preference),
+                        revoked = FALSE,
+                        version = $8, updated_at = $9
+                    WHERE id = $1 AND version < $8
                     "#,
                 )
                 .bind(id)
@@ -105,6 +113,13 @@ impl<'a> EntityEventHandler<AiConfig, Transaction<'a, Postgres>> for AiConfigPro
                 .bind(image_model)
                 .bind(prompts)
                 .bind(vault_key_id)
+                // `None` = the update did not touch the preference — keep the
+                // currently projected value instead of overwriting it.
+                .bind(
+                    cost_display_preference
+                        .as_ref()
+                        .map(|preference| preference.as_str()),
+                )
                 .bind(i64::try_from(version.0).map_err(|error| {
                     sqlx::Error::Protocol(format!(
                         "AI config aggregate version exceeds database range: {error}"

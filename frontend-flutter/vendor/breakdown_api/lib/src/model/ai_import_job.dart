@@ -5,11 +5,13 @@
 //
 
 // ignore_for_file: unused_element
+import 'package:breakdown_api/src/model/job_telemetry_summary.dart';
 import 'package:breakdown_api/src/model/document_kind.dart';
 import 'package:breakdown_api/src/model/job_status.dart';
 import 'package:built_collection/built_collection.dart';
 import 'package:breakdown_api/src/model/source_format.dart';
 import 'package:breakdown_api/src/model/ai_import_progress.dart';
+import 'package:breakdown_api/src/model/cost_breakdown.dart';
 import 'package:breakdown_api/src/model/ai_import_attempt.dart';
 import 'package:built_value/built_value.dart';
 import 'package:built_value/serializer.dart';
@@ -21,6 +23,7 @@ part 'ai_import_job.g.dart';
 /// Properties:
 /// * [attempts] - Per-attempt failure history, newest first (issue #637).  `last_error` is overwritten by every `mark_failed`, so the reason an *earlier* attempt failed is lost. This list keeps each attempt's outcome retrievable. Populated on the single-job read (`GET /ai-import/jobs/{id}`); empty in list/claim contexts where the history is not fetched, so it is additive on the wire.
 /// * [blockId] - Opaque identifier for a `Block` aggregate.
+/// * [cost] - Immutable per-import cost snapshot persisted at completion time (issue #675). Never recomputed when pricing changes later.
 /// * [createdAt]
 /// * [dedupKey]
 /// * [documentDigest]
@@ -35,6 +38,7 @@ part 'ai_import_job.g.dart';
 /// * [sourceFormat]
 /// * [sourceHandle]
 /// * [status]
+/// * [telemetry] - Content-free operational telemetry recorded for this job (issue #675). `None` until a worker or the API apply path records telemetry; additive on the wire.
 /// * [updatedAt]
 /// * [userId] - Opaque identifier for a user, wrapping the OIDC `sub` claim.  `UserId` references the authenticated principal without ever decoding, storing, or dereferencing identity attributes in `core`. The backend only trusts the IdP-issued `sub`; account lifecycle lives exclusively in the OIDC provider (ADR-010). Unlike the hierarchy ids, `UserId` is *not* a UUIDv7 — it is the raw string subject the IdP assigns.
 @BuiltValue()
@@ -46,6 +50,10 @@ abstract class AiImportJob implements Built<AiImportJob, AiImportJobBuilder> {
   /// Opaque identifier for a `Block` aggregate.
   @BuiltValueField(wireName: r'block_id')
   String? get blockId;
+
+  /// Immutable per-import cost snapshot persisted at completion time (issue #675). Never recomputed when pricing changes later.
+  @BuiltValueField(wireName: r'cost')
+  CostBreakdown? get cost;
 
   @BuiltValueField(wireName: r'created_at')
   DateTime get createdAt;
@@ -95,6 +103,10 @@ abstract class AiImportJob implements Built<AiImportJob, AiImportJobBuilder> {
   JobStatus get status;
   // enum statusEnum {  pending,  running,  succeeded,  failed,  dead_letter,  payload_unavailable,  };
 
+  /// Content-free operational telemetry recorded for this job (issue #675). `None` until a worker or the API apply path records telemetry; additive on the wire.
+  @BuiltValueField(wireName: r'telemetry')
+  JobTelemetrySummary? get telemetry;
+
   @BuiltValueField(wireName: r'updated_at')
   DateTime get updatedAt;
 
@@ -137,6 +149,13 @@ class _$AiImportJobSerializer implements PrimitiveSerializer<AiImportJob> {
       yield serializers.serialize(
         object.blockId,
         specifiedType: const FullType.nullable(String),
+      );
+    }
+    if (object.cost != null) {
+      yield r'cost';
+      yield serializers.serialize(
+        object.cost,
+        specifiedType: const FullType.nullable(CostBreakdown),
       );
     }
     yield r'created_at';
@@ -217,6 +236,13 @@ class _$AiImportJobSerializer implements PrimitiveSerializer<AiImportJob> {
       object.status,
       specifiedType: const FullType(JobStatus),
     );
+    if (object.telemetry != null) {
+      yield r'telemetry';
+      yield serializers.serialize(
+        object.telemetry,
+        specifiedType: const FullType.nullable(JobTelemetrySummary),
+      );
+    }
     yield r'updated_at';
     yield serializers.serialize(
       object.updatedAt,
@@ -268,6 +294,14 @@ class _$AiImportJobSerializer implements PrimitiveSerializer<AiImportJob> {
           ) as String?;
           if (valueDes == null) continue;
           result.blockId = valueDes;
+          break;
+        case r'cost':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType.nullable(CostBreakdown),
+          ) as CostBreakdown?;
+          if (valueDes == null) continue;
+          result.cost.replace(valueDes);
           break;
         case r'created_at':
           final valueDes = serializers.deserialize(
@@ -370,6 +404,14 @@ class _$AiImportJobSerializer implements PrimitiveSerializer<AiImportJob> {
             specifiedType: const FullType(JobStatus),
           ) as JobStatus;
           result.status = valueDes;
+          break;
+        case r'telemetry':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType.nullable(JobTelemetrySummary),
+          ) as JobTelemetrySummary?;
+          if (valueDes == null) continue;
+          result.telemetry.replace(valueDes);
           break;
         case r'updated_at':
           final valueDes = serializers.deserialize(

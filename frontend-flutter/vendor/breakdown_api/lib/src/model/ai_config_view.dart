@@ -8,6 +8,7 @@
 import 'package:breakdown_api/src/model/document_kind.dart';
 import 'package:breakdown_api/src/model/llm_provider.dart';
 import 'package:built_collection/built_collection.dart';
+import 'package:breakdown_api/src/model/cost_display_preference.dart';
 import 'package:built_value/built_value.dart';
 import 'package:built_value/serializer.dart';
 
@@ -17,6 +18,7 @@ part 'ai_config_view.g.dart';
 ///
 /// Properties:
 /// * [assistantModel]
+/// * [costDisplayPreference] - Preferred primary cost display metric (issue #675). Additive with `serde(default)`: views serialized before the field existed deserialize as `Token`.
 /// * [id]
 /// * [imageModel]
 /// * [promptKinds]
@@ -33,6 +35,11 @@ abstract class AiConfigView
   @BuiltValueField(wireName: r'assistant_model')
   String get assistantModel;
 
+  /// Preferred primary cost display metric (issue #675). Additive with `serde(default)`: views serialized before the field existed deserialize as `Token`.
+  @BuiltValueField(wireName: r'cost_display_preference')
+  CostDisplayPreference? get costDisplayPreference;
+  // enum costDisplayPreferenceEnum {  token,  energy,  };
+
   @BuiltValueField(wireName: r'id')
   String get id;
 
@@ -48,7 +55,7 @@ abstract class AiConfigView
 
   @BuiltValueField(wireName: r'provider')
   LlmProvider get provider;
-  // enum providerEnum {  openai,  openrouter,  eurouter,  neuralwatt,  opencode-go,  opencode,  ollama,  };
+  // enum providerEnum {  openai,  gemini,  openrouter,  eurouter,  neuralwatt,  opencode-go,  opencode,  ollama,  };
 
   @BuiltValueField(wireName: r'revoked')
   bool get revoked;
@@ -96,6 +103,13 @@ class _$AiConfigViewSerializer implements PrimitiveSerializer<AiConfigView> {
       object.assistantModel,
       specifiedType: const FullType(String),
     );
+    if (object.costDisplayPreference != null) {
+      yield r'cost_display_preference';
+      yield serializers.serialize(
+        object.costDisplayPreference,
+        specifiedType: const FullType(CostDisplayPreference),
+      );
+    }
     yield r'id';
     yield serializers.serialize(
       object.id,
@@ -182,6 +196,14 @@ class _$AiConfigViewSerializer implements PrimitiveSerializer<AiConfigView> {
             specifiedType: const FullType(String),
           ) as String;
           result.assistantModel = valueDes;
+          break;
+        case r'cost_display_preference':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType.nullable(CostDisplayPreference),
+          ) as CostDisplayPreference?;
+          if (valueDes == null) continue;
+          result.costDisplayPreference = valueDes;
           break;
         case r'id':
           final valueDes = serializers.deserialize(

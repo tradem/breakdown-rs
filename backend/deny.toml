@@ -122,6 +122,15 @@ yanked = "deny"
 # runtime attack surface. Ignore is version-scoped to 8.6.0 so a future
 # yanked successor still fails. Revisit on the next utoipa-swagger-ui
 # release that permits zip 9.x.
+#
+# RUSTSEC-2026-0367 / -0368 / -0369 (zip extraction SUID/symlink escapes):
+# same transitive path — `zip 8.6.0` is a BUILD-dependency of
+# `utoipa-swagger-ui 10.0.1` (which pins `zip = "^8.6"`; zip 9.x, the first
+# fixed line, is semver-incompatible). The zip-extract APIs run only at
+# build time against the upstream-published swagger-ui distribution — never
+# against user-controlled archives — and no zip code ships in the runtime
+# binary. Version-scoped ignores below; revisit on the next
+# utoipa-swagger-ui release that permits zip 9.x.
 ignore = [
     "RUSTSEC-2023-0071",
     "RUSTSEC-2026-0194",
@@ -134,4 +143,7 @@ ignore = [
     "RUSTSEC-2026-0206", # rustybuzz via typst/krilla
     "RUSTSEC-2024-0449", # unsafe-libyaml via serde_yaml (typst/hayagriva + dev-only openapi test)
     { crate = "zip", version = "8.6.0", reason = "yanked upstream; sole 8.6.x, hard-required by utoipa-swagger-ui 10.0.1 — unblock when a release permits zip 9.x" },
+    "RUSTSEC-2026-0367", # zip SUID/SGID preservation — build-dep via utoipa-swagger-ui, build-time only
+    "RUSTSEC-2026-0368", # zip symlink escape — build-dep via utoipa-swagger-ui, build-time only
+    "RUSTSEC-2026-0369", # zip permission-through-symlink — build-dep via utoipa-swagger-ui, build-time only
 ]

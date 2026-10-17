@@ -15,6 +15,7 @@
 pub mod aggregate;
 pub mod bounds;
 pub mod commands;
+pub mod cost;
 pub mod error;
 pub mod events;
 pub mod ports;
@@ -29,9 +30,9 @@ pub use events::AiConfigEvent;
 pub use ports::LlmProvider;
 pub use ports::{
     AiConfigCommands, AiConfigRepository, AiImportEnqueueRequest, AiImportEnqueueResult,
-    AiImportMapping, AiImportMappingRepository, AiImportQueue, CURATED_PROVIDERS,
-    CuratedLlmProvider, LlmChatRequest, LlmClient, LlmModelCatalog, ModelInfo, PRIMARY_ORDINAL,
-    mapping_kind,
+    AiImportMapping, AiImportMappingRepository, AiImportQueue, AiModelPricingRepository,
+    CURATED_PROVIDERS, CuratedLlmProvider, LlmCallOutcome, LlmCallUsage, LlmChatRequest, LlmClient,
+    LlmModelCatalog, ModelInfo, ModelPricingRow, PRIMARY_ORDINAL, mapping_kind,
 };
 pub use preview::{
     AiImportPreviewResponse, AiPreviewPayload, ApplyGateError, ApplyMapping, ApplyMappingDecision,
@@ -47,5 +48,7 @@ pub use preview::{
 };
 pub use views::{
     AiConfigView, AiImportAttempt, AiImportJob, AiImportJobId, AiImportProgress, AiImportStage,
-    DocumentKind, JobStatus, SourceFormat, Telemetry, TelemetryApplyState,
+    CostBreakdown, CostDisplayPreference, CostStatus, Currency, DocumentKind, EnergyCostBreakdown,
+    ImageCostBreakdown, JobStatus, JobTelemetrySummary, ModelPricing, PricingSource, SourceFormat,
+    Telemetry, TelemetryApplyState, TokenCostBreakdown,
 };

@@ -43,9 +43,10 @@ use api::handlers::{
 use api::state::AppState;
 use breakdown_core::ai::{
     AiConfigView, AiImportJob, AiImportJobId, AiImportMappingRepository, AiImportPreviewResponse,
-    AiImportQueue, AiPreviewPayload, ApplyMapping, ApplyMappingDecision, DocumentKind, DraftScene,
-    EpisodeTarget, JobStatus, LlmProvider, MergedPreview, ScriptContext, ShootingSchedule,
-    SourceFormat, TelemetryApplyState, Uncertainty, UncertaintyAcknowledgement, UncertaintyKind,
+    AiImportQueue, AiPreviewPayload, ApplyMapping, ApplyMappingDecision, CostDisplayPreference,
+    DocumentKind, DraftScene, EpisodeTarget, JobStatus, LlmProvider, MergedPreview, ScriptContext,
+    ShootingSchedule, SourceFormat, TelemetryApplyState, Uncertainty, UncertaintyAcknowledgement,
+    UncertaintyKind,
 };
 use breakdown_core::block::BlockView;
 use breakdown_core::episode::views::EpisodeView;
@@ -149,6 +150,8 @@ fn succeeded_job(preview_handle: &str) -> AiImportJob {
         max_retries: 5,
         created_at: now,
         updated_at: now,
+        telemetry: None,
+        cost: None,
     }
 }
 
@@ -941,6 +944,7 @@ async fn ai_config_lifecycle_runs_through_the_config_ports() {
             image_model: None,
             prompts: HashMap::new(),
             vault_key_id: "vault-key".to_owned(),
+            cost_display_preference: CostDisplayPreference::Token,
         }),
     )
     .await
@@ -972,6 +976,7 @@ async fn ai_config_lifecycle_runs_through_the_config_ports() {
             vault_key_id: "vault-key".to_owned(),
             version: created.version,
             revoked: false,
+            cost_display_preference: CostDisplayPreference::Token,
         },
     );
 
@@ -1034,6 +1039,7 @@ async fn ai_config_lifecycle_runs_through_the_config_ports() {
             prompts: HashMap::new(),
             vault_key_id: "replacement-vault-key".to_owned(),
             version: created.version,
+            cost_display_preference: Some(CostDisplayPreference::Token),
         }),
     )
     .await
@@ -1088,6 +1094,7 @@ async fn ai_config_update_rejects_vault_key_from_another_provider() {
             vault_key_id: "vault-key".to_owned(),
             version: AggregateVersion(2),
             revoked: false,
+            cost_display_preference: CostDisplayPreference::Token,
         },
     );
     let state = state(ports);
@@ -1103,6 +1110,7 @@ async fn ai_config_update_rejects_vault_key_from_another_provider() {
             prompts: HashMap::new(),
             vault_key_id: "openai-vault-key".to_owned(),
             version: AggregateVersion(2),
+            cost_display_preference: Some(CostDisplayPreference::Token),
         }),
     )
     .await
@@ -1143,6 +1151,7 @@ async fn ai_config_update_rejects_unknown_vault_key() {
             vault_key_id: "vault-key".to_owned(),
             version: AggregateVersion(2),
             revoked: false,
+            cost_display_preference: CostDisplayPreference::Token,
         },
     );
     let state = state(ports);
@@ -1158,6 +1167,7 @@ async fn ai_config_update_rejects_unknown_vault_key() {
             prompts: HashMap::new(),
             vault_key_id: "never-vaulted-key".to_owned(),
             version: AggregateVersion(2),
+            cost_display_preference: Some(CostDisplayPreference::Token),
         }),
     )
     .await
@@ -1196,6 +1206,7 @@ async fn ai_config_update_keeps_unchanged_vault_key_without_binding_lookup() {
             vault_key_id: "vault-key".to_owned(),
             version: AggregateVersion(2),
             revoked: false,
+            cost_display_preference: CostDisplayPreference::Token,
         },
     );
     let state = state(ports);
@@ -1211,6 +1222,7 @@ async fn ai_config_update_keeps_unchanged_vault_key_without_binding_lookup() {
             prompts: HashMap::new(),
             vault_key_id: "vault-key".to_owned(),
             version: AggregateVersion(2),
+            cost_display_preference: Some(CostDisplayPreference::Token),
         }),
     )
     .await
@@ -1245,6 +1257,7 @@ async fn ai_config_version_conflict_is_scoped_409() {
             vault_key_id: "vault-key".to_owned(),
             version: AggregateVersion(2),
             revoked: false,
+            cost_display_preference: CostDisplayPreference::Token,
         },
     );
     let state = state(ports);
@@ -1260,6 +1273,7 @@ async fn ai_config_version_conflict_is_scoped_409() {
             prompts: HashMap::new(),
             vault_key_id: "vault-key".to_owned(),
             version: AggregateVersion(2),
+            cost_display_preference: Some(CostDisplayPreference::Token),
         }),
     )
     .await
@@ -1300,6 +1314,7 @@ async fn get_ai_config_denies_a_foreign_owner() {
             vault_key_id: "vault-key".to_owned(),
             version: AggregateVersion::INITIAL,
             revoked: false,
+            cost_display_preference: CostDisplayPreference::Token,
         },
     );
 
@@ -1327,6 +1342,7 @@ async fn ai_config_creation_is_denied_without_the_credential_role() {
             image_model: None,
             prompts: HashMap::new(),
             vault_key_id: "vault-key".to_owned(),
+            cost_display_preference: CostDisplayPreference::Token,
         }),
     )
     .await
@@ -1668,6 +1684,7 @@ fn config_view(user_sub: &str) -> AiConfigView {
         vault_key_id: "vault-key".to_owned(),
         version: AggregateVersion::INITIAL,
         revoked: false,
+        cost_display_preference: CostDisplayPreference::Token,
     }
 }
 
@@ -1753,6 +1770,7 @@ async fn ai_config_create_rejects_a_foreign_vault_key() {
             image_model: None,
             prompts: HashMap::new(),
             vault_key_id: "foreign-vault-key".to_owned(),
+            cost_display_preference: CostDisplayPreference::Token,
         }),
     )
     .await
@@ -1786,6 +1804,7 @@ async fn ai_config_create_rejects_an_unknown_vault_key_fail_closed() {
             image_model: None,
             prompts: HashMap::new(),
             vault_key_id: "never-vaulted-key".to_owned(),
+            cost_display_preference: CostDisplayPreference::Token,
         }),
     )
     .await
@@ -1830,6 +1849,7 @@ async fn ai_config_update_rejects_a_foreign_replacement_vault_key() {
             vault_key_id: "vault-key".to_owned(),
             version: AggregateVersion(2),
             revoked: false,
+            cost_display_preference: CostDisplayPreference::Token,
         },
     );
     let state = state(ports);
@@ -1845,6 +1865,7 @@ async fn ai_config_update_rejects_a_foreign_replacement_vault_key() {
             prompts: HashMap::new(),
             vault_key_id: "foreign-vault-key".to_owned(),
             version: AggregateVersion(2),
+            cost_display_preference: Some(CostDisplayPreference::Token),
         }),
     )
     .await
@@ -2337,4 +2358,243 @@ async fn apply_rejects_a_duplicate_acknowledgement() {
 
     assert_eq!(problem.status, StatusCode::UNPROCESSABLE_ENTITY.as_u16());
     assert_eq!(problem.code, "domain.validation");
+}
+
+// ---------------------------------------------------------------------------
+// Cost transparency (issue #675, OpenSpec ai-import-cost-transparency):
+// model-pricing enrichment, the `google`/`gemini` provider alias, and the
+// `cost_display_preference` round-trip.
+// ---------------------------------------------------------------------------
+
+use api::handlers::list_ai_models;
+
+fn seeded_pricing(provider: LlmProvider, model: &str) -> breakdown_core::ai::ModelPricingRow {
+    breakdown_core::ai::ModelPricingRow {
+        provider,
+        model: model.to_owned(),
+        pricing: breakdown_core::ai::ModelPricing {
+            currency: breakdown_core::ai::Currency::Usd,
+            input_nano_per_million: 1_450_000_000,
+            output_nano_per_million: 4_500_000_000,
+            cached_input_nano_per_million: Some(145_000_000),
+            energy_nano_per_kwh: Some(10_000_000_000),
+            energy_capped_by_token: true,
+            image_output_nano_per_million: None,
+            image_nano_per_unit: None,
+            pricing_source: breakdown_core::ai::PricingSource::ProviderLive,
+            price_as_of: Utc::now(),
+        },
+    }
+}
+
+#[tokio::test]
+async fn list_ai_models_enriches_pricing_and_keeps_unpriced_models_null() {
+    let ports = FakePorts::default();
+    ports
+        .membership_repo
+        .seed_credential_designer(BlockId::new(), UserId::from_sub(TEST_SUB))
+        .await;
+    // Seed live pricing for exactly one curated Neuralwatt model.
+    let priced_model = infra::ai::curated_model_ids(LlmProvider::Neuralwatt)[0].to_owned();
+    ports
+        .ai_model_pricing
+        .seed(vec![seeded_pricing(LlmProvider::Neuralwatt, &priced_model)]);
+
+    let (status, Json(models)) =
+        list_ai_models::<FakePorts>(State(state(ports)), user(), Path("neuralwatt".to_owned()))
+            .await
+            .expect("credential-role member may list models");
+    assert_eq!(status, StatusCode::OK);
+    assert!(!models.is_empty());
+    let priced = models
+        .iter()
+        .find(|m| m.id == priced_model)
+        .expect("priced model in catalog");
+    let pricing = priced.pricing.as_ref().expect("pricing attached");
+    assert_eq!(pricing.input_nano_per_million, 1_450_000_000);
+    assert_eq!(pricing.cached_input_nano_per_million, Some(145_000_000));
+    assert_eq!(pricing.energy_nano_per_kwh, Some(10_000_000_000));
+    // Honest degradation: every other curated model keeps `pricing: null`
+    // — never a fabricated zero-price object.
+    let unpriced = models
+        .iter()
+        .find(|m| m.id != priced_model)
+        .expect("a second curated model exists");
+    assert!(unpriced.pricing.is_none());
+}
+
+#[tokio::test]
+async fn list_ai_models_accepts_the_google_alias_for_gemini() {
+    let ports = FakePorts::default();
+    ports
+        .membership_repo
+        .seed_credential_designer(BlockId::new(), UserId::from_sub(TEST_SUB))
+        .await;
+    let state = state(ports);
+
+    let (status_a, Json(canonical)) =
+        list_ai_models::<FakePorts>(State(state.clone()), user(), Path("gemini".to_owned()))
+            .await
+            .expect("canonical key resolves");
+    assert_eq!(status_a, StatusCode::OK);
+    assert!(!canonical.is_empty(), "gemini has curated models");
+
+    let (status_b, Json(alias)) =
+        list_ai_models::<FakePorts>(State(state), user(), Path("google".to_owned()))
+            .await
+            .expect("google alias resolves to gemini");
+    assert_eq!(status_b, StatusCode::OK);
+    let ids_a: Vec<&str> = canonical.iter().map(|m| m.id.as_str()).collect();
+    let ids_b: Vec<&str> = alias.iter().map(|m| m.id.as_str()).collect();
+    assert_eq!(ids_a, ids_b, "the alias serves the same catalog");
+    assert!(alias.iter().all(|m| m.provider == LlmProvider::Gemini));
+}
+
+#[tokio::test]
+async fn ai_config_cost_display_preference_round_trips_to_the_commands() {
+    let ports = FakePorts::default();
+    ports
+        .membership_repo
+        .seed_credential_designer(BlockId::new(), UserId::from_sub(TEST_SUB))
+        .await;
+    ports
+        .settings_repo
+        .bind_vault_key("vault-key", LlmProvider::Neuralwatt.as_str(), TEST_SUB)
+        .await;
+    ports
+        .settings_repo
+        .bind_vault_key(
+            "replacement-vault-key",
+            LlmProvider::Ollama.as_str(),
+            TEST_SUB,
+        )
+        .await;
+    let commands = ports.ai_config_commands.clone();
+    let repo = ports.ai_config_repo.clone();
+    let state = state(ports);
+
+    let (status, Json(created)) = create_ai_config::<FakePorts>(
+        State(state.clone()),
+        user(),
+        Json(CreateAiConfigRequest {
+            provider: LlmProvider::Neuralwatt,
+            assistant_model: "assistant".to_owned(),
+            image_model: None,
+            prompts: HashMap::new(),
+            vault_key_id: "vault-key".to_owned(),
+            // User opts into energy-based display (issue #675).
+            cost_display_preference: CostDisplayPreference::Energy,
+        }),
+    )
+    .await
+    .expect("credential-role member may create AI config");
+    assert_eq!(status, StatusCode::CREATED);
+    assert_eq!(
+        commands.created.lock().await[0].cost_display_preference,
+        CostDisplayPreference::Energy,
+        "the create command carries the caller's display preference"
+    );
+
+    // Seed the read model the way the projector would, so the update's
+    // ownership pre-check has a row to resolve.
+    repo.views.lock().await.insert(
+        created.id,
+        AiConfigView {
+            id: created.id,
+            user_id: UserId::from_sub(TEST_SUB),
+            provider: LlmProvider::Neuralwatt,
+            assistant_model: "assistant".to_owned(),
+            image_model: None,
+            prompts: HashMap::new(),
+            prompt_kinds: Vec::new(),
+            stored_prompt_kinds: Vec::new(),
+            vault_key_id: "vault-key".to_owned(),
+            version: created.version,
+            revoked: false,
+            cost_display_preference: CostDisplayPreference::Energy,
+        },
+    );
+
+    let (status, _) = update_ai_config::<FakePorts>(
+        State(state),
+        user(),
+        Path(created.id),
+        Json(UpdateAiConfigRequest {
+            provider: LlmProvider::Ollama,
+            assistant_model: "assistant-v2".to_owned(),
+            image_model: None,
+            prompts: HashMap::new(),
+            vault_key_id: "replacement-vault-key".to_owned(),
+            version: created.version,
+            cost_display_preference: Some(CostDisplayPreference::Token),
+        }),
+    )
+    .await
+    .expect("owner may update their config");
+    assert_eq!(status, StatusCode::OK);
+    let updated = commands.updated.lock().await;
+    assert_eq!(updated.len(), 1);
+    assert_eq!(
+        updated[0].cost_display_preference,
+        Some(CostDisplayPreference::Token),
+        "the update command carries the switched display preference"
+    );
+}
+
+#[tokio::test]
+async fn get_ai_import_job_serves_the_persisted_cost_snapshot() {
+    let ports = FakePorts::default();
+    let mut job = succeeded_job("ai-preview/handle");
+    // The worker persisted a `Known` token-cost snapshot before
+    // `mark_succeeded` (issue #675).
+    job.telemetry = Some(breakdown_core::ai::JobTelemetrySummary {
+        provider: Some(LlmProvider::Neuralwatt),
+        model: Some("glm-5.3".to_owned()),
+        doc_kind: Some(DocumentKind::Script),
+        chunk_count: 3,
+        tokens_in: 1_000,
+        tokens_out: 500,
+        cached_tokens_in: 0,
+        energy_millijoules: 4_200_000,
+        latency_total_ms: 9_000,
+    });
+    job.cost = Some(breakdown_core::ai::CostBreakdown {
+        status: breakdown_core::ai::CostStatus::Known,
+        currency: Some(breakdown_core::ai::Currency::Usd),
+        price_as_of: Some(Utc::now()),
+        pricing_source: Some(breakdown_core::ai::PricingSource::ProviderLive),
+        token_cost: Some(breakdown_core::ai::TokenCostBreakdown {
+            tokens_in: 1_000,
+            tokens_out: 500,
+            cached_tokens_in: 0,
+            input_rate_nano_per_million: 1_450_000_000,
+            output_rate_nano_per_million: 4_500_000_000,
+            cached_input_rate_nano_per_million: Some(145_000_000),
+            total_nano: 3_700_000_000,
+        }),
+        energy_cost: None,
+        image_cost: None,
+    });
+    let job_id = job.id;
+    ports.ai_import_queue.seed(job).await;
+
+    let response = get_ai_import_job::<FakePorts>(State(state(ports)), user(), Path(job_id))
+        .await
+        .expect("owner should read their own job");
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("body");
+    let payload: serde_json::Value = serde_json::from_slice(&body).expect("json");
+    assert_eq!(payload["job"]["cost"]["status"], "known");
+    assert_eq!(payload["job"]["cost"]["currency"], "USD");
+    assert_eq!(
+        payload["job"]["cost"]["token_cost"]["total_nano"],
+        serde_json::json!(3_700_000_000_i64)
+    );
+    assert_eq!(payload["job"]["telemetry"]["tokens_in"], 1_000u64);
+    assert_eq!(
+        payload["job"]["telemetry"]["energy_millijoules"],
+        4_200_000u64
+    );
 }

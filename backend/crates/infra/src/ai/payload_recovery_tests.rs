@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 // Co-authored-by: longcat-2.0-free (opencode)
 // Co-authored-by: deepseek-v4-flash (opencode-go)
 
@@ -32,8 +33,8 @@ use std::sync::{Arc, Mutex};
 use async_trait::async_trait;
 use breakdown_core::ai::{
     AiImportBounds, AiImportEnqueueRequest, AiImportEnqueueResult, AiImportJob, AiImportJobId,
-    AiImportQueue, DocumentKind, JobStatus, LlmChatRequest, LlmClient, LlmProvider, ScriptContext,
-    SourceFormat, Telemetry,
+    AiImportQueue, DocumentKind, JobStatus, LlmCallOutcome, LlmChatRequest, LlmClient, LlmProvider,
+    ScriptContext, SourceFormat, Telemetry,
 };
 use breakdown_core::error::DomainError;
 use breakdown_core::shared::UserId;
@@ -87,6 +88,8 @@ impl RecordingQueue {
                 max_retries: 5,
                 created_at: Utc::now(),
                 updated_at: Utc::now(),
+                telemetry: None,
+                cost: None,
             },
             handed_out: Arc::new(Mutex::new(false)),
             transitions: Arc::new(Mutex::new(Vec::new())),
@@ -214,7 +217,7 @@ impl LlmClient for UnusedLlmClient {
     async fn chat_constrained(
         &self,
         _request: LlmChatRequest,
-    ) -> Result<ScriptContext, DomainError> {
+    ) -> Result<LlmCallOutcome<ScriptContext>, DomainError> {
         // The worker must terminate on the payload load, before any paid call.
         Err(DomainError::validation(
             "the LLM must not be called when the payload is missing",
@@ -234,6 +237,7 @@ fn script_worker(
         model: "deepseek-v4-flash".to_owned(),
         prompt: "fixture prompt".to_owned(),
         bounds: AiImportBounds::default(),
+        pricing: None,
     }
 }
 
@@ -249,6 +253,7 @@ fn schedule_worker(
         model: "deepseek-v4-flash".to_owned(),
         prompt: "fixture prompt".to_owned(),
         bounds: AiImportBounds::default(),
+        pricing: None,
     }
 }
 

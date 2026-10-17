@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 // Co-authored-by: gpt-5.6-luna (pi)
 // Co-authored-by: deepseek-v4-flash (opencode-go)
 
@@ -83,6 +84,8 @@ pub struct WorkerDeps {
     pub config_repo: AiConfigRepositoryImpl,
     pub credentials: Arc<dyn CredentialVault>,
     pub bounds: AiImportBounds,
+    /// Pricing read model for the completion cost snapshots (issue #675).
+    pub pricing: Option<Arc<dyn breakdown_core::ai::AiModelPricingRepository>>,
 }
 
 /// Spawn the script import worker loop. The returned handle must be kept alive
@@ -374,6 +377,7 @@ async fn script_worker_tick(
                 model: config.model,
                 prompt: config.prompt,
                 bounds: deps.bounds,
+                pricing: deps.pricing.clone(),
             };
             deps.runtime
                 .run_job_as(user_id.as_str(), worker_id, || {
@@ -421,6 +425,7 @@ async fn script_worker_tick(
                 model: config.model,
                 prompt: config.prompt,
                 bounds: deps.bounds,
+                pricing: deps.pricing.clone(),
             };
             deps.runtime
                 .run_job_as(user_id.as_str(), worker_id, || {
@@ -588,6 +593,7 @@ async fn schedule_worker_tick(
                 model: config.model,
                 prompt: config.prompt,
                 bounds: deps.bounds,
+                pricing: deps.pricing.clone(),
             };
             deps.runtime
                 .run_job_as(user_id.as_str(), worker_id, || {
@@ -635,6 +641,7 @@ async fn schedule_worker_tick(
                 model: config.model,
                 prompt: config.prompt,
                 bounds: deps.bounds,
+                pricing: deps.pricing.clone(),
             };
             deps.runtime
                 .run_job_as(user_id.as_str(), worker_id, || {

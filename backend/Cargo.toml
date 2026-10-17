@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: AGPL-3.0
 # Copyright (C) 2024-2026 Breakdown RS Contributors
+# Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 # Co-authored-by: deepseek-v4-flash (opencode-go)
 # Co-authored-by: glm-5.3-flash (opencode-go)
 # Co-authored-by: deepseek-v4.1-flash (neuralwatt)
@@ -96,6 +97,9 @@ csv = "1"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 # Typed URL hosts for the AI provider transport policy (issue #170).
 url = "2"
+# HTTP test doubles for the pricing-refresh worker's catalog parsers
+# (issue #675) — dev-dependency of `infra` only.
+wiremock = "0.6"
 
 # ─── ADR-020 D5: cargo-release, per-crate independent flow ────────────────
 #

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 // Co-authored-by: mimo-v2.5 (opencode-go)
 
 //! P3.7 — Postgres integration tests for PgAiImportQueue.
@@ -339,7 +340,10 @@ async fn record_worker_telemetry_succeeds() -> Result<()> {
         chunk_count: 10,
         tokens_in: 1000,
         tokens_out: 500,
+        cached_tokens_in: 0,
+        energy_millijoules: 0,
         latency_total: 1234,
+        cost: None,
         apply_state: TelemetryApplyState::default(),
     };
 
@@ -369,7 +373,10 @@ async fn record_telemetry_succeeds_for_terminal_job() -> Result<()> {
         chunk_count: 10,
         tokens_in: 1000,
         tokens_out: 500,
+        cached_tokens_in: 0,
+        energy_millijoules: 0,
         latency_total: 1234,
+        cost: None,
         apply_state: TelemetryApplyState::default(),
     };
 

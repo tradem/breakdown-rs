@@ -7,6 +7,7 @@ part of 'llm_provider.dart';
 // **************************************************************************
 
 const LlmProvider _$openai = const LlmProvider._('openai');
+const LlmProvider _$gemini = const LlmProvider._('gemini');
 const LlmProvider _$openrouter = const LlmProvider._('openrouter');
 const LlmProvider _$eurouter = const LlmProvider._('eurouter');
 const LlmProvider _$neuralwatt = const LlmProvider._('neuralwatt');
@@ -18,6 +19,8 @@ LlmProvider _$valueOf(String name) {
   switch (name) {
     case 'openai':
       return _$openai;
+    case 'gemini':
+      return _$gemini;
     case 'openrouter':
       return _$openrouter;
     case 'eurouter':
@@ -38,6 +41,7 @@ LlmProvider _$valueOf(String name) {
 final BuiltSet<LlmProvider> _$values =
     BuiltSet<LlmProvider>(const <LlmProvider>[
   _$openai,
+  _$gemini,
   _$openrouter,
   _$eurouter,
   _$neuralwatt,
@@ -49,6 +53,7 @@ final BuiltSet<LlmProvider> _$values =
 class _$LlmProviderMeta {
   const _$LlmProviderMeta();
   LlmProvider get openai => _$openai;
+  LlmProvider get gemini => _$gemini;
   LlmProvider get openrouter => _$openrouter;
   LlmProvider get eurouter => _$eurouter;
   LlmProvider get neuralwatt => _$neuralwatt;
@@ -69,6 +74,7 @@ Serializer<LlmProvider> _$llmProviderSerializer = _$LlmProviderSerializer();
 class _$LlmProviderSerializer implements PrimitiveSerializer<LlmProvider> {
   static const Map<String, Object> _toWire = const <String, Object>{
     'openai': 'openai',
+    'gemini': 'gemini',
     'openrouter': 'openrouter',
     'eurouter': 'eurouter',
     'neuralwatt': 'neuralwatt',
@@ -78,6 +84,7 @@ class _$LlmProviderSerializer implements PrimitiveSerializer<LlmProvider> {
   };
   static const Map<Object, String> _fromWire = const <Object, String>{
     'openai': 'openai',
+    'gemini': 'gemini',
     'openrouter': 'openrouter',
     'eurouter': 'eurouter',
     'neuralwatt': 'neuralwatt',

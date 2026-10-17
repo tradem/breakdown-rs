@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
 // Co-authored-by: gpt-5.6-luna (opencode-go)
 // Co-authored-by: deepseek-v4.1-flash (neuralwatt)
@@ -176,6 +177,10 @@ impl LlmModelCatalog for OpenAiCompatibleModelCatalog {
                 // Live provider catalogs never mark a recommendation — the
                 // flag is curated-only (issue #471).
                 recommended: false,
+                // Live catalog listings carry no pricing; the API edge
+                // enriches `ModelInfo.pricing` from the pricing read model
+                // (issue #675).
+                pricing: None,
             })
             .collect())
     }
@@ -214,28 +219,24 @@ fn map_redirect_violation(violation: RedirectViolation) -> DomainError {
 
 fn default_allowlist() -> HashSet<String> {
     [
+        // --- current curated assistant models (issue #675 refresh) ---
         "gpt-5.6-luna",
         "gpt-5.6-terra",
         "gpt-4.1-mini",
         "openai/gpt-5-mini",
         "deepseek/deepseek-v4-flash",
-        "nvidia/nemotron-3-nano:free",
+        "deepseek/deepseek-v4.1-flash",
+        "nvidia/nemotron-3.5-lightning:free",
         "mistral-large-3",
-        "mistral-small-3.1",
+        "mistral-small-4",
         "mistral-medium-3.5",
         "deepseek-v4-flash",
         "deepseek-v4-pro",
-        "glm-5.2",
-        "glm-5.2-fast",
-        "glm-5.2-flex",
-        "glm-5.2-short",
         "glm-5.3",
         "glm-5.3-fast",
         "glm-5.3-flex",
+        "glm-5.3-flash",
         "glm-5.3-short",
-        "kimi-k2.7-code",
-        "kimi-k2.7-code-fast",
-        "kimi-k2.7-code-flex",
         "kimi-k3",
         "kimi-k3-fast",
         "kimi-k3-flex",
@@ -244,9 +245,34 @@ fn default_allowlist() -> HashSet<String> {
         "qwen-3.8-27b",
         "minimax-m3",
         "minimax-m2.7",
-        "mimo-v2.5",
+        "mimo-v2.6-pro",
         "grok-4.5",
         "grok-4.6",
+        "gemini-3.6-flash",
+        "gemini-3.5-flash-lite",
+        "gemini-3.1-pro-preview",
+        "gemini-2.5-flash",
+        "gemini-2.5-pro",
+        // --- curated image models (#673 preparation, issue #675) ---
+        "gemini-3.1-flash-image",
+        "gemini-3.1-flash-lite-image",
+        "gemini-3-pro-image",
+        "gemini-2.5-flash-image",
+        "gpt-image-2",
+        "gpt-image-1",
+        // --- legacy curated models, rotated out of the live catalogs but
+        // --- still referenced by persisted AiConfig records (issue #675) ---
+        "mistral-small-3.1",
+        "nvidia/nemotron-3-nano:free",
+        "glm-5.2",
+        "glm-5.2-fast",
+        "glm-5.2-flex",
+        "glm-5.2-short",
+        "kimi-k2.7-code",
+        "kimi-k2.7-code-fast",
+        "kimi-k2.7-code-flex",
+        "mimo-v2.5",
+        // --- curated Ollama models ---
         "qwen3:8b",
         "llama3.2",
         "qwen2.5-coder:7b",

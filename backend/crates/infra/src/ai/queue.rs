@@ -10,7 +10,8 @@ use std::time::Duration;
 
 use breakdown_core::ai::{
     AiImportAttempt, AiImportEnqueueRequest, AiImportEnqueueResult, AiImportJob, AiImportJobId,
-    AiImportProgress, AiImportQueue, DocumentKind, JobStatus, SourceFormat, Telemetry,
+    AiImportProgress, AiImportQueue, CostBreakdown, DocumentKind, JobStatus, JobTelemetrySummary,
+    LlmProvider, SourceFormat, Telemetry,
 };
 use breakdown_core::error::DomainError;
 use breakdown_core::shared::UserId;
@@ -768,7 +769,8 @@ impl AiImportQueue for PgAiImportQueue {
             UPDATE ai_import.ai_import_job
             SET provider = $3, model = $4, chunk_count = $5,
                 tokens_in = $6, tokens_out = $7, latency_total_ms = $8,
-                accept_as_is = $9, edit_distance = $10, updated_at = now()
+                cached_tokens_in = $9, energy_millijoules = $10, cost = $11,
+                accept_as_is = $12, edit_distance = $13, updated_at = now()
             WHERE id = $1 AND status = 'running' AND worker_id = $2
             RETURNING pg_notify('ai_import_job_events', id::text)
             "#,
@@ -794,23 +796,27 @@ impl AiImportQueue for PgAiImportQueue {
         id: AiImportJobId,
         telemetry: Telemetry,
     ) -> Result<(), DomainError> {
+        // Apply-path telemetry ONLY: this unfenced update runs after a
+        // successful apply on an already-terminal job whose completion-time
+        // telemetry/cost snapshot is IMMUTABLE (design D4 — never recomputed).
+        // The only fields observable at apply time are the accept signal and
+        // the content-free edit count; rewriting the other columns (defaulted
+        // `..Telemetry::default()` in the handler) would NULL out the
+        // persisted cost snapshot.
         let values = TelemetryValues::try_from_telemetry(telemetry)?;
-        values
-            .bind_all(
-                sqlx::query(
-                    r#"
+        sqlx::query(
+            r#"
             UPDATE ai_import.ai_import_job
-            SET provider = $2, model = $3, chunk_count = $4,
-                tokens_in = $5, tokens_out = $6, latency_total_ms = $7,
-                accept_as_is = $8, edit_distance = $9, updated_at = now()
+            SET accept_as_is = $2, edit_distance = $3, updated_at = now()
             WHERE id = $1
             "#,
-                )
-                .bind(id.as_uuid()),
-            )
-            .execute(&self.pool)
-            .await
-            .map_err(map_sqlx_error)?;
+        )
+        .bind(id.as_uuid())
+        .bind(values.accept_as_is)
+        .bind(values.edit_distance)
+        .execute(&self.pool)
+        .await
+        .map_err(map_sqlx_error)?;
         Ok(())
     }
 
@@ -892,6 +898,9 @@ struct TelemetryValues {
     chunk_count: i32,
     tokens_in: i64,
     tokens_out: i64,
+    cached_tokens_in: i64,
+    energy_millijoules: Option<i64>,
+    cost: Option<serde_json::Value>,
     latency_total: i64,
     accept_as_is: Option<bool>,
     edit_distance: Option<i32>,
@@ -915,6 +924,28 @@ impl TelemetryValues {
                     "AI output token count exceeds database range: {error}"
                 ))
             })?,
+            cached_tokens_in: i64::try_from(telemetry.cached_tokens_in).map_err(|error| {
+                DomainError::validation(format!(
+                    "AI cached token count exceeds database range: {error}"
+                ))
+            })?,
+            energy_millijoules: match telemetry.energy_millijoules {
+                0 => None,
+                millijoules => Some(i64::try_from(millijoules).map_err(|error| {
+                    DomainError::validation(format!(
+                        "AI energy telemetry exceeds database range: {error}"
+                    ))
+                })?),
+            },
+            cost: telemetry
+                .cost
+                .map(serde_json::to_value)
+                .transpose()
+                .map_err(|error| {
+                    DomainError::validation(format!(
+                        "AI cost snapshot cannot be serialized: {error}"
+                    ))
+                })?,
             latency_total: i64::try_from(telemetry.latency_total).map_err(|error| {
                 DomainError::validation(format!("AI latency exceeds database range: {error}"))
             })?,
@@ -933,7 +964,12 @@ impl TelemetryValues {
         })
     }
 
-    /// Bind the eight telemetry columns in the order both statements declare.
+    /// Bind the eleven telemetry columns in the exact order both UPDATE
+    /// statements declare their placeholders: `tokens_in`, `tokens_out`,
+    /// `latency_total_ms`, then the #675 trio `cached_tokens_in`,
+    /// `energy_millijoules`, `cost` — a wrong order would be silently
+    /// type-compatible between the integer columns (the jsonb `cost` binding
+    /// against `energy_millijoules` is the only mismatch Postgres rejects).
     fn bind_all<'q>(
         self,
         query: sqlx::query::Query<'q, sqlx::Postgres, sqlx::postgres::PgArguments>,
@@ -945,6 +981,9 @@ impl TelemetryValues {
             .bind(self.tokens_in)
             .bind(self.tokens_out)
             .bind(self.latency_total)
+            .bind(self.cached_tokens_in)
+            .bind(self.energy_millijoules)
+            .bind(self.cost)
             .bind(self.accept_as_is)
             .bind(self.edit_distance)
     }
@@ -1066,7 +1105,57 @@ fn map_job_row(row: sqlx::postgres::PgRow) -> Result<AiImportJob, DomainError> {
         // Populated by `get` (single-job read); list/claim contexts leave it
         // empty so they do not pay N+1 history queries.
         attempts: Vec::new(),
+        telemetry: decode_job_telemetry(&row),
+        cost: decode_job_cost(&row),
     })
+}
+
+/// Decode the telemetry columns of one job row into the wire summary
+/// (issue #675). `None` for rows no worker has recorded telemetry for yet
+/// (provider NULL and all counters zero) — never a fabricated empty summary.
+fn decode_job_telemetry(row: &sqlx::postgres::PgRow) -> Option<JobTelemetrySummary> {
+    let provider: Option<String> = row.try_get("provider").ok().flatten();
+    let model: Option<String> = row.try_get("model").ok().flatten();
+    let chunk_count: i32 = row.try_get("chunk_count").unwrap_or(0);
+    let tokens_in: i64 = row.try_get("tokens_in").unwrap_or(0);
+    let tokens_out: i64 = row.try_get("tokens_out").unwrap_or(0);
+    let cached_tokens_in: i64 = row.try_get("cached_tokens_in").unwrap_or(0);
+    let energy_millijoules: Option<i64> = row.try_get("energy_millijoules").unwrap_or(None);
+    let latency_total_ms: i64 = row.try_get("latency_total_ms").unwrap_or(0);
+    let has_telemetry = provider.is_some()
+        || chunk_count > 0
+        || tokens_in > 0
+        || tokens_out > 0
+        || latency_total_ms > 0;
+    if !has_telemetry {
+        return None;
+    }
+    Some(JobTelemetrySummary {
+        provider: provider.as_deref().and_then(parse_provider_key),
+        model,
+        doc_kind: parse_document_kind(row.try_get("document_kind").ok()?).ok(),
+        chunk_count: chunk_count.max(0) as u32,
+        tokens_in: tokens_in.max(0) as u64,
+        tokens_out: tokens_out.max(0) as u64,
+        cached_tokens_in: cached_tokens_in.max(0) as u64,
+        energy_millijoules: energy_millijoules.unwrap_or(0).max(0) as u64,
+        latency_total_ms: latency_total_ms.max(0) as u64,
+    })
+}
+
+/// Decode the persisted `cost` JSONB snapshot (issue #675). Advisory
+/// transparency data: an undecodable payload degrades to `None` rather than
+/// failing the whole read.
+fn decode_job_cost(row: &sqlx::postgres::PgRow) -> Option<CostBreakdown> {
+    let value: Option<serde_json::Value> = row.try_get("cost").ok().flatten()?;
+    serde_json::from_value(value?).ok()
+}
+
+/// Parse a persisted provider key (canonical key or accepted alias) —
+/// delegates to the shared provider registry so a new provider needs exactly
+/// one edit (the registry), not a fourth hand-written key table.
+fn parse_provider_key(value: &str) -> Option<LlmProvider> {
+    crate::ai::provider_registry::resolve_provider(value)
 }
 
 /// Decode one `ai_import.ai_import_job_attempt` row (issue #637).

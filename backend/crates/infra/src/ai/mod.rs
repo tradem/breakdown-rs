@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
 // Co-authored-by: gpt-5.6-luna (opencode-go)
 // Co-authored-by: deepseek-v4.1-flash (neuralwatt)
@@ -32,6 +33,8 @@ pub mod payload_storage;
 pub mod pdf;
 pub mod pg_concurrency;
 pub mod preview_store;
+pub mod pricing;
+pub mod pricing_refresh;
 pub mod prompts;
 pub mod provider_registry;
 pub mod queue;
@@ -65,10 +68,13 @@ pub use preview_store::{
     AiDocumentSource, AiDocumentStore, AiPreviewStore, MemoryAiPreviewStore,
     UnconfiguredAiPayloadStore,
 };
+pub use pricing::PgAiModelPricingRepository;
+pub use pricing_refresh::{AiPricingRefreshWorker, PricingRefreshConfig};
 pub use prompts::default_prompt;
 pub use prompts::{AiPromptDefaults, default_prompts};
 pub use provider_registry::{
-    PROVIDER_REGISTRY, ProviderInfo, curated_models, list_providers, resolve_provider,
+    PROVIDER_REGISTRY, ProviderInfo, curated_model_ids, curated_models, list_providers,
+    recommended_model, resolve_provider,
 };
 pub use queue::PgAiImportQueue;
 pub use runtime::AiWorkerRuntime;
@@ -141,6 +147,7 @@ impl CuratedLlmProvider for CuratedProviderUrls {
     fn base_url(provider: LlmProvider) -> &'static str {
         match provider {
             LlmProvider::OpenAI => "https://api.openai.com/v1",
+            LlmProvider::Gemini => "https://generativelanguage.googleapis.com/v1beta/openai",
             LlmProvider::OpenRouter => "https://openrouter.ai/api/v1",
             LlmProvider::EURouter => "https://api.eurouter.ai/api/v1",
             LlmProvider::Neuralwatt => "https://api.neuralwatt.com/v1",

@@ -18,10 +18,10 @@ use breakdown_core::ai::{
     AiImportBounds, AiImportEnqueueRequest, AiImportEnqueueResult, AiImportJob, AiImportJobId,
     AiImportMapping, AiImportMappingRepository, AiImportQueue, ApplyMapping, CostumeDecision,
     DocumentKind, DraftEpisode, DraftScene, EpisodeGroupPlan, EpisodeTarget, JobStatus,
-    LlmChatRequest, LlmClient, LlmProvider, PRIMARY_ORDINAL, ScriptContext, ShootingSchedule,
-    ShootingScheduleRow, SourceFormat, Telemetry, TelemetryApplyState, UnappliedCostumeReason,
-    UncertaintyKind, character_identity, character_mapping_ref, mapping_kind,
-    merge_schedule_to_scenes,
+    LlmCallOutcome, LlmCallUsage, LlmChatRequest, LlmClient, LlmProvider, PRIMARY_ORDINAL,
+    ScriptContext, ShootingSchedule, ShootingScheduleRow, SourceFormat, Telemetry,
+    TelemetryApplyState, UnappliedCostumeReason, UncertaintyKind, character_identity,
+    character_mapping_ref, mapping_kind, merge_schedule_to_scenes,
 };
 use breakdown_core::error::DomainError;
 use breakdown_core::scene::events::SceneSource;
@@ -146,6 +146,8 @@ async fn merge_worker_empty_input_is_non_retryable() {
                 max_retries: 5,
                 created_at: Utc::now(),
                 updated_at: Utc::now(),
+                telemetry: None,
+                cost: None,
             };
             Ok(Some(job))
         }
@@ -402,6 +404,8 @@ async fn merge_worker_success_records_telemetry() {
         max_retries: 3,
         created_at: Utc::now(),
         updated_at: Utc::now(),
+        telemetry: None,
+        cost: None,
     };
     let queue = Arc::new(MergeCaptureQueue {
         job: job.clone(),
@@ -563,22 +567,25 @@ impl LlmClient for FakeLlmClient {
     async fn chat_constrained(
         &self,
         _request: LlmChatRequest,
-    ) -> Result<ScriptContext, DomainError> {
+    ) -> Result<LlmCallOutcome<ScriptContext>, DomainError> {
         // Issue #295: guarantee the latency window measured by the worker is
         // strictly > 0 ms so telemetry assertions can deterministically
         // distinguish a recorded `latency_total` from the `Default` (0).
         // tokio timers never fire early, so the lower bound is guaranteed —
         // this is not a wall-clock-jitter gate (AGENTS.md §4).
         tokio::time::sleep(std::time::Duration::from_millis(2)).await;
-        Ok(ScriptContext {
-            title: Some("fixture".to_owned()),
-            scenes: vec![DraftScene {
-                draft_ref: "fixture-scene".to_owned(),
-                scene_number: Some(1),
-                ..Default::default()
-            }],
-            uncertainties: Vec::new(),
-        })
+        Ok(LlmCallOutcome::new(
+            ScriptContext {
+                title: Some("fixture".to_owned()),
+                scenes: vec![DraftScene {
+                    draft_ref: "fixture-scene".to_owned(),
+                    scene_number: Some(1),
+                    ..Default::default()
+                }],
+                uncertainties: Vec::new(),
+            },
+            LlmCallUsage::default(),
+        ))
     }
 }
 
@@ -590,16 +597,19 @@ impl LlmClient for FakeLlmClientWithoutSceneNumber {
     async fn chat_constrained(
         &self,
         _request: LlmChatRequest,
-    ) -> Result<ScriptContext, DomainError> {
+    ) -> Result<LlmCallOutcome<ScriptContext>, DomainError> {
         tokio::time::sleep(std::time::Duration::from_millis(2)).await;
-        Ok(ScriptContext {
-            title: Some("fixture".to_owned()),
-            scenes: vec![DraftScene {
-                draft_ref: "fixture-scene".to_owned(),
-                ..Default::default()
-            }],
-            uncertainties: Vec::new(),
-        })
+        Ok(LlmCallOutcome::new(
+            ScriptContext {
+                title: Some("fixture".to_owned()),
+                scenes: vec![DraftScene {
+                    draft_ref: "fixture-scene".to_owned(),
+                    ..Default::default()
+                }],
+                uncertainties: Vec::new(),
+            },
+            LlmCallUsage::default(),
+        ))
     }
 }
 
@@ -623,6 +633,8 @@ fn script_job(id: AiImportJobId) -> AiImportJob {
         max_retries: 3,
         created_at: Utc::now(),
         updated_at: Utc::now(),
+        telemetry: None,
+        cost: None,
     }
 }
 
@@ -643,6 +655,7 @@ fn script_worker(
             max_chunks_per_script: max_chunks,
             ..AiImportBounds::default()
         },
+        pricing: None,
     }
 }
 
@@ -659,7 +672,7 @@ impl LlmClient for RecordingScheduleClient {
     async fn chat_constrained(
         &self,
         _request: LlmChatRequest,
-    ) -> Result<ScriptContext, DomainError> {
+    ) -> Result<LlmCallOutcome<ScriptContext>, DomainError> {
         Err(DomainError::validation(
             "RecordingScheduleClient only extracts schedules",
         ))
@@ -668,21 +681,24 @@ impl LlmClient for RecordingScheduleClient {
     async fn extract_schedule(
         &self,
         request: LlmChatRequest,
-    ) -> Result<ShootingSchedule, DomainError> {
+    ) -> Result<LlmCallOutcome<ShootingSchedule>, DomainError> {
         // Issue #295: guaranteed > 0 ms latency window (see FakeLlmClient).
         tokio::time::sleep(std::time::Duration::from_millis(2)).await;
         self.seen.lock().unwrap().push(request.source_text);
-        Ok(ShootingSchedule {
-            block_id: None,
-            rows: vec![ShootingScheduleRow {
-                row_ref: "llm-0".to_owned(),
-                scene_number: Some(1),
-                shooting_day_label: Some("T1".to_owned()),
-                date: None,
-                location: None,
-                order: None,
-            }],
-        })
+        Ok(LlmCallOutcome::new(
+            ShootingSchedule {
+                block_id: None,
+                rows: vec![ShootingScheduleRow {
+                    row_ref: "llm-0".to_owned(),
+                    scene_number: Some(1),
+                    shooting_day_label: Some("T1".to_owned()),
+                    date: None,
+                    location: None,
+                    order: None,
+                }],
+            },
+            LlmCallUsage::default(),
+        ))
     }
 }
 
@@ -707,6 +723,8 @@ fn schedule_job(format: SourceFormat) -> AiImportJob {
         max_retries: 3,
         created_at: Utc::now(),
         updated_at: Utc::now(),
+        telemetry: None,
+        cost: None,
     }
 }
 
@@ -724,6 +742,7 @@ fn schedule_worker(
         model: "deepseek-v4-flash".to_owned(),
         prompt: "fixture prompt".to_owned(),
         bounds: AiImportBounds::default(),
+        pricing: None,
     }
 }
 
@@ -912,6 +931,7 @@ async fn script_worker_backfills_scene_number_from_chunk_heading() {
             max_chunks_per_script: 4,
             ..AiImportBounds::default()
         },
+        pricing: None,
     };
     let job = script_job(AiImportJobId::new());
     let handle = worker
@@ -3256,21 +3276,24 @@ impl LlmClient for CostumeClient {
     async fn chat_constrained(
         &self,
         _request: LlmChatRequest,
-    ) -> Result<ScriptContext, DomainError> {
-        Ok(ScriptContext {
-            title: Some("fixture".to_owned()),
-            scenes: vec![DraftScene {
-                draft_ref: String::new(),
-                scene_number: Some(1),
-                characters: vec![breakdown_core::ai::DraftCharacter {
-                    name: "RENEE".to_owned(),
-                    category: Default::default(),
+    ) -> Result<LlmCallOutcome<ScriptContext>, DomainError> {
+        Ok(LlmCallOutcome::new(
+            ScriptContext {
+                title: Some("fixture".to_owned()),
+                scenes: vec![DraftScene {
+                    draft_ref: String::new(),
+                    scene_number: Some(1),
+                    characters: vec![breakdown_core::ai::DraftCharacter {
+                        name: "RENEE".to_owned(),
+                        category: Default::default(),
+                    }],
+                    costumes: self.costumes.clone(),
+                    ..Default::default()
                 }],
-                costumes: self.costumes.clone(),
-                ..Default::default()
-            }],
-            uncertainties: Vec::new(),
-        })
+                uncertainties: Vec::new(),
+            },
+            LlmCallUsage::default(),
+        ))
     }
 }
 
@@ -3304,6 +3327,7 @@ async fn extraction_drops_an_ungrounded_costume_and_records_an_uncertainty() {
         model: "fixture".to_owned(),
         prompt: "fixture".to_owned(),
         bounds: AiImportBounds::default(),
+        pricing: None,
     };
     let job = script_job(AiImportJobId::new());
     let handle = worker

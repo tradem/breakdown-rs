@@ -1,10 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 // Co-authored-by: gpt-5.6-luna (opencode-go)
 // Co-authored-by: deepseek-v4.1-flash (neuralwatt)
 
 use async_trait::async_trait;
-use breakdown_core::ai::{LlmChatRequest, LlmClient, LlmProvider, ScriptContext};
+use breakdown_core::ai::{
+    LlmCallOutcome, LlmCallUsage, LlmChatRequest, LlmClient, LlmProvider, ScriptContext,
+};
 use breakdown_core::error::DomainError;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -64,7 +67,10 @@ impl OllamaChatClient {
         &self.http
     }
 
-    async fn request_once(&self, req: &LlmChatRequest) -> Result<String, DomainError> {
+    async fn request_once(
+        &self,
+        req: &LlmChatRequest,
+    ) -> Result<(String, LlmCallUsage), DomainError> {
         let body = OllamaRequest {
             model: req.model.clone(),
             // Same system/user split as the OpenAI-compatible adapter: the
@@ -105,23 +111,38 @@ impl OllamaChatClient {
         let payload = response.json::<OllamaResponse>().await.map_err(|error| {
             DomainError::validation(format!("invalid Ollama response: {error}"))
         })?;
-        Ok(payload.message.content)
+        // Ollama reports token counts as `prompt_eval_count` (prompt) and
+        // `eval_count` (completion) (issue #675). No energy telemetry.
+        let usage = LlmCallUsage {
+            tokens_in: payload.prompt_eval_count.unwrap_or(0),
+            tokens_out: payload.eval_count.unwrap_or(0),
+            cached_tokens_in: 0,
+            energy_millijoules: 0,
+        };
+        Ok((payload.message.content, usage))
     }
 }
 
 #[async_trait]
 impl LlmClient for OllamaChatClient {
-    async fn chat_constrained(&self, req: LlmChatRequest) -> Result<ScriptContext, DomainError> {
+    async fn chat_constrained(
+        &self,
+        req: LlmChatRequest,
+    ) -> Result<LlmCallOutcome<ScriptContext>, DomainError> {
         if req.provider != LlmProvider::Ollama {
             return Err(DomainError::validation(
                 "Ollama client received a non-Ollama request",
             ));
         }
         let mut last_parse_error = None;
+        // Usage accumulates across every paid call, including the discarded
+        // responses of bounded parse retries (issue #675).
+        let mut total_usage = LlmCallUsage::default();
         for _attempt in 0..=self.max_parse_retries {
-            let content = self.request_once(&req).await?;
+            let (content, usage) = self.request_once(&req).await?;
+            total_usage.accumulate(usage);
             match serde_json::from_str::<ScriptContext>(&content) {
-                Ok(context) => return Ok(context),
+                Ok(context) => return Ok(LlmCallOutcome::new(context, total_usage)),
                 Err(error) => last_parse_error = Some(error),
             }
         }
@@ -157,6 +178,12 @@ struct OllamaOptions {
 #[derive(Debug, Deserialize)]
 struct OllamaResponse {
     message: OllamaResponseMessage,
+    /// Prompt token count (`prompt_eval_count`, issue #675).
+    #[serde(default)]
+    prompt_eval_count: Option<u64>,
+    /// Completion token count (`eval_count`, issue #675).
+    #[serde(default)]
+    eval_count: Option<u64>,
 }
 
 #[derive(Debug, Deserialize)]

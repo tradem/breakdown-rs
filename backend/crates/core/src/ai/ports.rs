@@ -23,8 +23,8 @@ use crate::shared::{AggregateVersion, BlockId, UserId};
 
 use super::preview::{ScriptContext, ShootingSchedule};
 use super::views::{
-    AiImportAttempt, AiImportJob, AiImportJobId, AiImportProgress, DocumentKind, SourceFormat,
-    Telemetry,
+    AiImportAttempt, AiImportJob, AiImportJobId, AiImportProgress, DocumentKind, ModelPricing,
+    SourceFormat, Telemetry,
 };
 
 /// Curated providers. The enum is intentionally non-exhaustive so adding a
@@ -35,6 +35,12 @@ use super::views::{
 pub enum LlmProvider {
     #[serde(rename = "openai")]
     OpenAI,
+    /// Google Gemini via its official OpenAI-compatible endpoint
+    /// (issue #675). `"google"` is accepted as an alias on input so the
+    /// provider can be addressed by either key; the canonical wire key is
+    /// `"gemini"`.
+    #[serde(rename = "gemini", alias = "google")]
+    Gemini,
     #[serde(rename = "openrouter")]
     OpenRouter,
     #[serde(rename = "eurouter", alias = "openrouter_eu")]
@@ -52,6 +58,7 @@ impl LlmProvider {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::OpenAI => "openai",
+            Self::Gemini => "gemini",
             Self::OpenRouter => "openrouter",
             Self::EURouter => "eurouter",
             Self::Neuralwatt => "neuralwatt",
@@ -75,8 +82,9 @@ impl LlmProvider {
 /// The curated provider set in display order. Single source for the providers
 /// and models endpoints; a new `LlmProvider` variant must be added to the
 /// exhaustive `as_str` match above (compile-time) and to this list (curation).
-pub const CURATED_PROVIDERS: [LlmProvider; 7] = [
+pub const CURATED_PROVIDERS: [LlmProvider; 8] = [
     LlmProvider::OpenAI,
+    LlmProvider::Gemini,
     LlmProvider::OpenRouter,
     LlmProvider::EURouter,
     LlmProvider::Neuralwatt,
@@ -143,6 +151,12 @@ pub struct ModelInfo {
     /// review, PR #489).
     #[serde(default)]
     pub recommended: bool,
+    /// Pricing snapshot from the `ai_import.ai_model_pricing` read model
+    /// (issue #675). `None` for models without known pricing (e.g. local
+    /// Ollama models) — never a fabricated zero-price object. Additive with
+    /// `serde(default)` on the wire.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pricing: Option<ModelPricing>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -166,16 +180,93 @@ pub trait LlmModelCatalog: Send + Sync {
     ) -> Result<Vec<ModelInfo>, DomainError>;
 }
 
+/// Token and energy usage of one LLM call, extracted from the provider
+/// response (issue #675). Accumulated across all chunks and bounded
+/// truncation/parse retries of a job; persisted via `record_worker_telemetry`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LlmCallUsage {
+    pub tokens_in: u64,
+    pub tokens_out: u64,
+    /// Prompt tokens served from the provider cache.
+    pub cached_tokens_in: u64,
+    /// Hardware energy reported by the provider (e.g. Neuralwatt), in
+    /// millijoules.
+    pub energy_millijoules: u64,
+}
+
+impl LlmCallUsage {
+    /// Element-wise saturating accumulation across calls.
+    pub fn accumulate(&mut self, other: Self) {
+        self.tokens_in = self.tokens_in.saturating_add(other.tokens_in);
+        self.tokens_out = self.tokens_out.saturating_add(other.tokens_out);
+        self.cached_tokens_in = self.cached_tokens_in.saturating_add(other.cached_tokens_in);
+        self.energy_millijoules = self
+            .energy_millijoules
+            .saturating_add(other.energy_millijoules);
+    }
+}
+
+/// The parsed output of one LLM call plus its usage telemetry (design D3).
+#[derive(Debug, Clone, PartialEq)]
+pub struct LlmCallOutcome<T> {
+    pub output: T,
+    pub usage: LlmCallUsage,
+}
+
+impl<T> LlmCallOutcome<T> {
+    pub fn new(output: T, usage: LlmCallUsage) -> Self {
+        Self { output, usage }
+    }
+}
+
 #[async_trait]
 pub trait LlmClient: Send + Sync {
-    async fn chat_constrained(&self, req: LlmChatRequest) -> Result<ScriptContext, DomainError>;
+    async fn chat_constrained(
+        &self,
+        req: LlmChatRequest,
+    ) -> Result<LlmCallOutcome<ScriptContext>, DomainError>;
 
-    async fn extract_schedule(&self, req: LlmChatRequest) -> Result<ShootingSchedule, DomainError> {
+    async fn extract_schedule(
+        &self,
+        req: LlmChatRequest,
+    ) -> Result<LlmCallOutcome<ShootingSchedule>, DomainError> {
         let _ = req;
         Err(DomainError::validation(
             "schedule extraction is not supported by this client",
         ))
     }
+}
+
+/// One `(provider, model)` pricing row of the read model (issue #675).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ModelPricingRow {
+    pub provider: LlmProvider,
+    pub model: String,
+    pub pricing: ModelPricing,
+}
+
+/// Read-model port over `ai_import.ai_model_pricing` (issue #675). The
+/// API edge consumes `find_for_model` / `list_for_provider`; the pricing
+/// refresh worker consumes `upsert_batch` (UPSERT-only — never deletes rows
+/// that a live feed rotated out).
+#[async_trait]
+pub trait AiModelPricingRepository: Send + Sync {
+    async fn find_for_model(
+        &self,
+        provider: LlmProvider,
+        model: &str,
+    ) -> Result<Option<ModelPricing>, DomainError>;
+
+    /// All pricing rows of one provider; the model list endpoint attaches
+    /// them to the returned `ModelInfo`s.
+    async fn list_for_provider(
+        &self,
+        provider: LlmProvider,
+    ) -> Result<Vec<ModelPricingRow>, DomainError>;
+
+    /// UPSERT a batch of pricing rows keyed `(provider, model)`. Existing
+    /// rows absent from the batch remain untouched (rotated-model retention).
+    async fn upsert_batch(&self, entries: Vec<ModelPricingRow>) -> Result<(), DomainError>;
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

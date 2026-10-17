@@ -70,6 +70,8 @@ fn running_job(id: AiImportJobId) -> AiImportJob {
         max_retries: 5,
         created_at: Utc::now(),
         updated_at: Utc::now(),
+        telemetry: None,
+        cost: None,
     }
 }
 
@@ -311,4 +313,88 @@ async fn sse_headers_on_a_real_stream() {
             .expect("buffering disabled"),
         "no"
     );
+}
+
+// ---------------------------------------------------------------------------
+// Cost transparency (issue #675): the terminal `succeeded` SSE frame carries
+// the job's immutable cost snapshot.
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn terminal_succeeded_frame_carries_the_job_cost_snapshot() {
+    use breakdown_core::ai::CostBreakdown;
+
+    let ports = FakePorts::default();
+    let job = running_job(AiImportJobId::new());
+    ports.ai_import_queue.seed(job.clone()).await;
+    let app = state(ports.clone());
+
+    let (_status, mut body) = open_stream(app.clone(), job.id, no_headers()).await;
+    let _snapshot = next_frame(&mut body).await.expect("snapshot frame");
+    // The snapshot frame carries the running job's not-yet-computed cost.
+    let (_status, mut body2) = open_stream(app, job.id, no_headers()).await;
+    let frame2 = next_frame(&mut body2).await.expect("snapshot frame");
+    assert_eq!(
+        frame_data(&frame2).expect("snapshot data")["job"]["status"],
+        "running"
+    );
+
+    // Terminal write with a `Known` token-cost snapshot (issue #675).
+    let mut terminal = job.clone();
+    terminal.status = JobStatus::Succeeded;
+    terminal.preview_handle = Some("preview".to_owned());
+    terminal.cost = Some(CostBreakdown {
+        status: breakdown_core::ai::CostStatus::Known,
+        currency: Some(breakdown_core::ai::Currency::Usd),
+        price_as_of: Some(Utc::now()),
+        pricing_source: Some(breakdown_core::ai::PricingSource::ProviderLive),
+        token_cost: Some(breakdown_core::ai::TokenCostBreakdown {
+            tokens_in: 1_000,
+            tokens_out: 500,
+            cached_tokens_in: 0,
+            input_rate_nano_per_million: 1_450_000_000,
+            output_rate_nano_per_million: 4_500_000_000,
+            cached_input_rate_nano_per_million: None,
+            total_nano: 3_700_000_000,
+        }),
+        energy_cost: None,
+        image_cost: None,
+    });
+    terminal.updated_at = Utc::now();
+    ports.ai_import_queue.update_and_notify(terminal).await;
+    let terminal_frame = next_frame(&mut body).await.expect("terminal frame");
+    let payload = frame_data(&terminal_frame).expect("terminal data");
+    assert_eq!(payload["job"]["status"], "succeeded");
+    let cost = &payload["job"]["cost"];
+    assert_eq!(cost["status"], "known");
+    assert_eq!(cost["currency"], "USD");
+    assert_eq!(cost["token_cost"]["tokens_in"], 1_000u64);
+    assert_eq!(
+        cost["token_cost"]["total_nano"],
+        serde_json::json!(3_700_000_000_i64)
+    );
+    assert!(next_frame(&mut body).await.is_none());
+}
+
+#[tokio::test]
+async fn terminal_succeeded_frame_without_pricing_keeps_cost_unknown_not_null() {
+    let ports = FakePorts::default();
+    let job = running_job(AiImportJobId::new());
+    ports.ai_import_queue.seed(job.clone()).await;
+    let app = state(ports.clone());
+
+    let (_status, mut body) = open_stream(app, job.id, no_headers()).await;
+    let _snapshot = next_frame(&mut body).await.expect("snapshot frame");
+
+    // An unpriced model completes with the honest `unknown` snapshot —
+    // never a fabricated zero.
+    let mut terminal = job;
+    terminal.status = JobStatus::Succeeded;
+    terminal.cost = Some(breakdown_core::ai::CostBreakdown::unknown());
+    terminal.updated_at = Utc::now();
+    ports.ai_import_queue.update_and_notify(terminal).await;
+    let terminal_frame = next_frame(&mut body).await.expect("terminal frame");
+    let payload = frame_data(&terminal_frame).expect("terminal data");
+    assert_eq!(payload["job"]["cost"]["status"], "unknown");
+    assert!(payload["job"]["cost"].get("token_cost").is_none());
 }

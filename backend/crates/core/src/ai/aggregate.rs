@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 // Co-authored-by: gpt-5.6-luna (opencode-go)
 
 // SPDX-License-Identifier: AGPL-3.0
@@ -21,7 +22,7 @@ use super::commands::{CreateAiConfig, RevokeAiConfig, UpdateAiConfig};
 use super::error::AiConfigError;
 use super::events::AiConfigEvent;
 use super::ports::LlmProvider;
-use super::views::DocumentKind;
+use super::views::{CostDisplayPreference, DocumentKind};
 
 #[derive(Debug, Clone)]
 pub struct AiConfig {
@@ -32,6 +33,7 @@ pub struct AiConfig {
     pub image_model: Option<String>,
     pub prompts: HashMap<DocumentKind, String>,
     pub vault_key_id: String,
+    pub cost_display_preference: CostDisplayPreference,
     pub revoked: bool,
     pub version: AggregateVersion,
 }
@@ -46,6 +48,7 @@ impl Default for AiConfig {
             image_model: None,
             prompts: HashMap::new(),
             vault_key_id: String::new(),
+            cost_display_preference: CostDisplayPreference::default(),
             revoked: false,
             version: AggregateVersion::default(),
         }
@@ -73,6 +76,7 @@ impl Apply for AiConfig {
                 image_model,
                 prompts,
                 vault_key_id,
+                cost_display_preference,
                 version,
             } => {
                 self.id = id;
@@ -82,6 +86,7 @@ impl Apply for AiConfig {
                 self.image_model = image_model;
                 self.prompts = prompts;
                 self.vault_key_id = vault_key_id;
+                self.cost_display_preference = cost_display_preference;
                 self.revoked = false;
                 self.version = version;
             }
@@ -91,6 +96,7 @@ impl Apply for AiConfig {
                 image_model,
                 prompts,
                 vault_key_id,
+                cost_display_preference,
                 version,
                 ..
             } => {
@@ -99,6 +105,9 @@ impl Apply for AiConfig {
                 self.image_model = image_model;
                 self.prompts = prompts;
                 self.vault_key_id = vault_key_id;
+                if let Some(preference) = cost_display_preference {
+                    self.cost_display_preference = preference;
+                }
                 self.revoked = false;
                 self.version = version;
             }
@@ -131,6 +140,7 @@ impl Command<CreateAiConfig> for AiConfig {
             image_model: cmd.image_model,
             prompts: cmd.prompts,
             vault_key_id: cmd.vault_key_id,
+            cost_display_preference: cmd.cost_display_preference,
             version: AggregateVersion::INITIAL,
         }])
     }
@@ -173,6 +183,7 @@ impl Command<UpdateAiConfig> for AiConfig {
             image_model: cmd.image_model,
             prompts: cmd.prompts,
             vault_key_id: cmd.vault_key_id,
+            cost_display_preference: cmd.cost_display_preference,
             version: self.version.next(),
         }])
     }

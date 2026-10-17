@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 // Co-authored-by: gpt-5.6-luna (opencode-go)
 // Co-authored-by: deepseek-v4-flash (opencode-go)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
@@ -61,6 +62,32 @@ impl SourceFormat {
     /// is parsed in-process; PDF and plain text go through the LLM.
     pub const fn uses_native_csv(self) -> bool {
         matches!(self, Self::Csv)
+    }
+}
+
+/// The user's preferred primary cost display metric (issue #675).
+///
+/// Both token and energy costs are always persisted on completed jobs, so
+/// switching the preference re-renders historical job costs without
+/// recalculation. `Token` is the default for every pre-existing `AiConfig`
+/// (replayed events and deserialized views without the field).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum CostDisplayPreference {
+    /// Primary cost figure is the token-based cost.
+    #[default]
+    Token,
+    /// Primary cost figure is the (capped) hardware-energy cost where the
+    /// provider offers it (e.g. Neuralwatt); falls back to token cost.
+    Energy,
+}
+
+impl CostDisplayPreference {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Token => "token",
+            Self::Energy => "energy",
+        }
     }
 }
 
@@ -257,6 +284,11 @@ pub struct AiConfigView {
     #[serde(default)]
     pub stored_prompt_kinds: Vec<DocumentKind>,
     pub vault_key_id: String,
+    /// Preferred primary cost display metric (issue #675). Additive with
+    /// `serde(default)`: views serialized before the field existed
+    /// deserialize as `Token`.
+    #[serde(default)]
+    pub cost_display_preference: CostDisplayPreference,
     pub version: AggregateVersion,
     pub revoked: bool,
 }
@@ -293,6 +325,15 @@ pub struct AiImportJob {
     /// re-claimed retry attempts (the claim SQL resets stale progress).
     #[serde(default)]
     pub progress: Option<AiImportProgress>,
+    /// Content-free operational telemetry recorded for this job (issue
+    /// #675). `None` until a worker or the API apply path records telemetry;
+    /// additive on the wire.
+    #[serde(default)]
+    pub telemetry: Option<JobTelemetrySummary>,
+    /// Immutable per-import cost snapshot persisted at completion time
+    /// (issue #675). Never recomputed when pricing changes later.
+    #[serde(default)]
+    pub cost: Option<CostBreakdown>,
     /// Per-attempt failure history, newest first (issue #637).
     ///
     /// `last_error` is overwritten by every `mark_failed`, so the reason an
@@ -374,10 +415,243 @@ pub struct Telemetry {
     pub chunk_count: u32,
     pub tokens_in: u64,
     pub tokens_out: u64,
+    /// Prompt tokens served from the provider's cache (issue #675).
+    /// `#[serde(default)]`: additive on any persisted/wire payload.
+    #[serde(default)]
+    pub cached_tokens_in: u64,
+    /// Hardware energy reported by the provider (e.g. Neuralwatt), in
+    /// millijoules, accumulated across all chunks and retries (issue #675).
+    /// `#[serde(default)]`: additive on any persisted/wire payload.
+    #[serde(default)]
+    pub energy_millijoules: u64,
     /// Total latency in milliseconds.
     pub latency_total: u64,
+    /// Immutable cost snapshot computed at completion (issue #675). `None`
+    /// while the job is still running; persisted alongside the telemetry
+    /// counters by the completion write.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cost: Option<CostBreakdown>,
     /// Apply outcome; `NotApplied` while the job is preview-only.
     pub apply_state: TelemetryApplyState,
+}
+
+// ===========================================================================
+// Model pricing and per-import cost transparency (issue #675)
+// ===========================================================================
+
+/// Currency of a pricing entry and of a computed cost snapshot. Rates and
+/// totals are always in the *native* currency reported by the provider
+/// catalog — there is no conversion between USD and EUR (design D2).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "UPPERCASE")]
+pub enum Currency {
+    Usd,
+    Eur,
+}
+
+impl Currency {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Usd => "USD",
+            Self::Eur => "EUR",
+        }
+    }
+}
+
+/// Where a pricing row came from. `CuratedSeed` rows are written by the SQL
+/// migration so freshly booted, offline deployments have deterministic
+/// pricing; the refresh worker overwrites them with `ProviderLive` (provider
+/// `/models` endpoints) or `ModelsDev` (`models.dev/api.json`) rows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum PricingSource {
+    CuratedSeed,
+    ProviderLive,
+    ModelsDev,
+}
+
+/// One model's pricing snapshot in integer nano-currency units ($10^{-9}$ of
+/// the currency unit: `1_000_000_000 = 1.00 USD/EUR`). Rates are per
+/// 1,000,000 tokens. Optional slots stay `None` when the provider does not
+/// offer the dimension — never a fabricated zero (issue #675).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct ModelPricing {
+    pub currency: Currency,
+    pub input_nano_per_million: i64,
+    pub output_nano_per_million: i64,
+    /// Rate for cache-hit prompt tokens, when the provider reports one.
+    /// Absent means cached tokens are billed at the plain input rate.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cached_input_nano_per_million: Option<i64>,
+    /// Energy billing rate (e.g. Neuralwatt at `$10.00 / kWh` =
+    /// `10_000_000_000` nano-USD per kWh), when the provider offers it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub energy_nano_per_kwh: Option<i64>,
+    /// Neuralwatt surge-protection cap: the energy cost never exceeds the
+    /// token cost of the same call.
+    #[serde(default)]
+    pub energy_capped_by_token: bool,
+    /// Rate per 1,000,000 image-output tokens (e.g. Gemini *Nano Banana*:
+    /// one 1024×1024 image consumes 1,290 image-output tokens). #673 slot.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image_output_nano_per_million: Option<i64>,
+    /// Alternative flat per-image rate. #673 slot; never combined with
+    /// `image_output_nano_per_million` by a cost computation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image_nano_per_unit: Option<i64>,
+    pub pricing_source: PricingSource,
+    /// When this price was captured. A completed job's persisted cost
+    /// snapshot never changes when newer prices arrive.
+    pub price_as_of: DateTime<Utc>,
+}
+
+/// Whether a job's cost could be computed honestly.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum CostStatus {
+    /// Pricing was found for `(provider, model)`; breakdowns are populated.
+    Known,
+    /// The job invoked an LLM whose pricing is not in the read model (e.g.
+    /// Ollama or an unpriced custom model). Breakdowns stay `None` — the UI
+    /// renders localized "Unknown", never `0`.
+    Unknown,
+    /// The job never invoked an LLM (native CSV schedule import,
+    /// deterministic merge).
+    NotApplicable,
+}
+
+/// Token-based cost of one import, in nano-units. Rates are the snapshot
+/// rates active at completion time.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct TokenCostBreakdown {
+    pub tokens_in: u64,
+    pub tokens_out: u64,
+    pub cached_tokens_in: u64,
+    pub input_rate_nano_per_million: i64,
+    pub output_rate_nano_per_million: i64,
+    /// Snapshot cache-hit rate; `None` when the catalog had none (cached
+    /// tokens are then billed at the plain input rate).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cached_input_rate_nano_per_million: Option<i64>,
+    /// `uncached_input + cached_input + output` cost, half-up rounded to
+    /// nano-units, as one total.
+    pub total_nano: i64,
+}
+
+/// Hardware-energy cost of one import, in nano-units. Populated only when
+/// the job recorded energy telemetry and the model carries an energy rate.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct EnergyCostBreakdown {
+    pub energy_millijoules: u64,
+    pub rate_nano_per_kwh: i64,
+    /// Uncapped energy cost (`mJ × rate / 3.6e9`, half-up rounded).
+    pub raw_energy_nano: i64,
+    /// The cost that counts: `min(raw_energy_nano, token_cost.total_nano)`
+    /// when the provider caps energy by token cost (Neuralwatt surge
+    /// protection), otherwise `raw_energy_nano`.
+    pub effective_capped_nano: i64,
+    /// Whether the token-cost cap reduced the figure.
+    pub capped_by_token_cost: bool,
+}
+
+/// Image-generation cost of one import (#673 extensibility slot). Always
+/// `None` for script/schedule text imports.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct ImageCostBreakdown {
+    /// Number of generated images.
+    pub images: u64,
+    /// Image-output tokens consumed (the per-token billing path).
+    pub image_output_tokens: u64,
+    /// Snapshot of the flat per-image rate, when that billing kind applies.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image_nano_per_unit: Option<i64>,
+    /// Snapshot of the per-million-token rate, when that billing kind applies.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image_output_rate_nano_per_million: Option<i64>,
+    pub total_nano: i64,
+}
+
+/// Immutable per-import cost snapshot persisted on a completed job (design
+/// D4). Honesty rule: `Known` populates breakdowns; `Unknown` and
+/// `NotApplicable` leave them `None` — never a fabricated zero.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct CostBreakdown {
+    pub status: CostStatus,
+    /// Present only for `Known` snapshots.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub currency: Option<Currency>,
+    /// Price snapshot timestamp of the pricing row used for computation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub price_as_of: Option<DateTime<Utc>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pricing_source: Option<PricingSource>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub token_cost: Option<TokenCostBreakdown>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub energy_cost: Option<EnergyCostBreakdown>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image_cost: Option<ImageCostBreakdown>,
+}
+
+impl CostBreakdown {
+    /// Snapshot for a job whose `(provider, model)` has no pricing entry:
+    /// `status = "unknown"`, all breakdowns `None` — never zero.
+    pub fn unknown() -> Self {
+        Self {
+            status: CostStatus::Unknown,
+            currency: None,
+            price_as_of: None,
+            pricing_source: None,
+            token_cost: None,
+            energy_cost: None,
+            image_cost: None,
+        }
+    }
+
+    /// Snapshot for a job that never invoked an LLM (native CSV schedule
+    /// import, deterministic merge).
+    pub fn not_applicable() -> Self {
+        Self {
+            status: CostStatus::NotApplicable,
+            currency: None,
+            price_as_of: None,
+            pricing_source: None,
+            token_cost: None,
+            energy_cost: None,
+            image_cost: None,
+        }
+    }
+}
+
+/// Telemetry summary as exposed on the `AiImportJob` wire view (issue #675).
+/// `None` until the worker records telemetry; additive on the wire.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct JobTelemetrySummary {
+    pub provider: Option<LlmProvider>,
+    pub model: Option<String>,
+    pub doc_kind: Option<DocumentKind>,
+    pub chunk_count: u32,
+    pub tokens_in: u64,
+    pub tokens_out: u64,
+    pub cached_tokens_in: u64,
+    pub energy_millijoules: u64,
+    pub latency_total_ms: u64,
+}
+
+impl From<&Telemetry> for JobTelemetrySummary {
+    fn from(t: &Telemetry) -> Self {
+        Self {
+            provider: t.provider,
+            model: t.model.clone(),
+            doc_kind: t.doc_kind,
+            chunk_count: t.chunk_count,
+            tokens_in: t.tokens_in,
+            tokens_out: t.tokens_out,
+            cached_tokens_in: t.cached_tokens_in,
+            energy_millijoules: t.energy_millijoules,
+            latency_total_ms: t.latency_total,
+        }
+    }
 }
 
 #[cfg(test)]

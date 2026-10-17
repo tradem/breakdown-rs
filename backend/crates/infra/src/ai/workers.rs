@@ -15,14 +15,15 @@ use std::collections::HashMap;
 
 use breakdown_core::ai::{
     AiImportBounds, AiImportJob, AiImportJobId, AiImportMapping, AiImportMappingRepository,
-    AiImportProgress, AiImportQueue, AiImportStage, ApplyGateError, ApplyMapping,
-    ApplyMappingDecision, CharacterApplyPlan, CostumeApplyPlan, DocumentKind, EpisodeGroupPlan,
-    LlmChatRequest, LlmClient, MergedPreview, PRIMARY_ORDINAL, PlannedEpisode, SceneApplyCommand,
-    SceneApplyPlan, ScriptContext, ShootingSchedule, SourceFormat, Telemetry, TelemetryApplyState,
-    UnappliedCostume, UnappliedCostumeReason, Uncertainty, UncertaintyAcknowledgement,
-    UncertaintyKind, character_mapping_ref, draft_row_ref, ensure_merge_applyable, extract_scenes,
-    mapping_kind, merge_schedule_to_scenes, plan_scene_apply, sanitize_meta_summary,
-    scene_beat_lanes, stable_draft_ref, verify_draft_costumes,
+    AiImportProgress, AiImportQueue, AiImportStage, AiModelPricingRepository, ApplyGateError,
+    ApplyMapping, ApplyMappingDecision, CharacterApplyPlan, CostBreakdown, CostumeApplyPlan,
+    DocumentKind, EpisodeGroupPlan, LlmCallUsage, LlmChatRequest, LlmClient, MergedPreview,
+    PRIMARY_ORDINAL, PlannedEpisode, SceneApplyCommand, SceneApplyPlan, ScriptContext,
+    ShootingSchedule, SourceFormat, Telemetry, TelemetryApplyState, UnappliedCostume,
+    UnappliedCostumeReason, Uncertainty, UncertaintyAcknowledgement, UncertaintyKind,
+    character_mapping_ref, draft_row_ref, ensure_merge_applyable, extract_scenes, mapping_kind,
+    merge_schedule_to_scenes, plan_scene_apply, sanitize_meta_summary, scene_beat_lanes,
+    stable_draft_ref, verify_draft_costumes,
 };
 use breakdown_core::character::commands::CreateCharacter;
 use breakdown_core::character::ports::CharacterCommands;
@@ -217,6 +218,10 @@ pub struct ScriptImportWorker<Q, C> {
     pub model: String,
     pub prompt: String,
     pub bounds: AiImportBounds,
+    /// Pricing read model for the completion cost snapshot (issue #675).
+    /// `None` in test fakes — the snapshot then degrades to
+    /// [`CostStatus::Unknown`], never a fabricated price.
+    pub pricing: Option<Arc<dyn AiModelPricingRepository>>,
 }
 
 impl<Q, C> ScriptImportWorker<Q, C>
@@ -382,6 +387,8 @@ where
         }
 
         let mut context = ScriptContext::default();
+        // Issue #675: real token/energy usage accumulated across all chunks.
+        let mut total_usage = LlmCallUsage::default();
         // Globally unique scene counter across all chunks — the tail of
         // `stable_draft_ref`, which needs a stable identity per preview row
         // that survives the model's own (hallucinated) `draft_ref`.
@@ -429,7 +436,10 @@ where
             )
             .await;
             match partial {
-                Ok(partial) => {
+                Ok((partial, call_usage)) => {
+                    // Issue #675: accumulate real token/energy usage across
+                    // every chunk of the job.
+                    total_usage.accumulate(call_usage);
                     if context.title.is_none() {
                         context.title = partial.title;
                     }
@@ -562,12 +572,26 @@ where
                     chunk_count,
                     // Fully specified (no `..Default` spread) so a deleted
                     // field is a compile error, not a surviving mutant
-                    // (issue #307): token counts are 0 until measured.
-                    tokens_in: 0,
-                    tokens_out: 0,
+                    // (issue #307): real token/energy counts measured across
+                    // all chunks (issue #675).
+                    tokens_in: total_usage.tokens_in,
+                    tokens_out: total_usage.tokens_out,
+                    cached_tokens_in: total_usage.cached_tokens_in,
+                    energy_millijoules: total_usage.energy_millijoules,
                     latency_total: started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64,
-                    // The job only reached preview; the apply outcome (if any)
-                    // is recorded by the apply path as `Applied`.
+                    // Cost snapshot computed from the pricing row active at
+                    // completion, persisted before `mark_succeeded` (issue
+                    // #675). The job only reached preview; the apply outcome
+                    // (if any) is recorded by the apply path as `Applied`.
+                    cost: Some(
+                        compute_cost_snapshot(
+                            self.pricing.as_deref(),
+                            self.provider,
+                            &self.model,
+                            &total_usage,
+                        )
+                        .await,
+                    ),
                     apply_state: TelemetryApplyState::NotApplied,
                 },
             )
@@ -601,6 +625,50 @@ where
     }
 }
 
+/// Compute the immutable per-import cost snapshot (issue #675, design D3/D4).
+///
+/// Looks `(provider, model)` up in the pricing read model and folds the
+/// accumulated usage into a `CostBreakdown`. Honest-degradation rule: a
+/// missing pricing row (e.g. Ollama, unpriced custom model) or an unwired /
+/// failing repository yields [`CostStatus::Unknown`] — never a fabricated
+/// zero price — while the raw token/energy telemetry is still recorded.
+async fn compute_cost_snapshot(
+    pricing: Option<&dyn AiModelPricingRepository>,
+    provider: breakdown_core::ai::LlmProvider,
+    model: &str,
+    usage: &LlmCallUsage,
+) -> CostBreakdown {
+    let Some(repo) = pricing else {
+        tracing::debug!(
+            provider = provider.as_str(),
+            model,
+            "ai-extraction: pricing repository not wired; recording unknown cost"
+        );
+        return CostBreakdown::unknown();
+    };
+    match repo.find_for_model(provider, model).await {
+        Ok(Some(snapshot)) => breakdown_core::ai::cost::cost_breakdown(
+            usage.tokens_in,
+            usage.tokens_out,
+            usage.cached_tokens_in,
+            usage.energy_millijoules,
+            Some(&snapshot),
+        ),
+        Ok(None) => CostBreakdown::unknown(),
+        Err(error) => {
+            // A pricing read-model outage must not fail a succeeded import:
+            // degrade to `unknown` and keep the honest telemetry.
+            tracing::warn!(
+                provider = provider.as_str(),
+                model,
+                %error,
+                "ai-extraction: pricing lookup failed; recording unknown cost"
+            );
+            CostBreakdown::unknown()
+        }
+    }
+}
+
 /// The job was reclaimed by another worker while this one was still working.
 /// Surfaced as a `Conflict` so the caller abandons the job instead of retrying
 /// — the new owner is already redoing the work.
@@ -624,6 +692,8 @@ pub struct ScheduleImportWorker<Q, C> {
     pub model: String,
     pub prompt: String,
     pub bounds: AiImportBounds,
+    /// See [`ScriptImportWorker::pricing`] (issue #675).
+    pub pricing: Option<Arc<dyn AiModelPricingRepository>>,
 }
 
 impl<Q, C> ScheduleImportWorker<Q, C>
@@ -741,6 +811,9 @@ where
             episodes_seen: Vec::new(),
         };
         super::workers::publish_progress(&*self.queue, job.id, worker_id, &progress).await?;
+        // Issue #675: usage of the single LLM call (zeros for the native CSV
+        // path, which never invokes an LLM).
+        let mut total_usage = LlmCallUsage::default();
         let mut schedule = if native_csv {
             super::csv_schedule::parse_schedule_csv(bytes)?
         } else {
@@ -760,12 +833,14 @@ where
                 max_tokens: self.bounds.max_tokens_per_req,
                 response_schema: None,
             };
-            retry_schedule(
+            let (parsed, call_usage) = retry_schedule(
                 self.client.as_ref(),
                 request,
                 self.bounds.max_retries as usize,
             )
-            .await?
+            .await?;
+            total_usage.accumulate(call_usage);
+            parsed
         };
         if schedule.block_id.is_none() {
             schedule.block_id = job.block_id;
@@ -793,11 +868,26 @@ where
                     doc_kind: Some(DocumentKind::Schedule),
                     // Fully specified (no `..Default` spread) so a deleted
                     // field is a compile error, not a surviving mutant
-                    // (issue #307).
+                    // (issue #307). Real token/energy counts (issue #675).
                     chunk_count: 0,
-                    tokens_in: 0,
-                    tokens_out: 0,
+                    tokens_in: total_usage.tokens_in,
+                    tokens_out: total_usage.tokens_out,
+                    cached_tokens_in: total_usage.cached_tokens_in,
+                    energy_millijoules: total_usage.energy_millijoules,
                     latency_total: started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64,
+                    // Cost snapshot (issue #675): `not_applicable` for the
+                    // native CSV path (no LLM), computed for the LLM path.
+                    cost: Some(if native_csv {
+                        CostBreakdown::not_applicable()
+                    } else {
+                        compute_cost_snapshot(
+                            self.pricing.as_deref(),
+                            self.provider,
+                            &self.model,
+                            &total_usage,
+                        )
+                        .await
+                    }),
                     // The job only reached preview; the apply outcome (if any)
                     // is recorded by the apply path as `Applied`.
                     apply_state: TelemetryApplyState::NotApplied,
@@ -2229,7 +2319,7 @@ async fn retry_chat<C>(
     client: &C,
     request: LlmChatRequest,
     max_retries: usize,
-) -> Result<ScriptContext, DomainError>
+) -> Result<(ScriptContext, LlmCallUsage), DomainError>
 where
     C: LlmClient + ?Sized,
 {
@@ -2244,7 +2334,7 @@ where
     )
     .await;
     match outcome {
-        Ok(value) => Ok(value),
+        Ok(value) => Ok((value.output, value.usage)),
         Err(error) => match error.downcast::<DomainError>() {
             Ok(domain_error) => Err(domain_error),
             Err(other) => Err(DomainError::validation(other.to_string())),
@@ -2256,7 +2346,7 @@ async fn retry_schedule<C>(
     client: &C,
     request: LlmChatRequest,
     max_retries: usize,
-) -> Result<ShootingSchedule, DomainError>
+) -> Result<(ShootingSchedule, LlmCallUsage), DomainError>
 where
     C: LlmClient + ?Sized,
 {
@@ -2271,7 +2361,7 @@ where
     )
     .await;
     match outcome {
-        Ok(value) => Ok(value),
+        Ok(value) => Ok((value.output, value.usage)),
         Err(error) => match error.downcast::<DomainError>() {
             Ok(domain_error) => Err(domain_error),
             Err(other) => Err(DomainError::validation(other.to_string())),

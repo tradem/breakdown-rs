@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 // Co-authored-by: gpt-5.6-luna (opencode-go)
 // Co-authored-by: deepseek-v4-flash (opencode-go)
 // Co-authored-by: deepseek-v4.1-flash (neuralwatt)
@@ -9,7 +10,8 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use breakdown_core::ai::{
-    CuratedLlmProvider, LlmChatRequest, LlmClient, LlmProvider, ScriptContext,
+    CuratedLlmProvider, LlmCallOutcome, LlmCallUsage, LlmChatRequest, LlmClient, LlmProvider,
+    ScriptContext,
 };
 use breakdown_core::error::DomainError;
 use breakdown_core::settings::SecretValue;
@@ -137,13 +139,20 @@ impl OpenAiCompatibleChatClient {
         )
     }
 
-    async fn request(&self, req: &LlmChatRequest) -> Result<ScriptContext, DomainError> {
+    async fn request(
+        &self,
+        req: &LlmChatRequest,
+    ) -> Result<LlmCallOutcome<ScriptContext>, DomainError> {
         let schema = req
             .response_schema
             .clone()
             .unwrap_or_else(|| schemars::schema_for!(ScriptContextSchema).to_value());
         let mut budget = req.max_tokens;
         let mut truncation_retries = MAX_TRUNCATION_RETRIES;
+        // Usage accumulates across every paid HTTP response, including the
+        // discarded responses of truncation retries (issue #675) — the
+        // provider billed those tokens too.
+        let mut total_usage = LlmCallUsage::default();
         loop {
             let body = ChatCompletionRequest {
                 model: req.model.clone(),
@@ -189,6 +198,7 @@ impl OpenAiCompatibleChatClient {
                 .map_err(|error| {
                     DomainError::validation(format!("invalid LLM response: {error}"))
                 })?;
+            total_usage.accumulate(envelope.usage());
             let choice = envelope
                 .choices
                 .first()
@@ -199,7 +209,9 @@ impl OpenAiCompatibleChatClient {
                 .as_deref()
                 .ok_or_else(|| DomainError::validation("LLM response contained no content"))?;
             match serde_json::from_str(content) {
-                Ok(context) => return Ok(context),
+                Ok(context) => {
+                    return Ok(LlmCallOutcome::new(context, total_usage));
+                }
                 Err(error) => {
                     match next_truncation_budget(
                         choice.finish_reason.as_deref(),
@@ -232,7 +244,10 @@ impl OpenAiCompatibleChatClient {
 
 #[async_trait]
 impl LlmClient for OpenAiCompatibleChatClient {
-    async fn chat_constrained(&self, req: LlmChatRequest) -> Result<ScriptContext, DomainError> {
+    async fn chat_constrained(
+        &self,
+        req: LlmChatRequest,
+    ) -> Result<LlmCallOutcome<ScriptContext>, DomainError> {
         if req.provider != self.provider {
             return Err(DomainError::validation(
                 "LLM request provider does not match configured client",
@@ -260,6 +275,158 @@ struct ChatMessage {
 #[derive(Debug, Deserialize)]
 struct ChatCompletionResponse {
     choices: Vec<ChatChoice>,
+    /// Token usage reported by the provider (issue #675). Absent on some
+    /// providers/streams — tolerated, usage stays at the accumulated zeros.
+    #[serde(default)]
+    usage: Option<ChatUsage>,
+    /// Hardware energy telemetry reported by Neuralwatt (issue #675).
+    #[serde(default)]
+    energy: Option<ChatEnergy>,
+}
+
+impl ChatCompletionResponse {
+    /// Extract the `LlmCallUsage` of this one response (zeros when the
+    /// provider reports nothing).
+    fn usage(&self) -> LlmCallUsage {
+        let tokens_in = self.usage.as_ref().and_then(|u| u.prompt_tokens);
+        let tokens_out = self.usage.as_ref().and_then(|u| u.completion_tokens);
+        let cached_tokens_in = self
+            .usage
+            .as_ref()
+            .and_then(|u| u.prompt_tokens_details.as_ref())
+            .and_then(|d| d.cached_tokens);
+        let energy_millijoules = self
+            .energy
+            .as_ref()
+            .and_then(parse_energy_millijoules)
+            .unwrap_or(0);
+        LlmCallUsage {
+            tokens_in: tokens_in.unwrap_or(0),
+            tokens_out: tokens_out.unwrap_or(0),
+            cached_tokens_in: cached_tokens_in.unwrap_or(0),
+            energy_millijoules,
+        }
+    }
+}
+
+/// OpenAI-compatible `usage` object.
+#[derive(Debug, Deserialize)]
+struct ChatUsage {
+    #[serde(default)]
+    prompt_tokens: Option<u64>,
+    #[serde(default)]
+    completion_tokens: Option<u64>,
+    #[serde(default)]
+    prompt_tokens_details: Option<ChatPromptTokensDetails>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ChatPromptTokensDetails {
+    #[serde(default)]
+    cached_tokens: Option<u64>,
+}
+
+/// Neuralwatt hardware-energy telemetry. Values are JSON numbers or numeric
+/// strings in joules or kWh; parsed with integer decimal math (no floats).
+#[derive(Debug, Deserialize)]
+struct ChatEnergy {
+    #[serde(default)]
+    energy_joules: Option<serde_json::Value>,
+    #[serde(default)]
+    energy_kwh: Option<serde_json::Value>,
+}
+
+/// Parse a hardware-energy value into millijoules with integer arithmetic.
+/// Joules take precedence over kWh (`1 kWh = 3.6 × 10^9 mJ`). Accepts JSON
+/// numbers and numeric strings, both integral and fractional decimal.
+fn parse_energy_millijoules(energy: &ChatEnergy) -> Option<u64> {
+    if let Some(joules) = &energy.energy_joules {
+        return parse_decimal_scaled(joules, JOULES_TO_MILLIJOULES);
+    }
+    parse_decimal_scaled(energy.energy_kwh.as_ref()?, KWH_TO_MILLIJOULES)
+}
+
+/// `1 J = 1_000 mJ`.
+const JOULES_TO_MILLIJOULES: i128 = 1_000;
+/// `1 kWh = 3.6 × 10^9 mJ`.
+const KWH_TO_MILLIJOULES: i128 = 3_600_000_000;
+
+/// Convert a JSON number-or-string decimal (optional `e±N` exponent —
+/// serde_json renders small floats in scientific notation, e.g. `5e-6`)
+/// into `value × factor` millijoules, half-up rounded, with `i128`
+/// intermediate math (no floats). The FULL fraction participates in the
+/// scaling: quantizing to three fraction digits before multiplying by a
+/// large factor (kWh = 3.6e9) would round a realistic 0.000005 kWh Neuralwatt
+/// reading (18 000 mJ) down to zero. Returns `None` for non-numeric input —
+/// callers treat that as "no telemetry reported", never as zero.
+fn parse_decimal_scaled(value: &serde_json::Value, factor: i128) -> Option<u64> {
+    let text = match value {
+        serde_json::Value::Number(n) => n.to_string(),
+        serde_json::Value::String(s) => s.trim().to_owned(),
+        _ => return None,
+    };
+    let (mantissa_text, exp) = match text.split_once(['e', 'E']) {
+        Some((mantissa, exponent)) => (mantissa, exponent.parse::<i32>().ok()?),
+        None => (text.as_str(), 0),
+    };
+    let (negative, digits) = match mantissa_text.strip_prefix('-') {
+        Some(rest) => (true, rest),
+        None => (false, mantissa_text),
+    };
+    let (int_part, frac_part) = match digits.split_once('.') {
+        Some((i, f)) => (i, f),
+        None => (digits, ""),
+    };
+    if int_part.is_empty() && frac_part.is_empty() {
+        return None;
+    }
+    if !int_part.chars().all(|c| c.is_ascii_digit())
+        || !frac_part.chars().all(|c| c.is_ascii_digit())
+    {
+        return None;
+    }
+    let int_val: i128 = if int_part.is_empty() {
+        0
+    } else {
+        int_part.parse().ok()?
+    };
+    // Exact value = mantissa × 10^exp × factor / 10^frac_len, half-up
+    // rounded to a whole millijoule count. A positive exponent shifts the
+    // decimal point before the division, so `5e-6` kWh = 18 000 mJ comes
+    // out exactly instead of being quantized to zero.
+    let mut mantissa = int_val;
+    for digit in frac_part.chars() {
+        mantissa = mantissa
+            .checked_mul(10)?
+            .checked_add(i128::from(digit.to_digit(10)?))?;
+    }
+    let scaled = if exp > 0 {
+        mantissa
+            .checked_mul(10_i128.checked_pow(u32::try_from(exp).ok()?)?)?
+            .checked_mul(factor)?
+    } else {
+        mantissa.checked_mul(factor)?
+    };
+    let den_shift = if exp < 0 {
+        // `unsigned_abs()` cannot overflow (unlike `-exp` at `i32::MIN`) —
+        // `exp` comes from provider-controlled text. The checked add/pow
+        // turn an absurd shift into `None` ("no telemetry"), never a panic.
+        exp.unsigned_abs()
+            .checked_add(u32::try_from(frac_part.len()).ok()?)?
+    } else {
+        frac_part.len() as u32
+    };
+    let den = 10_i128.checked_pow(den_shift)?;
+    let (quotient, remainder) = (scaled / den, scaled % den);
+    let total = if remainder * 2 >= den {
+        quotient + 1
+    } else {
+        quotient
+    };
+    if negative {
+        return None;
+    }
+    u64::try_from(total).ok()
 }
 
 #[derive(Debug, Deserialize)]
@@ -385,6 +552,82 @@ fn next_truncation_budget(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn decimal_scaled_keeps_sub_milli_kwh_precision() {
+        // The spec example: 0.000005 kWh (a realistic Neuralwatt reading) is
+        // exactly 18 000 mJ — the old three-digit pre-rounding returned 0.
+        assert_eq!(
+            parse_decimal_scaled(&serde_json::json!("0.000005"), KWH_TO_MILLIJOULES),
+            Some(18_000)
+        );
+        // Joules stay exact.
+        assert_eq!(
+            parse_decimal_scaled(&serde_json::json!("18"), JOULES_TO_MILLIJOULES),
+            Some(18_000)
+        );
+        assert_eq!(
+            parse_decimal_scaled(&serde_json::json!(4.2), JOULES_TO_MILLIJOULES),
+            Some(4_200)
+        );
+    }
+
+    #[test]
+    fn decimal_scaled_accepts_scientific_notation() {
+        // serde_json renders small floats via ryu as `5e-6` — the digit
+        // check must not reject the exponent form.
+        assert_eq!(
+            parse_decimal_scaled(&serde_json::json!(5e-6), KWH_TO_MILLIJOULES),
+            Some(18_000)
+        );
+        assert_eq!(
+            parse_decimal_scaled(&serde_json::json!("5E-6"), KWH_TO_MILLIJOULES),
+            Some(18_000)
+        );
+        assert_eq!(
+            parse_decimal_scaled(&serde_json::json!("1.5e3"), JOULES_TO_MILLIJOULES),
+            Some(1_500_000)
+        );
+    }
+
+    #[test]
+    fn decimal_scaled_rounds_half_up_and_rejects_non_numeric() {
+        // 0.5 mJ (in joules) — the exact half boundary rounds UP.
+        assert_eq!(
+            parse_decimal_scaled(&serde_json::json!("0.0005"), JOULES_TO_MILLIJOULES),
+            Some(1)
+        );
+        // 0.4 mJ rounds DOWN.
+        assert_eq!(
+            parse_decimal_scaled(&serde_json::json!("0.0004"), JOULES_TO_MILLIJOULES),
+            Some(0)
+        );
+        // 3.6 mJ (1e-9 kWh) rounds half-up to 4.
+        assert_eq!(
+            parse_decimal_scaled(&serde_json::json!("0.000000001"), KWH_TO_MILLIJOULES),
+            Some(4)
+        );
+        // `i32::MIN` exponent: `-exp` would overflow-panic in debug builds —
+        // the parse must degrade to `None` instead (regression for the
+        // provider-controlled-exponent hardening).
+        assert_eq!(
+            parse_decimal_scaled(&serde_json::json!("-1e-2147483648"), JOULES_TO_MILLIJOULES),
+            None
+        );
+        assert_eq!(
+            parse_decimal_scaled(&serde_json::json!("-1e2147483647"), JOULES_TO_MILLIJOULES),
+            None
+        );
+        // Negative telemetry is not a valid reading (never a negative cost).
+        assert_eq!(
+            parse_decimal_scaled(&serde_json::json!(-1), JOULES_TO_MILLIJOULES),
+            None
+        );
+        assert_eq!(
+            parse_decimal_scaled(&serde_json::json!("not-a-number"), JOULES_TO_MILLIJOULES),
+            None
+        );
+    }
 
     #[test]
     fn truncated_response_grows_budget_while_retries_remain() {
