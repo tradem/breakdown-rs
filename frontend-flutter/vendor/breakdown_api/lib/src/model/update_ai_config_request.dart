@@ -17,7 +17,7 @@ part 'update_ai_config_request.g.dart';
 ///
 /// Properties:
 /// * [assistantModel]
-/// * [costDisplayPreference] - See [`CreateAiConfigRequest`] (issue #675).
+/// * [costDisplayPreference] - See [`CreateAiConfigRequest`] (issue #675). `None` (omitted) keeps the stored preference — an omitted field must not reset an existing `energy` preference back to `token`.
 /// * [imageModel]
 /// * [prompts]
 /// * [provider]
@@ -29,7 +29,7 @@ abstract class UpdateAiConfigRequest
   @BuiltValueField(wireName: r'assistant_model')
   String get assistantModel;
 
-  /// See [`CreateAiConfigRequest`] (issue #675).
+  /// See [`CreateAiConfigRequest`] (issue #675). `None` (omitted) keeps the stored preference — an omitted field must not reset an existing `energy` preference back to `token`.
   @BuiltValueField(wireName: r'cost_display_preference')
   CostDisplayPreference? get costDisplayPreference;
   // enum costDisplayPreferenceEnum {  token,  energy,  };
@@ -89,7 +89,7 @@ class _$UpdateAiConfigRequestSerializer
       yield r'cost_display_preference';
       yield serializers.serialize(
         object.costDisplayPreference,
-        specifiedType: const FullType(CostDisplayPreference),
+        specifiedType: const FullType.nullable(CostDisplayPreference),
       );
     }
     if (object.imageModel != null) {

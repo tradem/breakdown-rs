@@ -3591,8 +3591,13 @@ components:
         assistant_model:
           type: string
         cost_display_preference:
-          $ref: '#/components/schemas/CostDisplayPreference'
-          description: 'See [`CreateAiConfigRequest`] (issue #675).'
+          oneOf:
+          - $ref: '#/components/schemas/CostDisplayPreference'
+            description: |-
+              See [`CreateAiConfigRequest`] (issue #675). `None` (omitted) keeps
+              the stored preference — an omitted field must not reset an existing
+              `energy` preference back to `token`.
+          - type: 'null'
         image_model:
           type:
           - string

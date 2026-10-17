@@ -396,5 +396,5 @@ async fn terminal_succeeded_frame_without_pricing_keeps_cost_unknown_not_null() 
     let terminal_frame = next_frame(&mut body).await.expect("terminal frame");
     let payload = frame_data(&terminal_frame).expect("terminal data");
     assert_eq!(payload["job"]["cost"]["status"], "unknown");
-    assert!(payload["job"]["cost"].get("tokenCost").is_none());
+    assert!(payload["job"]["cost"].get("token_cost").is_none());
 }

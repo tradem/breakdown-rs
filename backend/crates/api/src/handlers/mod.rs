@@ -6771,9 +6771,10 @@ pub struct UpdateAiConfigRequest {
     pub image_model: Option<String>,
     pub prompts: HashMap<DocumentKind, String>,
     pub vault_key_id: String,
-    /// See [`CreateAiConfigRequest`] (issue #675).
-    #[serde(default)]
-    pub cost_display_preference: CostDisplayPreference,
+    /// See [`CreateAiConfigRequest`] (issue #675). `None` (omitted) keeps
+    /// the stored preference — an omitted field must not reset an existing
+    /// `energy` preference back to `token`.
+    pub cost_display_preference: Option<CostDisplayPreference>,
     pub version: AggregateVersion,
 }
 
@@ -7234,11 +7235,25 @@ pub async fn list_ai_models<P: Ports>(
     // model. Models without a pricing row (e.g. Ollama) keep `pricing:
     // null` — never a fabricated zero-price object.
     let mut models = infra::ai::curated_models(provider);
-    let pricing_rows = state
+    // Pricing is advisory data: a pricing-read-model failure must not make
+    // the model picker unavailable (the workers degrade to `Unknown` cost
+    // snapshots the same way). Log and serve the unpriced catalog.
+    let pricing_rows = match state
         .ports
         .ai_model_pricing_repo()
         .list_for_provider(provider)
-        .await?;
+        .await
+    {
+        Ok(rows) => rows,
+        Err(error) => {
+            tracing::warn!(
+                %error,
+                provider = provider.as_str(),
+                "pricing lookup failed; serving unpriced catalog"
+            );
+            Vec::new()
+        }
+    };
     for model in &mut models {
         model.pricing = pricing_rows
             .iter()

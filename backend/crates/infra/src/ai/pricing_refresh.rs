@@ -126,9 +126,14 @@ impl AiPricingRefreshWorker {
 
     /// Spawn the worker: one non-blocking initial refresh right after boot
     /// (spec: "initial non-blocking refresh after startup"), then one cycle
-    /// per `config.interval`. The returned handle must be kept alive (and
-    /// aborted on shutdown).
-    pub fn spawn(self, config: PricingRefreshConfig) -> tokio::task::JoinHandle<()> {
+    /// per `config.interval`. The task observes the shared [shutdown signal]
+    /// (`infra::ai::worker_loop::ShutdownSignal`) so graceful shutdown is
+    /// prompt instead of waiting out the 10 s join budget.
+    pub fn spawn(
+        self,
+        config: PricingRefreshConfig,
+        mut shutdown: crate::ai::worker_loop::ShutdownSignal,
+    ) -> tokio::task::JoinHandle<()> {
         tokio::spawn(async move {
             // Initial refresh off the boot path — a hung catalog must never
             // delay the API's readiness.
@@ -139,7 +144,10 @@ impl AiPricingRefreshWorker {
             ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
             ticker.tick().await; // the first tick completes immediately
             loop {
-                ticker.tick().await;
+                tokio::select! {
+                    _ = shutdown.changed() => break,
+                    _ = ticker.tick() => {}
+                }
                 if let Err(error) = self.run_once().await {
                     tracing::warn!(%error, "ai-pricing-refresh: refresh cycle failed");
                 }
@@ -226,7 +234,22 @@ where
     ] {
         match fetch(source).await {
             Ok(json) => match source.parse(&json) {
-                Ok(mut parsed) => rows.append(&mut parsed),
+                Ok(parsed) => {
+                    for row in parsed {
+                        // models.dev is the FALLBACK for Neuralwatt/OpenRouter:
+                        // the provider's live `/v1/models` feed is primary. A
+                        // fallback row must never overwrite an earlier
+                        // source's row (`upsert_batch` is last-write-wins in
+                        // insertion order), so duplicates are skipped.
+                        let duplicate = source == CatalogSource::ModelsDev
+                            && rows.iter().any(|existing: &ModelPricingRow| {
+                                existing.provider == row.provider && existing.model == row.model
+                            });
+                        if !duplicate {
+                            rows.push(row);
+                        }
+                    }
+                }
                 Err(error) => tracing::warn!(
                     %error,
                     source = ?source,

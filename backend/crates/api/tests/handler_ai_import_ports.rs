@@ -1039,7 +1039,7 @@ async fn ai_config_lifecycle_runs_through_the_config_ports() {
             prompts: HashMap::new(),
             vault_key_id: "replacement-vault-key".to_owned(),
             version: created.version,
-            cost_display_preference: CostDisplayPreference::Token,
+            cost_display_preference: Some(CostDisplayPreference::Token),
         }),
     )
     .await
@@ -1110,7 +1110,7 @@ async fn ai_config_update_rejects_vault_key_from_another_provider() {
             prompts: HashMap::new(),
             vault_key_id: "openai-vault-key".to_owned(),
             version: AggregateVersion(2),
-            cost_display_preference: CostDisplayPreference::Token,
+            cost_display_preference: Some(CostDisplayPreference::Token),
         }),
     )
     .await
@@ -1167,7 +1167,7 @@ async fn ai_config_update_rejects_unknown_vault_key() {
             prompts: HashMap::new(),
             vault_key_id: "never-vaulted-key".to_owned(),
             version: AggregateVersion(2),
-            cost_display_preference: CostDisplayPreference::Token,
+            cost_display_preference: Some(CostDisplayPreference::Token),
         }),
     )
     .await
@@ -1222,7 +1222,7 @@ async fn ai_config_update_keeps_unchanged_vault_key_without_binding_lookup() {
             prompts: HashMap::new(),
             vault_key_id: "vault-key".to_owned(),
             version: AggregateVersion(2),
-            cost_display_preference: CostDisplayPreference::Token,
+            cost_display_preference: Some(CostDisplayPreference::Token),
         }),
     )
     .await
@@ -1273,7 +1273,7 @@ async fn ai_config_version_conflict_is_scoped_409() {
             prompts: HashMap::new(),
             vault_key_id: "vault-key".to_owned(),
             version: AggregateVersion(2),
-            cost_display_preference: CostDisplayPreference::Token,
+            cost_display_preference: Some(CostDisplayPreference::Token),
         }),
     )
     .await
@@ -1865,7 +1865,7 @@ async fn ai_config_update_rejects_a_foreign_replacement_vault_key() {
             prompts: HashMap::new(),
             vault_key_id: "foreign-vault-key".to_owned(),
             version: AggregateVersion(2),
-            cost_display_preference: CostDisplayPreference::Token,
+            cost_display_preference: Some(CostDisplayPreference::Token),
         }),
     )
     .await
@@ -2526,7 +2526,7 @@ async fn ai_config_cost_display_preference_round_trips_to_the_commands() {
             prompts: HashMap::new(),
             vault_key_id: "replacement-vault-key".to_owned(),
             version: created.version,
-            cost_display_preference: CostDisplayPreference::Token,
+            cost_display_preference: Some(CostDisplayPreference::Token),
         }),
     )
     .await
@@ -2536,7 +2536,7 @@ async fn ai_config_cost_display_preference_round_trips_to_the_commands() {
     assert_eq!(updated.len(), 1);
     assert_eq!(
         updated[0].cost_display_preference,
-        CostDisplayPreference::Token,
+        Some(CostDisplayPreference::Token),
         "the update command carries the switched display preference"
     );
 }

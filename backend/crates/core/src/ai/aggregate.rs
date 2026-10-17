@@ -105,7 +105,9 @@ impl Apply for AiConfig {
                 self.image_model = image_model;
                 self.prompts = prompts;
                 self.vault_key_id = vault_key_id;
-                self.cost_display_preference = cost_display_preference;
+                if let Some(preference) = cost_display_preference {
+                    self.cost_display_preference = preference;
+                }
                 self.revoked = false;
                 self.version = version;
             }

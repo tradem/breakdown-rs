@@ -742,18 +742,19 @@ async fn main() -> Result<()> {
                 bounds,
                 pricing: Some(worker_pricing),
             },
-            shutdown_rx,
+            shutdown_rx.clone(),
         ));
 
         // Pricing refresh worker (issue #675): one non-blocking refresh right
         // after boot, then every AI_PRICING_REFRESH_INTERVAL_SECS, guarded by
-        // a Postgres advisory lock. Aborted during graceful shutdown below.
+        // a Postgres advisory lock. Observes the shared shutdown signal so
+        // graceful shutdown is prompt (no 10 s join-budget timeout).
         let refresh_config = infra::ai::PricingRefreshConfig::from_env();
         if refresh_config.enabled {
             let pricing_repo =
                 std::sync::Arc::new(infra::ai::PgAiModelPricingRepository::new(pool.clone()));
             let refresh_worker = infra::ai::AiPricingRefreshWorker::new(pool.clone(), pricing_repo);
-            ai_worker_handles.push(refresh_worker.spawn(refresh_config));
+            ai_worker_handles.push(refresh_worker.spawn(refresh_config, shutdown_rx));
         }
 
         ai_shutdown_tx = Some(shutdown_tx);

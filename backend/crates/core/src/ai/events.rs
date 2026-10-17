@@ -37,9 +37,11 @@ pub enum AiConfigEvent {
         image_model: Option<String>,
         prompts: HashMap<DocumentKind, String>,
         vault_key_id: String,
-        /// See [`AiConfigEvent::Created`].
+        /// See [`AiConfigEvent::Created`]. `None` = the update did not touch
+        /// the preference (replayed older events deserialize to `None` via
+        /// `#[serde(default)]` and leave the current value in place).
         #[serde(default)]
-        cost_display_preference: CostDisplayPreference,
+        cost_display_preference: Option<CostDisplayPreference>,
         version: AggregateVersion,
     },
     Revoked {

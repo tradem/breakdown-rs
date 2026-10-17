@@ -49,7 +49,7 @@ fn make_update_cmd(id: Uuid, version: AggregateVersion) -> UpdateAiConfig {
         image_model: None,
         prompts: HashMap::from([(DocumentKind::Script, "New prompt".into())]),
         vault_key_id: "key-456".into(),
-        cost_display_preference: CostDisplayPreference::Energy,
+        cost_display_preference: Some(CostDisplayPreference::Energy),
         version,
     }
 }
@@ -131,7 +131,7 @@ fn update_config_emits_single_updated_event() {
             image_model: None,
             prompts: HashMap::from([(DocumentKind::Script, "New prompt".into())]),
             vault_key_id: "key-456".into(),
-            cost_display_preference: CostDisplayPreference::Energy,
+            cost_display_preference: Some(CostDisplayPreference::Energy),
             version: AggregateVersion::INITIAL.next(),
         }]);
 }
@@ -184,7 +184,7 @@ fn update_config_accepts_provider_replacement_with_new_vault_key() {
             image_model: None,
             prompts: HashMap::from([(DocumentKind::Script, "New prompt".into())]),
             vault_key_id: "key-789".into(),
-            cost_display_preference: CostDisplayPreference::Energy,
+            cost_display_preference: Some(CostDisplayPreference::Energy),
             version: AggregateVersion::INITIAL.next(),
         }]);
 }
@@ -326,7 +326,33 @@ fn legacy_created_event_without_preference_replays_as_token() {
 }
 
 #[test]
-fn legacy_updated_event_without_preference_replays_as_token() {
+fn update_with_omitted_preference_keeps_the_current_value() {
+    // A PATCH that omits `cost_display_preference` (e.g. an older client
+    // editing other properties) must NOT reset an existing `energy`
+    // preference to `token` — the command carries `None` and the aggregate
+    // keeps its current value.
+    let create_cmd = make_create_cmd();
+    let id = create_cmd.id;
+
+    AiConfig::given(vec![created_event(&create_cmd)])
+        .when(UpdateAiConfig {
+            cost_display_preference: None,
+            ..make_update_cmd(id, AggregateVersion::INITIAL)
+        })
+        .then(vec![AiConfigEvent::Updated {
+            id,
+            provider: LlmProvider::OpenAI,
+            assistant_model: "gpt-4o-mini".into(),
+            image_model: None,
+            prompts: HashMap::from([(DocumentKind::Script, "New prompt".into())]),
+            vault_key_id: "key-456".into(),
+            cost_display_preference: None,
+            version: AggregateVersion::INITIAL.next(),
+        }]);
+}
+
+#[test]
+fn legacy_updated_event_without_preference_replays_as_none() {
     let legacy = serde_json::json!({
         "Updated": {
             "id": Uuid::now_v7(),
@@ -344,7 +370,7 @@ fn legacy_updated_event_without_preference_replays_as_token() {
         AiConfigEvent::Updated {
             cost_display_preference,
             ..
-        } => assert_eq!(cost_display_preference, CostDisplayPreference::Token),
+        } => assert_eq!(cost_display_preference, None),
         other => panic!("wrong variant: {other:?}"),
     }
 }

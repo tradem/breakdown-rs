@@ -796,24 +796,27 @@ impl AiImportQueue for PgAiImportQueue {
         id: AiImportJobId,
         telemetry: Telemetry,
     ) -> Result<(), DomainError> {
+        // Apply-path telemetry ONLY: this unfenced update runs after a
+        // successful apply on an already-terminal job whose completion-time
+        // telemetry/cost snapshot is IMMUTABLE (design D4 — never recomputed).
+        // The only fields observable at apply time are the accept signal and
+        // the content-free edit count; rewriting the other columns (defaulted
+        // `..Telemetry::default()` in the handler) would NULL out the
+        // persisted cost snapshot.
         let values = TelemetryValues::try_from_telemetry(telemetry)?;
-        values
-            .bind_all(
-                sqlx::query(
-                    r#"
+        sqlx::query(
+            r#"
             UPDATE ai_import.ai_import_job
-            SET provider = $2, model = $3, chunk_count = $4,
-                tokens_in = $5, tokens_out = $6, latency_total_ms = $7,
-                cached_tokens_in = $8, energy_millijoules = $9, cost = $10,
-                accept_as_is = $11, edit_distance = $12, updated_at = now()
+            SET accept_as_is = $2, edit_distance = $3, updated_at = now()
             WHERE id = $1
             "#,
-                )
-                .bind(id.as_uuid()),
-            )
-            .execute(&self.pool)
-            .await
-            .map_err(map_sqlx_error)?;
+        )
+        .bind(id.as_uuid())
+        .bind(values.accept_as_is)
+        .bind(values.edit_distance)
+        .execute(&self.pool)
+        .await
+        .map_err(map_sqlx_error)?;
         Ok(())
     }
 
@@ -1148,19 +1151,11 @@ fn decode_job_cost(row: &sqlx::postgres::PgRow) -> Option<CostBreakdown> {
     serde_json::from_value(value?).ok()
 }
 
-/// Parse a persisted provider key (canonical key or accepted alias).
+/// Parse a persisted provider key (canonical key or accepted alias) —
+/// delegates to the shared provider registry so a new provider needs exactly
+/// one edit (the registry), not a fourth hand-written key table.
 fn parse_provider_key(value: &str) -> Option<LlmProvider> {
-    match value {
-        "openai" => Some(LlmProvider::OpenAI),
-        "gemini" | "google" => Some(LlmProvider::Gemini),
-        "openrouter" => Some(LlmProvider::OpenRouter),
-        "eurouter" | "openrouter_eu" | "openrouter-eu" => Some(LlmProvider::EURouter),
-        "neuralwatt" => Some(LlmProvider::Neuralwatt),
-        "opencode-go" | "opencode_go" => Some(LlmProvider::OpenCodeGo),
-        "opencode" => Some(LlmProvider::OpenCode),
-        "ollama" => Some(LlmProvider::Ollama),
-        _ => None,
-    }
+    crate::ai::provider_registry::resolve_provider(value)
 }
 
 /// Decode one `ai_import.ai_import_job_attempt` row (issue #637).

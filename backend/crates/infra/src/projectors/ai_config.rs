@@ -100,7 +100,8 @@ impl<'a> EntityEventHandler<AiConfig, Transaction<'a, Postgres>> for AiConfigPro
                     r#"
                     UPDATE ai_import.projection_ai_config
                     SET provider = $2, assistant_model = $3, image_model = $4,
-                        prompts = $5, vault_key_id = $6, cost_display_preference = $7,
+                        prompts = $5, vault_key_id = $6,
+                        cost_display_preference = COALESCE($7, cost_display_preference),
                         revoked = FALSE,
                         version = $8, updated_at = $9
                     WHERE id = $1 AND version < $8
@@ -112,7 +113,13 @@ impl<'a> EntityEventHandler<AiConfig, Transaction<'a, Postgres>> for AiConfigPro
                 .bind(image_model)
                 .bind(prompts)
                 .bind(vault_key_id)
-                .bind(cost_display_preference.as_str())
+                // `None` = the update did not touch the preference — keep the
+                // currently projected value instead of overwriting it.
+                .bind(
+                    cost_display_preference
+                        .as_ref()
+                        .map(|preference| preference.as_str()),
+                )
                 .bind(i64::try_from(version.0).map_err(|error| {
                     sqlx::Error::Protocol(format!(
                         "AI config aggregate version exceeds database range: {error}"

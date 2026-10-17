@@ -37,10 +37,10 @@ pub struct UpdateAiConfig {
     pub image_model: Option<String>,
     pub prompts: HashMap<DocumentKind, String>,
     pub vault_key_id: String,
-    /// Preferred primary cost display metric (issue #675). Defaults to
-    /// [`CostDisplayPreference::Token`] for clients predating the field.
-    #[serde(default)]
-    pub cost_display_preference: CostDisplayPreference,
+    /// Preferred primary cost display metric (issue #675). `None` (an
+    /// omitted field — e.g. an older client PATCHing other properties) keeps
+    /// the aggregate's current preference instead of resetting it.
+    pub cost_display_preference: Option<CostDisplayPreference>,
     pub version: AggregateVersion,
 }
 

@@ -351,19 +351,27 @@ const JOULES_TO_MILLIJOULES: i128 = 1_000;
 /// `1 kWh = 3.6 × 10^9 mJ`.
 const KWH_TO_MILLIJOULES: i128 = 3_600_000_000;
 
-/// Convert a JSON number-or-string decimal into `value × factor`
-/// millijoules, half-up rounded, with `i128` intermediate math (no floats).
-/// Returns `None` for non-numeric input — callers treat that as "no
-/// telemetry reported", never as zero.
+/// Convert a JSON number-or-string decimal (optional `e±N` exponent —
+/// serde_json renders small floats in scientific notation, e.g. `5e-6`)
+/// into `value × factor` millijoules, half-up rounded, with `i128`
+/// intermediate math (no floats). The FULL fraction participates in the
+/// scaling: quantizing to three fraction digits before multiplying by a
+/// large factor (kWh = 3.6e9) would round a realistic 0.000005 kWh Neuralwatt
+/// reading (18 000 mJ) down to zero. Returns `None` for non-numeric input —
+/// callers treat that as "no telemetry reported", never as zero.
 fn parse_decimal_scaled(value: &serde_json::Value, factor: i128) -> Option<u64> {
     let text = match value {
         serde_json::Value::Number(n) => n.to_string(),
         serde_json::Value::String(s) => s.trim().to_owned(),
         _ => return None,
     };
-    let (negative, digits) = match text.strip_prefix('-') {
+    let (mantissa_text, exp) = match text.split_once(['e', 'E']) {
+        Some((mantissa, exponent)) => (mantissa, exponent.parse::<i32>().ok()?),
+        None => (text.as_str(), 0),
+    };
+    let (negative, digits) = match mantissa_text.strip_prefix('-') {
         Some(rest) => (true, rest),
-        None => (false, text.as_str()),
+        None => (false, mantissa_text),
     };
     let (int_part, frac_part) = match digits.split_once('.') {
         Some((i, f)) => (i, f),
@@ -382,24 +390,35 @@ fn parse_decimal_scaled(value: &serde_json::Value, factor: i128) -> Option<u64> 
     } else {
         int_part.parse().ok()?
     };
-    // Scale the fraction to 3 decimal places (milli) with half-up rounding
-    // using the 4th fraction digit.
-    let mut milli_val: i128 = 0;
-    for digit in frac_part.chars().take(3) {
-        milli_val = milli_val * 10 + i128::from(digit.to_digit(10)?);
+    // Exact value = mantissa × 10^exp × factor / 10^frac_len, half-up
+    // rounded to a whole millijoule count. A positive exponent shifts the
+    // decimal point before the division, so `5e-6` kWh = 18 000 mJ comes
+    // out exactly instead of being quantized to zero.
+    let mut mantissa = int_val;
+    for digit in frac_part.chars() {
+        mantissa = mantissa
+            .checked_mul(10)?
+            .checked_add(i128::from(digit.to_digit(10)?))?;
     }
-    for _ in frac_part.chars().count()..3 {
-        milli_val *= 10;
-    }
-    if let Some(round_digit) = frac_part.chars().nth(3)
-        && round_digit.to_digit(10).is_some_and(|d| d >= 5)
-    {
-        milli_val += 1;
-    }
-    let total = int_val
-        .checked_mul(factor)?
-        .checked_add(milli_val.checked_mul(factor.checked_div(1_000)?)?)
-        .unwrap_or(i128::MAX);
+    let scaled = if exp > 0 {
+        mantissa
+            .checked_mul(10_i128.checked_pow(u32::try_from(exp).ok()?)?)?
+            .checked_mul(factor)?
+    } else {
+        mantissa.checked_mul(factor)?
+    };
+    let den_shift = if exp < 0 {
+        u32::try_from(-exp).ok()? + frac_part.len() as u32
+    } else {
+        frac_part.len() as u32
+    };
+    let den = 10_i128.checked_pow(den_shift)?;
+    let (quotient, remainder) = (scaled / den, scaled % den);
+    let total = if remainder * 2 >= den {
+        quotient + 1
+    } else {
+        quotient
+    };
     if negative {
         return None;
     }
@@ -529,6 +548,71 @@ fn next_truncation_budget(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn decimal_scaled_keeps_sub_milli_kwh_precision() {
+        // The spec example: 0.000005 kWh (a realistic Neuralwatt reading) is
+        // exactly 18 000 mJ — the old three-digit pre-rounding returned 0.
+        assert_eq!(
+            parse_decimal_scaled(&serde_json::json!("0.000005"), KWH_TO_MILLIJOULES),
+            Some(18_000)
+        );
+        // Joules stay exact.
+        assert_eq!(
+            parse_decimal_scaled(&serde_json::json!("18"), JOULES_TO_MILLIJOULES),
+            Some(18_000)
+        );
+        assert_eq!(
+            parse_decimal_scaled(&serde_json::json!(4.2), JOULES_TO_MILLIJOULES),
+            Some(4_200)
+        );
+    }
+
+    #[test]
+    fn decimal_scaled_accepts_scientific_notation() {
+        // serde_json renders small floats via ryu as `5e-6` — the digit
+        // check must not reject the exponent form.
+        assert_eq!(
+            parse_decimal_scaled(&serde_json::json!(5e-6), KWH_TO_MILLIJOULES),
+            Some(18_000)
+        );
+        assert_eq!(
+            parse_decimal_scaled(&serde_json::json!("5E-6"), KWH_TO_MILLIJOULES),
+            Some(18_000)
+        );
+        assert_eq!(
+            parse_decimal_scaled(&serde_json::json!("1.5e3"), JOULES_TO_MILLIJOULES),
+            Some(1_500_000)
+        );
+    }
+
+    #[test]
+    fn decimal_scaled_rounds_half_up_and_rejects_non_numeric() {
+        // 0.5 mJ (in joules) — the exact half boundary rounds UP.
+        assert_eq!(
+            parse_decimal_scaled(&serde_json::json!("0.0005"), JOULES_TO_MILLIJOULES),
+            Some(1)
+        );
+        // 0.4 mJ rounds DOWN.
+        assert_eq!(
+            parse_decimal_scaled(&serde_json::json!("0.0004"), JOULES_TO_MILLIJOULES),
+            Some(0)
+        );
+        // 3.6 mJ (1e-9 kWh) rounds half-up to 4.
+        assert_eq!(
+            parse_decimal_scaled(&serde_json::json!("0.000000001"), KWH_TO_MILLIJOULES),
+            Some(4)
+        );
+        // Negative telemetry is not a valid reading (never a negative cost).
+        assert_eq!(
+            parse_decimal_scaled(&serde_json::json!(-1), JOULES_TO_MILLIJOULES),
+            None
+        );
+        assert_eq!(
+            parse_decimal_scaled(&serde_json::json!("not-a-number"), JOULES_TO_MILLIJOULES),
+            None
+        );
+    }
 
     #[test]
     fn truncated_response_grows_budget_while_retries_remain() {
