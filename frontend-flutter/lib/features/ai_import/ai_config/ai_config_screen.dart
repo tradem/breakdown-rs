@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
 // Co-authored-by: omen-alpha (opencode-go)
 // Co-authored-by: space-bunny-free (opencode-go)
@@ -13,7 +14,9 @@ import '../../../core/problem_error.dart';
 import '../../../design/components/xml_prompt_editor.dart';
 import '../../../design/spacing.dart';
 import '../../../l10n/app_localizations_provider.dart';
+import '../../../l10n/generated/app_localizations.dart';
 import '../clippy/clippy_trigger.dart';
+import '../cost_format.dart';
 import '../clippy/karl_kleiderbuegel_overlay.dart';
 import 'ai_config_controller.dart';
 import 'ai_config_state.dart';
@@ -276,6 +279,8 @@ class _FirstRunFormState extends ConsumerState<_FirstRunForm> {
         const SizedBox(height: 16),
         const _ModelPickers(),
         const SizedBox(height: 16),
+        const _CostDisplayPreferenceSelector(),
+        const SizedBox(height: 16),
         TextField(
           key: const Key('ai-api-key-field'),
           controller: _keyController,
@@ -398,6 +403,10 @@ class _ModelPickers extends ConsumerWidget {
           DropdownButtonFormField<String>(
             key: const Key('ai-assistant-model-picker'),
             initialValue: state.selectedAssistantModelId,
+            // Two-line items (model name + pricing signal, issue #675):
+            // the default 48 px item height would overflow the column.
+            itemHeight: 72,
+            isExpanded: true,
             decoration: InputDecoration(
               labelText: l10nOf(context).aiConfigAssistantModelLabel,
               border: const OutlineInputBorder(),
@@ -414,8 +423,27 @@ class _ModelPickers extends ConsumerWidget {
               for (final model in value)
                 DropdownMenuItem<String>(
                   value: model.id,
-                  child: Text(model.displayName ?? model.id),
+                  child: Column(
+                    key: Key('ai-assistant-model-item-${model.id}'),
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(model.displayName ?? model.id),
+                      _modelPriceCaption(model, l10nOf(context)),
+                    ],
+                  ),
                 ),
+            ],
+            // The CLOSED field shows the one-line model name; the two-line
+            // column (name + pricing signal) is menu-only (the closed
+            // display is height-constrained to the input's inner box).
+            selectedItemBuilder: (context) => [
+              if (state.selectedAssistantModelId != null &&
+                  !value.any(
+                    (model) => model.id == state.selectedAssistantModelId,
+                  ))
+                Text(state.selectedAssistantModelId!),
+              for (final model in value) Text(model.displayName ?? model.id),
             ],
             onChanged: (id) {
               if (id != null) controller.selectAssistantModel(id);
@@ -425,6 +453,9 @@ class _ModelPickers extends ConsumerWidget {
           DropdownButtonFormField<String?>(
             key: const Key('ai-image-model-picker'),
             initialValue: state.selectedImageModelId,
+            // Two-line items (model name + pricing signal, issue #675).
+            itemHeight: 72,
+            isExpanded: true,
             decoration: InputDecoration(
               labelText: l10nOf(context).aiConfigImageModelLabel,
               border: const OutlineInputBorder(),
@@ -443,8 +474,24 @@ class _ModelPickers extends ConsumerWidget {
               for (final model in value)
                 DropdownMenuItem<String?>(
                   value: model.id,
-                  child: Text(model.displayName ?? model.id),
+                  child: Column(
+                    key: Key('ai-image-model-item-${model.id}'),
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(model.displayName ?? model.id),
+                      _modelPriceCaption(model, l10nOf(context)),
+                    ],
+                  ),
                 ),
+            ],
+            // Menu-only two-line items — see the assistant picker above.
+            selectedItemBuilder: (context) => [
+              Text(l10nOf(context).aiConfigNoModel),
+              if (state.selectedImageModelId != null &&
+                  !value.any((model) => model.id == state.selectedImageModelId))
+                Text(state.selectedImageModelId!),
+              for (final model in value) Text(model.displayName ?? model.id),
             ],
             onChanged: (id) => controller.selectImageModel(id),
           ),
@@ -463,6 +510,73 @@ class _ModelPickers extends ConsumerWidget {
         child: CircularProgressIndicator(strokeWidth: 2),
       ),
     };
+  }
+}
+
+/// The pricing signal caption under/next to one model in a picker
+/// (issue #675): formatted input/output token rates per 1M tokens (plus
+/// the energy rate when the provider offers one), or the localized
+/// "Unknown" copy when `pricing == null` — NEVER a fabricated `$0.00`.
+Widget _modelPriceCaption(ModelInfo model, AppLocalizations l10n) {
+  final style = TextStyle(fontSize: 12, color: Colors.grey.shade600);
+  final pricing = model.pricing;
+  if (pricing == null) {
+    return Text(
+      l10n.commonUnknown,
+      key: Key('ai-model-price-unknown-${model.id}'),
+      style: style,
+    );
+  }
+  final currency = pricing.currency;
+  final rate = l10n.aiModelPriceInOut(
+    formatNanoCurrency(pricing.inputNanoPerMillion, currency),
+    formatNanoCurrency(pricing.outputNanoPerMillion, currency),
+  );
+  final energyRate = pricing.energyNanoPerKwh;
+  return Text(
+    energyRate == null
+        ? rate
+        : '$rate · ${l10n.aiModelEnergyRate(formatNanoCurrency(energyRate, currency))}',
+    key: Key('ai-model-price-${model.id}'),
+    style: style,
+  );
+}
+
+/// The preferred-primary-cost selector (issue #675): `token` vs `energy`.
+/// A SegmentedButton — the default (`token`) is preselected on first run
+/// and echoes the configured value otherwise; the selection is drafted
+/// in the controller and carried by create/PATCH.
+class _CostDisplayPreferenceSelector extends ConsumerWidget {
+  const _CostDisplayPreferenceSelector();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final state = ref.watch(aiConfigControllerProvider);
+    final controller = ref.read(aiConfigControllerProvider.notifier);
+    return SegmentedButton<CostDisplayPreference>(
+      key: const Key('ai-cost-display-picker'),
+      segments: [
+        ButtonSegment(
+          value: CostDisplayPreference.token,
+          label: Text(
+            l10nOf(context).aiConfigCostDisplayToken,
+            key: const Key('ai-cost-display-token'),
+          ),
+        ),
+        ButtonSegment(
+          value: CostDisplayPreference.energy,
+          label: Text(
+            l10nOf(context).aiConfigCostDisplayEnergy,
+            key: const Key('ai-cost-display-energy'),
+          ),
+        ),
+      ],
+      selected: {state.costDisplayPreference},
+      onSelectionChanged: (selection) {
+        final preference = selection.first;
+        controller.selectCostDisplayPreference(preference);
+      },
+    );
   }
 }
 
@@ -685,6 +799,8 @@ class _ConfiguredFormState extends ConsumerState<_ConfiguredForm> {
         const SizedBox(height: AppSpacing.space12),
         const _ModelPickers(),
         const SizedBox(height: AppSpacing.space8),
+        const _CostDisplayPreferenceSelector(),
+        const SizedBox(height: AppSpacing.space8),
         const _PromptFields(
           scriptKey: 'ai-edit-script-prompt',
           scheduleKey: 'ai-edit-schedule-prompt',
@@ -705,6 +821,7 @@ class _ConfiguredFormState extends ConsumerState<_ConfiguredForm> {
                       providerKey: state.selectedProviderKey,
                       assistantModelId: state.selectedAssistantModelId,
                       imageModelId: state.selectedImageModelId,
+                      costDisplayPreference: state.costDisplayPreference,
                       scriptPrompt: state.scriptPrompt,
                       schedulePrompt: state.schedulePrompt,
                       replacementSecret: showReplacementKey

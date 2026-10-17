@@ -116,7 +116,7 @@ final class AiJobStatusControllerProvider
 }
 
 String _$aiJobStatusControllerHash() =>
-    r'577296d6e845f3d7ccc914aff1127c482b22db35';
+    r'eb95ebc01e32d5621ac62064588e7afde7d6f536';
 
 /// The job-status controller (`flutter-ai-import-workflow` task 3.2, issue
 /// #664 battery contract D5).

@@ -28,6 +28,7 @@ import 'package:drift/native.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/misc.dart' show Override;
 import 'package:flutter_secure_storage_platform_interface/flutter_secure_storage_platform_interface.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fpdart/fpdart.dart';
@@ -87,6 +88,7 @@ AiImportJob _job(
   int retries = 0,
   int maxRetries = 3,
   String? lastError,
+  CostBreakdown? cost,
 }) => AiImportJob(
   (b) => b
     ..id = id
@@ -100,9 +102,47 @@ AiImportJob _job(
     ..retries = retries
     ..maxRetries = maxRetries
     ..lastError = lastError
+    ..cost = cost?.toBuilder()
     ..createdAt = DateTime.utc(2026, 1, 1)
     ..updatedAt = DateTime.utc(2026, 1, 1),
 );
+
+/// A `known` cost snapshot fixture (issue #675): token total $0.0235 and —
+/// when [withEnergy] — a Neuralwatt-style energy cost of $0.00005 (uncapped
+/// by default; the cap flag mirrors the wire shape).
+CostBreakdown _knownCost({bool withEnergy = false, bool capped = false}) =>
+    CostBreakdown(
+      (b) => b
+        ..status = CostStatus.known
+        ..currency = Currency.USD
+        ..priceAsOf = DateTime.utc(2026, 1, 1)
+        ..pricingSource = PricingSource.curatedSeed
+        ..tokenCost = TokenCostBreakdown(
+          (b) => b
+            ..tokensIn = 4700
+            ..tokensOut = 1200
+            ..cachedTokensIn = 0
+            ..inputRateNanoPerMillion = 1450000000
+            ..outputRateNanoPerMillion = 4000000000
+            ..totalNano = 23500000,
+        ).toBuilder()
+        ..energyCost = withEnergy
+            ? EnergyCostBreakdown(
+                (b) => b
+                  ..energyMillijoules = 1800000
+                  ..rateNanoPerKwh = 10000000000
+                  ..rawEnergyNano = 50000
+                  ..effectiveCappedNano = capped ? 23500000 : 50000
+                  ..cappedByTokenCost = capped,
+              ).toBuilder()
+            : null,
+    );
+
+CostBreakdown _unknownCost() =>
+    CostBreakdown((b) => b..status = CostStatus.unknown);
+
+CostBreakdown _notApplicableCost() =>
+    CostBreakdown((b) => b..status = CostStatus.notApplicable);
 
 /// Repository fake: a scriptable list result (with a pending gate for the
 /// cache-first ordering test) and call counters. `readCached` runs the REAL
@@ -179,6 +219,7 @@ void main() {
   Future<void> setupContainer({
     Result<List<AiImportJob>>? listResult,
     Completer<Result<List<AiImportJob>>>? listGate,
+    List<Override> overrides = const [],
   }) async {
     final previous = container;
     if (previous != null) previous.dispose();
@@ -189,6 +230,7 @@ void main() {
       ..listGate = listGate;
     container = ProviderContainer(
       overrides: [
+        ...overrides,
         appConfigProvider.overrideWithValue(devAuthConfig),
         aiImportRepositoryProvider.overrideWithValue(repo!),
         // The pushed import-submission screen renders the configured
@@ -891,6 +933,147 @@ void main() {
       await tester.pump();
     });
 
+    group('compact cost line (issue #675, tier 1 + tier 2)', () {
+      group('aiJobCostCompactCopy (tier 1)', () {
+        test('no snapshot renders nothing', () {
+          expect(
+            aiJobCostCompactCopy(
+              AppLocalizationsEn(),
+              null,
+              CostDisplayPreference.token,
+            ),
+            isNull,
+          );
+        });
+
+        test('known: the token total is the primary figure by default', () {
+          expect(
+            aiJobCostCompactCopy(
+              AppLocalizationsEn(),
+              _knownCost(withEnergy: true),
+              CostDisplayPreference.token,
+            ),
+            r'Cost: $0.0235',
+          );
+        });
+
+        test('known: the energy preference switches the primary figure to '
+            'the capped energy cost', () {
+          expect(
+            aiJobCostCompactCopy(
+              AppLocalizationsEn(),
+              _knownCost(withEnergy: true),
+              CostDisplayPreference.energy,
+            ),
+            r'Cost: $0.00005',
+          );
+        });
+
+        test('known without energy: the energy preference falls back to the '
+            'token total', () {
+          expect(
+            aiJobCostCompactCopy(
+              AppLocalizationsEn(),
+              _knownCost(),
+              CostDisplayPreference.energy,
+            ),
+            r'Cost: $0.0235',
+          );
+        });
+
+        test('unknown renders the localized Unknown copy — NEVER 0', () {
+          final copy = aiJobCostCompactCopy(
+            AppLocalizationsEn(),
+            _unknownCost(),
+            CostDisplayPreference.token,
+          )!;
+          expect(copy, contains('Unknown'));
+          expect(copy.contains('0'), isFalse);
+        });
+
+        test('not_applicable renders the no-AI-billed copy', () {
+          expect(
+            aiJobCostCompactCopy(
+              AppLocalizationsEn(),
+              _notApplicableCost(),
+              CostDisplayPreference.token,
+            ),
+            'No AI model was billed — native CSV import without an LLM.',
+          );
+        });
+      });
+
+      testWidgets('a known-cost row renders the formatted total in the '
+          'list', (tester) async {
+        await setupContainer(
+          listResult: Right([
+            _job('job-c', status: JobStatus.succeeded, cost: _knownCost()),
+          ]),
+        );
+        await pumpScreen(tester);
+        expect(find.byKey(const Key('ai-jobs-row-cost-job-c')), findsOneWidget);
+        expect(find.textContaining(r'$0.0235'), findsOneWidget);
+      });
+
+      testWidgets('an unknown-cost row renders Unknown and never a zero', (
+        tester,
+      ) async {
+        await setupContainer(
+          listResult: Right([
+            _job('job-u', status: JobStatus.succeeded, cost: _unknownCost()),
+          ]),
+        );
+        await pumpScreen(tester);
+        final line = tester.widget<Text>(
+          find.byKey(const Key('ai-jobs-row-cost-job-u')),
+        );
+        expect(line.data, contains('Unknown'));
+        expect(line.data!.contains('0'), isFalse);
+      });
+
+      testWidgets('a not-applicable row renders the no-AI-billed copy '
+          '(native CSV import)', (tester) async {
+        await setupContainer(
+          listResult: Right([
+            _job(
+              'job-n',
+              status: JobStatus.succeeded,
+              cost: _notApplicableCost(),
+            ),
+          ]),
+        );
+        await pumpScreen(tester);
+        expect(
+          find.text(
+            'No AI model was billed — native CSV import without an LLM.',
+          ),
+          findsOneWidget,
+        );
+        expect(find.textContaining('Cost:'), findsNothing);
+      });
+
+      testWidgets('the energy preference switches the row badge to the '
+          'energy figure', (tester) async {
+        await setupContainer(
+          listResult: Right([
+            _job(
+              'job-e',
+              status: JobStatus.succeeded,
+              cost: _knownCost(withEnergy: true),
+            ),
+          ]),
+          overrides: [
+            aiCostDisplayPreferenceProvider.overrideWithValue(
+              CostDisplayPreference.energy,
+            ),
+          ],
+        );
+        await pumpScreen(tester);
+        expect(find.textContaining(r'$0.00005'), findsOneWidget);
+        expect(find.textContaining(r'$0.0235'), findsNothing);
+      });
+    });
+
     group('goldens: jobs list {light,dark}×{android,macos}', () {
       Future<void> pumpGolden(
         WidgetTester tester, {
@@ -974,6 +1157,40 @@ void main() {
           platform: TargetPlatform.macOS,
         );
       });
+
+      // The compact cost line (issue #675): known-cost rows, including the
+      // unknown-status honesty copy, {light,dark}×{android,macos}.
+      for (final (mode, platform, suffix) in [
+        (ThemeMode.light, TargetPlatform.android, 'light_android'),
+        (ThemeMode.dark, TargetPlatform.android, 'dark_android'),
+        (ThemeMode.light, TargetPlatform.macOS, 'light_macos'),
+        (ThemeMode.dark, TargetPlatform.macOS, 'dark_macos'),
+      ]) {
+        testWidgets('golden $suffix (cost rows)', (tester) async {
+          await setupContainer(
+            listResult: Right([
+              _job('job-c', status: JobStatus.succeeded, cost: _knownCost()),
+              _job('job-u', status: JobStatus.succeeded, cost: _unknownCost()),
+              _job(
+                'job-n',
+                status: JobStatus.succeeded,
+                cost: _notApplicableCost(),
+              ),
+            ]),
+          );
+          try {
+            debugDefaultTargetPlatformOverride = platform;
+            await pumpGolden(
+              tester,
+              golden: 'ai_jobs_cost_$suffix.png',
+              mode: mode,
+              platform: platform,
+            );
+          } finally {
+            debugDefaultTargetPlatformOverride = null;
+          }
+        });
+      }
     });
   });
 }

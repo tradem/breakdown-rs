@@ -194,3 +194,71 @@ final class ConfiguredAiNamingProvider
 
 String _$configuredAiNamingHash() =>
     r'24b9281d35b1453eab89501a3d0c638ac85dc30d';
+
+/// The active configuration's preferred primary cost display metric
+/// (issue #675): `energy` switches the compact jobs-list badge and the
+/// job-detail primary figure to the energy cost where one exists;
+/// anything else (including a failed or absent configuration — the list
+/// read is shared with [configuredAiNaming], so no extra call is made)
+/// degrades to the `token` default.
+
+@ProviderFor(aiCostDisplayPreference)
+final aiCostDisplayPreferenceProvider = AiCostDisplayPreferenceProvider._();
+
+/// The active configuration's preferred primary cost display metric
+/// (issue #675): `energy` switches the compact jobs-list badge and the
+/// job-detail primary figure to the energy cost where one exists;
+/// anything else (including a failed or absent configuration — the list
+/// read is shared with [configuredAiNaming], so no extra call is made)
+/// degrades to the `token` default.
+
+final class AiCostDisplayPreferenceProvider
+    extends
+        $FunctionalProvider<
+          CostDisplayPreference,
+          CostDisplayPreference,
+          CostDisplayPreference
+        >
+    with $Provider<CostDisplayPreference> {
+  /// The active configuration's preferred primary cost display metric
+  /// (issue #675): `energy` switches the compact jobs-list badge and the
+  /// job-detail primary figure to the energy cost where one exists;
+  /// anything else (including a failed or absent configuration — the list
+  /// read is shared with [configuredAiNaming], so no extra call is made)
+  /// degrades to the `token` default.
+  AiCostDisplayPreferenceProvider._()
+    : super(
+        from: null,
+        argument: null,
+        retry: null,
+        name: r'aiCostDisplayPreferenceProvider',
+        isAutoDispose: true,
+        dependencies: null,
+        $allTransitiveDependencies: null,
+      );
+
+  @override
+  String debugGetCreateSourceHash() => _$aiCostDisplayPreferenceHash();
+
+  @$internal
+  @override
+  $ProviderElement<CostDisplayPreference> $createElement(
+    $ProviderPointer pointer,
+  ) => $ProviderElement(pointer);
+
+  @override
+  CostDisplayPreference create(Ref ref) {
+    return aiCostDisplayPreference(ref);
+  }
+
+  /// {@macro riverpod.override_with_value}
+  Override overrideWithValue(CostDisplayPreference value) {
+    return $ProviderOverride(
+      origin: this,
+      providerOverride: $SyncValueProvider<CostDisplayPreference>(value),
+    );
+  }
+}
+
+String _$aiCostDisplayPreferenceHash() =>
+    r'38278ba317b06152aebfa27b07c6fa0680875fe9';
