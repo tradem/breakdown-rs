@@ -1013,6 +1013,90 @@ class AppLocalizationsEn extends AppLocalizations {
       'No stored prompt — the deployment default is in effect.';
 
   @override
+  String aiModelPriceInOut(Object input, Object output) {
+    return '$input → $output / 1M tokens';
+  }
+
+  @override
+  String aiModelEnergyRate(Object price) {
+    return '$price / kWh';
+  }
+
+  @override
+  String get aiConfigCostDisplayLabel => 'Preferred cost display';
+
+  @override
+  String get aiConfigCostDisplayToken => 'Tokens';
+
+  @override
+  String get aiConfigCostDisplayEnergy => 'Energy';
+
+  @override
+  String aiJobCostCompact(Object value) {
+    return 'Cost: $value';
+  }
+
+  @override
+  String get aiJobCostNotApplicable =>
+      'No AI model was billed — native CSV import without an LLM.';
+
+  @override
+  String get aiJobCostTitle => 'Cost of this import';
+
+  @override
+  String aiJobCostModel(Object model) {
+    return 'Model: $model';
+  }
+
+  @override
+  String aiJobCostTokensIn(Object count) {
+    return 'Tokens in: $count';
+  }
+
+  @override
+  String aiJobCostTokensOut(Object count) {
+    return 'Tokens out: $count';
+  }
+
+  @override
+  String aiJobCostCachedTokens(Object count) {
+    return 'of which cached: $count';
+  }
+
+  @override
+  String aiJobCostTokenTotal(Object price) {
+    return 'Token cost: $price';
+  }
+
+  @override
+  String aiJobCostEnergyTotal(Object price) {
+    return 'Energy cost: $price';
+  }
+
+  @override
+  String aiJobCostEnergyConsumption(Object wh) {
+    return 'Energy consumption: $wh Wh';
+  }
+
+  @override
+  String get aiJobCostEnergyCapped => 'Energy cost capped by the token cost.';
+
+  @override
+  String aiJobCostRateInput(Object price) {
+    return 'Input rate: $price / 1M tokens';
+  }
+
+  @override
+  String aiJobCostRateOutput(Object price) {
+    return 'Output rate: $price / 1M tokens';
+  }
+
+  @override
+  String aiJobCostPriceAsOf(Object date) {
+    return 'Price as of: $date';
+  }
+
+  @override
   String get aiApplyErrorNotSucceeded =>
       'The preview can no longer be applied — check the job status.';
 

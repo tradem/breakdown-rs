@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
 // Co-authored-by: omen-alpha (opencode-go)
 // Co-authored-by: space-bunny-free (opencode-go)
@@ -70,6 +71,7 @@ class AiConfigDraftData {
     this.selectedImageModelId,
     this.assistantModelTouched = false,
     this.imageModelTouched = false,
+    this.costDisplayPreference,
     this.scriptPrompt = '',
     this.schedulePrompt = '',
     this.scriptPromptTouched = false,
@@ -80,6 +82,10 @@ class AiConfigDraftData {
   String? selectedProviderKey;
   String? selectedAssistantModelId;
   String? selectedImageModelId;
+
+  /// The drafted preferred primary cost display metric (issue #675).
+  /// `null` = untouched — the configured view's value (or the `token`
+  /// default) applies.
 
   /// True once the user picked a provider, so the old assistant model is
   /// not restored from the configured view after a provider change.
@@ -101,6 +107,7 @@ class AiConfigDraftData {
   /// wipe the prefilled schedule prompt).
   bool scriptPromptTouched;
   bool schedulePromptTouched;
+  CostDisplayPreference? costDisplayPreference;
   AiConfigUnresolved? unresolved;
 }
 
@@ -118,6 +125,7 @@ class AiConfigDrafts extends Notifier<AiConfigDraftData> {
       selectedImageModelId: state.selectedImageModelId,
       assistantModelTouched: state.assistantModelTouched,
       imageModelTouched: state.imageModelTouched,
+      costDisplayPreference: state.costDisplayPreference,
       scriptPrompt: state.scriptPrompt,
       schedulePrompt: state.schedulePrompt,
       scriptPromptTouched: state.scriptPromptTouched,
@@ -151,6 +159,9 @@ class AiConfigController extends _$AiConfigController {
     final providers = ref.watch(aiProvidersProvider);
     final promptDefaults = ref.watch(aiImportDefaultsProvider);
     final drafts = ref.watch(aiConfigDraftsProvider);
+
+    // Preferred primary cost display (issue #675): an explicit draft pick
+    // wins, then the configured value, then the `token` default.
 
     // List-first with remembered-id fallback (D2): the discovery list is
     // authoritative; an empty list (or one of only revoked configs) is the
@@ -294,6 +305,10 @@ class AiConfigController extends _$AiConfigController {
       selectedImageModelId: drafts.imageModelTouched
           ? drafts.selectedImageModelId
           : (config?.imageModel ?? drafts.selectedImageModelId),
+      costDisplayPreference:
+          drafts.costDisplayPreference ??
+          config?.costDisplayPreference ??
+          CostDisplayPreference.token,
       scriptPrompt: drafts.scriptPromptTouched
           ? drafts.scriptPrompt
           : promptSeed('script', scriptDefault),
@@ -334,6 +349,12 @@ class AiConfigController extends _$AiConfigController {
       // model and the image model could never be cleared (review #8).
       d.imageModelTouched = true;
     });
+  }
+
+  /// Selects the preferred primary cost display metric (issue #675).
+  void selectCostDisplayPreference(CostDisplayPreference preference) {
+    _draftsNotifier.mutate((d) => d.costDisplayPreference = preference);
+    state = state.copyWith(clearCommandError: true);
   }
 
   void setScriptPrompt(String value) {
@@ -443,6 +464,7 @@ class AiConfigController extends _$AiConfigController {
           ..assistantModel = assistantModelId
           ..vaultKeyId = credential.vaultKeyId
           ..imageModel = s.selectedImageModelId
+          ..costDisplayPreference = s.costDisplayPreference
           ..prompts.replace({
             if (s.scriptPrompt.isNotEmpty) 'script': s.scriptPrompt,
             if (s.schedulePrompt.isNotEmpty) 'schedule': s.schedulePrompt,
@@ -655,6 +677,7 @@ class AiConfigController extends _$AiConfigController {
     required String? providerKey,
     required String? assistantModelId,
     required String? imageModelId,
+    required CostDisplayPreference costDisplayPreference,
     required String scriptPrompt,
     required String schedulePrompt,
     String? replacementSecret,
@@ -715,6 +738,7 @@ class AiConfigController extends _$AiConfigController {
           ..vaultKeyId = vaultKeyId
           ..version = config.version
           ..imageModel = imageModelId
+          ..costDisplayPreference = costDisplayPreference
           ..prompts.replace({
             if (scriptPrompt.isNotEmpty) 'script': scriptPrompt,
             if (schedulePrompt.isNotEmpty) 'schedule': schedulePrompt,

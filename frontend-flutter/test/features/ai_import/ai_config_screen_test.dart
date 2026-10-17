@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 // Co-authored-by: omen-alpha (opencode-go)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
 // Co-authored-by: space-bunny-free (opencode-go)
@@ -63,11 +64,31 @@ AiImportDefaults _defaults({String script = '', String schedule = ''}) =>
         ..schedule = schedule,
     );
 
-ModelInfo _model(String id, {bool recommended = false}) => ModelInfo(
+ModelInfo _model(
+  String id, {
+  bool recommended = false,
+  ModelPricing? pricing,
+}) => ModelInfo(
   (b) => b
     ..id = id
     ..provider = LlmProvider.openai
-    ..recommended = recommended,
+    ..recommended = recommended
+    ..pricing = pricing?.toBuilder(),
+);
+
+/// A pricing snapshot fixture (issue #675): 1.45 in / 4 out per 1M tokens
+/// (USD), with the Neuralwatt-style energy rate when requested.
+ModelPricing _pricing({
+  int? energyNanoPerKwh,
+  Currency currency = Currency.USD,
+}) => ModelPricing(
+  (b) => b
+    ..currency = currency
+    ..inputNanoPerMillion = 1450000000
+    ..outputNanoPerMillion = 4000000000
+    ..priceAsOf = DateTime.utc(2026, 1, 1)
+    ..pricingSource = PricingSource.curatedSeed
+    ..energyNanoPerKwh = energyNanoPerKwh,
 );
 
 /// An active config view. [storedPromptKinds] is left ABSENT when null, which
@@ -116,6 +137,10 @@ class FakeAiConfigRepository extends AiConfigRepository {
   /// verify an untouched edit echoes the stored prompts instead of an empty
   /// map).
   UpdateAiConfigRequest? lastUpdateRequest;
+
+  /// The last [CreateAiConfigRequest] passed to [createConfig] (issue #675:
+  /// verify the `cost_display_preference` the create carried).
+  CreateAiConfigRequest? lastCreateRequest;
 
   int submitCalls = 0;
   int createCalls = 0;
@@ -174,6 +199,7 @@ class FakeAiConfigRepository extends AiConfigRepository {
     CreateAiConfigRequest request,
   ) async {
     createCalls++;
+    lastCreateRequest = request;
     return createResult ??
         Right(
           IdVersionResponse(
@@ -258,8 +284,9 @@ void main() {
     WidgetTester tester, {
     ThemeMode mode = ThemeMode.light,
     TargetPlatform? platform,
+    double height = 1200,
   }) async {
-    tester.view.physicalSize = const Size(800, 1200);
+    tester.view.physicalSize = Size(800, height);
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.reset);
     // Restore, don't clear: pumpScreen does not own the platform
@@ -482,12 +509,14 @@ void main() {
     tester,
   ) async {
     await setupContainer();
-    await pumpScreen(tester);
+    await pumpScreen(tester, height: 1600);
     await pickProviderAndModel(tester);
     await tester.enterText(
       find.byKey(const Key('ai-api-key-field')),
       'sk-test-123',
     );
+    await tester.ensureVisible(find.byKey(const Key('ai-config-create')));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('ai-config-create')));
     await tester.pumpAndSettle();
 
@@ -513,9 +542,11 @@ void main() {
     repo.submitResult = const Left(
       ProblemError(code: 'ai-config.forbidden', status: 403),
     );
-    await pumpScreen(tester);
+    await pumpScreen(tester, height: 1600);
     await pickProviderAndModel(tester);
     await tester.enterText(find.byKey(const Key('ai-api-key-field')), 'sk-1');
+    await tester.ensureVisible(find.byKey(const Key('ai-config-create')));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('ai-config-create')));
     await tester.pumpAndSettle();
 
@@ -609,9 +640,11 @@ void main() {
       ProblemError(code: 'server.down', status: 500),
     );
     discovery.value = const Right(<AiConfigView>[]);
-    await pumpScreen(tester);
+    await pumpScreen(tester, height: 1600);
     await pickProviderAndModel(tester);
     await tester.enterText(find.byKey(const Key('ai-api-key-field')), 'sk-1');
+    await tester.ensureVisible(find.byKey(const Key('ai-config-create')));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('ai-config-create')));
     await tester.pumpAndSettle();
 
@@ -1216,6 +1249,124 @@ void main() {
       isTrue,
       reason: 'the helper is also scroll-ordered above the configured form',
     );
+  });
+
+  group(
+    'model pricing signals in the pickers (issue #675, flutter-ai-config)',
+    () {
+      testWidgets('a priced model renders the formatted token + energy rate — '
+          'never a hardcoded price', (tester) async {
+        await setupContainer(
+          modelsValue: Right([
+            _model(
+              'm-priced',
+              pricing: _pricing(energyNanoPerKwh: 10000000000),
+            ),
+            _model('m-unpriced'),
+          ]),
+        );
+        await pumpScreen(tester);
+        await tester.tap(find.byKey(const Key('ai-provider-picker')));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('openai').last);
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const Key('ai-assistant-model-picker')));
+        await tester.pumpAndSettle();
+
+        // Formatted from ModelInfo.pricing — input $1.45 / output $4 per 1M
+        // tokens, plus the energy rate $10 / kWh.
+        expect(
+          find.text(r'$1.45 → $4 / 1M tokens · $10 / kWh'),
+          findsOneWidget,
+        );
+        // The unpriced model renders the localized Unknown copy.
+        expect(find.text('Unknown'), findsOneWidget);
+        // NEVER a fabricated zero anywhere in the menu.
+        expect(find.textContaining(r'$0.00'), findsNothing);
+        expect(find.text('0'), findsNothing);
+      });
+
+      testWidgets('an unpriced (Ollama-style) model renders Unknown and never '
+          'a zero — the pricing==null honesty rule', (tester) async {
+        await setupContainer(
+          providersValue: Right([_provider('ollama', LlmProvider.ollama)]),
+          modelsValue: Right([_model('llama-local'), _model('qwen-local')]),
+        );
+        await pumpScreen(tester);
+        await tester.tap(find.byKey(const Key('ai-provider-picker')));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('ollama').last);
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const Key('ai-assistant-model-picker')));
+        await tester.pumpAndSettle();
+
+        expect(find.text('Unknown'), findsNWidgets(2));
+        expect(find.textContaining(r'$0'), findsNothing);
+        expect(find.text('0'), findsNothing);
+      });
+    },
+  );
+
+  group('cost display preference selector (issue #675, flutter-ai-config)', () {
+    testWidgets('the selector defaults to token and the create carries the '
+        'switched energy preference', (tester) async {
+      await setupContainer();
+      await pumpScreen(tester, height: 1600);
+
+      // Default is token (spec: defaulting to `token`).
+      final selector = tester.widget<SegmentedButton<CostDisplayPreference>>(
+        find.byKey(const Key('ai-cost-display-picker')),
+      );
+      expect(selector.selected, {CostDisplayPreference.token});
+
+      await pickProviderAndModel(tester);
+      // Switch to energy.
+      await tester.ensureVisible(
+        find.byKey(const Key('ai-cost-display-picker')),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('ai-cost-display-energy')));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const Key('ai-api-key-field')),
+        'sk-test-123',
+      );
+      await tester.ensureVisible(find.byKey(const Key('ai-config-create')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('ai-config-create')));
+      await tester.pumpAndSettle();
+
+      expect(repo.createCalls, 1);
+      expect(
+        repo.lastCreateRequest!.costDisplayPreference,
+        CostDisplayPreference.energy,
+      );
+    });
+
+    testWidgets('the configured form echoes the stored preference and the '
+        'PATCH carries it', (tester) async {
+      await setupContainer(
+        discoveryValue: Right([
+          _config().rebuild(
+            (b) => b..costDisplayPreference = CostDisplayPreference.energy,
+          ),
+        ]),
+      );
+      await pumpScreen(tester, height: 1600);
+
+      // The selector echoes the configured value.
+      final selector = tester.widget<SegmentedButton<CostDisplayPreference>>(
+        find.byKey(const Key('ai-cost-display-picker')),
+      );
+      expect(selector.selected, {CostDisplayPreference.energy});
+
+      await tester.tap(find.byKey(const Key('ai-config-edit-save')));
+      await tester.pumpAndSettle();
+      expect(
+        repo.lastUpdateRequest!.costDisplayPreference,
+        CostDisplayPreference.energy,
+      );
+    });
   });
 
   group('AiConfigScreen goldens (2.2): {light,dark}×{android,macos}', () {

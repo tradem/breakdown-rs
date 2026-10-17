@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 // Co-authored-by: omen-alpha (opencode-go)
 
 import 'package:breakdown_api/breakdown_api.dart';
@@ -49,6 +50,20 @@ Future<AiConfigView?> configuredAiNaming(Ref ref) async {
     return null;
   });
 }
+
+/// The active configuration's preferred primary cost display metric
+/// (issue #675): `energy` switches the compact jobs-list badge and the
+/// job-detail primary figure to the energy cost where one exists;
+/// anything else (including a failed or absent configuration — the list
+/// read is shared with [configuredAiNaming], so no extra call is made)
+/// degrades to the `token` default.
+@riverpod
+CostDisplayPreference aiCostDisplayPreference(Ref ref) =>
+    switch (ref.watch(configuredAiNamingProvider)) {
+      AsyncData(:final value) =>
+        value?.costDisplayPreference ?? CostDisplayPreference.token,
+      _ => CostDisplayPreference.token,
+    };
 
 /// The AI-import secure-storage hand-off seam (task 1.3 — manual provider,
 /// no codegen, so tests override with an in-memory double via

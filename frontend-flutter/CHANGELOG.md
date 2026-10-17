@@ -22,6 +22,25 @@ releases are cut as `vX.Y.Z` tags (`v<build-name>`, enforced by
 
 ## [Unreleased]
 
+- **Version bump:** `0.4.0-alpha.34+85 → 0.4.0-alpha.35+86` — issue #675,
+  per-import AI cost transparency:
+  * Regenerated `vendor/breakdown_api/` (`LlmProvider.gemini`, `ModelInfo.pricing`,
+    `AiConfigView.costDisplayPreference`, `AiImportJob.cost` / `telemetry`, the
+    `CostBreakdown` / `ModelPricing` / `JobTelemetrySummary` model family).
+  * AI config screen (`flutter-ai-config`): model picker renders formatted
+    token + energy price signals from `ModelInfo.pricing` (localized
+    `"Unbekannt"` / `"Unknown"` when `pricing == null` — never `0`); the
+    `cost_display_preference` (`token` vs `energy`) selector threads through
+    create and PATCH.
+  * Jobs list + job status screen (`flutter-ai-import-workflow`): compact
+    cost line per row and the detailed `CostBreakdown` card (token + energy
+    breakdowns, snapshot rates, `price_as_of`, Neuralwatt cap note), with
+    the primary figure switching on the user's `cost_display_preference`;
+    `unknown` renders localized Unknown copy, never `0`. The terminal
+    `succeeded` SSE frame populates the card without a manual refresh.
+  * New pure cost formatters (`cost_format.dart`): integer-string
+    nano-currency + mJ→Wh rendering, zero floats.
+
 - **Version bump:** `0.4.0-alpha.33+84 → 0.4.0-alpha.34+85` — issue #664,
   AI-import SSE progress:
   * Regenerated `vendor/breakdown_api/` (`AiImportProgress`, `progress`
