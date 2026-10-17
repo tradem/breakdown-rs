@@ -9,8 +9,8 @@
 
 use std::collections::HashMap;
 
-use kameo_es::Entity;
 use kameo_es::test_utils::GivenEntity;
+use kameo_es::{Apply, Entity, Metadata};
 use uuid::Uuid;
 
 use crate::shared::{AggregateVersion, UserId};
@@ -349,6 +349,34 @@ fn update_with_omitted_preference_keeps_the_current_value() {
             cost_display_preference: None,
             version: AggregateVersion::INITIAL.next(),
         }]);
+}
+
+#[test]
+fn applying_updated_without_preference_keeps_energy() {
+    // The APPLY side of the rule (not just the emitted event): a Created
+    // with `energy` followed by an Updated whose preference is `None` must
+    // leave the aggregate's `energy` preference intact — the
+    // `if let Some(preference)` branch in `apply`.
+    let mut create_cmd = make_create_cmd();
+    create_cmd.cost_display_preference = CostDisplayPreference::Energy;
+
+    let mut agg = AiConfig::default();
+    agg.apply(created_event(&create_cmd), Metadata::default());
+    agg.apply(
+        AiConfigEvent::Updated {
+            id: create_cmd.id,
+            provider: LlmProvider::OpenAI,
+            assistant_model: "gpt-4o-mini".into(),
+            image_model: None,
+            prompts: HashMap::from([(DocumentKind::Script, "New prompt".into())]),
+            vault_key_id: "key-456".into(),
+            cost_display_preference: None,
+            version: AggregateVersion::INITIAL.next(),
+        },
+        Metadata::default(),
+    );
+
+    assert_eq!(agg.cost_display_preference, CostDisplayPreference::Energy);
 }
 
 #[test]

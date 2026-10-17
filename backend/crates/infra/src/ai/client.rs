@@ -408,7 +408,11 @@ fn parse_decimal_scaled(value: &serde_json::Value, factor: i128) -> Option<u64> 
         mantissa.checked_mul(factor)?
     };
     let den_shift = if exp < 0 {
-        u32::try_from(-exp).ok()? + frac_part.len() as u32
+        // `unsigned_abs()` cannot overflow (unlike `-exp` at `i32::MIN`) —
+        // `exp` comes from provider-controlled text. The checked add/pow
+        // turn an absurd shift into `None` ("no telemetry"), never a panic.
+        exp.unsigned_abs()
+            .checked_add(u32::try_from(frac_part.len()).ok()?)?
     } else {
         frac_part.len() as u32
     };
@@ -602,6 +606,17 @@ mod tests {
         assert_eq!(
             parse_decimal_scaled(&serde_json::json!("0.000000001"), KWH_TO_MILLIJOULES),
             Some(4)
+        );
+        // `i32::MIN` exponent: `-exp` would overflow-panic in debug builds —
+        // the parse must degrade to `None` instead (regression for the
+        // provider-controlled-exponent hardening).
+        assert_eq!(
+            parse_decimal_scaled(&serde_json::json!("-1e-2147483648"), JOULES_TO_MILLIJOULES),
+            None
+        );
+        assert_eq!(
+            parse_decimal_scaled(&serde_json::json!("-1e2147483647"), JOULES_TO_MILLIJOULES),
+            None
         );
         // Negative telemetry is not a valid reading (never a negative cost).
         assert_eq!(
