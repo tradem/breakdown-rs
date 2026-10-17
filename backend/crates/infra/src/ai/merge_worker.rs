@@ -1,13 +1,14 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 // Co-authored-by: mimo-v2.5 (opencode-go)
 
 use std::sync::Arc;
 use std::time::Instant;
 
 use breakdown_core::ai::{
-    AiImportJobId, AiImportProgress, AiImportQueue, AiImportStage, DocumentKind, MergeInput,
-    MergedPreview, Telemetry, TelemetryApplyState, merge_from_input,
+    AiImportJobId, AiImportProgress, AiImportQueue, AiImportStage, CostBreakdown, DocumentKind,
+    MergeInput, MergedPreview, Telemetry, TelemetryApplyState, merge_from_input,
 };
 use breakdown_core::error::DomainError;
 use serde_json::{from_slice, to_vec};
@@ -134,6 +135,12 @@ where
                     chunk_count: 0,
                     tokens_in: 0,
                     tokens_out: 0,
+                    cached_tokens_in: 0,
+                    energy_millijoules: 0,
+                    // The merge is a pure in-process transform: no LLM was
+                    // billed, so the cost status is `not_applicable`
+                    // (issue #675, design D4) — never `unknown`.
+                    cost: Some(CostBreakdown::not_applicable()),
                     latency_total: started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64,
                     apply_state: TelemetryApplyState::NotApplied,
                 },

@@ -186,6 +186,12 @@ components:
       properties:
         assistant_model:
           type: string
+        cost_display_preference:
+          $ref: '#/components/schemas/CostDisplayPreference'
+          description: |-
+            Preferred primary cost display metric (issue #675). Additive with
+            `serde(default)`: views serialized before the field existed
+            deserialize as `Token`.
         id:
           format: uuid
           type: string
@@ -329,6 +335,13 @@ components:
           oneOf:
           - $ref: '#/components/schemas/BlockId'
           - type: 'null'
+        cost:
+          oneOf:
+          - $ref: '#/components/schemas/CostBreakdown'
+            description: |-
+              Immutable per-import cost snapshot persisted at completion time
+              (issue #675). Never recomputed when pricing changes later.
+          - type: 'null'
         created_at:
           format: date-time
           type: string
@@ -382,6 +395,14 @@ components:
           type: string
         status:
           $ref: '#/components/schemas/JobStatus'
+        telemetry:
+          oneOf:
+          - $ref: '#/components/schemas/JobTelemetrySummary'
+            description: |-
+              Content-free operational telemetry recorded for this job (issue
+              #675). `None` until a worker or the API apply path records telemetry;
+              additive on the wire.
+          - type: 'null'
         updated_at:
           format: date-time
           type: string
@@ -1000,6 +1021,63 @@ components:
           - string
           - 'null'
       type: object
+    CostBreakdown:
+      description: |-
+        Immutable per-import cost snapshot persisted on a completed job (design
+        D4). Honesty rule: `Known` populates breakdowns; `Unknown` and
+        `NotApplicable` leave them `None` — never a fabricated zero.
+      properties:
+        currency:
+          oneOf:
+          - $ref: '#/components/schemas/Currency'
+            description: Present only for `Known` snapshots.
+          - type: 'null'
+        energy_cost:
+          oneOf:
+          - $ref: '#/components/schemas/EnergyCostBreakdown'
+          - type: 'null'
+        image_cost:
+          oneOf:
+          - $ref: '#/components/schemas/ImageCostBreakdown'
+          - type: 'null'
+        price_as_of:
+          description: Price snapshot timestamp of the pricing row used for computation.
+          format: date-time
+          type:
+          - string
+          - 'null'
+        pricing_source:
+          oneOf:
+          - $ref: '#/components/schemas/PricingSource'
+          - type: 'null'
+        status:
+          $ref: '#/components/schemas/CostStatus'
+        token_cost:
+          oneOf:
+          - $ref: '#/components/schemas/TokenCostBreakdown'
+          - type: 'null'
+      required:
+      - status
+      type: object
+    CostDisplayPreference:
+      description: |-
+        The user's preferred primary cost display metric (issue #675).
+
+        Both token and energy costs are always persisted on completed jobs, so
+        switching the preference re-renders historical job costs without
+        recalculation. `Token` is the default for every pre-existing `AiConfig`
+        (replayed events and deserialized views without the field).
+      enum:
+      - token
+      - energy
+      type: string
+    CostStatus:
+      description: Whether a job's cost could be computed honestly.
+      enum:
+      - known
+      - unknown
+      - not_applicable
+      type: string
     CostumeCategoryId:
       description: |-
         Opaque identifier for a `CostumeCategory` aggregate.
@@ -1227,6 +1305,11 @@ components:
       properties:
         assistant_model:
           type: string
+        cost_display_preference:
+          $ref: '#/components/schemas/CostDisplayPreference'
+          description: |-
+            Preferred primary cost display metric (issue #675). Defaults to
+            `token` for clients predating the field.
         image_model:
           type:
           - string
@@ -1405,6 +1488,15 @@ components:
       - active
       - revoked
       - unreachable
+      type: string
+    Currency:
+      description: |-
+        Currency of a pricing entry and of a computed cost snapshot. Rates and
+        totals are always in the *native* currency reported by the provider
+        catalog — there is no conversion between USD and EUR (design D2).
+      enum:
+      - USD
+      - EUR
       type: string
     DeadLetterEntry:
       description: |-
@@ -1626,6 +1718,39 @@ components:
       required:
       - draft_ref
       type: object
+    EnergyCostBreakdown:
+      description: |-
+        Hardware-energy cost of one import, in nano-units. Populated only when
+        the job recorded energy telemetry and the model carries an energy rate.
+      properties:
+        capped_by_token_cost:
+          description: Whether the token-cost cap reduced the figure.
+          type: boolean
+        effective_capped_nano:
+          description: |-
+            The cost that counts: `min(raw_energy_nano, token_cost.total_nano)`
+            when the provider caps energy by token cost (Neuralwatt surge
+            protection), otherwise `raw_energy_nano`.
+          format: int64
+          type: integer
+        energy_millijoules:
+          format: int64
+          minimum: 0
+          type: integer
+        rate_nano_per_kwh:
+          format: int64
+          type: integer
+        raw_energy_nano:
+          description: Uncapped energy cost (`mJ × rate / 3.6e9`, half-up rounded).
+          format: int64
+          type: integer
+      required:
+      - energy_millijoules
+      - rate_nano_per_kwh
+      - raw_energy_nano
+      - effective_capped_nano
+      - capped_by_token_cost
+      type: object
     EpisodeId:
       description: Opaque identifier for an `Episode` aggregate.
       format: uuid
@@ -1818,6 +1943,41 @@ components:
       - id
       - version
       type: object
+    ImageCostBreakdown:
+      description: |-
+        Image-generation cost of one import (#673 extensibility slot). Always
+        `None` for script/schedule text imports.
+      properties:
+        image_nano_per_unit:
+          description: Snapshot of the flat per-image rate, when that billing kind applies.
+          format: int64
+          type:
+          - integer
+          - 'null'
+        image_output_rate_nano_per_million:
+          description: Snapshot of the per-million-token rate, when that billing kind applies.
+          format: int64
+          type:
+          - integer
+          - 'null'
+        image_output_tokens:
+          description: Image-output tokens consumed (the per-token billing path).
+          format: int64
+          minimum: 0
+          type: integer
+        images:
+          description: Number of generated images.
+          format: int64
+          minimum: 0
+          type: integer
+        total_nano:
+          format: int64
+          type: integer
+      required:
+      - images
+      - image_output_tokens
+      - total_nano
+      type: object
     InviteMemberRequest:
       properties:
         role:
@@ -1844,6 +2004,55 @@ components:
       - dead_letter
       - payload_unavailable
       type: string
+    JobTelemetrySummary:
+      description: |-
+        Telemetry summary as exposed on the `AiImportJob` wire view (issue #675).
+        `None` until the worker records telemetry; additive on the wire.
+      properties:
+        cached_tokens_in:
+          format: int64
+          minimum: 0
+          type: integer
+        chunk_count:
+          format: int32
+          minimum: 0
+          type: integer
+        doc_kind:
+          oneOf:
+          - $ref: '#/components/schemas/DocumentKind'
+          - type: 'null'
+        energy_millijoules:
+          format: int64
+          minimum: 0
+          type: integer
+        latency_total_ms:
+          format: int64
+          minimum: 0
+          type: integer
+        model:
+          type:
+          - string
+          - 'null'
+        provider:
+          oneOf:
+          - $ref: '#/components/schemas/LlmProvider'
+          - type: 'null'
+        tokens_in:
+          format: int64
+          minimum: 0
+          type: integer
+        tokens_out:
+          format: int64
+          minimum: 0
+          type: integer
+      required:
+      - chunk_count
+      - tokens_in
+      - tokens_out
+      - cached_tokens_in
+      - energy_millijoules
+      - latency_total_ms
+      type: object
     LexicalSortKey:
       description: |-
         A validated, lexicographically-sortable key used for ordering entities
@@ -1872,6 +2081,7 @@ components:
         provider is additive and does not break downstream matches.
       enum:
       - openai
+      - gemini
       - openrouter
       - eurouter
       - neuralwatt
@@ -2037,6 +2247,15 @@ components:
           - 'null'
         id:
           type: string
+        pricing:
+          oneOf:
+          - $ref: '#/components/schemas/ModelPricing'
+            description: |-
+              Pricing snapshot from the `ai_import.ai_model_pricing` read model
+              (issue #675). `None` for models without known pricing (e.g. local
+              Ollama models) — never a fabricated zero-price object. Additive with
+              `serde(default)` on the wire.
+          - type: 'null'
         provider:
           $ref: '#/components/schemas/LlmProvider'
         recommended:
@@ -2054,6 +2273,73 @@ components:
       required:
       - id
       - provider
+      type: object
+    ModelPricing:
+      description: |-
+        One model's pricing snapshot in integer nano-currency units ($10^{-9}$ of
+        the currency unit: `1_000_000_000 = 1.00 USD/EUR`). Rates are per
+        1,000,000 tokens. Optional slots stay `None` when the provider does not
+        offer the dimension — never a fabricated zero (issue #675).
+      properties:
+        cached_input_nano_per_million:
+          description: |-
+            Rate for cache-hit prompt tokens, when the provider reports one.
+            Absent means cached tokens are billed at the plain input rate.
+          format: int64
+          type:
+          - integer
+          - 'null'
+        currency:
+          $ref: '#/components/schemas/Currency'
+        energy_capped_by_token:
+          description: |-
+            Neuralwatt surge-protection cap: the energy cost never exceeds the
+            token cost of the same call.
+          type: boolean
+        energy_nano_per_kwh:
+          description: |-
+            Energy billing rate (e.g. Neuralwatt at `$10.00 / kWh` =
+            `10_000_000_000` nano-USD per kWh), when the provider offers it.
+          format: int64
+          type:
+          - integer
+          - 'null'
+        image_nano_per_unit:
+          description: |-
+            Alternative flat per-image rate. #673 slot; never combined with
+            `image_output_nano_per_million` by a cost computation.
+          format: int64
+          type:
+          - integer
+          - 'null'
+        image_output_nano_per_million:
+          description: |-
+            Rate per 1,000,000 image-output tokens (e.g. Gemini *Nano Banana*:
+            one 1024×1024 image consumes 1,290 image-output tokens). #673 slot.
+          format: int64
+          type:
+          - integer
+          - 'null'
+        input_nano_per_million:
+          format: int64
+          type: integer
+        output_nano_per_million:
+          format: int64
+          type: integer
+        price_as_of:
+          description: |-
+            When this price was captured. A completed job's persisted cost
+            snapshot never changes when newer prices arrive.
+          format: date-time
+          type: string
+        pricing_source:
+          $ref: '#/components/schemas/PricingSource'
+      required:
+      - currency
+      - input_nano_per_million
+      - output_nano_per_million
+      - pricing_source
+      - price_as_of
       type: object
     PhotoBinding:
       description: |-
@@ -2188,6 +2474,17 @@ components:
       required:
       - planned_order
       type: object
+    PricingSource:
+      description: |-
+        Where a pricing row came from. `CuratedSeed` rows are written by the SQL
+        migration so freshly booted, offline deployments have deterministic
+        pricing; the refresh worker overwrites them with `ProviderLive` (provider
+        `/models` endpoints) or `ModelsDev` (`models.dev/api.json`) rows.
+      enum:
+      - curated_seed
+      - provider_live
+      - models_dev
+      type: string
     ProblemDetails:
       description: |-
         An RFC 9457 problem document (ADR-031 D1).
@@ -3143,6 +3440,51 @@ components:
       required:
       - version
       type: object
+    TokenCostBreakdown:
+      description: |-
+        Token-based cost of one import, in nano-units. Rates are the snapshot
+        rates active at completion time.
+      properties:
+        cached_input_rate_nano_per_million:
+          description: |-
+            Snapshot cache-hit rate; `None` when the catalog had none (cached
+            tokens are then billed at the plain input rate).
+          format: int64
+          type:
+          - integer
+          - 'null'
+        cached_tokens_in:
+          format: int64
+          minimum: 0
+          type: integer
+        input_rate_nano_per_million:
+          format: int64
+          type: integer
+        output_rate_nano_per_million:
+          format: int64
+          type: integer
+        tokens_in:
+          format: int64
+          minimum: 0
+          type: integer
+        tokens_out:
+          format: int64
+          minimum: 0
+          type: integer
+        total_nano:
+          description: |-
+            `uncached_input + cached_input + output` cost, half-up rounded to
+            nano-units, as one total.
+          format: int64
+          type: integer
+      required:
+      - tokens_in
+      - tokens_out
+      - cached_tokens_in
+      - input_rate_nano_per_million
+      - output_rate_nano_per_million
+      - total_nano
+      type: object
     UnappliedCostume:
       description: |-
         Why a costume row did not become a `Costume`. Shown to the reviewer as
@@ -3248,6 +3590,9 @@ components:
       properties:
         assistant_model:
           type: string
+        cost_display_preference:
+          $ref: '#/components/schemas/CostDisplayPreference'
+          description: 'See [`CreateAiConfigRequest`] (issue #675).'
         image_model:
           type:
           - string

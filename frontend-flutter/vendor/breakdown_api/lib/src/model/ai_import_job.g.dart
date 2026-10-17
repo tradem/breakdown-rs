@@ -12,6 +12,8 @@ class _$AiImportJob extends AiImportJob {
   @override
   final String? blockId;
   @override
+  final CostBreakdown? cost;
+  @override
   final DateTime createdAt;
   @override
   final String dedupKey;
@@ -40,6 +42,8 @@ class _$AiImportJob extends AiImportJob {
   @override
   final JobStatus status;
   @override
+  final JobTelemetrySummary? telemetry;
+  @override
   final DateTime updatedAt;
   @override
   final String userId;
@@ -50,6 +54,7 @@ class _$AiImportJob extends AiImportJob {
   _$AiImportJob._(
       {this.attempts,
       this.blockId,
+      this.cost,
       required this.createdAt,
       required this.dedupKey,
       required this.documentDigest,
@@ -64,6 +69,7 @@ class _$AiImportJob extends AiImportJob {
       required this.sourceFormat,
       required this.sourceHandle,
       required this.status,
+      this.telemetry,
       required this.updatedAt,
       required this.userId})
       : super._();
@@ -80,6 +86,7 @@ class _$AiImportJob extends AiImportJob {
     return other is AiImportJob &&
         attempts == other.attempts &&
         blockId == other.blockId &&
+        cost == other.cost &&
         createdAt == other.createdAt &&
         dedupKey == other.dedupKey &&
         documentDigest == other.documentDigest &&
@@ -94,6 +101,7 @@ class _$AiImportJob extends AiImportJob {
         sourceFormat == other.sourceFormat &&
         sourceHandle == other.sourceHandle &&
         status == other.status &&
+        telemetry == other.telemetry &&
         updatedAt == other.updatedAt &&
         userId == other.userId;
   }
@@ -103,6 +111,7 @@ class _$AiImportJob extends AiImportJob {
     var _$hash = 0;
     _$hash = $jc(_$hash, attempts.hashCode);
     _$hash = $jc(_$hash, blockId.hashCode);
+    _$hash = $jc(_$hash, cost.hashCode);
     _$hash = $jc(_$hash, createdAt.hashCode);
     _$hash = $jc(_$hash, dedupKey.hashCode);
     _$hash = $jc(_$hash, documentDigest.hashCode);
@@ -117,6 +126,7 @@ class _$AiImportJob extends AiImportJob {
     _$hash = $jc(_$hash, sourceFormat.hashCode);
     _$hash = $jc(_$hash, sourceHandle.hashCode);
     _$hash = $jc(_$hash, status.hashCode);
+    _$hash = $jc(_$hash, telemetry.hashCode);
     _$hash = $jc(_$hash, updatedAt.hashCode);
     _$hash = $jc(_$hash, userId.hashCode);
     _$hash = $jf(_$hash);
@@ -128,6 +138,7 @@ class _$AiImportJob extends AiImportJob {
     return (newBuiltValueToStringHelper(r'AiImportJob')
           ..add('attempts', attempts)
           ..add('blockId', blockId)
+          ..add('cost', cost)
           ..add('createdAt', createdAt)
           ..add('dedupKey', dedupKey)
           ..add('documentDigest', documentDigest)
@@ -142,6 +153,7 @@ class _$AiImportJob extends AiImportJob {
           ..add('sourceFormat', sourceFormat)
           ..add('sourceHandle', sourceHandle)
           ..add('status', status)
+          ..add('telemetry', telemetry)
           ..add('updatedAt', updatedAt)
           ..add('userId', userId))
         .toString();
@@ -160,6 +172,10 @@ class AiImportJobBuilder implements Builder<AiImportJob, AiImportJobBuilder> {
   String? _blockId;
   String? get blockId => _$this._blockId;
   set blockId(String? blockId) => _$this._blockId = blockId;
+
+  CostBreakdownBuilder? _cost;
+  CostBreakdownBuilder get cost => _$this._cost ??= CostBreakdownBuilder();
+  set cost(CostBreakdownBuilder? cost) => _$this._cost = cost;
 
   DateTime? _createdAt;
   DateTime? get createdAt => _$this._createdAt;
@@ -224,6 +240,12 @@ class AiImportJobBuilder implements Builder<AiImportJob, AiImportJobBuilder> {
   JobStatus? get status => _$this._status;
   set status(JobStatus? status) => _$this._status = status;
 
+  JobTelemetrySummaryBuilder? _telemetry;
+  JobTelemetrySummaryBuilder get telemetry =>
+      _$this._telemetry ??= JobTelemetrySummaryBuilder();
+  set telemetry(JobTelemetrySummaryBuilder? telemetry) =>
+      _$this._telemetry = telemetry;
+
   DateTime? _updatedAt;
   DateTime? get updatedAt => _$this._updatedAt;
   set updatedAt(DateTime? updatedAt) => _$this._updatedAt = updatedAt;
@@ -241,6 +263,7 @@ class AiImportJobBuilder implements Builder<AiImportJob, AiImportJobBuilder> {
     if ($v != null) {
       _attempts = $v.attempts?.toBuilder();
       _blockId = $v.blockId;
+      _cost = $v.cost?.toBuilder();
       _createdAt = $v.createdAt;
       _dedupKey = $v.dedupKey;
       _documentDigest = $v.documentDigest;
@@ -255,6 +278,7 @@ class AiImportJobBuilder implements Builder<AiImportJob, AiImportJobBuilder> {
       _sourceFormat = $v.sourceFormat;
       _sourceHandle = $v.sourceHandle;
       _status = $v.status;
+      _telemetry = $v.telemetry?.toBuilder();
       _updatedAt = $v.updatedAt;
       _userId = $v.userId;
       _$v = null;
@@ -282,6 +306,7 @@ class AiImportJobBuilder implements Builder<AiImportJob, AiImportJobBuilder> {
           _$AiImportJob._(
             attempts: _attempts?.build(),
             blockId: blockId,
+            cost: _cost?.build(),
             createdAt: BuiltValueNullFieldError.checkNotNull(
                 createdAt, r'AiImportJob', 'createdAt'),
             dedupKey: BuiltValueNullFieldError.checkNotNull(
@@ -305,6 +330,7 @@ class AiImportJobBuilder implements Builder<AiImportJob, AiImportJobBuilder> {
                 sourceHandle, r'AiImportJob', 'sourceHandle'),
             status: BuiltValueNullFieldError.checkNotNull(
                 status, r'AiImportJob', 'status'),
+            telemetry: _telemetry?.build(),
             updatedAt: BuiltValueNullFieldError.checkNotNull(
                 updatedAt, r'AiImportJob', 'updatedAt'),
             userId: BuiltValueNullFieldError.checkNotNull(
@@ -316,8 +342,14 @@ class AiImportJobBuilder implements Builder<AiImportJob, AiImportJobBuilder> {
         _$failedField = 'attempts';
         _attempts?.build();
 
+        _$failedField = 'cost';
+        _cost?.build();
+
         _$failedField = 'progress';
         _progress?.build();
+
+        _$failedField = 'telemetry';
+        _telemetry?.build();
       } catch (e) {
         throw BuiltValueNestedFieldError(
             r'AiImportJob', _$failedField, e.toString());

@@ -53,6 +53,9 @@ import 'package:breakdown_api/src/model/character_measurements.dart';
 import 'package:breakdown_api/src/model/character_view.dart';
 import 'package:breakdown_api/src/model/checkpoint_progress.dart';
 import 'package:breakdown_api/src/model/contact_info.dart';
+import 'package:breakdown_api/src/model/cost_breakdown.dart';
+import 'package:breakdown_api/src/model/cost_display_preference.dart';
+import 'package:breakdown_api/src/model/cost_status.dart';
 import 'package:breakdown_api/src/model/costume_category_view.dart';
 import 'package:breakdown_api/src/model/costume_decision.dart';
 import 'package:breakdown_api/src/model/costume_detail.dart';
@@ -71,6 +74,7 @@ import 'package:breakdown_api/src/model/create_scene_request.dart';
 import 'package:breakdown_api/src/model/create_season_request.dart';
 import 'package:breakdown_api/src/model/create_shooting_day_request.dart';
 import 'package:breakdown_api/src/model/credential_binding_state.dart';
+import 'package:breakdown_api/src/model/currency.dart';
 import 'package:breakdown_api/src/model/dead_letter_entry.dart';
 import 'package:breakdown_api/src/model/dispo_row.dart';
 import 'package:breakdown_api/src/model/document_kind.dart';
@@ -78,6 +82,7 @@ import 'package:breakdown_api/src/model/draft_character.dart';
 import 'package:breakdown_api/src/model/draft_costume.dart';
 import 'package:breakdown_api/src/model/draft_episode.dart';
 import 'package:breakdown_api/src/model/draft_scene.dart';
+import 'package:breakdown_api/src/model/energy_cost_breakdown.dart';
 import 'package:breakdown_api/src/model/episode_target.dart';
 import 'package:breakdown_api/src/model/episode_target_one_of.dart';
 import 'package:breakdown_api/src/model/episode_target_one_of1.dart';
@@ -90,8 +95,10 @@ import 'package:breakdown_api/src/model/health_entry.dart';
 import 'package:breakdown_api/src/model/health_report.dart';
 import 'package:breakdown_api/src/model/health_status.dart';
 import 'package:breakdown_api/src/model/id_version_response.dart';
+import 'package:breakdown_api/src/model/image_cost_breakdown.dart';
 import 'package:breakdown_api/src/model/invite_member_request.dart';
 import 'package:breakdown_api/src/model/job_status.dart';
+import 'package:breakdown_api/src/model/job_telemetry_summary.dart';
 import 'package:breakdown_api/src/model/link_continuity_photo_request.dart';
 import 'package:breakdown_api/src/model/llm_provider.dart';
 import 'package:breakdown_api/src/model/manual_archive_job_result.dart';
@@ -104,6 +111,7 @@ import 'package:breakdown_api/src/model/meta_credits_entry.dart';
 import 'package:breakdown_api/src/model/meta_credits_response.dart';
 import 'package:breakdown_api/src/model/meta_versions_response.dart';
 import 'package:breakdown_api/src/model/model_info.dart';
+import 'package:breakdown_api/src/model/model_pricing.dart';
 import 'package:breakdown_api/src/model/photo_binding.dart';
 import 'package:breakdown_api/src/model/photo_binding_one_of.dart';
 import 'package:breakdown_api/src/model/photo_binding_one_of1.dart';
@@ -114,6 +122,7 @@ import 'package:breakdown_api/src/model/photo_variant.dart';
 import 'package:breakdown_api/src/model/photo_variant_view.dart';
 import 'package:breakdown_api/src/model/photo_view.dart';
 import 'package:breakdown_api/src/model/plan_scene_shoot_request.dart';
+import 'package:breakdown_api/src/model/pricing_source.dart';
 import 'package:breakdown_api/src/model/problem_details.dart';
 import 'package:breakdown_api/src/model/projector_health_snapshot.dart';
 import 'package:breakdown_api/src/model/rename_episode_request.dart';
@@ -148,6 +157,7 @@ import 'package:breakdown_api/src/model/soll_ist_diff_row.dart';
 import 'package:breakdown_api/src/model/soll_ist_report.dart';
 import 'package:breakdown_api/src/model/source_format.dart';
 import 'package:breakdown_api/src/model/start_scene_shoot_request.dart';
+import 'package:breakdown_api/src/model/token_cost_breakdown.dart';
 import 'package:breakdown_api/src/model/unapplied_costume.dart';
 import 'package:breakdown_api/src/model/unapplied_costume_reason.dart';
 import 'package:breakdown_api/src/model/uncertainty.dart';
@@ -209,6 +219,9 @@ part 'serializers.g.dart';
   CharacterView,
   CheckpointProgress,
   ContactInfo,
+  CostBreakdown,
+  CostDisplayPreference,
+  CostStatus,
   CostumeCategoryView,
   CostumeDecision,
   CostumeDetail,
@@ -227,6 +240,7 @@ part 'serializers.g.dart';
   CreateSeasonRequest,
   CreateShootingDayRequest,
   CredentialBindingState,
+  Currency,
   DeadLetterEntry,
   DispoRow,
   DocumentKind,
@@ -234,6 +248,7 @@ part 'serializers.g.dart';
   DraftCostume,
   DraftEpisode,
   DraftScene,
+  EnergyCostBreakdown,
   EpisodeTarget,
   EpisodeTargetOneOf,
   EpisodeTargetOneOf1,
@@ -247,8 +262,10 @@ part 'serializers.g.dart';
   HealthReport,
   HealthStatus,
   IdVersionResponse,
+  ImageCostBreakdown,
   InviteMemberRequest,
   JobStatus,
+  JobTelemetrySummary,
   LinkContinuityPhotoRequest,
   LlmProvider,
   ManualArchiveJobResult,
@@ -261,6 +278,7 @@ part 'serializers.g.dart';
   MetaCreditsResponse,
   MetaVersionsResponse,
   ModelInfo,
+  ModelPricing,
   PhotoBinding,
   PhotoBindingOneOf,
   PhotoBindingOneOf1,
@@ -271,6 +289,7 @@ part 'serializers.g.dart';
   PhotoVariantView,
   PhotoView,
   PlanSceneShootRequest,
+  PricingSource,
   ProblemDetails,
   ProjectorHealthSnapshot,
   RenameEpisodeRequest,
@@ -305,6 +324,7 @@ part 'serializers.g.dart';
   SollIstReport,
   SourceFormat,
   StartSceneShootRequest,
+  TokenCostBreakdown,
   UnappliedCostume,
   UnappliedCostumeReason,
   Uncertainty,

@@ -15,6 +15,8 @@ part 'llm_provider.g.dart';
 class LlmProvider extends EnumClass {
   @BuiltValueEnumConst(wireName: r'openai')
   static const LlmProvider openai = _$openai;
+  @BuiltValueEnumConst(wireName: r'gemini')
+  static const LlmProvider gemini = _$gemini;
   @BuiltValueEnumConst(wireName: r'openrouter')
   static const LlmProvider openrouter = _$openrouter;
   @BuiltValueEnumConst(wireName: r'eurouter')

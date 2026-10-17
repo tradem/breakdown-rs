@@ -10,6 +10,8 @@ class _$AiConfigView extends AiConfigView {
   @override
   final String assistantModel;
   @override
+  final CostDisplayPreference? costDisplayPreference;
+  @override
   final String id;
   @override
   final String? imageModel;
@@ -35,6 +37,7 @@ class _$AiConfigView extends AiConfigView {
 
   _$AiConfigView._(
       {required this.assistantModel,
+      this.costDisplayPreference,
       required this.id,
       this.imageModel,
       required this.promptKinds,
@@ -58,6 +61,7 @@ class _$AiConfigView extends AiConfigView {
     if (identical(other, this)) return true;
     return other is AiConfigView &&
         assistantModel == other.assistantModel &&
+        costDisplayPreference == other.costDisplayPreference &&
         id == other.id &&
         imageModel == other.imageModel &&
         promptKinds == other.promptKinds &&
@@ -74,6 +78,7 @@ class _$AiConfigView extends AiConfigView {
   int get hashCode {
     var _$hash = 0;
     _$hash = $jc(_$hash, assistantModel.hashCode);
+    _$hash = $jc(_$hash, costDisplayPreference.hashCode);
     _$hash = $jc(_$hash, id.hashCode);
     _$hash = $jc(_$hash, imageModel.hashCode);
     _$hash = $jc(_$hash, promptKinds.hashCode);
@@ -92,6 +97,7 @@ class _$AiConfigView extends AiConfigView {
   String toString() {
     return (newBuiltValueToStringHelper(r'AiConfigView')
           ..add('assistantModel', assistantModel)
+          ..add('costDisplayPreference', costDisplayPreference)
           ..add('id', id)
           ..add('imageModel', imageModel)
           ..add('promptKinds', promptKinds)
@@ -114,6 +120,12 @@ class AiConfigViewBuilder
   String? get assistantModel => _$this._assistantModel;
   set assistantModel(String? assistantModel) =>
       _$this._assistantModel = assistantModel;
+
+  CostDisplayPreference? _costDisplayPreference;
+  CostDisplayPreference? get costDisplayPreference =>
+      _$this._costDisplayPreference;
+  set costDisplayPreference(CostDisplayPreference? costDisplayPreference) =>
+      _$this._costDisplayPreference = costDisplayPreference;
 
   String? _id;
   String? get id => _$this._id;
@@ -168,6 +180,7 @@ class AiConfigViewBuilder
     final $v = _$v;
     if ($v != null) {
       _assistantModel = $v.assistantModel;
+      _costDisplayPreference = $v.costDisplayPreference;
       _id = $v.id;
       _imageModel = $v.imageModel;
       _promptKinds = $v.promptKinds.toBuilder();
@@ -203,6 +216,7 @@ class AiConfigViewBuilder
           _$AiConfigView._(
             assistantModel: BuiltValueNullFieldError.checkNotNull(
                 assistantModel, r'AiConfigView', 'assistantModel'),
+            costDisplayPreference: costDisplayPreference,
             id: BuiltValueNullFieldError.checkNotNull(
                 id, r'AiConfigView', 'id'),
             imageModel: imageModel,

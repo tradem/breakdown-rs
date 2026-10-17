@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024 Breakdown RS Contributors
 // Co-authored-by: deepseek-v4-flash (opencode-go)
+// Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 
 //! Live smoke test for the AI document-ingestion LLM path.
 //!
@@ -55,7 +56,7 @@ async fn llm_reads_a_document_and_returns_script_context() -> Result<()> {
 
     let client =
         OpenAiCompatibleChatClient::new(provider, api_key, Duration::from_secs(120)).await?;
-    let context = client
+    let outcome = client
         .chat_constrained(LlmChatRequest {
             provider,
             model,
@@ -74,6 +75,23 @@ async fn llm_reads_a_document_and_returns_script_context() -> Result<()> {
         })
         .await
         .context("live LLM call failed")?;
+    let usage = outcome.usage;
+    let context = outcome.output;
+    // Issue #675: log the recorded usage so nightly runs surface real
+    // token/energy telemetry from the live provider. `tracing` (not
+    // println/eprintln — both are clippy-denied repo-wide) with the
+    // test-writer subscriber so the line lands in the captured test output.
+    let _guard = tracing_subscriber::fmt()
+        .with_test_writer()
+        .with_max_level(tracing::Level::INFO)
+        .try_init();
+    tracing::info!(
+        tokens_in = usage.tokens_in,
+        tokens_out = usage.tokens_out,
+        cached_tokens_in = usage.cached_tokens_in,
+        energy_millijoules = usage.energy_millijoules,
+        "llm smoke usage"
+    );
 
     assert!(
         !context.scenes.is_empty(),
@@ -111,5 +129,6 @@ async fn llm_reads_a_document_and_returns_script_context() -> Result<()> {
         assert!(has_content, "scene {scene:?} carries no extracted content");
     }
     let _: ScriptContext = context;
+    let _: breakdown_core::ai::LlmCallUsage = usage;
     Ok(())
 }

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 // Co-authored-by: gpt-5.6-luna (pi)
 // Co-authored-by: longcat-2.0-free (pi)
 // Co-authored-by: deepseek-v4-flash (opencode-go)
@@ -62,7 +63,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use anyhow::Result;
 use async_trait::async_trait;
 use breakdown_core::ai::{
-    AiImportBounds, AiImportQueue, LlmChatRequest, LlmClient, LlmProvider, ScriptContext,
+    AiImportBounds, AiImportQueue, LlmCallOutcome, LlmChatRequest, LlmClient, LlmProvider,
+    ScriptContext,
 };
 use breakdown_core::error::DomainError;
 use infra::ai::{
@@ -166,7 +168,7 @@ impl LlmClient for UnusedLlmClient {
     async fn chat_constrained(
         &self,
         _request: LlmChatRequest,
-    ) -> Result<ScriptContext, DomainError> {
+    ) -> Result<LlmCallOutcome<ScriptContext>, DomainError> {
         Err(DomainError::validation(
             "the LLM must not be reached in native_csv mode",
         ))
@@ -191,6 +193,7 @@ fn schedule_worker(
         model: "unused".to_owned(),
         prompt: "unused".to_owned(),
         bounds: AiImportBounds::default(),
+        pricing: None,
     }
 }
 

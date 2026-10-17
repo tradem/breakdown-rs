@@ -2259,6 +2259,8 @@ impl AiImportQueue for FakeAiImportQueue {
                 max_retries: 5,
                 created_at: now,
                 updated_at: now,
+                telemetry: None,
+                cost: None,
             },
         );
         Ok(AiImportEnqueueResult::Enqueued(request.id))
@@ -2409,6 +2411,70 @@ impl AiImportQueue for FakeAiImportQueue {
 #[allow(dead_code)]
 pub struct FakeAiImportMappingRepo {
     pub mappings: Arc<Mutex<Vec<AiImportMapping>>>,
+}
+
+/// In-memory fake of the `ai_model_pricing` read model (issue #675). Empty
+/// by default — models resolve to `pricing: null`, which is exactly the
+/// honest "unknown price" degradation the API contract requires. Tests seed
+/// rows via [`FakeAiModelPricingRepo::seed`].
+#[derive(Clone, Default)]
+pub struct FakeAiModelPricingRepo {
+    pub rows: std::sync::Arc<std::sync::Mutex<Vec<breakdown_core::ai::ModelPricingRow>>>,
+}
+
+impl FakeAiModelPricingRepo {
+    /// Seed pricing rows the way the refresh worker would have upserted them.
+    // Test-support module shared across harnesses; some don't seed pricing.
+    #[allow(dead_code)]
+    #[allow(clippy::expect_used)] // test-only fake; a poisoned test mutex cannot be recovered meaningfully
+    pub fn seed(&self, rows: Vec<breakdown_core::ai::ModelPricingRow>) {
+        self.rows.lock().expect("test mutex").extend(rows);
+    }
+}
+
+#[async_trait::async_trait]
+impl breakdown_core::ai::AiModelPricingRepository for FakeAiModelPricingRepo {
+    async fn find_for_model(
+        &self,
+        provider: breakdown_core::ai::LlmProvider,
+        model: &str,
+    ) -> Result<Option<breakdown_core::ai::ModelPricing>, breakdown_core::error::DomainError> {
+        #[allow(clippy::expect_used)]
+        // test-only fake; a poisoned test mutex cannot be recovered meaningfully
+        Ok(self
+            .rows
+            .lock()
+            .expect("test mutex")
+            .iter()
+            .find(|row| row.provider == provider && row.model == model)
+            .map(|row| row.pricing.clone()))
+    }
+
+    async fn list_for_provider(
+        &self,
+        provider: breakdown_core::ai::LlmProvider,
+    ) -> Result<Vec<breakdown_core::ai::ModelPricingRow>, breakdown_core::error::DomainError> {
+        #[allow(clippy::expect_used)]
+        // test-only fake; a poisoned test mutex cannot be recovered meaningfully
+        Ok(self
+            .rows
+            .lock()
+            .expect("test mutex")
+            .iter()
+            .filter(|row| row.provider == provider)
+            .cloned()
+            .collect())
+    }
+
+    async fn upsert_batch(
+        &self,
+        entries: Vec<breakdown_core::ai::ModelPricingRow>,
+    ) -> Result<(), breakdown_core::error::DomainError> {
+        #[allow(clippy::expect_used)]
+        // test-only fake; a poisoned test mutex cannot be recovered meaningfully
+        self.rows.lock().expect("test mutex").extend(entries);
+        Ok(())
+    }
 }
 
 /// The full mapping row key. A draft scene and its first costume share a
@@ -2584,6 +2650,7 @@ pub struct FakePorts {
     pub ai_config_repo: FakeAiConfigRepo,
     pub ai_import_queue: FakeAiImportQueue,
     pub ai_import_mapping: FakeAiImportMappingRepo,
+    pub ai_model_pricing: FakeAiModelPricingRepo,
     /// One `MemoryAiPreviewStore` backs all three AI payload ports, matching
     /// production where a single adapter implements preview + document store
     /// + document source.
@@ -2628,6 +2695,7 @@ impl Default for FakePorts {
             ai_config_repo: Default::default(),
             ai_import_queue: Default::default(),
             ai_import_mapping: Default::default(),
+            ai_model_pricing: Default::default(),
             ai_payload_store: Default::default(),
             projector_health_repo: Default::default(),
         }
@@ -2669,6 +2737,7 @@ impl Ports for FakePorts {
     type AiConfigRepo = FakeAiConfigRepo;
     type AiImportQueue = FakeAiImportQueue;
     type AiImportMappingRepo = FakeAiImportMappingRepo;
+    type AiModelPricingRepo = FakeAiModelPricingRepo;
     type AiPreviewStore = MemoryAiPreviewStore;
     type AiDocumentStore = MemoryAiPreviewStore;
     type AiDocumentSource = MemoryAiPreviewStore;
@@ -2778,6 +2847,9 @@ impl Ports for FakePorts {
     }
     fn ai_import_mapping(&self) -> &Self::AiImportMappingRepo {
         &self.ai_import_mapping
+    }
+    fn ai_model_pricing_repo(&self) -> &Self::AiModelPricingRepo {
+        &self.ai_model_pricing
     }
     fn ai_preview_store(&self) -> &Self::AiPreviewStore {
         &self.ai_payload_store

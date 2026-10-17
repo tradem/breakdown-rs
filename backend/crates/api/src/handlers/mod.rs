@@ -36,8 +36,9 @@ use axum::response::{IntoResponse, Response};
 use axum::{Router, routing};
 use breakdown_core::ai::{
     AiConfigCommands, AiConfigRepository, AiConfigView, AiImportEnqueueRequest,
-    AiImportEnqueueResult, AiImportJobId, AiImportPreviewResponse, AiImportQueue, AiPreviewPayload,
-    ApplyGateError, ApplyMapping, CreateAiConfig, DocumentKind, EpisodeGroupPlan, EpisodeTarget,
+    AiImportEnqueueResult, AiImportJobId, AiImportPreviewResponse, AiImportQueue,
+    AiModelPricingRepository as _, AiPreviewPayload, ApplyGateError, ApplyMapping,
+    CostDisplayPreference, CreateAiConfig, DocumentKind, EpisodeGroupPlan, EpisodeTarget,
     LlmProvider, MergedPreview, ModelInfo, RevokeAiConfig, ScriptContext, ShootingSchedule,
     SourceFormat, Telemetry, TelemetryApplyState, Uncertainty, UncertaintyAcknowledgement,
     UpdateAiConfig, ensure_script_applyable, episode_group_refs,
@@ -6757,6 +6758,10 @@ pub struct CreateAiConfigRequest {
     pub image_model: Option<String>,
     pub prompts: HashMap<DocumentKind, String>,
     pub vault_key_id: String,
+    /// Preferred primary cost display metric (issue #675). Defaults to
+    /// `token` for clients predating the field.
+    #[serde(default)]
+    pub cost_display_preference: CostDisplayPreference,
 }
 
 #[derive(Debug, Clone, Deserialize, ToSchema)]
@@ -6766,6 +6771,9 @@ pub struct UpdateAiConfigRequest {
     pub image_model: Option<String>,
     pub prompts: HashMap<DocumentKind, String>,
     pub vault_key_id: String,
+    /// See [`CreateAiConfigRequest`] (issue #675).
+    #[serde(default)]
+    pub cost_display_preference: CostDisplayPreference,
     pub version: AggregateVersion,
 }
 
@@ -6957,6 +6965,7 @@ pub async fn create_ai_config<P: Ports>(
                 image_model: request.image_model,
                 prompts: request.prompts,
                 vault_key_id: request.vault_key_id,
+                cost_display_preference: request.cost_display_preference,
             },
         )
         .await?;
@@ -7083,6 +7092,7 @@ pub async fn update_ai_config<P: Ports>(
                 image_model: request.image_model,
                 prompts: request.prompts,
                 vault_key_id: request.vault_key_id,
+                cost_display_preference: request.cost_display_preference,
                 version: request.version,
             },
         )
@@ -7219,7 +7229,23 @@ pub async fn list_ai_models<P: Ports>(
         return Err(ApiError::FeatureDisabled("AI import is disabled"));
     }
     let provider = parse_ai_provider(&provider)?;
-    Ok((StatusCode::OK, Json(infra::ai::curated_models(provider))))
+    // Pricing enrichment (issue #675): the API edge is the only legitimate
+    // read-model consumer — attach `ai_model_pricing` rows to each curated
+    // model. Models without a pricing row (e.g. Ollama) keep `pricing:
+    // null` — never a fabricated zero-price object.
+    let mut models = infra::ai::curated_models(provider);
+    let pricing_rows = state
+        .ports
+        .ai_model_pricing_repo()
+        .list_for_provider(provider)
+        .await?;
+    for model in &mut models {
+        model.pricing = pricing_rows
+            .iter()
+            .find(|row| row.model == model.id)
+            .map(|row| row.pricing.clone());
+    }
+    Ok((StatusCode::OK, Json(models)))
 }
 
 /// Wire shape for `GET /v1/ai-import/defaults` (issue #471): the

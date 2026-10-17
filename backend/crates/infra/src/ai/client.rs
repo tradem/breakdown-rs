@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 // Co-authored-by: gpt-5.6-luna (opencode-go)
 // Co-authored-by: deepseek-v4-flash (opencode-go)
 // Co-authored-by: deepseek-v4.1-flash (neuralwatt)
@@ -9,7 +10,8 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use breakdown_core::ai::{
-    CuratedLlmProvider, LlmChatRequest, LlmClient, LlmProvider, ScriptContext,
+    CuratedLlmProvider, LlmCallOutcome, LlmCallUsage, LlmChatRequest, LlmClient, LlmProvider,
+    ScriptContext,
 };
 use breakdown_core::error::DomainError;
 use breakdown_core::settings::SecretValue;
@@ -137,13 +139,20 @@ impl OpenAiCompatibleChatClient {
         )
     }
 
-    async fn request(&self, req: &LlmChatRequest) -> Result<ScriptContext, DomainError> {
+    async fn request(
+        &self,
+        req: &LlmChatRequest,
+    ) -> Result<LlmCallOutcome<ScriptContext>, DomainError> {
         let schema = req
             .response_schema
             .clone()
             .unwrap_or_else(|| schemars::schema_for!(ScriptContextSchema).to_value());
         let mut budget = req.max_tokens;
         let mut truncation_retries = MAX_TRUNCATION_RETRIES;
+        // Usage accumulates across every paid HTTP response, including the
+        // discarded responses of truncation retries (issue #675) — the
+        // provider billed those tokens too.
+        let mut total_usage = LlmCallUsage::default();
         loop {
             let body = ChatCompletionRequest {
                 model: req.model.clone(),
@@ -189,6 +198,7 @@ impl OpenAiCompatibleChatClient {
                 .map_err(|error| {
                     DomainError::validation(format!("invalid LLM response: {error}"))
                 })?;
+            total_usage.accumulate(envelope.usage());
             let choice = envelope
                 .choices
                 .first()
@@ -199,7 +209,9 @@ impl OpenAiCompatibleChatClient {
                 .as_deref()
                 .ok_or_else(|| DomainError::validation("LLM response contained no content"))?;
             match serde_json::from_str(content) {
-                Ok(context) => return Ok(context),
+                Ok(context) => {
+                    return Ok(LlmCallOutcome::new(context, total_usage));
+                }
                 Err(error) => {
                     match next_truncation_budget(
                         choice.finish_reason.as_deref(),
@@ -232,7 +244,10 @@ impl OpenAiCompatibleChatClient {
 
 #[async_trait]
 impl LlmClient for OpenAiCompatibleChatClient {
-    async fn chat_constrained(&self, req: LlmChatRequest) -> Result<ScriptContext, DomainError> {
+    async fn chat_constrained(
+        &self,
+        req: LlmChatRequest,
+    ) -> Result<LlmCallOutcome<ScriptContext>, DomainError> {
         if req.provider != self.provider {
             return Err(DomainError::validation(
                 "LLM request provider does not match configured client",
@@ -260,6 +275,135 @@ struct ChatMessage {
 #[derive(Debug, Deserialize)]
 struct ChatCompletionResponse {
     choices: Vec<ChatChoice>,
+    /// Token usage reported by the provider (issue #675). Absent on some
+    /// providers/streams — tolerated, usage stays at the accumulated zeros.
+    #[serde(default)]
+    usage: Option<ChatUsage>,
+    /// Hardware energy telemetry reported by Neuralwatt (issue #675).
+    #[serde(default)]
+    energy: Option<ChatEnergy>,
+}
+
+impl ChatCompletionResponse {
+    /// Extract the `LlmCallUsage` of this one response (zeros when the
+    /// provider reports nothing).
+    fn usage(&self) -> LlmCallUsage {
+        let tokens_in = self.usage.as_ref().and_then(|u| u.prompt_tokens);
+        let tokens_out = self.usage.as_ref().and_then(|u| u.completion_tokens);
+        let cached_tokens_in = self
+            .usage
+            .as_ref()
+            .and_then(|u| u.prompt_tokens_details.as_ref())
+            .and_then(|d| d.cached_tokens);
+        let energy_millijoules = self
+            .energy
+            .as_ref()
+            .and_then(parse_energy_millijoules)
+            .unwrap_or(0);
+        LlmCallUsage {
+            tokens_in: tokens_in.unwrap_or(0),
+            tokens_out: tokens_out.unwrap_or(0),
+            cached_tokens_in: cached_tokens_in.unwrap_or(0),
+            energy_millijoules,
+        }
+    }
+}
+
+/// OpenAI-compatible `usage` object.
+#[derive(Debug, Deserialize)]
+struct ChatUsage {
+    #[serde(default)]
+    prompt_tokens: Option<u64>,
+    #[serde(default)]
+    completion_tokens: Option<u64>,
+    #[serde(default)]
+    prompt_tokens_details: Option<ChatPromptTokensDetails>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ChatPromptTokensDetails {
+    #[serde(default)]
+    cached_tokens: Option<u64>,
+}
+
+/// Neuralwatt hardware-energy telemetry. Values are JSON numbers or numeric
+/// strings in joules or kWh; parsed with integer decimal math (no floats).
+#[derive(Debug, Deserialize)]
+struct ChatEnergy {
+    #[serde(default)]
+    energy_joules: Option<serde_json::Value>,
+    #[serde(default)]
+    energy_kwh: Option<serde_json::Value>,
+}
+
+/// Parse a hardware-energy value into millijoules with integer arithmetic.
+/// Joules take precedence over kWh (`1 kWh = 3.6 × 10^9 mJ`). Accepts JSON
+/// numbers and numeric strings, both integral and fractional decimal.
+fn parse_energy_millijoules(energy: &ChatEnergy) -> Option<u64> {
+    if let Some(joules) = &energy.energy_joules {
+        return parse_decimal_scaled(joules, JOULES_TO_MILLIJOULES);
+    }
+    parse_decimal_scaled(energy.energy_kwh.as_ref()?, KWH_TO_MILLIJOULES)
+}
+
+/// `1 J = 1_000 mJ`.
+const JOULES_TO_MILLIJOULES: i128 = 1_000;
+/// `1 kWh = 3.6 × 10^9 mJ`.
+const KWH_TO_MILLIJOULES: i128 = 3_600_000_000;
+
+/// Convert a JSON number-or-string decimal into `value × factor`
+/// millijoules, half-up rounded, with `i128` intermediate math (no floats).
+/// Returns `None` for non-numeric input — callers treat that as "no
+/// telemetry reported", never as zero.
+fn parse_decimal_scaled(value: &serde_json::Value, factor: i128) -> Option<u64> {
+    let text = match value {
+        serde_json::Value::Number(n) => n.to_string(),
+        serde_json::Value::String(s) => s.trim().to_owned(),
+        _ => return None,
+    };
+    let (negative, digits) = match text.strip_prefix('-') {
+        Some(rest) => (true, rest),
+        None => (false, text.as_str()),
+    };
+    let (int_part, frac_part) = match digits.split_once('.') {
+        Some((i, f)) => (i, f),
+        None => (digits, ""),
+    };
+    if int_part.is_empty() && frac_part.is_empty() {
+        return None;
+    }
+    if !int_part.chars().all(|c| c.is_ascii_digit())
+        || !frac_part.chars().all(|c| c.is_ascii_digit())
+    {
+        return None;
+    }
+    let int_val: i128 = if int_part.is_empty() {
+        0
+    } else {
+        int_part.parse().ok()?
+    };
+    // Scale the fraction to 3 decimal places (milli) with half-up rounding
+    // using the 4th fraction digit.
+    let mut milli_val: i128 = 0;
+    for digit in frac_part.chars().take(3) {
+        milli_val = milli_val * 10 + i128::from(digit.to_digit(10)?);
+    }
+    for _ in frac_part.chars().count()..3 {
+        milli_val *= 10;
+    }
+    if let Some(round_digit) = frac_part.chars().nth(3)
+        && round_digit.to_digit(10).is_some_and(|d| d >= 5)
+    {
+        milli_val += 1;
+    }
+    let total = int_val
+        .checked_mul(factor)?
+        .checked_add(milli_val.checked_mul(factor.checked_div(1_000)?)?)
+        .unwrap_or(i128::MAX);
+    if negative {
+        return None;
+    }
+    u64::try_from(total).ok()
 }
 
 #[derive(Debug, Deserialize)]

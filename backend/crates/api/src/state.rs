@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 // Co-authored-by: gpt-5.6-luna (opencode-go)
 // Co-authored-by: deepseek-v4-flash (opencode-go)
 // Co-authored-by: longcat-2.0-free (opencode)
@@ -20,6 +21,7 @@ use std::sync::Arc;
 use crate::auth::authorization::MembershipAuthorizationPolicy;
 use breakdown_core::ai::{
     AiConfigCommands, AiConfigRepository, AiImportMappingRepository, AiImportQueue,
+    AiModelPricingRepository,
 };
 use breakdown_core::audit::AuditRepository;
 use breakdown_core::block::{BlockCommands, BlockRepository};
@@ -40,7 +42,8 @@ use breakdown_core::season::{SeasonCommands, SeasonRepository};
 use breakdown_core::settings::{CredentialVault, SettingsCommands, SettingsRepository};
 use breakdown_core::shooting_day::{ShootingDayCommands, ShootingDayRepository};
 use infra::ai::{
-    AiDocumentSource, AiDocumentStore, AiPreviewStore, PgAiImportMappingRepository, PgAiImportQueue,
+    AiDocumentSource, AiDocumentStore, AiPreviewStore, PgAiImportMappingRepository,
+    PgAiImportQueue, PgAiModelPricingRepository,
 };
 use infra::event_store::{
     AiConfigCommandsImpl, BlockCommandsImpl, CharacterCommandsImpl, CostumeCategoryCommandsImpl,
@@ -109,6 +112,9 @@ pub trait Ports: Clone + Send + Sync + 'static {
     type AiConfigRepo: AiConfigRepository;
     type AiImportQueue: AiImportQueue + Clone;
     type AiImportMappingRepo: AiImportMappingRepository + Clone;
+    /// Pricing read model behind the model-catalog enrichment and the
+    /// completion cost snapshots (issue #675).
+    type AiModelPricingRepo: AiModelPricingRepository;
     /// `?Sized` so production can keep its `Arc<dyn AiPreviewStore>` handle
     /// (chosen at boot between the durable S3 and the in-memory backend)
     /// while tests bind a concrete fake.
@@ -154,6 +160,7 @@ pub trait Ports: Clone + Send + Sync + 'static {
     fn ai_config_repo(&self) -> &Self::AiConfigRepo;
     fn ai_import_queue(&self) -> &Self::AiImportQueue;
     fn ai_import_mapping(&self) -> &Self::AiImportMappingRepo;
+    fn ai_model_pricing_repo(&self) -> &Self::AiModelPricingRepo;
     fn ai_preview_store(&self) -> &Self::AiPreviewStore;
     fn ai_document_store(&self) -> &Self::AiDocumentStore;
     fn ai_document_source(&self) -> &Self::AiDocumentSource;
@@ -267,6 +274,7 @@ pub struct AiPorts {
     pub config_repo: AiConfigRepositoryImpl,
     pub import_queue: PgAiImportQueue,
     pub import_mapping: PgAiImportMappingRepository,
+    pub model_pricing: PgAiModelPricingRepository,
     pub preview_store: Arc<dyn AiPreviewStore + Send + Sync>,
     pub document_store: Arc<dyn AiDocumentStore + Send + Sync>,
     pub document_source: Arc<dyn AiDocumentSource + Send + Sync>,
@@ -309,6 +317,7 @@ pub struct ProductionPorts {
     ai_config_repo: AiConfigRepositoryImpl,
     ai_import_queue: PgAiImportQueue,
     ai_import_mapping: PgAiImportMappingRepository,
+    ai_model_pricing: PgAiModelPricingRepository,
     projector_health_repo: PgProjectorHealthRepository,
     ai_preview_store: Arc<dyn AiPreviewStore + Send + Sync>,
     ai_document_store: Arc<dyn AiDocumentStore + Send + Sync>,
@@ -359,6 +368,7 @@ impl ProductionPorts {
             config_repo: ai_config_repo,
             import_queue: ai_import_queue,
             import_mapping: ai_import_mapping,
+            model_pricing: ai_model_pricing,
             preview_store: ai_preview_store,
             document_store: ai_document_store,
             document_source: ai_document_source,
@@ -398,6 +408,7 @@ impl ProductionPorts {
             ai_config_repo,
             ai_import_queue,
             ai_import_mapping,
+            ai_model_pricing,
             ai_preview_store,
             ai_document_store,
             ai_document_source,
@@ -441,6 +452,7 @@ impl Ports for ProductionPorts {
     type AiConfigRepo = AiConfigRepositoryImpl;
     type AiImportQueue = PgAiImportQueue;
     type AiImportMappingRepo = PgAiImportMappingRepository;
+    type AiModelPricingRepo = PgAiModelPricingRepository;
     // The unsized `dyn` projections keep the boot-time choice between the
     // durable S3 backend and the in-memory dev store behind one port type.
     type AiPreviewStore = dyn AiPreviewStore + Send + Sync;
@@ -552,6 +564,9 @@ impl Ports for ProductionPorts {
     }
     fn ai_import_mapping(&self) -> &Self::AiImportMappingRepo {
         &self.ai_import_mapping
+    }
+    fn ai_model_pricing_repo(&self) -> &Self::AiModelPricingRepo {
+        &self.ai_model_pricing
     }
     fn ai_preview_store(&self) -> &Self::AiPreviewStore {
         self.ai_preview_store.as_ref()

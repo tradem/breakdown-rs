@@ -22,8 +22,8 @@ use async_trait::async_trait;
 use breakdown_core::ai::{
     AiImportBounds, AiImportEnqueueRequest, AiImportEnqueueResult, AiImportJob, AiImportJobId,
     AiImportQueue, ApplyMapping, ApplyMappingDecision, DocumentKind, DraftScene, JobStatus,
-    LlmChatRequest, LlmClient, LlmProvider, ScriptContext, ShootingSchedule, SourceFormat,
-    Telemetry, TelemetryApplyState,
+    LlmCallOutcome, LlmChatRequest, LlmClient, LlmProvider, ScriptContext, ShootingSchedule,
+    SourceFormat, Telemetry, TelemetryApplyState,
 };
 use breakdown_core::error::DomainError;
 use breakdown_core::scene::ports::SceneRepository as _;
@@ -56,7 +56,7 @@ impl LlmClient for UnusedLlmClient {
     async fn chat_constrained(
         &self,
         _request: LlmChatRequest,
-    ) -> Result<ScriptContext, DomainError> {
+    ) -> Result<LlmCallOutcome<ScriptContext>, DomainError> {
         Err(DomainError::validation(
             "the LLM must not be reached in native_csv mode",
         ))
@@ -79,6 +79,7 @@ fn schedule_worker(
         model: "unused".to_owned(),
         prompt: "unused".to_owned(),
         bounds: AiImportBounds::default(),
+        pricing: None,
     }
 }
 

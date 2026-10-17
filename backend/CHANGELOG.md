@@ -1,5 +1,6 @@
 <!-- SPDX-License-Identifier: AGPL-3.0 -->
 <!-- Copyright (C) 2024-2026 Breakdown RS Contributors -->
+<!-- Co-authored-by: glm-5.3-flash-flex (neuralwatt) -->
 <!-- Co-authored-by: glm-5.3-flash (neuralwatt) -->
 
 # Changelog
@@ -25,6 +26,18 @@ tag. Never edit a released entry afterwards.
 ## [Unreleased]
 
 ### Changed
+
+- **Version bump (issue #675):** `core 0.36.0 → 0.37.0`, `infra 0.41.0 →
+  0.42.0`, `api 0.35.0 → 0.36.0` — per-import AI cost transparency:
+  `LlmProvider::Gemini` (alias `google`), `CostDisplayPreference` on the AI
+  config aggregate/commands/wire, `Currency`/`ModelPricing`/`CostBreakdown`
+  + `JobTelemetrySummary` wire types, additive `telemetry`/`cost` on
+  `AiImportJob`, the `ai_model_pricing` read model (migration
+  `20261013000001`), the `AiPricingRefreshWorker` advisory-lock catalog
+  refresher, usage/energy extraction in the chat clients, worker cost
+  snapshots, and pricing enrichment on `GET
+  /v1/ai-import/providers/{provider}/models`.
+
 
 - **Version bump (issue #664):** `core 0.35.0 → 0.36.0`, `infra 0.40.0 →
   0.41.0`, `api 0.34.0 → 0.35.0` — AI-import SSE progress & event hub

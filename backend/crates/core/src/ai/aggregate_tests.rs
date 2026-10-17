@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 // Co-authored-by: mimo-v2.5 (opencode-go)
 
 // SPDX-License-Identifier: AGPL-3.0
@@ -15,8 +16,8 @@ use uuid::Uuid;
 use crate::shared::{AggregateVersion, UserId};
 
 use super::{
-    AiConfig, AiConfigError, AiConfigEvent, CreateAiConfig, DocumentKind, LlmProvider,
-    RevokeAiConfig, UpdateAiConfig,
+    AiConfig, AiConfigError, AiConfigEvent, CostDisplayPreference, CreateAiConfig, DocumentKind,
+    LlmProvider, RevokeAiConfig, UpdateAiConfig,
 };
 
 // ---------------------------------------------------------------------------
@@ -36,6 +37,7 @@ fn make_create_cmd() -> CreateAiConfig {
         image_model: Some("dall-e-3".into()),
         prompts: HashMap::from([(DocumentKind::Script, "Summarize".into())]),
         vault_key_id: "key-123".into(),
+        cost_display_preference: CostDisplayPreference::Token,
     }
 }
 
@@ -47,6 +49,7 @@ fn make_update_cmd(id: Uuid, version: AggregateVersion) -> UpdateAiConfig {
         image_model: None,
         prompts: HashMap::from([(DocumentKind::Script, "New prompt".into())]),
         vault_key_id: "key-456".into(),
+        cost_display_preference: CostDisplayPreference::Energy,
         version,
     }
 }
@@ -60,6 +63,7 @@ fn created_event(cmd: &CreateAiConfig) -> AiConfigEvent {
         image_model: cmd.image_model.clone(),
         prompts: cmd.prompts.clone(),
         vault_key_id: cmd.vault_key_id.clone(),
+        cost_display_preference: cmd.cost_display_preference,
         version: AggregateVersion::INITIAL,
     }
 }
@@ -127,6 +131,7 @@ fn update_config_emits_single_updated_event() {
             image_model: None,
             prompts: HashMap::from([(DocumentKind::Script, "New prompt".into())]),
             vault_key_id: "key-456".into(),
+            cost_display_preference: CostDisplayPreference::Energy,
             version: AggregateVersion::INITIAL.next(),
         }]);
 }
@@ -179,6 +184,7 @@ fn update_config_accepts_provider_replacement_with_new_vault_key() {
             image_model: None,
             prompts: HashMap::from([(DocumentKind::Script, "New prompt".into())]),
             vault_key_id: "key-789".into(),
+            cost_display_preference: CostDisplayPreference::Energy,
             version: AggregateVersion::INITIAL.next(),
         }]);
 }
@@ -280,4 +286,87 @@ fn revoke_config_rejects_version_mismatch() {
 #[test]
 fn ai_config_category_is_ai_config() {
     assert_eq!(AiConfig::category(), "ai_config");
+}
+
+// --- CostDisplayPreference (issue #675) -----------------------------------
+
+#[test]
+fn create_config_carries_energy_display_preference() {
+    let mut cmd = make_create_cmd();
+    cmd.cost_display_preference = CostDisplayPreference::Energy;
+    let expected = created_event(&cmd);
+
+    AiConfig::given(vec![]).when(cmd).then(vec![expected]);
+}
+
+#[test]
+fn legacy_created_event_without_preference_replays_as_token() {
+    // Pre-#675 event payload: no `cost_display_preference` key at all.
+    let legacy = serde_json::json!({
+        "Created": {
+            "id": Uuid::now_v7(),
+            "user_id": "legacy-user",
+            "provider": "openai",
+            "assistant_model": "gpt-4o",
+            "image_model": null,
+            "prompts": { "script": "p" },
+            "vault_key_id": "key-1",
+            "version": 1,
+        }
+    });
+    let event: AiConfigEvent = serde_json::from_value(legacy)
+        .unwrap_or_else(|e| panic!("legacy event must deserialize: {e}"));
+    match event {
+        AiConfigEvent::Created {
+            cost_display_preference,
+            ..
+        } => assert_eq!(cost_display_preference, CostDisplayPreference::Token),
+        other => panic!("wrong variant: {other:?}"),
+    }
+}
+
+#[test]
+fn legacy_updated_event_without_preference_replays_as_token() {
+    let legacy = serde_json::json!({
+        "Updated": {
+            "id": Uuid::now_v7(),
+            "provider": "openai",
+            "assistant_model": "gpt-4o-mini",
+            "image_model": null,
+            "prompts": { "script": "p" },
+            "vault_key_id": "key-2",
+            "version": 2,
+        }
+    });
+    let event: AiConfigEvent = serde_json::from_value(legacy)
+        .unwrap_or_else(|e| panic!("legacy event must deserialize: {e}"));
+    match event {
+        AiConfigEvent::Updated {
+            cost_display_preference,
+            ..
+        } => assert_eq!(cost_display_preference, CostDisplayPreference::Token),
+        other => panic!("wrong variant: {other:?}"),
+    }
+}
+
+#[test]
+fn cost_display_preference_wire_values() {
+    assert_eq!(CostDisplayPreference::Token.as_str(), "token");
+    assert_eq!(CostDisplayPreference::Energy.as_str(), "energy");
+    assert_eq!(
+        serde_json::to_string(&CostDisplayPreference::Token).unwrap(),
+        "\"token\""
+    );
+    assert_eq!(
+        serde_json::to_string(&CostDisplayPreference::Energy).unwrap(),
+        "\"energy\""
+    );
+    assert_eq!(
+        serde_json::from_str::<CostDisplayPreference>("\"energy\"").unwrap(),
+        CostDisplayPreference::Energy
+    );
+    assert_eq!(
+        CostDisplayPreference::default(),
+        CostDisplayPreference::Token
+    );
 }

@@ -10,6 +10,8 @@ class _$UpdateAiConfigRequest extends UpdateAiConfigRequest {
   @override
   final String assistantModel;
   @override
+  final CostDisplayPreference? costDisplayPreference;
+  @override
   final String? imageModel;
   @override
   final BuiltMap<String, String> prompts;
@@ -26,6 +28,7 @@ class _$UpdateAiConfigRequest extends UpdateAiConfigRequest {
 
   _$UpdateAiConfigRequest._(
       {required this.assistantModel,
+      this.costDisplayPreference,
       this.imageModel,
       required this.prompts,
       required this.provider,
@@ -46,6 +49,7 @@ class _$UpdateAiConfigRequest extends UpdateAiConfigRequest {
     if (identical(other, this)) return true;
     return other is UpdateAiConfigRequest &&
         assistantModel == other.assistantModel &&
+        costDisplayPreference == other.costDisplayPreference &&
         imageModel == other.imageModel &&
         prompts == other.prompts &&
         provider == other.provider &&
@@ -57,6 +61,7 @@ class _$UpdateAiConfigRequest extends UpdateAiConfigRequest {
   int get hashCode {
     var _$hash = 0;
     _$hash = $jc(_$hash, assistantModel.hashCode);
+    _$hash = $jc(_$hash, costDisplayPreference.hashCode);
     _$hash = $jc(_$hash, imageModel.hashCode);
     _$hash = $jc(_$hash, prompts.hashCode);
     _$hash = $jc(_$hash, provider.hashCode);
@@ -70,6 +75,7 @@ class _$UpdateAiConfigRequest extends UpdateAiConfigRequest {
   String toString() {
     return (newBuiltValueToStringHelper(r'UpdateAiConfigRequest')
           ..add('assistantModel', assistantModel)
+          ..add('costDisplayPreference', costDisplayPreference)
           ..add('imageModel', imageModel)
           ..add('prompts', prompts)
           ..add('provider', provider)
@@ -87,6 +93,12 @@ class UpdateAiConfigRequestBuilder
   String? get assistantModel => _$this._assistantModel;
   set assistantModel(String? assistantModel) =>
       _$this._assistantModel = assistantModel;
+
+  CostDisplayPreference? _costDisplayPreference;
+  CostDisplayPreference? get costDisplayPreference =>
+      _$this._costDisplayPreference;
+  set costDisplayPreference(CostDisplayPreference? costDisplayPreference) =>
+      _$this._costDisplayPreference = costDisplayPreference;
 
   String? _imageModel;
   String? get imageModel => _$this._imageModel;
@@ -117,6 +129,7 @@ class UpdateAiConfigRequestBuilder
     final $v = _$v;
     if ($v != null) {
       _assistantModel = $v.assistantModel;
+      _costDisplayPreference = $v.costDisplayPreference;
       _imageModel = $v.imageModel;
       _prompts = $v.prompts.toBuilder();
       _provider = $v.provider;
@@ -147,6 +160,7 @@ class UpdateAiConfigRequestBuilder
           _$UpdateAiConfigRequest._(
             assistantModel: BuiltValueNullFieldError.checkNotNull(
                 assistantModel, r'UpdateAiConfigRequest', 'assistantModel'),
+            costDisplayPreference: costDisplayPreference,
             imageModel: imageModel,
             prompts: prompts.build(),
             provider: BuiltValueNullFieldError.checkNotNull(

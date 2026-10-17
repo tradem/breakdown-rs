@@ -1,10 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 // Co-authored-by: gpt-5.6-luna (opencode-go)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
 // Co-authored-by: qwen3.8-flash (opencode-go)
 
-use breakdown_core::ai::{AiConfigRepository, AiConfigView, DocumentKind, LlmProvider};
+use breakdown_core::ai::{
+    AiConfigRepository, AiConfigView, CostDisplayPreference, DocumentKind, LlmProvider,
+};
 use breakdown_core::error::DomainError;
 use breakdown_core::error_registry::AI_CONFIG_NOT_FOUND;
 use breakdown_core::shared::{AggregateVersion, UserId};
@@ -85,7 +88,7 @@ impl AiConfigRepository for AiConfigRepositoryImpl {
         let row = sqlx::query(
             r#"
             SELECT id, user_id, provider, assistant_model, image_model,
-                   prompts, vault_key_id, revoked, version
+                   prompts, vault_key_id, cost_display_preference, revoked, version
             FROM ai_import.projection_ai_config
             WHERE id = $1
             "#,
@@ -120,7 +123,7 @@ impl AiConfigRepository for AiConfigRepositoryImpl {
         let rows = sqlx::query(
             r#"
             SELECT id, user_id, provider, assistant_model, image_model,
-                   prompts, vault_key_id, revoked, version
+                   prompts, vault_key_id, cost_display_preference, revoked, version
             FROM ai_import.projection_ai_config
             WHERE user_id = $1
             ORDER BY updated_at DESC, id DESC
@@ -175,6 +178,10 @@ fn map_config_row(row: &PgRow) -> Result<AiConfigView, DomainError> {
         prompt_kinds,
         stored_prompt_kinds,
         vault_key_id: row.try_get("vault_key_id").map_err(map_sqlx_error)?,
+        cost_display_preference: parse_cost_display_preference(
+            row.try_get("cost_display_preference")
+                .map_err(map_sqlx_error)?,
+        ),
         version: {
             let raw: i64 = row.try_get("version").map_err(map_sqlx_error)?;
             if raw < 0 {
@@ -193,6 +200,7 @@ fn map_config_row(row: &PgRow) -> Result<AiConfigView, DomainError> {
 fn parse_provider(value: String) -> Result<LlmProvider, DomainError> {
     match value.as_str() {
         "openai" => Ok(LlmProvider::OpenAI),
+        "gemini" | "google" => Ok(LlmProvider::Gemini),
         "openrouter" => Ok(LlmProvider::OpenRouter),
         "eurouter" | "openrouter_eu" => Ok(LlmProvider::EURouter),
         "neuralwatt" => Ok(LlmProvider::Neuralwatt),
@@ -202,6 +210,17 @@ fn parse_provider(value: String) -> Result<LlmProvider, DomainError> {
         other => Err(DomainError::validation(format!(
             "unknown AI provider projection {other}"
         ))),
+    }
+}
+
+/// Parse the `cost_display_preference` projection column (issue #675). Rows
+/// written before the column existed carry the migration default `token`;
+/// an unknown value falls back to `Token` instead of failing the read (a
+/// display preference must never 500 a config fetch).
+fn parse_cost_display_preference(value: String) -> CostDisplayPreference {
+    match value.as_str() {
+        "energy" => CostDisplayPreference::Energy,
+        _ => CostDisplayPreference::Token,
     }
 }
 
