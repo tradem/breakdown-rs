@@ -26,14 +26,19 @@ String costCurrencySymbol(Currency currency) =>
 /// Up to 6 sub-unit decimals are kept (nano precision is 9; the last 3
 /// digits of a per-job total are far below any displayable relevance for
 /// the curated rates), trailing zeros are trimmed, and a whole number
-/// renders without a decimal point.
+/// renders without a decimal point. A non-zero amount whose first 6
+/// decimals are all zero keeps full nano precision instead — it must never
+/// render as a fabricated `$0` (small energy costs can land below 1000
+/// nano).
 String formatNanoCurrency(int nano, Currency currency) {
   final symbol = costCurrencySymbol(currency);
   final negative = nano < 0;
   final abs = negative ? -nano : nano;
   final major = abs ~/ 1000000000;
   final frac = '${abs % 1000000000}'.padLeft(9, '0');
-  var frac6 = frac.substring(0, 6);
+  var frac6 = (major == 0 && abs != 0 && frac.startsWith('000000'))
+      ? frac
+      : frac.substring(0, 6);
   while (frac6.isNotEmpty && frac6.endsWith('0')) {
     frac6 = frac6.substring(0, frac6.length - 1);
   }

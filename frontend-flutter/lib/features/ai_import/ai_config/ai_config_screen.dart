@@ -553,29 +553,37 @@ class _CostDisplayPreferenceSelector extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final state = ref.watch(aiConfigControllerProvider);
     final controller = ref.read(aiConfigControllerProvider.notifier);
-    return SegmentedButton<CostDisplayPreference>(
-      key: const Key('ai-cost-display-picker'),
-      segments: [
-        ButtonSegment(
-          value: CostDisplayPreference.token,
-          label: Text(
-            l10nOf(context).aiConfigCostDisplayToken,
-            key: const Key('ai-cost-display-token'),
-          ),
-        ),
-        ButtonSegment(
-          value: CostDisplayPreference.energy,
-          label: Text(
-            l10nOf(context).aiConfigCostDisplayEnergy,
-            key: const Key('ai-cost-display-energy'),
-          ),
+    final l10n = l10nOf(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(l10n.aiConfigCostDisplayLabel),
+        const SizedBox(height: 8),
+        SegmentedButton<CostDisplayPreference>(
+          key: const Key('ai-cost-display-picker'),
+          segments: [
+            ButtonSegment(
+              value: CostDisplayPreference.token,
+              label: Text(
+                l10n.aiConfigCostDisplayToken,
+                key: const Key('ai-cost-display-token'),
+              ),
+            ),
+            ButtonSegment(
+              value: CostDisplayPreference.energy,
+              label: Text(
+                l10n.aiConfigCostDisplayEnergy,
+                key: const Key('ai-cost-display-energy'),
+              ),
+            ),
+          ],
+          selected: {state.costDisplayPreference},
+          onSelectionChanged: (selection) {
+            final preference = selection.first;
+            controller.selectCostDisplayPreference(preference);
+          },
         ),
       ],
-      selected: {state.costDisplayPreference},
-      onSelectionChanged: (selection) {
-        final preference = selection.first;
-        controller.selectCostDisplayPreference(preference);
-      },
     );
   }
 }

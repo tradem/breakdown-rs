@@ -52,6 +52,18 @@ void main() {
       expect(formatNanoCurrency(23500000, Currency.USD), r'$0.0235');
       expect(formatNanoCurrency(50000, Currency.USD), r'$0.00005');
     });
+
+    test('sub-micro non-zero amounts never render as a displayed zero', () {
+      // 500 nano = $0.0000005 — below the 6-decimal display floor, but a
+      // non-zero cost must never fabricate a displayed zero (small energy
+      // costs land here; CodeRabbit review, PR #699).
+      expect(formatNanoCurrency(500, Currency.USD), r'$0.0000005');
+      expect(formatNanoCurrency(-999, Currency.EUR), '-€0.000000999');
+      // Larger figures keep the 6-decimal formatting (truncation stays
+      // display-only for them; trailing zeros are still trimmed).
+      expect(formatNanoCurrency(292500000, Currency.USD), r'$0.2925');
+      expect(formatNanoCurrency(500000001, Currency.USD), r'$0.5');
+    });
   });
 
   group('formatMillijoulesAsWh', () {

@@ -83,10 +83,6 @@ class AiConfigDraftData {
   String? selectedAssistantModelId;
   String? selectedImageModelId;
 
-  /// The drafted preferred primary cost display metric (issue #675).
-  /// `null` = untouched — the configured view's value (or the `token`
-  /// default) applies.
-
   /// True once the user picked a provider, so the old assistant model is
   /// not restored from the configured view after a provider change.
   bool assistantModelTouched;
@@ -107,6 +103,10 @@ class AiConfigDraftData {
   /// wipe the prefilled schedule prompt).
   bool scriptPromptTouched;
   bool schedulePromptTouched;
+
+  /// The drafted preferred primary cost display metric (issue #675).
+  /// `null` = untouched — the configured view's value (or the `token`
+  /// default) applies.
   CostDisplayPreference? costDisplayPreference;
   AiConfigUnresolved? unresolved;
 }
@@ -159,9 +159,6 @@ class AiConfigController extends _$AiConfigController {
     final providers = ref.watch(aiProvidersProvider);
     final promptDefaults = ref.watch(aiImportDefaultsProvider);
     final drafts = ref.watch(aiConfigDraftsProvider);
-
-    // Preferred primary cost display (issue #675): an explicit draft pick
-    // wins, then the configured value, then the `token` default.
 
     // List-first with remembered-id fallback (D2): the discovery list is
     // authoritative; an empty list (or one of only revoked configs) is the
@@ -305,6 +302,8 @@ class AiConfigController extends _$AiConfigController {
       selectedImageModelId: drafts.imageModelTouched
           ? drafts.selectedImageModelId
           : (config?.imageModel ?? drafts.selectedImageModelId),
+      // Preferred primary cost display (issue #675): an explicit draft pick
+      // wins, then the configured value, then the `token` default.
       costDisplayPreference:
           drafts.costDisplayPreference ??
           config?.costDisplayPreference ??

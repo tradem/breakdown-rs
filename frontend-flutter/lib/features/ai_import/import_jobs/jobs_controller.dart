@@ -548,9 +548,13 @@ String? aiJobCostCompactCopy(
   // degrades to the localized unknown copy, never `0`.
   final currency = cost.currency;
   final energy = cost.energyCost;
+  // The defensive unknown outputs share the same "Cost: …" prefix as the
+  // `unknown` status branch — in the row a bare "Unknown" would sit
+  // unlabeled under the status line (CodeRabbit review, PR #699).
+  final unknown = l10n.aiJobCostCompact(l10n.commonUnknown);
   if (preference == CostDisplayPreference.energy && energy != null) {
     return currency == null
-        ? l10n.commonUnknown
+        ? unknown
         : l10n.aiJobCostCompact(
             formatNanoCurrency(energy.effectiveCappedNano, currency),
           );
@@ -558,17 +562,17 @@ String? aiJobCostCompactCopy(
   final token = cost.tokenCost;
   if (token != null) {
     return currency == null
-        ? l10n.commonUnknown
+        ? unknown
         : l10n.aiJobCostCompact(formatNanoCurrency(token.totalNano, currency));
   }
   if (energy != null) {
     return currency == null
-        ? l10n.commonUnknown
+        ? unknown
         : l10n.aiJobCostCompact(
             formatNanoCurrency(energy.effectiveCappedNano, currency),
           );
   }
-  return l10n.commonUnknown;
+  return unknown;
 }
 
 /// Localized copy for the jobs-list error state, keyed on the stable
