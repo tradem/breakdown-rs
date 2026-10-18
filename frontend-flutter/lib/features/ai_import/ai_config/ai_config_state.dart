@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 // Co-authored-by: omen-alpha (opencode-go)
 // Co-authored-by: space-bunny-free (opencode-go)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
@@ -32,6 +33,7 @@ class AiConfigScreenState {
     required this.selectedProviderKey,
     this.selectedAssistantModelId,
     this.selectedImageModelId,
+    this.costDisplayPreference = CostDisplayPreference.token,
     this.scriptPrompt = '',
     this.schedulePrompt = '',
     this.commandError,
@@ -58,6 +60,11 @@ class AiConfigScreenState {
   final String? selectedProviderKey;
   final String? selectedAssistantModelId;
   final String? selectedImageModelId;
+
+  /// The preferred primary cost display metric (issue #675): the draft
+  /// pick, else the configured value, else the `token` default. Rendered
+  /// by the cost-display selector and used as the PATCH payload value.
+  final CostDisplayPreference costDisplayPreference;
 
   /// Per-document-kind prompt drafts (script/schedule).
   final String scriptPrompt;
@@ -111,6 +118,7 @@ class AiConfigScreenState {
     bool clearSelectedProvider = false,
     String? selectedAssistantModelId,
     String? selectedImageModelId,
+    CostDisplayPreference? costDisplayPreference,
     String? scriptPrompt,
     String? schedulePrompt,
     ProblemError? commandError,
@@ -130,6 +138,7 @@ class AiConfigScreenState {
     selectedAssistantModelId:
         selectedAssistantModelId ?? this.selectedAssistantModelId,
     selectedImageModelId: selectedImageModelId ?? this.selectedImageModelId,
+    costDisplayPreference: costDisplayPreference ?? this.costDisplayPreference,
     scriptPrompt: scriptPrompt ?? this.scriptPrompt,
     schedulePrompt: schedulePrompt ?? this.schedulePrompt,
     commandError: clearCommandError

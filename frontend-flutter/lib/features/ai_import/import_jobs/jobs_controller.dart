@@ -17,6 +17,7 @@ import '../../../data/ai_import_providers.dart';
 import '../../../data/ai_import_repository.dart';
 import '../../../data/cache/ai_import_jobs_cache_dao.dart';
 import '../../../data/cache/cache_database.dart';
+import '../../../features/ai_import/cost_format.dart';
 import '../../../l10n/generated/app_localizations.dart';
 import 'import_state.dart';
 
@@ -333,6 +334,7 @@ class AiImportJobRowView {
     required this.maxRetries,
     this.lastError,
     this.progress,
+    this.cost,
   });
 
   /// Server-assigned job id (row key + `AiJobStatusScreen` parameter).
@@ -363,6 +365,12 @@ class AiImportJobRowView {
   /// Live extraction progress (issue #664) — the compact stage/episode
   /// subtitle source for running rows. `null` renders nothing extra.
   final AiImportProgress? progress;
+
+  /// The immutable per-import cost snapshot (issue #675) — the compact
+  /// cost line's source. `null` renders nothing extra: the Drift cache
+  /// does not persist cost, so a cached-first paint honestly omits the
+  /// line until the authoritative list read refreshes the row.
+  final CostBreakdown? cost;
 
   /// True when the row carries a server-side error detail (the
   /// `last_error` presence indicator).
@@ -415,7 +423,8 @@ class AiImportJobRowView {
           other.retries == retries &&
           other.maxRetries == maxRetries &&
           other.lastError == lastError &&
-          other.progress == progress;
+          other.progress == progress &&
+          other.cost == cost;
 
   @override
   int get hashCode => Object.hash(
@@ -429,6 +438,7 @@ class AiImportJobRowView {
     maxRetries,
     lastError,
     progress,
+    cost,
   );
 
   @override
@@ -447,6 +457,7 @@ AiImportJobRowView jobRowViewFromJob(AiImportJob job) => AiImportJobRowView(
   maxRetries: job.maxRetries,
   lastError: job.lastError,
   progress: job.progress,
+  cost: job.cost,
 );
 
 /// Maps a cached row to the renderable row (pure, Tier-1 testable).
@@ -455,6 +466,10 @@ AiImportJobRowView jobRowViewFromJob(AiImportJob job) => AiImportJobRowView(
 /// degrades to `status: null` + the raw `statusName` — the row still
 /// renders, with the honest unknown copy. A row is never dropped for
 /// being from the future.
+///
+/// The cache persists no cost column: a cached row carries `cost: null`
+/// and the compact cost line honestly disappears until the authoritative
+/// list read refreshes the row (the fetch replaces the seed).
 AiImportJobRowView jobRowViewFromCacheRow(AiImportJobCacheRow row) =>
     AiImportJobRowView(
       id: row.id,
@@ -504,6 +519,61 @@ List<String> missingRememberedIds(
   for (final id in rememberedIds)
     if (!fetchedIds.contains(id)) id,
 ];
+
+/// The compact jobs-list cost line (issue #675, pure + Tier-1 testable):
+/// `null` when no cost snapshot exists (no line renders). Honesty rules:
+/// * `known` — the formatted primary figure per the caller's [preference]
+///   (energy when preferred AND present, the token total otherwise); a
+///   `known` snapshot missing BOTH breakdowns (a defensive wire shape)
+///   degrades to the localized unknown copy, never `0`;
+/// * `unknown` — the localized "Unbekannt" / "Unknown" copy, never `0`;
+/// * `notApplicable` — the "no AI model was billed" copy.
+String? aiJobCostCompactCopy(
+  AppLocalizations l10n,
+  CostBreakdown? cost,
+  CostDisplayPreference preference,
+) {
+  if (cost == null) return null;
+  // built_value `EnumClass` constants are not analyzer-exhaustive, so the
+  // honesty matrix is an explicit branch chain that always returns.
+  if (cost.status == CostStatus.notApplicable) {
+    return l10n.aiJobCostNotApplicable;
+  }
+  if (cost.status == CostStatus.unknown) {
+    return l10n.aiJobCostCompact(l10n.commonUnknown);
+  }
+  // `known`: the formatted primary figure per the caller's [preference]
+  // (energy when preferred AND present, the token total otherwise); a
+  // `known` snapshot missing BOTH breakdowns (a defensive wire shape)
+  // degrades to the localized unknown copy, never `0`.
+  final currency = cost.currency;
+  final energy = cost.energyCost;
+  // The defensive unknown outputs share the same "Cost: …" prefix as the
+  // `unknown` status branch — in the row a bare "Unknown" would sit
+  // unlabeled under the status line (CodeRabbit review, PR #699).
+  final unknown = l10n.aiJobCostCompact(l10n.commonUnknown);
+  if (preference == CostDisplayPreference.energy && energy != null) {
+    return currency == null
+        ? unknown
+        : l10n.aiJobCostCompact(
+            formatNanoCurrency(energy.effectiveCappedNano, currency),
+          );
+  }
+  final token = cost.tokenCost;
+  if (token != null) {
+    return currency == null
+        ? unknown
+        : l10n.aiJobCostCompact(formatNanoCurrency(token.totalNano, currency));
+  }
+  if (energy != null) {
+    return currency == null
+        ? unknown
+        : l10n.aiJobCostCompact(
+            formatNanoCurrency(energy.effectiveCappedNano, currency),
+          );
+  }
+  return unknown;
+}
 
 /// Localized copy for the jobs-list error state, keyed on the stable
 /// problem `code` (never the server `detail`). The forbidden arm matches

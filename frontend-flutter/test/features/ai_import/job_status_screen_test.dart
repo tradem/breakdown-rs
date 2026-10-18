@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 // Co-authored-by: omen-alpha (opencode-go)
 
 // Tier-2 widget tests for the job-status screen
@@ -42,6 +43,8 @@ AiImportJob _job(
   DateTime? nextAttemptAt,
   List<AiImportAttempt> attempts = const [],
   AiImportProgress? progress,
+  CostBreakdown? cost,
+  JobTelemetrySummary? telemetry,
 }) => AiImportJob(
   (b) => b
     ..id = 'job-1'
@@ -66,9 +69,62 @@ AiImportJob _job(
             ..episodesSeen.replace(
               progress.episodesSeen ?? BuiltList<String>(),
             ))
+    ..cost = cost?.toBuilder()
+    ..telemetry = telemetry?.toBuilder()
     ..createdAt = DateTime.utc(2026, 1, 1)
     ..updatedAt = DateTime.utc(2026, 1, 1),
 );
+
+/// The telemetry summary the worker records alongside the cost snapshot
+/// (issue #675): model identity + token/energy usage.
+JobTelemetrySummary _telemetry({int cached = 500}) => JobTelemetrySummary(
+  (b) => b
+    ..model = 'neu-1'
+    ..provider = LlmProvider.neuralwatt
+    ..tokensIn = 4700
+    ..tokensOut = 1200
+    ..cachedTokensIn = cached
+    ..energyMillijoules = 1800000
+    ..latencyTotalMs = 2400
+    ..chunkCount = 1,
+);
+
+/// A `known` cost snapshot (issue #675): token total $0.0235 plus a
+/// Neuralwatt-style energy cost ($0.00005, capped when [capped]).
+CostBreakdown _knownCost({bool withEnergy = true, bool capped = false}) =>
+    CostBreakdown(
+      (b) => b
+        ..status = CostStatus.known
+        ..currency = Currency.USD
+        ..priceAsOf = DateTime.utc(2026, 1, 1)
+        ..pricingSource = PricingSource.curatedSeed
+        ..tokenCost = TokenCostBreakdown(
+          (b) => b
+            ..tokensIn = 4700
+            ..tokensOut = 1200
+            ..cachedTokensIn = 500
+            ..cachedInputRateNanoPerMillion = 362500
+            ..inputRateNanoPerMillion = 1450000000
+            ..outputRateNanoPerMillion = 4000000000
+            ..totalNano = 23500000,
+        ).toBuilder()
+        ..energyCost = withEnergy
+            ? EnergyCostBreakdown(
+                (b) => b
+                  ..energyMillijoules = 1800000
+                  ..rateNanoPerKwh = 10000000000
+                  ..rawEnergyNano = 50000
+                  ..effectiveCappedNano = capped ? 23500000 : 50000
+                  ..cappedByTokenCost = capped,
+              ).toBuilder()
+            : null,
+    );
+
+CostBreakdown _unknownCost() =>
+    CostBreakdown((b) => b..status = CostStatus.unknown);
+
+CostBreakdown _notApplicableCost() =>
+    CostBreakdown((b) => b..status = CostStatus.notApplicable);
 
 /// One recorded attempt for the history (issue #637/#639). `code` is the
 /// stable problem identity the UI localizes on; `errorSummary` is the raw
@@ -117,7 +173,10 @@ void main() {
     now = DateTime.utc(2026, 1, 1, 12);
   });
 
-  Future<void> setupContainer(Result<AiImportJob> initial) async {
+  Future<void> setupContainer(
+    Result<AiImportJob> initial, {
+    CostDisplayPreference preference = CostDisplayPreference.token,
+  }) async {
     // A re-setup (the two-status loop) disposes the previous container
     // FIRST — riverpod's 0ms disposal timers must not be pending when
     // the fake_async test body ends.
@@ -130,6 +189,24 @@ void main() {
       overrides: [
         appConfigProvider.overrideWithValue(devAuthConfig),
         clockProvider.overrideWithValue(Clock(() => now)),
+        // The cost-display preference read (issue #675) is overridden off
+        // the real discovery route: deterministic, no network in tests.
+        configuredAiNamingProvider.overrideWith((ref) async {
+          if (preference == CostDisplayPreference.token) return null;
+          return AiConfigView(
+            (b) => b
+              ..id = 'config-1'
+              ..userId = 'dev-user'
+              ..assistantModel = 'm-1'
+              ..provider = LlmProvider.neuralwatt
+              ..vaultKeyId = 'vk-1'
+              ..prompts.replace(BuiltMap<String, String>())
+              ..promptKinds.replace(BuiltList<DocumentKind>())
+              ..revoked = false
+              ..version = 1
+              ..costDisplayPreference = preference,
+          );
+        }),
         aiImportRepositoryProvider.overrideWithValue(
           _StubRepository(BreakdownApi(), AiImportJobsCacheDao(db!))
             ..jobNotifier = job,
@@ -512,6 +589,159 @@ void main() {
     await tester.pump();
   });
 
+  group('detailed cost breakdown (issue #675, flutter-ai-import-workflow)', () {
+    testWidgets('a succeeded job with a known cost renders the full '
+        'breakdown: model, token counts (cached line when non-zero), '
+        'token total as the default primary, energy rows, price_as_of', (
+      tester,
+    ) async {
+      await setupContainer(
+        Right(
+          _job(
+            JobStatus.succeeded,
+            cost: _knownCost(),
+            telemetry: _telemetry(),
+          ),
+        ),
+      );
+      await pumpScreen(tester);
+
+      expect(find.byKey(const Key('ai-job-cost-card')), findsOneWidget);
+      expect(find.text('Cost of this import'), findsOneWidget);
+      expect(find.text('Model: neu-1'), findsOneWidget);
+      expect(find.text('Tokens in: 4700'), findsOneWidget);
+      expect(find.text('Tokens out: 1200'), findsOneWidget);
+      expect(find.text('of which cached: 500'), findsOneWidget);
+      // Token total is the DEFAULT primary (preference token).
+      final tokenRow = tester.widget<Text>(
+        find.byKey(const Key('ai-job-cost-token-total')),
+      );
+      expect(tokenRow.style?.fontWeight, FontWeight.bold);
+      expect(find.textContaining(r'Token cost: $0.0235'), findsOneWidget);
+      // Energy rows render alongside.
+      final energyRow = tester.widget<Text>(
+        find.byKey(const Key('ai-job-cost-energy-total')),
+      );
+      expect(energyRow.style?.fontWeight, isNot(FontWeight.bold));
+      expect(find.textContaining(r'Energy cost: $0.00005'), findsOneWidget);
+      expect(find.text('Energy consumption: 0.5 Wh'), findsOneWidget);
+      expect(find.textContaining('Price as of:'), findsOneWidget);
+      // Honesty: never a fabricated $0.00.
+      expect(find.textContaining(r'$0.00 '), findsNothing);
+    });
+
+    testWidgets('the energy preference highlights the energy cost as the '
+        'primary row (the token cost renders secondary)', (tester) async {
+      await setupContainer(
+        Right(
+          _job(
+            JobStatus.succeeded,
+            cost: _knownCost(),
+            telemetry: _telemetry(),
+          ),
+        ),
+        preference: CostDisplayPreference.energy,
+      );
+      await pumpScreen(tester);
+
+      final energyRow = tester.widget<Text>(
+        find.byKey(const Key('ai-job-cost-energy-total')),
+      );
+      expect(energyRow.style?.fontWeight, FontWeight.bold);
+      final tokenRow = tester.widget<Text>(
+        find.byKey(const Key('ai-job-cost-token-total')),
+      );
+      expect(tokenRow.style?.fontWeight, isNot(FontWeight.bold));
+    });
+
+    testWidgets('a capped energy cost renders the cap note (Neuralwatt '
+        'surge protection)', (tester) async {
+      await setupContainer(
+        Right(
+          _job(
+            JobStatus.succeeded,
+            cost: _knownCost(capped: true),
+            telemetry: _telemetry(),
+          ),
+        ),
+      );
+      await pumpScreen(tester);
+      expect(
+        find.byKey(const Key('ai-job-cost-energy-capped')),
+        findsOneWidget,
+      );
+      expect(
+        find.text('Energy cost capped by the token cost.'),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('an unknown cost renders the localized Unknown — NEVER 0 — '
+        'while the recorded token counts still render', (tester) async {
+      await setupContainer(
+        Right(
+          _job(
+            JobStatus.succeeded,
+            cost: _unknownCost(),
+            telemetry: _telemetry(),
+          ),
+        ),
+      );
+      await pumpScreen(tester);
+
+      expect(find.byKey(const Key('ai-job-cost-unknown')), findsOneWidget);
+      expect(find.text('Unknown'), findsOneWidget);
+      // Token counts still render in the detail view.
+      expect(find.text('Tokens in: 4700'), findsOneWidget);
+      // Never a fabricated price.
+      expect(find.textContaining(r'$0'), findsNothing);
+      expect(find.byKey(const Key('ai-job-cost-token-total')), findsNothing);
+    });
+
+    testWidgets('a not-applicable cost (native CSV import) renders the '
+        'no-AI-billed copy', (tester) async {
+      await setupContainer(
+        Right(_job(JobStatus.succeeded, cost: _notApplicableCost())),
+      );
+      await pumpScreen(tester);
+
+      expect(
+        find.byKey(const Key('ai-job-cost-not-applicable')),
+        findsOneWidget,
+      );
+      expect(
+        find.text('No AI model was billed — native CSV import without an LLM.'),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('the terminal succeeded SSE frame populates the cost '
+        'breakdown without a manual refresh (issue #664 × #675)', (
+      tester,
+    ) async {
+      await setupContainer(Right(_job(JobStatus.running)));
+      await pumpScreen(tester);
+      expect(find.byKey(const Key('ai-job-cost-card')), findsNothing);
+
+      // The terminal `succeeded` frame arrives over the watch.
+      job.value = Right(
+        _job(JobStatus.succeeded, cost: _knownCost(), telemetry: _telemetry()),
+      );
+      for (var i = 0; i < 6; i++) {
+        await tester.pump(const Duration(milliseconds: 10));
+      }
+      expect(find.byKey(const Key('ai-job-cost-card')), findsOneWidget);
+      expect(find.textContaining(r'Token cost: $0.0235'), findsOneWidget);
+    });
+
+    testWidgets('a succeeded job WITHOUT a cost snapshot renders no cost '
+        'card (older backends)', (tester) async {
+      await setupContainer(Right(_job(JobStatus.succeeded)));
+      await pumpScreen(tester);
+      expect(find.byKey(const Key('ai-job-cost-card')), findsNothing);
+    });
+  });
+
   group('AiJobStatusScreen goldens (3.4): {light,dark}×{android,macos}', () {
     Future<void> pumpGolden(
       WidgetTester tester, {
@@ -628,6 +858,28 @@ void main() {
         await pumpGolden(
           tester,
           golden: 'ai_job_status_retryable_unknown_eta_$suffix.png',
+          mode: mode,
+          platform: platform,
+        );
+      });
+
+      // The detailed cost breakdown (issue #675): succeeded with a known
+      // token+energy snapshot, {light,dark}×{android,macos}.
+      testWidgets('golden $suffix (succeeded with cost breakdown)', (
+        tester,
+      ) async {
+        await setupContainer(
+          Right(
+            _job(
+              JobStatus.succeeded,
+              cost: _knownCost(),
+              telemetry: _telemetry(),
+            ),
+          ),
+        );
+        await pumpGolden(
+          tester,
+          golden: 'ai_job_status_cost_$suffix.png',
           mode: mode,
           platform: platform,
         );

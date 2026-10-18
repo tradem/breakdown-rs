@@ -1720,6 +1720,120 @@ abstract class AppLocalizations {
   /// **'Kein gespeicherter Prompt – die Deployment-Voreinstellung gilt.'**
   String get aiConfigDefaultPromptNote;
 
+  /// No description provided for @aiModelPriceInOut.
+  ///
+  /// In de, this message translates to:
+  /// **'{input} → {output} / 1M Tokens'**
+  String aiModelPriceInOut(Object input, Object output);
+
+  /// No description provided for @aiModelEnergyRate.
+  ///
+  /// In de, this message translates to:
+  /// **'{price} / kWh'**
+  String aiModelEnergyRate(Object price);
+
+  /// No description provided for @aiConfigCostDisplayLabel.
+  ///
+  /// In de, this message translates to:
+  /// **'Bevorzugte Kostenanzeige'**
+  String get aiConfigCostDisplayLabel;
+
+  /// No description provided for @aiConfigCostDisplayToken.
+  ///
+  /// In de, this message translates to:
+  /// **'Tokens'**
+  String get aiConfigCostDisplayToken;
+
+  /// No description provided for @aiConfigCostDisplayEnergy.
+  ///
+  /// In de, this message translates to:
+  /// **'Energie'**
+  String get aiConfigCostDisplayEnergy;
+
+  /// No description provided for @aiJobCostCompact.
+  ///
+  /// In de, this message translates to:
+  /// **'Kosten: {value}'**
+  String aiJobCostCompact(Object value);
+
+  /// No description provided for @aiJobCostNotApplicable.
+  ///
+  /// In de, this message translates to:
+  /// **'Kein KI-Modell abgerechnet – nativer CSV-Import ohne LLM.'**
+  String get aiJobCostNotApplicable;
+
+  /// No description provided for @aiJobCostTitle.
+  ///
+  /// In de, this message translates to:
+  /// **'Kosten dieses Imports'**
+  String get aiJobCostTitle;
+
+  /// No description provided for @aiJobCostModel.
+  ///
+  /// In de, this message translates to:
+  /// **'Modell: {model}'**
+  String aiJobCostModel(Object model);
+
+  /// No description provided for @aiJobCostTokensIn.
+  ///
+  /// In de, this message translates to:
+  /// **'Tokens rein: {count}'**
+  String aiJobCostTokensIn(Object count);
+
+  /// No description provided for @aiJobCostTokensOut.
+  ///
+  /// In de, this message translates to:
+  /// **'Tokens raus: {count}'**
+  String aiJobCostTokensOut(Object count);
+
+  /// No description provided for @aiJobCostCachedTokens.
+  ///
+  /// In de, this message translates to:
+  /// **'davon aus dem Cache: {count}'**
+  String aiJobCostCachedTokens(Object count);
+
+  /// No description provided for @aiJobCostTokenTotal.
+  ///
+  /// In de, this message translates to:
+  /// **'Token-Kosten: {price}'**
+  String aiJobCostTokenTotal(Object price);
+
+  /// No description provided for @aiJobCostEnergyTotal.
+  ///
+  /// In de, this message translates to:
+  /// **'Energie-Kosten: {price}'**
+  String aiJobCostEnergyTotal(Object price);
+
+  /// No description provided for @aiJobCostEnergyConsumption.
+  ///
+  /// In de, this message translates to:
+  /// **'Energieverbrauch: {wh} Wh'**
+  String aiJobCostEnergyConsumption(Object wh);
+
+  /// No description provided for @aiJobCostEnergyCapped.
+  ///
+  /// In de, this message translates to:
+  /// **'Energiekosten durch Token-Kosten gedeckelt.'**
+  String get aiJobCostEnergyCapped;
+
+  /// No description provided for @aiJobCostRateInput.
+  ///
+  /// In de, this message translates to:
+  /// **'Eingabepreis: {price} / 1M Tokens'**
+  String aiJobCostRateInput(Object price);
+
+  /// No description provided for @aiJobCostRateOutput.
+  ///
+  /// In de, this message translates to:
+  /// **'Ausgabepreis: {price} / 1M Tokens'**
+  String aiJobCostRateOutput(Object price);
+
+  /// No description provided for @aiJobCostPriceAsOf.
+  ///
+  /// In de, this message translates to:
+  /// **'Preisstand: {date}'**
+  String aiJobCostPriceAsOf(Object date);
+
   /// No description provided for @aiApplyErrorNotSucceeded.
   ///
   /// In de, this message translates to:
