@@ -5,7 +5,6 @@
 import 'dart:convert';
 
 import 'package:breakdown_api/breakdown_api.dart';
-import 'package:breakdown_api/src/api/handlers_api.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// Regression test for the app-side `ai_import.dto_invalid` on every live
@@ -29,9 +28,8 @@ void main() {
       decoded,
     );
     expect(response, isNotNull);
-    expect(response!.job, isNotNull);
-    expect(response.job!.id, '01a14f76-74a8-72c6-a1a3-219586fe487a');
-    expect(response.job!.status, JobStatus.deadLetter);
-    expect(response.job!.progress, isNotNull);
+    expect(response!.job.id, '01a14f76-74a8-72c6-a1a3-219586fe487a');
+    expect(response.job.status, JobStatus.deadLetter);
+    expect(response.job.progress, isNotNull);
   });
 }
