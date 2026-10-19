@@ -52,7 +52,6 @@ class SeasonScopeChip extends ConsumerWidget {
 
     return ScopePill(
       key: const Key('season-scope-chip'),
-      icon: Icons.video_collection_outlined,
       label: season == null
           ? l10n.scopeChipSeasonUnset
           : l10n.scopeChipSeason(

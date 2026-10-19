@@ -22,6 +22,101 @@ releases are cut as `vX.Y.Z` tags (`v<build-name>`, enforced by
 
 ## [Unreleased]
 
+- **Version bump:** `0.4.0-alpha.40+91 → 0.4.0-alpha.41+92` — apply
+  feedback (user report: "the button activates but nothing happens" — the
+  applies HAD succeeded server-side, 59/72 scenes, but with zero visible
+  progress the reviewer re-tapped and navigated away mid-apply, dropping
+  the outcome with the autoDispose notifier):
+  * The submit button shows a spinner and disables while the apply runs
+    (widget-local busy flag — dozens of commands per apply take seconds).
+  * The "Episode wählen…" picker tile no longer renders when the preview
+    carries episode groups (the in-preview creation assigns automatically);
+    it stays for the single-episode flow without markers.
+
+- **Version bump:** `0.4.0-alpha.39+90 → 0.4.0-alpha.40+91` — block-aware
+  episode resolution (the 403 apply loop, found on the second 294.pdf
+  import from a different block scope):
+  * The job is bound to its upload block; the apply's cross-block IDOR
+    guard requires the context episode to live in THAT block. The resolve
+    matched episodes by NUMBER across the whole project — a same-number
+    episode in a DIFFERENT block got adopted, and every apply answered 403
+    forever (no retry — definitive — but the error copy is access-neutral,
+    so it read as "nothing happens").
+  * `resolveGroupDefaults` and the in-preview creation now adopt only
+    same-block episodes; a number taken by ANOTHER block's episode
+    surfaces the honest refusal `ai_import.episode_number_other_block`
+    ("Wechsle den Block und lade das Dokument dort erneut hoch") — the
+    dedup then lands on the other block's job, where the number resolves.
+
+- **Version bump:** `0.4.0-alpha.38+89 → 0.4.0-alpha.39+90` — the episode
+  target area ("Ziel ändern") moves INTO the apply card, ABOVE the dispatch
+  button, and apply activates only on a RESOLVED episode (user UX spec):
+  * `Import anwenden` activates exactly when all blocking-uncertainty
+    checkboxes are ticked AND every group's episode is settled — found in
+    the project, created in-preview, or picked via "Ziel ändern". An
+    unresolved create target keeps the button disabled (the create-kind
+    wire shape is no longer dispatchable through the UI; the backend 409
+    recovery stays as defense-in-depth).
+  * The in-preview creation now works WITHOUT a remembered context: the
+    block anchor comes from the cached job row (`aiJobBlockInfoProvider`),
+    the project from the block when needed — the curl-uploaded 294.pdf job
+    (no context) previously skipped creation entirely.
+  * "Ziel ändern" → create now really creates the episode server-side and
+    adopts it (before: it only set a client-side intent that never
+    materialized); "→ existing" adopts the picked episode into the apply
+    context so the cross-block IDOR guard always passes.
+
+- **Version bump:** `0.4.0-alpha.37+88 → 0.4.0-alpha.38+89` — in-preview
+  episode creation (the 294.pdf empty-picker flow):
+  * Root cause of the stuck import: the job is bound to its upload block,
+    the apply's cross-block IDOR guard requires the context episode to live
+    in THAT block — and the block had zero episodes (the block-scoped picker
+    was empty, create-at-apply needs a valid `episode_id`) → apply was
+    unreachable no matter what the reviewer did.
+  * The preview seeding now CREATES each group's missing episode right in
+    the review step, in the job's block (number from the `Ep.:` marker, name
+    from the document's title-page heading), flips the group target to
+    assign-EXISTING and moves the apply context to the created episode —
+    the reviewer sees the episode exist before apply, no manual creation,
+    no 409 dance. Resolve/create-optional: any failure keeps the
+    create-at-apply default; the backend 409 recovery stays the backstop.
+  * `AiJobContext` carries the job's `blockId` (the creation anchor).
+
+- **Version bump:** `0.4.0-alpha.36+87 → 0.4.0-alpha.37+88` — three
+  dev-stack fixes (2026-10-19 user reports):
+  * **Offline pill stuck red:** the #654 liveness probe built a bare Dio
+    WITHOUT the pinned-CA `SecurityContext`, so on the pinned-HTTPS dev
+    setup every probe failed TLS verification and the pill never left
+    `degraded` — while the app itself (pinned context) talked to the
+    backend fine. The probe now rides the same pinned context (lazy read:
+    the provider stays constructible where bootstrap never ran).
+  * **AI-import episode auto-assign (with the backend extraction fix):**
+    the apply section resolves each episode group against the project's
+    live episodes — an existing `Ep.:` number defaults to
+    assign-EXISTING (no more 409 `number-already-exists` recovery dance
+    for an episode the reviewer already created); a missing number keeps
+    the create-new default, now titled from the document's title-page
+    heading (backend `(294) "Freundschaft"` scan). Resolve-optional: any
+    fetch failure keeps the create defaults.
+  * Scene numbers / script-index dedup are BACKEND-side (`pdftotext
+    -layout` + number merge + title scan) — no client change beyond the
+    resolve call above.
+
+- **Version bump:** `0.4.0-alpha.35+86 → 0.4.0-alpha.36+87` — AI-import
+  SSE job frames decode again (app-side `ai_import.dto_invalid` on every
+  live job watch, found in the dev stack 2026-10-18):
+  * `_decodeJobFrame` used the bare `serializers` instance (no
+    `StandardJsonPlugin`), but the generated custom built_value
+    serializers expect the plugin's pair-list representation — every
+    `event: job` frame failed the map cast, decoded to `null`, and
+    surfaced as `ai_import.dto_invalid` while waiting for the import to
+    process. The decoder now uses `standardSerializers` (the same
+    instance `api_client.dart` defaults to).
+  * Regression test decodes a byte-for-byte live SSE frame captured from
+    `GET /v1/ai-import/jobs/{id}/events`
+    (`test/data/ai_import_sse_frame_decode_test.dart`). No API surface,
+    no command dispatch, no vendor regeneration.
+
 - **Version bump:** `0.4.0-alpha.34+85 → 0.4.0-alpha.35+86` — issue #675,
   per-import AI cost transparency:
   * Regenerated `vendor/breakdown_api/` (`LlmProvider.gemini`, `ModelInfo.pricing`,

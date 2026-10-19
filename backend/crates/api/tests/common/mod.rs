@@ -1768,20 +1768,25 @@ impl SceneShootRepository for FakeSceneShootRepo {
 
 #[derive(Clone, Default)]
 #[allow(dead_code)]
-pub struct FakeSceneShootReportRepo;
+pub struct FakeSceneShootReportRepo {
+    /// Rows returned by `dispo_report` (empty by default).
+    pub dispo_rows: Arc<Mutex<Vec<DispoRow>>>,
+    /// Rows returned by `shoot_day_report` (empty by default).
+    pub shoot_day_rows: Arc<Mutex<Vec<ShootDayRow>>>,
+}
 
 impl SceneShootReportRepository for FakeSceneShootReportRepo {
     async fn dispo_report(
         &self,
         _shooting_day_id: ShootingDayId,
     ) -> Result<Vec<DispoRow>, DomainError> {
-        unreachable!("not used in authz tests")
+        Ok(self.dispo_rows.lock().await.clone())
     }
     async fn shoot_day_report(
         &self,
         _shooting_day_id: ShootingDayId,
     ) -> Result<Vec<ShootDayRow>, DomainError> {
-        unreachable!("not used in authz tests")
+        Ok(self.shoot_day_rows.lock().await.clone())
     }
     async fn soll_ist_report(
         &self,
@@ -1824,6 +1829,40 @@ impl breakdown_core::reporting::ReportRenderer for FakeReportRenderer {
             page_count: 0,
             content_type: "application/pdf",
             filename: format!("{}.pdf", _req.kind),
+        })
+    }
+}
+
+/// A fake renderer that records the last render request's kind and data
+/// payload so handler tests can assert the exact shape handed to the
+/// renderer (the `data.rows` envelope contract of the Typst templates).
+// Issue #631 harness grouping: not every [[test]] harness renders PDFs, so
+// the capture seam is legitimately unused in some of them.
+#[allow(dead_code)]
+#[derive(Clone, Debug, Default)]
+pub struct CapturingReportRenderer {
+    #[allow(dead_code)]
+    pub last: Arc<Mutex<Option<(breakdown_core::reporting::ReportKind, serde_json::Value)>>>,
+}
+
+#[async_trait::async_trait]
+impl breakdown_core::reporting::ReportRenderer for CapturingReportRenderer {
+    async fn render(
+        &self,
+        req: breakdown_core::reporting::ReportRenderRequest,
+    ) -> std::result::Result<
+        breakdown_core::reporting::ReportBytes,
+        breakdown_core::reporting::ReportRenderError,
+    > {
+        let data = serde_json::to_value(&req.data).unwrap_or(serde_json::Value::Null);
+        *self.last.lock().await = Some((req.kind, data));
+        Ok(breakdown_core::reporting::ReportBytes {
+            kind: req.kind,
+            locale: req.context.locale,
+            pdf_bytes: Vec::new(),
+            page_count: 0,
+            content_type: "application/pdf",
+            filename: format!("{}.pdf", req.kind),
         })
     }
 }

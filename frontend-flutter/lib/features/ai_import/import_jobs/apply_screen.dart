@@ -47,6 +47,209 @@ part 'apply_screen.g.dart';
 /// position, so a stale acknowledgement would otherwise carry over and let
 /// the replacement rows be applied unreviewed. A new token resets the
 /// checkbox (the acknowledged content is gone, the acknowledgement with it).
+class EpisodeGroupHeader extends ConsumerWidget {
+  const EpisodeGroupHeader({
+    required this.jobId,
+    required this.groupRef,
+    super.key,
+  });
+
+  final String jobId;
+  final String? groupRef;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final state = ref.watch(aiApplyControllerProvider(jobId));
+    final ref_ = groupRef;
+    if (ref_ == null) {
+      final target = state.context?.episodeId;
+      return _groupHeaderCard(
+        context,
+        key: const Key('ai-preview-ungrouped-header'),
+        title: target == null
+            ? l10nOf(context).aiApplyUngroupedHeadingNoTarget
+            : l10nOf(context).aiApplyUngroupedHeading(target),
+      );
+    }
+    final episode = state.episodeOfGroup(ref_);
+    final label = episode == null
+        ? ref_
+        : draftEpisodeLabel(l10nOf(context), episode.number, episode.title);
+    return _groupHeaderCard(
+      context,
+      key: Key('ai-preview-group-header-$ref_'),
+      title: label,
+      subtitle: groupTargetLabel(l10nOf(context), state.targetFor(ref_)),
+      trailing: TextButton(
+        key: Key('ai-preview-group-target-change-$ref_'),
+        onPressed: () => showGroupTargetSheet(context, ref, jobId, ref_),
+        child: Text(l10nOf(context).aiApplyGroupTargetChange),
+      ),
+    );
+  }
+
+  Widget _groupHeaderCard(
+    BuildContext context, {
+    required Key key,
+    required String title,
+    String? subtitle,
+    Widget? trailing,
+  }) => Card(
+    key: key,
+    color: Theme.of(context).colorScheme.surfaceContainerHighest,
+    margin: const EdgeInsets.only(top: 8),
+    child: ListTile(
+      dense: true,
+      title: Text(title, style: Theme.of(context).textTheme.titleSmall),
+      subtitle: subtitle == null ? null : Text(subtitle),
+      trailing: trailing,
+    ),
+  );
+}
+
+/// The per-group target sheet (issue #581): switch the group between an
+/// EXISTING episode (the job's block, live-fetched — ids never guessed) and
+/// a NEW one (number + name, pre-filled from the heading). The dispatch
+/// stays one explicit reviewed apply — this only edits the mapping.
+Future<void> showGroupTargetSheet(
+  BuildContext context,
+  WidgetRef ref,
+  String jobId,
+  String groupRef,
+) async {
+  final controller = ref.read(aiApplyControllerProvider(jobId).notifier);
+  final choice = await showModalBottomSheet<String>(
+    context: context,
+    builder: (sheetContext) => SafeArea(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          ListTile(
+            key: const Key('ai-group-target-pick-existing'),
+            leading: const Icon(Icons.playlist_add_check_outlined),
+            title: Text(l10nOf(sheetContext).aiApplyGroupTargetPickExisting),
+            onTap: () => Navigator.of(sheetContext).pop('existing'),
+          ),
+          ListTile(
+            key: const Key('ai-group-target-create'),
+            leading: const Icon(Icons.add),
+            title: Text(l10nOf(sheetContext).aiApplyGroupTargetEditCreate),
+            onTap: () => Navigator.of(sheetContext).pop('create'),
+          ),
+        ],
+      ),
+    ),
+  );
+  if (choice == null || !context.mounted) return;
+  switch (choice) {
+    case 'existing':
+      final picked = await showEpisodePicker(context, ref, jobId);
+      if (picked == null || !context.mounted) return;
+      // Adopt (not just set): the picked episode lives in the job's block,
+      // so the apply context moves with it — the cross-block IDOR guard
+      // needs a context episode from THAT block.
+      final numberLabel = l10nOf(context).episodeTileLabel('${picked.number}');
+      final pickedName = picked.name?.trim();
+      controller.adoptCreatedEpisode(
+        groupRef,
+        episodeId: picked.id,
+        number: picked.number,
+        projectId: picked.projectId,
+        label: pickedName == null || pickedName.isEmpty
+            ? numberLabel
+            : '$numberLabel \u00b7 $pickedName',
+      );
+    case 'create':
+      final state = ref.read(aiApplyControllerProvider(jobId));
+      final current = state.targetFor(groupRef);
+      final initial = current is CreateEpisodeGroupTarget
+          ? current
+          : const CreateEpisodeGroupTarget();
+      final result = await showGroupCreateDialog(context, initial: initial);
+      // The dialog can outlive the notifier (a preview refresh replaced the
+      // payload, or navigation disposed the autoDispose provider) — the same
+      // guard the existing-episode branch applies after its await.
+      if (result == null || !context.mounted) return;
+      // The target is only the INTENT — the episode is created RIGHT HERE
+      // (in the job's block) and adopted, so "Import anwenden" activates on
+      // a resolved episode (user UX rule). On failure fall back to the
+      // create target (apply stays disabled; the backend 409 recovery is
+      // the backstop).
+      controller.setGroupTarget(groupRef, result);
+      await ensureGroupEpisodeResolved(ref, jobId, groupRef, result);
+  }
+}
+
+/// The create-new editor: the wire-required number (a marker without one
+/// leaves the target incomplete and apply disabled) plus the optional name,
+/// both pre-filled from the heading the group was extracted from.
+Future<CreateEpisodeGroupTarget?> showGroupCreateDialog(
+  BuildContext context, {
+  required CreateEpisodeGroupTarget initial,
+}) {
+  final numberController = TextEditingController(
+    text: initial.number?.toString() ?? '',
+  );
+  final nameController = TextEditingController(text: initial.name ?? '');
+  final formKey = GlobalKey<FormState>();
+  return showDialog<CreateEpisodeGroupTarget>(
+    context: context,
+    builder: (dialogContext) => AlertDialog(
+      key: const Key('ai-group-create-dialog'),
+      title: Text(l10nOf(dialogContext).aiApplyGroupTargetEditCreate),
+      content: Form(
+        key: formKey,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextFormField(
+              key: const Key('ai-group-create-number'),
+              controller: numberController,
+              keyboardType: TextInputType.number,
+              decoration: InputDecoration(
+                labelText: l10nOf(dialogContext).aiApplyGroupCreateNumberLabel,
+              ),
+              validator: (value) => int.tryParse(value ?? '') == null
+                  ? l10nOf(dialogContext).aiApplyGroupNumberInvalid
+                  : null,
+            ),
+            TextFormField(
+              key: const Key('ai-group-create-name'),
+              controller: nameController,
+              decoration: InputDecoration(
+                labelText: l10nOf(dialogContext).aiApplyGroupCreateNameLabel,
+              ),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(dialogContext).pop(),
+          child: Text(l10nOf(dialogContext).commonCancel),
+        ),
+        FilledButton(
+          key: const Key('ai-group-create-save'),
+          onPressed: () {
+            if (!(formKey.currentState?.validate() ?? false)) return;
+            final name = nameController.text.trim();
+            Navigator.of(dialogContext).pop(
+              CreateEpisodeGroupTarget(
+                number: int.parse(numberController.text),
+                name: name.isEmpty ? null : name,
+              ),
+            );
+          },
+          child: Text(l10nOf(dialogContext).commonSave),
+        ),
+      ],
+    ),
+  );
+}
+
+/// Non-actionable preview row card (info only — excluded from the
+/// decisions and from accept-all).
+
 class AiApplySection extends ConsumerStatefulWidget {
   const AiApplySection({required this.jobId, this.reviewToken, super.key});
 
@@ -69,6 +272,14 @@ class _AiApplySectionState extends ConsumerState<AiApplySection> {
   /// when the outcome renders, or when [AiApplySection.reviewToken] changes
   /// because a refreshed preview replaced the reviewed rows).
   bool _reviewAcknowledged = false;
+
+  /// Widget-local busy flag: the apply dispatches dozens of commands (one
+  /// scene = create + figures + beats) and takes many seconds — without a
+  /// visible busy state the reviewer re-tapped the (still enabled) button,
+  /// piling up duplicate idempotent dispatches, and navigating away mid-apply
+  /// dropped the outcome entirely (autoDispose notifier: no state write, no
+  /// cache invalidation). Spinner on the button + disabled while running.
+  bool _applying = false;
 
   @override
   void didUpdateWidget(AiApplySection oldWidget) {
@@ -108,6 +319,13 @@ class _AiApplySectionState extends ConsumerState<AiApplySection> {
             // backend, the configured value is the honest approximation).
             AiNamingLine(key: const Key('ai-apply-naming')),
             const SizedBox(height: 8),
+            // The episode-target area ("Ziel ändern") sits ABOVE the apply
+            // button (user UX request, 2026-10-19): the reviewer settles
+            // WHO the rows belong to right where they dispatch — each
+            // group's episode is created/adopted at this point, and "Ziel
+            // ändern" can still swap it afterwards.
+            for (final groupRef in state.groupRefs)
+              EpisodeGroupHeader(jobId: widget.jobId, groupRef: groupRef),
             if (state.context != null)
               ListTile(
                 key: const Key('ai-apply-context'),
@@ -119,7 +337,11 @@ class _AiApplySectionState extends ConsumerState<AiApplySection> {
                 ),
                 subtitle: Text(l10nOf(context).aiApplyContextRemembered),
               )
-            else
+            else if (state.groupRefs.isEmpty)
+              // No episode markers in the document (single-episode flow):
+              // the explicit pick is required. WITH groups the episodes are
+              // created/assigned automatically above ("Ziel ändern") — the
+              // picker tile would be noise (user report, 2026-10-19).
               const _EpisodePickerRequired(),
             const SizedBox(height: 8),
             Text(
@@ -290,16 +512,27 @@ class _AiApplySectionState extends ConsumerState<AiApplySection> {
               ),
               FilledButton(
                 key: const Key('ai-apply-submit'),
-                onPressed: canApply
+                onPressed: (canApply && !_applying)
                     ? () async {
-                        final applied = await controller.apply();
-                        // Explicitly consumed: Err renders the
-                        // code-keyed narrative (controller state); Ok
-                        // renders the outcome summary card.
-                        applied.match<void>((_) {}, (_) {});
+                        setState(() => _applying = true);
+                        try {
+                          final applied = await controller.apply();
+                          // Explicitly consumed: Err renders the
+                          // code-keyed narrative (controller state); Ok
+                          // renders the outcome summary card.
+                          applied.match<void>((_) {}, (_) {});
+                        } finally {
+                          if (mounted) setState(() => _applying = false);
+                        }
                       }
                     : null,
-                child: Text(l10nOf(context).aiApplySubmit),
+                child: _applying
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : Text(l10nOf(context).aiApplySubmit),
               ),
               const SizedBox(height: 8),
               // The explicit episode re-pick (also the missing-context

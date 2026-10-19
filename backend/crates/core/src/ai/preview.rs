@@ -1276,9 +1276,26 @@ pub fn extract_scenes(document: &str) -> Vec<SceneChunk> {
     // so far (page headers repeat it, which is harmless — same value). A chunk
     // stamps the episode that was in effect at its heading line (issue #581).
     let mut current_episode: Option<DraftEpisode> = None;
+    // Episode titles from the title page (`(294) "Freundschaft"`): the `Ep.:`
+    // page-header markers carry a bare number, but the reviewer expects the
+    // episode HEADING to flow into the created episode. Collected in a FIRST
+    // pass over the whole document — the title page can sit AFTER the first
+    // `Ep.:` marker (the page header on page 1 precedes the title block), so
+    // an inline single-pass scan would miss it.
+    let mut episode_titles: std::collections::HashMap<i32, String> =
+        std::collections::HashMap::new();
+    for line in document.lines() {
+        if let Some((number, title)) = title_page_entry(line.trim()) {
+            episode_titles.entry(number).or_insert(title);
+        }
+    }
     for line in document.lines() {
         let trimmed = line.trim();
         if let Some(episode) = episode_marker(trimmed) {
+            let mut episode = episode;
+            if episode.title.is_none() {
+                episode.title = episode.number.and_then(|n| episode_titles.get(&n)).cloned();
+            }
             current_episode = Some(episode);
         }
         if is_scene_heading(trimmed) {
@@ -1300,7 +1317,80 @@ pub fn extract_scenes(document: &str) -> Vec<SceneChunk> {
     for chunk in &mut chunks {
         chunk.text = chunk.text.trim().to_owned();
     }
-    chunks
+    merge_duplicate_scene_numbers(chunks)
+}
+
+/// Merge chunks that carry the SAME document scene number (SCRIPT REPORT
+/// format, found via the 294.pdf user import): these documents open with a
+/// scene INDEX (every scene listed as `1    A/T - ORT` + `Tag 1`) BEFORE the
+/// scene bodies, so the deterministic splitter creates one stub per index
+/// entry PLUS one real chunk per body heading — the preview doubled every
+/// scene. With the number now parsed from both occurrences (`pdftotext
+/// -layout` keeps the number column on the heading line), a repeated number
+/// is the same scene: merge into the FIRST occurrence (index order = number
+/// order) and keep the LONGER body — the index stub's text is just the day
+/// column, the body occurrence carries the dialogue. Scenes without a
+/// document number (headings like `INT. ROOM - DAY`) are never merged.
+fn merge_duplicate_scene_numbers(chunks: Vec<SceneChunk>) -> Vec<SceneChunk> {
+    let mut merged: Vec<SceneChunk> = Vec::with_capacity(chunks.len());
+    for chunk in chunks {
+        match chunk
+            .scene_number
+            .and_then(|number| merged.iter_mut().find(|c| c.scene_number == Some(number)))
+        {
+            Some(existing) => {
+                if chunk.text.len() > existing.text.len() {
+                    existing.text = chunk.text;
+                }
+                if existing.episode.is_none() {
+                    existing.episode = chunk.episode;
+                }
+            }
+            None => merged.push(chunk),
+        }
+    }
+    for (index, chunk) in merged.iter_mut().enumerate() {
+        chunk.index = index;
+    }
+    merged
+}
+
+/// A title-page episode entry: `(` + 1-4 digits + `)` + a quoted title —
+/// the ARD/telenovela title-page convention (`(294) "Freundschaft"`, also
+/// German low-9 quotes). The 1-4 digit cap mirrors [`episode_marker`]'s
+/// number bound; the quote pair is required so a prose parenthesis ("(vgl.
+/// 294)") never becomes an episode title.
+fn title_page_entry(line: &str) -> Option<(i32, String)> {
+    let open = line.find('(')?;
+    let after_open = &line[open + 1..];
+    let digits: String = after_open
+        .chars()
+        .take_while(|c| c.is_ascii_digit())
+        .collect();
+    if digits.is_empty() || digits.len() > 4 {
+        return None;
+    }
+    let rest = &after_open[digits.len()..];
+    let rest = rest.strip_prefix(")")?;
+    let rest = rest.trim_start();
+    for (open_q, close_q) in [
+        ('"', '"'),
+        ('\u{201E}', '\u{201C}'), // „ … “
+        ('\u{201C}', '\u{201D}'), // “ … ”
+        ('\'', '\''),
+    ] {
+        if let Some(title) = rest
+            .strip_prefix(open_q)
+            .and_then(|t| t.find(close_q).map(|end| (t, end)))
+        {
+            let (title, end) = title;
+            let title = title[..end].trim();
+            if !title.is_empty() {
+                return Some((digits.parse().ok()?, title.to_owned()));
+            }
+        }
+    }
+    None
 }
 
 /// Word→PDF text extraction substitutes invisible look-alikes for the plain

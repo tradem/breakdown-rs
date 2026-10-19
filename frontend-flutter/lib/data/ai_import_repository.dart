@@ -452,10 +452,17 @@ class AiImportRepository extends BaseRepository {
   /// [AiImportJob]. A body the serializers reject (unknown future field
   /// shape) is a malformed frame — surfaced as
   /// `ai_import.dto_invalid`, never thrown.
+  ///
+  /// Uses [standardSerializers] (with `StandardJsonPlugin`), matching the
+  /// generated client's decode path: the plugin maps JSON objects to the
+  /// pair-list representation the custom built_value serializers expect.
+  /// The bare `serializers` instance lacks the plugin and rejects every
+  /// frame (map ≠ Iterable cast) — the root cause of the app-side
+  /// `ai_import.dto_invalid` on every live job watch.
   static AiImportJob? _decodeJobFrame(String data) {
     try {
       final decoded = jsonDecode(data);
-      return serializers
+      return standardSerializers
           .deserializeWith(AiImportJobResponse.serializer, decoded)
           ?.job;
     } on Object {

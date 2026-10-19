@@ -613,6 +613,53 @@ tag. Never edit a released entry afterwards.
   test-support crates `integration-tests`, `test_support`,
   `architecture` `0.3.1 → 0.3.2` (lockstep re-pins per ADR-020 D3).
 
+### Fixed
+
+- **Dispo & shoot-day PDF reports download again** (HTTP 500 on every
+  request, found in the dev stack 2026-10-18): `dispo_report_pdf` and
+  `shoot_day_report_pdf` handed the Typst renderer a **bare JSON array**
+  (`serde_json::to_value(rows)`), while `dispo.typ` / `shoot-day.typ`
+  read `data.rows` — the array failed Typst compilation and answered an
+  opaque `500 http.internal-error`, even for empty rows (the
+  season/episode Soll-Ist PDFs kept working because their payload is an
+  object). Both handlers now wrap the payload in the `{ rows: [...] }`
+  envelope the other report kinds already send. New handler contract
+  tests capture the exact renderer payload for both kinds (new
+  `CapturingReportRenderer` test fake + configurable
+  `FakeSceneShootReportRepo` in the api test helpers). Crates:
+  `api 0.36.0 → 0.36.1` (PATCH: behavior fix, `core`/`infra` unchanged;
+  `architecture` crate re-pin).
+
+### Fixed (round 2, 2026-10-19 — dev-stack user reports)
+
+- **Script extraction: scene numbers survive the PDF text column
+  ("SCRIPT REPORT" format, 294.pdf user import).** `pdftotext` ran in the
+  default reading-order mode, which tears the scene-number column
+  (`1    A/T - ORT`) OUT of the heading line — `leading_scene_number`
+  yielded `None`, every preview row rendered "?" and apply created
+  numberless scenes. The extractor now runs `pdftotext -q -layout - -` so
+  the number stays on the heading line. **Script-index dedup:** these
+  documents open with a scene INDEX (every scene listed per shooting day)
+  BEFORE the bodies — the splitter created one stub per index entry PLUS
+  one chunk per body heading (the 294.pdf preview carried 94 rows for 34
+  unique scenes). `extract_scenes` now merges chunks carrying the SAME
+  document number into the first occurrence, keeping the longer body
+  (index stub = day column only; body = dialogue) — unnumbered headings
+  are never merged. **Episode title:** the `Ep.:` page-header markers
+  carry a bare number, so the created episode had no name; the title-page
+  convention `(294) "Freundschaft"` is now scanned and fills the marker's
+  missing title, which flows through the apply's episode-group create
+  target into the created episode's name. Two follow-ups found in the
+  294.pdf end-to-end verification: the scan runs as a FIRST PASS over the
+  whole document (the page-1 `Ep.:` header precedes the title block, so an
+  inline scan missed it), and the worker's episode-metadata rule now
+  really makes the deterministic scan authoritative — the old
+  `if scene.episode.is_none()` let the model's titleless `{number: 294}`
+  overwrite the scan's enriched value. Crates: `core 0.37.0 → 0.38.0`,
+  `infra 0.42.0 → 0.43.0` (extractor flag; re-pins in `api`,
+  `architecture`, `fuzz-targets`, `integration-tests`, `test_support`),
+  `api` unchanged.
+
 ## [api-v0.14.0] – Released 2026-10-04
 
 - Shipped artifact: `ghcr.io/<owner>/<repo>:api-v0.14.0` (immutable,

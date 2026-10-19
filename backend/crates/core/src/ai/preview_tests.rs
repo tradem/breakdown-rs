@@ -1687,3 +1687,101 @@ fn meta_summary_guard_boundary_still_matches_the_observed_variants() {
         );
     }
 }
+
+// ===========================================================================
+// SCRIPT REPORT format (found via the 294.pdf user import): the document
+// opens with a scene INDEX (every scene listed as `1    A/T - ORT` + `Tag 1`,
+// per shooting day) BEFORE the scene bodies. With `pdftotext -layout` the
+// number column stays on the heading line, so index stub and body heading
+// carry the SAME scene number and must merge into one preview row — the
+// index doubling every scene (94 rows / 34 unique) was the "always ?" bug.
+// ===========================================================================
+
+#[test]
+fn extract_scenes_merges_index_and_body_occurrences_by_number() {
+    let document = "\
+PERSONEN
+
+1    A/T - BAUERNHOF
+     Tag 1
+2    I/T - KLINIKUM
+     Tag 1
+
+1   A/T - BAUERNHOF
+    Tag 1
+    LEYLA
+    Jannis? Jannis!
+    Sie wuehlt im Heu.
+
+2   I/T - KLINIKUM
+    Tag 1
+    MATTEO
+    Da ist er ja.
+";
+    let chunks = extract_scenes(document);
+    assert_eq!(
+        chunks.len(),
+        2,
+        "index stub + body heading with the same number merge into ONE chunk"
+    );
+    assert_eq!(chunks[0].scene_number, Some(1));
+    assert_eq!(chunks[1].scene_number, Some(2));
+    // The body occurrence carries the dialogue; the stub only the day column.
+    assert!(
+        chunks[0].text.contains("Jannis? Jannis!"),
+        "merged chunk keeps the longer body text, got: {:?}",
+        chunks[0].text
+    );
+    assert!(chunks[0].text.contains("Tag 1"), "index day column is kept");
+}
+
+#[test]
+fn extract_scenes_does_not_merge_unnumbered_headings() {
+    // Headings without a document number are distinct scenes even when their
+    // text is identical — only a PARSED number deduplicates.
+    let document = "INT. ROOM - DAY\nAlice enters.\n\nINT. ROOM - DAY\nBob leaves.";
+    let chunks = extract_scenes(document);
+    assert_eq!(chunks.len(), 2);
+}
+
+#[test]
+fn extract_scenes_backfills_episode_title_from_title_page() {
+    // The `Ep.:` page-header markers carry a bare number; the title sits on
+    // the title page as `(294) "Freundschaft"`. The preview row must carry
+    // the heading so apply names the created episode after it.
+    let document = "\
+(294) \"Freundschaft\"
+
+Regie: Dieter Laske
+
+Block: 098/Ep.: 294
+
+1   A/T - BAUERNHOF
+    LEYLA
+    Jannis?
+";
+    let chunks = extract_scenes(document);
+    assert_eq!(chunks.len(), 1);
+    let episode = chunks[0].episode.as_ref().expect("marker stamped");
+    assert_eq!(episode.number, Some(294));
+    assert_eq!(
+        episode.title.as_deref(),
+        Some("Freundschaft"),
+        "title-page heading must fill the marker's missing title"
+    );
+}
+
+#[test]
+fn title_page_entry_rejects_prose_parentheses() {
+    assert_eq!(title_page_entry("(vgl. 294)"), None);
+    assert_eq!(title_page_entry("Szene (12) fehlt"), None);
+    assert_eq!(title_page_entry("(294) ohne Anfuehrungszeichen"), None);
+    assert_eq!(
+        title_page_entry("(294) \"Freundschaft\""),
+        Some((294, "Freundschaft".to_owned()))
+    );
+    assert_eq!(
+        title_page_entry("(12) \u{201E}Titel\u{201C}"),
+        Some((12, "Titel".to_owned()))
+    );
+}

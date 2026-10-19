@@ -465,10 +465,15 @@ where
                         }
 
                         // Episode metadata: the deterministic `Ep.:` scan of the
-                        // document is authoritative; the LLM's `episode` field
-                        // (issue #581 prompt rule) only fills in when the scan
-                        // found no marker for this chunk (foreign notation).
-                        if scene.episode.is_none() {
+                        // document is authoritative — INCLUDING the title-page
+                        // title enrichment (the scan carries the `(294)
+                        // "Freundschaft"` heading the bare page-header markers
+                        // never had); the LLM's `episode` field (issue #581
+                        // prompt rule) only fills in when the scan found no
+                        // marker for this chunk (foreign notation). The old
+                        // model-wins rule let the model's titleless
+                        // `{number: 294}` overwrite the scan's enriched value.
+                        if chunk.episode.is_some() {
                             scene.episode = chunk.episode.clone();
                         }
                         // Issue #668: deterministic post-extraction guard —

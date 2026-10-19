@@ -1619,8 +1619,10 @@ void main() {
       );
       await pumpPreview(tester);
 
-      // Group headers in document order: one per group-run, labelled from
-      // the Ep.: marker, with the seeded create-new target.
+      // The episode-target area ("Ziel ändern") moved INTO the apply card,
+      // ABOVE the dispatch button (user UX request, 2026-10-19): one target
+      // header per group, labelled from the Ep.: marker, with the seeded
+      // create-new target and the change affordance.
       expect(
         find.byKey(const Key('ai-preview-group-header-ep:3')),
         findsOneWidget,
@@ -1643,31 +1645,12 @@ void main() {
         find.byKey(const Key('ai-preview-group-header-ep:5')),
         findsOneWidget,
       );
-      // Unmarked rows: the ungrouped header names the explicitly picked
-      // target episode — no selector there.
-      expect(
-        find.byKey(const Key('ai-preview-ungrouped-header')),
-        findsOneWidget,
-      );
-      expect(
-        find.descendant(
-          of: find.byKey(const Key('ai-preview-ungrouped-header')),
-          matching: find.text('No episode marker — target: episode ep-1'),
-        ),
-        findsOneWidget,
-      );
       expect(
         find.byKey(const Key('ai-preview-group-target-change-ep:5')),
         findsOneWidget,
         reason: 'grouped rows carry the target selector',
       );
-      expect(
-        find.byKey(const Key('ai-preview-group-target-change-ungrouped')),
-        findsNothing,
-      );
-
-      // The apply card summarizes each group's target at the dispatch
-      // point (EU AI Act review gate).
+      // The headers render ABOVE the submit button in the card order.
       expect(
         find.byKey(const Key('ai-apply-group-target-ep:3')),
         findsOneWidget,
@@ -1677,9 +1660,44 @@ void main() {
         findsOneWidget,
       );
 
-      // Every seeded target carries its number → apply unlocks with the
-      // review acknowledgement.
+      // Unmarked rows: no ungrouped header anymore — the picked target lives
+      // in the apply card's context tile (the single-episode flow).
+      expect(
+        find.byKey(const Key('ai-preview-ungrouped-header')),
+        findsNothing,
+      );
+      expect(find.byKey(const Key('ai-apply-context')), findsOneWidget);
+
+      // UX rule (user report 2026-10-19): apply activates only when every
+      // group RESOLVES to an episode — the seeded create targets do NOT
+      // unlock the button, even with the review acknowledgement ticked.
       await tester.tap(find.byKey(const Key('ai-apply-review-checkbox')));
+      await tester.pumpAndSettle();
+      final submitBefore = tester.widget<FilledButton>(
+        find.byKey(const Key('ai-apply-submit')),
+      );
+      expect(
+        submitBefore.onPressed,
+        isNull,
+        reason: 'unresolved create targets keep apply disabled',
+      );
+      // Resolving BOTH groups (as the in-preview creation would) unlocks it.
+      final controller = container.read(
+        aiApplyControllerProvider('job-1').notifier,
+      );
+      controller.adoptCreatedEpisode(
+        'ep:3',
+        episodeId: 'ep-3',
+        number: 3,
+        projectId: 'series-1',
+        label: '3 \u00b7 Titel',
+      );
+      controller.adoptCreatedEpisode(
+        'ep:5',
+        episodeId: 'ep-5',
+        number: 5,
+        projectId: 'series-1',
+      );
       await tester.pumpAndSettle();
       final submit = tester.widget<FilledButton>(
         find.byKey(const Key('ai-apply-submit')),
@@ -1740,8 +1758,10 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.byKey(const Key('ai-group-create-dialog')), findsOneWidget);
 
-      // A valid number closes the dialog, updates the target and unlocks
-      // the dispatch (the acknowledgement is already checked).
+      // A valid number closes the dialog and sets the create INTENT; the
+      // in-preview resolution then creates/adopts the episode. In this test
+      // environment the resolution cannot reach a backend, so the UX rule
+      // keeps apply DISABLED until the episode side is settled.
       await tester.enterText(
         find.byKey(const Key('ai-group-create-number')),
         '7',
@@ -1749,20 +1769,37 @@ void main() {
       await tester.tap(find.byKey(const Key('ai-group-create-save')));
       await tester.pumpAndSettle();
       expect(find.byKey(const Key('ai-group-create-dialog')), findsNothing);
+      expect(
+        submit().onPressed,
+        isNull,
+        reason: 'an unresolved create target keeps apply disabled',
+      );
+
+      // Resolution settles (as the in-preview creation does in production):
+      // adopt the episode → apply unlocks and the dispatch carries the
+      // group with kind EXISTING (the create-at-apply wire shape is no
+      // longer reachable through the UI).
+      container
+          .read(aiApplyControllerProvider('job-1').notifier)
+          .adoptCreatedEpisode(
+            'ep-t:Sommer',
+            episodeId: 'ep-7',
+            number: 7,
+            projectId: 'series-1',
+            label: '7 \u00b7 Sommer',
+          );
+      await tester.pumpAndSettle();
       expect(submit().onPressed, isNotNull);
 
       await tester.tap(find.byKey(const Key('ai-apply-submit')));
       await tester.pumpAndSettle();
 
-      // The wire: one group with kind create + the entered number and the
-      // heading's name; the group edit counted into edit_distance.
       final groups = repo.lastRequest!.episodeGroups!;
       expect(groups, hasLength(1));
       expect(groups.single.episodeRef, 'ep-t:Sommer');
-      final target = groups.single.target.oneOf.value as EpisodeTargetOneOf1;
-      expect(target.number, 7);
-      expect(target.name, 'Sommer');
-      expect(target.kind, EpisodeTargetOneOf1KindEnum.create);
+      final target = groups.single.target.oneOf.value as EpisodeTargetOneOf;
+      expect(target.episodeId, 'ep-7');
+      expect(target.kind, EpisodeTargetOneOfKindEnum.existing);
       expect(repo.lastRequest!.editDistance, 1);
       expect(repo.lastRequest!.acceptAsIs, isFalse);
     });
@@ -2084,6 +2121,113 @@ void main() {
       expect(groupRefsForCreateNumber(state, 9), isEmpty);
     });
 
+    test('resolveGroupDefaults seeds assign-existing for numbers that '
+        'already exist and leaves missing numbers on the create default', () {
+      controller().seedRows([
+        PreviewRow(
+          draftRef: 'd1',
+          label: 'A',
+          episode: _episodeMeta(7, 'Sieben'),
+        ),
+        PreviewRow(draftRef: 'd2', label: 'B', episode: _episodeMeta(8, null)),
+      ], const AiJobContext(episodeId: 'ep-1', projectId: 'series-1'));
+
+      controller().resolveGroupDefaults([_cachedEpisode('ep-294', number: 7)]);
+
+      final state = container.read(aiApplyControllerProvider('job-1'));
+      // 7 exists in the project → the group defaults to assign-EXISTING (no
+      // 409 recovery dance for an episode the reviewer already created).
+      final target = state.targetFor('ep:7');
+      expect(target, isA<ExistingEpisodeGroupTarget>());
+      expect((target as ExistingEpisodeGroupTarget).episodeId, 'ep-294');
+      // 8 does not exist → NO explicit target (the seeded create-new default
+      // stays; apply creates it, titled from the document heading).
+      expect(state.groupTargets.containsKey('ep:8'), isFalse);
+    });
+
+    test('resolveGroupDefaults never overrides an explicit reviewer pick', () {
+      controller().seedRows([
+        PreviewRow(
+          draftRef: 'd1',
+          label: 'A',
+          episode: _episodeMeta(7, 'Sieben'),
+        ),
+      ], const AiJobContext(episodeId: 'ep-1', projectId: 'series-1'));
+      controller().setGroupTarget(
+        'ep:7',
+        const CreateEpisodeGroupTarget(number: 7, name: 'Anders'),
+      );
+
+      controller().resolveGroupDefaults([
+        _cachedEpisode('ep-294', number: 7),
+      ], jobBlockId: 'block-1');
+
+      final state = container.read(aiApplyControllerProvider('job-1'));
+      final target = state.targetFor('ep:7');
+      expect(target, isA<CreateEpisodeGroupTarget>());
+      expect((target as CreateEpisodeGroupTarget).name, 'Anders');
+    });
+
+    test('adoptCreatedEpisode flips the group to assign-existing and moves '
+        'the context into the created (job-block) episode', () {
+      controller().seedRows(
+        [
+          PreviewRow(
+            draftRef: 'd1',
+            label: 'A',
+            episode: _episodeMeta(294, 'Freundschaft'),
+          ),
+        ],
+        const AiJobContext(
+          episodeId: 'other-ep',
+          projectId: 'series-1',
+          blockId: 'job-block',
+        ),
+      );
+
+      controller().adoptCreatedEpisode(
+        'ep:294',
+        episodeId: 'ep-294',
+        number: 294,
+        projectId: 'series-1',
+        label: '294 \u00b7 Freundschaft',
+      );
+
+      final state = container.read(aiApplyControllerProvider('job-1'));
+      final target = state.targetFor('ep:294');
+      expect(target, isA<ExistingEpisodeGroupTarget>());
+      expect((target as ExistingEpisodeGroupTarget).episodeId, 'ep-294');
+      // The apply context moved to the created episode — it lives in the
+      // job's block, so the apply's cross-block IDOR guard passes even when
+      // the job's block had ZERO episodes before (the 294.pdf flow).
+      expect(state.context?.episodeId, 'ep-294');
+      expect(state.context?.blockId, 'job-block');
+      expect(state.hasCompleteGroupTargets, isTrue);
+    });
+
+    test('resolveGroupDefaults does NOT adopt a same-number episode from '
+        'a DIFFERENT block (the apply IDOR guard would 403 forever)', () {
+      controller().seedRows([
+        PreviewRow(
+          draftRef: 'd1',
+          label: 'A',
+          episode: _episodeMeta(294, 'Freundschaft'),
+        ),
+      ], const AiJobContext(episodeId: 'ep-1', projectId: 'series-1'));
+
+      // Episode 294 exists — but in another block than the job's.
+      controller().resolveGroupDefaults([
+        _cachedEpisode('ep-294', number: 294),
+      ], jobBlockId: 'job-block');
+
+      final state = container.read(aiApplyControllerProvider('job-1'));
+      expect(
+        state.targetFor('ep:294'),
+        isA<CreateEpisodeGroupTarget>(),
+        reason: 'a cross-block episode must not be adopted into the context',
+      );
+    });
+
     test('the sibling gate codes get their own copy', () {
       expect(
         aiApplyErrorCopy(
@@ -2203,107 +2347,69 @@ void main() {
       expect(applyAfter.onPressed, isNotNull);
     });
 
-    testWidgets('a taken-episode-number 409 offers the one-tap '
-        'assign-existing recovery; the retry lands in the EXISTING episode '
-        '(issue #665 — no duplicate episode)', (tester) async {
+    testWidgets('a taken-episode-number 409 cannot be dispatched through the '
+        'UI any more: an unresolved create target keeps apply disabled (the '
+        'in-preview creation settles the episode before review)', (
+      tester,
+    ) async {
       await setupContainer(
-        applyQueue: [
-          const Left(
-            ProblemError(
-              code: 'episode.number-already-exists',
-              status: 409,
-              extensions: {'existing_episode_id': 'ep-existing', 'number': 7},
-            ),
-          ),
-          Right(_outcome()),
-        ],
-        // The row's Ep.: 7 marker seeds the group default create-7 — the
-        // number the create target collides on.
+        applyQueue: [Right(_outcome())],
+        // The row's Ep.: 7 marker seeds the group default create-7.
         payload: _scriptPayloadWith([
           _draft('draft-1', episode: _episodeMeta(7, 'Sieben')),
         ]),
       );
       await pumpPreview(tester);
 
-      // Dispatch: the review checkbox + submit produce the 409 first.
+      // UX rule (user report 2026-10-19): the review acknowledgement alone
+      // does NOT unlock apply — the group's episode must be resolved first
+      // (created in-preview or assigned). The 409 recovery affordance is
+      // therefore unreachable through the UI; it stays in the widget as
+      // defense-in-depth for any state where a create target coexists with
+      // an enabled button.
       await tester.tap(find.byKey(const Key('ai-apply-review-checkbox')));
       await tester.pump();
-      await tester.tap(find.byKey(const Key('ai-apply-submit')));
-      await tester.pump();
-
-      // The refusal must render its recovery affordance.
+      final submit = tester.widget<FilledButton>(
+        find.byKey(const Key('ai-apply-submit')),
+      );
       expect(
-        find.byKey(const Key('ai-apply-assign-existing-instead')),
-        findsOneWidget,
+        submit.onPressed,
+        isNull,
+        reason: 'an unresolved create target keeps apply disabled',
       );
-      await tester.tap(
-        find.byKey(const Key('ai-apply-assign-existing-instead')),
-      );
-      await tester.pump();
-
-      // The group target flipped to existing; the error card is dismissed.
       expect(
         find.byKey(const Key('ai-apply-assign-existing-instead')),
         findsNothing,
       );
-      expect(
-        find.byKey(const Key('ai-apply-group-target-ep:7')),
-        findsOneWidget,
-      );
 
-      // Dispatch the recovery apply: the review acknowledgement persists
-      // from the first dispatch — submit again.
+      // Once the episode side settles (as the in-preview creation does),
+      // apply unlocks and dispatches the EXISTING target.
+      container
+          .read(aiApplyControllerProvider('job-1').notifier)
+          .adoptCreatedEpisode(
+            'ep:7',
+            episodeId: 'ep-existing',
+            number: 7,
+            projectId: 'series-1',
+            label: '7 \u00b7 Sieben',
+          );
+      await tester.pump();
+      final submitAfter = tester.widget<FilledButton>(
+        find.byKey(const Key('ai-apply-submit')),
+      );
+      expect(submitAfter.onPressed, isNotNull);
       await tester.tap(find.byKey(const Key('ai-apply-submit')));
       await tester.pump();
 
-      // The retry request carries the EXISTING episode target — no second
-      // create, the idempotent continuation lands in episode ep-existing.
-      final retry = repo.applyRequests[1];
-      final groups = retry.episodeGroups!.toList();
+      // The wire carries the EXISTING episode target.
+      final request = repo.applyRequests[0];
+      final groups = request.episodeGroups!.toList();
       expect(groups, hasLength(1));
       expect(groups.first.episodeRef, 'ep:7');
       final target = groups.first.target.oneOf.value as EpisodeTargetOneOf;
       expect(target.kind, EpisodeTargetOneOfKindEnum.existing);
       expect(target.episodeId, 'ep-existing');
-      // The 200 outcome card renders.
       expect(find.byKey(const Key('ai-apply-outcome')), findsOneWidget);
-    });
-
-    testWidgets('a 409 whose number no group creates any more hides the '
-        'recovery button instead of dismissing the error without a change '
-        '(CodeRabbit #690)', (tester) async {
-      await setupContainer(
-        applyQueue: [
-          const Left(
-            ProblemError(
-              code: 'episode.number-already-exists',
-              status: 409,
-              extensions: {
-                'existing_episode_id': 'ep-existing',
-                'number': 9, // no group creates 9 — the marker says 7
-              },
-            ),
-          ),
-        ],
-        payload: _scriptPayloadWith([
-          _draft('draft-1', episode: _episodeMeta(7, 'Sieben')),
-        ]),
-      );
-      await pumpPreview(tester);
-
-      await tester.tap(find.byKey(const Key('ai-apply-review-checkbox')));
-      await tester.pump();
-      await tester.tap(find.byKey(const Key('ai-apply-submit')));
-      await tester.pump();
-
-      // The refusal narrative renders, but the recovery affordance must NOT:
-      // tapping it would dismiss the error without changing any target and
-      // the next apply would hit the same 409.
-      expect(find.byKey(const Key('ai-apply-error')), findsOneWidget);
-      expect(
-        find.byKey(const Key('ai-apply-assign-existing-instead')),
-        findsNothing,
-      );
     });
 
     testWidgets('an apply-blocked refusal renders the blocking items from '

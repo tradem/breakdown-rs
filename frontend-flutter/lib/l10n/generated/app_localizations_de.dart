@@ -1247,6 +1247,10 @@ class AppLocalizationsDe extends AppLocalizations {
       'Diese Episoden-Nummer ist in der Staffel bereits vergeben.';
 
   @override
+  String get aiApplyErrorEpisodeNumberOtherBlock =>
+      'Diese Episodennummer ist bereits einem anderen Block zugeordnet. Wechsle den Block und lade das Dokument dort erneut hoch.';
+
+  @override
   String aiApplyOutcome(Object applied, Object days, Object shoots) {
     return 'Angewendet: $applied Entwurf(e): $days Drehtag(e) erstellt, $shoots Szenen-Dreh(e) geplant.';
   }

@@ -1,15 +1,19 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: glm-5.3-flash (neuralwatt)
+// Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 
 import 'dart:async';
+import 'dart:io';
 
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:dio/dio.dart';
+import 'package:dio/io.dart';
 import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../../auth/auth_providers.dart';
+import '../network/api_client.dart';
 
 part 'connectivity_providers.g.dart';
 
@@ -106,6 +110,17 @@ PassiveConnectivitySource passiveConnectivitySource(Ref ref) =>
 ConnectivityHttpProbe connectivityHttpProbe(Ref ref) {
   final apiBase = ref.watch(appConfigProvider).apiBase;
   return () async {
+    // The probe rides the SAME pinned-CA TLS context as the app client (found
+    // via the stuck offline pill on the dev stack): a bare Dio cannot verify
+    // the dev-pinned CA at all, so every probe failed TLS verification and the
+    // pill never left `degraded` — while the app itself (pinned context)
+    // talked to the backend just fine. A liveness probe that cannot share the
+    // app's transport trust answers a different question than the app can.
+    // Read LAZILY inside the closure: the provider must stay constructible in
+    // widget tests that never ran the bootstrap override (the probe call is
+    // swallowed by the controller's catch, matching the pre-pinning failure
+    // behavior), while the real app always has the context by first probe.
+    final context = ref.read(pinnedSecurityContextProvider);
     // Bare Dio WITHOUT the auth interceptor: a liveness probe never
     // carries tokens. `validateStatus: (_) => true` accepts EVERY status:
     // 404/401/503 from the API all prove the route is usable — Dio's
@@ -118,6 +133,9 @@ ConnectivityHttpProbe connectivityHttpProbe(Ref ref) {
         receiveTimeout: const Duration(seconds: 5),
         validateStatus: (_) => true,
       ),
+    );
+    dio.httpClientAdapter = IOHttpClientAdapter(
+      createHttpClient: () => HttpClient(context: context),
     );
     try {
       await dio.getUri<void>(Uri.parse(apiBase));

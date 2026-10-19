@@ -199,7 +199,43 @@ Future<AiJobContext?> aiJobContext(Ref ref, String jobId) async {
     if (row.id == jobId) {
       final episodeId = row.episodeId;
       if (episodeId == null) return null;
-      return AiJobContext(episodeId: episodeId, projectId: row.projectId ?? '');
+      return AiJobContext(
+        episodeId: episodeId,
+        projectId: row.projectId ?? '',
+        blockId: row.blockId ?? '',
+      );
+    }
+  }
+  return null;
+}
+
+/// The job's block anchor for the in-preview episode creation: blockId from
+/// the cached row (independent of the episode context — a job uploaded
+/// without an episode pick still has a block, and the 294.pdf flow showed
+/// the creation must not depend on a remembered context) plus the row's
+/// remembered projectId (may be empty — the caller falls back to
+/// `GET /v1/blocks/{id}`). `null` when the row is unknown/offline.
+@riverpod
+Future<({String blockId, String projectId})?> aiJobBlockInfo(
+  Ref ref,
+  String jobId,
+) async {
+  final repo = ref.read(aiImportRepositoryProvider);
+  String sub;
+  try {
+    final session = await ref.read(authSessionControllerProvider.future);
+    sub = session?.sub ?? '';
+  } on Object {
+    return null;
+  }
+  final rows = await repo.readCached(sub);
+  final err = rows.getLeft().toNullable();
+  if (err != null) return null;
+  for (final row in rows.getRight().toNullable()!) {
+    if (row.id == jobId) {
+      final blockId = row.blockId;
+      if (blockId == null || blockId.isEmpty) return null;
+      return (blockId: blockId, projectId: row.projectId ?? '');
     }
   }
   return null;
@@ -207,10 +243,19 @@ Future<AiJobContext?> aiJobContext(Ref ref, String jobId) async {
 
 /// The persisted apply context (episode + series) of a job.
 class AiJobContext {
-  const AiJobContext({required this.episodeId, required this.projectId});
+  const AiJobContext({
+    required this.episodeId,
+    required this.projectId,
+    this.blockId = '',
+  });
 
   final String episodeId;
   final String projectId;
+
+  /// The job's block — the creation anchor for the in-preview episode
+  /// creation (the apply's cross-block IDOR guard requires the context
+  /// episode to live in the job's block; empty for rows from older builds).
+  final String blockId;
 }
 
 /// Localized copy for the job-status error banner (watch failures,

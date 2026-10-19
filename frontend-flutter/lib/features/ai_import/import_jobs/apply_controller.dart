@@ -8,6 +8,7 @@
 import 'package:breakdown_api/breakdown_api.dart';
 import 'package:built_collection/built_collection.dart';
 import 'package:fpdart/fpdart.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:one_of/one_of.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
@@ -15,6 +16,7 @@ import '../../../core/problem_error.dart';
 import '../../../core/result.dart';
 import '../../../data/ai_import_providers.dart';
 import '../../../data/ai_import_repository.dart';
+import '../../../data/cache/seasons_cache_providers.dart';
 import '../../../domain/reconciliation/reconciliation_scheduler.dart';
 import '../../../l10n/generated/app_localizations.dart';
 import '../../blocks/blocks_controller.dart';
@@ -258,6 +260,14 @@ class AiApplyState {
       ),
     ),
   );
+
+  /// Every group target RESOLVES to an existing episode (found via the
+  /// project's live list, created in-preview, or picked by the reviewer).
+  /// UX rule (user report 2026-10-19): the apply button activates only when
+  /// the episode side is settled — an unresolved create target keeps it
+  /// disabled, so a half-created import can never be dispatched by accident.
+  bool get hasResolvedGroupTargets =>
+      groupRefs.every((ref) => targetFor(ref) is ExistingEpisodeGroupTarget);
 
   /// The wire acknowledgements: one entry per acknowledged key, in the
   /// preview's own order (stable, testable).
@@ -530,6 +540,95 @@ class AiApplyController extends _$AiApplyController {
     );
   }
 
+  /// Auto-assigns each episode group against the project's live episode
+  /// list (user report 2026-10-19): a group whose `Ep.:` number already
+  /// EXISTS as an episode defaults to assign-EXISTING — the reviewer no
+  /// longer hits the 409 `number-already-exists` recovery dance for an
+  /// episode they (or a previous import) created. Groups whose number does
+  /// not exist keep the create-new default: the backend creates that
+  /// episode during apply, BEFORE the scenes (issue #581 apply order), and
+  /// — since the title-page heading extraction — carries the document's
+  /// episode title into the created episode's name.
+  ///
+  /// Explicit reviewer picks (`setGroupTarget`) always win; a fetch failure
+  /// is silently ignored by the caller (resolve is an optimization, never
+  /// a gate — the backend 409 recovery remains the backstop).
+  void resolveGroupDefaults(
+    List<EpisodeView> episodes, {
+    String jobBlockId = '',
+  }) {
+    if (episodes.isEmpty || state.rows.isEmpty) return;
+    final byNumber = {
+      for (final episode in episodes)
+        // BLOCK-AWARE (user report, the 403 apply loop): the apply's
+        // cross-block IDOR guard requires the context episode to live in the
+        // JOB'S block — an episode with the same NUMBER in a different block
+        // must NOT be adopted (it made every apply answer 403 forever).
+        if (jobBlockId.isEmpty || episode.blockId == jobBlockId)
+          episode.number: episode,
+    };
+    final next = <String, EpisodeGroupTarget>{...state.groupTargets};
+    var changed = false;
+    for (final ref in state.groupRefs) {
+      if (next.containsKey(ref)) continue; // reviewer pick wins
+      final number = state.episodeOfGroup(ref)?.number;
+      if (number == null) continue;
+      final existing = byNumber[number];
+      if (existing == null) continue;
+      next[ref] = ExistingEpisodeGroupTarget(
+        episodeId: existing.id,
+        label: existing.name ?? '${existing.number}',
+      );
+      changed = true;
+    }
+    if (!changed) return;
+    state = AiApplyState(
+      rows: state.rows,
+      context: state.context,
+      outcome: state.outcome,
+      commandError: state.commandError,
+      groupTargets: next,
+      blockingUncertainties: state.blockingUncertainties,
+      acknowledgedKeys: state.acknowledgedKeys,
+    );
+  }
+
+  /// Adopts a just-created episode for [groupRef] — the in-preview episode
+  /// creation (user request, found via the 294.pdf empty-picker flow): the
+  /// group target flips to assign-EXISTING and the apply context moves to
+  /// the created episode. The created episode lives in the JOB'S block, so
+  /// the apply's cross-block IDOR guard passes even when the remembered
+  /// context episode belonged to another block (or was missing entirely —
+  /// the job's block had zero episodes, making apply unreachable before).
+  void adoptCreatedEpisode(
+    String groupRef, {
+    required String episodeId,
+    required int number,
+    required String projectId,
+    String? label,
+  }) {
+    final nextTargets = {
+      ...state.groupTargets,
+      groupRef: ExistingEpisodeGroupTarget(
+        episodeId: episodeId,
+        label: label ?? '$number',
+      ),
+    };
+    state = AiApplyState(
+      rows: state.rows,
+      context: AiJobContext(
+        episodeId: episodeId,
+        projectId: projectId,
+        blockId: state.context?.blockId ?? '',
+      ),
+      outcome: state.outcome,
+      commandError: state.commandError,
+      groupTargets: nextTargets,
+      blockingUncertainties: state.blockingUncertainties,
+      acknowledgedKeys: state.acknowledgedKeys,
+    );
+  }
+
   /// Records the reviewer's target for one episode group (existing episode
   /// id or create number/name). Absent keys keep the seeded create-default.
   void setGroupTarget(String groupRef, EpisodeGroupTarget target) {
@@ -594,6 +693,21 @@ class AiApplyController extends _$AiApplyController {
     );
   }
 
+  /// Surfaces a review-level refusal without a dispatch (the in-preview
+  /// resolution found a state apply cannot proceed in — e.g. the group's
+  /// number is taken by an episode in a DIFFERENT block).
+  void setCommandError(ProblemError error) {
+    state = AiApplyState(
+      rows: state.rows,
+      context: state.context,
+      outcome: state.outcome,
+      commandError: error,
+      groupTargets: state.groupTargets,
+      blockingUncertainties: state.blockingUncertainties,
+      acknowledgedKeys: state.acknowledgedKeys,
+    );
+  }
+
   void dismissCommandError() {
     state = AiApplyState(
       rows: state.rows,
@@ -613,6 +727,11 @@ class AiApplyController extends _$AiApplyController {
       // without `Ep.: <n>`) or two groups on one number keep apply disabled.
       state.hasCompleteGroupTargets &&
       !state.hasDuplicateCreateNumbers &&
+      // UX rule (user report 2026-10-19): every group's episode must be
+      // RESOLVED — found in the project, created in-preview, or picked via
+      // "Ziel ändern". An unresolved create target keeps apply disabled (the
+      // in-preview creation is expected to have settled it before review).
+      (state.groupRefs.isEmpty || state.hasResolvedGroupTargets) &&
       // Issue #663: apply stays disabled while a blocking uncertainty is
       // unacknowledged — the client-side mirror of the backend gate, so the
       // button explains itself instead of producing a guaranteed 409.
@@ -736,6 +855,12 @@ String aiApplyErrorCopy(AppLocalizations l10n, ProblemError error) =>
       // Issue #581: the API-edge create-number pre-check (#404 doctrine) —
       // the reviewer picked a number the series already uses.
       'episode.number-already-exists' => l10n.aiApplyErrorEpisodeNumberTaken,
+      // The group's number is taken by an episode in a DIFFERENT block: the
+      // import cannot apply in this block scope (cross-block IDOR guard +
+      // project-unique numbers). The reviewer switches the scope and
+      // re-uploads (the dedup then lands on the other block's job).
+      'ai_import.episode_number_other_block' =>
+        l10n.aiApplyErrorEpisodeNumberOtherBlock,
       // Issue #663: dedicated apply-gate codes. `apply-blocked` surfaces the
       // blocking items from its extensions inline (the widget appends them);
       // the copy here is the narrative header.
@@ -833,4 +958,99 @@ String groupTargetSummaryLine(
     heading,
     groupTargetLabel(l10n, state.targetFor(groupRef)),
   );
+}
+
+/// Ensures the episode behind [target] EXISTS and the group adopts it — the
+/// in-preview creation (user report 2026-10-19, the 294.pdf empty-picker
+/// flow): an existing project episode with the target's number is adopted,
+/// a missing one is CREATED in the job's block right here. Either way the
+/// group target flips to assign-EXISTING and the apply context moves into
+/// the job's block, so the apply's cross-block IDOR guard always has a valid
+/// `episode_id` — before this, a block with zero episodes made apply
+/// unreachable (empty picker + create-at-apply requiring a context episode).
+///
+/// Returns `true` when the group now resolves. Any failure (offline, 409
+/// the recovery can settle, missing block info) returns `false` and leaves
+/// the reviewer's state untouched — the backend 409 recovery stays the
+/// backstop. Called from the preview seeding AND from the "Ziel ändern"
+/// sheet's create branch.
+Future<bool> ensureGroupEpisodeResolved(
+  WidgetRef ref,
+  String jobId,
+  String groupRef,
+  CreateEpisodeGroupTarget target,
+) async {
+  final number = target.number;
+  if (number == null) return false;
+  final blockInfo = await ref.read(aiJobBlockInfoProvider(jobId).future);
+  if (blockInfo == null) return false;
+  var projectId = blockInfo.projectId;
+  if (projectId.isEmpty) {
+    // No remembered project: the block carries it.
+    final block = await ref
+        .read(apiClientProvider)
+        .getHandlersApi()
+        .getBlock(id: blockInfo.blockId);
+    projectId = block.data?.projectId ?? '';
+  }
+  if (projectId.isEmpty) return false;
+  final controller = ref.read(aiApplyControllerProvider(jobId).notifier);
+
+  // An episode with the number may already exist (created by an earlier
+  // review/import, or the reviewer created it by hand): adopt it instead of
+  // racing the numbering reservation into a 409 — but ONLY when it lives in
+  // the job's block. An episode with the same number in a DIFFERENT block
+  // cannot be adopted (the apply's cross-block IDOR guard would 403) and
+  // cannot be created again (the number is project-unique): the import in
+  // THIS block scope is genuinely blocked, surfaced honestly.
+  final episodes = await ref
+      .read(episodeRepositoryProvider)
+      .listBySeries(projectId);
+  final rows = episodes.fold((_) => const <EpisodeView>[], (rows) => rows);
+  final inJobBlock = rows
+      .where(
+        (episode) =>
+            episode.number == number && episode.blockId == blockInfo.blockId,
+      )
+      .toList();
+  if (inJobBlock.isNotEmpty) {
+    final episode = inJobBlock.first;
+    controller.adoptCreatedEpisode(
+      groupRef,
+      episodeId: episode.id,
+      number: number,
+      projectId: projectId,
+      label: target.name == null ? '$number' : '$number \u00b7 ${target.name}',
+    );
+    return true;
+  }
+  final elsewhere = rows.where((episode) => episode.number == number).toList();
+  if (elsewhere.isNotEmpty) {
+    controller.setCommandError(
+      const ProblemError(code: 'ai_import.episode_number_other_block'),
+    );
+    return false;
+  }
+
+  final created = await ref
+      .read(episodeRepositoryProvider)
+      .create(
+        CreateEpisodeRequest(
+          (b) => b
+            ..projectId = projectId
+            ..blockId = blockInfo.blockId
+            ..number = number
+            ..name = target.name,
+        ),
+      );
+  return created.match((_) => false, (idVersion) {
+    controller.adoptCreatedEpisode(
+      groupRef,
+      episodeId: idVersion.id,
+      number: number,
+      projectId: projectId,
+      label: target.name == null ? '$number' : '$number \u00b7 ${target.name}',
+    );
+    return true;
+  });
 }

@@ -130,7 +130,6 @@ class _ActiveScopeChipState extends ConsumerState<ActiveScopeChip> {
     final targetSeasonId = scope?.seasonId ?? season!.id;
     return ScopePill(
       key: const Key('active-scope-chip'),
-      icon: Icons.filter_alt_outlined,
       label: label,
       selected: scope != null,
       selectedColor: scheme.secondaryContainer,

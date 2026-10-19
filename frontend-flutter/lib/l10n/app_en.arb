@@ -321,6 +321,7 @@
   "aiApplyGroupCreateNameLabel": "Episode title (optional)",
   "aiApplyGroupNumberInvalid": "Please enter a whole number.",
   "aiApplyErrorEpisodeNumberTaken": "This episode number is already taken in the series.",
+  "aiApplyErrorEpisodeNumberOtherBlock": "This episode number already belongs to a different block. Switch the block and re-upload the document there.",
   "aiApplyOutcome": "Applied {applied} draft(s): {days} shooting day(s) created, {shoots} scene shoot(s) planned.",
   "aiApplyBackToImports": "Back to imports",
   "aiScenePickerError": "Scenes could not be loaded ({code}).",

@@ -84,7 +84,6 @@ class ActiveEpisodeChip extends ConsumerWidget {
 
     return ScopePill(
       key: const Key('active-episode-chip'),
-      icon: Icons.movie_creation_outlined,
       label: label,
       selected: scope != null,
       selectedColor: scheme.tertiaryContainer,

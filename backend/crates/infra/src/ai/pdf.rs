@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 // Co-authored-by: kimi-k3 (neuralwatt)
 
 use std::process::Stdio;
@@ -47,7 +48,14 @@ impl PdfTextExtractor {
             return Err(DomainError::validation("PDF document must not be empty"));
         }
         let mut child = Command::new("pdftotext")
-            .args(["-q", "-", "-"])
+            // `-layout` preserves the visual line structure: production
+            // scripts (e.g. ARD "SCRIPT REPORT" format, issue with 294.pdf)
+            // carry the scene number as a separate PDF text column
+            // ("1    A/T - ORT"). In the default reading-order mode the
+            // column is torn out of the line, the heading arrives WITHOUT
+            // its number, and `leading_scene_number` yields `None` — every
+            // preview row rendered "?" and apply created numberless scenes.
+            .args(["-q", "-layout", "-", "-"])
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
