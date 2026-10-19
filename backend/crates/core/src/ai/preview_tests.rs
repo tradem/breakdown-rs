@@ -1785,3 +1785,60 @@ fn title_page_entry_rejects_prose_parentheses() {
         Some((12, "Titel".to_owned()))
     );
 }
+
+#[test]
+fn extract_scenes_does_not_merge_across_episodes() {
+    // CodeRabbit review: two episodes can both contain a scene `1` — the
+    // merge key is (document number, EPISODE number), so episode A's scene 1
+    // and episode B's scene 1 stay two separate scenes.
+    let document = "\
+Ep.: 1 (A)
+1   I/T - ORT A
+    Text episode one.
+
+Ep.: 2 (B)
+1   I/T - ORT B
+    Text episode two.
+";
+    let chunks = extract_scenes(document);
+    assert_eq!(
+        chunks.len(),
+        2,
+        "same number in different episodes never merges"
+    );
+    assert_eq!(chunks[0].scene_number, Some(1));
+    assert!(
+        chunks[0].text.contains("episode one"),
+        "got: {:?}",
+        chunks[0].text
+    );
+    assert_eq!(chunks[1].scene_number, Some(1));
+    assert!(
+        chunks[1].text.contains("episode two"),
+        "got: {:?}",
+        chunks[1].text
+    );
+}
+
+#[test]
+fn extract_scenes_merge_preserves_index_only_metadata() {
+    // CodeRabbit review: the index entry may carry metadata (its `Tag 3`
+    // day column) that the body occurrence lacks — the union keeps it so
+    // the model can still extract the script day.
+    let document = "\
+3    I/T - KLINIKUM
+     Tag 3
+
+3   I/T - KLINIKUM
+    LEYLA
+    Nur Dialogue, kein Tag im Koerper.
+";
+    let chunks = extract_scenes(document);
+    assert_eq!(chunks.len(), 1);
+    assert!(
+        chunks[0].text.contains("Tag 3"),
+        "index-only metadata must survive the merge, got: {:?}",
+        chunks[0].text
+    );
+    assert!(chunks[0].text.contains("Nur Dialogue"));
+}

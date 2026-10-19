@@ -176,7 +176,25 @@ Future<void> showGroupTargetSheet(
       // create target (apply stays disabled; the backend 409 recovery is
       // the backstop).
       controller.setGroupTarget(groupRef, result);
-      await ensureGroupEpisodeResolved(ref, jobId, groupRef, result);
+      // CodeRabbit review: the resolution can fail (offline getBlock, disposed
+      // notifier) — never leak the exception through the sheet; surface a
+      // command error instead so the reviewer sees WHY apply stays disabled.
+      bool resolved = false;
+      try {
+        resolved = await ensureGroupEpisodeResolved(ref, jobId, groupRef, result);
+      } on Object {
+        resolved = false;
+      }
+      if (!resolved && context.mounted) {
+        final current = ref.read(aiApplyControllerProvider(jobId));
+        if (current.commandError == null) {
+          ref
+              .read(aiApplyControllerProvider(jobId).notifier)
+              .setCommandError(
+                const ProblemError(code: 'ai_import.episode_create_failed'),
+              );
+        }
+      }
   }
 }
 

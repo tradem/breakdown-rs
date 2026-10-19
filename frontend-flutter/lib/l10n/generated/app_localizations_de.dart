@@ -1251,6 +1251,10 @@ class AppLocalizationsDe extends AppLocalizations {
       'Diese Episodennummer ist bereits einem anderen Block zugeordnet. Wechsle den Block und lade das Dokument dort erneut hoch.';
 
   @override
+  String get aiApplyErrorEpisodeCreateFailed =>
+      'Die Episode konnte nicht automatisch erstellt werden. Bitte prüfe deine Verbindung und versuche es über „Ziel ändern“ erneut.';
+
+  @override
   String aiApplyOutcome(Object applied, Object days, Object shoots) {
     return 'Angewendet: $applied Entwurf(e): $days Drehtag(e) erstellt, $shoots Szenen-Dreh(e) geplant.';
   }

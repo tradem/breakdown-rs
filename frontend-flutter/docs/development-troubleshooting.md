@@ -55,7 +55,7 @@ pgrep -af unionfs                # → no unionfs process = daemon is gone
 re-mounts on demand:
 
 ```bash
-fusermount3 -u ~/.cache/flutter_sdk   # or: fusermount -u / umount -l
+fusermount3 -u ~/.cache/flutter_sdk   # or: fusermount -u ~/.cache/flutter_sdk; umount -l ~/.cache/flutter_sdk
 flutter --version                     # wrapper mounts ~/.cache/flutter_sdk again
 ```
 

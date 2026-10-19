@@ -182,6 +182,14 @@ class _TypedPreviewBodyState extends ConsumerState<_TypedPreviewBody> {
         // 409 recovery stays the backstop.
         if (context != null && context.projectId.isNotEmpty) {
           try {
+            // Block-aware resolution (CodeRabbit review): without the job's
+            // block the filter accepts every same-number episode in the
+            // project — exactly the cross-block adoption the 403 loop was
+            // made of. The anchor also drives the in-preview creation.
+            final blockInfo = await ref
+                .read(aiJobBlockInfoProvider(widget.jobId).future);
+            if (!mounted) return;
+            if (blockInfo == null) return;
             final episodes = await ref
                 .read(episodeRepositoryProvider)
                 .listBySeries(context.projectId);
@@ -189,7 +197,7 @@ class _TypedPreviewBodyState extends ConsumerState<_TypedPreviewBody> {
             episodes.match((_) {}, (rows) {
               ref
                   .read(aiApplyControllerProvider(widget.jobId).notifier)
-                  .resolveGroupDefaults(rows);
+                  .resolveGroupDefaults(rows, jobBlockId: blockInfo.blockId);
             });
           } on Object {
             // Resolve is an optimization, never a gate.

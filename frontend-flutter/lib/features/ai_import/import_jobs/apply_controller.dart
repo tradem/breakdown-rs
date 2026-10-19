@@ -16,7 +16,6 @@ import '../../../core/problem_error.dart';
 import '../../../core/result.dart';
 import '../../../data/ai_import_providers.dart';
 import '../../../data/ai_import_repository.dart';
-import '../../../data/cache/seasons_cache_providers.dart';
 import '../../../domain/reconciliation/reconciliation_scheduler.dart';
 import '../../../l10n/generated/app_localizations.dart';
 import '../../blocks/blocks_controller.dart';
@@ -614,13 +613,23 @@ class AiApplyController extends _$AiApplyController {
         label: label ?? '$number',
       ),
     };
+    // Rows WITHOUT episode metadata apply to the TOP-LEVEL context episode —
+    // replacing it would silently retarget ungrouped rows to the adopted
+    // group's episode (CodeRabbit review, mixed-import data integrity). The
+    // remembered context stays authoritative for ungrouped rows; the apply
+    // path validates it against the job's block.
+    final hasUngroupedRows = state.rows.any(
+      (row) => row.episode == null || draftEpisodeGroupRef(row.episode!) == null,
+    );
     state = AiApplyState(
       rows: state.rows,
-      context: AiJobContext(
-        episodeId: episodeId,
-        projectId: projectId,
-        blockId: state.context?.blockId ?? '',
-      ),
+      context: hasUngroupedRows
+          ? state.context
+          : AiJobContext(
+              episodeId: episodeId,
+              projectId: projectId,
+              blockId: state.context?.blockId ?? '',
+            ),
       outcome: state.outcome,
       commandError: state.commandError,
       groupTargets: nextTargets,
@@ -861,6 +870,10 @@ String aiApplyErrorCopy(AppLocalizations l10n, ProblemError error) =>
       // re-uploads (the dedup then lands on the other block's job).
       'ai_import.episode_number_other_block' =>
         l10n.aiApplyErrorEpisodeNumberOtherBlock,
+      // The in-preview episode creation failed (offline / transport): the
+      // reviewer retries via "Ziel ändern" — apply stays disabled.
+      'ai_import.episode_create_failed' =>
+        l10n.aiApplyErrorEpisodeCreateFailed,
       // Issue #663: dedicated apply-gate codes. `apply-blocked` surfaces the
       // blocking items from its extensions inline (the widget appends them);
       // the copy here is the narrative header.
@@ -986,12 +999,13 @@ Future<bool> ensureGroupEpisodeResolved(
   if (blockInfo == null) return false;
   var projectId = blockInfo.projectId;
   if (projectId.isEmpty) {
-    // No remembered project: the block carries it.
+    // No remembered project: the block carries it. Repository seam (Result —
+    // a transport failure is a failed resolution, never a thrown
+    // DioException through the sheet, CodeRabbit review).
     final block = await ref
-        .read(apiClientProvider)
-        .getHandlersApi()
-        .getBlock(id: blockInfo.blockId);
-    projectId = block.data?.projectId ?? '';
+        .read(episodeRepositoryProvider)
+        .blockById(blockInfo.blockId);
+    projectId = block.fold((_) => '', (b) => b.projectId);
   }
   if (projectId.isEmpty) return false;
   final controller = ref.read(aiApplyControllerProvider(jobId).notifier);

@@ -1354,6 +1354,33 @@ void main() {
       );
     });
 
+    test('job watch: the byte-for-byte live SSE frame decodes through the '
+        'repository watch path (CodeRabbit review)', () async {
+      // Live frame captured from `GET /v1/ai-import/jobs/{id}/events`
+      // (2026-10-18, backend 0.36.0) — the same fixture as
+      // `test/data/ai_import_sse_frame_decode_test.dart`, but fed through
+      // `AiImportRepository.watch` so the test exercises the REAL
+      // `_decodeJobFrame` path: if the decoder ever regresses to the bare
+      // `serializers` instance, this test fails with `ai_import.dto_invalid`
+      // instead of passing while live watches reject every frame.
+      const liveFrame =
+          '{"job":{"id":"01a14f76-74a8-72c6-a1a3-219586fe487a","user_id":"dev-user","document_kind":"schedule","source_format":"pdf","block_id":"01a0ddbb-f11a-7400-aec3-085b2e9d8395","dedup_key":"dev-user|schedule|pdf|4e212da27fd05c873c24df2f871ede394c3511a15a7e2d58c3738d9e43deffc9","document_digest":"4e212da27fd05c873c24df2f871ede394c3511a15a7e2d58c3738d9e43deffc9","source_handle":"ai-import/01a14f76-74a8-72c6-a1a3-219586fe487a/source","status":"dead_letter","preview_handle":null,"last_error":"validation failed: schedule extraction is not supported by this client","retries":1,"max_retries":5,"next_attempt_at":null,"created_at":"2026-10-18T14:42:05.615310Z","updated_at":"2026-10-18T14:42:07.085713Z","progress":{"stage":"extracting_text","chunk":0,"chunks_total":1,"episodes_seen":[]},"telemetry":null,"cost":null,"attempts":[{"attempt_no":1,"status":"dead_letter","error_summary":"validation failed: schedule extraction is not supported by this client","code":"domain.validation","retryable":false,"created_at":"2026-10-18T14:42:07.085713Z"}]}}';
+      final api = _api(_SseInterceptor([
+        'event: job\ndata: $liveFrame\n\n',
+      ]));
+      final events = await AiImportRepository(
+        api,
+        _dao(),
+      ).watch('01a14f76-74a8-72c6-a1a3-219586fe487a',
+          scheduler: _FakeScheduler()).toList();
+      // `dead_letter` is terminal — one Right, no reconnect.
+      expect(events.length, 1);
+      final job = events.single.getRight().toNullable()!;
+      expect(job.id, '01a14f76-74a8-72c6-a1a3-219586fe487a');
+      expect(job.status, JobStatus.deadLetter);
+      expect(job.progress, isNotNull);
+    });
+
     test(
       'job watch: transient open failures yield Left and keep watching',
       () async {

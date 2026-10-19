@@ -1328,20 +1328,49 @@ pub fn extract_scenes(document: &str) -> Vec<SceneChunk> {
 /// scene. With the number now parsed from both occurrences (`pdftotext
 /// -layout` keeps the number column on the heading line), a repeated number
 /// is the same scene: merge into the FIRST occurrence (index order = number
-/// order) and keep the LONGER body — the index stub's text is just the day
-/// column, the body occurrence carries the dialogue. Scenes without a
-/// document number (headings like `INT. ROOM - DAY`) are never merged.
+/// order). Scenes without a document number (headings like `INT. ROOM - DAY`)
+/// are never merged.
+///
+/// The merge key is **(document scene number, episode number)** — two
+/// episodes can both contain a scene `1`, and merging across episodes would
+/// fold two distinct scenes into one (CodeRabbit review: the second scene
+/// would lose its model request and preview row). Chunks with different
+/// episode stamps never merge; a chunk without an episode stamp merges only
+/// with another episode-less chunk of the same number.
+///
+/// When merging, the LONGER occurrence's body wins, but lines that appear
+/// ONLY in the shorter one are preserved (the index entry may carry
+/// metadata — e.g. its `Tag 3` day column — that the body occurrence lacks;
+/// the model reads the merged text and would otherwise never see it).
 fn merge_duplicate_scene_numbers(chunks: Vec<SceneChunk>) -> Vec<SceneChunk> {
     let mut merged: Vec<SceneChunk> = Vec::with_capacity(chunks.len());
     for chunk in chunks {
-        match chunk
-            .scene_number
-            .and_then(|number| merged.iter_mut().find(|c| c.scene_number == Some(number)))
-        {
+        let key = (
+            chunk.scene_number,
+            chunk.episode.as_ref().and_then(|e| e.number),
+        );
+        let existing = match key {
+            (Some(number), episode_number) => merged.iter_mut().find(|c| {
+                c.scene_number == Some(number)
+                    && c.episode.as_ref().and_then(|e| e.number) == episode_number
+            }),
+            _ => None,
+        };
+        match existing {
             Some(existing) => {
-                if chunk.text.len() > existing.text.len() {
-                    existing.text = chunk.text;
+                let (longer, shorter) = if chunk.text.len() >= existing.text.len() {
+                    (chunk.text.clone(), existing.text.clone())
+                } else {
+                    (existing.text.clone(), chunk.text.clone())
+                };
+                let longer_lines: std::collections::HashSet<&str> = longer.lines().collect();
+                let mut union: Vec<&str> = longer.lines().collect();
+                for line in shorter.lines() {
+                    if !longer_lines.contains(&line) {
+                        union.push(line);
+                    }
                 }
+                existing.text = union.join("\n");
                 if existing.episode.is_none() {
                     existing.episode = chunk.episode;
                 }

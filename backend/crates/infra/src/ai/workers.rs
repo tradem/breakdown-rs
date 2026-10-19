@@ -473,8 +473,21 @@ where
                         // marker for this chunk (foreign notation). The old
                         // model-wins rule let the model's titleless
                         // `{number: 294}` overwrite the scan's enriched value.
+                        // Symmetrically (CodeRabbit review): a model TITLE
+                        // survives when the scan carries none and the numbers
+                        // agree — the bare page-header marker must not erase
+                        // the model's extracted episode heading.
                         if chunk.episode.is_some() {
-                            scene.episode = chunk.episode.clone();
+                            let mut effective = chunk.episode.clone().unwrap_or_default();
+                            let model_title = scene
+                                .episode
+                                .as_ref()
+                                .filter(|model| model.number == effective.number)
+                                .and_then(|model| model.title.clone());
+                            if effective.title.is_none() {
+                                effective.title = model_title;
+                            }
+                            scene.episode = Some(effective);
                         }
                         // Issue #668: deterministic post-extraction guard —
                         // the prompt bans meta-summaries, but a prompt is an
