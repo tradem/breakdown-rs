@@ -1854,7 +1854,11 @@ impl breakdown_core::reporting::ReportRenderer for CapturingReportRenderer {
         breakdown_core::reporting::ReportBytes,
         breakdown_core::reporting::ReportRenderError,
     > {
-        let data = serde_json::to_value(&req.data).unwrap_or(serde_json::Value::Null);
+        // req.data is already a serde_json::Value — clone it directly. A
+        // serialization round-trip cannot fail here, and the old
+        // `to_value(...).unwrap_or(Value::Null)` would have hidden a real
+        // failure as a missing `rows` key in the captured payload.
+        let data = req.data.clone();
         *self.last.lock().await = Some((req.kind, data));
         Ok(breakdown_core::reporting::ReportBytes {
             kind: req.kind,

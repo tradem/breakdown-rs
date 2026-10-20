@@ -1836,12 +1836,36 @@ fn extract_scenes_does_not_merge_suffixed_scene_labels() {
     let chunks = extract_scenes(document);
     assert_eq!(chunks.len(), 2, "`12` and `12A` are distinct scenes");
     assert_eq!(chunks[0].scene_number, Some(12));
-    assert!(chunks[0].text.contains("Zwiebeln"), "got: {:?}", chunks[0].text);
+    assert!(
+        chunks[0].text.contains("Zwiebeln"),
+        "got: {:?}",
+        chunks[0].text
+    );
     assert_eq!(chunks[1].scene_number, Some(12));
     assert!(
         chunks[1].text.contains("Boten laufen vorbei"),
         "suffix scene keeps its own body, got: {:?}",
         chunks[1].text
+    );
+}
+
+#[test]
+fn extract_scenes_glued_german_token_is_not_a_scene_suffix() {
+    // CodeRabbit review round 3: `/` must not be a suffix separator — the
+    // German short form glues its interior/exterior token to the number
+    // (`12I/T - KÜCHE`). Reading the `I` as a scene suffix would mangle the
+    // line into "/T - KÜCHE" and the scene would lose its chunk boundary.
+    let document = "\
+12I/T - KÜCHE
+    Koch schneidet Zwiebeln.
+";
+    let chunks = extract_scenes(document);
+    assert_eq!(chunks.len(), 1, "`12I/T` is scene 12 with a german token");
+    assert_eq!(chunks[0].scene_number, Some(12));
+    assert!(
+        chunks[0].text.contains("Zwiebeln"),
+        "heading body captured, got: {:?}",
+        chunks[0].text
     );
 }
 

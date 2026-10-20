@@ -213,6 +213,13 @@ class _TypedPreviewBodyState extends ConsumerState<_TypedPreviewBody> {
         // failure leaves the create-at-apply default; the backend 409
         // recovery stays the last backstop.
         try {
+          // CodeRabbit review: a failed creation (offline, missing block
+          // anchor, rejected create) used to fail silently — apply stayed
+          // disabled with no explanation. Track any failure and surface the
+          // same command error the "Ziel ändern" path uses, WITHOUT
+          // overwriting an existing commandError (e.g.
+          // ai_import.episode_number_other_block).
+          var anyFailed = false;
           for (final groupRef in List.of(
             ref.read(aiApplyControllerProvider(widget.jobId)).groupRefs,
           )) {
@@ -220,17 +227,45 @@ class _TypedPreviewBodyState extends ConsumerState<_TypedPreviewBody> {
                 .read(aiApplyControllerProvider(widget.jobId))
                 .targetFor(groupRef);
             if (target is! CreateEpisodeGroupTarget) continue;
-            await ensureGroupEpisodeResolved(
+            final resolved = await ensureGroupEpisodeResolved(
               ref,
               widget.jobId,
               groupRef,
               target,
             );
             if (!mounted) return;
+            if (!resolved) anyFailed = true;
+          }
+          if (anyFailed) {
+            final current = ref.read(aiApplyControllerProvider(widget.jobId));
+            if (current.commandError == null) {
+              ref
+                  .read(aiApplyControllerProvider(widget.jobId).notifier)
+                  .setCommandError(
+                    const ProblemError(code: 'ai_import.episode_create_failed'),
+                  );
+            }
           }
         } on Object {
           // Creation is an optimization, never a gate — create-at-apply
-          // and the 409 recovery remain the fallbacks.
+          // and the 409 recovery remain the fallbacks. A thrown error
+          // (offline transport, disposed notifier) is ALSO a failure: mark
+          // it so the reviewer gets the same explanation as a `false`
+          // return, without overwriting an existing commandError. The
+          // surface step is itself guarded — a disposed autoDispose
+          // notifier must not turn the error handler into a new throw.
+          try {
+            final current = ref.read(aiApplyControllerProvider(widget.jobId));
+            if (current.commandError == null) {
+              ref
+                  .read(aiApplyControllerProvider(widget.jobId).notifier)
+                  .setCommandError(
+                    const ProblemError(code: 'ai_import.episode_create_failed'),
+                  );
+            }
+          } on Object {
+            // Notifier gone — nothing left to explain to.
+          }
         }
       }());
     }

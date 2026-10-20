@@ -1502,30 +1502,10 @@ const GERMAN_SPACE_HEADING_PREFIXES: [&str; 2] = ["INNEN ", "AUSSEN "];
 /// be followed by a separator, so a prose first word ("3 Akte später …")
 /// is never consumed and the line stays a non-heading.
 fn strip_leading_scene_label(s: &str) -> &str {
+    let after_suffix = scene_label_end(s).unwrap_or(0);
     let bytes = s.as_bytes();
-    // 1. The leading digit run.
-    let mut i = 0;
-    while i < bytes.len() && bytes[i].is_ascii_digit() {
-        i += 1;
-    }
-    let digits_end = i;
-    // 2. An optional SHORT alphanumeric suffix GLUED to the digits (`12A`,
-    //    `12b`) — never after a separator, so `1   A/T - ORT` keeps its
-    //    german `A`/`I` token.
-    let mut after_suffix = digits_end;
-    if digits_end > 0 {
-        let mut j = digits_end;
-        while j < bytes.len() && bytes[j].is_ascii_alphanumeric() && j - digits_end < 2 {
-            j += 1;
-        }
-        // A suffix run only counts when a separator (or end of line)
-        // follows — otherwise it is the first word of a prose line.
-        if j > digits_end && (j >= bytes.len() || matches!(bytes[j], b' ' | b'.' | b'-' | b'/')) {
-            after_suffix = j;
-        }
-    }
-    // 3. The remaining mixed digit/`.`/`-`/space run (the old detector's
-    //    `trim_start_matches`, e.g. `1. INT.` or `12 - I/T`).
+    // The remaining mixed digit/`.`/`-`/space run (the old detector's
+    // `trim_start_matches`, e.g. `1. INT.` or `12 - I/T`).
     let mut k = after_suffix;
     while k < bytes.len()
         && (bytes[k].is_ascii_digit() || bytes[k] == b'.' || bytes[k] == b'-' || bytes[k] == b' ')
@@ -1533,6 +1513,44 @@ fn strip_leading_scene_label(s: &str) -> &str {
         k += 1;
     }
     &s[k..]
+}
+
+/// End byte of the leading scene label — the SINGLE source of truth for the
+/// label boundary, shared by [`strip_leading_scene_label`] (heading
+/// detection) and [`leading_scene_label`] (the merge key) so the two can
+/// never disagree on where the number ends and the heading token begins
+/// (CodeRabbit review).
+///
+/// The label is the leading digit run plus an OPTIONAL glued suffix of at
+/// most 2 ASCII alphanumerics (`12A`, `12b`). The suffix counts only when a
+/// separator follows — ` `/`.`/`-` or end of line. `/` is deliberately NOT
+/// a suffix separator: the German short-form heading glues its interior /
+/// exterior token to the number (`12I/T - KÜCHE`), and accepting `/` would
+/// read the `I` as a scene suffix and mangle the line into "/T - KÜCHE",
+/// which no longer matches the German heading rule (a regression against
+/// the digits-only detector). A prose first word ("3 Akte später …") is
+/// never consumed — without a separator after the ≤2-char run the suffix
+/// is rejected and the label ends at the digits.
+/// `None` when the line has no leading digit.
+fn scene_label_end(s: &str) -> Option<usize> {
+    let bytes = s.as_bytes();
+    let digits_end = bytes.iter().take_while(|b| b.is_ascii_digit()).count();
+    if digits_end == 0 {
+        return None;
+    }
+    let suffix_end = digits_end
+        + bytes[digits_end..]
+            .iter()
+            .take(2)
+            .take_while(|b| b.is_ascii_alphanumeric())
+            .count();
+    let separated =
+        suffix_end == bytes.len() || matches!(bytes[suffix_end], b' ' | b'.' | b'-');
+    Some(if suffix_end > digits_end && separated {
+        suffix_end
+    } else {
+        digits_end
+    })
 }
 
 fn is_scene_heading(line: &str) -> bool {
@@ -1624,40 +1642,16 @@ fn leading_scene_number(line: &str) -> Option<u32> {
 }
 
 /// The full leading scene label of a heading: the leading digits PLUS any
-/// immediately following alphanumeric suffix, up to the first non-
-/// alphanumeric character — `12`, `12A`, `12b`. A letter suffix marks an
-/// inserted scene, a scene of its own: the merge key must not fold `12A`
-/// into `12` (CodeRabbit review). Detection runs on the normalized copy
-/// (invisible Word→PDF look-alikes folded to ASCII), mirroring
-/// [`leading_scene_number`]. Returns `None` for headings without a leading
-/// digit.
+/// glued alphanumeric suffix accepted by [`scene_label_end`] — `12`, `12A`,
+/// `12b`. A letter suffix marks an inserted scene, a scene of its own: the
+/// merge key must not fold `12A` into `12` (CodeRabbit review). Detection
+/// runs on the normalized copy (invisible Word→PDF look-alikes folded to
+/// ASCII) and shares the exact boundary rule with the heading detector, so
+/// the merge key can never disagree with chunk splitting. Returns `None`
+/// for headings without a leading digit.
 fn leading_scene_label(line: &str) -> Option<String> {
     let normalized = normalize_for_heading_detection(line);
-    let mut label = String::new();
-    // Peekable: the digit loop breaks on the first non-digit WITHOUT
-    // consuming it — otherwise a glued suffix (`12A`) would be swallowed
-    // by the break and lost to the suffix scan.
-    let mut chars = normalized.chars().peekable();
-    while let Some(&c) = chars.peek() {
-        if c.is_ascii_digit() {
-            label.push(c);
-            chars.next();
-        } else {
-            break;
-        }
-    }
-    if label.is_empty() {
-        return None;
-    }
-    while let Some(&c) = chars.peek() {
-        if c.is_ascii_alphanumeric() {
-            label.push(c);
-            chars.next();
-        } else {
-            break;
-        }
-    }
-    Some(label)
+    scene_label_end(&normalized).map(|end| normalized[..end].to_owned())
 }
 
 /// Join schedule rows with applied scenes by scene number. Both inputs are

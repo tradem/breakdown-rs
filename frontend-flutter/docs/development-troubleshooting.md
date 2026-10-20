@@ -30,7 +30,7 @@ analysis server binary lives on the same mount.
 
 **Root cause.** On CachyOS, `/usr/bin/flutter` is the AUR wrapper
 (`/opt/flutter/bin/aur_flutter`). It overlays the system SDK with a
-user-writable copy-only-on-write unionfs:
+user-writable copy-on-write unionfs:
 
 ```
 ~/.cache/flutter_local (RW)  ∪  /opt/flutter (RO)   →   ~/.cache/flutter_sdk
