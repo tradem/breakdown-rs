@@ -1251,6 +1251,18 @@ class AppLocalizationsDe extends AppLocalizations {
       'Diese Episodennummer ist bereits einem anderen Block zugeordnet. Wechsle den Block und lade das Dokument dort erneut hoch.';
 
   @override
+  String aiApplyErrorEpisodeNumberOtherBlockIn(
+    Object seasonLabel,
+    Object blockLabel,
+  ) {
+    return 'Diese Episodennummer gehört bereits zu $seasonLabel, $blockLabel. Wechsle in diesen Block und lade das Dokument dort erneut hoch.';
+  }
+
+  @override
+  String get aiApplySwitchScopeRecovery =>
+      'Zum Herkunftsblock der Episode wechseln und dort erneut hochladen';
+
+  @override
   String get aiApplyErrorEpisodeCreateFailed =>
       'Die Episode konnte nicht automatisch erstellt werden. Bitte prüfe deine Verbindung und versuche es über „Ziel ändern“ erneut.';
 

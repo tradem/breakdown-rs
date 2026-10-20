@@ -1524,9 +1524,13 @@ pub async fn create_episode<P: Ports>(
         .find_by_project_and_number(req.project_id, req.number)
         .await?
     {
+        // Issue #705: the S1 `existing_block_id` extension carries the
+        // conflicting episode's home block so a client whose own block
+        // differs can offer a scope-switch recovery instead of a dead end.
         return Err(ApiError::EpisodeNumberAlreadyExists(
             EpisodeId::from_uuid(existing.id),
             req.number,
+            existing.block_id,
         ));
     }
     let id = Uuid::now_v7();
@@ -6593,7 +6597,11 @@ pub async fn apply_ai_import<P: Ports>(
                     }
                     // Issue #665: the existing episode's id travels as the
                     // S1 `existing_episode_id` extension so the client can
-                    // offer the assign-existing recovery in one tap.
+                    // offer the assign-existing recovery in one tap. Issue
+                    // #705: `existing_block_id` travels alongside — when the
+                    // conflicting episode's home block differs from the
+                    // job's, the client offers the scope-switch recovery
+                    // instead (assign-existing would 403 at the IDOR gate).
                     if let Some(existing) = state
                         .ports
                         .episode_repo()
@@ -6603,6 +6611,7 @@ pub async fn apply_ai_import<P: Ports>(
                         return Err(ApiError::EpisodeNumberAlreadyExists(
                             EpisodeId::from_uuid(existing.id),
                             *number,
+                            existing.block_id,
                         ));
                     }
                 }

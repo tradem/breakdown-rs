@@ -1234,6 +1234,18 @@ class AppLocalizationsEn extends AppLocalizations {
       'This episode number already belongs to a different block. Switch the block and re-upload the document there.';
 
   @override
+  String aiApplyErrorEpisodeNumberOtherBlockIn(
+    Object seasonLabel,
+    Object blockLabel,
+  ) {
+    return 'This episode number already belongs to $seasonLabel, $blockLabel. Switch to that block and re-upload the document there.';
+  }
+
+  @override
+  String get aiApplySwitchScopeRecovery =>
+      'Switch to the episode\'s home block and re-upload there';
+
+  @override
   String get aiApplyErrorEpisodeCreateFailed =>
       'The episode could not be created automatically. Check your connection and try again via “Change target”.';
 

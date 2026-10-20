@@ -1971,8 +1971,11 @@ async fn apply_ai_import_prechecks_a_taken_episode_number_with_409() {
     let job_id = seed_episode_grouped_script_job(&ports, Some(block_id), 1).await;
     // Seed the apply's target episode (pinned into the job's block) and a
     // sibling of the SAME series already using number 7 — the number the
-    // create group wants.
+    // create group wants. The sibling lives in a DIFFERENT block (issue
+    // #705's shape: project-global numbering collides across blocks), so the
+    // 409's `existing_block_id` must carry that foreign home block.
     let project_id = ProjectId::from_uuid(Uuid::now_v7());
+    let other_block = BlockId::from_uuid(Uuid::now_v7());
     let target = EpisodeView {
         id: Uuid::now_v7(),
         block_id,
@@ -1984,7 +1987,7 @@ async fn apply_ai_import_prechecks_a_taken_episode_number_with_409() {
     };
     let taken = EpisodeView {
         id: Uuid::now_v7(),
-        block_id,
+        block_id: other_block,
         project_id,
         number: 7,
         name: None,
@@ -2047,6 +2050,18 @@ async fn apply_ai_import_prechecks_a_taken_episode_number_with_409() {
             .and_then(|ext| ext.get("number"))
             .and_then(|value| value.as_i64()),
         Some(7)
+    );
+    // Issue #705: the S1 `existing_block_id` extension carries the
+    // conflicting episode's home block — a DIFFERENT one than the job's, so
+    // the client can offer the scope-switch recovery instead of the
+    // assign-existing tap that would 403 at the cross-block IDOR gate.
+    assert_eq!(
+        problem
+            .extensions
+            .as_ref()
+            .and_then(|ext| ext.get("existing_block_id"))
+            .and_then(|value| value.as_str()),
+        Some(other_block.0.to_string().as_str())
     );
     // The pre-check fires BEFORE any dispatch: nothing was created.
     assert!(

@@ -27,6 +27,21 @@ tag. Never edit a released entry afterwards.
 
 ### Added
 
+- **Cross-block episode-number conflicts name their location and offer a
+  navigable recovery (issue #705):** the episode create-number pre-checks
+  (the AI-apply group loop and the manual `POST /v1/episodes`) now add the
+  S1 extension `existing_block_id` to the registered 409
+  `episode.number-already-exists` — the conflicting episode's home block —
+  alongside #665's `existing_episode_id`/`number`. When the conflict lives
+  in a DIFFERENT block than the job's, the Flutter apply card renders the
+  episode's home (season · block, resolved client-side and named in the
+  refusal copy) and a one-tap recovery that switches the sticky active
+  scope directly to that season+block (bypassing the season-scoped chip
+  picker) and lands on the re-upload screen; the #665 assign-existing tap
+  stays reserved for same-block conflicts, where it cannot 403 at the
+  cross-block IDOR gate. Older backends without the extension degrade to
+  the bare narrative. Wire-shape additive: no code change, no migration.
+
 - **Cross-row character-category conflicts surface as extraction
   uncertainties (issue #695):** when the same figure is named by several
   scene rows with differing **non-default** categories (e.g. `guest` in
@@ -46,6 +61,14 @@ tag. Never edit a released entry afterwards.
   unchanged.
 
 ### Changed
+
+- **Version bump (dependency-order lockstep, additive MINORs, issue
+  #705):** `core 0.39.0 → 0.40.0` (`episode.number-already-exists` gains
+  the `existing_block_id` S1 extension whitelist), `infra 0.44.0 → 0.45.0`
+  (no code change, re-pins core), `api 0.36.2 → 0.37.0` (the typed
+  `EpisodeNumberAlreadyExists` variant carries the conflicting episode's
+  block id; re-pins core/infra). Internal workspace crates re-pin in the
+  same commit.
 
 - **Version bump (issue #695):** `core 0.38.0 → 0.39.0` (new
   `ai::category_conflict_uncertainties` scan + `CharacterCategory::as_str`

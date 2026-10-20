@@ -431,8 +431,11 @@ problem_codes! {
         // second lookup round-trip; `number` names the requested create
         // number so the client can find the affected group. The manual
         // create handler uses the same variant, so both write paths answer
-        // the identical shape.
-        extensions: &["existing_episode_id", "number"],
+        // the identical shape. Issue #705 adds `existing_block_id`: when the
+        // conflicting episode lives in a DIFFERENT block than the job's,
+        // assign-existing would trip the cross-block IDOR guard — the client
+        // instead offers a scope-switch recovery to the episode's home.
+        extensions: &["existing_episode_id", "number", "existing_block_id"],
     },
 
 
