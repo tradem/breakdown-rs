@@ -568,6 +568,7 @@ class AiApplyController extends _$AiApplyController {
     };
     final next = <String, EpisodeGroupTarget>{...state.groupTargets};
     var changed = false;
+    EpisodeView? firstAdopted;
     for (final ref in state.groupRefs) {
       if (next.containsKey(ref)) continue; // reviewer pick wins
       final number = state.episodeOfGroup(ref)?.number;
@@ -578,12 +579,29 @@ class AiApplyController extends _$AiApplyController {
         episodeId: existing.id,
         label: existing.name ?? '${existing.number}',
       );
+      firstAdopted ??= existing;
       changed = true;
     }
     if (!changed) return;
+    // CodeRabbit review: groups can resolve entirely via defaults while the
+    // remembered context episode stays in ANOTHER block — apply() sends
+    // context.episodeId, and the backend cross-block guard would 403 every
+    // apply. For imports WITHOUT ungrouped rows the context moves to the
+    // first matched job-block episode; mixed imports keep the remembered
+    // context (ungrouped rows apply to it) — adoptCreatedEpisode's rule.
+    final hasUngroupedRows = state.rows.any(
+      (row) => row.episode == null || draftEpisodeGroupRef(row.episode!) == null,
+    );
+    final adopted = firstAdopted;
     state = AiApplyState(
       rows: state.rows,
-      context: state.context,
+      context: hasUngroupedRows || adopted == null || jobBlockId.isEmpty
+          ? state.context
+          : AiJobContext(
+              episodeId: adopted.id,
+              projectId: adopted.projectId,
+              blockId: jobBlockId,
+            ),
       outcome: state.outcome,
       commandError: state.commandError,
       groupTargets: next,

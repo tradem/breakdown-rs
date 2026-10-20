@@ -1235,7 +1235,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get aiApplyErrorEpisodeCreateFailed =>
-      'The episode could not be created automatically. Check your connection and try again via “Ziel ändern”.';
+      'The episode could not be created automatically. Check your connection and try again via “Change target”.';
 
   @override
   String aiApplyOutcome(Object applied, Object days, Object shoots) {

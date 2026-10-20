@@ -145,6 +145,27 @@ Future<void> showGroupTargetSheet(
     case 'existing':
       final picked = await showEpisodePicker(context, ref, jobId);
       if (picked == null || !context.mounted) return;
+      // CodeRabbit review: the picker falls back to the cache-wide read when
+      // the job row carries no block id — a picked episode from ANOTHER block
+      // would become the apply context episode and the backend cross-block
+      // guard would 403 every apply. Validate against the job's block BEFORE
+      // adoption. An unavailable anchor means a BLOCK-LESS (legacy/uncached)
+      // job — the backend guard is `if let Some(job_block)`, so it permits
+      // any episode there and the client must not refuse a server-permitted
+      // flow; only a KNOWN job block with a differing episode is refused
+      // (mirroring exactly the 403 the backend would answer).
+      final blockInfo = await ref.read(aiJobBlockInfoProvider(jobId).future);
+      if (!context.mounted) return;
+      final jobBlock = blockInfo?.blockId;
+      if (jobBlock != null && jobBlock.isNotEmpty && picked.blockId != jobBlock) {
+        final current = ref.read(aiApplyControllerProvider(jobId));
+        if (current.commandError == null) {
+          controller.setCommandError(
+            const ProblemError(code: 'ai-import.forbidden'),
+          );
+        }
+        return;
+      }
       // Adopt (not just set): the picked episode lives in the job's block,
       // so the apply context moves with it — the cross-block IDOR guard
       // needs a context episode from THAT block.
@@ -355,7 +376,16 @@ class _AiApplySectionState extends ConsumerState<AiApplySection> {
                 ),
                 subtitle: Text(l10nOf(context).aiApplyContextRemembered),
               )
-            else if (state.groupRefs.isEmpty)
+            else if (state.groupRefs.isEmpty ||
+                state.rows.any(
+                  // CodeRabbit review: a MIXED import (grouped + ungrouped
+                  // rows) keeps a null top-level context for the ungrouped
+                  // rows even after every group resolved — the notice must
+                  // not hide behind the non-empty groupRefs.
+                  (row) =>
+                      row.episode == null ||
+                      draftEpisodeGroupRef(row.episode!) == null,
+                ))
               // No episode markers in the document (single-episode flow):
               // the explicit pick is required. WITH groups the episodes are
               // created/assigned automatically above ("Ziel ändern") — the

@@ -1821,6 +1821,58 @@ Ep.: 2 (B)
 }
 
 #[test]
+fn extract_scenes_does_not_merge_suffixed_scene_labels() {
+    // CodeRabbit review: `leading_scene_number` reads only the leading
+    // digits, so `12` and `12A` shared `scene_number == Some(12)` and the
+    // merge folded the inserted scene `12A` into scene `12` — the suffix
+    // scene lost its preview row. The merge key is the FULL label now.
+    let document = "\
+12  I/T - KÜCHE
+    Koch schneidet Zwiebeln.
+
+12A I/T - FLUR
+    Boten laufen vorbei.
+";
+    let chunks = extract_scenes(document);
+    assert_eq!(chunks.len(), 2, "`12` and `12A` are distinct scenes");
+    assert_eq!(chunks[0].scene_number, Some(12));
+    assert!(chunks[0].text.contains("Zwiebeln"), "got: {:?}", chunks[0].text);
+    assert_eq!(chunks[1].scene_number, Some(12));
+    assert!(
+        chunks[1].text.contains("Boten laufen vorbei"),
+        "suffix scene keeps its own body, got: {:?}",
+        chunks[1].text
+    );
+}
+
+#[test]
+fn extract_scenes_does_not_merge_across_title_only_episodes() {
+    // CodeRabbit review: the merge key used only `episode.number`, so two
+    // TITLE-ONLY markers (`Ep (A)` / `Ep (B)` — number `None`) shared the
+    // `None` episode key and scene `1` of both merged. The key is the
+    // `DraftEpisode::group_key` now: a title-only episode is its own
+    // identity, and an episode-less chunk merges only with another
+    // episode-less chunk.
+    let document = "\
+Ep (A)
+1   I/T - ORT A
+    Text episode one.
+
+Ep (B)
+1   I/T - ORT B
+    Text episode two.
+";
+    let chunks = extract_scenes(document);
+    assert_eq!(
+        chunks.len(),
+        2,
+        "same number under two title-only episodes never merges"
+    );
+    assert!(chunks[0].text.contains("episode one"));
+    assert!(chunks[1].text.contains("episode two"));
+}
+
+#[test]
 fn extract_scenes_merge_preserves_index_only_metadata() {
     // CodeRabbit review: the index entry may carry metadata (its `Tag 3`
     // day column) that the body occurrence lacks — the union keeps it so
@@ -1842,3 +1894,4 @@ fn extract_scenes_merge_preserves_index_only_metadata() {
     );
     assert!(chunks[0].text.contains("Nur Dialogue"));
 }
+// temp debug

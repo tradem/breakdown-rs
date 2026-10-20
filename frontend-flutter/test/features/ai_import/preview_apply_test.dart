@@ -2168,6 +2168,58 @@ void main() {
       expect((target as CreateEpisodeGroupTarget).name, 'Anders');
     });
 
+    test('resolveGroupDefaults moves the context to the first matched '
+        'job-block episode when no ungrouped rows exist (CodeRabbit '
+        'review: the remembered context could point into another block)',
+        () {
+      controller().seedRows(
+        [
+          PreviewRow(draftRef: 'd1', label: 'A', episode: _episodeMeta(7, null)),
+        ],
+        // Remembered context from ANOTHER block — apply() would send its
+        // episode id and the backend cross-block guard would 403 forever.
+        const AiJobContext(
+          episodeId: 'other-block-ep',
+          projectId: 'series-1',
+          blockId: 'other-block',
+        ),
+      );
+
+      controller().resolveGroupDefaults(
+        [_cachedEpisode('ep-294', number: 7)],
+        jobBlockId: 'block-1',
+      );
+
+      final state = container.read(aiApplyControllerProvider('job-1'));
+      expect(state.context?.episodeId, 'ep-294');
+      expect(state.context?.blockId, 'block-1');
+      expect(state.context?.projectId, 'series-1');
+    });
+
+    test('resolveGroupDefaults keeps the remembered context for MIXED '
+        'imports (ungrouped rows apply to it)', () {
+      controller().seedRows(
+        [
+          PreviewRow(draftRef: 'd1', label: 'A', episode: _episodeMeta(7, null)),
+          // No episode metadata → applies to the TOP-LEVEL context.
+          const PreviewRow(draftRef: 'd2', label: 'B'),
+        ],
+        const AiJobContext(
+          episodeId: 'other-block-ep',
+          projectId: 'series-1',
+          blockId: 'other-block',
+        ),
+      );
+
+      controller().resolveGroupDefaults(
+        [_cachedEpisode('ep-294', number: 7)],
+        jobBlockId: 'block-1',
+      );
+
+      final state = container.read(aiApplyControllerProvider('job-1'));
+      expect(state.context?.episodeId, 'other-block-ep');
+    });
+
     test('adoptCreatedEpisode flips the group to assign-existing and moves '
         'the context into the created (job-block) episode', () {
       controller().seedRows(
