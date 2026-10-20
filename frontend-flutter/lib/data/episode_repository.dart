@@ -42,9 +42,8 @@ class EpisodeRepository extends BaseRepository {
   /// failures are values, never thrown DioExceptions (CodeRabbit review —
   /// the apply path must not leak transport exceptions through
   /// `showGroupTargetSheet`).
-  Future<Result<BlockView>> blockById(String id) => run(
-    () => api.getHandlersApi().getBlock(id: id),
-  );
+  Future<Result<BlockView>> blockById(String id) =>
+      run(() => api.getHandlersApi().getBlock(id: id));
 
   /// Block-scoped fetch + snapshot-replace via the server-side filter
   /// (`GET /v1/episodes?block_id=…`).
