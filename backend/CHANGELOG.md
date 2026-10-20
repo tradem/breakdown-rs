@@ -25,6 +25,34 @@ tag. Never edit a released entry afterwards.
 
 ## [Unreleased]
 
+### Added
+
+- **Cross-row character-category conflicts surface as extraction
+  uncertainties (issue #695):** when the same figure is named by several
+  scene rows with differing **non-default** categories (e.g. `guest` in
+  one row, `extra` in another), the apply plan still reconciles
+  deterministically (first non-default wins, issue #677), but the
+  conflicting evidence is no longer hidden behind that rule: after the
+  chunk rows are merged, the script worker scans the per-identity category
+  signals across the **whole** document and emits one blocking `Uncertainty`
+  (kind `field_ambiguity`, field `category`, attached to the identity's
+  first scene) per conflicting identity. `suggested_value` mirrors what the
+  plan would pick (the first non-default signal) and stays display-only.
+  The reviewer resolves the conflict with the existing one-tap
+  acknowledgement flow (issue #663) before the apply. Agreement and
+  default-correction signals (`main_cast` then `guest`) never surface —
+  only genuine non-default conflicts do. Additive: no wire-shape change
+  (`Uncertainty` already carries `kind`), no migration, old previews
+  unchanged.
+
+### Changed
+
+- **Version bump (issue #695):** `core 0.38.0 → 0.39.0` (new
+  `ai::category_conflict_uncertainties` scan + `CharacterCategory::as_str`
+  slug helper), `infra 0.43.0 → 0.44.0` (script worker emits the conflict
+  uncertainties before storing the preview), `api 0.36.1 → 0.36.2`
+  (consumption; no handler/wire change).
+
 ### Changed
 
 - **Version bump (issue #675):** `core 0.36.0 → 0.37.0`, `infra 0.41.0 →

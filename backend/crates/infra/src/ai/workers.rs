@@ -21,9 +21,9 @@ use breakdown_core::ai::{
     PRIMARY_ORDINAL, PlannedEpisode, SceneApplyCommand, SceneApplyPlan, ScriptContext,
     ShootingSchedule, SourceFormat, Telemetry, TelemetryApplyState, UnappliedCostume,
     UnappliedCostumeReason, Uncertainty, UncertaintyAcknowledgement, UncertaintyKind,
-    character_mapping_ref, draft_row_ref, ensure_merge_applyable, extract_scenes, mapping_kind,
-    merge_schedule_to_scenes, plan_scene_apply, sanitize_meta_summary, scene_beat_lanes,
-    stable_draft_ref, verify_draft_costumes,
+    category_conflict_uncertainties, character_mapping_ref, draft_row_ref, ensure_merge_applyable,
+    extract_scenes, mapping_kind, merge_schedule_to_scenes, plan_scene_apply,
+    sanitize_meta_summary, scene_beat_lanes, stable_draft_ref, verify_draft_costumes,
 };
 use breakdown_core::character::commands::CreateCharacter;
 use breakdown_core::character::ports::CharacterCommands;
@@ -558,6 +558,13 @@ where
         progress.stage = AiImportStage::StoringPreview;
         progress.chunk = Some(chunk_count);
         super::workers::publish_progress(&*self.queue, job.id, worker_id, &progress).await?;
+        // Issue #695: document-global category conflicts only become visible
+        // once every chunk's rows are merged — collect them here, where the
+        // whole preview exists, so the reviewer sees the conflict before the
+        // apply instead of the plan's first-non-default reconciliation rule.
+        context
+            .uncertainties
+            .extend(category_conflict_uncertainties(&context));
         let payload = to_vec(&context).map_err(|error| {
             DomainError::validation(format!("could not serialize script preview: {error}"))
         })?;

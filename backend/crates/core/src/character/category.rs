@@ -26,3 +26,17 @@ pub enum CharacterCategory {
     /// Background performer (Komparse).
     Extra,
 }
+
+impl CharacterCategory {
+    /// Stable snake_case slug (mirrors the serde wire representation) for
+    /// reviewer-facing notes such as the document-global category-conflict
+    /// uncertainty (issue #695). Clients branch on this slug, never on prose.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::MainCast => "main_cast",
+            Self::Guest => "guest",
+            Self::Extra => "extra",
+        }
+    }
+}

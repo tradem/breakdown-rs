@@ -17,12 +17,13 @@ use async_trait::async_trait;
 use breakdown_core::ai::{
     AiImportBounds, AiImportEnqueueRequest, AiImportEnqueueResult, AiImportJob, AiImportJobId,
     AiImportMapping, AiImportMappingRepository, AiImportQueue, ApplyMapping, CostumeDecision,
-    DocumentKind, DraftEpisode, DraftScene, EpisodeGroupPlan, EpisodeTarget, JobStatus,
-    LlmCallOutcome, LlmCallUsage, LlmChatRequest, LlmClient, LlmProvider, PRIMARY_ORDINAL,
-    ScriptContext, ShootingSchedule, ShootingScheduleRow, SourceFormat, Telemetry,
+    DocumentKind, DraftCharacter, DraftEpisode, DraftScene, EpisodeGroupPlan, EpisodeTarget,
+    JobStatus, LlmCallOutcome, LlmCallUsage, LlmChatRequest, LlmClient, LlmProvider,
+    PRIMARY_ORDINAL, ScriptContext, ShootingSchedule, ShootingScheduleRow, SourceFormat, Telemetry,
     TelemetryApplyState, UnappliedCostumeReason, UncertaintyKind, character_identity,
     character_mapping_ref, mapping_kind, merge_schedule_to_scenes,
 };
+use breakdown_core::character::category::CharacterCategory;
 use breakdown_core::error::DomainError;
 use breakdown_core::scene::events::SceneSource;
 use breakdown_core::shared::UserId;
@@ -939,6 +940,85 @@ async fn script_worker_assembles_preview_and_telemetry() {
     );
     assert_eq!(state.telemetry[0].apply_state.edit_distance(), None);
     assert_eq!(state.telemetry[0].apply_state.accept_as_is(), None);
+}
+
+/// Issue #695: the model classifies per chunk, so a document-global conflict
+/// (the same figure under two cast sections with differing non-default
+/// categories) is only visible after the chunk rows are merged. The fake
+/// returns two rows of one figure with conflicting categories; the stored
+/// preview must carry the blocking conflict uncertainty.
+#[derive(Clone, Default)]
+struct FakeLlmClientWithConflictingCategories;
+
+#[async_trait]
+impl LlmClient for FakeLlmClientWithConflictingCategories {
+    async fn chat_constrained(
+        &self,
+        _request: LlmChatRequest,
+    ) -> Result<LlmCallOutcome<ScriptContext>, DomainError> {
+        tokio::time::sleep(std::time::Duration::from_millis(2)).await;
+        Ok(LlmCallOutcome::new(
+            ScriptContext {
+                title: Some("fixture".to_owned()),
+                scenes: vec![
+                    DraftScene {
+                        draft_ref: "guest-row".to_owned(),
+                        characters: vec![DraftCharacter {
+                            name: "BEN".to_owned(),
+                            category: CharacterCategory::Guest,
+                        }],
+                        ..Default::default()
+                    },
+                    DraftScene {
+                        draft_ref: "extra-row".to_owned(),
+                        characters: vec![DraftCharacter {
+                            name: "Ben".to_owned(),
+                            category: CharacterCategory::Extra,
+                        }],
+                        ..Default::default()
+                    },
+                ],
+                uncertainties: Vec::new(),
+            },
+            LlmCallUsage::default(),
+        ))
+    }
+}
+
+#[tokio::test]
+async fn script_worker_surfaces_document_global_category_conflicts() {
+    let queue = Arc::new(FakeQueue::default());
+    let previews = Arc::new(MemoryAiPreviewStore::default());
+    let worker = ScriptImportWorker {
+        queue: Arc::clone(&queue),
+        client: Arc::new(FakeLlmClientWithConflictingCategories),
+        previews: previews.clone() as Arc<dyn AiPreviewStore>,
+        extractor: super::PdfTextExtractor::new(1024 * 1024, std::time::Duration::from_secs(30)),
+        provider: LlmProvider::Neuralwatt,
+        model: "deepseek-v4-flash".to_owned(),
+        prompt: "fixture prompt".to_owned(),
+        bounds: AiImportBounds {
+            max_chunks_per_script: 4,
+            ..AiImportBounds::default()
+        },
+        pricing: None,
+    };
+    let job = script_job(AiImportJobId::new());
+    let handle = worker
+        .process_text(&job, "test-worker", "1. INT. KITCHEN - DAY\nA")
+        .await
+        .unwrap();
+    let payload = previews.get(&handle).await.unwrap().unwrap();
+    let preview: ScriptContext = serde_json::from_slice(&payload).unwrap();
+    let conflicts: Vec<_> = preview
+        .uncertainties
+        .iter()
+        .filter(|uncertainty| uncertainty.field == "category")
+        .collect();
+    assert_eq!(conflicts.len(), 1, "one conflict per identity");
+    assert_eq!(conflicts[0].kind, UncertaintyKind::FieldAmbiguity);
+    assert_eq!(conflicts[0].scene_index, 0);
+    assert_eq!(conflicts[0].suggested_value.as_deref(), Some("guest"));
 }
 
 #[tokio::test]

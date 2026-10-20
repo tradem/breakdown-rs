@@ -852,6 +852,136 @@ fn the_apply_plan_carries_the_extracted_category() {
     );
 }
 
+#[test]
+fn a_document_global_category_conflict_surfaces_as_a_blocking_uncertainty() {
+    // Issue #695: the same figure named under two cast sections with differing
+    // non-default categories — the plan reconciles (first non-default wins);
+    // the scan must surface the conflict instead of hiding it.
+    let preview = ScriptContext {
+        scenes: vec![
+            DraftScene {
+                draft_ref: "1. INT. OP".to_owned(),
+                characters: vec![DraftCharacter::from("BEN")],
+                ..Default::default()
+            },
+            DraftScene {
+                draft_ref: "2. INT. KELLER".to_owned(),
+                characters: vec![DraftCharacter {
+                    name: "BEN".to_owned(),
+                    category: CharacterCategory::Guest,
+                }],
+                ..Default::default()
+            },
+            DraftScene {
+                draft_ref: "3. EXT. HOF".to_owned(),
+                characters: vec![DraftCharacter {
+                    name: "Ben".to_owned(),
+                    category: CharacterCategory::Extra,
+                }],
+                ..Default::default()
+            },
+        ],
+        ..Default::default()
+    };
+    let uncertainties = category_conflict_uncertainties(&preview);
+    assert_eq!(uncertainties.len(), 1, "one conflict per identity");
+    let uncertainty = &uncertainties[0];
+    assert_eq!(
+        uncertainty.scene_index, 0,
+        "attached to the first appearance"
+    );
+    assert_eq!(uncertainty.field, "category");
+    assert_eq!(uncertainty.kind, UncertaintyKind::FieldAmbiguity);
+    assert_eq!(
+        uncertainty.suggested_value.as_deref(),
+        Some("guest"),
+        "display-only suggestion: the first non-default signal, what the plan picks"
+    );
+    assert!(
+        uncertainty.note.contains("ben") && uncertainty.note.contains("guest vs extra"),
+        "note names the identity and both signals, got: {}",
+        uncertainty.note
+    );
+}
+
+#[test]
+fn agreeing_and_default_corrected_signals_do_not_surface_a_conflict() {
+    // BEN: main_cast (default) then guest — the non-default signal corrects
+    // the default, no conflict. LENA: guest twice — agreeing, no conflict.
+    let preview = ScriptContext {
+        scenes: vec![
+            DraftScene {
+                draft_ref: "1. INT. OP".to_owned(),
+                characters: vec![
+                    DraftCharacter::from("BEN"),
+                    DraftCharacter {
+                        name: "LENA".to_owned(),
+                        category: CharacterCategory::Guest,
+                    },
+                ],
+                ..Default::default()
+            },
+            DraftScene {
+                draft_ref: "2. INT. KELLER".to_owned(),
+                characters: vec![
+                    DraftCharacter {
+                        name: "Ben".to_owned(),
+                        category: CharacterCategory::Guest,
+                    },
+                    DraftCharacter {
+                        name: "Lena".to_owned(),
+                        category: CharacterCategory::Guest,
+                    },
+                ],
+                ..Default::default()
+            },
+        ],
+        ..Default::default()
+    };
+    assert!(
+        category_conflict_uncertainties(&preview).is_empty(),
+        "agreement and default-correction are not conflicts"
+    );
+}
+
+#[test]
+fn a_conflict_uncertainty_blocks_the_apply_until_acknowledged() {
+    let mut preview = ScriptContext {
+        scenes: vec![
+            DraftScene {
+                draft_ref: "1. INT. OP".to_owned(),
+                characters: vec![DraftCharacter {
+                    name: "BEN".to_owned(),
+                    category: CharacterCategory::Guest,
+                }],
+                ..Default::default()
+            },
+            DraftScene {
+                draft_ref: "2. INT. KELLER".to_owned(),
+                characters: vec![DraftCharacter {
+                    name: "Ben".to_owned(),
+                    category: CharacterCategory::Extra,
+                }],
+                ..Default::default()
+            },
+        ],
+        ..Default::default()
+    };
+    preview.uncertainties = category_conflict_uncertainties(&preview);
+    assert!(
+        ensure_script_applyable(&preview, &[]).is_err(),
+        "an unacknowledged conflict blocks the apply"
+    );
+    let acknowledged = [UncertaintyAcknowledgement {
+        scene_index: 0,
+        field: "category".to_owned(),
+    }];
+    assert!(
+        ensure_script_applyable(&preview, &acknowledged).is_ok(),
+        "the #663 acknowledgement resolves the conflict"
+    );
+}
+
 // ===========================================================================
 // stable_draft_ref — server-owned preview identity
 // ===========================================================================
