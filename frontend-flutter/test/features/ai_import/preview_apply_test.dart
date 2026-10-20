@@ -2257,6 +2257,150 @@ void main() {
       expect(state.hasCompleteGroupTargets, isTrue);
     });
 
+    test('adoptCreatedEpisode clears a stale resolution error (CodeRabbit '
+        'review: the card must not keep saying the creation failed next to '
+        'an enabled apply button)', () {
+      controller().seedRows(
+        [
+          PreviewRow(
+            draftRef: 'd1',
+            label: 'A',
+            episode: _episodeMeta(294, 'Freundschaft'),
+          ),
+        ],
+        const AiJobContext(
+          episodeId: 'other-ep',
+          projectId: 'series-1',
+          blockId: 'job-block',
+        ),
+      );
+      controller().setCommandError(
+        const ProblemError(code: 'ai_import.episode_create_failed'),
+      );
+
+      controller().adoptCreatedEpisode(
+        'ep:294',
+        episodeId: 'ep-294',
+        number: 294,
+        projectId: 'series-1',
+      );
+
+      final state = container.read(aiApplyControllerProvider('job-1'));
+      expect(state.commandError, isNull,
+          reason: 'the successful adoption disproves the transient failure');
+    });
+
+    test('adoptCreatedEpisode KEEPS the cross-block refusal while another '
+        'group is still unresolved (the conflict may belong to it)', () {
+      controller().seedRows(
+        [
+          PreviewRow(
+            draftRef: 'd1',
+            label: 'A',
+            episode: _episodeMeta(294, 'Freundschaft'),
+          ),
+          PreviewRow(
+            draftRef: 'd2',
+            label: 'B',
+            episode: _episodeMeta(5, null),
+          ),
+        ],
+        const AiJobContext(
+          episodeId: 'other-ep',
+          projectId: 'series-1',
+          blockId: 'job-block',
+        ),
+      );
+      controller().setCommandError(
+        const ProblemError(code: 'ai_import.episode_number_other_block'),
+      );
+
+      controller().adoptCreatedEpisode(
+        'ep:294',
+        episodeId: 'ep-294',
+        number: 294,
+        projectId: 'series-1',
+      );
+
+      final state = container.read(aiApplyControllerProvider('job-1'));
+      expect(state.commandError?.code, 'ai_import.episode_number_other_block',
+          reason: 'group ep:5 is still unresolved — the conflict may be its');
+    });
+
+    test('adoptCreatedEpisode clears the cross-block refusal once it '
+        'resolves the LAST unresolved group', () {
+      controller().seedRows(
+        [
+          PreviewRow(
+            draftRef: 'd1',
+            label: 'A',
+            episode: _episodeMeta(294, 'Freundschaft'),
+          ),
+          PreviewRow(
+            draftRef: 'd2',
+            label: 'B',
+            episode: _episodeMeta(5, null),
+          ),
+        ],
+        const AiJobContext(
+          episodeId: 'other-ep',
+          projectId: 'series-1',
+          blockId: 'job-block',
+        ),
+      );
+      controller().setCommandError(
+        const ProblemError(code: 'ai_import.episode_number_other_block'),
+      );
+      controller().adoptCreatedEpisode(
+        'ep:294',
+        episodeId: 'ep-294',
+        number: 294,
+        projectId: 'series-1',
+      );
+
+      // Last unresolved group adopted → no group can still carry the
+      // conflict (every resolved episode lives in the job's block).
+      controller().adoptCreatedEpisode(
+        'ep:5',
+        episodeId: 'ep-5',
+        number: 5,
+        projectId: 'series-1',
+      );
+
+      final state = container.read(aiApplyControllerProvider('job-1'));
+      expect(state.commandError, isNull);
+    });
+
+    test('adoptCreatedEpisode keeps UNRELATED errors (apply gates, 403s)', () {
+      controller().seedRows(
+        [
+          PreviewRow(
+            draftRef: 'd1',
+            label: 'A',
+            episode: _episodeMeta(294, 'Freundschaft'),
+          ),
+        ],
+        const AiJobContext(
+          episodeId: 'other-ep',
+          projectId: 'series-1',
+          blockId: 'job-block',
+        ),
+      );
+      controller().setCommandError(
+        const ProblemError(code: 'ai-import.forbidden'),
+      );
+
+      controller().adoptCreatedEpisode(
+        'ep:294',
+        episodeId: 'ep-294',
+        number: 294,
+        projectId: 'series-1',
+      );
+
+      final state = container.read(aiApplyControllerProvider('job-1'));
+      expect(state.commandError?.code, 'ai-import.forbidden');
+    });
+
     test('resolveGroupDefaults does NOT adopt a same-number episode from '
         'a DIFFERENT block (the apply IDOR guard would 403 forever)', () {
       controller().seedRows([

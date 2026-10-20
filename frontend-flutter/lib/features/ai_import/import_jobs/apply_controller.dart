@@ -639,6 +639,26 @@ class AiApplyController extends _$AiApplyController {
     final hasUngroupedRows = state.rows.any(
       (row) => row.episode == null || draftEpisodeGroupRef(row.episode!) == null,
     );
+    // CodeRabbit review: a stale RESOLUTION error must not outlive the fix
+    // it describes — the reviewer just resolved a group through "Ziel
+    // ändern", yet the card would keep saying the creation failed next to an
+    // enabled apply button. The transient `episode_create_failed` copy is
+    // disproven by ANY successful adoption (a retry re-sets it on the next
+    // failure). The cross-block refusal carries no per-group attribution, so
+    // it is cleared only when this adoption resolves the LAST unresolved
+    // group — every resolved group's episode lives in the job's block, so no
+    // group can still carry that conflict. Every other error stays.
+    final error = state.commandError;
+    final allGroupsResolved = state.groupRefs.isNotEmpty
+        ? state.groupRefs.every(
+            (ref) => nextTargets[ref] is ExistingEpisodeGroupTarget,
+          )
+        : false;
+    final keepError =
+        error == null ||
+        (error.code != 'ai_import.episode_create_failed' &&
+            (error.code != 'ai_import.episode_number_other_block' ||
+                !allGroupsResolved));
     state = AiApplyState(
       rows: state.rows,
       context: hasUngroupedRows
@@ -649,7 +669,7 @@ class AiApplyController extends _$AiApplyController {
               blockId: state.context?.blockId ?? '',
             ),
       outcome: state.outcome,
-      commandError: state.commandError,
+      commandError: keepError ? error : null,
       groupTargets: nextTargets,
       blockingUncertainties: state.blockingUncertainties,
       acknowledgedKeys: state.acknowledgedKeys,
