@@ -4881,7 +4881,10 @@ pub async fn dispo_report_pdf<P: Ports>(
             timezone: "Europe/Berlin".into(),
             template_version: TEMPLATE_VERSION.to_string(),
         },
-        data: serde_json::to_value(rows).map_err(|e| {
+        // Template contract: `dispo.typ` reads `data.rows` — the payload must
+        // be the `{ rows: [...] }` envelope, not a bare JSON array (a bare
+        // array fails Typst compilation and surfaced as HTTP 500).
+        data: serde_json::to_value(serde_json::json!({ "rows": rows })).map_err(|e| {
             tracing::error!(error = %e, "report serialization failed");
             ApiError::Internal
         })?,
@@ -4963,7 +4966,10 @@ pub async fn shoot_day_report_pdf<P: Ports>(
             timezone: "Europe/Berlin".into(),
             template_version: TEMPLATE_VERSION.to_string(),
         },
-        data: serde_json::to_value(rows).map_err(|e| {
+        // Template contract: `shoot-day.typ` reads `data.rows` — the payload
+        // must be the `{ rows: [...] }` envelope, not a bare JSON array (a
+        // bare array fails Typst compilation and surfaced as HTTP 500).
+        data: serde_json::to_value(serde_json::json!({ "rows": rows })).map_err(|e| {
             tracing::error!(error = %e, "report serialization failed");
             ApiError::Internal
         })?,

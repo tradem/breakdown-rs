@@ -2032,6 +2032,18 @@ abstract class AppLocalizations {
   /// **'Diese Episoden-Nummer ist in der Staffel bereits vergeben.'**
   String get aiApplyErrorEpisodeNumberTaken;
 
+  /// No description provided for @aiApplyErrorEpisodeNumberOtherBlock.
+  ///
+  /// In de, this message translates to:
+  /// **'Diese Episodennummer ist bereits einem anderen Block zugeordnet. Wechsle den Block und lade das Dokument dort erneut hoch.'**
+  String get aiApplyErrorEpisodeNumberOtherBlock;
+
+  /// No description provided for @aiApplyErrorEpisodeCreateFailed.
+  ///
+  /// In de, this message translates to:
+  /// **'Die Episode konnte nicht automatisch erstellt werden. Bitte prüfe deine Verbindung und versuche es über „Ziel ändern“ erneut.'**
+  String get aiApplyErrorEpisodeCreateFailed;
+
   /// No description provided for @aiApplyOutcome.
   ///
   /// In de, this message translates to:

@@ -37,6 +37,14 @@ class EpisodeRepository extends BaseRepository {
     () => api.getHandlersApi().createEpisode(createEpisodeRequest: request),
   );
 
+  /// Single-block read (`GET /v1/blocks/{id}`) — Result-returning seam for
+  /// callers outside the block screens (the AI-import episode creation):
+  /// failures are values, never thrown DioExceptions (CodeRabbit review —
+  /// the apply path must not leak transport exceptions through
+  /// `showGroupTargetSheet`).
+  Future<Result<BlockView>> blockById(String id) =>
+      run(() => api.getHandlersApi().getBlock(id: id));
+
   /// Block-scoped fetch + snapshot-replace via the server-side filter
   /// (`GET /v1/episodes?block_id=…`).
   ///

@@ -1276,9 +1276,26 @@ pub fn extract_scenes(document: &str) -> Vec<SceneChunk> {
     // so far (page headers repeat it, which is harmless — same value). A chunk
     // stamps the episode that was in effect at its heading line (issue #581).
     let mut current_episode: Option<DraftEpisode> = None;
+    // Episode titles from the title page (`(294) "Freundschaft"`): the `Ep.:`
+    // page-header markers carry a bare number, but the reviewer expects the
+    // episode HEADING to flow into the created episode. Collected in a FIRST
+    // pass over the whole document — the title page can sit AFTER the first
+    // `Ep.:` marker (the page header on page 1 precedes the title block), so
+    // an inline single-pass scan would miss it.
+    let mut episode_titles: std::collections::HashMap<i32, String> =
+        std::collections::HashMap::new();
+    for line in document.lines() {
+        if let Some((number, title)) = title_page_entry(line.trim()) {
+            episode_titles.entry(number).or_insert(title);
+        }
+    }
     for line in document.lines() {
         let trimmed = line.trim();
         if let Some(episode) = episode_marker(trimmed) {
+            let mut episode = episode;
+            if episode.title.is_none() {
+                episode.title = episode.number.and_then(|n| episode_titles.get(&n)).cloned();
+            }
             current_episode = Some(episode);
         }
         if is_scene_heading(trimmed) {
@@ -1300,7 +1317,135 @@ pub fn extract_scenes(document: &str) -> Vec<SceneChunk> {
     for chunk in &mut chunks {
         chunk.text = chunk.text.trim().to_owned();
     }
-    chunks
+    merge_duplicate_scene_numbers(chunks)
+}
+
+/// Merge chunks that carry the SAME document scene number (SCRIPT REPORT
+/// format, found via the 294.pdf user import): these documents open with a
+/// scene INDEX (every scene listed as `1    A/T - ORT` + `Tag 1`) BEFORE the
+/// scene bodies, so the deterministic splitter creates one stub per index
+/// entry PLUS one real chunk per body heading — the preview doubled every
+/// scene. With the number now parsed from both occurrences (`pdftotext
+/// -layout` keeps the number column on the heading line), a repeated number
+/// is the same scene: merge into the FIRST occurrence (index order = number
+/// order). Scenes without a document number (headings like `INT. ROOM - DAY`)
+/// are never merged.
+///
+/// The merge key is **(document scene label, episode group key)**:
+///
+/// - The LABEL is the full leading scene identity — digits plus any
+///   alphanumeric suffix up to the first whitespace (`12`, `12A`). Scripts
+///   commonly use letter suffixes for inserted scenes; `12 I/T - KÜCHE` and
+///   `12A I/T - FLUR` are DISTINCT scenes even though both carry the numeric
+///   part 12 (CodeRabbit review: before this, the suffix chunk was folded
+///   into the plain-number chunk and lost its preview row). Unnumbered
+///   chunks (headings like `INT. ROOM - DAY`) are never merged.
+/// - The EPISODE part is [`DraftEpisode::group_key`] — two episodes can both
+///   contain a scene `1`, and merging across episodes would fold two
+///   distinct scenes into one (CodeRabbit review: the second scene would
+///   lose its model request and preview row). The group key also keeps
+///   title-only markers (`Ep (Der Unfall)`) distinct from each other AND
+///   from episode-less chunks, matching the doc contract.
+///
+/// When merging, the LONGER occurrence's body wins, but lines that appear
+/// ONLY in the shorter one are preserved (the index entry may carry
+/// metadata — e.g. its `Tag 3` day column — that the body occurrence lacks;
+/// the model reads the merged text and would otherwise never see it).
+fn merge_duplicate_scene_numbers(chunks: Vec<SceneChunk>) -> Vec<SceneChunk> {
+    let mut merged: Vec<SceneChunk> = Vec::with_capacity(chunks.len());
+    // Key → index into `merged` (CodeRabbit review: the chunk-count limit is
+    // checked only AFTER this merge, and the extractor accepts up to 20 MiB
+    // of text — a crafted document with many distinct numbered headings must
+    // not make this pre-validation pass quadratic).
+    let mut indices: std::collections::HashMap<(Option<String>, Option<String>), usize> =
+        std::collections::HashMap::new();
+    for chunk in chunks {
+        // Full document label ("12", "12A"): a suffix is a distinct scene.
+        // `scene_number` (the numeric part) stays the display/backfill field.
+        let label = leading_scene_label(&chunk.heading);
+        let key = (
+            label,
+            chunk.episode.as_ref().and_then(DraftEpisode::group_key),
+        );
+        let existing = match &key {
+            // Overflowing digit runs never parsed as a scene number and never
+            // merged — keep that contract (`scene_number` is the parse gate).
+            (Some(_), _) if chunk.scene_number.is_some() => {
+                indices.get(&key).copied().map(|i| &mut merged[i])
+            }
+            _ => None,
+        };
+        match existing {
+            Some(existing) => {
+                let (longer, shorter) = if chunk.text.len() >= existing.text.len() {
+                    (chunk.text.clone(), existing.text.clone())
+                } else {
+                    (existing.text.clone(), chunk.text.clone())
+                };
+                let longer_lines: std::collections::HashSet<&str> = longer.lines().collect();
+                let mut union: Vec<&str> = longer.lines().collect();
+                for line in shorter.lines() {
+                    if !longer_lines.contains(&line) {
+                        union.push(line);
+                    }
+                }
+                existing.text = union.join("\n");
+                if existing.episode.is_none() {
+                    existing.episode = chunk.episode;
+                }
+            }
+            None => {
+                // Only labeled chunks are indexed — unnumbered chunks never
+                // merge, so they need no lookup entry.
+                if key.0.is_some() {
+                    indices.insert(key, merged.len());
+                }
+                merged.push(chunk);
+            }
+        }
+    }
+    for (index, chunk) in merged.iter_mut().enumerate() {
+        chunk.index = index;
+    }
+    merged
+}
+
+/// A title-page episode entry: `(` + 1-4 digits + `)` + a quoted title —
+/// the ARD/telenovela title-page convention (`(294) "Freundschaft"`, also
+/// German low-9 quotes). The 1-4 digit cap mirrors [`episode_marker`]'s
+/// number bound; the quote pair is required so a prose parenthesis ("(vgl.
+/// 294)") never becomes an episode title.
+fn title_page_entry(line: &str) -> Option<(i32, String)> {
+    let open = line.find('(')?;
+    let after_open = &line[open + 1..];
+    let digits: String = after_open
+        .chars()
+        .take_while(|c| c.is_ascii_digit())
+        .collect();
+    if digits.is_empty() || digits.len() > 4 {
+        return None;
+    }
+    let rest = &after_open[digits.len()..];
+    let rest = rest.strip_prefix(")")?;
+    let rest = rest.trim_start();
+    for (open_q, close_q) in [
+        ('"', '"'),
+        ('\u{201E}', '\u{201C}'), // „ … “
+        ('\u{201C}', '\u{201D}'), // “ … ”
+        ('\'', '\''),
+    ] {
+        if let Some(title) = rest
+            .strip_prefix(open_q)
+            .and_then(|t| t.find(close_q).map(|end| (t, end)))
+        {
+            let (title, end) = title;
+            let title = title[..end].trim();
+            if !title.is_empty() {
+                return Some((digits.parse().ok()?, title.to_owned()));
+            }
+        }
+    }
+    None
 }
 
 /// Word→PDF text extraction substitutes invisible look-alikes for the plain
@@ -1348,13 +1493,70 @@ const GERMAN_HEADING_PREFIXES: [&str; 4] = ["INNENAUFNAHME", "AUSSENAUFNAHME", "
 /// `stable_draft_ref` ordinal.
 const GERMAN_SPACE_HEADING_PREFIXES: [&str; 2] = ["INNEN ", "AUSSEN "];
 
+/// Strip a leading scene label from a heading line — the digits/`.`/`-`/
+/// space run the old detector consumed, PLUS an optional SHORT alphanumeric
+/// suffix glued to the digits (`12A`, `12b`). Scripts use letter suffixes
+/// for inserted scenes; without suffix handling `12A I/T - FLUR` was never
+/// detected as a heading at all and its body glued onto scene `12`'s chunk
+/// (CodeRabbit review). The suffix run is capped at 2 characters and must
+/// be followed by a separator, so a prose first word ("3 Akte später …")
+/// is never consumed and the line stays a non-heading.
+fn strip_leading_scene_label(s: &str) -> &str {
+    let after_suffix = scene_label_end(s).unwrap_or(0);
+    let bytes = s.as_bytes();
+    // The remaining mixed digit/`.`/`-`/space run (the old detector's
+    // `trim_start_matches`, e.g. `1. INT.` or `12 - I/T`).
+    let mut k = after_suffix;
+    while k < bytes.len()
+        && (bytes[k].is_ascii_digit() || bytes[k] == b'.' || bytes[k] == b'-' || bytes[k] == b' ')
+    {
+        k += 1;
+    }
+    &s[k..]
+}
+
+/// End byte of the leading scene label — the SINGLE source of truth for the
+/// label boundary, shared by [`strip_leading_scene_label`] (heading
+/// detection) and [`leading_scene_label`] (the merge key) so the two can
+/// never disagree on where the number ends and the heading token begins
+/// (CodeRabbit review).
+///
+/// The label is the leading digit run plus an OPTIONAL glued suffix of at
+/// most 2 ASCII alphanumerics (`12A`, `12b`). The suffix counts only when a
+/// separator follows — ` `/`.`/`-` or end of line. `/` is deliberately NOT
+/// a suffix separator: the German short-form heading glues its interior /
+/// exterior token to the number (`12I/T - KÜCHE`), and accepting `/` would
+/// read the `I` as a scene suffix and mangle the line into "/T - KÜCHE",
+/// which no longer matches the German heading rule (a regression against
+/// the digits-only detector). A prose first word ("3 Akte später …") is
+/// never consumed — without a separator after the ≤2-char run the suffix
+/// is rejected and the label ends at the digits.
+/// `None` when the line has no leading digit.
+fn scene_label_end(s: &str) -> Option<usize> {
+    let bytes = s.as_bytes();
+    let digits_end = bytes.iter().take_while(|b| b.is_ascii_digit()).count();
+    if digits_end == 0 {
+        return None;
+    }
+    let suffix_end = digits_end
+        + bytes[digits_end..]
+            .iter()
+            .take(2)
+            .take_while(|b| b.is_ascii_alphanumeric())
+            .count();
+    let separated = suffix_end == bytes.len() || matches!(bytes[suffix_end], b' ' | b'.' | b'-');
+    Some(if suffix_end > digits_end && separated {
+        suffix_end
+    } else {
+        digits_end
+    })
+}
+
 fn is_scene_heading(line: &str) -> bool {
     // Word→PDF export artifacts are normalized INSIDE the detector so every
     // caller (chunk splitting and direct tests alike) gets the robust
     // behavior; the stored heading stays verbatim (see `extract_scenes`).
-    let trimmed = normalize_for_heading_detection(line)
-        .trim_start_matches(|c: char| c.is_ascii_digit() || c == '.' || c == '-' || c == ' ')
-        .to_owned();
+    let trimmed = strip_leading_scene_label(&normalize_for_heading_detection(line)).to_owned();
     let normalized = trimmed.to_ascii_uppercase();
     ENGLISH_HEADING_PREFIXES
         .iter()
@@ -1436,6 +1638,19 @@ fn leading_scene_number(line: &str) -> Option<u32> {
     } else {
         digits.parse().ok()
     }
+}
+
+/// The full leading scene label of a heading: the leading digits PLUS any
+/// glued alphanumeric suffix accepted by [`scene_label_end`] — `12`, `12A`,
+/// `12b`. A letter suffix marks an inserted scene, a scene of its own: the
+/// merge key must not fold `12A` into `12` (CodeRabbit review). Detection
+/// runs on the normalized copy (invisible Word→PDF look-alikes folded to
+/// ASCII) and shares the exact boundary rule with the heading detector, so
+/// the merge key can never disagree with chunk splitting. Returns `None`
+/// for headings without a leading digit.
+fn leading_scene_label(line: &str) -> Option<String> {
+    let normalized = normalize_for_heading_detection(line);
+    scene_label_end(&normalized).map(|end| normalized[..end].to_owned())
 }
 
 /// Join schedule rows with applied scenes by scene number. Both inputs are

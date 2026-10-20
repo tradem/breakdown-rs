@@ -1230,6 +1230,14 @@ class AppLocalizationsEn extends AppLocalizations {
       'This episode number is already taken in the series.';
 
   @override
+  String get aiApplyErrorEpisodeNumberOtherBlock =>
+      'This episode number already belongs to a different block. Switch the block and re-upload the document there.';
+
+  @override
+  String get aiApplyErrorEpisodeCreateFailed =>
+      'The episode could not be created automatically. Check your connection and try again via “Change target”.';
+
+  @override
   String aiApplyOutcome(Object applied, Object days, Object shoots) {
     return 'Applied $applied draft(s): $days shooting day(s) created, $shoots scene shoot(s) planned.';
   }

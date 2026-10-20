@@ -23,7 +23,9 @@ CQRS / event-sourced Rust backend.
 See the monorepo root [README](../README.md) for the backend dev runtime
 (Postgres + SierraDB + API on `:3000`, optional Logto IdP overlay), and
 [`AGENTS.md`](AGENTS.md) for the app's architecture and coding
-conventions.
+conventions. Local tooling failure modes (Flutter SDK unionfs mount,
+native-assets cache, LSP startup) are collected in the
+[Development Troubleshooting](docs/development-troubleshooting.md) guide.
 
 ```bash
 flutter run --flavor dev --dart-define=API_BASE=http://10.0.2.2:3000

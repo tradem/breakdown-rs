@@ -613,6 +613,36 @@ impl LlmClient for FakeLlmClientWithoutSceneNumber {
     }
 }
 
+/// The model carries an episode WITH a title; the document's `Ep.:` marker
+/// (titleless page header) is the deterministic number authority.
+#[derive(Clone, Default)]
+struct FakeLlmClientWithEpisodeTitle;
+
+#[async_trait]
+impl LlmClient for FakeLlmClientWithEpisodeTitle {
+    async fn chat_constrained(
+        &self,
+        _request: LlmChatRequest,
+    ) -> Result<LlmCallOutcome<ScriptContext>, DomainError> {
+        tokio::time::sleep(std::time::Duration::from_millis(2)).await;
+        Ok(LlmCallOutcome::new(
+            ScriptContext {
+                title: Some("fixture".to_owned()),
+                scenes: vec![DraftScene {
+                    draft_ref: "fixture-scene".to_owned(),
+                    episode: Some(DraftEpisode {
+                        number: Some(5),
+                        title: Some("Der Unfall".to_owned()),
+                    }),
+                    ..Default::default()
+                }],
+                uncertainties: Vec::new(),
+            },
+            LlmCallUsage::default(),
+        ))
+    }
+}
+
 fn script_job(id: AiImportJobId) -> AiImportJob {
     AiImportJob {
         id,
@@ -953,6 +983,47 @@ async fn script_worker_backfills_scene_number_from_chunk_heading() {
     assert_eq!(preview.scenes[1].scene_number, Some(14));
     let state = queue.state.lock().unwrap();
     assert_eq!(state.succeeded, vec![job.id]);
+}
+
+#[tokio::test]
+async fn script_worker_preserves_model_title_when_scan_has_none() {
+    // CodeRabbit review: the scan's bare page-header marker (`Ep.: 5`, no
+    // title) is authoritative for the NUMBER — but it must not erase the
+    // model's extracted episode TITLE. The preview row keeps `{5,
+    // "Der Unfall"}` when the title-page scan found no quoted title.
+    let queue = Arc::new(FakeQueue::default());
+    let previews = Arc::new(MemoryAiPreviewStore::default());
+    let worker = ScriptImportWorker {
+        queue: Arc::clone(&queue),
+        client: Arc::new(FakeLlmClientWithEpisodeTitle),
+        previews: previews.clone() as Arc<dyn AiPreviewStore>,
+        extractor: super::PdfTextExtractor::new(1024 * 1024, std::time::Duration::from_secs(30)),
+        provider: LlmProvider::Neuralwatt,
+        model: "deepseek-v4-flash".to_owned(),
+        prompt: "fixture prompt".to_owned(),
+        bounds: AiImportBounds {
+            max_chunks_per_script: 4,
+            ..AiImportBounds::default()
+        },
+        pricing: None,
+    };
+    let job = script_job(AiImportJobId::new());
+    let handle = worker
+        .process_text(&job, "test-worker", "Ep.: 5\n1 I/T - ORT\nA")
+        .await
+        .unwrap();
+    let payload = previews.get(&handle).await.unwrap().unwrap();
+    let preview: ScriptContext = serde_json::from_slice(&payload).unwrap();
+    let episode = preview.scenes[0]
+        .episode
+        .as_ref()
+        .expect("episode metadata stamped");
+    assert_eq!(episode.number, Some(5), "scan number stays authoritative");
+    assert_eq!(
+        episode.title.as_deref(),
+        Some("Der Unfall"),
+        "the model title survives when the scan carries none"
+    );
 }
 
 #[tokio::test]

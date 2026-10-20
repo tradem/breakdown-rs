@@ -1687,3 +1687,235 @@ fn meta_summary_guard_boundary_still_matches_the_observed_variants() {
         );
     }
 }
+
+// ===========================================================================
+// SCRIPT REPORT format (found via the 294.pdf user import): the document
+// opens with a scene INDEX (every scene listed as `1    A/T - ORT` + `Tag 1`,
+// per shooting day) BEFORE the scene bodies. With `pdftotext -layout` the
+// number column stays on the heading line, so index stub and body heading
+// carry the SAME scene number and must merge into one preview row — the
+// index doubling every scene (94 rows / 34 unique) was the "always ?" bug.
+// ===========================================================================
+
+#[test]
+fn extract_scenes_merges_index_and_body_occurrences_by_number() {
+    let document = "\
+PERSONEN
+
+1    A/T - BAUERNHOF
+     Tag 1
+2    I/T - KLINIKUM
+     Tag 1
+
+1   A/T - BAUERNHOF
+    Tag 1
+    LEYLA
+    Jannis? Jannis!
+    Sie wuehlt im Heu.
+
+2   I/T - KLINIKUM
+    Tag 1
+    MATTEO
+    Da ist er ja.
+";
+    let chunks = extract_scenes(document);
+    assert_eq!(
+        chunks.len(),
+        2,
+        "index stub + body heading with the same number merge into ONE chunk"
+    );
+    assert_eq!(chunks[0].scene_number, Some(1));
+    assert_eq!(chunks[1].scene_number, Some(2));
+    // The body occurrence carries the dialogue; the stub only the day column.
+    assert!(
+        chunks[0].text.contains("Jannis? Jannis!"),
+        "merged chunk keeps the longer body text, got: {:?}",
+        chunks[0].text
+    );
+    assert!(chunks[0].text.contains("Tag 1"), "index day column is kept");
+}
+
+#[test]
+fn extract_scenes_does_not_merge_unnumbered_headings() {
+    // Headings without a document number are distinct scenes even when their
+    // text is identical — only a PARSED number deduplicates.
+    let document = "INT. ROOM - DAY\nAlice enters.\n\nINT. ROOM - DAY\nBob leaves.";
+    let chunks = extract_scenes(document);
+    assert_eq!(chunks.len(), 2);
+}
+
+#[test]
+fn extract_scenes_backfills_episode_title_from_title_page() {
+    // The `Ep.:` page-header markers carry a bare number; the title sits on
+    // the title page as `(294) "Freundschaft"`. The preview row must carry
+    // the heading so apply names the created episode after it.
+    let document = "\
+(294) \"Freundschaft\"
+
+Regie: Dieter Laske
+
+Block: 098/Ep.: 294
+
+1   A/T - BAUERNHOF
+    LEYLA
+    Jannis?
+";
+    let chunks = extract_scenes(document);
+    assert_eq!(chunks.len(), 1);
+    let episode = chunks[0].episode.as_ref().expect("marker stamped");
+    assert_eq!(episode.number, Some(294));
+    assert_eq!(
+        episode.title.as_deref(),
+        Some("Freundschaft"),
+        "title-page heading must fill the marker's missing title"
+    );
+}
+
+#[test]
+fn title_page_entry_rejects_prose_parentheses() {
+    assert_eq!(title_page_entry("(vgl. 294)"), None);
+    assert_eq!(title_page_entry("Szene (12) fehlt"), None);
+    assert_eq!(title_page_entry("(294) ohne Anfuehrungszeichen"), None);
+    assert_eq!(
+        title_page_entry("(294) \"Freundschaft\""),
+        Some((294, "Freundschaft".to_owned()))
+    );
+    assert_eq!(
+        title_page_entry("(12) \u{201E}Titel\u{201C}"),
+        Some((12, "Titel".to_owned()))
+    );
+}
+
+#[test]
+fn extract_scenes_does_not_merge_across_episodes() {
+    // CodeRabbit review: two episodes can both contain a scene `1` — the
+    // merge key is (document number, EPISODE number), so episode A's scene 1
+    // and episode B's scene 1 stay two separate scenes.
+    let document = "\
+Ep.: 1 (A)
+1   I/T - ORT A
+    Text episode one.
+
+Ep.: 2 (B)
+1   I/T - ORT B
+    Text episode two.
+";
+    let chunks = extract_scenes(document);
+    assert_eq!(
+        chunks.len(),
+        2,
+        "same number in different episodes never merges"
+    );
+    assert_eq!(chunks[0].scene_number, Some(1));
+    assert!(
+        chunks[0].text.contains("episode one"),
+        "got: {:?}",
+        chunks[0].text
+    );
+    assert_eq!(chunks[1].scene_number, Some(1));
+    assert!(
+        chunks[1].text.contains("episode two"),
+        "got: {:?}",
+        chunks[1].text
+    );
+}
+
+#[test]
+fn extract_scenes_does_not_merge_suffixed_scene_labels() {
+    // CodeRabbit review: `leading_scene_number` reads only the leading
+    // digits, so `12` and `12A` shared `scene_number == Some(12)` and the
+    // merge folded the inserted scene `12A` into scene `12` — the suffix
+    // scene lost its preview row. The merge key is the FULL label now.
+    let document = "\
+12  I/T - KÜCHE
+    Koch schneidet Zwiebeln.
+
+12A I/T - FLUR
+    Boten laufen vorbei.
+";
+    let chunks = extract_scenes(document);
+    assert_eq!(chunks.len(), 2, "`12` and `12A` are distinct scenes");
+    assert_eq!(chunks[0].scene_number, Some(12));
+    assert!(
+        chunks[0].text.contains("Zwiebeln"),
+        "got: {:?}",
+        chunks[0].text
+    );
+    assert_eq!(chunks[1].scene_number, Some(12));
+    assert!(
+        chunks[1].text.contains("Boten laufen vorbei"),
+        "suffix scene keeps its own body, got: {:?}",
+        chunks[1].text
+    );
+}
+
+#[test]
+fn extract_scenes_glued_german_token_is_not_a_scene_suffix() {
+    // CodeRabbit review round 3: `/` must not be a suffix separator — the
+    // German short form glues its interior/exterior token to the number
+    // (`12I/T - KÜCHE`). Reading the `I` as a scene suffix would mangle the
+    // line into "/T - KÜCHE" and the scene would lose its chunk boundary.
+    let document = "\
+12I/T - KÜCHE
+    Koch schneidet Zwiebeln.
+";
+    let chunks = extract_scenes(document);
+    assert_eq!(chunks.len(), 1, "`12I/T` is scene 12 with a german token");
+    assert_eq!(chunks[0].scene_number, Some(12));
+    assert!(
+        chunks[0].text.contains("Zwiebeln"),
+        "heading body captured, got: {:?}",
+        chunks[0].text
+    );
+}
+
+#[test]
+fn extract_scenes_does_not_merge_across_title_only_episodes() {
+    // CodeRabbit review: the merge key used only `episode.number`, so two
+    // TITLE-ONLY markers (`Ep (A)` / `Ep (B)` — number `None`) shared the
+    // `None` episode key and scene `1` of both merged. The key is the
+    // `DraftEpisode::group_key` now: a title-only episode is its own
+    // identity, and an episode-less chunk merges only with another
+    // episode-less chunk.
+    let document = "\
+Ep (A)
+1   I/T - ORT A
+    Text episode one.
+
+Ep (B)
+1   I/T - ORT B
+    Text episode two.
+";
+    let chunks = extract_scenes(document);
+    assert_eq!(
+        chunks.len(),
+        2,
+        "same number under two title-only episodes never merges"
+    );
+    assert!(chunks[0].text.contains("episode one"));
+    assert!(chunks[1].text.contains("episode two"));
+}
+
+#[test]
+fn extract_scenes_merge_preserves_index_only_metadata() {
+    // CodeRabbit review: the index entry may carry metadata (its `Tag 3`
+    // day column) that the body occurrence lacks — the union keeps it so
+    // the model can still extract the script day.
+    let document = "\
+3    I/T - KLINIKUM
+     Tag 3
+
+3   I/T - KLINIKUM
+    LEYLA
+    Nur Dialogue, kein Tag im Koerper.
+";
+    let chunks = extract_scenes(document);
+    assert_eq!(chunks.len(), 1);
+    assert!(
+        chunks[0].text.contains("Tag 3"),
+        "index-only metadata must survive the merge, got: {:?}",
+        chunks[0].text
+    );
+    assert!(chunks[0].text.contains("Nur Dialogue"));
+}
+// temp debug

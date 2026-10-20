@@ -465,11 +465,29 @@ where
                         }
 
                         // Episode metadata: the deterministic `Ep.:` scan of the
-                        // document is authoritative; the LLM's `episode` field
-                        // (issue #581 prompt rule) only fills in when the scan
-                        // found no marker for this chunk (foreign notation).
-                        if scene.episode.is_none() {
-                            scene.episode = chunk.episode.clone();
+                        // document is authoritative — INCLUDING the title-page
+                        // title enrichment (the scan carries the `(294)
+                        // "Freundschaft"` heading the bare page-header markers
+                        // never had); the LLM's `episode` field (issue #581
+                        // prompt rule) only fills in when the scan found no
+                        // marker for this chunk (foreign notation). The old
+                        // model-wins rule let the model's titleless
+                        // `{number: 294}` overwrite the scan's enriched value.
+                        // Symmetrically (CodeRabbit review): a model TITLE
+                        // survives when the scan carries none and the numbers
+                        // agree — the bare page-header marker must not erase
+                        // the model's extracted episode heading.
+                        if chunk.episode.is_some() {
+                            let mut effective = chunk.episode.clone().unwrap_or_default();
+                            let model_title = scene
+                                .episode
+                                .as_ref()
+                                .filter(|model| model.number == effective.number)
+                                .and_then(|model| model.title.clone());
+                            if effective.title.is_none() {
+                                effective.title = model_title;
+                            }
+                            scene.episode = Some(effective);
                         }
                         // Issue #668: deterministic post-extraction guard —
                         // the prompt bans meta-summaries, but a prompt is an

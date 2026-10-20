@@ -295,7 +295,7 @@ final class AiJobContextProvider
   }
 }
 
-String _$aiJobContextHash() => r'5f5ec44579373bd279d0575391a21ff697d8909e';
+String _$aiJobContextHash() => r'3a778b76df48fd604dd6a3076e4e429aef4fb2c3';
 
 /// The persisted apply context of a cached job row (design §2.3): the
 /// apply navigation reads the episode/series from HERE, never from the
@@ -323,4 +323,119 @@ final class AiJobContextFamily extends $Family
 
   @override
   String toString() => r'aiJobContextProvider';
+}
+
+/// The job's block anchor for the in-preview episode creation: blockId from
+/// the cached row (independent of the episode context — a job uploaded
+/// without an episode pick still has a block, and the 294.pdf flow showed
+/// the creation must not depend on a remembered context) plus the row's
+/// remembered projectId (may be empty — the caller falls back to
+/// `GET /v1/blocks/{id}`). `null` when the row is unknown/offline.
+
+@ProviderFor(aiJobBlockInfo)
+final aiJobBlockInfoProvider = AiJobBlockInfoFamily._();
+
+/// The job's block anchor for the in-preview episode creation: blockId from
+/// the cached row (independent of the episode context — a job uploaded
+/// without an episode pick still has a block, and the 294.pdf flow showed
+/// the creation must not depend on a remembered context) plus the row's
+/// remembered projectId (may be empty — the caller falls back to
+/// `GET /v1/blocks/{id}`). `null` when the row is unknown/offline.
+
+final class AiJobBlockInfoProvider
+    extends
+        $FunctionalProvider<
+          AsyncValue<({String blockId, String projectId})?>,
+          ({String blockId, String projectId})?,
+          FutureOr<({String blockId, String projectId})?>
+        >
+    with
+        $FutureModifier<({String blockId, String projectId})?>,
+        $FutureProvider<({String blockId, String projectId})?> {
+  /// The job's block anchor for the in-preview episode creation: blockId from
+  /// the cached row (independent of the episode context — a job uploaded
+  /// without an episode pick still has a block, and the 294.pdf flow showed
+  /// the creation must not depend on a remembered context) plus the row's
+  /// remembered projectId (may be empty — the caller falls back to
+  /// `GET /v1/blocks/{id}`). `null` when the row is unknown/offline.
+  AiJobBlockInfoProvider._({
+    required AiJobBlockInfoFamily super.from,
+    required String super.argument,
+  }) : super(
+         retry: null,
+         name: r'aiJobBlockInfoProvider',
+         isAutoDispose: true,
+         dependencies: null,
+         $allTransitiveDependencies: null,
+       );
+
+  @override
+  String debugGetCreateSourceHash() => _$aiJobBlockInfoHash();
+
+  @override
+  String toString() {
+    return r'aiJobBlockInfoProvider'
+        ''
+        '($argument)';
+  }
+
+  @$internal
+  @override
+  $FutureProviderElement<({String blockId, String projectId})?> $createElement(
+    $ProviderPointer pointer,
+  ) => $FutureProviderElement(pointer);
+
+  @override
+  FutureOr<({String blockId, String projectId})?> create(Ref ref) {
+    final argument = this.argument as String;
+    return aiJobBlockInfo(ref, argument);
+  }
+
+  @override
+  bool operator ==(Object other) {
+    return other is AiJobBlockInfoProvider && other.argument == argument;
+  }
+
+  @override
+  int get hashCode {
+    return argument.hashCode;
+  }
+}
+
+String _$aiJobBlockInfoHash() => r'7aade1dfa490f1e39abe79a33f9783a3fd4666f4';
+
+/// The job's block anchor for the in-preview episode creation: blockId from
+/// the cached row (independent of the episode context — a job uploaded
+/// without an episode pick still has a block, and the 294.pdf flow showed
+/// the creation must not depend on a remembered context) plus the row's
+/// remembered projectId (may be empty — the caller falls back to
+/// `GET /v1/blocks/{id}`). `null` when the row is unknown/offline.
+
+final class AiJobBlockInfoFamily extends $Family
+    with
+        $FunctionalFamilyOverride<
+          FutureOr<({String blockId, String projectId})?>,
+          String
+        > {
+  AiJobBlockInfoFamily._()
+    : super(
+        retry: null,
+        name: r'aiJobBlockInfoProvider',
+        dependencies: null,
+        $allTransitiveDependencies: null,
+        isAutoDispose: true,
+      );
+
+  /// The job's block anchor for the in-preview episode creation: blockId from
+  /// the cached row (independent of the episode context — a job uploaded
+  /// without an episode pick still has a block, and the 294.pdf flow showed
+  /// the creation must not depend on a remembered context) plus the row's
+  /// remembered projectId (may be empty — the caller falls back to
+  /// `GET /v1/blocks/{id}`). `null` when the row is unknown/offline.
+
+  AiJobBlockInfoProvider call(String jobId) =>
+      AiJobBlockInfoProvider._(argument: jobId, from: this);
+
+  @override
+  String toString() => r'aiJobBlockInfoProvider';
 }

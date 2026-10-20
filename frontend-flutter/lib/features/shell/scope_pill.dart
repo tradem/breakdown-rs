@@ -21,7 +21,6 @@ import 'package:flutter/material.dart';
 class ScopePill extends StatelessWidget {
   const ScopePill({
     super.key,
-    required this.icon,
     required this.label,
     required this.selected,
     required this.selectedColor,
@@ -29,9 +28,6 @@ class ScopePill extends StatelessWidget {
     required this.tooltip,
     required this.onPressed,
   });
-
-  /// Level icon (glossary: icons reinforce the visible label only).
-  final IconData icon;
 
   /// Visible label naming the level and its state.
   final String label;
@@ -58,7 +54,6 @@ class ScopePill extends StatelessWidget {
         ? selectedForegroundColor
         : scheme.onSurfaceVariant;
     return ActionChip(
-      avatar: Icon(icon, size: 18, color: foreground),
       label: Text(label),
       tooltip: tooltip,
       onPressed: onPressed,
