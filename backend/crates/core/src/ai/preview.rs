@@ -1544,8 +1544,7 @@ fn scene_label_end(s: &str) -> Option<usize> {
             .take(2)
             .take_while(|b| b.is_ascii_alphanumeric())
             .count();
-    let separated =
-        suffix_end == bytes.len() || matches!(bytes[suffix_end], b' ' | b'.' | b'-');
+    let separated = suffix_end == bytes.len() || matches!(bytes[suffix_end], b' ' | b'.' | b'-');
     Some(if suffix_end > digits_end && separated {
         suffix_end
     } else {

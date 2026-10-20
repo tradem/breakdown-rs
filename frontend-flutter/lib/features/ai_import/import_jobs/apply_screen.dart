@@ -157,7 +157,9 @@ Future<void> showGroupTargetSheet(
       final blockInfo = await ref.read(aiJobBlockInfoProvider(jobId).future);
       if (!context.mounted) return;
       final jobBlock = blockInfo?.blockId;
-      if (jobBlock != null && jobBlock.isNotEmpty && picked.blockId != jobBlock) {
+      if (jobBlock != null &&
+          jobBlock.isNotEmpty &&
+          picked.blockId != jobBlock) {
         final current = ref.read(aiApplyControllerProvider(jobId));
         if (current.commandError == null) {
           controller.setCommandError(
@@ -202,7 +204,12 @@ Future<void> showGroupTargetSheet(
       // command error instead so the reviewer sees WHY apply stays disabled.
       bool resolved = false;
       try {
-        resolved = await ensureGroupEpisodeResolved(ref, jobId, groupRef, result);
+        resolved = await ensureGroupEpisodeResolved(
+          ref,
+          jobId,
+          groupRef,
+          result,
+        );
       } on Object {
         resolved = false;
       }

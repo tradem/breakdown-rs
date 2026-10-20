@@ -186,8 +186,9 @@ class _TypedPreviewBodyState extends ConsumerState<_TypedPreviewBody> {
             // block the filter accepts every same-number episode in the
             // project — exactly the cross-block adoption the 403 loop was
             // made of. The anchor also drives the in-preview creation.
-            final blockInfo = await ref
-                .read(aiJobBlockInfoProvider(widget.jobId).future);
+            final blockInfo = await ref.read(
+              aiJobBlockInfoProvider(widget.jobId).future,
+            );
             if (!mounted) return;
             if (blockInfo == null) return;
             final episodes = await ref

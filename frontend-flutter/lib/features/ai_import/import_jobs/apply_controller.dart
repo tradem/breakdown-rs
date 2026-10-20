@@ -590,7 +590,8 @@ class AiApplyController extends _$AiApplyController {
     // first matched job-block episode; mixed imports keep the remembered
     // context (ungrouped rows apply to it) — adoptCreatedEpisode's rule.
     final hasUngroupedRows = state.rows.any(
-      (row) => row.episode == null || draftEpisodeGroupRef(row.episode!) == null,
+      (row) =>
+          row.episode == null || draftEpisodeGroupRef(row.episode!) == null,
     );
     final adopted = firstAdopted;
     state = AiApplyState(
@@ -637,7 +638,8 @@ class AiApplyController extends _$AiApplyController {
     // remembered context stays authoritative for ungrouped rows; the apply
     // path validates it against the job's block.
     final hasUngroupedRows = state.rows.any(
-      (row) => row.episode == null || draftEpisodeGroupRef(row.episode!) == null,
+      (row) =>
+          row.episode == null || draftEpisodeGroupRef(row.episode!) == null,
     );
     // CodeRabbit review: a stale RESOLUTION error must not outlive the fix
     // it describes — the reviewer just resolved a group through "Ziel
@@ -910,8 +912,7 @@ String aiApplyErrorCopy(AppLocalizations l10n, ProblemError error) =>
         l10n.aiApplyErrorEpisodeNumberOtherBlock,
       // The in-preview episode creation failed (offline / transport): the
       // reviewer retries via "Ziel ändern" — apply stays disabled.
-      'ai_import.episode_create_failed' =>
-        l10n.aiApplyErrorEpisodeCreateFailed,
+      'ai_import.episode_create_failed' => l10n.aiApplyErrorEpisodeCreateFailed,
       // Issue #663: dedicated apply-gate codes. `apply-blocked` surfaces the
       // blocking items from its extensions inline (the widget appends them);
       // the copy here is the narrative header.

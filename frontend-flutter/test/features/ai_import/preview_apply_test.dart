@@ -2170,11 +2170,14 @@ void main() {
 
     test('resolveGroupDefaults moves the context to the first matched '
         'job-block episode when no ungrouped rows exist (CodeRabbit '
-        'review: the remembered context could point into another block)',
-        () {
+        'review: the remembered context could point into another block)', () {
       controller().seedRows(
         [
-          PreviewRow(draftRef: 'd1', label: 'A', episode: _episodeMeta(7, null)),
+          PreviewRow(
+            draftRef: 'd1',
+            label: 'A',
+            episode: _episodeMeta(7, null),
+          ),
         ],
         // Remembered context from ANOTHER block — apply() would send its
         // episode id and the backend cross-block guard would 403 forever.
@@ -2185,10 +2188,9 @@ void main() {
         ),
       );
 
-      controller().resolveGroupDefaults(
-        [_cachedEpisode('ep-294', number: 7)],
-        jobBlockId: 'block-1',
-      );
+      controller().resolveGroupDefaults([
+        _cachedEpisode('ep-294', number: 7),
+      ], jobBlockId: 'block-1');
 
       final state = container.read(aiApplyControllerProvider('job-1'));
       expect(state.context?.episodeId, 'ep-294');
@@ -2200,7 +2202,11 @@ void main() {
         'imports (ungrouped rows apply to it)', () {
       controller().seedRows(
         [
-          PreviewRow(draftRef: 'd1', label: 'A', episode: _episodeMeta(7, null)),
+          PreviewRow(
+            draftRef: 'd1',
+            label: 'A',
+            episode: _episodeMeta(7, null),
+          ),
           // No episode metadata → applies to the TOP-LEVEL context.
           const PreviewRow(draftRef: 'd2', label: 'B'),
         ],
@@ -2211,10 +2217,9 @@ void main() {
         ),
       );
 
-      controller().resolveGroupDefaults(
-        [_cachedEpisode('ep-294', number: 7)],
-        jobBlockId: 'block-1',
-      );
+      controller().resolveGroupDefaults([
+        _cachedEpisode('ep-294', number: 7),
+      ], jobBlockId: 'block-1');
 
       final state = container.read(aiApplyControllerProvider('job-1'));
       expect(state.context?.episodeId, 'other-block-ep');
@@ -2286,8 +2291,11 @@ void main() {
       );
 
       final state = container.read(aiApplyControllerProvider('job-1'));
-      expect(state.commandError, isNull,
-          reason: 'the successful adoption disproves the transient failure');
+      expect(
+        state.commandError,
+        isNull,
+        reason: 'the successful adoption disproves the transient failure',
+      );
     });
 
     test('adoptCreatedEpisode KEEPS the cross-block refusal while another '
@@ -2323,8 +2331,11 @@ void main() {
       );
 
       final state = container.read(aiApplyControllerProvider('job-1'));
-      expect(state.commandError?.code, 'ai_import.episode_number_other_block',
-          reason: 'group ep:5 is still unresolved — the conflict may be its');
+      expect(
+        state.commandError?.code,
+        'ai_import.episode_number_other_block',
+        reason: 'group ep:5 is still unresolved — the conflict may be its',
+      );
     });
 
     test('adoptCreatedEpisode clears the cross-block refusal once it '
