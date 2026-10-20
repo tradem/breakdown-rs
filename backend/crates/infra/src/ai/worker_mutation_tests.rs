@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 // Co-authored-by: mimo-v2.5 (opencode-go)
+// Co-authored-by: glm-5.3 (neuralwatt)
 
 //! Unit tests for workers.rs — kills mutations in acquire_for_claim,
 //! release_permit_logging_errors, claim_lost_error, start_heartbeat.
@@ -629,6 +630,83 @@ async fn displaced_worker_cannot_publish_progress() {
     let outcome =
         AiImportQueue::mark_progress(&*queue, AiImportJobId::new(), "worker-b", &progress).await;
     assert!(outcome.is_ok(), "the new owner may publish: {outcome:?}");
+}
+
+// ===========================================================================
+// Merge worker progress stages (issue #701 mutation gap)
+// ===========================================================================
+
+#[tokio::test]
+async fn merge_worker_publishes_merging_and_storing_progress() {
+    use crate::ai::QueueMergeWorker;
+    use crate::ai::preview_store::MemoryAiPreviewStore;
+    use breakdown_core::ai::{MergeInput, ShootingSchedule, ShootingScheduleRow};
+    use breakdown_core::scene::events::SceneSource;
+    use breakdown_core::scene::views::SceneView;
+    use breakdown_core::shared::{AggregateVersion, EpisodeId};
+    use chrono::TimeZone;
+
+    let queue = Arc::new(MockQueue::new());
+    queue.enqueue_job(DocumentKind::Schedule).await;
+    // The merge worker claims Schedule jobs and loads the prepared
+    // MergeInput blob from the preview store via `preview_handle`.
+    {
+        let mut jobs = queue.jobs.lock().await;
+        if let Some(job) = jobs.last_mut() {
+            job.preview_handle = Some("merge-progress-preview".to_owned());
+        }
+    }
+
+    let previews = Arc::new(MemoryAiPreviewStore::default());
+    let scene = SceneView {
+        id: uuid::Uuid::now_v7(),
+        episode_id: EpisodeId::new(),
+        scene_number: Some(1),
+        location: None,
+        mood: None,
+        is_schedule_set: false,
+        summary: None,
+        script_day: None,
+        shooting_day_ids: Vec::new(),
+        assigned_characters: Vec::new(),
+        costume_beats: Vec::new(),
+        version: AggregateVersion::INITIAL,
+        updated_at: chrono::Utc.timestamp_opt(0, 0).single().unwrap(),
+        source: Some(SceneSource::Manual),
+    };
+    let input = MergeInput {
+        schedule: ShootingSchedule {
+            block_id: None,
+            rows: vec![ShootingScheduleRow {
+                row_ref: "row-1".to_owned(),
+                scene_number: Some(1),
+                ..Default::default()
+            }],
+        },
+        scenes: vec![scene],
+    };
+    previews
+        .put_raw_for_test(
+            "merge-progress-preview".to_owned(),
+            serde_json::to_vec(&input).unwrap(),
+        )
+        .await;
+
+    let worker = QueueMergeWorker {
+        queue: Arc::clone(&queue),
+        previews: Arc::clone(&previews),
+    };
+    let result = worker.run_once("worker-progress").await;
+    assert!(result.is_ok(), "merge run should succeed: {result:?}");
+    assert!(result.unwrap(), "the claimed schedule job must be merged");
+
+    let log = queue.progress_log.lock().await;
+    assert_eq!(log.len(), 2, "merging boundary + storing boundary");
+    // Issue #701: the first frame must carry `Merging` — with the field
+    // deleted from the struct init, the enum default (`ExtractingText`)
+    // would be published instead and clients would see a wrong stage.
+    assert_eq!(log[0].stage, AiImportStage::Merging);
+    assert_eq!(log[1].stage, AiImportStage::StoringPreview);
 }
 
 #[tokio::test]
