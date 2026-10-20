@@ -974,6 +974,83 @@ pub fn ensure_merge_applyable(preview: &MergedPreview) -> Result<(), ApplyGateEr
     Ok(())
 }
 
+/// Per-identity category signals collected across one preview (issue #695).
+struct CategorySignals {
+    /// Scene index where the identity first appeared — the `scene_index` the
+    /// conflict uncertainty is attached to, so the #663 acknowledgement flow
+    /// can match it by `(scene_index, field)`.
+    first_scene: usize,
+    /// Distinct non-default category slugs in first-seen order. The default
+    /// (`main_cast`) is deliberately absent: a non-default classification
+    /// already *corrects* the default (see `plan_scene_apply`), so only two
+    /// differing non-default signals are a genuine conflict.
+    slugs: Vec<&'static str>,
+}
+
+/// Surface document-global character-category conflicts as blocking
+/// `Uncertainty`s (issue #695).
+///
+/// The extraction classifies per scene block; a conflict — the same figure
+/// named under two cast sections with differing non-default categories — is
+/// only visible by comparing rows, and the apply plan's reconciliation rule
+/// (first non-default wins) would silently hide it. This pure scan collects
+/// the per-identity signals across the **whole** document and emits one
+/// `Uncertainty` (kind `field_ambiguity`, field `category`) per conflicting
+/// identity, so the reviewer decides before the apply — with the one-tap
+/// acknowledgement of issue #663 as the resolution path.
+///
+/// `suggested_value` mirrors what the apply plan would pick (the first
+/// non-default signal); it is display-only, exactly like every other
+/// uncertainty's suggestion.
+#[must_use]
+pub fn category_conflict_uncertainties(preview: &ScriptContext) -> Vec<Uncertainty> {
+    // Insertion-ordered per identity: `Vec` for the order, map for the lookup.
+    let mut identities: Vec<String> = Vec::new();
+    let mut signals: std::collections::HashMap<String, CategorySignals> =
+        std::collections::HashMap::new();
+    for (scene_index, scene) in preview.scenes.iter().enumerate() {
+        for character in &scene.characters {
+            let identity = character_identity(&character.name);
+            if identity.is_empty() {
+                continue;
+            }
+            let entry = signals.entry(identity.clone()).or_insert_with(|| {
+                identities.push(identity.clone());
+                CategorySignals {
+                    first_scene: scene_index,
+                    slugs: Vec::new(),
+                }
+            });
+            if character.category != CharacterCategory::default() {
+                let slug = character.category.as_str();
+                if !entry.slugs.contains(&slug) {
+                    entry.slugs.push(slug);
+                }
+            }
+        }
+    }
+    identities
+        .iter()
+        .filter_map(|identity| {
+            let signal = signals.get(identity)?;
+            let (first, second) = match (signal.slugs.first(), signal.slugs.get(1)) {
+                (Some(first), Some(second)) => (*first, *second),
+                // Fewer than two non-default signals: no genuine conflict.
+                _ => return None,
+            };
+            Some(Uncertainty {
+                scene_index: signal.first_scene,
+                field: "category".to_owned(),
+                note: format!(
+                    "{identity}: conflicting category signals across rows: {first} vs {second}"
+                ),
+                suggested_value: Some((*first).to_owned()),
+                kind: UncertaintyKind::FieldAmbiguity,
+            })
+        })
+        .collect()
+}
+
 /// Plan the apply of one reviewed script preview.
 ///
 /// A row yields its **scene** command, the **figures** it names and the

@@ -41,10 +41,11 @@ pub use preview::{
     MergedPreview, MergedScene, PlannedEpisode, RejectedCostume, RejectedCostumeReason,
     SceneApplyCommand, SceneApplyPlan, SceneBeatLane, SceneChunk, ScriptApplyPlan, ScriptContext,
     ShootingSchedule, ShootingScheduleRow, UnappliedCostume, UnappliedCostumeReason, Uncertainty,
-    UncertaintyAcknowledgement, UncertaintyKind, character_identity, character_mapping_ref,
-    draft_row_ref, ensure_merge_applyable, ensure_script_applyable, episode_group_refs,
-    extract_scenes, is_meta_summary, merge_from_input, merge_schedule_to_scenes, plan_scene_apply,
-    sanitize_meta_summary, scene_beat_lanes, stable_draft_ref, verify_draft_costumes,
+    UncertaintyAcknowledgement, UncertaintyKind, category_conflict_uncertainties,
+    character_identity, character_mapping_ref, draft_row_ref, ensure_merge_applyable,
+    ensure_script_applyable, episode_group_refs, extract_scenes, is_meta_summary, merge_from_input,
+    merge_schedule_to_scenes, plan_scene_apply, sanitize_meta_summary, scene_beat_lanes,
+    stable_draft_ref, verify_draft_costumes,
 };
 pub use views::{
     AiConfigView, AiImportAttempt, AiImportJob, AiImportJobId, AiImportProgress, AiImportStage,
