@@ -12,6 +12,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:fpdart/fpdart.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
+import '../../../auth/active_block.dart';
 import '../../../auth/auth_providers.dart';
 import '../../../core/problem_error.dart';
 import '../../../data/ai_import_providers.dart';
@@ -345,6 +346,18 @@ class _AiApplySectionState extends ConsumerState<AiApplySection> {
     final state = ref.watch(aiApplyControllerProvider(jobId));
     final controller = ref.read(aiApplyControllerProvider(jobId).notifier);
     final canApply = controller.canApply && _reviewAcknowledged;
+    // Issue #705 (CodeRabbit review): the cross-block recovery's job-block
+    // source of truth is the CACHED JOB ROW, not the apply context — the
+    // missing-context episode picker stores the picked episode + project but
+    // drops `blockId`, so an empty context value would hide the scope-switch
+    // recovery on a cross-block 409 and leave the 403-bound assign-existing
+    // tap visible. The context value stays as fallback (older cached rows).
+    final cachedJobBlock = ref.watch(aiJobBlockInfoProvider(jobId)).value;
+    final jobBlockId = (cachedJobBlock?.blockId.isNotEmpty ?? false)
+        ? cachedJobBlock!.blockId
+        : (state.context?.blockId.isNotEmpty ?? false)
+        ? state.context!.blockId
+        : null;
 
     return Card(
       key: const Key('ai-apply-section'),
@@ -511,7 +524,7 @@ class _AiApplySectionState extends ConsumerState<AiApplySection> {
                         if (conflict == null) return const SizedBox.shrink();
                         if (crossBlockScopeRecovery(
                               state.commandError!,
-                              jobBlockId: state.context?.blockId,
+                              jobBlockId: jobBlockId,
                             ) !=
                             null) {
                           return const SizedBox.shrink();
@@ -566,7 +579,7 @@ class _AiApplySectionState extends ConsumerState<AiApplySection> {
                       builder: (context) {
                         final recovery = crossBlockScopeRecovery(
                           state.commandError!,
-                          jobBlockId: state.context?.blockId,
+                          jobBlockId: jobBlockId,
                         );
                         if (recovery == null) return const SizedBox.shrink();
                         return TextButton(
@@ -575,13 +588,25 @@ class _AiApplySectionState extends ConsumerState<AiApplySection> {
                             final controller = ref.read(
                               aiApplyControllerProvider(jobId).notifier,
                             );
-                            final switched = await switchScopeToEpisodeHome(
-                              ref,
-                              recovery.blockId,
-                            );
-                            if (!switched) return;
+                            final block = await ref
+                                .read(episodeRepositoryProvider)
+                                .blockById(recovery.blockId);
+                            // Disposal mid-await: neither mutate the GLOBAL
+                            // scope after the fact (ActiveBlock.set only
+                            // guards its persistence callback) nor touch
+                            // the autoDispose notifier — the State's
+                            // `mounted` owns both gates (CodeRabbit review).
+                            if (!mounted || !context.mounted) return;
+                            final blockView = block.fold((_) => null, (b) => b);
+                            if (blockView == null) return;
+                            ref
+                                .read(activeBlockProvider.notifier)
+                                .set(
+                                  seasonId: blockView.seasonId,
+                                  blockId: blockView.id,
+                                  blockNumber: blockView.number,
+                                );
                             controller.dismissCommandError();
-                            if (!context.mounted) return;
                             await Navigator.of(context).push(
                               MaterialPageRoute<void>(
                                 builder: (_) => const AiImportSubmitScreen(),

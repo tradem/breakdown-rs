@@ -42,6 +42,7 @@ import 'package:frontend_flutter/data/season_repository.dart';
 import 'package:frontend_flutter/domain/reconciliation/reconciliation_scheduler.dart';
 import 'package:frontend_flutter/features/ai_import/import_jobs/apply_controller.dart';
 import 'package:frontend_flutter/features/ai_import/import_jobs/apply_screen.dart';
+import 'package:frontend_flutter/features/ai_import/import_jobs/job_status_controller.dart';
 import 'package:frontend_flutter/features/ai_import/import_jobs/preview_screen.dart';
 import 'package:frontend_flutter/features/blocks/blocks_controller.dart';
 import 'package:frontend_flutter/features/episodes/episodes_controller.dart';
@@ -347,10 +348,107 @@ void main() {
       // …and the reviewer lands on the re-upload screen.
       expect(find.byKey(const Key('ai-import-submit-screen')), findsOneWidget);
     });
+
+    testWidgets('a cross-block 409 uses the CACHED JOB ROW block (not the '
+        'possibly block-less context) to gate the recovery buttons', (
+      tester,
+    ) async {
+      await setupContainer();
+      final blockSub = container.listen(activeBlockProvider, (_, _) {});
+      addTearDown(blockSub.close);
+
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: const MaterialApp(home: AiApplySection(jobId: 'job-1')),
+        ),
+      );
+      // The group the 409 is about: the draft's `Ep.: 293` marker seeds the
+      // create-293 default (a block-less context — the picker path).
+      container.read(aiApplyControllerProvider('job-1').notifier).seedRows([
+        PreviewRow(draftRef: 'd1', label: 'A', episode: _epMeta293()),
+      ], const AiJobContext(episodeId: 'ep-1', projectId: 'series-1'));
+      // Seed the #665 409 the backend answers for a create number taken by
+      // an episode in a FOREIGN block. The apply context carries no blockId
+      // (the missing-context picker drops it) — the job row's block anchor
+      // must own the comparison (CodeRabbit review).
+      container
+          .read(aiApplyControllerProvider('job-1').notifier)
+          .setCommandError(
+            const ProblemError(
+              code: 'episode.number-already-exists',
+              status: 409,
+              extensions: {
+                'existing_episode_id': 'ep-293',
+                'number': 293,
+                'existing_block_id': 'home-block',
+              },
+            ),
+          );
+      // Pump until the cached job-block provider settles.
+      for (var i = 0; i < 8; i++) {
+        await tester.pump(const Duration(milliseconds: 10));
+      }
+
+      // Foreign block → the scope-switch recovery, NOT the assign-existing
+      // tap that would 403 at the IDOR gate.
+      expect(find.byKey(const Key('ai-apply-switch-scope')), findsOneWidget);
+      expect(
+        find.byKey(const Key('ai-apply-assign-existing-instead')),
+        findsNothing,
+      );
+    });
+
+    testWidgets('a same-block 409 keeps the #665 assign-existing tap and '
+        'shows no scope switch', (tester) async {
+      await setupContainer();
+      final blockSub = container.listen(activeBlockProvider, (_, _) {});
+      addTearDown(blockSub.close);
+
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: const MaterialApp(home: AiApplySection(jobId: 'job-1')),
+        ),
+      );
+      container.read(aiApplyControllerProvider('job-1').notifier).seedRows([
+        PreviewRow(draftRef: 'd1', label: 'A', episode: _epMeta293()),
+      ], const AiJobContext(episodeId: 'ep-1', projectId: 'series-1'));
+      container
+          .read(aiApplyControllerProvider('job-1').notifier)
+          .setCommandError(
+            const ProblemError(
+              code: 'episode.number-already-exists',
+              status: 409,
+              extensions: {
+                'existing_episode_id': 'ep-293',
+                'number': 293,
+                'existing_block_id': 'job-block',
+              },
+            ),
+          );
+      for (var i = 0; i < 8; i++) {
+        await tester.pump(const Duration(milliseconds: 10));
+      }
+
+      expect(
+        find.byKey(const Key('ai-apply-assign-existing-instead')),
+        findsOneWidget,
+      );
+      expect(find.byKey(const Key('ai-apply-switch-scope')), findsNothing);
+    });
   });
 }
 
 // --- Fixtures ----------------------------------------------------------------
+
+/// The `Ep.: 293` marker metadata a draft row carries (issue #581) — seeds
+/// the create-293 group default the 409s are about.
+DraftEpisode _epMeta293() => DraftEpisode(
+  (b) => b
+    ..number = 293
+    ..title = 'Neustart',
+);
 
 class _ImmediateScheduler extends ReconciliationScheduler {
   const _ImmediateScheduler();

@@ -12,7 +12,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:one_of/one_of.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
-import '../../../auth/active_block.dart';
 import '../../../core/problem_error.dart';
 import '../../../core/result.dart';
 import '../../../data/ai_import_providers.dart';
@@ -1201,18 +1200,4 @@ Future<Map<String, dynamic>?> _episodeHomeLocation(
       if (seasonView.title != null) 'existing_season_title': seasonView.title!,
     },
   };
-}
-
-/// Switches the sticky active scope to [blockId]'s home season+block (the
-/// issue #705 recovery) and returns `true` when the switch landed. The
-/// block is re-resolved by id (extensions may be stale); a resolution
-/// failure keeps the current scope — the reviewer retries.
-Future<bool> switchScopeToEpisodeHome(WidgetRef ref, String blockId) async {
-  final block = await ref.read(episodeRepositoryProvider).blockById(blockId);
-  return block.match((_) => false, (b) {
-    ref
-        .read(activeBlockProvider.notifier)
-        .set(seasonId: b.seasonId, blockId: b.id, blockNumber: b.number);
-    return true;
-  });
 }
