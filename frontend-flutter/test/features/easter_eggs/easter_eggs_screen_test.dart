@@ -11,6 +11,7 @@ import 'package:frontend_flutter/data/settings/easter_eggs_store.dart';
 import 'package:frontend_flutter/design/theme.dart';
 import 'package:frontend_flutter/features/easter_eggs/dejavu_cat.dart';
 import 'package:frontend_flutter/features/easter_eggs/easter_eggs_screen.dart';
+import 'package:frontend_flutter/l10n/generated/app_localizations.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:shared_preferences_platform_interface/in_memory_shared_preferences_async.dart';
 import 'package:shared_preferences_platform_interface/shared_preferences_async_platform_interface.dart';
@@ -50,6 +51,10 @@ void main() {
     bool easterEggsReadFailed = false,
     // Simulates a failing on-device preference write (snackbar test).
     bool failPrefsWrite = false,
+    // Null = bare test tree (l10nOf falls back to the English catalog —
+    // English-copy assertions). Goldens pass `Locale('de')`: AGENTS.md
+    // §9 — goldens use the German template locale.
+    Locale? locale,
   }) async {
     if (failPrefsWrite) {
       SharedPreferencesAsyncPlatform.instance = _FailingWritePrefsPlatform();
@@ -83,6 +88,9 @@ void main() {
             theme: AppThemes.light(),
             darkTheme: AppThemes.dark(),
             themeMode: ThemeMode.system,
+            locale: locale,
+            supportedLocales: AppLocalizations.supportedLocales,
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
             home: const Scaffold(body: SizedBox()),
           ),
         ),
@@ -246,7 +254,12 @@ void main() {
 
   group('EasterEggsScreen goldens (issue #708)', () {
     testWidgets('light', (tester) async {
-      await pumpScreen(tester, brightness: Brightness.light);
+      await pumpScreen(
+        tester,
+        brightness: Brightness.light,
+        // AGENTS.md §9: goldens use the German template locale.
+        locale: const Locale('de'),
+      );
       await expectLater(
         find.byKey(const Key('easter-eggs-screen')),
         matchesGoldenFile('goldens/easter_eggs_light.png'),
@@ -254,7 +267,11 @@ void main() {
     });
 
     testWidgets('dark', (tester) async {
-      await pumpScreen(tester, brightness: Brightness.dark);
+      await pumpScreen(
+        tester,
+        brightness: Brightness.dark,
+        locale: const Locale('de'),
+      );
       await expectLater(
         find.byKey(const Key('easter-eggs-screen')),
         matchesGoldenFile('goldens/easter_eggs_dark.png'),
