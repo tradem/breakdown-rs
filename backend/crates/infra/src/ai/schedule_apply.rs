@@ -249,6 +249,7 @@ where
     }
 
     /// Dispatch `ScheduleSceneOnShootingDay`, tolerating an already-linked day.
+    /// Shared with the script apply path (issue #706).
     ///
     /// On a retry the scene may already link the day from the crashed attempt.
     /// The Scene aggregate reports that state-idempotent case as
@@ -256,7 +257,7 @@ where
     /// version — so this only has to forward the result. A genuinely stale
     /// version still surfaces as `VersionConflict`, which is *not* swallowed
     /// here: the caller's per-row version bookkeeping must fail loudly.
-    async fn schedule_scene(
+    pub(crate) async fn schedule_scene(
         &self,
         actor: UserId,
         scene_id: Uuid,
@@ -277,7 +278,15 @@ where
             .await
     }
 
-    async fn resolve_day(&self, actor: UserId, draft: DayDraft) -> Result<AppliedDay, DomainError> {
+    /// Resolve one draft row to its shooting day, creating the aggregate on
+    /// first sight (issue #179 reservation protocol). Shared with the script
+    /// apply path (issue #706), which drives the same machinery per accepted
+    /// day group.
+    pub(crate) async fn resolve_day(
+        &self,
+        actor: UserId,
+        draft: DayDraft,
+    ) -> Result<AppliedDay, DomainError> {
         // Read the idempotency projection (non-audit): a retried apply must
         // reuse the previously created shooting day instead of creating a
         // duplicate. project_id comes from the API edge request, not this read.
@@ -453,13 +462,13 @@ pub(crate) fn recover_version(
     }
 }
 
-struct DayDraft {
-    preview_id: AiImportJobId,
-    draft_ref: String,
-    episode_id: EpisodeId,
-    label: Option<String>,
-    date: Option<chrono::NaiveDate>,
-    project_id: Option<ProjectId>,
+pub(crate) struct DayDraft {
+    pub preview_id: AiImportJobId,
+    pub draft_ref: String,
+    pub episode_id: EpisodeId,
+    pub label: Option<String>,
+    pub date: Option<chrono::NaiveDate>,
+    pub project_id: Option<ProjectId>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

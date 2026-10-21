@@ -62,6 +62,15 @@ problem-ai-import-apply-missing-mapping =
 problem-ai-import-apply-missing-episode-group =
     Ein Episoden-Ziel passt nicht mehr zur Vorschau. Laden Sie die Vorschau neu und übernehmen Sie erneut.
 
+problem-ai-import-apply-missing-shooting-day-group =
+    Eine Drehtag-Gruppe hat keine Prüfentscheidung. Laden Sie die Vorschau neu und übernehmen Sie erneut.
+
+problem-shooting-day-target-wrapped =
+    Der Zieltag ist bereits abgeschlossen (wrapped). Ein geplanter Drehtag kann nicht auf einen abgeschlossenen Tag verschmolzen werden.
+
+problem-shooting-day-episode-mismatch =
+    Quelle und Ziel gehören zu verschiedenen Episoden. Drehtage können nur innerhalb einer Episode verschmolzen werden.
+
 problem-ai-config-version-mismatch =
     Die KI-Konfiguration wurde zwischenzeitlich geändert. Aktualisieren Sie die Bearbeitung und wiederholen Sie den Vorgang.
 

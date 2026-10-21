@@ -20,6 +20,8 @@ class _$ApplyAiImportResponse extends ApplyAiImportResponse {
   @override
   final int plannedSceneShoots;
   @override
+  final BuiltList<String>? skippedDayGroups;
+  @override
   final BuiltList<UnappliedCostume> unappliedCostumes;
 
   factory _$ApplyAiImportResponse(
@@ -33,6 +35,7 @@ class _$ApplyAiImportResponse extends ApplyAiImportResponse {
       required this.createdDays,
       required this.createdEpisodes,
       required this.plannedSceneShoots,
+      this.skippedDayGroups,
       required this.unappliedCostumes})
       : super._();
   @override
@@ -54,6 +57,7 @@ class _$ApplyAiImportResponse extends ApplyAiImportResponse {
         createdDays == other.createdDays &&
         createdEpisodes == other.createdEpisodes &&
         plannedSceneShoots == other.plannedSceneShoots &&
+        skippedDayGroups == other.skippedDayGroups &&
         unappliedCostumes == other.unappliedCostumes;
   }
 
@@ -66,6 +70,7 @@ class _$ApplyAiImportResponse extends ApplyAiImportResponse {
     _$hash = $jc(_$hash, createdDays.hashCode);
     _$hash = $jc(_$hash, createdEpisodes.hashCode);
     _$hash = $jc(_$hash, plannedSceneShoots.hashCode);
+    _$hash = $jc(_$hash, skippedDayGroups.hashCode);
     _$hash = $jc(_$hash, unappliedCostumes.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
@@ -80,6 +85,7 @@ class _$ApplyAiImportResponse extends ApplyAiImportResponse {
           ..add('createdDays', createdDays)
           ..add('createdEpisodes', createdEpisodes)
           ..add('plannedSceneShoots', plannedSceneShoots)
+          ..add('skippedDayGroups', skippedDayGroups)
           ..add('unappliedCostumes', unappliedCostumes))
         .toString();
   }
@@ -117,6 +123,12 @@ class ApplyAiImportResponseBuilder
   set plannedSceneShoots(int? plannedSceneShoots) =>
       _$this._plannedSceneShoots = plannedSceneShoots;
 
+  ListBuilder<String>? _skippedDayGroups;
+  ListBuilder<String> get skippedDayGroups =>
+      _$this._skippedDayGroups ??= ListBuilder<String>();
+  set skippedDayGroups(ListBuilder<String>? skippedDayGroups) =>
+      _$this._skippedDayGroups = skippedDayGroups;
+
   ListBuilder<UnappliedCostume>? _unappliedCostumes;
   ListBuilder<UnappliedCostume> get unappliedCostumes =>
       _$this._unappliedCostumes ??= ListBuilder<UnappliedCostume>();
@@ -136,6 +148,7 @@ class ApplyAiImportResponseBuilder
       _createdDays = $v.createdDays;
       _createdEpisodes = $v.createdEpisodes;
       _plannedSceneShoots = $v.plannedSceneShoots;
+      _skippedDayGroups = $v.skippedDayGroups?.toBuilder();
       _unappliedCostumes = $v.unappliedCostumes.toBuilder();
       _$v = null;
     }
@@ -176,11 +189,14 @@ class ApplyAiImportResponseBuilder
                 plannedSceneShoots,
                 r'ApplyAiImportResponse',
                 'plannedSceneShoots'),
+            skippedDayGroups: _skippedDayGroups?.build(),
             unappliedCostumes: unappliedCostumes.build(),
           );
     } catch (_) {
       late String _$failedField;
       try {
+        _$failedField = 'skippedDayGroups';
+        _skippedDayGroups?.build();
         _$failedField = 'unappliedCostumes';
         unappliedCostumes.build();
       } catch (e) {

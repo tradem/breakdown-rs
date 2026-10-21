@@ -94,8 +94,11 @@ fn planner_uses_update_for_a_previously_mapped_row() {
         EpisodeId::new(),
         None,
         AiImportJobId(Uuid::now_v7()),
-        &[],
-        &[],
+        &ReviewerDecisions {
+            episode_groups: &[],
+            shooting_days: &[],
+            acknowledged_uncertainties: &[],
+        },
     )
     .unwrap();
     assert_eq!(plan.scenes.len(), 1);
@@ -152,8 +155,11 @@ fn open_uncertainties_and_unmatched_rows_block_apply() {
             EpisodeId::new(),
             None,
             AiImportJobId(Uuid::now_v7()),
-            &[],
-            &[],
+            &ReviewerDecisions {
+                episode_groups: &[],
+                shooting_days: &[],
+                acknowledged_uncertainties: &[],
+            },
         ),
         Err(ApplyGateError::MissingMapping(_))
     ));
@@ -170,8 +176,11 @@ fn plan_of(preview: &ScriptContext, decisions: &[ApplyMapping]) -> ScriptApplyPl
         EpisodeId::new(),
         None,
         AiImportJobId(Uuid::now_v7()),
-        &[],
-        &[],
+        &ReviewerDecisions {
+            episode_groups: &[],
+            shooting_days: &[],
+            acknowledged_uncertainties: &[],
+        },
     )
     .expect("plan")
 }
@@ -1564,14 +1573,17 @@ fn plan_resolves_a_create_group_to_a_new_episode() {
         EpisodeId::new(),
         None,
         AiImportJobId(Uuid::now_v7()),
-        &[EpisodeGroupPlan {
-            episode_ref: "ep:3".into(),
-            target: EpisodeTarget::Create {
-                number: 3,
-                name: Some("Der Unfall".into()),
-            },
-        }],
-        &[],
+        &ReviewerDecisions {
+            episode_groups: &[EpisodeGroupPlan {
+                episode_ref: "ep:3".into(),
+                target: EpisodeTarget::Create {
+                    number: 3,
+                    name: Some("Der Unfall".into()),
+                },
+            }],
+            shooting_days: &[],
+            acknowledged_uncertainties: &[],
+        },
     )
     .expect("plan");
     assert!(matches!(
@@ -1594,13 +1606,16 @@ fn plan_resolves_an_existing_group_target() {
         EpisodeId::new(),
         None,
         AiImportJobId(Uuid::now_v7()),
-        &[EpisodeGroupPlan {
-            episode_ref: "ep:3".into(),
-            target: EpisodeTarget::Existing {
-                episode_id: existing,
-            },
-        }],
-        &[],
+        &ReviewerDecisions {
+            episode_groups: &[EpisodeGroupPlan {
+                episode_ref: "ep:3".into(),
+                target: EpisodeTarget::Existing {
+                    episode_id: existing,
+                },
+            }],
+            shooting_days: &[],
+            acknowledged_uncertainties: &[],
+        },
     )
     .expect("plan");
     match &plan.scenes[0].episode {
@@ -1619,8 +1634,11 @@ fn plan_defaults_rows_without_episode_metadata_to_the_picked_episode() {
         default_episode,
         None,
         AiImportJobId(Uuid::now_v7()),
-        &[],
-        &[],
+        &ReviewerDecisions {
+            episode_groups: &[],
+            shooting_days: &[],
+            acknowledged_uncertainties: &[],
+        },
     )
     .expect("plan");
     assert_eq!(
@@ -1641,8 +1659,11 @@ fn plan_ignores_groups_for_ungroupable_episode_metadata() {
         default_episode,
         None,
         AiImportJobId(Uuid::now_v7()),
-        &[],
-        &[],
+        &ReviewerDecisions {
+            episode_groups: &[],
+            shooting_days: &[],
+            acknowledged_uncertainties: &[],
+        },
     )
     .expect("plan");
     assert_eq!(
@@ -1663,8 +1684,11 @@ fn plan_rejects_a_group_the_request_forgot() {
         EpisodeId::new(),
         None,
         AiImportJobId(Uuid::now_v7()),
-        &[],
-        &[],
+        &ReviewerDecisions {
+            episode_groups: &[],
+            shooting_days: &[],
+            acknowledged_uncertainties: &[],
+        },
     )
     .expect_err("ungrouped episode must not silently apply to the default");
     assert!(matches!(error, ApplyGateError::MissingEpisodeGroup(ref key) if key == "ep:3"));
@@ -2049,3 +2073,355 @@ fn extract_scenes_merge_preserves_index_only_metadata() {
     assert!(chunks[0].text.contains("Nur Dialogue"));
 }
 // temp debug
+
+// ===========================================================================
+// Shooting-day extraction (issue #706)
+// ===========================================================================
+
+fn day_of(document: &str, chunk: usize) -> Option<DraftShootingDay> {
+    SceneChunk::extract_scenes(document)[chunk]
+        .shooting_day
+        .clone()
+}
+
+#[test]
+fn day_marker_reads_tag_form() {
+    assert_eq!(
+        day_marker("1    I/T - KLINIKUM    Tag 1"),
+        Some(DraftShootingDay {
+            number: Some(1),
+            label: Some("Tag 1".into()),
+        })
+    );
+}
+
+#[test]
+fn day_marker_reads_spieltag_preceding_form() {
+    assert_eq!(
+        day_marker("1. Spieltag"),
+        Some(DraftShootingDay {
+            number: Some(1),
+            label: Some("1. Spieltag".into()),
+        })
+    );
+}
+
+#[test]
+fn day_marker_reads_compound_following_form() {
+    assert_eq!(
+        day_marker("Drehtag 12"),
+        Some(DraftShootingDay {
+            number: Some(12),
+            label: Some("Drehtag 12".into()),
+        })
+    );
+}
+
+#[test]
+fn day_marker_is_case_insensitive() {
+    // Uppercase page headers read the same as scene-index columns.
+    let day = day_marker("TAG 3").expect("uppercase marker");
+    assert_eq!(day.number, Some(3));
+}
+
+#[test]
+fn day_marker_ignores_weekdays() {
+    // `Montag 12` is a date, never shooting day 12: the day word must be a
+    // whole token.
+    assert_eq!(day_marker("Montag 12"), None);
+    assert_eq!(day_marker("Freitag"), None);
+}
+
+#[test]
+fn day_marker_ignores_time_of_day() {
+    // The German time-of-day `TAG` in a heading carries no digits.
+    assert_eq!(day_marker("INNEN WOHNUNG - TAG"), None);
+}
+
+#[test]
+fn day_marker_ignores_prose() {
+    assert_eq!(day_marker("Am Tag danach war alles anders."), None);
+    assert_eq!(day_marker("Spieltag war der Montag"), None);
+}
+
+#[test]
+fn day_group_key_normalizes_to_the_number() {
+    // `Tag 1` and `1. Spieltag` are the SAME day (decision: normalize).
+    let tag = DraftShootingDay {
+        number: Some(1),
+        label: Some("Tag 1".into()),
+    };
+    let spieltag = DraftShootingDay {
+        number: Some(1),
+        label: Some("1. Spieltag".into()),
+    };
+    assert_eq!(tag.group_key(), Some("day:1".into()));
+    assert_eq!(tag.group_key(), spieltag.group_key());
+}
+
+#[test]
+fn day_group_key_falls_back_to_the_label() {
+    let day = DraftShootingDay {
+        number: None,
+        label: Some("Drehwoche 2".into()),
+    };
+    assert_eq!(day.group_key(), Some("day-l:Drehwoche 2".into()));
+    assert_eq!(
+        DraftShootingDay::default().group_key(),
+        None,
+        "a day with neither number nor label cannot be grouped"
+    );
+}
+
+#[test]
+fn day_display_label_prefers_the_verbatim_marker() {
+    let day = DraftShootingDay {
+        number: Some(1),
+        label: Some("1. Spieltag".into()),
+    };
+    assert_eq!(day.display_label().as_deref(), Some("1. Spieltag"));
+    let bare = DraftShootingDay {
+        number: Some(2),
+        label: None,
+    };
+    assert_eq!(bare.display_label().as_deref(), Some("Tag 2"));
+}
+
+#[test]
+fn parse_script_day_normalizes_the_model_label() {
+    let day = parse_script_day("Tag 1").expect("parseable label");
+    assert_eq!(day.group_key(), Some("day:1".into()));
+    // An unparseable label still groups verbatim.
+    let week = parse_script_day("Drehwoche 2").expect("label fallback");
+    assert_eq!(week.group_key(), Some("day-l:Drehwoche 2".into()));
+    // Blank stays unscheduled — never invented.
+    assert_eq!(parse_script_day("   "), None);
+}
+
+#[test]
+fn extract_scenes_stamps_the_day_in_effect() {
+    let document = "\
+1    I/T - KLINIKUM    Tag 1
+Aktion.
+
+2    I/T - FLUR
+Aktion.
+
+3    A/T - PARKPLATZ    Tag 2
+Aktion.
+";
+    assert_eq!(day_of(document, 0).unwrap().number, Some(1));
+    // Day columns repeat across a day's pages: the following chunk carries
+    // the same day without its own marker.
+    assert_eq!(day_of(document, 1).unwrap().number, Some(1));
+    assert_eq!(day_of(document, 2).unwrap().number, Some(2));
+}
+
+#[test]
+fn extract_scenes_keeps_the_first_occurrence_label() {
+    let document = "\
+1    I/T - KLINIKUM    1. Spieltag
+Aktion.
+
+2    I/T - FLUR    Tag 1
+Aktion.
+";
+    // The first occurrence's verbatim label wins.
+    assert_eq!(
+        day_of(document, 1).unwrap().label.as_deref(),
+        Some("1. Spieltag")
+    );
+}
+
+#[test]
+fn extract_scenes_without_day_markers_stays_unscheduled() {
+    let document = "\
+1. I/T - WOHNUNG ZOE
+Aktion.
+";
+    assert_eq!(day_of(document, 0), None);
+}
+
+#[test]
+fn old_preview_without_shooting_day_still_loads() {
+    // Additive wire convention: a preview stored before `shooting_day`
+    // existed keeps deserializing (serde default), and an old-model
+    // `script_day` string still deserializes verbatim.
+    let stored = r#"{
+        "title": null,
+        "scenes": [
+            {
+                "draft_ref": "1. I/T - OP",
+                "scene_number": 1,
+                "location": null,
+                "mood": null,
+                "summary": null,
+                "script_day": "Tag 1",
+                "characters": ["RENEE"],
+                "costumes": []
+            }
+        ],
+        "uncertainties": []
+    }"#;
+    let preview: ScriptContext = serde_json::from_str(stored).expect("old preview loads");
+    assert_eq!(preview.scenes[0].script_day.as_deref(), Some("Tag 1"));
+    assert_eq!(preview.scenes[0].shooting_day, None);
+}
+
+#[test]
+fn shooting_day_group_refs_are_first_seen_order() {
+    let preview = ScriptContext {
+        scenes: vec![
+            DraftScene {
+                draft_ref: "1. I/T - OP".into(),
+                shooting_day: Some(DraftShootingDay {
+                    number: Some(1),
+                    label: None,
+                }),
+                ..Default::default()
+            },
+            DraftScene {
+                draft_ref: "2. I/T - OP".into(),
+                shooting_day: Some(DraftShootingDay {
+                    number: Some(2),
+                    label: None,
+                }),
+                ..Default::default()
+            },
+            DraftScene {
+                draft_ref: "3. I/T - OP".into(),
+                // Same group as row 1 — not repeated.
+                shooting_day: Some(DraftShootingDay {
+                    number: Some(1),
+                    label: None,
+                }),
+                ..Default::default()
+            },
+            DraftScene {
+                draft_ref: "4. I/T - OP".into(),
+                shooting_day: None,
+                ..Default::default()
+            },
+        ],
+        ..Default::default()
+    };
+    assert_eq!(
+        shooting_day_group_refs(&preview),
+        vec!["day:1".to_owned(), "day:2".to_owned()]
+    );
+}
+
+fn preview_with_day(day: Option<DraftShootingDay>) -> ScriptContext {
+    ScriptContext {
+        scenes: vec![DraftScene {
+            draft_ref: "scene-1".into(),
+            shooting_day: day,
+            ..Default::default()
+        }],
+        ..Default::default()
+    }
+}
+
+fn accept_day(day_ref: &str) -> ShootingDayPlan {
+    ShootingDayPlan {
+        day_ref: day_ref.to_owned(),
+        accepted: true,
+    }
+}
+
+#[test]
+fn plan_carries_the_accepted_day_group() {
+    let preview = preview_with_day(Some(DraftShootingDay {
+        number: Some(1),
+        label: Some("Tag 1".into()),
+    }));
+    let plan = plan_scene_apply(
+        &preview,
+        &[create_mapping()],
+        EpisodeId::new(),
+        None,
+        AiImportJobId(Uuid::now_v7()),
+        &ReviewerDecisions {
+            episode_groups: &[],
+            shooting_days: &[accept_day("day:1")],
+            acknowledged_uncertainties: &[],
+        },
+    )
+    .expect("plan");
+    assert_eq!(
+        plan.scenes[0].shooting_day,
+        PlannedShootingDay::Group {
+            day_ref: "day:1".into(),
+            label: Some("Tag 1".into()),
+        }
+    );
+}
+
+#[test]
+fn plan_leaves_a_rejected_day_group_unscheduled() {
+    let preview = preview_with_day(Some(DraftShootingDay {
+        number: Some(1),
+        label: None,
+    }));
+    let plan = plan_scene_apply(
+        &preview,
+        &[create_mapping()],
+        EpisodeId::new(),
+        None,
+        AiImportJobId(Uuid::now_v7()),
+        &ReviewerDecisions {
+            episode_groups: &[],
+            shooting_days: &[ShootingDayPlan {
+                day_ref: "day:1".into(),
+                accepted: false,
+            }],
+            acknowledged_uncertainties: &[],
+        },
+    )
+    .expect("plan");
+    assert_eq!(plan.scenes[0].shooting_day, PlannedShootingDay::None);
+}
+
+#[test]
+fn plan_rejects_a_day_group_the_request_forgot() {
+    let preview = preview_with_day(Some(DraftShootingDay {
+        number: Some(1),
+        label: None,
+    }));
+    let error = plan_scene_apply(
+        &preview,
+        &[create_mapping()],
+        EpisodeId::new(),
+        None,
+        AiImportJobId(Uuid::now_v7()),
+        &ReviewerDecisions {
+            episode_groups: &[],
+            shooting_days: &[],
+            acknowledged_uncertainties: &[],
+        },
+    )
+    .expect_err("a referenced day group must not silently apply unscheduled");
+    assert!(matches!(
+        error,
+        ApplyGateError::MissingShootingDayGroup(ref key) if key == "day:1"
+    ));
+}
+
+#[test]
+fn plan_defaults_rows_without_day_metadata_to_unscheduled() {
+    let preview = preview_with_day(None);
+    let plan = plan_scene_apply(
+        &preview,
+        &[create_mapping()],
+        EpisodeId::new(),
+        None,
+        AiImportJobId(Uuid::now_v7()),
+        &ReviewerDecisions {
+            episode_groups: &[],
+            shooting_days: &[],
+            acknowledged_uncertainties: &[],
+        },
+    )
+    .expect("plan");
+    assert_eq!(plan.scenes[0].shooting_day, PlannedShootingDay::None);
+}

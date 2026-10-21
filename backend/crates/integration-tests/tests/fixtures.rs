@@ -54,6 +54,16 @@ use tempfile::NamedTempFile;
 
 /// Starts an ephemeral Postgres container and returns a configured pool.
 pub async fn spawn_postgres() -> Result<(PgPool, ContainerAsync<PostgresImage>)> {
+    spawn_postgres_with_connections(5).await
+}
+
+/// `spawn_postgres` with a caller-chosen connection ceiling. Multi-projector
+/// round trips (e.g. the issue #706 shooting-day test: scene + shooting-day +
+/// scene-shoot projectors, 2 workers each, plus the command-side gate) exceed
+/// the 5-connection default while events are in flight.
+pub async fn spawn_postgres_with_connections(
+    max_connections: u32,
+) -> Result<(PgPool, ContainerAsync<PostgresImage>)> {
     let request = build_postgres_container_request();
     let container = request.start().await?;
 
@@ -62,7 +72,7 @@ pub async fn spawn_postgres() -> Result<(PgPool, ContainerAsync<PostgresImage>)>
     let url = format!("postgres://postgres:postgres@{host}:{port}/postgres");
 
     let pool = sqlx::postgres::PgPoolOptions::new()
-        .max_connections(5)
+        .max_connections(max_connections)
         .connect(&url)
         .await?;
 

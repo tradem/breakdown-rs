@@ -30,6 +30,12 @@ pub struct SceneChunk {
     /// `Ep.:` marker scan (issue #581). `None` for a script without markers —
     /// the row then applies to the explicitly picked target episode.
     pub episode: Option<DraftEpisode>,
+    /// The shooting day in effect at this chunk's heading, from the
+    /// deterministic day-marker scan (issue #706). `None` for a script
+    /// without markers — the row then stays unscheduled unless the model's
+    /// grounded `script_day` normalizes into a day group.
+    #[serde(default)]
+    pub shooting_day: Option<DraftShootingDay>,
     pub text: String,
 }
 
@@ -85,6 +91,220 @@ impl DraftEpisode {
             _ => None,
         }
     }
+}
+
+/// One shooting day of the source script, as the deterministic marker scan
+/// (and, as a fallback, the LLM's grounded `script_day`) read it out of the
+/// document (issue #706). Production scripts repeat day columns in the scene
+/// index (`Tag 1`, `1. Spieltag` — the 294.pdf SCRIPT-REPORT format). Metadata
+/// only: it groups preview rows for the reviewer and names the day an apply
+/// may create; it never resolves an aggregate id (that is the reviewer's
+/// per-group decision).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct DraftShootingDay {
+    /// The day number the marker carried, e.g. `1` for `Tag 1` — the
+    /// normalized identity that groups scenes filmed on the same day
+    /// regardless of the marker's spelling.
+    pub number: Option<i32>,
+    /// The marker's verbatim text (or, for the LLM fallback, the model's
+    /// `script_day` as written) — display-only. First occurrence wins.
+    pub label: Option<String>,
+}
+
+impl DraftShootingDay {
+    /// The preview-wide key that groups rows of the same shooting day. The
+    /// number is the identity a marker carries; a day the model reported
+    /// without a parseable number groups by its verbatim label. A day with
+    /// neither cannot be grouped — its rows apply unscheduled.
+    #[must_use]
+    pub fn group_key(&self) -> Option<String> {
+        if let Some(number) = self.number {
+            return Some(format!("day:{number}"));
+        }
+        match self.label.as_deref() {
+            Some(label) if !label.trim().is_empty() => Some(format!("day-l:{}", label.trim())),
+            _ => None,
+        }
+    }
+
+    /// The compact reviewer-facing label: the verbatim marker text when one
+    /// was captured, else the synthesized `"Tag {number}"` — a day with
+    /// neither cannot be surfaced.
+    #[must_use]
+    pub fn display_label(&self) -> Option<String> {
+        if let Some(label) = self
+            .label
+            .as_deref()
+            .map(str::trim)
+            .filter(|label| !label.is_empty())
+        {
+            return Some(label.to_owned());
+        }
+        self.number.map(|number| format!("Tag {number}"))
+    }
+}
+
+/// Normalize a model-reported `script_day` into a [`DraftShootingDay`]
+/// (issue #706 post-extraction guard).
+///
+/// The deterministic scan is authoritative; this fallback only runs when a
+/// chunk carried no marker. A label the marker parser reads a number out of
+/// (`"Tag 1"`) normalizes onto the same group key the scan would have
+/// produced — the two sources cannot disagree about identity. An unparseable
+/// label (`"Drehwoche 2"`) still groups by its verbatim text, exactly like
+/// character names group verbatim; `None` (blank) stays unscheduled — never
+/// invented.
+#[must_use]
+pub fn parse_script_day(label: &str) -> Option<DraftShootingDay> {
+    if let Some(day) = day_marker(label) {
+        return Some(day);
+    }
+    let label = label.trim();
+    if label.is_empty() {
+        return None;
+    }
+    Some(DraftShootingDay {
+        number: None,
+        label: Some(label.to_owned()),
+    })
+}
+
+/// Whether `chars[start..]` begins with `keyword`, ASCII-case-insensitively.
+fn keyword_at(chars: &[char], start: usize, keyword: &str) -> bool {
+    let kw: Vec<char> = keyword.chars().collect();
+    start + kw.len() <= chars.len()
+        && chars[start..start + kw.len()]
+            .iter()
+            .zip(kw.iter())
+            .all(|(a, b)| a.to_lowercase().eq(b.to_lowercase()))
+}
+
+/// Read one shooting-day marker out of a line (issue #706).
+///
+/// Detected forms: `Tag 1` / `Day 1` (a day word followed by 1-3 digits),
+/// `Spieltag 1` / `Drehtag 1` (a compound day word followed by digits), and
+/// `1. Spieltag` (digits, an optional dot, then the compound word). Detection
+/// runs on the same normalized copy as the scene-heading detector (invisible
+/// Word→PDF look-alikes folded to ASCII) and is ASCII-case-insensitive so
+/// uppercase page headers (`TAG 1`) read the same as scene-index columns
+/// (`Tag 1`).
+///
+/// The day word must be a whole token: the character before it must not be
+/// alphanumeric, so a weekday (`Montag 12`, `Freitag`) or any other word
+/// ending in `-tag` never parses as shooting day 12. `Spieltag`/`Drehtag`
+/// are tried BEFORE the bare `Tag` word for the same reason — their trailing
+/// `tag` is token-internal. A bare `TAG` as the German time-of-day in a
+/// heading carries no digits and therefore never matches.
+fn day_marker(line: &str) -> Option<DraftShootingDay> {
+    let normalized = normalize_for_heading_detection(line);
+    let chars: Vec<char> = normalized.chars().collect();
+    // The compound words first: their `tag` suffix must not be re-matched by
+    // the bare-day scan below.
+    for (compound, display) in [("spieltag", "Spieltag"), ("drehtag", "Drehtag")] {
+        let kw_len = compound.chars().count();
+        let mut start = 0usize;
+        while let Some(found) = find_keyword(&chars, start, compound) {
+            start = found + 1;
+            // Whole-token check on the left edge.
+            if found > 0 && chars[found - 1].is_alphanumeric() {
+                continue;
+            }
+            // `N. Spieltag` — digits, an optional dot and spaces before the word.
+            if let Some(day) = digits_before(&chars, found) {
+                return Some(DraftShootingDay {
+                    number: Some(day),
+                    label: Some(format!("{day}. {display}")),
+                });
+            }
+            // `Spieltag 1` — digits after the word.
+            if let Some(day) = digits_after(&chars, found + kw_len) {
+                return Some(DraftShootingDay {
+                    number: Some(day),
+                    label: Some(format!("{display} {day}")),
+                });
+            }
+        }
+    }
+    // Bare day word: `Tag 1` / `Day 1`.
+    for bare in ["tag", "day"] {
+        let kw_len = bare.chars().count();
+        let mut start = 0usize;
+        while let Some(found) = find_keyword(&chars, start, bare) {
+            start = found + 1;
+            if found > 0 && chars[found - 1].is_alphanumeric() {
+                continue;
+            }
+            if let Some(day) = digits_after(&chars, found + kw_len) {
+                return Some(DraftShootingDay {
+                    number: Some(day),
+                    label: Some(if bare == "day" {
+                        format!("Day {day}")
+                    } else {
+                        format!("Tag {day}")
+                    }),
+                });
+            }
+        }
+    }
+    None
+}
+
+/// Next char index at which `keyword` occurs in `chars`, searching from `from`.
+fn find_keyword(chars: &[char], from: usize, keyword: &str) -> Option<usize> {
+    (from..chars.len()).find(|&i| keyword_at(chars, i, keyword))
+}
+
+/// Read 1-3 digits (and the spaces before them) walking BACKWARD from a
+/// compound day word, tolerating one trailing dot (`1. Spieltag`). Returns
+/// the parsed day number, or `None` when no digit run sits directly before
+/// the word.
+fn digits_before(chars: &[char], word_start: usize) -> Option<i32> {
+    let mut i = word_start;
+    // Tolerate one dot directly attached to the digits (`1. Spieltag`) —
+    // but a dot followed by more letters is prose (`Nr. 2 Spieltag` is
+    // still fine; only the dot-digit gap matters).
+    while i > 0 && chars[i - 1].is_whitespace() {
+        i -= 1;
+    }
+    if i > 0 && chars[i - 1] == '.' {
+        i -= 1;
+    }
+    while i > 0 && chars[i - 1].is_whitespace() {
+        i -= 1;
+    }
+    let digit_end = i;
+    while i > 0 && chars[i - 1].is_ascii_digit() {
+        i -= 1;
+    }
+    let digits: String = chars[i..digit_end].iter().collect();
+    if digits.is_empty() || digits.len() > 3 {
+        return None;
+    }
+    let number = digits.parse::<i32>().ok()?;
+    // The digit run's own left edge must be a token start too: `12.1.
+    // Spieltag`'s trailing `1` is part of an ordinal, not a day number.
+    if i > 0 && (chars[i - 1].is_alphanumeric() || chars[i - 1] == '.') {
+        return None;
+    }
+    Some(number)
+}
+
+/// Read 1-3 digits after `from`, skipping spaces. Returns the parsed day
+/// number, or `None`.
+fn digits_after(chars: &[char], from: usize) -> Option<i32> {
+    let mut i = from;
+    while i < chars.len() && chars[i].is_whitespace() {
+        i += 1;
+    }
+    let digit_start = i;
+    while i < chars.len() && chars[i].is_ascii_digit() {
+        i += 1;
+    }
+    let digits: String = chars[digit_start..i].iter().collect();
+    if digits.is_empty() || digits.len() > 3 {
+        return None;
+    }
+    digits.parse::<i32>().ok()
 }
 
 /// Read one `Ep.: 3 (Titel)` / `Ep: 3 (Titel)` marker out of a line.
@@ -222,6 +442,27 @@ pub fn episode_group_refs(preview: &ScriptContext) -> Vec<String> {
     refs
 }
 
+/// The distinct shooting-day group references of a preview, in first-seen
+/// order (issue #706). Mirrors [`episode_group_refs`]: the apply endpoint
+/// validates the request's per-day decisions against this list — a group the
+/// preview does not carry is a client bug, not a domain refusal.
+#[must_use]
+pub fn shooting_day_group_refs(preview: &ScriptContext) -> Vec<String> {
+    let mut refs: Vec<String> = Vec::new();
+    for day in preview
+        .scenes
+        .iter()
+        .filter_map(|scene| scene.shooting_day.as_ref())
+    {
+        if let Some(key) = day.group_key()
+            && !refs.contains(&key)
+        {
+            refs.push(key);
+        }
+    }
+    refs
+}
+
 /// Static LLM target for script extraction. Optional fields express the
 /// null-on-doubt rule: uncertain values must not be asserted by the model.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, ToSchema)]
@@ -331,6 +572,13 @@ pub struct DraftScene {
     /// `None` applies the row to the explicitly picked target episode.
     #[serde(default)]
     pub episode: Option<DraftEpisode>,
+    /// The shooting day this row was extracted for (issue #706). Additive on
+    /// the wire with a default so previews stored before this field existed
+    /// still load; `None` leaves the row unscheduled. The deterministic day
+    /// scan is authoritative; the model's verbatim `script_day` normalizes
+    /// into this field only when the scan found no marker for the chunk.
+    #[serde(default)]
+    pub shooting_day: Option<DraftShootingDay>,
 }
 
 /// A dropped costume and why it was dropped, surfaced as an `Uncertainty` so
@@ -794,6 +1042,35 @@ pub struct EpisodeGroupPlan {
     pub target: EpisodeTarget,
 }
 
+/// The reviewer's decision for ONE shooting-day group of a preview
+/// (issue #706): create the day and schedule the group's rows onto it
+/// (`accepted`), or leave every row of the group unscheduled. The day is
+/// created episode-scoped on each row's resolved episode; its id is derived
+/// deterministically from the group ref, so a re-apply converges.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct ShootingDayPlan {
+    /// The group ref the preview carries on each row (`day:<n>` /
+    /// `day-l:<label>`, [`DraftShootingDay::group_key`]).
+    pub day_ref: String,
+    pub accepted: bool,
+}
+
+/// The shooting-day assignment one planned row carries, resolved by the
+/// planner. `Group` is dispatched by the apply worker against the accepted
+/// day group's mapping row; `None` covers rows without day metadata, groups
+/// the reviewer rejected, and ungroupable labels — those rows apply
+/// unscheduled (never invented). `label` is the group's display label
+/// ([`DraftShootingDay::display_label`]) — the verbatim first occurrence —
+/// carried so the worker never re-derives it from the preview.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PlannedShootingDay {
+    None,
+    Group {
+        day_ref: String,
+        label: Option<String>,
+    },
+}
+
 /// The episode one planned row applies to, resolved by the planner.
 ///
 /// `Existing` covers both the explicit default target and a group mapped to
@@ -865,6 +1142,9 @@ pub struct SceneApplyPlan {
     /// targets (issue #581). Rows without draft episode metadata — and groups
     /// the reviewer mapped to an existing episode — resolve to `Existing`.
     pub episode: PlannedEpisode,
+    /// The shooting-day assignment resolved from the request's day decisions
+    /// (issue #706). `None` rows apply unscheduled.
+    pub shooting_day: PlannedShootingDay,
     pub scene: SceneApplyCommand,
     pub characters: Vec<CharacterApplyPlan>,
     pub costumes: Vec<CostumeApplyPlan>,
@@ -935,6 +1215,12 @@ pub enum ApplyGateError {
     /// can point at the stale group instead of failing the whole apply.
     #[error("no episode group {0} in the preview")]
     MissingEpisodeGroup(String),
+    /// The request carried no day decision for a day group the preview
+    /// references (issue #706). Same client-bug class as
+    /// [`ApplyGateError::MissingEpisodeGroup`]: the reviewer never sees a
+    /// default invented behind their back.
+    #[error("no shooting day group {0} in the preview")]
+    MissingShootingDayGroup(String),
 }
 
 pub fn ensure_script_applyable(
@@ -1072,15 +1358,32 @@ pub fn draft_row_ref(draft: &DraftScene, index: usize) -> String {
     }
 }
 
+/// The reviewer's request-side plan inputs — bundled so `plan_scene_apply`
+/// stays under the `too_many_arguments` lint (an `#[allow]` would violate
+/// AGENTS.md §3, cf. `ReservedSceneDraft`).
+#[derive(Debug, Clone, Copy, Default)]
+pub struct ReviewerDecisions<'a> {
+    /// Per-episode-group targets (issue #581).
+    pub episode_groups: &'a [EpisodeGroupPlan],
+    /// Per-shooting-day-group decisions (issue #706).
+    pub shooting_days: &'a [ShootingDayPlan],
+    /// Acknowledged blocking uncertainties (issue #663).
+    pub acknowledged_uncertainties: &'a [UncertaintyAcknowledgement],
+}
+
 pub fn plan_scene_apply(
     preview: &ScriptContext,
     mappings: &[ApplyMapping],
     episode_id: EpisodeId,
     project_id: Option<ProjectId>,
     preview_id: AiImportJobId,
-    episode_groups: &[EpisodeGroupPlan],
-    acknowledged: &[UncertaintyAcknowledgement],
+    decisions: &ReviewerDecisions<'_>,
 ) -> Result<ScriptApplyPlan, ApplyGateError> {
+    let ReviewerDecisions {
+        episode_groups,
+        shooting_days,
+        acknowledged_uncertainties: acknowledged,
+    } = *decisions;
     ensure_script_applyable(preview, acknowledged)?;
     let mut plan = ScriptApplyPlan::default();
 
@@ -1116,6 +1419,34 @@ pub fn plan_scene_apply(
             })
             .transpose()?
             .unwrap_or(PlannedEpisode::Existing(episode_id));
+        // A row with day metadata is resolved against the request's day
+        // decisions; a group the request forgot is a client bug, not a
+        // default (mirrors the episode-group rule above). Everything else —
+        // no metadata, ungroupable metadata, and every rejected group —
+        // applies unscheduled (issue #706).
+        let shooting_day = draft
+            .shooting_day
+            .as_ref()
+            .and_then(DraftShootingDay::group_key)
+            .map(|day_ref| {
+                let plan = shooting_days
+                    .iter()
+                    .find(|plan| plan.day_ref == day_ref)
+                    .ok_or_else(|| ApplyGateError::MissingShootingDayGroup(day_ref.clone()))?;
+                if plan.accepted {
+                    Ok(PlannedShootingDay::Group {
+                        day_ref,
+                        label: draft
+                            .shooting_day
+                            .as_ref()
+                            .and_then(DraftShootingDay::display_label),
+                    })
+                } else {
+                    Ok(PlannedShootingDay::None)
+                }
+            })
+            .transpose()?
+            .unwrap_or(PlannedShootingDay::None);
         let details = draft.scene_details();
         let scene = match mapping.decision {
             ApplyMappingDecision::Create => SceneApplyCommand::Create(CreateScene {
@@ -1217,6 +1548,7 @@ pub fn plan_scene_apply(
         plan.scenes.push(SceneApplyPlan {
             draft_ref,
             episode,
+            shooting_day,
             scene,
             characters,
             costumes,
@@ -1353,6 +1685,11 @@ pub fn extract_scenes(document: &str) -> Vec<SceneChunk> {
     // so far (page headers repeat it, which is harmless — same value). A chunk
     // stamps the episode that was in effect at its heading line (issue #581).
     let mut current_episode: Option<DraftEpisode> = None;
+    // The shooting day in effect at the current line: the last day marker
+    // seen so far (issue #706). Day columns repeat across a day's pages,
+    // which is harmless — same group. The FIRST occurrence's label wins, so
+    // a repeated `Tag 1` never rewrites the reviewer-facing label.
+    let mut current_day: Option<DraftShootingDay> = None;
     // Episode titles from the title page (`(294) "Freundschaft"`): the `Ep.:`
     // page-header markers carry a bare number, but the reviewer expects the
     // episode HEADING to flow into the created episode. Collected in a FIRST
@@ -1375,6 +1712,13 @@ pub fn extract_scenes(document: &str) -> Vec<SceneChunk> {
             }
             current_episode = Some(episode);
         }
+        if let Some(day) = day_marker(trimmed) {
+            // First occurrence's label wins: a repeated `Tag 1` (page
+            // headers) never rewrites the reviewer-facing label.
+            if current_day.as_ref().and_then(DraftShootingDay::group_key) != day.group_key() {
+                current_day = Some(day);
+            }
+        }
         if is_scene_heading(trimmed) {
             let scene_number = leading_scene_number(&normalize_for_heading_detection(trimmed));
             chunks.push(SceneChunk {
@@ -1382,6 +1726,7 @@ pub fn extract_scenes(document: &str) -> Vec<SceneChunk> {
                 heading: trimmed.to_owned(),
                 scene_number,
                 episode: current_episode.clone(),
+                shooting_day: current_day.clone(),
                 text: String::new(),
             });
         } else if let Some(current) = chunks.last_mut() {
@@ -1469,6 +1814,9 @@ fn merge_duplicate_scene_numbers(chunks: Vec<SceneChunk>) -> Vec<SceneChunk> {
                 existing.text = union.join("\n");
                 if existing.episode.is_none() {
                     existing.episode = chunk.episode;
+                }
+                if existing.shooting_day.is_none() {
+                    existing.shooting_day = chunk.shooting_day;
                 }
             }
             None => {

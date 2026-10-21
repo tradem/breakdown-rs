@@ -66,6 +66,8 @@ fn row(characters: Vec<CharacterApplyPlan>, costumes: Vec<CostumeApplyPlan>) -> 
         }),
         // Beat lanes are episode-agnostic; the fixture uses the default target.
         episode: breakdown_core::ai::PlannedEpisode::Existing(EpisodeId::new()),
+        // Beat lanes are day-agnostic; the fixture carries no day assignment.
+        shooting_day: breakdown_core::ai::PlannedShootingDay::None,
         characters,
         costumes,
     }

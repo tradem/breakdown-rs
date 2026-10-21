@@ -6,6 +6,7 @@
 
 // ignore_for_file: unused_element
 import 'package:breakdown_api/src/model/draft_episode.dart';
+import 'package:breakdown_api/src/model/draft_shooting_day.dart';
 import 'package:built_collection/built_collection.dart';
 import 'package:breakdown_api/src/model/draft_costume.dart';
 import 'package:breakdown_api/src/model/draft_character.dart';
@@ -25,6 +26,7 @@ part 'draft_scene.g.dart';
 /// * [mood]
 /// * [sceneNumber]
 /// * [scriptDay]
+/// * [shootingDay] - The shooting day this row was extracted for (issue #706). Additive on the wire with a default so previews stored before this field existed still load; `None` leaves the row unscheduled. The deterministic day scan is authoritative; the model's verbatim `script_day` normalizes into this field only when the scan found no marker for the chunk.
 /// * [summary]
 @BuiltValue()
 abstract class DraftScene implements Built<DraftScene, DraftSceneBuilder> {
@@ -54,6 +56,10 @@ abstract class DraftScene implements Built<DraftScene, DraftSceneBuilder> {
 
   @BuiltValueField(wireName: r'script_day')
   String? get scriptDay;
+
+  /// The shooting day this row was extracted for (issue #706). Additive on the wire with a default so previews stored before this field existed still load; `None` leaves the row unscheduled. The deterministic day scan is authoritative; the model's verbatim `script_day` normalizes into this field only when the scan found no marker for the chunk.
+  @BuiltValueField(wireName: r'shooting_day')
+  DraftShootingDay? get shootingDay;
 
   @BuiltValueField(wireName: r'summary')
   String? get summary;
@@ -133,6 +139,13 @@ class _$DraftSceneSerializer implements PrimitiveSerializer<DraftScene> {
       yield serializers.serialize(
         object.scriptDay,
         specifiedType: const FullType.nullable(String),
+      );
+    }
+    if (object.shootingDay != null) {
+      yield r'shooting_day';
+      yield serializers.serialize(
+        object.shootingDay,
+        specifiedType: const FullType.nullable(DraftShootingDay),
       );
     }
     if (object.summary != null) {
@@ -231,6 +244,14 @@ class _$DraftSceneSerializer implements PrimitiveSerializer<DraftScene> {
           ) as String?;
           if (valueDes == null) continue;
           result.scriptDay = valueDes;
+          break;
+        case r'shooting_day':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType.nullable(DraftShootingDay),
+          ) as DraftShootingDay?;
+          if (valueDes == null) continue;
+          result.shootingDay.replace(valueDes);
           break;
         case r'summary':
           final valueDes = serializers.deserialize(

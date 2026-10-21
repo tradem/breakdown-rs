@@ -20,6 +20,8 @@ class _$ApplyAiImportRequest extends ApplyAiImportRequest {
   @override
   final String? projectId;
   @override
+  final BuiltList<ApplyShootingDayRequest>? shootingDays;
+  @override
   final BuiltList<UncertaintyAcknowledgement>? uncertaintyAcknowledgements;
 
   factory _$ApplyAiImportRequest(
@@ -33,6 +35,7 @@ class _$ApplyAiImportRequest extends ApplyAiImportRequest {
       required this.episodeId,
       required this.mappings,
       this.projectId,
+      this.shootingDays,
       this.uncertaintyAcknowledgements})
       : super._();
   @override
@@ -54,6 +57,7 @@ class _$ApplyAiImportRequest extends ApplyAiImportRequest {
         episodeId == other.episodeId &&
         mappings == other.mappings &&
         projectId == other.projectId &&
+        shootingDays == other.shootingDays &&
         uncertaintyAcknowledgements == other.uncertaintyAcknowledgements;
   }
 
@@ -66,6 +70,7 @@ class _$ApplyAiImportRequest extends ApplyAiImportRequest {
     _$hash = $jc(_$hash, episodeId.hashCode);
     _$hash = $jc(_$hash, mappings.hashCode);
     _$hash = $jc(_$hash, projectId.hashCode);
+    _$hash = $jc(_$hash, shootingDays.hashCode);
     _$hash = $jc(_$hash, uncertaintyAcknowledgements.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
@@ -80,6 +85,7 @@ class _$ApplyAiImportRequest extends ApplyAiImportRequest {
           ..add('episodeId', episodeId)
           ..add('mappings', mappings)
           ..add('projectId', projectId)
+          ..add('shootingDays', shootingDays)
           ..add('uncertaintyAcknowledgements', uncertaintyAcknowledgements))
         .toString();
   }
@@ -117,6 +123,12 @@ class ApplyAiImportRequestBuilder
   String? get projectId => _$this._projectId;
   set projectId(String? projectId) => _$this._projectId = projectId;
 
+  ListBuilder<ApplyShootingDayRequest>? _shootingDays;
+  ListBuilder<ApplyShootingDayRequest> get shootingDays =>
+      _$this._shootingDays ??= ListBuilder<ApplyShootingDayRequest>();
+  set shootingDays(ListBuilder<ApplyShootingDayRequest>? shootingDays) =>
+      _$this._shootingDays = shootingDays;
+
   ListBuilder<UncertaintyAcknowledgement>? _uncertaintyAcknowledgements;
   ListBuilder<UncertaintyAcknowledgement> get uncertaintyAcknowledgements =>
       _$this._uncertaintyAcknowledgements ??=
@@ -139,6 +151,7 @@ class ApplyAiImportRequestBuilder
       _episodeId = $v.episodeId;
       _mappings = $v.mappings.toBuilder();
       _projectId = $v.projectId;
+      _shootingDays = $v.shootingDays?.toBuilder();
       _uncertaintyAcknowledgements =
           $v.uncertaintyAcknowledgements?.toBuilder();
       _$v = null;
@@ -173,6 +186,7 @@ class ApplyAiImportRequestBuilder
                 episodeId, r'ApplyAiImportRequest', 'episodeId'),
             mappings: mappings.build(),
             projectId: projectId,
+            shootingDays: _shootingDays?.build(),
             uncertaintyAcknowledgements: _uncertaintyAcknowledgements?.build(),
           );
     } catch (_) {
@@ -184,6 +198,8 @@ class ApplyAiImportRequestBuilder
         _$failedField = 'mappings';
         mappings.build();
 
+        _$failedField = 'shootingDays';
+        _shootingDays?.build();
         _$failedField = 'uncertaintyAcknowledgements';
         _uncertaintyAcknowledgements?.build();
       } catch (e) {

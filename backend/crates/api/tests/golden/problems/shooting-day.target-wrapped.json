@@ -1,0 +1,10 @@
+{
+  "code": "shooting-day.target-wrapped",
+  "detail": "Der Zieltag ist bereits abgeschlossen (wrapped). Ein geplanter Drehtag kann nicht auf einen abgeschlossenen Tag verschmolzen werden.",
+  "extensions": {
+    "shooting_day_id": "00000000-0000-0000-0000-000000000001"
+  },
+  "status": 409,
+  "title": "Target shooting day is wrapped",
+  "type": "https://docs.breakdown.example/problems/shooting-day.target-wrapped"
+}

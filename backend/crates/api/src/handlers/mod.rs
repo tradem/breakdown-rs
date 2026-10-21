@@ -39,9 +39,10 @@ use breakdown_core::ai::{
     AiImportEnqueueResult, AiImportJobId, AiImportPreviewResponse, AiImportQueue,
     AiModelPricingRepository as _, AiPreviewPayload, ApplyGateError, ApplyMapping,
     CostDisplayPreference, CreateAiConfig, DocumentKind, EpisodeGroupPlan, EpisodeTarget,
-    LlmProvider, MergedPreview, ModelInfo, RevokeAiConfig, ScriptContext, ShootingSchedule,
-    SourceFormat, Telemetry, TelemetryApplyState, Uncertainty, UncertaintyAcknowledgement,
-    UpdateAiConfig, ensure_script_applyable, episode_group_refs,
+    LlmProvider, MergedPreview, ModelInfo, RevokeAiConfig, ScriptContext, ShootingDayPlan,
+    ShootingSchedule, SourceFormat, Telemetry, TelemetryApplyState, Uncertainty,
+    UncertaintyAcknowledgement, UpdateAiConfig, ensure_script_applyable, episode_group_refs,
+    shooting_day_group_refs,
 };
 use breakdown_core::audit::{AuditEntry, AuditRepository};
 use breakdown_core::block::commands::{CreateBlock, UpdateBlockTimeSpan};
@@ -74,7 +75,7 @@ use breakdown_core::error::DomainError;
 use breakdown_core::error_registry::{
     BLOCK_NUMBER_ALREADY_EXISTS, COSTUME_CATEGORY_ARCHIVED, COSTUME_CONTAINER_UNRESOLVED,
     MEMBERSHIP_NOT_FOUND, SCENE_SHOOT_PAIR_ALREADY_EXISTS, SEASON_ARCHIVED, SEASON_NOT_FOUND,
-    SEASON_NUMBER_ALREADY_EXISTS,
+    SEASON_NUMBER_ALREADY_EXISTS, SHOOTING_DAY_EPISODE_MISMATCH,
 };
 use breakdown_core::membership::policy::{Action, PolicyDecision, SeasonAuthContext};
 use breakdown_core::membership::views::MembershipView;
@@ -2199,6 +2200,179 @@ pub async fn unschedule_scene_from_shooting_day<P: Ports>(
         .unschedule_from_shooting_day(current_user.sub.clone(), cmd)
         .await?;
     Ok((StatusCode::OK, Json(version)))
+}
+
+/// The result of one shooting-day link (issue #706): how many scene links
+/// moved onto the target day and how many `scene_shoot` pairs were planned
+/// there. A pair already existing on the target is not counted again.
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct LinkShootingDayResponse {
+    pub linked_scenes: u32,
+    pub planned_scene_shoots: u32,
+}
+
+/// Merge a script-derived *planned* shooting day into an *actual* day
+/// (issue #706, decision b): every scene linked to the source day is
+/// re-pointed onto the target day, every `scene_shoot` pair of the source day
+/// is re-planned on the target with its `planned_order` preserved, and the
+/// source day is archived (terminal, its number/links stay historical).
+///
+/// Hard rules honored here:
+/// - **CQRS boundary:** the projection reads below happen at the API edge —
+///   the only legitimate read-model consumer; every write dispatches a
+///   normal command.
+/// - **Wrap finality (#376/#706):** a wrapped target day refuses the merge
+///   with `409 shooting-day.target-wrapped` — a planned day is never merged
+///   onto a finalised day.
+/// - **Episode scope:** days are episode-scoped; a cross-episode merge is a
+///   `409 shooting-day.episode-mismatch`.
+///
+/// Every step is state-idempotent, so a retry after a partial run converges:
+/// an already-linked scene re-links as a no-op, an existing target pair is
+/// skipped, and an archived source skips the archive.
+#[utoipa::path(
+    post,
+    path = "/shooting-days/{id}/link-into/{target_id}",
+    params(
+        ("id" = ShootingDayId, Path, description = "Source (planned) shooting day id"),
+        ("target_id" = ShootingDayId, Path, description = "Target (actual) shooting day id")
+    ),
+    responses(
+        (status = 200, body = LinkShootingDayResponse),
+        (status = 404, body = ProblemDetails, description = "Source or target day not found"),
+        (status = 409, body = ProblemDetails, description = "Target wrapped or episode mismatch"),
+    ),
+)]
+pub async fn link_shooting_day_into<P: Ports>(
+    State(state): State<AppState<P>>,
+    current_user: CurrentUser,
+    Path((id, target_id)): Path<(ShootingDayId, ShootingDayId)>,
+) -> ApiResult<LinkShootingDayResponse> {
+    let source = state.ports.shooting_day_repo().find_by_id(id).await?;
+    let target = state
+        .ports
+        .shooting_day_repo()
+        .find_by_id(target_id)
+        .await?;
+    if source.episode_id != target.episode_id {
+        return Err(ApiError::Domain(DomainError::Conflict {
+            code: &SHOOTING_DAY_EPISODE_MISMATCH,
+            reason: format!(
+                "shooting day {} belongs to episode {:?}, target {} to {:?}",
+                id.0, source.episode_id, target_id.0, target.episode_id
+            ),
+        }));
+    }
+    // Wrap finality: never merge a planned day onto a finalised day.
+    if target.wrapped_at.is_some() {
+        return Err(ApiError::Domain(DomainError::ShootingDayWrapped {
+            shooting_day_id: target_id.0,
+        }));
+    }
+    let project_id = Some(project_id_for_shooting_day(&state, target_id).await?);
+
+    // Re-point the scene links: schedule onto the target FIRST, then
+    // unschedule from the source — a crash between the two leaves the scene
+    // linked to both days (the retry unschedules), never to none.
+    let mut linked_scenes = 0u32;
+    for scene in state
+        .ports
+        .shooting_day_repo()
+        .scenes_by_shooting_day(id)
+        .await?
+    {
+        let version = state
+            .ports
+            .scene_commands()
+            .schedule_on_shooting_day(
+                current_user.sub.clone(),
+                ScheduleSceneOnShootingDay {
+                    id: scene.id,
+                    shooting_day_id: target_id,
+                    project_id,
+                    version: scene.version,
+                },
+            )
+            .await?;
+        state
+            .ports
+            .scene_commands()
+            .unschedule_from_shooting_day(
+                current_user.sub.clone(),
+                UnscheduleSceneFromShootingDay {
+                    id: scene.id,
+                    shooting_day_id: id,
+                    project_id,
+                    version,
+                },
+            )
+            .await?;
+        linked_scenes += 1;
+    }
+
+    // Re-plan the scene_shoot pairs on the target, preserving the source
+    // pair's planned order (Soll). A pair that already exists on the target
+    // is skipped — pair-uniqueness stays authoritative, the read is advisory.
+    let mut planned_scene_shoots = 0u32;
+    for shoot in state
+        .ports
+        .scene_shoot_repo()
+        .list_by_shooting_day(id)
+        .await?
+    {
+        if state
+            .ports
+            .scene_shoot_repo()
+            .find_by_scene_and_day(shoot.scene_id, target_id)
+            .await
+            .is_ok()
+        {
+            continue;
+        }
+        state
+            .ports
+            .scene_shoot_commands()
+            .plan(
+                current_user.sub.clone(),
+                PlanSceneShoot {
+                    // A new pair is a new aggregate: a plain UUIDv7 (the
+                    // manual-command rule — the AI-apply derive_id exception
+                    // does not apply here).
+                    id: SceneShootId::from_uuid(Uuid::now_v7()),
+                    scene_id: shoot.scene_id,
+                    shooting_day_id: target_id,
+                    project_id,
+                    planned_order: shoot.planned_order,
+                },
+            )
+            .await?;
+        planned_scene_shoots += 1;
+    }
+
+    // Archive the source day last: terminal, and skipped on a retry that
+    // already archived it.
+    if !source.archived {
+        state
+            .ports
+            .shooting_day_commands()
+            .archive(
+                current_user.sub.clone(),
+                ArchiveShootingDay {
+                    id,
+                    project_id,
+                    version: source.version,
+                },
+            )
+            .await?;
+    }
+
+    Ok((
+        StatusCode::OK,
+        Json(LinkShootingDayResponse {
+            linked_scenes,
+            planned_scene_shoots,
+        }),
+    ))
 }
 
 // ---------------------------------------------------------------------------
@@ -6381,6 +6555,15 @@ pub struct ApplyAiImportRequest {
     /// (#404 doctrine — the projection unique index stays authoritative).
     #[serde(default)]
     pub episode_groups: Vec<ApplyEpisodeGroupRequest>,
+    /// Per-shooting-day-group decisions (issue #706). Absent or empty → a
+    /// preview carrying day groups is still appliable for its scenes, but the
+    /// apply gate refuses while a referenced group has no decision (`409
+    /// ai-import.apply-missing-shooting-day-group` — same client-bug class
+    /// as the episode groups). Old clients omit the field (serde default =
+    /// empty), so previews stored before this change still apply when they
+    /// carry no day metadata.
+    #[serde(default)]
+    pub shooting_days: Vec<ApplyShootingDayRequest>,
     /// Reviewer acknowledgements of blocking `field_ambiguity` uncertainties
     /// (issue #663). Acknowledge semantics: the listed ambiguity is accepted
     /// as-is and its row applies as extracted (`suggested_value` is
@@ -6403,6 +6586,18 @@ pub struct ApplyEpisodeGroupRequest {
     pub target: EpisodeTarget,
 }
 
+/// One shooting-day group's reviewer decision on the wire (issue #706).
+/// `accepted` creates the day (episode-scoped, `AiExtracted` source) and
+/// schedules the group's scene rows onto it; a rejection leaves every row of
+/// the group unscheduled.
+#[derive(Debug, Clone, Deserialize, ToSchema)]
+pub struct ApplyShootingDayRequest {
+    /// The group ref the preview carries on each row (`day:<n>` /
+    /// `day-l:<label>`).
+    pub day_ref: String,
+    pub accepted: bool,
+}
+
 #[derive(Debug, Clone, Serialize, ToSchema)]
 pub struct ApplyAiImportResponse {
     pub applied_count: u32,
@@ -6417,6 +6612,11 @@ pub struct ApplyAiImportResponse {
     /// Episodes the script apply created for draft episode groups the reviewer
     /// mapped to a NEW episode (issue #581). `0` for a schedule apply.
     pub created_episodes: u32,
+    /// Day groups the reviewer rejected — their rows applied unscheduled
+    /// (issue #706). Reported so the reviewer sees the deliberate omission,
+    /// never a silent one.
+    #[serde(default)]
+    pub skipped_day_groups: Vec<String>,
     /// Costume rows that did **not** become a `Costume`, each with the reason.
     /// An apply that created a costume but could not bind it reports the row
     /// here while `created_costumes` still counts it — a partially applied row
@@ -6678,11 +6878,46 @@ pub async fn apply_ai_import<P: Ports>(
                     target: group.target.clone(),
                 })
                 .collect();
+            // Issue #706: validate the per-day decisions against the preview
+            // BEFORE dispatching — a day group the preview does not carry or a
+            // duplicate ref is a client bug (same class as the episode groups
+            // above). A missing decision is NOT defaulted here: the planner's
+            // worker gate answers the registered `409
+            // ai-import.apply-missing-shooting-day-group`.
+            let preview_day_refs = shooting_day_group_refs(&preview);
+            if request.shooting_days.len() > preview_day_refs.len() {
+                return Err(ApiError::Validation(
+                    "apply carries more shooting-day groups than the preview contains",
+                ));
+            }
+            let mut seen_day_refs = std::collections::HashSet::new();
+            for day in &request.shooting_days {
+                if !seen_day_refs.insert(day.day_ref.clone()) {
+                    return Err(ApiError::Validation(
+                        "duplicate shooting-day group in apply request",
+                    ));
+                }
+                if !preview_day_refs.contains(&day.day_ref) {
+                    return Err(ApiError::Validation(
+                        "apply decides a shooting-day group the preview does not carry",
+                    ));
+                }
+            }
+            let shooting_days: Vec<ShootingDayPlan> = request
+                .shooting_days
+                .iter()
+                .map(|day| ShootingDayPlan {
+                    day_ref: day.day_ref.clone(),
+                    accepted: day.accepted,
+                })
+                .collect();
             let worker = ApplyWorker {
                 scene_commands: Arc::new(state.ports.scene_commands().clone()),
                 character_commands: Arc::new(state.ports.character_commands().clone()),
                 costume_commands: Arc::new(state.ports.costume_commands().clone()),
                 episode_commands: Arc::new(state.ports.episode_commands().clone()),
+                shooting_day_commands: Arc::new(state.ports.shooting_day_commands().clone()),
+                scene_shoot_commands: Arc::new(state.ports.scene_shoot_commands().clone()),
                 mappings: Arc::new(state.ports.ai_import_mapping().clone()),
                 queue: Arc::new(state.ports.ai_import_queue().clone()),
             };
@@ -6699,6 +6934,7 @@ pub async fn apply_ai_import<P: Ports>(
                     // the same block the AUTHZ-GATE above tied to the job.
                     block_id: episode.block_id,
                     episode_groups,
+                    shooting_days,
                     acknowledged_uncertainties: request.uncertainty_acknowledgements.clone(),
                     telemetry: Some(telemetry),
                 })
@@ -6707,11 +6943,19 @@ pub async fn apply_ai_import<P: Ports>(
                 StatusCode::OK,
                 Json(ApplyAiImportResponse {
                     applied_count: applied.applied.len() as u32,
-                    created_days: 0,
-                    planned_scene_shoots: 0,
+                    created_days: applied.created_days,
+                    planned_scene_shoots: applied.planned_scene_shoots,
                     created_characters: applied.created_characters,
                     created_costumes: applied.created_costumes,
                     created_episodes: applied.created_episodes,
+                    // Day groups the reviewer rejected: their rows applied
+                    // unscheduled — reported, never silent (issue #706).
+                    skipped_day_groups: request
+                        .shooting_days
+                        .iter()
+                        .filter(|day| !day.accepted)
+                        .map(|day| day.day_ref.clone())
+                        .collect(),
                     unapplied_costumes: applied.unapplied_costumes,
                 }),
             ))
@@ -6759,6 +7003,8 @@ pub async fn apply_ai_import<P: Ports>(
                     created_characters: 0,
                     created_costumes: 0,
                     created_episodes: 0,
+                    // A schedule apply decides no script day groups.
+                    skipped_day_groups: Vec::new(),
                     unapplied_costumes: Vec::new(),
                 }),
             ))
@@ -7656,6 +7902,10 @@ pub fn routes() -> Router<AppState<ProductionPorts>> {
         .route(
             "/shooting-days/{id}/archive",
             routing::post(archive_shooting_day::<ProductionPorts>),
+        )
+        .route(
+            "/shooting-days/{id}/link-into/{target_id}",
+            routing::post(link_shooting_day_into::<ProductionPorts>),
         )
         .route(
             "/characters",

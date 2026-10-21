@@ -24,6 +24,8 @@ class _$DraftScene extends DraftScene {
   @override
   final String? scriptDay;
   @override
+  final DraftShootingDay? shootingDay;
+  @override
   final String? summary;
 
   factory _$DraftScene([void Function(DraftSceneBuilder)? updates]) =>
@@ -38,6 +40,7 @@ class _$DraftScene extends DraftScene {
       this.mood,
       this.sceneNumber,
       this.scriptDay,
+      this.shootingDay,
       this.summary})
       : super._();
   @override
@@ -59,6 +62,7 @@ class _$DraftScene extends DraftScene {
         mood == other.mood &&
         sceneNumber == other.sceneNumber &&
         scriptDay == other.scriptDay &&
+        shootingDay == other.shootingDay &&
         summary == other.summary;
   }
 
@@ -73,6 +77,7 @@ class _$DraftScene extends DraftScene {
     _$hash = $jc(_$hash, mood.hashCode);
     _$hash = $jc(_$hash, sceneNumber.hashCode);
     _$hash = $jc(_$hash, scriptDay.hashCode);
+    _$hash = $jc(_$hash, shootingDay.hashCode);
     _$hash = $jc(_$hash, summary.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
@@ -89,6 +94,7 @@ class _$DraftScene extends DraftScene {
           ..add('mood', mood)
           ..add('sceneNumber', sceneNumber)
           ..add('scriptDay', scriptDay)
+          ..add('shootingDay', shootingDay)
           ..add('summary', summary))
         .toString();
   }
@@ -133,6 +139,12 @@ class DraftSceneBuilder implements Builder<DraftScene, DraftSceneBuilder> {
   String? get scriptDay => _$this._scriptDay;
   set scriptDay(String? scriptDay) => _$this._scriptDay = scriptDay;
 
+  DraftShootingDayBuilder? _shootingDay;
+  DraftShootingDayBuilder get shootingDay =>
+      _$this._shootingDay ??= DraftShootingDayBuilder();
+  set shootingDay(DraftShootingDayBuilder? shootingDay) =>
+      _$this._shootingDay = shootingDay;
+
   String? _summary;
   String? get summary => _$this._summary;
   set summary(String? summary) => _$this._summary = summary;
@@ -152,6 +164,7 @@ class DraftSceneBuilder implements Builder<DraftScene, DraftSceneBuilder> {
       _mood = $v.mood;
       _sceneNumber = $v.sceneNumber;
       _scriptDay = $v.scriptDay;
+      _shootingDay = $v.shootingDay?.toBuilder();
       _summary = $v.summary;
       _$v = null;
     }
@@ -185,6 +198,7 @@ class DraftSceneBuilder implements Builder<DraftScene, DraftSceneBuilder> {
             mood: mood,
             sceneNumber: sceneNumber,
             scriptDay: scriptDay,
+            shootingDay: _shootingDay?.build(),
             summary: summary,
           );
     } catch (_) {
@@ -197,6 +211,9 @@ class DraftSceneBuilder implements Builder<DraftScene, DraftSceneBuilder> {
 
         _$failedField = 'episode';
         _episode?.build();
+
+        _$failedField = 'shootingDay';
+        _shootingDay?.build();
       } catch (e) {
         throw BuiltValueNestedFieldError(
             r'DraftScene', _$failedField, e.toString());

@@ -89,7 +89,7 @@ fn api_routes_are_behind_auth_middleware() {
     //  patterns, not method-verb pairs.)
     assert_eq!(
         api.len(),
-        97,
+        98,
         "number of API route path patterns has changed — \
          see doc comment above for update instructions"
     );
@@ -200,6 +200,13 @@ fn api_routes_have_deliberate_authorization_requirement() {
         // Shooting days
         ("/shooting-days/{id}", Requirement::BlockMember),
         ("/shooting-days/{id}/archive", Requirement::BlockMember),
+        // Link a script-derived planned day into an actual day (issue #706):
+        // the merge re-points scene links and re-plans pairs — a privileged
+        // mutation like the other day routes.
+        (
+            "/shooting-days/{id}/link-into/{target_id}",
+            Requirement::BlockMember,
+        ),
         ("/shooting-days/{id}/wrap", Requirement::BlockMember),
         // SceneShoot execution (Soll/Ist day board) — block-scoped
         (

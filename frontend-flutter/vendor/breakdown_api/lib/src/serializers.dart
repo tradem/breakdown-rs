@@ -43,6 +43,7 @@ import 'package:breakdown_api/src/model/apply_mapping.dart';
 import 'package:breakdown_api/src/model/apply_mapping_decision.dart';
 import 'package:breakdown_api/src/model/apply_mapping_decision_one_of.dart';
 import 'package:breakdown_api/src/model/apply_mapping_decision_one_of_update.dart';
+import 'package:breakdown_api/src/model/apply_shooting_day_request.dart';
 import 'package:breakdown_api/src/model/assign_character_request.dart';
 import 'package:breakdown_api/src/model/assign_costume_request.dart';
 import 'package:breakdown_api/src/model/audit_entry.dart';
@@ -82,6 +83,7 @@ import 'package:breakdown_api/src/model/draft_character.dart';
 import 'package:breakdown_api/src/model/draft_costume.dart';
 import 'package:breakdown_api/src/model/draft_episode.dart';
 import 'package:breakdown_api/src/model/draft_scene.dart';
+import 'package:breakdown_api/src/model/draft_shooting_day.dart';
 import 'package:breakdown_api/src/model/energy_cost_breakdown.dart';
 import 'package:breakdown_api/src/model/episode_target.dart';
 import 'package:breakdown_api/src/model/episode_target_one_of.dart';
@@ -100,6 +102,7 @@ import 'package:breakdown_api/src/model/invite_member_request.dart';
 import 'package:breakdown_api/src/model/job_status.dart';
 import 'package:breakdown_api/src/model/job_telemetry_summary.dart';
 import 'package:breakdown_api/src/model/link_continuity_photo_request.dart';
+import 'package:breakdown_api/src/model/link_shooting_day_response.dart';
 import 'package:breakdown_api/src/model/llm_provider.dart';
 import 'package:breakdown_api/src/model/manual_archive_job_result.dart';
 import 'package:breakdown_api/src/model/manual_archive_response.dart';
@@ -209,6 +212,7 @@ part 'serializers.g.dart';
   ApplyMappingDecision,
   ApplyMappingDecisionOneOf,
   ApplyMappingDecisionOneOfUpdate,
+  ApplyShootingDayRequest,
   AssignCharacterRequest,
   AssignCostumeRequest,
   AuditEntry,
@@ -248,6 +252,7 @@ part 'serializers.g.dart';
   DraftCostume,
   DraftEpisode,
   DraftScene,
+  DraftShootingDay,
   EnergyCostBreakdown,
   EpisodeTarget,
   EpisodeTargetOneOf,
@@ -267,6 +272,7 @@ part 'serializers.g.dart';
   JobStatus,
   JobTelemetrySummary,
   LinkContinuityPhotoRequest,
+  LinkShootingDayResponse,
   LlmProvider,
   ManualArchiveJobResult,
   ManualArchiveResponse,
@@ -426,6 +432,10 @@ Serializers serializers = (_$serializers.toBuilder()
       ..addBuilderFactory(
         const FullType(BuiltList, [FullType(MetaCreditsEntry)]),
         () => ListBuilder<MetaCreditsEntry>(),
+      )
+      ..addBuilderFactory(
+        const FullType(BuiltList, [FullType(ApplyShootingDayRequest)]),
+        () => ListBuilder<ApplyShootingDayRequest>(),
       )
       ..addBuilderFactory(
         const FullType(BuiltList, [FullType(CheckpointProgress)]),

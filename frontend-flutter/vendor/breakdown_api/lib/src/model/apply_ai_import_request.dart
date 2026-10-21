@@ -8,6 +8,7 @@
 import 'package:breakdown_api/src/model/uncertainty_acknowledgement.dart';
 import 'package:built_collection/built_collection.dart';
 import 'package:breakdown_api/src/model/apply_episode_group_request.dart';
+import 'package:breakdown_api/src/model/apply_shooting_day_request.dart';
 import 'package:breakdown_api/src/model/apply_mapping.dart';
 import 'package:built_value/built_value.dart';
 import 'package:built_value/serializer.dart';
@@ -23,6 +24,7 @@ part 'apply_ai_import_request.g.dart';
 /// * [episodeId] - Opaque identifier for an `Episode` aggregate.
 /// * [mappings]
 /// * [projectId] - Opaque identifier for a `Project` — the tenant-level production container.  `ProjectId` is an opaque UUIDv7 value type introduced by the `introduce-season-block-episode-hierarchy` change and renamed from `SeriesId` by issue #591 (ADR-035 D1/S1). The rename is **1:1**: the position, the UUIDv7 values and the tenant boundary are unchanged (ADR-035 B1) — only the production-form-specific *word* is gone, so the container no longer claims to be a TV show.  It remains a seam rather than an aggregate: every hierarchy entity (Season, Block, Episode) references it, but no `Project` aggregate exists yet. The children below it stay `Season`/`Block`/`Episode` until a second production form actually lands (ADR-035 D2/D3).  **Wire and storage spelling (issues #591 and #599).** The *type* is `#[serde(transparent)]` over `Uuid`, so a field typed `ProjectId` serializes as a bare UUID string. Issue #599 (ADR-035 S1, layer 3) renamed the projection columns and every wire-visible property/query parameter from `series_id` to `project_id`. Persisted *event payloads* deliberately keep the historical key — see the note on [`EventMetadata::project_id`].
+/// * [shootingDays] - Per-shooting-day-group decisions (issue #706). Absent or empty → a preview carrying day groups is still appliable for its scenes, but the apply gate refuses while a referenced group has no decision (`409 ai-import.apply-missing-shooting-day-group` — same client-bug class as the episode groups). Old clients omit the field (serde default = empty), so previews stored before this change still apply when they carry no day metadata.
 /// * [uncertaintyAcknowledgements] - Reviewer acknowledgements of blocking `field_ambiguity` uncertainties (issue #663). Acknowledge semantics: the listed ambiguity is accepted as-is and its row applies as extracted (`suggested_value` is display-only; correcting a wrong value happens post-apply via normal scene editing). Request-carried because a stored preview is an immutable payload blob. Every entry must reference a blocking uncertainty the preview actually carries; anything else — and any duplicate — is a validation error. Old clients omit the field (serde default = empty), so previews stored before this change still apply.
 @BuiltValue()
 abstract class ApplyAiImportRequest
@@ -47,6 +49,10 @@ abstract class ApplyAiImportRequest
   /// Opaque identifier for a `Project` — the tenant-level production container.  `ProjectId` is an opaque UUIDv7 value type introduced by the `introduce-season-block-episode-hierarchy` change and renamed from `SeriesId` by issue #591 (ADR-035 D1/S1). The rename is **1:1**: the position, the UUIDv7 values and the tenant boundary are unchanged (ADR-035 B1) — only the production-form-specific *word* is gone, so the container no longer claims to be a TV show.  It remains a seam rather than an aggregate: every hierarchy entity (Season, Block, Episode) references it, but no `Project` aggregate exists yet. The children below it stay `Season`/`Block`/`Episode` until a second production form actually lands (ADR-035 D2/D3).  **Wire and storage spelling (issues #591 and #599).** The *type* is `#[serde(transparent)]` over `Uuid`, so a field typed `ProjectId` serializes as a bare UUID string. Issue #599 (ADR-035 S1, layer 3) renamed the projection columns and every wire-visible property/query parameter from `series_id` to `project_id`. Persisted *event payloads* deliberately keep the historical key — see the note on [`EventMetadata::project_id`].
   @BuiltValueField(wireName: r'project_id')
   String? get projectId;
+
+  /// Per-shooting-day-group decisions (issue #706). Absent or empty → a preview carrying day groups is still appliable for its scenes, but the apply gate refuses while a referenced group has no decision (`409 ai-import.apply-missing-shooting-day-group` — same client-bug class as the episode groups). Old clients omit the field (serde default = empty), so previews stored before this change still apply when they carry no day metadata.
+  @BuiltValueField(wireName: r'shooting_days')
+  BuiltList<ApplyShootingDayRequest>? get shootingDays;
 
   /// Reviewer acknowledgements of blocking `field_ambiguity` uncertainties (issue #663). Acknowledge semantics: the listed ambiguity is accepted as-is and its row applies as extracted (`suggested_value` is display-only; correcting a wrong value happens post-apply via normal scene editing). Request-carried because a stored preview is an immutable payload blob. Every entry must reference a blocking uncertainty the preview actually carries; anything else — and any duplicate — is a validation error. Old clients omit the field (serde default = empty), so previews stored before this change still apply.
   @BuiltValueField(wireName: r'uncertainty_acknowledgements')
@@ -114,6 +120,14 @@ class _$ApplyAiImportRequestSerializer
       yield serializers.serialize(
         object.projectId,
         specifiedType: const FullType.nullable(String),
+      );
+    }
+    if (object.shootingDays != null) {
+      yield r'shooting_days';
+      yield serializers.serialize(
+        object.shootingDays,
+        specifiedType:
+            const FullType(BuiltList, [FullType(ApplyShootingDayRequest)]),
       );
     }
     if (object.uncertaintyAcknowledgements != null) {
@@ -193,6 +207,15 @@ class _$ApplyAiImportRequestSerializer
           ) as String?;
           if (valueDes == null) continue;
           result.projectId = valueDes;
+          break;
+        case r'shooting_days':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType.nullable(
+                BuiltList, [FullType(ApplyShootingDayRequest)]),
+          ) as BuiltList<ApplyShootingDayRequest>?;
+          if (valueDes == null) continue;
+          result.shootingDays.replace(valueDes);
           break;
         case r'uncertainty_acknowledgements':
           final valueDes = serializers.deserialize(

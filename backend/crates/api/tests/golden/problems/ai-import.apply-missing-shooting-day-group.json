@@ -1,0 +1,10 @@
+{
+  "code": "ai-import.apply-missing-shooting-day-group",
+  "detail": "Eine Drehtag-Gruppe hat keine Prüfentscheidung. Laden Sie die Vorschau neu und übernehmen Sie erneut.",
+  "extensions": {
+    "day_ref": "00000000-0000-0000-0000-000000000001"
+  },
+  "status": 409,
+  "title": "AI import apply has a shooting-day group without a decision",
+  "type": "https://docs.breakdown.example/problems/ai-import.apply-missing-shooting-day-group"
+}

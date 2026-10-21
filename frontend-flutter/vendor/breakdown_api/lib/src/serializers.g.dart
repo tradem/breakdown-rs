@@ -38,6 +38,7 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..add(ApplyMappingDecision.serializer)
       ..add(ApplyMappingDecisionOneOf.serializer)
       ..add(ApplyMappingDecisionOneOfUpdate.serializer)
+      ..add(ApplyShootingDayRequest.serializer)
       ..add(AssignCharacterRequest.serializer)
       ..add(AssignCostumeRequest.serializer)
       ..add(AuditEntry.serializer)
@@ -77,6 +78,7 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..add(DraftCostume.serializer)
       ..add(DraftEpisode.serializer)
       ..add(DraftScene.serializer)
+      ..add(DraftShootingDay.serializer)
       ..add(EnergyCostBreakdown.serializer)
       ..add(EpisodeTarget.serializer)
       ..add(EpisodeTargetOneOf.serializer)
@@ -96,6 +98,7 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..add(JobStatus.serializer)
       ..add(JobTelemetrySummary.serializer)
       ..add(LinkContinuityPhotoRequest.serializer)
+      ..add(LinkShootingDayResponse.serializer)
       ..add(LlmProvider.serializer)
       ..add(ManualArchiveJobResult.serializer)
       ..add(ManualArchiveResponse.serializer)
@@ -192,6 +195,10 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..addBuilderFactory(
           const FullType(BuiltList, const [const FullType(ApplyMapping)]),
           () => ListBuilder<ApplyMapping>())
+      ..addBuilderFactory(
+          const FullType(
+              BuiltList, const [const FullType(ApplyShootingDayRequest)]),
+          () => ListBuilder<ApplyShootingDayRequest>())
       ..addBuilderFactory(
           const FullType(
               BuiltList, const [const FullType(UncertaintyAcknowledgement)]),
@@ -307,6 +314,9 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..addBuilderFactory(
           const FullType(BuiltList, const [const FullType(SerializedNote)]),
           () => ListBuilder<SerializedNote>())
+      ..addBuilderFactory(
+          const FullType(BuiltList, const [const FullType(String)]),
+          () => ListBuilder<String>())
       ..addBuilderFactory(
           const FullType(BuiltList, const [const FullType(UnappliedCostume)]),
           () => ListBuilder<UnappliedCostume>())

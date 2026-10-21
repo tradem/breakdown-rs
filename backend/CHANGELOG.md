@@ -27,6 +27,41 @@ tag. Never edit a released entry afterwards.
 
 ### Added
 
+- **Script AI import extracts shooting days — preview, apply and scene→day
+  scheduling (issue #706):** the script import now derives shooting days
+  deterministically from the document (day markers `Tag N`, `N. Spieltag`,
+  `Spieltag N`, `Drehtag N`, `Day N` — the same marker-scan doctrine as the
+  `Ep.:` episode scan of #581), with the model's grounded `script_day` as the
+  normalizing fallback when a chunk carries no marker. Day labels normalize to
+  the day number (`Tag 1` and `1. Spieltag` are the SAME day); the verbatim
+  first-occurrence label is the display label; scenes without a day stay
+  unscheduled — never invented. `core 0.40.0 → 0.41.0`: new `DraftShootingDay`
+  (with `group_key` / `display_label`), `SceneChunk.shooting_day`,
+  `DraftScene.shooting_day`, `parse_script_day`, `shooting_day_group_refs`,
+  `ShootingDayPlan`/`PlannedShootingDay` (per-day reviewer decisions like the
+  #581 episode groups; a referenced group without a decision is a
+  `MissingShootingDayGroup` gate refusal), and the apply planner resolves each
+  row's day assignment. `infra 0.45.0 → 0.46.0`: the script apply creates one
+  episode-scoped `ShootingDay` (`AiExtracted` source) per accepted day group
+  and links its rows via `ScheduleSceneOnShootingDay` + `PlanSceneShoot` —
+  reusing the schedule-apply reservation protocol (deterministic `derive_id`,
+  mapping-row idempotency, `recover_version`), so re-apply converges.
+  `api 0.37.0 → 0.38.0`: the apply request gains `shooting_days`
+  (`serde(default)` — old clients keep applying), the apply gate validates day
+  refs against the preview (new registered `409
+  ai-import.apply-missing-shooting-day-group`, ADR-031 + de/en Fluent texts),
+  the apply response reports `skipped_day_groups` (and fills
+  `created_days`/`planned_scene_shoots` for script applies), and the new
+  `POST /v1/shooting-days/{id}/link-into/{target_id}` endpoint merges a
+  script-derived *planned* day into an *actual* day (scene links re-pointed,
+  `scene_shoot` pairs re-planned with the Soll order preserved, source day
+  archived) refusing a wrapped target (`409 shooting-day.target-wrapped`) and
+  a cross-episode target (`409 shooting-day.episode-mismatch`) — wrap finality
+  #376 and the CQRS boundary (edge-side reads only) respected. Old stored
+  previews keep loading (additive wire, serde defaults). OpenAPI regenerated;
+  the merged (schedule + script) apply keeps the schedule rows' day labels
+  authoritative — no script-day duplication there.
+
 - **Cross-block episode-number conflicts name their location and offer a
   navigable recovery (issue #705):** the episode create-number pre-checks
   (the AI-apply group loop and the manual `POST /v1/episodes`) now add the
@@ -61,6 +96,13 @@ tag. Never edit a released entry afterwards.
   unchanged.
 
 ### Changed
+
+- **Version bump (dependency-order lockstep, additive MINORs, issue
+  #706):** `core 0.40.0 → 0.41.0` (new `DraftShootingDay`, day plans and the
+  extended apply planner), `infra 0.45.0 → 0.46.0` (script apply day/link
+  machinery; re-pins core), `api 0.37.0 → 0.38.0` (apply request/response
+  day fields, the link-into endpoint, three new problem codes; re-pins
+  core/infra). Internal workspace crates re-pin in the same commit.
 
 - **Version bump (dependency-order lockstep, additive MINORs, issue
   #705):** `core 0.39.0 → 0.40.0` (`episode.number-already-exists` gains

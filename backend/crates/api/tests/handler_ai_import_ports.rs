@@ -757,6 +757,7 @@ async fn apply_ai_import_drives_the_script_worker_through_the_ports_seam() {
             accept_as_is: true,
             edit_distance: 0,
             episode_groups: Vec::new(),
+            shooting_days: Vec::new(),
         }),
     )
     .await
@@ -826,6 +827,7 @@ async fn apply_ai_import_rejects_an_episode_from_another_block() {
             accept_as_is: true,
             edit_distance: 0,
             episode_groups: Vec::new(),
+            shooting_days: Vec::new(),
         }),
     )
     .await
@@ -880,6 +882,7 @@ async fn apply_ai_import_rejects_accept_as_is_with_a_nonzero_edit_distance() {
             accept_as_is: true,
             edit_distance: 3,
             episode_groups: Vec::new(),
+            shooting_days: Vec::new(),
         }),
     )
     .await
@@ -1954,6 +1957,7 @@ async fn apply_ai_import_rejects_an_episode_group_the_preview_does_not_carry() {
             accept_as_is: true,
             edit_distance: 0,
             episode_groups: vec![create_group_request(7)],
+            shooting_days: Vec::new(),
         }),
     )
     .await
@@ -2024,6 +2028,7 @@ async fn apply_ai_import_prechecks_a_taken_episode_number_with_409() {
             accept_as_is: true,
             edit_distance: 0,
             episode_groups: vec![create_group_request(7)],
+            shooting_days: Vec::new(),
         }),
     )
     .await
@@ -2109,6 +2114,7 @@ async fn apply_ai_import_creates_an_episode_for_a_free_group_number() {
             accept_as_is: true,
             edit_distance: 0,
             episode_groups: vec![create_group_request(7)],
+            shooting_days: Vec::new(),
         }),
     )
     .await
@@ -2151,6 +2157,7 @@ async fn apply_ai_import_rejects_more_episode_groups_than_the_preview_carries() 
             accept_as_is: true,
             edit_distance: 0,
             episode_groups: vec![create_group_request(7), second],
+            shooting_days: Vec::new(),
         }),
     )
     .await
@@ -2243,6 +2250,7 @@ async fn apply_with_blocking_uncertainty_answers_apply_blocked_with_the_items() 
             accept_as_is: false,
             edit_distance: 0,
             episode_groups: Vec::new(),
+            shooting_days: Vec::new(),
         }),
     )
     .await
@@ -2293,6 +2301,7 @@ async fn apply_with_acknowledged_uncertainties_reaches_the_worker() {
             accept_as_is: false,
             edit_distance: 0,
             episode_groups: Vec::new(),
+            shooting_days: Vec::new(),
         }),
     )
     .await
@@ -2331,6 +2340,7 @@ async fn apply_rejects_an_acknowledgement_for_an_uncertainty_the_preview_does_no
             accept_as_is: false,
             edit_distance: 0,
             episode_groups: Vec::new(),
+            shooting_days: Vec::new(),
         }),
     )
     .await
@@ -2365,6 +2375,7 @@ async fn apply_rejects_a_duplicate_acknowledgement() {
             accept_as_is: false,
             edit_distance: 0,
             episode_groups: Vec::new(),
+            shooting_days: Vec::new(),
         }),
     )
     .await
