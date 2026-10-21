@@ -3,6 +3,7 @@
 // Co-authored-by: deepseek-v4.1-flash (neuralwatt)
 // Co-authored-by: glm-5.3-flash (opencode-go)
 // Co-authored-by: glm-5.3-flash (neuralwatt)
+// Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 
 import 'dart:async' show unawaited;
 

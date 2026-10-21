@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: glm-5.3-flash (neuralwatt)
+// Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 
 // The user ACCOUNT DRAWER tests (issue #653): the profile affordance in
 // the shell top bar opens a Material 3 NavigationDrawer as a side overlay
