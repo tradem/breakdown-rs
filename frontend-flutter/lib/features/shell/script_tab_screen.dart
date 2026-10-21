@@ -153,7 +153,15 @@ class _ScriptRowTile extends ConsumerWidget {
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
       ),
-      subtitle: Text(_metadata(l10n)),
+      subtitle: Text(
+        _metadata(l10n),
+        // CodeRabbit #713: a default ListTile's subtitle is laid out for a
+        // bounded height — an unconstrained long metadata line would wrap
+        // into clipping on narrow screens. Two lines with an explicit
+        // ellipsis policy keep the row tidy and the tail counts visible.
+        maxLines: 2,
+        overflow: TextOverflow.ellipsis,
+      ),
       trailing: const Icon(Icons.chevron_right),
       onTap: () => _open(context, ref),
     );

@@ -264,14 +264,18 @@ class _ViewRow extends StatelessWidget {
         // line when the chain is long (issue #638), so a deep path shows all
         // of its levels instead of losing the outermost ones; its merged
         // semantics node keeps the full path in either case.
-        Expanded(
-          child: location == null
-              ? const SizedBox.shrink()
-              : LocationStrip(
-                  location: location!,
-                  maxSegments: compact ? 3 : 4,
-                ),
-        ),
+        //
+        // CodeRabbit #713: the breadcrumb is only mounted when a location
+        // exists — an empty Expanded would still claim its flex share and
+        // cap the Flexible title at half the row, ellipsizing the title at
+        // a tab root although the whole width is free.
+        if (location != null)
+          Expanded(
+            child: LocationStrip(
+              location: location!,
+              maxSegments: compact ? 3 : 4,
+            ),
+          ),
         ShellSearchAction(navigatorKey: navigatorKey),
         const SizedBox(width: AppSpacing.space4),
       ],
