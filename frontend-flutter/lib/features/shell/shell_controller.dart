@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 // Co-authored-by: omen-alpha (opencode-go)
 
 import 'dart:async' show unawaited;
@@ -61,6 +62,23 @@ class ShellState {
 const int kCastTabIndex = 0;
 const int kScriptTabIndex = 1;
 const int kScheduleTabIndex = 2;
+
+/// The outcome of a [ShellController.selectTab] tap (issue #707): the
+/// shell needs to distinguish a destination SWITCH from a RE-TAP of the
+/// already-active destination (Material convention "re-tap = back to
+/// start") so both reset the target tab's nested navigator to its root
+/// with explicit, testable semantics. `rejected` covers an out-of-range
+/// index (never clamped) and leaves the selection untouched.
+enum ShellTabSelection {
+  /// A different, in-range destination was selected (state updated).
+  switched,
+
+  /// The already-active destination was tapped again (no state change).
+  reTapped,
+
+  /// Out-of-range index — the selection did not change.
+  rejected,
+}
 
 /// The shell controller (task 2.1, design D2/D7): holds the selected tab
 /// index and the active season; resets both on sign-out / a new session.
@@ -124,10 +142,21 @@ class ShellController extends _$ShellController {
   /// Switches the selected destination (a user "jump" — no history
   /// entry). Out-of-range indices are rejected, never clamped: a stale
   /// binding must not silently select the last destination.
-  void selectTab(int index) {
-    if (index < 0 || index > kScheduleTabIndex) return;
+  ///
+  /// The controller stays a pure index-state mutation (it knows no
+  /// widgets); the RESULT (issue #707) lets the shell distinguish a
+  /// destination SWITCH from a RE-TAP of the already-active destination
+  /// so both can pop the target tab's nested navigator to its root with
+  /// explicit, testable semantics. Neither branch touches a navigation
+  /// history here — the stack reset lives in the shell.
+  ShellTabSelection selectTab(int index) {
+    if (index < 0 || index > kScheduleTabIndex) {
+      return ShellTabSelection.rejected;
+    }
+    if (index == _selectedIndex) return ShellTabSelection.reTapped;
     _selectedIndex = index;
     state = ShellState(selectedIndex: index, activeSeason: state.activeSeason);
+    return ShellTabSelection.switched;
   }
 
   /// Sets the active season from the DTO the user acted on (CQRS boundary:

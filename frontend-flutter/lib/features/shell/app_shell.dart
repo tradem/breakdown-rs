@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 // Co-authored-by: omen-alpha (opencode-go)
 // Co-authored-by: glm-5.3-flash (opencode-go)
 // Co-authored-by: space-bunny-free (opencode-go)
@@ -76,12 +77,17 @@ const double kShellFabBottomClearance = 80;
 /// from the shell's top-bar profile action (issue #638 owns the top bar —
 /// row 1: profile + scope pills, row 2: view title + breadcrumb + search).
 ///
-/// Tab content: an [IndexedStack] keeps all three nested navigators alive,
-/// so switching destinations preserves each one's position (design D2).
-/// System back pops within the active destination's navigator first; at a
-/// destination root it never hops destinations — at the initial (Cast)
-/// destination root it issues the app-exit intent per platform convention
-/// (D3).
+/// Tab content: an [IndexedStack] keeps all three nested navigators
+/// alive (fast re-entry, per-tab state such as scroll offsets survives
+/// a switch). Since issue #707 the position MEMORY is gone (former
+/// design D2, consciously overridden): every destination selection —
+/// switching OR re-tapping the active destination — pops the TARGET
+/// tab's nested navigator back to its root route, so the destination's
+/// start screen is always what you land on (Material convention "re-tap
+/// = back to start"). System back pops within the active destination's
+/// navigator first; at a destination root it never hops destinations —
+/// at the initial (Cast) destination root it issues the app-exit intent
+/// per platform convention (D3).
 ///
 /// The shell renders only for a resolved authenticated session (it sits
 /// below `AuthGate`; the gate contract is unchanged).
@@ -136,6 +142,21 @@ class AppShellState extends ConsumerState<AppShell> {
     // the shell rebuilds once the persisted map resolves.
     final episodePersisted = ref.watch(activeEpisodePersistedProvider);
     _restoreEpisodeScope(state.activeSeason?.id, episodePersisted);
+
+    // Issue #707: the destination-selection seam for ALL three
+    // morphologies (bar / rail / drawer go through this one handler).
+    // The controller distinguishes switch vs re-tap vs rejected; both
+    // valid kinds reset the TARGET tab's nested navigator to its root,
+    // so a switch always shows the destination's start screen and a
+    // re-tap follows the Material "back to start" convention. At a tab
+    // root `popUntil` is a no-op, not an error. Settings/About/Jobs
+    // pushed by the AccountDrawer onto a tab's navigator (#653 seam)
+    // are therefore never "stuck" across tab switches.
+    void onDestinationSelected(int index) {
+      final selection = controller.selectTab(index);
+      if (selection == ShellTabSelection.rejected) return;
+      tabNavigatorKeys[index].currentState?.popUntil((route) => route.isFirst);
+    }
 
     final content = PopScope(
       canPop: false,
@@ -275,7 +296,7 @@ class AppShellState extends ConsumerState<AppShell> {
         ),
         bottomNavigationBar: ShellDestinations.navigationBar(
           selectedIndex: state.selectedIndex,
-          onSelected: controller.selectTab,
+          onSelected: onDestinationSelected,
           l10n: l10n,
         ),
         floatingActionButton: plusFab,
@@ -286,7 +307,7 @@ class AppShellState extends ConsumerState<AppShell> {
           children: [
             ShellDestinations.navigationRail(
               selectedIndex: state.selectedIndex,
-              onSelected: controller.selectTab,
+              onSelected: onDestinationSelected,
               l10n: l10n,
             ),
             const VerticalDivider(width: 1, thickness: 1),
@@ -301,7 +322,7 @@ class AppShellState extends ConsumerState<AppShell> {
           children: [
             ShellDestinations.navigationDrawer(
               selectedIndex: state.selectedIndex,
-              onSelected: controller.selectTab,
+              onSelected: onDestinationSelected,
               l10n: l10n,
             ),
             Expanded(child: contentWithLocation()),

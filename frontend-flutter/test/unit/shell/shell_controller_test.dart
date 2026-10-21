@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 // Co-authored-by: omen-alpha (opencode-go)
 
 // Tier-1 unit tests for the shell controller (`redesign-app-shell-navigation`
@@ -114,15 +115,30 @@ void main() {
     test('selectTab switches the selected destination', () async {
       final f = await _buildFixture();
       final c = f.container.read(shellControllerProvider.notifier);
-      c.selectTab(kScriptTabIndex);
+      // Issue #707: the result distinguishes a SWITCH from a re-tap so
+      // the shell can reset the target tab's navigator to its root.
+      expect(c.selectTab(kScriptTabIndex), ShellTabSelection.switched);
       expect(
         f.container.read(shellControllerProvider).selectedIndex,
         kScriptTabIndex,
       );
-      c.selectTab(kScheduleTabIndex);
+      expect(c.selectTab(kScheduleTabIndex), ShellTabSelection.switched);
       expect(
         f.container.read(shellControllerProvider).selectedIndex,
         kScheduleTabIndex,
+      );
+    });
+
+    test('re-tapping the active destination returns reTapped without a '
+        'state change (issue #707)', () async {
+      final f = await _buildFixture();
+      final c = f.container.read(shellControllerProvider.notifier);
+      expect(c.selectTab(kCastTabIndex), ShellTabSelection.reTapped);
+      expect(c.selectTab(kScriptTabIndex), ShellTabSelection.switched);
+      expect(c.selectTab(kScriptTabIndex), ShellTabSelection.reTapped);
+      expect(
+        f.container.read(shellControllerProvider).selectedIndex,
+        kScriptTabIndex,
       );
     });
 
@@ -138,16 +154,19 @@ void main() {
       expect(state.activeSeason?.id, 'season-1');
     });
 
-    test('out-of-range indices are ignored (no throw)', () async {
-      final f = await _buildFixture();
-      final c = f.container.read(shellControllerProvider.notifier);
-      c.selectTab(-1);
-      c.selectTab(99);
-      expect(
-        f.container.read(shellControllerProvider).selectedIndex,
-        kCastTabIndex,
-      );
-    });
+    test(
+      'out-of-range indices are rejected (no throw, issue #707 result)',
+      () async {
+        final f = await _buildFixture();
+        final c = f.container.read(shellControllerProvider.notifier);
+        expect(c.selectTab(-1), ShellTabSelection.rejected);
+        expect(c.selectTab(99), ShellTabSelection.rejected);
+        expect(
+          f.container.read(shellControllerProvider).selectedIndex,
+          kCastTabIndex,
+        );
+      },
+    );
 
     test(
       'setActiveSeason sets the season and persists the reference',

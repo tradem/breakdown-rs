@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 // Co-authored-by: omen-alpha (opencode-go)
 // Co-authored-by: glm-5.3-flash (opencode-go)
 // Co-authored-by: space-bunny-free (opencode-go)
@@ -10,9 +11,10 @@
 // Widget tests for the adaptive navigation shell (`redesign-app-shell-navigation`
 // tasks 5.1/5.2): three morphologies via `tester.view.physicalSize`
 // (360/700/1000dp), visible-label compliance, "Tab N of 4" semantics,
-// touch-target size, tab state preservation (Planen drilldown survives a
-// Kleidung switch) and the back contract (within-tab pop; no tab hop at
-// tab roots; exit intent consumed at the initial tab root).
+// touch-target size, the destination root reset on switch and re-tap
+// (issue #707 — former D2 position memory dropped) and the back contract
+// (within-tab pop; no tab hop at tab roots; exit intent consumed at the
+// initial tab root).
 
 import 'package:breakdown_api/breakdown_api.dart';
 
@@ -69,9 +71,20 @@ import '../../support/fake_secure_storage.dart';
 /// Pumps a bounded number of frames (never `pumpAndSettle` while an
 /// indeterminate spinner may be on screen — that would hang the settle
 /// loop). No wall-clock budgets (deterministic-tests rule).
-Future<void> pumpFrames(WidgetTester tester, {int n = 8}) async {
+///
+/// [stepMs] widens the per-frame step for assertions that must outwait a
+/// route TRANSITION (issue #707 root reset: a popped route leaves the
+/// tree only after its exit transition settles — the pop may begin while
+/// the target navigator is still hidden, so the visible exit restarts
+/// and needs the full transition budget; 40 × 25ms = 1000ms pumped
+/// covers the 300ms Material transition with margin).
+Future<void> pumpFrames(
+  WidgetTester tester, {
+  int n = 8,
+  int stepMs = 10,
+}) async {
   for (var i = 0; i < n; i++) {
-    await tester.pump(const Duration(milliseconds: 10));
+    await tester.pump(Duration(milliseconds: stepMs));
   }
 }
 
@@ -332,9 +345,11 @@ void main() {
     });
   });
 
-  group('5.2 tab state preservation + back contract', () {
-    testWidgets('Script drilldown survives a Cast switch (IndexedStack), '
-        'and back pops within the destination without hopping', (tester) async {
+  group('5.2 tab root reset + back contract (issue #707)', () {
+    testWidgets('back pops within the destination without hopping, and a '
+        'switch-away-and-back resets the destination to its root', (
+      tester,
+    ) async {
       await setupContainer();
       await pumpShell(tester, widthDp: 360);
 
@@ -352,24 +367,6 @@ void main() {
       await pumpFrames(tester, n: 12);
       expect(find.byType(BlocksScreenFixture), findsOneWidget);
 
-      // Switch to Cast and back to Script: the drilldown stays.
-      // NOTE: IndexedStack keeps ALL destination navigators mounted, so
-      // finders see every destination's widgets — visibility is asserted
-      // via the shell controller's selected index.
-      await tester.tap(find.byKey(const Key('shell-destination-0')));
-      await pumpFrames(tester);
-      expect(
-        container.read(shellControllerProvider).selectedIndex,
-        kCastTabIndex,
-      );
-      await tester.tap(find.byKey(const Key('shell-destination-1')));
-      await pumpFrames(tester);
-      expect(
-        container.read(shellControllerProvider).selectedIndex,
-        kScriptTabIndex,
-      );
-      expect(find.byType(BlocksScreenFixture), findsOneWidget);
-
       // System back pops WITHIN the Script destination (no hop, no exit).
       await tester.binding.handlePopRoute();
       await pumpFrames(tester, n: 40);
@@ -381,6 +378,33 @@ void main() {
         container.read(shellControllerProvider).selectedIndex,
         kScriptTabIndex,
       );
+
+      // Issue #707 (former design D2, overridden): drill down again,
+      // switch to Cast and back to Script — the destination lands on its
+      // ROOT, not on the remembered sub-page. IndexedStack keeps ALL
+      // destination navigators mounted (fast re-entry), which is exactly
+      // why the shell pops the target navigator on every selection.
+      shell.tabNavigatorKeys[kScriptTabIndex].currentState!.push(
+        MaterialPageRoute<void>(builder: (_) => const BlocksScreenFixture()),
+      );
+      await pumpFrames(tester, n: 12);
+      expect(find.byType(BlocksScreenFixture), findsOneWidget);
+      await tester.tap(find.byKey(const Key('shell-destination-0')));
+      // Outwait the popped route's exit transition (see pumpFrames).
+      await pumpFrames(tester, n: 40, stepMs: 25);
+      expect(
+        container.read(shellControllerProvider).selectedIndex,
+        kCastTabIndex,
+      );
+      await tester.tap(find.byKey(const Key('shell-destination-1')));
+      await pumpFrames(tester, n: 40, stepMs: 25);
+      expect(
+        container.read(shellControllerProvider).selectedIndex,
+        kScriptTabIndex,
+      );
+      // The Script start screen is shown; the drilldown was popped.
+      expect(find.byType(ScriptTabScreen), findsOneWidget);
+      expect(find.byType(BlocksScreenFixture), findsNothing);
     });
 
     testWidgets('back at the Script root stays on the destination (no lazy '
@@ -421,7 +445,7 @@ void main() {
       },
     );
 
-    testWidgets('destination switch resets nothing: Cast keeps its position', (
+    testWidgets('destination switch lands on the target root (issue #707)', (
       tester,
     ) async {
       await setupContainer();
@@ -430,10 +454,93 @@ void main() {
       await tester.tap(find.byKey(const Key('shell-destination-2')));
       await pumpFrames(tester);
       expect(find.byType(ScheduleTabScreen), findsOneWidget);
+      // Drill into the Schedule destination, switch away and back: the
+      // START SCREEN is shown (per-tab position memory dropped, issue
+      // #707) — the Settings/About/Jobs stack from the account drawer
+      // (#653 seam) can never be "stuck" across a tab switch.
+      tester
+          .state<AppShellState>(find.byType(AppShell))
+          .tabNavigatorKeys[kScheduleTabIndex]
+          .currentState!
+          .push(
+            MaterialPageRoute<void>(
+              builder: (_) => const BlocksScreenFixture(),
+            ),
+          );
+      await pumpFrames(tester, n: 12);
+      expect(find.byType(BlocksScreenFixture), findsOneWidget);
+      await tester.tap(find.byKey(const Key('shell-destination-0')));
+      await pumpFrames(tester, n: 40, stepMs: 25);
+      expect(find.byType(CastTabScreen), findsOneWidget);
+      expect(find.byKey(const Key('cast-empty')), findsOneWidget);
+      await tester.tap(find.byKey(const Key('shell-destination-2')));
+      await pumpFrames(tester, n: 40, stepMs: 25);
+      expect(find.byType(ScheduleTabScreen), findsOneWidget);
+      expect(find.byType(BlocksScreenFixture), findsNothing);
+    });
+
+    testWidgets('re-tap of the active destination pops to its root '
+        '(Material convention, issue #707)', (tester) async {
+      await setupContainer();
+      await pumpShell(tester, widthDp: 360);
+
+      tester
+          .state<AppShellState>(find.byType(AppShell))
+          .tabNavigatorKeys[kCastTabIndex]
+          .currentState!
+          .push(
+            MaterialPageRoute<void>(
+              builder: (_) => const BlocksScreenFixture(),
+            ),
+          );
+      await pumpFrames(tester, n: 12);
+      expect(find.byType(BlocksScreenFixture), findsOneWidget);
+
+      // Re-tap Cast: its navigator pops to the root.
+      await tester.tap(find.byKey(const Key('shell-destination-0')));
+      await pumpFrames(tester, n: 40, stepMs: 25);
+      expect(find.byType(CastTabScreen), findsOneWidget);
+      expect(find.byType(BlocksScreenFixture), findsNothing);
+
+      // Re-tap at the root is a no-op — no error, still Cast's root.
       await tester.tap(find.byKey(const Key('shell-destination-0')));
       await pumpFrames(tester);
       expect(find.byType(CastTabScreen), findsOneWidget);
-      expect(find.byKey(const Key('cast-empty')), findsOneWidget);
+      expect(
+        container.read(shellControllerProvider).selectedIndex,
+        kCastTabIndex,
+      );
+    });
+
+    testWidgets('root reset applies in every morphology (bar/rail/drawer)', (
+      tester,
+    ) async {
+      await setupContainer();
+      for (final widthDp in [360.0, 700.0, 1000.0]) {
+        await pumpShell(tester, widthDp: widthDp);
+        // Push a screen on the Schedule navigator, switch away and back:
+        // the root reset must hold in all three morphologies — they share
+        // the ONE central selection handler in AppShellState.
+        await tester.tap(find.byKey(const Key('shell-destination-2')));
+        await pumpFrames(tester);
+        tester
+            .state<AppShellState>(find.byType(AppShell))
+            .tabNavigatorKeys[kScheduleTabIndex]
+            .currentState!
+            .push(
+              MaterialPageRoute<void>(
+                builder: (_) => const BlocksScreenFixture(),
+              ),
+            );
+        await pumpFrames(tester, n: 12);
+        expect(find.byType(BlocksScreenFixture), findsOneWidget);
+        await tester.tap(find.byKey(const Key('shell-destination-0')));
+        await pumpFrames(tester, n: 40, stepMs: 25);
+        await tester.tap(find.byKey(const Key('shell-destination-2')));
+        await pumpFrames(tester, n: 40, stepMs: 25);
+        expect(find.byType(ScheduleTabScreen), findsOneWidget);
+        expect(find.byType(BlocksScreenFixture), findsNothing);
+      }
     });
   });
 
@@ -543,21 +650,20 @@ void main() {
     });
 
     testWidgets(
-      'tab switch shows the ACTIVE tab location (nested navigators)',
+      'tab switch resets the pushed location (root reset, issue #707)',
       (tester) async {
         await setupContainer();
         await pumpShell(tester, widthDp: 360);
+        // Switch to Script FIRST: since #707 a push on a hidden tab's
+        // navigator would be popped by the next selection's root reset,
+        // so the #548 chain is exercised on the ACTIVE destination.
+        await tester.tap(find.byKey(const Key('shell-destination-1')));
+        await pumpFrames(tester);
         await pushLocation(
           tester,
           kScriptTabIndex,
           PlanningLocation.block(seasonDto, block('b-1', 2)),
         );
-        // Cast is active — no location there, breadcrumb absent (the top
-        // bar itself is always present; issue #638).
-        expect(find.byKey(const Key('location-strip')), findsNothing);
-
-        await tester.tap(find.byKey(const Key('shell-destination-1')));
-        await pumpFrames(tester);
         // The Script destination's nested navigator resolves its own chain.
         expect(find.byKey(const Key('shell-context-bar')), findsOneWidget);
         expect(find.byKey(const Key('location-strip')), findsOneWidget);
@@ -570,10 +676,14 @@ void main() {
         expect(find.byKey(const Key('location-segment-block')), findsOneWidget);
         expect(find.text('Block 2'), findsOneWidget);
 
-        // Back to Cast: breadcrumb absent again (per-destination state,
-        // none to clear).
+        // Switch to Cast and back to Script: the root reset popped the
+        // pushed route — the strip is gone and Script shows its root.
         await tester.tap(find.byKey(const Key('shell-destination-0')));
-        await pumpFrames(tester);
+        await pumpFrames(tester, n: 40, stepMs: 25);
+        expect(find.byKey(const Key('location-strip')), findsNothing);
+        await tester.tap(find.byKey(const Key('shell-destination-1')));
+        await pumpFrames(tester, n: 40, stepMs: 25);
+        expect(find.byKey(const Key('shell-context-bar')), findsOneWidget);
         expect(find.byKey(const Key('location-strip')), findsNothing);
       },
     );
