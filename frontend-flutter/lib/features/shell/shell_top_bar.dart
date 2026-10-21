@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: deepseek-v4.1-flash (neuralwatt)
+// Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 // Co-authored-by: glm-5.3-flash (neuralwatt)
 
 import 'dart:async' show unawaited;
@@ -246,24 +247,35 @@ class _ViewRow extends StatelessWidget {
       key: const Key('shell-view-bar'),
       children: [
         const SizedBox(width: AppSpacing.space16),
-        Text(
-          title,
-          key: const Key('shell-view-title'),
-          style: Theme.of(context).textTheme.titleMedium,
+        // Issue #709: the view title can be longer than the destination
+        // label ("Szenen aus dem Skript"), so it yields to the breadcrumb
+        // and truncates instead of overflowing the row.
+        Flexible(
+          child: Text(
+            title,
+            key: const Key('shell-view-title'),
+            style: Theme.of(context).textTheme.titleMedium,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
         ),
         const SizedBox(width: AppSpacing.space8),
         // The breadcrumb takes the remaining width and WRAPS onto a second
         // line when the chain is long (issue #638), so a deep path shows all
         // of its levels instead of losing the outermost ones; its merged
         // semantics node keeps the full path in either case.
-        Expanded(
-          child: location == null
-              ? const SizedBox.shrink()
-              : LocationStrip(
-                  location: location!,
-                  maxSegments: compact ? 3 : 4,
-                ),
-        ),
+        //
+        // CodeRabbit #713: the breadcrumb is only mounted when a location
+        // exists — an empty Expanded would still claim its flex share and
+        // cap the Flexible title at half the row, ellipsizing the title at
+        // a tab root although the whole width is free.
+        if (location != null)
+          Expanded(
+            child: LocationStrip(
+              location: location!,
+              maxSegments: compact ? 3 : 4,
+            ),
+          ),
         ShellSearchAction(navigatorKey: navigatorKey),
         const SizedBox(width: AppSpacing.space4),
       ],

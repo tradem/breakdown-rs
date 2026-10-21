@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: space-bunny (opencode-go)
+// Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 
 // Tier 1 unit tests for the season-wide chronological script composition
 // (issue #610, view "Script"). Pure merge logic first, then the provider
@@ -13,6 +14,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fpdart/fpdart.dart';
 
+import 'package:frontend_flutter/auth/active_episode.dart';
 import 'package:frontend_flutter/core/problem_error.dart';
 import 'package:frontend_flutter/core/result.dart';
 import 'package:frontend_flutter/features/blocks/blocks_controller.dart';
@@ -125,6 +127,148 @@ void main() {
 
     test('no parts yields no rows (not a crash)', () {
       expect(mergeScriptParts(const []), isEmpty);
+    });
+  });
+
+  group('effectiveEpisodeScope (pure, issue #709)', () {
+    test('no scope → no episode filter', () {
+      expect(effectiveEpisodeScope(null, 'season-1'), isNull);
+    });
+
+    test('a foreign-season scope is ignored (the chip\'s rule)', () {
+      final scope = ActiveEpisodeScope(
+        seasonId: 'season-2',
+        blockId: 'b-9',
+        episodeId: 'e-9',
+        episodeNumber: 9,
+      );
+      expect(effectiveEpisodeScope(scope, 'season-1'), isNull);
+    });
+
+    test('a same-season scope applies', () {
+      final scope = ActiveEpisodeScope(
+        seasonId: 'season-1',
+        blockId: 'b-1',
+        episodeId: 'e-1',
+        episodeNumber: 1,
+      );
+      expect(effectiveEpisodeScope(scope, 'season-1'), same(scope));
+    });
+  });
+
+  group('episode scope filtering (issue #709)', () {
+    late ProviderContainer container;
+
+    Result<List<BlockView>> blocksResult = Right(const []);
+    Result<List<EpisodeView>> episodesResult = Right(const []);
+    final sceneFetches = <String>[];
+    final Map<String, Result<List<SceneView>>> scenesByEpisode = {};
+
+    Future<void> setUpContainer() async {
+      sceneFetches.clear();
+      container = ProviderContainer(
+        retry: (_, _) => null,
+        overrides: [
+          blocksListFetchProvider('season-1')
+              .overrideWith((ref) async => blocksResult),
+          episodesListFetchProvider(
+            'b-1',
+            'season-1',
+          ).overrideWith((ref) async => episodesResult),
+          for (final entry in scenesByEpisode.entries)
+            scenesListFetchProvider(entry.key).overrideWith((ref) async {
+              sceneFetches.add(entry.key);
+              return entry.value;
+            }),
+        ],
+      );
+      addTearDown(container.dispose);
+    }
+
+    test(
+      'the episode scope wins: only the scoped episode\'s scenes compose',
+      () async {
+        blocksResult = Right([_block('b-1', 1)]);
+        episodesResult = Right([
+          _episode('e-1', 1, 'b-1'),
+          _episode('e-2', 2, 'b-1'),
+        ]);
+        scenesByEpisode.addAll({
+          'e-1': Right([_scene('s-1', 'e-1', number: 1)]),
+          'e-2': Right([_scene('s-2', 'e-2', number: 2)]),
+        });
+        await setUpContainer();
+        container
+            .read(activeEpisodeProvider.notifier)
+            .state = ActiveEpisodeScope(
+          seasonId: 'season-1',
+          blockId: 'b-1',
+          episodeId: 'e-2',
+          episodeNumber: 2,
+        );
+
+        final result = await container.read(
+          seasonScriptFetchProvider(_season()).future,
+        );
+
+        final script = result.getRight().toNullable()!;
+        expect(script.isPartial, isFalse);
+        expect(script.rows.map((r) => r.scene.id), ['s-2']);
+        // Fewer reads, same result: the other episode is never fetched.
+        expect(sceneFetches, ['e-2']);
+      },
+    );
+
+    test('a foreign-season episode scope is ignored entirely', () async {
+      blocksResult = Right([_block('b-1', 1)]);
+      episodesResult = Right([
+        _episode('e-1', 1, 'b-1'),
+        _episode('e-2', 2, 'b-1'),
+      ]);
+      scenesByEpisode.addAll({
+        'e-1': Right([_scene('s-1', 'e-1', number: 1)]),
+        'e-2': Right([_scene('s-2', 'e-2', number: 2)]),
+      });
+      await setUpContainer();
+      container.read(activeEpisodeProvider.notifier).state = ActiveEpisodeScope(
+        seasonId: 'season-2',
+        blockId: 'b-9',
+        episodeId: 'e-9',
+        episodeNumber: 9,
+      );
+
+      final result = await container.read(
+        seasonScriptFetchProvider(_season()).future,
+      );
+
+      final script = result.getRight().toNullable()!;
+      expect(script.rows.map((r) => r.scene.id).toList(), ['s-1', 's-2']);
+    });
+
+    test('a stale scope (episode not among the loaded parts) composes '
+        'no rows — the honest empty state', () async {
+      blocksResult = Right([_block('b-1', 1)]);
+      episodesResult = Right([_episode('e-1', 1, 'b-1')]);
+      scenesByEpisode.addAll({
+        'e-1': Right([_scene('s-1', 'e-1', number: 1)]),
+      });
+      await setUpContainer();
+      container.read(activeEpisodeProvider.notifier).state = ActiveEpisodeScope(
+        seasonId: 'season-1',
+        blockId: 'b-1',
+        episodeId: 'e-gone',
+        episodeNumber: 7,
+      );
+
+      final result = await container.read(
+        seasonScriptFetchProvider(_season()).future,
+      );
+
+      final script = result.getRight().toNullable()!;
+      expect(script.rows, isEmpty);
+      // No failure: the scope is stale, not the reads — the view renders
+      // its plain empty state, not a partial notice.
+      expect(script.isPartial, isFalse);
     });
   });
 

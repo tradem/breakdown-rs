@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: space-bunny (opencode-go)
+// Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 // Co-authored-by: glm-5.3-flash (neuralwatt)
 // Co-authored-by: deepseek-v4.1-flash (neuralwatt)
 
@@ -12,6 +13,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../auth/active_episode.dart';
 import '../../l10n/app_localizations_provider.dart';
+import '../../l10n/generated/app_localizations.dart';
 import '../scenes/scene_detail_screen.dart';
 import '../scenes/season_script_controller.dart';
 import 'planning_location.dart';
@@ -124,8 +126,10 @@ class _ScriptBody extends ConsumerWidget {
   }
 }
 
-/// One scene row: the projected scene number as the visible label, the
-/// scene summary as the title and the episode it belongs to as metadata.
+/// One scene row (issue #709): the summary as the single-line ellipsized
+/// title, the episode-then-scene-number identity followed by the metadata
+/// (shooting day · location · characters · costumes) as the subtitle. The
+/// leading avatar keeps the projected scene number (`–` when unnumbered).
 class _ScriptRowTile extends ConsumerWidget {
   const _ScriptRowTile({required this.season, required this.row});
 
@@ -146,13 +150,49 @@ class _ScriptRowTile extends ConsumerWidget {
                   ? l10n.scriptSceneNumberUnknown
                   : l10n.scriptSceneNumber(number))
             : summary,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
       ),
       subtitle: Text(
-        l10n.scriptEpisodeLabel(row.episode.name ?? '${row.episode.number}'),
+        _metadata(l10n),
+        // CodeRabbit #713: a default ListTile's subtitle is laid out for a
+        // bounded height — an unconstrained long metadata line would wrap
+        // into clipping on narrow screens. Two lines with an explicit
+        // ellipsis policy keep the row tidy and the tail counts visible.
+        maxLines: 2,
+        overflow: TextOverflow.ellipsis,
       ),
       trailing: const Icon(Icons.chevron_right),
       onTap: () => _open(context, ref),
     );
+  }
+
+  /// The subtitle line (issue #709): episode before scene number, then
+  /// shooting day · location · number of characters · number of costumes
+  /// (distinct `costumeId`s across the beats — the same costume worn twice
+  /// counts once). Absent optional fields (day, location) are omitted; the
+  /// two counts always render, because "0 Figuren" is honest, actionable
+  /// information for the costume department, not noise.
+  String _metadata(AppLocalizations l10n) {
+    final episodePart =
+        row.episode.name ?? l10n.episodeTileLabel('${row.episode.number}');
+    final number = row.scene.sceneNumber;
+    final identity = number == null
+        ? episodePart
+        : l10n.scriptRowEpisodeScene(episodePart, number);
+    final day = row.scene.scriptDay;
+    final location = row.scene.location;
+    final beats = row.scene.costumeBeats;
+    final costumes = beats == null
+        ? const <String>{}
+        : {for (final beat in beats) beat.costumeId};
+    return [
+      identity,
+      if (day != null && day.isNotEmpty) l10n.sceneDay(day),
+      if (location != null && location.isNotEmpty) location,
+      l10n.scriptRowCharacters(row.scene.assignedCharacters.length),
+      l10n.scriptRowCostumes(costumes.length),
+    ].join(' · ');
   }
 
   /// Pushes the scene detail with the hierarchy context chain the row was

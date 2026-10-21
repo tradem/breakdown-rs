@@ -3619,6 +3619,12 @@ abstract class AppLocalizations {
   /// **'Episode {number}'**
   String episodeTileLabel(Object number);
 
+  /// No description provided for @episodeNumberName.
+  ///
+  /// In de, this message translates to:
+  /// **'{number} · {name}'**
+  String episodeNumberName(Object name, Object number);
+
   /// No description provided for @episodeNumberPrefix.
   ///
   /// In de, this message translates to:
@@ -4014,6 +4020,12 @@ abstract class AppLocalizations {
   /// In de, this message translates to:
   /// **'Script'**
   String get navScript;
+
+  /// No description provided for @viewTitleScript.
+  ///
+  /// In de, this message translates to:
+  /// **'Szenen aus dem Skript'**
+  String get viewTitleScript;
 
   /// No description provided for @navSchedule.
   ///
@@ -4842,6 +4854,24 @@ abstract class AppLocalizations {
   /// In de, this message translates to:
   /// **'Noch keine Szenen in dieser Season.'**
   String get scriptNoScenes;
+
+  /// No description provided for @scriptRowEpisodeScene.
+  ///
+  /// In de, this message translates to:
+  /// **'{episode}, Szene {number}'**
+  String scriptRowEpisodeScene(Object episode, Object number);
+
+  /// No description provided for @scriptRowCharacters.
+  ///
+  /// In de, this message translates to:
+  /// **'{count, plural, =1{1 Figur} other{{count} Figuren}}'**
+  String scriptRowCharacters(num count);
+
+  /// No description provided for @scriptRowCostumes.
+  ///
+  /// In de, this message translates to:
+  /// **'{count, plural, =1{1 Kostüm} other{{count} Kostüme}}'**
+  String scriptRowCostumes(num count);
 
   /// No description provided for @scheduleFetchError.
   ///

@@ -217,11 +217,12 @@ void main() {
 
       expect(find.byKey(const Key('shell-navigation-bar')), findsOneWidget);
       expect(find.byKey(const Key('shell-navigation-rail')), findsNothing);
-      // Every destination shows a VISIBLE label (glossary rule). Each
-      // label appears twice — once as the destination label, once as the
-      // view root's app-bar title (the IndexedStack mounts all three).
+      // Every destination shows a VISIBLE label (glossary rule). Cast and
+      // Schedule render label == view title (the IndexedStack mounts all
+      // three); issue #709 gives Script a longer view-bar title
+      // ("Szenen aus dem Skript"), so its short nav label appears once.
       expect(find.text('Cast'), findsWidgets);
-      expect(find.text('Script'), findsWidgets);
+      expect(find.text('Script'), findsOneWidget);
       expect(find.text('Schedule/Dispo'), findsWidgets);
       // The Cast destination is selected first; its content is the cast
       // view (roster/costumes — issue #610).
@@ -866,13 +867,14 @@ void main() {
         findsNothing,
       );
 
-      // The title follows the active destination.
+      // The title follows the active destination (issue #709: the Script
+      // view bar carries the descriptive title, not the short nav label).
       await tester.tap(find.byKey(const Key('shell-destination-1')));
       await pumpFrames(tester);
       expect(
         find.descendant(
           of: find.byKey(const Key('shell-view-bar')),
-          matching: find.text('Script'),
+          matching: find.text('Szenen aus dem Skript'),
         ),
         findsOneWidget,
       );

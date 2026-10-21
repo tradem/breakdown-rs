@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: space-bunny (opencode-go)
+// Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 
 import 'package:breakdown_api/breakdown_api.dart';
 import 'package:fpdart/fpdart.dart';
@@ -8,6 +9,7 @@ import 'package:meta/meta.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../../auth/active_block.dart';
+import '../../auth/active_episode.dart';
 import '../../core/problem_error.dart';
 import '../../core/result.dart';
 import '../blocks/blocks_controller.dart';
@@ -112,6 +114,19 @@ List<ScriptSceneRow> mergeScriptParts(Iterable<ScriptEpisodePart> parts) {
   return rows;
 }
 
+/// The episode scope that applies to THIS season's script composition
+/// (issue #709): the sticky episode scope wins when it belongs to the
+/// navigated season; a scope for another season is ignored (the same
+/// reuse rule the scope chip renders as "gilt hier nicht").
+///
+/// Pure and side-effect free (unit-tested directly): `null` means no
+/// episode filtering — the block scope alone (or no scope) keeps the
+/// existing composition breadth.
+ActiveEpisodeScope? effectiveEpisodeScope(
+  ActiveEpisodeScope? scope,
+  String seasonId,
+) => scope != null && scope.seasonId == seasonId ? scope : null;
+
 /// Composes the active season's chronological script view (issue #610).
 ///
 /// The scene read model is episode-scoped (`GET /v1/scenes` requires
@@ -133,12 +148,25 @@ List<ScriptSceneRow> mergeScriptParts(Iterable<ScriptEpisodePart> parts) {
 /// block — the scope chip's promise ("what filters your requests") holds for
 /// the Script view too. A scope belonging to another season is ignored here
 /// (the same reuse rule the block chip renders as "gilt hier nicht").
+///
+/// Issue #709: the sticky EPISODE scope (when it belongs to this season)
+/// wins over the block scope — the composition narrows to the episode's
+/// block and the scene reads skip every other episode of it (fewer reads,
+/// same result: the filter works on the already composed parts, no second
+/// projection, no new read seams). A stale scope whose block is not among
+/// the season's blocks (e.g. the block was deleted) composes no rows; a
+/// block read that FAILS under the scope still surfaces through the
+/// partial notices as today.
 @riverpod
 Future<Result<SeasonScript>> seasonScriptFetch(
   Ref ref,
   SeasonView season,
 ) async {
   final scope = ref.watch(activeBlockProvider);
+  final episodeScope = effectiveEpisodeScope(
+    ref.watch(activeEpisodeProvider),
+    season.id,
+  );
   final blocksResult = await ref.watch(
     blocksListFetchProvider(season.id).future,
   );
@@ -146,7 +174,9 @@ Future<Result<SeasonScript>> seasonScriptFetch(
     (error) async => Left<ProblemError, SeasonScript>(error),
     (blocks) async {
       final scoped = scope != null && scope.seasonId == season.id;
-      final relevantBlocks = scoped
+      final relevantBlocks = episodeScope != null
+          ? blocks.where((block) => block.id == episodeScope.blockId).toList()
+          : scoped
           ? blocks.where((block) => block.id == scope.blockId).toList()
           : blocks;
 
@@ -165,6 +195,12 @@ Future<Result<SeasonScript>> seasonScriptFetch(
           return const <EpisodeView>[];
         }, (rows) => rows);
         for (final episode in episodes) {
+          // Issue #709: under the episode scope, other episodes' scenes are
+          // not read at all — the scoped episode's own read failure still
+          // degrades visibly below.
+          if (episodeScope != null && episode.id != episodeScope.episodeId) {
+            continue;
+          }
           final scenesResult = await ref.watch(
             scenesListFetchProvider(episode.id).future,
           );

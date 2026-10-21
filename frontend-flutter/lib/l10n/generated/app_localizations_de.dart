@@ -2187,6 +2187,11 @@ class AppLocalizationsDe extends AppLocalizations {
   }
 
   @override
+  String episodeNumberName(Object name, Object number) {
+    return '$number · $name';
+  }
+
+  @override
   String episodeNumberPrefix(Object number) {
     return 'Nummer $number';
   }
@@ -2417,6 +2422,9 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get navScript => 'Script';
+
+  @override
+  String get viewTitleScript => 'Szenen aus dem Skript';
 
   @override
   String get navSchedule => 'Schedule/Dispo';
@@ -2940,6 +2948,33 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get scriptNoScenes => 'Noch keine Szenen in dieser Season.';
+
+  @override
+  String scriptRowEpisodeScene(Object episode, Object number) {
+    return '$episode, Szene $number';
+  }
+
+  @override
+  String scriptRowCharacters(num count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count Figuren',
+      one: '1 Figur',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String scriptRowCostumes(num count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count Kostüme',
+      one: '1 Kostüm',
+    );
+    return '$_temp0';
+  }
 
   @override
   String scheduleFetchError(Object code) {
