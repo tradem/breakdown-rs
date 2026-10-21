@@ -103,7 +103,8 @@ void main() {
       await settle(tester);
       await pumpChip(tester, container: container);
       expect(find.byKey(const Key('active-episode-chip')), findsOneWidget);
-      expect(find.text('Pilot'), findsOneWidget);
+      // Issue #709: the number always precedes the name.
+      expect(find.text('3 · Pilot'), findsOneWidget);
     });
 
     testWidgets('scoped without a name falls back to the number label', (
@@ -233,6 +234,46 @@ void main() {
       // Popped back to the opener.
       expect(find.byKey(const Key('open-picker')), findsOneWidget);
       expect(find.byKey(const Key('episode-scope-picker')), findsNothing);
+    });
+
+    testWidgets('picker rows render the number before the name (issue #709)', (
+      tester,
+    ) async {
+      final container = ProviderContainer(
+        overrides: [
+          episodesListFetchProvider('block-1', 'season-1').overrideWith(
+            (ref) async => Right<ProblemError, List<EpisodeView>>([
+              _episode('episode-1', number: 1, name: 'Pilot'),
+              _episode('episode-2', number: 2),
+            ]),
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: MaterialApp(
+            locale: const Locale('de'),
+            supportedLocales: AppLocalizations.supportedLocales,
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            home: const Scaffold(
+              body: EpisodeScopePickerScreen(
+                seasonId: 'season-1',
+                blockId: 'block-1',
+              ),
+            ),
+          ),
+        ),
+      );
+      await settle(tester);
+
+      // Named: "<number> · <name>" — the same identity the pill renders.
+      expect(find.text('1 · Pilot'), findsOneWidget);
+      // Nameless: the "Episode {n}" fallback, no duplicated number subtitle.
+      expect(find.text('Episode 2'), findsOneWidget);
+      expect(find.text('2 · Episode 2'), findsNothing);
     });
 
     testWidgets('pull-to-refresh refetches the shared seam and shows the '

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: space-bunny (opencode-go)
+// Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 // Co-authored-by: deepseek-v4.1-flash (neuralwatt)
 
 // Widget tests for the three task-oriented view roots and the season scope
@@ -65,25 +66,45 @@ BlockView blockDto() => BlockView(
     ..version = 1,
 );
 
-EpisodeView episodeDto() => EpisodeView(
+EpisodeView episodeDto({String? name}) => EpisodeView(
   (b) => b
     ..id = 'e-1'
     ..number = 1
     ..blockId = 'b-1'
+    ..name = name
     ..projectId = 'project-1'
     ..updatedAt = DateTime.utc(2026, 1, 1)
     ..version = 1,
 );
 
-SceneView sceneDto(String id, int number, String summary) => SceneView(
+SceneView sceneDto(
+  String id,
+  int number,
+  String summary, {
+  String? location,
+  String? scriptDay,
+  List<String> characters = const [],
+  List<(String, String)> beats = const [],
+}) => SceneView(
   (b) => b
     ..id = id
     ..episodeId = 'e-1'
     ..sceneNumber = number
     ..summary = summary
-    ..assignedCharacters.replace(const <String>[])
+    ..location = location
+    ..scriptDay = scriptDay
+    ..assignedCharacters.replace(characters)
     ..shootingDayIds.replace(const <String>[])
     ..isScheduleSet = false
+    ..costumeBeats.replace([
+      for (final (characterId, costumeId) in beats)
+        SceneCostumeBeatView(
+          (cb) => cb
+            ..characterId = characterId
+            ..costumeId = costumeId
+            ..order = 0,
+        ),
+    ])
     ..updatedAt = DateTime.utc(2026, 1, 1)
     ..version = 1,
 );
@@ -199,6 +220,76 @@ void main() {
       // Numbering is visible on the rows, not implied.
       expect(find.text('1'), findsOneWidget);
       expect(find.text('2'), findsOneWidget);
+    });
+
+    testWidgets('scene row: episode before number, then the metadata line '
+        '(issue #709)', (tester) async {
+      blocksResult = Right([blockDto()]);
+      episodesResult = Right([episodeDto(name: 'Impuls')]);
+      scenesResult = Right([
+        sceneDto(
+          's-1',
+          12,
+          'Erster',
+          location: 'Kneipe',
+          scriptDay: '1. Spieltag',
+          characters: const ['c-1', 'c-2'],
+          // Three beats, two DISTINCT costumes — the same costume worn by
+          // two characters counts once.
+          beats: const [
+            ('c-1', 'cost-1'),
+            ('c-2', 'cost-1'),
+            ('c-1', 'cost-2'),
+          ],
+        ),
+      ]);
+      await setUpContainer();
+      await pumpView(tester, const ScriptTabScreen());
+
+      // Identity: the episode (named) precedes the scene number; then the
+      // metadata in the issue's order: day · location · characters ·
+      // costumes — absent fields would be omitted. (This harness installs
+      // no localization delegates, so l10nOf falls back to English.)
+      expect(
+        find.text(
+          'Impuls, Scene 12 · '
+          'Day: 1. Spieltag · '
+          'Kneipe · '
+          '2 characters · '
+          '2 costumes',
+        ),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('scene row: nameless episode keeps the "Episode {n}" label '
+        'and zero counts render honestly (issue #709)', (tester) async {
+      blocksResult = Right([blockDto()]);
+      episodesResult = Right([episodeDto()]);
+      scenesResult = Right([sceneDto('s-1', 3, 'Erster')]);
+      await setUpContainer();
+      await pumpView(tester, const ScriptTabScreen());
+
+      expect(
+        find.text('Episode 1, Scene 3 · 0 characters · 0 costumes'),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('scene row title truncates a long summary to ONE line '
+        '(issue #709)', (tester) async {
+      final long =
+          'Int. Kneipe – Nacht. Anna betritt die Bühne, das Publikum '
+          'verstummt, und der Barkeeper erkennt sie erst nach einer Ewigkeit.';
+      blocksResult = Right([blockDto()]);
+      episodesResult = Right([episodeDto()]);
+      scenesResult = Right([sceneDto('s-1', 3, long)]);
+      await setUpContainer();
+      await pumpView(tester, const ScriptTabScreen());
+
+      final title = tester.widget<Text>(find.text(long));
+      expect(title.maxLines, 1);
+      expect(title.overflow, TextOverflow.ellipsis);
     });
 
     testWidgets('scene row sets the active-episode scope (issue #624)', (

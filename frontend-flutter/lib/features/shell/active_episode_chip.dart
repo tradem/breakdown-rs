@@ -27,8 +27,9 @@ import 'scope_pill.dart';
 /// - **no block scope and no episode scope** → hidden (`SizedBox.shrink`);
 /// - **block scoped, no episode** → the neutral "Episode wählen" pill, whose
 ///   tap opens the episode picker for the scope block;
-/// - **scoped** → `Episode {n}` (the acted-on name wins when present) in the
-///   episode highlight color;
+/// - **scoped** → `Episode {n}`, or "{n} · {name}" for a named episode
+///   (issue #709: the number always precedes the title) in the episode
+///   highlight color;
 /// - **foreign season** (the scope's season differs from the navigated
 ///   season in [location]) → the chip says so instead of presenting the
 ///   foreign episode as if it applied.
@@ -75,8 +76,11 @@ class ActiveEpisodeChip extends ConsumerWidget {
         ? l10n.episodeChipUnset
         : foreign
         ? l10n.scopeChipForeignSeason
-        : (scope.episodeName ??
-              l10n.episodeTileLabel('${scope.episodeNumber}'));
+        : scope.episodeName == null
+        ? l10n.episodeTileLabel('${scope.episodeNumber}')
+        // Issue #709: the number ALWAYS precedes the name — "3 · Impuls"
+        // keeps the episode's position visible alongside its title.
+        : l10n.episodeNumberName(scope.episodeName!, scope.episodeNumber);
     // The unset arm targets the active block (guaranteed non-null here —
     // the `??` only evaluates it when no episode scope is set).
     final targetSeasonId = scope?.seasonId ?? block!.seasonId;
@@ -181,12 +185,15 @@ class _EpisodePickerScaffold extends ConsumerWidget {
               for (final episode in episodes)
                 ListTile(
                   key: Key('episode-scope-pick-${episode.id}'),
+                  // Issue #709: the same "number · name" identity the pill
+                  // renders — nameless episodes keep the "Episode {n}" label
+                  // (the former name-wins/number-subtitle split duplicated
+                  // the number once the title carries it).
                   title: Text(
-                    episode.name ?? l10n.episodeTileLabel('${episode.number}'),
+                    episode.name == null
+                        ? l10n.episodeTileLabel('${episode.number}')
+                        : l10n.episodeNumberName(episode.name!, episode.number),
                   ),
-                  subtitle: episode.name == null
-                      ? null
-                      : Text(l10n.episodeTileLabel('${episode.number}')),
                   onTap: () {
                     ref
                         .read(activeEpisodeProvider.notifier)

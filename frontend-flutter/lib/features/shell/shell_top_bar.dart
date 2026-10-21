@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: deepseek-v4.1-flash (neuralwatt)
+// Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 // Co-authored-by: glm-5.3-flash (neuralwatt)
 
 import 'dart:async' show unawaited;
@@ -246,10 +247,17 @@ class _ViewRow extends StatelessWidget {
       key: const Key('shell-view-bar'),
       children: [
         const SizedBox(width: AppSpacing.space16),
-        Text(
-          title,
-          key: const Key('shell-view-title'),
-          style: Theme.of(context).textTheme.titleMedium,
+        // Issue #709: the view title can be longer than the destination
+        // label ("Szenen aus dem Skript"), so it yields to the breadcrumb
+        // and truncates instead of overflowing the row.
+        Flexible(
+          child: Text(
+            title,
+            key: const Key('shell-view-title'),
+            style: Theme.of(context).textTheme.titleMedium,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
         ),
         const SizedBox(width: AppSpacing.space8),
         // The breadcrumb takes the remaining width and WRAPS onto a second

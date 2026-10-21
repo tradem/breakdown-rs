@@ -406,8 +406,13 @@ class ShellDestinations {
   /// The visible view-bar title for a destination (issue #638): the same
   /// glossary label the destination renders, so the shell's sticky top bar
   /// can never drift from the destination list.
+  ///
+  /// Issue #709: the Script destination is the one exception — its bottom
+  /// bar label stays the short "Script" while the view bar carries the
+  /// descriptive "Szenen aus dem Skript" (a long nav label would stretch
+  /// the bottom bar). Every other destination keeps label == view title.
   static String viewTitle(int index, AppLocalizations l10n) =>
-      _DestinationSpec._label(index, l10n);
+      index == 1 ? l10n.viewTitleScript : _DestinationSpec._label(index, l10n);
 
   /// Compact morphology: bottom [NavigationBar].
   static Widget navigationBar({
