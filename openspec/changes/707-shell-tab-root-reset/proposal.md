@@ -39,9 +39,14 @@ seam), exactly where the stack then stays.
 
 ## Impact
 
-- **Specs:** `flutter-navigation-shell` (MODIFIED: "Tab Root Reset on
-  Destination Selection" replaces the per-tab position-memory behavior
-  inherited from the archived `redesign-app-shell-navigation` D2).
+- **Specs:** `flutter-navigation-shell` (ADDED requirement "Tab Root Reset on
+  Destination Selection" — a canonical `openspec/specs/flutter-navigation-shell/
+  spec.md` does not exist yet: the position-memory behavior (former design D2)
+  was never in a live spec, only in the archived `redesign-app-shell-navigation`
+  delta and in `AppShell` doc comments. `MODIFIED` would target a nonexistent
+  canonical requirement, so the reset contract is encoded as an ADDED
+  requirement; the still-open foundational `three-view-navigation-shell` change
+  also carries ADDED requirements only, so there is no collision).
 - **Code:** `lib/features/shell/shell_controller.dart` (`selectTab`
   return type + new enum), `lib/features/shell/app_shell.dart` (central
   handler + doc comments). No l10n, no API/contract change —

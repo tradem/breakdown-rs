@@ -4,7 +4,7 @@
 
 # flutter-navigation-shell Delta
 
-## MODIFIED Requirements
+## ADDED Requirements
 
 ### Requirement: Tab Root Reset on Destination Selection
 
