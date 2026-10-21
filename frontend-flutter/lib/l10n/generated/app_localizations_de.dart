@@ -3108,6 +3108,16 @@ class AppLocalizationsDe extends AppLocalizations {
       'Jedes Ei lässt sich hier in Ruhe ansehen — unabhängig vom Monat.';
 
   @override
+  String get settingsEasterEggsEntryTitle => 'Easter-Eggs verwalten';
+
+  @override
+  String get settingsEasterEggsEntrySubtitle =>
+      'Schalter und Vorschau für jedes Ei.';
+
+  @override
+  String get settingsEasterEggsScreenTitle => 'Easter-Eggs';
+
+  @override
   String get settingsAiConfig => 'KI-Konfiguration';
 
   @override

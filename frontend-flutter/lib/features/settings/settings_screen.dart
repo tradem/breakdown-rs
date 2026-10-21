@@ -3,12 +3,12 @@
 // Co-authored-by: deepseek-v4.1-flash (neuralwatt)
 // Co-authored-by: glm-5.3-flash (opencode-go)
 // Co-authored-by: glm-5.3-flash (neuralwatt)
+// Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 
 import 'dart:async' show unawaited;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../auth/auth_providers.dart';
 import '../../auth/active_block.dart';
@@ -16,24 +16,21 @@ import '../../auth/membership/membership_providers.dart';
 import '../auth/sign_out.dart';
 import '../../data/settings/api_base_validation.dart';
 import '../../data/settings/api_base_override_store.dart';
-import '../../data/settings/easter_eggs_store.dart';
+import '../../design/components/section_header.dart';
 import '../../design/spacing.dart';
 import '../../l10n/app_localizations_provider.dart';
-import '../../l10n/generated/app_localizations.dart';
 import '../ai_import/ai_config/ai_config_screen.dart';
-import '../ai_import/clippy/clippy_trigger.dart';
-import '../ai_import/clippy/karl_kleiderbuegel_figure.dart';
-import '../easter_eggs/dejavu_cat.dart';
+import '../easter_eggs/easter_eggs_screen.dart';
 
 /// Full-screen settings (issue #516, capability `flutter-settings-screen`):
 /// replaces the former `SettingsDialog` — pushed from the profile menu's
 /// "Einstellungen" tile, back via AppBar.
 ///
 /// Two clearly separated sections:
-/// - **General app settings** (every flavor): the per-egg Easter-Eggs
-///   switches (issue #615; default ON, persisted, globally reactive via
-///   [easterEggProvider]). A failed preference read falls back to default
-///   ON with a visible error state — never a silent failure.
+/// - **General app settings** (every flavor): a single Easter-eggs
+///   entry tile (issue #708, analogous to the AI-configuration entry,
+///   issue #643) pushing the dedicated [EasterEggsScreen] — the per-egg
+///   switches (#615) and the gallery (#640) live there unchanged.
 /// - **Entwicklung** (dev flavor only): migration target of the dialog's
 ///   dev-only content — editable backend URI with inline validation
 ///   ([validateApiBase]), save (persist → rebuild → invalidate via
@@ -137,36 +134,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         key: const Key('settings-list'),
         children: [
           // ── General app settings (every flavor) ─────────────────────
-          _SectionHeader(label: l10n.settingsGeneral),
-          _SectionHeader(label: l10n.settingsEasterEggs),
-          Padding(
-            key: const Key('settings-easter-eggs-subtitle'),
-            padding: const EdgeInsets.fromLTRB(
-              AppSpacing.space16,
-              0,
-              AppSpacing.space16,
-              AppSpacing.space8,
-            ),
-            child: Text(l10n.settingsEasterEggsSubtitle),
-          ),
-          for (final id in EasterEggId.values) _EggSwitchRow(id: id),
+          SectionHeader(label: l10n.settingsGeneral),
+          // Easter-eggs management (issues #615/#640) moved to the
+          // dedicated [EasterEggsScreen] (issue #708); only the entry
+          // tile stays — same counter-model as the AI section (#643).
+          const _EasterEggsEntryTile(),
           const Divider(),
-
-          // ── Easter-eggs gallery (issue #640): replay/preview each egg
-          //    regardless of month — the preview bypasses only the
-          //    October month gate, never the per-egg switch. ─────────
-          _SectionHeader(label: l10n.settingsEasterEggsPreview),
-          Padding(
-            key: const Key('settings-eggs-preview-subtitle'),
-            padding: const EdgeInsets.fromLTRB(
-              AppSpacing.space16,
-              0,
-              AppSpacing.space16,
-              AppSpacing.space8,
-            ),
-            child: Text(l10n.settingsEasterEggsPreviewSubtitle),
-          ),
-          for (final id in EasterEggId.values) _EggPreviewRow(id: id),
 
           // ── AI (issue #644): a dedicated, always-present section —
           //    the AI-configuration entry (issue #643, role-gated).
@@ -176,7 +149,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           //    the redundant Settings tile was removed in favor of the
           //    drawer entry (same route name kept for the apply-outcome
           //    `popUntil` contract).
-          _SectionHeader(label: l10n.settingsAi),
+          SectionHeader(label: l10n.settingsAi),
           const _AiConfigEntryTile(),
           const Divider(),
 
@@ -197,7 +170,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           // ── Development (dev flavor only) ────────────────────────────
           if (config.isDev) ...[
             const SizedBox(height: AppSpacing.space8),
-            _SectionHeader(label: l10n.settingsDev),
+            SectionHeader(label: l10n.settingsDev),
             TextField(
               key: const Key('settings-uri-field'),
               controller: _uriController,
@@ -264,6 +237,38 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 /// member admitted by the tile then meets the server's localized 403
 /// narrative inside [AiConfigScreen] (its documented D4 exception) —
 /// honest degradation, server authoritative, never a bypass.
+/// The Easter-eggs entry (issue #708): a tile in the general section
+/// pushing the dedicated [EasterEggsScreen] — the per-egg switches
+/// (issue #615) and the gallery (issue #640) moved there unchanged,
+/// exactly the counter-model of the AI section below (issue #643).
+///
+/// No membership gate (contrast [_AiConfigEntryTile]): the Easter-eggs
+/// preferences are local-only — on-device `shared_preferences`, no
+/// network call, no backend authorization surface — so the entry stays
+/// as unconditional as the inline sections it replaces.
+class _EasterEggsEntryTile extends StatelessWidget {
+  const _EasterEggsEntryTile();
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = l10nOf(context);
+    return ListTile(
+      key: const Key('settings-easter-eggs-entry'),
+      leading: const Icon(Icons.celebration_outlined),
+      title: Text(l10n.settingsEasterEggsEntryTitle),
+      subtitle: Text(l10n.settingsEasterEggsEntrySubtitle),
+      trailing: const Icon(Icons.chevron_right),
+      // Fire-and-forget push (no result consumed), same as the AI-config
+      // entry. ListTile keeps the ≥ 48×48 dp target.
+      onTap: () => unawaited(
+        Navigator.of(context).push(
+          MaterialPageRoute<void>(builder: (_) => const EasterEggsScreen()),
+        ),
+      ),
+    );
+  }
+}
+
 class _AiConfigEntryTile extends ConsumerWidget {
   const _AiConfigEntryTile();
 
@@ -296,161 +301,3 @@ class _AiConfigEntryTile extends ConsumerWidget {
     );
   }
 }
-
-/// Small labeled section header used for "Allgemein", the "Easter eggs" /// group, "KI" (AI section, issue #644) and "Entwicklung" (settings-
-/// screen section separation, issue #516/#615).
-class _SectionHeader extends StatelessWidget {
-  const _SectionHeader({required this.label});
-
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(
-        AppSpacing.space16,
-        AppSpacing.space16,
-        AppSpacing.space16,
-        AppSpacing.space8,
-      ),
-      child: Text(
-        label.toUpperCase(),
-        style: theme.textTheme.labelMedium?.copyWith(
-          color: theme.colorScheme.primary,
-          fontWeight: FontWeight.w600,
-        ),
-      ),
-    );
-  }
-}
-
-/// One per-egg switch row (issue #615).
-///
-/// A dedicated [ConsumerWidget] owns the watches for a SINGLE egg, so
-/// flipping one egg rebuilds only its own row — never the settings screen
-/// or the other egg's row (spec `flutter-easter-eggs`).
-class _EggSwitchRow extends ConsumerWidget {
-  const _EggSwitchRow({required this.id});
-
-  final EasterEggId id;
-
-  Future<void> _toggle(
-    BuildContext context,
-    WidgetRef ref,
-    bool enabled,
-  ) async {
-    final result = await ref
-        .read(easterEggProvider(id).notifier)
-        .toggle(EasterEggsStore(SharedPreferencesAsync()));
-    // The in-memory flip already happened (global reactivity). A failed
-    // persistence is surfaced as an inline error — no silent discard.
-    if (!context.mounted) return;
-    result.match(
-      // CodeRabbit fix: localized, code-scoped copy — never the
-      // backend-URI validation copy (that maps different codes).
-      (e) => ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(l10nOf(context).settingsEasterEggsWriteError)),
-      ),
-      (_) {},
-    );
-  }
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final l10n = l10nOf(context);
-    final readFailed = ref.watch(easterEggProvider(id).notifier).readFailed;
-    final value = ref.watch(easterEggProvider(id));
-    return SwitchListTile(
-      key: Key('settings-egg-${id.name}'),
-      secondary: Icon(_eggIcon(id)),
-      title: Text(_eggTitle(l10n, id)),
-      subtitle: readFailed
-          ? Text(
-              l10n.settingsEasterEggsError,
-              key: Key('settings-egg-${id.name}-error'),
-            )
-          : Text(_eggSubtitle(l10n, id)),
-      value: value,
-      onChanged: (enabled) => _toggle(context, ref, enabled),
-    );
-  }
-}
-
-/// The localized name of an Easter egg (issue #615).
-String _eggTitle(AppLocalizations l10n, EasterEggId id) => switch (id) {
-  EasterEggId.karlKleiderbuegel => l10n.settingsEasterEggsKarlKleiderbuegel,
-  EasterEggId.dejaVuCat => l10n.settingsEasterEggsDejavuCat,
-};
-
-/// One per-egg gallery preview card (issue #640, design decision
-/// "Easter-eggs gallery in Settings"): renders the egg's figure as an
-/// explicit showcase — **regardless of month** — so every egg is
-/// discoverable and testable year-round.
-///
-/// Gates preserved by construction:
-/// - the **per-egg switch** stays the master gate: a switched-off egg
-///   renders no preview (the row watches the same
-///   [easterEggProvider] family member, so a flip appears/disappears
-///   the preview live);
-/// - the system **"remove animations"** setting renders the static
-///   pose — no controller runs (same rule as the live surfaces).
-///
-/// The October month gate is deliberately NOT applied here — bypassing
-/// it is the gallery's entire purpose (issue #640). The gate itself is
-/// untouched on the live surfaces ([DejaVuCatOverlay]).
-class _EggPreviewRow extends ConsumerWidget {
-  const _EggPreviewRow({required this.id});
-
-  final EasterEggId id;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final enabled = ref.watch(easterEggProvider(id));
-    if (!enabled) return const SizedBox.shrink();
-    final disableAnimations = MediaQuery.of(context).disableAnimations;
-    return Padding(
-      key: Key('settings-egg-preview-${id.name}'),
-      padding: const EdgeInsets.fromLTRB(
-        AppSpacing.space16,
-        0,
-        AppSpacing.space16,
-        AppSpacing.space8,
-      ),
-      child: Card(
-        child: SizedBox(
-          height: 150,
-          width: double.infinity,
-          child: Center(
-            child: switch (id) {
-              EasterEggId.karlKleiderbuegel => KarlKleiderbuegelFigure(
-                pose: ClippyPose.neutral,
-                animate: !disableAnimations,
-              ),
-              // The walker paints the cat along the lower band of its
-              // box (y = height − 72 − cat height); 150 logical px keep
-              // the full silhouette inside the card.
-              EasterEggId.dejaVuCat => DejaVuCatWalker(
-                key: const Key('settings-egg-preview-dejavu-cat'),
-                animate: !disableAnimations,
-              ),
-            },
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// The localized short description of an Easter egg (issue #615).
-String _eggSubtitle(AppLocalizations l10n, EasterEggId id) => switch (id) {
-  EasterEggId.karlKleiderbuegel =>
-    l10n.settingsEasterEggsKarlKleiderbuegelSubtitle,
-  EasterEggId.dejaVuCat => l10n.settingsEasterEggsDejavuCatSubtitle,
-};
-
-/// The row icon of an Easter egg (issue #615).
-IconData _eggIcon(EasterEggId id) => switch (id) {
-  EasterEggId.karlKleiderbuegel => Icons.checkroom,
-  EasterEggId.dejaVuCat => Icons.pets_outlined,
-};

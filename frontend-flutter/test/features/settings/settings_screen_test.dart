@@ -3,6 +3,7 @@
 // Co-authored-by: deepseek-v4.1-flash (neuralwatt)
 // Co-authored-by: glm-5.3-flash (opencode-go)
 // Co-authored-by: glm-5.3-flash (neuralwatt)
+// Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 
 import 'dart:async';
 import 'dart:io';
@@ -25,31 +26,16 @@ import 'package:frontend_flutter/data/cache/cache_database.dart';
 import 'package:frontend_flutter/data/cache/season_cache_dao.dart';
 import 'package:frontend_flutter/data/cache/seasons_cache_providers.dart';
 import 'package:frontend_flutter/data/settings/api_base_override_store.dart';
-import 'package:frontend_flutter/data/settings/easter_eggs_store.dart';
 import 'package:frontend_flutter/design/theme.dart';
 import 'package:frontend_flutter/domain/reconciliation/reconciliation_scheduler.dart';
 import 'package:frontend_flutter/features/ai_import/ai_config/ai_config_controller.dart';
-import 'package:frontend_flutter/features/easter_eggs/dejavu_cat.dart';
+import 'package:frontend_flutter/features/easter_eggs/easter_eggs_screen.dart';
 import 'package:frontend_flutter/features/settings/settings_screen.dart';
 import 'package:frontend_flutter/src/network/api_client.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:shared_preferences_platform_interface/in_memory_shared_preferences_async.dart';
 import 'package:shared_preferences_platform_interface/shared_preferences_async_platform_interface.dart';
 
 import '../seasons/seasons_test_fakes.dart';
-
-/// In-memory `SharedPreferencesAsyncPlatform` double forced to fail every
-/// operation (write-failure snackbar test, CodeRabbit review #576).
-final class _FailingWritePrefsPlatform extends InMemorySharedPreferencesAsync {
-  _FailingWritePrefsPlatform() : super.empty();
-
-  @override
-  Future<bool> setBool(
-    String key,
-    bool value,
-    SharedPreferencesOptions options,
-  ) async => throw Exception('storage unavailable');
-}
 
 /// Pumps a bounded number of frames (never `pumpAndSettle` against
 /// open-ended timers).
@@ -149,11 +135,6 @@ void main() {
     // (bootstrap merges it into the effective base before any client
     // exists — task 6.1).
     String? activeOverride,
-    // Simulates a bootstrap preference-read failure (HydratedEasterEggs
-    // carries the visible-error flag; issue #516 spec scenario).
-    bool easterEggsReadFailed = false,
-    // Simulates a failing on-device preference write (snackbar test).
-    bool failPrefsWrite = false,
     // Extra provider overrides appended after the base set (issue #643:
     // the AI-config entry tests override the season membership fetch).
     // `List<dynamic>` like app_shell_test's harness — Riverpod 3 does
@@ -162,23 +143,16 @@ void main() {
   }) async {
     platform = _OverridePlatform();
     FlutterSecureStoragePlatform.instance = platform;
-    if (failPrefsWrite) {
-      SharedPreferencesAsyncPlatform.instance = _FailingWritePrefsPlatform();
-    } else {
-      SharedPreferencesAsyncPlatform.instance =
-          InMemorySharedPreferencesAsync.empty();
-    }
+    // The pushed Easter-eggs screen hydrates its per-egg notifiers from
+    // preferences — the in-memory platform keeps that benign (issue #708).
+    SharedPreferencesAsyncPlatform.instance =
+        InMemorySharedPreferencesAsync.empty();
     db = CacheDatabase(NativeDatabase.memory());
     addTearDown(db.close);
     final holder = ValueNotifier<Result<List<SeasonView>>>(Right(const []));
     container = ProviderContainer(
       retry: (_, _) => null,
       overrides: [
-        if (easterEggsReadFailed)
-          for (final id in EasterEggId.values)
-            easterEggProvider(id).overrideWith(
-              () => HydratedEasterEggs(id, initial: true, failed: true),
-            ),
         appConfigProvider.overrideWithValue(config),
         tokenStoreProvider.overrideWithValue(FakeTokenStore(null)),
         pinnedSecurityContextProvider.overrideWithValue(SecurityContext()),
@@ -262,17 +236,53 @@ void main() {
       expect(find.byType(BackButton), findsOneWidget);
     });
 
-    testWidgets('general section always visible with the per-egg switches', (
+    testWidgets('easter-eggs entry tile present, switches moved (#708)', (
       tester,
     ) async {
       await pumpScreen(tester);
 
-      // One switch per registered egg (issue #615), default ON.
-      for (final id in EasterEggId.values) {
-        final key = Key('settings-egg-${id.name}');
-        expect(find.byKey(key), findsOneWidget);
-        expect(tester.widget<SwitchListTile>(find.byKey(key)).value, isTrue);
-      }
+      // Issue #708: the inline per-egg sections are GONE — one entry
+      // tile pushes the dedicated [EasterEggsScreen] instead (the
+      // counter-model of the AI-config entry, issue #643).
+      final tile = find.byKey(const Key('settings-easter-eggs-entry'));
+      expect(tile, findsOneWidget);
+      expect(
+        find.byKey(const Key('settings-egg-karlKleiderbuegel')),
+        findsNothing,
+      );
+      expect(find.byKey(const Key('settings-egg-dejaVuCat')), findsNothing);
+      expect(
+        find.byKey(const Key('settings-egg-preview-karlKleiderbuegel')),
+        findsNothing,
+      );
+      // Localized general-section copy (l10nOf falls back to the English
+      // catalog in bare test trees) + the chevron affordance.
+      expect(find.text('Manage Easter eggs'), findsOneWidget);
+      expect(
+        find.text('Switches and a preview for every egg.'),
+        findsOneWidget,
+      );
+      final size = tester.getSize(tile);
+      expect(size.height, greaterThanOrEqualTo(48));
+      expect(size.width, greaterThanOrEqualTo(48));
+    });
+
+    testWidgets('easter-eggs entry tap pushes the dedicated screen', (
+      tester,
+    ) async {
+      await pumpScreen(tester);
+
+      await tester.tap(find.byKey(const Key('settings-easter-eggs-entry')));
+      await pumpFrames(tester, n: 12);
+
+      expect(find.byType(EasterEggsScreen), findsOneWidget);
+      expect(find.byKey(const Key('easter-eggs-screen')), findsOneWidget);
+      // The settings screen stays below on the same navigator stack
+      // (offstage after the push — finder must include offstage trees).
+      expect(
+        find.byKey(const Key('settings-screen'), skipOffstage: false),
+        findsOneWidget,
+      );
     });
 
     testWidgets('shows base, flavor, and the dev editor', (tester) async {
@@ -409,147 +419,12 @@ void main() {
       expect(find.byKey(const Key('settings-uri-field')), findsNothing);
       expect(find.byKey(const Key('settings-save')), findsNothing);
       expect(find.byKey(const Key('settings-reset')), findsNothing);
-      // …while general settings (per-egg Easter-eggs) stay available.
+      // …while the Easter-eggs entry stays available (issue #708).
       expect(
-        find.byKey(const Key('settings-egg-karlKleiderbuegel')),
+        find.byKey(const Key('settings-easter-eggs-entry')),
         findsOneWidget,
       );
-      expect(find.byKey(const Key('settings-egg-dejaVuCat')), findsOneWidget);
       expect(find.byKey(const Key('settings-prod-note')), findsOneWidget);
-    });
-  });
-
-  group('SettingsScreen per-egg switches (issue #615)', () {
-    testWidgets('toggling one egg flips only its notifier immediately', (
-      tester,
-    ) async {
-      await pumpScreen(tester);
-
-      final karlFlips = <bool>[];
-      container.listen(
-        easterEggProvider(EasterEggId.karlKleiderbuegel),
-        (_, v) => karlFlips.add(v),
-      );
-
-      await tester.tap(find.byKey(const Key('settings-egg-karlKleiderbuegel')));
-      await pumpFrames(tester);
-
-      expect(
-        container.read(easterEggProvider(EasterEggId.karlKleiderbuegel)),
-        isFalse,
-      );
-      // The other egg is untouched (per-egg independence).
-      expect(container.read(easterEggProvider(EasterEggId.dejaVuCat)), isTrue);
-      expect(karlFlips, [false]);
-      // Persisted on-device under the flat per-egg key.
-      expect(
-        await SharedPreferencesAsync().getBool(
-          EasterEggId.karlKleiderbuegel.prefsKey,
-        ),
-        isFalse,
-      );
-    });
-
-    testWidgets('read-failure fallback: visible error subtitle, default ON', (
-      tester,
-    ) async {
-      // CodeRabbit review #576: cover the visible error state.
-      await pumpScreen(tester, easterEggsReadFailed: true);
-
-      for (final id in EasterEggId.values) {
-        final key = Key('settings-egg-${id.name}');
-        expect(tester.widget<SwitchListTile>(find.byKey(key)).value, isTrue);
-        expect(
-          find.byKey(Key('settings-egg-${id.name}-error')),
-          findsOneWidget,
-        );
-      }
-    });
-
-    testWidgets('write failure: localized snackbar, no silent discard', (
-      tester,
-    ) async {
-      // CodeRabbit review #576: the snackbar path (and its copy) was
-      // uncovered — this would have caught the wrong (English,
-      // backend-URI) copy.
-      await pumpScreen(tester, failPrefsWrite: true);
-
-      await tester.tap(find.byKey(const Key('settings-egg-dejaVuCat')));
-      await pumpFrames(tester);
-
-      // The in-memory flip still applied...
-      expect(container.read(easterEggProvider(EasterEggId.dejaVuCat)), isFalse);
-      // ...and the persistence failure surfaces as a localized snackbar.
-      expect(find.byType(SnackBar), findsOneWidget);
-      expect(find.textContaining('could not be saved'), findsOneWidget);
-    });
-  });
-
-  group('SettingsScreen easter-eggs gallery (issue #640)', () {
-    testWidgets('preview per egg renders month-independently when ON', (
-      tester,
-    ) async {
-      // The gallery bypasses ONLY the October month gate — no clock
-      // setup here, and still both previews render.
-      await pumpScreen(tester);
-
-      expect(
-        find.byKey(const Key('settings-egg-preview-karlKleiderbuegel')),
-        findsOneWidget,
-      );
-      expect(
-        find.byKey(const Key('settings-egg-preview-dejaVuCat')),
-        findsOneWidget,
-      );
-      // The cat preview is the walker (same figure the splash uses).
-      expect(find.byType(DejaVuCatWalker), findsOneWidget);
-    });
-
-    testWidgets('flipping an egg off removes only its preview', (tester) async {
-      await pumpScreen(tester);
-
-      await tester.tap(find.byKey(const Key('settings-egg-dejaVuCat')));
-      await pumpFrames(tester);
-
-      expect(
-        find.byKey(const Key('settings-egg-preview-dejaVuCat')),
-        findsNothing,
-      );
-      // The other egg's preview is untouched (per-egg independence).
-      expect(
-        find.byKey(const Key('settings-egg-preview-karlKleiderbuegel')),
-        findsOneWidget,
-      );
-    });
-
-    testWidgets('remove-animations: the cat preview renders statically', (
-      tester,
-    ) async {
-      await pumpScreen(tester);
-      // Re-pump the host with disableAnimations: the overlay-free walker
-      // must not schedule a ticker (same rule as the live surfaces).
-      tester.view.physicalSize = const Size(800, 1200);
-      await tester.pumpWidget(
-        UncontrolledProviderScope(
-          container: container,
-          child: MediaQuery(
-            data: const MediaQueryData(disableAnimations: true),
-            child: MaterialApp(
-              theme: AppThemes.light(),
-              darkTheme: AppThemes.dark(),
-              home: const Scaffold(body: SettingsScreen()),
-            ),
-          ),
-        ),
-      );
-      await pumpFrames(tester);
-
-      expect(
-        find.byKey(const Key('settings-egg-preview-dejavu-cat')),
-        findsOneWidget,
-      );
-      await tester.pump(const Duration(milliseconds: 800));
-      expect(tester.binding.transientCallbackCount, 0);
     });
   });
 

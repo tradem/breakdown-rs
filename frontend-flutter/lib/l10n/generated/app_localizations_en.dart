@@ -3074,6 +3074,16 @@ class AppLocalizationsEn extends AppLocalizations {
       'Preview every egg here at your leisure — regardless of the month.';
 
   @override
+  String get settingsEasterEggsEntryTitle => 'Manage Easter eggs';
+
+  @override
+  String get settingsEasterEggsEntrySubtitle =>
+      'Switches and a preview for every egg.';
+
+  @override
+  String get settingsEasterEggsScreenTitle => 'Easter eggs';
+
+  @override
   String get settingsAiConfig => 'AI configuration';
 
   @override

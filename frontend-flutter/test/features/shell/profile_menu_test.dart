@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: glm-5.3-flash (neuralwatt)
+// Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 
 // The user ACCOUNT DRAWER tests (issue #653): the profile affordance in
 // the shell top bar opens a Material 3 NavigationDrawer as a side overlay
@@ -229,8 +230,11 @@ void main() {
       expect(find.byKey(const Key('profile-account-drawer')), findsNothing);
       expect(find.byKey(const Key('settings-screen')), findsOneWidget);
       expect(find.byKey(const Key('settings-appbar')), findsOneWidget);
+      // Issue #708: the inline egg switches moved to the dedicated
+      // Easter-eggs screen — the settings screen opens onto the entry
+      // tile instead.
       expect(
-        find.byKey(const Key('settings-egg-karlKleiderbuegel')),
+        find.byKey(const Key('settings-easter-eggs-entry')),
         findsOneWidget,
       );
       // Issue #644: the AI section grew the list — the dev URI field now

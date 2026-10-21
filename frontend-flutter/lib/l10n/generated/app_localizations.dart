@@ -5101,6 +5101,24 @@ abstract class AppLocalizations {
   /// **'Jedes Ei lässt sich hier in Ruhe ansehen — unabhängig vom Monat.'**
   String get settingsEasterEggsPreviewSubtitle;
 
+  /// No description provided for @settingsEasterEggsEntryTitle.
+  ///
+  /// In de, this message translates to:
+  /// **'Easter-Eggs verwalten'**
+  String get settingsEasterEggsEntryTitle;
+
+  /// No description provided for @settingsEasterEggsEntrySubtitle.
+  ///
+  /// In de, this message translates to:
+  /// **'Schalter und Vorschau für jedes Ei.'**
+  String get settingsEasterEggsEntrySubtitle;
+
+  /// No description provided for @settingsEasterEggsScreenTitle.
+  ///
+  /// In de, this message translates to:
+  /// **'Easter-Eggs'**
+  String get settingsEasterEggsScreenTitle;
+
   /// No description provided for @settingsAiConfig.
   ///
   /// In de, this message translates to:
