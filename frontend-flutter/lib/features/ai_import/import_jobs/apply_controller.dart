@@ -16,6 +16,7 @@ import '../../../core/problem_error.dart';
 import '../../../core/result.dart';
 import '../../../data/ai_import_providers.dart';
 import '../../../data/ai_import_repository.dart';
+import '../../../data/cache/seasons_cache_providers.dart';
 import '../../../domain/reconciliation/reconciliation_scheduler.dart';
 import '../../../l10n/generated/app_localizations.dart';
 import '../../blocks/blocks_controller.dart';
@@ -906,10 +907,11 @@ String aiApplyErrorCopy(AppLocalizations l10n, ProblemError error) =>
       'episode.number-already-exists' => l10n.aiApplyErrorEpisodeNumberTaken,
       // The group's number is taken by an episode in a DIFFERENT block: the
       // import cannot apply in this block scope (cross-block IDOR guard +
-      // project-unique numbers). The reviewer switches the scope and
-      // re-uploads (the dedup then lands on the other block's job).
-      'ai_import.episode_number_other_block' =>
-        l10n.aiApplyErrorEpisodeNumberOtherBlock,
+      // project-unique numbers). Issue #705: the client-resolved home
+      // location names season and block — and the recovery button under the
+      // card offers the one-tap scope switch + re-upload. The extension-less
+      // degradation keeps the honest bare narrative.
+      'ai_import.episode_number_other_block' => otherBlockCopy(l10n, error),
       // The in-preview episode creation failed (offline / transport): the
       // reviewer retries via "Ziel ändern" — apply stays disabled.
       'ai_import.episode_create_failed' => l10n.aiApplyErrorEpisodeCreateFailed,
@@ -958,6 +960,56 @@ List<(int, String, String)> blockingUncertaintyItems(ProblemError error) {
   final number = ext?['number'];
   if (id is! String || id.isEmpty || number is! int) return null;
   return (id, number);
+}
+
+/// The cross-block refusal copy (issue #705): with the client-resolved home
+/// location it names the season and block that hold the conflicting
+/// episode; without (resolution failure) it degrades to the extension-less
+/// narrative — never a code the reviewer cannot act on.
+String otherBlockCopy(AppLocalizations l10n, ProblemError error) {
+  final ext = error.extensions;
+  final seasonNumber = ext?['existing_season_number'];
+  final seasonTitle = ext?['existing_season_title'];
+  final blockNumber = ext?['existing_block_number'];
+  if (seasonNumber is! int || blockNumber is! int) {
+    return l10n.aiApplyErrorEpisodeNumberOtherBlock;
+  }
+  final seasonLabel = seasonTitle is String && seasonTitle.isNotEmpty
+      ? seasonTitle
+      : l10n.blockSeasonNumber('$seasonNumber');
+  return l10n.aiApplyErrorEpisodeNumberOtherBlockIn(
+    seasonLabel,
+    l10n.blockTileLabel('$blockNumber'),
+  );
+}
+
+/// The issue #705 scope-switch recovery target carried by an apply refusal
+/// — `null` when the error offers none:
+///
+/// - `ai_import.episode_number_other_block` with the client-resolved
+///   `existing_block_id` (cross-block by construction — the same-block
+///   case was adopted, never refused);
+/// - `episode.number-already-exists` (the #665 409) whose
+///   `existing_block_id` DIFFERS from [jobBlockId] — assign-existing would
+///   403 at the apply's cross-block IDOR gate, so only the scope switch
+///   helps. Same-block conflicts return `null` (the #665 assign-existing
+///   button owns that path), and an extension-less older backend degrades
+///   to the bare narrative.
+({String blockId})? crossBlockScopeRecovery(
+  ProblemError error, {
+  required String? jobBlockId,
+}) {
+  final blockId = error.extensions?['existing_block_id'];
+  if (blockId is! String || blockId.isEmpty) return null;
+  switch (error.code) {
+    case 'ai_import.episode_number_other_block':
+      return (blockId: blockId);
+    case 'episode.number-already-exists':
+      if (jobBlockId == null || jobBlockId.isEmpty) return null;
+      return blockId != jobBlockId ? (blockId: blockId) : null;
+    default:
+      return null;
+  }
 }
 
 /// The group refs whose effective target CREATES [number] — the group(s) a
@@ -1079,8 +1131,22 @@ Future<bool> ensureGroupEpisodeResolved(
   }
   final elsewhere = rows.where((episode) => episode.number == number).toList();
   if (elsewhere.isNotEmpty) {
+    // Issue #705: the refusal NAMes the conflict's home — a reviewer in a
+    // one-block season otherwise gets an unactionable "switch the block".
+    // The location resolves best-effort; on any failure the error carries
+    // only the ids (the copy degrades to the extension-less narrative and
+    // the recovery button stays hidden).
+    final conflicting = elsewhere.first;
+    final home = await _episodeHomeLocation(ref, conflicting);
     controller.setCommandError(
-      const ProblemError(code: 'ai_import.episode_number_other_block'),
+      ProblemError(
+        code: 'ai_import.episode_number_other_block',
+        extensions: {
+          'existing_episode_id': conflicting.id,
+          'existing_block_id': conflicting.blockId,
+          ...?home,
+        },
+      ),
     );
     return false;
   }
@@ -1106,4 +1172,32 @@ Future<bool> ensureGroupEpisodeResolved(
     );
     return true;
   });
+}
+
+/// Resolves the display location of a conflicting episode's home (issue
+/// #705) — its block number plus the owning season's id/number/title —
+/// best-effort. Any read failure degrades to `null`: the refusal then
+/// carries only the ids, the copy falls back, and the recovery button's tap
+/// re-resolves on demand.
+Future<Map<String, dynamic>?> _episodeHomeLocation(
+  WidgetRef ref,
+  EpisodeView episode,
+) async {
+  final block = await ref
+      .read(episodeRepositoryProvider)
+      .blockById(episode.blockId);
+  final blockView = block.fold((_) => null, (b) => b);
+  if (blockView == null) return null;
+  final season = await ref
+      .read(seasonRepositoryProvider)
+      .get(blockView.seasonId);
+  final seasonView = season.fold((_) => null, (s) => s);
+  return {
+    'existing_block_number': blockView.number,
+    if (seasonView != null) ...{
+      'existing_season_id': seasonView.id,
+      'existing_season_number': seasonView.number,
+      if (seasonView.title != null) 'existing_season_title': seasonView.title!,
+    },
+  };
 }

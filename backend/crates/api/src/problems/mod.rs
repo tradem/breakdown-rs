@@ -383,7 +383,15 @@ pub enum ApiError {
     /// extension carries the existing episode's id and `number` the
     /// requested create number, so the client can flip the affected group to
     /// assign-existing in one tap (issue #665) without a second round-trip.
-    EpisodeNumberAlreadyExists(breakdown_core::shared::EpisodeId, i32),
+    /// Issue #705 adds `existing_block_id` (the conflicting episode's home
+    /// block): when it differs from the job's block, assign-existing would
+    /// trip the cross-block IDOR guard — the client offers a scope-switch
+    /// recovery to the episode's home instead.
+    EpisodeNumberAlreadyExists(
+        breakdown_core::shared::EpisodeId,
+        i32,
+        breakdown_core::shared::BlockId,
+    ),
     /// 500 `http.internal-error` — `detail` is always static text; the real
     /// error must be logged by the caller (internal text never leaves the
     /// server, ADR-031 decision 6).
@@ -510,12 +518,15 @@ impl ApiError {
                     .extension("episode_ref", episode_ref)
                     .build()
             }
-            ApiError::EpisodeNumberAlreadyExists(existing_episode_id, number) => {
-                problem(EPISODE_NUMBER_ALREADY_EXISTS)
-                    .extension("existing_episode_id", existing_episode_id)
-                    .extension("number", number)
-                    .build()
-            }
+            ApiError::EpisodeNumberAlreadyExists(
+                existing_episode_id,
+                number,
+                existing_block_id,
+            ) => problem(EPISODE_NUMBER_ALREADY_EXISTS)
+                .extension("existing_episode_id", existing_episode_id)
+                .extension("number", number)
+                .extension("existing_block_id", existing_block_id)
+                .build(),
             ApiError::AiConfigProviderMismatch(msg) => {
                 tracing::debug!(
                     reason = msg,

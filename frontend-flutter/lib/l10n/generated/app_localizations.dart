@@ -2038,6 +2038,27 @@ abstract class AppLocalizations {
   /// **'Diese Episodennummer ist bereits einem anderen Block zugeordnet. Wechsle den Block und lade das Dokument dort erneut hoch.'**
   String get aiApplyErrorEpisodeNumberOtherBlock;
 
+  /// No description provided for @aiApplyErrorEpisodeNumberOtherBlockIn.
+  ///
+  /// In de, this message translates to:
+  /// **'Diese Episodennummer gehört bereits zu {seasonLabel}, {blockLabel}. Wechsle in diesen Block und lade das Dokument dort erneut hoch.'**
+  String aiApplyErrorEpisodeNumberOtherBlockIn(
+    Object seasonLabel,
+    Object blockLabel,
+  );
+
+  /// No description provided for @aiApplySwitchScopeRecovery.
+  ///
+  /// In de, this message translates to:
+  /// **'Zum Herkunftsblock der Episode wechseln und dort erneut hochladen'**
+  String get aiApplySwitchScopeRecovery;
+
+  /// No description provided for @aiApplySwitchScopeFailed.
+  ///
+  /// In de, this message translates to:
+  /// **'Der Wechsel zum Herkunftsblock ist fehlgeschlagen ({code}). Bitte prüfe deine Verbindung und versuche es erneut.'**
+  String aiApplySwitchScopeFailed(Object code);
+
   /// No description provided for @aiApplyErrorEpisodeCreateFailed.
   ///
   /// In de, this message translates to:

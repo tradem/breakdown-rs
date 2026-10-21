@@ -22,6 +22,15 @@ releases are cut as `vX.Y.Z` tags (`v<build-name>`, enforced by
 
 ## [Unreleased]
 
+- **Version bump / pre-release phase switch:** `0.4.0-alpha.41+92 →
+  0.4.0-beta.1+93` — alpha → beta, the pre-release counter restarts at
+  1. Semver-monotonic by construction: the label comparison precedes the
+  numeric one, so `beta.1` > `alpha.41` (ADR-033 unified release format;
+  the version gate's regex accepts both labels). The build number
+  (versionCode) deliberately does NOT restart — `+93` continues the
+  strictly-monotonic counter the release gate enforces across all
+  previous `v*` tags and Android upgrade installs require.
+
 - **Version bump:** `0.4.0-alpha.40+91 → 0.4.0-alpha.41+92` — apply
   feedback (user report: "the button activates but nothing happens" — the
   applies HAD succeeded server-side, 59/72 scenes, but with zero visible

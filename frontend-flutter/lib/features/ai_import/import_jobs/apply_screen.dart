@@ -12,6 +12,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:fpdart/fpdart.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
+import '../../../auth/active_block.dart';
 import '../../../auth/auth_providers.dart';
 import '../../../core/problem_error.dart';
 import '../../../data/ai_import_providers.dart';
@@ -22,6 +23,7 @@ import '../../../data/cache/seasons_cache_providers.dart';
 import '../../episodes/episodes_controller.dart';
 import '../../scenes/scenes_controller.dart';
 import 'apply_controller.dart';
+import 'import_submit_screen.dart';
 import 'job_status_controller.dart';
 import '../naming_line.dart';
 
@@ -344,6 +346,18 @@ class _AiApplySectionState extends ConsumerState<AiApplySection> {
     final state = ref.watch(aiApplyControllerProvider(jobId));
     final controller = ref.read(aiApplyControllerProvider(jobId).notifier);
     final canApply = controller.canApply && _reviewAcknowledged;
+    // Issue #705 (CodeRabbit review): the cross-block recovery's job-block
+    // source of truth is the CACHED JOB ROW, not the apply context — the
+    // missing-context episode picker stores the picked episode + project but
+    // drops `blockId`, so an empty context value would hide the scope-switch
+    // recovery on a cross-block 409 and leave the 403-bound assign-existing
+    // tap visible. The context value stays as fallback (older cached rows).
+    final cachedJobBlock = ref.watch(aiJobBlockInfoProvider(jobId)).value;
+    final jobBlockId = (cachedJobBlock?.blockId.isNotEmpty ?? false)
+        ? cachedJobBlock!.blockId
+        : (state.context?.blockId.isNotEmpty ?? false)
+        ? state.context!.blockId
+        : null;
 
     return Card(
       key: const Key('ai-apply-section'),
@@ -498,13 +512,23 @@ class _AiApplySectionState extends ConsumerState<AiApplySection> {
                     // collision — flip the affected group(s) to assign-existing
                     // with the id the 409 carried; the retry then lands in the
                     // existing episode (idempotent continuation: the backend
-                    // skips already-applied rows).
+                    // skips already-applied rows). Issue #705: only for a
+                    // SAME-BLOCK conflict — an existing episode in another
+                    // block would 403 at the apply's cross-block IDOR gate;
+                    // the scope-switch button below owns that path.
                     Builder(
                       builder: (context) {
                         final conflict = episodeNumberConflict(
                           state.commandError!,
                         );
                         if (conflict == null) return const SizedBox.shrink();
+                        if (crossBlockScopeRecovery(
+                              state.commandError!,
+                              jobBlockId: jobBlockId,
+                            ) !=
+                            null) {
+                          return const SizedBox.shrink();
+                        }
                         // CodeRabbit #690: hide the recovery affordance when
                         // no group's effective create target carries the
                         // colliding number any more (the reviewer changed it
@@ -539,6 +563,78 @@ class _AiApplySectionState extends ConsumerState<AiApplySection> {
                           },
                           child: Text(
                             l10nOf(context).aiApplyAssignExistingInstead,
+                          ),
+                        );
+                      },
+                    ),
+                    // Issue #705: one-tap recovery from a CROSS-BLOCK number
+                    // conflict — switch the sticky scope directly to the
+                    // conflicting episode's home season+block (bypassing the
+                    // season-scoped chip picker) and land on the upload
+                    // screen; the re-upload binds the new job to the home
+                    // block, where the number collision resolves through the
+                    // adopt-in-job-block branch. The dead-end refusal is
+                    // dismissed only after the switch landed.
+                    Builder(
+                      builder: (context) {
+                        final recovery = crossBlockScopeRecovery(
+                          state.commandError!,
+                          jobBlockId: jobBlockId,
+                        );
+                        if (recovery == null) return const SizedBox.shrink();
+                        return TextButton(
+                          key: const Key('ai-apply-switch-scope'),
+                          onPressed: () async {
+                            final controller = ref.read(
+                              aiApplyControllerProvider(jobId).notifier,
+                            );
+                            final block = await ref
+                                .read(episodeRepositoryProvider)
+                                .blockById(recovery.blockId);
+                            // Disposal mid-await: neither mutate the GLOBAL
+                            // scope after the fact (ActiveBlock.set only
+                            // guards its persistence callback) nor touch
+                            // the autoDispose notifier — the State's
+                            // `mounted` owns both gates (CodeRabbit review).
+                            if (!mounted || !context.mounted) return;
+                            final blockView = block.fold((_) => null, (b) => b);
+                            if (blockView == null) {
+                              // CodeRabbit review: a failed home-block lookup
+                              // (offline, transport) must not swallow the
+                              // tap — the cross-block refusal (and its
+                              // recovery button) STAYS in place; the failure
+                              // surfaces as a transient, code-keyed message.
+                              final err = block.getLeft().toNullable();
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  key: const Key(
+                                    'ai-apply-switch-scope-failed',
+                                  ),
+                                  content: Text(
+                                    l10nOf(context).aiApplySwitchScopeFailed(
+                                      err?.code ?? 'unknown',
+                                    ),
+                                  ),
+                                ),
+                              );
+                              return;
+                            }
+                            ref
+                                .read(activeBlockProvider.notifier)
+                                .set(
+                                  seasonId: blockView.seasonId,
+                                  blockId: blockView.id,
+                                  blockNumber: blockView.number,
+                                );
+                            controller.dismissCommandError();
+                            await Navigator.of(context).push(
+                              MaterialPageRoute<void>(
+                                builder: (_) => const AiImportSubmitScreen(),
+                              ),
+                            );
+                          },
+                          child: Text(
+                            l10nOf(context).aiApplySwitchScopeRecovery,
                           ),
                         );
                       },
