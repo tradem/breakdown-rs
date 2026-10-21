@@ -229,8 +229,11 @@ void main() {
       expect(find.byKey(const Key('profile-account-drawer')), findsNothing);
       expect(find.byKey(const Key('settings-screen')), findsOneWidget);
       expect(find.byKey(const Key('settings-appbar')), findsOneWidget);
+      // Issue #708: the inline egg switches moved to the dedicated
+      // Easter-eggs screen — the settings screen opens onto the entry
+      // tile instead.
       expect(
-        find.byKey(const Key('settings-egg-karlKleiderbuegel')),
+        find.byKey(const Key('settings-easter-eggs-entry')),
         findsOneWidget,
       );
       // Issue #644: the AI section grew the list — the dev URI field now

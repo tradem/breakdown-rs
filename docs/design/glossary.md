@@ -6,6 +6,7 @@
 <!-- Co-authored-by: space-bunny-free (opencode-go) -->
 <!-- Co-authored-by: deepseek-v4-flash (neuralwatt) -->
 <!-- Co-authored-by: glm-5.3-flash (opencode-go) -->
+<!-- Co-authored-by: glm-5.3-flash-flex (neuralwatt) -->
 
 # Icon & Terminology Glossary
 
@@ -188,14 +189,16 @@ establishing change).
 | `—` *(no icon)* | **Staffel {n}** | Season-number fallback title on the blocks AppBar | `blocks.seasonNumber` |
 | `—` *(no icon)* | **Einstellungen** | Mehr-tab tile (issue #516: pushes the settings screen — no dialog) and screen app-bar title | `settings.title` |
 | `—` *(no icon)* | **Allgemein** | Settings screen — general app-settings section header (every flavor) | `settings.general` |
-| `—` *(no icon)* | **Easter-Eggs** | Settings — Easter-eggs group header (per-egg switches, default ON, issue #615) | `settings.easterEggs` |
-| `—` *(no icon)* | **Kleine Überraschungen in der App lassen sich ein- und ausschalten.** | Settings — Easter-eggs group explanatory line | `settings.easterEggsSubtitle` |
-| `checkroom` | **Karl Kleiderbügel** | Settings — Karl Kleiderbügel egg switch (default ON) | `settings.easterEggsKarlKleiderbuegel` |
-| `—` *(no icon)* | **Der Kleiderbügel-Assistent hilft im KI-Import mit Tipps und Sprüchen.** | Settings — Karl Kleiderbügel egg description | `settings.easterEggsKarlKleiderbuegelSubtitle` |
-| `pets_outlined` | **Déjà-vu-Katze** | Settings — Deja-vu Cat egg switch (default ON; October-only effect) | `settings.easterEggsDejavuCat` |
-| `—` *(no icon)* | **Im Oktober läuft eine schwarze Katze über den Startbildschirm und durch die leere Season-Liste. In der Vorschau hier ist sie jederzeit zu sehen.** | Settings — Deja-vu Cat egg description (issue #640: surfaces = splash + empty seasons home + gallery preview) | `settings.easterEggsDejavuCatSubtitle` |
-| `—` *(no icon)* | **Vorschau** | Settings — Easter-eggs gallery preview label (per-egg replay/preview regardless of month, issue #640) | `settings.easterEggsPreview` |
-| `—` *(no icon)* | **Jedes Ei lässt sich hier in Ruhe ansehen — unabhängig vom Monat.** | Settings — Easter-eggs gallery explanatory line | `settings.easterEggsPreviewSubtitle` |
+| `celebration_outlined` | **Easter-Eggs verwalten** | Settings (general section) — Easter-eggs entry tile pushing the dedicated Easter-eggs screen (issue #708, the counter-model of the AI-configuration entry #643) | `settings.easterEggsEntryTitle` |
+| `—` *(no icon)* | **Schalter und Vorschau für jedes Ei.** | Settings (general section) — Easter-eggs entry tile explanatory line (issue #708) | `settings.easterEggsEntrySubtitle` |
+| `—` *(no icon)* | **Easter-Eggs** | Easter-eggs screen — app-bar title (issue #708) and per-egg switches group header (default ON, issue #615) | `settings.easterEggsScreenTitle` / `settings.easterEggs` |
+| `—` *(no icon)* | **Kleine Überraschungen in der App lassen sich ein- und ausschalten.** | Easter-eggs screen — switches group explanatory line (issue #708: moved from Settings) | `settings.easterEggsSubtitle` |
+| `checkroom` | **Karl Kleiderbügel** | Easter-eggs screen — Karl Kleiderbügel egg switch (default ON) | `settings.easterEggsKarlKleiderbuegel` |
+| `—` *(no icon)* | **Der Kleiderbügel-Assistent hilft im KI-Import mit Tipps und Sprüchen.** | Easter-eggs screen — Karl Kleiderbügel egg description | `settings.easterEggsKarlKleiderbuegelSubtitle` |
+| `pets_outlined` | **Déjà-vu-Katze** | Easter-eggs screen — Deja-vu Cat egg switch (default ON; October-only effect) | `settings.easterEggsDejavuCat` |
+| `—` *(no icon)* | **Im Oktober läuft eine schwarze Katze über den Startbildschirm und durch die leere Season-Liste. In der Vorschau hier ist sie jederzeit zu sehen.** | Easter-eggs screen — Deja-vu Cat egg description (issue #640: surfaces = splash + empty seasons home + gallery preview) | `settings.easterEggsDejavuCatSubtitle` |
+| `—` *(no icon)* | **Vorschau** | Easter-eggs screen — gallery preview label (per-egg replay/preview regardless of month, issue #640; moved from Settings, issue #708) | `settings.easterEggsPreview` |
+| `—` *(no icon)* | **Jedes Ei lässt sich hier in Ruhe ansehen — unabhängig vom Monat.** | Easter-eggs screen — gallery explanatory line (moved from Settings, issue #708) | `settings.easterEggsPreviewSubtitle` |
 | `—` *(no icon)* | **Entwicklung** | Settings screen — dev-only section header (backend switch flow lives here) | `settings.dev` |
 | `—` *(no icon)* | **Backend-URI** | Settings (dev) — editable backend-URI field label | `settings.backendUri` |
 | `—` *(no icon)* | **Speichern** | Settings (dev) — save override action | `settings.save` |
