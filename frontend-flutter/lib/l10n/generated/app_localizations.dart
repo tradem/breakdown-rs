@@ -2053,6 +2053,12 @@ abstract class AppLocalizations {
   /// **'Zum Herkunftsblock der Episode wechseln und dort erneut hochladen'**
   String get aiApplySwitchScopeRecovery;
 
+  /// No description provided for @aiApplySwitchScopeFailed.
+  ///
+  /// In de, this message translates to:
+  /// **'Der Wechsel zum Herkunftsblock ist fehlgeschlagen ({code}). Bitte prüfe deine Verbindung und versuche es erneut.'**
+  String aiApplySwitchScopeFailed(Object code);
+
   /// No description provided for @aiApplyErrorEpisodeCreateFailed.
   ///
   /// In de, this message translates to:

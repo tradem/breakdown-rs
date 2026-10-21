@@ -437,6 +437,63 @@ void main() {
       );
       expect(find.byKey(const Key('ai-apply-switch-scope')), findsNothing);
     });
+
+    testWidgets('a failed home-block lookup surfaces a code-keyed snackbar '
+        'and keeps the refusal (never a silent tap)', (tester) async {
+      await setupContainer();
+      episodeRepo.blockByIdResult = const Left(
+        ProblemError(code: 'transport.connectionError'),
+      );
+      final blockSub = container.listen(activeBlockProvider, (_, _) {});
+      addTearDown(blockSub.close);
+
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          // A Scaffold host: in production the section lives inside the
+          // preview screen's Scaffold; the snackbar needs a messenger root.
+          child: MaterialApp(
+            home: Scaffold(body: const AiApplySection(jobId: 'job-1')),
+          ),
+        ),
+      );
+      await tester.pump();
+      container
+          .read(aiApplyControllerProvider('job-1').notifier)
+          .setCommandError(
+            const ProblemError(
+              code: 'ai_import.episode_number_other_block',
+              extensions: {
+                'existing_episode_id': 'ep-293',
+                'existing_block_id': 'home-block',
+                'existing_season_number': 2,
+                'existing_block_number': 3,
+              },
+            ),
+          );
+      await tester.pump();
+
+      await tester.tap(find.byKey(const Key('ai-apply-switch-scope')));
+      for (var i = 0; i < 6; i++) {
+        await tester.pump(const Duration(milliseconds: 10));
+      }
+
+      // The failed lookup surfaces as a transient, code-keyed message…
+      expect(
+        find.byKey(const Key('ai-apply-switch-scope-failed')),
+        findsOneWidget,
+      );
+      expect(find.textContaining('transport.connectionError'), findsOneWidget);
+      // …the sticky scope stays untouched…
+      expect(container.read(activeBlockProvider), isNull);
+      // …and the cross-block refusal (with its recovery button) stays —
+      // replacing it would have removed the retry affordance.
+      expect(
+        container.read(aiApplyControllerProvider('job-1')).commandError?.code,
+        'ai_import.episode_number_other_block',
+      );
+      expect(find.byKey(const Key('ai-apply-switch-scope')), findsOneWidget);
+    });
   });
 }
 

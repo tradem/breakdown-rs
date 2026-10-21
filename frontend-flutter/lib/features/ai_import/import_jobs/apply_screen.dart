@@ -598,7 +598,27 @@ class _AiApplySectionState extends ConsumerState<AiApplySection> {
                             // `mounted` owns both gates (CodeRabbit review).
                             if (!mounted || !context.mounted) return;
                             final blockView = block.fold((_) => null, (b) => b);
-                            if (blockView == null) return;
+                            if (blockView == null) {
+                              // CodeRabbit review: a failed home-block lookup
+                              // (offline, transport) must not swallow the
+                              // tap — the cross-block refusal (and its
+                              // recovery button) STAYS in place; the failure
+                              // surfaces as a transient, code-keyed message.
+                              final err = block.getLeft().toNullable();
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  key: const Key(
+                                    'ai-apply-switch-scope-failed',
+                                  ),
+                                  content: Text(
+                                    l10nOf(context).aiApplySwitchScopeFailed(
+                                      err?.code ?? 'unknown',
+                                    ),
+                                  ),
+                                ),
+                              );
+                              return;
+                            }
                             ref
                                 .read(activeBlockProvider.notifier)
                                 .set(

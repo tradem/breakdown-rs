@@ -330,6 +330,12 @@
     }
   },
   "aiApplySwitchScopeRecovery": "Switch to the episode's home block and re-upload there",
+  "aiApplySwitchScopeFailed": "Switching to the episode's home block failed ({code}). Check your connection and try again.",
+  "@aiApplySwitchScopeFailed": {
+    "placeholders": {
+      "code": {}
+    }
+  },
   "aiApplyErrorEpisodeCreateFailed": "The episode could not be created automatically. Check your connection and try again via \u201cChange target\u201d.",
   "aiApplyOutcome": "Applied {applied} draft(s): {days} shooting day(s) created, {shoots} scene shoot(s) planned.",
   "aiApplyBackToImports": "Back to imports",

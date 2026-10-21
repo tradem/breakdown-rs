@@ -1263,6 +1263,11 @@ class AppLocalizationsDe extends AppLocalizations {
       'Zum Herkunftsblock der Episode wechseln und dort erneut hochladen';
 
   @override
+  String aiApplySwitchScopeFailed(Object code) {
+    return 'Der Wechsel zum Herkunftsblock ist fehlgeschlagen ($code). Bitte prüfe deine Verbindung und versuche es erneut.';
+  }
+
+  @override
   String get aiApplyErrorEpisodeCreateFailed =>
       'Die Episode konnte nicht automatisch erstellt werden. Bitte prüfe deine Verbindung und versuche es über „Ziel ändern“ erneut.';
 

@@ -1246,6 +1246,11 @@ class AppLocalizationsEn extends AppLocalizations {
       'Switch to the episode\'s home block and re-upload there';
 
   @override
+  String aiApplySwitchScopeFailed(Object code) {
+    return 'Switching to the episode\'s home block failed ($code). Check your connection and try again.';
+  }
+
+  @override
   String get aiApplyErrorEpisodeCreateFailed =>
       'The episode could not be created automatically. Check your connection and try again via “Change target”.';
 
