@@ -7,7 +7,7 @@
 ## 1. Backend — Core & Infra Extraction / Schedule Merge
 
 - [ ] 1.1 Add `#[serde(default)] pub mood: Option<String>` to `SceneChunk`, parse canonical set shorthand (`I/T`, `A/N`, `I/D`, `I/M`, `I/AB`, etc.) from German and English headings in `extract_scenes`, and backfill `DraftScene.mood` in `ScriptImportWorker`.
-- [ ] 1.2 Add `#[serde(default)] pub episode_number: Option<i32>` to `ShootingScheduleRow`, implement `parse_schedule_scene_ref`, wire it into `csv_schedule.rs` and `ShootingScheduleSchema`, and extend `MergeInput` + `merge_schedule_to_scenes` for episode-aware matching.
+- [ ] 1.2 Add `#[serde(default)] pub episode_number: Option<i32>` to `ShootingScheduleRow`, implement `parse_schedule_scene_ref`, wire it into `csv_schedule.rs` and the `LlmClient::extract_schedule` decoding path, extend `MergeInput` + `merge_schedule_to_scenes` for episode-aware matching, and add tests for `"294.10"` and `"03.05"`.
 - [ ] 1.3 Update `config/default_ai_prompts.toml` for canonical `mood` shorthand and costume-/cross-department-focused Dispo TL;DR `summary` (no dialogue retelling).
 - [ ] 1.4 Regenerate `backend/openapi.yaml` and bump backend crate versions in lockstep (`core → infra → api`).
 

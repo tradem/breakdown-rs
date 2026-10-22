@@ -7,7 +7,7 @@
 ## 1. Decision Model Configuration & Hand-off Store
 
 - [ ] 1.1 Extend `AiImportHandoffStore` to retain optional decision-scoped `ProviderCredentialReference` entries per provider.
-- [ ] 1.2 Extend `AiConfigDraftData`, `AiConfigScreenState`, `AiConfigController`, and `AiConfigScreen` with the optional Decision Model provider/model pickers and the "Use same API key as extraction" toggle.
+- [ ] 1.2 Extend `AiConfigDraftData`, `AiConfigScreenState`, `AiConfigController`, and `AiConfigScreen` with the optional Decision Model provider/model pickers and the "Use same API key as extraction" toggle. Preserve the Decision Model provider, model, and same-key values across every form transition: copy them in `AiConfigDrafts.mutate` (the draft is rebuilt field by field), map them into `AiConfigScreenState` during load, and include the resolved values in both create and edit saves, so an unrelated edit never resets these fields or changes the credential binding.
 
 ## 2. 5-Star Rating Widget, Preview/Apply Wiring & Low-Score Filter
 
