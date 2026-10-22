@@ -46,6 +46,7 @@ ShootingDayView _day(
   bool archived = false,
   int version = 1,
   bool aiExtracted = false,
+  DateTime? wrappedAt,
 }) => ShootingDayView(
   (b) => b
     ..id = id
@@ -72,7 +73,8 @@ ShootingDayView _day(
     ..date = date
     ..archived = archived
     ..updatedAt = DateTime.utc(2026, 1, 1)
-    ..version = version,
+    ..version = version
+    ..wrappedAt = wrappedAt,
 );
 
 EpisodeView _episode() => EpisodeView(
@@ -139,6 +141,30 @@ class _FakeShootingDayRepository extends ShootingDayRepository {
     final scripted = nextWrite;
     if (scripted != null) return Future.value(scripted);
     return Future.value(const Right(2));
+  }
+
+  // Issue #706: the planned→actual merge command.
+  Result<LinkShootingDayResponse>? nextLink;
+  int linkCalls = 0;
+  String? lastLinkId;
+  String? lastLinkTargetId;
+
+  @override
+  Future<Result<LinkShootingDayResponse>> linkInto(String id, String targetId) {
+    linkCalls++;
+    lastLinkId = id;
+    lastLinkTargetId = targetId;
+    final scripted = nextLink;
+    if (scripted != null) return Future.value(scripted);
+    return Future.value(
+      Right(
+        LinkShootingDayResponse(
+          (b) => b
+            ..linkedScenes = 2
+            ..plannedSceneShoots = 1,
+        ),
+      ),
+    );
   }
 }
 
@@ -312,6 +338,119 @@ void main() {
       await _pumpFrames(tester);
       expect(
         find.text('Changed elsewhere — refresh and try again.'),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('link-into menu item: only on AI-extracted non-archived days', (
+      tester,
+    ) async {
+      final cases = {
+        'd-ai': findsOneWidget,
+        'd-manual': findsNothing,
+        'd-ai-archived': findsNothing,
+      };
+      for (final MapEntry(key: id, value: expected) in cases.entries) {
+        await setupContainer(
+          initialRows: [
+            _day(
+              id,
+              aiExtracted: id.startsWith('d-ai'),
+              archived: id.endsWith('archived'),
+            ),
+          ],
+        );
+        await pumpScreen(tester);
+        await tester.tap(find.byKey(Key('shooting-day-menu-$id')));
+        await tester.pumpAndSettle();
+        expect(
+          find.byKey(Key('shooting-day-link-into-$id')),
+          expected,
+          reason: id == 'd-ai'
+              ? 'AI-extracted, non-archived: the merge is offered'
+              : 'manual or archived: no planned→actual merge',
+        );
+      }
+    });
+
+    testWidgets('link-into picker lists only eligible targets (not self, not '
+        'wrapped, not archived) and dispatches with the picked DTO ids', (
+      tester,
+    ) async {
+      await setupContainer(
+        initialRows: [
+          _day('d-ai', orderKey: 'a', aiExtracted: true),
+          _day('d-1', orderKey: 'b', label: '1. Tag'),
+          _day(
+            'd-wrapped',
+            orderKey: 'c',
+            label: 'wrapped',
+            wrappedAt: DateTime.utc(2026, 1, 1),
+          ),
+          _day('d-arch', orderKey: 'd', label: 'archived', archived: true),
+        ],
+      );
+      await pumpScreen(tester);
+      await tester.tap(find.byKey(const Key('shooting-day-menu-d-ai')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('shooting-day-link-into-d-ai')));
+      await tester.pumpAndSettle();
+
+      // Only the eligible day is offered.
+      expect(
+        find.byKey(const Key('shooting-day-link-into-target-d-1')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const Key('shooting-day-link-into-target-d-wrapped')),
+        findsNothing,
+      );
+      expect(
+        find.byKey(const Key('shooting-day-link-into-target-d-arch')),
+        findsNothing,
+      );
+      expect(
+        find.byKey(const Key('shooting-day-link-into-target-d-ai')),
+        findsNothing,
+      );
+
+      await tester.tap(
+        find.byKey(const Key('shooting-day-link-into-target-d-1')),
+      );
+      await _pumpFrames(tester);
+      expect(repo.linkCalls, 1);
+      expect(repo.lastLinkId, 'd-ai');
+      expect(repo.lastLinkTargetId, 'd-1');
+      // The success feedback names the moved scenes.
+      expect(
+        find.text('2 scenes moved, 1 planned entries created.'),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('link-into refusal: wrapped target renders its keyed copy', (
+      tester,
+    ) async {
+      final day = _day('d-ai', orderKey: 'a', aiExtracted: true);
+      final target = _day(
+        'd-wrapped',
+        orderKey: 'b',
+        wrappedAt: DateTime.utc(2026, 1, 1),
+      );
+      await setupContainer(initialRows: [day, target]);
+      await pumpScreen(tester);
+      repo.nextLink = const Left(
+        ProblemError(code: 'shooting-day.target-wrapped', status: 409),
+      );
+      final result = await container
+          .read(shootingDaysControllerProvider('episode-1').notifier)
+          .linkInto(day: day, target: target);
+      expect(result.isLeft(), isTrue);
+      await _pumpFrames(tester);
+      expect(
+        find.text(
+          'The target shooting day is already wrapped — merging is not possible.',
+        ),
         findsOneWidget,
       );
     });

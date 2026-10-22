@@ -463,6 +463,9 @@ class _TypedPreviewBodyState extends ConsumerState<_TypedPreviewBody> {
             '${scene.sceneNumber ?? '?'}',
             scene.summary == null ? '' : ' — ${scene.summary}',
           ),
+          // The row's extracted shooting day (issue #706): display-only on
+          // the row — the accept/reject decision lives in the apply card.
+          shootingDay: scene.shootingDay,
         ),
       );
     }
@@ -484,6 +487,9 @@ class _TypedPreviewBodyState extends ConsumerState<_TypedPreviewBody> {
           // belongs to and the pre-filled create-new target. `null` keeps the
           // single-episode flow.
           episode: scene.episode,
+          // The row's extracted shooting day (issue #706). `null` leaves the
+          // row unscheduled — correct, not a failure.
+          shootingDay: scene.shootingDay,
           // `costumes` is null on a preview stored before the field existed:
           // not a failure, just a row with nothing to decide.
           costumes: [
@@ -518,11 +524,18 @@ class _PreviewRowCard extends ConsumerWidget {
     required this.jobId,
     required this.draftRef,
     required this.label,
+    this.shootingDay,
   });
 
   final String jobId;
   final String draftRef;
   final String label;
+
+  /// The row's extracted shooting day (issue #706) — display-only here;
+  /// the accept/reject decision lives in the apply card. `null` on a
+  /// preview stored before the field existed or a row without a day
+  /// marker: both render without the day line (correct, not a failure).
+  final DraftShootingDay? shootingDay;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -543,6 +556,19 @@ class _PreviewRowCard extends ConsumerWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(label),
+            // The extracted shooting day (issue #706): shown so the reviewer
+            // can verify the day grouping without opening the document. The
+            // verbatim marker text wins; the synthesized `Tag {n}` is the
+            // fallback (mirrors `DraftShootingDay::display_label`).
+            if (shootingDay != null &&
+                (shootingDay!.number != null ||
+                    (shootingDay!.label?.trim().isNotEmpty ?? false)))
+              Text(
+                key: Key('ai-preview-row-day-$draftRef'),
+                l10nOf(context)
+                    .aiPreviewShootingDay(draftShootingDayLabel(shootingDay!)),
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
             const SizedBox(height: 8),
             SegmentedButton<String>(
               key: Key('ai-row-decision-$draftRef'),

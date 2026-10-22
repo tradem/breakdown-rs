@@ -3320,4 +3320,62 @@ class AppLocalizationsDe extends AppLocalizations {
   String fundusRepertoireSeasons(String seasons) {
     return 'Staffeln: $seasons';
   }
+
+  @override
+  String aiPreviewShootingDay(Object day) {
+    return 'Drehtag: $day';
+  }
+
+  @override
+  String get aiApplyShootingDaysHeading => 'Drehtage aus dem Skript – anlegen?';
+
+  @override
+  String get aiApplyDayRejectedStatus =>
+      'Nicht anlegen – Szenen dieses Tages bleiben ohne Drehtag.';
+
+  @override
+  String aiApplyDayCreateSummary(Object day) {
+    return 'Drehtag „$day“ wird angelegt, die Szenen des Tages werden darauf geplant.';
+  }
+
+  @override
+  String aiApplyDaySkipSummary(Object day) {
+    return 'Drehtag „$day“ wird nicht angelegt – seine Szenen bleiben ohne Drehtag.';
+  }
+
+  @override
+  String get aiApplyErrorMissingShootingDayGroup =>
+      'Eine Drehtag-Gruppe passt nicht mehr zur Vorschau – lade die Vorschau neu und übernimm erneut.';
+
+  @override
+  String aiApplySkippedDayGroups(Object count) {
+    return '$count abgelehnte Drehtag-Gruppe(n) – ihre Szenen wurden ohne Drehtag angelegt.';
+  }
+
+  @override
+  String get shootingDayLinkInto => 'In echten Drehtag überführen';
+
+  @override
+  String get shootingDayLinkIntoTitle => 'In echten Drehtag überführen';
+
+  @override
+  String get shootingDayLinkIntoPick =>
+      'Ziel-Drehtag wählen – Szenen und Soll-Einträge werden überführt, der KI-Drehtag wird archiviert.';
+
+  @override
+  String get shootingDayLinkIntoNoTarget =>
+      'Kein passender Drehtag vorhanden. Lege zuerst einen echten Drehtag an.';
+
+  @override
+  String shootingDayLinkedInto(Object scenes, Object shoots) {
+    return '$scenes Szenen überführt, $shoots Soll-Einträge geplant.';
+  }
+
+  @override
+  String get shootingDayErrorTargetWrapped =>
+      'Der Ziel-Drehtag ist bereits abgeschlossen – Überführen nicht möglich.';
+
+  @override
+  String get shootingDayErrorEpisodeMismatch =>
+      'Die Drehtage gehören zu verschiedenen Episoden.';
 }

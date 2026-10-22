@@ -22,6 +22,23 @@ releases are cut as `vX.Y.Z` tags (`v<build-name>`, enforced by
 
 ## [Unreleased]
 
+- **Issue #706 frontend continuation — shooting-day decisions + planned→actual
+  merge:** `0.4.0-beta.5+97 → 0.4.0-beta.6+98`. The script preview renders
+  each scene row's extracted shooting day (`DraftShootingDay` verbatim
+  marker, `Tag <n>` fallback); the apply card gains the per-day-group
+  decision section (accept-all default, unchecking sends `accepted: false`,
+  one decision per group on the wire so the backend's
+  `ai-import.apply-missing-shooting-day-group` gate never trips) with its
+  dispatch-point summary (EU AI Act review gate) and `skipped_day_groups`
+  on the outcome card; a toggled day is an honest `edit_distance` edit.
+  The shooting-days screen adds the planned→actual merge: an
+  "In echten Drehtag überführen" action on AI-extracted, non-archived days
+  opens a target picker (same episode, not self/wrapped/archived) over
+  `POST /v1/shooting-days/{id}/link-into/{target_id}`, with keyed copy for
+  `shooting-day.target-wrapped` and `shooting-day.episode-mismatch`.
+  No wire-contract change: the client consumes the already-regenerated
+  `breakdown_api` types.
+
 - **Version bump / generated-client sync (backend issue #706):**
   `0.4.0-beta.4+96 → 0.4.0-beta.5+97`. The regenerated `breakdown_api`
   client picks up the backend's script-apply shooting-day surface — apply

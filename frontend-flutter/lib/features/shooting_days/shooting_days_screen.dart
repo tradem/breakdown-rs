@@ -11,7 +11,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../auth/auth_providers.dart';
 import '../../core/problem_error.dart';
+import '../../domain/ai_provenance.dart';
 import '../../l10n/app_localizations_provider.dart';
+import '../../l10n/locale_formatters.dart';
 import '../costume_categories/next_order_key.dart';
 import '../reports/reports_index_screen.dart';
 import 'create_shooting_day_sheet.dart';
@@ -192,6 +194,22 @@ class ShootingDaysScreen extends ConsumerWidget {
                                           ? () =>
                                                 _move(context, ref, rows, i, 1)
                                           : null,
+                                      // Issue #706: planned→actual merge —
+                                      // offered only for AI-extracted,
+                                      // non-archived days (the tile repeats
+                                      // the predicate for the menu item).
+                                      onLinkInto:
+                                          row is ProjectedShootingDayRow &&
+                                              !row.day.archived &&
+                                              dayProvenance(row.day.source_) ==
+                                                  AiProvenanceVariant
+                                                      .aiExtracted
+                                          ? () => _showLinkIntoSheet(
+                                              context,
+                                              ref,
+                                              row.day,
+                                            )
+                                          : null,
                                     );
                                   },
                                 ),
@@ -319,6 +337,107 @@ class ShootingDaysScreen extends ConsumerWidget {
         ],
       ),
     );
+  }
+
+  /// Planned→actual merge (issue #706): the target picker over the
+  /// episode's eligible days — same episode, not the source itself, not
+  /// wrapped, not archived ([eligibleLinkTargets]). Ids come from the
+  /// acted-on read DTOs. Failures surface via the command-error banner;
+  /// success reports the moved scene count and reconciles via the
+  /// bounded refetch (the source day leaves the list, archived).
+  Future<void> _showLinkIntoSheet(
+    BuildContext context,
+    WidgetRef ref,
+    ShootingDayView day,
+  ) {
+    final l10n = l10nOf(context);
+    final state = ref.read(shootingDaysControllerProvider(episode.id));
+    final targets = eligibleLinkTargets(day, [
+      for (final row in state.rows)
+        if (row is ProjectedShootingDayRow) row.day,
+    ]);
+    return showDialog<Object?>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(l10n.shootingDayLinkIntoTitle),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: targets.isEmpty
+              ? Text(
+                  key: const Key('shooting-day-link-into-no-target'),
+                  l10n.shootingDayLinkIntoNoTarget,
+                )
+              : Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      key: const Key('shooting-day-link-into-pick'),
+                      l10n.shootingDayLinkIntoPick,
+                      style: Theme.of(dialogContext).textTheme.bodySmall,
+                    ),
+                    const SizedBox(height: 8),
+                    Flexible(
+                      child: ListView.builder(
+                        shrinkWrap: true,
+                        itemCount: targets.length,
+                        itemBuilder: (context, i) {
+                          final target = targets[i];
+                          return ListTile(
+                            key: Key(
+                              'shooting-day-link-into-target-${target.id}',
+                            ),
+                            dense: true,
+                            leading: const Icon(Icons.event_outlined),
+                            title: Text(
+                              target.label ?? l10n.shootingDayUntitled,
+                            ),
+                            subtitle: target.date == null
+                                ? null
+                                : Text(
+                                    formatMediumDate(
+                                      context,
+                                      target.date!.toDateTime(),
+                                    ),
+                                  ),
+                            onTap: () =>
+                                Navigator.of(dialogContext).pop(target),
+                          );
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: Text(l10n.commonCancel),
+          ),
+        ],
+      ),
+    ).then<Object?>((picked) async {
+      if (picked is! ShootingDayView || !context.mounted) return null;
+      final linkResult = await ref
+          .read(shootingDaysControllerProvider(episode.id).notifier)
+          .linkInto(day: day, target: picked);
+      if (!context.mounted) return null;
+      linkResult.match(
+        // Handled: failures surface via the command-error banner.
+        (_) {},
+        (response) => ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            key: const Key('shooting-day-link-into-done'),
+            content: Text(
+              l10n.shootingDayLinkedInto(
+                '${response.linkedScenes}',
+                '${response.plannedSceneShoots}',
+              ),
+            ),
+          ),
+        ),
+      );
+      return null;
+    });
   }
 
   /// Reorder: issues a single new key strictly between the target

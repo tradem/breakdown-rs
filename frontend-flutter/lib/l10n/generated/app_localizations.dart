@@ -5436,6 +5436,90 @@ abstract class AppLocalizations {
   /// In de, this message translates to:
   /// **'Staffeln: {seasons}'**
   String fundusRepertoireSeasons(String seasons);
+
+  /// No description provided for @aiPreviewShootingDay.
+  ///
+  /// In de, this message translates to:
+  /// **'Drehtag: {day}'**
+  String aiPreviewShootingDay(Object day);
+
+  /// No description provided for @aiApplyShootingDaysHeading.
+  ///
+  /// In de, this message translates to:
+  /// **'Drehtage aus dem Skript – anlegen?'**
+  String get aiApplyShootingDaysHeading;
+
+  /// No description provided for @aiApplyDayRejectedStatus.
+  ///
+  /// In de, this message translates to:
+  /// **'Nicht anlegen – Szenen dieses Tages bleiben ohne Drehtag.'**
+  String get aiApplyDayRejectedStatus;
+
+  /// No description provided for @aiApplyDayCreateSummary.
+  ///
+  /// In de, this message translates to:
+  /// **'Drehtag „{day}“ wird angelegt, die Szenen des Tages werden darauf geplant.'**
+  String aiApplyDayCreateSummary(Object day);
+
+  /// No description provided for @aiApplyDaySkipSummary.
+  ///
+  /// In de, this message translates to:
+  /// **'Drehtag „{day}“ wird nicht angelegt – seine Szenen bleiben ohne Drehtag.'**
+  String aiApplyDaySkipSummary(Object day);
+
+  /// No description provided for @aiApplyErrorMissingShootingDayGroup.
+  ///
+  /// In de, this message translates to:
+  /// **'Eine Drehtag-Gruppe passt nicht mehr zur Vorschau – lade die Vorschau neu und übernimm erneut.'**
+  String get aiApplyErrorMissingShootingDayGroup;
+
+  /// No description provided for @aiApplySkippedDayGroups.
+  ///
+  /// In de, this message translates to:
+  /// **'{count} abgelehnte Drehtag-Gruppe(n) – ihre Szenen wurden ohne Drehtag angelegt.'**
+  String aiApplySkippedDayGroups(Object count);
+
+  /// No description provided for @shootingDayLinkInto.
+  ///
+  /// In de, this message translates to:
+  /// **'In echten Drehtag überführen'**
+  String get shootingDayLinkInto;
+
+  /// No description provided for @shootingDayLinkIntoTitle.
+  ///
+  /// In de, this message translates to:
+  /// **'In echten Drehtag überführen'**
+  String get shootingDayLinkIntoTitle;
+
+  /// No description provided for @shootingDayLinkIntoPick.
+  ///
+  /// In de, this message translates to:
+  /// **'Ziel-Drehtag wählen – Szenen und Soll-Einträge werden überführt, der KI-Drehtag wird archiviert.'**
+  String get shootingDayLinkIntoPick;
+
+  /// No description provided for @shootingDayLinkIntoNoTarget.
+  ///
+  /// In de, this message translates to:
+  /// **'Kein passender Drehtag vorhanden. Lege zuerst einen echten Drehtag an.'**
+  String get shootingDayLinkIntoNoTarget;
+
+  /// No description provided for @shootingDayLinkedInto.
+  ///
+  /// In de, this message translates to:
+  /// **'{scenes} Szenen überführt, {shoots} Soll-Einträge geplant.'**
+  String shootingDayLinkedInto(Object scenes, Object shoots);
+
+  /// No description provided for @shootingDayErrorTargetWrapped.
+  ///
+  /// In de, this message translates to:
+  /// **'Der Ziel-Drehtag ist bereits abgeschlossen – Überführen nicht möglich.'**
+  String get shootingDayErrorTargetWrapped;
+
+  /// No description provided for @shootingDayErrorEpisodeMismatch.
+  ///
+  /// In de, this message translates to:
+  /// **'Die Drehtage gehören zu verschiedenen Episoden.'**
+  String get shootingDayErrorEpisodeMismatch;
 }
 
 class _AppLocalizationsDelegate

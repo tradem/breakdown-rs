@@ -195,6 +195,14 @@ String shootingDayErrorCopy(AppLocalizations l10n, ProblemError error) =>
       // — issue #481).
       'concurrency.version-mismatch' => l10n.costumeCategoryErrorChanged,
       'authz.denied' || 'auth.session_required' => l10n.blocksCreateErrorSignIn,
+      // Issue #706 (planned→actual merge): wrap finality — an AI-extracted
+      // planned day is never merged onto a finalised day; the S1
+      // `shooting_day_id` extension names the wrapped target.
+      'shooting-day.target-wrapped' => l10n.shootingDayErrorTargetWrapped,
+      // Issue #706: days are episode-scoped; a cross-episode merge is a
+      // domain conflict (the picker only offers same-episode days, so this
+      // is a stale-projection signal).
+      'shooting-day.episode-mismatch' => l10n.shootingDayErrorEpisodeMismatch,
       _ when error.code.startsWith('transport.') =>
         l10n.shootingDayErrorNetwork,
       _ => l10n.shootingDayErrorGeneric(error.code),
@@ -415,6 +423,37 @@ class ShootingDaysController extends _$ShootingDaysController {
         ref.read(shootingDaysCommandErrorProvider(episodeId).notifier).clear();
         unawaited(refresh());
         return Right<ProblemError, int>(version);
+      },
+    );
+  }
+
+  /// Planned→actual merge (issue #706): re-points every scene of the
+  /// AI-extracted planned [day] onto [target], re-plans its `scene_shoot`
+  /// pairs with the Soll order preserved, and archives the source day.
+  /// Ids come from the acted-on read DTOs (never invented). Success
+  /// reconciles via the bounded refetch — the source day leaves the list
+  /// (archived) and the target gains the re-pointed scenes.
+  Future<Result<LinkShootingDayResponse>> linkInto({
+    required ShootingDayView day,
+    required ShootingDayView target,
+  }) async {
+    // AUTHZ-GATE: authenticated session required before any network call.
+    if (await _resolveSession() == null) {
+      const error = ProblemError(code: 'auth.session_required', status: 403);
+      ref.read(shootingDaysCommandErrorProvider(episodeId).notifier).set(error);
+      return const Left(error);
+    }
+    final repo = ref.read(shootingDayRepositoryProvider);
+    final res = await repo.linkInto(day.id, target.id);
+    return res.match(
+      (err) {
+        ref.read(shootingDaysCommandErrorProvider(episodeId).notifier).set(err);
+        return Left<ProblemError, LinkShootingDayResponse>(err);
+      },
+      (response) {
+        ref.read(shootingDaysCommandErrorProvider(episodeId).notifier).clear();
+        unawaited(refresh());
+        return Right<ProblemError, LinkShootingDayResponse>(response);
       },
     );
   }

@@ -103,6 +103,31 @@ String? draftEpisodeGroupRef(DraftEpisode episode) {
   return null;
 }
 
+/// Mirrors `breakdown_core::ai::DraftShootingDay::group_key` BYTE-FOR-BYTE
+/// (issue #706): `day:<n>` when the marker carried a number, else
+/// `day-l:<trimmed label>` for a day the model reported without a parseable
+/// number. The apply request's day refs must match the backend's derivation
+/// exactly or the validation rejects the decision. `null` = the row cannot
+/// be grouped (it applies unscheduled).
+String? draftShootingDayGroupRef(DraftShootingDay day) {
+  final number = day.number;
+  if (number != null) return 'day:$number';
+  final label = day.label;
+  if (label != null && label.trim().isNotEmpty) return 'day-l:${label.trim()}';
+  return null;
+}
+
+/// The reviewer-facing day label: the marker's verbatim text when one was
+/// captured, else the backend's synthesized display form — mirrors
+/// `DraftShootingDay::display_label`. Empty only when the day carries
+/// neither (such a day yields no group ref either).
+String draftShootingDayLabel(DraftShootingDay day) {
+  final label = day.label?.trim();
+  if (label != null && label.isNotEmpty) return label;
+  final number = day.number;
+  return number == null ? '' : 'Tag $number';
+}
+
 /// One extracted costume of a draft row, with the reviewer's decision.
 ///
 /// A costume is decided *independently of its scene* (spec `ai-import`): the
@@ -150,6 +175,7 @@ class PreviewRow {
     this.decision = const CreateDecision(),
     this.costumes = const <PreviewCostume>[],
     this.episode,
+    this.shootingDay,
   });
 
   final String draftRef;
@@ -170,12 +196,18 @@ class PreviewRow {
   /// single-episode flow), which is correct, not a failure.
   final DraftEpisode? episode;
 
+  /// The shooting day the row was extracted for (issue #706). `null` for
+  /// previews stored before the field existed and for rows without a day
+  /// marker — both apply unscheduled, which is correct, not a failure.
+  final DraftShootingDay? shootingDay;
+
   PreviewRow withDecision(RowDecision decision) => PreviewRow(
     draftRef: draftRef,
     label: label,
     decision: decision,
     costumes: costumes,
     episode: episode,
+    shootingDay: shootingDay,
   );
 
   /// Replaces one costume row's decision by [ordinal]; an unknown ordinal is
@@ -192,6 +224,7 @@ class PreviewRow {
           costume,
     ],
     episode: episode,
+    shootingDay: shootingDay,
   );
 }
 
@@ -209,6 +242,7 @@ class AiApplyState {
     this.outcome,
     this.commandError,
     this.groupTargets = const <String, EpisodeGroupTarget>{},
+    this.dayDecisions = const <String, bool>{},
     this.blockingUncertainties = const <Uncertainty>[],
     this.acknowledgedKeys = const <String>{},
   });
@@ -236,6 +270,15 @@ class AiApplyState {
   /// here, so the map stays small and the default derivation lives in one
   /// place.
   final Map<String, EpisodeGroupTarget> groupTargets;
+
+  /// The reviewer's per-day-group decisions (issue #706), keyed by the
+  /// backend-derived day group ref. ABSENT entries fall back to the seeded
+  /// default (accepted — the extraction-as-extracted default; the reviewer
+  /// unchecks a day to leave its scene rows unscheduled). Only explicit
+  /// toggles land here, so the map stays small and the default lives in one
+  /// place. The client always sends ONE decision per day group on the wire,
+  /// so the backend's missing-decision gate never trips.
+  final Map<String, bool> dayDecisions;
 
   /// The preview's blocking (`field_ambiguity`) uncertainties (issue #663).
   /// Advisory (`dropped_row`) entries are filtered out at seed time — they
@@ -302,7 +345,8 @@ class AiApplyState {
         (sum, row) =>
             sum + row.costumes.where((costume) => !costume.accepted).length,
       ) +
-      _groupEdits;
+      _groupEdits +
+      _dayEdits;
 
   /// The preview's group refs in first-appearance order (verbatim backend
   /// `group_key` derivations — the apply request carries exactly these).
@@ -459,6 +503,59 @@ class AiApplyState {
           ),
       ]);
 
+  /// The preview's day-group refs in first-appearance order (verbatim
+  /// backend `group_key` derivations — the apply request carries exactly
+  /// these). Empty for a preview without day metadata: the request then
+  /// carries no `shooting_days` and stays byte-identical to the pre-#706
+  /// client.
+  List<String> get dayRefs {
+    final refs = <String>[];
+    for (final row in rows) {
+      final day = row.shootingDay;
+      if (day == null) continue;
+      final ref = draftShootingDayGroupRef(day);
+      if (ref != null && !refs.contains(ref)) refs.add(ref);
+    }
+    return refs;
+  }
+
+  /// The day metadata of [ref]'s first row (the marker the group was
+  /// extracted from); `null` for an unknown ref (never dispatched).
+  DraftShootingDay? shootingDayOfGroup(String ref) {
+    for (final row in rows) {
+      final day = row.shootingDay;
+      if (day != null && draftShootingDayGroupRef(day) == ref) return day;
+    }
+    return null;
+  }
+
+  /// The effective decision for [ref]: the reviewer's toggle, else the
+  /// seeded default (accepted — extraction-as-extracted).
+  bool dayAccepted(String ref) => dayDecisions[ref] ?? true;
+
+  /// Day-decision edits: a group whose effective decision deviates from the
+  /// accepted default (an explicit REJECTION) is an edit — `accept_as_is`
+  /// must stay a truthful statement about the review. An explicit accept
+  /// equals the seeded default, so it is not an edit.
+  int get _dayEdits =>
+      dayRefs.where((ref) => dayDecisions[ref] == false).length;
+
+  /// Builds the request's per-day-group decisions (issue #706): one entry
+  /// per preview day ref, accepted from the reviewer's toggle (default
+  /// accepted). The backend refuses a referenced group without a decision
+  /// (`409 ai-import.apply-missing-shooting-day-group`), so EVERY group is
+  /// decided here — an uncheck travels as `accepted: false`, never as an
+  /// absent entry. Empty when no row carries day metadata.
+  BuiltList<ApplyShootingDayRequest> buildShootingDays() =>
+      BuiltList<ApplyShootingDayRequest>([
+        for (final ref in dayRefs)
+          ApplyShootingDayRequest(
+            (b) => b
+              ..dayRef = ref
+              ..accepted = dayAccepted(ref),
+          ),
+      ]);
+
   EpisodeTarget _wireTarget(EpisodeGroupTarget target) => switch (target) {
     ExistingEpisodeGroupTarget(:final episodeId) => EpisodeTarget(
       (e) => e
@@ -535,6 +632,7 @@ class AiApplyController extends _$AiApplyController {
       outcome: state.outcome,
       commandError: state.commandError,
       groupTargets: state.groupTargets,
+      dayDecisions: state.dayDecisions,
       blockingUncertainties: state.blockingUncertainties,
       acknowledgedKeys: next,
     );
@@ -607,6 +705,7 @@ class AiApplyController extends _$AiApplyController {
       outcome: state.outcome,
       commandError: state.commandError,
       groupTargets: next,
+      dayDecisions: state.dayDecisions,
       blockingUncertainties: state.blockingUncertainties,
       acknowledgedKeys: state.acknowledgedKeys,
     );
@@ -674,6 +773,7 @@ class AiApplyController extends _$AiApplyController {
       outcome: state.outcome,
       commandError: keepError ? error : null,
       groupTargets: nextTargets,
+      dayDecisions: state.dayDecisions,
       blockingUncertainties: state.blockingUncertainties,
       acknowledgedKeys: state.acknowledgedKeys,
     );
@@ -688,6 +788,24 @@ class AiApplyController extends _$AiApplyController {
       outcome: state.outcome,
       commandError: state.commandError,
       groupTargets: {...state.groupTargets, groupRef: target},
+      dayDecisions: state.dayDecisions,
+      blockingUncertainties: state.blockingUncertainties,
+      acknowledgedKeys: state.acknowledgedKeys,
+    );
+  }
+
+  /// Records the reviewer's decision for one shooting-day group (issue
+  /// #706): `accepted` creates the day and schedules the group's scene rows;
+  /// a rejection leaves them unscheduled (reported in the response's
+  /// `skipped_day_groups`). Absent keys keep the seeded accepted-default.
+  void decideDay(String dayRef, bool accepted) {
+    state = AiApplyState(
+      rows: state.rows,
+      context: state.context,
+      outcome: state.outcome,
+      commandError: state.commandError,
+      groupTargets: state.groupTargets,
+      dayDecisions: {...state.dayDecisions, dayRef: accepted},
       blockingUncertainties: state.blockingUncertainties,
       acknowledgedKeys: state.acknowledgedKeys,
     );
@@ -702,6 +820,8 @@ class AiApplyController extends _$AiApplyController {
       context: context,
       outcome: state.outcome,
       commandError: state.commandError,
+      groupTargets: state.groupTargets,
+      dayDecisions: state.dayDecisions,
       blockingUncertainties: state.blockingUncertainties,
       acknowledgedKeys: state.acknowledgedKeys,
     );
@@ -717,6 +837,7 @@ class AiApplyController extends _$AiApplyController {
       outcome: state.outcome,
       commandError: state.commandError,
       groupTargets: state.groupTargets,
+      dayDecisions: state.dayDecisions,
       blockingUncertainties: state.blockingUncertainties,
       acknowledgedKeys: state.acknowledgedKeys,
     );
@@ -738,6 +859,7 @@ class AiApplyController extends _$AiApplyController {
       outcome: state.outcome,
       commandError: state.commandError,
       groupTargets: state.groupTargets,
+      dayDecisions: state.dayDecisions,
       blockingUncertainties: state.blockingUncertainties,
       acknowledgedKeys: state.acknowledgedKeys,
     );
@@ -813,6 +935,7 @@ class AiApplyController extends _$AiApplyController {
     }
     final repo = ref.read(aiImportRepositoryProvider);
     final episodeGroups = state.buildEpisodeGroups();
+    final shootingDays = state.buildShootingDays();
     final request = ApplyAiImportRequest(
       (b) => b
         ..episodeId = context.episodeId
@@ -825,6 +948,10 @@ class AiApplyController extends _$AiApplyController {
         ..episodeGroups = episodeGroups.isEmpty
             ? null
             : episodeGroups.toBuilder()
+        // Issue #706: one decision per extracted day group (default
+        // accepted); absent when the preview carries no day metadata — the
+        // request then stays byte-identical to the pre-#706 client.
+        ..shootingDays = shootingDays.isEmpty ? null : shootingDays.toBuilder()
         // Issue #663: the reviewer's acknowledgements travel with the other
         // reviewer decisions; empty stays absent on the wire.
         ..uncertaintyAcknowledgements = state.buildAcknowledgements().isEmpty
@@ -857,6 +984,7 @@ class AiApplyController extends _$AiApplyController {
           context: context,
           outcome: response,
           groupTargets: state.groupTargets,
+          dayDecisions: state.dayDecisions,
           blockingUncertainties: state.blockingUncertainties,
           acknowledgedKeys: state.acknowledgedKeys,
         );
@@ -869,6 +997,7 @@ class AiApplyController extends _$AiApplyController {
           outcome: null,
           commandError: error,
           groupTargets: state.groupTargets,
+          dayDecisions: state.dayDecisions,
           blockingUncertainties: state.blockingUncertainties,
           acknowledgedKeys: state.acknowledgedKeys,
         );
@@ -881,6 +1010,7 @@ class AiApplyController extends _$AiApplyController {
           outcome: null,
           commandError: error,
           groupTargets: state.groupTargets,
+          dayDecisions: state.dayDecisions,
           blockingUncertainties: state.blockingUncertainties,
           acknowledgedKeys: state.acknowledgedKeys,
         );
@@ -922,6 +1052,11 @@ String aiApplyErrorCopy(AppLocalizations l10n, ProblemError error) =>
       'ai-import.apply-missing-mapping' => l10n.aiApplyErrorMissingMapping,
       'ai-import.apply-missing-episode-group' =>
         l10n.aiApplyErrorMissingEpisodeGroup,
+      // Issue #706: a day group the preview references without a decision —
+      // the client always sends one per group, so this is a stale-review
+      // signal; the S1 `day_ref` extension names the group.
+      'ai-import.apply-missing-shooting-day-group' =>
+        l10n.aiApplyErrorMissingShootingDayGroup,
       _ when error.code.startsWith('transport.') => l10n.aiApplyErrorNetwork,
       _ => l10n.aiApplyErrorGeneric(error.code),
     };

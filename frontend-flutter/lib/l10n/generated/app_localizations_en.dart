@@ -3283,4 +3283,63 @@ class AppLocalizationsEn extends AppLocalizations {
   String fundusRepertoireSeasons(String seasons) {
     return 'Seasons: $seasons';
   }
+
+  @override
+  String aiPreviewShootingDay(Object day) {
+    return 'Shooting day: $day';
+  }
+
+  @override
+  String get aiApplyShootingDaysHeading =>
+      'Shooting days from the script — create them?';
+
+  @override
+  String get aiApplyDayRejectedStatus =>
+      'Do not create — this day\'s scenes stay unscheduled.';
+
+  @override
+  String aiApplyDayCreateSummary(Object day) {
+    return 'Shooting day „$day“ will be created; its scenes will be scheduled onto it.';
+  }
+
+  @override
+  String aiApplyDaySkipSummary(Object day) {
+    return 'Shooting day „$day“ will not be created — its scenes stay unscheduled.';
+  }
+
+  @override
+  String get aiApplyErrorMissingShootingDayGroup =>
+      'A shooting-day group no longer matches the preview — reload the preview and apply again.';
+
+  @override
+  String aiApplySkippedDayGroups(Object count) {
+    return '$count rejected shooting-day group(s) — their scenes were applied unscheduled.';
+  }
+
+  @override
+  String get shootingDayLinkInto => 'Merge into actual shooting day';
+
+  @override
+  String get shootingDayLinkIntoTitle => 'Merge into actual shooting day';
+
+  @override
+  String get shootingDayLinkIntoPick =>
+      'Pick the target day — scenes and planned entries move there; the AI day is archived.';
+
+  @override
+  String get shootingDayLinkIntoNoTarget =>
+      'No eligible shooting day. Create an actual day first.';
+
+  @override
+  String shootingDayLinkedInto(Object scenes, Object shoots) {
+    return '$scenes scenes moved, $shoots planned entries created.';
+  }
+
+  @override
+  String get shootingDayErrorTargetWrapped =>
+      'The target shooting day is already wrapped — merging is not possible.';
+
+  @override
+  String get shootingDayErrorEpisodeMismatch =>
+      'The shooting days belong to different episodes.';
 }
