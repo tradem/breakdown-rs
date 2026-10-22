@@ -22,6 +22,19 @@ releases are cut as `vX.Y.Z` tags (`v<build-name>`, enforced by
 
 ## [Unreleased]
 
+- **Issue #721 — set-shorthand mood reinforcement + `<Episode>.<Scene>` schedule rows:**
+  `0.4.0-beta.6+98 → 0.4.0-beta.7+99`. The mood line (`I/T`, `A/N`, `I/A/T`, …)
+  renders with its reinforcing Material icons (`home_outlined`/`park_outlined`/
+  `sensor_door_outlined` + `wb_sunny_outlined`/`dark_mode_outlined`/
+  `wb_twilight_outlined`/`bedtime_outlined`) on scene detail, script overview
+  tiles and AI preview rows — icons reinforce the visible text, never replace
+  it; a scene without a mood renders no line. The shared
+  `BreakdownMaterialIcons.forSceneMood` resolver and the `SceneMoodLabel`
+  widget live in `lib/design/` (icons are decorative, `ExcludeSemantics`);
+  the glossary rows are updated in the same change. The regenerated client
+  carries `ShootingScheduleRow.episodeNumber` for the backend's lossless
+  `<Episode>.<Scene>` schedule parsing (issue #721). No new copy keys (the
+  visible label reuses `sceneMood`).
 - **Issue #706 frontend continuation — shooting-day decisions + planned→actual
   merge:** `0.4.0-beta.5+97 → 0.4.0-beta.6+98`. The script preview renders
   each scene row's extracted shooting day (`DraftShootingDay` verbatim

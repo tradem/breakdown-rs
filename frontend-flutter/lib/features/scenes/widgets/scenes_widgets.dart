@@ -9,6 +9,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../design/components/ai_provenance_badge.dart';
+import '../../../design/scene_mood_label.dart';
 import '../../../domain/ai_provenance.dart';
 
 import '../../../l10n/app_localizations_provider.dart';
@@ -139,7 +140,6 @@ class SceneTile extends StatelessWidget {
                 ),
               Text(
                 [
-                  if (scene.mood case final mood?) l10n.sceneMood(mood),
                   if (scene.location case final location?)
                     l10n.sceneLoc(location),
                   if (scene.scriptDay case final day?) l10n.sceneDay(day),
@@ -156,6 +156,16 @@ class SceneTile extends StatelessWidget {
                   ),
                 ].join(' · '),
               ),
+              // Set-shorthand mood with its reinforcing icons (issue #721):
+              // its own line so the icons sit next to the visible `I/T`
+              // text instead of inside the joined metadata string.
+              if (scene.mood case final mood?)
+                SceneMoodLabel(
+                  key: Key('scene-mood-${scene.id}'),
+                  mood: mood,
+                  label: l10n.sceneMood(mood),
+                  textStyle: Theme.of(context).textTheme.bodySmall,
+                ),
             ],
           ),
         ),

@@ -35,6 +35,13 @@
 # has to read past. Suppressing it at the prompt source is why no frontend
 # boilerplate blacklist exists.
 #
+# Since issue #721 `summary` is a Dispo TL;DR (1–2 sentences): physical
+# action, costume continuity triggers and cross-department interfaces — no
+# dialogue retelling. `mood` is emitted in the canonical set shorthand
+# (`I/T`, `A/N`, …) parsed from the heading; the deterministic
+# `parse_mood_from_heading` scan is authoritative and the model's value only
+# fills in when the scan finds no parsable time token.
+#
 # Deployment note: this file is the fallback, not a lock. A deployment that has
 # stored a configuration prompt (editable in the app, overridable through
 # `AI_IMPORT_DEFAULT_PROMPTS_PATH`) keeps serving that stored text, so an edit
@@ -60,9 +67,11 @@ text = """
 
 <episode>If the block itself names an episode of the series — for example a line like "EPISODE 3 - Der Unfall", "Folge 12", or an episode title card inside this block — record it in `episode` as {"number": the episode number when the text states one, "title": the episode title when the text states one}. Both fields are optional; leave a field null when the text does not state it. If the block does not itself mark an episode, leave `episode` null: never infer an episode from scene numbering or running order.</episode>
 
-<location>Take `location` from the heading (the place), not from the body. `scene_number` only if the heading actually carries one. `script_day` for a fictional day such as "Tag 1" or "1. Spieltag". `mood` only when the text states it.</location>
+<location>Take `location` from the heading (the place), not from the body. `scene_number` only if the heading actually carries one. `script_day` for a fictional day such as "Tag 1" or "1. Spieltag".</location>
 
-<summary>One factual sentence describing what happens in the block — content, never meta-information: do not describe the shape of the block, its emptiness, or what you did or did not extract. A block whose body states nothing gets `summary` null, not a sentence saying so. Costuming does NOT belong here — it goes in `costumes`; props are recorded here as described above. Do not interpret, do not speculate, do not summarise the plot beyond what is written.</summary>
+<mood>`mood` is the canonical set shorthand for interior/exterior + time of day, taken from the heading: `I` (innen/INT) or `A` (außen/EXT) combined with `T` (Tag/Day), `N` (Nacht/Night), `D` (Dämmerung/Dusk/Dawn), `M` (Morgen/Morning) or `AB` (Abend/Evening) — e.g. "12 I/T - WERKSTATT" → "I/T", "INNEN WOHNUNG - NACHT" → "I/N", "INT. KITCHEN - DAY" → "I/T", "EXT. STREET - NIGHT" → "A/N", "INT/EXT. WORKSHOP - DAY" → "I/A/T". Emit the shorthand exactly in this form when the heading carries both halves; leave `mood` null when the heading states no time of day. Never invent a mood from the body text — the server derives this value from the heading itself.</mood>
+
+<summary>`summary` is the concise TL;DR synopsis for the production Dispo — 1–2 sentences, strictly no dialogue retelling and no plot interpretation beyond the block. Name the core physical action and the figures taking part. When the text states them, weave in what the costume/Dispo side must prepare: costume-relevant conditions (rain or water, mud, blood, sweat, a fight or stunt, an in-scene clothing change, a time jump between scenes) and cross-department interfaces only as far as the block states them — Hair/Make-up (blood, sweat, wigs, ageing), Sound (microphone-hiding constraints), Props/Art Department (body-worn or story-critical props). Grounded only: a condition the block does not state does not belong in the summary. Content, never meta-information: do not describe the shape of the block, its emptiness, or what you did or did not extract — a block whose body states nothing gets `summary` null, not a sentence saying so. Costuming does NOT belong here — it goes in `costumes`.</summary>
 
 <grounding>Extract only what the text states. Never infer a name, costume, location or prop that is not written. An outline-style block that contains only a heading and a day marker has no characters, no costumes and no props — return empty lists for it and leave `summary` null. That is a correct answer, not a failure, and it is never something to report in `summary`: a block with nothing in it needs no sentence.</grounding>
 
@@ -77,7 +86,7 @@ text = """
 
 <context>Return only the static ShootingSchedule JSON structure.</context>
 
-<grounding>Copy row values verbatim. A row's scene reference is whatever the document writes next to it (a scene number, a heading, or a row label) — never invent a number to make a row match.</grounding>
+<grounding>Copy row values verbatim. A row's scene reference is whatever the document writes next to it — a plain scene number ("10") or a dot-separated <Episode>.<Scene> reference ("294.10", "03.05"). Copy the reference EXACTLY as written, with the dot and without converting it to a decimal number: the server splits it into episode and scene number. Never invent a number to make a row match.</grounding>
 
 <edge-case>Do not invent scene numbers or dates. Leave unreadable values empty for review.</edge-case>
 

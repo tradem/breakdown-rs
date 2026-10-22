@@ -87,7 +87,7 @@ fn oversized_script_is_rejected_before_provider_calls() {
 #[test]
 fn merge_blocks_when_no_applied_scenes_exist() {
     let schedule = breakdown_core::ai::ShootingSchedule::default();
-    let result = merge_loaded_schedule(&schedule, &[]);
+    let result = merge_loaded_schedule(&schedule, &[], &std::collections::HashMap::new());
     assert!(matches!(result, Err(DomainError::Conflict { .. })));
 }
 
@@ -208,6 +208,7 @@ async fn merge_worker_empty_input_is_non_retryable() {
     let input = MergeInput {
         schedule: ShootingSchedule::default(),
         scenes: Vec::new(),
+        episode_numbers: std::collections::HashMap::new(),
     };
     let payload = serde_json::to_vec(&input).unwrap();
     // The queue returns a job with preview_handle="test-preview", so store
@@ -378,6 +379,7 @@ async fn merge_worker_success_records_telemetry() {
             }],
         },
         scenes: vec![scene(1)],
+        episode_numbers: std::collections::HashMap::new(),
     };
     inner
         .put_raw_for_test(
@@ -722,6 +724,7 @@ impl LlmClient for RecordingScheduleClient {
                 rows: vec![ShootingScheduleRow {
                     row_ref: "llm-0".to_owned(),
                     scene_number: Some(1),
+                    episode_number: None,
                     shooting_day_label: Some("T1".to_owned()),
                     date: None,
                     location: None,
@@ -1708,7 +1711,11 @@ impl ScheduleApplyFixture {
             shooting_days: Arc::new(FakeShootingDayCommands::default()),
             scene_shoots: Arc::new(FakeSceneShootCommands::default()),
             mappings: Arc::new(FakeMappings::default()),
-            preview: merge_schedule_to_scenes(&schedule, &[scene]),
+            preview: merge_schedule_to_scenes(
+                &schedule,
+                &[scene],
+                &std::collections::HashMap::new(),
+            ),
             preview_id: AiImportJobId::new(),
             scene_id,
         }

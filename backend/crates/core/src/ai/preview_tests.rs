@@ -61,7 +61,11 @@ fn merge_returns_matched_and_both_unmatched_sets() {
             },
         ],
     };
-    let merged = merge_schedule_to_scenes(&schedule, &[scene(1), scene(2)]);
+    let merged = merge_schedule_to_scenes(
+        &schedule,
+        &[scene(1), scene(2)],
+        &std::collections::HashMap::new(),
+    );
     assert_eq!(merged.scenes[1].schedule_rows.len(), 1);
     assert_eq!(merged.unmatched_schedule_rows[0].row_ref, "row-9");
     assert_eq!(merged.unmatched_script_scenes.len(), 1);
@@ -422,6 +426,7 @@ fn merge_from_input_blocks_on_empty_scenes() {
     let input = MergeInput {
         schedule: ShootingSchedule::default(),
         scenes: Vec::new(),
+        episode_numbers: std::collections::HashMap::new(),
     };
     assert!(matches!(
         merge_from_input(&input),
@@ -441,6 +446,7 @@ fn merge_from_input_joins_schedule_to_scenes() {
             }],
         },
         scenes: vec![scene(1), scene(2)],
+        episode_numbers: std::collections::HashMap::new(),
     };
     let merged = merge_from_input(&input).unwrap();
     assert_eq!(merged.scenes[0].schedule_rows.len(), 1);
@@ -1309,7 +1315,11 @@ fn merge_distributes_multiple_rows_to_same_scene_number() {
             },
         ],
     };
-    let merged = merge_schedule_to_scenes(&schedule, &[scene(1), scene(2)]);
+    let merged = merge_schedule_to_scenes(
+        &schedule,
+        &[scene(1), scene(2)],
+        &std::collections::HashMap::new(),
+    );
     // All three rows go to scene 1
     assert_eq!(merged.scenes[0].schedule_rows.len(), 3);
     assert_eq!(merged.scenes[1].schedule_rows.len(), 0);
@@ -1334,7 +1344,11 @@ fn merge_rotates_rows_across_same_numbered_scenes() {
         ],
     };
     // Two scene(1) entries: rows should distribute across both via modulo
-    let merged = merge_schedule_to_scenes(&schedule, &[scene(1), scene(1), scene(2)]);
+    let merged = merge_schedule_to_scenes(
+        &schedule,
+        &[scene(1), scene(1), scene(2)],
+        &std::collections::HashMap::new(),
+    );
     assert_eq!(merged.scenes[0].schedule_rows.len(), 1);
     assert_eq!(merged.scenes[1].schedule_rows.len(), 1);
     assert_eq!(merged.scenes[2].schedule_rows.len(), 0);
@@ -1343,7 +1357,11 @@ fn merge_rotates_rows_across_same_numbered_scenes() {
 #[test]
 fn merge_counts_unmatched_scenes_correctly() {
     let schedule = ShootingSchedule::default();
-    let merged = merge_schedule_to_scenes(&schedule, &[scene(1), scene(2), scene(3)]);
+    let merged = merge_schedule_to_scenes(
+        &schedule,
+        &[scene(1), scene(2), scene(3)],
+        &std::collections::HashMap::new(),
+    );
     assert_eq!(merged.unmatched_script_scenes.len(), 3);
     assert_eq!(merged.scenes.len(), 3);
 }
@@ -2458,4 +2476,214 @@ fn plan_defaults_rows_without_day_metadata_to_unscheduled() {
     )
     .expect("plan");
     assert_eq!(plan.scenes[0].shooting_day, PlannedShootingDay::None);
+}
+
+// ===========================================================================
+// Issue #721 — deterministic set-shorthand mood extraction
+// ===========================================================================
+
+#[test]
+fn german_short_form_heading_yields_canonical_mood() {
+    assert_eq!(
+        SceneChunk::extract_scenes("12 I/T - WERKSTATT\nBodies.")
+            .remove(0)
+            .mood,
+        Some("I/T".to_owned())
+    );
+    assert_eq!(
+        SceneChunk::extract_scenes("8 A/N - STRASSE\nBody.")
+            .remove(0)
+            .mood,
+        Some("A/N".to_owned())
+    );
+}
+
+#[test]
+fn german_and_english_long_form_headings_normalize() {
+    for (heading, expected) in [
+        ("INNEN WOHNUNG - NACHT", "I/N"),
+        ("INNENAUFNAHME KUECHE - TAG", "I/T"),
+        ("AUSSEN. HOF - DÄMMERUNG", "A/D"),
+        ("INT. KITCHEN - DAY", "I/T"),
+        ("EXT. STREET - NIGHT", "A/N"),
+        ("INT. KINO - MORGEN", "I/M"),
+        ("EXT. PARK - EVENING", "A/AB"),
+        ("EXT. STRASSE - DUSK", "A/D"),
+    ] {
+        let chunks = SceneChunk::extract_scenes(&format!("{heading}\nBody."));
+        assert_eq!(chunks.len(), 1, "{heading}");
+        assert_eq!(chunks[0].mood, Some(expected.to_owned()), "{heading}");
+    }
+}
+
+#[test]
+fn combined_int_ext_heading_yields_three_component_mood() {
+    let chunks = SceneChunk::extract_scenes("INT/EXT. WORKSHOP - DAY\nBody.");
+    assert_eq!(chunks[0].mood, Some("I/A/T".to_owned()));
+    let chunks = SceneChunk::extract_scenes("I/E. HOUSE - NIGHT\nBody.");
+    assert_eq!(chunks[0].mood, Some("I/A/N".to_owned()));
+}
+
+#[test]
+fn heading_without_canonical_time_token_leaves_mood_none() {
+    // No time token at all.
+    assert_eq!(
+        SceneChunk::extract_scenes("INT. KITCHEN\nBody.")
+            .remove(0)
+            .mood,
+        None
+    );
+    // A 1–2 char German token outside the canonical set is not canonicalized.
+    assert_eq!(
+        SceneChunk::extract_scenes("12 I/X - ORT\nBody.")
+            .remove(0)
+            .mood,
+        None
+    );
+    // A word that merely CONTAINS a time spelling never matches.
+    assert_eq!(
+        SceneChunk::extract_scenes("INT. ABENDBLATT REDAKTION - TAG\nBody.")
+            .remove(0)
+            .mood,
+        Some("I/T".to_owned())
+    );
+}
+
+#[test]
+fn mood_is_additive_on_stored_previews() {
+    // A preview blob stored before the field existed still deserializes.
+    let legacy =
+        r#"{"index":0,"heading":"12 I/T - WERKSTATT","scene_number":12,"episode":null,"text":"b"}"#;
+    let chunk: SceneChunk = serde_json::from_str(legacy).unwrap();
+    assert_eq!(chunk.mood, None);
+}
+
+// ===========================================================================
+// Issue #721 — lossless <Episode>.<Scene> schedule references
+// ===========================================================================
+
+#[test]
+fn parse_schedule_scene_ref_splits_dot_notation_as_integers() {
+    // The trailing zero is a scene number, never a decimal digit.
+    assert_eq!(parse_schedule_scene_ref("294.10"), (Some(294), Some(10)));
+    assert_eq!(parse_schedule_scene_ref("03.05"), (Some(3), Some(5)));
+    // Plain references carry no episode.
+    assert_eq!(parse_schedule_scene_ref("10"), (None, Some(10)));
+    assert_eq!(parse_schedule_scene_ref("12A"), (None, Some(12)));
+    assert_eq!(parse_schedule_scene_ref(" 7 "), (None, Some(7)));
+    // Unparseable references degrade to unmatched, never half-match.
+    assert_eq!(parse_schedule_scene_ref(""), (None, None));
+    assert_eq!(parse_schedule_scene_ref("ABC"), (None, None));
+    assert_eq!(parse_schedule_scene_ref("294."), (None, None));
+    assert_eq!(parse_schedule_scene_ref(".10"), (None, None));
+    assert_eq!(parse_schedule_scene_ref("294.10.5"), (None, None));
+    assert_eq!(parse_schedule_scene_ref("99999999999.10"), (None, None));
+}
+
+// ===========================================================================
+// Issue #721 — episode-aware schedule merge
+// ===========================================================================
+
+fn episode_scene(episode: EpisodeId, number: u32) -> SceneView {
+    SceneView {
+        episode_id: episode,
+        scene_number: Some(number),
+        ..scene(number)
+    }
+}
+
+#[test]
+fn merge_attaches_row_to_the_matching_episodes_scene() {
+    let ep294 = EpisodeId::new();
+    let ep295 = EpisodeId::new();
+    let episodes = std::collections::HashMap::from([(ep294, 294), (ep295, 295)]);
+    let schedule = ShootingSchedule {
+        block_id: None,
+        rows: vec![ShootingScheduleRow {
+            row_ref: "row-295-10".into(),
+            scene_number: Some(10),
+            episode_number: Some(295),
+            ..Default::default()
+        }],
+    };
+    let merged = merge_schedule_to_scenes(
+        &schedule,
+        &[episode_scene(ep294, 10), episode_scene(ep295, 10)],
+        &episodes,
+    );
+    // Scene 10 of episode 295 gets the row; episode 294's scene 10 stays empty.
+    let ep295_scene = merged
+        .scenes
+        .iter()
+        .find(|merged| merged.scene.episode_id == ep295)
+        .unwrap();
+    let ep294_scene = merged
+        .scenes
+        .iter()
+        .find(|merged| merged.scene.episode_id == ep294)
+        .unwrap();
+    assert_eq!(ep295_scene.schedule_rows.len(), 1);
+    assert_eq!(ep295_scene.schedule_rows[0].row_ref, "row-295-10");
+    assert!(ep294_scene.schedule_rows.is_empty());
+}
+
+#[test]
+fn merge_leaves_row_unmatched_when_episode_pair_misses() {
+    let ep294 = EpisodeId::new();
+    let ep295 = EpisodeId::new();
+    let episodes = std::collections::HashMap::from([(ep294, 294), (ep295, 295)]);
+    let schedule = ShootingSchedule {
+        block_id: None,
+        rows: vec![ShootingScheduleRow {
+            row_ref: "row-295-10".into(),
+            scene_number: Some(10),
+            episode_number: Some(295),
+            ..Default::default()
+        }],
+    };
+    // Only episode 294 carries a Scene 10 — the pair matches NOTHING and the
+    // row must NOT fall back onto the wrong episode's scene.
+    let merged = merge_schedule_to_scenes(&schedule, &[episode_scene(ep294, 10)], &episodes);
+    assert_eq!(merged.unmatched_schedule_rows.len(), 1);
+    assert_eq!(merged.unmatched_schedule_rows[0].row_ref, "row-295-10");
+    assert!(merged.scenes[0].schedule_rows.is_empty());
+}
+
+#[test]
+fn merge_falls_back_to_scene_number_only_without_episode_context() {
+    let schedule = ShootingSchedule {
+        block_id: None,
+        rows: vec![ShootingScheduleRow {
+            row_ref: "row-1".into(),
+            scene_number: Some(1),
+            ..Default::default()
+        }],
+    };
+    // Rows without an episode number (and rows when the map is absent) match
+    // by scene number alone, as before #721.
+    let merged =
+        merge_schedule_to_scenes(&schedule, &[scene(1)], &std::collections::HashMap::new());
+    assert!(merged.unmatched_schedule_rows.is_empty());
+    assert_eq!(merged.scenes[0].schedule_rows.len(), 1);
+}
+
+#[test]
+fn merge_ignores_scenes_with_unknown_episode_for_episode_rows() {
+    let ep294 = EpisodeId::new();
+    let episodes = std::collections::HashMap::from([(ep294, 294)]);
+    let schedule = ShootingSchedule {
+        block_id: None,
+        rows: vec![ShootingScheduleRow {
+            row_ref: "row-1".into(),
+            scene_number: Some(1),
+            episode_number: Some(294),
+            ..Default::default()
+        }],
+    };
+    // The scene's episode is NOT in the map: it is invisible to the
+    // episode-bearing row (a pair match against an unknown episode would be
+    // a guess, not a join).
+    let merged =
+        merge_schedule_to_scenes(&schedule, &[episode_scene(EpisodeId::new(), 1)], &episodes);
+    assert_eq!(merged.unmatched_schedule_rows.len(), 1);
 }

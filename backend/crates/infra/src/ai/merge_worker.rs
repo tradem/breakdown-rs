@@ -11,6 +11,7 @@ use breakdown_core::ai::{
     MergeInput, MergedPreview, Telemetry, TelemetryApplyState, merge_from_input,
 };
 use breakdown_core::error::DomainError;
+use breakdown_core::shared::EpisodeId;
 use serde_json::{from_slice, to_vec};
 
 use super::preview_store::AiPreviewStore;
@@ -175,6 +176,7 @@ where
 pub fn merge_loaded_schedule(
     schedule: &breakdown_core::ai::ShootingSchedule,
     scenes: &[breakdown_core::scene::views::SceneView],
+    episode_numbers: &std::collections::HashMap<EpisodeId, i32>,
 ) -> Result<MergedPreview, DomainError> {
     if scenes.is_empty() {
         return Err(DomainError::conflict(
@@ -182,6 +184,8 @@ pub fn merge_loaded_schedule(
         ));
     }
     Ok(breakdown_core::ai::merge_schedule_to_scenes(
-        schedule, scenes,
+        schedule,
+        scenes,
+        episode_numbers,
     ))
 }

@@ -684,6 +684,7 @@ async fn merge_worker_publishes_merging_and_storing_progress() {
             }],
         },
         scenes: vec![scene],
+        episode_numbers: std::collections::HashMap::new(),
     };
     previews
         .put_raw_for_test(

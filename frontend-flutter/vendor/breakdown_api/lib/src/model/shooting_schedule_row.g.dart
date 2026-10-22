@@ -10,6 +10,8 @@ class _$ShootingScheduleRow extends ShootingScheduleRow {
   @override
   final Date? date;
   @override
+  final int? episodeNumber;
+  @override
   final String? location;
   @override
   final int? order;
@@ -26,6 +28,7 @@ class _$ShootingScheduleRow extends ShootingScheduleRow {
 
   _$ShootingScheduleRow._(
       {this.date,
+      this.episodeNumber,
       this.location,
       this.order,
       required this.rowRef,
@@ -46,6 +49,7 @@ class _$ShootingScheduleRow extends ShootingScheduleRow {
     if (identical(other, this)) return true;
     return other is ShootingScheduleRow &&
         date == other.date &&
+        episodeNumber == other.episodeNumber &&
         location == other.location &&
         order == other.order &&
         rowRef == other.rowRef &&
@@ -57,6 +61,7 @@ class _$ShootingScheduleRow extends ShootingScheduleRow {
   int get hashCode {
     var _$hash = 0;
     _$hash = $jc(_$hash, date.hashCode);
+    _$hash = $jc(_$hash, episodeNumber.hashCode);
     _$hash = $jc(_$hash, location.hashCode);
     _$hash = $jc(_$hash, order.hashCode);
     _$hash = $jc(_$hash, rowRef.hashCode);
@@ -70,6 +75,7 @@ class _$ShootingScheduleRow extends ShootingScheduleRow {
   String toString() {
     return (newBuiltValueToStringHelper(r'ShootingScheduleRow')
           ..add('date', date)
+          ..add('episodeNumber', episodeNumber)
           ..add('location', location)
           ..add('order', order)
           ..add('rowRef', rowRef)
@@ -86,6 +92,11 @@ class ShootingScheduleRowBuilder
   Date? _date;
   Date? get date => _$this._date;
   set date(Date? date) => _$this._date = date;
+
+  int? _episodeNumber;
+  int? get episodeNumber => _$this._episodeNumber;
+  set episodeNumber(int? episodeNumber) =>
+      _$this._episodeNumber = episodeNumber;
 
   String? _location;
   String? get location => _$this._location;
@@ -116,6 +127,7 @@ class ShootingScheduleRowBuilder
     final $v = _$v;
     if ($v != null) {
       _date = $v.date;
+      _episodeNumber = $v.episodeNumber;
       _location = $v.location;
       _order = $v.order;
       _rowRef = $v.rowRef;
@@ -143,6 +155,7 @@ class ShootingScheduleRowBuilder
     final _$result = _$v ??
         _$ShootingScheduleRow._(
           date: date,
+          episodeNumber: episodeNumber,
           location: location,
           order: order,
           rowRef: BuiltValueNullFieldError.checkNotNull(

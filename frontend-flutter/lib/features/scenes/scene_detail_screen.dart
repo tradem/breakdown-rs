@@ -17,6 +17,7 @@ import '../../auth/auth_providers.dart';
 import '../../core/problem_error.dart';
 import '../../design/components/ai_provenance_badge.dart';
 import '../../design/material_icons.dart';
+import '../../design/scene_mood_label.dart';
 import '../../domain/ai_provenance.dart';
 import '../../l10n/app_localizations_provider.dart';
 import '../../l10n/generated/app_localizations.dart';
@@ -165,8 +166,14 @@ class _SceneSummary extends StatelessWidget {
         children: [
           if (scene.location case final location?)
             Text(l10nOf(context).sceneLoc(location)),
+          // Set-shorthand mood with its reinforcing icons (issue #721):
+          // the icons render NEXT TO the visible text, never instead of it.
           if (scene.mood case final mood?)
-            Text(l10nOf(context).sceneMood(mood)),
+            SceneMoodLabel(
+              key: Key('scene-mood-${scene.id}'),
+              mood: mood,
+              label: l10nOf(context).sceneMood(mood),
+            ),
           if (scene.scriptDay case final day?)
             Text(l10nOf(context).sceneDetailScriptDay(day)),
           Text(

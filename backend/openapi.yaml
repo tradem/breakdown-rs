@@ -3415,6 +3415,16 @@ components:
           type:
           - string
           - 'null'
+        episode_number:
+          description: |-
+            The episode half of a dot-separated `<Episode>.<Scene>` schedule
+            reference (`"294.10"` → `Some(294)`, plain `"10"` → `None`) — issue
+            #721. Additive on the wire: previews stored before this field existed
+            still deserialize.
+          format: int32
+          type:
+          - integer
+          - 'null'
         location:
           type:
           - string

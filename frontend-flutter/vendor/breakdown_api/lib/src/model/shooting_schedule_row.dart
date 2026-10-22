@@ -15,6 +15,7 @@ part 'shooting_schedule_row.g.dart';
 ///
 /// Properties:
 /// * [date]
+/// * [episodeNumber] - The episode half of a dot-separated `<Episode>.<Scene>` schedule reference (`\"294.10\"` → `Some(294)`, plain `\"10\"` → `None`) — issue #721. Additive on the wire: previews stored before this field existed still deserialize.
 /// * [location]
 /// * [order]
 /// * [rowRef]
@@ -25,6 +26,10 @@ abstract class ShootingScheduleRow
     implements Built<ShootingScheduleRow, ShootingScheduleRowBuilder> {
   @BuiltValueField(wireName: r'date')
   Date? get date;
+
+  /// The episode half of a dot-separated `<Episode>.<Scene>` schedule reference (`\"294.10\"` → `Some(294)`, plain `\"10\"` → `None`) — issue #721. Additive on the wire: previews stored before this field existed still deserialize.
+  @BuiltValueField(wireName: r'episode_number')
+  int? get episodeNumber;
 
   @BuiltValueField(wireName: r'location')
   String? get location;
@@ -75,6 +80,13 @@ class _$ShootingScheduleRowSerializer
       yield serializers.serialize(
         object.date,
         specifiedType: const FullType.nullable(Date),
+      );
+    }
+    if (object.episodeNumber != null) {
+      yield r'episode_number';
+      yield serializers.serialize(
+        object.episodeNumber,
+        specifiedType: const FullType.nullable(int),
       );
     }
     if (object.location != null) {
@@ -142,6 +154,14 @@ class _$ShootingScheduleRowSerializer
           ) as Date?;
           if (valueDes == null) continue;
           result.date = valueDes;
+          break;
+        case r'episode_number':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType.nullable(int),
+          ) as int?;
+          if (valueDes == null) continue;
+          result.episodeNumber = valueDes;
           break;
         case r'location':
           final valueDes = serializers.deserialize(

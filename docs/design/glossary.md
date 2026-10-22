@@ -249,7 +249,8 @@ establishing change).
 | `—` *(no icon)* | **Episode erstellen** | Create-episode dialog/sheet title | `episodes.create.title` |
 | `add` (FAB) | **Szene hinzufügen** | Scenes FAB (same icon, per-screen label) | `scenes.create` |
 | `—` *(no icon)* | **Szene {id}** | Scene tile fallback title (summaries render when present) | `scenes.tile` |
-| `—` *(no icon)* | **Stimmung: {v} / Ort: {v} / Tag: {v}** | Scene tile metadata | `scenes.tile.meta` |
+| `—` *(no icon)* | **Ort: {v} / Tag: {v}** | Scene tile metadata (the mood left the joined meta string in #721 — it renders as its own reinforcing icon + text line below) | `scenes.tile.meta` |
+| `home_outlined` (I) / `park_outlined` (A) / `sensor_door_outlined` (I/A) + `wb_sunny_outlined` (T) / `dark_mode_outlined` (N) / `wb_twilight_outlined` (D, M) / `bedtime_outlined` (AB) | **I/T** (the canonical set shorthand itself) | Scene mood reinforcement (issue #721): the interior/exterior + time-of-day icons render NEXT TO the visible shorthand text on scene detail, script overview tiles and AI preview rows — icons reinforce only, they never replace the text, and a scene without a mood renders no line at all | `sceneMood` |
 | `—` *(no icon)* | **Eingeplant / Nicht eingeplant** | Scene schedule state | `scenes.tile.schedule` |
 | `—` *(no icon)* | **Noch keine Szenen** | Scenes list empty state | `scenes.empty` |
 | `—` *(no icon)* | **Erste Szene erstellen** | Scenes empty-state create CTA | `scenes.create.first` |

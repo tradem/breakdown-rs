@@ -36,6 +36,15 @@ pub struct SceneChunk {
     /// grounded `script_day` normalizes into a day group.
     #[serde(default)]
     pub shooting_day: Option<DraftShootingDay>,
+    /// The canonical set-shorthand mood (`I/T`, `A/N`, `I/D`, `I/M`, `I/AB`,
+    /// `A/*`, combined `I/A/T`) parsed deterministically out of the heading's
+    /// interior/exterior + time-of-day tokens (issue #721). `None` when the
+    /// heading carries no parsable time token — the row then keeps the
+    /// model's `mood` (grounded fallback), never an invented value.
+    /// Additive on the wire: previews stored before this field existed still
+    /// deserialize.
+    #[serde(default)]
+    pub mood: Option<String>,
     pub text: String,
 }
 
@@ -925,10 +934,52 @@ pub struct ShootingSchedule {
 pub struct ShootingScheduleRow {
     pub row_ref: String,
     pub scene_number: Option<u32>,
+    /// The episode half of a dot-separated `<Episode>.<Scene>` schedule
+    /// reference (`"294.10"` → `Some(294)`, plain `"10"` → `None`) — issue
+    /// #721. Additive on the wire: previews stored before this field existed
+    /// still deserialize.
+    #[serde(default)]
+    pub episode_number: Option<i32>,
     pub shooting_day_label: Option<String>,
     pub date: Option<NaiveDate>,
     pub location: Option<String>,
     pub order: Option<u32>,
+}
+
+/// The lossless `(episode_number, scene_number)` split of one schedule scene
+/// reference (issue #721). Production shooting schedules write scene
+/// references as `<Episode>.<Scene>` (`294.01`, `294.10`, `03.05`); the
+/// split runs on the DOT as two integer components — never a float coercion,
+/// which read `294.10` as decimal `294.1` and silently turned scene 10 into
+/// scene 1. A plain number (`"10"`, `"12A"`) carries no episode. An
+/// unparseable reference yields `(None, None)` — the row stays unmatched for
+/// review, never matched by accident.
+#[must_use]
+pub fn parse_schedule_scene_ref(raw: &str) -> (Option<i32>, Option<u32>) {
+    let raw = raw.trim();
+    if raw.is_empty() {
+        return (None, None);
+    }
+    if let Some((episode, scene)) = raw.split_once('.') {
+        if !episode.is_empty()
+            && !scene.is_empty()
+            && episode.bytes().all(|b| b.is_ascii_digit())
+            && scene.bytes().all(|b| b.is_ascii_digit())
+        {
+            return match (episode.parse::<i32>().ok(), scene.parse::<u32>().ok()) {
+                (Some(episode), Some(scene)) => (Some(episode), Some(scene)),
+                // An overflowing component would half-match a wrong scene —
+                // the whole reference degrades to unmatched instead.
+                _ => (None, None),
+            };
+        }
+        return (None, None);
+    }
+    let digits: String = raw.chars().take_while(|c| c.is_ascii_digit()).collect();
+    if digits.is_empty() {
+        return (None, None);
+    }
+    (None, digits.parse().ok())
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, ToSchema)]
@@ -987,6 +1038,16 @@ pub struct MergeInput {
     pub schedule: ShootingSchedule,
     /// Applied scenes for the target block, pre-loaded at the API boundary.
     pub scenes: Vec<SceneView>,
+    /// Episode numbers of the applied scenes, keyed by episode id (issue
+    /// #721): lets a schedule row carrying `<Episode>.<Scene>` match the
+    /// RIGHT episode's scene when a block spans several episodes that each
+    /// number their scenes from 1. Prepared at the API boundary (authorized
+    /// read) like the scenes themselves — the merge stays a pure join.
+    /// Serde default so blobs stored before this field existed still load
+    /// (episode context then counts as unavailable, see
+    /// [`merge_schedule_to_scenes`]).
+    #[serde(default)]
+    pub episode_numbers: std::collections::HashMap<EpisodeId, i32>,
 }
 
 /// User decision for one draft row. A create decision leaves the aggregate id
@@ -1756,6 +1817,7 @@ pub fn extract_scenes(document: &str) -> Vec<SceneChunk> {
                 scene_number,
                 episode: current_episode.clone(),
                 shooting_day: current_day.clone(),
+                mood: parse_mood_from_heading(trimmed),
                 text: String::new(),
             });
         } else if let Some(current) = chunks.last_mut() {
@@ -2094,6 +2156,105 @@ fn leading_scene_number(line: &str) -> Option<u32> {
     }
 }
 
+/// One time-of-day token of a scene heading, in canonical set-shorthand form
+/// (issue #721): the `T`/`N`/`D`/`M`/`AB` half of `I/T`, `A/N`, …. Matched
+/// case-insensitively over German and English spellings; the comparison runs
+/// on the Unicode lowercase of the token so `DÄMMERUNG` (its Ä survives the
+/// ASCII-only uppercase of heading detection) still normalizes.
+fn time_shorthand(token: &str) -> Option<&'static str> {
+    match token.to_lowercase().as_str() {
+        "t" | "tag" | "day" => Some("T"),
+        "n" | "nacht" | "night" => Some("N"),
+        "d" | "d\u{e4}mmerung" | "dusk" | "dawn" => Some("D"),
+        "m" | "morgen" | "morning" => Some("M"),
+        "ab" | "abend" | "evening" => Some("AB"),
+        _ => None,
+    }
+}
+
+/// The canonical set-shorthand mood (`I/T`, `A/N`, `I/D`, `I/M`, `I/AB`, the
+/// `A/*` counterparts, combined `I/A/T`) carried by a scene heading (issue
+/// #721). Screenplay headings already state interior/exterior and
+/// time-of-day — German short form (`12 I/T - WERKSTATT`), German long form
+/// (`INNEN WOHNUNG - NACHT`), English (`INT. KITCHEN - DAY`,
+/// `EXT. STREET - NIGHT`, combined `INT/EXT. WORKSHOP - DAY`) — and the old
+/// chunker discarded them, leaving `mood` null on nearly every imported
+/// scene. Deterministic: the heading is server-truth, no LLM involved, and a
+/// heading whose tokens do not normalize into the canonical set (no time
+/// token, an unknown abbreviation) yields `None` — the model's grounded
+/// `mood` then stands, an invented one is never papered over.
+#[must_use]
+pub fn parse_mood_from_heading(line: &str) -> Option<String> {
+    let normalized_line = normalize_for_heading_detection(line);
+    let stripped = strip_leading_scene_label(&normalized_line);
+    let normalized = stripped.to_ascii_uppercase();
+
+    // Long forms: an explicit interior/exterior prefix, the time-of-day
+    // somewhere in the remainder (usually the last `-` segment).
+    let (location, remainder): (&'static str, &str) = if let Some(rest) = normalized
+        .strip_prefix("INT/EXT.")
+        .or_else(|| normalized.strip_prefix("INT./EXT."))
+        .or_else(|| normalized.strip_prefix("I/E."))
+    {
+        ("I/A", rest)
+    } else if let Some(rest) = normalized.strip_prefix("INT.") {
+        ("I", rest)
+    } else if let Some(rest) = normalized.strip_prefix("EXT.") {
+        ("A", rest)
+    } else if let Some(rest) = normalized
+        .strip_prefix("INNENAUFNAHME")
+        .or_else(|| normalized.strip_prefix("INNEN."))
+    {
+        ("I", rest)
+    } else if let Some(rest) = normalized
+        .strip_prefix("AUSSENAUFNAHME")
+        .or_else(|| normalized.strip_prefix("AUSSEN."))
+    {
+        ("A", rest)
+    } else if let Some(rest) = normalized.strip_prefix("INNEN ") {
+        ("I", rest)
+    } else if let Some(rest) = normalized.strip_prefix("AUSSEN ") {
+        ("A", rest)
+    } else {
+        // German short form `I/T` / `A/N`: the time token follows the `/`
+        // directly (same grammar as [`is_german_scene_heading`] — 1–2
+        // alphabetic characters, then a separator or end of line).
+        let mut chars = normalized.chars();
+        match (chars.next(), chars.next()) {
+            (Some('I') | Some('A'), Some('/')) => {}
+            _ => return None,
+        }
+        let location = if normalized.starts_with('I') {
+            "I"
+        } else {
+            "A"
+        };
+        let mut token = String::new();
+        for c in chars {
+            if c.is_ascii_alphabetic() {
+                token.push(c);
+                if token.len() > 2 {
+                    return None;
+                }
+            } else {
+                break;
+            }
+        }
+        let time = time_shorthand(&token)?;
+        return Some(format!("{location}/{time}"));
+    };
+
+    // Long form: the LAST whitespace-separated word that normalizes into a
+    // canonical time token wins ("INNEN WOHNUNG - NACHT" → N,
+    // "EXT. STREET - NIGHT (FLASHBACK)" → N; a word that merely CONTAINS a
+    // token — "ABENDBLATT" — never matches, whole tokens only).
+    let time = remainder
+        .split_whitespace()
+        .filter_map(|word| time_shorthand(word.trim_matches(['.', ',', ':'])))
+        .next_back()?;
+    Some(format!("{location}/{time}"))
+}
+
 /// The full leading scene label of a heading: the leading digits PLUS any
 /// glued alphanumeric suffix accepted by [`scene_label_end`] — `12`, `12A`,
 /// `12b`. A letter suffix marks an inserted scene, a scene of its own: the
@@ -2109,9 +2270,18 @@ fn leading_scene_label(line: &str) -> Option<String> {
 
 /// Join schedule rows with applied scenes by scene number. Both inputs are
 /// copied into deterministic order; no fuzzy matching or LLM call is involved.
+///
+/// Episode-aware when context is available (issue #721): a row carrying an
+/// `episode_number` matches `(episode_number, scene_number)` against the
+/// `episode_numbers` map, so Scene 10 of Episode 295 never steals the row of
+/// Scene 10 in Episode 294 — and a row whose pair matches NO scene stays
+/// unmatched rather than falling back across the episode boundary.
+/// Scene-number-only matching applies exactly when episode context is
+/// unavailable: the row carries no episode, or the map is empty/absent.
 pub fn merge_schedule_to_scenes(
     schedule: &ShootingSchedule,
     scenes: &[SceneView],
+    episode_numbers: &std::collections::HashMap<EpisodeId, i32>,
 ) -> MergedPreview {
     let mut ordered_scenes = scenes.to_vec();
     ordered_scenes.sort_by_key(|scene| (scene.scene_number, scene.id));
@@ -2124,24 +2294,46 @@ pub fn merge_schedule_to_scenes(
     // capturing every row and the duplicates landing in unmatched_script_scenes.
     let mut number_to_indices: std::collections::HashMap<Option<u32>, Vec<usize>> =
         std::collections::HashMap::new();
+    // Scenes with a KNOWN episode number group additionally by the episode:
+    // scenes whose episode is absent from the map are invisible to
+    // episode-bearing rows (a pair match against an unknown episode would be
+    // a guess, not a join).
+    let mut pair_to_indices: std::collections::HashMap<(i32, u32), Vec<usize>> =
+        std::collections::HashMap::new();
     for (index, scene) in ordered_scenes.iter().enumerate() {
         number_to_indices
             .entry(scene.scene_number)
             .or_default()
             .push(index);
+        if let (Some(&episode), Some(number)) =
+            (episode_numbers.get(&scene.episode_id), scene.scene_number)
+        {
+            pair_to_indices
+                .entry((episode, number))
+                .or_default()
+                .push(index);
+        }
     }
-    let mut next_for_number: std::collections::HashMap<Option<u32>, usize> =
+    let mut next_for_group: std::collections::HashMap<(Option<i32>, Option<u32>), usize> =
         std::collections::HashMap::new();
 
     let mut matched: Vec<Vec<ShootingScheduleRow>> = vec![Vec::new(); ordered_scenes.len()];
     let mut unmatched_schedule_rows = Vec::new();
     for row in rows {
-        let group = row
-            .scene_number
-            .and_then(|number| number_to_indices.get(&Some(number)))
-            .filter(|indices| !indices.is_empty());
+        let group = match row.episode_number {
+            Some(episode) if !episode_numbers.is_empty() => row
+                .scene_number
+                .and_then(|number| pair_to_indices.get(&(episode, number)))
+                .filter(|indices| !indices.is_empty()),
+            _ => row
+                .scene_number
+                .and_then(|number| number_to_indices.get(&Some(number)))
+                .filter(|indices| !indices.is_empty()),
+        };
         if let Some(indices) = group {
-            let cursor = next_for_number.entry(row.scene_number).or_insert(0);
+            let cursor = next_for_group
+                .entry((row.episode_number, row.scene_number))
+                .or_insert(0);
             // Round-robin over the group: deterministic and keeps every
             // duplicate-numbered scene populated.
             let index = indices[*cursor % indices.len()];
@@ -2182,7 +2374,11 @@ pub fn merge_from_input(input: &MergeInput) -> Result<MergedPreview, DomainError
             "merge pending: block has no applied scenes yet",
         ));
     }
-    Ok(merge_schedule_to_scenes(&input.schedule, &input.scenes))
+    Ok(merge_schedule_to_scenes(
+        &input.schedule,
+        &input.scenes,
+        &input.episode_numbers,
+    ))
 }
 
 #[cfg(test)]
