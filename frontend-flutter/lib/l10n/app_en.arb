@@ -921,5 +921,19 @@
       "seasons": {"type": "String"}
     }
   },
-  "fundusRepertoireSeasons": "Seasons: {seasons}"
+  "fundusRepertoireSeasons": "Seasons: {seasons}",
+  "aiPreviewShootingDay": "Shooting day: {day}",
+  "aiApplyShootingDaysHeading": "Shooting days from the script — create them?",
+  "aiApplyDayRejectedStatus": "Do not create — this day's scenes stay unscheduled.",
+  "aiApplyDayCreateSummary": "Shooting day „{day}“ will be created; its scenes will be scheduled onto it.",
+  "aiApplyDaySkipSummary": "Shooting day „{day}“ will not be created — its scenes stay unscheduled.",
+  "aiApplyErrorMissingShootingDayGroup": "A shooting-day group no longer matches the preview — reload the preview and apply again.",
+  "aiApplySkippedDayGroups": "{count} rejected shooting-day group(s) — their scenes were applied unscheduled.",
+  "shootingDayLinkInto": "Merge into actual shooting day",
+  "shootingDayLinkIntoTitle": "Merge into actual shooting day",
+  "shootingDayLinkIntoPick": "Pick the target day — scenes and planned entries move there; the AI day is archived.",
+  "shootingDayLinkIntoNoTarget": "No eligible shooting day. Create an actual day first.",
+  "shootingDayLinkedInto": "{scenes} scenes moved, {shoots} planned entries created.",
+  "shootingDayErrorTargetWrapped": "The target shooting day is already wrapped — merging is not possible.",
+  "shootingDayErrorEpisodeMismatch": "The shooting days belong to different episodes."
 }

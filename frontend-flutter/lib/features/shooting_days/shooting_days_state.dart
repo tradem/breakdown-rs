@@ -122,3 +122,25 @@ class ShootingDaysScreenState {
     ];
   }
 }
+
+/// Pure eligibility predicate for the planned→actual merge (issue #706):
+/// the picker offers only days the BACKEND would accept — same episode,
+/// not the source itself, not wrapped (wrap finality — a planned day is
+/// never merged onto a finalised day), not archived (terminal). Excludes
+/// AI-extracted targets? No — the backend permits any same-episode
+/// non-wrapped target, so merging two AI days (e.g. `Tag 1a` + `Tag 1b`
+/// shot on one day) stays possible (user decision, this change).
+bool canLinkShootingDayInto(ShootingDayView source, ShootingDayView target) =>
+    target.id != source.id &&
+    target.episodeId == source.episodeId &&
+    !target.archived &&
+    target.wrappedAt == null;
+
+/// The picker's candidate list for [source], in server order.
+List<ShootingDayView> eligibleLinkTargets(
+  ShootingDayView source,
+  List<ShootingDayView> rows,
+) => [
+  for (final row in rows)
+    if (canLinkShootingDayInto(source, row)) row,
+];

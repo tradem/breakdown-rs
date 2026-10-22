@@ -7,6 +7,7 @@
 // Co-authored-by: glm-5.3-flash (opencode-go)
 
 import 'package:breakdown_api/breakdown_api.dart';
+import 'package:built_collection/built_collection.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:fpdart/fpdart.dart';
@@ -413,6 +414,46 @@ class _AiApplySectionState extends ConsumerState<AiApplySection> {
               // picker tile would be noise (user report, 2026-10-19).
               const _EpisodePickerRequired(),
             const SizedBox(height: 8),
+            // Issue #706: per-day-group decisions — accepted (default)
+            // creates the day and schedules the group's scene rows; a
+            // rejection leaves them unscheduled. The section renders only
+            // when the preview carries day metadata; the client always
+            // sends one decision per group, so the backend's
+            // missing-decision gate never trips.
+            if (state.dayRefs.isNotEmpty) ...[
+              Text(
+                key: const Key('ai-apply-shooting-days-title'),
+                l10nOf(context).aiApplyShootingDaysHeading,
+                style: Theme.of(context).textTheme.titleSmall,
+              ),
+              for (final dayRef in state.dayRefs)
+                Builder(
+                  builder: (context) {
+                    final day = state.shootingDayOfGroup(dayRef);
+                    final label = day == null
+                        ? dayRef
+                        : draftShootingDayLabel(day);
+                    final accepted = state.dayAccepted(dayRef);
+                    return CheckboxListTile(
+                      key: Key('ai-apply-day-decision-$dayRef'),
+                      dense: true,
+                      contentPadding: EdgeInsets.zero,
+                      controlAffinity: ListTileControlAffinity.leading,
+                      value: accepted,
+                      onChanged: (checked) =>
+                          controller.decideDay(dayRef, checked ?? true),
+                      title: Text(label),
+                      subtitle: accepted
+                          ? null
+                          : Text(
+                              key: Key('ai-apply-day-rejected-status-$dayRef'),
+                              l10nOf(context).aiApplyDayRejectedStatus,
+                            ),
+                    );
+                  },
+                ),
+              const SizedBox(height: 4),
+            ],
             Text(
               key: const Key('ai-apply-selection-summary'),
               state.acceptAsIs
@@ -432,6 +473,18 @@ class _AiApplySectionState extends ConsumerState<AiApplySection> {
                 child: Text(
                   key: Key('ai-apply-group-target-$groupRef'),
                   groupTargetSummaryLine(l10nOf(context), state, groupRef),
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ),
+            // Per-day decision summary (issue #706, EU AI Act review gate):
+            // the reviewer sees WHICH days the apply creates (and which it
+            // deliberately leaves unscheduled), right at the dispatch.
+            for (final dayRef in state.dayRefs)
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Text(
+                  key: Key('ai-apply-day-summary-$dayRef'),
+                  _daySummaryLine(l10nOf(context), state, dayRef),
                   style: Theme.of(context).textTheme.bodySmall,
                 ),
               ),
@@ -643,7 +696,27 @@ class _AiApplySectionState extends ConsumerState<AiApplySection> {
                 ),
               ),
             if (state.outcome != null)
-              _OutcomeCard(outcome: state.outcome!)
+              Builder(
+                builder: (context) {
+                  // Skipped day groups resolved to their display labels —
+                  // reported, never silent (issue #706). Nullable on the
+                  // generated type (serde default): null reads as empty.
+                  final skippedDayLabels = [
+                    for (final ref
+                        in state.outcome!.skippedDayGroups ??
+                            BuiltList<String>())
+                      state.shootingDayOfGroup(ref) == null
+                          ? ref
+                          : draftShootingDayLabel(
+                              state.shootingDayOfGroup(ref)!,
+                            ),
+                  ];
+                  return _OutcomeCard(
+                    outcome: state.outcome!,
+                    skippedDayLabels: skippedDayLabels,
+                  );
+                },
+              )
             else ...[
               // The EU AI Act transparency panel (issue #608): the same
               // Art. 4/Art. 50 copy as the dedicated About-AI disclosure
@@ -761,12 +834,31 @@ class _AiActPanel extends StatelessWidget {
   );
 }
 
+/// The apply card's per-day summary line (EU AI Act review gate): WHAT the
+/// dispatch does with the day group — create (and schedule its rows) or
+/// leave its rows unscheduled.
+String _daySummaryLine(
+  AppLocalizations l10n,
+  AiApplyState state,
+  String dayRef,
+) {
+  final day = state.shootingDayOfGroup(dayRef);
+  final label = day == null ? dayRef : draftShootingDayLabel(day);
+  return state.dayAccepted(dayRef)
+      ? l10n.aiApplyDayCreateSummary(label)
+      : l10n.aiApplyDaySkipSummary(label);
+}
+
 /// The 200 outcome summary (`applied_count`, `created_days`,
 /// `planned_scene_shoots`) + deep navigation into the affected episode.
 class _OutcomeCard extends StatelessWidget {
-  const _OutcomeCard({required this.outcome});
+  const _OutcomeCard({required this.outcome, this.skippedDayLabels = const []});
 
   final ApplyAiImportResponse outcome;
+
+  /// The reviewer-rejected day groups (issue #706), already resolved to
+  /// their display labels — reported, never silent.
+  final List<String> skippedDayLabels;
 
   @override
   Widget build(BuildContext context) => Column(
@@ -799,6 +891,18 @@ class _OutcomeCard extends StatelessWidget {
                 ),
         ),
       ),
+      // Day groups the reviewer rejected: their rows applied unscheduled —
+      // reported, never silent (issue #706).
+      if (skippedDayLabels.isNotEmpty)
+        Padding(
+          padding: const EdgeInsets.only(top: 8),
+          child: Text(
+            key: const Key('ai-apply-skipped-days'),
+            l10nOf(context)
+                .aiApplySkippedDayGroups('${skippedDayLabels.length}'),
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+        ),
       // Rows that did NOT become a `Costume` are named with their reason: a
       // partially applied row must never read as a fully applied one (spec
       // `costume-character-binding` — "report the row as partially applied with

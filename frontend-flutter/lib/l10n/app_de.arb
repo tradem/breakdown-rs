@@ -928,5 +928,19 @@
       "seasons": {"type": "String"}
     }
   },
-  "fundusRepertoireSeasons": "Staffeln: {seasons}"
+  "fundusRepertoireSeasons": "Staffeln: {seasons}",
+  "aiPreviewShootingDay": "Drehtag: {day}",
+  "aiApplyShootingDaysHeading": "Drehtage aus dem Skript – anlegen?",
+  "aiApplyDayRejectedStatus": "Nicht anlegen – Szenen dieses Tages bleiben ohne Drehtag.",
+  "aiApplyDayCreateSummary": "Drehtag „{day}“ wird angelegt, die Szenen des Tages werden darauf geplant.",
+  "aiApplyDaySkipSummary": "Drehtag „{day}“ wird nicht angelegt – seine Szenen bleiben ohne Drehtag.",
+  "aiApplyErrorMissingShootingDayGroup": "Eine Drehtag-Gruppe passt nicht mehr zur Vorschau – lade die Vorschau neu und übernimm erneut.",
+  "aiApplySkippedDayGroups": "{count} abgelehnte Drehtag-Gruppe(n) – ihre Szenen wurden ohne Drehtag angelegt.",
+  "shootingDayLinkInto": "In echten Drehtag überführen",
+  "shootingDayLinkIntoTitle": "In echten Drehtag überführen",
+  "shootingDayLinkIntoPick": "Ziel-Drehtag wählen – Szenen und Soll-Einträge werden überführt, der KI-Drehtag wird archiviert.",
+  "shootingDayLinkIntoNoTarget": "Kein passender Drehtag vorhanden. Lege zuerst einen echten Drehtag an.",
+  "shootingDayLinkedInto": "{scenes} Szenen überführt, {shoots} Soll-Einträge geplant.",
+  "shootingDayErrorTargetWrapped": "Der Ziel-Drehtag ist bereits abgeschlossen – Überführen nicht möglich.",
+  "shootingDayErrorEpisodeMismatch": "Die Drehtage gehören zu verschiedenen Episoden."
 }

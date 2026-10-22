@@ -28,6 +28,7 @@ class ShootingDayTile extends StatelessWidget {
     this.onArchive,
     this.onMoveUp,
     this.onMoveDown,
+    this.onLinkInto,
   });
 
   final ShootingDayRow row;
@@ -37,6 +38,11 @@ class ShootingDayTile extends StatelessWidget {
   final VoidCallback? onArchive;
   final VoidCallback? onMoveUp;
   final VoidCallback? onMoveDown;
+
+  /// Planned→actual merge (issue #706): offered only for AI-extracted,
+  /// non-archived days — the screen resolves the affordance; the tile only
+  /// renders the overflow item when the callback is present.
+  final VoidCallback? onLinkInto;
 
   @override
   Widget build(BuildContext context) {
@@ -134,6 +140,15 @@ class ShootingDayTile extends StatelessWidget {
                     key: Key('shooting-day-archive-${day.id}'),
                     value: onArchive,
                     child: Text(l10n.shootingDayArchive),
+                  ),
+                if (onLinkInto != null &&
+                    !day.archived &&
+                    dayProvenance(day.source_) ==
+                        AiProvenanceVariant.aiExtracted)
+                  PopupMenuItem(
+                    key: Key('shooting-day-link-into-${day.id}'),
+                    value: onLinkInto,
+                    child: Text(l10n.shootingDayLinkInto),
                   ),
               ],
             ),

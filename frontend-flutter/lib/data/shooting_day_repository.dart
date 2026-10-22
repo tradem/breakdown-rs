@@ -106,6 +106,20 @@ class ShootingDayRepository extends BaseRepository {
     ),
   );
 
+  /// Planned→actual merge (issue #706): re-points every scene of the source
+  /// (AI-extracted planned) day onto [targetId], re-plans its `scene_shoot`
+  /// pairs with the Soll order preserved, and archives the source day.
+  /// Backend refusals: `409 shooting-day.target-wrapped` (wrap finality),
+  /// `409 shooting-day.episode-mismatch`, self-link, and the cross-block
+  /// IDOR guard. Idempotent: a retry after a partial run converges.
+  Future<Result<LinkShootingDayResponse>> linkInto(
+    String id,
+    String targetId,
+  ) => run(
+    () => api.getHandlersApi().linkShootingDayInto(id: id, targetId: targetId),
+    dtoInvalidCode: 'shooting_day.dto_invalid',
+  );
+
   /// Single-intent unschedule — the explicit `date: null` clear
   /// (wire body `{"version": N, "date": null}`).
   ///
