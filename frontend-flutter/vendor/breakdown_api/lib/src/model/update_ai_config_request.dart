@@ -18,6 +18,9 @@ part 'update_ai_config_request.g.dart';
 /// Properties:
 /// * [assistantModel]
 /// * [costDisplayPreference] - See [`CreateAiConfigRequest`] (issue #675). `None` (omitted) keeps the stored preference — an omitted field must not reset an existing `energy` preference back to `token`.
+/// * [decisionModel]
+/// * [decisionProvider] - Decision Model slot (issue #722), tri-state: an omitted field keeps the stored configuration, `null` clears it, a value replaces it.
+/// * [decisionVaultKeyId]
 /// * [imageModel]
 /// * [prompts]
 /// * [provider]
@@ -33,6 +36,17 @@ abstract class UpdateAiConfigRequest
   @BuiltValueField(wireName: r'cost_display_preference')
   CostDisplayPreference? get costDisplayPreference;
   // enum costDisplayPreferenceEnum {  token,  energy,  };
+
+  @BuiltValueField(wireName: r'decision_model')
+  String? get decisionModel;
+
+  /// Decision Model slot (issue #722), tri-state: an omitted field keeps the stored configuration, `null` clears it, a value replaces it.
+  @BuiltValueField(wireName: r'decision_provider')
+  LlmProvider? get decisionProvider;
+  // enum decisionProviderEnum {  openai,  gemini,  openrouter,  eurouter,  neuralwatt,  opencode-go,  opencode,  ollama,  };
+
+  @BuiltValueField(wireName: r'decision_vault_key_id')
+  String? get decisionVaultKeyId;
 
   @BuiltValueField(wireName: r'image_model')
   String? get imageModel;
@@ -90,6 +104,27 @@ class _$UpdateAiConfigRequestSerializer
       yield serializers.serialize(
         object.costDisplayPreference,
         specifiedType: const FullType.nullable(CostDisplayPreference),
+      );
+    }
+    if (object.decisionModel != null) {
+      yield r'decision_model';
+      yield serializers.serialize(
+        object.decisionModel,
+        specifiedType: const FullType.nullable(String),
+      );
+    }
+    if (object.decisionProvider != null) {
+      yield r'decision_provider';
+      yield serializers.serialize(
+        object.decisionProvider,
+        specifiedType: const FullType.nullable(LlmProvider),
+      );
+    }
+    if (object.decisionVaultKeyId != null) {
+      yield r'decision_vault_key_id';
+      yield serializers.serialize(
+        object.decisionVaultKeyId,
+        specifiedType: const FullType.nullable(String),
       );
     }
     if (object.imageModel != null) {
@@ -159,6 +194,30 @@ class _$UpdateAiConfigRequestSerializer
           ) as CostDisplayPreference?;
           if (valueDes == null) continue;
           result.costDisplayPreference = valueDes;
+          break;
+        case r'decision_model':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType.nullable(String),
+          ) as String?;
+          if (valueDes == null) continue;
+          result.decisionModel = valueDes;
+          break;
+        case r'decision_provider':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType.nullable(LlmProvider),
+          ) as LlmProvider?;
+          if (valueDes == null) continue;
+          result.decisionProvider = valueDes;
+          break;
+        case r'decision_vault_key_id':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType.nullable(String),
+          ) as String?;
+          if (valueDes == null) continue;
+          result.decisionVaultKeyId = valueDes;
           break;
         case r'image_model':
           final valueDes = serializers.deserialize(

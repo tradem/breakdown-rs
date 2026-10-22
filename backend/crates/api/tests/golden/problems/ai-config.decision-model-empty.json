@@ -1,0 +1,7 @@
+{
+  "code": "ai-config.decision-model-empty",
+  "detail": "Das Entscheidungsmodell darf nicht leer sein.",
+  "status": 422,
+  "title": "Decision model must not be empty",
+  "type": "https://docs.breakdown.example/problems/ai-config.decision-model-empty"
+}

@@ -38,6 +38,21 @@ problem-ai-config-forbidden =
 problem-ai-config-vault-key-forbidden =
     The referenced credential does not belong to you.
 
+problem-ai-config-decision-provider-unsupported =
+    This provider does not host decision models.
+
+problem-ai-config-decision-incomplete =
+    The decision model configuration is incomplete — provider, model and credential must be set together.
+
+problem-ai-config-decision-model-empty =
+    The decision model must not be empty.
+
+problem-ai-config-decision-model-unknown =
+    The decision model is not curated for this provider.
+
+problem-ai-config-decision-vault-key-empty =
+    The decision model credential reference must not be empty.
+
 problem-ai-import-disabled =
     AI import is not enabled on this instance.
 

@@ -942,6 +942,9 @@ async fn ai_config_lifecycle_runs_through_the_config_ports() {
         State(state.clone()),
         user(),
         Json(CreateAiConfigRequest {
+            decision_provider: None,
+            decision_model: None,
+            decision_vault_key_id: None,
             provider: LlmProvider::Neuralwatt,
             assistant_model: "assistant".to_owned(),
             image_model: None,
@@ -960,6 +963,9 @@ async fn ai_config_lifecycle_runs_through_the_config_ports() {
     repo.views.lock().await.insert(
         created.id,
         AiConfigView {
+            decision_provider: None,
+            decision_model: None,
+            decision_vault_key_id: None,
             id: created.id,
             user_id: UserId::from_sub(TEST_SUB),
             provider: LlmProvider::Neuralwatt,
@@ -1036,6 +1042,9 @@ async fn ai_config_lifecycle_runs_through_the_config_ports() {
         user(),
         Path(created.id),
         Json(UpdateAiConfigRequest {
+            decision_provider: None,
+            decision_model: None,
+            decision_vault_key_id: None,
             provider: LlmProvider::Ollama,
             assistant_model: "assistant-v2".to_owned(),
             image_model: None,
@@ -1086,6 +1095,9 @@ async fn ai_config_update_rejects_vault_key_from_another_provider() {
     ports.ai_config_repo.views.lock().await.insert(
         id,
         AiConfigView {
+            decision_provider: None,
+            decision_model: None,
+            decision_vault_key_id: None,
             id,
             user_id: UserId::from_sub(TEST_SUB),
             provider: LlmProvider::Neuralwatt,
@@ -1107,6 +1119,9 @@ async fn ai_config_update_rejects_vault_key_from_another_provider() {
         user(),
         Path(id),
         Json(UpdateAiConfigRequest {
+            decision_provider: None,
+            decision_model: None,
+            decision_vault_key_id: None,
             provider: LlmProvider::Ollama,
             assistant_model: "assistant-v2".to_owned(),
             image_model: None,
@@ -1143,6 +1158,9 @@ async fn ai_config_update_rejects_unknown_vault_key() {
     ports.ai_config_repo.views.lock().await.insert(
         id,
         AiConfigView {
+            decision_provider: None,
+            decision_model: None,
+            decision_vault_key_id: None,
             id,
             user_id: UserId::from_sub(TEST_SUB),
             provider: LlmProvider::Neuralwatt,
@@ -1164,6 +1182,9 @@ async fn ai_config_update_rejects_unknown_vault_key() {
         user(),
         Path(id),
         Json(UpdateAiConfigRequest {
+            decision_provider: None,
+            decision_model: None,
+            decision_vault_key_id: None,
             provider: LlmProvider::Ollama,
             assistant_model: "assistant-v2".to_owned(),
             image_model: None,
@@ -1198,6 +1219,9 @@ async fn ai_config_update_keeps_unchanged_vault_key_without_binding_lookup() {
     ports.ai_config_repo.views.lock().await.insert(
         id,
         AiConfigView {
+            decision_provider: None,
+            decision_model: None,
+            decision_vault_key_id: None,
             id,
             user_id: UserId::from_sub(TEST_SUB),
             provider: LlmProvider::Neuralwatt,
@@ -1219,6 +1243,9 @@ async fn ai_config_update_keeps_unchanged_vault_key_without_binding_lookup() {
         user(),
         Path(id),
         Json(UpdateAiConfigRequest {
+            decision_provider: None,
+            decision_model: None,
+            decision_vault_key_id: None,
             provider: LlmProvider::Neuralwatt,
             assistant_model: "assistant-v2".to_owned(),
             image_model: None,
@@ -1249,6 +1276,9 @@ async fn ai_config_version_conflict_is_scoped_409() {
     ports.ai_config_repo.views.lock().await.insert(
         id,
         AiConfigView {
+            decision_provider: None,
+            decision_model: None,
+            decision_vault_key_id: None,
             id,
             user_id: UserId::from_sub(TEST_SUB),
             provider: LlmProvider::Neuralwatt,
@@ -1270,6 +1300,9 @@ async fn ai_config_version_conflict_is_scoped_409() {
         user(),
         Path(id),
         Json(UpdateAiConfigRequest {
+            decision_provider: None,
+            decision_model: None,
+            decision_vault_key_id: None,
             provider: LlmProvider::Neuralwatt,
             assistant_model: "assistant-v2".to_owned(),
             image_model: None,
@@ -1306,6 +1339,9 @@ async fn get_ai_config_denies_a_foreign_owner() {
     ports.ai_config_repo.views.lock().await.insert(
         id,
         AiConfigView {
+            decision_provider: None,
+            decision_model: None,
+            decision_vault_key_id: None,
             id,
             user_id: UserId::from_sub("someone-else"),
             provider: LlmProvider::Neuralwatt,
@@ -1340,6 +1376,9 @@ async fn ai_config_creation_is_denied_without_the_credential_role() {
         State(state(ports)),
         user(),
         Json(CreateAiConfigRequest {
+            decision_provider: None,
+            decision_model: None,
+            decision_vault_key_id: None,
             provider: LlmProvider::Neuralwatt,
             assistant_model: "assistant".to_owned(),
             image_model: None,
@@ -1676,6 +1715,9 @@ async fn list_ai_import_jobs_hides_jobs_losing_the_season_gate() {
 
 fn config_view(user_sub: &str) -> AiConfigView {
     AiConfigView {
+        decision_provider: None,
+        decision_model: None,
+        decision_vault_key_id: None,
         id: Uuid::now_v7(),
         user_id: UserId::from_sub(user_sub),
         provider: LlmProvider::Neuralwatt,
@@ -1768,6 +1810,9 @@ async fn ai_config_create_rejects_a_foreign_vault_key() {
         State(state),
         user(),
         Json(CreateAiConfigRequest {
+            decision_provider: None,
+            decision_model: None,
+            decision_vault_key_id: None,
             provider: LlmProvider::Neuralwatt,
             assistant_model: "assistant".to_owned(),
             image_model: None,
@@ -1802,6 +1847,9 @@ async fn ai_config_create_rejects_an_unknown_vault_key_fail_closed() {
         State(state),
         user(),
         Json(CreateAiConfigRequest {
+            decision_provider: None,
+            decision_model: None,
+            decision_vault_key_id: None,
             provider: LlmProvider::Neuralwatt,
             assistant_model: "assistant".to_owned(),
             image_model: None,
@@ -1841,6 +1889,9 @@ async fn ai_config_update_rejects_a_foreign_replacement_vault_key() {
     ports.ai_config_repo.views.lock().await.insert(
         id,
         AiConfigView {
+            decision_provider: None,
+            decision_model: None,
+            decision_vault_key_id: None,
             id,
             user_id: UserId::from_sub(TEST_SUB),
             provider: LlmProvider::Neuralwatt,
@@ -1862,6 +1913,9 @@ async fn ai_config_update_rejects_a_foreign_replacement_vault_key() {
         user(),
         Path(id),
         Json(UpdateAiConfigRequest {
+            decision_provider: None,
+            decision_model: None,
+            decision_vault_key_id: None,
             provider: LlmProvider::Ollama,
             assistant_model: "assistant-v2".to_owned(),
             image_model: None,
@@ -2503,6 +2557,9 @@ async fn ai_config_cost_display_preference_round_trips_to_the_commands() {
         State(state.clone()),
         user(),
         Json(CreateAiConfigRequest {
+            decision_provider: None,
+            decision_model: None,
+            decision_vault_key_id: None,
             provider: LlmProvider::Neuralwatt,
             assistant_model: "assistant".to_owned(),
             image_model: None,
@@ -2526,6 +2583,9 @@ async fn ai_config_cost_display_preference_round_trips_to_the_commands() {
     repo.views.lock().await.insert(
         created.id,
         AiConfigView {
+            decision_provider: None,
+            decision_model: None,
+            decision_vault_key_id: None,
             id: created.id,
             user_id: UserId::from_sub(TEST_SUB),
             provider: LlmProvider::Neuralwatt,
@@ -2546,6 +2606,9 @@ async fn ai_config_cost_display_preference_round_trips_to_the_commands() {
         user(),
         Path(created.id),
         Json(UpdateAiConfigRequest {
+            decision_provider: None,
+            decision_model: None,
+            decision_vault_key_id: None,
             provider: LlmProvider::Ollama,
             assistant_model: "assistant-v2".to_owned(),
             image_model: None,
@@ -2622,5 +2685,237 @@ async fn get_ai_import_job_serves_the_persisted_cost_snapshot() {
     assert_eq!(
         payload["job"]["telemetry"]["energy_millijoules"],
         4_200_000u64
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Decision Model scoring (issue #722): the curated decision-models endpoint
+// and the API-edge decision credential pre-check (same-key reuse vs. split
+// billing vs. provider mismatch).
+// ---------------------------------------------------------------------------
+
+use api::handlers::list_ai_decision_models;
+
+#[tokio::test]
+async fn list_ai_decision_models_serves_the_curated_catalog_with_pricing() {
+    let ports = FakePorts::default();
+    ports
+        .membership_repo
+        .seed_credential_designer(BlockId::new(), UserId::from_sub(TEST_SUB))
+        .await;
+    // Seed pricing for exactly one curated Neuralwatt decision model.
+    let priced_model = infra::ai::curated_decision_model_ids(LlmProvider::Neuralwatt)[0].to_owned();
+    ports
+        .ai_model_pricing
+        .seed(vec![seeded_pricing(LlmProvider::Neuralwatt, &priced_model)]);
+
+    let (status, Json(models)) = list_ai_decision_models::<FakePorts>(
+        State(state(ports)),
+        user(),
+        Path("neuralwatt".to_owned()),
+    )
+    .await
+    .expect("credential-role member may list decision models");
+    assert_eq!(status, StatusCode::OK);
+    let ids: Vec<&str> = models.iter().map(|m| m.id.as_str()).collect();
+    assert_eq!(ids, vec!["clef-flash", "clef"]);
+    let priced = models
+        .iter()
+        .find(|m| m.id == priced_model)
+        .expect("priced decision model in catalog");
+    assert!(priced.pricing.is_some(), "pricing enrichment applies");
+    let unpriced = models
+        .iter()
+        .find(|m| m.id != priced_model)
+        .expect("a second curated decision model exists");
+    assert!(unpriced.pricing.is_none(), "unpriced stays null, never 0");
+    // A decision model is never the recommended default (optional slot).
+    assert!(models.iter().all(|m| !m.recommended));
+}
+
+#[tokio::test]
+async fn list_ai_decision_models_serves_an_empty_catalog_for_non_decision_providers() {
+    let ports = FakePorts::default();
+    ports
+        .membership_repo
+        .seed_credential_designer(BlockId::new(), UserId::from_sub(TEST_SUB))
+        .await;
+    let (status, Json(models)) = list_ai_decision_models::<FakePorts>(
+        State(state(ports)),
+        user(),
+        Path("openai".to_owned()),
+    )
+    .await
+    .expect("credential-role member may query the (empty) catalog");
+    assert_eq!(status, StatusCode::OK);
+    assert!(models.is_empty(), "OpenAI hosts no decision models");
+}
+
+#[tokio::test]
+async fn create_ai_config_accepts_same_key_decision_reuse_within_one_provider() {
+    let ports = FakePorts::default();
+    ports
+        .membership_repo
+        .seed_credential_designer(BlockId::new(), UserId::from_sub(TEST_SUB))
+        .await;
+    ports
+        .settings_repo
+        .bind_vault_key("vault-key", LlmProvider::Neuralwatt.as_str(), TEST_SUB)
+        .await;
+    let commands = ports.ai_config_commands.clone();
+
+    let (status, _) = create_ai_config::<FakePorts>(
+        State(state(ports)),
+        user(),
+        Json(CreateAiConfigRequest {
+            provider: LlmProvider::Neuralwatt,
+            assistant_model: "assistant".to_owned(),
+            image_model: None,
+            prompts: HashMap::new(),
+            vault_key_id: "vault-key".to_owned(),
+            cost_display_preference: CostDisplayPreference::Token,
+            // Same-key reuse within the SAME provider is legitimate (D1).
+            decision_provider: Some(LlmProvider::Neuralwatt),
+            decision_model: Some("clef-flash".to_owned()),
+            decision_vault_key_id: Some("vault-key".to_owned()),
+        }),
+    )
+    .await
+    .expect("same-provider decision key reuse is accepted");
+    assert_eq!(status, StatusCode::CREATED);
+    let created = commands.created.lock().await;
+    let command = created.first().expect("create dispatched");
+    assert_eq!(command.decision_provider, Some(LlmProvider::Neuralwatt));
+    assert_eq!(command.decision_model.as_deref(), Some("clef-flash"));
+}
+
+#[tokio::test]
+async fn create_ai_config_rejects_a_decision_key_shared_across_providers() {
+    let ports = FakePorts::default();
+    ports
+        .membership_repo
+        .seed_credential_designer(BlockId::new(), UserId::from_sub(TEST_SUB))
+        .await;
+    ports
+        .settings_repo
+        .bind_vault_key("vault-key", LlmProvider::Neuralwatt.as_str(), TEST_SUB)
+        .await;
+    let state = state(ports);
+
+    let problem = create_ai_config::<FakePorts>(
+        State(state),
+        user(),
+        Json(CreateAiConfigRequest {
+            provider: LlmProvider::Neuralwatt,
+            assistant_model: "assistant".to_owned(),
+            image_model: None,
+            prompts: HashMap::new(),
+            vault_key_id: "vault-key".to_owned(),
+            cost_display_preference: CostDisplayPreference::Token,
+            // Same KEY as the extraction config but a DIFFERENT decision
+            // provider: sharing is only legitimate within one provider.
+            decision_provider: Some(LlmProvider::OpenRouter),
+            decision_model: Some("cloudflare/clef-flash".to_owned()),
+            decision_vault_key_id: Some("vault-key".to_owned()),
+        }),
+    )
+    .await
+    .expect_err("cross-provider same-key reuse is rejected")
+    .into_problem();
+    assert_eq!(problem.status, StatusCode::CONFLICT.as_u16());
+    assert_eq!(problem.code, "ai-config.provider-mismatch");
+}
+
+#[tokio::test]
+async fn create_ai_config_rejects_a_foreign_distinct_decision_key() {
+    let ports = FakePorts::default();
+    ports
+        .membership_repo
+        .seed_credential_designer(BlockId::new(), UserId::from_sub(TEST_SUB))
+        .await;
+    ports
+        .settings_repo
+        .bind_vault_key("vault-key", LlmProvider::Neuralwatt.as_str(), TEST_SUB)
+        .await;
+    // The distinct decision key exists but is owned by ANOTHER caller —
+    // the confused-deputy invariant (#552) applies to the decision slot too.
+    ports
+        .settings_repo
+        .bind_vault_key(
+            "foreign-decision-key",
+            LlmProvider::Neuralwatt.as_str(),
+            "someone-else",
+        )
+        .await;
+    let state = state(ports);
+
+    let problem = create_ai_config::<FakePorts>(
+        State(state),
+        user(),
+        Json(CreateAiConfigRequest {
+            provider: LlmProvider::Neuralwatt,
+            assistant_model: "assistant".to_owned(),
+            image_model: None,
+            prompts: HashMap::new(),
+            vault_key_id: "vault-key".to_owned(),
+            cost_display_preference: CostDisplayPreference::Token,
+            decision_provider: Some(LlmProvider::Neuralwatt),
+            decision_model: Some("clef".to_owned()),
+            decision_vault_key_id: Some("foreign-decision-key".to_owned()),
+        }),
+    )
+    .await
+    .expect_err("a foreign decision credential must be rejected")
+    .into_problem();
+    assert_eq!(problem.status, StatusCode::FORBIDDEN.as_u16());
+    assert_eq!(problem.code, "ai-config.vault-key-forbidden");
+}
+
+#[tokio::test]
+async fn create_ai_config_accepts_a_distinct_owned_decision_key_for_split_billing() {
+    let ports = FakePorts::default();
+    ports
+        .membership_repo
+        .seed_credential_designer(BlockId::new(), UserId::from_sub(TEST_SUB))
+        .await;
+    ports
+        .settings_repo
+        .bind_vault_key("vault-key", LlmProvider::Neuralwatt.as_str(), TEST_SUB)
+        .await;
+    // A distinct, ACTIVE, owned credential of the SAME provider — the split
+    // billing path (issue #722 D1).
+    ports
+        .settings_repo
+        .bind_vault_key(
+            "split-billing-key",
+            LlmProvider::Neuralwatt.as_str(),
+            TEST_SUB,
+        )
+        .await;
+    let commands = ports.ai_config_commands.clone();
+
+    let (status, _) = create_ai_config::<FakePorts>(
+        State(state(ports)),
+        user(),
+        Json(CreateAiConfigRequest {
+            provider: LlmProvider::Neuralwatt,
+            assistant_model: "assistant".to_owned(),
+            image_model: None,
+            prompts: HashMap::new(),
+            vault_key_id: "vault-key".to_owned(),
+            cost_display_preference: CostDisplayPreference::Token,
+            decision_provider: Some(LlmProvider::Neuralwatt),
+            decision_model: Some("clef".to_owned()),
+            decision_vault_key_id: Some("split-billing-key".to_owned()),
+        }),
+    )
+    .await
+    .expect("a distinct owned active credential is accepted");
+    assert_eq!(status, StatusCode::CREATED);
+    let created = commands.created.lock().await;
+    let command = created.first().expect("create dispatched");
+    assert_eq!(
+        command.decision_vault_key_id.as_deref(),
+        Some("split-billing-key")
     );
 }

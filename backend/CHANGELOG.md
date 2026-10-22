@@ -25,6 +25,39 @@ tag. Never edit a released entry afterwards.
 
 ## [Unreleased]
 
+### Added
+
+- **Dedicated Decision Model configuration and best-effort scoring engine
+  (issue #722):** `AiConfig` gains an optional, fully additive Decision
+  Model slot (`decision_provider`, `decision_model`,
+  `decision_vault_key_id`, all `#[serde(default)]`) validated against the
+  curated decision-capable providers (`neuralwatt`, `eurouter`,
+  `openrouter`) and their curated model catalogs; the vault credential may
+  be shared with the extraction key (same provider) or a distinct owned
+  active credential of the decision provider (split billing), pre-checked
+  at the API edge (same fail-closed shape as #528/#552). New pure
+  `DecisionClient` port (`core::ai::decision`) with typed `noul`/`choice`/
+  `score` question primitives, calibrated answers and the deterministic
+  hybrid score formulas (scene/synopsis/shooting-day) that blend calibrated
+  probabilities with server-side grounding signals; `HttpDecisionClient`
+  routes to `/v1/systemone` (Neuralwatt) and the Decisions endpoints
+  (EURouter/OpenRouter) under the ADR-024/#170 transport policy. The
+  scoring pass is strictly **non-fatal**: one single-pass decision request
+  per script chunk / LLM-extracted schedule, a bounded quick retry, and any
+  failure degrades every score honestly to `None` (never fails or discards
+  an extraction). `DraftScene` carries `scene_score`, `synopsis_score` and
+  the structured rubric sub-scores (`scoring`) for the 0.5.x APO loop;
+  `DraftShootingDay` and `ShootingScheduleRow` carry the day score; applied
+  scenes and shooting days populate
+  `SceneSource::AiExtracted.confidence` /
+  `ShootingDaySource::AiExtracted.confidence` from the scores. New endpoint
+  `GET /v1/ai-import/providers/{provider}/decision-models` exposes the
+  curated catalog with pricing enrichment; decision-model pricing rows are
+  seeded (`curated_seed`, 0 output rate, energy rates for Neuralwatt).
+  `core 0.42.0 → 0.43.0` (new public Decision API), `infra 0.48.0 → 0.49.0`
+  (new adapter, worker scoring pass, projection columns + migration), `api
+  0.38.1 → 0.39.0` (new endpoint + additive wire fields).
+
 ### Changed
 
 - **Script-extraction schema hardened for strict Structured Outputs (issue

@@ -39,7 +39,7 @@ pub const PROBLEM_DOCS_BASE: &str = "https://docs.breakdown.example";
 /// Kept in sync with the `problem_codes!` invocation below by a compile-time
 /// assertion — adding or removing a code without deliberately updating this
 /// count fails the build (issue #232).
-const PROBLEM_CODE_COUNT: usize = 101;
+const PROBLEM_CODE_COUNT: usize = 106;
 
 /// One registered problem code (ADR-031 D2/D4).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -894,6 +894,50 @@ problem_codes! {
         code: "ai-config.empty-vault-key",
         status: 422,
         title: "AI vault key reference must not be empty",
+        extensions: &[],
+    },
+
+    /// 422 — the Decision Model configuration (issue #722) names a provider
+    /// that does not host decision models (only Neuralwatt, EURouter and
+    /// OpenRouter are curated).
+    AI_CONFIG_DECISION_PROVIDER_UNSUPPORTED {
+        code: "ai-config.decision-provider-unsupported",
+        status: 422,
+        title: "Provider does not host decision models",
+        extensions: &[],
+    },
+
+    /// 422 — the Decision Model configuration is only partially set (issue
+    /// #722): provider, model and vault key must be set together or not at all.
+    AI_CONFIG_DECISION_INCOMPLETE {
+        code: "ai-config.decision-incomplete",
+        status: 422,
+        title: "Decision model configuration incomplete",
+        extensions: &[],
+    },
+
+    /// 422 — the Decision Model model ID (issue #722) is empty.
+    AI_CONFIG_DECISION_MODEL_EMPTY {
+        code: "ai-config.decision-model-empty",
+        status: 422,
+        title: "Decision model must not be empty",
+        extensions: &[],
+    },
+
+    /// 422 — the Decision Model ID (issue #722) is not in the provider's
+    /// curated decision model catalog.
+    AI_CONFIG_DECISION_MODEL_UNKNOWN {
+        code: "ai-config.decision-model-unknown",
+        status: 422,
+        title: "Decision model not curated for provider",
+        extensions: &[],
+    },
+
+    /// 422 — the Decision Model vault key reference (issue #722) is empty.
+    AI_CONFIG_DECISION_VAULT_KEY_EMPTY {
+        code: "ai-config.decision-vault-key-empty",
+        status: 422,
+        title: "Decision vault key reference must not be empty",
         extensions: &[],
     },
 

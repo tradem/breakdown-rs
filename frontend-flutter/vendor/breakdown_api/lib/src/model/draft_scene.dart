@@ -9,6 +9,7 @@ import 'package:breakdown_api/src/model/draft_episode.dart';
 import 'package:breakdown_api/src/model/draft_shooting_day.dart';
 import 'package:built_collection/built_collection.dart';
 import 'package:breakdown_api/src/model/draft_costume.dart';
+import 'package:breakdown_api/src/model/decision_rubric.dart';
 import 'package:breakdown_api/src/model/draft_character.dart';
 import 'package:built_value/built_value.dart';
 import 'package:built_value/serializer.dart';
@@ -25,9 +26,12 @@ part 'draft_scene.g.dart';
 /// * [location]
 /// * [mood]
 /// * [sceneNumber]
+/// * [sceneScore] - Hybrid quality score of the extracted scene (issue #722), `0.0..=1.0` — calibrated Decision Model probabilities blended with deterministic grounding signals. `None` when no decision model is configured or the best-effort scoring pass failed (honest degradation, never a fabricated value). Additive on the wire.
+/// * [scoring] - Structured rubric sub-scores (issue #722) — the reward-signal foundation for the `0.5.x` automatic prompt optimization loop.
 /// * [scriptDay]
 /// * [shootingDay] - The shooting day this row was extracted for (issue #706). Additive on the wire with a default so previews stored before this field existed still load; `None` leaves the row unscheduled. The deterministic day scan is authoritative; the model's verbatim `script_day` normalizes into this field only when the scan found no marker for the chunk.
 /// * [summary]
+/// * [synopsisScore] - Hybrid quality score of the TL;DR `summary` (issue #722). `Some(0.0)` when `sanitize_meta_summary` had to rewrite the summary; `None` when the row has no summary (outline-only block) or no scoring pass ran.
 @BuiltValue()
 abstract class DraftScene implements Built<DraftScene, DraftSceneBuilder> {
   /// The figures this row names, each with its extracted role type (issue #677). Backward compatible on the wire: a preview stored before the category existed carries plain name strings, which deserialize to the grounded `MainCast` default via [`deserialize_draft_characters`].
@@ -54,6 +58,14 @@ abstract class DraftScene implements Built<DraftScene, DraftSceneBuilder> {
   @BuiltValueField(wireName: r'scene_number')
   int? get sceneNumber;
 
+  /// Hybrid quality score of the extracted scene (issue #722), `0.0..=1.0` — calibrated Decision Model probabilities blended with deterministic grounding signals. `None` when no decision model is configured or the best-effort scoring pass failed (honest degradation, never a fabricated value). Additive on the wire.
+  @BuiltValueField(wireName: r'scene_score')
+  double? get sceneScore;
+
+  /// Structured rubric sub-scores (issue #722) — the reward-signal foundation for the `0.5.x` automatic prompt optimization loop.
+  @BuiltValueField(wireName: r'scoring')
+  DecisionRubric? get scoring;
+
   @BuiltValueField(wireName: r'script_day')
   String? get scriptDay;
 
@@ -63,6 +75,10 @@ abstract class DraftScene implements Built<DraftScene, DraftSceneBuilder> {
 
   @BuiltValueField(wireName: r'summary')
   String? get summary;
+
+  /// Hybrid quality score of the TL;DR `summary` (issue #722). `Some(0.0)` when `sanitize_meta_summary` had to rewrite the summary; `None` when the row has no summary (outline-only block) or no scoring pass ran.
+  @BuiltValueField(wireName: r'synopsis_score')
+  double? get synopsisScore;
 
   DraftScene._();
 
@@ -134,6 +150,20 @@ class _$DraftSceneSerializer implements PrimitiveSerializer<DraftScene> {
         specifiedType: const FullType.nullable(int),
       );
     }
+    if (object.sceneScore != null) {
+      yield r'scene_score';
+      yield serializers.serialize(
+        object.sceneScore,
+        specifiedType: const FullType.nullable(double),
+      );
+    }
+    if (object.scoring != null) {
+      yield r'scoring';
+      yield serializers.serialize(
+        object.scoring,
+        specifiedType: const FullType.nullable(DecisionRubric),
+      );
+    }
     if (object.scriptDay != null) {
       yield r'script_day';
       yield serializers.serialize(
@@ -153,6 +183,13 @@ class _$DraftSceneSerializer implements PrimitiveSerializer<DraftScene> {
       yield serializers.serialize(
         object.summary,
         specifiedType: const FullType.nullable(String),
+      );
+    }
+    if (object.synopsisScore != null) {
+      yield r'synopsis_score';
+      yield serializers.serialize(
+        object.synopsisScore,
+        specifiedType: const FullType.nullable(double),
       );
     }
   }
@@ -237,6 +274,22 @@ class _$DraftSceneSerializer implements PrimitiveSerializer<DraftScene> {
           if (valueDes == null) continue;
           result.sceneNumber = valueDes;
           break;
+        case r'scene_score':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType.nullable(double),
+          ) as double?;
+          if (valueDes == null) continue;
+          result.sceneScore = valueDes;
+          break;
+        case r'scoring':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType.nullable(DecisionRubric),
+          ) as DecisionRubric?;
+          if (valueDes == null) continue;
+          result.scoring.replace(valueDes);
+          break;
         case r'script_day':
           final valueDes = serializers.deserialize(
             value,
@@ -260,6 +313,14 @@ class _$DraftSceneSerializer implements PrimitiveSerializer<DraftScene> {
           ) as String?;
           if (valueDes == null) continue;
           result.summary = valueDes;
+          break;
+        case r'synopsis_score':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType.nullable(double),
+          ) as double?;
+          if (valueDes == null) continue;
+          result.synopsisScore = valueDes;
           break;
         default:
           unhandled.add(key);

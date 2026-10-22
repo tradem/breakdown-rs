@@ -11,12 +11,14 @@ class _$DraftShootingDay extends DraftShootingDay {
   final String? label;
   @override
   final int? number;
+  @override
+  final double? score;
 
   factory _$DraftShootingDay(
           [void Function(DraftShootingDayBuilder)? updates]) =>
       (DraftShootingDayBuilder()..update(updates))._build();
 
-  _$DraftShootingDay._({this.label, this.number}) : super._();
+  _$DraftShootingDay._({this.label, this.number, this.score}) : super._();
   @override
   DraftShootingDay rebuild(void Function(DraftShootingDayBuilder) updates) =>
       (toBuilder()..update(updates)).build();
@@ -30,7 +32,8 @@ class _$DraftShootingDay extends DraftShootingDay {
     if (identical(other, this)) return true;
     return other is DraftShootingDay &&
         label == other.label &&
-        number == other.number;
+        number == other.number &&
+        score == other.score;
   }
 
   @override
@@ -38,6 +41,7 @@ class _$DraftShootingDay extends DraftShootingDay {
     var _$hash = 0;
     _$hash = $jc(_$hash, label.hashCode);
     _$hash = $jc(_$hash, number.hashCode);
+    _$hash = $jc(_$hash, score.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
   }
@@ -46,7 +50,8 @@ class _$DraftShootingDay extends DraftShootingDay {
   String toString() {
     return (newBuiltValueToStringHelper(r'DraftShootingDay')
           ..add('label', label)
-          ..add('number', number))
+          ..add('number', number)
+          ..add('score', score))
         .toString();
   }
 }
@@ -63,6 +68,10 @@ class DraftShootingDayBuilder
   int? get number => _$this._number;
   set number(int? number) => _$this._number = number;
 
+  double? _score;
+  double? get score => _$this._score;
+  set score(double? score) => _$this._score = score;
+
   DraftShootingDayBuilder() {
     DraftShootingDay._defaults(this);
   }
@@ -72,6 +81,7 @@ class DraftShootingDayBuilder
     if ($v != null) {
       _label = $v.label;
       _number = $v.number;
+      _score = $v.score;
       _$v = null;
     }
     return this;
@@ -95,6 +105,7 @@ class DraftShootingDayBuilder
         _$DraftShootingDay._(
           label: label,
           number: number,
+          score: score,
         );
     replace(_$result);
     return _$result;

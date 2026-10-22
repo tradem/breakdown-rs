@@ -10,11 +10,12 @@ import 'package:built_value/serializer.dart';
 
 part 'draft_shooting_day.g.dart';
 
-/// One shooting day of the source script, as the deterministic marker scan (and, as a fallback, the LLM's grounded `script_day`) read it out of the document (issue #706). Production scripts repeat day columns in the scene index (`Tag 1`, `1. Spieltag` — the 294.pdf SCRIPT-REPORT format). Metadata only: it groups preview rows for the reviewer and names the day an apply may create; it never resolves an aggregate id (that is the reviewer's per-group decision).
+/// One shooting day of the source script, as the deterministic marker scan (and, as a fallback, the LLM's grounded `script_day`) read it out of the document (issue #706). Production scripts repeat day columns in the scene index (`Tag 1`, `1. Spieltag` — the 294.pdf SCRIPT-REPORT format). Metadata only: it groups preview rows for the reviewer and names the day an apply may create; it never resolves an aggregate id (that is the reviewer's per-group decision). `PartialEq` only: the `score` field (issue #722) is an `f32` and cannot derive `Eq`.
 ///
 /// Properties:
 /// * [label] - The marker's verbatim text (or, for the LLM fallback, the model's `script_day` as written) — display-only. First occurrence wins.
 /// * [number] - The day number the marker carried, e.g. `1` for `Tag 1` — the normalized identity that groups scenes filmed on the same day regardless of the marker's spelling.
+/// * [score] - Hybrid quality score of the day group's day assignment (issue #722), set by the extraction worker's best-effort decision pass and shared by every row of the group. `None` without a decision model / failed pass. Additive on the wire.
 @BuiltValue()
 abstract class DraftShootingDay
     implements Built<DraftShootingDay, DraftShootingDayBuilder> {
@@ -25,6 +26,10 @@ abstract class DraftShootingDay
   /// The day number the marker carried, e.g. `1` for `Tag 1` — the normalized identity that groups scenes filmed on the same day regardless of the marker's spelling.
   @BuiltValueField(wireName: r'number')
   int? get number;
+
+  /// Hybrid quality score of the day group's day assignment (issue #722), set by the extraction worker's best-effort decision pass and shared by every row of the group. `None` without a decision model / failed pass. Additive on the wire.
+  @BuiltValueField(wireName: r'score')
+  double? get score;
 
   DraftShootingDay._();
 
@@ -64,6 +69,13 @@ class _$DraftShootingDaySerializer
       yield serializers.serialize(
         object.number,
         specifiedType: const FullType.nullable(int),
+      );
+    }
+    if (object.score != null) {
+      yield r'score';
+      yield serializers.serialize(
+        object.score,
+        specifiedType: const FullType.nullable(double),
       );
     }
   }
@@ -106,6 +118,14 @@ class _$DraftShootingDaySerializer
           ) as int?;
           if (valueDes == null) continue;
           result.number = valueDes;
+          break;
+        case r'score':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType.nullable(double),
+          ) as double?;
+          if (valueDes == null) continue;
+          result.score = valueDes;
           break;
         default:
           unhandled.add(key);

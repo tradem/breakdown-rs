@@ -72,6 +72,7 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..add(CredentialBindingState.serializer)
       ..add(Currency.serializer)
       ..add(DeadLetterEntry.serializer)
+      ..add(DecisionRubric.serializer)
       ..add(DispoRow.serializer)
       ..add(DocumentKind.serializer)
       ..add(DraftCharacter.serializer)
@@ -332,6 +333,10 @@ Serializers _$serializers = (Serializers().toBuilder()
           const FullType(
               BuiltMap, const [const FullType(String), const FullType(String)]),
           () => MapBuilder<String, String>())
+      ..addBuilderFactory(
+          const FullType(
+              BuiltMap, const [const FullType(String), const FullType(double)]),
+          () => MapBuilder<String, double>())
       ..addBuilderFactory(
           const FullType(BuiltMap, const [
             const FullType(String),

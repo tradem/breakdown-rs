@@ -89,7 +89,7 @@ fn api_routes_are_behind_auth_middleware() {
     //  patterns, not method-verb pairs.)
     assert_eq!(
         api.len(),
-        98,
+        99,
         "number of API route path patterns has changed — \
          see doc comment above for update instructions"
     );
@@ -362,6 +362,10 @@ fn api_routes_have_deliberate_authorization_requirement() {
         ("/ai-import/providers", Requirement::Authenticated),
         (
             "/ai-import/providers/{provider}/models",
+            Requirement::Authenticated,
+        ),
+        (
+            "/ai-import/providers/{provider}/decision-models",
             Requirement::Authenticated,
         ),
         // Prompt-default prefill for the AI-config dialog (issue #471) —

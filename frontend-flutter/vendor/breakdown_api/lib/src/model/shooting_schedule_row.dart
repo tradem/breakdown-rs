@@ -21,6 +21,7 @@ part 'shooting_schedule_row.g.dart';
 /// * [rowRef]
 /// * [sceneNumber]
 /// * [shootingDayLabel]
+/// * [shootingDayScore] - Hybrid quality score of this row's day assignment (issue #722), aggregated per `DraftShootingDay` group on the script path. `None` without a decision model / failed pass. Additive on the wire.
 @BuiltValue()
 abstract class ShootingScheduleRow
     implements Built<ShootingScheduleRow, ShootingScheduleRowBuilder> {
@@ -45,6 +46,10 @@ abstract class ShootingScheduleRow
 
   @BuiltValueField(wireName: r'shooting_day_label')
   String? get shootingDayLabel;
+
+  /// Hybrid quality score of this row's day assignment (issue #722), aggregated per `DraftShootingDay` group on the script path. `None` without a decision model / failed pass. Additive on the wire.
+  @BuiltValueField(wireName: r'shooting_day_score')
+  double? get shootingDayScore;
 
   ShootingScheduleRow._();
 
@@ -120,6 +125,13 @@ class _$ShootingScheduleRowSerializer
       yield serializers.serialize(
         object.shootingDayLabel,
         specifiedType: const FullType.nullable(String),
+      );
+    }
+    if (object.shootingDayScore != null) {
+      yield r'shooting_day_score';
+      yield serializers.serialize(
+        object.shootingDayScore,
+        specifiedType: const FullType.nullable(double),
       );
     }
   }
@@ -201,6 +213,14 @@ class _$ShootingScheduleRowSerializer
           ) as String?;
           if (valueDes == null) continue;
           result.shootingDayLabel = valueDes;
+          break;
+        case r'shooting_day_score':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType.nullable(double),
+          ) as double?;
+          if (valueDes == null) continue;
+          result.shootingDayScore = valueDes;
           break;
         default:
           unhandled.add(key);

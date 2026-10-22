@@ -689,6 +689,7 @@ fn script_worker(
             ..AiImportBounds::default()
         },
         pricing: None,
+        decision: None,
     }
 }
 
@@ -729,6 +730,7 @@ impl LlmClient for RecordingScheduleClient {
                     date: None,
                     location: None,
                     order: None,
+                    shooting_day_score: None,
                 }],
             },
             LlmCallUsage::default(),
@@ -777,6 +779,7 @@ fn schedule_worker(
         prompt: "fixture prompt".to_owned(),
         bounds: AiImportBounds::default(),
         pricing: None,
+        decision: None,
     }
 }
 
@@ -1005,6 +1008,7 @@ async fn script_worker_surfaces_document_global_category_conflicts() {
             ..AiImportBounds::default()
         },
         pricing: None,
+        decision: None,
     };
     let job = script_job(AiImportJobId::new());
     let handle = worker
@@ -1045,6 +1049,7 @@ async fn script_worker_backfills_scene_number_from_chunk_heading() {
             ..AiImportBounds::default()
         },
         pricing: None,
+        decision: None,
     };
     let job = script_job(AiImportJobId::new());
     let handle = worker
@@ -1089,6 +1094,7 @@ async fn script_worker_preserves_model_title_when_scan_has_none() {
             ..AiImportBounds::default()
         },
         pricing: None,
+        decision: None,
     };
     let job = script_job(AiImportJobId::new());
     let handle = worker
@@ -3516,6 +3522,7 @@ async fn extraction_drops_an_ungrounded_costume_and_records_an_uncertainty() {
         prompt: "fixture".to_owned(),
         bounds: AiImportBounds::default(),
         pricing: None,
+        decision: None,
     };
     let job = script_job(AiImportJobId::new());
     let handle = worker
@@ -3991,6 +3998,7 @@ async fn script_apply_creates_the_accepted_day_and_schedules_the_row() {
             DraftShootingDay {
                 number: Some(1),
                 label: Some("Tag 1".into()),
+                score: None,
             },
         )],
         ..Default::default()
@@ -4028,6 +4036,7 @@ async fn script_apply_shares_one_day_across_rows_of_the_same_group() {
                 DraftShootingDay {
                     number: Some(1),
                     label: Some("Tag 1".into()),
+                    score: None,
                 },
             ),
             row_with_day(
@@ -4035,6 +4044,7 @@ async fn script_apply_shares_one_day_across_rows_of_the_same_group() {
                 DraftShootingDay {
                     number: Some(1),
                     label: Some("Tag 1".into()),
+                    score: None,
                 },
             ),
         ],
@@ -4065,6 +4075,7 @@ async fn script_apply_leaves_a_rejected_day_group_unscheduled() {
             DraftShootingDay {
                 number: Some(1),
                 label: Some("Tag 1".into()),
+                score: None,
             },
         )],
         ..Default::default()
@@ -4098,6 +4109,7 @@ async fn script_apply_day_group_without_a_decision_is_a_registered_conflict() {
             DraftShootingDay {
                 number: Some(1),
                 label: Some("Tag 1".into()),
+                score: None,
             },
         )],
         ..Default::default()
@@ -4131,6 +4143,7 @@ async fn script_apply_day_is_idempotent_on_re_apply() {
             DraftShootingDay {
                 number: Some(1),
                 label: Some("Tag 1".into()),
+                score: None,
             },
         )],
         ..Default::default()

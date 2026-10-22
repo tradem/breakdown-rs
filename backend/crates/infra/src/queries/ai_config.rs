@@ -6,7 +6,8 @@
 // Co-authored-by: qwen3.8-flash (opencode-go)
 
 use breakdown_core::ai::{
-    AiConfigRepository, AiConfigView, CostDisplayPreference, DocumentKind, LlmProvider,
+    AiConfigRepository, AiConfigView, CostDisplayPreference, DecisionRubric, DocumentKind,
+    LlmProvider,
 };
 use breakdown_core::error::DomainError;
 use breakdown_core::error_registry::AI_CONFIG_NOT_FOUND;
@@ -25,6 +26,19 @@ pub struct AiWorkerConfig {
     pub provider: LlmProvider,
     pub model: String,
     pub prompt: String,
+    pub vault_key_id: String,
+    /// Optional Decision Model slot (issue #722). `None` = no scoring pass.
+    pub decision: Option<AiWorkerDecisionConfig>,
+}
+
+/// The resolved Decision Model configuration for one claimed job (issue
+/// #722): which provider/model evaluates the rubric and which vaulted
+/// credential authorizes it. All-or-nothing by construction (the aggregate
+/// validates the triple as a whole).
+#[derive(Debug, Clone)]
+pub struct AiWorkerDecisionConfig {
+    pub provider: LlmProvider,
+    pub model: String,
     pub vault_key_id: String,
 }
 
@@ -53,7 +67,8 @@ impl AiConfigRepositoryImpl {
     ) -> Result<Option<AiWorkerConfig>, DomainError> {
         let row = sqlx::query(
             r#"
-            SELECT id, provider, assistant_model, prompts, vault_key_id
+            SELECT id, provider, assistant_model, prompts, vault_key_id,
+                   decision_provider, decision_model, decision_vault_key_id
             FROM ai_import.projection_ai_config
             WHERE user_id = $1 AND revoked = FALSE
             ORDER BY updated_at DESC
@@ -72,12 +87,52 @@ impl AiConfigRepositoryImpl {
         let provider = parse_provider(row.try_get("provider").map_err(map_sqlx_error)?)?;
         let prompt = parse_prompt_for_kind(&row, &kind)?;
 
+        // Decision Model slot (issue #722): all three columns are NULL or
+        // all set (the aggregate validates the triple). A partially-set row
+        // (hand-edited projection) degrades to no scoring pass — never a
+        // half-configured client.
+        let decision_provider: Option<String> =
+            row.try_get("decision_provider").map_err(map_sqlx_error)?;
+        let decision_model: Option<String> =
+            row.try_get("decision_model").map_err(map_sqlx_error)?;
+        let decision_vault_key_id: Option<String> = row
+            .try_get("decision_vault_key_id")
+            .map_err(map_sqlx_error)?;
+        let decision = match (
+            decision_provider.as_deref(),
+            decision_model.as_deref(),
+            decision_vault_key_id.as_deref(),
+        ) {
+            (Some(raw_provider), Some(model), Some(vault_key_id))
+                if !model.trim().is_empty() && !vault_key_id.trim().is_empty() =>
+            {
+                match parse_provider(raw_provider.to_owned()) {
+                    Ok(provider) => Some(AiWorkerDecisionConfig {
+                        provider,
+                        model: model.to_owned(),
+                        vault_key_id: vault_key_id.to_owned(),
+                    }),
+                    // An unknown provider string is a projection-integrity
+                    // defect; degrade to no scoring pass and keep the job
+                    // runnable (the scoring pass is best-effort by design).
+                    Err(_) => {
+                        tracing::warn!(
+                            "ai worker config: unknown decision provider '{raw_provider}'; disabling the scoring pass"
+                        );
+                        None
+                    }
+                }
+            }
+            _ => None,
+        };
+
         Ok(Some(AiWorkerConfig {
             config_id: row.try_get("id").map_err(map_sqlx_error)?,
             provider,
             model: row.try_get("assistant_model").map_err(map_sqlx_error)?,
             prompt,
             vault_key_id: row.try_get("vault_key_id").map_err(map_sqlx_error)?,
+            decision,
         }))
     }
 }
@@ -88,7 +143,9 @@ impl AiConfigRepository for AiConfigRepositoryImpl {
         let row = sqlx::query(
             r#"
             SELECT id, user_id, provider, assistant_model, image_model,
-                   prompts, vault_key_id, cost_display_preference, revoked, version
+                   prompts, vault_key_id, cost_display_preference,
+                   decision_provider, decision_model, decision_vault_key_id,
+                   revoked, version
             FROM ai_import.projection_ai_config
             WHERE id = $1
             "#,
@@ -123,7 +180,9 @@ impl AiConfigRepository for AiConfigRepositoryImpl {
         let rows = sqlx::query(
             r#"
             SELECT id, user_id, provider, assistant_model, image_model,
-                   prompts, vault_key_id, cost_display_preference, revoked, version
+                   prompts, vault_key_id, cost_display_preference,
+                   decision_provider, decision_model, decision_vault_key_id,
+                   revoked, version
             FROM ai_import.projection_ai_config
             WHERE user_id = $1
             ORDER BY updated_at DESC, id DESC
@@ -182,6 +241,15 @@ fn map_config_row(row: &PgRow) -> Result<AiConfigView, DomainError> {
             row.try_get("cost_display_preference")
                 .map_err(map_sqlx_error)?,
         ),
+        decision_provider: parse_optional_decision_provider(row)?,
+        decision_model: row
+            .try_get::<Option<String>, _>("decision_model")
+            .map_err(map_sqlx_error)?,
+        // The vault key reference is an opaque binding key, not a secret —
+        // the same exposure level as `vault_key_id` on the same view.
+        decision_vault_key_id: row
+            .try_get::<Option<String>, _>("decision_vault_key_id")
+            .map_err(map_sqlx_error)?,
         version: {
             let raw: i64 = row.try_get("version").map_err(map_sqlx_error)?;
             if raw < 0 {
@@ -196,6 +264,30 @@ fn map_config_row(row: &PgRow) -> Result<AiConfigView, DomainError> {
         revoked: row.try_get("revoked").map_err(map_sqlx_error)?,
     })
 }
+
+/// Parse the optional `decision_provider` projection column (issue #722).
+/// An unknown value degrades to `None` with a warning instead of failing the
+/// read — a decision configuration must never 500 a config fetch.
+fn parse_optional_decision_provider(row: &PgRow) -> Result<Option<LlmProvider>, DomainError> {
+    let raw: Option<String> = row.try_get("decision_provider").map_err(map_sqlx_error)?;
+    Ok(match raw.as_deref() {
+        None => None,
+        Some(value) => match parse_provider(value.to_owned()) {
+            Ok(provider) => Some(provider),
+            Err(_) => {
+                tracing::warn!(
+                    "ai config projection: unknown decision provider '{value}'; reporting none"
+                );
+                None
+            }
+        },
+    })
+}
+
+/// Silence the unused-import lint when `DecisionRubric` is only re-exported
+/// by workers through this module path in later phases.
+#[allow(dead_code)]
+fn _rubric_type_witness(_: Option<DecisionRubric>) {}
 
 fn parse_provider(value: String) -> Result<LlmProvider, DomainError> {
     match value.as_str() {

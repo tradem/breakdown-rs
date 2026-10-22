@@ -16,6 +16,7 @@ pub mod aggregate;
 pub mod bounds;
 pub mod commands;
 pub mod cost;
+pub mod decision;
 pub mod error;
 pub mod events;
 pub mod ports;
@@ -25,6 +26,12 @@ pub mod views;
 pub use aggregate::AiConfig;
 pub use bounds::AiImportBounds;
 pub use commands::{CreateAiConfig, RevokeAiConfig, UpdateAiConfig};
+pub use decision::{
+    DecisionAnswer, DecisionCallOutcome, DecisionClient, DecisionQuestion, DecisionRequest,
+    DecisionRubric, compute_scene_score, compute_shooting_day_score, compute_synopsis_score,
+    curated_decision_model_ids, is_curated_decision_model, is_decision_capable, noul,
+    question_keys, scene_grounding_factor, score5,
+};
 pub use error::AiConfigError;
 pub use events::AiConfigEvent;
 pub use ports::LlmProvider;

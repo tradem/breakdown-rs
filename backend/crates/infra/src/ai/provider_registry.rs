@@ -204,6 +204,29 @@ pub fn recommended_model(provider: LlmProvider) -> Option<&'static str> {
     }
 }
 
+/// Curated **Decision Model** IDs per provider (issue #722). Pure re-export
+/// of the core catalog so the decision-models endpoint and the aggregate
+/// validation share one source; a non-decision provider yields an empty list.
+pub fn curated_decision_model_ids(provider: LlmProvider) -> &'static [&'static str] {
+    breakdown_core::ai::curated_decision_model_ids(provider)
+}
+
+/// Build `ModelInfo` list for a provider's curated **decision models**
+/// (issue #722). No `recommended` flag — a decision model is an optional
+/// capability slot, not a default choice.
+pub fn curated_decision_models(provider: LlmProvider) -> Vec<ModelInfo> {
+    curated_decision_model_ids(provider)
+        .iter()
+        .map(|id| ModelInfo {
+            id: (*id).to_owned(),
+            display_name: None,
+            provider,
+            recommended: false,
+            pricing: None,
+        })
+        .collect()
+}
+
 /// Build `ModelInfo` list for a provider from the curated model IDs.
 pub fn curated_models(provider: LlmProvider) -> Vec<ModelInfo> {
     let recommended = recommended_model(provider);
@@ -222,6 +245,32 @@ pub fn curated_models(provider: LlmProvider) -> Vec<ModelInfo> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn curated_decision_models_match_the_core_catalog() {
+        assert_eq!(
+            curated_decision_models(LlmProvider::Neuralwatt)
+                .iter()
+                .map(|m| m.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["clef-flash", "clef"]
+        );
+        assert_eq!(
+            curated_decision_models(LlmProvider::EURouter)
+                .iter()
+                .map(|m| m.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["clef-flash", "metis"]
+        );
+        assert!(!curated_decision_models(LlmProvider::OpenRouter).is_empty());
+        // Non-decision providers expose no decision models at all.
+        assert!(curated_decision_models(LlmProvider::OpenAI).is_empty());
+        assert!(curated_decision_models(LlmProvider::Ollama).is_empty());
+        // Never recommended — the slot is optional.
+        for model in curated_decision_models(LlmProvider::OpenRouter) {
+            assert!(!model.recommended);
+        }
+    }
 
     #[test]
     fn registry_covers_all_curated_providers() {

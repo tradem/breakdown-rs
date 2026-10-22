@@ -77,6 +77,7 @@ import 'package:breakdown_api/src/model/create_shooting_day_request.dart';
 import 'package:breakdown_api/src/model/credential_binding_state.dart';
 import 'package:breakdown_api/src/model/currency.dart';
 import 'package:breakdown_api/src/model/dead_letter_entry.dart';
+import 'package:breakdown_api/src/model/decision_rubric.dart';
 import 'package:breakdown_api/src/model/dispo_row.dart';
 import 'package:breakdown_api/src/model/document_kind.dart';
 import 'package:breakdown_api/src/model/draft_character.dart';
@@ -246,6 +247,7 @@ part 'serializers.g.dart';
   CredentialBindingState,
   Currency,
   DeadLetterEntry,
+  DecisionRubric,
   DispoRow,
   DocumentKind,
   DraftCharacter,
@@ -362,44 +364,20 @@ Serializers serializers = (_$serializers.toBuilder()
         () => ListBuilder<CostumeDetailView>(),
       )
       ..addBuilderFactory(
-        const FullType(BuiltMap, [FullType(String), FullType(String)]),
-        () => MapBuilder<String, String>(),
-      )
-      ..addBuilderFactory(
-        const FullType(BuiltList, [FullType(SceneView)]),
-        () => ListBuilder<SceneView>(),
-      )
-      ..addBuilderFactory(
         const FullType(BuiltList, [FullType(SerializedNote)]),
         () => ListBuilder<SerializedNote>(),
-      )
-      ..addBuilderFactory(
-        const FullType(BuiltList, [FullType(SeasonView)]),
-        () => ListBuilder<SeasonView>(),
       )
       ..addBuilderFactory(
         const FullType(BuiltList, [FullType(CharacterView)]),
         () => ListBuilder<CharacterView>(),
       )
       ..addBuilderFactory(
-        const FullType(BuiltList, [FullType(PhotoVariantView)]),
-        () => ListBuilder<PhotoVariantView>(),
-      )
-      ..addBuilderFactory(
         const FullType(BuiltList, [FullType(CostumePhotoView)]),
         () => ListBuilder<CostumePhotoView>(),
       )
       ..addBuilderFactory(
-        const FullType(BuiltList, [FullType(AiConfigView)]),
-        () => ListBuilder<AiConfigView>(),
-      )
-      ..addBuilderFactory(
         const FullType(BuiltList, [FullType(DispoRow)]),
         () => ListBuilder<DispoRow>(),
-      )
-      ..addBuilderFactory(
-        const FullType(BuiltList, [FullType(AggregateSollIstDiffRow)]),
-        () => ListBuilder<AggregateSollIstDiffRow>(),
       )
       ..addBuilderFactory(
         const FullType(BuiltList, [FullType(EpisodeView)]),
@@ -418,10 +396,6 @@ Serializers serializers = (_$serializers.toBuilder()
         () => ListBuilder<CostumeDecision>(),
       )
       ..addBuilderFactory(
-        const FullType(BuiltList, [FullType(ApplyEpisodeGroupRequest)]),
-        () => ListBuilder<ApplyEpisodeGroupRequest>(),
-      )
-      ..addBuilderFactory(
         const FullType(BuiltList, [FullType(SollIstDiffRow)]),
         () => ListBuilder<SollIstDiffRow>(),
       )
@@ -430,16 +404,96 @@ Serializers serializers = (_$serializers.toBuilder()
         () => ListBuilder<DraftScene>(),
       )
       ..addBuilderFactory(
+        const FullType(BuiltList, [FullType(CheckpointProgress)]),
+        () => ListBuilder<CheckpointProgress>(),
+      )
+      ..addBuilderFactory(
+        const FullType(BuiltMap, [FullType(String), FullType(double)]),
+        () => MapBuilder<String, double>(),
+      )
+      ..addBuilderFactory(
+        const FullType(BuiltList, [FullType(ShootDayRow)]),
+        () => ListBuilder<ShootDayRow>(),
+      )
+      ..addBuilderFactory(
+        const FullType(BuiltList, [FullType(ShootingDayView)]),
+        () => ListBuilder<ShootingDayView>(),
+      )
+      ..addBuilderFactory(
+        const FullType(BuiltList, [FullType(SceneShootView)]),
+        () => ListBuilder<SceneShootView>(),
+      )
+      ..addBuilderFactory(
+        const FullType(BuiltList, [FullType(SceneCostumeBeatView)]),
+        () => ListBuilder<SceneCostumeBeatView>(),
+      )
+      ..addBuilderFactory(
+        const FullType(BuiltList, [FullType(ShootingScheduleRow)]),
+        () => ListBuilder<ShootingScheduleRow>(),
+      )
+      ..addBuilderFactory(
+        const FullType(BuiltList, [FullType(AuditEntry)]),
+        () => ListBuilder<AuditEntry>(),
+      )
+      ..addBuilderFactory(
+        const FullType(BuiltList, [FullType(AiImportJobResponse)]),
+        () => ListBuilder<AiImportJobResponse>(),
+      )
+      ..addBuilderFactory(
+        const FullType(BuiltList, [FullType(MergedScene)]),
+        () => ListBuilder<MergedScene>(),
+      )
+      ..addBuilderFactory(
+        const FullType(BuiltMap, [FullType(String), FullType(HealthEntry)]),
+        () => MapBuilder<String, HealthEntry>(),
+      )
+      ..addBuilderFactory(
+        const FullType(BuiltList, [FullType(UnappliedCostume)]),
+        () => ListBuilder<UnappliedCostume>(),
+      )
+      ..addBuilderFactory(
+        const FullType(BuiltList, [FullType(BlockView)]),
+        () => ListBuilder<BlockView>(),
+      )
+      ..addBuilderFactory(
+        const FullType(BuiltList, [FullType(AppearanceCostumeView)]),
+        () => ListBuilder<AppearanceCostumeView>(),
+      )
+      ..addBuilderFactory(
+        const FullType(BuiltMap, [FullType(String), FullType(String)]),
+        () => MapBuilder<String, String>(),
+      )
+      ..addBuilderFactory(
+        const FullType(BuiltList, [FullType(SceneView)]),
+        () => ListBuilder<SceneView>(),
+      )
+      ..addBuilderFactory(
+        const FullType(BuiltList, [FullType(SeasonView)]),
+        () => ListBuilder<SeasonView>(),
+      )
+      ..addBuilderFactory(
+        const FullType(BuiltList, [FullType(PhotoVariantView)]),
+        () => ListBuilder<PhotoVariantView>(),
+      )
+      ..addBuilderFactory(
+        const FullType(BuiltList, [FullType(AiConfigView)]),
+        () => ListBuilder<AiConfigView>(),
+      )
+      ..addBuilderFactory(
+        const FullType(BuiltList, [FullType(AggregateSollIstDiffRow)]),
+        () => ListBuilder<AggregateSollIstDiffRow>(),
+      )
+      ..addBuilderFactory(
+        const FullType(BuiltList, [FullType(ApplyEpisodeGroupRequest)]),
+        () => ListBuilder<ApplyEpisodeGroupRequest>(),
+      )
+      ..addBuilderFactory(
         const FullType(BuiltList, [FullType(MetaCreditsEntry)]),
         () => ListBuilder<MetaCreditsEntry>(),
       )
       ..addBuilderFactory(
         const FullType(BuiltList, [FullType(ApplyShootingDayRequest)]),
         () => ListBuilder<ApplyShootingDayRequest>(),
-      )
-      ..addBuilderFactory(
-        const FullType(BuiltList, [FullType(CheckpointProgress)]),
-        () => ListBuilder<CheckpointProgress>(),
       )
       ..addBuilderFactory(
         const FullType(BuiltList, [FullType(UncertaintyAcknowledgement)]),
@@ -466,44 +520,12 @@ Serializers serializers = (_$serializers.toBuilder()
         () => ListBuilder<CostumeCategoryView>(),
       )
       ..addBuilderFactory(
-        const FullType(BuiltList, [FullType(ShootDayRow)]),
-        () => ListBuilder<ShootDayRow>(),
-      )
-      ..addBuilderFactory(
-        const FullType(BuiltList, [FullType(ShootingDayView)]),
-        () => ListBuilder<ShootingDayView>(),
-      )
-      ..addBuilderFactory(
-        const FullType(BuiltList, [FullType(SceneShootView)]),
-        () => ListBuilder<SceneShootView>(),
-      )
-      ..addBuilderFactory(
-        const FullType(BuiltList, [FullType(SceneCostumeBeatView)]),
-        () => ListBuilder<SceneCostumeBeatView>(),
-      )
-      ..addBuilderFactory(
         const FullType(BuiltList, [FullType(Uncertainty)]),
         () => ListBuilder<Uncertainty>(),
       )
       ..addBuilderFactory(
-        const FullType(BuiltList, [FullType(ShootingScheduleRow)]),
-        () => ListBuilder<ShootingScheduleRow>(),
-      )
-      ..addBuilderFactory(
-        const FullType(BuiltList, [FullType(AuditEntry)]),
-        () => ListBuilder<AuditEntry>(),
-      )
-      ..addBuilderFactory(
-        const FullType(BuiltList, [FullType(AiImportJobResponse)]),
-        () => ListBuilder<AiImportJobResponse>(),
-      )
-      ..addBuilderFactory(
         const FullType(BuiltList, [FullType(ManualArchiveJobResult)]),
         () => ListBuilder<ManualArchiveJobResult>(),
-      )
-      ..addBuilderFactory(
-        const FullType(BuiltList, [FullType(MergedScene)]),
-        () => ListBuilder<MergedScene>(),
       )
       ..addBuilderFactory(
         const FullType(BuiltList, [FullType(DeadLetterEntry)]),
@@ -519,20 +541,8 @@ Serializers serializers = (_$serializers.toBuilder()
         () => ListBuilder<CostumeView>(),
       )
       ..addBuilderFactory(
-        const FullType(BuiltMap, [FullType(String), FullType(HealthEntry)]),
-        () => MapBuilder<String, HealthEntry>(),
-      )
-      ..addBuilderFactory(
-        const FullType(BuiltList, [FullType(UnappliedCostume)]),
-        () => ListBuilder<UnappliedCostume>(),
-      )
-      ..addBuilderFactory(
         const FullType(BuiltList, [FullType(CharacterAppearanceView)]),
         () => ListBuilder<CharacterAppearanceView>(),
-      )
-      ..addBuilderFactory(
-        const FullType(BuiltList, [FullType(BlockView)]),
-        () => ListBuilder<BlockView>(),
       )
       ..addBuilderFactory(
         const FullType(BuiltList, [FullType(DocumentKind)]),
@@ -541,10 +551,6 @@ Serializers serializers = (_$serializers.toBuilder()
       ..addBuilderFactory(
         const FullType(BuiltList, [FullType(String)]),
         () => ListBuilder<String>(),
-      )
-      ..addBuilderFactory(
-        const FullType(BuiltList, [FullType(AppearanceCostumeView)]),
-        () => ListBuilder<AppearanceCostumeView>(),
       )
       ..add(GDriveCredentialRequest.serializer)
       ..add(const OneOfSerializer())

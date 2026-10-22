@@ -58,6 +58,7 @@ fn preview() -> ScriptContext {
     let day = || DraftShootingDay {
         number: Some(1),
         label: Some("Tag 1".to_owned()),
+        score: None,
     };
     ScriptContext {
         title: Some("Drehtag fixture".to_owned()),

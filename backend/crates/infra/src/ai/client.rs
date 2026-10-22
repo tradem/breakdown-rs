@@ -424,6 +424,7 @@ impl ShootingScheduleSchema {
                         None => (None, None),
                     };
                     ShootingScheduleRow {
+                        shooting_day_score: None,
                         row_ref: row.row_ref,
                         scene_number,
                         episode_number,

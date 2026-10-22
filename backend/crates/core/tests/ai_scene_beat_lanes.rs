@@ -56,6 +56,7 @@ fn costume(ordinal: usize, identity: &str, description: &str) -> CostumeApplyPla
 
 fn row(characters: Vec<CharacterApplyPlan>, costumes: Vec<CostumeApplyPlan>) -> SceneApplyPlan {
     SceneApplyPlan {
+        confidence: None,
         draft_ref: "1. INT. OP".to_owned(),
         scene: breakdown_core::ai::SceneApplyCommand::Create(CreateScene {
             id: Uuid::now_v7(),

@@ -15,7 +15,9 @@ use crate::costume::error::CostumeError;
 use crate::costume_category::error::CostumeCategoryError;
 use crate::episode::error::EpisodeError;
 use crate::error_registry::{
-    AI_CONFIG_ALREADY_REVOKED, AI_CONFIG_EMPTY_MODEL, AI_CONFIG_EMPTY_PROMPT,
+    AI_CONFIG_ALREADY_REVOKED, AI_CONFIG_DECISION_INCOMPLETE, AI_CONFIG_DECISION_MODEL_EMPTY,
+    AI_CONFIG_DECISION_MODEL_UNKNOWN, AI_CONFIG_DECISION_PROVIDER_UNSUPPORTED,
+    AI_CONFIG_DECISION_VAULT_KEY_EMPTY, AI_CONFIG_EMPTY_MODEL, AI_CONFIG_EMPTY_PROMPT,
     AI_CONFIG_EMPTY_PROVIDER, AI_CONFIG_EMPTY_VAULT_KEY, AI_CONFIG_NOT_FOUND,
     AI_CONFIG_PROVIDER_MISMATCH, BLOCK_NOT_FOUND, CHARACTER_NOT_FOUND, CHARACTER_VALIDATION,
     CONCURRENCY_VERSION_MISMATCH, COSTUME_ALREADY_ASSIGNED, COSTUME_CATEGORY_ARCHIVED,
@@ -207,6 +209,26 @@ impl From<AiConfigError> for DomainError {
             AiConfigError::EmptyVaultKey => DomainError::Validation {
                 code: &AI_CONFIG_EMPTY_VAULT_KEY,
                 reason: "vault key reference must not be empty".into(),
+            },
+            AiConfigError::DecisionProviderUnsupported => DomainError::Validation {
+                code: &AI_CONFIG_DECISION_PROVIDER_UNSUPPORTED,
+                reason: "provider does not host decision models".into(),
+            },
+            AiConfigError::DecisionProviderRequired => DomainError::Validation {
+                code: &AI_CONFIG_DECISION_INCOMPLETE,
+                reason: "decision model configuration is incomplete".into(),
+            },
+            AiConfigError::EmptyDecisionModel => DomainError::Validation {
+                code: &AI_CONFIG_DECISION_MODEL_EMPTY,
+                reason: "decision model must not be empty".into(),
+            },
+            AiConfigError::DecisionModelUnknown => DomainError::Validation {
+                code: &AI_CONFIG_DECISION_MODEL_UNKNOWN,
+                reason: "decision model is not curated for the provider".into(),
+            },
+            AiConfigError::EmptyDecisionVaultKey => DomainError::Validation {
+                code: &AI_CONFIG_DECISION_VAULT_KEY_EMPTY,
+                reason: "decision vault key reference must not be empty".into(),
             },
         }
     }

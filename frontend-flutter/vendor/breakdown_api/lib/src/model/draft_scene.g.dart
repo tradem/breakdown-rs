@@ -22,11 +22,17 @@ class _$DraftScene extends DraftScene {
   @override
   final int? sceneNumber;
   @override
+  final double? sceneScore;
+  @override
+  final DecisionRubric? scoring;
+  @override
   final String? scriptDay;
   @override
   final DraftShootingDay? shootingDay;
   @override
   final String? summary;
+  @override
+  final double? synopsisScore;
 
   factory _$DraftScene([void Function(DraftSceneBuilder)? updates]) =>
       (DraftSceneBuilder()..update(updates))._build();
@@ -39,9 +45,12 @@ class _$DraftScene extends DraftScene {
       this.location,
       this.mood,
       this.sceneNumber,
+      this.sceneScore,
+      this.scoring,
       this.scriptDay,
       this.shootingDay,
-      this.summary})
+      this.summary,
+      this.synopsisScore})
       : super._();
   @override
   DraftScene rebuild(void Function(DraftSceneBuilder) updates) =>
@@ -61,9 +70,12 @@ class _$DraftScene extends DraftScene {
         location == other.location &&
         mood == other.mood &&
         sceneNumber == other.sceneNumber &&
+        sceneScore == other.sceneScore &&
+        scoring == other.scoring &&
         scriptDay == other.scriptDay &&
         shootingDay == other.shootingDay &&
-        summary == other.summary;
+        summary == other.summary &&
+        synopsisScore == other.synopsisScore;
   }
 
   @override
@@ -76,9 +88,12 @@ class _$DraftScene extends DraftScene {
     _$hash = $jc(_$hash, location.hashCode);
     _$hash = $jc(_$hash, mood.hashCode);
     _$hash = $jc(_$hash, sceneNumber.hashCode);
+    _$hash = $jc(_$hash, sceneScore.hashCode);
+    _$hash = $jc(_$hash, scoring.hashCode);
     _$hash = $jc(_$hash, scriptDay.hashCode);
     _$hash = $jc(_$hash, shootingDay.hashCode);
     _$hash = $jc(_$hash, summary.hashCode);
+    _$hash = $jc(_$hash, synopsisScore.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
   }
@@ -93,9 +108,12 @@ class _$DraftScene extends DraftScene {
           ..add('location', location)
           ..add('mood', mood)
           ..add('sceneNumber', sceneNumber)
+          ..add('sceneScore', sceneScore)
+          ..add('scoring', scoring)
           ..add('scriptDay', scriptDay)
           ..add('shootingDay', shootingDay)
-          ..add('summary', summary))
+          ..add('summary', summary)
+          ..add('synopsisScore', synopsisScore))
         .toString();
   }
 }
@@ -135,6 +153,15 @@ class DraftSceneBuilder implements Builder<DraftScene, DraftSceneBuilder> {
   int? get sceneNumber => _$this._sceneNumber;
   set sceneNumber(int? sceneNumber) => _$this._sceneNumber = sceneNumber;
 
+  double? _sceneScore;
+  double? get sceneScore => _$this._sceneScore;
+  set sceneScore(double? sceneScore) => _$this._sceneScore = sceneScore;
+
+  DecisionRubricBuilder? _scoring;
+  DecisionRubricBuilder get scoring =>
+      _$this._scoring ??= DecisionRubricBuilder();
+  set scoring(DecisionRubricBuilder? scoring) => _$this._scoring = scoring;
+
   String? _scriptDay;
   String? get scriptDay => _$this._scriptDay;
   set scriptDay(String? scriptDay) => _$this._scriptDay = scriptDay;
@@ -148,6 +175,11 @@ class DraftSceneBuilder implements Builder<DraftScene, DraftSceneBuilder> {
   String? _summary;
   String? get summary => _$this._summary;
   set summary(String? summary) => _$this._summary = summary;
+
+  double? _synopsisScore;
+  double? get synopsisScore => _$this._synopsisScore;
+  set synopsisScore(double? synopsisScore) =>
+      _$this._synopsisScore = synopsisScore;
 
   DraftSceneBuilder() {
     DraftScene._defaults(this);
@@ -163,9 +195,12 @@ class DraftSceneBuilder implements Builder<DraftScene, DraftSceneBuilder> {
       _location = $v.location;
       _mood = $v.mood;
       _sceneNumber = $v.sceneNumber;
+      _sceneScore = $v.sceneScore;
+      _scoring = $v.scoring?.toBuilder();
       _scriptDay = $v.scriptDay;
       _shootingDay = $v.shootingDay?.toBuilder();
       _summary = $v.summary;
+      _synopsisScore = $v.synopsisScore;
       _$v = null;
     }
     return this;
@@ -197,9 +232,12 @@ class DraftSceneBuilder implements Builder<DraftScene, DraftSceneBuilder> {
             location: location,
             mood: mood,
             sceneNumber: sceneNumber,
+            sceneScore: sceneScore,
+            scoring: _scoring?.build(),
             scriptDay: scriptDay,
             shootingDay: _shootingDay?.build(),
             summary: summary,
+            synopsisScore: synopsisScore,
           );
     } catch (_) {
       late String _$failedField;
@@ -211,6 +249,9 @@ class DraftSceneBuilder implements Builder<DraftScene, DraftSceneBuilder> {
 
         _$failedField = 'episode';
         _episode?.build();
+
+        _$failedField = 'scoring';
+        _scoring?.build();
 
         _$failedField = 'shootingDay';
         _shootingDay?.build();

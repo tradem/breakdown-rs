@@ -2109,6 +2109,7 @@ fn day_marker_reads_tag_form() {
         Some(DraftShootingDay {
             number: Some(1),
             label: Some("Tag 1".into()),
+            score: None,
         })
     );
 }
@@ -2120,6 +2121,7 @@ fn day_marker_reads_spieltag_preceding_form() {
         Some(DraftShootingDay {
             number: Some(1),
             label: Some("1. Spieltag".into()),
+            score: None,
         })
     );
 }
@@ -2131,6 +2133,7 @@ fn day_marker_reads_compound_following_form() {
         Some(DraftShootingDay {
             number: Some(12),
             label: Some("Drehtag 12".into()),
+            score: None,
         })
     );
 }
@@ -2168,10 +2171,12 @@ fn day_group_key_normalizes_to_the_number() {
     let tag = DraftShootingDay {
         number: Some(1),
         label: Some("Tag 1".into()),
+        score: None,
     };
     let spieltag = DraftShootingDay {
         number: Some(1),
         label: Some("1. Spieltag".into()),
+        score: None,
     };
     assert_eq!(tag.group_key(), Some("day:1".into()));
     assert_eq!(tag.group_key(), spieltag.group_key());
@@ -2182,6 +2187,7 @@ fn day_group_key_falls_back_to_the_label() {
     let day = DraftShootingDay {
         number: None,
         label: Some("Drehwoche 2".into()),
+        score: None,
     };
     assert_eq!(day.group_key(), Some("day-l:Drehwoche 2".into()));
     assert_eq!(
@@ -2196,11 +2202,13 @@ fn day_display_label_prefers_the_verbatim_marker() {
     let day = DraftShootingDay {
         number: Some(1),
         label: Some("1. Spieltag".into()),
+        score: None,
     };
     assert_eq!(day.display_label().as_deref(), Some("1. Spieltag"));
     let bare = DraftShootingDay {
         number: Some(2),
         label: None,
+        score: None,
     };
     assert_eq!(bare.display_label().as_deref(), Some("Tag 2"));
 }
@@ -2329,6 +2337,7 @@ fn shooting_day_group_refs_are_first_seen_order() {
                 shooting_day: Some(DraftShootingDay {
                     number: Some(1),
                     label: None,
+                    score: None,
                 }),
                 ..Default::default()
             },
@@ -2337,6 +2346,7 @@ fn shooting_day_group_refs_are_first_seen_order() {
                 shooting_day: Some(DraftShootingDay {
                     number: Some(2),
                     label: None,
+                    score: None,
                 }),
                 ..Default::default()
             },
@@ -2346,6 +2356,7 @@ fn shooting_day_group_refs_are_first_seen_order() {
                 shooting_day: Some(DraftShootingDay {
                     number: Some(1),
                     label: None,
+                    score: None,
                 }),
                 ..Default::default()
             },
@@ -2386,6 +2397,7 @@ fn plan_carries_the_accepted_day_group() {
     let preview = preview_with_day(Some(DraftShootingDay {
         number: Some(1),
         label: Some("Tag 1".into()),
+        score: None,
     }));
     let plan = plan_scene_apply(
         &preview,
@@ -2405,6 +2417,7 @@ fn plan_carries_the_accepted_day_group() {
         PlannedShootingDay::Group {
             day_ref: "day:1".into(),
             label: Some("Tag 1".into()),
+            score: None,
         }
     );
 }
@@ -2414,6 +2427,7 @@ fn plan_leaves_a_rejected_day_group_unscheduled() {
     let preview = preview_with_day(Some(DraftShootingDay {
         number: Some(1),
         label: None,
+        score: None,
     }));
     let plan = plan_scene_apply(
         &preview,
@@ -2439,6 +2453,7 @@ fn plan_rejects_a_day_group_the_request_forgot() {
     let preview = preview_with_day(Some(DraftShootingDay {
         number: Some(1),
         label: None,
+        score: None,
     }));
     let error = plan_scene_apply(
         &preview,

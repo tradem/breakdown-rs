@@ -37,6 +37,9 @@ fn make_create_cmd() -> CreateAiConfig {
         image_model: Some("dall-e-3".into()),
         prompts: HashMap::from([(DocumentKind::Script, "Summarize".into())]),
         vault_key_id: "key-123".into(),
+        decision_provider: None,
+        decision_model: None,
+        decision_vault_key_id: None,
         cost_display_preference: CostDisplayPreference::Token,
     }
 }
@@ -49,6 +52,9 @@ fn make_update_cmd(id: Uuid, version: AggregateVersion) -> UpdateAiConfig {
         image_model: None,
         prompts: HashMap::from([(DocumentKind::Script, "New prompt".into())]),
         vault_key_id: "key-456".into(),
+        decision_provider: None,
+        decision_model: None,
+        decision_vault_key_id: None,
         cost_display_preference: Some(CostDisplayPreference::Energy),
         version,
     }
@@ -63,6 +69,9 @@ fn created_event(cmd: &CreateAiConfig) -> AiConfigEvent {
         image_model: cmd.image_model.clone(),
         prompts: cmd.prompts.clone(),
         vault_key_id: cmd.vault_key_id.clone(),
+        decision_provider: cmd.decision_provider,
+        decision_model: cmd.decision_model.clone(),
+        decision_vault_key_id: cmd.decision_vault_key_id.clone(),
         cost_display_preference: cmd.cost_display_preference,
         version: AggregateVersion::INITIAL,
     }
@@ -131,6 +140,9 @@ fn update_config_emits_single_updated_event() {
             image_model: None,
             prompts: HashMap::from([(DocumentKind::Script, "New prompt".into())]),
             vault_key_id: "key-456".into(),
+            decision_provider: None,
+            decision_model: None,
+            decision_vault_key_id: None,
             cost_display_preference: Some(CostDisplayPreference::Energy),
             version: AggregateVersion::INITIAL.next(),
         }]);
@@ -184,6 +196,9 @@ fn update_config_accepts_provider_replacement_with_new_vault_key() {
             image_model: None,
             prompts: HashMap::from([(DocumentKind::Script, "New prompt".into())]),
             vault_key_id: "key-789".into(),
+            decision_provider: None,
+            decision_model: None,
+            decision_vault_key_id: None,
             cost_display_preference: Some(CostDisplayPreference::Energy),
             version: AggregateVersion::INITIAL.next(),
         }]);
@@ -336,6 +351,9 @@ fn update_with_omitted_preference_keeps_the_current_value() {
 
     AiConfig::given(vec![created_event(&create_cmd)])
         .when(UpdateAiConfig {
+            decision_provider: None,
+            decision_model: None,
+            decision_vault_key_id: None,
             cost_display_preference: None,
             ..make_update_cmd(id, AggregateVersion::INITIAL)
         })
@@ -346,6 +364,9 @@ fn update_with_omitted_preference_keeps_the_current_value() {
             image_model: None,
             prompts: HashMap::from([(DocumentKind::Script, "New prompt".into())]),
             vault_key_id: "key-456".into(),
+            decision_provider: None,
+            decision_model: None,
+            decision_vault_key_id: None,
             cost_display_preference: None,
             version: AggregateVersion::INITIAL.next(),
         }]);
@@ -370,6 +391,9 @@ fn applying_updated_without_preference_keeps_energy() {
             image_model: None,
             prompts: HashMap::from([(DocumentKind::Script, "New prompt".into())]),
             vault_key_id: "key-456".into(),
+            decision_provider: None,
+            decision_model: None,
+            decision_vault_key_id: None,
             cost_display_preference: None,
             version: AggregateVersion::INITIAL.next(),
         },
@@ -422,5 +446,229 @@ fn cost_display_preference_wire_values() {
     assert_eq!(
         CostDisplayPreference::default(),
         CostDisplayPreference::Token
+    );
+}
+
+// ===========================================================================
+// Issue #722 — Decision Model configuration
+// ===========================================================================
+
+use super::super::decision::question_keys;
+
+fn make_decision_cmd() -> CreateAiConfig {
+    CreateAiConfig {
+        decision_provider: Some(LlmProvider::Neuralwatt),
+        decision_model: Some("clef-flash".into()),
+        decision_vault_key_id: Some("settings-abc:decision-key".into()),
+        ..make_create_cmd()
+    }
+}
+
+#[test]
+fn create_config_accepts_curated_decision_model() {
+    let cmd = make_decision_cmd();
+    // Accept-case: the DSL's `then(vec![..])` asserts the expected events.
+    let expected = vec![created_event(&cmd)];
+    AiConfig::given(vec![]).when(cmd).then(expected);
+}
+
+#[test]
+fn create_config_rejects_non_decision_provider() {
+    let cmd = CreateAiConfig {
+        decision_provider: Some(LlmProvider::OpenAI),
+        ..make_decision_cmd()
+    };
+    AiConfig::given(vec![])
+        .when(cmd)
+        .then_error(AiConfigError::DecisionProviderUnsupported);
+}
+
+#[test]
+fn create_config_rejects_partial_decision_config() {
+    // Provider set without model/key → incomplete.
+    let cmd = CreateAiConfig {
+        decision_provider: Some(LlmProvider::Neuralwatt),
+        decision_model: None,
+        decision_vault_key_id: None,
+        ..make_create_cmd()
+    };
+    AiConfig::given(vec![])
+        .when(cmd)
+        .then_error(AiConfigError::DecisionProviderRequired);
+    // Model without provider → incomplete.
+    let cmd = CreateAiConfig {
+        decision_provider: None,
+        decision_model: Some("clef-flash".into()),
+        decision_vault_key_id: None,
+        ..make_create_cmd()
+    };
+    AiConfig::given(vec![])
+        .when(cmd)
+        .then_error(AiConfigError::DecisionProviderRequired);
+    // Vault key without provider → incomplete.
+    let cmd = CreateAiConfig {
+        decision_provider: None,
+        decision_model: None,
+        decision_vault_key_id: Some("k".into()),
+        ..make_create_cmd()
+    };
+    AiConfig::given(vec![])
+        .when(cmd)
+        .then_error(AiConfigError::DecisionProviderRequired);
+}
+
+#[test]
+fn create_config_rejects_uncurated_decision_model() {
+    // `metis` is curated for EURouter, not Neuralwatt.
+    let cmd = CreateAiConfig {
+        decision_provider: Some(LlmProvider::Neuralwatt),
+        decision_model: Some("metis".into()),
+        ..make_decision_cmd()
+    };
+    AiConfig::given(vec![])
+        .when(cmd)
+        .then_error(AiConfigError::DecisionModelUnknown);
+    let cmd = CreateAiConfig {
+        decision_model: Some("  ".into()),
+        ..make_decision_cmd()
+    };
+    AiConfig::given(vec![])
+        .when(cmd)
+        .then_error(AiConfigError::EmptyDecisionModel);
+    let cmd = CreateAiConfig {
+        decision_vault_key_id: Some("  ".into()),
+        ..make_decision_cmd()
+    };
+    AiConfig::given(vec![])
+        .when(cmd)
+        .then_error(AiConfigError::EmptyDecisionVaultKey);
+}
+
+#[test]
+fn update_config_resolves_tri_state_decision_slot() {
+    let cmd = make_decision_cmd();
+    let id = cmd.id;
+    // The `Given` builder consumes itself, so each assertion rebuilds it.
+    // Omitted decision fields keep the stored slot: the emitted Updated event
+    // carries the resolved (kept) configuration.
+    let kept = UpdateAiConfig {
+        assistant_model: "gpt-4o-mini".into(),
+        ..make_update_cmd(id, AggregateVersion::INITIAL)
+    };
+    AiConfig::given(vec![created_event(&cmd)])
+        .when(kept.clone())
+        .then(vec![AiConfigEvent::Updated {
+            id,
+            provider: kept.provider,
+            assistant_model: kept.assistant_model.clone(),
+            image_model: kept.image_model.clone(),
+            prompts: kept.prompts.clone(),
+            vault_key_id: kept.vault_key_id.clone(),
+            cost_display_preference: kept.cost_display_preference,
+            decision_provider: Some(LlmProvider::Neuralwatt),
+            decision_model: Some("clef-flash".into()),
+            decision_vault_key_id: Some("settings-abc:decision-key".into()),
+            version: AggregateVersion::INITIAL.next(),
+        }]);
+    // `Some(None)` on all three fields clears the resolved slot.
+    let clear = UpdateAiConfig {
+        decision_provider: Some(None),
+        decision_model: Some(None),
+        decision_vault_key_id: Some(None),
+        ..make_update_cmd(id, AggregateVersion::INITIAL)
+    };
+    AiConfig::given(vec![created_event(&cmd)])
+        .when(clear.clone())
+        .then(vec![AiConfigEvent::Updated {
+            id,
+            provider: clear.provider,
+            assistant_model: clear.assistant_model.clone(),
+            image_model: clear.image_model.clone(),
+            prompts: clear.prompts.clone(),
+            vault_key_id: clear.vault_key_id.clone(),
+            cost_display_preference: clear.cost_display_preference,
+            decision_provider: None,
+            decision_model: None,
+            decision_vault_key_id: None,
+            version: AggregateVersion::INITIAL.next(),
+        }]);
+}
+
+#[test]
+fn update_config_validates_the_resolved_decision_slot() {
+    let cmd = make_decision_cmd();
+    let id = cmd.id;
+    // Clearing only the provider while the model stays → incomplete.
+    let partial = UpdateAiConfig {
+        decision_provider: Some(None),
+        ..make_update_cmd(id, AggregateVersion::INITIAL)
+    };
+    AiConfig::given(vec![created_event(&cmd)])
+        .when(partial)
+        .then_error(AiConfigError::DecisionProviderRequired);
+    // Swapping to an uncurated model is rejected.
+    let uncurated = UpdateAiConfig {
+        decision_model: Some(Some("not-a-model".into())),
+        ..make_update_cmd(id, AggregateVersion::INITIAL)
+    };
+    AiConfig::given(vec![created_event(&cmd)])
+        .when(uncurated)
+        .then_error(AiConfigError::DecisionModelUnknown);
+}
+
+#[test]
+fn pre_722_events_replay_without_decision_config() {
+    // A payload serialized before the fields existed (no decision_* keys)
+    // deserializes with all three `None` — backward-compatible replay.
+    let payload = serde_json::json!({
+        "Created": {
+            "id": Uuid::now_v7(),
+            "user_id": "test-user",
+            "provider": "openai",
+            "assistant_model": "m",
+            "image_model": null,
+            "prompts": {},
+            "vault_key_id": "k",
+            "cost_display_preference": "token",
+            "version": 1
+        }
+    });
+    let event: AiConfigEvent = serde_json::from_value(payload).unwrap();
+    match event {
+        AiConfigEvent::Created {
+            decision_provider,
+            decision_model,
+            decision_vault_key_id,
+            ..
+        } => {
+            assert_eq!(decision_provider, None);
+            assert_eq!(decision_model, None);
+            assert_eq!(decision_vault_key_id, None);
+        }
+        other => panic!("wrong variant: {other:?}"),
+    }
+}
+
+#[test]
+fn decision_question_keys_are_stable() {
+    // Telemetry contract for the 0.5.x APO loop — renames break it.
+    assert_eq!(question_keys::CHARACTERS_COMPLETE, "characters_complete");
+    assert_eq!(question_keys::COSTUMES_COMPLETE, "costumes_complete");
+    assert_eq!(
+        question_keys::SCENE_METADATA_ACCURACY,
+        "scene_metadata_accuracy"
+    );
+    assert_eq!(question_keys::SYNOPSIS_GROUNDED, "synopsis_grounded");
+    assert_eq!(
+        question_keys::SYNOPSIS_CONCISE_NO_DIALOGUE,
+        "synopsis_concise_no_dialogue"
+    );
+    assert_eq!(
+        question_keys::SYNOPSIS_COSTUME_AND_DEPT_RELEVANCE,
+        "synopsis_costume_and_dept_relevance"
+    );
+    assert_eq!(
+        question_keys::DAY_ASSIGNMENT_CONSISTENT,
+        "day_assignment_consistent"
     );
 }

@@ -22,6 +22,8 @@ pub mod client;
 pub mod concurrency;
 pub mod credentials;
 pub mod csv_schedule;
+pub mod decision_client;
+pub mod decision_scoring;
 pub mod events;
 pub mod gdrive_source;
 pub mod heartbeat;
@@ -51,6 +53,7 @@ pub use client::{OpenAiCompatibleChatClient, classify_http_status, classify_tran
 pub use concurrency::{AiConcurrencyLimiter, AiConcurrencyPermit};
 pub use credentials::AiCredentialResolver;
 pub use csv_schedule::parse_schedule_csv;
+pub use decision_client::{HttpDecisionClient, decision_endpoint};
 pub use events::{AiJobEventHub, JOB_EVENTS_CHANNEL, spawn_pg_job_event_listener};
 pub use gdrive_source::{GDriveDocument, GDriveDocumentSource};
 pub use heartbeat::{LeaseHeartbeat, renewal_interval};
@@ -73,8 +76,8 @@ pub use pricing_refresh::{AiPricingRefreshWorker, PricingRefreshConfig};
 pub use prompts::default_prompt;
 pub use prompts::{AiPromptDefaults, default_prompts};
 pub use provider_registry::{
-    PROVIDER_REGISTRY, ProviderInfo, curated_model_ids, curated_models, list_providers,
-    recommended_model, resolve_provider,
+    PROVIDER_REGISTRY, ProviderInfo, curated_decision_model_ids, curated_decision_models,
+    curated_model_ids, curated_models, list_providers, recommended_model, resolve_provider,
 };
 pub use queue::PgAiImportQueue;
 pub use runtime::AiWorkerRuntime;
@@ -88,6 +91,7 @@ pub use transport::{
 pub use worker_loop::{
     WorkerDeps, shutdown_signal, spawn_schedule_import_worker, spawn_script_import_worker,
 };
+pub use workers::DecisionPass;
 pub use workers::{
     ApplyScriptRequest, ApplyWorker, MergeWorker, ScheduleImportWorker, ScriptApplyResult,
     ScriptImportWorker, UuidVersion, validate_chunk_count,
