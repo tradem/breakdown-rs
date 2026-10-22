@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
-// Co-authored-by: glm-5.3 (neuralwatt)
+// Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 
 // Tier-2 widget test for the script overview tile's mood reinforcement line
 // (issue #721): a canonical shorthand mood renders its icons next to the

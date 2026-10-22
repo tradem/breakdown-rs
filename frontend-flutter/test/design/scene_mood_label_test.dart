@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
-// Co-authored-by: glm-5.3 (neuralwatt)
+// Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 
 // Tier-2 tests for the set-shorthand mood reinforcement (issue #721): the
 // `BreakdownMaterialIcons.forSceneMood` resolver and the shared
