@@ -2243,6 +2243,40 @@ Aktion.
 }
 
 #[test]
+fn dialogue_mentioning_a_day_never_changes_the_day_in_effect() {
+    // CodeRabbit review (issue #706): a non-heading line only updates
+    // `current_day` when the WHOLE line is the marker — short dialogue
+    // mentioning a day must not re-group the following scenes.
+    let document = "\
+1    I/T - KLINIKUM    Tag 1
+Aktion.
+
+Tag 3 war schlimm.
+
+2    I/T - FLUR
+Aktion.
+";
+    // Scene 2 still carries day 1 — the dialogue line was not a marker.
+    assert_eq!(day_of(document, 1).unwrap().number, Some(1));
+}
+
+#[test]
+fn a_standalone_day_marker_line_updates_the_day_in_effect() {
+    // The counterpart: a line that IS the marker (page header / day column)
+    // does update `current_day` — case-insensitively, whitespace-normalized.
+    let document = "\
+1    I/T - KLINIKUM    Tag 1
+Aktion.
+
+TAG 2
+
+2    I/T - FLUR
+Aktion.
+";
+    assert_eq!(day_of(document, 1).unwrap().number, Some(2));
+}
+
+#[test]
 fn old_preview_without_shooting_day_still_loads() {
     // Additive wire convention: a preview stored before `shooting_day`
     // existed keeps deserializing (serde default), and an old-model

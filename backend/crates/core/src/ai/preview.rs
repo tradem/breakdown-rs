@@ -178,6 +178,24 @@ fn keyword_at(chars: &[char], start: usize, kw: &[char]) -> bool {
             .all(|(a, b)| a.to_lowercase().eq(b.to_lowercase()))
 }
 
+/// Whether `line` consists of the day marker and nothing else — a page
+/// header or a bare scene-index day column, not prose that merely mentions
+/// a day (CodeRabbit review, issue #706).
+///
+/// Compares the whitespace-normalized line against the label `day_marker`
+/// built for the match, ASCII-case-insensitively: an uppercase page header
+/// (`TAG 1`) matches the reconstructed `"Tag 1"`, while dialogue ("Tag 3
+/// war schlimm.") carries trailing words and never matches.
+fn is_standalone_day_marker(line: &str, day: &DraftShootingDay) -> bool {
+    let collapsed = normalize_for_heading_detection(line)
+        .split_whitespace()
+        .collect::<Vec<&str>>()
+        .join(" ");
+    day.label
+        .as_deref()
+        .is_some_and(|label| label.eq_ignore_ascii_case(&collapsed))
+}
+
 /// Read one shooting-day marker out of a line (issue #706).
 ///
 /// Detected forms: `Tag 1` / `Day 1` (a day word followed by 1-3 digits),
@@ -1715,15 +1733,17 @@ pub fn extract_scenes(document: &str) -> Vec<SceneChunk> {
             }
             current_episode = Some(episode);
         }
-        if (is_scene_heading(trimmed) || trimmed.chars().count() <= 40)
-            && let Some(day) = day_marker(trimmed)
+        if let Some(day) = day_marker(trimmed)
+            && (is_scene_heading(trimmed) || is_standalone_day_marker(trimmed, &day))
         {
-            // Day markers live in scene-index columns and page headers —
-            // heading lines or short standalone lines. Restricting the scan
-            // keeps a dialogue sentence like "Tag 3 war schlimm." from
-            // re-grouping every following scene (CodeRabbit review, issue
-            // #706). First occurrence's label wins: a repeated `Tag 1` (page
-            // headers) never rewrites the reviewer-facing label.
+            // Day markers live in scene-index columns (heading lines) and in
+            // page headers (a line that IS the marker). A non-heading line
+            // only updates `current_day` when the whole whitespace-
+            // normalized line matches the marker's label — short dialogue
+            // like "Tag 3 war schlimm." must not re-group every following
+            // scene (CodeRabbit review, issue #706). First occurrence's
+            // label wins: a repeated `Tag 1` (page headers) never rewrites
+            // the reviewer-facing label.
             if current_day.as_ref().and_then(DraftShootingDay::group_key) != day.group_key() {
                 current_day = Some(day);
             }
