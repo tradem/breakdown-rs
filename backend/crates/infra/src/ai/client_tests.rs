@@ -264,3 +264,57 @@ fn all_providers_have_valid_base_urls() {
         );
     }
 }
+
+/// Strict Structured Outputs contract (CodeRabbit review PR #725): every
+/// object in the generated schedule schema must carry
+/// `additionalProperties: false` and list every property in `required`.
+#[test]
+fn schedule_schema_is_strict_structured_outputs_compatible() {
+    let schema =
+        super::strict_compatible(schemars::schema_for!(super::ShootingScheduleSchema).to_value());
+
+    fn check_strict(value: &serde_json::Value, path: &str) {
+        let serde_json::Value::Object(map) = value else {
+            return;
+        };
+        let is_object = map.get("type").and_then(|t| t.as_str()) == Some("object")
+            || map.contains_key("properties");
+        if is_object {
+            assert_eq!(
+                map.get("additionalProperties"),
+                Some(&serde_json::Value::Bool(false)),
+                "{path}: missing additionalProperties: false"
+            );
+            if let Some(properties) = map.get("properties").and_then(|p| p.as_object()) {
+                let required = map
+                    .get("required")
+                    .and_then(|r| r.as_array())
+                    .unwrap_or_else(|| panic!("{path}: missing required"));
+                for name in properties.keys() {
+                    assert!(
+                        required.contains(&serde_json::Value::String(name.clone())),
+                        "{path}: property {name} not in required"
+                    );
+                }
+            }
+        }
+        for (key, child) in map {
+            check_strict(child, &format!("{path}.{key}"));
+        }
+    }
+    check_strict(&schema, "$");
+
+    // The decode semantics are unchanged: an Option property is nullable AND
+    // required (the model answers `null` instead of omitting the key).
+    let row = &schema["$defs"]["ScheduleRowSchema"];
+    assert!(
+        row["required"]
+            .as_array()
+            .unwrap()
+            .contains(&serde_json::Value::String("shooting_day_label".into()))
+    );
+    assert_eq!(
+        row["properties"]["shooting_day_label"]["type"],
+        serde_json::json!(["string", "null"])
+    );
+}

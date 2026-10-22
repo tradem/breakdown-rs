@@ -14,6 +14,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/problem_error.dart';
+import '../../../design/scene_mood_label.dart';
 import '../../../l10n/app_localizations_provider.dart';
 import '../../episodes/episodes_controller.dart';
 import 'apply_controller.dart';
@@ -422,6 +423,9 @@ class _TypedPreviewBodyState extends ConsumerState<_TypedPreviewBody> {
             '${merged.scene.summary == null ? '' : ' — ${merged.scene.summary}'}'
                 '${l10nOf(context).aiPreviewScheduledRowCount('${merged.scheduleRows.length}')}',
           ),
+          // Applied scene's set-shorthand mood (issue #721) — reinforcing
+          // icons next to the visible text, display-only.
+          mood: merged.scene.mood,
         ),
       // Unmatched rows render as NON-actionable info cards — they are
       // excluded from the decisions and from one-tap accept-all (no
@@ -466,6 +470,9 @@ class _TypedPreviewBodyState extends ConsumerState<_TypedPreviewBody> {
           // The row's extracted shooting day (issue #706): display-only on
           // the row — the accept/reject decision lives in the apply card.
           shootingDay: scene.shootingDay,
+          // The row's set-shorthand mood (issue #721) — reinforcing icons
+          // next to the visible text, display-only.
+          mood: scene.mood,
         ),
       );
     }
@@ -525,6 +532,7 @@ class _PreviewRowCard extends ConsumerWidget {
     required this.draftRef,
     required this.label,
     this.shootingDay,
+    this.mood,
   });
 
   final String jobId;
@@ -536,6 +544,12 @@ class _PreviewRowCard extends ConsumerWidget {
   /// preview stored before the field existed or a row without a day
   /// marker: both render without the day line (correct, not a failure).
   final DraftShootingDay? shootingDay;
+
+  /// The row's set-shorthand mood (issue #721) — display-only, rendered
+  /// with reinforcing icons next to the visible text. `null` on a preview
+  /// stored before the field existed or a heading without a parsable
+  /// time token: both render without the mood line (correct, not a failure).
+  final String? mood;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -556,6 +570,15 @@ class _PreviewRowCard extends ConsumerWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(label),
+            // The set-shorthand mood (issue #721): reinforcing icons next
+            // to the visible text, so the reviewer can verify the heading
+            // reading without opening the document.
+            if (mood case final moodValue?)
+              SceneMoodLabel(
+                key: Key('ai-preview-row-mood-$draftRef'),
+                mood: moodValue,
+                textStyle: Theme.of(context).textTheme.bodySmall,
+              ),
             // The extracted shooting day (issue #706): shown so the reviewer
             // can verify the day grouping without opening the document. The
             // verbatim marker text wins; the synthesized `Tag {n}` is the

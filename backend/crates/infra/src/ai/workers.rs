@@ -474,6 +474,19 @@ where
                             scene.scene_number = chunk.scene_number;
                         }
 
+                        // Set-shorthand mood (issue #721): `extract_scenes`
+                        // parsed the heading's interior/exterior + time token
+                        // into the canonical shorthand (`I/T`, `A/N`, …). The
+                        // backfill is narrowly scoped: ONLY the first scene of
+                        // a chunk (the heading is that scene's heading) and
+                        // ONLY when the model left `mood` empty — any
+                        // model-provided value remains unchanged. The
+                        // deterministic scan then fills the gap (same
+                        // server-truth doctrine as `scene_number` above).
+                        if scene.mood.is_none() && index_in_chunk == 0 {
+                            scene.mood = chunk.mood.clone();
+                        }
+
                         // Episode metadata: the deterministic `Ep.:` scan of the
                         // document is authoritative — INCLUDING the title-page
                         // title enrichment (the scan carries the `(294)
@@ -968,13 +981,14 @@ impl MergeWorker {
     pub fn merge(
         schedule: &ShootingSchedule,
         scenes: &[breakdown_core::scene::views::SceneView],
+        episode_numbers: &std::collections::HashMap<EpisodeId, i32>,
     ) -> Result<MergedPreview, DomainError> {
         if scenes.is_empty() {
             return Err(DomainError::conflict(
                 "merge is pending until the block has applied scenes",
             ));
         }
-        Ok(merge_schedule_to_scenes(schedule, scenes))
+        Ok(merge_schedule_to_scenes(schedule, scenes, episode_numbers))
     }
 
     pub fn validate_for_apply(preview: &MergedPreview) -> Result<(), DomainError> {

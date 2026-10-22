@@ -15,6 +15,28 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
+## [0.47.0] - Unreleased
+
+### Added — set-shorthand mood backfill, Episode.Scene schedule parsing, LLM schedule decode (issue #721)
+
+- `ScriptImportWorker` backfills `DraftScene.mood` from `SceneChunk.mood` on
+  the first scene of a chunk when the model leaves it empty (same
+  server-truth doctrine as `scene_number`, `episode`, `shooting_day`).
+- `parse_schedule_csv` accepts dot-separated `<Episode>.<Scene>` scene
+  references (`"294.10"` → episode 294, scene 10 — never decimal `294.1`); an
+  unparseable reference leaves the row without a scene number (unmatched for
+  review) instead of failing the whole import. `order` keeps strict
+  validation.
+- `OpenAiCompatibleChatClient` now implements `LlmClient::extract_schedule`
+  (schema-constrained, same truncation-retry and usage semantics as
+  `chat_constrained`): the schedule row's scene reference is accepted as a
+  string or number and decoded losslessly via `parse_schedule_scene_ref`,
+  `block_id` is never taken from model output, and an unparseable date
+  degrades to `None`.
+- `merge_loaded_schedule` / `MergeWorker::merge` take the episode-numbers map
+  (prepared at the API boundary) and pass it into the episode-aware merge.
+- Public API change: **0.46.0 → 0.47.0** (MINOR).
+
 ## [0.32.0] - Unreleased
 
 ### Changed — persist the AI-import attempt failure code (issue #639)

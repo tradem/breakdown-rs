@@ -16,6 +16,15 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
+## [0.38.1] - Unreleased
+
+### Changed — AI preview wire contract: chunk mood + schedule episode number (issue #721)
+
+- `SceneChunk.mood` and `ShootingScheduleRow.episode_number` on the wire
+  (additive, serde-default); `openapi.yaml` regenerated. Consumption-only
+  change.
+- `breakdown_core` 0.41.0 → 0.42.0, `infra` 0.46.0 → 0.47.0.
+
 ## [0.25.0] - Unreleased
 
 ### Changed — problem mapping reads `DomainError::code()` (issue #639)

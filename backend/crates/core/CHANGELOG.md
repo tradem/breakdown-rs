@@ -15,6 +15,30 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
+## [0.42.0] - Unreleased
+
+### Added — deterministic set-shorthand mood + lossless `<Episode>.<Scene>` schedule refs (issue #721)
+
+- `SceneChunk.mood` (`#[serde(default)]`, additive on the wire): the
+  deterministic `parse_mood_from_heading` scan normalizes the heading's
+  interior/exterior + time-of-day tokens into the canonical set shorthand
+  (`I/T`, `A/N`, `I/D`, `I/M`, `I/AB`, the `A/*` counterparts, combined
+  `I/A/T`) from German short form (`12 I/T - WERKSTATT`), German long form
+  (`INNEN WOHNUNG - NACHT`) and English (`INT. KITCHEN - DAY`) headings.
+  Headings without a canonical time token yield `None` — the model's grounded
+  `mood` then stands, an invented one is never papered over.
+- `ShootingScheduleRow.episode_number` (`#[serde(default)]`, additive) plus
+  `parse_schedule_scene_ref`: dot-separated `<Episode>.<Scene>` references
+  (`"294.10"`, `"03.05"`) split as two integer components — never a decimal
+  float, which read scene 10 as scene 1.
+- `MergeInput.episode_numbers` (`#[serde(default)]`, prepared at the API
+  boundary): `merge_schedule_to_scenes` now matches rows carrying an episode
+  number by `(episode_number, scene_number)`; a pair that matches no scene
+  stays unmatched instead of falling back across the episode boundary, and
+  scene-number-only matching applies exactly when episode context is
+  unavailable.
+- Public API change: **0.41.0 → 0.42.0** (MINOR).
+
 ## [0.27.0] - Unreleased
 
 ### Added — AI-import attempt failure codes + `DomainError::code()` (issue #639)

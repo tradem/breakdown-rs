@@ -11,12 +11,14 @@ use std::time::Duration;
 use async_trait::async_trait;
 use breakdown_core::ai::{
     CuratedLlmProvider, LlmCallOutcome, LlmCallUsage, LlmChatRequest, LlmClient, LlmProvider,
-    ScriptContext,
+    ScriptContext, ShootingSchedule, ShootingScheduleRow, parse_schedule_scene_ref,
 };
 use breakdown_core::error::DomainError;
 use breakdown_core::settings::SecretValue;
+
 use reqwest::StatusCode;
 use schemars::JsonSchema;
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
@@ -147,6 +149,19 @@ impl OpenAiCompatibleChatClient {
             .response_schema
             .clone()
             .unwrap_or_else(|| schemars::schema_for!(ScriptContextSchema).to_value());
+        self.request_decoded(req, schema, "ScriptContext").await
+    }
+
+    /// One constrained `/chat/completions` round-trip against a JSON schema,
+    /// decoded into `T`. Shared by `chat_constrained` (`ScriptContext`) and
+    /// `extract_schedule` (`ShootingScheduleSchema`): identical transport,
+    /// truncation-retry and usage-accumulation semantics, different payload.
+    async fn request_decoded<T: DeserializeOwned>(
+        &self,
+        req: &LlmChatRequest,
+        schema: serde_json::Value,
+        schema_name: &str,
+    ) -> Result<LlmCallOutcome<T>, DomainError> {
         let mut budget = req.max_tokens;
         let mut truncation_retries = MAX_TRUNCATION_RETRIES;
         // Usage accumulates across every paid HTTP response, including the
@@ -232,7 +247,7 @@ impl OpenAiCompatibleChatClient {
                                  budget)"
                             };
                             return Err(DomainError::validation(format!(
-                                "LLM JSON did not match ScriptContext: {error}{suffix}"
+                                "LLM JSON did not match {schema_name}: {error}{suffix}"
                             )));
                         }
                     }
@@ -254,6 +269,157 @@ impl LlmClient for OpenAiCompatibleChatClient {
             ));
         }
         self.request(&req).await
+    }
+
+    async fn extract_schedule(
+        &self,
+        req: LlmChatRequest,
+    ) -> Result<LlmCallOutcome<ShootingSchedule>, DomainError> {
+        if req.provider != self.provider {
+            return Err(DomainError::validation(
+                "LLM request provider does not match configured client",
+            ));
+        }
+        let schema = strict_compatible(schemars::schema_for!(ShootingScheduleSchema).to_value());
+        let decoded = self
+            .request_decoded::<ShootingScheduleSchema>(&req, schema, "ShootingSchedule")
+            .await?;
+        Ok(LlmCallOutcome::new(
+            decoded.output.into_core(),
+            decoded.usage,
+        ))
+    }
+}
+
+/// Make a schemars-derived schema valid for OpenAI strict Structured Outputs
+/// (`strict: true`, CodeRabbit review PR #725): every object must set
+/// `additionalProperties: false` and list EVERY property in `required` —
+/// schemars leaves optional (`Option`) fields out of `required` and emits no
+/// `additionalProperties`, so a strict-enforcing provider would reject the
+/// schedule request before extraction. schemars already renders `Option`
+/// fields as nullable (`"type": ["string", "null"]` / `anyOf: [T, null]`),
+/// so requiring them keeps every value the model may omit representable as
+/// `null` — the decode semantics are unchanged.
+fn strict_compatible(mut schema: serde_json::Value) -> serde_json::Value {
+    fn walk(value: &mut serde_json::Value) {
+        match value {
+            serde_json::Value::Object(map) => {
+                // Recurse first so `$defs` entries and nested objects are
+                // covered too.
+                for child in map.values_mut() {
+                    walk(child);
+                }
+                let is_object = map.get("type").and_then(serde_json::Value::as_str)
+                    == Some("object")
+                    || map.contains_key("properties");
+                if !is_object {
+                    return;
+                }
+                map.insert(
+                    "additionalProperties".to_owned(),
+                    serde_json::Value::Bool(false),
+                );
+                let names: Vec<String> = map
+                    .get("properties")
+                    .and_then(serde_json::Value::as_object)
+                    .map(|properties| properties.keys().cloned().collect())
+                    .unwrap_or_default();
+                if names.is_empty() {
+                    return;
+                }
+                let required = map
+                    .entry("required".to_owned())
+                    .or_insert_with(|| serde_json::Value::Array(Vec::new()));
+                if let Some(list) = required.as_array_mut() {
+                    for name in names {
+                        let name_value = serde_json::Value::String(name);
+                        if !list.contains(&name_value) {
+                            list.push(name_value);
+                        }
+                    }
+                }
+            }
+            serde_json::Value::Array(items) => {
+                for item in items {
+                    walk(item);
+                }
+            }
+            _ => {}
+        }
+    }
+    walk(&mut schema);
+    schema
+}
+
+/// Provider-facing mirror of [`breakdown_core::ai::ShootingSchedule`] for the
+/// schedule-extraction path (issue #721). `block_id` is deliberately absent:
+/// the worker sets it from the job row, never from model output.
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+struct ShootingScheduleSchema {
+    rows: Vec<ScheduleRowSchema>,
+}
+
+/// One schedule row as the document writes it. The scene reference is
+/// accepted as a STRING or a number: production schedules write
+/// `<Episode>.<Scene>` references (`"294.10"`, `"03.05"`) that a JSON number
+/// would coerce to the decimal `294.1` — silently turning scene 10 into
+/// scene 1 (issue #721). The server splits the string as two integer
+/// components ([`parse_schedule_scene_ref`]), never as a float.
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+struct ScheduleRowSchema {
+    /// A verbatim row label of the document, used to correlate extraction
+    /// with the review grid. When the document has no label, use the row's
+    /// 0-based position as a string ("0", "1", …).
+    row_ref: String,
+    scene_number: Option<ScheduleSceneRefSchema>,
+    shooting_day_label: Option<String>,
+    /// ISO `YYYY-MM-DD` when the document carries a calendar date; an
+    /// unparseable date degrades to `None` (the row keeps its label, the
+    /// reviewer fills the date) instead of failing the extraction.
+    date: Option<String>,
+    location: Option<String>,
+    order: Option<u32>,
+}
+
+/// A schedule scene reference exactly as the document writes it: a JSON
+/// number for a plain scene number, a string for anything else (especially
+/// the dot-separated `<Episode>.<Scene>` notation).
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+#[serde(untagged)]
+enum ScheduleSceneRefSchema {
+    Number(u32),
+    Text(String),
+}
+
+impl ShootingScheduleSchema {
+    /// Map the provider-facing rows onto the core schedule rows, decoding
+    /// every scene reference losslessly (plain number → scene only; text →
+    /// [`parse_schedule_scene_ref`]; an unparseable reference → both `None`,
+    /// the row stays unmatched for review instead of matching by accident).
+    fn into_core(self) -> ShootingSchedule {
+        ShootingSchedule {
+            block_id: None,
+            rows: self
+                .rows
+                .into_iter()
+                .map(|row| {
+                    let (episode_number, scene_number) = match row.scene_number {
+                        Some(ScheduleSceneRefSchema::Number(number)) => (None, Some(number)),
+                        Some(ScheduleSceneRefSchema::Text(text)) => parse_schedule_scene_ref(&text),
+                        None => (None, None),
+                    };
+                    ShootingScheduleRow {
+                        row_ref: row.row_ref,
+                        scene_number,
+                        episode_number,
+                        shooting_day_label: row.shooting_day_label,
+                        date: row.date.as_deref().and_then(|raw| raw.parse().ok()),
+                        location: row.location,
+                        order: row.order,
+                    }
+                })
+                .collect(),
+        }
     }
 }
 
