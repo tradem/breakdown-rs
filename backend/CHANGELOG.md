@@ -25,6 +25,21 @@ tag. Never edit a released entry afterwards.
 
 ## [Unreleased]
 
+### Changed
+
+- **Script-extraction schema hardened for strict Structured Outputs (issue
+  #726):** the pre-existing script path (`chat_constrained` →
+  `ScriptContextSchema`) now post-processes its schema through the same
+  #725 `strict_compatible` rules as the schedule path — every object gets
+  `additionalProperties: false` and every property (nullable `Option`
+  mirrors included) moves into `required`, so a strict-enforcing provider
+  no longer rejects the extraction request before it runs. Both call sites
+  fold onto one shared `strict_schema::<T>()` helper so future schemas
+  inherit the guarantee by construction; contract tests assert both
+  invariants for both schemas. `infra 0.47.0 → 0.48.0` (wire-shape change
+  of the outbound LLM request only; no public Rust API change, decode
+  semantics unchanged).
+
 ### Added
 
 - **Script AI import extracts shooting days — preview, apply and scene→day
