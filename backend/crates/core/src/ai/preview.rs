@@ -169,9 +169,8 @@ pub fn parse_script_day(label: &str) -> Option<DraftShootingDay> {
     })
 }
 
-/// Whether `chars[start..]` begins with `keyword`, ASCII-case-insensitively.
-fn keyword_at(chars: &[char], start: usize, keyword: &str) -> bool {
-    let kw: Vec<char> = keyword.chars().collect();
+/// Whether `chars[start..]` begins with `kw`, ASCII-case-insensitively.
+fn keyword_at(chars: &[char], start: usize, kw: &[char]) -> bool {
     start + kw.len() <= chars.len()
         && chars[start..start + kw.len()]
             .iter()
@@ -251,7 +250,11 @@ fn day_marker(line: &str) -> Option<DraftShootingDay> {
 
 /// Next char index at which `keyword` occurs in `chars`, searching from `from`.
 fn find_keyword(chars: &[char], from: usize, keyword: &str) -> Option<usize> {
-    (from..chars.len()).find(|&i| keyword_at(chars, i, keyword))
+    // Collected ONCE per call: `find_keyword` runs at every char index of
+    // every document line, so a per-position allocation would dominate the
+    // extraction of a large document (CodeRabbit review, issue #706).
+    let kw: Vec<char> = keyword.chars().collect();
+    (from..chars.len()).find(|&i| keyword_at(chars, i, &kw))
 }
 
 /// Read 1-3 digits (and the spaces before them) walking BACKWARD from a
@@ -1712,8 +1715,14 @@ pub fn extract_scenes(document: &str) -> Vec<SceneChunk> {
             }
             current_episode = Some(episode);
         }
-        if let Some(day) = day_marker(trimmed) {
-            // First occurrence's label wins: a repeated `Tag 1` (page
+        if (is_scene_heading(trimmed) || trimmed.chars().count() <= 40)
+            && let Some(day) = day_marker(trimmed)
+        {
+            // Day markers live in scene-index columns and page headers —
+            // heading lines or short standalone lines. Restricting the scan
+            // keeps a dialogue sentence like "Tag 3 war schlimm." from
+            // re-grouping every following scene (CodeRabbit review, issue
+            // #706). First occurrence's label wins: a repeated `Tag 1` (page
             // headers) never rewrites the reviewer-facing label.
             if current_day.as_ref().and_then(DraftShootingDay::group_key) != day.group_key() {
                 current_day = Some(day);

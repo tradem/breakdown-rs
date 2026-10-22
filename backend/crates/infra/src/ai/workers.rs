@@ -1354,9 +1354,12 @@ where
         let mut resolved_days: HashMap<String, AppliedDay> = HashMap::new();
         // Monotonic fallback planned-order counter for the scene-shoot links
         // (issue #706): script extraction carries no per-day order, so rows
-        // apply in plan order. Deterministic across retries: the rows are
-        // processed in the same plan order and a confirmed pair does not
-        // consume an increment.
+        // apply in plan order. Every PLANNED row consumes one increment on
+        // every attempt — including a row whose pair is already confirmed
+        // (its early return runs after the increment) — so a partial-run
+        // retry cannot reallocate a confirmed row's order to a later row
+        // (CodeRabbit review). Deterministic across retries: the rows are
+        // processed in the same plan order.
         let mut fallback_order: u32 = 0;
 
         for row in &plan.scenes {
@@ -1585,7 +1588,15 @@ where
             // reached version. A `None` row — no day metadata, ungroupable
             // label, or a group the reviewer rejected — stays unscheduled.
             if let PlannedShootingDay::Group { day_ref, label } = &row.shooting_day {
-                let day = match resolved_days.get(day_ref) {
+                // Episode-scoped day key (CodeRabbit review, issue #706): a
+                // day number is NOT episode-unique — a multi-episode script
+                // repeats `Tag 1` per episode, so the same `day_ref` must
+                // resolve to one day PER EPISODE. Keying by the row's
+                // resolved episode keeps episode 2's scenes off episode 1's
+                // day (and keeps the mapping draft_ref, which the id is
+                // derived from, retry-stable).
+                let day_key = format!("{}:{day_ref}", row_episode_id.0);
+                let day = match resolved_days.get(&day_key) {
                     Some(day) => *day,
                     None => {
                         let day = self
@@ -1594,7 +1605,7 @@ where
                                 actor.clone(),
                                 DayDraft {
                                     preview_id,
-                                    draft_ref: day_ref.clone(),
+                                    draft_ref: day_key.clone(),
                                     episode_id: row_episode_id,
                                     label: label.clone(),
                                     date: None,
@@ -1605,7 +1616,7 @@ where
                         if day.created {
                             result.created_days += 1;
                         }
-                        resolved_days.insert(day_ref.clone(), day);
+                        resolved_days.insert(day_key, day);
                         day
                     }
                 };
@@ -2423,6 +2434,17 @@ where
         } = link;
         let day_linker = self.day_linker();
         let pair_key = format!("scene-shoot:{}:{}", scene_id, day.0);
+        // Consume the fallback order BEFORE the confirmed-pair early return:
+        // every planned row advances the counter on every attempt, so a
+        // partial-run retry cannot reallocate a confirmed row's order to a
+        // later row of the same day (CodeRabbit review, issue #706). The
+        // allocation is computed before any command dispatch — it can fail
+        // and must not leave the scene already scheduled.
+        *fallback_order = fallback_order.checked_add(1).ok_or_else(|| {
+            DomainError::validation("cannot allocate a unique fallback planned order")
+        })?;
+        let planned_order = LexicalSortKey::new(format!("{:08}", *fallback_order))
+            .map_err(|error| DomainError::validation(error.to_string()))?;
         // Read the idempotency projection (non-audit): the spec requires the
         // mapping lookup so a retried apply re-drives an unfinished pair
         // instead of planning a second scene shoot. Not audit-context
@@ -2484,14 +2506,10 @@ where
         };
         *scene_version = (*scene_version).max(version);
 
-        // Step 2b (scene_shoot pair): the fallback order is computed BEFORE
-        // any command dispatch — the fallback can fail and must not leave the
-        // scene already scheduled (mirrors the schedule path).
-        *fallback_order = fallback_order.checked_add(1).ok_or_else(|| {
-            DomainError::validation("cannot allocate a unique fallback planned order")
-        })?;
-        let planned_order = LexicalSortKey::new(format!("{:08}", *fallback_order))
-            .map_err(|error| DomainError::validation(error.to_string()))?;
+        // Step 2b (scene_shoot pair): dispatch onto the reserved stream — a
+        // retry re-drives it, the adapter's ExpectedVersion::Empty then
+        // reports the current version (recovery). The planned order was
+        // allocated above, before the confirmed-pair early return.
 
         // Step 2c (command): a retry re-dispatches onto the reserved stream,
         // which already carries the SceneShootPlanned event — the adapter's

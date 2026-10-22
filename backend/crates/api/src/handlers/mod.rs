@@ -2246,14 +2246,37 @@ pub struct LinkShootingDayResponse {
 pub async fn link_shooting_day_into<P: Ports>(
     State(state): State<AppState<P>>,
     current_user: CurrentUser,
+    active_block: ActiveBlock,
     Path((id, target_id)): Path<(ShootingDayId, ShootingDayId)>,
 ) -> ApiResult<LinkShootingDayResponse> {
+    // A self-link would unschedule every scene from the day and archive it —
+    // refuse before any write (CodeRabbit review, issue #706).
+    if id == target_id {
+        return Err(ApiError::Validation(
+            "a shooting day cannot be linked into itself",
+        ));
+    }
     let source = state.ports.shooting_day_repo().find_by_id(id).await?;
     let target = state
         .ports
         .shooting_day_repo()
         .find_by_id(target_id)
         .await?;
+    // AUTHZ-GATE: BlockMember middleware checks active-block membership but
+    // not the path ids — the days' episode must live in the caller's active
+    // block, or a member of one block could merge days of another (CWE-639
+    // IDOR, CodeRabbit review; same gate pattern as the AI-apply episode
+    // check).
+    let episode = state
+        .ports
+        .episode_repo()
+        .find_by_id(target.episode_id.0)
+        .await?;
+    if episode.block_id != active_block.0 {
+        return Err(ApiError::Forbidden(
+            "not authorized to link shooting days outside the active block",
+        ));
+    }
     if source.episode_id != target.episode_id {
         return Err(ApiError::Domain(DomainError::Conflict {
             code: &SHOOTING_DAY_EPISODE_MISMATCH,
@@ -2263,9 +2286,12 @@ pub async fn link_shooting_day_into<P: Ports>(
             ),
         }));
     }
-    // Wrap finality: never merge a planned day onto a finalised day.
+    // Wrap finality: never merge a planned day onto a finalised day. The
+    // endpoint-specific variant serializes as `shooting-day.target-wrapped`
+    // with the S1 `shooting_day_id` extension — NOT the scene-shoot
+    // execution-freeze code (CodeRabbit review).
     if target.wrapped_at.is_some() {
-        return Err(ApiError::Domain(DomainError::ShootingDayWrapped {
+        return Err(ApiError::Domain(DomainError::ShootingDayTargetWrapped {
             shooting_day_id: target_id.0,
         }));
     }

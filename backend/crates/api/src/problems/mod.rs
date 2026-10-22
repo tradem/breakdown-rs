@@ -263,6 +263,9 @@ fn domain_error_problem(err: DomainError) -> ProblemDetails {
         DomainError::ShootingDayWrapped { shooting_day_id } => problem(code)
             .extension("shooting_day_id", shooting_day_id)
             .build(),
+        DomainError::ShootingDayTargetWrapped { shooting_day_id } => problem(code)
+            .extension("shooting_day_id", shooting_day_id)
+            .build(),
         DomainError::CategorySeasonMismatch { category_id } => {
             problem(code).extension("category_id", category_id).build()
         }
