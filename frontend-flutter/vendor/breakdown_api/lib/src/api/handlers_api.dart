@@ -52,6 +52,7 @@ import 'package:breakdown_api/src/model/health_report.dart';
 import 'package:breakdown_api/src/model/id_version_response.dart';
 import 'package:breakdown_api/src/model/invite_member_request.dart';
 import 'package:breakdown_api/src/model/link_continuity_photo_request.dart';
+import 'package:breakdown_api/src/model/link_shooting_day_response.dart';
 import 'package:breakdown_api/src/model/membership_view.dart';
 import 'package:breakdown_api/src/model/meta_credits_response.dart';
 import 'package:breakdown_api/src/model/meta_versions_response.dart';
@@ -5037,6 +5038,92 @@ class HandlersApi {
     }
 
     return Response<int>(
+      data: _responseData,
+      headers: _response.headers,
+      isRedirect: _response.isRedirect,
+      requestOptions: _response.requestOptions,
+      redirects: _response.redirects,
+      statusCode: _response.statusCode,
+      statusMessage: _response.statusMessage,
+      extra: _response.extra,
+    );
+  }
+
+  /// Merge a script-derived *planned* shooting day into an *actual* day (issue #706, decision b): every scene linked to the source day is re-pointed onto the target day, every &#x60;scene_shoot&#x60; pair of the source day is re-planned on the target with its &#x60;planned_order&#x60; preserved, and the source day is archived (terminal, its number/links stay historical).
+  /// Hard rules honored here: - **CQRS boundary:** the projection reads below happen at the API edge —   the only legitimate read-model consumer; every write dispatches a   normal command. - **Wrap finality (#376/#706):** a wrapped target day refuses the merge   with &#x60;409 shooting-day.target-wrapped&#x60; — a planned day is never merged   onto a finalised day. - **Episode scope:** days are episode-scoped; a cross-episode merge is a   &#x60;409 shooting-day.episode-mismatch&#x60;.  Every step is state-idempotent, so a retry after a partial run converges: an already-linked scene re-links as a no-op, an existing target pair is skipped, and an archived source skips the archive.
+  ///
+  /// Parameters:
+  /// * [id] - Source (planned) shooting day id
+  /// * [targetId] - Target (actual) shooting day id
+  /// * [cancelToken] - A [CancelToken] that can be used to cancel the operation
+  /// * [headers] - Can be used to add additional headers to the request
+  /// * [extras] - Can be used to add flags to the request
+  /// * [validateStatus] - A [ValidateStatus] callback that can be used to determine request success based on the HTTP status of the response
+  /// * [onSendProgress] - A [ProgressCallback] that can be used to get the send progress
+  /// * [onReceiveProgress] - A [ProgressCallback] that can be used to get the receive progress
+  ///
+  /// Returns a [Future] containing a [Response] with a [LinkShootingDayResponse] as data
+  /// Throws [DioException] if API call or serialization fails
+  Future<Response<LinkShootingDayResponse>> linkShootingDayInto({
+    required String id,
+    required String targetId,
+    CancelToken? cancelToken,
+    Map<String, dynamic>? headers,
+    Map<String, dynamic>? extra,
+    ValidateStatus? validateStatus,
+    ProgressCallback? onSendProgress,
+    ProgressCallback? onReceiveProgress,
+  }) async {
+    final _path = r'/v1/shooting-days/{id}/link-into/{target_id}'
+        .replaceAll(
+            '{' r'id' '}',
+            encodeQueryParameter(_serializers, id, const FullType(String))
+                .toString())
+        .replaceAll(
+            '{' r'target_id' '}',
+            encodeQueryParameter(_serializers, targetId, const FullType(String))
+                .toString());
+    final _options = Options(
+      method: r'POST',
+      headers: <String, dynamic>{
+        ...?headers,
+      },
+      extra: <String, dynamic>{
+        'secure': <Map<String, String>>[],
+        ...?extra,
+      },
+      validateStatus: validateStatus,
+    );
+
+    final _response = await _dio.request<Object>(
+      _path,
+      options: _options,
+      cancelToken: cancelToken,
+      onSendProgress: onSendProgress,
+      onReceiveProgress: onReceiveProgress,
+    );
+
+    LinkShootingDayResponse? _responseData;
+
+    try {
+      final rawResponse = _response.data;
+      _responseData = rawResponse == null
+          ? null
+          : _serializers.deserialize(
+              rawResponse,
+              specifiedType: const FullType(LinkShootingDayResponse),
+            ) as LinkShootingDayResponse;
+    } catch (error, stackTrace) {
+      throw DioException(
+        requestOptions: _response.requestOptions,
+        response: _response,
+        type: DioExceptionType.unknown,
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+
+    return Response<LinkShootingDayResponse>(
       data: _responseData,
       headers: _response.headers,
       isRedirect: _response.isRedirect,

@@ -7,8 +7,8 @@
 // Co-authored-by: qwen3.8-flash (opencode-go)
 
 use breakdown_core::ai::{
-    ApplyGateError, ApplyMapping, ApplyMappingDecision, DocumentKind, DraftScene, ScriptContext,
-    SourceFormat, ensure_script_applyable, plan_scene_apply,
+    ApplyGateError, ApplyMapping, ApplyMappingDecision, DocumentKind, DraftScene,
+    ReviewerDecisions, ScriptContext, SourceFormat, ensure_script_applyable, plan_scene_apply,
 };
 use breakdown_core::error::DomainError;
 use breakdown_core::shared::{AggregateVersion, EpisodeId, UserId};
@@ -158,8 +158,11 @@ fn crash_retry_mapping_plans_update_instead_of_duplicate_create() {
         EpisodeId::new(),
         None,
         breakdown_core::ai::AiImportJobId(Uuid::now_v7()),
-        &[],
-        &[],
+        &ReviewerDecisions {
+            episode_groups: &[],
+            shooting_days: &[],
+            acknowledged_uncertainties: &[],
+        },
     )
     .expect("mapped retry is valid in test");
     assert!(matches!(

@@ -36,6 +36,7 @@ use infra::ai::{
 };
 use infra::event_store::{
     CharacterCommandsImpl, CostumeCommandsImpl, EpisodeCommandsImpl, SceneCommandsImpl,
+    SceneShootCommandsImpl, ShootingDayCommandsImpl, WrapFinalityGate,
 };
 use infra::queries::SceneRepositoryImpl;
 use kameo_es::command_service::CommandService;
@@ -434,6 +435,7 @@ async fn ai_payload_apply_round_trips_through_projection() -> Result<()> {
     let context = ScriptContext {
         title: Some("Lifecycle fixture script".to_owned()),
         scenes: vec![DraftScene {
+            shooting_day: None,
             draft_ref: "scene-1".to_owned(),
             scene_number: Some(1),
             location: Some("Berlin".to_owned()),
@@ -491,6 +493,16 @@ async fn ai_payload_apply_round_trips_through_projection() -> Result<()> {
         // The fixture applies to an existing episode; no group is mapped to a
         // NEW episode, so the episode port is never consulted.
         episode_commands: Arc::new(episode_commands),
+        // The fixture's rows carry no day metadata, so neither day port is
+        // consulted (issue #706 wiring).
+        shooting_day_commands: Arc::new(ShootingDayCommandsImpl::new(
+            cmd_service.clone(),
+            WrapFinalityGate::new(pool.clone()),
+        )),
+        scene_shoot_commands: Arc::new(SceneShootCommandsImpl::new(
+            cmd_service.clone(),
+            WrapFinalityGate::new(pool.clone()),
+        )),
         mappings: Arc::new(mappings_b),
         queue: Arc::new(queue_b),
     };
@@ -509,9 +521,11 @@ async fn ai_payload_apply_round_trips_through_projection() -> Result<()> {
             // and this seam is never consulted.
             season_id: SeasonId::new(),
             project_id: None,
-            // Single-episode flow: no group targets and no episode creation.
+            // Single-episode flow: no group targets, no day decisions, and no
+            // episode creation.
             block_id: BlockId::from_uuid(Uuid::now_v7()),
             episode_groups: Vec::new(),
+            shooting_days: Vec::new(),
             acknowledged_uncertainties: Vec::new(),
             telemetry: Some(Telemetry {
                 doc_kind: Some(DocumentKind::Script),

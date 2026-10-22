@@ -62,6 +62,15 @@ problem-ai-import-apply-missing-mapping =
 problem-ai-import-apply-missing-episode-group =
     An episode target no longer matches the preview. Refresh the preview and re-apply.
 
+problem-ai-import-apply-missing-shooting-day-group =
+    A shooting-day group has no review decision. Refresh the preview and re-apply.
+
+problem-shooting-day-target-wrapped =
+    The target shooting day is already wrapped. A planned day cannot be merged into a finalised day.
+
+problem-shooting-day-episode-mismatch =
+    Source and target belong to different episodes. Shooting days can only be merged within one episode.
+
 problem-ai-config-version-mismatch =
     The AI configuration changed elsewhere. Refresh and re-apply your edit.
 

@@ -39,7 +39,7 @@ pub const PROBLEM_DOCS_BASE: &str = "https://docs.breakdown.example";
 /// Kept in sync with the `problem_codes!` invocation below by a compile-time
 /// assertion — adding or removing a code without deliberately updating this
 /// count fails the build (issue #232).
-const PROBLEM_CODE_COUNT: usize = 98;
+const PROBLEM_CODE_COUNT: usize = 101;
 
 /// One registered problem code (ADR-031 D2/D4).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1048,6 +1048,42 @@ problem_codes! {
         status: 409,
         title: "AI import apply maps an episode group the preview does not carry",
         extensions: &["episode_ref"],
+    },
+
+    /// 409 — the apply request carried no day decision for a shooting-day
+    /// group the preview references (client bug, issue #706). Same class as
+    /// `ai-import.apply-missing-episode-group`: a missing group is never a
+    /// default, so the grouped apply screen can point at the stale day
+    /// group; the S1 `day_ref` extension names it.
+    AI_IMPORT_APPLY_MISSING_SHOOTING_DAY_GROUP {
+        code: "ai-import.apply-missing-shooting-day-group",
+        status: 409,
+        title: "AI import apply has a shooting-day group without a decision",
+        extensions: &["day_ref"],
+    },
+
+    /// 409 — the shooting-day link endpoint refused because the target day
+    /// is already wrapped (issue #706 wrap finality: an AI-extracted planned
+    /// day is never merged onto a finalised day). Distinct from
+    /// `scene-shoot.shooting-day-wrapped` so the schedule screen can point
+    /// at the link action instead of an execution transition; the S1
+    /// `shooting_day_id` extension names the wrapped target.
+    SHOOTING_DAY_TARGET_WRAPPED {
+        code: "shooting-day.target-wrapped",
+        status: 409,
+        title: "Target shooting day is wrapped",
+        extensions: &["shooting_day_id"],
+    },
+
+    /// 409 — the shooting-day link endpoint refused because source and
+    /// target day live in different episodes (issue #706: days are
+    /// episode-scoped, a cross-episode merge would orphan the scene
+    /// links). The S1 `shooting_day_id` extension names the source day.
+    SHOOTING_DAY_EPISODE_MISMATCH {
+        code: "shooting-day.episode-mismatch",
+        status: 409,
+        title: "Shooting days belong to different episodes",
+        extensions: &["shooting_day_id"],
     },
 
 }

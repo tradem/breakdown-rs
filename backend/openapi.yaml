@@ -628,6 +628,18 @@ components:
           oneOf:
           - $ref: '#/components/schemas/ProjectId'
           - type: 'null'
+        shooting_days:
+          description: |-
+            Per-shooting-day-group decisions (issue #706). Absent or empty → a
+            preview carrying day groups is still appliable for its scenes, but the
+            apply gate refuses while a referenced group has no decision (`409
+            ai-import.apply-missing-shooting-day-group` — same client-bug class
+            as the episode groups). Old clients omit the field (serde default =
+            empty), so previews stored before this change still apply when they
+            carry no day metadata.
+          items:
+            $ref: '#/components/schemas/ApplyShootingDayRequest'
+          type: array
         uncertainty_acknowledgements:
           description: |-
             Reviewer acknowledgements of blocking `field_ambiguity` uncertainties
@@ -682,6 +694,14 @@ components:
           format: int32
           minimum: 0
           type: integer
+        skipped_day_groups:
+          description: |-
+            Day groups the reviewer rejected — their rows applied unscheduled
+            (issue #706). Reported so the reviewer sees the deliberate omission,
+            never a silent one.
+          items:
+            type: string
+          type: array
         unapplied_costumes:
           description: |-
             Costume rows that did **not** become a `Costume`, each with the reason.
@@ -755,6 +775,24 @@ components:
         required:
         - Update
         type: object
+    ApplyShootingDayRequest:
+      description: |-
+        One shooting-day group's reviewer decision on the wire (issue #706).
+        `accepted` creates the day (episode-scoped, `AiExtracted` source) and
+        schedules the group's scene rows onto it; a rejection leaves every row of
+        the group unscheduled.
+      properties:
+        accepted:
+          type: boolean
+        day_ref:
+          description: |-
+            The group ref the preview carries on each row (`day:<n>` /
+            `day-l:<label>`).
+          type: string
+      required:
+      - day_ref
+      - accepted
+      type: object
     AssignCharacterRequest:
       properties:
         character_id:
@@ -1711,12 +1749,49 @@ components:
           type:
           - string
           - 'null'
+        shooting_day:
+          oneOf:
+          - $ref: '#/components/schemas/DraftShootingDay'
+            description: |-
+              The shooting day this row was extracted for (issue #706). Additive on
+              the wire with a default so previews stored before this field existed
+              still load; `None` leaves the row unscheduled. The deterministic day
+              scan is authoritative; the model's verbatim `script_day` normalizes
+              into this field only when the scan found no marker for the chunk.
+          - type: 'null'
         summary:
           type:
           - string
           - 'null'
       required:
       - draft_ref
+      type: object
+    DraftShootingDay:
+      description: |-
+        One shooting day of the source script, as the deterministic marker scan
+        (and, as a fallback, the LLM's grounded `script_day`) read it out of the
+        document (issue #706). Production scripts repeat day columns in the scene
+        index (`Tag 1`, `1. Spieltag` — the 294.pdf SCRIPT-REPORT format). Metadata
+        only: it groups preview rows for the reviewer and names the day an apply
+        may create; it never resolves an aggregate id (that is the reviewer's
+        per-group decision).
+      properties:
+        label:
+          description: |-
+            The marker's verbatim text (or, for the LLM fallback, the model's
+            `script_day` as written) — display-only. First occurrence wins.
+          type:
+          - string
+          - 'null'
+        number:
+          description: |-
+            The day number the marker carried, e.g. `1` for `Tag 1` — the
+            normalized identity that groups scenes filmed on the same day
+            regardless of the marker's spelling.
+          format: int32
+          type:
+          - integer
+          - 'null'
       type: object
     EnergyCostBreakdown:
       description: |-
@@ -2074,6 +2149,24 @@ components:
       required:
       - photo_id
       - version
+      type: object
+    LinkShootingDayResponse:
+      description: |-
+        The result of one shooting-day link (issue #706): how many scene links
+        moved onto the target day and how many `scene_shoot` pairs were planned
+        there. A pair already existing on the target is not counted again.
+      properties:
+        linked_scenes:
+          format: int32
+          minimum: 0
+          type: integer
+        planned_scene_shoots:
+          format: int32
+          minimum: 0
+          type: integer
+      required:
+      - linked_scenes
+      - planned_scene_shoots
       type: object
     LlmProvider:
       description: |-
@@ -8307,6 +8400,62 @@ paths:
                 $ref: '#/components/schemas/ProblemDetails'
       tags:
       - handlers
+  /v1/shooting-days/{id}/link-into/{target_id}:
+    post:
+      description: |-
+        Hard rules honored here:
+        - **CQRS boundary:** the projection reads below happen at the API edge —
+          the only legitimate read-model consumer; every write dispatches a
+          normal command.
+        - **Wrap finality (#376/#706):** a wrapped target day refuses the merge
+          with `409 shooting-day.target-wrapped` — a planned day is never merged
+          onto a finalised day.
+        - **Episode scope:** days are episode-scoped; a cross-episode merge is a
+          `409 shooting-day.episode-mismatch`.
+
+        Every step is state-idempotent, so a retry after a partial run converges:
+        an already-linked scene re-links as a no-op, an existing target pair is
+        skipped, and an archived source skips the archive.
+      operationId: link_shooting_day_into
+      parameters:
+      - description: Source (planned) shooting day id
+        in: path
+        name: id
+        required: true
+        schema:
+          $ref: '#/components/schemas/ShootingDayId'
+      - description: Target (actual) shooting day id
+        in: path
+        name: target_id
+        required: true
+        schema:
+          $ref: '#/components/schemas/ShootingDayId'
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LinkShootingDayResponse'
+        '404':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Source or target day not found
+        '409':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Target wrapped or episode mismatch
+      summary: |-
+        Merge a script-derived *planned* shooting day into an *actual* day
+        (issue #706, decision b): every scene linked to the source day is
+        re-pointed onto the target day, every `scene_shoot` pair of the source day
+        is re-planned on the target with its `planned_order` preserved, and the
+        source day is archived (terminal, its number/links stay historical).
+      tags:
+      - handlers
   /v1/shooting-days/{id}/report/archive:
     post:
       description: |-
@@ -9102,3 +9251,21 @@ x-code-registry:
   status: 409
   title: AI import apply maps an episode group the preview does not carry
   type: https://docs.breakdown.example/problems/ai-import.apply-missing-episode-group
+- code: ai-import.apply-missing-shooting-day-group
+  extensions:
+  - day_ref
+  status: 409
+  title: AI import apply has a shooting-day group without a decision
+  type: https://docs.breakdown.example/problems/ai-import.apply-missing-shooting-day-group
+- code: shooting-day.target-wrapped
+  extensions:
+  - shooting_day_id
+  status: 409
+  title: Target shooting day is wrapped
+  type: https://docs.breakdown.example/problems/shooting-day.target-wrapped
+- code: shooting-day.episode-mismatch
+  extensions:
+  - shooting_day_id
+  status: 409
+  title: Shooting days belong to different episodes
+  type: https://docs.breakdown.example/problems/shooting-day.episode-mismatch

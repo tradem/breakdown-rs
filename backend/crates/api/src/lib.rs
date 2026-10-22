@@ -89,6 +89,7 @@ use utoipa::OpenApi;
         handlers::get_shooting_day,
         handlers::update_shooting_day,
         handlers::archive_shooting_day,
+        handlers::link_shooting_day_into,
         handlers::schedule_scene_on_shooting_day,
         handlers::unschedule_scene_from_shooting_day,
         handlers::create_character,

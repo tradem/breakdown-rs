@@ -22,6 +22,19 @@ releases are cut as `vX.Y.Z` tags (`v<build-name>`, enforced by
 
 ## [Unreleased]
 
+- **Version bump / generated-client sync (backend issue #706):**
+  `0.4.0-beta.4+96 → 0.4.0-beta.5+97`. The regenerated `breakdown_api`
+  client picks up the backend's script-apply shooting-day surface — apply
+  request `shooting_days` (per-day reviewer decisions), response
+  `skipped_day_groups` + script-side `created_days`/`planned_scene_shoots`,
+  `DraftScene.shooting_day`/`DraftShootingDay` preview metadata, and the
+  new `POST /v1/shooting-days/{id}/link-into/{target_id}` route with
+  `LinkShootingDayResponse`/`ApplyShootingDayRequest`. No client feature
+  work in this PR: the planned→actual day assignment UI continues in a
+  follow-up branch (documented on issue #706). The new generated types are
+  additive, so the app compiles unchanged and the whole test suite stays
+  green.
+
 - **Version bump / pre-release phase switch:** `0.4.0-alpha.41+92 →
   0.4.0-beta.1+93` — alpha → beta, the pre-release counter restarts at
   1. Semver-monotonic by construction: the label comparison precedes the

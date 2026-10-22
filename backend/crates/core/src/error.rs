@@ -33,7 +33,7 @@ use crate::error_registry::{
     SCENE_SHOOT_VALIDATION, SCENE_VALIDATION, SEASON_NOT_FOUND, SETTINGS_ALREADY_REVOKED,
     SETTINGS_EMPTY_PROVIDER, SETTINGS_EMPTY_VAULT_KEY, SETTINGS_NOT_FOUND,
     SETTINGS_PROVIDER_MISMATCH, SHOOTING_DAY_ARCHIVED, SHOOTING_DAY_DUPLICATE_ORDER_KEY,
-    SHOOTING_DAY_NOT_FOUND, SHOOTING_DAY_VALIDATION,
+    SHOOTING_DAY_NOT_FOUND, SHOOTING_DAY_TARGET_WRAPPED, SHOOTING_DAY_VALIDATION,
 };
 use crate::membership::error::MembershipError;
 use crate::photo::error::PhotoError;
@@ -147,6 +147,19 @@ pub enum DomainError {
     /// `shooting_day_id` is S0 (client-supplied in the request path).
     #[error("shooting day {shooting_day_id} is wrapped; execution is frozen")]
     ShootingDayWrapped { shooting_day_id: Uuid },
+
+    /// The shooting-day link endpoint refused a **wrapped target day** (409,
+    /// `shooting-day.target-wrapped`, issue #706 wrap finality: a script-
+    /// derived planned day is never merged onto a finalised day). Distinct
+    /// from [`DomainError::ShootingDayWrapped`] (the scene-shoot execution
+    /// freeze, code `scene-shoot.shooting-day-wrapped`) so the schedule
+    /// screen can point at the link action instead of an execution
+    /// transition. `shooting_day_id` is S0 (client-supplied in the request
+    /// path).
+    #[error(
+        "target shooting day {shooting_day_id} is wrapped; a planned day cannot be merged onto it"
+    )]
+    ShootingDayTargetWrapped { shooting_day_id: Uuid },
 
     /// Costume category from a foreign season (409,
     /// `costume-category.season-mismatch`, issue #543). The costume's
@@ -648,6 +661,7 @@ impl DomainError {
             DomainError::NotScheduled { .. } => &SCENE_NOT_SCHEDULED,
             DomainError::AlreadyLinked { .. } => &SCENE_SHOOT_ALREADY_LINKED,
             DomainError::ShootingDayWrapped { .. } => &SCENE_SHOOT_SHOOTING_DAY_WRAPPED,
+            DomainError::ShootingDayTargetWrapped { .. } => &SHOOTING_DAY_TARGET_WRAPPED,
             DomainError::CategorySeasonMismatch { .. } => &COSTUME_CATEGORY_SEASON_MISMATCH,
         }
     }

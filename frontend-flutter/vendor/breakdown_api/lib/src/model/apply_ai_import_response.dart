@@ -21,6 +21,7 @@ part 'apply_ai_import_response.g.dart';
 /// * [createdDays]
 /// * [createdEpisodes] - Episodes the script apply created for draft episode groups the reviewer mapped to a NEW episode (issue #581). `0` for a schedule apply.
 /// * [plannedSceneShoots]
+/// * [skippedDayGroups] - Day groups the reviewer rejected — their rows applied unscheduled (issue #706). Reported so the reviewer sees the deliberate omission, never a silent one.
 /// * [unappliedCostumes] - Costume rows that did **not** become a `Costume`, each with the reason. An apply that created a costume but could not bind it reports the row here while `created_costumes` still counts it — a partially applied row must never look like a fully applied one.
 @BuiltValue()
 abstract class ApplyAiImportResponse
@@ -45,6 +46,10 @@ abstract class ApplyAiImportResponse
 
   @BuiltValueField(wireName: r'planned_scene_shoots')
   int get plannedSceneShoots;
+
+  /// Day groups the reviewer rejected — their rows applied unscheduled (issue #706). Reported so the reviewer sees the deliberate omission, never a silent one.
+  @BuiltValueField(wireName: r'skipped_day_groups')
+  BuiltList<String>? get skippedDayGroups;
 
   /// Costume rows that did **not** become a `Costume`, each with the reason. An apply that created a costume but could not bind it reports the row here while `created_costumes` still counts it — a partially applied row must never look like a fully applied one.
   @BuiltValueField(wireName: r'unapplied_costumes')
@@ -109,6 +114,13 @@ class _$ApplyAiImportResponseSerializer
       object.plannedSceneShoots,
       specifiedType: const FullType(int),
     );
+    if (object.skippedDayGroups != null) {
+      yield r'skipped_day_groups';
+      yield serializers.serialize(
+        object.skippedDayGroups,
+        specifiedType: const FullType(BuiltList, [FullType(String)]),
+      );
+    }
     yield r'unapplied_costumes';
     yield serializers.serialize(
       object.unappliedCostumes,
@@ -180,6 +192,15 @@ class _$ApplyAiImportResponseSerializer
             specifiedType: const FullType(int),
           ) as int;
           result.plannedSceneShoots = valueDes;
+          break;
+        case r'skipped_day_groups':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType:
+                const FullType.nullable(BuiltList, [FullType(String)]),
+          ) as BuiltList<String>?;
+          if (valueDes == null) continue;
+          result.skippedDayGroups.replace(valueDes);
           break;
         case r'unapplied_costumes':
           final valueDes = serializers.deserialize(

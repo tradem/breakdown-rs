@@ -17,11 +17,11 @@ use async_trait::async_trait;
 use breakdown_core::ai::{
     AiImportBounds, AiImportEnqueueRequest, AiImportEnqueueResult, AiImportJob, AiImportJobId,
     AiImportMapping, AiImportMappingRepository, AiImportQueue, ApplyMapping, CostumeDecision,
-    DocumentKind, DraftCharacter, DraftEpisode, DraftScene, EpisodeGroupPlan, EpisodeTarget,
-    JobStatus, LlmCallOutcome, LlmCallUsage, LlmChatRequest, LlmClient, LlmProvider,
-    PRIMARY_ORDINAL, ScriptContext, ShootingSchedule, ShootingScheduleRow, SourceFormat, Telemetry,
-    TelemetryApplyState, UnappliedCostumeReason, UncertaintyKind, character_identity,
-    character_mapping_ref, mapping_kind, merge_schedule_to_scenes,
+    DocumentKind, DraftCharacter, DraftEpisode, DraftScene, DraftShootingDay, EpisodeGroupPlan,
+    EpisodeTarget, JobStatus, LlmCallOutcome, LlmCallUsage, LlmChatRequest, LlmClient, LlmProvider,
+    PRIMARY_ORDINAL, ScriptContext, ShootingDayPlan, ShootingSchedule, ShootingScheduleRow,
+    SourceFormat, Telemetry, TelemetryApplyState, UnappliedCostumeReason, UncertaintyKind,
+    character_identity, character_mapping_ref, mapping_kind, merge_schedule_to_scenes,
 };
 use breakdown_core::character::category::CharacterCategory;
 use breakdown_core::error::DomainError;
@@ -2127,6 +2127,7 @@ async fn apply_retry_is_a_noop_for_confirmed_mappings() {
             // Single-episode flow fixtures: no group targets, no episode creation (issue #581).
             block_id: breakdown_core::shared::BlockId::new(),
             episode_groups: Vec::new(),
+            shooting_days: Vec::new(),
             telemetry: Some(Telemetry {
                 doc_kind: Some(DocumentKind::Script),
                 // Zero-edit applied outcome is a valid edit_distance of 0 —
@@ -2153,6 +2154,7 @@ async fn apply_retry_is_a_noop_for_confirmed_mappings() {
             // Single-episode flow fixtures: no group targets, no episode creation (issue #581).
             block_id: breakdown_core::shared::BlockId::new(),
             episode_groups: Vec::new(),
+            shooting_days: Vec::new(),
             telemetry: None,
         })
         .await
@@ -2238,6 +2240,7 @@ async fn apply_script_concurrent_applies_create_one_scene_per_draft() {
                     // Single-episode flow fixtures: no group targets, no episode creation (issue #581).
                     block_id: breakdown_core::shared::BlockId::new(),
                     episode_groups: Vec::new(),
+                    shooting_days: Vec::new(),
                     telemetry: None,
                 })
                 .await
@@ -2385,6 +2388,7 @@ async fn script_pdf_round_trip_reaches_scene_apply() {
             // Single-episode flow fixtures: no group targets, no episode creation (issue #581).
             block_id: breakdown_core::shared::BlockId::new(),
             episode_groups: Vec::new(),
+            shooting_days: Vec::new(),
             telemetry: None,
         })
         .await
@@ -2419,6 +2423,8 @@ fn script_apply_worker(
     FakeCharacterCommands,
     FakeCostumeCommands,
     FakeEpisodeCommands,
+    FakeShootingDayCommands,
+    FakeSceneShootCommands,
     FakeMappings,
     FakeQueue,
 > {
@@ -2427,6 +2433,8 @@ fn script_apply_worker(
         character_commands: Arc::new(FakeCharacterCommands::default()),
         costume_commands: Arc::new(FakeCostumeCommands::default()),
         episode_commands: Arc::new(FakeEpisodeCommands::default()),
+        shooting_day_commands: Arc::new(FakeShootingDayCommands::default()),
+        scene_shoot_commands: Arc::new(FakeSceneShootCommands::default()),
         mappings,
         queue,
     }
@@ -2730,6 +2738,8 @@ struct ScriptApplyFixture {
     characters: Arc<FakeCharacterCommands>,
     costumes: Arc<FakeCostumeCommands>,
     episodes: Arc<FakeEpisodeCommands>,
+    shooting_days: Arc<FakeShootingDayCommands>,
+    scene_shoots: Arc<FakeSceneShootCommands>,
     journal: Arc<Mutex<Vec<String>>>,
     preview_id: AiImportJobId,
     episode_id: breakdown_core::shared::EpisodeId,
@@ -2762,6 +2772,8 @@ impl ScriptApplyFixture {
                 journal: Arc::clone(&journal),
                 ..Default::default()
             }),
+            shooting_days: Arc::new(FakeShootingDayCommands::default()),
+            scene_shoots: Arc::new(FakeSceneShootCommands::default()),
             journal,
             preview_id: AiImportJobId::new(),
             episode_id: breakdown_core::shared::EpisodeId::new(),
@@ -2778,6 +2790,8 @@ impl ScriptApplyFixture {
         FakeCharacterCommands,
         FakeCostumeCommands,
         FakeEpisodeCommands,
+        FakeShootingDayCommands,
+        FakeSceneShootCommands,
         FakeMappings,
         FakeQueue,
     > {
@@ -2786,6 +2800,8 @@ impl ScriptApplyFixture {
             character_commands: Arc::clone(&self.characters),
             costume_commands: Arc::clone(&self.costumes),
             episode_commands: Arc::clone(&self.episodes),
+            shooting_day_commands: Arc::clone(&self.shooting_days),
+            scene_shoot_commands: Arc::clone(&self.scene_shoots),
             mappings: Arc::clone(&self.mappings),
             queue: Arc::clone(&self.queue),
         }
@@ -2797,6 +2813,18 @@ impl ScriptApplyFixture {
         preview: &ScriptContext,
         decisions: &[ApplyMapping],
         episode_groups: Vec<EpisodeGroupPlan>,
+    ) -> Result<super::ScriptApplyResult, DomainError> {
+        self.apply_with_day_plans(preview, decisions, episode_groups, Vec::new())
+            .await
+    }
+
+    /// Apply with per-day decisions (issue #706).
+    async fn apply_with_day_plans(
+        &self,
+        preview: &ScriptContext,
+        decisions: &[ApplyMapping],
+        episode_groups: Vec<EpisodeGroupPlan>,
+        shooting_days: Vec<breakdown_core::ai::ShootingDayPlan>,
     ) -> Result<super::ScriptApplyResult, DomainError> {
         self.worker()
             .apply_script(ApplyScriptRequest {
@@ -2810,6 +2838,7 @@ impl ScriptApplyFixture {
                 project_id: Some(self.project_id),
                 block_id: self.block_id,
                 episode_groups,
+                shooting_days,
                 telemetry: None,
             })
             .await
@@ -2834,6 +2863,7 @@ impl ScriptApplyFixture {
                 // creation (issue #581).
                 block_id: self.block_id,
                 episode_groups: Vec::new(),
+                shooting_days: Vec::new(),
                 telemetry: None,
             })
             .await
@@ -3921,4 +3951,197 @@ async fn script_apply_rows_without_metadata_stay_in_the_picked_episode() {
     assert_eq!(result.created_episodes, 0);
     assert!(fixture.episodes.created.lock().unwrap().is_empty());
     assert_eq!(fixture.scenes.created.lock().unwrap().len(), 1);
+}
+
+// ===========================================================================
+// Script apply — shooting days (issue #706)
+// ===========================================================================
+
+/// A draft row carrying shooting-day metadata, as the deterministic day scan
+/// produces it.
+fn row_with_day(draft_ref: &str, day: DraftShootingDay) -> DraftScene {
+    DraftScene {
+        draft_ref: draft_ref.to_owned(),
+        scene_number: Some(1),
+        shooting_day: Some(day),
+        ..Default::default()
+    }
+}
+
+fn accept_day(day_ref: &str) -> ShootingDayPlan {
+    ShootingDayPlan {
+        day_ref: day_ref.to_owned(),
+        accepted: true,
+    }
+}
+
+#[tokio::test]
+async fn script_apply_creates_the_accepted_day_and_schedules_the_row() {
+    let fixture = ScriptApplyFixture::new();
+    let preview = ScriptContext {
+        scenes: vec![row_with_day(
+            "1. INT. OP",
+            DraftShootingDay {
+                number: Some(1),
+                label: Some("Tag 1".into()),
+            },
+        )],
+        ..Default::default()
+    };
+    let result = fixture
+        .apply_with_day_plans(
+            &preview,
+            &[create_decision("1. INT. OP")],
+            Vec::new(),
+            vec![accept_day("day:1")],
+        )
+        .await
+        .expect("apply");
+    assert_eq!(result.created_days, 1);
+    assert_eq!(result.planned_scene_shoots, 1);
+    // Exactly one day was created, with the verbatim first-occurrence label.
+    let created_days = fixture.shooting_days.created.lock().unwrap().clone();
+    assert_eq!(created_days.len(), 1);
+    // The scene was linked onto the created day…
+    let scheduled = fixture.scenes.scheduled.lock().unwrap().clone();
+    assert_eq!(scheduled.len(), 1);
+    assert_eq!(scheduled[0].1, created_days[0]);
+    // …and the scene_shoot pair was planned.
+    let planned = fixture.scene_shoots.planned.lock().unwrap().clone();
+    assert_eq!(planned.len(), 1);
+}
+
+#[tokio::test]
+async fn script_apply_shares_one_day_across_rows_of_the_same_group() {
+    let fixture = ScriptApplyFixture::new();
+    let preview = ScriptContext {
+        scenes: vec![
+            row_with_day(
+                "1. INT. OP",
+                DraftShootingDay {
+                    number: Some(1),
+                    label: Some("Tag 1".into()),
+                },
+            ),
+            row_with_day(
+                "2. INT. OP",
+                DraftShootingDay {
+                    number: Some(1),
+                    label: Some("Tag 1".into()),
+                },
+            ),
+        ],
+        ..Default::default()
+    };
+    let result = fixture
+        .apply_with_day_plans(
+            &preview,
+            &[create_decision("1. INT. OP"), create_decision("2. INT. OP")],
+            Vec::new(),
+            vec![accept_day("day:1")],
+        )
+        .await
+        .expect("apply");
+    // One day per group — the second row reuses the resolved day.
+    assert_eq!(result.created_days, 1);
+    assert_eq!(result.planned_scene_shoots, 2);
+    assert_eq!(fixture.shooting_days.created.lock().unwrap().len(), 1);
+    assert_eq!(fixture.scenes.scheduled.lock().unwrap().len(), 2);
+}
+
+#[tokio::test]
+async fn script_apply_leaves_a_rejected_day_group_unscheduled() {
+    let fixture = ScriptApplyFixture::new();
+    let preview = ScriptContext {
+        scenes: vec![row_with_day(
+            "1. INT. OP",
+            DraftShootingDay {
+                number: Some(1),
+                label: Some("Tag 1".into()),
+            },
+        )],
+        ..Default::default()
+    };
+    let result = fixture
+        .apply_with_day_plans(
+            &preview,
+            &[create_decision("1. INT. OP")],
+            Vec::new(),
+            vec![ShootingDayPlan {
+                day_ref: "day:1".into(),
+                accepted: false,
+            }],
+        )
+        .await
+        .expect("apply");
+    assert_eq!(result.created_days, 0);
+    assert_eq!(result.planned_scene_shoots, 0);
+    assert!(fixture.shooting_days.created.lock().unwrap().is_empty());
+    assert!(fixture.scenes.scheduled.lock().unwrap().is_empty());
+    // The scene itself still applied.
+    assert_eq!(fixture.scenes.created.lock().unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn script_apply_day_group_without_a_decision_is_a_registered_conflict() {
+    let fixture = ScriptApplyFixture::new();
+    let preview = ScriptContext {
+        scenes: vec![row_with_day(
+            "1. INT. OP",
+            DraftShootingDay {
+                number: Some(1),
+                label: Some("Tag 1".into()),
+            },
+        )],
+        ..Default::default()
+    };
+    let error = fixture
+        .apply_with_day_plans(
+            &preview,
+            &[create_decision("1. INT. OP")],
+            Vec::new(),
+            Vec::new(),
+        )
+        .await
+        .expect_err("a referenced day group must not silently apply unscheduled");
+    match error {
+        DomainError::Conflict { code, .. } => {
+            assert_eq!(
+                code.code, "ai-import.apply-missing-shooting-day-group",
+                "the gate answers its own registered code"
+            );
+        }
+        other => panic!("expected Conflict, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn script_apply_day_is_idempotent_on_re_apply() {
+    let fixture = ScriptApplyFixture::new();
+    let preview = ScriptContext {
+        scenes: vec![row_with_day(
+            "1. INT. OP",
+            DraftShootingDay {
+                number: Some(1),
+                label: Some("Tag 1".into()),
+            },
+        )],
+        ..Default::default()
+    };
+    let decisions = vec![create_decision("1. INT. OP")];
+    let day_plans = vec![accept_day("day:1")];
+    let first = fixture
+        .apply_with_day_plans(&preview, &decisions, Vec::new(), day_plans.clone())
+        .await
+        .expect("first apply");
+    let second = fixture
+        .apply_with_day_plans(&preview, &decisions, Vec::new(), day_plans)
+        .await
+        .expect("re-apply");
+    // Nothing is created or planned twice.
+    assert_eq!(second.created_days, 0);
+    assert_eq!(second.planned_scene_shoots, 0);
+    assert_eq!(first.created_days, 1);
+    assert_eq!(fixture.shooting_days.created.lock().unwrap().len(), 1);
+    assert_eq!(fixture.scene_shoots.planned.lock().unwrap().len(), 1);
 }

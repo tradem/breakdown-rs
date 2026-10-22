@@ -1,0 +1,10 @@
+{
+  "code": "shooting-day.episode-mismatch",
+  "detail": "Quelle und Ziel gehören zu verschiedenen Episoden. Drehtage können nur innerhalb einer Episode verschmolzen werden.",
+  "extensions": {
+    "shooting_day_id": "00000000-0000-0000-0000-000000000001"
+  },
+  "status": 409,
+  "title": "Shooting days belong to different episodes",
+  "type": "https://docs.breakdown.example/problems/shooting-day.episode-mismatch"
+}

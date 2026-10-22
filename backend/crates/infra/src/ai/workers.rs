@@ -18,12 +18,13 @@ use breakdown_core::ai::{
     AiImportProgress, AiImportQueue, AiImportStage, AiModelPricingRepository, ApplyGateError,
     ApplyMapping, ApplyMappingDecision, CharacterApplyPlan, CostBreakdown, CostumeApplyPlan,
     DocumentKind, EpisodeGroupPlan, LlmCallUsage, LlmChatRequest, LlmClient, MergedPreview,
-    PRIMARY_ORDINAL, PlannedEpisode, SceneApplyCommand, SceneApplyPlan, ScriptContext,
-    ShootingSchedule, SourceFormat, Telemetry, TelemetryApplyState, UnappliedCostume,
-    UnappliedCostumeReason, Uncertainty, UncertaintyAcknowledgement, UncertaintyKind,
-    category_conflict_uncertainties, character_mapping_ref, draft_row_ref, ensure_merge_applyable,
-    extract_scenes, mapping_kind, merge_schedule_to_scenes, plan_scene_apply,
-    sanitize_meta_summary, scene_beat_lanes, stable_draft_ref, verify_draft_costumes,
+    PRIMARY_ORDINAL, PlannedEpisode, PlannedShootingDay, ReviewerDecisions, SceneApplyCommand,
+    SceneApplyPlan, ScriptContext, ShootingDayPlan, ShootingSchedule, SourceFormat, Telemetry,
+    TelemetryApplyState, UnappliedCostume, UnappliedCostumeReason, Uncertainty,
+    UncertaintyAcknowledgement, UncertaintyKind, category_conflict_uncertainties,
+    character_mapping_ref, draft_row_ref, ensure_merge_applyable, extract_scenes, mapping_kind,
+    merge_schedule_to_scenes, parse_script_day, plan_scene_apply, sanitize_meta_summary,
+    scene_beat_lanes, stable_draft_ref, verify_draft_costumes,
 };
 use breakdown_core::character::commands::CreateCharacter;
 use breakdown_core::character::ports::CharacterCommands;
@@ -36,12 +37,19 @@ use breakdown_core::episode::ports::EpisodeCommands;
 use breakdown_core::error::DomainError;
 use breakdown_core::error_registry::{
     AI_IMPORT_APPLY_MISSING_EPISODE_GROUP, AI_IMPORT_APPLY_MISSING_MAPPING,
+    AI_IMPORT_APPLY_MISSING_SHOOTING_DAY_GROUP,
 };
 use breakdown_core::error_registry::{SCENE_CHARACTER_ALREADY_ASSIGNED, SCENE_VALIDATION};
 use breakdown_core::scene::commands::{AddCostumeBeat, AssignCharacter, CreateScene};
 use breakdown_core::scene::events::{SceneDetails, SceneSource};
 use breakdown_core::scene::ports::SceneCommands;
-use breakdown_core::shared::{AggregateVersion, BlockId, EpisodeId, ProjectId, SeasonId, UserId};
+use breakdown_core::scene_shoot::commands::PlanSceneShoot;
+use breakdown_core::scene_shoot::ports::SceneShootCommands;
+use breakdown_core::shared::{
+    AggregateVersion, BlockId, EpisodeId, LexicalSortKey, ProjectId, SceneShootId, SeasonId,
+    ShootingDayId, UserId,
+};
+use breakdown_core::shooting_day::ports::ShootingDayCommands;
 
 #[cfg(test)]
 #[path = "worker_mutation_tests.rs"]
@@ -54,7 +62,9 @@ use super::pdf::PdfTextExtractor;
 use super::pg_concurrency::{PgAiConcurrencyLimiter, PgAiConcurrencyPermit};
 use super::preview_store::{AiDocumentSource, AiPreviewStore};
 use super::runtime::run_with_renewal;
-use super::schedule_apply::{derive_id, recover_version};
+use super::schedule_apply::{
+    AppliedDay, DayDraft, ScheduleApplyWorker, derive_id, recover_version,
+};
 use crate::photo::sagas::is_transient;
 use crate::projectors::supervisor;
 
@@ -488,6 +498,20 @@ where
                                 effective.title = model_title;
                             }
                             scene.episode = Some(effective);
+                        }
+                        // Shooting-day metadata (issue #706): the deterministic
+                        // day scan of the document is authoritative (same
+                        // doctrine as the `Ep.:` scan above); the model's
+                        // verbatim `script_day` (grounded prompt rule) only
+                        // normalizes into a day group when the scan found no
+                        // marker for this chunk. An unparseable label still
+                        // groups by its verbatim text; a blank one stays
+                        // unscheduled — never invented.
+                        if chunk.shooting_day.is_some() {
+                            scene.shooting_day = chunk.shooting_day.clone();
+                        } else if scene.shooting_day.is_none() {
+                            scene.shooting_day =
+                                scene.script_day.as_deref().and_then(parse_script_day);
                         }
                         // Issue #668: deterministic post-extraction guard —
                         // the prompt bans meta-summaries, but a prompt is an
@@ -965,7 +989,7 @@ impl MergeWorker {
 /// Every kind is checked against the persisted mapping before it dispatches, so
 /// a crash or a concurrent duplicate cannot create a second Scene, Character or
 /// Costume.
-pub struct ApplyWorker<C, CH, CO, E, M, Q> {
+pub struct ApplyWorker<C, CH, CO, E, SD, SS, M, Q> {
     pub scene_commands: Arc<C>,
     pub character_commands: Arc<CH>,
     pub costume_commands: Arc<CO>,
@@ -973,6 +997,14 @@ pub struct ApplyWorker<C, CH, CO, E, M, Q> {
     /// episode (issue #581). Never used to look an episode up: targets that
     /// already exist reach the worker as a resolved id inside the plan.
     pub episode_commands: Arc<E>,
+    /// Shooting-day creation for accepted draft day groups and the scene-link
+    /// dispatch of the group's rows (issue #706). Never used to look a day up:
+    /// accepted groups always create the day under the row's resolved episode
+    /// via the shared reservation protocol.
+    pub shooting_day_commands: Arc<SD>,
+    /// Scene-shoot planning for the scene→day links of accepted day groups
+    /// (issue #706) — the same pair idempotency the schedule apply runs.
+    pub scene_shoot_commands: Arc<SS>,
     pub mappings: Arc<M>,
     pub queue: Arc<Q>,
 }
@@ -1025,6 +1057,14 @@ pub struct ScriptApplyResult {
     /// duplicate) already created is not counted again — the mapping row
     /// short-circuits, mirroring the figure dedup.
     pub created_episodes: u32,
+    /// Shooting days this apply created for accepted draft day groups
+    /// (issue #706). A group an earlier attempt already created is not
+    /// counted again — the mapping row short-circuits.
+    pub created_days: u32,
+    /// Scene→shooting-day links this apply planned (`scene_shoot` pairs,
+    /// issue #706). A link an earlier attempt already confirmed is not
+    /// counted again.
+    pub planned_scene_shoots: u32,
     /// Costumes that did not become a `Costume`, each with its reason. Reported,
     /// never dropped: a silently missing costume is the failure mode this change
     /// exists to remove (design D5).
@@ -1183,6 +1223,10 @@ pub struct ApplyScriptRequest<'a> {
     /// Per-group episode targets keyed by the preview's group refs. Absent
     /// groups (rows without episode metadata) apply to `episode_id`.
     pub episode_groups: Vec<EpisodeGroupPlan>,
+    /// Per-day decisions keyed by the preview's day-group refs (issue #706).
+    /// An accepted group's rows are scheduled onto a NEW episode-scoped day;
+    /// a rejected group's rows apply unscheduled.
+    pub shooting_days: Vec<ShootingDayPlan>,
     /// Reviewer acknowledgements of blocking uncertainties (issue #663).
     /// Request-carried: the stored preview is immutable, so the resolution
     /// travels with the other reviewer decisions and the apply gate counts
@@ -1215,12 +1259,14 @@ struct BeatDispatch<'a> {
     scene_version: &'a mut AggregateVersion,
 }
 
-impl<C, CH, CO, E, M, Q> ApplyWorker<C, CH, CO, E, M, Q>
+impl<C, CH, CO, E, SD, SS, M, Q> ApplyWorker<C, CH, CO, E, SD, SS, M, Q>
 where
     C: SceneCommands + 'static,
     CH: CharacterCommands + 'static,
     CO: CostumeCommands + 'static,
     E: EpisodeCommands + 'static,
+    SD: ShootingDayCommands + 'static,
+    SS: SceneShootCommands + 'static,
     M: AiImportMappingRepository + 'static,
     Q: AiImportQueue + 'static,
 {
@@ -1238,6 +1284,7 @@ where
             project_id,
             block_id,
             episode_groups,
+            shooting_days,
             acknowledged_uncertainties,
             telemetry,
         } = request;
@@ -1259,8 +1306,11 @@ where
             episode_id,
             project_id,
             preview_id,
-            &episode_groups,
-            &acknowledged_uncertainties,
+            &ReviewerDecisions {
+                episode_groups: &episode_groups,
+                shooting_days: &shooting_days,
+                acknowledged_uncertainties: &acknowledged_uncertainties,
+            },
         )
         .map_err(|error| match error {
             ApplyGateError::MissingMapping(draft_ref) => DomainError::Conflict {
@@ -1270,6 +1320,10 @@ where
             ApplyGateError::MissingEpisodeGroup(episode_ref) => DomainError::Conflict {
                 code: &AI_IMPORT_APPLY_MISSING_EPISODE_GROUP,
                 reason: format!("no episode group {episode_ref} in the preview"),
+            },
+            ApplyGateError::MissingShootingDayGroup(day_ref) => DomainError::Conflict {
+                code: &AI_IMPORT_APPLY_MISSING_SHOOTING_DAY_GROUP,
+                reason: format!("no shooting day group {day_ref} in the preview"),
             },
             other => DomainError::conflict(other.to_string()),
         })?;
@@ -1282,6 +1336,8 @@ where
             created_costumes: 0,
             created_costume_beats: 0,
             created_episodes: 0,
+            created_days: 0,
+            planned_scene_shoots: 0,
             unapplied_costumes: plan.unapplied_costumes,
         };
         // Figures named by several draft rows are created once. This is a cache
@@ -1292,6 +1348,19 @@ where
         // Same rationale as `figures`: the mapping is the durable record, the
         // map only avoids re-driving it per row of the same group.
         let mut resolved_episodes: HashMap<String, EpisodeId> = HashMap::new();
+        // Shooting days an ACCEPTED group already resolved in *this* request
+        // (issue #706). Same rationale as `resolved_episodes`: one day per
+        // group, created on first sight, reused by every later row.
+        let mut resolved_days: HashMap<String, AppliedDay> = HashMap::new();
+        // Monotonic fallback planned-order counter for the scene-shoot links
+        // (issue #706): script extraction carries no per-day order, so rows
+        // apply in plan order. Every PLANNED row consumes one increment on
+        // every attempt — including a row whose pair is already confirmed
+        // (its early return runs after the increment) — so a partial-run
+        // retry cannot reallocate a confirmed row's order to a later row
+        // (CodeRabbit review). Deterministic across retries: the rows are
+        // processed in the same plan order.
+        let mut fallback_order: u32 = 0;
 
         for row in &plan.scenes {
             let row_episode_id = match &row.episode {
@@ -1509,6 +1578,63 @@ where
                             ));
                         }
                     }
+                }
+            }
+
+            // ── Shooting-day assignment (issue #706) ──
+            // After the beats: `scene_version` now holds the row's current
+            // scene-stream version (max across the row's mapping rows, advanced
+            // in place by every dispatch above), so the link dispatches at the
+            // reached version. A `None` row — no day metadata, ungroupable
+            // label, or a group the reviewer rejected — stays unscheduled.
+            if let PlannedShootingDay::Group { day_ref, label } = &row.shooting_day {
+                // Episode-scoped day key (CodeRabbit review, issue #706): a
+                // day number is NOT episode-unique — a multi-episode script
+                // repeats `Tag 1` per episode, so the same `day_ref` must
+                // resolve to one day PER EPISODE. Keying by the row's
+                // resolved episode keeps episode 2's scenes off episode 1's
+                // day (and keeps the mapping draft_ref, which the id is
+                // derived from, retry-stable).
+                let day_key = format!("{}:{day_ref}", row_episode_id.0);
+                let day = match resolved_days.get(&day_key) {
+                    Some(day) => *day,
+                    None => {
+                        let day = self
+                            .day_linker()
+                            .resolve_day(
+                                actor.clone(),
+                                DayDraft {
+                                    preview_id,
+                                    draft_ref: day_key.clone(),
+                                    episode_id: row_episode_id,
+                                    label: label.clone(),
+                                    date: None,
+                                    project_id,
+                                },
+                            )
+                            .await?;
+                        if day.created {
+                            result.created_days += 1;
+                        }
+                        resolved_days.insert(day_key, day);
+                        day
+                    }
+                };
+                let scheduled = self
+                    .schedule_row_on_day(
+                        actor.clone(),
+                        RowDayLink {
+                            preview_id,
+                            project_id,
+                            scene_id: scene.aggregate_id,
+                            day: day.id,
+                            scene_version: &mut scene_version,
+                            fallback_order: &mut fallback_order,
+                        },
+                    )
+                    .await?;
+                if scheduled {
+                    result.planned_scene_shoots += 1;
                 }
             }
         }
@@ -2271,6 +2397,152 @@ where
             .await?;
         Ok((id, version))
     }
+
+    /// The schedule-apply machinery driving one row's day resolution and
+    /// scene link (issue #706) — the same reservation protocol the schedule
+    /// path runs, built from this worker's own ports.
+    fn day_linker(&self) -> ScheduleApplyWorker<C, SD, SS, M> {
+        ScheduleApplyWorker {
+            scene_commands: Arc::clone(&self.scene_commands),
+            shooting_day_commands: Arc::clone(&self.shooting_day_commands),
+            scene_shoot_commands: Arc::clone(&self.scene_shoot_commands),
+            mappings: Arc::clone(&self.mappings),
+        }
+    }
+
+    /// Link one applied scene row to its accepted day group's shooting day
+    /// (issue #706): dispatch `ScheduleSceneOnShootingDay` with the same
+    /// recover-once pattern the costume beats run, then plan the `scene_shoot`
+    /// pair through the schedule path's reservation protocol (reserve →
+    /// command → confirm). Returns whether this call planned a pair.
+    ///
+    /// Only a *confirmed* pair mapping ends the work (mirrors the schedule
+    /// path): a reservation means a previous attempt died between the command
+    /// and the confirm, so the row must be re-driven onto the reserved id.
+    async fn schedule_row_on_day(
+        &self,
+        actor: UserId,
+        link: RowDayLink<'_>,
+    ) -> Result<bool, DomainError> {
+        let RowDayLink {
+            preview_id,
+            project_id,
+            scene_id,
+            day,
+            scene_version,
+            fallback_order,
+        } = link;
+        let day_linker = self.day_linker();
+        let pair_key = format!("scene-shoot:{}:{}", scene_id, day.0);
+        // Consume the fallback order BEFORE the confirmed-pair early return:
+        // every planned row advances the counter on every attempt, so a
+        // partial-run retry cannot reallocate a confirmed row's order to a
+        // later row of the same day (CodeRabbit review, issue #706). The
+        // allocation is computed before any command dispatch — it can fail
+        // and must not leave the scene already scheduled.
+        *fallback_order = fallback_order.checked_add(1).ok_or_else(|| {
+            DomainError::validation("cannot allocate a unique fallback planned order")
+        })?;
+        let planned_order = LexicalSortKey::new(format!("{:08}", *fallback_order))
+            .map_err(|error| DomainError::validation(error.to_string()))?;
+        // Read the idempotency projection (non-audit): the spec requires the
+        // mapping lookup so a retried apply re-drives an unfinished pair
+        // instead of planning a second scene shoot. Not audit-context
+        // resolution — project_id comes from the request. (Suppression
+        // directive on the find line below.)
+        if self
+            .mappings
+            .find(
+                preview_id,
+                &pair_key,
+                mapping_kind::SCENE_SHOOT,
+                PRIMARY_ORDINAL,
+            ) // ast-grep-ignore: cqrs-boundary
+            .await?
+            .is_some_and(|mapping| !mapping.is_reserved())
+        {
+            return Ok(false);
+        }
+
+        // Step 1 (reserve): make the SceneShootId durable before the command
+        // so a crash between append and confirm retries onto the same
+        // aggregate. The id is derived deterministically from (preview_id,
+        // pair_key) so a retry re-derives the SAME id (issue #182).
+        let scene_shoot_id = SceneShootId::from_uuid(derive_id(
+            preview_id,
+            &pair_key,
+            mapping_kind::SCENE_SHOOT,
+            PRIMARY_ORDINAL,
+        ));
+        let reservation = self
+            .mappings
+            .reserve(AiImportMapping::reservation(
+                preview_id,
+                pair_key,
+                mapping_kind::SCENE_SHOOT.to_owned(),
+                PRIMARY_ORDINAL,
+                scene_shoot_id.0,
+            ))
+            .await?;
+        let scene_shoot_id = SceneShootId::from_uuid(reservation.aggregate_id);
+
+        // Step 2a (scene link): state-idempotent; a stale version — a crash
+        // between the link append and the pair confirm — recovers once at the
+        // reached version (same pattern as the costume beats above).
+        let mut version = *scene_version;
+        version = match day_linker
+            .schedule_scene(actor.clone(), scene_id, day, project_id, version)
+            .await
+        {
+            Ok(next) => next,
+            Err(DomainError::VersionConflict { current, .. }) if current != AggregateVersion(0) => {
+                tracing::info!(
+                    current = current.0,
+                    "recovered an AI apply scene-day link from a moved scene stream"
+                );
+                current
+            }
+            Err(error) => return Err(error),
+        };
+        *scene_version = (*scene_version).max(version);
+
+        // Step 2b (scene_shoot pair): dispatch onto the reserved stream — a
+        // retry re-drives it, the adapter's ExpectedVersion::Empty then
+        // reports the current version (recovery). The planned order was
+        // allocated above, before the confirmed-pair early return.
+
+        // Step 2c (command): a retry re-dispatches onto the reserved stream,
+        // which already carries the SceneShootPlanned event — the adapter's
+        // ExpectedVersion::Empty then reports the current version (recovery).
+        let version = recover_version(
+            self.scene_shoot_commands
+                .plan(
+                    actor,
+                    PlanSceneShoot {
+                        id: scene_shoot_id,
+                        scene_id,
+                        shooting_day_id: day,
+                        project_id,
+                        planned_order,
+                    },
+                )
+                .await
+                .map(|(_, version)| version),
+        )?;
+
+        // Step 3 (confirm).
+        self.mappings
+            .insert(AiImportMapping {
+                preview_id: reservation.preview_id,
+                draft_ref: reservation.draft_ref,
+                aggregate_kind: reservation.aggregate_kind,
+                ordinal: reservation.ordinal,
+                aggregate_id: scene_shoot_id.0,
+                aggregate_version: version,
+            })
+            .await?;
+        Ok(true)
+    }
 }
 
 /// Where one costume row's commands point. Bundled so `apply_costume` stays
@@ -2286,6 +2558,20 @@ struct CostumeDispatch<'a> {
     costume: &'a CostumeApplyPlan,
     /// The figure this row's costume binds to, created or resolved above.
     character_id: Uuid,
+}
+
+/// The per-row day-link context of the script apply (issue #706). Bundled so
+/// `ApplyWorker::schedule_row_on_day` stays under the `too_many_arguments`
+/// lint (an `#[allow]` would violate AGENTS.md §3, cf. `ReservedSceneDraft`).
+struct RowDayLink<'a> {
+    preview_id: AiImportJobId,
+    project_id: Option<ProjectId>,
+    scene_id: Uuid,
+    day: ShootingDayId,
+    /// The row's running scene-stream version, advanced in place.
+    scene_version: &'a mut AggregateVersion,
+    /// Monotonic fallback planned-order counter, advanced in place.
+    fallback_order: &'a mut u32,
 }
 
 /// A costume row that did not become a `Costume`, shaped for the reviewer.
