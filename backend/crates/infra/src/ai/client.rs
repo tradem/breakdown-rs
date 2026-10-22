@@ -280,7 +280,7 @@ impl LlmClient for OpenAiCompatibleChatClient {
                 "LLM request provider does not match configured client",
             ));
         }
-        let schema = schemars::schema_for!(ShootingScheduleSchema).to_value();
+        let schema = strict_compatible(schemars::schema_for!(ShootingScheduleSchema).to_value());
         let decoded = self
             .request_decoded::<ShootingScheduleSchema>(&req, schema, "ShootingSchedule")
             .await?;
@@ -289,6 +289,66 @@ impl LlmClient for OpenAiCompatibleChatClient {
             decoded.usage,
         ))
     }
+}
+
+/// Make a schemars-derived schema valid for OpenAI strict Structured Outputs
+/// (`strict: true`, CodeRabbit review PR #725): every object must set
+/// `additionalProperties: false` and list EVERY property in `required` —
+/// schemars leaves optional (`Option`) fields out of `required` and emits no
+/// `additionalProperties`, so a strict-enforcing provider would reject the
+/// schedule request before extraction. schemars already renders `Option`
+/// fields as nullable (`"type": ["string", "null"]` / `anyOf: [T, null]`),
+/// so requiring them keeps every value the model may omit representable as
+/// `null` — the decode semantics are unchanged.
+fn strict_compatible(mut schema: serde_json::Value) -> serde_json::Value {
+    fn walk(value: &mut serde_json::Value) {
+        match value {
+            serde_json::Value::Object(map) => {
+                // Recurse first so `$defs` entries and nested objects are
+                // covered too.
+                for child in map.values_mut() {
+                    walk(child);
+                }
+                let is_object = map.get("type").and_then(serde_json::Value::as_str)
+                    == Some("object")
+                    || map.contains_key("properties");
+                if !is_object {
+                    return;
+                }
+                map.insert(
+                    "additionalProperties".to_owned(),
+                    serde_json::Value::Bool(false),
+                );
+                let names: Vec<String> = map
+                    .get("properties")
+                    .and_then(serde_json::Value::as_object)
+                    .map(|properties| properties.keys().cloned().collect())
+                    .unwrap_or_default();
+                if names.is_empty() {
+                    return;
+                }
+                let required = map
+                    .entry("required".to_owned())
+                    .or_insert_with(|| serde_json::Value::Array(Vec::new()));
+                if let Some(list) = required.as_array_mut() {
+                    for name in names {
+                        let name_value = serde_json::Value::String(name);
+                        if !list.contains(&name_value) {
+                            list.push(name_value);
+                        }
+                    }
+                }
+            }
+            serde_json::Value::Array(items) => {
+                for item in items {
+                    walk(item);
+                }
+            }
+            _ => {}
+        }
+    }
+    walk(&mut schema);
+    schema
 }
 
 /// Provider-facing mirror of [`breakdown_core::ai::ShootingSchedule`] for the

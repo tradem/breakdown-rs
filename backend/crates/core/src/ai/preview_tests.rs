@@ -2540,12 +2540,53 @@ fn heading_without_canonical_time_token_leaves_mood_none() {
             .mood,
         None
     );
-    // A word that merely CONTAINS a time spelling never matches.
+    // A word that merely CONTAINS a time spelling never matches: without a
+    // canonical token the heading has no mood at all, and the ABENDBLATT
+    // word itself never fires — only the REAL token ("- TAG") in the same
+    // heading produces the shorthand (whole-token matching).
+    assert_eq!(
+        SceneChunk::extract_scenes("INT. ABENDBLATT REDAKTION\nBody.")
+            .remove(0)
+            .mood,
+        None
+    );
     assert_eq!(
         SceneChunk::extract_scenes("INT. ABENDBLATT REDAKTION - TAG\nBody.")
             .remove(0)
             .mood,
         Some("I/T".to_owned())
+    );
+}
+
+#[test]
+fn shooting_day_markers_in_headings_are_not_mood() {
+    // A trailing day NUMBER makes TAG/DAY a shooting-day marker (script-report
+    // day column, issue #706's territory) — never a time of day.
+    assert_eq!(
+        SceneChunk::extract_scenes("INT. KITCHEN - TAG 1\nBody.")
+            .remove(0)
+            .mood,
+        None
+    );
+    assert_eq!(
+        SceneChunk::extract_scenes("INNEN WOHNUNG - DAY 2\nBody.")
+            .remove(0)
+            .mood,
+        None
+    );
+    // Without the trailing number the same words stay a time of day.
+    assert_eq!(
+        SceneChunk::extract_scenes("INT. KITCHEN - TAG\nBody.")
+            .remove(0)
+            .mood,
+        Some("I/T".to_owned())
+    );
+    // Other recognized tokens keep their normal handling even before a digit.
+    assert_eq!(
+        SceneChunk::extract_scenes("EXT. STREET - NIGHT 3\nBody.")
+            .remove(0)
+            .mood,
+        Some("A/N".to_owned())
     );
 }
 

@@ -2248,10 +2248,29 @@ pub fn parse_mood_from_heading(line: &str) -> Option<String> {
     // canonical time token wins ("INNEN WOHNUNG - NACHT" → N,
     // "EXT. STREET - NIGHT (FLASHBACK)" → N; a word that merely CONTAINS a
     // token — "ABENDBLATT" — never matches, whole tokens only).
-    let time = remainder
-        .split_whitespace()
-        .filter_map(|word| time_shorthand(word.trim_matches(['.', ',', ':'])))
-        .next_back()?;
+    //
+    // Shooting-day markers are NOT time of day: a heading column like
+    // "INT. KITCHEN - TAG 1" (script-report day column, issue #706's
+    // territory) carries the day NUMBER after the word — exactly "TAG"/"DAY"
+    // followed by a digit is disqualified, every other recognized token
+    // keeps its normal handling (CodeRabbit review, PR #725).
+    let words: Vec<&str> = remainder.split_whitespace().collect();
+    let mut time: Option<&'static str> = None;
+    for (index, word) in words.iter().enumerate() {
+        let token = word.trim_matches(['.', ',', ':']);
+        let Some(shorthand) = time_shorthand(token) else {
+            continue;
+        };
+        if matches!(token.to_lowercase().as_str(), "tag" | "day")
+            && words
+                .get(index + 1)
+                .is_some_and(|next| next.starts_with(|c: char| c.is_ascii_digit()))
+        {
+            continue;
+        }
+        time = Some(shorthand);
+    }
+    let time = time?;
     Some(format!("{location}/{time}"))
 }
 
