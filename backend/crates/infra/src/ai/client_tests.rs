@@ -268,40 +268,11 @@ fn all_providers_have_valid_base_urls() {
 /// Strict Structured Outputs contract (CodeRabbit review PR #725): every
 /// object in the generated schedule schema must carry
 /// `additionalProperties: false` and list every property in `required`.
+/// Mirrors the production call site (`strict_schema`, issue #726).
 #[test]
 fn schedule_schema_is_strict_structured_outputs_compatible() {
-    let schema =
-        super::strict_compatible(schemars::schema_for!(super::ShootingScheduleSchema).to_value());
+    let schema = super::strict_schema::<super::ShootingScheduleSchema>();
 
-    fn check_strict(value: &serde_json::Value, path: &str) {
-        let serde_json::Value::Object(map) = value else {
-            return;
-        };
-        let is_object = map.get("type").and_then(|t| t.as_str()) == Some("object")
-            || map.contains_key("properties");
-        if is_object {
-            assert_eq!(
-                map.get("additionalProperties"),
-                Some(&serde_json::Value::Bool(false)),
-                "{path}: missing additionalProperties: false"
-            );
-            if let Some(properties) = map.get("properties").and_then(|p| p.as_object()) {
-                let required = map
-                    .get("required")
-                    .and_then(|r| r.as_array())
-                    .unwrap_or_else(|| panic!("{path}: missing required"));
-                for name in properties.keys() {
-                    assert!(
-                        required.contains(&serde_json::Value::String(name.clone())),
-                        "{path}: property {name} not in required"
-                    );
-                }
-            }
-        }
-        for (key, child) in map {
-            check_strict(child, &format!("{path}.{key}"));
-        }
-    }
     check_strict(&schema, "$");
 
     // The decode semantics are unchanged: an Option property is nullable AND
@@ -317,4 +288,67 @@ fn schedule_schema_is_strict_structured_outputs_compatible() {
         row["properties"]["shooting_day_label"]["type"],
         serde_json::json!(["string", "null"])
     );
+}
+
+/// Strict Structured Outputs contract for the SCRIPT-extraction path (issue
+/// #726): `chat_constrained` sends `ScriptContextSchema` under the same
+/// `strict: true` response format as the schedule path, so the generated
+/// schema — and every nested definition — must pass through the same
+/// `strict_schema` post-processing.
+#[test]
+fn script_schema_is_strict_structured_outputs_compatible() {
+    let schema = super::strict_schema::<super::ScriptContextSchema>();
+
+    check_strict(&schema, "$");
+
+    // Optional (`Option`) mirrors must stay representable as `null` now that
+    // they are required — requiring a non-nullable field would change the
+    // decode semantics instead of only the wire shape.
+    let scene = &schema["$defs"]["DraftSceneSchema"];
+    assert!(
+        scene["required"]
+            .as_array()
+            .unwrap()
+            .contains(&serde_json::Value::String("mood".into()))
+    );
+    assert_eq!(
+        scene["properties"]["mood"]["type"],
+        serde_json::json!(["string", "null"])
+    );
+    let root = &schema["properties"]["title"];
+    assert_eq!(root["type"], serde_json::json!(["string", "null"]));
+}
+
+/// Recursively assert the two strict Structured Outputs invariants
+/// (`additionalProperties: false` + every property in `required`) on every
+/// object schema in the tree. Shared by the schedule and script contract
+/// tests.
+fn check_strict(value: &serde_json::Value, path: &str) {
+    let serde_json::Value::Object(map) = value else {
+        return;
+    };
+    let is_object = map.get("type").and_then(|t| t.as_str()) == Some("object")
+        || map.contains_key("properties");
+    if is_object {
+        assert_eq!(
+            map.get("additionalProperties"),
+            Some(&serde_json::Value::Bool(false)),
+            "{path}: missing additionalProperties: false"
+        );
+        if let Some(properties) = map.get("properties").and_then(|p| p.as_object()) {
+            let required = map
+                .get("required")
+                .and_then(|r| r.as_array())
+                .unwrap_or_else(|| panic!("{path}: missing required"));
+            for name in properties.keys() {
+                assert!(
+                    required.contains(&serde_json::Value::String(name.clone())),
+                    "{path}: property {name} not in required"
+                );
+            }
+        }
+    }
+    for (key, child) in map {
+        check_strict(child, &format!("{path}.{key}"));
+    }
 }

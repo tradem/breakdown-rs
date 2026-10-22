@@ -145,10 +145,15 @@ impl OpenAiCompatibleChatClient {
         &self,
         req: &LlmChatRequest,
     ) -> Result<LlmCallOutcome<ScriptContext>, DomainError> {
-        let schema = req
-            .response_schema
-            .clone()
-            .unwrap_or_else(|| schemars::schema_for!(ScriptContextSchema).to_value());
+        // Strict Structured Outputs (issue #726): the script path sends the
+        // same `strict: true` response format as the schedule path, so its
+        // schema must pass through the same post-processing — including a
+        // caller-supplied `response_schema`, which is equally
+        // schemars-shaped today and must not bypass the guarantee.
+        let schema = match req.response_schema.clone() {
+            Some(schema) => strict_compatible(schema),
+            None => strict_schema::<ScriptContextSchema>(),
+        };
         self.request_decoded(req, schema, "ScriptContext").await
     }
 
@@ -280,7 +285,7 @@ impl LlmClient for OpenAiCompatibleChatClient {
                 "LLM request provider does not match configured client",
             ));
         }
-        let schema = strict_compatible(schemars::schema_for!(ShootingScheduleSchema).to_value());
+        let schema = strict_schema::<ShootingScheduleSchema>();
         let decoded = self
             .request_decoded::<ShootingScheduleSchema>(&req, schema, "ShootingSchedule")
             .await?;
@@ -349,6 +354,16 @@ fn strict_compatible(mut schema: serde_json::Value) -> serde_json::Value {
     }
     walk(&mut schema);
     schema
+}
+
+/// Shared schema-preparation helper (issue #726): derive the JSON schema for
+/// `T` and run it through [`strict_compatible`], so every extraction path —
+/// script (`ScriptContextSchema`) and schedule (`ShootingScheduleSchema`) —
+/// sends a strict Structured Outputs-compatible schema and any future schema
+/// inherits the guarantee by construction instead of remembering to call
+/// [`strict_compatible`] at each new call site.
+fn strict_schema<T: schemars::JsonSchema>() -> serde_json::Value {
+    strict_compatible(schemars::schema_for!(T).to_value())
 }
 
 /// Provider-facing mirror of [`breakdown_core::ai::ShootingSchedule`] for the
