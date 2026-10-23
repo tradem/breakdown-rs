@@ -59,6 +59,19 @@ class AiConfigRepository extends BaseRepository {
     dtoInvalidCode: 'ai_config.dto_invalid',
   );
 
+  /// `GET /v1/ai-import/providers/{provider}/decision-models` — the
+  /// per-provider curated DECISION model catalog (issue #731). Deliberately
+  /// a separate route from [listModels]: the assistant/extraction catalog
+  /// and the decision (scoring) catalog are distinct server-side sets (e.g.
+  /// `clef-flash`/`clef` for neuralwatt). A 422 (unknown provider) surfaces
+  /// as `Err` — the same "provider unavailable" degradation as the
+  /// assistant picker.
+  Future<Result<List<ModelInfo>>> listDecisionModels(String providerKey) =>
+      runList(
+        () => api.getHandlersApi().listAiDecisionModels(provider: providerKey),
+        dtoInvalidCode: 'ai_config.dto_invalid',
+      );
+
   /// `GET /v1/ai-import/defaults` — the deployment's single-source prompt
   /// defaults (`{ script, schedule }`) read server-side from
   /// `AI_IMPORT_DEFAULT_PROMPTS_PATH` or the built-in fallback (issue #471).
