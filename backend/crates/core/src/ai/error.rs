@@ -18,6 +18,21 @@ pub enum AiConfigError {
     EmptyVaultKey,
     #[error("AI provider cannot change for an existing configuration")]
     ProviderMismatch,
+    /// Decision Model configuration (issue #722): the configured provider
+    /// does not natively host decision models (only Neuralwatt, EURouter and
+    /// OpenRouter are curated).
+    #[error("provider does not host decision models")]
+    DecisionProviderUnsupported,
+    /// A decision model or vault key was set without a decision provider.
+    #[error("decision model requires a decision provider")]
+    DecisionProviderRequired,
+    #[error("decision model must not be empty")]
+    EmptyDecisionModel,
+    /// The decision model is not in the provider's curated catalog.
+    #[error("decision model is not curated for the provider")]
+    DecisionModelUnknown,
+    #[error("decision vault key reference must not be empty")]
+    EmptyDecisionVaultKey,
     #[error("AI configuration not found")]
     NotFound,
     #[error("AI configuration is already revoked")]

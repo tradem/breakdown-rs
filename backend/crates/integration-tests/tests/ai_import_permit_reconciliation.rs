@@ -194,6 +194,7 @@ fn schedule_worker(
         prompt: "unused".to_owned(),
         bounds: AiImportBounds::default(),
         pricing: None,
+        decision: None,
     }
 }
 

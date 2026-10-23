@@ -238,6 +238,7 @@ fn script_worker(
         prompt: "fixture prompt".to_owned(),
         bounds: AiImportBounds::default(),
         pricing: None,
+        decision: None,
     }
 }
 
@@ -254,6 +255,7 @@ fn schedule_worker(
         prompt: "fixture prompt".to_owned(),
         bounds: AiImportBounds::default(),
         pricing: None,
+        decision: None,
     }
 }
 

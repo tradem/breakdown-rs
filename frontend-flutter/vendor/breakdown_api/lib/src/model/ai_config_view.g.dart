@@ -12,6 +12,12 @@ class _$AiConfigView extends AiConfigView {
   @override
   final CostDisplayPreference? costDisplayPreference;
   @override
+  final String? decisionModel;
+  @override
+  final LlmProvider? decisionProvider;
+  @override
+  final String? decisionVaultKeyId;
+  @override
   final String id;
   @override
   final String? imageModel;
@@ -38,6 +44,9 @@ class _$AiConfigView extends AiConfigView {
   _$AiConfigView._(
       {required this.assistantModel,
       this.costDisplayPreference,
+      this.decisionModel,
+      this.decisionProvider,
+      this.decisionVaultKeyId,
       required this.id,
       this.imageModel,
       required this.promptKinds,
@@ -62,6 +71,9 @@ class _$AiConfigView extends AiConfigView {
     return other is AiConfigView &&
         assistantModel == other.assistantModel &&
         costDisplayPreference == other.costDisplayPreference &&
+        decisionModel == other.decisionModel &&
+        decisionProvider == other.decisionProvider &&
+        decisionVaultKeyId == other.decisionVaultKeyId &&
         id == other.id &&
         imageModel == other.imageModel &&
         promptKinds == other.promptKinds &&
@@ -79,6 +91,9 @@ class _$AiConfigView extends AiConfigView {
     var _$hash = 0;
     _$hash = $jc(_$hash, assistantModel.hashCode);
     _$hash = $jc(_$hash, costDisplayPreference.hashCode);
+    _$hash = $jc(_$hash, decisionModel.hashCode);
+    _$hash = $jc(_$hash, decisionProvider.hashCode);
+    _$hash = $jc(_$hash, decisionVaultKeyId.hashCode);
     _$hash = $jc(_$hash, id.hashCode);
     _$hash = $jc(_$hash, imageModel.hashCode);
     _$hash = $jc(_$hash, promptKinds.hashCode);
@@ -98,6 +113,9 @@ class _$AiConfigView extends AiConfigView {
     return (newBuiltValueToStringHelper(r'AiConfigView')
           ..add('assistantModel', assistantModel)
           ..add('costDisplayPreference', costDisplayPreference)
+          ..add('decisionModel', decisionModel)
+          ..add('decisionProvider', decisionProvider)
+          ..add('decisionVaultKeyId', decisionVaultKeyId)
           ..add('id', id)
           ..add('imageModel', imageModel)
           ..add('promptKinds', promptKinds)
@@ -126,6 +144,21 @@ class AiConfigViewBuilder
       _$this._costDisplayPreference;
   set costDisplayPreference(CostDisplayPreference? costDisplayPreference) =>
       _$this._costDisplayPreference = costDisplayPreference;
+
+  String? _decisionModel;
+  String? get decisionModel => _$this._decisionModel;
+  set decisionModel(String? decisionModel) =>
+      _$this._decisionModel = decisionModel;
+
+  LlmProvider? _decisionProvider;
+  LlmProvider? get decisionProvider => _$this._decisionProvider;
+  set decisionProvider(LlmProvider? decisionProvider) =>
+      _$this._decisionProvider = decisionProvider;
+
+  String? _decisionVaultKeyId;
+  String? get decisionVaultKeyId => _$this._decisionVaultKeyId;
+  set decisionVaultKeyId(String? decisionVaultKeyId) =>
+      _$this._decisionVaultKeyId = decisionVaultKeyId;
 
   String? _id;
   String? get id => _$this._id;
@@ -181,6 +214,9 @@ class AiConfigViewBuilder
     if ($v != null) {
       _assistantModel = $v.assistantModel;
       _costDisplayPreference = $v.costDisplayPreference;
+      _decisionModel = $v.decisionModel;
+      _decisionProvider = $v.decisionProvider;
+      _decisionVaultKeyId = $v.decisionVaultKeyId;
       _id = $v.id;
       _imageModel = $v.imageModel;
       _promptKinds = $v.promptKinds.toBuilder();
@@ -217,6 +253,9 @@ class AiConfigViewBuilder
             assistantModel: BuiltValueNullFieldError.checkNotNull(
                 assistantModel, r'AiConfigView', 'assistantModel'),
             costDisplayPreference: costDisplayPreference,
+            decisionModel: decisionModel,
+            decisionProvider: decisionProvider,
+            decisionVaultKeyId: decisionVaultKeyId,
             id: BuiltValueNullFieldError.checkNotNull(
                 id, r'AiConfigView', 'id'),
             imageModel: imageModel,

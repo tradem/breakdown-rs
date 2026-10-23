@@ -21,7 +21,8 @@ use crate::shared::{AggregateVersion, BlockId, EpisodeId, ProjectId};
 /// A bounded section of extracted script text beginning at an INT./EXT.
 /// heading. The chunker retains the heading and body so the LLM receives
 /// enough local context without requiring infrastructure dependencies.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+// `PartialEq` only: `shooting_day` carries the `f32` day score (issue #722).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct SceneChunk {
     pub index: usize,
     pub heading: String,
@@ -108,8 +109,9 @@ impl DraftEpisode {
 /// index (`Tag 1`, `1. Spieltag` — the 294.pdf SCRIPT-REPORT format). Metadata
 /// only: it groups preview rows for the reviewer and names the day an apply
 /// may create; it never resolves an aggregate id (that is the reviewer's
-/// per-group decision).
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+/// per-group decision). `PartialEq` only: the `score` field (issue #722) is
+/// an `f32` and cannot derive `Eq`.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct DraftShootingDay {
     /// The day number the marker carried, e.g. `1` for `Tag 1` — the
     /// normalized identity that groups scenes filmed on the same day
@@ -118,6 +120,12 @@ pub struct DraftShootingDay {
     /// The marker's verbatim text (or, for the LLM fallback, the model's
     /// `script_day` as written) — display-only. First occurrence wins.
     pub label: Option<String>,
+    /// Hybrid quality score of the day group's day assignment (issue #722),
+    /// set by the extraction worker's best-effort decision pass and shared
+    /// by every row of the group. `None` without a decision model / failed
+    /// pass. Additive on the wire.
+    #[serde(default)]
+    pub score: Option<f32>,
 }
 
 impl DraftShootingDay {
@@ -175,6 +183,7 @@ pub fn parse_script_day(label: &str) -> Option<DraftShootingDay> {
     Some(DraftShootingDay {
         number: None,
         label: Some(label.to_owned()),
+        score: None,
     })
 }
 
@@ -240,6 +249,7 @@ fn day_marker(line: &str) -> Option<DraftShootingDay> {
                 return Some(DraftShootingDay {
                     number: Some(day),
                     label: Some(format!("{day}. {display}")),
+                    score: None,
                 });
             }
             // `Spieltag 1` — digits after the word.
@@ -247,6 +257,7 @@ fn day_marker(line: &str) -> Option<DraftShootingDay> {
                 return Some(DraftShootingDay {
                     number: Some(day),
                     label: Some(format!("{display} {day}")),
+                    score: None,
                 });
             }
         }
@@ -263,6 +274,7 @@ fn day_marker(line: &str) -> Option<DraftShootingDay> {
             if let Some(day) = digits_after(&chars, found + kw_len) {
                 return Some(DraftShootingDay {
                     number: Some(day),
+                    score: None,
                     label: Some(if bare == "day" {
                         format!("Day {day}")
                     } else {
@@ -609,6 +621,22 @@ pub struct DraftScene {
     /// into this field only when the scan found no marker for the chunk.
     #[serde(default)]
     pub shooting_day: Option<DraftShootingDay>,
+    /// Hybrid quality score of the extracted scene (issue #722),
+    /// `0.0..=1.0` — calibrated Decision Model probabilities blended with
+    /// deterministic grounding signals. `None` when no decision model is
+    /// configured or the best-effort scoring pass failed (honest
+    /// degradation, never a fabricated value). Additive on the wire.
+    #[serde(default)]
+    pub scene_score: Option<f32>,
+    /// Hybrid quality score of the TL;DR `summary` (issue #722). `Some(0.0)`
+    /// when `sanitize_meta_summary` had to rewrite the summary; `None` when
+    /// the row has no summary (outline-only block) or no scoring pass ran.
+    #[serde(default)]
+    pub synopsis_score: Option<f32>,
+    /// Structured rubric sub-scores (issue #722) — the reward-signal
+    /// foundation for the `0.5.x` automatic prompt optimization loop.
+    #[serde(default)]
+    pub scoring: Option<super::decision::DecisionRubric>,
 }
 
 /// A dropped costume and why it was dropped, surfaced as an `Uncertainty` so
@@ -944,6 +972,11 @@ pub struct ShootingScheduleRow {
     pub date: Option<NaiveDate>,
     pub location: Option<String>,
     pub order: Option<u32>,
+    /// Hybrid quality score of this row's day assignment (issue #722),
+    /// aggregated per `DraftShootingDay` group on the script path. `None`
+    /// without a decision model / failed pass. Additive on the wire.
+    #[serde(default)]
+    pub shooting_day_score: Option<f32>,
 }
 
 /// The lossless `(episode_number, scene_number)` split of one schedule scene
@@ -1144,12 +1177,17 @@ pub struct ShootingDayPlan {
 /// unscheduled (never invented). `label` is the group's display label
 /// ([`DraftShootingDay::display_label`]) — the verbatim first occurrence —
 /// carried so the worker never re-derives it from the preview.
-#[derive(Debug, Clone, PartialEq, Eq)]
+// `PartialEq` only: `Group.score` is an `f32` (issue #722).
+#[derive(Debug, Clone, PartialEq)]
 pub enum PlannedShootingDay {
     None,
     Group {
         day_ref: String,
         label: Option<String>,
+        /// The accepted group's hybrid day score (issue #722); threaded into
+        /// `ShootingDaySource::AiExtracted.confidence` on apply. `None` stays
+        /// honest `None` on the aggregate.
+        score: Option<f32>,
     },
 }
 
@@ -1227,6 +1265,9 @@ pub struct SceneApplyPlan {
     /// The shooting-day assignment resolved from the request's day decisions
     /// (issue #706). `None` rows apply unscheduled.
     pub shooting_day: PlannedShootingDay,
+    /// The row's hybrid scene score (issue #722), threaded into
+    /// `SceneSource::AiExtracted.confidence` on a `Create` dispatch.
+    pub confidence: Option<f32>,
     pub scene: SceneApplyCommand,
     pub characters: Vec<CharacterApplyPlan>,
     pub costumes: Vec<CostumeApplyPlan>,
@@ -1522,6 +1563,7 @@ pub fn plan_scene_apply(
                             .shooting_day
                             .as_ref()
                             .and_then(DraftShootingDay::display_label),
+                        score: draft.shooting_day.as_ref().and_then(|day| day.score),
                     })
                 } else {
                     Ok(PlannedShootingDay::None)
@@ -1631,6 +1673,10 @@ pub fn plan_scene_apply(
             draft_ref,
             episode,
             shooting_day,
+            // Issue #722: the row's hybrid scene score becomes the applied
+            // scene's `SceneSource::AiExtracted.confidence` — `None` stays
+            // honest `None` (no decision model / failed scoring pass).
+            confidence: draft.scene_score,
             scene,
             characters,
             costumes,

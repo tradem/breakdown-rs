@@ -72,6 +72,7 @@ pub fn parse_schedule_csv(bytes: &[u8]) -> Result<ShootingSchedule, DomainError>
             })
             .transpose()?;
         rows.push(ShootingScheduleRow {
+            shooting_day_score: None,
             row_ref: format!("csv-{index}"),
             scene_number,
             episode_number,

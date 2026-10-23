@@ -38,6 +38,21 @@ problem-ai-config-forbidden =
 problem-ai-config-vault-key-forbidden =
     Die referenzierte Berechtigung gehört nicht zu Ihnen.
 
+problem-ai-config-decision-provider-unsupported =
+    Dieser Anbieter stellt keine Entscheidungsmodelle bereit.
+
+problem-ai-config-decision-incomplete =
+    Die Entscheidungsmodell-Konfiguration ist unvollständig — Anbieter, Modell und Berechtigung müssen gemeinsam gesetzt werden.
+
+problem-ai-config-decision-model-empty =
+    Das Entscheidungsmodell darf nicht leer sein.
+
+problem-ai-config-decision-model-unknown =
+    Das Entscheidungsmodell ist für diesen Anbieter nicht freigegeben.
+
+problem-ai-config-decision-vault-key-empty =
+    Die Berechtigungsreferenz des Entscheidungsmodells darf nicht leer sein.
+
 problem-ai-import-disabled =
     Der KI-Import ist auf dieser Instanz nicht aktiviert.
 

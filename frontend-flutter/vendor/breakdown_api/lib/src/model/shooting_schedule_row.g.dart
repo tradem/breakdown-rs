@@ -21,6 +21,8 @@ class _$ShootingScheduleRow extends ShootingScheduleRow {
   final int? sceneNumber;
   @override
   final String? shootingDayLabel;
+  @override
+  final double? shootingDayScore;
 
   factory _$ShootingScheduleRow(
           [void Function(ShootingScheduleRowBuilder)? updates]) =>
@@ -33,7 +35,8 @@ class _$ShootingScheduleRow extends ShootingScheduleRow {
       this.order,
       required this.rowRef,
       this.sceneNumber,
-      this.shootingDayLabel})
+      this.shootingDayLabel,
+      this.shootingDayScore})
       : super._();
   @override
   ShootingScheduleRow rebuild(
@@ -54,7 +57,8 @@ class _$ShootingScheduleRow extends ShootingScheduleRow {
         order == other.order &&
         rowRef == other.rowRef &&
         sceneNumber == other.sceneNumber &&
-        shootingDayLabel == other.shootingDayLabel;
+        shootingDayLabel == other.shootingDayLabel &&
+        shootingDayScore == other.shootingDayScore;
   }
 
   @override
@@ -67,6 +71,7 @@ class _$ShootingScheduleRow extends ShootingScheduleRow {
     _$hash = $jc(_$hash, rowRef.hashCode);
     _$hash = $jc(_$hash, sceneNumber.hashCode);
     _$hash = $jc(_$hash, shootingDayLabel.hashCode);
+    _$hash = $jc(_$hash, shootingDayScore.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
   }
@@ -80,7 +85,8 @@ class _$ShootingScheduleRow extends ShootingScheduleRow {
           ..add('order', order)
           ..add('rowRef', rowRef)
           ..add('sceneNumber', sceneNumber)
-          ..add('shootingDayLabel', shootingDayLabel))
+          ..add('shootingDayLabel', shootingDayLabel)
+          ..add('shootingDayScore', shootingDayScore))
         .toString();
   }
 }
@@ -119,6 +125,11 @@ class ShootingScheduleRowBuilder
   set shootingDayLabel(String? shootingDayLabel) =>
       _$this._shootingDayLabel = shootingDayLabel;
 
+  double? _shootingDayScore;
+  double? get shootingDayScore => _$this._shootingDayScore;
+  set shootingDayScore(double? shootingDayScore) =>
+      _$this._shootingDayScore = shootingDayScore;
+
   ShootingScheduleRowBuilder() {
     ShootingScheduleRow._defaults(this);
   }
@@ -133,6 +144,7 @@ class ShootingScheduleRowBuilder
       _rowRef = $v.rowRef;
       _sceneNumber = $v.sceneNumber;
       _shootingDayLabel = $v.shootingDayLabel;
+      _shootingDayScore = $v.shootingDayScore;
       _$v = null;
     }
     return this;
@@ -162,6 +174,7 @@ class ShootingScheduleRowBuilder
               rowRef, r'ShootingScheduleRow', 'rowRef'),
           sceneNumber: sceneNumber,
           shootingDayLabel: shootingDayLabel,
+          shootingDayScore: shootingDayScore,
         );
     replace(_$result);
     return _$result;

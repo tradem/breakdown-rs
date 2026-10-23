@@ -275,6 +275,7 @@ async fn script_worker_returns_false_when_no_jobs() {
         prompt: "test".into(),
         bounds: AiImportBounds::default(),
         pricing: None,
+        decision: None,
     };
 
     let result = worker
@@ -305,6 +306,7 @@ async fn schedule_worker_returns_false_when_no_jobs() {
         prompt: "test".into(),
         bounds: AiImportBounds::default(),
         pricing: None,
+        decision: None,
     };
 
     let result = worker
@@ -336,6 +338,7 @@ async fn script_worker_skips_wrong_kind() {
         prompt: "test".into(),
         bounds: AiImportBounds::default(),
         pricing: None,
+        decision: None,
     };
 
     let result = worker
@@ -390,6 +393,7 @@ async fn start_heartbeat_returns_none_without_lease() {
         prompt: "test".into(),
         bounds: AiImportBounds::default(),
         pricing: None,
+        decision: None,
     };
 
     let heartbeat = worker.start_heartbeat(AiImportJobId::new(), "worker-1");
@@ -415,6 +419,7 @@ async fn start_heartbeat_returns_some_with_lease() {
         prompt: "test".into(),
         bounds: AiImportBounds::default(),
         pricing: None,
+        decision: None,
     };
 
     let heartbeat = worker.start_heartbeat(AiImportJobId::new(), "worker-1");
@@ -499,6 +504,7 @@ fn script_worker<C: LlmClient + 'static>(
         prompt: "test".into(),
         bounds: AiImportBounds::default(),
         pricing: None,
+        decision: None,
     }
 }
 
@@ -584,6 +590,7 @@ async fn schedule_worker_publishes_extraction_and_storing_progress() {
         prompt: "test".into(),
         bounds: AiImportBounds::default(),
         pricing: None,
+        decision: None,
     };
     // The mock source returns plain text; the job fixture is CSV, so the
     // worker parses it natively (see MockSource/MockQueue fixtures).

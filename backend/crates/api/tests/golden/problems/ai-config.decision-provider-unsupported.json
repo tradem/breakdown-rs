@@ -1,0 +1,7 @@
+{
+  "code": "ai-config.decision-provider-unsupported",
+  "detail": "Dieser Anbieter stellt keine Entscheidungsmodelle bereit.",
+  "status": 422,
+  "title": "Provider does not host decision models",
+  "type": "https://docs.breakdown.example/problems/ai-config.decision-provider-unsupported"
+}

@@ -49,7 +49,8 @@ use super::preview_store::AiPreviewStore;
 use super::queue::PgAiImportQueue;
 use super::runtime::AiWorkerRuntime;
 use super::workers::{ScheduleImportWorker, ScriptImportWorker};
-use crate::queries::ai_config::{AiConfigRepositoryImpl, AiWorkerConfig};
+use crate::ai::{DecisionPass, HttpDecisionClient};
+use crate::queries::ai_config::{AiConfigRepositoryImpl, AiWorkerConfig, AiWorkerDecisionConfig};
 
 /// How long a worker sleeps when the queue is empty before polling again.
 /// Bounded so a worker notices a shutdown signal within one interval.
@@ -197,6 +198,16 @@ async fn fetch_api_key(
     credentials: &dyn CredentialVault,
     config: &AiWorkerConfig,
 ) -> Result<String, DomainError> {
+    fetch_credential(credentials, &config.vault_key_id).await
+}
+
+/// Fetch a vaulted API credential by binding key (issue #722: shared by the
+/// extraction key and the optional Decision Model key, which may be the same
+/// binding (same-key reuse) or a distinct owned credential (split billing)).
+async fn fetch_credential(
+    credentials: &dyn CredentialVault,
+    vault_key_id: &str,
+) -> Result<String, DomainError> {
     // The binding key names the SETTINGS credential that owns the secret (the
     // provider key is stored there, ADR-027) — `config.config_id` is the AI
     // configuration aggregate, an unrelated id. Passing the config id made
@@ -206,10 +217,51 @@ async fn fetch_api_key(
     // `ServiceUnavailable`, i.e. retryable, so it burned the whole retry
     // budget before dead-lettering). Recover the owner from the key itself; a
     // malformed reference fails closed rather than guessing an owner.
-    let owner = settings_id_from_binding_key(&config.vault_key_id)
+    let owner = settings_id_from_binding_key(vault_key_id)
         .ok_or_else(|| DomainError::validation("AI config vault key reference is malformed"))?;
-    let secret = credentials.fetch(owner, &config.vault_key_id).await?;
+    let secret = credentials.fetch(owner, vault_key_id).await?;
     Ok(secret.as_str().to_owned())
+}
+
+/// Build the optional Decision Model scoring client for one job (issue #722).
+///
+/// **Best-effort by contract:** a credential-fetch or transport-build failure
+/// logs a warning and returns `None` — the job runs WITHOUT scoring (every
+/// score degrades honestly to `None`) instead of failing. Only the
+/// extraction path itself may fail a job; a scoring outage may not.
+async fn build_decision_client(
+    credentials: &dyn CredentialVault,
+    decision: &AiWorkerDecisionConfig,
+    timeout: Duration,
+) -> Option<Arc<DecisionPass>> {
+    let api_key = match fetch_credential(credentials, &decision.vault_key_id).await {
+        Ok(key) => key,
+        Err(error) => {
+            warn!(
+                provider = decision.provider.as_str(),
+                model = %decision.model,
+                %error,
+                "failed to fetch the decision credential; disabling the scoring pass for this job (non-fatal)"
+            );
+            return None;
+        }
+    };
+    match HttpDecisionClient::new(decision.provider, api_key, timeout).await {
+        Ok(client) => Some(Arc::new(DecisionPass {
+            client: Arc::new(client),
+            provider: decision.provider,
+            model: decision.model.clone(),
+        })),
+        Err(error) => {
+            warn!(
+                provider = decision.provider.as_str(),
+                model = %decision.model,
+                %error,
+                "failed to build the decision client; disabling the scoring pass for this job (non-fatal)"
+            );
+            None
+        }
+    }
 }
 
 /// One script-worker poll: claim → load → resolve config → process under permit.
@@ -337,6 +389,21 @@ async fn script_worker_tick(
         },
     };
 
+    // Optional Decision Model scoring client (issue #722): built best-effort
+    // BEFORE the extraction client so a decision outage only disables
+    // scoring, never the job.
+    let decision_pass = match config.decision.as_ref() {
+        Some(decision) => {
+            build_decision_client(
+                deps.credentials.as_ref(),
+                decision,
+                Duration::from_secs(deps.bounds.request_timeout_secs),
+            )
+            .await
+        }
+        None => None,
+    };
+
     // Route the already-claimed job through the runtime so the permit
     // lifecycle and the AiJobGuard (tracked for drain) are managed in one
     // place. `Ok(None)` means the ceiling is saturated — hand the claim back
@@ -378,6 +445,10 @@ async fn script_worker_tick(
                 prompt: config.prompt,
                 bounds: deps.bounds,
                 pricing: deps.pricing.clone(),
+                // The Decision Model is independent of the extraction
+                // provider (issue #722): an Ollama extraction with a hosted
+                // decision model must score like any other combination.
+                decision: decision_pass.clone(),
             };
             deps.runtime
                 .run_job_as(user_id.as_str(), worker_id, || {
@@ -426,6 +497,7 @@ async fn script_worker_tick(
                 prompt: config.prompt,
                 bounds: deps.bounds,
                 pricing: deps.pricing.clone(),
+                decision: decision_pass.clone(),
             };
             deps.runtime
                 .run_job_as(user_id.as_str(), worker_id, || {
@@ -557,6 +629,20 @@ async fn schedule_worker_tick(
         },
     };
 
+    // Optional Decision Model scoring client (issue #722) — best-effort,
+    // exactly like the script tick.
+    let decision_pass = match config.decision.as_ref() {
+        Some(decision) => {
+            build_decision_client(
+                deps.credentials.as_ref(),
+                decision,
+                Duration::from_secs(deps.bounds.request_timeout_secs),
+            )
+            .await
+        }
+        None => None,
+    };
+
     let result = match config.provider {
         LlmProvider::Ollama => {
             let client =
@@ -594,6 +680,7 @@ async fn schedule_worker_tick(
                 prompt: config.prompt,
                 bounds: deps.bounds,
                 pricing: deps.pricing.clone(),
+                decision: decision_pass.clone(),
             };
             deps.runtime
                 .run_job_as(user_id.as_str(), worker_id, || {
@@ -642,6 +729,7 @@ async fn schedule_worker_tick(
                 prompt: config.prompt,
                 bounds: deps.bounds,
                 pricing: deps.pricing.clone(),
+                decision: decision_pass.clone(),
             };
             deps.runtime
                 .run_job_as(user_id.as_str(), worker_id, || {

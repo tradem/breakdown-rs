@@ -101,6 +101,17 @@ where
                                 label: row.shooting_day_label.clone(),
                                 date: row.date,
                                 project_id: request.project_id,
+                                // Issue #722: the day group's hybrid score,
+                                // aggregated from the group's schedule rows
+                                // (first non-None wins; the worker scores a
+                                // whole day group with one value).
+                                confidence: merged
+                                    .schedule_rows
+                                    .iter()
+                                    .filter(|group_row| {
+                                        group_row.shooting_day_label == row.shooting_day_label
+                                    })
+                                    .find_map(|group_row| group_row.shooting_day_score),
                             },
                         )
                         .await?;
@@ -356,10 +367,11 @@ where
                         source: ShootingDaySource::AiExtracted {
                             document_id: draft.preview_id.as_uuid(),
                             external_ref: Some(draft.draft_ref),
-                            // Honest provenance (issue #517): the preview
-                            // carries no model confidence, so record `None`
-                            // instead of the hard-coded `1.0`.
-                            confidence: None,
+                            // Honest provenance (issue #517): `None` when no
+                            // decision model produced a score (issue #722
+                            // wires the hybrid day score in; the None
+                            // fallback is unchanged).
+                            confidence: draft.confidence,
                         },
                     },
                 )
@@ -469,6 +481,10 @@ pub(crate) struct DayDraft {
     pub label: Option<String>,
     pub date: Option<chrono::NaiveDate>,
     pub project_id: Option<ProjectId>,
+    /// Hybrid day score (issue #722) →
+    /// `ShootingDaySource::AiExtracted.confidence`. `None` stays honest
+    /// `None` (no decision model configured, or the scoring pass failed).
+    pub confidence: Option<f32>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

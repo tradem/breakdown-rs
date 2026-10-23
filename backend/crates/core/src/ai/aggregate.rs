@@ -23,6 +23,7 @@ use super::error::AiConfigError;
 use super::events::AiConfigEvent;
 use super::ports::LlmProvider;
 use super::views::{CostDisplayPreference, DocumentKind};
+use super::{decision, decision::is_decision_capable};
 
 #[derive(Debug, Clone)]
 pub struct AiConfig {
@@ -34,6 +35,11 @@ pub struct AiConfig {
     pub prompts: HashMap<DocumentKind, String>,
     pub vault_key_id: String,
     pub cost_display_preference: CostDisplayPreference,
+    /// Optional Decision Model slot (issue #722): provider + model + vault
+    /// key of the non-autoregressive scoring model. `None` when unset.
+    pub decision_provider: Option<LlmProvider>,
+    pub decision_model: Option<String>,
+    pub decision_vault_key_id: Option<String>,
     pub revoked: bool,
     pub version: AggregateVersion,
 }
@@ -49,6 +55,9 @@ impl Default for AiConfig {
             prompts: HashMap::new(),
             vault_key_id: String::new(),
             cost_display_preference: CostDisplayPreference::default(),
+            decision_provider: None,
+            decision_model: None,
+            decision_vault_key_id: None,
             revoked: false,
             version: AggregateVersion::default(),
         }
@@ -77,6 +86,9 @@ impl Apply for AiConfig {
                 prompts,
                 vault_key_id,
                 cost_display_preference,
+                decision_provider,
+                decision_model,
+                decision_vault_key_id,
                 version,
             } => {
                 self.id = id;
@@ -87,6 +99,9 @@ impl Apply for AiConfig {
                 self.prompts = prompts;
                 self.vault_key_id = vault_key_id;
                 self.cost_display_preference = cost_display_preference;
+                self.decision_provider = decision_provider;
+                self.decision_model = decision_model;
+                self.decision_vault_key_id = decision_vault_key_id;
                 self.revoked = false;
                 self.version = version;
             }
@@ -97,6 +112,9 @@ impl Apply for AiConfig {
                 prompts,
                 vault_key_id,
                 cost_display_preference,
+                decision_provider,
+                decision_model,
+                decision_vault_key_id,
                 version,
                 ..
             } => {
@@ -108,6 +126,13 @@ impl Apply for AiConfig {
                 if let Some(preference) = cost_display_preference {
                     self.cost_display_preference = preference;
                 }
+                // Resolved final value (design D1): the update handler emits
+                // the whole resolved slot, so the projector and replay simply
+                // assign it. Pre-#722 events replay to `None` via
+                // `#[serde(default)]` — the same "no decision model" state.
+                self.decision_provider = decision_provider;
+                self.decision_model = decision_model;
+                self.decision_vault_key_id = decision_vault_key_id;
                 self.revoked = false;
                 self.version = version;
             }
@@ -132,6 +157,13 @@ impl Command<CreateAiConfig> for AiConfig {
             cmd.vault_key_id.as_str(),
             &cmd.prompts,
         )?;
+        validate_decision_config(
+            cmd.decision_provider,
+            cmd.decision_model.as_deref(),
+            cmd.decision_vault_key_id.as_deref(),
+            // Creation always introduces the model → the catalog check runs.
+            false,
+        )?;
         Ok(vec![AiConfigEvent::Created {
             id: cmd.id,
             user_id: cmd.user_id,
@@ -141,6 +173,9 @@ impl Command<CreateAiConfig> for AiConfig {
             prompts: cmd.prompts,
             vault_key_id: cmd.vault_key_id,
             cost_display_preference: cmd.cost_display_preference,
+            decision_provider: cmd.decision_provider,
+            decision_model: cmd.decision_model,
+            decision_vault_key_id: cmd.decision_vault_key_id,
             version: AggregateVersion::INITIAL,
         }])
     }
@@ -176,6 +211,30 @@ impl Command<UpdateAiConfig> for AiConfig {
             cmd.vault_key_id.as_str(),
             &cmd.prompts,
         )?;
+        // Tri-state resolution (see `UpdateAiConfig`): an omitted field keeps
+        // the stored slot value, `Some(None)` clears it. The resolved triple
+        // is validated as a whole, so a partial update cannot leave the
+        // configuration half-set (e.g. a provider without a model).
+        let decision_provider = cmd.decision_provider.unwrap_or(self.decision_provider);
+        let decision_model = cmd
+            .decision_model
+            .unwrap_or_else(|| self.decision_model.clone());
+        let decision_vault_key_id = cmd
+            .decision_vault_key_id
+            .unwrap_or_else(|| self.decision_vault_key_id.clone());
+        // Catalog-rotation safety (issue #722 review): the curated check
+        // runs only when the update CHANGES the model. A rotation that
+        // removes a stored model must not brick unrelated updates
+        // (prompt-only edits included) — the worker accepts any non-empty
+        // model string of a configured decision provider.
+        let model_unchanged = self.decision_provider == decision_provider
+            && self.decision_model.as_deref() == decision_model.as_deref();
+        validate_decision_config(
+            decision_provider,
+            decision_model.as_deref(),
+            decision_vault_key_id.as_deref(),
+            model_unchanged,
+        )?;
         Ok(vec![AiConfigEvent::Updated {
             id: self.id,
             provider: cmd.provider,
@@ -184,6 +243,9 @@ impl Command<UpdateAiConfig> for AiConfig {
             prompts: cmd.prompts,
             vault_key_id: cmd.vault_key_id,
             cost_display_preference: cmd.cost_display_preference,
+            decision_provider,
+            decision_model,
+            decision_vault_key_id,
             version: self.version.next(),
         }])
     }
@@ -229,6 +291,38 @@ fn validate_fields(
     }
     if prompts.values().any(|prompt| prompt.trim().is_empty()) {
         return Err(AiConfigError::EmptyPrompt);
+    }
+    Ok(())
+}
+
+/// Validate the optional Decision Model slot as a whole (issue #722): either
+/// every field is unset, or a decision-capable provider, a non-empty curated
+/// model ID and a non-empty vault key reference are all present.
+fn validate_decision_config(
+    provider: Option<LlmProvider>,
+    model: Option<&str>,
+    vault_key_id: Option<&str>,
+    model_unchanged: bool,
+) -> Result<(), AiConfigError> {
+    let (Some(provider), Some(model), Some(vault_key_id)) = (provider, model, vault_key_id) else {
+        // Partially set is always invalid — including a provider without a
+        // model/key: the worker could not build a scoring client.
+        if provider.is_some() || model.is_some() || vault_key_id.is_some() {
+            return Err(AiConfigError::DecisionProviderRequired);
+        }
+        return Ok(());
+    };
+    if !is_decision_capable(provider) {
+        return Err(AiConfigError::DecisionProviderUnsupported);
+    }
+    if model.trim().is_empty() {
+        return Err(AiConfigError::EmptyDecisionModel);
+    }
+    if !model_unchanged && !decision::is_curated_decision_model(provider, model) {
+        return Err(AiConfigError::DecisionModelUnknown);
+    }
+    if vault_key_id.trim().is_empty() {
+        return Err(AiConfigError::EmptyDecisionVaultKey);
     }
     Ok(())
 }

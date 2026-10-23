@@ -192,6 +192,22 @@ components:
             Preferred primary cost display metric (issue #675). Additive with
             `serde(default)`: views serialized before the field existed
             deserialize as `Token`.
+        decision_model:
+          type:
+          - string
+          - 'null'
+        decision_provider:
+          oneOf:
+          - $ref: '#/components/schemas/LlmProvider'
+            description: |-
+              Optional Decision Model configuration (issue #722). Additive with
+              `serde(default)`: views serialized before the fields existed
+              deserialize with no decision model configured.
+          - type: 'null'
+        decision_vault_key_id:
+          type:
+          - string
+          - 'null'
         id:
           format: uuid
           type: string
@@ -1348,6 +1364,23 @@ components:
           description: |-
             Preferred primary cost display metric (issue #675). Defaults to
             `token` for clients predating the field.
+        decision_model:
+          type:
+          - string
+          - 'null'
+        decision_provider:
+          oneOf:
+          - $ref: '#/components/schemas/LlmProvider'
+            description: |-
+              Optional Decision Model slot (issue #722). `decision_vault_key_id` MAY
+              equal `vault_key_id` when `decision_provider == provider` (same-key
+              reuse) or reference a distinct active credential of the decision
+              provider owned by the caller (split billing).
+          - type: 'null'
+        decision_vault_key_id:
+          type:
+          - string
+          - 'null'
         image_model:
           type:
           - string
@@ -1593,6 +1626,45 @@ components:
       - first_seen_at
       - last_seen_at
       type: object
+    DecisionRubric:
+      description: |-
+        Structured rubric sub-scores persisted on the preview payload (issue
+        #722: "persist structured rubric sub-scores … to prepare the 0.5.x
+        automatic prompt optimization loop"). Additive with `serde(default)` so
+        previews stored before this field existed still deserialize.
+      properties:
+        decision_model:
+          description: Decision model that produced the sub-scores.
+          type:
+          - string
+          - 'null'
+        decision_provider:
+          oneOf:
+          - $ref: '#/components/schemas/LlmProvider'
+            description: Decision provider that produced the sub-scores.
+          - type: 'null'
+        grounding_factor:
+          description: The deterministic grounding signals blended into the scores.
+          format: float
+          type:
+          - number
+          - 'null'
+        scoring_failed:
+          description: |-
+            Whether the decision endpoint failed for this unit (telemetry only —
+            the scores degraded to `None` either way). Omitted when `false`.
+          type: boolean
+        sub_scores:
+          additionalProperties:
+            format: float
+            type: number
+          description: |-
+            Calibrated sub-question probabilities keyed by
+            [`question_keys`] names — the APO reward-signal foundation.
+          propertyNames:
+            type: string
+          type: object
+      type: object
     DispoRow:
       description: A single row in the Dispo (planned / Soll) report.
       properties:
@@ -1745,6 +1817,24 @@ components:
           type:
           - integer
           - 'null'
+        scene_score:
+          description: |-
+            Hybrid quality score of the extracted scene (issue #722),
+            `0.0..=1.0` — calibrated Decision Model probabilities blended with
+            deterministic grounding signals. `None` when no decision model is
+            configured or the best-effort scoring pass failed (honest
+            degradation, never a fabricated value). Additive on the wire.
+          format: float
+          type:
+          - number
+          - 'null'
+        scoring:
+          oneOf:
+          - $ref: '#/components/schemas/DecisionRubric'
+            description: |-
+              Structured rubric sub-scores (issue #722) — the reward-signal
+              foundation for the `0.5.x` automatic prompt optimization loop.
+          - type: 'null'
         script_day:
           type:
           - string
@@ -1763,6 +1853,15 @@ components:
           type:
           - string
           - 'null'
+        synopsis_score:
+          description: |-
+            Hybrid quality score of the TL;DR `summary` (issue #722). `Some(0.0)`
+            when `sanitize_meta_summary` had to rewrite the summary; `None` when
+            the row has no summary (outline-only block) or no scoring pass ran.
+          format: float
+          type:
+          - number
+          - 'null'
       required:
       - draft_ref
       type: object
@@ -1774,7 +1873,8 @@ components:
         index (`Tag 1`, `1. Spieltag` — the 294.pdf SCRIPT-REPORT format). Metadata
         only: it groups preview rows for the reviewer and names the day an apply
         may create; it never resolves an aggregate id (that is the reviewer's
-        per-group decision).
+        per-group decision). `PartialEq` only: the `score` field (issue #722) is
+        an `f32` and cannot derive `Eq`.
       properties:
         label:
           description: |-
@@ -1791,6 +1891,16 @@ components:
           format: int32
           type:
           - integer
+          - 'null'
+        score:
+          description: |-
+            Hybrid quality score of the day group's day assignment (issue #722),
+            set by the extraction worker's best-effort decision pass and shared
+            by every row of the group. `None` without a decision model / failed
+            pass. Additive on the wire.
+          format: float
+          type:
+          - number
           - 'null'
       type: object
     EnergyCostBreakdown:
@@ -3447,6 +3557,15 @@ components:
           type:
           - string
           - 'null'
+        shooting_day_score:
+          description: |-
+            Hybrid quality score of this row's day assignment (issue #722),
+            aggregated per `DraftShootingDay` group on the script path. `None`
+            without a decision model / failed pass. Additive on the wire.
+          format: float
+          type:
+          - number
+          - 'null'
       required:
       - row_ref
       type: object
@@ -3701,6 +3820,24 @@ components:
               the stored preference — an omitted field must not reset an existing
               `energy` preference back to `token`.
           - type: 'null'
+        decision_model:
+          type:
+          - string
+          - 'null'
+        decision_provider:
+          oneOf:
+          - $ref: '#/components/schemas/LlmProvider'
+            description: |-
+              Decision Model slot (issue #722), tri-state: an omitted field keeps
+              the stored configuration, `null` clears it, a value replaces it.
+              `deserialize_optional_nullable` is what makes the outer `Some` an
+              EXPLICIT signal — plain `#[serde(default)]` would fold `null` and
+              "absent" together and the clear path would be unreachable.
+          - type: 'null'
+        decision_vault_key_id:
+          type:
+          - string
+          - 'null'
         image_model:
           type:
           - string
@@ -4373,6 +4510,46 @@ paths:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
+      tags:
+      - handlers
+  /v1/ai-import/providers/{provider}/decision-models:
+    get:
+      operationId: list_ai_decision_models
+      parameters:
+      - description: Provider key (e.g. neuralwatt, eurouter, openrouter)
+        in: path
+        name: provider
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                items:
+                  $ref: '#/components/schemas/ModelInfo'
+                type: array
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+        '404':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+        '422':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+      summary: |-
+        Curated Decision Model catalog for one provider (issue #722). Mirrors
+        `list_ai_models` with the decision-model catalog — the same pricing
+        enrichment, the same credential-role gate, and `pricing: null` honest
+        degradation on a pricing read-model failure.
       tags:
       - handlers
   /v1/ai-import/providers/{provider}/models:
@@ -9191,6 +9368,31 @@ x-code-registry:
   status: 422
   title: AI vault key reference must not be empty
   type: https://docs.breakdown.example/problems/ai-config.empty-vault-key
+- code: ai-config.decision-provider-unsupported
+  extensions: []
+  status: 422
+  title: Provider does not host decision models
+  type: https://docs.breakdown.example/problems/ai-config.decision-provider-unsupported
+- code: ai-config.decision-incomplete
+  extensions: []
+  status: 422
+  title: Decision model configuration incomplete
+  type: https://docs.breakdown.example/problems/ai-config.decision-incomplete
+- code: ai-config.decision-model-empty
+  extensions: []
+  status: 422
+  title: Decision model must not be empty
+  type: https://docs.breakdown.example/problems/ai-config.decision-model-empty
+- code: ai-config.decision-model-unknown
+  extensions: []
+  status: 422
+  title: Decision model not curated for provider
+  type: https://docs.breakdown.example/problems/ai-config.decision-model-unknown
+- code: ai-config.decision-vault-key-empty
+  extensions: []
+  status: 422
+  title: Decision vault key reference must not be empty
+  type: https://docs.breakdown.example/problems/ai-config.decision-vault-key-empty
 - code: ai-config.provider-mismatch
   extensions: []
   status: 409

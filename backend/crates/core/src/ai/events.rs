@@ -28,6 +28,19 @@ pub enum AiConfigEvent {
         /// deserialize as `CostDisplayPreference::Token`.
         #[serde(default)]
         cost_display_preference: CostDisplayPreference,
+        /// Optional Decision Model configuration (issue #722): the provider
+        /// hosting the non-autoregressive decision model, the model ID, and
+        /// the vaulted API-key binding (same-key reuse or a separate
+        /// credential for split billing). `#[serde(default)]` keeps pre-#722
+        /// events replayable: they deserialize with no decision model.
+        #[serde(default)]
+        decision_provider: Option<LlmProvider>,
+        /// The curated decision model ID (e.g. `clef-flash`).
+        #[serde(default)]
+        decision_model: Option<String>,
+        /// The vault key reference of the decision provider credential.
+        #[serde(default)]
+        decision_vault_key_id: Option<String>,
         version: AggregateVersion,
     },
     Updated {
@@ -42,6 +55,17 @@ pub enum AiConfigEvent {
         /// `#[serde(default)]` and leave the current value in place).
         #[serde(default)]
         cost_display_preference: Option<CostDisplayPreference>,
+        /// Optional Decision Model configuration (issue #722).
+        /// `#[serde(default)]` keeps pre-#722 events replayable: they
+        /// deserialize with no decision model configured.
+        #[serde(default)]
+        decision_provider: Option<LlmProvider>,
+        /// See [`AiConfigEvent::Created::decision_model`].
+        #[serde(default)]
+        decision_model: Option<String>,
+        /// See [`AiConfigEvent::Created::decision_vault_key_id`].
+        #[serde(default)]
+        decision_vault_key_id: Option<String>,
         version: AggregateVersion,
     },
     Revoked {

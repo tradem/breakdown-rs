@@ -7049,6 +7049,16 @@ pub struct CreateAiConfigRequest {
     /// `token` for clients predating the field.
     #[serde(default)]
     pub cost_display_preference: CostDisplayPreference,
+    /// Optional Decision Model slot (issue #722). `decision_vault_key_id` MAY
+    /// equal `vault_key_id` when `decision_provider == provider` (same-key
+    /// reuse) or reference a distinct active credential of the decision
+    /// provider owned by the caller (split billing).
+    #[serde(default)]
+    pub decision_provider: Option<LlmProvider>,
+    #[serde(default)]
+    pub decision_model: Option<String>,
+    #[serde(default)]
+    pub decision_vault_key_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, ToSchema)]
@@ -7062,6 +7072,17 @@ pub struct UpdateAiConfigRequest {
     /// the stored preference — an omitted field must not reset an existing
     /// `energy` preference back to `token`.
     pub cost_display_preference: Option<CostDisplayPreference>,
+    /// Decision Model slot (issue #722), tri-state: an omitted field keeps
+    /// the stored configuration, `null` clears it, a value replaces it.
+    /// `deserialize_optional_nullable` is what makes the outer `Some` an
+    /// EXPLICIT signal — plain `#[serde(default)]` would fold `null` and
+    /// "absent" together and the clear path would be unreachable.
+    #[serde(default, deserialize_with = "deserialize_optional_nullable")]
+    pub decision_provider: Option<Option<LlmProvider>>,
+    #[serde(default, deserialize_with = "deserialize_optional_nullable")]
+    pub decision_model: Option<Option<String>>,
+    #[serde(default, deserialize_with = "deserialize_optional_nullable")]
+    pub decision_vault_key_id: Option<Option<String>>,
     pub version: AggregateVersion,
 }
 
@@ -7131,6 +7152,36 @@ async fn validate_replacement_vault_key<P: Ports>(
     Err(ApiError::AiConfigProviderMismatch(
         "the submitted vault key is not an active credential of the requested provider",
     ))
+}
+
+/// API-edge Decision Model credential pre-check (issue #722, design D1).
+///
+/// When `decision_provider` matches the extraction `provider`, the decision
+/// key MAY be the SAME binding as `vault_key_id` (same-key reuse — already
+/// validated by the caller) or a DISTINCT active credential of the same
+/// provider owned by the caller (split billing). When it differs, the key
+/// must be an active credential bound to the DECISION provider owned by the
+/// caller (same security invariant as #528/#552). The read-model lookup
+/// lives here — the only legitimate projection consumer (CQRS boundary).
+async fn validate_decision_vault_key<P: Ports>(
+    state: &AppState<P>,
+    decision_vault_key_id: &str,
+    decision_provider: LlmProvider,
+    extraction_vault_key_id: &str,
+    extraction_provider: LlmProvider,
+    caller: &UserId,
+) -> Result<(), ApiError> {
+    // Same-key reuse is legitimate only within the same provider.
+    if decision_vault_key_id == extraction_vault_key_id {
+        if decision_provider == extraction_provider {
+            return Ok(());
+        }
+        return Err(ApiError::AiConfigProviderMismatch(
+            "the decision vault key may only be shared with the extraction key within the same provider",
+        ));
+    }
+    // A distinct key: owned + active + bound to the DECISION provider.
+    validate_replacement_vault_key(state, decision_vault_key_id, decision_provider, caller).await
 }
 
 /// Ownership denial on an AI-config vault key reference (issue #552) →
@@ -7239,6 +7290,24 @@ pub async fn create_ai_config<P: Ports>(
     // would later read and use a foreign credential (confused deputy). The
     // read-model lookup stays at the API edge (CQRS boundary).
     require_owned_vault_key(&state, &request.vault_key_id, &current_user.sub).await?;
+    // Decision Model credential pre-check (issue #722, design D1): the
+    // decision key must be same-provider-same-key, a distinct owned active
+    // credential of the decision provider, or — on a provider switch — bound
+    // to the decision provider. Same fail-closed shape as #552.
+    if let (Some(decision_provider), Some(decision_vault_key_id)) = (
+        request.decision_provider,
+        request.decision_vault_key_id.as_deref(),
+    ) {
+        validate_decision_vault_key(
+            &state,
+            decision_vault_key_id,
+            decision_provider,
+            &request.vault_key_id,
+            request.provider,
+            &current_user.sub,
+        )
+        .await?;
+    }
     let id = Uuid::now_v7();
     let (id, version) = state
         .ports
@@ -7254,6 +7323,9 @@ pub async fn create_ai_config<P: Ports>(
                 prompts: request.prompts,
                 vault_key_id: request.vault_key_id,
                 cost_display_preference: request.cost_display_preference,
+                decision_provider: request.decision_provider,
+                decision_model: request.decision_model,
+                decision_vault_key_id: request.decision_vault_key_id,
             },
         )
         .await?;
@@ -7363,6 +7435,38 @@ pub async fn update_ai_config<P: Ports>(
         )
         .await?;
     }
+    // Decision Model credential pre-check (issue #722). The aggregate
+    // resolves omitted tri-state fields from the STORED configuration, so
+    // the edge must validate the EFFECTIVE (resolved) binding — validating
+    // only a request-introduced pair would let a partial update persist a
+    // foreign or provider-mismatched key that the worker later fetches.
+    // The same-key exception depends on the extraction provider/key too, so
+    // the effective values are checked against those as well.
+    let effective_decision_provider = request.decision_provider.unwrap_or(view.decision_provider);
+    let effective_decision_key = request
+        .decision_vault_key_id
+        .clone()
+        .unwrap_or_else(|| view.decision_vault_key_id.clone());
+    let binding_changed = effective_decision_provider != view.decision_provider
+        || effective_decision_key != view.decision_vault_key_id
+        || request.provider != view.provider
+        || request.vault_key_id != view.vault_key_id;
+    if binding_changed
+        && let (Some(decision_provider), Some(decision_vault_key_id)) = (
+            effective_decision_provider,
+            effective_decision_key.as_deref(),
+        )
+    {
+        validate_decision_vault_key(
+            &state,
+            decision_vault_key_id,
+            decision_provider,
+            &request.vault_key_id,
+            request.provider,
+            &current_user.sub,
+        )
+        .await?;
+    }
     // Optimistic lock: the request echoes the fetched config's `version`; a
     // stale version surfaces as the scoped `ai-config.version-mismatch` (409,
     // issue #481) instead of the generic `concurrency.version-mismatch`, so
@@ -7381,6 +7485,9 @@ pub async fn update_ai_config<P: Ports>(
                 prompts: request.prompts,
                 vault_key_id: request.vault_key_id,
                 cost_display_preference: request.cost_display_preference,
+                decision_provider: request.decision_provider,
+                decision_model: request.decision_model,
+                decision_vault_key_id: request.decision_vault_key_id,
                 version: request.version,
             },
         )
@@ -7537,6 +7644,74 @@ pub async fn list_ai_models<P: Ports>(
                 %error,
                 provider = provider.as_str(),
                 "pricing lookup failed; serving unpriced catalog"
+            );
+            Vec::new()
+        }
+    };
+    for model in &mut models {
+        model.pricing = pricing_rows
+            .iter()
+            .find(|row| row.model == model.id)
+            .map(|row| row.pricing.clone());
+    }
+    Ok((StatusCode::OK, Json(models)))
+}
+
+/// Curated Decision Model catalog for one provider (issue #722). Mirrors
+/// `list_ai_models` with the decision-model catalog — the same pricing
+/// enrichment, the same credential-role gate, and `pricing: null` honest
+/// degradation on a pricing read-model failure.
+#[utoipa::path(
+    get,
+    path = "/ai-import/providers/{provider}/decision-models",
+    params(("provider" = String, Path, description = "Provider key (e.g. neuralwatt, eurouter, openrouter)")),
+    // 404 `ai-import.disabled` (feature flag off) and 422
+    // `ai-config.validation` (unknown provider key) are reachable — mirror
+    // the sibling `list_ai_models` contract.
+    responses(
+        (status = 200, body = [ModelInfo]),
+        (status = 403, body = ProblemDetails),
+        (status = 404, body = ProblemDetails),
+        (status = 422, body = ProblemDetails)
+    )
+)]
+pub async fn list_ai_decision_models<P: Ports>(
+    State(state): State<AppState<P>>,
+    current_user: CurrentUser,
+    Path(provider): Path<String>,
+) -> ApiResult<Vec<ModelInfo>> {
+    // AUTHZ-GATE: model discovery can reveal credential-backed integrations —
+    // decided via the (fallible) credential-role policy.
+    let decision = state
+        .authorization_policy
+        .authorize_credential_role(&current_user.sub)
+        .await?;
+    if decision != PolicyDecision::Allow {
+        return Err(ApiError::AiConfigForbidden(
+            "not authorized to discover AI models",
+        ));
+    }
+    if !state.ai_import_enabled {
+        return Err(ApiError::FeatureDisabled("AI import is disabled"));
+    }
+    let provider = parse_ai_provider(&provider)?;
+    let mut models = infra::ai::curated_decision_models(provider);
+    // Pricing is advisory data (see `list_ai_models`): a pricing-read-model
+    // failure must not make the picker unavailable — serve the unpriced
+    // catalog. Decision models seeded by the #722 migration carry real rows;
+    // unknown ones keep `pricing: null` (never a fabricated zero price).
+    let pricing_rows = match state
+        .ports
+        .ai_model_pricing_repo()
+        .list_for_provider(provider)
+        .await
+    {
+        Ok(rows) => rows,
+        Err(error) => {
+            tracing::warn!(
+                %error,
+                provider = provider.as_str(),
+                "pricing lookup failed; serving unpriced decision-model catalog"
             );
             Vec::new()
         }
@@ -7785,6 +7960,10 @@ pub fn routes() -> Router<AppState<ProductionPorts>> {
         .route(
             "/ai-import/providers/{provider}/models",
             routing::get(list_ai_models::<ProductionPorts>),
+        )
+        .route(
+            "/ai-import/providers/{provider}/decision-models",
+            routing::get(list_ai_decision_models::<ProductionPorts>),
         )
         .route(
             "/ai-import/defaults",

@@ -17,11 +17,11 @@ use breakdown_core::ai::{
     AiImportBounds, AiImportJob, AiImportJobId, AiImportMapping, AiImportMappingRepository,
     AiImportProgress, AiImportQueue, AiImportStage, AiModelPricingRepository, ApplyGateError,
     ApplyMapping, ApplyMappingDecision, CharacterApplyPlan, CostBreakdown, CostumeApplyPlan,
-    DocumentKind, EpisodeGroupPlan, LlmCallUsage, LlmChatRequest, LlmClient, MergedPreview,
-    PRIMARY_ORDINAL, PlannedEpisode, PlannedShootingDay, ReviewerDecisions, SceneApplyCommand,
-    SceneApplyPlan, ScriptContext, ShootingDayPlan, ShootingSchedule, SourceFormat, Telemetry,
-    TelemetryApplyState, UnappliedCostume, UnappliedCostumeReason, Uncertainty,
-    UncertaintyAcknowledgement, UncertaintyKind, category_conflict_uncertainties,
+    DecisionClient, DocumentKind, EpisodeGroupPlan, LlmCallUsage, LlmChatRequest, LlmClient,
+    MergedPreview, PRIMARY_ORDINAL, PlannedEpisode, PlannedShootingDay, ReviewerDecisions,
+    SceneApplyCommand, SceneApplyPlan, ScriptContext, ShootingDayPlan, ShootingSchedule,
+    SourceFormat, Telemetry, TelemetryApplyState, UnappliedCostume, UnappliedCostumeReason,
+    Uncertainty, UncertaintyAcknowledgement, UncertaintyKind, category_conflict_uncertainties,
     character_mapping_ref, draft_row_ref, ensure_merge_applyable, extract_scenes, mapping_kind,
     merge_schedule_to_scenes, parse_script_day, plan_scene_apply, sanitize_meta_summary,
     scene_beat_lanes, stable_draft_ref, verify_draft_costumes,
@@ -232,6 +232,18 @@ pub struct ScriptImportWorker<Q, C> {
     /// `None` in test fakes — the snapshot then degrades to
     /// [`CostStatus::Unknown`], never a fabricated price.
     pub pricing: Option<Arc<dyn AiModelPricingRepository>>,
+    /// Optional best-effort Decision Model scoring pass (issue #722).
+    /// `None` = no decision model configured — the extraction runs exactly
+    /// like a pre-#722 job and every score stays honestly `None`.
+    pub decision: Option<Arc<DecisionPass>>,
+}
+
+/// The resolved Decision Model configuration for one worker (issue #722,
+/// design D3): client + `(provider, model)` pair the worker scores with.
+pub struct DecisionPass {
+    pub client: Arc<dyn DecisionClient>,
+    pub provider: breakdown_core::ai::LlmProvider,
+    pub model: String,
 }
 
 impl<Q, C> ScriptImportWorker<Q, C>
@@ -407,6 +419,11 @@ where
         // rewrote to `null` across the whole job — the prompt/model
         // regression signal logged before the job succeeds.
         let mut meta_rewrites = 0usize;
+        // Per-chunk scoring signals (issue #722): sanitized-summary flags
+        // and dropped-costume counts, aligned with the scenes each chunk
+        // pushes into `context.scenes`.
+        let mut sanitized_flags: Vec<bool> = Vec::new();
+        let mut dropped_costumes: Vec<usize> = Vec::new();
         // Throttled live progress (issue #664): published once after
         // chunking, once per completed chunk, and at the storing boundary —
         // NEVER per LLM token. Owner-fenced, so a displaced worker's write
@@ -447,6 +464,10 @@ where
             .await;
             match partial {
                 Ok((partial, call_usage)) => {
+                    // Index of the first scene THIS chunk pushes (issue
+                    // #722): the scoring pass slices the chunk's scenes out
+                    // of the preview.
+                    let chunk_first_scene = context.scenes.len();
                     // Issue #675: accumulate real token/energy usage across
                     // every chunk of the job.
                     total_usage.accumulate(call_usage);
@@ -535,7 +556,11 @@ where
                         // garbage can no longer flow through apply →
                         // projection → app. Each rewrite is counted and
                         // logged so prompt/model regressions stay observable.
-                        if sanitize_meta_summary(&mut scene) {
+                        // Issue #722: remember whether the guard fired for
+                        // THIS scene — the synopsis score degrades to the
+                        // honest 0.0 for it (issue #722 §3.2).
+                        let sanitized = sanitize_meta_summary(&mut scene);
+                        if sanitized {
                             meta_rewrites += 1;
                             tracing::warn!(
                                 job_id = %job.id.as_uuid(),
@@ -543,6 +568,7 @@ where
                                 "ai-extraction: meta-summary rewritten to null — model violated the #607 prompt ban (issue #668)"
                             );
                         }
+                        sanitized_flags.push(sanitized);
                         // Server-side truth beats the prompt too (design D5): a
                         // prompt forbids inventing a costume, but a prompt is an
                         // instruction, not a guarantee. Everything the check drops
@@ -550,7 +576,11 @@ where
                         // so a hallucinated costume cannot reach the reviewer and
                         // a missing one is still visible as missing — without
                         // making the whole preview unappliable (design D9).
+                        // Issue #722: count the drops of THIS scene — a
+                        // grounding penalty input for the scene score.
+                        let mut scene_dropped = 0usize;
                         for rejected in verify_draft_costumes(&mut scene, &source_text) {
+                            scene_dropped += 1;
                             context.uncertainties.push(Uncertainty {
                                 // 0-based index of the row pushed just below.
                                 // `scene_ordinal` is a 1-based GLOBAL counter, so
@@ -571,9 +601,49 @@ where
                                 kind: UncertaintyKind::DroppedRow,
                             });
                         }
+                        dropped_costumes.push(scene_dropped);
                         context.scenes.push(scene);
                     }
                     context.uncertainties.extend(partial.uncertainties);
+                    // Best-effort Decision Model scoring pass (issue #722,
+                    // design D3): ONE single-pass decision request per chunk
+                    // evaluates the whole rubric; any failure logs a warning
+                    // and leaves the scores honestly `None`. The extraction
+                    // result above is never discarded because of it.
+                    if let Some(decision) = self.decision.as_ref() {
+                        let ambiguities: Vec<usize> = (chunk_first_scene..context.scenes.len())
+                            .map(|scene_index| {
+                                context
+                                    .uncertainties
+                                    .iter()
+                                    .filter(|uncertainty| {
+                                        uncertainty.scene_index == scene_index
+                                            && uncertainty.kind.blocks_apply()
+                                    })
+                                    .count()
+                            })
+                            .collect();
+                        let scenes = &mut context.scenes[chunk_first_scene..];
+                        super::decision_scoring::score_script_chunk(
+                            decision,
+                            &chunk.heading,
+                            &chunk.text,
+                            chunk.scene_number,
+                            chunk.mood.as_deref(),
+                            chunk.shooting_day.as_ref(),
+                            scenes,
+                            // The guard vectors are job-wide (one entry per
+                            // pushed scene); the scoring pass receives the
+                            // CHUNK-LOCAL slice aligned with `scenes` —
+                            // otherwise scene i of chunk n+1 reads the
+                            // signals of scene i of chunk 1.
+                            &sanitized_flags[chunk_first_scene..],
+                            &dropped_costumes[chunk_first_scene..],
+                            &ambiguities,
+                            &mut total_usage,
+                        )
+                        .await;
+                    }
                 }
                 Err(error) => {
                     self.fail(job.id, worker_id, &error).await?;
@@ -756,6 +826,8 @@ pub struct ScheduleImportWorker<Q, C> {
     pub bounds: AiImportBounds,
     /// See [`ScriptImportWorker::pricing`] (issue #675).
     pub pricing: Option<Arc<dyn AiModelPricingRepository>>,
+    /// See [`ScriptImportWorker::decision`] (issue #722).
+    pub decision: Option<Arc<DecisionPass>>,
 }
 
 impl<Q, C> ScheduleImportWorker<Q, C>
@@ -904,6 +976,21 @@ where
             total_usage.accumulate(call_usage);
             parsed
         };
+        // Best-effort Decision Model scoring pass for LLM-extracted
+        // schedules (issue #722 §3.3): one single-pass request scores the
+        // day assignments; any failure degrades the scores to `None`
+        // without failing the job. The native CSV path never scores — its
+        // rows came from the production tool, not from a model.
+        if let Some(decision) = self.decision.as_ref()
+            && !native_csv
+        {
+            super::decision_scoring::score_schedule_rows(
+                decision,
+                &mut schedule.rows,
+                &mut total_usage,
+            )
+            .await;
+        }
         if schedule.block_id.is_none() {
             schedule.block_id = job.block_id;
         }
@@ -1601,7 +1688,12 @@ where
             // in place by every dispatch above), so the link dispatches at the
             // reached version. A `None` row — no day metadata, ungroupable
             // label, or a group the reviewer rejected — stays unscheduled.
-            if let PlannedShootingDay::Group { day_ref, label } = &row.shooting_day {
+            if let PlannedShootingDay::Group {
+                day_ref,
+                label,
+                score,
+            } = &row.shooting_day
+            {
                 // Episode-scoped day key (CodeRabbit review, issue #706): a
                 // day number is NOT episode-unique — a multi-episode script
                 // repeats `Tag 1` per episode, so the same `day_ref` must
@@ -1624,6 +1716,11 @@ where
                                     label: label.clone(),
                                     date: None,
                                     project_id,
+                                    // Issue #722: the accepted group's
+                                    // hybrid day score becomes the created
+                                    // day's `ShootingDaySource::AiExtracted
+                                    // .confidence`; `None` stays honest.
+                                    confidence: *score,
                                 },
                             )
                             .await?;

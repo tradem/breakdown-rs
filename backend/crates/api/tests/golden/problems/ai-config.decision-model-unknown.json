@@ -1,0 +1,7 @@
+{
+  "code": "ai-config.decision-model-unknown",
+  "detail": "Das Entscheidungsmodell ist für diesen Anbieter nicht freigegeben.",
+  "status": 422,
+  "title": "Decision model not curated for provider",
+  "type": "https://docs.breakdown.example/problems/ai-config.decision-model-unknown"
+}

@@ -1,0 +1,7 @@
+{
+  "code": "ai-config.decision-incomplete",
+  "detail": "Die Entscheidungsmodell-Konfiguration ist unvollständig — Anbieter, Modell und Berechtigung müssen gemeinsam gesetzt werden.",
+  "status": 422,
+  "title": "Decision model configuration incomplete",
+  "type": "https://docs.breakdown.example/problems/ai-config.decision-incomplete"
+}

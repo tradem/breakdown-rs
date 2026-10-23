@@ -81,6 +81,7 @@ fn schedule_worker(
         prompt: "unused".to_owned(),
         bounds: AiImportBounds::default(),
         pricing: None,
+        decision: None,
     }
 }
 
@@ -435,6 +436,9 @@ async fn ai_payload_apply_round_trips_through_projection() -> Result<()> {
     let context = ScriptContext {
         title: Some("Lifecycle fixture script".to_owned()),
         scenes: vec![DraftScene {
+            scene_score: None,
+            synopsis_score: None,
+            scoring: None,
             shooting_day: None,
             draft_ref: "scene-1".to_owned(),
             scene_number: Some(1),

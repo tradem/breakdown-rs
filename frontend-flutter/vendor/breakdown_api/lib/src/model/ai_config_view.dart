@@ -19,6 +19,9 @@ part 'ai_config_view.g.dart';
 /// Properties:
 /// * [assistantModel]
 /// * [costDisplayPreference] - Preferred primary cost display metric (issue #675). Additive with `serde(default)`: views serialized before the field existed deserialize as `Token`.
+/// * [decisionModel]
+/// * [decisionProvider] - Optional Decision Model configuration (issue #722). Additive with `serde(default)`: views serialized before the fields existed deserialize with no decision model configured.
+/// * [decisionVaultKeyId]
 /// * [id]
 /// * [imageModel]
 /// * [promptKinds]
@@ -39,6 +42,17 @@ abstract class AiConfigView
   @BuiltValueField(wireName: r'cost_display_preference')
   CostDisplayPreference? get costDisplayPreference;
   // enum costDisplayPreferenceEnum {  token,  energy,  };
+
+  @BuiltValueField(wireName: r'decision_model')
+  String? get decisionModel;
+
+  /// Optional Decision Model configuration (issue #722). Additive with `serde(default)`: views serialized before the fields existed deserialize with no decision model configured.
+  @BuiltValueField(wireName: r'decision_provider')
+  LlmProvider? get decisionProvider;
+  // enum decisionProviderEnum {  openai,  gemini,  openrouter,  eurouter,  neuralwatt,  opencode-go,  opencode,  ollama,  };
+
+  @BuiltValueField(wireName: r'decision_vault_key_id')
+  String? get decisionVaultKeyId;
 
   @BuiltValueField(wireName: r'id')
   String get id;
@@ -108,6 +122,27 @@ class _$AiConfigViewSerializer implements PrimitiveSerializer<AiConfigView> {
       yield serializers.serialize(
         object.costDisplayPreference,
         specifiedType: const FullType(CostDisplayPreference),
+      );
+    }
+    if (object.decisionModel != null) {
+      yield r'decision_model';
+      yield serializers.serialize(
+        object.decisionModel,
+        specifiedType: const FullType.nullable(String),
+      );
+    }
+    if (object.decisionProvider != null) {
+      yield r'decision_provider';
+      yield serializers.serialize(
+        object.decisionProvider,
+        specifiedType: const FullType.nullable(LlmProvider),
+      );
+    }
+    if (object.decisionVaultKeyId != null) {
+      yield r'decision_vault_key_id';
+      yield serializers.serialize(
+        object.decisionVaultKeyId,
+        specifiedType: const FullType.nullable(String),
       );
     }
     yield r'id';
@@ -204,6 +239,30 @@ class _$AiConfigViewSerializer implements PrimitiveSerializer<AiConfigView> {
           ) as CostDisplayPreference?;
           if (valueDes == null) continue;
           result.costDisplayPreference = valueDes;
+          break;
+        case r'decision_model':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType.nullable(String),
+          ) as String?;
+          if (valueDes == null) continue;
+          result.decisionModel = valueDes;
+          break;
+        case r'decision_provider':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType.nullable(LlmProvider),
+          ) as LlmProvider?;
+          if (valueDes == null) continue;
+          result.decisionProvider = valueDes;
+          break;
+        case r'decision_vault_key_id':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType.nullable(String),
+          ) as String?;
+          if (valueDes == null) continue;
+          result.decisionVaultKeyId = valueDes;
           break;
         case r'id':
           final valueDes = serializers.deserialize(

@@ -289,6 +289,15 @@ pub struct AiConfigView {
     /// deserialize as `Token`.
     #[serde(default)]
     pub cost_display_preference: CostDisplayPreference,
+    /// Optional Decision Model configuration (issue #722). Additive with
+    /// `serde(default)`: views serialized before the fields existed
+    /// deserialize with no decision model configured.
+    #[serde(default)]
+    pub decision_provider: Option<LlmProvider>,
+    #[serde(default)]
+    pub decision_model: Option<String>,
+    #[serde(default)]
+    pub decision_vault_key_id: Option<String>,
     pub version: AggregateVersion,
     pub revoked: bool,
 }
