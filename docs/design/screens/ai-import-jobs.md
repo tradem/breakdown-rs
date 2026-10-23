@@ -1,6 +1,7 @@
 <!-- SPDX-License-Identifier: AGPL-3.0 -->
 <!-- Copyright (C) 2024-2026 Breakdown RS Contributors -->
 <!-- Co-authored-by: glm-5.3-flash (opencode-go) -->
+<!-- Co-authored-by: glm-5.3-flash-flex (neuralwatt) -->
 
 # AI-Import-Aufträge (ai-import-jobs) — Screen Spec
 

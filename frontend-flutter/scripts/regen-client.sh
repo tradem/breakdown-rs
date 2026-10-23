@@ -4,6 +4,7 @@
 # Co-authored-by: hy3 (opencode-go)
 # Co-authored-by: qwen3.8-flash (opencode-go)
 # Co-authored-by: omen-alpha (opencode-go)
+# Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 
 # Regenerate the typed, Dio-based Dart API client (`breakdown_api`) from
 # `backend/openapi.yaml` into `vendor/breakdown_api/`.

@@ -7,6 +7,7 @@
 <!-- Co-authored-by: deepseek-v4-flash (neuralwatt) -->
 <!-- Co-authored-by: glm-5.3-flash (opencode-go) -->
 <!-- Co-authored-by: glm-5.3-flash-flex (neuralwatt) -->
+// Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 
 # Icon & Terminology Glossary
 
