@@ -969,7 +969,7 @@
   "@aiPreviewSceneScore": {},
   "aiPreviewSynopsisScore": "Kurzbeschreibung (TL;DR):",
   "@aiPreviewSynopsisScore": {},
-  "aiPreviewShootingDayScore": "Spieltag-Bewertung:",
+  "aiPreviewShootingDayScore": "Drehtag-Bewertung:",
   "@aiPreviewShootingDayScore": {},
   "aiScoreStarsLabel": "{stars} von 5 Sternen",
   "@aiScoreStarsLabel": {"placeholders": {"stars": {}}},

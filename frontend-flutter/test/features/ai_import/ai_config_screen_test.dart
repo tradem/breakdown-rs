@@ -1541,6 +1541,39 @@ void main() {
       expect(repo.lastUpdateRequest!.decisionVaultKeyId, 'vk-decision');
     });
 
+    testWidgets('edit: a stored SAME-PROVIDER split-billing binding survives '
+        'an untouched save — the derived toggle stays off and the stored '
+        'decision key is echoed, never rebound to the extraction key '
+        '(CodeRabbit review, issue #723)', (tester) async {
+      await setupContainer(
+        discoveryValue: Right([
+          _config(
+            decisionProvider: LlmProvider.openai,
+            decisionModel: 'clef-flash',
+            decisionVaultKeyId: 'vk-decision',
+          ),
+        ]),
+      );
+      await pumpScreen(tester, height: 2400);
+
+      // The same-provider toggle renders, DERIVED OFF from the stored
+      // split-billing binding (decision key ≠ extraction key).
+      final toggle = tester.widget<CheckboxListTile>(
+        find.byKey(const Key('ai-decision-same-key-toggle')),
+      );
+      expect(toggle.value, isFalse);
+
+      // An unrelated save (no decision interaction) echoes the stored
+      // binding — it must NOT silently rebind to the extraction key.
+      await tester.tap(find.byKey(const Key('ai-config-edit-save')));
+      await tester.pumpAndSettle();
+
+      expect(repo.lastUpdateRequest!.decisionProvider, LlmProvider.openai);
+      expect(repo.lastUpdateRequest!.decisionModel, 'clef-flash');
+      expect(repo.lastUpdateRequest!.decisionVaultKeyId, 'vk-decision');
+      expect(repo.lastUpdateRequest!.vaultKeyId, 'vk-1');
+    });
+
     testWidgets('edit: picking the disabled entry CLEARS the decision slot '
         'via the tri-state explicit null (issue #723)', (tester) async {
       await setupContainer(

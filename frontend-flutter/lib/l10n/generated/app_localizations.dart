@@ -5602,7 +5602,7 @@ abstract class AppLocalizations {
   /// No description provided for @aiPreviewShootingDayScore.
   ///
   /// In de, this message translates to:
-  /// **'Spieltag-Bewertung:'**
+  /// **'Drehtag-Bewertung:'**
   String get aiPreviewShootingDayScore;
 
   /// No description provided for @aiScoreStarsLabel.

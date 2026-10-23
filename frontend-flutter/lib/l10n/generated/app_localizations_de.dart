@@ -3428,7 +3428,7 @@ class AppLocalizationsDe extends AppLocalizations {
   String get aiPreviewSynopsisScore => 'Kurzbeschreibung (TL;DR):';
 
   @override
-  String get aiPreviewShootingDayScore => 'Spieltag-Bewertung:';
+  String get aiPreviewShootingDayScore => 'Drehtag-Bewertung:';
 
   @override
   String aiScoreStarsLabel(Object stars) {

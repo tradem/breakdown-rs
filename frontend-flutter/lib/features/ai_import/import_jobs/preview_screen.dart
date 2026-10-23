@@ -162,6 +162,11 @@ class _TypedPreviewBodyState extends ConsumerState<_TypedPreviewBody> {
     // provider refresh reuses this element — the rows must follow).
     if (!identical(_seededResponse, widget.response)) {
       _seededResponse = widget.response;
+      // The filter selection belongs to the PREVIOUS payload — a refreshed
+      // preview (schedule → merged under the same job handle) must not
+      // inherit it, or scored rows of the new payload could be hidden
+      // behind a filter bar that no longer renders (CodeRabbit review).
+      _lowScoreOnly = false;
       unawaited(() async {
         final context = await ref.read(
           aiJobContextProvider(widget.jobId).future,

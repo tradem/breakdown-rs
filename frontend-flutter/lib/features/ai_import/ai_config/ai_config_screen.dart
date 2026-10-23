@@ -681,6 +681,17 @@ class _DecisionSection extends ConsumerWidget {
               ],
               _ => const <DropdownMenuItem<String?>>[],
             },
+            // A stored decision provider that left the curated set (a
+            // backend catalog change) must still render — without this
+            // item the Dropdown asserts on the unknown initialValue
+            // (CodeRabbit review coverage).
+            if (decisionKey != null &&
+                !kDecisionCapableProviderKeys.contains(decisionKey))
+              DropdownMenuItem<String?>(
+                value: decisionKey,
+                key: Key('ai-decision-provider-$decisionKey'),
+                child: Text(decisionKey),
+              ),
           ],
           onChanged: (key) => controller.selectDecisionProvider(key),
         ),

@@ -85,6 +85,7 @@ class AiConfigDraftData {
     this.decisionProviderTouched = false,
     this.decisionModelTouched = false,
     this.useSameDecisionKey = true,
+    this.useSameDecisionKeyTouched = false,
     this.costDisplayPreference,
     this.scriptPrompt = '',
     this.schedulePrompt = '',
@@ -112,6 +113,13 @@ class AiConfigDraftData {
 
   /// The drafted "Use same API key as extraction" toggle (issue #723).
   bool useSameDecisionKey;
+
+  /// True once the user flipped the toggle. Until then the value is
+  /// DERIVED from the stored config on every build (CodeRabbit review):
+  /// a stored split-billing binding (decision key ≠ extraction key) must
+  /// not silently rebind to the extraction key just because the draft
+  /// default is `true` — an unrelated prompt edit would move billing.
+  bool useSameDecisionKeyTouched;
 
   /// True once the user picked a provider, so the old assistant model is
   /// not restored from the configured view after a provider change.
@@ -160,6 +168,7 @@ class AiConfigDrafts extends Notifier<AiConfigDraftData> {
       decisionProviderTouched: state.decisionProviderTouched,
       decisionModelTouched: state.decisionModelTouched,
       useSameDecisionKey: state.useSameDecisionKey,
+      useSameDecisionKeyTouched: state.useSameDecisionKeyTouched,
       costDisplayPreference: state.costDisplayPreference,
       scriptPrompt: state.scriptPrompt,
       schedulePrompt: state.schedulePrompt,
@@ -384,7 +393,15 @@ class AiConfigController extends _$AiConfigController {
           : (drafts.selectedDecisionModelId ??
                 config?.decisionModel ??
                 suggestedDecisionModelId),
-      useSameDecisionKey: drafts.useSameDecisionKey,
+      // The same-key toggle is derived from the STORED binding until the
+      // user touches it (CodeRabbit review): same-key is true exactly when
+      // there is no stored decision key, or the stored decision key IS the
+      // stored extraction key. A stored split-billing binding keeps the
+      // toggle off — an unrelated edit must never rebind the decision key
+      // to the extraction credential.
+      useSameDecisionKey: drafts.useSameDecisionKeyTouched
+          ? drafts.useSameDecisionKey
+          : _storedDecisionUsesSameKey(config),
       decisionModels: decisionModels,
       // Preferred primary cost display (issue #675): an explicit draft pick
       // wins, then the configured value, then the `token` default.
@@ -455,9 +472,14 @@ class AiConfigController extends _$AiConfigController {
     state = state.copyWith(clearCommandError: true);
   }
 
-  /// The "Use same API key as extraction" toggle (issue #723).
+  /// The "Use same API key as extraction" toggle (issue #723). Marks the
+  /// toggle touched so the derived-from-config value stops applying
+  /// (CodeRabbit review: the user's flip wins over the stored binding).
   void setUseSameDecisionKey(bool value) {
-    _draftsNotifier.mutate((d) => d.useSameDecisionKey = value);
+    _draftsNotifier.mutate((d) {
+      d.useSameDecisionKey = value;
+      d.useSameDecisionKeyTouched = true;
+    });
     state = state.copyWith(clearCommandError: true);
   }
 
@@ -584,7 +606,11 @@ class AiConfigController extends _$AiConfigController {
     if (decisionProviderKey != null) {
       decisionProvider = _resolveProvider(decisionProviderKey);
       if (decisionProvider == null || decisionModelId == null) {
+        // The extraction credential is ALREADY submitted — the config was
+        // never created, so roll it back instead of leaving it orphaned in
+        // the vault (CodeRabbit review).
         const error = ProblemError(code: 'ai_config.incomplete_selection');
+        unawaited(_rollbackCredential(credential, scheduler));
         state = state.copyWith(commandError: error);
         return const Left(error);
       }
@@ -602,7 +628,10 @@ class AiConfigController extends _$AiConfigController {
           decisionVaultKeyId = remembered.vaultKeyId;
         } else {
           if (decisionSecret == null || decisionSecret.isEmpty) {
+            // Same orphan risk: the extraction credential exists, the
+            // config does not — roll it back (CodeRabbit review).
             const error = ProblemError(code: 'ai_config.decision_key_missing');
+            unawaited(_rollbackCredential(credential, scheduler));
             state = state.copyWith(commandError: error);
             return const Left(error);
           }
@@ -981,13 +1010,30 @@ class AiConfigController extends _$AiConfigController {
 
     final repo = ref.read(aiConfigRepositoryProvider);
 
+    // A replacement extraction credential created above must be RETAINED
+    // even when a later Decision check fails early (same discipline as the
+    // PATCH-failure path): otherwise the user must re-enter the key and
+    // the credential stays orphaned in the vault (CodeRabbit review).
+    Future<void> retainReplacementCredential() async {
+      final created = createdCredential;
+      if (created == null) return;
+      await _rememberCredential(
+        selectedProviderKey,
+        ProviderCredentialReference(
+          settingsId: created.settingsId,
+          settingsVersion: created.settingsVersion,
+          vaultKeyId: created.vaultKeyId,
+        ),
+      );
+    }
+
     // Decision Model resolution (issue #723). `decisionProviderKey == null`
     // is the explicit "disabled" pick: the patched tri-state serializer
     // sends explicit JSON nulls, so the stored Decision Model is CLEARED
     // (omitted would keep it — the tri-state semantics demand the null).
     // Otherwise the effective decision credential resolves in this order:
-    // same-key reuse (same provider + toggle on) → remembered decision
-    // credential → unchanged stored binding → newly-bound key (retained
+    // same-key reuse (same provider + toggle on) → unchanged stored
+    // binding → remembered decision credential → newly-bound key (retained
     // even when the PATCH fails, same discipline as the extraction
     // replacement).
     LlmProvider? decisionProvider;
@@ -1001,6 +1047,7 @@ class AiConfigController extends _$AiConfigController {
               : null);
       if (decisionProvider == null || decisionModelId == null) {
         const error = ProblemError(code: 'ai_config.incomplete_selection');
+        await retainReplacementCredential();
         state = state.copyWith(commandError: error);
         return const Left(error);
       }
@@ -1017,12 +1064,16 @@ class AiConfigController extends _$AiConfigController {
         final storedUnchanged =
             config.decisionVaultKeyId != null &&
             config.decisionProvider == decisionProvider;
-        if (remembered != null) {
-          decisionVaultKeyId = remembered.vaultKeyId;
-        } else if (storedUnchanged) {
-          // Binding unchanged: resending the stored key is a no-op the
-          // edge does not re-validate — no re-entry required.
+        // The UNCHANGED stored binding wins over a remembered key
+        // (CodeRabbit review): resending the stored key is a no-op the edge
+        // does not re-validate, whereas applying the remembered key would
+        // silently REPLACE the stored binding without user action. The
+        // screen's showDecisionKey logic already excludes this case — the
+        // controller order must match.
+        if (storedUnchanged) {
           decisionVaultKeyId = config.decisionVaultKeyId;
+        } else if (remembered != null) {
+          decisionVaultKeyId = remembered.vaultKeyId;
         } else if (decisionReplacementSecret != null &&
             decisionReplacementSecret.isNotEmpty) {
           final outcome = await submitCredentialWithHandoff(
@@ -1035,11 +1086,13 @@ class AiConfigController extends _$AiConfigController {
               createdDecisionCredential = handoff;
               decisionVaultKeyId = handoff.vaultKeyId;
             case HandoffFailed(:final error):
+              await retainReplacementCredential();
               if (ref.mounted) state = state.copyWith(commandError: error);
               return Left(error);
           }
         } else {
           const error = ProblemError(code: 'ai_config.decision_key_missing');
+          await retainReplacementCredential();
           state = state.copyWith(commandError: error);
           return const Left(error);
         }
@@ -1212,6 +1265,14 @@ Future<void>? _rememberedFallbackRun;
 /// True when [error] is an ambiguous-timeout transport failure (the
 /// dispatch may or may not have committed server-side). Shared with the
 /// workflow repository's reconciliation (same stable codes).
+/// True when the stored config's Decision binding is the same-key form:
+/// no decision key at all (nothing split), or the stored decision key IS
+/// the stored extraction key (CodeRabbit review — derived same-key seed).
+bool _storedDecisionUsesSameKey(AiConfigView? config) =>
+    config == null ||
+    config.decisionVaultKeyId == null ||
+    config.decisionVaultKeyId == config.vaultKeyId;
+
 bool isAmbiguousTimeoutError(ProblemError error) => switch (error.code) {
   'transport.connectionTimeout' ||
   'transport.sendTimeout' ||

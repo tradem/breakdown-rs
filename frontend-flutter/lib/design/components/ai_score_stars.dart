@@ -68,6 +68,9 @@ class AiScoreStars extends StatelessWidget {
     return Semantics(
       key: const Key('ai-score-stars'),
       label: label,
+      // The child Text(label) must not be announced alongside the node
+      // label — a screen reader would read the rating twice.
+      excludeSemantics: true,
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
