@@ -42,11 +42,13 @@ const devAuthConfig = AppConfig(
   defaultProjectId: 'series-1',
 );
 
-DraftShootingDay _dayMeta({int? number, String? label}) => DraftShootingDay(
-  (b) => b
-    ..number = number
-    ..label = label,
-);
+DraftShootingDay _dayMeta({int? number, String? label, double? score}) =>
+    DraftShootingDay(
+      (b) => b
+        ..number = number
+        ..label = label
+        ..score = score,
+    );
 
 DraftScene _draft(String ref, {int? number, DraftShootingDay? shootingDay}) =>
     DraftScene((b) {
@@ -260,6 +262,48 @@ void main() {
     );
     // Dispatch-point summary: both days reported as created.
     expect(find.byKey(const Key('ai-apply-day-summary-day:1')), findsOneWidget);
+    await tester.pump();
+  });
+
+  testWidgets('a scored day group renders the 1–5 star rating next to its '
+      'label; an unscored group renders none (issue #723)', (tester) async {
+    await setupContainer(
+      payload: _scriptPayload([
+        _draft(
+          'draft-1',
+          number: 1,
+          shootingDay: _dayMeta(number: 1, label: 'Tag 1', score: 0.9),
+        ),
+        _draft(
+          'draft-2',
+          number: 2,
+          shootingDay: _dayMeta(number: 2, label: 'Tag 2', score: 0.2),
+        ),
+        _draft(
+          'draft-3',
+          number: 3,
+          shootingDay: _dayMeta(number: 3, label: 'Tag 3'),
+        ),
+      ]),
+    );
+    await pumpPreview(tester);
+
+    // Scored groups render the star indicator (5★ for 0.9, 1★ for 0.2).
+    expect(find.byKey(const Key('ai-apply-day-score-day:1')), findsOneWidget);
+    expect(find.byKey(const Key('ai-apply-day-score-day:2')), findsOneWidget);
+    // The unscored group renders nothing — honest absence, never a
+    // fabricated rating.
+    expect(find.byKey(const Key('ai-apply-day-score-day:3')), findsNothing);
+    // The visible star glyphs follow the 0.9 → 5★ bucket.
+    expect(
+      find
+          .descendant(
+            of: find.byKey(const Key('ai-apply-day-score-day:1')),
+            matching: find.byKey(const Key('ai-score-star-5')),
+          )
+          .evaluate(),
+      isNotEmpty,
+    );
     await tester.pump();
   });
 

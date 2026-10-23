@@ -3342,4 +3342,63 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get shootingDayErrorEpisodeMismatch =>
       'The shooting days belong to different episodes.';
+
+  @override
+  String get aiConfigDecisionSectionTitle => 'Decision model (scoring)';
+
+  @override
+  String get aiConfigDecisionHint =>
+      'Optional scoring model that rates extracted scenes, TL;DR summaries, and shooting days on a 1–5 star scale. The stars are a machine-generated review aid and never replace human review.';
+
+  @override
+  String get aiConfigDecisionProviderLabel => 'Decision model provider';
+
+  @override
+  String get aiConfigDecisionDisabled => '— none (scoring disabled) —';
+
+  @override
+  String get aiConfigDecisionModelLabel => 'Decision model';
+
+  @override
+  String get aiConfigDecisionSameKey => 'Use the same API key as extraction';
+
+  @override
+  String get aiConfigDecisionApiKeyLabel => 'API key for the decision model';
+
+  @override
+  String aiConfigDecisionKeyRemembered(Object provider) {
+    return 'A stored decision key for $provider will be used.';
+  }
+
+  @override
+  String get aiPreviewAiNoteScored =>
+      'All rows are machine-extracted drafts. The star ratings (1–5) are machine-generated quality estimates from the decision model and never replace human review.';
+
+  @override
+  String aiPreviewFilterAll(Object count) {
+    return 'All scenes ($count)';
+  }
+
+  @override
+  String aiPreviewFilterLowScore(Object count) {
+    return 'Low score ≤ ★★★ ($count)';
+  }
+
+  @override
+  String get aiPreviewSceneScore => 'Scene score:';
+
+  @override
+  String get aiPreviewSynopsisScore => 'Synopsis (TL;DR):';
+
+  @override
+  String get aiPreviewShootingDayScore => 'Shooting day score:';
+
+  @override
+  String aiScoreStarsLabel(Object stars) {
+    return '$stars of 5 stars';
+  }
+
+  @override
+  String get aiConfigDecisionKeyMissing =>
+      'Please enter an API key for the decision model or choose “Use the same API key as extraction”.';
 }

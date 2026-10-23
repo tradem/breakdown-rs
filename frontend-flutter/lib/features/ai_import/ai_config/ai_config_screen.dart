@@ -209,11 +209,13 @@ class _FirstRunForm extends ConsumerStatefulWidget {
 
 class _FirstRunFormState extends ConsumerState<_FirstRunForm> {
   final _keyController = TextEditingController();
+  final _decisionKeyController = TextEditingController();
   bool _busy = false;
 
   @override
   void dispose() {
     _keyController.dispose();
+    _decisionKeyController.dispose();
     super.dispose();
   }
 
@@ -234,7 +236,14 @@ class _FirstRunFormState extends ConsumerState<_FirstRunForm> {
       // the controller as a parameter — it never enters provider state.
       final created = await ref
           .read(aiConfigControllerProvider.notifier)
-          .create(secret: secret);
+          .create(
+            secret: secret,
+            // The split-billing decision key (issue #723): only read when
+            // the separate-key field is rendered; null otherwise.
+            decisionSecret: _showsDecisionKeyField
+                ? _decisionKeyController.text
+                : null,
+          );
       // Explicitly consumed: Err is already surfaced by the screen's
       // code-keyed banner (controller state); Ok is already visible as
       // the configured view — neither branch needs a local reaction.
@@ -242,6 +251,21 @@ class _FirstRunFormState extends ConsumerState<_FirstRunForm> {
     } finally {
       if (mounted) setState(() => _busy = false);
     }
+  }
+
+  /// Whether the separate decision API-key field is rendered (issue #723):
+  /// a decision provider is picked, the same-key toggle does NOT apply
+  /// (different provider, or the toggle is off), and no decision
+  /// credential is remembered for that provider.
+  bool get _showsDecisionKeyField {
+    final state = ref.read(aiConfigControllerProvider);
+    final decisionKey = state.selectedDecisionProviderKey;
+    if (decisionKey == null) return false;
+    if (decisionKey == state.selectedProviderKey && state.useSameDecisionKey) {
+      return false;
+    }
+    final handoff = ref.read(aiImportHandoffProvider).value;
+    return handoff?.decisionCredentialFor(decisionKey) == null;
   }
 
   /// Non-blocking provenance hint (issue #471): shown only when the prompt
@@ -279,6 +303,8 @@ class _FirstRunFormState extends ConsumerState<_FirstRunForm> {
         const SizedBox(height: 16),
         const _ModelPickers(),
         const SizedBox(height: 16),
+        const _DecisionSection(),
+        const SizedBox(height: 16),
         const _CostDisplayPreferenceSelector(),
         const SizedBox(height: 16),
         TextField(
@@ -294,6 +320,11 @@ class _FirstRunFormState extends ConsumerState<_FirstRunForm> {
           ),
         ),
         const SizedBox(height: 16),
+        _DecisionKeyField(
+          controller: _decisionKeyController,
+          visible: _showsDecisionKeyField,
+        ),
+        const SizedBox(height: 16),
         _PromptFields(
           scriptKey: 'ai-script-prompt',
           scheduleKey: 'ai-schedule-prompt',
@@ -306,7 +337,9 @@ class _FirstRunFormState extends ConsumerState<_FirstRunForm> {
           onPressed: _busy
               ? null
               : (state.selectedProviderKey != null &&
-                        state.selectedAssistantModelId != null
+                        state.selectedAssistantModelId != null &&
+                        (state.selectedDecisionProviderKey == null ||
+                            state.selectedDecisionModelId != null)
                     ? _submit
                     : null),
           child: Text(l10nOf(context).aiConfigSaveConfiguration),
@@ -588,6 +621,176 @@ class _CostDisplayPreferenceSelector extends ConsumerWidget {
   }
 }
 
+/// The optional Decision / Scoring Model section (issue #723): provider
+/// picker (decision-capable providers + the explicit "disabled" entry),
+/// model picker from that provider's curated catalog, and the
+/// "Use same API key as extraction" toggle shown when the decision
+/// provider matches the extraction provider.
+class _DecisionSection extends ConsumerWidget {
+  const _DecisionSection();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final state = ref.watch(aiConfigControllerProvider);
+    final controller = ref.read(aiConfigControllerProvider.notifier);
+    final l10n = l10nOf(context);
+    final decisionKey = state.selectedDecisionProviderKey;
+    final sameProvider =
+        decisionKey != null && decisionKey == state.selectedProviderKey;
+    final handoff = ref.watch(aiImportHandoffProvider);
+    final rememberedDecision = decisionKey == null
+        ? null
+        : handoff.value?.decisionCredentialFor(decisionKey);
+    return Column(
+      key: const Key('ai-decision-section'),
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          l10n.aiConfigDecisionSectionTitle,
+          key: const Key('ai-decision-section-title'),
+          style: const TextStyle(fontWeight: FontWeight.bold),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          l10n.aiConfigDecisionHint,
+          style: Theme.of(context).textTheme.bodySmall,
+        ),
+        const SizedBox(height: 8),
+        DropdownButtonFormField<String?>(
+          key: const Key('ai-decision-provider-picker'),
+          initialValue: decisionKey,
+          decoration: InputDecoration(
+            labelText: l10n.aiConfigDecisionProviderLabel,
+            border: const OutlineInputBorder(),
+          ),
+          items: [
+            DropdownMenuItem<String?>(
+              value: null,
+              key: const Key('ai-decision-provider-disabled'),
+              child: Text(l10n.aiConfigDecisionDisabled),
+            ),
+            ...switch (state.providers) {
+              AsyncData(:final value) => [
+                for (final info in value)
+                  if (kDecisionCapableProviderKeys.contains(info.key))
+                    DropdownMenuItem<String?>(
+                      value: info.key,
+                      key: Key('ai-decision-provider-${info.key}'),
+                      child: Text(info.key),
+                    ),
+              ],
+              _ => const <DropdownMenuItem<String?>>[],
+            },
+          ],
+          onChanged: (key) => controller.selectDecisionProvider(key),
+        ),
+        if (decisionKey != null) ...[
+          const SizedBox(height: 12),
+          _DecisionModelPicker(state: state, controller: controller),
+          if (sameProvider)
+            CheckboxListTile(
+              key: const Key('ai-decision-same-key-toggle'),
+              contentPadding: EdgeInsets.zero,
+              controlAffinity: ListTileControlAffinity.leading,
+              dense: true,
+              value: state.useSameDecisionKey,
+              onChanged: (checked) =>
+                  controller.setUseSameDecisionKey(checked ?? true),
+              title: Text(l10n.aiConfigDecisionSameKey),
+            ),
+          if (!sameProvider && rememberedDecision != null)
+            Text(
+              key: Key('ai-decision-key-remembered-$decisionKey'),
+              l10n.aiConfigDecisionKeyRemembered(decisionKey),
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+        ],
+      ],
+    );
+  }
+}
+
+/// The decision model picker fed by the selected decision provider's
+/// model route (issue #723). Same honest degradation as the extraction
+/// pickers (loading / "provider unavailable").
+class _DecisionModelPicker extends ConsumerWidget {
+  const _DecisionModelPicker({required this.state, required this.controller});
+
+  final AiConfigScreenState state;
+  final AiConfigController controller;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final value = state.decisionModels;
+    return switch (value) {
+      AsyncData(value: final models) => DropdownButtonFormField<String>(
+        key: const Key('ai-decision-model-picker'),
+        initialValue: state.selectedDecisionModelId,
+        isExpanded: true,
+        decoration: InputDecoration(
+          labelText: l10nOf(context).aiConfigDecisionModelLabel,
+          border: const OutlineInputBorder(),
+        ),
+        items: [
+          if (state.selectedDecisionModelId != null &&
+              !models.any((model) => model.id == state.selectedDecisionModelId))
+            DropdownMenuItem<String>(
+              value: state.selectedDecisionModelId,
+              child: Text(state.selectedDecisionModelId!),
+            ),
+          for (final model in models)
+            DropdownMenuItem<String>(
+              value: model.id,
+              key: Key('ai-decision-model-item-${model.id}'),
+              child: Text(model.displayName ?? model.id),
+            ),
+        ],
+        onChanged: (id) {
+          if (id != null) controller.selectDecisionModel(id);
+        },
+      ),
+      AsyncError() => Text(
+        key: const Key('ai-decision-models-degraded'),
+        l10nOf(context).aiConfigModelCatalogUnavailable,
+      ),
+      _ => const SizedBox(
+        key: Key('ai-decision-models-loading'),
+        height: 24,
+        width: 24,
+        child: CircularProgressIndicator(strokeWidth: 2),
+      ),
+    };
+  }
+}
+
+/// The masked separate decision API-key field (issue #723). Rendered only
+/// when the decision credential cannot be reused (different provider, or
+/// the same-key toggle is off) and none is remembered — the secret is a
+/// submit-time parameter only (D6).
+class _DecisionKeyField extends StatelessWidget {
+  const _DecisionKeyField({required this.controller, required this.visible});
+
+  final TextEditingController controller;
+  final bool visible;
+
+  @override
+  Widget build(BuildContext context) {
+    if (!visible) return const SizedBox.shrink();
+    return TextField(
+      key: const Key('ai-decision-api-key-field'),
+      controller: controller,
+      obscureText: true,
+      autocorrect: false,
+      enableSuggestions: false,
+      autofillHints: const <String>[],
+      decoration: InputDecoration(
+        labelText: l10nOf(context).aiConfigDecisionApiKeyLabel,
+        border: const OutlineInputBorder(),
+      ),
+    );
+  }
+}
+
 /// Per-document-kind prompt drafts (script/schedule), backed by the
 /// controller's draft store. The editor source text is the same value sent
 /// to create/update — syntax spans are presentation-only.
@@ -712,11 +915,13 @@ class _ConfiguredForm extends ConsumerStatefulWidget {
 
 class _ConfiguredFormState extends ConsumerState<_ConfiguredForm> {
   final _replacementKeyController = TextEditingController();
+  final _decisionKeyController = TextEditingController();
   bool _busy = false;
 
   @override
   void dispose() {
     _replacementKeyController.dispose();
+    _decisionKeyController.dispose();
     super.dispose();
   }
 
@@ -769,6 +974,19 @@ class _ConfiguredFormState extends ConsumerState<_ConfiguredForm> {
         selectedProviderKey != null &&
         handoff.value?.credentials.containsKey(selectedProviderKey) == true;
     final showReplacementKey = providerChanged && !hasRetainedCredential;
+    // The separate decision API-key field (issue #723) — shown only when a
+    // NEW decision credential is actually needed: a decision provider is
+    // picked, the same-key reuse does not apply (different provider or the
+    // toggle is off), none is remembered, and the stored binding is being
+    // replaced (an unchanged stored binding is resent as-is).
+    final decisionKey = state.selectedDecisionProviderKey;
+    final storedDecisionUnchanged =
+        decisionKey != null && config.decisionProvider?.name == decisionKey;
+    final showDecisionKey =
+        decisionKey != null &&
+        !(decisionKey == selectedProviderKey && state.useSameDecisionKey) &&
+        handoff.value?.decisionCredentialFor(decisionKey) == null &&
+        !storedDecisionUnchanged;
     return Column(
       key: const Key('ai-config-configured'),
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -807,6 +1025,13 @@ class _ConfiguredFormState extends ConsumerState<_ConfiguredForm> {
         const SizedBox(height: AppSpacing.space12),
         const _ModelPickers(),
         const SizedBox(height: AppSpacing.space8),
+        const _DecisionSection(),
+        const SizedBox(height: AppSpacing.space8),
+        _DecisionKeyField(
+          controller: _decisionKeyController,
+          visible: showDecisionKey,
+        ),
+        const SizedBox(height: AppSpacing.space8),
         const _CostDisplayPreferenceSelector(),
         const SizedBox(height: AppSpacing.space8),
         const _PromptFields(
@@ -816,7 +1041,11 @@ class _ConfiguredFormState extends ConsumerState<_ConfiguredForm> {
         const SizedBox(height: AppSpacing.space12),
         FilledButton(
           key: const Key('ai-config-edit-save'),
-          onPressed: _busy || state.selectedAssistantModelId == null
+          onPressed:
+              _busy ||
+                  state.selectedAssistantModelId == null ||
+                  (state.selectedDecisionProviderKey != null &&
+                      state.selectedDecisionModelId == null)
               ? null
               : () async {
                   setState(() => _busy = true);
@@ -834,6 +1063,15 @@ class _ConfiguredFormState extends ConsumerState<_ConfiguredForm> {
                       schedulePrompt: state.schedulePrompt,
                       replacementSecret: showReplacementKey
                           ? _replacementKeyController.text
+                          : null,
+                      // Decision Model slot (issue #723): always resolved
+                      // and sent — including the explicit "disabled" pick,
+                      // which the tri-state PATCH clears.
+                      decisionProviderKey: state.selectedDecisionProviderKey,
+                      decisionModelId: state.selectedDecisionModelId,
+                      useSameDecisionKey: state.useSameDecisionKey,
+                      decisionReplacementSecret: showDecisionKey
+                          ? _decisionKeyController.text
                           : null,
                     );
                     // Explicitly consumed: Err renders the

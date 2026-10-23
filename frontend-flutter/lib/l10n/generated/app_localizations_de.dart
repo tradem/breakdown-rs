@@ -3378,4 +3378,64 @@ class AppLocalizationsDe extends AppLocalizations {
   @override
   String get shootingDayErrorEpisodeMismatch =>
       'Die Drehtage gehören zu verschiedenen Episoden.';
+
+  @override
+  String get aiConfigDecisionSectionTitle => 'Decision-Modell (Bewertung)';
+
+  @override
+  String get aiConfigDecisionHint =>
+      'Optionales Bewertungsmodell, das extrahierte Szenen, Kurzbeschreibungen und Spieltage mit einer 1–5-Sterne-Bewertung versieht. Die Sterne sind eine maschinell erstellte Entscheidungshilfe und ersetzen die menschliche Prüfung nicht.';
+
+  @override
+  String get aiConfigDecisionProviderLabel => 'Decision-Modell-Anbieter';
+
+  @override
+  String get aiConfigDecisionDisabled => '— keine (Bewertung deaktiviert) —';
+
+  @override
+  String get aiConfigDecisionModelLabel => 'Decision-Modell';
+
+  @override
+  String get aiConfigDecisionSameKey =>
+      'Gleichen API-Schlüssel wie Extraktion verwenden';
+
+  @override
+  String get aiConfigDecisionApiKeyLabel => 'API-Schlüssel für Decision-Modell';
+
+  @override
+  String aiConfigDecisionKeyRemembered(Object provider) {
+    return 'Gespeicherter Decision-Schlüssel für $provider wird verwendet.';
+  }
+
+  @override
+  String get aiPreviewAiNoteScored =>
+      'Alle Zeilen sind maschinell extrahierte Entwürfe. Die Sternbewertungen (1–5) sind maschinell erstellte Qualitätseinschätzungen des Decision-Modells und ersetzen die menschliche Prüfung nicht.';
+
+  @override
+  String aiPreviewFilterAll(Object count) {
+    return 'Alle Szenen ($count)';
+  }
+
+  @override
+  String aiPreviewFilterLowScore(Object count) {
+    return 'Niedrige Bewertung ≤ ★★★ ($count)';
+  }
+
+  @override
+  String get aiPreviewSceneScore => 'Szenen-Bewertung:';
+
+  @override
+  String get aiPreviewSynopsisScore => 'Kurzbeschreibung (TL;DR):';
+
+  @override
+  String get aiPreviewShootingDayScore => 'Spieltag-Bewertung:';
+
+  @override
+  String aiScoreStarsLabel(Object stars) {
+    return '$stars von 5 Sternen';
+  }
+
+  @override
+  String get aiConfigDecisionKeyMissing =>
+      'Bitte gib einen API-Schlüssel für das Decision-Modell ein oder wähle „Gleichen API-Schlüssel wie Extraktion verwenden“.';
 }

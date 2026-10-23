@@ -9,11 +9,11 @@
 import 'dart:async';
 
 import 'package:breakdown_api/breakdown_api.dart';
-import 'package:built_collection/built_collection.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/problem_error.dart';
+import '../../../design/components/ai_score_stars.dart';
 import '../../../design/scene_mood_label.dart';
 import '../../../l10n/app_localizations_provider.dart';
 import '../../episodes/episodes_controller.dart';
@@ -135,6 +135,12 @@ class _TypedPreviewBodyState extends ConsumerState<_TypedPreviewBody> {
   /// otherwise `AiApplySection` builds mappings from stale `draft_ref`s
   /// and refreshed rows never reach the apply request.
   AiImportPreviewResponse? _seededResponse;
+
+  /// The low-score review filter (issue #723): when active, only rows
+  /// with at least one score `<= 3★` render. VIEW-ONLY state — the
+  /// apply controller keeps the full row set, so filtering the visible
+  /// list never drops rows from the apply request.
+  bool _lowScoreOnly = false;
 
   @override
   Widget build(BuildContext context) {
@@ -276,10 +282,12 @@ class _TypedPreviewBodyState extends ConsumerState<_TypedPreviewBody> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         // AI-extracted banner (EU AI Act Art. 50, issue #538): the AI
-        // framing precedes every typed payload; the note states the honest
-        // fact that the wire preview carries NO machine-verified confidence
-        // values (`confidence` exists only on the applied provenance) —
-        // per-row confidence chips would be fabricated, so none render.
+        // framing precedes every typed payload. When Decision Model scores
+        // are present (issue #723) the note frames the star ratings as
+        // machine-evaluated review aids; when scores are absent the note
+        // states the honest fact that the wire preview carries NO
+        // machine-verified confidence values — per-row confidence chips
+        // would be fabricated, so none render.
         Container(
           key: const Key('ai-preview-ai-banner'),
           margin: const EdgeInsets.only(bottom: 12),
@@ -310,15 +318,30 @@ class _TypedPreviewBodyState extends ConsumerState<_TypedPreviewBody> {
               ),
               const SizedBox(height: 4),
               Text(
-                key: const Key('ai-preview-ai-banner-note'),
-                l10nOf(context).aiPreviewAiNote,
+                key: Key(
+                  _hasAnyScore(payload)
+                      ? 'ai-preview-ai-banner-note-scored'
+                      : 'ai-preview-ai-banner-note',
+                ),
+                _hasAnyScore(payload)
+                    ? l10nOf(context).aiPreviewAiNoteScored
+                    : l10nOf(context).aiPreviewAiNote,
                 style: Theme.of(context).textTheme.bodySmall,
               ),
             ],
           ),
         ),
         _payloadHeader(context, payload),
-        const SizedBox(height: 12),
+        // Low-score review filter (issue #723): shown only when at least
+        // one row carries a score — a filter over an all-null set would be
+        // dead UI. Filtering is view-only; the apply payload is untouched.
+        // Unscored payloads keep the plain 12px gap so the layout stays
+        // byte-identical to the pre-#723 goldens.
+        if (_hasAnyScore(payload)) ...[
+          ..._filterChipBar(context, payload),
+          const SizedBox(height: 12),
+        ] else
+          const SizedBox(height: 12),
         // The apply action FIRST (issue #581 UX): the reviewer reaches the
         // dispatch — context/picker, per-group target summary, review
         // acknowledgement — without scrolling past the whole preview list.
@@ -336,6 +359,90 @@ class _TypedPreviewBodyState extends ConsumerState<_TypedPreviewBody> {
         ..._payloadRows(context, payload),
       ],
     );
+  }
+
+  /// True when at least one preview row of [payload] carries a Decision
+  /// Model score (issue #723) — gates the scored banner note and the
+  /// filter chip bar (a filter over an all-null set is dead UI).
+  bool _hasAnyScore(Object payload) => switch (payload) {
+    AiPreviewPayloadOneOf() => payload.data.scenes.any(_rowHasScore),
+    AiPreviewPayloadOneOf1() => payload.data.rows.any(
+      (row) => row.shootingDayScore != null,
+    ),
+    AiPreviewPayloadOneOf2() => payload.data.scenes.any(_mergedHasScore),
+    _ => false,
+  };
+
+  bool _rowHasScore(DraftScene scene) =>
+      scene.sceneScore != null ||
+      scene.synopsisScore != null ||
+      scene.shootingDay?.score != null;
+
+  /// The merged path carries the applied projection `SceneView` (no
+  /// scene/synopsis scores on the wire) — only the schedule rows' day
+  /// score is available there (issue #723, honest wire limitation).
+  double? _mergedDayScore(MergedScene merged) {
+    for (final row in merged.scheduleRows) {
+      final score = row.shootingDayScore;
+      if (score != null) return score;
+    }
+    return null;
+  }
+
+  bool _mergedHasScore(MergedScene merged) =>
+      merged.scheduleRows.any((row) => row.shootingDayScore != null);
+
+  /// The low-score predicate (`<= 3★`, design D3): at least one present
+  /// score below the 3-star boundary. `null` scores never count as low.
+  bool _rowIsLow(DraftScene scene) =>
+      isLowAiScore(scene.sceneScore) ||
+      isLowAiScore(scene.synopsisScore) ||
+      isLowAiScore(scene.shootingDay?.score);
+
+  bool _mergedIsLow(MergedScene merged) =>
+      merged.scheduleRows.any((row) => isLowAiScore(row.shootingDayScore));
+
+  /// The `All scenes (N)` / `Low score ≤ ★★★ (M)` chip bar (issue #723).
+  /// Renders only when at least one row carries a score.
+  List<Widget> _filterChipBar(BuildContext context, Object payload) {
+    if (!_hasAnyScore(payload)) return const [];
+    final (total, low) = switch (payload) {
+      AiPreviewPayloadOneOf() => (
+        payload.data.scenes.length,
+        payload.data.scenes.where(_rowIsLow).length,
+      ),
+      AiPreviewPayloadOneOf1() => (
+        payload.data.rows.length,
+        payload.data.rows
+            .where((row) => isLowAiScore(row.shootingDayScore))
+            .length,
+      ),
+      AiPreviewPayloadOneOf2() => (
+        payload.data.scenes.length,
+        payload.data.scenes.where(_mergedIsLow).length,
+      ),
+      _ => (0, 0),
+    };
+    return [
+      Row(
+        key: const Key('ai-preview-filter-bar'),
+        children: [
+          FilterChip(
+            key: const Key('ai-preview-filter-all'),
+            label: Text(l10nOf(context).aiPreviewFilterAll('$total')),
+            selected: !_lowScoreOnly,
+            onSelected: (_) => setState(() => _lowScoreOnly = false),
+          ),
+          const SizedBox(width: 8),
+          FilterChip(
+            key: const Key('ai-preview-filter-low-score'),
+            label: Text(l10nOf(context).aiPreviewFilterLowScore('$low')),
+            selected: _lowScoreOnly,
+            onSelected: (_) => setState(() => _lowScoreOnly = true),
+          ),
+        ],
+      ),
+    ];
   }
 
   Widget _payloadHeader(BuildContext context, Object payload) {
@@ -381,9 +488,16 @@ class _TypedPreviewBodyState extends ConsumerState<_TypedPreviewBody> {
     // Script rows render GROUPED by their draft episode (issue #581): a
     // group header with the per-group target selector precedes the first
     // row of each group; unmarked rows render under the picked-target
-    // header (the single-episode flow).
+    // header (the single-episode flow). The low-score filter (issue
+    // #723) narrows the VISIBLE rows only — the apply controller keeps
+    // the full set.
     AiPreviewPayloadOneOf() => [
-      ..._scriptRowsGrouped(context, payload.data.scenes),
+      ..._scriptRowsGrouped(
+        context,
+        _lowScoreOnly
+            ? payload.data.scenes.where(_rowIsLow).toList()
+            : payload.data.scenes.toList(),
+      ),
       for (final uncertainty in payload.data.uncertainties)
         // A costume the server dropped is reported here rather than vanishing:
         // the reviewer sees a MISSING entry with its reason slug
@@ -404,17 +518,26 @@ class _TypedPreviewBodyState extends ConsumerState<_TypedPreviewBody> {
     AiPreviewPayloadOneOf1() => [
       // Pre-merge schedule rows are informative — the merge worker turns
       // them into actionable drafts; no decision chips on this shape.
-      for (final row in payload.data.rows)
+      for (final row
+          in (_lowScoreOnly
+              ? payload.data.rows
+                    .where((row) => isLowAiScore(row.shootingDayScore))
+                    .toList()
+              : payload.data.rows.toList()))
         _InfoRowCard(
           label: l10nOf(context).aiPreviewRowRef(
             row.rowRef,
             '${row.sceneNumber == null ? '' : 'Szene ${row.sceneNumber} · '}'
             '${row.shootingDayLabel ?? row.date?.toString() ?? l10nOf(context).aiPreviewUnscheduled}',
           ),
+          dayScore: row.shootingDayScore,
         ),
     ],
     AiPreviewPayloadOneOf2() => [
-      for (final merged in payload.data.scenes)
+      for (final merged
+          in (_lowScoreOnly
+              ? payload.data.scenes.where(_mergedIsLow).toList()
+              : payload.data.scenes.toList()))
         _PreviewRowCard(
           jobId: widget.jobId,
           draftRef: merged.scene.id,
@@ -426,6 +549,10 @@ class _TypedPreviewBodyState extends ConsumerState<_TypedPreviewBody> {
           // Applied scene's set-shorthand mood (issue #721) — reinforcing
           // icons next to the visible text, display-only.
           mood: merged.scene.mood,
+          // The merged path carries the applied projection `SceneView`, so
+          // scene/synopsis scores are NOT on the wire here — only the day
+          // score from the schedule rows (issue #723). Null renders nothing.
+          dayScore: _mergedDayScore(merged),
         ),
       // Unmatched rows render as NON-actionable info cards — they are
       // excluded from the decisions and from one-tap accept-all (no
@@ -455,7 +582,7 @@ class _TypedPreviewBodyState extends ConsumerState<_TypedPreviewBody> {
   /// decisions sit where the apply happens, not scattered through the rows.
   List<Widget> _scriptRowsGrouped(
     BuildContext context,
-    BuiltList<DraftScene> scenes,
+    List<DraftScene> scenes,
   ) {
     final widgets = <Widget>[];
     for (final scene in scenes) {
@@ -473,6 +600,11 @@ class _TypedPreviewBodyState extends ConsumerState<_TypedPreviewBody> {
           // The row's set-shorthand mood (issue #721) — reinforcing icons
           // next to the visible text, display-only.
           mood: scene.mood,
+          // Decision Model scores (issue #723) — display-only stars;
+          // null renders nothing (honest absence, never fabricated).
+          sceneScore: scene.sceneScore,
+          synopsisScore: scene.synopsisScore,
+          dayScore: scene.shootingDay?.score,
         ),
       );
     }
@@ -533,11 +665,21 @@ class _PreviewRowCard extends ConsumerWidget {
     required this.label,
     this.shootingDay,
     this.mood,
+    this.sceneScore,
+    this.synopsisScore,
+    this.dayScore,
   });
 
   final String jobId;
   final String draftRef;
   final String label;
+
+  /// The row's Decision Model scores (issue #723) — display-only star
+  /// ratings next to their visible labels. `null` renders nothing (the
+  /// honest absence when no Decision Model ran; never fabricated).
+  final double? sceneScore;
+  final double? synopsisScore;
+  final double? dayScore;
 
   /// The row's extracted shooting day (issue #706) — display-only here;
   /// the accept/reject decision lives in the apply card. `null` on a
@@ -570,6 +712,21 @@ class _PreviewRowCard extends ConsumerWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(label),
+            // The scene score (issue #723): machine-evaluated star rating
+            // next to its visible label — a review aid, never a decision.
+            if (sceneScore != null)
+              _ScoreLine(
+                key: Key('ai-preview-row-scene-score-$draftRef'),
+                label: l10nOf(context).aiPreviewSceneScore,
+                score: sceneScore,
+              ),
+            // The synopsis (TL;DR) score (issue #723).
+            if (synopsisScore != null)
+              _ScoreLine(
+                key: Key('ai-preview-row-synopsis-score-$draftRef'),
+                label: l10nOf(context).aiPreviewSynopsisScore,
+                score: synopsisScore,
+              ),
             // The set-shorthand mood (issue #721): reinforcing icons next
             // to the visible text, so the reviewer can verify the heading
             // reading without opening the document.
@@ -586,11 +743,30 @@ class _PreviewRowCard extends ConsumerWidget {
             if (shootingDay != null &&
                 (shootingDay!.number != null ||
                     (shootingDay!.label?.trim().isNotEmpty ?? false)))
-              Text(
+              Row(
                 key: Key('ai-preview-row-day-$draftRef'),
-                l10nOf(context)
-                    .aiPreviewShootingDay(draftShootingDayLabel(shootingDay!)),
-                style: Theme.of(context).textTheme.bodySmall,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Flexible(
+                    child: Text(
+                      l10nOf(context).aiPreviewShootingDay(
+                        draftShootingDayLabel(shootingDay!),
+                      ),
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ),
+                  if (dayScore != null) ...[
+                    const SizedBox(width: 8),
+                    AiScoreStars(score: dayScore),
+                  ],
+                ],
+              )
+            else if (dayScore != null)
+              _ScoreLine(
+                key: Key('ai-preview-row-day-score-$draftRef'),
+                label: l10nOf(context).aiPreviewShootingDayScore,
+                score: dayScore,
               ),
             const SizedBox(height: 8),
             SegmentedButton<String>(
@@ -741,6 +917,25 @@ class _PreviewRowCard extends ConsumerWidget {
   }
 }
 
+/// One labeled score line: the visible category label plus the star
+/// rating (issue #723).
+class _ScoreLine extends StatelessWidget {
+  const _ScoreLine({required this.label, required this.score, super.key});
+
+  final String label;
+  final double? score;
+
+  @override
+  Widget build(BuildContext context) => Row(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      Text(label, style: Theme.of(context).textTheme.bodySmall),
+      const SizedBox(width: 6),
+      AiScoreStars(score: score),
+    ],
+  );
+}
+
 /// The per-group episode header (issue #581). Grouped rows get the draft
 /// episode label from the `Ep.:` marker, the group's CURRENT target, and the
 /// change affordance. The ungrouped variant (`groupRef == null`) names the
@@ -748,9 +943,13 @@ class _PreviewRowCard extends ConsumerWidget {
 /// follow the apply card's single-episode target (the backward-compatible
 /// flow).
 class _InfoRowCard extends StatelessWidget {
-  const _InfoRowCard({required this.label});
+  const _InfoRowCard({required this.label, this.dayScore});
 
   final String label;
+
+  /// The row's day-assignment score (issue #723) — stars on schedule
+  /// info cards; `null` renders nothing.
+  final double? dayScore;
 
   @override
   Widget build(BuildContext context) => Card(
@@ -758,7 +957,16 @@ class _InfoRowCard extends StatelessWidget {
     color: Theme.of(context).colorScheme.surfaceContainerHighest,
     child: Padding(
       padding: const EdgeInsets.all(12),
-      child: Text(label, style: Theme.of(context).textTheme.bodySmall),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label, style: Theme.of(context).textTheme.bodySmall),
+          if (dayScore != null) ...[
+            const SizedBox(height: 4),
+            AiScoreStars(score: dayScore),
+          ],
+        ],
+      ),
     ),
   );
 }

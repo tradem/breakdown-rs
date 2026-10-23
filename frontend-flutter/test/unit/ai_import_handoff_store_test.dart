@@ -184,4 +184,100 @@ void main() {
       );
     });
   });
+
+  group('AiImportHandoffStore decision-scoped credentials (issue #723)', () {
+    late FakeSecureStoragePlatform platform;
+
+    setUp(() {
+      platform = FakeSecureStoragePlatform();
+      FlutterSecureStoragePlatform.instance = platform;
+    });
+
+    AiImportHandoffStore store() => AiImportHandoffStore.secure();
+
+    const decisionRef = ProviderCredentialReference(
+      settingsId: 'settings-decision',
+      settingsVersion: 2,
+      vaultKeyId: 'vault-decision',
+    );
+    const extractionRef = ProviderCredentialReference(
+      settingsId: 'settings-extraction',
+      settingsVersion: 1,
+      vaultKeyId: 'vault-extraction',
+    );
+
+    test(
+      'decision and extraction credentials coexist for one provider',
+      () async {
+        final s = store();
+        expect(
+          (await s.rememberCredential(
+            'user-a',
+            'neuralwatt',
+            extractionRef,
+          )).isRight(),
+          isTrue,
+        );
+        expect(
+          (await s.rememberDecisionCredential(
+            'user-a',
+            'neuralwatt',
+            decisionRef,
+          )).isRight(),
+          isTrue,
+        );
+
+        final state = (await s.read('user-a')).getRight().toNullable()!;
+        // The extraction slot is untouched by the decision write.
+        expect(state.credentials['neuralwatt']?.vaultKeyId, 'vault-extraction');
+        // The decision slot resolves through the prefixed key.
+        expect(
+          state.decisionCredentialFor('neuralwatt')?.vaultKeyId,
+          'vault-decision',
+        );
+        expect(
+          state.decisionCredentialFor('neuralwatt')?.settingsId,
+          'settings-decision',
+        );
+      },
+    );
+
+    test(
+      'a missing decision credential reads as null (never fabricated)',
+      () async {
+        final s = store();
+        final state = (await s.read('user-a')).getRight().toNullable()!;
+        expect(state.decisionCredentialFor('eurouter'), isNull);
+      },
+    );
+
+    test(
+      'decision references stay isolated per subject and survive reload',
+      () async {
+        final s = store();
+        await s.rememberDecisionCredential('user-a', 'openrouter', decisionRef);
+
+        expect(
+          (await s.read('user-b'))
+              .getRight()
+              .toNullable()!
+              .decisionCredentialFor('openrouter'),
+          isNull,
+          reason: 'the decision reference of A must not leak to B',
+        );
+
+        // Round-trip through the persisted document (the prefixed key must
+        // deserialize into the same slot).
+        final reloaded = await store().read('user-a');
+        expect(
+          reloaded
+              .getRight()
+              .toNullable()!
+              .decisionCredentialFor('openrouter')
+              ?.vaultKeyId,
+          'vault-decision',
+        );
+      },
+    );
+  });
 }

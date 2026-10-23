@@ -143,6 +143,62 @@ for i, line in enumerate(lines):
 p.write_text("".join(lines))
 PY
 
+# Work around an openapi-generator 7.25.0 `dart-dio` template limitation: the
+# backend's tri-state PATCH fields (`UpdateAiConfigRequest.decision_provider` /
+# `decision_model` / `decision_vault_key_id`, issue #722) are declared as
+# `Option<Option<T>>` on the wire (`oneOf [<T>, null]` in the schema): an
+# omitted field keeps the stored configuration, an explicit JSON `null` clears
+# it, a value replaces it. The generator flattens this to a plain `<T>?` Dart
+# getter and guards every serialize with `if (object.field != null)`, so the
+# generated client can never emit the explicit `null` and the client could not
+# clear a stored Decision Model. The serializer rewrite below drops the null
+# guards for EXACTLY these three fields so an unset field serializes as JSON
+# `null` (explicit clear) — every call site must therefore always resolve the
+# effective decision state before building the request (the AI-config
+# controller does). Deterministic and idempotent (a no-op once upstream emits
+# the field as always-present).
+OUT="${OUT}" python3 - <<'PY'
+import os, pathlib, re
+p = pathlib.Path(os.environ["OUT"]) / "lib/src/model/update_ai_config_request.dart"
+text = p.read_text()
+TRI_STATE_FIELDS = {
+    "decisionProvider": "decision_provider",
+    "decisionModel": "decision_model",
+    "decisionVaultKeyId": "decision_vault_key_id",
+}
+for getter, wire in TRI_STATE_FIELDS.items():
+    # The generated block: a null guard wrapping the two yields. Replace it
+    # with an unconditional yield whose value is an explicit JSON null when
+    # the getter is unset.
+    pattern = re.compile(
+        r"    if \(object\." + getter + r" != null\) \{\n"
+        r"      yield r'" + wire + r"';\n"
+        r"      yield serializers\.serialize\(\n"
+        r"        object\." + getter + r",\n"
+        r"        specifiedType: const FullType\.nullable\((\w+)\),\n"
+        r"      \);\n"
+        r"    \}\n"
+    )
+    replacement = (
+        "    // Tri-state field (issue #722): an unset value serializes as an"
+        "\n    // explicit JSON `null` — the backend's clear signal. Never guarded.\n"
+        "    yield r'" + wire + r"';\n"
+        "    yield object." + getter + " == null\n"
+        "        ? null\n"
+        "        : serializers.serialize(\n"
+        "          object." + getter + ",\n"
+        "          specifiedType: const FullType.nullable(\\1),\n"
+        "        );\n"
+    )
+    text, count = pattern.subn(replacement, text)
+    if count != 1:
+        raise SystemExit(
+            f"error: expected exactly one tri-state block for {getter}, "
+            f"found {count} — the generator template changed; revisit this patch"
+        )
+p.write_text(text)
+PY
+
 # Pin build_runner to a deterministic version. The generated pubspec declares
 # `build_runner: any`; pinning keeps the built_value codegen output
 # reproducible for the CI OpenAPI drift check (which runs this same script into

@@ -79,6 +79,9 @@ DraftScene _draft(
   int? number,
   List<DraftCostume> costumes = const [],
   DraftEpisode? episode,
+  double? sceneScore,
+  double? synopsisScore,
+  DraftShootingDay? shootingDay,
 }) => DraftScene((b) {
   b
     ..draftRef = ref
@@ -89,6 +92,11 @@ DraftScene _draft(
   // A complex built_value field is set through its builder; an absent
   // marker stays UNSET (null on the wire — the single-episode flow).
   if (episode != null) b.episode.replace(episode);
+  // Decision Model scores (issue #723): absent = unscored (no decision
+  // model configured / failed pass) — renders no stars, never fabricated.
+  if (sceneScore != null) b.sceneScore = sceneScore;
+  if (synopsisScore != null) b.synopsisScore = synopsisScore;
+  if (shootingDay != null) b.shootingDay.replace(shootingDay);
 });
 
 /// The `Ep.:` marker metadata a draft row carries (issue #581).
@@ -943,6 +951,134 @@ void main() {
         find.byKey(const Key('ai-apply-submit')),
       );
       expect(apply.onPressed, isNull);
+      await tester.pump();
+    });
+
+    testWidgets('scored rows render Scene/Synopsis/Day star ratings and the '
+        'scored Art. 50 note; unscored rows render none (issue #723)', (
+      tester,
+    ) async {
+      await setupContainer(
+        previewValue: Right(
+          _previewResponse(
+            _scriptPayloadWith([
+              _draft(
+                'draft-1',
+                number: 1,
+                sceneScore: 0.9,
+                synopsisScore: 0.4,
+                shootingDay: DraftShootingDay(
+                  (b) => b
+                    ..number = 1
+                    ..label = 'Tag 1'
+                    ..score = 0.75,
+                ),
+              ),
+              _draft('draft-2', number: 2),
+            ]),
+          ),
+        ),
+      );
+      await pumpPreview(tester);
+
+      // Scored banner note (machine-evaluated stars framing).
+      expect(
+        find.byKey(const Key('ai-preview-ai-banner-note-scored')),
+        findsOneWidget,
+      );
+      // draft-1: scene 0.9 → 5★, synopsis 0.4 → 2★, day 0.75 → 4★.
+      expect(
+        find.byKey(const Key('ai-preview-row-scene-score-draft-1')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const Key('ai-preview-row-synopsis-score-draft-1')),
+        findsOneWidget,
+      );
+      expect(
+        find
+            .descendant(
+              of: find.byKey(const Key('ai-preview-row-scene-score-draft-1')),
+              matching: find.byKey(const Key('ai-score-star-5')),
+            )
+            .evaluate(),
+        isNotEmpty,
+      );
+      expect(
+        find
+            .descendant(
+              of: find.byKey(
+                const Key('ai-preview-row-synopsis-score-draft-1'),
+              ),
+              matching: find.byKey(const Key('ai-score-star-1')),
+            )
+            .evaluate(),
+        isNotEmpty,
+      );
+      // draft-2 is unscored: no stars, and the honest banner note.
+      expect(
+        find.byKey(const Key('ai-preview-row-scene-score-draft-2')),
+        findsNothing,
+      );
+      await tester.pump();
+    });
+
+    testWidgets('the low-score filter narrows the VISIBLE rows only — the '
+        'apply payload keeps every row (issue #723, design D3)', (
+      tester,
+    ) async {
+      await setupContainer(
+        previewValue: Right(
+          _previewResponse(
+            _scriptPayloadWith([
+              _draft('draft-1', number: 1, sceneScore: 0.9, synopsisScore: 0.9),
+              _draft('draft-2', number: 2, sceneScore: 0.2, synopsisScore: 0.2),
+              _draft('draft-3', number: 3),
+            ]),
+          ),
+        ),
+      );
+      await pumpPreview(tester);
+
+      // The filter bar shows both chips with their counts: 1 low row
+      // (draft-2), 3 total. Unscored rows are NOT low.
+      expect(find.byKey(const Key('ai-preview-filter-bar')), findsOneWidget);
+      expect(find.text('All scenes (3)'), findsOneWidget);
+      expect(find.text('Low score ≤ ★★★ (1)'), findsOneWidget);
+
+      // Before filtering: three visible row cards.
+      expect(find.byKey(const Key('ai-preview-row-draft-1')), findsOneWidget);
+      expect(find.byKey(const Key('ai-preview-row-draft-2')), findsOneWidget);
+      expect(find.byKey(const Key('ai-preview-row-draft-3')), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('ai-preview-filter-low-score')));
+      await tester.pump();
+
+      // Only the low row stays visible.
+      expect(find.byKey(const Key('ai-preview-row-draft-1')), findsNothing);
+      expect(find.byKey(const Key('ai-preview-row-draft-2')), findsOneWidget);
+      expect(find.byKey(const Key('ai-preview-row-draft-3')), findsNothing);
+
+      // VIEW-ONLY: the apply controller still carries ALL seeded rows —
+      // filtering the list never drops rows from the apply request.
+      expect(container.read(aiApplyControllerProvider('job-1')).rows.length, 3);
+      await tester.pump();
+    });
+
+    testWidgets('an unscored preview renders no filter bar and the honest '
+        'no-confidence banner note (issue #723)', (tester) async {
+      await setupContainer();
+      await pumpPreview(tester);
+
+      expect(find.byKey(const Key('ai-preview-filter-bar')), findsNothing);
+      expect(
+        find.byKey(const Key('ai-preview-ai-banner-note')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const Key('ai-preview-ai-banner-note-scored')),
+        findsNothing,
+      );
       await tester.pump();
     });
 

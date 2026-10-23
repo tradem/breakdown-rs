@@ -5520,6 +5520,102 @@ abstract class AppLocalizations {
   /// In de, this message translates to:
   /// **'Die Drehtage gehören zu verschiedenen Episoden.'**
   String get shootingDayErrorEpisodeMismatch;
+
+  /// No description provided for @aiConfigDecisionSectionTitle.
+  ///
+  /// In de, this message translates to:
+  /// **'Decision-Modell (Bewertung)'**
+  String get aiConfigDecisionSectionTitle;
+
+  /// No description provided for @aiConfigDecisionHint.
+  ///
+  /// In de, this message translates to:
+  /// **'Optionales Bewertungsmodell, das extrahierte Szenen, Kurzbeschreibungen und Spieltage mit einer 1–5-Sterne-Bewertung versieht. Die Sterne sind eine maschinell erstellte Entscheidungshilfe und ersetzen die menschliche Prüfung nicht.'**
+  String get aiConfigDecisionHint;
+
+  /// No description provided for @aiConfigDecisionProviderLabel.
+  ///
+  /// In de, this message translates to:
+  /// **'Decision-Modell-Anbieter'**
+  String get aiConfigDecisionProviderLabel;
+
+  /// No description provided for @aiConfigDecisionDisabled.
+  ///
+  /// In de, this message translates to:
+  /// **'— keine (Bewertung deaktiviert) —'**
+  String get aiConfigDecisionDisabled;
+
+  /// No description provided for @aiConfigDecisionModelLabel.
+  ///
+  /// In de, this message translates to:
+  /// **'Decision-Modell'**
+  String get aiConfigDecisionModelLabel;
+
+  /// No description provided for @aiConfigDecisionSameKey.
+  ///
+  /// In de, this message translates to:
+  /// **'Gleichen API-Schlüssel wie Extraktion verwenden'**
+  String get aiConfigDecisionSameKey;
+
+  /// No description provided for @aiConfigDecisionApiKeyLabel.
+  ///
+  /// In de, this message translates to:
+  /// **'API-Schlüssel für Decision-Modell'**
+  String get aiConfigDecisionApiKeyLabel;
+
+  /// No description provided for @aiConfigDecisionKeyRemembered.
+  ///
+  /// In de, this message translates to:
+  /// **'Gespeicherter Decision-Schlüssel für {provider} wird verwendet.'**
+  String aiConfigDecisionKeyRemembered(Object provider);
+
+  /// No description provided for @aiPreviewAiNoteScored.
+  ///
+  /// In de, this message translates to:
+  /// **'Alle Zeilen sind maschinell extrahierte Entwürfe. Die Sternbewertungen (1–5) sind maschinell erstellte Qualitätseinschätzungen des Decision-Modells und ersetzen die menschliche Prüfung nicht.'**
+  String get aiPreviewAiNoteScored;
+
+  /// No description provided for @aiPreviewFilterAll.
+  ///
+  /// In de, this message translates to:
+  /// **'Alle Szenen ({count})'**
+  String aiPreviewFilterAll(Object count);
+
+  /// No description provided for @aiPreviewFilterLowScore.
+  ///
+  /// In de, this message translates to:
+  /// **'Niedrige Bewertung ≤ ★★★ ({count})'**
+  String aiPreviewFilterLowScore(Object count);
+
+  /// No description provided for @aiPreviewSceneScore.
+  ///
+  /// In de, this message translates to:
+  /// **'Szenen-Bewertung:'**
+  String get aiPreviewSceneScore;
+
+  /// No description provided for @aiPreviewSynopsisScore.
+  ///
+  /// In de, this message translates to:
+  /// **'Kurzbeschreibung (TL;DR):'**
+  String get aiPreviewSynopsisScore;
+
+  /// No description provided for @aiPreviewShootingDayScore.
+  ///
+  /// In de, this message translates to:
+  /// **'Spieltag-Bewertung:'**
+  String get aiPreviewShootingDayScore;
+
+  /// No description provided for @aiScoreStarsLabel.
+  ///
+  /// In de, this message translates to:
+  /// **'{stars} von 5 Sternen'**
+  String aiScoreStarsLabel(Object stars);
+
+  /// No description provided for @aiConfigDecisionKeyMissing.
+  ///
+  /// In de, this message translates to:
+  /// **'Bitte gib einen API-Schlüssel für das Decision-Modell ein oder wähle „Gleichen API-Schlüssel wie Extraktion verwenden“.'**
+  String get aiConfigDecisionKeyMissing;
 }
 
 class _AppLocalizationsDelegate

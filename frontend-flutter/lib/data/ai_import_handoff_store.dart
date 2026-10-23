@@ -15,6 +15,18 @@ import '../core/result.dart';
 /// Upper bound for the remembered job-id list (task 1.3: bounded N).
 const int kMaxRememberedJobIds = 20;
 
+/// Key prefix under which a DECISION-scoped credential reference is
+/// remembered in the credentials map (issue #723): the extraction
+/// credentials stay keyed by the plain provider key, the decision model's
+/// separate (split-billing) key is remembered under `decision:<provider>`
+/// so both can coexist for the same provider. Same opaque
+/// [ProviderCredentialReference] shape — never a secret.
+const String kDecisionCredentialKeyPrefix = 'decision:';
+
+/// The decision-scoped credentials-map key for [providerKey].
+String decisionCredentialKey(String providerKey) =>
+    '$kDecisionCredentialKeyPrefix$providerKey';
+
 /// The per-user AI-import hand-off state (task 1.3).
 ///
 /// * [configId] — the remembered AI-import configuration id from the create
@@ -38,8 +50,15 @@ class AiImportHandoffState {
 
   /// Opaque credential references keyed by provider key. The API secret is
   /// never part of this state; retaining these references lets the user switch
-  /// back to a provider without entering its key again.
+  /// back to a provider without entering its key again. Decision-scoped
+  /// (split-billing) references live under [decisionCredentialKey]'s
+  /// prefixed key and are surfaced via [decisionCredentialFor].
   final Map<String, ProviderCredentialReference> credentials;
+
+  /// The remembered DECISION credential reference for [providerKey], or
+  /// `null` when none is retained (issue #723 split-billing slot).
+  ProviderCredentialReference? decisionCredentialFor(String providerKey) =>
+      credentials[decisionCredentialKey(providerKey)];
 
   static const AiImportHandoffState empty = AiImportHandoffState();
 }
@@ -142,6 +161,15 @@ class AiImportHandoffStore {
       return _writeDoc(doc);
     }),
   );
+
+  /// Retains the opaque reference for a DECISION-scoped credential under
+  /// the `decision:<provider>` slot (issue #723 split billing). Same
+  /// opaque-reference discipline as [rememberCredential] — never a secret.
+  Future<Result<void>> rememberDecisionCredential(
+    String sub,
+    String providerKey,
+    ProviderCredentialReference reference,
+  ) => rememberCredential(sub, decisionCredentialKey(providerKey), reference);
 
   /// Remembers [jobId] for [sub]: deduplicated, prepended newest-first,
   /// bounded to [kMaxRememberedJobIds] (oldest dropped).
