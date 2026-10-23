@@ -22,6 +22,17 @@ releases are cut as `vX.Y.Z` tags (`v<build-name>`, enforced by
 
 ## [Unreleased]
 
+- **Version bump / generated-client sync (backend issue #722):**
+  `0.4.0-beta.7+99 → 0.4.0-beta.8+100`. The regenerated `breakdown_api`
+  client picks up the backend's Decision Model surface (issue #722) — the
+  additive `AiConfig`/request decision fields (`decisionProvider`,
+  `decisionModel`, `decisionVaultKeyId`; tri-state on the update request),
+  the preview score fields (`DraftScene.sceneScore`/`synopsisScore`/
+  `scoring`, `DraftShootingDay.score`,
+  `ShootingScheduleRow.shootingDayScore`), the `DecisionRubric` model and
+  the `GET /v1/ai-import/providers/{provider}/decision-models` catalog
+  endpoint. Purely additive — no existing type changed shape; the star-
+  rating UI consuming these fields lands with issue #723.
 - **Issue #721 — set-shorthand mood reinforcement + `<Episode>.<Scene>` schedule rows:**
   `0.4.0-beta.6+98 → 0.4.0-beta.7+99`. The mood line (`I/T`, `A/N`, `I/A/T`, …)
   renders with its reinforcing Material icons (`home_outlined`/`park_outlined`/
