@@ -2919,3 +2919,156 @@ async fn create_ai_config_accepts_a_distinct_owned_decision_key_for_split_billin
         Some("split-billing-key")
     );
 }
+
+#[tokio::test]
+async fn update_ai_config_raw_json_null_clears_the_decision_slot() {
+    let ports = FakePorts::default();
+    ports
+        .membership_repo
+        .seed_credential_designer(BlockId::new(), UserId::from_sub(TEST_SUB))
+        .await;
+    ports
+        .settings_repo
+        .bind_vault_key("vault-key", LlmProvider::Neuralwatt.as_str(), TEST_SUB)
+        .await;
+    let commands = ports.ai_config_commands.clone();
+    let repo = ports.ai_config_repo.clone();
+    let state = state(ports);
+
+    let (status, Json(created)) = create_ai_config::<FakePorts>(
+        State(state.clone()),
+        user(),
+        Json(CreateAiConfigRequest {
+            provider: LlmProvider::Neuralwatt,
+            assistant_model: "assistant".to_owned(),
+            image_model: None,
+            prompts: HashMap::new(),
+            vault_key_id: "vault-key".to_owned(),
+            cost_display_preference: CostDisplayPreference::Token,
+            decision_provider: Some(LlmProvider::Neuralwatt),
+            decision_model: Some("clef-flash".to_owned()),
+            decision_vault_key_id: Some("vault-key".to_owned()),
+        }),
+    )
+    .await
+    .expect("owner may create the config");
+    assert_eq!(status, StatusCode::CREATED);
+    // Seed the read model the way the projector would (the update handler
+    // resolves the stored binding through it).
+    let mut view = config_view(TEST_SUB);
+    view.id = created.id;
+    view.provider = LlmProvider::Neuralwatt;
+    view.vault_key_id = "vault-key".to_owned();
+    view.decision_provider = Some(LlmProvider::Neuralwatt);
+    view.decision_model = Some("clef-flash".to_owned());
+    view.decision_vault_key_id = Some("vault-key".to_owned());
+    repo.views.lock().await.insert(created.id, view);
+
+    // Raw JSON with EXPLICIT `null` on the decision fields: the tri-state
+    // contract says `null` CLEARS, and `deserialize_optional_nullable` is
+    // what makes the outer `Some(None)` reachable (a plain
+    // `#[serde(default)]` folds `null` into "absent" and the clear path
+    // would be dead code).
+    let raw = serde_json::json!({
+        "provider": "neuralwatt",
+        "assistant_model": "assistant-v2",
+        "image_model": null,
+        "prompts": {},
+        "vault_key_id": "vault-key",
+        "cost_display_preference": "token",
+        "decision_provider": null,
+        "decision_model": null,
+        "decision_vault_key_id": null,
+        "version": 1
+    });
+    let request: UpdateAiConfigRequest =
+        serde_json::from_value(raw).expect("explicit nulls deserialize to the clearing Some(None)");
+    assert_eq!(request.decision_provider, Some(None));
+    assert_eq!(request.decision_model, Some(None));
+    assert_eq!(request.decision_vault_key_id, Some(None));
+
+    let (status, _) =
+        update_ai_config::<FakePorts>(State(state), user(), Path(created.id), Json(request))
+            .await
+            .expect("owner may update their config");
+    assert_eq!(status, StatusCode::OK);
+    let updated = commands.updated.lock().await;
+    let command = updated.first().expect("update dispatched");
+    assert_eq!(command.decision_provider, Some(None));
+    assert_eq!(command.decision_model, Some(None));
+    assert_eq!(command.decision_vault_key_id, Some(None));
+}
+
+#[tokio::test]
+async fn update_ai_config_omitted_decision_fields_resolve_from_the_stored_binding() {
+    let ports = FakePorts::default();
+    ports
+        .membership_repo
+        .seed_credential_designer(BlockId::new(), UserId::from_sub(TEST_SUB))
+        .await;
+    ports
+        .settings_repo
+        .bind_vault_key("vault-key", LlmProvider::Neuralwatt.as_str(), TEST_SUB)
+        .await;
+    let commands = ports.ai_config_commands.clone();
+    let repo = ports.ai_config_repo.clone();
+    let state = state(ports);
+
+    let (status, Json(created)) = create_ai_config::<FakePorts>(
+        State(state.clone()),
+        user(),
+        Json(CreateAiConfigRequest {
+            provider: LlmProvider::Neuralwatt,
+            assistant_model: "assistant".to_owned(),
+            image_model: None,
+            prompts: HashMap::new(),
+            vault_key_id: "vault-key".to_owned(),
+            cost_display_preference: CostDisplayPreference::Token,
+            decision_provider: Some(LlmProvider::Neuralwatt),
+            decision_model: Some("clef-flash".to_owned()),
+            decision_vault_key_id: Some("vault-key".to_owned()),
+        }),
+    )
+    .await
+    .expect("owner may create the config");
+    assert_eq!(status, StatusCode::CREATED);
+    let mut view = config_view(TEST_SUB);
+    view.id = created.id;
+    view.provider = LlmProvider::Neuralwatt;
+    view.vault_key_id = "vault-key".to_owned();
+    view.decision_provider = Some(LlmProvider::Neuralwatt);
+    view.decision_model = Some("clef-flash".to_owned());
+    view.decision_vault_key_id = Some("vault-key".to_owned());
+    repo.views.lock().await.insert(created.id, view);
+
+    // A partial update (decision fields ABSENT — the raw JSON omits them)
+    // keeps the stored binding; the edge must NOT re-validate an unchanged
+    // binding and the aggregate must resolve the stored values.
+    let raw = serde_json::json!({
+        "provider": "neuralwatt",
+        "assistant_model": "assistant-v2",
+        "image_model": null,
+        "prompts": {},
+        "vault_key_id": "vault-key",
+        "version": 1
+    });
+    let request: UpdateAiConfigRequest =
+        serde_json::from_value(raw).expect("omitted fields deserialize to the keeping outer None");
+    assert_eq!(request.decision_provider, None);
+    assert_eq!(request.decision_model, None);
+    assert_eq!(request.decision_vault_key_id, None);
+
+    let (status, _) =
+        update_ai_config::<FakePorts>(State(state), user(), Path(created.id), Json(request))
+            .await
+            .expect("an unchanged stored decision binding must not block the update");
+    assert_eq!(status, StatusCode::OK);
+    let updated = commands.updated.lock().await;
+    let command = updated.first().expect("update dispatched");
+    // Omitted → the aggregate resolves the stored slot (None in the
+    // dispatched command only means "the edge did not re-resolve it"; the
+    // aggregate fills from its own state).
+    assert_eq!(command.decision_provider, None);
+    assert_eq!(command.decision_model, None);
+    assert_eq!(command.decision_vault_key_id, None);
+}

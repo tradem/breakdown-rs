@@ -7074,11 +7074,14 @@ pub struct UpdateAiConfigRequest {
     pub cost_display_preference: Option<CostDisplayPreference>,
     /// Decision Model slot (issue #722), tri-state: an omitted field keeps
     /// the stored configuration, `null` clears it, a value replaces it.
-    #[serde(default)]
+    /// `deserialize_optional_nullable` is what makes the outer `Some` an
+    /// EXPLICIT signal — plain `#[serde(default)]` would fold `null` and
+    /// "absent" together and the clear path would be unreachable.
+    #[serde(default, deserialize_with = "deserialize_optional_nullable")]
     pub decision_provider: Option<Option<LlmProvider>>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_optional_nullable")]
     pub decision_model: Option<Option<String>>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_optional_nullable")]
     pub decision_vault_key_id: Option<Option<String>>,
     pub version: AggregateVersion,
 }
@@ -7432,14 +7435,28 @@ pub async fn update_ai_config<P: Ports>(
         )
         .await?;
     }
-    // Decision Model credential pre-check (issue #722). The tri-state
-    // resolution happens in the aggregate; the edge validates the KEY the
-    // request INTRODUCES (a `Some(Some(key))` replacement or a first-time
-    // configuration) against the decision provider it names.
-    if let (Some(Some(decision_provider)), Some(Some(decision_vault_key_id))) = (
-        request.decision_provider,
-        request.decision_vault_key_id.as_ref(),
-    ) {
+    // Decision Model credential pre-check (issue #722). The aggregate
+    // resolves omitted tri-state fields from the STORED configuration, so
+    // the edge must validate the EFFECTIVE (resolved) binding — validating
+    // only a request-introduced pair would let a partial update persist a
+    // foreign or provider-mismatched key that the worker later fetches.
+    // The same-key exception depends on the extraction provider/key too, so
+    // the effective values are checked against those as well.
+    let effective_decision_provider = request.decision_provider.unwrap_or(view.decision_provider);
+    let effective_decision_key = request
+        .decision_vault_key_id
+        .clone()
+        .unwrap_or_else(|| view.decision_vault_key_id.clone());
+    let binding_changed = effective_decision_provider != view.decision_provider
+        || effective_decision_key != view.decision_vault_key_id
+        || request.provider != view.provider
+        || request.vault_key_id != view.vault_key_id;
+    if binding_changed
+        && let (Some(decision_provider), Some(decision_vault_key_id)) = (
+            effective_decision_provider,
+            effective_decision_key.as_deref(),
+        )
+    {
         validate_decision_vault_key(
             &state,
             decision_vault_key_id,
@@ -7648,10 +7665,14 @@ pub async fn list_ai_models<P: Ports>(
     get,
     path = "/ai-import/providers/{provider}/decision-models",
     params(("provider" = String, Path, description = "Provider key (e.g. neuralwatt, eurouter, openrouter)")),
+    // 404 `ai-import.disabled` (feature flag off) and 422
+    // `ai-config.validation` (unknown provider key) are reachable — mirror
+    // the sibling `list_ai_models` contract.
     responses(
         (status = 200, body = [ModelInfo]),
-        (status = 400, body = ProblemDetails),
-        (status = 403, body = ProblemDetails)
+        (status = 403, body = ProblemDetails),
+        (status = 404, body = ProblemDetails),
+        (status = 422, body = ProblemDetails)
     )
 )]
 pub async fn list_ai_decision_models<P: Ports>(

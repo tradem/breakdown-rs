@@ -632,8 +632,13 @@ where
                             chunk.mood.as_deref(),
                             chunk.shooting_day.as_ref(),
                             scenes,
-                            &sanitized_flags,
-                            &dropped_costumes,
+                            // The guard vectors are job-wide (one entry per
+                            // pushed scene); the scoring pass receives the
+                            // CHUNK-LOCAL slice aligned with `scenes` —
+                            // otherwise scene i of chunk n+1 reads the
+                            // signals of scene i of chunk 1.
+                            &sanitized_flags[chunk_first_scene..],
+                            &dropped_costumes[chunk_first_scene..],
                             &ambiguities,
                             &mut total_usage,
                         )

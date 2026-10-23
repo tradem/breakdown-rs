@@ -161,6 +161,8 @@ impl Command<CreateAiConfig> for AiConfig {
             cmd.decision_provider,
             cmd.decision_model.as_deref(),
             cmd.decision_vault_key_id.as_deref(),
+            // Creation always introduces the model → the catalog check runs.
+            false,
         )?;
         Ok(vec![AiConfigEvent::Created {
             id: cmd.id,
@@ -220,10 +222,18 @@ impl Command<UpdateAiConfig> for AiConfig {
         let decision_vault_key_id = cmd
             .decision_vault_key_id
             .unwrap_or_else(|| self.decision_vault_key_id.clone());
+        // Catalog-rotation safety (issue #722 review): the curated check
+        // runs only when the update CHANGES the model. A rotation that
+        // removes a stored model must not brick unrelated updates
+        // (prompt-only edits included) — the worker accepts any non-empty
+        // model string of a configured decision provider.
+        let model_unchanged = self.decision_provider == decision_provider
+            && self.decision_model.as_deref() == decision_model.as_deref();
         validate_decision_config(
             decision_provider,
             decision_model.as_deref(),
             decision_vault_key_id.as_deref(),
+            model_unchanged,
         )?;
         Ok(vec![AiConfigEvent::Updated {
             id: self.id,
@@ -292,6 +302,7 @@ fn validate_decision_config(
     provider: Option<LlmProvider>,
     model: Option<&str>,
     vault_key_id: Option<&str>,
+    model_unchanged: bool,
 ) -> Result<(), AiConfigError> {
     let (Some(provider), Some(model), Some(vault_key_id)) = (provider, model, vault_key_id) else {
         // Partially set is always invalid — including a provider without a
@@ -307,7 +318,7 @@ fn validate_decision_config(
     if model.trim().is_empty() {
         return Err(AiConfigError::EmptyDecisionModel);
     }
-    if !decision::is_curated_decision_model(provider, model) {
+    if !model_unchanged && !decision::is_curated_decision_model(provider, model) {
         return Err(AiConfigError::DecisionModelUnknown);
     }
     if vault_key_id.trim().is_empty() {

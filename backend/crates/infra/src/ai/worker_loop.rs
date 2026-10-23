@@ -445,7 +445,10 @@ async fn script_worker_tick(
                 prompt: config.prompt,
                 bounds: deps.bounds,
                 pricing: deps.pricing.clone(),
-                decision: None,
+                // The Decision Model is independent of the extraction
+                // provider (issue #722): an Ollama extraction with a hosted
+                // decision model must score like any other combination.
+                decision: decision_pass.clone(),
             };
             deps.runtime
                 .run_job_as(user_id.as_str(), worker_id, || {

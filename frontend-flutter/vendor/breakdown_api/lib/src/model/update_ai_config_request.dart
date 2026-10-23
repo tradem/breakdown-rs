@@ -19,7 +19,7 @@ part 'update_ai_config_request.g.dart';
 /// * [assistantModel]
 /// * [costDisplayPreference] - See [`CreateAiConfigRequest`] (issue #675). `None` (omitted) keeps the stored preference — an omitted field must not reset an existing `energy` preference back to `token`.
 /// * [decisionModel]
-/// * [decisionProvider] - Decision Model slot (issue #722), tri-state: an omitted field keeps the stored configuration, `null` clears it, a value replaces it.
+/// * [decisionProvider] - Decision Model slot (issue #722), tri-state: an omitted field keeps the stored configuration, `null` clears it, a value replaces it. `deserialize_optional_nullable` is what makes the outer `Some` an EXPLICIT signal — plain `#[serde(default)]` would fold `null` and \"absent\" together and the clear path would be unreachable.
 /// * [decisionVaultKeyId]
 /// * [imageModel]
 /// * [prompts]
@@ -40,7 +40,7 @@ abstract class UpdateAiConfigRequest
   @BuiltValueField(wireName: r'decision_model')
   String? get decisionModel;
 
-  /// Decision Model slot (issue #722), tri-state: an omitted field keeps the stored configuration, `null` clears it, a value replaces it.
+  /// Decision Model slot (issue #722), tri-state: an omitted field keeps the stored configuration, `null` clears it, a value replaces it. `deserialize_optional_nullable` is what makes the outer `Some` an EXPLICIT signal — plain `#[serde(default)]` would fold `null` and \"absent\" together and the clear path would be unreachable.
   @BuiltValueField(wireName: r'decision_provider')
   LlmProvider? get decisionProvider;
   // enum decisionProviderEnum {  openai,  gemini,  openrouter,  eurouter,  neuralwatt,  opencode-go,  opencode,  ollama,  };

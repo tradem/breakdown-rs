@@ -247,13 +247,19 @@ pub async fn score_script_chunk(
             resolved.metadata_accuracy,
         );
         // A scene without a summary (outline-only block) stays None; a
-        // summary the #668 guard rewrote scores the honest 0.0.
-        scene.synopsis_score = compute_synopsis_score(
-            sanitized.get(index).copied().unwrap_or(false),
-            resolved.synopsis_grounded,
-            resolved.synopsis_concise,
-            resolved.synopsis_relevance,
-        );
+        // summary the #668 guard rewrote (`was_sanitized`, now summary-less
+        // itself) scores the honest 0.0.
+        let was_sanitized = sanitized.get(index).copied().unwrap_or(false);
+        scene.synopsis_score = if scene.summary.is_none() && !was_sanitized {
+            None
+        } else {
+            compute_synopsis_score(
+                was_sanitized,
+                resolved.synopsis_grounded,
+                resolved.synopsis_concise,
+                resolved.synopsis_relevance,
+            )
+        };
         // The chunk's day decision applies to the scene's own day clone only
         // when it is the SAME day group the chunk's marker carried.
         if let (Some(chunk_day), Some(scene_day)) = (chunk_day, scene.shooting_day.as_mut())

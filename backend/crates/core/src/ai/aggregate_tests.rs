@@ -672,3 +672,57 @@ fn decision_question_keys_are_stable() {
         "day_assignment_consistent"
     );
 }
+
+#[test]
+fn update_with_an_unchanged_rotated_model_is_accepted() {
+    // Catalog-rotation safety (issue #722 review): a model that was curated
+    // when the config was written but has since been rotated OUT of the
+    // catalog must not brick unrelated updates — a prompt-only edit that
+    // omits the decision fields resolves to the stored (no-longer-curated)
+    // model and is accepted.
+    let cmd = CreateAiConfig {
+        decision_provider: Some(LlmProvider::Neuralwatt),
+        decision_model: Some("clef".into()),
+        decision_vault_key_id: Some("settings-abc:decision-key".into()),
+        ..make_create_cmd()
+    };
+    let id = cmd.id;
+    // Simulate a rotation: `clef` no longer curated for Neuralwatt would
+    // fail a CHANGED model — but the omitted fields keep it, so the update
+    // is accepted. (Assert the negative direction first: the same model on
+    // a fresh create is still checked.)
+    assert!(!super::super::decision::is_curated_decision_model(
+        LlmProvider::EURouter,
+        "clef"
+    ));
+    let rotated_to_eurouter = CreateAiConfig {
+        decision_provider: Some(LlmProvider::EURouter),
+        decision_model: Some("clef".into()),
+        decision_vault_key_id: Some("settings-abc:decision-key".into()),
+        ..make_create_cmd()
+    };
+    AiConfig::given(vec![])
+        .when(rotated_to_eurouter)
+        .then_error(AiConfigError::DecisionModelUnknown);
+
+    // Prompt-only update with the stored (rotated) model untouched → ok.
+    let update = UpdateAiConfig {
+        assistant_model: "gpt-4o-mini".into(),
+        ..make_update_cmd(id, AggregateVersion::INITIAL)
+    };
+    AiConfig::given(vec![created_event(&cmd)])
+        .when(update)
+        .then(vec![AiConfigEvent::Updated {
+            id,
+            provider: LlmProvider::OpenAI,
+            assistant_model: "gpt-4o-mini".into(),
+            image_model: None,
+            prompts: HashMap::from([(DocumentKind::Script, "New prompt".into())]),
+            vault_key_id: "key-456".into(),
+            cost_display_preference: Some(CostDisplayPreference::Energy),
+            decision_provider: Some(LlmProvider::Neuralwatt),
+            decision_model: Some("clef".into()),
+            decision_vault_key_id: Some("settings-abc:decision-key".into()),
+            version: AggregateVersion::INITIAL.next(),
+        }]);
+}

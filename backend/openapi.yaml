@@ -3830,6 +3830,9 @@ components:
             description: |-
               Decision Model slot (issue #722), tri-state: an omitted field keeps
               the stored configuration, `null` clears it, a value replaces it.
+              `deserialize_optional_nullable` is what makes the outer `Some` an
+              EXPLICIT signal — plain `#[serde(default)]` would fold `null` and
+              "absent" together and the clear path would be unreachable.
           - type: 'null'
         decision_vault_key_id:
           type:
@@ -4527,12 +4530,17 @@ paths:
                 items:
                   $ref: '#/components/schemas/ModelInfo'
                 type: array
-        '400':
+        '403':
           content:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
-        '403':
+        '404':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+        '422':
           content:
             application/problem+json:
               schema:

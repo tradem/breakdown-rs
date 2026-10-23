@@ -6,8 +6,7 @@
 // Co-authored-by: qwen3.8-flash (opencode-go)
 
 use breakdown_core::ai::{
-    AiConfigRepository, AiConfigView, CostDisplayPreference, DecisionRubric, DocumentKind,
-    LlmProvider,
+    AiConfigRepository, AiConfigView, CostDisplayPreference, DocumentKind, LlmProvider,
 };
 use breakdown_core::error::DomainError;
 use breakdown_core::error_registry::AI_CONFIG_NOT_FOUND;
@@ -283,11 +282,6 @@ fn parse_optional_decision_provider(row: &PgRow) -> Result<Option<LlmProvider>, 
         },
     })
 }
-
-/// Silence the unused-import lint when `DecisionRubric` is only re-exported
-/// by workers through this module path in later phases.
-#[allow(dead_code)]
-fn _rubric_type_witness(_: Option<DecisionRubric>) {}
 
 fn parse_provider(value: String) -> Result<LlmProvider, DomainError> {
     match value.as_str() {

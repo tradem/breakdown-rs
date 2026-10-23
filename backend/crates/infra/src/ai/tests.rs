@@ -17,11 +17,13 @@ use async_trait::async_trait;
 use breakdown_core::ai::{
     AiImportBounds, AiImportEnqueueRequest, AiImportEnqueueResult, AiImportJob, AiImportJobId,
     AiImportMapping, AiImportMappingRepository, AiImportQueue, ApplyMapping, CostumeDecision,
-    DocumentKind, DraftCharacter, DraftEpisode, DraftScene, DraftShootingDay, EpisodeGroupPlan,
+    DecisionAnswer, DecisionCallOutcome, DecisionClient, DecisionRequest, DocumentKind,
+    DraftCharacter, DraftCostume, DraftEpisode, DraftScene, DraftShootingDay, EpisodeGroupPlan,
     EpisodeTarget, JobStatus, LlmCallOutcome, LlmCallUsage, LlmChatRequest, LlmClient, LlmProvider,
     PRIMARY_ORDINAL, ScriptContext, ShootingDayPlan, ShootingSchedule, ShootingScheduleRow,
     SourceFormat, Telemetry, TelemetryApplyState, UnappliedCostumeReason, UncertaintyKind,
     character_identity, character_mapping_ref, mapping_kind, merge_schedule_to_scenes,
+    question_keys,
 };
 use breakdown_core::character::category::CharacterCategory;
 use breakdown_core::error::DomainError;
@@ -4164,4 +4166,203 @@ async fn script_apply_day_is_idempotent_on_re_apply() {
     assert_eq!(first.created_days, 1);
     assert_eq!(fixture.shooting_days.created.lock().unwrap().len(), 1);
     assert_eq!(fixture.scene_shoots.planned.lock().unwrap().len(), 1);
+}
+
+// ---------------------------------------------------------------------------
+// Decision Model scoring pass (issue #722): chunk-signal alignment, the
+// summary-less synopsis contract, and usage accumulation — driven through
+// the real ScriptImportWorker with a scripted LLM and a recording client.
+// ---------------------------------------------------------------------------
+
+/// Records every decision request's `state` payload and answers the full
+/// rubric with calibrated "yes"/top-score distributions.
+#[derive(Clone, Default)]
+struct RecordingDecisionClient {
+    states: Arc<std::sync::Mutex<Vec<serde_json::Value>>>,
+}
+
+#[async_trait::async_trait]
+impl DecisionClient for RecordingDecisionClient {
+    async fn decide(&self, req: DecisionRequest) -> Result<DecisionCallOutcome, DomainError> {
+        self.states.lock().unwrap().push(req.state.clone());
+        let mut answers = std::collections::BTreeMap::new();
+        for name in req.questions.keys() {
+            answers.insert(
+                name.clone(),
+                DecisionAnswer {
+                    noul: Some(0.9),
+                    choice: None,
+                    score: Some(vec![0.0, 0.0, 0.0, 0.0, 1.0]),
+                },
+            );
+        }
+        Ok(DecisionCallOutcome {
+            answers,
+            usage: LlmCallUsage {
+                tokens_in: 11,
+                tokens_out: 0,
+                cached_tokens_in: 0,
+                energy_millijoules: 5,
+            },
+        })
+    }
+}
+
+/// Two scripted calls: the FIRST chunk's scene carries a meta summary
+/// (the #668 guard rewrites it to `null`) and an ungrounded costume (the
+/// grounding check drops it); the SECOND chunk's scene is clean.
+#[derive(Clone, Default)]
+struct TwoChunkScoringLlmClient;
+
+#[async_trait::async_trait]
+impl LlmClient for TwoChunkScoringLlmClient {
+    async fn chat_constrained(
+        &self,
+        _request: LlmChatRequest,
+    ) -> Result<LlmCallOutcome<ScriptContext>, DomainError> {
+        tokio::time::sleep(std::time::Duration::from_millis(2)).await;
+        // Call order is the chunk order: extract_scenes yields exactly two
+        // chunks for the two-heading fixture below. This client is only used
+        // by the two-chunk test.
+        thread_local! {
+            static CALL: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+        }
+        let call = CALL.with(|c| c.get());
+        CALL.with(|c| c.set(call + 1));
+        let scene = if call == 0 {
+            DraftScene {
+                draft_ref: "chunk-1".to_owned(),
+                scene_number: Some(1),
+                mood: Some("I/T".into()),
+                // Meta summary: `sanitize_meta_summary` rewrites it to null
+                // and the synopsis score must degrade to the honest 0.0.
+                summary: Some("Outline-style block with heading and day marker only.".to_owned()),
+                characters: vec![DraftCharacter::from("BEN")],
+                costumes: vec![DraftCostume {
+                    character_name: "BEN".to_owned(),
+                    description: "Schutzhelm".to_owned(),
+                    // Never in the chunk text → dropped as ungrounded.
+                    source_quote: "NICHT IM TEXT".to_owned(),
+                }],
+                ..Default::default()
+            }
+        } else {
+            DraftScene {
+                draft_ref: "chunk-2".to_owned(),
+                scene_number: Some(2),
+                mood: Some("I/T".into()),
+                summary: Some("Ben repariert das Auto.".to_owned()),
+                characters: vec![DraftCharacter::from("BEN")],
+                costumes: Vec::new(),
+                ..Default::default()
+            }
+        };
+        Ok(LlmCallOutcome::new(
+            ScriptContext {
+                title: Some("fixture".to_owned()),
+                scenes: vec![scene],
+                uncertainties: Vec::new(),
+            },
+            LlmCallUsage::default(),
+        ))
+    }
+
+    async fn extract_schedule(
+        &self,
+        _request: LlmChatRequest,
+    ) -> Result<LlmCallOutcome<ShootingSchedule>, DomainError> {
+        Err(DomainError::validation(
+            "TwoChunkScoringLlmClient only extracts scripts",
+        ))
+    }
+}
+
+fn scoring_worker(
+    queue: Arc<FakeQueue>,
+    previews: Arc<MemoryAiPreviewStore>,
+    decision: Arc<super::DecisionPass>,
+) -> ScriptImportWorker<FakeQueue, TwoChunkScoringLlmClient> {
+    ScriptImportWorker {
+        queue,
+        client: Arc::new(TwoChunkScoringLlmClient),
+        previews: previews as Arc<dyn AiPreviewStore>,
+        extractor: super::PdfTextExtractor::new(1024 * 1024, std::time::Duration::from_secs(30)),
+        provider: LlmProvider::Neuralwatt,
+        model: "deepseek-v4-flash".to_owned(),
+        prompt: "fixture prompt".to_owned(),
+        bounds: AiImportBounds::default(),
+        pricing: None,
+        decision: Some(decision),
+    }
+}
+
+#[tokio::test]
+async fn scoring_receives_chunk_local_grounding_signals_and_honors_the_summary_contract() {
+    let queue = Arc::new(FakeQueue::default());
+    let previews = Arc::new(MemoryAiPreviewStore::default());
+    let recorder = RecordingDecisionClient::default();
+    let decision = Arc::new(super::DecisionPass {
+        client: Arc::new(recorder.clone()),
+        provider: LlmProvider::Neuralwatt,
+        model: "clef-flash".to_owned(),
+    });
+    let worker = scoring_worker(Arc::clone(&queue), Arc::clone(&previews), decision);
+    let job = script_job(AiImportJobId::new());
+    // Two INT./EXT. headings → exactly two chunks, one scene each.
+    let handle = worker
+        .process_text(
+            &job,
+            "test-worker",
+            "1. INT. WERKSTATT - TAG\nBen trägt einen Schutzhelm.\n\n2. INT. GARAGE - TAG\nBen repariert das Auto.",
+        )
+        .await
+        .unwrap();
+
+    let states = recorder.states.lock().unwrap().clone();
+    assert_eq!(
+        states.len(),
+        2,
+        "one single-pass decision request per chunk"
+    );
+    // Chunk 1's scene was scored with ITS OWN signals: the ungrounded
+    // costume drop is visible and the summary is the REWRITTEN (null) one.
+    let chunk1_scene = &states[0]["scenes"][0];
+    assert_eq!(chunk1_scene["grounding"]["dropped_costumes"], 1);
+    assert_eq!(chunk1_scene["grounding"]["scene_number_match"], true);
+    assert!(chunk1_scene["summary"].is_null());
+    // Chunk 2's scene must NOT inherit chunk 1's signals (the job-wide
+    // vectors would have leaked dropped=1 and the sanitized flag here).
+    let chunk2_scene = &states[1]["scenes"][0];
+    assert_eq!(chunk2_scene["grounding"]["dropped_costumes"], 0);
+    assert_eq!(chunk2_scene["summary"], "Ben repariert das Auto.");
+
+    // Preview contract: the sanitized chunk-1 scene carries the honest 0.0;
+    // the clean chunk-2 scene carries a computed score (NOT the None that a
+    // summary-less row would get).
+    let payload = previews.get(&handle).await.unwrap().unwrap();
+    let preview: ScriptContext = serde_json::from_slice(&payload).unwrap();
+    assert_eq!(preview.scenes.len(), 2);
+    assert_eq!(preview.scenes[0].summary, None, "#668 guard rewrote it");
+    assert_eq!(preview.scenes[0].synopsis_score, Some(0.0));
+    assert!(preview.scenes[0].scene_score.is_some());
+    assert_eq!(
+        preview.scenes[1].summary.as_deref(),
+        Some("Ben repariert das Auto.")
+    );
+    let synopsis = preview.scenes[1].synopsis_score.unwrap();
+    assert!((synopsis - (0.9_f32 * 0.9 * (0.5 + 0.5))).abs() < 1e-5);
+    assert!(
+        preview.scenes[1]
+            .scoring
+            .as_ref()
+            .unwrap()
+            .sub_scores
+            .contains_key(question_keys::CHARACTERS_COMPLETE)
+    );
+
+    // Decision usage accumulates into the job telemetry (2 calls × 11/5).
+    let state = queue.state.lock().unwrap();
+    let telemetry = state.telemetry.first().expect("telemetry recorded");
+    assert_eq!(telemetry.tokens_in, 22);
+    assert_eq!(telemetry.energy_millijoules, 10);
 }
