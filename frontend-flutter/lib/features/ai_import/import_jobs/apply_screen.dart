@@ -18,6 +18,7 @@ import '../../../auth/auth_providers.dart';
 import '../../../core/problem_error.dart';
 import '../../../data/ai_import_providers.dart';
 import '../../../data/cache/hierarchy_cache_dao.dart';
+import '../../../design/components/ai_score_stars.dart';
 import '../../../l10n/app_localizations_provider.dart';
 import '../../../l10n/generated/app_localizations.dart';
 import '../../../data/cache/seasons_cache_providers.dart';
@@ -434,6 +435,10 @@ class _AiApplySectionState extends ConsumerState<AiApplySection> {
                         ? dayRef
                         : draftShootingDayLabel(day);
                     final accepted = state.dayAccepted(dayRef);
+                    // The day group's aggregated Decision Model score
+                    // (issue #723): stars next to the day label — a
+                    // machine-evaluated review aid, rendered only when a
+                    // score exists (honest absence otherwise).
                     return CheckboxListTile(
                       key: Key('ai-apply-day-decision-$dayRef'),
                       dense: true,
@@ -442,7 +447,19 @@ class _AiApplySectionState extends ConsumerState<AiApplySection> {
                       value: accepted,
                       onChanged: (checked) =>
                           controller.decideDay(dayRef, checked ?? true),
-                      title: Text(label),
+                      title: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Flexible(child: Text(label)),
+                          if (day?.score != null) ...[
+                            const SizedBox(width: 8),
+                            AiScoreStars(
+                              key: Key('ai-apply-day-score-$dayRef'),
+                              score: day!.score,
+                            ),
+                          ],
+                        ],
+                      ),
                       subtitle: accepted
                           ? null
                           : Text(

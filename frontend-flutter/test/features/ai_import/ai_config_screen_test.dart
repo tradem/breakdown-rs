@@ -100,6 +100,9 @@ AiConfigView _config({
   String? imageModel,
   Map<String, String> prompts = const {},
   List<DocumentKind>? storedPromptKinds,
+  LlmProvider? decisionProvider,
+  String? decisionModel,
+  String? decisionVaultKeyId,
 }) {
   final base = AiConfigView(
     (b) => b
@@ -117,8 +120,19 @@ AiConfigView _config({
       ..version = version,
   );
   return storedPromptKinds == null
-      ? base
-      : base.rebuild((b) => b..storedPromptKinds.replace(storedPromptKinds));
+      ? base.rebuild(
+          (b) => b
+            ..decisionProvider = decisionProvider
+            ..decisionModel = decisionModel
+            ..decisionVaultKeyId = decisionVaultKeyId,
+        )
+      : base.rebuild(
+          (b) => b
+            ..decisionProvider = decisionProvider
+            ..decisionModel = decisionModel
+            ..decisionVaultKeyId = decisionVaultKeyId
+            ..storedPromptKinds.replace(storedPromptKinds),
+        );
 }
 
 /// Repository fake: every config/credential route is scriptable with call
@@ -284,7 +298,7 @@ void main() {
     WidgetTester tester, {
     ThemeMode mode = ThemeMode.light,
     TargetPlatform? platform,
-    double height = 1200,
+    double height = 2400,
   }) async {
     tester.view.physicalSize = Size(800, height);
     tester.view.devicePixelRatio = 1.0;
@@ -509,7 +523,7 @@ void main() {
     tester,
   ) async {
     await setupContainer();
-    await pumpScreen(tester, height: 1600);
+    await pumpScreen(tester, height: 2400);
     await pickProviderAndModel(tester);
     await tester.enterText(
       find.byKey(const Key('ai-api-key-field')),
@@ -542,7 +556,7 @@ void main() {
     repo.submitResult = const Left(
       ProblemError(code: 'ai-config.forbidden', status: 403),
     );
-    await pumpScreen(tester, height: 1600);
+    await pumpScreen(tester, height: 2400);
     await pickProviderAndModel(tester);
     await tester.enterText(find.byKey(const Key('ai-api-key-field')), 'sk-1');
     await tester.ensureVisible(find.byKey(const Key('ai-config-create')));
@@ -640,7 +654,7 @@ void main() {
       ProblemError(code: 'server.down', status: 500),
     );
     discovery.value = const Right(<AiConfigView>[]);
-    await pumpScreen(tester, height: 1600);
+    await pumpScreen(tester, height: 2400);
     await pickProviderAndModel(tester);
     await tester.enterText(find.byKey(const Key('ai-api-key-field')), 'sk-1');
     await tester.ensureVisible(find.byKey(const Key('ai-config-create')));
@@ -1311,7 +1325,7 @@ void main() {
     testWidgets('the selector defaults to token and the create carries the '
         'switched energy preference', (tester) async {
       await setupContainer();
-      await pumpScreen(tester, height: 1600);
+      await pumpScreen(tester, height: 2400);
 
       // Default is token (spec: defaulting to `token`).
       final selector = tester.widget<SegmentedButton<CostDisplayPreference>>(
@@ -1352,7 +1366,7 @@ void main() {
           ),
         ]),
       );
-      await pumpScreen(tester, height: 1600);
+      await pumpScreen(tester, height: 2400);
 
       // The selector echoes the configured value.
       final selector = tester.widget<SegmentedButton<CostDisplayPreference>>(
@@ -1366,6 +1380,225 @@ void main() {
         repo.lastUpdateRequest!.costDisplayPreference,
         CostDisplayPreference.energy,
       );
+    });
+
+    // --- Decision Model section (issue #723) ---
+
+    testWidgets('first-run: the decision section renders with the honest '
+        'disabled default and no model picker', (tester) async {
+      await setupContainer();
+      await pumpScreen(tester);
+
+      expect(find.byKey(const Key('ai-decision-section')), findsOneWidget);
+      expect(
+        find.byKey(const Key('ai-decision-provider-disabled')),
+        findsOneWidget,
+      );
+      expect(find.byKey(const Key('ai-decision-model-picker')), findsNothing);
+    });
+
+    testWidgets('same decision provider: the same-key toggle renders (on by '
+        'default) and create reuses the extraction vault key without a '
+        'second credential (issue #723, spec scenario 1)', (tester) async {
+      await setupContainer();
+      await pumpScreen(tester, height: 2400);
+
+      // Extraction provider = neuralwatt.
+      await tester.tap(find.byKey(const Key('ai-provider-picker')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('neuralwatt').last);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('ai-assistant-model-picker')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('gpt-5.6-luna').last);
+      await tester.pumpAndSettle();
+
+      // Decision provider = neuralwatt (the same provider).
+      await tester.tap(find.byKey(const Key('ai-decision-provider-picker')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('neuralwatt').last);
+      await tester.pumpAndSettle();
+
+      // The model picker renders; the same-key toggle renders ON; no
+      // separate decision key field.
+      expect(find.byKey(const Key('ai-decision-model-picker')), findsOneWidget);
+      await tester.tap(find.byKey(const Key('ai-decision-model-picker')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('gpt-5.6-luna').last);
+      await tester.pumpAndSettle();
+      final toggle = tester.widget<CheckboxListTile>(
+        find.byKey(const Key('ai-decision-same-key-toggle')),
+      );
+      expect(toggle.value, isTrue);
+      expect(find.byKey(const Key('ai-decision-api-key-field')), findsNothing);
+
+      await tester.enterText(
+        find.byKey(const Key('ai-api-key-field')),
+        'extraction-secret',
+      );
+      await tester.ensureVisible(find.byKey(const Key('ai-config-create')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('ai-config-create')));
+      await tester.pumpAndSettle();
+
+      // Exactly ONE credential submission (the extraction key), and the
+      // create carries the decision slot bound to the SAME vault key.
+      expect(repo.submitCalls, 1);
+      expect(repo.lastCreateRequest!.decisionProvider, LlmProvider.neuralwatt);
+      expect(
+        repo.lastCreateRequest!.decisionVaultKeyId,
+        repo.lastCreateRequest!.vaultKeyId,
+      );
+      expect(repo.lastCreateRequest!.decisionModel, 'gpt-5.6-luna');
+    });
+
+    testWidgets('split billing: a different decision provider prompts for a '
+        'separate key, binds it as a second credential and remembers it '
+        '(issue #723, spec scenario 2)', (tester) async {
+      await setupContainer();
+      await pumpScreen(tester, height: 2400);
+
+      // Extraction provider = openai (default suggestion).
+      await tester.tap(find.byKey(const Key('ai-provider-picker')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('openai').last);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('ai-assistant-model-picker')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('gpt-5.6-luna').last);
+      await tester.pumpAndSettle();
+
+      // Decision provider = neuralwatt (different from extraction).
+      await tester.tap(find.byKey(const Key('ai-decision-provider-picker')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('neuralwatt').last);
+      await tester.pumpAndSettle();
+
+      // No same-key toggle across providers; the masked decision key
+      // field renders instead.
+      expect(
+        find.byKey(const Key('ai-decision-same-key-toggle')),
+        findsNothing,
+      );
+      expect(
+        find.byKey(const Key('ai-decision-api-key-field')),
+        findsOneWidget,
+      );
+
+      await tester.tap(find.byKey(const Key('ai-decision-model-picker')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('gpt-5.6-luna').last);
+      await tester.pumpAndSettle();
+
+      await tester.enterText(
+        find.byKey(const Key('ai-api-key-field')),
+        'extraction-secret',
+      );
+      await tester.enterText(
+        find.byKey(const Key('ai-decision-api-key-field')),
+        'decision-secret',
+      );
+      await tester.ensureVisible(find.byKey(const Key('ai-config-create')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('ai-config-create')));
+      await tester.pumpAndSettle();
+
+      // TWO credential submissions: the extraction one (openai) and the
+      // decision one (neuralwatt — the provider the user selected).
+      expect(repo.submitCalls, 2);
+      expect(repo.lastProvider, 'neuralwatt');
+      expect(repo.lastCreateRequest!.decisionProvider, LlmProvider.neuralwatt);
+      expect(repo.lastCreateRequest!.decisionVaultKeyId, isNotNull);
+
+      // The decision credential reference is remembered under the
+      // decision-scoped hand-off slot for the next edit.
+      final sub = (await container.read(authSessionControllerProvider.future))!
+          .sub;
+      final remembered = (await AiImportHandoffStore.secure().read(sub))
+          .getRight()
+          .toNullable()!;
+      expect(remembered.decisionCredentialFor('neuralwatt'), isNotNull);
+    });
+
+    testWidgets('edit: an untouched decision slot echoes the stored binding — '
+        'no accidental clear (issue #723, task 1.2)', (tester) async {
+      await setupContainer(
+        discoveryValue: Right([
+          _config(
+            decisionProvider: LlmProvider.neuralwatt,
+            decisionModel: 'clef-flash',
+            decisionVaultKeyId: 'vk-decision',
+          ),
+        ]),
+      );
+      await pumpScreen(tester, height: 2400);
+
+      await tester.tap(find.byKey(const Key('ai-config-edit-save')));
+      await tester.pumpAndSettle();
+
+      expect(repo.lastUpdateRequest!.decisionProvider, LlmProvider.neuralwatt);
+      expect(repo.lastUpdateRequest!.decisionModel, 'clef-flash');
+      expect(repo.lastUpdateRequest!.decisionVaultKeyId, 'vk-decision');
+    });
+
+    testWidgets('edit: a stored SAME-PROVIDER split-billing binding survives '
+        'an untouched save — the derived toggle stays off and the stored '
+        'decision key is echoed, never rebound to the extraction key '
+        '(CodeRabbit review, issue #723)', (tester) async {
+      await setupContainer(
+        discoveryValue: Right([
+          _config(
+            decisionProvider: LlmProvider.openai,
+            decisionModel: 'clef-flash',
+            decisionVaultKeyId: 'vk-decision',
+          ),
+        ]),
+      );
+      await pumpScreen(tester, height: 2400);
+
+      // The same-provider toggle renders, DERIVED OFF from the stored
+      // split-billing binding (decision key ≠ extraction key).
+      final toggle = tester.widget<CheckboxListTile>(
+        find.byKey(const Key('ai-decision-same-key-toggle')),
+      );
+      expect(toggle.value, isFalse);
+
+      // An unrelated save (no decision interaction) echoes the stored
+      // binding — it must NOT silently rebind to the extraction key.
+      await tester.tap(find.byKey(const Key('ai-config-edit-save')));
+      await tester.pumpAndSettle();
+
+      expect(repo.lastUpdateRequest!.decisionProvider, LlmProvider.openai);
+      expect(repo.lastUpdateRequest!.decisionModel, 'clef-flash');
+      expect(repo.lastUpdateRequest!.decisionVaultKeyId, 'vk-decision');
+      expect(repo.lastUpdateRequest!.vaultKeyId, 'vk-1');
+    });
+
+    testWidgets('edit: picking the disabled entry CLEARS the decision slot '
+        'via the tri-state explicit null (issue #723)', (tester) async {
+      await setupContainer(
+        discoveryValue: Right([
+          _config(
+            decisionProvider: LlmProvider.neuralwatt,
+            decisionModel: 'clef-flash',
+            decisionVaultKeyId: 'vk-decision',
+          ),
+        ]),
+      );
+      await pumpScreen(tester, height: 2400);
+
+      await tester.tap(find.byKey(const Key('ai-decision-provider-picker')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('ai-decision-provider-disabled')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('ai-config-edit-save')));
+      await tester.pumpAndSettle();
+
+      // The patched tri-state serializer sends explicit JSON nulls — the
+      // backend clears the stored Decision Model (omitted would keep it).
+      expect(repo.lastUpdateRequest!.decisionProvider, isNull);
+      expect(repo.lastUpdateRequest!.decisionModel, isNull);
+      expect(repo.lastUpdateRequest!.decisionVaultKeyId, isNull);
     });
   });
 

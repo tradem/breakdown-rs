@@ -1,6 +1,7 @@
 <!-- SPDX-License-Identifier: AGPL-3.0 -->
 <!-- Copyright (C) 2024-2026 Breakdown RS Contributors -->
 <!-- Co-authored-by: glm-5.3-flash (opencode-go) -->
+<!-- Co-authored-by: glm-5.3-flash-flex (neuralwatt) -->
 
 # AI-Import-Aufträge (ai-import-jobs) — Screen Spec
 
@@ -115,6 +116,24 @@ never the sole carrier either. All copy via the ARB catalogs (`aiJobs*`,
 `jobStatus*`, `jobWatch*`, `aiJobRetryBudget`, `aiJobStage*`); 
 backend `detail` text never renders on this screen. Row semantics announce
 kind + date + status.
+
+## Preview & Apply — Decision Model star ratings (issue #723)
+
+When the configured Decision Model scored the extraction, the preview
+and apply cards render calibrated scores as **1–5 star ratings** via the
+shared `AiScoreStars` component (`lib/design/components/`):
+
+| Element | M3 component | Semantics | Copy key |
+|---|---|---|---|
+| Scene / synopsis / shooting-day score | Icon row (`star` filled vs. `star_border` outline) + label | Machine-evaluated review aid — never a decision; renders NOTHING when the score is `null` (honest absence, no Decision Model / failed pass) | `aiPreviewSceneScore`, `aiPreviewSynopsisScore`, `aiPreviewShootingDayScore`, `aiScoreStarsLabel` |
+| Day-group score (apply card) | Icon row on the decision row | Same mapping, aggregated per day group (`DraftShootingDay.score`) | `aiScoreStarsLabel` |
+| Low-score filter | `FilterChip` pair above the rows | Narrows the VISIBLE rows to any score `<= 3★` (`< 0.70`); the apply payload keeps every row — filtering is view-only | `aiPreviewFilterAll`, `aiPreviewFilterLowScore` |
+| Banner note (scored) | Tertiary banner text | Frames the stars as machine-evaluated under EU AI Act Art. 50; the unscored note (`aiPreviewAiNote`) stays when no score exists | `aiPreviewAiNoteScored` |
+
+The Decision / Scoring Model itself is configured on the AI config screen
+(provider + curated model picker, "Use same API key as extraction" toggle,
+separate split-billing key field — keys `aiConfigDecision*`); see the
+`flutter-ai-config` OpenSpec spec.
 
 ## Tests
 

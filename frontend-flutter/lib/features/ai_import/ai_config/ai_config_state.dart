@@ -33,7 +33,11 @@ class AiConfigScreenState {
     required this.selectedProviderKey,
     this.selectedAssistantModelId,
     this.selectedImageModelId,
+    this.selectedDecisionProviderKey,
+    this.selectedDecisionModelId,
+    this.useSameDecisionKey = true,
     this.costDisplayPreference = CostDisplayPreference.token,
+    this.decisionModels = const AsyncValue<List<ModelInfo>>.loading(),
     this.scriptPrompt = '',
     this.schedulePrompt = '',
     this.commandError,
@@ -61,10 +65,26 @@ class AiConfigScreenState {
   final String? selectedAssistantModelId;
   final String? selectedImageModelId;
 
+  /// The optional Decision / Scoring Model configuration (issue #723).
+  /// [selectedDecisionProviderKey] is `null` when scoring is disabled
+  /// ("None / deaktiviert" — the honest default) or not yet picked.
+  final String? selectedDecisionProviderKey;
+  final String? selectedDecisionModelId;
+
+  /// The "Use same API key as extraction" toggle (issue #723). Only shown
+  /// when [selectedDecisionProviderKey] equals the extraction provider
+  /// key; `true` (the default) reuses the extraction `vault_key_id`.
+  final bool useSameDecisionKey;
+
   /// The preferred primary cost display metric (issue #675): the draft
   /// pick, else the configured value, else the `token` default. Rendered
   /// by the cost-display selector and used as the PATCH payload value.
   final CostDisplayPreference costDisplayPreference;
+
+  /// The selected DECISION provider's model set (`GET /v1/ai-import/
+  /// providers/{key}/models`, issue #723). Same honest degradation as
+  /// [models].
+  final AsyncValue<List<ModelInfo>> decisionModels;
 
   /// Per-document-kind prompt drafts (script/schedule).
   final String scriptPrompt;
@@ -118,7 +138,13 @@ class AiConfigScreenState {
     bool clearSelectedProvider = false,
     String? selectedAssistantModelId,
     String? selectedImageModelId,
+    String? selectedDecisionProviderKey,
+    bool clearSelectedDecisionProvider = false,
+    String? selectedDecisionModelId,
+    bool clearSelectedDecisionModel = false,
+    bool? useSameDecisionKey,
     CostDisplayPreference? costDisplayPreference,
+    AsyncValue<List<ModelInfo>>? decisionModels,
     String? scriptPrompt,
     String? schedulePrompt,
     ProblemError? commandError,
@@ -138,7 +164,15 @@ class AiConfigScreenState {
     selectedAssistantModelId:
         selectedAssistantModelId ?? this.selectedAssistantModelId,
     selectedImageModelId: selectedImageModelId ?? this.selectedImageModelId,
+    selectedDecisionProviderKey: clearSelectedDecisionProvider
+        ? null
+        : (selectedDecisionProviderKey ?? this.selectedDecisionProviderKey),
+    selectedDecisionModelId: clearSelectedDecisionModel
+        ? null
+        : (selectedDecisionModelId ?? this.selectedDecisionModelId),
+    useSameDecisionKey: useSameDecisionKey ?? this.useSameDecisionKey,
     costDisplayPreference: costDisplayPreference ?? this.costDisplayPreference,
+    decisionModels: decisionModels ?? this.decisionModels,
     scriptPrompt: scriptPrompt ?? this.scriptPrompt,
     schedulePrompt: schedulePrompt ?? this.schedulePrompt,
     commandError: clearCommandError
@@ -204,6 +238,11 @@ String aiConfigErrorCopy(AppLocalizations l10n, ProblemError error) =>
       // new key instead of pretending the provider is down.
       'ai-config.provider-mismatch' => l10n.aiConfigErrorProviderMismatch,
       'ai_config.orphaned_credential' => l10n.aiConfigErrorOrphaned,
+      // 409-armed client-side guard (issue #723): the decision model is
+      // configured but no decision API key is available (none remembered,
+      // none entered) — the client refuses BEFORE dispatching a config
+      // create/PATCH the backend would reject with an unusable binding.
+      'ai_config.decision_key_missing' => l10n.aiConfigDecisionKeyMissing,
       'provider.unavailable' => l10n.aiConfigErrorProvider,
       // Wire code of the backend's `ai-import.disabled` problem (issue
       // #422). The disabled state is a server configuration, NOT a
