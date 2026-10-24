@@ -86,6 +86,24 @@ tag. Never edit a released entry afterwards.
   of the outbound LLM request only; no public Rust API change, decode
   semantics unchanged).
 
+### Fixed
+
+- **cargo-deny advisories green again — two RustSec advisories published
+  2026-10-23 broke both security gates (PR #734, mirroring the #655
+  rustls precedent).** RUSTSEC-2026-0385 (`ctutils 0.4.2`, non-constant-
+  time mask generation): closed by a Cargo.lock-only bump
+  `ctutils 0.4.2 → 0.4.5` (semver-compatible, transitive via
+  `aes-gcm`/`digest`). RUSTSEC-2026-0387 (`crypto-bigint 0.5.5` timing
+  variability, transitive via `jsonwebtoken 11.1.0` → `p256/p384 0.13` →
+  `elliptic-curve 0.13`): no semver-compatible upgrade path exists (the
+  fix needs `crypto-bigint >= 0.7.6`, which requires `p256 0.14` + a
+  `jsonwebtoken` release on that chain — 11.1.0 is the latest release),
+  so the advisory is ignored in `deny.toml` with justification: the
+  backend is verification-only (JWKS decode/verify, no `EncodingKey`, no
+  private-key operation server-side), same reasoning as the existing
+  `rsa` (RUSTSEC-2023-0071) ignore. Revisit on a jsonwebtoken/
+  p256 upgrade.
+
 ### Added
 
 - **Script AI import extracts shooting days — preview, apply and scene→day
