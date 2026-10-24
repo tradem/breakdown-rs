@@ -249,6 +249,114 @@ final class AiProviderModelsFamily extends $Family
   String toString() => r'aiProviderModelsProvider';
 }
 
+/// The selected DECISION provider's curated model set (issue #731):
+/// `GET /v1/ai-import/providers/{key}/decision-models` — a distinct route
+/// and catalog from [aiProviderModels] (e.g. `clef-flash`/`clef` for
+/// neuralwatt, not the extraction list). Same 422 → "provider
+/// unavailable" degradation as the assistant picker.
+
+@ProviderFor(aiDecisionProviderModels)
+final aiDecisionProviderModelsProvider = AiDecisionProviderModelsFamily._();
+
+/// The selected DECISION provider's curated model set (issue #731):
+/// `GET /v1/ai-import/providers/{key}/decision-models` — a distinct route
+/// and catalog from [aiProviderModels] (e.g. `clef-flash`/`clef` for
+/// neuralwatt, not the extraction list). Same 422 → "provider
+/// unavailable" degradation as the assistant picker.
+
+final class AiDecisionProviderModelsProvider
+    extends
+        $FunctionalProvider<
+          AsyncValue<Result<List<ModelInfo>>>,
+          Result<List<ModelInfo>>,
+          FutureOr<Result<List<ModelInfo>>>
+        >
+    with
+        $FutureModifier<Result<List<ModelInfo>>>,
+        $FutureProvider<Result<List<ModelInfo>>> {
+  /// The selected DECISION provider's curated model set (issue #731):
+  /// `GET /v1/ai-import/providers/{key}/decision-models` — a distinct route
+  /// and catalog from [aiProviderModels] (e.g. `clef-flash`/`clef` for
+  /// neuralwatt, not the extraction list). Same 422 → "provider
+  /// unavailable" degradation as the assistant picker.
+  AiDecisionProviderModelsProvider._({
+    required AiDecisionProviderModelsFamily super.from,
+    required String super.argument,
+  }) : super(
+         retry: null,
+         name: r'aiDecisionProviderModelsProvider',
+         isAutoDispose: true,
+         dependencies: null,
+         $allTransitiveDependencies: null,
+       );
+
+  @override
+  String debugGetCreateSourceHash() => _$aiDecisionProviderModelsHash();
+
+  @override
+  String toString() {
+    return r'aiDecisionProviderModelsProvider'
+        ''
+        '($argument)';
+  }
+
+  @$internal
+  @override
+  $FutureProviderElement<Result<List<ModelInfo>>> $createElement(
+    $ProviderPointer pointer,
+  ) => $FutureProviderElement(pointer);
+
+  @override
+  FutureOr<Result<List<ModelInfo>>> create(Ref ref) {
+    final argument = this.argument as String;
+    return aiDecisionProviderModels(ref, argument);
+  }
+
+  @override
+  bool operator ==(Object other) {
+    return other is AiDecisionProviderModelsProvider &&
+        other.argument == argument;
+  }
+
+  @override
+  int get hashCode {
+    return argument.hashCode;
+  }
+}
+
+String _$aiDecisionProviderModelsHash() =>
+    r'881b663170c67fae9289d85cfee5aeb66c541f70';
+
+/// The selected DECISION provider's curated model set (issue #731):
+/// `GET /v1/ai-import/providers/{key}/decision-models` — a distinct route
+/// and catalog from [aiProviderModels] (e.g. `clef-flash`/`clef` for
+/// neuralwatt, not the extraction list). Same 422 → "provider
+/// unavailable" degradation as the assistant picker.
+
+final class AiDecisionProviderModelsFamily extends $Family
+    with $FunctionalFamilyOverride<FutureOr<Result<List<ModelInfo>>>, String> {
+  AiDecisionProviderModelsFamily._()
+    : super(
+        retry: null,
+        name: r'aiDecisionProviderModelsProvider',
+        dependencies: null,
+        $allTransitiveDependencies: null,
+        isAutoDispose: true,
+      );
+
+  /// The selected DECISION provider's curated model set (issue #731):
+  /// `GET /v1/ai-import/providers/{key}/decision-models` — a distinct route
+  /// and catalog from [aiProviderModels] (e.g. `clef-flash`/`clef` for
+  /// neuralwatt, not the extraction list). Same 422 → "provider
+  /// unavailable" degradation as the assistant picker.
+
+  AiDecisionProviderModelsProvider call(String key) =>
+      AiDecisionProviderModelsProvider._(argument: key, from: this);
+
+  @override
+  String toString() => r'aiDecisionProviderModelsProvider';
+}
+
 /// `GET /v1/ai-import/defaults` (issue #471): the deployment's single-source
 /// prompt defaults (script/schedule). Feeds the first-run prompt prefill; a
 /// failure degrades to empty editable fields — never a blocking error state.
@@ -359,7 +467,7 @@ final class AiConfigControllerProvider
 }
 
 String _$aiConfigControllerHash() =>
-    r'a77f160a34163dc76805847728ea4ba773dc2c7e';
+    r'8408722267406d7f3cf55499c51af338d5dae897';
 
 /// The AI-import configuration controller (`flutter-ai-config` task 2.1).
 ///

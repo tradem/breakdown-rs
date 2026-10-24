@@ -29,6 +29,15 @@ part of 'season_script_controller.dart';
 /// block — the scope chip's promise ("what filters your requests") holds for
 /// the Script view too. A scope belonging to another season is ignored here
 /// (the same reuse rule the block chip renders as "gilt hier nicht").
+///
+/// Issue #709: the sticky EPISODE scope (when it belongs to this season)
+/// wins over the block scope — the composition narrows to the episode's
+/// block and the scene reads skip every other episode of it (fewer reads,
+/// same result: the filter works on the already composed parts, no second
+/// projection, no new read seams). A stale scope whose block is not among
+/// the season's blocks (e.g. the block was deleted) composes no rows; a
+/// block read that FAILS under the scope still surfaces through the
+/// partial notices as today.
 
 @ProviderFor(seasonScriptFetch)
 final seasonScriptFetchProvider = SeasonScriptFetchFamily._();
@@ -54,6 +63,15 @@ final seasonScriptFetchProvider = SeasonScriptFetchFamily._();
 /// block — the scope chip's promise ("what filters your requests") holds for
 /// the Script view too. A scope belonging to another season is ignored here
 /// (the same reuse rule the block chip renders as "gilt hier nicht").
+///
+/// Issue #709: the sticky EPISODE scope (when it belongs to this season)
+/// wins over the block scope — the composition narrows to the episode's
+/// block and the scene reads skip every other episode of it (fewer reads,
+/// same result: the filter works on the already composed parts, no second
+/// projection, no new read seams). A stale scope whose block is not among
+/// the season's blocks (e.g. the block was deleted) composes no rows; a
+/// block read that FAILS under the scope still surfaces through the
+/// partial notices as today.
 
 final class SeasonScriptFetchProvider
     extends
@@ -86,6 +104,15 @@ final class SeasonScriptFetchProvider
   /// block — the scope chip's promise ("what filters your requests") holds for
   /// the Script view too. A scope belonging to another season is ignored here
   /// (the same reuse rule the block chip renders as "gilt hier nicht").
+  ///
+  /// Issue #709: the sticky EPISODE scope (when it belongs to this season)
+  /// wins over the block scope — the composition narrows to the episode's
+  /// block and the scene reads skip every other episode of it (fewer reads,
+  /// same result: the filter works on the already composed parts, no second
+  /// projection, no new read seams). A stale scope whose block is not among
+  /// the season's blocks (e.g. the block was deleted) composes no rows; a
+  /// block read that FAILS under the scope still surfaces through the
+  /// partial notices as today.
   SeasonScriptFetchProvider._({
     required SeasonScriptFetchFamily super.from,
     required SeasonView super.argument,
@@ -130,7 +157,7 @@ final class SeasonScriptFetchProvider
   }
 }
 
-String _$seasonScriptFetchHash() => r'657a312faf5b59ccb766d91fd4ff78a29595d561';
+String _$seasonScriptFetchHash() => r'ba458e640d5f8b3d9ad0e94513c525ab4012f387';
 
 /// Composes the active season's chronological script view (issue #610).
 ///
@@ -153,6 +180,15 @@ String _$seasonScriptFetchHash() => r'657a312faf5b59ccb766d91fd4ff78a29595d561';
 /// block — the scope chip's promise ("what filters your requests") holds for
 /// the Script view too. A scope belonging to another season is ignored here
 /// (the same reuse rule the block chip renders as "gilt hier nicht").
+///
+/// Issue #709: the sticky EPISODE scope (when it belongs to this season)
+/// wins over the block scope — the composition narrows to the episode's
+/// block and the scene reads skip every other episode of it (fewer reads,
+/// same result: the filter works on the already composed parts, no second
+/// projection, no new read seams). A stale scope whose block is not among
+/// the season's blocks (e.g. the block was deleted) composes no rows; a
+/// block read that FAILS under the scope still surfaces through the
+/// partial notices as today.
 
 final class SeasonScriptFetchFamily extends $Family
     with $FunctionalFamilyOverride<FutureOr<Result<SeasonScript>>, SeasonView> {
@@ -186,6 +222,15 @@ final class SeasonScriptFetchFamily extends $Family
   /// block — the scope chip's promise ("what filters your requests") holds for
   /// the Script view too. A scope belonging to another season is ignored here
   /// (the same reuse rule the block chip renders as "gilt hier nicht").
+  ///
+  /// Issue #709: the sticky EPISODE scope (when it belongs to this season)
+  /// wins over the block scope — the composition narrows to the episode's
+  /// block and the scene reads skip every other episode of it (fewer reads,
+  /// same result: the filter works on the already composed parts, no second
+  /// projection, no new read seams). A stale scope whose block is not among
+  /// the season's blocks (e.g. the block was deleted) composes no rows; a
+  /// block read that FAILS under the scope still surfaces through the
+  /// partial notices as today.
 
   SeasonScriptFetchProvider call(SeasonView season) =>
       SeasonScriptFetchProvider._(argument: season, from: this);

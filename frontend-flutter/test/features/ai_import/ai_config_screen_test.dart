@@ -249,6 +249,7 @@ void main() {
   late ValueNotifier<Result<List<AiConfigView>>> discovery;
   late ValueNotifier<Result<List<AiProviderInfo>>> providers;
   late ValueNotifier<Result<List<ModelInfo>>> models;
+  late ValueNotifier<Result<List<ModelInfo>>> decisionModels;
   late ValueNotifier<Result<AiImportDefaults>> defaults;
   late ProviderContainer container;
 
@@ -256,6 +257,7 @@ void main() {
     Result<List<AiConfigView>>? discoveryValue,
     Result<List<AiProviderInfo>>? providersValue,
     Result<List<ModelInfo>>? modelsValue,
+    Result<List<ModelInfo>>? decisionModelsValue,
     Result<AiImportDefaults>? defaultsValue,
   }) async {
     repo = FakeAiConfigRepository(BreakdownApi());
@@ -270,6 +272,13 @@ void main() {
     models = ValueNotifier(
       modelsValue ?? Right([_model('gpt-5.6-luna'), _model('gpt-5.6-terra')]),
     );
+    // The DECISION catalog (issue #731): a distinct route and catalog from
+    // the assistant/extraction list — neuralwatt's curated decision models
+    // (`clef-flash` recommended, `clef`), never the extraction list.
+    decisionModels = ValueNotifier(
+      decisionModelsValue ??
+          Right([_model('clef-flash', recommended: true), _model('clef')]),
+    );
     // Defaults default to loaded-but-empty: the first-run form stays
     // prompt-empty unless a test injects real defaults (existing tests keep
     // their exact behavior; no real network call is ever made — the
@@ -282,6 +291,15 @@ void main() {
         aiConfigDiscoveryProvider.overrideWith((ref) async => discovery.value),
         aiProvidersProvider.overrideWith((ref) async => providers.value),
         aiProviderModelsProvider.overrideWith((ref, key) async => models.value),
+        // Key-aware (CodeRabbit #733): a controller that passed the EXTRACTION
+        // provider key to the decision route would surface the extraction
+        // catalog here — the clef assertions in the decision-picker tests
+        // would fail. The decision catalog is only served for the decision-
+        // capable key; every other key falls back to the extraction list.
+        aiDecisionProviderModelsProvider.overrideWith(
+          (ref, key) async =>
+              key == 'neuralwatt' ? decisionModels.value : models.value,
+        ),
         aiImportDefaultsProvider.overrideWith((ref) async => defaults.value),
         // Immediate scheduler: reconciliation ticks are no-ops — no
         // wall-clock gating (AGENTS.md §6).
@@ -1419,12 +1437,13 @@ void main() {
       await tester.tap(find.text('neuralwatt').last);
       await tester.pumpAndSettle();
 
-      // The model picker renders; the same-key toggle renders ON; no
-      // separate decision key field.
+      // The model picker renders with the DECISION catalog (issue #731:
+      // `clef-flash`/`clef`, not the extraction list); the same-key toggle
+      // renders ON; no separate decision key field.
       expect(find.byKey(const Key('ai-decision-model-picker')), findsOneWidget);
       await tester.tap(find.byKey(const Key('ai-decision-model-picker')));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('gpt-5.6-luna').last);
+      await tester.tap(find.text('clef-flash').last);
       await tester.pumpAndSettle();
       final toggle = tester.widget<CheckboxListTile>(
         find.byKey(const Key('ai-decision-same-key-toggle')),
@@ -1449,7 +1468,7 @@ void main() {
         repo.lastCreateRequest!.decisionVaultKeyId,
         repo.lastCreateRequest!.vaultKeyId,
       );
-      expect(repo.lastCreateRequest!.decisionModel, 'gpt-5.6-luna');
+      expect(repo.lastCreateRequest!.decisionModel, 'clef-flash');
     });
 
     testWidgets('split billing: a different decision provider prompts for a '
@@ -1487,7 +1506,7 @@ void main() {
 
       await tester.tap(find.byKey(const Key('ai-decision-model-picker')));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('gpt-5.6-luna').last);
+      await tester.tap(find.text('clef-flash').last);
       await tester.pumpAndSettle();
 
       await tester.enterText(
@@ -1518,6 +1537,61 @@ void main() {
           .getRight()
           .toNullable()!;
       expect(remembered.decisionCredentialFor('neuralwatt'), isNotNull);
+    });
+
+    testWidgets('the decision model picker surfaces the curated DECISION '
+        'catalog (neuralwatt: clef-flash/clef) while the assistant picker '
+        'stays on the extraction list (issue #731 regression)', (tester) async {
+      await setupContainer();
+      await pumpScreen(tester, height: 2400);
+
+      // Extraction provider = neuralwatt, assistant model picked from the
+      // extraction catalog.
+      await tester.tap(find.byKey(const Key('ai-provider-picker')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('neuralwatt').last);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('ai-assistant-model-picker')));
+      await tester.pumpAndSettle();
+      // The assistant picker shows the EXTRACTION list only.
+      expect(find.text('gpt-5.6-luna').last, findsOneWidget);
+      expect(find.text('clef-flash'), findsNothing);
+      await tester.tap(find.text('gpt-5.6-luna').last);
+      await tester.pumpAndSettle();
+
+      // Decision provider = neuralwatt: the decision picker must show the
+      // curated decision catalog (clef-flash/clef), NOT the extraction
+      // list (deepseek/glm/kimi/qwen stand-ins are the gpt fixtures here).
+      // The key-aware decision fixture (see setupContainer) only serves the
+      // clef catalog for the 'neuralwatt' key — a controller that called the
+      // decision route with the extraction provider's key (or the extraction
+      // provider function) would surface gpt entries here and fail below.
+      await tester.tap(find.byKey(const Key('ai-decision-provider-picker')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('neuralwatt').last);
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('ai-decision-model-picker')));
+      await tester.pumpAndSettle();
+      // The decision catalog is open: clef-flash and clef are present.
+      expect(find.text('clef-flash').last, findsOneWidget);
+      expect(find.text('clef').last, findsOneWidget);
+      // …and the extraction entries are NOT in the decision menu.
+      expect(find.text('gpt-5.6-terra'), findsNothing);
+      await tester.tap(find.text('clef-flash').last);
+      await tester.pumpAndSettle();
+
+      await tester.enterText(
+        find.byKey(const Key('ai-api-key-field')),
+        'extraction-secret',
+      );
+      await tester.ensureVisible(find.byKey(const Key('ai-config-create')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('ai-config-create')));
+      await tester.pumpAndSettle();
+
+      // The create carries a decision model from the DECISION catalog.
+      expect(repo.lastCreateRequest!.decisionModel, 'clef-flash');
     });
 
     testWidgets('edit: an untouched decision slot echoes the stored binding — '

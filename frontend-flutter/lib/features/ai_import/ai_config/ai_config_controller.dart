@@ -62,6 +62,15 @@ Future<Result<List<AiProviderInfo>>> aiProviders(Ref ref) =>
 Future<Result<List<ModelInfo>>> aiProviderModels(Ref ref, String key) =>
     ref.watch(aiConfigRepositoryProvider).listModels(key);
 
+/// The selected DECISION provider's curated model set (issue #731):
+/// `GET /v1/ai-import/providers/{key}/decision-models` — a distinct route
+/// and catalog from [aiProviderModels] (e.g. `clef-flash`/`clef` for
+/// neuralwatt, not the extraction list). Same 422 → "provider
+/// unavailable" degradation as the assistant picker.
+@riverpod
+Future<Result<List<ModelInfo>>> aiDecisionProviderModels(Ref ref, String key) =>
+    ref.watch(aiConfigRepositoryProvider).listDecisionModels(key);
+
 /// `GET /v1/ai-import/defaults` (issue #471): the deployment's single-source
 /// prompt defaults (script/schedule). Feeds the first-run prompt prefill; a
 /// failure degrades to empty editable fields — never a blocking error state.
@@ -266,16 +275,19 @@ class AiConfigController extends _$AiConfigController {
       _ => const AsyncValue<List<ModelInfo>>.loading(),
     };
 
-    // The DECISION provider's model catalog (issue #723). Only fetched
-    // once a decision provider is picked; the picker renders the honest
-    // loading/degraded states otherwise.
+    // The DECISION provider's model catalog (issue #723): the dedicated
+    // decision-models route (issue #731) — NOT the extraction catalog.
+    // Only fetched once a decision provider is picked; the picker renders
+    // the honest loading/degraded states otherwise.
     final decisionProviderKeyDraft = drafts.decisionProviderTouched
         ? drafts.selectedDecisionProviderKey
         : (drafts.selectedDecisionProviderKey ??
               config?.decisionProvider?.name);
     final decisionModels = switch (decisionProviderKeyDraft == null
         ? const AsyncValue<Result<List<ModelInfo>>>.loading()
-        : ref.watch(aiProviderModelsProvider(decisionProviderKeyDraft))) {
+        : ref.watch(
+            aiDecisionProviderModelsProvider(decisionProviderKeyDraft),
+          )) {
       AsyncData(:final value) => value.match(
         (err) => AsyncValue<List<ModelInfo>>.error(err, StackTrace.current),
         (models) => AsyncValue<List<ModelInfo>>.data(models),
