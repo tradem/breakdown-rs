@@ -158,6 +158,7 @@
   "aiConfigAssistantModelLabel": "Assistant model",
   "aiConfigImageModelLabel": "Image model (optional)",
   "aiConfigNoModel": "— none —",
+  "aiConfigNoImageModels": "This provider offers no image models.",
   "aiConfigProviderUnavailable": "Provider unavailable — the model catalog cannot be read.",
   "aiConfigModelCatalogUnavailable": "The model catalog could not be loaded.",
   "aiConfigScriptPromptLabel": "Script prompt",

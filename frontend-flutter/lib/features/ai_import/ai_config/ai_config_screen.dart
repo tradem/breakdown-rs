@@ -483,12 +483,60 @@ class _ModelPickers extends ConsumerWidget {
             },
           ),
           const SizedBox(height: 12),
+          // The IMAGE-generation catalog (issue #732): its own route and
+          // picker — NOT the assistant list.
+          _ImageModelPicker(state: state, controller: controller),
+        ],
+      ),
+      AsyncError(:final error) => Text(
+        key: const Key('ai-models-degraded'),
+        error is ProblemError && error.status == 422
+            ? l10nOf(context).aiConfigProviderUnavailable
+            : l10nOf(context).aiConfigModelCatalogUnavailable,
+      ),
+      _ => const SizedBox(
+        key: Key('ai-models-loading'),
+        height: 24,
+        width: 24,
+        child: CircularProgressIndicator(strokeWidth: 2),
+      ),
+    };
+  }
+}
+
+/// The image-generation model picker fed by the selected provider's
+/// dedicated image-models route (issue #732) — a distinct catalog from the
+/// assistant list. An EMPTY catalog (text-only provider, e.g. eurorouter/
+/// neuralwatt) collapses the picker to just "— none —" with a greyed-out
+/// field and a hint — honest degradation, never the LLM list (the pre-#732
+/// bug). Same honest loading/degraded states as the assistant picker.
+class _ImageModelPicker extends ConsumerWidget {
+  const _ImageModelPicker({required this.state, required this.controller});
+
+  final AiConfigScreenState state;
+  final AiConfigController controller;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final value = state.imageModels;
+    return switch (value) {
+      AsyncData(value: final models) => Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
           DropdownButtonFormField<String?>(
             key: const Key('ai-image-model-picker'),
             initialValue: state.selectedImageModelId,
             // Two-line items (model name + pricing signal, issue #675).
             itemHeight: 72,
             isExpanded: true,
+            // Greyed out when the provider offers no image models — but
+            // still clearable if a stale configured value lingers (the
+            // "— none —" entry stays selectable). A null `onChanged`
+            // disables the dropdown (greyed out) — `DropdownButtonFormField`
+            // has no separate `enabled` flag.
+            onChanged: (models.isNotEmpty || state.selectedImageModelId != null)
+                ? (id) => controller.selectImageModel(id)
+                : null,
             decoration: InputDecoration(
               labelText: l10nOf(context).aiConfigImageModelLabel,
               border: const OutlineInputBorder(),
@@ -499,12 +547,14 @@ class _ModelPickers extends ConsumerWidget {
                 child: Text(l10nOf(context).aiConfigNoModel),
               ),
               if (state.selectedImageModelId != null &&
-                  !value.any((model) => model.id == state.selectedImageModelId))
+                  !models.any(
+                    (model) => model.id == state.selectedImageModelId,
+                  ))
                 DropdownMenuItem<String?>(
                   value: state.selectedImageModelId,
                   child: Text(state.selectedImageModelId!),
                 ),
-              for (final model in value)
+              for (final model in models)
                 DropdownMenuItem<String?>(
                   value: model.id,
                   child: Column(
@@ -522,22 +572,29 @@ class _ModelPickers extends ConsumerWidget {
             selectedItemBuilder: (context) => [
               Text(l10nOf(context).aiConfigNoModel),
               if (state.selectedImageModelId != null &&
-                  !value.any((model) => model.id == state.selectedImageModelId))
+                  !models.any(
+                    (model) => model.id == state.selectedImageModelId,
+                  ))
                 Text(state.selectedImageModelId!),
-              for (final model in value) Text(model.displayName ?? model.id),
+              for (final model in models) Text(model.displayName ?? model.id),
             ],
-            onChanged: (id) => controller.selectImageModel(id),
           ),
+          if (models.isEmpty)
+            Text(
+              key: const Key('ai-image-models-none'),
+              l10nOf(context).aiConfigNoImageModels,
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
         ],
       ),
       AsyncError(:final error) => Text(
-        key: const Key('ai-models-degraded'),
+        key: const Key('ai-image-models-degraded'),
         error is ProblemError && error.status == 422
             ? l10nOf(context).aiConfigProviderUnavailable
             : l10nOf(context).aiConfigModelCatalogUnavailable,
       ),
       _ => const SizedBox(
-        key: Key('ai-models-loading'),
+        key: Key('ai-image-models-loading'),
         height: 24,
         width: 24,
         child: CircularProgressIndicator(strokeWidth: 2),

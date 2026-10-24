@@ -27,6 +27,19 @@ tag. Never edit a released entry afterwards.
 
 ### Added
 
+- **Dedicated image-generation model catalog endpoint (issue #732):**
+  new `GET /v1/ai-import/providers/{provider}/image-models` mirroring the
+  decision-models route (#722): the same credential-role gate, the same
+  pricing enrichment with `pricing: null` honest degradation, serving the
+  curated image-model catalog from `curated_image_model_ids` (#675 prep
+  for #673 — Gemini `gemini-*-image`, OpenAI `gpt-image-*`). A text-only
+  provider (e.g. eurorouter, neuralwatt) serves an **empty** 200 list — the
+  honest signal the client's Image Model picker collapses to "— none —"
+  on, instead of listing the assistant/extraction LLM catalog. Fixes the
+  Image Model picker showing LLMs for every provider. `infra 0.49.0 →
+  0.50.0` (new public `curated_image_models` builder), `api 0.39.0 →
+  0.40.0` (new endpoint).
+
 - **Dedicated Decision Model configuration and best-effort scoring engine
   (issue #722):** `AiConfig` gains an optional, fully additive Decision
   Model slot (`decision_provider`, `decision_model`,

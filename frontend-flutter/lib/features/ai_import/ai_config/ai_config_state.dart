@@ -38,6 +38,7 @@ class AiConfigScreenState {
     this.useSameDecisionKey = true,
     this.costDisplayPreference = CostDisplayPreference.token,
     this.decisionModels = const AsyncValue<List<ModelInfo>>.loading(),
+    this.imageModels = const AsyncValue<List<ModelInfo>>.loading(),
     this.scriptPrompt = '',
     this.schedulePrompt = '',
     this.commandError,
@@ -85,6 +86,13 @@ class AiConfigScreenState {
   /// providers/{key}/models`, issue #723). Same honest degradation as
   /// [models].
   final AsyncValue<List<ModelInfo>> decisionModels;
+
+  /// The selected provider's curated IMAGE-generation model set
+  /// (`GET /v1/ai-import/providers/{key}/image-models`, issue #732).
+  /// Distinct catalog from [models] — a text-only provider serves an
+  /// EMPTY list (the picker collapses to "— none —", never the LLM list).
+  /// Same honest degradation as [models].
+  final AsyncValue<List<ModelInfo>> imageModels;
 
   /// Per-document-kind prompt drafts (script/schedule).
   final String scriptPrompt;
@@ -145,6 +153,7 @@ class AiConfigScreenState {
     bool? useSameDecisionKey,
     CostDisplayPreference? costDisplayPreference,
     AsyncValue<List<ModelInfo>>? decisionModels,
+    AsyncValue<List<ModelInfo>>? imageModels,
     String? scriptPrompt,
     String? schedulePrompt,
     ProblemError? commandError,
@@ -173,6 +182,7 @@ class AiConfigScreenState {
     useSameDecisionKey: useSameDecisionKey ?? this.useSameDecisionKey,
     costDisplayPreference: costDisplayPreference ?? this.costDisplayPreference,
     decisionModels: decisionModels ?? this.decisionModels,
+    imageModels: imageModels ?? this.imageModels,
     scriptPrompt: scriptPrompt ?? this.scriptPrompt,
     schedulePrompt: schedulePrompt ?? this.schedulePrompt,
     commandError: clearCommandError

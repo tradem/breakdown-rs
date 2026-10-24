@@ -250,6 +250,7 @@ void main() {
   late ValueNotifier<Result<List<AiProviderInfo>>> providers;
   late ValueNotifier<Result<List<ModelInfo>>> models;
   late ValueNotifier<Result<List<ModelInfo>>> decisionModels;
+  late ValueNotifier<Result<List<ModelInfo>>> imageModels;
   late ValueNotifier<Result<AiImportDefaults>> defaults;
   late ProviderContainer container;
 
@@ -258,6 +259,7 @@ void main() {
     Result<List<AiProviderInfo>>? providersValue,
     Result<List<ModelInfo>>? modelsValue,
     Result<List<ModelInfo>>? decisionModelsValue,
+    Result<List<ModelInfo>>? imageModelsValue,
     Result<AiImportDefaults>? defaultsValue,
   }) async {
     repo = FakeAiConfigRepository(BreakdownApi());
@@ -279,6 +281,15 @@ void main() {
       decisionModelsValue ??
           Right([_model('clef-flash', recommended: true), _model('clef')]),
     );
+    // The IMAGE catalog (issue #732): a distinct route and catalog from
+    // the assistant/extraction list — OpenAI's curated image models,
+    // never the extraction list. Key-aware (mirror of the decision
+    // fixture): a text-only provider key serves an EMPTY catalog (the
+    // backend's honest degradation), so the picker collapses to
+    // "— none —" instead of listing LLMs.
+    imageModels = ValueNotifier(
+      imageModelsValue ?? Right([_model('gpt-image-2'), _model('gpt-image-1')]),
+    );
     // Defaults default to loaded-but-empty: the first-run form stays
     // prompt-empty unless a test injects real defaults (existing tests keep
     // their exact behavior; no real network call is ever made — the
@@ -299,6 +310,13 @@ void main() {
         aiDecisionProviderModelsProvider.overrideWith(
           (ref, key) async =>
               key == 'neuralwatt' ? decisionModels.value : models.value,
+        ),
+        // Key-aware (issue #732): only the image-capable key serves the
+        // image catalog; every text-only key serves the backend's empty
+        // 200 (picker collapses to "— none —", never the extraction list).
+        aiImageProviderModelsProvider.overrideWith(
+          (ref, key) async =>
+              key == 'openai' ? imageModels.value : const Right(<ModelInfo>[]),
         ),
         aiImportDefaultsProvider.overrideWith((ref) async => defaults.value),
         // Immediate scheduler: reconciliation ticks are no-ops — no
@@ -873,7 +891,9 @@ void main() {
 
     await tester.tap(find.byKey(const Key('ai-image-model-picker')));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('gpt-5.6-luna').last);
+    // The image picker shows the IMAGE catalog (issue #732), not the
+    // extraction list.
+    await tester.tap(find.text('gpt-image-2').last);
     await tester.pumpAndSettle();
 
     await tester.tap(find.byKey(const Key('ai-config-edit-save')));
@@ -882,7 +902,7 @@ void main() {
     final sent = repo.lastUpdateRequest!;
     expect(sent.provider, LlmProvider.openai);
     expect(sent.assistantModel, 'gpt-5.6-terra');
-    expect(sent.imageModel, 'gpt-5.6-luna');
+    expect(sent.imageModel, 'gpt-image-2');
     expect(sent.vaultKeyId, 'vk-1');
     expect(sent.version, 7);
   });
@@ -1592,6 +1612,70 @@ void main() {
 
       // The create carries a decision model from the DECISION catalog.
       expect(repo.lastCreateRequest!.decisionModel, 'clef-flash');
+    });
+
+    testWidgets('the image model picker surfaces the curated IMAGE catalog '
+        '(openai: gpt-image-*) while the assistant picker stays on the '
+        'extraction list (issue #732 regression)', (tester) async {
+      await setupContainer();
+      await pumpScreen(tester, height: 2400);
+
+      // Extraction provider = openai (the first curated provider, also the
+      // first-run suggestion). The image picker must show the IMAGE
+      // catalog (gpt-image-*), NOT the extraction list — pre-#732 it
+      // iterated the same state.models list as the assistant picker.
+      await tester.tap(find.byKey(const Key('ai-image-model-picker')));
+      await tester.pumpAndSettle();
+      expect(find.text('gpt-image-2').last, findsOneWidget);
+      expect(find.text('gpt-image-1').last, findsOneWidget);
+      // …and the extraction entries are NOT in the image menu.
+      expect(find.text('gpt-5.6-terra'), findsNothing);
+      await tester.tap(find.text('gpt-image-2').last);
+      await tester.pumpAndSettle();
+
+      // The assistant picker still lists the EXTRACTION catalog.
+      await tester.tap(find.byKey(const Key('ai-assistant-model-picker')));
+      await tester.pumpAndSettle();
+      expect(find.text('gpt-5.6-luna').last, findsOneWidget);
+      // gpt-image-1 is unselected, so its only possible render is inside
+      // the (closed) image picker — absent here means the assistant menu
+      // carries no image entries.
+      expect(find.text('gpt-image-1'), findsNothing);
+      await tester.tap(find.text('gpt-5.6-luna').last);
+      await tester.pumpAndSettle();
+
+      // The picked image model rides the create payload.
+      await tester.enterText(
+        find.byKey(const Key('ai-api-key-field')),
+        'extraction-secret',
+      );
+      await tester.ensureVisible(find.byKey(const Key('ai-config-create')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('ai-config-create')));
+      await tester.pumpAndSettle();
+      expect(repo.lastCreateRequest!.imageModel, 'gpt-image-2');
+    });
+
+    testWidgets('the image model picker collapses to "— none —" with a '
+        'greyed-out field and a hint for a text-only provider '
+        '(issue #732 honest degradation)', (tester) async {
+      await setupContainer();
+      await pumpScreen(tester, height: 2400);
+
+      // Extraction provider = neuralwatt — no curated image models (the
+      // backend serves an EMPTY 200 on the image-models route).
+      await tester.tap(find.byKey(const Key('ai-provider-picker')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('neuralwatt').last);
+      await tester.pumpAndSettle();
+
+      // The picker renders greyed out (null onChanged) with the hint —
+      // the honest "no image models" degradation, never the LLM list.
+      final imagePicker = tester.widget<DropdownButtonFormField<String?>>(
+        find.byKey(const Key('ai-image-model-picker')),
+      );
+      expect(imagePicker.onChanged, isNull);
+      expect(find.byKey(const Key('ai-image-models-none')), findsOneWidget);
     });
 
     testWidgets('edit: an untouched decision slot echoes the stored binding — '

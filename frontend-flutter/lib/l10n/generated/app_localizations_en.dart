@@ -574,6 +574,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get aiConfigNoModel => '— none —';
 
   @override
+  String get aiConfigNoImageModels => 'This provider offers no image models.';
+
+  @override
   String get aiConfigProviderUnavailable =>
       'Provider unavailable — the model catalog cannot be read.';
 

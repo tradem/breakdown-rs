@@ -1046,6 +1046,12 @@ abstract class AppLocalizations {
   /// **'— keine —'**
   String get aiConfigNoModel;
 
+  /// No description provided for @aiConfigNoImageModels.
+  ///
+  /// In de, this message translates to:
+  /// **'Dieser Anbieter bietet keine Bildmodelle.'**
+  String get aiConfigNoImageModels;
+
   /// No description provided for @aiConfigProviderUnavailable.
   ///
   /// In de, this message translates to:

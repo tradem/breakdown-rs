@@ -72,6 +72,19 @@ class AiConfigRepository extends BaseRepository {
         dtoInvalidCode: 'ai_config.dto_invalid',
       );
 
+  /// `GET /v1/ai-import/providers/{provider}/image-models` — the
+  /// per-provider curated IMAGE-generation model catalog (issue #732).
+  /// Deliberately a separate route from [listModels]: the assistant/
+  /// extraction catalog and the image catalog are distinct server-side
+  /// sets (e.g. `gemini-*-image`/`gpt-image-*`); a text-only provider
+  /// serves an EMPTY list. A 422 (unknown provider) surfaces as `Err` —
+  /// the same "provider unavailable" degradation as the assistant picker.
+  Future<Result<List<ModelInfo>>> listImageModels(String providerKey) =>
+      runList(
+        () => api.getHandlersApi().listAiImageModels(provider: providerKey),
+        dtoInvalidCode: 'ai_config.dto_invalid',
+      );
+
   /// `GET /v1/ai-import/defaults` — the deployment's single-source prompt
   /// defaults (`{ script, schedule }`) read server-side from
   /// `AI_IMPORT_DEFAULT_PROMPTS_PATH` or the built-in fallback (issue #471).

@@ -227,6 +227,25 @@ pub fn curated_decision_models(provider: LlmProvider) -> Vec<ModelInfo> {
         .collect()
 }
 
+/// Build `ModelInfo` list for a provider's curated **image-generation
+/// models** (issue #732, serving the `curated_image_model_ids` catalog
+/// prepared by #675). No `recommended` flag — the image model is an
+/// optional capability slot, like the decision model. A text-only provider
+/// (e.g. eurorouter, neuralwatt) yields an empty list — the honest signal
+/// the image picker collapses to "— none —" on.
+pub fn curated_image_models(provider: LlmProvider) -> Vec<ModelInfo> {
+    curated_image_model_ids(provider)
+        .iter()
+        .map(|id| ModelInfo {
+            id: (*id).to_owned(),
+            display_name: None,
+            provider,
+            recommended: false,
+            pricing: None,
+        })
+        .collect()
+}
+
 /// Build `ModelInfo` list for a provider from the curated model IDs.
 pub fn curated_models(provider: LlmProvider) -> Vec<ModelInfo> {
     let recommended = recommended_model(provider);
