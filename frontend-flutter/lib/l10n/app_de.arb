@@ -277,6 +277,8 @@
   "aiConfigResetPrompt": "Auf Voreinstellung zurücksetzen",
   "aiConfigDefaultPromptNote": "Kein gespeicherter Prompt – die Deployment-Voreinstellung gilt.",
   "aiModelPriceInOut": "{input} → {output} / 1M Tokens",
+  "aiModelImageUnitRate": "{price} / Bild",
+  "aiModelImageOutputRate": "{price} / 1M Bild-Tokens",
   "aiModelEnergyRate": "{price} / kWh",
   "aiConfigCostDisplayLabel": "Bevorzugte Kostenanzeige",
   "aiConfigCostDisplayToken": "Tokens",

@@ -1732,6 +1732,18 @@ abstract class AppLocalizations {
   /// **'{input} → {output} / 1M Tokens'**
   String aiModelPriceInOut(Object input, Object output);
 
+  /// No description provided for @aiModelImageUnitRate.
+  ///
+  /// In de, this message translates to:
+  /// **'{price} / Bild'**
+  String aiModelImageUnitRate(Object price);
+
+  /// No description provided for @aiModelImageOutputRate.
+  ///
+  /// In de, this message translates to:
+  /// **'{price} / 1M Bild-Tokens'**
+  String aiModelImageOutputRate(Object price);
+
   /// No description provided for @aiModelEnergyRate.
   ///
   /// In de, this message translates to:

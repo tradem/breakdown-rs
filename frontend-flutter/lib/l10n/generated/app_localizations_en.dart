@@ -1021,6 +1021,16 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String aiModelImageUnitRate(Object price) {
+    return '$price / image';
+  }
+
+  @override
+  String aiModelImageOutputRate(Object price) {
+    return '$price / 1M image tokens';
+  }
+
+  @override
   String aiModelEnergyRate(Object price) {
     return '$price / kWh';
   }

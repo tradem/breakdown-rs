@@ -77,9 +77,14 @@ ModelInfo _model(
 );
 
 /// A pricing snapshot fixture (issue #675): 1.45 in / 4 out per 1M tokens
-/// (USD), with the Neuralwatt-style energy rate when requested.
+/// (USD), with the Neuralwatt-style energy rate when requested. The image
+/// fields (#673 slots) model the two seeded image-rate shapes: a flat
+/// per-image rate (OpenAI `gpt-image-*`) or an image-output token rate
+/// (Gemini `*-image`).
 ModelPricing _pricing({
   int? energyNanoPerKwh,
+  int? imageNanoPerUnit,
+  int? imageOutputNanoPerMillion,
   Currency currency = Currency.USD,
 }) => ModelPricing(
   (b) => b
@@ -88,7 +93,9 @@ ModelPricing _pricing({
     ..outputNanoPerMillion = 4000000000
     ..priceAsOf = DateTime.utc(2026, 1, 1)
     ..pricingSource = PricingSource.curatedSeed
-    ..energyNanoPerKwh = energyNanoPerKwh,
+    ..energyNanoPerKwh = energyNanoPerKwh
+    ..imageNanoPerUnit = imageNanoPerUnit
+    ..imageOutputNanoPerMillion = imageOutputNanoPerMillion,
 );
 
 /// An active config view. [storedPromptKinds] is left ABSENT when null, which
@@ -1356,6 +1363,40 @@ void main() {
         expect(find.textContaining(r'$0'), findsNothing);
         expect(find.text('0'), findsNothing);
       });
+
+      testWidgets('an image model renders its IMAGE-specific rate — flat per '
+          'image or per 1M image-output tokens, never a zero token caption '
+          '(issue #732, CodeRabbit review)', (tester) async {
+        await setupContainer(
+          imageModelsValue: Right([
+            // OpenAI-style: flat per-image rate (backend seed:
+            // image_nano_per_unit = 40000000, token rates 0).
+            _model(
+              'gpt-image-2',
+              pricing: _pricing(imageNanoPerUnit: 40000000),
+            ),
+            // Gemini-style: image-output token rate (backend seed:
+            // image_output_nano_per_million = 120000000).
+            _model(
+              'gemini-3.1-flash-image',
+              pricing: _pricing(imageOutputNanoPerMillion: 120000000),
+            ),
+          ]),
+        );
+        await pumpScreen(tester, height: 2400);
+        await tester.tap(find.byKey(const Key('ai-provider-picker')));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('openai').last);
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const Key('ai-image-model-picker')));
+        await tester.pumpAndSettle();
+
+        // The applicable image rate is formatted, never the token caption
+        // (whose seeded rates are 0 → a misleading "$0.00 → $0.00").
+        expect(find.text(r'$0.04 / image'), findsOneWidget);
+        expect(find.text(r'$0.12 / 1M image tokens'), findsOneWidget);
+        expect(find.textContaining(r'$0.00 → $0.00'), findsNothing);
+      });
     },
   );
 
@@ -1676,6 +1717,34 @@ void main() {
       );
       expect(imagePicker.onChanged, isNull);
       expect(find.byKey(const Key('ai-image-models-none')), findsOneWidget);
+    });
+
+    testWidgets('the image picker stays usable when the assistant catalog is '
+        'degraded — independent honest states (issue #732, CodeRabbit '
+        'review)', (tester) async {
+      await setupContainer(
+        // Assistant/extraction catalog fails (e.g. 422 provider
+        // unavailable) while the image catalog succeeds.
+        modelsValue: const Left(
+          ProblemError(code: 'provider.unavailable', status: 422),
+        ),
+      );
+      await pumpScreen(tester, height: 2400);
+
+      // The assistant picker renders its degraded copy…
+      expect(find.byKey(const Key('ai-models-degraded')), findsOneWidget);
+      // …while the image picker is STILL rendered and usable — a user
+      // editing an existing configuration can change or clear its image
+      // model although the assistant catalog is degraded.
+      await tester.tap(find.byKey(const Key('ai-image-model-picker')));
+      await tester.pumpAndSettle();
+      expect(find.text('gpt-image-2').last, findsOneWidget);
+      await tester.tap(find.text('gpt-image-2').last);
+      await tester.pumpAndSettle();
+      expect(
+        container.read(aiConfigControllerProvider).selectedImageModelId,
+        'gpt-image-2',
+      );
     });
 
     testWidgets('edit: an untouched decision slot echoes the stored binding — '

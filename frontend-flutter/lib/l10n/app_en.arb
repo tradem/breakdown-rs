@@ -271,6 +271,8 @@
   "aiConfigResetPrompt": "Reset to default",
   "aiConfigDefaultPromptNote": "No stored prompt — the deployment default is in effect.",
   "aiModelPriceInOut": "{input} → {output} / 1M tokens",
+  "aiModelImageUnitRate": "{price} / image",
+  "aiModelImageOutputRate": "{price} / 1M image tokens",
   "aiModelEnergyRate": "{price} / kWh",
   "aiConfigCostDisplayLabel": "Preferred cost display",
   "aiConfigCostDisplayToken": "Tokens",
