@@ -291,8 +291,14 @@ void main() {
         aiConfigDiscoveryProvider.overrideWith((ref) async => discovery.value),
         aiProvidersProvider.overrideWith((ref) async => providers.value),
         aiProviderModelsProvider.overrideWith((ref, key) async => models.value),
+        // Key-aware (CodeRabbit #733): a controller that passed the EXTRACTION
+        // provider key to the decision route would surface the extraction
+        // catalog here — the clef assertions in the decision-picker tests
+        // would fail. The decision catalog is only served for the decision-
+        // capable key; every other key falls back to the extraction list.
         aiDecisionProviderModelsProvider.overrideWith(
-          (ref, key) async => decisionModels.value,
+          (ref, key) async =>
+              key == 'neuralwatt' ? decisionModels.value : models.value,
         ),
         aiImportDefaultsProvider.overrideWith((ref) async => defaults.value),
         // Immediate scheduler: reconciliation ticks are no-ops — no
@@ -1556,6 +1562,10 @@ void main() {
       // Decision provider = neuralwatt: the decision picker must show the
       // curated decision catalog (clef-flash/clef), NOT the extraction
       // list (deepseek/glm/kimi/qwen stand-ins are the gpt fixtures here).
+      // The key-aware decision fixture (see setupContainer) only serves the
+      // clef catalog for the 'neuralwatt' key — a controller that called the
+      // decision route with the extraction provider's key (or the extraction
+      // provider function) would surface gpt entries here and fail below.
       await tester.tap(find.byKey(const Key('ai-decision-provider-picker')));
       await tester.pumpAndSettle();
       await tester.tap(find.text('neuralwatt').last);
