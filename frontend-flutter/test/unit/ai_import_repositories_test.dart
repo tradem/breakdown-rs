@@ -379,6 +379,25 @@ void main() {
       expect(failed.getLeft().toNullable()!.status, 422);
     });
 
+    test('listImageModels Ok / 422 unknown provider (issue #732)', () async {
+      final ok = _api(
+        _scripted([
+          serializers.serialize(
+            BuiltList([_model('gpt-image-2')]),
+            specifiedType: const FullType(BuiltList, [FullType(ModelInfo)]),
+          )!,
+        ]),
+      );
+      final models = await AiConfigRepository(ok).listImageModels('openai');
+      expect(models.getRight().toNullable()!.first.id, 'gpt-image-2');
+
+      final err = _api(
+        _ScriptInterceptor(problem: 'provider.unknown', status: 422),
+      );
+      final failed = await AiConfigRepository(err).listImageModels('bogus');
+      expect(failed.getLeft().toNullable()!.status, 422);
+    });
+
     test(
       'submitCredential: secret rides ONLY in the request payload',
       () async {

@@ -22,6 +22,16 @@ releases are cut as `vX.Y.Z` tags (`v<build-name>`, enforced by
 
 ## [Unreleased]
 
+- **Version bump / generated-client sync (backend issue #732):**
+  `0.4.0-beta.9+101 → 0.4.0-beta.10+102`. The regenerated `breakdown_api`
+  client picks up the backend's curated image-model catalog endpoint
+  (`GET /v1/ai-import/providers/{provider}/image-models`, backend `api
+  0.40.0`) — the new `listAiImageModels` client method. The Image Model
+  picker consumes the dedicated image catalog now: an empty catalog (a
+  text-only provider, e.g. eurorouter/neuralwatt) collapses the picker to
+  a greyed-out "— none —" with a localized hint instead of listing the
+  assistant/extraction LLMs (issue #732, mirroring the #731 decision-
+  picker fix).
 - **Version bump / generated-client sync (backend issue #722):**
   `0.4.0-beta.7+99 → 0.4.0-beta.8+100`. The regenerated `breakdown_api`
   client picks up the backend's Decision Model surface (issue #722) — the

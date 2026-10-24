@@ -89,7 +89,7 @@ fn api_routes_are_behind_auth_middleware() {
     //  patterns, not method-verb pairs.)
     assert_eq!(
         api.len(),
-        99,
+        100,
         "number of API route path patterns has changed — \
          see doc comment above for update instructions"
     );
@@ -366,6 +366,13 @@ fn api_routes_have_deliberate_authorization_requirement() {
         ),
         (
             "/ai-import/providers/{provider}/decision-models",
+            Requirement::Authenticated,
+        ),
+        // Curated image-generation model catalog (issue #732) — same
+        // AuthN level as the sibling catalog reads; the credential-role
+        // gate is handler-internal (`// AUTHZ-GATE:`, like decision-models).
+        (
+            "/ai-import/providers/{provider}/image-models",
             Requirement::Authenticated,
         ),
         // Prompt-default prefill for the AI-config dialog (issue #471) —

@@ -77,6 +77,18 @@ yanked = "deny"
 # no private-key operation server-side, so the timing side-channel does not
 # apply. `rsa` 0.9.x has no patched release. Revisit on JWT-lib switch.
 #
+# RUSTSEC-2026-0387 (`crypto-bigint` 0.5.5 timing variability): pulled
+# transitively via `jsonwebtoken 11.1.0` → `p256/p384 0.13` →
+# `elliptic-curve 0.13`, which pins `crypto-bigint ^0.5`. The patched line
+# (>= 0.7.6) requires `p256 0.14` and a `jsonwebtoken` release on that chain
+# — none exists (11.1.0 is the latest release, still pinning `p256 ^0.13`),
+# so there is no semver-compatible upgrade path. Server-side the crate is
+# verification-only (JWKS decode/verify, no `EncodingKey`, no private-key
+# operation), so the advisory's secret-dependent timing branches do not
+# apply — same reasoning as the `rsa` ignore above. Revisit on a
+# jsonwebtoken (or p256/elliptic-curve) upgrade that unlocks crypto-bigint
+# 0.7.x.
+#
 # RUSTSEC-2026-0194 / RUSTSEC-2026-0195 (quick-xml DoS), transitive via
 # `opendal`. Affected API not exposed; trusted S3 endpoints only. Revisit
 # on opendal upgrade.
@@ -146,4 +158,5 @@ ignore = [
     "RUSTSEC-2026-0367", # zip SUID/SGID preservation — build-dep via utoipa-swagger-ui, build-time only
     "RUSTSEC-2026-0368", # zip symlink escape — build-dep via utoipa-swagger-ui, build-time only
     "RUSTSEC-2026-0369", # zip permission-through-symlink — build-dep via utoipa-swagger-ui, build-time only
+    "RUSTSEC-2026-0387", # crypto-bigint timing variability — verification-only via jsonwebtoken, no compatible upgrade path (see comment above)
 ]

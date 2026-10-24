@@ -357,6 +357,113 @@ final class AiDecisionProviderModelsFamily extends $Family
   String toString() => r'aiDecisionProviderModelsProvider';
 }
 
+/// The selected provider's curated IMAGE-generation model set (issue #732):
+/// `GET /v1/ai-import/providers/{key}/image-models` — a distinct route and
+/// catalog from [aiProviderModels] (e.g. `gemini-*-image`/`gpt-image-*`,
+/// empty for text-only providers). Same 422 → "provider unavailable"
+/// degradation as the assistant picker.
+
+@ProviderFor(aiImageProviderModels)
+final aiImageProviderModelsProvider = AiImageProviderModelsFamily._();
+
+/// The selected provider's curated IMAGE-generation model set (issue #732):
+/// `GET /v1/ai-import/providers/{key}/image-models` — a distinct route and
+/// catalog from [aiProviderModels] (e.g. `gemini-*-image`/`gpt-image-*`,
+/// empty for text-only providers). Same 422 → "provider unavailable"
+/// degradation as the assistant picker.
+
+final class AiImageProviderModelsProvider
+    extends
+        $FunctionalProvider<
+          AsyncValue<Result<List<ModelInfo>>>,
+          Result<List<ModelInfo>>,
+          FutureOr<Result<List<ModelInfo>>>
+        >
+    with
+        $FutureModifier<Result<List<ModelInfo>>>,
+        $FutureProvider<Result<List<ModelInfo>>> {
+  /// The selected provider's curated IMAGE-generation model set (issue #732):
+  /// `GET /v1/ai-import/providers/{key}/image-models` — a distinct route and
+  /// catalog from [aiProviderModels] (e.g. `gemini-*-image`/`gpt-image-*`,
+  /// empty for text-only providers). Same 422 → "provider unavailable"
+  /// degradation as the assistant picker.
+  AiImageProviderModelsProvider._({
+    required AiImageProviderModelsFamily super.from,
+    required String super.argument,
+  }) : super(
+         retry: null,
+         name: r'aiImageProviderModelsProvider',
+         isAutoDispose: true,
+         dependencies: null,
+         $allTransitiveDependencies: null,
+       );
+
+  @override
+  String debugGetCreateSourceHash() => _$aiImageProviderModelsHash();
+
+  @override
+  String toString() {
+    return r'aiImageProviderModelsProvider'
+        ''
+        '($argument)';
+  }
+
+  @$internal
+  @override
+  $FutureProviderElement<Result<List<ModelInfo>>> $createElement(
+    $ProviderPointer pointer,
+  ) => $FutureProviderElement(pointer);
+
+  @override
+  FutureOr<Result<List<ModelInfo>>> create(Ref ref) {
+    final argument = this.argument as String;
+    return aiImageProviderModels(ref, argument);
+  }
+
+  @override
+  bool operator ==(Object other) {
+    return other is AiImageProviderModelsProvider && other.argument == argument;
+  }
+
+  @override
+  int get hashCode {
+    return argument.hashCode;
+  }
+}
+
+String _$aiImageProviderModelsHash() =>
+    r'adb673bc4e7fa99f71066ec1134f8b643d43f09c';
+
+/// The selected provider's curated IMAGE-generation model set (issue #732):
+/// `GET /v1/ai-import/providers/{key}/image-models` — a distinct route and
+/// catalog from [aiProviderModels] (e.g. `gemini-*-image`/`gpt-image-*`,
+/// empty for text-only providers). Same 422 → "provider unavailable"
+/// degradation as the assistant picker.
+
+final class AiImageProviderModelsFamily extends $Family
+    with $FunctionalFamilyOverride<FutureOr<Result<List<ModelInfo>>>, String> {
+  AiImageProviderModelsFamily._()
+    : super(
+        retry: null,
+        name: r'aiImageProviderModelsProvider',
+        dependencies: null,
+        $allTransitiveDependencies: null,
+        isAutoDispose: true,
+      );
+
+  /// The selected provider's curated IMAGE-generation model set (issue #732):
+  /// `GET /v1/ai-import/providers/{key}/image-models` — a distinct route and
+  /// catalog from [aiProviderModels] (e.g. `gemini-*-image`/`gpt-image-*`,
+  /// empty for text-only providers). Same 422 → "provider unavailable"
+  /// degradation as the assistant picker.
+
+  AiImageProviderModelsProvider call(String key) =>
+      AiImageProviderModelsProvider._(argument: key, from: this);
+
+  @override
+  String toString() => r'aiImageProviderModelsProvider';
+}
+
 /// `GET /v1/ai-import/defaults` (issue #471): the deployment's single-source
 /// prompt defaults (script/schedule). Feeds the first-run prompt prefill; a
 /// failure degrades to empty editable fields — never a blocking error state.
@@ -467,7 +574,7 @@ final class AiConfigControllerProvider
 }
 
 String _$aiConfigControllerHash() =>
-    r'8408722267406d7f3cf55499c51af338d5dae897';
+    r'f44a0960a6d186406d5f20d2c49e02d29229506c';
 
 /// The AI-import configuration controller (`flutter-ai-config` task 2.1).
 ///

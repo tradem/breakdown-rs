@@ -77,7 +77,8 @@ pub use prompts::default_prompt;
 pub use prompts::{AiPromptDefaults, default_prompts};
 pub use provider_registry::{
     PROVIDER_REGISTRY, ProviderInfo, curated_decision_model_ids, curated_decision_models,
-    curated_model_ids, curated_models, list_providers, recommended_model, resolve_provider,
+    curated_image_model_ids, curated_image_models, curated_model_ids, curated_models,
+    list_providers, recommended_model, resolve_provider,
 };
 pub use queue::PgAiImportQueue;
 pub use runtime::AiWorkerRuntime;

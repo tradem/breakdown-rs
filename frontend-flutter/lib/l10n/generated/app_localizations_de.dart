@@ -584,6 +584,10 @@ class AppLocalizationsDe extends AppLocalizations {
   String get aiConfigNoModel => '— keine —';
 
   @override
+  String get aiConfigNoImageModels =>
+      'Dieser Anbieter bietet keine Bildmodelle.';
+
+  @override
   String get aiConfigProviderUnavailable =>
       'Anbieter nicht verfügbar – der Modellkatalog kann nicht gelesen werden.';
 
@@ -1031,6 +1035,16 @@ class AppLocalizationsDe extends AppLocalizations {
   @override
   String aiModelPriceInOut(Object input, Object output) {
     return '$input → $output / 1M Tokens';
+  }
+
+  @override
+  String aiModelImageUnitRate(Object price) {
+    return '$price / Bild';
+  }
+
+  @override
+  String aiModelImageOutputRate(Object price) {
+    return '$price / 1M Bild-Tokens';
   }
 
   @override

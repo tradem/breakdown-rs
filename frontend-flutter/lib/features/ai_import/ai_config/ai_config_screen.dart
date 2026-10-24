@@ -429,11 +429,17 @@ class _ModelPickers extends ConsumerWidget {
     if (state.selectedProviderKey == null) {
       return const SizedBox.shrink();
     }
-    return switch (state.models) {
-      AsyncData(:final value) => Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          DropdownButtonFormField<String>(
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // The ASSISTANT catalog's honest states (loading / degraded).
+        // Rendered INDEPENDENTLY of the image picker below (CodeRabbit
+        // review, PR #734): an assistant-catalog failure must not hide the
+        // image picker — a user editing an existing configuration can
+        // still change or clear its image model while the assistant
+        // catalog is degraded.
+        switch (state.models) {
+          AsyncData(:final value) => DropdownButtonFormField<String>(
             key: const Key('ai-assistant-model-picker'),
             initialValue: state.selectedAssistantModelId,
             // Two-line items (model name + pricing signal, issue #675):
@@ -482,13 +488,62 @@ class _ModelPickers extends ConsumerWidget {
               if (id != null) controller.selectAssistantModel(id);
             },
           ),
-          const SizedBox(height: 12),
+          AsyncError(:final error) => Text(
+            key: const Key('ai-models-degraded'),
+            error is ProblemError && error.status == 422
+                ? l10nOf(context).aiConfigProviderUnavailable
+                : l10nOf(context).aiConfigModelCatalogUnavailable,
+          ),
+          _ => const SizedBox(
+            key: Key('ai-models-loading'),
+            height: 24,
+            width: 24,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          ),
+        },
+        const SizedBox(height: 12),
+        // The IMAGE-generation catalog (issue #732): its own route and
+        // picker — NOT the assistant list — and independent of the
+        // assistant catalog's loading/error state.
+        _ImageModelPicker(state: state, controller: controller),
+      ],
+    );
+  }
+}
+
+/// The image-generation model picker fed by the selected provider's
+/// dedicated image-models route (issue #732) — a distinct catalog from the
+/// assistant list. An EMPTY catalog (text-only provider, e.g. eurorouter/
+/// neuralwatt) collapses the picker to just "— none —" with a greyed-out
+/// field and a hint — honest degradation, never the LLM list (the pre-#732
+/// bug). Same honest loading/degraded states as the assistant picker.
+class _ImageModelPicker extends ConsumerWidget {
+  const _ImageModelPicker({required this.state, required this.controller});
+
+  final AiConfigScreenState state;
+  final AiConfigController controller;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final value = state.imageModels;
+    return switch (value) {
+      AsyncData(value: final models) => Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
           DropdownButtonFormField<String?>(
             key: const Key('ai-image-model-picker'),
             initialValue: state.selectedImageModelId,
             // Two-line items (model name + pricing signal, issue #675).
             itemHeight: 72,
             isExpanded: true,
+            // Greyed out when the provider offers no image models — but
+            // still clearable if a stale configured value lingers (the
+            // "— none —" entry stays selectable). A null `onChanged`
+            // disables the dropdown (greyed out) — `DropdownButtonFormField`
+            // has no separate `enabled` flag.
+            onChanged: (models.isNotEmpty || state.selectedImageModelId != null)
+                ? (id) => controller.selectImageModel(id)
+                : null,
             decoration: InputDecoration(
               labelText: l10nOf(context).aiConfigImageModelLabel,
               border: const OutlineInputBorder(),
@@ -499,12 +554,14 @@ class _ModelPickers extends ConsumerWidget {
                 child: Text(l10nOf(context).aiConfigNoModel),
               ),
               if (state.selectedImageModelId != null &&
-                  !value.any((model) => model.id == state.selectedImageModelId))
+                  !models.any(
+                    (model) => model.id == state.selectedImageModelId,
+                  ))
                 DropdownMenuItem<String?>(
                   value: state.selectedImageModelId,
                   child: Text(state.selectedImageModelId!),
                 ),
-              for (final model in value)
+              for (final model in models)
                 DropdownMenuItem<String?>(
                   value: model.id,
                   child: Column(
@@ -522,22 +579,29 @@ class _ModelPickers extends ConsumerWidget {
             selectedItemBuilder: (context) => [
               Text(l10nOf(context).aiConfigNoModel),
               if (state.selectedImageModelId != null &&
-                  !value.any((model) => model.id == state.selectedImageModelId))
+                  !models.any(
+                    (model) => model.id == state.selectedImageModelId,
+                  ))
                 Text(state.selectedImageModelId!),
-              for (final model in value) Text(model.displayName ?? model.id),
+              for (final model in models) Text(model.displayName ?? model.id),
             ],
-            onChanged: (id) => controller.selectImageModel(id),
           ),
+          if (models.isEmpty)
+            Text(
+              key: const Key('ai-image-models-none'),
+              l10nOf(context).aiConfigNoImageModels,
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
         ],
       ),
       AsyncError(:final error) => Text(
-        key: const Key('ai-models-degraded'),
+        key: const Key('ai-image-models-degraded'),
         error is ProblemError && error.status == 422
             ? l10nOf(context).aiConfigProviderUnavailable
             : l10nOf(context).aiConfigModelCatalogUnavailable,
       ),
       _ => const SizedBox(
-        key: Key('ai-models-loading'),
+        key: Key('ai-image-models-loading'),
         height: 24,
         width: 24,
         child: CircularProgressIndicator(strokeWidth: 2),
@@ -550,6 +614,11 @@ class _ModelPickers extends ConsumerWidget {
 /// (issue #675): formatted input/output token rates per 1M tokens (plus
 /// the energy rate when the provider offers one), or the localized
 /// "Unknown" copy when `pricing == null` — NEVER a fabricated `$0.00`.
+/// Image-generation models carry their rates in the IMAGE-specific
+/// fields (`imageNanoPerUnit` flat-per-image, `imageOutputNanoPerMillion`
+/// per 1M image-output tokens) with zero token rates — the applicable
+/// image rate is rendered instead (CodeRabbit review, PR #734), never a
+/// misleading `$0 → $0` token caption.
 Widget _modelPriceCaption(ModelInfo model, AppLocalizations l10n) {
   final style = TextStyle(fontSize: 12, color: Colors.grey.shade600);
   final pricing = model.pricing;
@@ -561,10 +630,23 @@ Widget _modelPriceCaption(ModelInfo model, AppLocalizations l10n) {
     );
   }
   final currency = pricing.currency;
-  final rate = l10n.aiModelPriceInOut(
-    formatNanoCurrency(pricing.inputNanoPerMillion, currency),
-    formatNanoCurrency(pricing.outputNanoPerMillion, currency),
-  );
+  final imageUnitRate = pricing.imageNanoPerUnit;
+  final imageOutputRate = pricing.imageOutputNanoPerMillion;
+  final String rate;
+  if (imageUnitRate != null) {
+    rate = l10n.aiModelImageUnitRate(
+      formatNanoCurrency(imageUnitRate, currency),
+    );
+  } else if (imageOutputRate != null) {
+    rate = l10n.aiModelImageOutputRate(
+      formatNanoCurrency(imageOutputRate, currency),
+    );
+  } else {
+    rate = l10n.aiModelPriceInOut(
+      formatNanoCurrency(pricing.inputNanoPerMillion, currency),
+      formatNanoCurrency(pricing.outputNanoPerMillion, currency),
+    );
+  }
   final energyRate = pricing.energyNanoPerKwh;
   return Text(
     energyRate == null

@@ -2751,6 +2751,73 @@ async fn list_ai_decision_models_serves_an_empty_catalog_for_non_decision_provid
     assert!(models.is_empty(), "OpenAI hosts no decision models");
 }
 
+// Image-generation model catalog (issue #732): the curated image-models
+// endpoint mirrors the decision-models route with the `curated_image_models`
+// catalog (#675 prep for #673) — Gemini/OpenAI only, empty for text-only
+// providers, with the same pricing enrichment.
+
+use api::handlers::list_ai_image_models;
+
+#[tokio::test]
+async fn list_ai_image_models_serves_the_curated_catalog_with_pricing() {
+    let ports = FakePorts::default();
+    ports
+        .membership_repo
+        .seed_credential_designer(BlockId::new(), UserId::from_sub(TEST_SUB))
+        .await;
+    // Seed pricing for exactly one curated Gemini image model.
+    let priced_model = infra::ai::curated_image_model_ids(LlmProvider::Gemini)[0].to_owned();
+    ports
+        .ai_model_pricing
+        .seed(vec![seeded_pricing(LlmProvider::Gemini, &priced_model)]);
+
+    let (status, Json(models)) =
+        list_ai_image_models::<FakePorts>(State(state(ports)), user(), Path("gemini".to_owned()))
+            .await
+            .expect("credential-role member may list image models");
+    assert_eq!(status, StatusCode::OK);
+    let ids: Vec<&str> = models.iter().map(|m| m.id.as_str()).collect();
+    assert_eq!(
+        ids,
+        vec![
+            "gemini-3.1-flash-image",
+            "gemini-3.1-flash-lite-image",
+            "gemini-3-pro-image",
+            "gemini-2.5-flash-image",
+        ]
+    );
+    let priced = models
+        .iter()
+        .find(|m| m.id == priced_model)
+        .expect("priced image model in catalog");
+    assert!(priced.pricing.is_some(), "pricing enrichment applies");
+    let unpriced = models
+        .iter()
+        .find(|m| m.id != priced_model)
+        .expect("a second curated image model exists");
+    assert!(unpriced.pricing.is_none(), "unpriced stays null, never 0");
+    // An image model is never the recommended default (optional slot).
+    assert!(models.iter().all(|m| !m.recommended));
+}
+
+#[tokio::test]
+async fn list_ai_image_models_serves_an_empty_catalog_for_text_only_providers() {
+    let ports = FakePorts::default();
+    ports
+        .membership_repo
+        .seed_credential_designer(BlockId::new(), UserId::from_sub(TEST_SUB))
+        .await;
+    let (status, Json(models)) = list_ai_image_models::<FakePorts>(
+        State(state(ports)),
+        user(),
+        Path("neuralwatt".to_owned()),
+    )
+    .await
+    .expect("credential-role member may query the (empty) catalog");
+    assert_eq!(status, StatusCode::OK);
+    assert!(models.is_empty(), "neuralwatt hosts no image models");
+}
+
 #[tokio::test]
 async fn create_ai_config_accepts_same_key_decision_reuse_within_one_provider() {
     let ports = FakePorts::default();

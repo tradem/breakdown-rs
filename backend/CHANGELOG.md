@@ -27,6 +27,19 @@ tag. Never edit a released entry afterwards.
 
 ### Added
 
+- **Dedicated image-generation model catalog endpoint (issue #732):**
+  new `GET /v1/ai-import/providers/{provider}/image-models` mirroring the
+  decision-models route (#722): the same credential-role gate, the same
+  pricing enrichment with `pricing: null` honest degradation, serving the
+  curated image-model catalog from `curated_image_model_ids` (#675 prep
+  for #673 — Gemini `gemini-*-image`, OpenAI `gpt-image-*`). A text-only
+  provider (e.g. eurorouter, neuralwatt) serves an **empty** 200 list — the
+  honest signal the client's Image Model picker collapses to "— none —"
+  on, instead of listing the assistant/extraction LLM catalog. Fixes the
+  Image Model picker showing LLMs for every provider. `infra 0.49.0 →
+  0.50.0` (new public `curated_image_models` builder), `api 0.39.0 →
+  0.40.0` (new endpoint).
+
 - **Dedicated Decision Model configuration and best-effort scoring engine
   (issue #722):** `AiConfig` gains an optional, fully additive Decision
   Model slot (`decision_provider`, `decision_model`,
@@ -72,6 +85,24 @@ tag. Never edit a released entry afterwards.
   invariants for both schemas. `infra 0.47.0 → 0.48.0` (wire-shape change
   of the outbound LLM request only; no public Rust API change, decode
   semantics unchanged).
+
+### Fixed
+
+- **cargo-deny advisories green again — two RustSec advisories published
+  2026-10-23 broke both security gates (PR #734, mirroring the #655
+  rustls precedent).** RUSTSEC-2026-0385 (`ctutils 0.4.2`, non-constant-
+  time mask generation): closed by a Cargo.lock-only bump
+  `ctutils 0.4.2 → 0.4.5` (semver-compatible, transitive via
+  `aes-gcm`/`digest`). RUSTSEC-2026-0387 (`crypto-bigint 0.5.5` timing
+  variability, transitive via `jsonwebtoken 11.1.0` → `p256/p384 0.13` →
+  `elliptic-curve 0.13`): no semver-compatible upgrade path exists (the
+  fix needs `crypto-bigint >= 0.7.6`, which requires `p256 0.14` + a
+  `jsonwebtoken` release on that chain — 11.1.0 is the latest release),
+  so the advisory is ignored in `deny.toml` with justification: the
+  backend is verification-only (JWKS decode/verify, no `EncodingKey`, no
+  private-key operation server-side), same reasoning as the existing
+  `rsa` (RUSTSEC-2023-0071) ignore. Revisit on a jsonwebtoken/
+  p256 upgrade.
 
 ### Added
 

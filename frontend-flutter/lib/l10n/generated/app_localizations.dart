@@ -1046,6 +1046,12 @@ abstract class AppLocalizations {
   /// **'— keine —'**
   String get aiConfigNoModel;
 
+  /// No description provided for @aiConfigNoImageModels.
+  ///
+  /// In de, this message translates to:
+  /// **'Dieser Anbieter bietet keine Bildmodelle.'**
+  String get aiConfigNoImageModels;
+
   /// No description provided for @aiConfigProviderUnavailable.
   ///
   /// In de, this message translates to:
@@ -1725,6 +1731,18 @@ abstract class AppLocalizations {
   /// In de, this message translates to:
   /// **'{input} → {output} / 1M Tokens'**
   String aiModelPriceInOut(Object input, Object output);
+
+  /// No description provided for @aiModelImageUnitRate.
+  ///
+  /// In de, this message translates to:
+  /// **'{price} / Bild'**
+  String aiModelImageUnitRate(Object price);
+
+  /// No description provided for @aiModelImageOutputRate.
+  ///
+  /// In de, this message translates to:
+  /// **'{price} / 1M Bild-Tokens'**
+  String aiModelImageOutputRate(Object price);
 
   /// No description provided for @aiModelEnergyRate.
   ///

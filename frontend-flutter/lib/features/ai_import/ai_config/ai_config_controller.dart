@@ -71,6 +71,15 @@ Future<Result<List<ModelInfo>>> aiProviderModels(Ref ref, String key) =>
 Future<Result<List<ModelInfo>>> aiDecisionProviderModels(Ref ref, String key) =>
     ref.watch(aiConfigRepositoryProvider).listDecisionModels(key);
 
+/// The selected provider's curated IMAGE-generation model set (issue #732):
+/// `GET /v1/ai-import/providers/{key}/image-models` — a distinct route and
+/// catalog from [aiProviderModels] (e.g. `gemini-*-image`/`gpt-image-*`,
+/// empty for text-only providers). Same 422 → "provider unavailable"
+/// degradation as the assistant picker.
+@riverpod
+Future<Result<List<ModelInfo>>> aiImageProviderModels(Ref ref, String key) =>
+    ref.watch(aiConfigRepositoryProvider).listImageModels(key);
+
 /// `GET /v1/ai-import/defaults` (issue #471): the deployment's single-source
 /// prompt defaults (script/schedule). Feeds the first-run prompt prefill; a
 /// failure degrades to empty editable fields — never a blocking error state.
@@ -297,6 +306,21 @@ class AiConfigController extends _$AiConfigController {
       _ => const AsyncValue<List<ModelInfo>>.loading(),
     };
 
+    // The selected provider's IMAGE-generation catalog (issue #732): the
+    // dedicated image-models route — NOT the extraction catalog. Empty for
+    // text-only providers (the picker collapses to "— none —").
+    final imageModels = switch (selectedProviderKey == null
+        ? const AsyncValue<Result<List<ModelInfo>>>.loading()
+        : ref.watch(aiImageProviderModelsProvider(selectedProviderKey))) {
+      AsyncData(:final value) => value.match(
+        (err) => AsyncValue<List<ModelInfo>>.error(err, StackTrace.current),
+        (models) => AsyncValue<List<ModelInfo>>.data(models),
+      ),
+      AsyncError(:final error, :final stackTrace) =>
+        AsyncValue<List<ModelInfo>>.error(error, stackTrace),
+      _ => const AsyncValue<List<ModelInfo>>.loading(),
+    };
+
     // First-run decision-model suggestion (issue #723): the selected
     // decision provider's `recommended` model (e.g. `clef-flash`), falling
     // back to the first model. Strictly a fallback behind an explicit
@@ -415,6 +439,7 @@ class AiConfigController extends _$AiConfigController {
           ? drafts.useSameDecisionKey
           : _storedDecisionUsesSameKey(config),
       decisionModels: decisionModels,
+      imageModels: imageModels,
       // Preferred primary cost display (issue #675): an explicit draft pick
       // wins, then the configured value, then the `token` default.
       costDisplayPreference:
