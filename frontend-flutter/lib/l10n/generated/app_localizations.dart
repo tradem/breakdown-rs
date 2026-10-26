@@ -4123,6 +4123,90 @@ abstract class AppLocalizations {
   /// **'Backend nicht erreichbar'**
   String get healthPillOffline;
 
+  /// No description provided for @healthPillOpenHint.
+  ///
+  /// In de, this message translates to:
+  /// **'Details zum Backend-Status öffnen'**
+  String get healthPillOpenHint;
+
+  /// No description provided for @healthDetailTitle.
+  ///
+  /// In de, this message translates to:
+  /// **'Backend-Status'**
+  String get healthDetailTitle;
+
+  /// No description provided for @healthDetailDependencies.
+  ///
+  /// In de, this message translates to:
+  /// **'Abhängigkeiten'**
+  String get healthDetailDependencies;
+
+  /// No description provided for @healthDetailNoDependencies.
+  ///
+  /// In de, this message translates to:
+  /// **'Der Server meldet keine Details zu den Abhängigkeiten.'**
+  String get healthDetailNoDependencies;
+
+  /// No description provided for @healthDetailOfflineBody.
+  ///
+  /// In de, this message translates to:
+  /// **'Der Server ist nicht erreichbar. Sobald die Verbindung wieder steht, wird der Status erneut abgefragt.'**
+  String get healthDetailOfflineBody;
+
+  /// No description provided for @healthDetailPending.
+  ///
+  /// In de, this message translates to:
+  /// **'Status wird abgefragt …'**
+  String get healthDetailPending;
+
+  /// No description provided for @healthCheckDatabase.
+  ///
+  /// In de, this message translates to:
+  /// **'Datenbank'**
+  String get healthCheckDatabase;
+
+  /// No description provided for @healthCheckEventStore.
+  ///
+  /// In de, this message translates to:
+  /// **'Ereignisspeicher'**
+  String get healthCheckEventStore;
+
+  /// No description provided for @healthCheckSecrets.
+  ///
+  /// In de, this message translates to:
+  /// **'Geheimnisverwaltung'**
+  String get healthCheckSecrets;
+
+  /// No description provided for @healthCheckAiStorage.
+  ///
+  /// In de, this message translates to:
+  /// **'KI-Dateispeicher'**
+  String get healthCheckAiStorage;
+
+  /// No description provided for @healthCheckOther.
+  ///
+  /// In de, this message translates to:
+  /// **'Weitere Abhängigkeit'**
+  String get healthCheckOther;
+
+  /// No description provided for @healthCheckStatusHealthy.
+  ///
+  /// In de, this message translates to:
+  /// **'bereit'**
+  String get healthCheckStatusHealthy;
+
+  /// No description provided for @healthCheckStatusDegraded.
+  ///
+  /// In de, this message translates to:
+  /// **'eingeschränkt'**
+  String get healthCheckStatusDegraded;
+
+  /// No description provided for @healthCheckStatusUnhealthy.
+  ///
+  /// In de, this message translates to:
+  /// **'gestört'**
+  String get healthCheckStatusUnhealthy;
+
   /// No description provided for @quickCreateTitle.
   ///
   /// In de, this message translates to:

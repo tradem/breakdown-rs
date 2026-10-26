@@ -66,6 +66,10 @@ class AccountDrawer extends ConsumerWidget {
         // top-of-drawer quality signal, themed via DTCG semantic tokens,
         // labeled (never color alone). It stays empty until the first
         // health probe answered, so it never flashes a wrong tier.
+        // Issue #730: tapping the pill opens the health DETAIL sheet while
+        // this drawer stays open — the pill is the health controller's
+        // only keeping-alive listener, so a pop would stop the poll loop
+        // and blank the sheet (see showBackendHealthDetailSheet).
         Padding(
           padding: const EdgeInsets.fromLTRB(28, 16, 28, 8),
           child: Align(

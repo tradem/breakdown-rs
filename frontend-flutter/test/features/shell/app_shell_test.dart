@@ -149,7 +149,7 @@ void main() {
         // polls, so no probe/Dio activity and no pending timers (the pill's
         // own tiers are covered in backend_health_pill_test.dart).
         backendHealthControllerProvider.overrideWithValue(
-          BackendHealthTier.healthy,
+          const BackendHealthSnapshot(tier: BackendHealthTier.healthy),
         ),
         tokenStoreProvider.overrideWithValue(tokens),
         cacheDatabaseProvider.overrideWithValue(db),

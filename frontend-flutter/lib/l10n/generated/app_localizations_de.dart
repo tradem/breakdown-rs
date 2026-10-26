@@ -2480,6 +2480,50 @@ class AppLocalizationsDe extends AppLocalizations {
   String get healthPillOffline => 'Backend nicht erreichbar';
 
   @override
+  String get healthPillOpenHint => 'Details zum Backend-Status öffnen';
+
+  @override
+  String get healthDetailTitle => 'Backend-Status';
+
+  @override
+  String get healthDetailDependencies => 'Abhängigkeiten';
+
+  @override
+  String get healthDetailNoDependencies =>
+      'Der Server meldet keine Details zu den Abhängigkeiten.';
+
+  @override
+  String get healthDetailOfflineBody =>
+      'Der Server ist nicht erreichbar. Sobald die Verbindung wieder steht, wird der Status erneut abgefragt.';
+
+  @override
+  String get healthDetailPending => 'Status wird abgefragt …';
+
+  @override
+  String get healthCheckDatabase => 'Datenbank';
+
+  @override
+  String get healthCheckEventStore => 'Ereignisspeicher';
+
+  @override
+  String get healthCheckSecrets => 'Geheimnisverwaltung';
+
+  @override
+  String get healthCheckAiStorage => 'KI-Dateispeicher';
+
+  @override
+  String get healthCheckOther => 'Weitere Abhängigkeit';
+
+  @override
+  String get healthCheckStatusHealthy => 'bereit';
+
+  @override
+  String get healthCheckStatusDegraded => 'eingeschränkt';
+
+  @override
+  String get healthCheckStatusUnhealthy => 'gestört';
+
+  @override
   String get quickCreateTitle => 'Was möchtest du erstellen?';
 
   @override
