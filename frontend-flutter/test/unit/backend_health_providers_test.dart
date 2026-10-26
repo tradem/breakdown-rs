@@ -13,6 +13,7 @@
 import 'dart:async';
 
 import 'package:breakdown_api/breakdown_api.dart';
+import 'package:built_collection/built_collection.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:test/test.dart';
@@ -168,7 +169,7 @@ void main() {
         final h = _harness();
         addTearDown(h.container.dispose);
         // First read builds the controller: one probe in flight, no answer.
-        expect(h.container.read(backendHealthControllerProvider), isNull);
+        expect(h.container.read(backendHealthControllerProvider)?.tier, isNull);
         expect(h.probe.calls, 1);
         expect(h.delay.recorded, isEmpty);
       },
@@ -188,7 +189,7 @@ void main() {
         await drainEvents();
 
         expect(
-          h.container.read(backendHealthControllerProvider),
+          h.container.read(backendHealthControllerProvider)?.tier,
           BackendHealthTier.healthy,
         );
         expect(h.probe.calls, 1);
@@ -210,7 +211,7 @@ void main() {
 
         await drainEvents();
         expect(
-          h.container.read(backendHealthControllerProvider),
+          h.container.read(backendHealthControllerProvider)?.tier,
           BackendHealthTier.degraded,
         );
         expect(h.delay.recorded, [const Duration(seconds: 15)]);
@@ -236,7 +237,7 @@ void main() {
         await drainEvents();
 
         expect(
-          h.container.read(backendHealthControllerProvider),
+          h.container.read(backendHealthControllerProvider)?.tier,
           BackendHealthTier.unhealthy,
         );
         expect(h.delay.recorded, [const Duration(seconds: 15)]);
@@ -252,7 +253,7 @@ void main() {
         await drainEvents();
 
         expect(
-          h.container.read(backendHealthControllerProvider),
+          h.container.read(backendHealthControllerProvider)?.tier,
           BackendHealthTier.offline,
         );
         expect(h.delay.recorded, [const Duration(seconds: 15)]);
@@ -270,11 +271,11 @@ void main() {
         );
         addTearDown(h.container.dispose);
 
-        expect(h.container.read(backendHealthControllerProvider), isNull);
+        expect(h.container.read(backendHealthControllerProvider)?.tier, isNull);
         await drainEvents();
 
         expect(
-          h.container.read(backendHealthControllerProvider),
+          h.container.read(backendHealthControllerProvider)?.tier,
           BackendHealthTier.offline,
           reason: 'issue #657: unreachable maps deterministically to offline',
         );
@@ -303,7 +304,7 @@ void main() {
           ],
         );
         container.listen(backendHealthControllerProvider, (_, _) {});
-        expect(container.read(backendHealthControllerProvider), isNull);
+        expect(container.read(backendHealthControllerProvider)?.tier, isNull);
 
         // Drawer closed / provider disposed while the probe is in flight…
         container.dispose();
@@ -327,7 +328,7 @@ void main() {
 
         await drainEvents();
         expect(
-          h.container.read(backendHealthControllerProvider),
+          h.container.read(backendHealthControllerProvider)?.tier,
           BackendHealthTier.healthy,
         );
         expect(h.probe.calls, 1);
@@ -337,7 +338,7 @@ void main() {
         h.source.emit([ConnectivityResult.none]);
         await drainEvents();
         expect(
-          h.container.read(backendHealthControllerProvider),
+          h.container.read(backendHealthControllerProvider)?.tier,
           BackendHealthTier.offline,
         );
 
@@ -361,7 +362,7 @@ void main() {
 
       await drainEvents();
       expect(
-        h.container.read(backendHealthControllerProvider),
+        h.container.read(backendHealthControllerProvider)?.tier,
         BackendHealthTier.healthy,
       );
 
@@ -369,7 +370,7 @@ void main() {
       h.source.emit([ConnectivityResult.none]);
       await drainEvents();
       expect(
-        h.container.read(backendHealthControllerProvider),
+        h.container.read(backendHealthControllerProvider)?.tier,
         BackendHealthTier.offline,
       );
 
@@ -378,7 +379,7 @@ void main() {
       await drainEvents();
       expect(h.probe.calls, 2, reason: 'reconnection starts a fresh poll');
       expect(
-        h.container.read(backendHealthControllerProvider),
+        h.container.read(backendHealthControllerProvider)?.tier,
         BackendHealthTier.healthy,
       );
     });
@@ -398,14 +399,14 @@ void main() {
 
         await drainEvents(); // unreachable → offline, backoff 15 s
         expect(
-          h.container.read(backendHealthControllerProvider),
+          h.container.read(backendHealthControllerProvider)?.tier,
           BackendHealthTier.offline,
         );
 
         h.delay.flush();
         await drainEvents(); // healthy → healthy, FULL interval (counter reset)
         expect(
-          h.container.read(backendHealthControllerProvider),
+          h.container.read(backendHealthControllerProvider)?.tier,
           BackendHealthTier.healthy,
         );
         expect(h.delay.recorded.last, backendHealthPollInterval);
@@ -413,7 +414,7 @@ void main() {
         h.delay.flush();
         await drainEvents(); // degraded → degraded, backoff restarts at 15 s
         expect(
-          h.container.read(backendHealthControllerProvider),
+          h.container.read(backendHealthControllerProvider)?.tier,
           BackendHealthTier.degraded,
         );
         expect(
@@ -421,6 +422,187 @@ void main() {
           const Duration(seconds: 15),
           reason: 'the failed-attempt counter reset after the healthy answer',
         );
+      },
+    );
+  });
+
+  // Issue #730: the probe now also carries the report's per-dependency
+  // `entries` map, so the detail sheet can name WHICH dependency is broken.
+  group('per-dependency checks (issue #730)', () {
+    HealthEntry entry(HealthStatus status) => HealthEntry(
+      (b) => b
+        ..status = status
+        ..durationMs = 3
+        ..tags.add('ready'),
+    );
+
+    test('backendHealthChecksFromEntries maps every wire status', () {
+      final checks = backendHealthChecksFromEntries(
+        BuiltMap<String, HealthEntry>({
+          'postgres': entry(HealthStatus.healthy),
+          'sierradb': entry(HealthStatus.degraded),
+          'vault': entry(HealthStatus.unhealthy),
+        }),
+      );
+      expect(checks, const [
+        BackendHealthCheck(
+          name: 'postgres',
+          status: BackendHealthCheckStatus.healthy,
+        ),
+        BackendHealthCheck(
+          name: 'sierradb',
+          status: BackendHealthCheckStatus.degraded,
+        ),
+        BackendHealthCheck(
+          name: 'vault',
+          status: BackendHealthCheckStatus.unhealthy,
+        ),
+      ]);
+    });
+
+    test('empty entries map → empty check list (no invented check)', () {
+      expect(
+        backendHealthChecksFromEntries(BuiltMap<String, HealthEntry>()),
+        isEmpty,
+      );
+    });
+
+    test('severity ordering: broken first, stable inside a bucket', () {
+      const checks = [
+        BackendHealthCheck(
+          name: 'a_healthy',
+          status: BackendHealthCheckStatus.healthy,
+        ),
+        BackendHealthCheck(
+          name: 'b_degraded',
+          status: BackendHealthCheckStatus.degraded,
+        ),
+        BackendHealthCheck(
+          name: 'c_unhealthy',
+          status: BackendHealthCheckStatus.unhealthy,
+        ),
+        BackendHealthCheck(
+          name: 'd_healthy',
+          status: BackendHealthCheckStatus.healthy,
+        ),
+        BackendHealthCheck(
+          name: 'e_unhealthy',
+          status: BackendHealthCheckStatus.unhealthy,
+        ),
+      ];
+      expect(
+        backendHealthChecksBySeverity(checks).map((c) => c.name).toList(),
+        ['c_unhealthy', 'e_unhealthy', 'b_degraded', 'a_healthy', 'd_healthy'],
+        reason: 'wire order is kept within one severity bucket',
+      );
+    });
+
+    test(
+      'a reported probe result publishes the checks with the tier',
+      () async {
+        final h = _harness(
+          initial: const [
+            BackendHealthReported(
+              HealthStatus.unhealthy,
+              checks: [
+                BackendHealthCheck(
+                  name: 'vault',
+                  status: BackendHealthCheckStatus.unhealthy,
+                ),
+                BackendHealthCheck(
+                  name: 'postgres',
+                  status: BackendHealthCheckStatus.healthy,
+                ),
+              ],
+            ),
+          ],
+          autoCompleteDelay: false,
+        );
+        addTearDown(h.container.dispose);
+
+        await drainEvents();
+
+        final snapshot = h.container.read(backendHealthControllerProvider);
+        expect(snapshot?.tier, BackendHealthTier.unhealthy);
+        expect(snapshot?.checks.map((c) => c.name).toList(), [
+          'vault',
+          'postgres',
+        ]);
+      },
+    );
+
+    test(
+      'an unreachable outcome drops the previous checks (nothing measured)',
+      () async {
+        final h = _harness(
+          initial: const [
+            BackendHealthReported(
+              HealthStatus.degraded,
+              checks: [
+                BackendHealthCheck(
+                  name: 'sierradb',
+                  status: BackendHealthCheckStatus.degraded,
+                ),
+              ],
+            ),
+            BackendHealthUnreachable(),
+          ],
+          autoCompleteDelay: false,
+        );
+        addTearDown(h.container.dispose);
+
+        await drainEvents();
+        expect(
+          h.container.read(backendHealthControllerProvider)?.checks,
+          isNotEmpty,
+        );
+
+        h.delay.flush();
+        await drainEvents();
+
+        final snapshot = h.container.read(backendHealthControllerProvider);
+        expect(snapshot?.tier, BackendHealthTier.offline);
+        expect(
+          snapshot?.checks,
+          isEmpty,
+          reason:
+              'offline means no dependency was measured — stale rows are '
+              'never presented as current',
+        );
+      },
+    );
+
+    test(
+      'going offline via connectivity drops the previously known checks',
+      () async {
+        final h = _harness(
+          initial: const [
+            BackendHealthReported(
+              HealthStatus.healthy,
+              checks: [
+                BackendHealthCheck(
+                  name: 'postgres',
+                  status: BackendHealthCheckStatus.healthy,
+                ),
+              ],
+            ),
+          ],
+          autoCompleteDelay: false,
+        );
+        addTearDown(h.container.dispose);
+
+        await drainEvents();
+        expect(
+          h.container.read(backendHealthControllerProvider)?.checks,
+          isNotEmpty,
+        );
+
+        h.source.emit([ConnectivityResult.none]);
+        await drainEvents();
+
+        final snapshot = h.container.read(backendHealthControllerProvider);
+        expect(snapshot?.tier, BackendHealthTier.offline);
+        expect(snapshot?.checks, isEmpty);
       },
     );
   });

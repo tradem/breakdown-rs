@@ -60,7 +60,14 @@ void main() {
   late ProviderContainer container;
 
   /// Full app under a dev-auth session with one seeded season row.
-  Future<void> setupDevAuth() async {
+  ///
+  /// [healthSnapshot] freezes the drawer's backend health controller — the
+  /// overridden build never polls (no probe/Dio, no pending timers).
+  Future<void> setupDevAuth({
+    BackendHealthSnapshot healthSnapshot = const BackendHealthSnapshot(
+      tier: BackendHealthTier.healthy,
+    ),
+  }) async {
     db = CacheDatabase(NativeDatabase.memory());
     addTearDown(db.close);
     repo = FakeSeasonRepository(BreakdownApi(), SeasonCacheDao(db));
@@ -84,9 +91,7 @@ void main() {
         // polls, so no probe/Dio activity and no pending timers in the
         // widget-test environment. The pill's own tiers are covered in
         // backend_health_pill_test.dart.
-        backendHealthControllerProvider.overrideWithValue(
-          BackendHealthTier.healthy,
-        ),
+        backendHealthControllerProvider.overrideWithValue(healthSnapshot),
         tokenStoreProvider.overrideWithValue(tokens),
         cacheDatabaseProvider.overrideWithValue(db),
         seasonRepositoryProvider.overrideWithValue(repo),
@@ -161,6 +166,52 @@ void main() {
       // vocabulary never lives with the user settings.
       expect(find.text('Costume categories'), findsNothing);
       expect(find.byKey(const Key('profile-categories')), findsNothing);
+    });
+
+    // Issue #730: the pill is the tap target for the per-dependency detail
+    // sheet, and the drawer deliberately STAYS OPEN underneath (the pill is
+    // the health controller's only keeping-alive listener).
+    testWidgets('tapping the health pill opens the detail sheet over the '
+        'still-open drawer', (tester) async {
+      await setupDevAuth(
+        healthSnapshot: const BackendHealthSnapshot(
+          tier: BackendHealthTier.unhealthy,
+          checks: [
+            BackendHealthCheck(
+              name: 'vault',
+              status: BackendHealthCheckStatus.unhealthy,
+            ),
+            BackendHealthCheck(
+              name: 'postgres',
+              status: BackendHealthCheckStatus.healthy,
+            ),
+          ],
+        ),
+      );
+      await pumpApp(tester);
+      await openAccountDrawer(tester);
+      expect(
+        find.byKey(const Key('backend-health-detail-sheet')),
+        findsNothing,
+      );
+
+      await tester.tap(find.byKey(const Key('profile-health-pill')));
+      await pumpFrames(tester, n: 30);
+
+      expect(
+        find.byKey(const Key('backend-health-detail-sheet')),
+        findsOneWidget,
+      );
+      // Drawer still open → the pill stays mounted → the poll loop lives on.
+      expect(find.byKey(const Key('profile-account-drawer')), findsOneWidget);
+      expect(find.byKey(const Key('profile-health-pill')), findsOneWidget);
+      // Per-dependency rows, broken dependency first (English test locale).
+      expect(
+        find.byKey(const Key('backend-health-detail-check-vault')),
+        findsOneWidget,
+      );
+      expect(find.text('Secret storage'), findsOneWidget);
+      expect(find.text('Database'), findsOneWidget);
     });
 
     testWidgets('tap-outside (scrim) closes the drawer', (tester) async {
@@ -337,7 +388,7 @@ void main() {
           // Issue #657: freeze the drawer's health pill (no probe, no
           // timers) — same rationale as the first container.
           backendHealthControllerProvider.overrideWithValue(
-            BackendHealthTier.healthy,
+            const BackendHealthSnapshot(tier: BackendHealthTier.healthy),
           ),
           tokenStoreProvider.overrideWithValue(tokens),
           cacheDatabaseProvider.overrideWithValue(db),

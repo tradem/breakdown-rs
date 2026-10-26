@@ -2451,6 +2451,50 @@ class AppLocalizationsEn extends AppLocalizations {
   String get healthPillOffline => 'Backend unreachable';
 
   @override
+  String get healthPillOpenHint => 'Open backend status details';
+
+  @override
+  String get healthDetailTitle => 'Backend status';
+
+  @override
+  String get healthDetailDependencies => 'Dependencies';
+
+  @override
+  String get healthDetailNoDependencies =>
+      'The server reports no dependency details.';
+
+  @override
+  String get healthDetailOfflineBody =>
+      'The server is unreachable. The status is re-checked as soon as the connection returns.';
+
+  @override
+  String get healthDetailPending => 'Checking status …';
+
+  @override
+  String get healthCheckDatabase => 'Database';
+
+  @override
+  String get healthCheckEventStore => 'Event store';
+
+  @override
+  String get healthCheckSecrets => 'Secret storage';
+
+  @override
+  String get healthCheckAiStorage => 'AI file storage';
+
+  @override
+  String get healthCheckOther => 'Other dependency';
+
+  @override
+  String get healthCheckStatusHealthy => 'ready';
+
+  @override
+  String get healthCheckStatusDegraded => 'degraded';
+
+  @override
+  String get healthCheckStatusUnhealthy => 'impaired';
+
+  @override
   String get quickCreateTitle => 'What do you want to create?';
 
   @override

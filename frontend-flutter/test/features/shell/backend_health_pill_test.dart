@@ -55,20 +55,27 @@ Color _expectedColor(BackendHealthTier tier, Brightness brightness) =>
 
 void main() {
   /// Pumps the pill alone under a frozen controller tier. The overridden
-  /// build NEVER polls (it just returns the tier), so no probe/Dio activity
-  /// and no pending timers.
+  /// build NEVER polls (it just returns the snapshot), so no probe/Dio
+  /// activity and no pending timers.
   Future<void> pumpPill(
     WidgetTester tester, {
     required BackendHealthTier? tier,
     required Brightness brightness,
     Locale locale = const Locale('en'),
+    List<BackendHealthCheck> checks = const [],
   }) async {
     tester.view.physicalSize = const Size(400, 200);
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.reset);
     await tester.pumpWidget(
       ProviderScope(
-        overrides: [backendHealthControllerProvider.overrideWithValue(tier)],
+        overrides: [
+          backendHealthControllerProvider.overrideWithValue(
+            tier == null
+                ? null
+                : BackendHealthSnapshot(tier: tier, checks: checks),
+          ),
+        ],
         child: MediaQuery(
           data: MediaQueryData(platformBrightness: brightness),
           child: MaterialApp(
@@ -88,10 +95,7 @@ void main() {
 
   Color iconColorOf(WidgetTester tester) {
     final icon = tester.widget<Icon>(
-      find.descendant(
-        of: find.byKey(const Key('profile-health-pill')),
-        matching: find.byType(Icon),
-      ),
+      find.byKey(const Key('profile-health-pill-icon')),
     );
     return icon.color!;
   }
@@ -179,6 +183,60 @@ void main() {
     // CodeRabbit #662: the child Text's own semantics node is excluded, so
     // the tier is announced ONCE (the wrapper's label), matching OfflinePill.
     expect(semantics.excludeSemantics, isTrue);
+  });
+
+  // Issue #730: the pill became the tap target for the health detail sheet.
+  testWidgets('pill exposes the BUTTON role, open hint, and tap action', (
+    tester,
+  ) async {
+    await pumpPill(
+      tester,
+      tier: BackendHealthTier.unhealthy,
+      brightness: Brightness.light,
+    );
+    final semantics = tester.widget<Semantics>(
+      find.byKey(const Key('profile-health-pill-semantics')),
+    );
+    expect(semantics.properties.button, isTrue);
+    expect(semantics.properties.hint, 'Open backend status details');
+    expect(
+      semantics.properties.onTap,
+      isNotNull,
+      reason: 'excludeSemantics drops the InkWell action — the wrapper owns it',
+    );
+    // The WHOLE pill is the tap target (issue #730 option "whole pill or a
+    // trailing affordance"): the ink response on tap is the visible cue.
+    final inkWell = tester.widget<InkWell>(
+      find.byKey(const Key('profile-health-pill-tap')),
+    );
+    expect(inkWell.onTap, isNotNull);
+  });
+
+  testWidgets('tapping the pill opens the health detail sheet', (tester) async {
+    await pumpPill(
+      tester,
+      tier: BackendHealthTier.unhealthy,
+      brightness: Brightness.light,
+      checks: const [
+        BackendHealthCheck(
+          name: 'vault',
+          status: BackendHealthCheckStatus.unhealthy,
+        ),
+      ],
+    );
+    expect(find.byKey(const Key('backend-health-detail-sheet')), findsNothing);
+
+    await tester.tap(find.byKey(const Key('profile-health-pill')));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const Key('backend-health-detail-sheet')),
+      findsOneWidget,
+    );
+    // The drawer deliberately stays open under the sheet (#730: the pill must
+    // stay mounted so the autoDispose controller keeps polling).
+    expect(find.text('Secret storage'), findsOneWidget);
+    expect(find.text('impaired'), findsWidgets);
   });
 
   group('goldens (German template locale, AGENTS.md §6)', () {

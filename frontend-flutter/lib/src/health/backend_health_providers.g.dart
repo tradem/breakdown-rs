@@ -74,7 +74,7 @@ final class BackendHealthProbeProvider
 }
 
 String _$backendHealthProbeHash() =>
-    r'0e51bf243705a07a4876b80a3229cbf922ace302';
+    r'79372e7690fd8d3010f608138c5507b769b2b8c6';
 
 @ProviderFor(backendHealthDelay)
 final backendHealthDelayProvider = BackendHealthDelayProvider._();
@@ -126,7 +126,8 @@ String _$backendHealthDelayHash() =>
 
 /// Backend health controller (issue #657): polls the public
 /// `GET /v1/health` on a battery-friendly schedule and exposes the coarse
-/// [BackendHealthTier] for the drawer's health pill.
+/// [BackendHealthTier] for the drawer's health pill PLUS the per-dependency
+/// [BackendHealthCheck] list its detail sheet renders (issue #730).
 ///
 /// Strategy:
 /// 1. The initial state is `null` (no data yet): the pill slot stays EMPTY
@@ -151,13 +152,19 @@ String _$backendHealthDelayHash() =>
 ///    a cached tier as if it were current; the empty slot for the ~one
 ///    round-trip is the same honest "not measured yet" presentation as on
 ///    the very first open.
+///
+/// Issue #730 consequence: the detail sheet is a modal sheet over the
+/// STILL-OPEN drawer (never after a drawer pop), so the pill stays mounted
+/// underneath and this controller keeps polling while the sheet is open —
+/// the sheet shows live per-dependency data instead of a frozen snapshot.
 
 @ProviderFor(BackendHealthController)
 final backendHealthControllerProvider = BackendHealthControllerProvider._();
 
 /// Backend health controller (issue #657): polls the public
 /// `GET /v1/health` on a battery-friendly schedule and exposes the coarse
-/// [BackendHealthTier] for the drawer's health pill.
+/// [BackendHealthTier] for the drawer's health pill PLUS the per-dependency
+/// [BackendHealthCheck] list its detail sheet renders (issue #730).
 ///
 /// Strategy:
 /// 1. The initial state is `null` (no data yet): the pill slot stays EMPTY
@@ -182,11 +189,17 @@ final backendHealthControllerProvider = BackendHealthControllerProvider._();
 ///    a cached tier as if it were current; the empty slot for the ~one
 ///    round-trip is the same honest "not measured yet" presentation as on
 ///    the very first open.
+///
+/// Issue #730 consequence: the detail sheet is a modal sheet over the
+/// STILL-OPEN drawer (never after a drawer pop), so the pill stays mounted
+/// underneath and this controller keeps polling while the sheet is open —
+/// the sheet shows live per-dependency data instead of a frozen snapshot.
 final class BackendHealthControllerProvider
-    extends $NotifierProvider<BackendHealthController, BackendHealthTier?> {
+    extends $NotifierProvider<BackendHealthController, BackendHealthSnapshot?> {
   /// Backend health controller (issue #657): polls the public
   /// `GET /v1/health` on a battery-friendly schedule and exposes the coarse
-  /// [BackendHealthTier] for the drawer's health pill.
+  /// [BackendHealthTier] for the drawer's health pill PLUS the per-dependency
+  /// [BackendHealthCheck] list its detail sheet renders (issue #730).
   ///
   /// Strategy:
   /// 1. The initial state is `null` (no data yet): the pill slot stays EMPTY
@@ -211,6 +224,11 @@ final class BackendHealthControllerProvider
   ///    a cached tier as if it were current; the empty slot for the ~one
   ///    round-trip is the same honest "not measured yet" presentation as on
   ///    the very first open.
+  ///
+  /// Issue #730 consequence: the detail sheet is a modal sheet over the
+  /// STILL-OPEN drawer (never after a drawer pop), so the pill stays mounted
+  /// underneath and this controller keeps polling while the sheet is open —
+  /// the sheet shows live per-dependency data instead of a frozen snapshot.
   BackendHealthControllerProvider._()
     : super(
         from: null,
@@ -230,20 +248,21 @@ final class BackendHealthControllerProvider
   BackendHealthController create() => BackendHealthController();
 
   /// {@macro riverpod.override_with_value}
-  Override overrideWithValue(BackendHealthTier? value) {
+  Override overrideWithValue(BackendHealthSnapshot? value) {
     return $ProviderOverride(
       origin: this,
-      providerOverride: $SyncValueProvider<BackendHealthTier?>(value),
+      providerOverride: $SyncValueProvider<BackendHealthSnapshot?>(value),
     );
   }
 }
 
 String _$backendHealthControllerHash() =>
-    r'4753ea58a55a16b7ecf239171bb730259746dafd';
+    r'493b33cfcd71f4146858c686e7a8ac7a53629c78';
 
 /// Backend health controller (issue #657): polls the public
 /// `GET /v1/health` on a battery-friendly schedule and exposes the coarse
-/// [BackendHealthTier] for the drawer's health pill.
+/// [BackendHealthTier] for the drawer's health pill PLUS the per-dependency
+/// [BackendHealthCheck] list its detail sheet renders (issue #730).
 ///
 /// Strategy:
 /// 1. The initial state is `null` (no data yet): the pill slot stays EMPTY
@@ -268,18 +287,25 @@ String _$backendHealthControllerHash() =>
 ///    a cached tier as if it were current; the empty slot for the ~one
 ///    round-trip is the same honest "not measured yet" presentation as on
 ///    the very first open.
+///
+/// Issue #730 consequence: the detail sheet is a modal sheet over the
+/// STILL-OPEN drawer (never after a drawer pop), so the pill stays mounted
+/// underneath and this controller keeps polling while the sheet is open —
+/// the sheet shows live per-dependency data instead of a frozen snapshot.
 
-abstract class _$BackendHealthController extends $Notifier<BackendHealthTier?> {
-  BackendHealthTier? build();
+abstract class _$BackendHealthController
+    extends $Notifier<BackendHealthSnapshot?> {
+  BackendHealthSnapshot? build();
   @$mustCallSuper
   @override
   WhenComplete runBuild() {
-    final ref = this.ref as $Ref<BackendHealthTier?, BackendHealthTier?>;
+    final ref =
+        this.ref as $Ref<BackendHealthSnapshot?, BackendHealthSnapshot?>;
     final element =
         ref.element
             as $ClassProviderElement<
-              AnyNotifier<BackendHealthTier?, BackendHealthTier?>,
-              BackendHealthTier?,
+              AnyNotifier<BackendHealthSnapshot?, BackendHealthSnapshot?>,
+              BackendHealthSnapshot?,
               Object?,
               Object?
             >;
