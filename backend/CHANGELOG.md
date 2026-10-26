@@ -1,5 +1,6 @@
 <!-- SPDX-License-Identifier: AGPL-3.0 -->
 <!-- Copyright (C) 2024-2026 Breakdown RS Contributors -->
+<!-- Co-authored-by: deepseek-v4.1-flash (opencode-go) -->
 <!-- Co-authored-by: glm-5.3-flash-flex (neuralwatt) -->
 <!-- Co-authored-by: glm-5.3-flash (neuralwatt) -->
 
@@ -26,6 +27,20 @@ tag. Never edit a released entry afterwards.
 ## [Unreleased]
 
 ### Added
+
+- **Decision capability on the provider-discovery wire (issue #736):**
+  `AiProviderInfo` (`GET /v1/ai-import/providers`) gains an **additive**
+  `decision_capable: bool`, decided by the existing `is_decision_capable`
+  predicate (`infra::ai::is_decision_capable`, a pure re-export of the core
+  catalog) — the same source the decision-models route answers `422` from.
+  The Flutter client's Decision Model provider picker reads this flag instead
+  of its own hardcoded provider allowlist, so a provider the backend adds or
+  de-lists is reachable (or gone) without a client release; the capability
+  can no longer drift from the catalog it advertises. A provider whose
+  capability flag is true always serves a non-empty decision catalog (pinned
+  by a registry test over every provider). `infra 0.50.0 → 0.51.0` (new
+  public re-export), `api 0.40.0 → 0.41.0` (additive wire field — not a
+  breaking change, so the `/v1` path version stays; ADR-021).
 
 - **Dedicated image-generation model catalog endpoint (issue #732):**
   new `GET /v1/ai-import/providers/{provider}/image-models` mirroring the

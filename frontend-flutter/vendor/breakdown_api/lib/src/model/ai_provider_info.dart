@@ -14,11 +14,16 @@ part 'ai_provider_info.g.dart';
 /// AiProviderInfo
 ///
 /// Properties:
+/// * [decisionCapable] - Whether this provider natively hosts Decision Models, i.e. serves a non-empty `GET /ai-import/providers/{provider}/decision-models` catalog (issue #736). Served so the client's Decision provider picker reads the capability from its own route instead of mirroring a hardcoded provider allowlist — the backend predicate stays the single source of truth.
 /// * [key] - Canonical lowercase path key for `/ai-import/providers/{provider}/models`.
 /// * [provider]
 @BuiltValue()
 abstract class AiProviderInfo
     implements Built<AiProviderInfo, AiProviderInfoBuilder> {
+  /// Whether this provider natively hosts Decision Models, i.e. serves a non-empty `GET /ai-import/providers/{provider}/decision-models` catalog (issue #736). Served so the client's Decision provider picker reads the capability from its own route instead of mirroring a hardcoded provider allowlist — the backend predicate stays the single source of truth.
+  @BuiltValueField(wireName: r'decision_capable')
+  bool get decisionCapable;
+
   /// Canonical lowercase path key for `/ai-import/providers/{provider}/models`.
   @BuiltValueField(wireName: r'key')
   String get key;
@@ -53,6 +58,11 @@ class _$AiProviderInfoSerializer
     AiProviderInfo object, {
     FullType specifiedType = FullType.unspecified,
   }) sync* {
+    yield r'decision_capable';
+    yield serializers.serialize(
+      object.decisionCapable,
+      specifiedType: const FullType(bool),
+    );
     yield r'key';
     yield serializers.serialize(
       object.key,
@@ -88,6 +98,13 @@ class _$AiProviderInfoSerializer
       final key = serializedList[i] as String;
       final value = serializedList[i + 1];
       switch (key) {
+        case r'decision_capable':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(bool),
+          ) as bool;
+          result.decisionCapable = valueDes;
+          break;
         case r'key':
           final valueDes = serializers.deserialize(
             value,

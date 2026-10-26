@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 // Co-authored-by: deepseek-v4-flash (opencode-go)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
@@ -64,6 +65,48 @@ async fn list_ai_providers_allows_credential_role_member() {
     let result = list_ai_providers::<FakePorts>(State(state), dummy_user()).await;
     let (status, Json(_)) = result.expect("granted caller should succeed");
     assert_eq!(status, StatusCode::OK);
+}
+
+#[tokio::test]
+async fn list_ai_providers_serves_the_decision_capability_flag() {
+    // Issue #736: the Decision provider picker must read the capability from
+    // THIS route instead of a hardcoded client allowlist. The flag is the
+    // contract, so pin the exact key set the picker will render and the
+    // agreement with the predicate the decision-models route rejects on.
+    let ports = FakePorts::default();
+    seed_credential_member(&ports).await;
+    let state = ai_import_state(ports).await;
+
+    let result = list_ai_providers::<FakePorts>(State(state), dummy_user()).await;
+    let (status, Json(providers)) = result.expect("granted caller should succeed");
+    assert_eq!(status, StatusCode::OK);
+    assert!(!providers.is_empty(), "the registry always lists providers");
+
+    let mut capable: Vec<&str> = providers
+        .iter()
+        .filter(|info| info.decision_capable)
+        .map(|info| info.key.as_str())
+        .collect();
+    capable.sort_unstable();
+    assert_eq!(capable, vec!["eurouter", "neuralwatt", "openrouter"]);
+
+    // Every flag agrees with the core predicate the decision-models route
+    // answers 422 from — one source, observed from two sides.
+    for info in &providers {
+        assert_eq!(
+            info.decision_capable,
+            breakdown_core::ai::is_decision_capable(info.provider),
+            "provider {} disagrees with is_decision_capable",
+            info.key
+        );
+    }
+    // A text-only provider is advertised as NOT capable — the picker must not
+    // offer a provider whose decision catalog is empty.
+    let openai = providers
+        .iter()
+        .find(|info| info.key == "openai")
+        .expect("openai is a curated provider");
+    assert!(!openai.decision_capable);
 }
 
 #[tokio::test]

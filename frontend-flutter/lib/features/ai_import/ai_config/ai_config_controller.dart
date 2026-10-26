@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 // Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
 // Co-authored-by: omen-alpha (opencode-go)
@@ -24,15 +25,6 @@ import 'ai_config_state.dart';
 
 part 'ai_config_controller.g.dart';
 
-/// The provider keys whose curated catalogs carry Decision (scoring)
-/// models (issue #722/#723). The Decision Model picker filters the
-/// provider list to these keys plus the explicit "disabled" entry.
-const Set<String> kDecisionCapableProviderKeys = {
-  'neuralwatt',
-  'eurouter',
-  'openrouter',
-};
-
 /// List-first config discovery (D2): `GET /v1/ai-import/config` (the
 /// caller's configs, newest-first) is authoritative. Tests override this
 /// seam.
@@ -50,8 +42,11 @@ Future<AiImportHandoffState> aiImportHandoff(Ref ref) async {
 }
 
 /// Provider/model discovery (D7): the curated catalog from the routes —
-/// no hardcoded ids. A 404 (AI import disabled) or a transport failure
-/// degrades honestly in the screen.
+/// no hardcoded ids. Every [AiProviderInfo] carries the backend-decided
+/// `decisionCapable` capability (issue #736), so the Decision provider
+/// picker reads the decision-capable set from THIS route rather than
+/// mirroring it as a client-side allowlist. A 404 (AI import disabled) or
+/// a transport failure degrades honestly in the screen.
 @riverpod
 Future<Result<List<AiProviderInfo>>> aiProviders(Ref ref) =>
     ref.watch(aiConfigRepositoryProvider).listProviders();
@@ -64,8 +59,8 @@ Future<Result<List<ModelInfo>>> aiProviderModels(Ref ref, String key) =>
 
 /// The selected DECISION provider's curated model set (issue #731):
 /// `GET /v1/ai-import/providers/{key}/decision-models` — a distinct route
-/// and catalog from [aiProviderModels] (e.g. `clef-flash`/`clef` for
-/// neuralwatt, not the extraction list). Same 422 → "provider
+/// and catalog from [aiProviderModels] (the provider's decision ids such as
+/// `clef-flash`/`clef`, never its extraction list). Same 422 → "provider
 /// unavailable" degradation as the assistant picker.
 @riverpod
 Future<Result<List<ModelInfo>>> aiDecisionProviderModels(Ref ref, String key) =>

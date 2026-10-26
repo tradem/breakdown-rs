@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 // Co-authored-by: omen-alpha (opencode-go)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
 
@@ -63,7 +64,7 @@ class AiConfigRepository extends BaseRepository {
   /// per-provider curated DECISION model catalog (issue #731). Deliberately
   /// a separate route from [listModels]: the assistant/extraction catalog
   /// and the decision (scoring) catalog are distinct server-side sets (e.g.
-  /// `clef-flash`/`clef` for neuralwatt). A 422 (unknown provider) surfaces
+  /// `clef-flash`/`clef`). A 422 (unknown provider) surfaces
   /// as `Err` — the same "provider unavailable" degradation as the
   /// assistant picker.
   Future<Result<List<ModelInfo>>> listDecisionModels(String providerKey) =>

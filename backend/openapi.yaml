@@ -574,6 +574,14 @@ components:
         type: object
     AiProviderInfo:
       properties:
+        decision_capable:
+          description: |-
+            Whether this provider natively hosts Decision Models, i.e. serves a
+            non-empty `GET /ai-import/providers/{provider}/decision-models` catalog
+            (issue #736). Served so the client's Decision provider picker reads the
+            capability from its own route instead of mirroring a hardcoded provider
+            allowlist — the backend predicate stays the single source of truth.
+          type: boolean
         key:
           description: Canonical lowercase path key for `/ai-import/providers/{provider}/models`.
           type: string
@@ -582,6 +590,7 @@ components:
       required:
       - provider
       - key
+      - decision_capable
       type: object
     AppearanceCostumeView:
       description: |-

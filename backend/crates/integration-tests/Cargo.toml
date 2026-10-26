@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: AGPL-3.0
 # Copyright (C) 2024-2026 Breakdown RS Contributors
+# Co-authored-by: deepseek-v4.1-flash (opencode-go)
 # Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 # Co-authored-by: deepseek-v4-flash (opencode-go)
 # Co-authored-by: glm-5.3-flash (neuralwatt)
@@ -21,7 +22,7 @@ crate-type = ["lib"]
 lazy_static = "1.4"
 
 breakdown_core = { path = "../core", version = "0.43.0" }
-infra = { path = "../infra", version = "0.50.0", features = ["test-support"] }
+infra = { path = "../infra", version = "0.51.0", features = ["test-support"] }
 test_support = { path = "../test_support", version = "0.3.0" }
 
 # Event-sourcing traits used by the in-memory aggregate command checks.
