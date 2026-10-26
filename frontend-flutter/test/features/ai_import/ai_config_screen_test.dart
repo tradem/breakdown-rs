@@ -54,11 +54,12 @@ const devAuthConfig = AppConfig(
 
 /// A provider row from `GET /ai-import/providers`. [decisionCapable] is the
 /// backend-decided capability flag (issue #736) the Decision provider picker
-/// filters on — the client keeps NO provider-id allowlist of its own.
+/// filters on — the client keeps NO provider-id allowlist of its own. `null`
+/// models a backend that predates the field (absent on the wire).
 AiProviderInfo _provider(
   String key,
   LlmProvider provider, {
-  bool decisionCapable = false,
+  bool? decisionCapable = false,
 }) => AiProviderInfo(
   (b) => b
     ..provider = provider
@@ -1979,9 +1980,10 @@ void main() {
         'decision-capable still renders (stale-key fallback, issue #736)', (
       tester,
     ) async {
-      // The backend de-listed `neuralwatt` as decision-capable (or the
-      // provider list is still loading): the stored config must still be
-      // representable, otherwise the Dropdown asserts on an unknown
+      // The backend de-listed `neuralwatt` as decision-capable — modelled
+      // here as an ABSENT flag (`null`), i.e. exactly what a backend that
+      // predates the field serves (CodeRabbit review). The stored config must
+      // still be representable, otherwise the Dropdown asserts on an unknown
       // initialValue and the user cannot open the screen at all.
       await setupContainer(
         discoveryValue: Right([
@@ -1993,7 +1995,11 @@ void main() {
         ]),
         providersValue: Right([
           _provider('openai', LlmProvider.openai),
-          _provider('neuralwatt', LlmProvider.neuralwatt),
+          _provider(
+            'neuralwatt',
+            LlmProvider.neuralwatt,
+            decisionCapable: null,
+          ),
         ]),
       );
       await pumpScreen(tester, height: 2400);

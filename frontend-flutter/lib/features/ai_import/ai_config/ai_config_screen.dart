@@ -728,14 +728,19 @@ class _DecisionSection extends ConsumerWidget {
         decisionKey != null && decisionKey == state.selectedProviderKey;
     // The discovered providers (empty while loading / degraded) and the
     // subset the backend reports as decision-capable — the picker's only
-    // source for its provider entries.
+    // source for its provider entries. `decisionCapable` is nullable on the
+    // wire, so a backend that predates the flag (an old server behind a new
+    // client) reads as NOT capable instead of failing the whole provider list
+    // (CodeRabbit review).
     final discovered = switch (state.providers) {
       AsyncData(:final value) => value,
       _ => const <AiProviderInfo>[],
     };
+    bool isDecisionCapable(AiProviderInfo info) =>
+        info.decisionCapable ?? false;
     final capableKeys = {
       for (final info in discovered)
-        if (info.decisionCapable) info.key,
+        if (isDecisionCapable(info)) info.key,
     };
     final handoff = ref.watch(aiImportHandoffProvider);
     final rememberedDecision = decisionKey == null
@@ -771,7 +776,7 @@ class _DecisionSection extends ConsumerWidget {
             ),
             ...[
               for (final info in discovered)
-                if (info.decisionCapable)
+                if (isDecisionCapable(info))
                   DropdownMenuItem<String?>(
                     value: info.key,
                     key: Key('ai-decision-provider-${info.key}'),

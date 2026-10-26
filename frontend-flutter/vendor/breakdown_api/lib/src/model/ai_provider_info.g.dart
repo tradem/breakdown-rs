@@ -8,7 +8,7 @@ part of 'ai_provider_info.dart';
 
 class _$AiProviderInfo extends AiProviderInfo {
   @override
-  final bool decisionCapable;
+  final bool? decisionCapable;
   @override
   final String key;
   @override
@@ -18,9 +18,7 @@ class _$AiProviderInfo extends AiProviderInfo {
       (AiProviderInfoBuilder()..update(updates))._build();
 
   _$AiProviderInfo._(
-      {required this.decisionCapable,
-      required this.key,
-      required this.provider})
+      {this.decisionCapable, required this.key, required this.provider})
       : super._();
   @override
   AiProviderInfo rebuild(void Function(AiProviderInfoBuilder) updates) =>
@@ -106,8 +104,7 @@ class AiProviderInfoBuilder
   _$AiProviderInfo _build() {
     final _$result = _$v ??
         _$AiProviderInfo._(
-          decisionCapable: BuiltValueNullFieldError.checkNotNull(
-              decisionCapable, r'AiProviderInfo', 'decisionCapable'),
+          decisionCapable: decisionCapable,
           key: BuiltValueNullFieldError.checkNotNull(
               key, r'AiProviderInfo', 'key'),
           provider: BuiltValueNullFieldError.checkNotNull(

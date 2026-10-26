@@ -14,15 +14,15 @@ part 'ai_provider_info.g.dart';
 /// AiProviderInfo
 ///
 /// Properties:
-/// * [decisionCapable] - Whether this provider natively hosts Decision Models, i.e. serves a non-empty `GET /ai-import/providers/{provider}/decision-models` catalog (issue #736). Served so the client's Decision provider picker reads the capability from its own route instead of mirroring a hardcoded provider allowlist — the backend predicate stays the single source of truth.
+/// * [decisionCapable] - Whether this provider natively hosts Decision Models, i.e. serves a non-empty `GET /ai-import/providers/{provider}/decision-models` catalog (issue #736). Served so the client's Decision provider picker reads the capability from its own route instead of mirroring a hardcoded provider allowlist — the backend predicate stays the single source of truth.  `#[serde(default)]`: the flag is additive on the wire — a backend that predates the field (an OLD server behind a NEW client, the released-app skew case) omits it, the property is therefore NOT `required` in the contract, and the generated client reads an absent flag as `false` instead of failing the whole provider list on a null-field error (CodeRabbit review, mirroring `ModelInfo::recommended`, PR #489).
 /// * [key] - Canonical lowercase path key for `/ai-import/providers/{provider}/models`.
 /// * [provider]
 @BuiltValue()
 abstract class AiProviderInfo
     implements Built<AiProviderInfo, AiProviderInfoBuilder> {
-  /// Whether this provider natively hosts Decision Models, i.e. serves a non-empty `GET /ai-import/providers/{provider}/decision-models` catalog (issue #736). Served so the client's Decision provider picker reads the capability from its own route instead of mirroring a hardcoded provider allowlist — the backend predicate stays the single source of truth.
+  /// Whether this provider natively hosts Decision Models, i.e. serves a non-empty `GET /ai-import/providers/{provider}/decision-models` catalog (issue #736). Served so the client's Decision provider picker reads the capability from its own route instead of mirroring a hardcoded provider allowlist — the backend predicate stays the single source of truth.  `#[serde(default)]`: the flag is additive on the wire — a backend that predates the field (an OLD server behind a NEW client, the released-app skew case) omits it, the property is therefore NOT `required` in the contract, and the generated client reads an absent flag as `false` instead of failing the whole provider list on a null-field error (CodeRabbit review, mirroring `ModelInfo::recommended`, PR #489).
   @BuiltValueField(wireName: r'decision_capable')
-  bool get decisionCapable;
+  bool? get decisionCapable;
 
   /// Canonical lowercase path key for `/ai-import/providers/{provider}/models`.
   @BuiltValueField(wireName: r'key')
@@ -58,11 +58,13 @@ class _$AiProviderInfoSerializer
     AiProviderInfo object, {
     FullType specifiedType = FullType.unspecified,
   }) sync* {
-    yield r'decision_capable';
-    yield serializers.serialize(
-      object.decisionCapable,
-      specifiedType: const FullType(bool),
-    );
+    if (object.decisionCapable != null) {
+      yield r'decision_capable';
+      yield serializers.serialize(
+        object.decisionCapable,
+        specifiedType: const FullType(bool),
+      );
+    }
     yield r'key';
     yield serializers.serialize(
       object.key,
@@ -101,8 +103,9 @@ class _$AiProviderInfoSerializer
         case r'decision_capable':
           final valueDes = serializers.deserialize(
             value,
-            specifiedType: const FullType(bool),
-          ) as bool;
+            specifiedType: const FullType.nullable(bool),
+          ) as bool?;
+          if (valueDes == null) continue;
           result.decisionCapable = valueDes;
           break;
         case r'key':

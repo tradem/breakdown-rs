@@ -35,10 +35,15 @@ releases are cut as `vX.Y.Z` tags (`v<build-name>`, enforced by
   the backend reports as capable, plus the explicit "disabled" entry and the
   stale-configured-key fallback (a stored decision provider the route no
   longer reports capable — or a provider list still loading — still renders,
-  so the Dropdown never asserts on an unknown `initialValue`). Covered by a
-  widget regression (a capable provider appears, a non-capable one does not,
-  disabled + stale fallback still render) and a Tier-1 route test proving the
-  flag round-trips from the wire.
+  so the Dropdown never asserts on an unknown `initialValue`). The flag is
+  nullable on the wire (`decision_capable` is not a required property): a
+  backend that predates it serves rows without the field, and the picker then
+  reads "not capable" — never a failed provider discovery that would block
+  AI-config setup entirely on the older-server skew case. Covered by a widget
+  regression (a capable provider appears, a non-capable one does not, disabled
+  + stale fallback still render), a Tier-1 route test proving the flag
+  round-trips from the wire, and a Tier-1 absence test (an old backend's row
+  deserializes with an unknown capability instead of throwing).
 
 - **Issue #731 fix point 4 — Decision Model picker: honest 422 "provider
   unavailable" copy:** `0.4.0-beta.10+102 → 0.4.0-beta.11+103`. The

@@ -7563,6 +7563,14 @@ pub struct AiProviderInfo {
     /// (issue #736). Served so the client's Decision provider picker reads the
     /// capability from its own route instead of mirroring a hardcoded provider
     /// allowlist — the backend predicate stays the single source of truth.
+    ///
+    /// `#[serde(default)]`: the flag is additive on the wire — a backend that
+    /// predates the field (an OLD server behind a NEW client, the released-app
+    /// skew case) omits it, the property is therefore NOT `required` in the
+    /// contract, and the generated client reads an absent flag as `false`
+    /// instead of failing the whole provider list on a null-field error
+    /// (CodeRabbit review, mirroring `ModelInfo::recommended`, PR #489).
+    #[serde(default)]
     pub decision_capable: bool,
 }
 
