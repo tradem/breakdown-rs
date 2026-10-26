@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 // Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 // Co-authored-by: glm-5.3-flash (neuralwatt)
 // Co-authored-by: omen-alpha (opencode-go)
@@ -7557,6 +7558,20 @@ pub struct AiProviderInfo {
     pub provider: LlmProvider,
     /// Canonical lowercase path key for `/ai-import/providers/{provider}/models`.
     pub key: String,
+    /// Whether this provider natively hosts Decision Models, i.e. serves a
+    /// non-empty `GET /ai-import/providers/{provider}/decision-models` catalog
+    /// (issue #736). Served so the client's Decision provider picker reads the
+    /// capability from its own route instead of mirroring a hardcoded provider
+    /// allowlist — the backend predicate stays the single source of truth.
+    ///
+    /// `#[serde(default)]`: the flag is additive on the wire — a backend that
+    /// predates the field (an OLD server behind a NEW client, the released-app
+    /// skew case) omits it, the property is therefore NOT `required` in the
+    /// contract, and the generated client reads an absent flag as `false`
+    /// instead of failing the whole provider list on a null-field error
+    /// (CodeRabbit review, mirroring `ModelInfo::recommended`, PR #489).
+    #[serde(default)]
+    pub decision_capable: bool,
 }
 
 #[utoipa::path(
@@ -7591,7 +7606,8 @@ pub async fn list_ai_providers<P: Ports>(
                 .into_iter()
                 .map(|info| AiProviderInfo {
                     provider: info.variant,
-                    key: info.key,
+                    key: info.key.clone(),
+                    decision_capable: infra::ai::is_decision_capable(info.variant),
                 })
                 .collect::<Vec<_>>(),
         ),

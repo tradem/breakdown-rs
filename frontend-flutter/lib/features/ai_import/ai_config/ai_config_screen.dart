@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 // Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
 // Co-authored-by: omen-alpha (opencode-go)
@@ -513,8 +514,8 @@ class _ModelPickers extends ConsumerWidget {
 
 /// The image-generation model picker fed by the selected provider's
 /// dedicated image-models route (issue #732) — a distinct catalog from the
-/// assistant list. An EMPTY catalog (text-only provider, e.g. eurorouter/
-/// neuralwatt) collapses the picker to just "— none —" with a greyed-out
+/// assistant list. An EMPTY catalog (a text-only provider) collapses the
+/// picker to just "— none —" with a greyed-out
 /// field and a hint — honest degradation, never the LLM list (the pre-#732
 /// bug). Same honest loading/degraded states as the assistant picker.
 class _ImageModelPicker extends ConsumerWidget {
@@ -704,10 +705,16 @@ class _CostDisplayPreferenceSelector extends ConsumerWidget {
 }
 
 /// The optional Decision / Scoring Model section (issue #723): provider
-/// picker (decision-capable providers + the explicit "disabled" entry),
-/// model picker from that provider's curated catalog, and the
+/// picker (the route's decision-capable providers + the explicit "disabled"
+/// entry), model picker from that provider's curated catalog, and the
 /// "Use same API key as extraction" toggle shown when the decision
 /// provider matches the extraction provider.
+///
+/// The decision-capable set is NOT mirrored client-side (issue #736): every
+/// `GET /ai-import/providers` row carries the backend-decided
+/// `decisionCapable` flag, so a provider the backend adds or drops is
+/// advertised here immediately instead of drifting against a hardcoded
+/// allowlist.
 class _DecisionSection extends ConsumerWidget {
   const _DecisionSection();
 
@@ -719,6 +726,22 @@ class _DecisionSection extends ConsumerWidget {
     final decisionKey = state.selectedDecisionProviderKey;
     final sameProvider =
         decisionKey != null && decisionKey == state.selectedProviderKey;
+    // The discovered providers (empty while loading / degraded) and the
+    // subset the backend reports as decision-capable — the picker's only
+    // source for its provider entries. `decisionCapable` is nullable on the
+    // wire, so a backend that predates the flag (an old server behind a new
+    // client) reads as NOT capable instead of failing the whole provider list
+    // (CodeRabbit review).
+    final discovered = switch (state.providers) {
+      AsyncData(:final value) => value,
+      _ => const <AiProviderInfo>[],
+    };
+    bool isDecisionCapable(AiProviderInfo info) =>
+        info.decisionCapable ?? false;
+    final capableKeys = {
+      for (final info in discovered)
+        if (isDecisionCapable(info)) info.key,
+    };
     final handoff = ref.watch(aiImportHandoffProvider);
     final rememberedDecision = decisionKey == null
         ? null
@@ -751,24 +774,22 @@ class _DecisionSection extends ConsumerWidget {
               key: const Key('ai-decision-provider-disabled'),
               child: Text(l10n.aiConfigDecisionDisabled),
             ),
-            ...switch (state.providers) {
-              AsyncData(:final value) => [
-                for (final info in value)
-                  if (kDecisionCapableProviderKeys.contains(info.key))
-                    DropdownMenuItem<String?>(
-                      value: info.key,
-                      key: Key('ai-decision-provider-${info.key}'),
-                      child: Text(info.key),
-                    ),
-              ],
-              _ => const <DropdownMenuItem<String?>>[],
-            },
-            // A stored decision provider that left the curated set (a
-            // backend catalog change) must still render — without this
+            ...[
+              for (final info in discovered)
+                if (isDecisionCapable(info))
+                  DropdownMenuItem<String?>(
+                    value: info.key,
+                    key: Key('ai-decision-provider-${info.key}'),
+                    child: Text(info.key),
+                  ),
+            ],
+            // A stored decision provider the route no longer reports as
+            // decision-capable (a backend capability change, or the
+            // provider list still loading) must still render — without this
             // item the Dropdown asserts on the unknown initialValue
-            // (CodeRabbit review coverage).
-            if (decisionKey != null &&
-                !kDecisionCapableProviderKeys.contains(decisionKey))
+            // (CodeRabbit review coverage). Guarded by [capableKeys] so the
+            // fallback can never duplicate a rendered entry.
+            if (decisionKey != null && !capableKeys.contains(decisionKey))
               DropdownMenuItem<String?>(
                 value: decisionKey,
                 key: Key('ai-decision-provider-$decisionKey'),

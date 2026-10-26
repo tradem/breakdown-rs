@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 // Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
 // Co-authored-by: gpt-5.6-luna (opencode-go)
@@ -78,7 +79,7 @@ pub use prompts::{AiPromptDefaults, default_prompts};
 pub use provider_registry::{
     PROVIDER_REGISTRY, ProviderInfo, curated_decision_model_ids, curated_decision_models,
     curated_image_model_ids, curated_image_models, curated_model_ids, curated_models,
-    list_providers, recommended_model, resolve_provider,
+    is_decision_capable, list_providers, recommended_model, resolve_provider,
 };
 pub use queue::PgAiImportQueue;
 pub use runtime::AiWorkerRuntime;

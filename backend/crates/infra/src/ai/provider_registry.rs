@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 // Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
 // Co-authored-by: mimo-v2.5 (opencode-go)
@@ -211,6 +212,15 @@ pub fn curated_decision_model_ids(provider: LlmProvider) -> &'static [&'static s
     breakdown_core::ai::curated_decision_model_ids(provider)
 }
 
+/// Whether `provider` natively hosts Decision Models (issue #736). Pure
+/// re-export of the core predicate, so the `GET /ai-import/providers`
+/// capability flag the client's Decision provider picker filters on and the
+/// decision-models route's 422 rejection are decided by the SAME source —
+/// the client no longer mirrors the set as a hardcoded allowlist.
+pub fn is_decision_capable(provider: LlmProvider) -> bool {
+    breakdown_core::ai::is_decision_capable(provider)
+}
+
 /// Build `ModelInfo` list for a provider's curated **decision models**
 /// (issue #722). No `recommended` flag — a decision model is an optional
 /// capability slot, not a default choice.
@@ -289,6 +299,34 @@ mod tests {
         for model in curated_decision_models(LlmProvider::OpenRouter) {
             assert!(!model.recommended);
         }
+    }
+
+    #[test]
+    fn decision_capability_matches_the_curated_decision_catalog() {
+        // Issue #736: the capability flag the providers route serves and the
+        // decision-models route's non-empty catalog are the same predicate
+        // observed from two sides. Asserting the biconditional for EVERY
+        // registered provider is what keeps a newly capable (or de-listed)
+        // provider from being advertised by one route and rejected by the
+        // other — the exact client-side drift the allowlist caused.
+        for info in list_providers() {
+            assert_eq!(
+                is_decision_capable(info.variant),
+                !curated_decision_model_ids(info.variant).is_empty(),
+                "provider {} reports decision capability {:?} but curates {} decision models",
+                info.key,
+                is_decision_capable(info.variant),
+                curated_decision_model_ids(info.variant).len(),
+            );
+        }
+        // The concrete set the client used to hardcode: pinned here so the
+        // wire flag cannot silently lose a capable provider.
+        assert!(is_decision_capable(LlmProvider::Neuralwatt));
+        assert!(is_decision_capable(LlmProvider::EURouter));
+        assert!(is_decision_capable(LlmProvider::OpenRouter));
+        assert!(!is_decision_capable(LlmProvider::OpenAI));
+        assert!(!is_decision_capable(LlmProvider::Gemini));
+        assert!(!is_decision_capable(LlmProvider::Ollama));
     }
 
     #[test]

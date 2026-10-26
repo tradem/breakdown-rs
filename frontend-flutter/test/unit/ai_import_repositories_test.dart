@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 // Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 // Co-authored-by: omen-alpha (opencode-go)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
@@ -42,11 +43,17 @@ import '../support/fake_secure_storage.dart';
 
 const _secret = 'sk-super-secret-llm-key-0123456789';
 
-AiProviderInfo _provider(String key) => AiProviderInfo(
-  (b) => b
-    ..provider = LlmProvider.openai
-    ..key = key,
-);
+/// A provider row from `GET /ai-import/providers`. [decisionCapable] is the
+/// backend-decided capability flag (issue #736) — the client never derives it
+/// from a provider-id allowlist. `null` models a backend that predates the
+/// field (absent on the wire).
+AiProviderInfo _provider(String key, {bool? decisionCapable = false}) =>
+    AiProviderInfo(
+      (b) => b
+        ..provider = LlmProvider.openai
+        ..decisionCapable = decisionCapable
+        ..key = key,
+    );
 
 ModelInfo _model(String id) => ModelInfo(
   (b) => b
@@ -343,7 +350,10 @@ void main() {
       final ok = _api(
         _scripted([
           serializers.serialize(
-            BuiltList([_provider('openai')]),
+            BuiltList([
+              _provider('openai'),
+              _provider('neuralwatt', decisionCapable: true),
+            ]),
             specifiedType: const FullType(BuiltList, [
               FullType(AiProviderInfo),
             ]),
@@ -351,7 +361,12 @@ void main() {
         ]),
       );
       final providers = await AiConfigRepository(ok).listProviders();
-      expect(providers.getRight().toNullable()!.length, 1);
+      final rows = providers.getRight().toNullable()!;
+      expect(rows.length, 2);
+      // Issue #736: the decision capability is round-tripped from the wire
+      // (`decision_capable`), not inferred client-side.
+      expect(rows[0].decisionCapable, isFalse);
+      expect(rows[1].decisionCapable, isTrue);
 
       final err = _api(
         _ScriptInterceptor(problem: 'ai_config.disabled', status: 404),
@@ -359,6 +374,31 @@ void main() {
       final failed = await AiConfigRepository(err).listProviders();
       expect(failed.getLeft().toNullable()!.code, 'ai_config.disabled');
     });
+
+    test(
+      'listProviders tolerates a backend that predates decision_capable '
+      '(absent → null, the cached/old-server skew case, issue #736)',
+      () async {
+        // A pre-#736 backend serves the row WITHOUT the additive field. The
+        // contract marks the property non-required, so this must deserialize —
+        // never throw a built_value null-field error that would take the whole
+        // provider list down with it (CodeRabbit review).
+        final ok = _api(
+          _scripted([
+            [
+              {'provider': 'openai', 'key': 'openai'},
+              {'provider': 'neuralwatt', 'key': 'neuralwatt'},
+            ],
+          ]),
+        );
+        final providers = await AiConfigRepository(ok).listProviders();
+        final rows = providers.getRight().toNullable()!;
+        expect(rows.map((info) => info.key), ['openai', 'neuralwatt']);
+        // Absence is the honest "unknown" the picker defaults to NOT capable.
+        expect(rows[0].decisionCapable, isNull);
+        expect(rows[1].decisionCapable, isNull);
+      },
+    );
 
     test('listModels Ok / 422 unknown provider', () async {
       final ok = _api(

@@ -107,15 +107,21 @@ final class AiImportHandoffProvider
 String _$aiImportHandoffHash() => r'1a2a6a11e23e2696fdc421ad0a0472507db9e0e5';
 
 /// Provider/model discovery (D7): the curated catalog from the routes —
-/// no hardcoded ids. A 404 (AI import disabled) or a transport failure
-/// degrades honestly in the screen.
+/// no hardcoded ids. Every [AiProviderInfo] carries the backend-decided
+/// `decisionCapable` capability (issue #736), so the Decision provider
+/// picker reads the decision-capable set from THIS route rather than
+/// mirroring it as a client-side allowlist. A 404 (AI import disabled) or
+/// a transport failure degrades honestly in the screen.
 
 @ProviderFor(aiProviders)
 final aiProvidersProvider = AiProvidersProvider._();
 
 /// Provider/model discovery (D7): the curated catalog from the routes —
-/// no hardcoded ids. A 404 (AI import disabled) or a transport failure
-/// degrades honestly in the screen.
+/// no hardcoded ids. Every [AiProviderInfo] carries the backend-decided
+/// `decisionCapable` capability (issue #736), so the Decision provider
+/// picker reads the decision-capable set from THIS route rather than
+/// mirroring it as a client-side allowlist. A 404 (AI import disabled) or
+/// a transport failure degrades honestly in the screen.
 
 final class AiProvidersProvider
     extends
@@ -128,8 +134,11 @@ final class AiProvidersProvider
         $FutureModifier<Result<List<AiProviderInfo>>>,
         $FutureProvider<Result<List<AiProviderInfo>>> {
   /// Provider/model discovery (D7): the curated catalog from the routes —
-  /// no hardcoded ids. A 404 (AI import disabled) or a transport failure
-  /// degrades honestly in the screen.
+  /// no hardcoded ids. Every [AiProviderInfo] carries the backend-decided
+  /// `decisionCapable` capability (issue #736), so the Decision provider
+  /// picker reads the decision-capable set from THIS route rather than
+  /// mirroring it as a client-side allowlist. A 404 (AI import disabled) or
+  /// a transport failure degrades honestly in the screen.
   AiProvidersProvider._()
     : super(
         from: null,
@@ -251,8 +260,8 @@ final class AiProviderModelsFamily extends $Family
 
 /// The selected DECISION provider's curated model set (issue #731):
 /// `GET /v1/ai-import/providers/{key}/decision-models` — a distinct route
-/// and catalog from [aiProviderModels] (e.g. `clef-flash`/`clef` for
-/// neuralwatt, not the extraction list). Same 422 → "provider
+/// and catalog from [aiProviderModels] (the provider's decision ids such as
+/// `clef-flash`/`clef`, never its extraction list). Same 422 → "provider
 /// unavailable" degradation as the assistant picker.
 
 @ProviderFor(aiDecisionProviderModels)
@@ -260,8 +269,8 @@ final aiDecisionProviderModelsProvider = AiDecisionProviderModelsFamily._();
 
 /// The selected DECISION provider's curated model set (issue #731):
 /// `GET /v1/ai-import/providers/{key}/decision-models` — a distinct route
-/// and catalog from [aiProviderModels] (e.g. `clef-flash`/`clef` for
-/// neuralwatt, not the extraction list). Same 422 → "provider
+/// and catalog from [aiProviderModels] (the provider's decision ids such as
+/// `clef-flash`/`clef`, never its extraction list). Same 422 → "provider
 /// unavailable" degradation as the assistant picker.
 
 final class AiDecisionProviderModelsProvider
@@ -276,8 +285,8 @@ final class AiDecisionProviderModelsProvider
         $FutureProvider<Result<List<ModelInfo>>> {
   /// The selected DECISION provider's curated model set (issue #731):
   /// `GET /v1/ai-import/providers/{key}/decision-models` — a distinct route
-  /// and catalog from [aiProviderModels] (e.g. `clef-flash`/`clef` for
-  /// neuralwatt, not the extraction list). Same 422 → "provider
+  /// and catalog from [aiProviderModels] (the provider's decision ids such as
+  /// `clef-flash`/`clef`, never its extraction list). Same 422 → "provider
   /// unavailable" degradation as the assistant picker.
   AiDecisionProviderModelsProvider._({
     required AiDecisionProviderModelsFamily super.from,
@@ -329,8 +338,8 @@ String _$aiDecisionProviderModelsHash() =>
 
 /// The selected DECISION provider's curated model set (issue #731):
 /// `GET /v1/ai-import/providers/{key}/decision-models` — a distinct route
-/// and catalog from [aiProviderModels] (e.g. `clef-flash`/`clef` for
-/// neuralwatt, not the extraction list). Same 422 → "provider
+/// and catalog from [aiProviderModels] (the provider's decision ids such as
+/// `clef-flash`/`clef`, never its extraction list). Same 422 → "provider
 /// unavailable" degradation as the assistant picker.
 
 final class AiDecisionProviderModelsFamily extends $Family
@@ -346,8 +355,8 @@ final class AiDecisionProviderModelsFamily extends $Family
 
   /// The selected DECISION provider's curated model set (issue #731):
   /// `GET /v1/ai-import/providers/{key}/decision-models` — a distinct route
-  /// and catalog from [aiProviderModels] (e.g. `clef-flash`/`clef` for
-  /// neuralwatt, not the extraction list). Same 422 → "provider
+  /// and catalog from [aiProviderModels] (the provider's decision ids such as
+  /// `clef-flash`/`clef`, never its extraction list). Same 422 → "provider
   /// unavailable" degradation as the assistant picker.
 
   AiDecisionProviderModelsProvider call(String key) =>

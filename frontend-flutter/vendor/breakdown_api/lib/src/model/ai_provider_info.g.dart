@@ -8,6 +8,8 @@ part of 'ai_provider_info.dart';
 
 class _$AiProviderInfo extends AiProviderInfo {
   @override
+  final bool? decisionCapable;
+  @override
   final String key;
   @override
   final LlmProvider provider;
@@ -15,7 +17,9 @@ class _$AiProviderInfo extends AiProviderInfo {
   factory _$AiProviderInfo([void Function(AiProviderInfoBuilder)? updates]) =>
       (AiProviderInfoBuilder()..update(updates))._build();
 
-  _$AiProviderInfo._({required this.key, required this.provider}) : super._();
+  _$AiProviderInfo._(
+      {this.decisionCapable, required this.key, required this.provider})
+      : super._();
   @override
   AiProviderInfo rebuild(void Function(AiProviderInfoBuilder) updates) =>
       (toBuilder()..update(updates)).build();
@@ -27,6 +31,7 @@ class _$AiProviderInfo extends AiProviderInfo {
   bool operator ==(Object other) {
     if (identical(other, this)) return true;
     return other is AiProviderInfo &&
+        decisionCapable == other.decisionCapable &&
         key == other.key &&
         provider == other.provider;
   }
@@ -34,6 +39,7 @@ class _$AiProviderInfo extends AiProviderInfo {
   @override
   int get hashCode {
     var _$hash = 0;
+    _$hash = $jc(_$hash, decisionCapable.hashCode);
     _$hash = $jc(_$hash, key.hashCode);
     _$hash = $jc(_$hash, provider.hashCode);
     _$hash = $jf(_$hash);
@@ -43,6 +49,7 @@ class _$AiProviderInfo extends AiProviderInfo {
   @override
   String toString() {
     return (newBuiltValueToStringHelper(r'AiProviderInfo')
+          ..add('decisionCapable', decisionCapable)
           ..add('key', key)
           ..add('provider', provider))
         .toString();
@@ -52,6 +59,11 @@ class _$AiProviderInfo extends AiProviderInfo {
 class AiProviderInfoBuilder
     implements Builder<AiProviderInfo, AiProviderInfoBuilder> {
   _$AiProviderInfo? _$v;
+
+  bool? _decisionCapable;
+  bool? get decisionCapable => _$this._decisionCapable;
+  set decisionCapable(bool? decisionCapable) =>
+      _$this._decisionCapable = decisionCapable;
 
   String? _key;
   String? get key => _$this._key;
@@ -68,6 +80,7 @@ class AiProviderInfoBuilder
   AiProviderInfoBuilder get _$this {
     final $v = _$v;
     if ($v != null) {
+      _decisionCapable = $v.decisionCapable;
       _key = $v.key;
       _provider = $v.provider;
       _$v = null;
@@ -91,6 +104,7 @@ class AiProviderInfoBuilder
   _$AiProviderInfo _build() {
     final _$result = _$v ??
         _$AiProviderInfo._(
+          decisionCapable: decisionCapable,
           key: BuiltValueNullFieldError.checkNotNull(
               key, r'AiProviderInfo', 'key'),
           provider: BuiltValueNullFieldError.checkNotNull(

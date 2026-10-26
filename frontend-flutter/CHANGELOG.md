@@ -1,5 +1,6 @@
 <!-- SPDX-License-Identifier: AGPL-3.0 -->
 <!-- Copyright (C) 2024-2026 Breakdown RS Contributors -->
+<!-- Co-authored-by: deepseek-v4.1-flash (opencode-go) -->
 <!-- Co-authored-by: glm-5.3-flash-flex (neuralwatt) -->
 <!-- Co-authored-by: muse-spark-1.3-contributor (opencode-go) -->
 <!-- Co-authored-by: omen-alpha (opencode-go) -->
@@ -21,6 +22,28 @@ releases are cut as `vX.Y.Z` tags (`v<build-name>`, enforced by
 `scripts/release/version-gate.sh`).
 
 ## [Unreleased]
+
+- **Issue #736 — Decision provider picker driven by the backend capability:**
+  `0.4.0-beta.12+104 → 0.4.0-beta.13+105`. The Decision Model provider
+  picker filtered its entries through the client-side allowlist
+  `kDecisionCapableProviderKeys = {neuralwatt, eurouter, openrouter}`, so a
+  provider the backend added stayed unreachable and a provider it de-listed
+  stayed offered (an avoidable dead end: the decision-models route answers
+  `422` for it). The constant is gone — every `GET /v1/ai-import/providers`
+  row now carries the additive `decisionCapable` flag (backend `api 0.41.0`,
+  regenerated `breakdown_api`), and the picker renders exactly the providers
+  the backend reports as capable, plus the explicit "disabled" entry and the
+  stale-configured-key fallback (a stored decision provider the route no
+  longer reports capable — or a provider list still loading — still renders,
+  so the Dropdown never asserts on an unknown `initialValue`). The flag is
+  nullable on the wire (`decision_capable` is not a required property): a
+  backend that predates it serves rows without the field, and the picker then
+  reads "not capable" — never a failed provider discovery that would block
+  AI-config setup entirely on the older-server skew case. Covered by a widget
+  regression (a capable provider appears, a non-capable one does not, disabled
+  + stale fallback still render), a Tier-1 route test proving the flag
+  round-trips from the wire, and a Tier-1 absence test (an old backend's row
+  deserializes with an unknown capability instead of throwing).
 
 - **Issue #731 fix point 4 — Decision Model picker: honest 422 "provider
   unavailable" copy:** `0.4.0-beta.10+102 → 0.4.0-beta.11+103`. The

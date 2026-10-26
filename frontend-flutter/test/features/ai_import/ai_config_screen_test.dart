@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 // Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 // Co-authored-by: omen-alpha (opencode-go)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
@@ -51,9 +52,18 @@ const devAuthConfig = AppConfig(
   defaultProjectId: 'series-1',
 );
 
-AiProviderInfo _provider(String key, LlmProvider provider) => AiProviderInfo(
+/// A provider row from `GET /ai-import/providers`. [decisionCapable] is the
+/// backend-decided capability flag (issue #736) the Decision provider picker
+/// filters on — the client keeps NO provider-id allowlist of its own. `null`
+/// models a backend that predates the field (absent on the wire).
+AiProviderInfo _provider(
+  String key,
+  LlmProvider provider, {
+  bool? decisionCapable = false,
+}) => AiProviderInfo(
   (b) => b
     ..provider = provider
+    ..decisionCapable = decisionCapable
     ..key = key,
 );
 
@@ -275,7 +285,13 @@ void main() {
       providersValue ??
           Right([
             _provider('openai', LlmProvider.openai),
-            _provider('neuralwatt', LlmProvider.neuralwatt),
+            // Decision-capable per the backend predicate (issue #736): the
+            // decision provider picker renders THIS route flag.
+            _provider(
+              'neuralwatt',
+              LlmProvider.neuralwatt,
+              decisionCapable: true,
+            ),
           ]),
     );
     models = ValueNotifier(
@@ -1898,6 +1914,115 @@ void main() {
       expect(repo.lastUpdateRequest!.decisionProvider, isNull);
       expect(repo.lastUpdateRequest!.decisionModel, isNull);
       expect(repo.lastUpdateRequest!.decisionVaultKeyId, isNull);
+    });
+
+    // --- Decision provider capability from the route (issue #736) ---
+
+    testWidgets('the decision provider picker renders exactly the providers '
+        'the route reports decision_capable — a newly capable provider '
+        'appears, a de-listed one disappears (issue #736 regression)', (
+      tester,
+    ) async {
+      // The route is the authority: `eurouter` is reported capable (a
+      // provider the pre-#736 client allowlist would only show after a code
+      // change), `openrouter` is reported NOT capable (de-listed by the
+      // backend), `openai`/`gemini` were never capable.
+      await setupContainer(
+        providersValue: Right([
+          _provider('openai', LlmProvider.openai),
+          _provider('gemini', LlmProvider.gemini),
+          _provider(
+            'neuralwatt',
+            LlmProvider.neuralwatt,
+            decisionCapable: true,
+          ),
+          _provider('eurouter', LlmProvider.eurouter, decisionCapable: true),
+          _provider('openrouter', LlmProvider.openrouter),
+        ]),
+      );
+      await pumpScreen(tester, height: 2400);
+
+      await tester.tap(find.byKey(const Key('ai-decision-provider-picker')));
+      await tester.pumpAndSettle();
+
+      // The explicit "disabled" entry stays (never derived from the route).
+      expect(
+        find.byKey(const Key('ai-decision-provider-disabled')),
+        findsWidgets,
+      );
+      // Capable providers are offered …
+      expect(
+        find.byKey(const Key('ai-decision-provider-neuralwatt')),
+        findsWidgets,
+      );
+      expect(
+        find.byKey(const Key('ai-decision-provider-eurouter')),
+        findsWidgets,
+      );
+      // … non-capable ones are not (the picker would otherwise offer a
+      // provider whose decision-models route answers 422 — the dead end
+      // this issue removes).
+      expect(
+        find.byKey(const Key('ai-decision-provider-openai')),
+        findsNothing,
+      );
+      expect(
+        find.byKey(const Key('ai-decision-provider-gemini')),
+        findsNothing,
+      );
+      expect(
+        find.byKey(const Key('ai-decision-provider-openrouter')),
+        findsNothing,
+      );
+    });
+
+    testWidgets('a configured decision provider the route no longer reports '
+        'decision-capable still renders (stale-key fallback, issue #736)', (
+      tester,
+    ) async {
+      // The backend de-listed `neuralwatt` as decision-capable — modelled
+      // here as an ABSENT flag (`null`), i.e. exactly what a backend that
+      // predates the field serves (CodeRabbit review). The stored config must
+      // still be representable, otherwise the Dropdown asserts on an unknown
+      // initialValue and the user cannot open the screen at all.
+      await setupContainer(
+        discoveryValue: Right([
+          _config(
+            decisionProvider: LlmProvider.neuralwatt,
+            decisionModel: 'clef-flash',
+            decisionVaultKeyId: 'vk-decision',
+          ),
+        ]),
+        providersValue: Right([
+          _provider('openai', LlmProvider.openai),
+          _provider(
+            'neuralwatt',
+            LlmProvider.neuralwatt,
+            decisionCapable: null,
+          ),
+        ]),
+      );
+      await pumpScreen(tester, height: 2400);
+
+      // The section and its model picker still render — the stored model is
+      // echoed, not silently dropped (the Dropdown would have thrown on an
+      // initialValue that is absent from `items`).
+      expect(find.byKey(const Key('ai-decision-section')), findsOneWidget);
+      expect(find.byKey(const Key('ai-decision-model-picker')), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('ai-decision-provider-picker')));
+      await tester.pumpAndSettle();
+
+      // The stale entry renders with the stored key as its label, next to
+      // the always-present "disabled" entry.
+      expect(
+        find.byKey(const Key('ai-decision-provider-neuralwatt')),
+        findsWidgets,
+      );
+      expect(
+        find.byKey(const Key('ai-decision-provider-disabled')),
+        findsWidgets,
+      );
     });
   });
 
