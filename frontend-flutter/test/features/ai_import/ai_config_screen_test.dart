@@ -1655,6 +1655,78 @@ void main() {
       expect(repo.lastCreateRequest!.decisionModel, 'clef-flash');
     });
 
+    testWidgets('the decision picker degrades with the honest 422 "provider '
+        'unavailable" copy — never the generic catalog copy, and never at '
+        'the expense of the assistant picker (issue #731 fix point 4)', (
+      tester,
+    ) async {
+      // The decision-models route answers 422 for this provider (unknown /
+      // not decision-capable). Pre-fix the decision picker flattened EVERY
+      // failure to `aiConfigModelCatalogUnavailable`, so a provider the
+      // server rejects outright looked like a transient catalog problem.
+      await setupContainer(
+        decisionModelsValue: const Left(
+          ProblemError(code: 'provider.unknown', status: 422),
+        ),
+      );
+      await pumpScreen(tester, height: 2400);
+
+      // Extraction provider = neuralwatt (its assistant catalog resolves).
+      await tester.tap(find.byKey(const Key('ai-provider-picker')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('neuralwatt').last);
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('ai-decision-provider-picker')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('neuralwatt').last);
+      await tester.pumpAndSettle();
+
+      // 422 → the provider-unavailable narrative, exactly as the assistant
+      // and image pickers render it.
+      expect(find.byKey(const Key('ai-decision-models-degraded')), findsOne);
+      expect(
+        find.text('Provider unavailable — the model catalog cannot be read.'),
+        findsOneWidget,
+      );
+      expect(find.text('The model catalog could not be loaded.'), findsNothing);
+      // No decision picker to pick from, so the section cannot bind a model.
+      expect(find.byKey(const Key('ai-decision-model-picker')), findsNothing);
+      // …while the assistant catalog is UNAFFECTED by the decision route's
+      // failure (the two providers are independent).
+      expect(find.byKey(const Key('ai-assistant-model-picker')), findsOne);
+    });
+
+    testWidgets('a non-422 decision-catalog failure keeps the generic '
+        '"catalog could not be loaded" copy (issue #731 fix point 4)', (
+      tester,
+    ) async {
+      await setupContainer(
+        decisionModelsValue: const Left(
+          ProblemError(code: 'transport.error', status: 503),
+        ),
+      );
+      await pumpScreen(tester, height: 2400);
+
+      await tester.tap(find.byKey(const Key('ai-decision-provider-picker')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('neuralwatt').last);
+      await tester.pumpAndSettle();
+
+      // A transport-class failure is NOT a provider-unavailable verdict: the
+      // catalog copy stays, so the 422 branch is a real discriminator rather
+      // than a blanket replacement.
+      expect(find.byKey(const Key('ai-decision-models-degraded')), findsOne);
+      expect(
+        find.text('The model catalog could not be loaded.'),
+        findsOneWidget,
+      );
+      expect(
+        find.text('Provider unavailable — the model catalog cannot be read.'),
+        findsNothing,
+      );
+    });
+
     testWidgets('the image model picker surfaces the curated IMAGE catalog '
         '(openai: gpt-image-*) while the assistant picker stays on the '
         'extraction list (issue #732 regression)', (tester) async {

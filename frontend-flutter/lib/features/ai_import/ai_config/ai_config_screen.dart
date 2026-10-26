@@ -805,7 +805,11 @@ class _DecisionSection extends ConsumerWidget {
 
 /// The decision model picker fed by the selected decision provider's
 /// model route (issue #723). Same honest degradation as the extraction
-/// pickers (loading / "provider unavailable").
+/// pickers (loading / "provider unavailable"), which issue #731 fix point 4
+/// demands EXPLICITLY: a 422 (unknown provider) on the decision-models route
+/// renders the "Provider unavailable" copy, every other failure the generic
+/// catalog copy — byte-identical semantics to the assistant and image
+/// pickers, so the three catalogs cannot drift apart again.
 class _DecisionModelPicker extends ConsumerWidget {
   const _DecisionModelPicker({required this.state, required this.controller});
 
@@ -842,9 +846,16 @@ class _DecisionModelPicker extends ConsumerWidget {
           if (id != null) controller.selectDecisionModel(id);
         },
       ),
-      AsyncError() => Text(
+      AsyncError(:final error) => Text(
         key: const Key('ai-decision-models-degraded'),
-        l10nOf(context).aiConfigModelCatalogUnavailable,
+        // 422 = the provider key is unknown/not decision-capable → the
+        // honest "provider unavailable" copy (issue #731 fix point 4); any
+        // other failure is a catalog/transport problem. Mirrors the
+        // assistant (`ai-models-degraded`) and image
+        // (`ai-image-models-degraded`) pickers exactly.
+        error is ProblemError && error.status == 422
+            ? l10nOf(context).aiConfigProviderUnavailable
+            : l10nOf(context).aiConfigModelCatalogUnavailable,
       ),
       _ => const SizedBox(
         key: Key('ai-decision-models-loading'),

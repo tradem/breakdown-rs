@@ -22,6 +22,20 @@ releases are cut as `vX.Y.Z` tags (`v<build-name>`, enforced by
 
 ## [Unreleased]
 
+- **Issue #731 fix point 4 — Decision Model picker: honest 422 "provider
+  unavailable" copy:** `0.4.0-beta.10+102 → 0.4.0-beta.11+103`. The
+  decision-model picker collapsed EVERY catalog failure to the generic "The
+  model catalog could not be loaded." copy, while the assistant and image
+  pickers already distinguished a 422 (unknown / not decision-capable
+  provider) into "Provider unavailable — the model catalog cannot be read.".
+  The picker now renders that same discrimination (its doc comment already
+  claimed the parity), so a provider the server rejects outright no longer
+  looks like a transient catalog problem. Covered by two widget tests: the
+  422 test fails on the pre-fix code (the regression pin) while the 503 test
+  is the passing control that keeps the generic copy from being swallowed by
+  a blanket 422 branch. Presentation-only — no generated-client/API surface
+  touched.
+
 - **Version bump / generated-client sync (backend issue #732):**
   `0.4.0-beta.9+101 → 0.4.0-beta.10+102`. The regenerated `breakdown_api`
   client picks up the backend's curated image-model catalog endpoint
