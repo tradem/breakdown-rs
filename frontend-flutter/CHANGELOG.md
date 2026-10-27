@@ -46,14 +46,22 @@ releases are cut as `vX.Y.Z` tags (`v<build-name>`, enforced by
   - **Optimistic removal:** `applyOutfitRemovePieceOptimistic` rebuilds
     `pieceIds` together with `pieces`, so a remove → re-add of the same
     garment inside one reconciliation window is no longer a silent no-op.
+    `applyOutfitAddPieceOptimistic` appends to `pieceIds` too — the mirror
+    direction of the same desync: `createVariant` builds its optimistic fork
+    from `source.pieceIds`, so a row-only add forked a look that silently
+    omitted a garment still on screen.
   - **Garment picker:** the look detail's add-picker awaits
     `piecesListFetchProvider(season)` instead of reading a projection no
     surface ever watched — entered from Character → Looks → detail it now
-    lists the season's garments.
+    lists the season's garments. A failed fetch reports
+    `outfitPieceListFetchError` with a retry action instead of the picker's
+    "no garments in this season" copy (a false claim about the repertoire),
+    and the await is held by a manual subscription so the auto-dispose fetch
+    provider cannot tear down mid-request and fail its cache-write fence.
   - **Copy:** the continuity dropdown uses `continuityPieceLabel` /
     `continuityPieceLabelWithNotes` (de/en) instead of interpolating
     `'Piece $id'` inline.
-  - **Verified locally:** `flutter analyze` clean, `flutter test` 1893/1893
+  - **Verified locally:** `flutter analyze` clean, `flutter test` 1895/1895
     green, `breakdown_lints` clean, `scripts/check-authz-gates.sh` passed,
     ARB de/en parity + glossary inventory clean.
 

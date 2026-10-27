@@ -216,8 +216,25 @@ void main() {
         ),
       );
       expect(reAdded.pieces.map((p) => p.pieceId), ['p-1']);
-      expect(reAdded.pieceIds.length, removed.pieceIds.length);
-      expect(reAdded.pieceIds.contains('p-1'), isFalse);
+      // The reverse direction matters as well: `createVariant` builds its
+      // optimistic fork from `source.pieceIds`, so a row-only add would fork a
+      // look that silently drops the garment still on screen.
+      expect(reAdded.pieceIds, ['p-1']);
+    });
+
+    test('add appends to pieceIds so a variant fork keeps the garment', () {
+      final projected = _outfit('o-1', version: 2, pieceIds: ['p-1']);
+      final added = applyOutfitAddPieceOptimistic(
+        projected,
+        OutfitPieceView(
+          (b) => b
+            ..pieceId = 'p-2'
+            ..position = 1
+            ..name = 'Weste',
+        ),
+      );
+      expect(added.pieceIds, ['p-1', 'p-2']);
+      expect(added.pieces.map((p) => p.pieceId), ['p-2']);
     });
   });
 

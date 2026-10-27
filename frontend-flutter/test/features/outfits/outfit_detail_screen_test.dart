@@ -33,6 +33,7 @@ import 'package:frontend_flutter/features/outfits/outfits_controller.dart';
 import 'package:frontend_flutter/features/outfits/outfits_state.dart';
 import 'package:frontend_flutter/features/pieces/pieces_controller.dart';
 import 'package:frontend_flutter/l10n/generated/app_localizations.dart';
+import 'package:frontend_flutter/l10n/generated/app_localizations_de.dart';
 
 import '../seasons/seasons_test_fakes.dart';
 
@@ -214,6 +215,9 @@ void main() {
     // `true` = only the fetch seam is stubbed (the piece chain was never
     // watched — the Character → Looks → detail entry path).
     bool pieceFetchOnly = false,
+    // When set, the garment fetch seam answers this failure instead of
+    // [seasonPieces].
+    ProblemError? pieceFetchError,
   }) {
     db = CacheDatabase(NativeDatabase.memory());
     addTearDown(db.close);
@@ -240,7 +244,9 @@ void main() {
         // awaits it); the projection override below only short-circuits the
         // controller chain for tests that do not exercise the lazy load.
         piecesListFetchProvider('season-1').overrideWith(
-          (ref) async => Right<ProblemError, List<PieceView>>(seasonPieces),
+          (ref) async => pieceFetchError == null
+              ? Right<ProblemError, List<PieceView>>(seasonPieces)
+              : Left<ProblemError, List<PieceView>>(pieceFetchError),
         ),
         if (!pieceFetchOnly)
           piecesViewProvider('season-1').overrideWith(
@@ -409,6 +415,39 @@ void main() {
       await _pumpFrames(tester, n: 20);
 
       expect(repo.added.single.pieceId, 'p-7');
+    });
+
+    testWidgets('a failed garment fetch reports the failure instead of an '
+        'empty repertoire', (tester) async {
+      // An empty candidate list would render the picker's "no garments in this
+      // season" copy — a false claim about the repertoire, with no way back.
+      setup(
+        outfit: _outfit(),
+        pieceFetchError: const ProblemError(
+          code: 'transport.unavailable',
+          status: 503,
+        ),
+      );
+      await pumpDetail(tester);
+
+      await tester.tap(find.byKey(const Key('outfit-add-piece')));
+      await _pumpFrames(tester);
+
+      expect(find.byKey(const Key('outfit-pick-piece-empty')), findsNothing);
+      expect(find.byKey(const Key('outfit-piece-fetch-error')), findsOneWidget);
+      // The test tree installs the German template locale, so the narrative
+      // and the retry affordance are asserted against that catalog.
+      expect(
+        find.text(
+          AppLocalizationsDe().outfitPieceListFetchError(
+            'transport.unavailable',
+          ),
+        ),
+        findsOneWidget,
+      );
+      expect(find.text(AppLocalizationsDe().commonRetry), findsOneWidget);
+      // Nothing is dispatched and the batch of look commands stays untouched.
+      expect(repo.added, isEmpty);
     });
 
     testWidgets('removing a garment confirms first, then echoes the version', (
