@@ -29,6 +29,8 @@ use breakdown_core::ai::{
 use breakdown_core::character::category::CharacterCategory;
 use breakdown_core::error::DomainError;
 use breakdown_core::scene::events::SceneSource;
+use breakdown_core::season::ports::SeasonRepository;
+use breakdown_core::season::views::SeasonView;
 use breakdown_core::shared::UserId;
 use chrono::Utc;
 use reqwest::StatusCode;
@@ -2443,6 +2445,7 @@ fn script_apply_worker(
     FakeSceneShootCommands,
     FakeMappings,
     FakeQueue,
+    FakeSeasonRepo,
 > {
     ApplyWorker {
         scene_commands,
@@ -2453,6 +2456,7 @@ fn script_apply_worker(
         scene_shoot_commands: Arc::new(FakeSceneShootCommands::default()),
         mappings,
         queue,
+        season_repo: Arc::new(FakeSeasonRepo::default()),
     }
 }
 
@@ -2597,6 +2601,71 @@ struct FakeCostumeCommands {
 }
 
 type Version = breakdown_core::shared::AggregateVersion;
+
+/// Season read model of the apply worker (CR-002/D2).
+///
+/// Every season answers as **active** by default — that is what the apply tests
+/// which are not about archiving need. `archived` makes the gate fire, and
+/// `failure` injects a lookup error (outage vs. projection miss).
+#[derive(Clone, Default)]
+struct FakeSeasonRepo {
+    archived: Arc<Mutex<Option<bool>>>,
+    failure: Arc<Mutex<Option<DomainError>>>,
+}
+
+impl FakeSeasonRepo {
+    /// Target season answers as archived (terminal lifecycle, issue #533).
+    fn archived() -> Self {
+        Self {
+            archived: Arc::new(Mutex::new(Some(true))),
+            failure: Arc::new(Mutex::new(None)),
+        }
+    }
+}
+
+impl SeasonRepository for FakeSeasonRepo {
+    async fn find_by_id(&self, id: Uuid) -> Result<SeasonView, DomainError> {
+        if let Some(error) = self.failure.lock().unwrap().clone() {
+            return Err(error);
+        }
+        Ok(SeasonView {
+            id,
+            project_id: breakdown_core::shared::ProjectId::new(),
+            number: 1,
+            title: None,
+            archived: self.archived.lock().unwrap().unwrap_or(false),
+            version: Version::INITIAL,
+            updated_at: Utc::now(),
+        })
+    }
+
+    async fn list_all(
+        &self,
+        _include_archived: bool,
+        _limit: i64,
+        _offset: i64,
+    ) -> Result<Vec<SeasonView>, DomainError> {
+        Ok(Vec::new())
+    }
+
+    async fn list_by_project(
+        &self,
+        _project_id: breakdown_core::shared::ProjectId,
+        _include_archived: bool,
+        _limit: i64,
+        _offset: i64,
+    ) -> Result<Vec<SeasonView>, DomainError> {
+        Ok(Vec::new())
+    }
+
+    async fn find_by_project_and_number(
+        &self,
+        _project_id: breakdown_core::shared::ProjectId,
+        _number: i32,
+    ) -> Result<Option<SeasonView>, DomainError> {
+        Ok(None)
+    }
+}
 
 /// A pinned aggregate version (the alias above cannot construct the tuple).
 fn version(n: u64) -> Version {
@@ -2851,6 +2920,7 @@ struct ScriptApplyFixture {
     episodes: Arc<FakeEpisodeCommands>,
     shooting_days: Arc<FakeShootingDayCommands>,
     scene_shoots: Arc<FakeSceneShootCommands>,
+    seasons: Arc<FakeSeasonRepo>,
     journal: Arc<Mutex<Vec<String>>>,
     preview_id: AiImportJobId,
     episode_id: breakdown_core::shared::EpisodeId,
@@ -2885,6 +2955,7 @@ impl ScriptApplyFixture {
             }),
             shooting_days: Arc::new(FakeShootingDayCommands::default()),
             scene_shoots: Arc::new(FakeSceneShootCommands::default()),
+            seasons: Arc::new(FakeSeasonRepo::default()),
             journal,
             preview_id: AiImportJobId::new(),
             episode_id: breakdown_core::shared::EpisodeId::new(),
@@ -2905,6 +2976,7 @@ impl ScriptApplyFixture {
         FakeSceneShootCommands,
         FakeMappings,
         FakeQueue,
+        FakeSeasonRepo,
     > {
         ApplyWorker {
             scene_commands: Arc::clone(&self.scenes),
@@ -2915,6 +2987,7 @@ impl ScriptApplyFixture {
             scene_shoot_commands: Arc::clone(&self.scene_shoots),
             mappings: Arc::clone(&self.mappings),
             queue: Arc::clone(&self.queue),
+            season_repo: Arc::clone(&self.seasons),
         }
     }
 
@@ -3341,6 +3414,91 @@ async fn script_apply_recovers_when_only_the_notes_confirm_crashed() {
             .aggregate_version,
         version(2),
         "create + notes, exactly one version per phase (the outfit lives on its own stream)"
+    );
+}
+
+/// CR-002/D2: an archived target season refuses only the AI **outfit** step.
+///
+/// Steps 1 and 2 (create the piece, write the extracted description) run before
+/// the gate and stay valid: the garment remains in the fundus, visible and
+/// correctable, while the mapping row ends as `refused` (`BindingRejected`) and
+/// no `OutfitCreated` is appended. The eight manual outfit routes answer 409
+/// `season.archived` for the same invariant (issue #533: the archive is the
+/// terminal lifecycle state).
+#[tokio::test]
+async fn script_apply_refuses_the_outfit_step_of_an_archived_season() {
+    let mut fixture = ScriptApplyFixture::new();
+    fixture.seasons = Arc::new(FakeSeasonRepo::archived());
+    let preview = ScriptContext {
+        scenes: vec![row_with_costume(
+            "1. INT. OP",
+            &["BEN"],
+            &[("Ben", "Marineblau")],
+        )],
+        ..Default::default()
+    };
+    let decisions = [create_decision("1. INT. OP")];
+    let applied = fixture.apply(&preview, &decisions).await.unwrap();
+
+    // The piece steps are NOT blocked by the archived season.
+    assert_eq!(
+        fixture.costumes.created.lock().unwrap().len(),
+        1,
+        "the piece must still be created in the fundus"
+    );
+    assert_eq!(
+        fixture.costumes.notes.lock().unwrap().len(),
+        1,
+        "the extracted description must still reach the piece"
+    );
+    assert_eq!(applied.created_costumes, 1);
+    assert!(
+        fixture.costumes.assigned.lock().unwrap().is_empty(),
+        "no outfit may be created in an archived season"
+    );
+    assert_eq!(applied.unapplied_costumes.len(), 1);
+    assert_eq!(
+        applied.unapplied_costumes[0].reason,
+        UnappliedCostumeReason::BindingRejected
+    );
+    // The piece stream is complete: create + notes, exactly one event per phase.
+    let mapping = fixture
+        .mappings
+        .find(fixture.preview_id, "1. INT. OP", mapping_kind::COSTUME, 0)
+        .await
+        .unwrap()
+        .expect("costume mapping row");
+    assert_eq!(mapping.aggregate_version, version(2));
+}
+
+/// CR-002/D2: a season lookup **outage** is not a refusal — it fails the apply
+/// so the retry re-drives the unfinished rows instead of ending the mapping row
+/// permanently.
+#[tokio::test]
+async fn script_apply_fails_the_apply_when_the_season_lookup_is_an_outage() {
+    let fixture = ScriptApplyFixture::new();
+    fixture
+        .seasons
+        .failure
+        .lock()
+        .unwrap()
+        .replace(DomainError::service_unavailable(
+            "season projection offline",
+        ));
+    let preview = ScriptContext {
+        scenes: vec![row_with_costume(
+            "1. INT. OP",
+            &["BEN"],
+            &[("Ben", "Marineblau")],
+        )],
+        ..Default::default()
+    };
+    let decisions = [create_decision("1. INT. OP")];
+    let error = fixture.apply(&preview, &decisions).await;
+
+    assert!(
+        matches!(error, Err(DomainError::ServiceUnavailable { .. })),
+        "an outage must fail the apply, got {error:?}"
     );
 }
 

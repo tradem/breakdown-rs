@@ -32,6 +32,12 @@ mod handler_piece_repertoire;
 #[path = "handler_piece_scope.rs"]
 mod handler_piece_scope;
 
+#[path = "handler_outfit_mutation.rs"]
+mod handler_outfit_mutation;
+
+#[path = "handler_photo_compensation.rs"]
+mod handler_photo_compensation;
+
 #[path = "handler_episode.rs"]
 mod handler_episode;
 

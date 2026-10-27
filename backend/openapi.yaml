@@ -6415,6 +6415,7 @@ paths:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
+          description: Season archived
         '422':
           content:
             application/problem+json:
@@ -6455,6 +6456,7 @@ paths:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
+          description: Season archived
         '422':
           content:
             application/problem+json:
@@ -6496,6 +6498,7 @@ paths:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
+          description: Season archived
       tags:
       - handlers
   /v1/outfits/{id}/pieces/{piece_id}:
@@ -6535,6 +6538,7 @@ paths:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
+          description: Season archived
       tags:
       - handlers
   /v1/outfits/{id}/variants:
@@ -6571,6 +6575,7 @@ paths:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
+          description: Season archived
         '422':
           content:
             application/problem+json:
@@ -6614,6 +6619,12 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Not authorized
+        '409':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Season archived
         '413':
           content:
             application/problem+json:
@@ -6668,6 +6679,12 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Outfit not found
+        '409':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Season archived
       tags:
       - handlers
   /v1/outfits/{outfit_id}/photos/{photo_id}/bytes:

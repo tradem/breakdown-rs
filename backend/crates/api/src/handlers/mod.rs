@@ -3743,6 +3743,30 @@ pub async fn get_member<P: Ports>(
     }
 }
 
+/// Compensating delete for a photo whose bytes already reached storage but whose
+/// metadata/link command was then refused (CR-001).
+///
+/// The bytes are written *before* the `UploadPhoto`/`Link*Photo` dispatch, so a
+/// refused command (e.g. a version conflict on the link) would otherwise leave an
+/// orphan object that the `PhotoGcSweep` cannot reclaim — the sweep only deletes
+/// ids the `projection_photo` does not know, and this id *is* known.
+///
+/// Awaited inline (never `tokio::spawn`ed) so the object is gone before the
+/// handler answers; a previous `.inspect_err(|_| drop(...))` dropped the future
+/// before its first poll and was a silent no-op. Best-effort by design: a failing
+/// compensation is logged and **never** displaces the original error, and this
+/// helper returns nothing. The GC sweep stays the crash backstop for a handler
+/// that dies between `store` and this call.
+async fn compensate_stored_photo_bytes<P: Ports>(state: &AppState<P>, photo_id: PhotoId) {
+    if let Err(error) = state.ports.photo_storage().delete_all(photo_id).await {
+        tracing::warn!(
+            %error,
+            %photo_id,
+            "compensating photo-byte delete failed; PhotoGcSweep will reconcile the orphan"
+        );
+    }
+}
+
 /// Upload a photo and link it to a piece.
 ///
 /// The request body is raw image bytes; the `Content-Type` header MUST be one of
@@ -3841,7 +3865,7 @@ pub async fn upload_piece_photo<P: Ports>(
 
     // Dispatch UploadPhoto command; the returned version is the only
     // read-side echo needed to build the response (issue #514).
-    let photo_version = state
+    let photo_uploaded = state
         .ports
         .photo_commands()
         .upload(
@@ -3854,15 +3878,20 @@ pub async fn upload_piece_photo<P: Ports>(
                 project_id: Some(project_id),
             },
         )
-        .await
-        .inspect_err(|_| {
-            // Compensating delete: best-effort, cannot await in sync closure.
-            drop(state.ports.photo_storage().delete_all(photo_id));
-        })?;
+        .await;
+    let photo_version = match photo_uploaded {
+        Ok(version) => version,
+        Err(error) => {
+            // The bytes are stored but no photo exists: drop them inline, then
+            // answer the command's own error (CR-001).
+            compensate_stored_photo_bytes(&state, photo_id).await;
+            return Err(error.into());
+        }
+    };
 
     // Dispatch LinkPiecePhoto command on the piece aggregate.
     let version = piece.version;
-    PieceCommands::link_photo(
+    let linked = PieceCommands::link_photo(
         state.ports.wardrobe_commands(),
         current_user.sub.clone(),
         LinkPiecePhoto {
@@ -3872,11 +3901,14 @@ pub async fn upload_piece_photo<P: Ports>(
             version,
         },
     )
-    .await
-    .inspect_err(|_| {
-        // Compensating delete: best-effort, cannot await in sync closure.
-        drop(state.ports.photo_storage().delete_all(photo_id));
-    })?;
+    .await;
+    if let Err(error) = linked {
+        // The photo exists (so the GC would keep its bytes) but the piece
+        // refused the link — e.g. a stale version. Drop the object inline and
+        // keep the refusal as the response (CR-001).
+        compensate_stored_photo_bytes(&state, photo_id).await;
+        return Err(error.into());
+    }
 
     // Build the 201 response from the dispatch/command output instead of
     // reading the freshly written photo back from the projection: the photo
@@ -4114,6 +4146,7 @@ pub struct PhotoBytesQuery {
     responses(
         (status = 201, description = "Photo uploaded", body = PhotoView),
         (status = 403, body = ProblemDetails, description = "Not authorized"),
+        (status = 409, description = "Season archived", body = ProblemDetails),
         (status = 413, body = ProblemDetails, description = "Payload too large"),
         (status = 415, body = ProblemDetails, description = "Unsupported media type"),
         (status = 422, body = ProblemDetails, description = "Validation error"),
@@ -4129,21 +4162,17 @@ pub async fn upload_outfit_photo<P: Ports>(
     let content_type = validate_photo_content_type_and_size(&headers, body.len())?;
 
     let outfit = state.ports.outfit_repo().find_by_id(outfit_id).await?;
-    // AUTHZ-GATE: the outfit's scope is its character's season.
-    let season_id = authorize_outfit_scoped(
+    // AUTHZ-GATE: the outfit's scope is its character's season. The gate also
+    // refuses an archived season and returns it, so `project_id` costs no
+    // second roundtrip.
+    let season = authorize_outfit_mutation(
         &state,
         &outfit,
         current_user.sub.clone(),
         "not authorized to upload photos in this season",
     )
     .await?;
-    let project_id = state
-        .ports
-        .season_repo()
-        .find_by_id(season_id.0)
-        .await
-        .ok()
-        .map(|season| season.project_id);
+    let project_id = Some(season.project_id);
 
     let photo_id = PhotoId::new();
     let size_bytes = body.len() as u64;
@@ -4159,7 +4188,7 @@ pub async fn upload_outfit_photo<P: Ports>(
         .await?;
 
     let binding = PhotoBinding::Outfit { outfit_id };
-    let photo_version = state
+    let photo_uploaded = state
         .ports
         .photo_commands()
         .upload(
@@ -4172,14 +4201,19 @@ pub async fn upload_outfit_photo<P: Ports>(
                 project_id,
             },
         )
-        .await
-        .inspect_err(|_| {
-            drop(state.ports.photo_storage().delete_all(photo_id));
-        })?;
+        .await;
+    let photo_version = match photo_uploaded {
+        Ok(version) => version,
+        Err(error) => {
+            // Same compensation as the piece path (CR-001).
+            compensate_stored_photo_bytes(&state, photo_id).await;
+            return Err(error.into());
+        }
+    };
 
     // Link to the outfit (the piece side is surfaced by the read model, so no
     // per-piece write is needed — a piece always shows its outfits' photos).
-    OutfitCommands::link_photo(
+    let linked = OutfitCommands::link_photo(
         state.ports.wardrobe_commands(),
         current_user.sub.clone(),
         LinkOutfitPhoto {
@@ -4189,10 +4223,13 @@ pub async fn upload_outfit_photo<P: Ports>(
             version: outfit.version,
         },
     )
-    .await
-    .inspect_err(|_| {
-        drop(state.ports.photo_storage().delete_all(photo_id));
-    })?;
+    .await;
+    if let Err(error) = linked {
+        // A refused link (e.g. a stale version) must not leave the stored
+        // object behind (CR-001).
+        compensate_stored_photo_bytes(&state, photo_id).await;
+        return Err(error.into());
+    }
 
     let view = PhotoView {
         id: photo_id,
@@ -4265,6 +4302,7 @@ pub async fn get_outfit_photo_bytes<P: Ports>(
         (status = 204, description = "Photo unlinked"),
         (status = 403, body = ProblemDetails, description = "Not authorized"),
         (status = 404, body = ProblemDetails, description = "Outfit not found"),
+        (status = 409, description = "Season archived", body = ProblemDetails),
     )
 )]
 pub async fn delete_outfit_photo<P: Ports>(
@@ -4273,21 +4311,16 @@ pub async fn delete_outfit_photo<P: Ports>(
     Path((outfit_id, photo_id)): Path<(Uuid, Uuid)>,
 ) -> ApiResult<()> {
     let outfit = state.ports.outfit_repo().find_by_id(outfit_id).await?;
-    // AUTHZ-GATE: same season-scoped seam as upload/bytes.
-    let season_id = authorize_outfit_scoped(
+    // AUTHZ-GATE: same season-scoped seam as upload/bytes, archived-season gate
+    // included.
+    let season = authorize_outfit_mutation(
         &state,
         &outfit,
         current_user.sub.clone(),
         "not authorized to delete photos in this season",
     )
     .await?;
-    let project_id = state
-        .ports
-        .season_repo()
-        .find_by_id(season_id.0)
-        .await
-        .ok()
-        .map(|season| season.project_id);
+    let project_id = Some(season.project_id);
     OutfitCommands::unlink_photo(
         state.ports.wardrobe_commands(),
         current_user.sub.clone(),
@@ -7226,6 +7259,9 @@ pub async fn apply_ai_import<P: Ports>(
                 scene_shoot_commands: Arc::new(state.ports.scene_shoot_commands().clone()),
                 mappings: Arc::new(state.ports.ai_import_mapping().clone()),
                 queue: Arc::new(state.ports.ai_import_queue().clone()),
+                // CR-002/D2: the worker refuses the outfit step of an archived
+                // target season itself (the piece steps stay valid).
+                season_repo: Arc::new(state.ports.season_repo().clone()),
             };
             let applied = worker
                 .apply_script(ApplyScriptRequest {
@@ -8261,6 +8297,48 @@ async fn authorize_outfit_scoped<P: Ports>(
     Ok(character.season_id)
 }
 
+/// Refuse a mutation whose season is archived (409 `season.archived`).
+///
+/// Issue #533 makes the archive the **terminal** lifecycle state: further
+/// mutations are refused while the inventory stays readable. That asymmetry is
+/// exactly why this check is *not* part of [`authorize_outfit_scoped`] — that
+/// helper also serves the outfit **reads** (`get_outfit`), which must keep
+/// working for an archived season.
+///
+/// Returns the season so a caller that also needs `project_id` reuses this one
+/// read instead of a second roundtrip.
+async fn reject_archived_season<P: Ports>(
+    state: &AppState<P>,
+    season_id: SeasonId,
+) -> Result<SeasonView, ApiError> {
+    let season = state.ports.season_repo().find_by_id(season_id.0).await?;
+    if season.archived {
+        return Err(ApiError::Domain(DomainError::Conflict {
+            code: &SEASON_ARCHIVED,
+            reason: "season is archived".into(),
+        }));
+    }
+    Ok(season)
+}
+
+/// AUTHZ-GATE + archived-season gate for every outfit **mutation** handler.
+///
+/// `authorize_outfit_scoped` resolves the outfit's scope through its character
+/// (the outfit carries no season column); this wrapper adds the archived-season
+/// refusal that all eight mutation routes owe the domain invariant. Reads keep
+/// using the scope-only helper — an archived season stays readable (#533), and
+/// `create_outfit` uses [`reject_archived_season`] directly because the outfit
+/// it gates does not exist yet.
+async fn authorize_outfit_mutation<P: Ports>(
+    state: &AppState<P>,
+    outfit: &OutfitView,
+    user_id: UserId,
+    denial: &'static str,
+) -> Result<SeasonView, ApiError> {
+    let season_id = authorize_outfit_scoped(state, outfit, user_id, denial).await?;
+    reject_archived_season(state, season_id).await
+}
+
 /// Resolve the audit `project_id` for a character (character → season →
 /// series). Missing projections narrow to `None`: audit metadata must never
 /// block a command.
@@ -8368,17 +8446,10 @@ pub async fn create_outfit<P: Ports>(
         || ApiError::Forbidden("not authorized to manage outfits in this season"),
     )
     .await?;
-    let season = state
-        .ports
-        .season_repo()
-        .find_by_id(character.season_id.0)
-        .await?;
-    if season.archived {
-        return Err(ApiError::Domain(DomainError::Conflict {
-            code: &SEASON_ARCHIVED,
-            reason: "season is archived".into(),
-        }));
-    }
+    // The archive is terminal (#533), and every outfit mutation owes the same
+    // refusal the other seven routes get from `authorize_outfit_mutation` —
+    // entered here with the season the character already resolved.
+    let season = reject_archived_season(&state, character.season_id).await?;
     ensure_pieces_exist(&state, &req.piece_ids).await?;
 
     let id = Uuid::now_v7();
@@ -8406,7 +8477,7 @@ pub async fn create_outfit<P: Ports>(
     responses(
         (status = 201, description = "Variant created", body = IdVersionResponse),
         (status = 404, body = ProblemDetails),
-        (status = 409, body = ProblemDetails),
+        (status = 409, description = "Season archived", body = ProblemDetails),
         (status = 422, body = ProblemDetails),
     )
 )]
@@ -8420,7 +8491,7 @@ pub async fn create_outfit_variant<P: Ports>(
     // its data travels in the command, so the write side never touches the
     // projection.
     let source = state.ports.outfit_repo().find_by_id(source_id).await?;
-    authorize_outfit_scoped(
+    authorize_outfit_mutation(
         &state,
         &source,
         current_user.sub.clone(),
@@ -8512,7 +8583,7 @@ pub async fn list_character_outfits<P: Ports>(
     responses(
         (status = 200, body = AggregateVersion),
         (status = 404, body = ProblemDetails),
-        (status = 409, body = ProblemDetails),
+        (status = 409, description = "Season archived", body = ProblemDetails),
         (status = 422, body = ProblemDetails),
     )
 )]
@@ -8523,7 +8594,7 @@ pub async fn rename_outfit<P: Ports>(
     Json(req): Json<RenameOutfitRequest>,
 ) -> ApiResult<AggregateVersion> {
     let outfit = state.ports.outfit_repo().find_by_id(id).await?;
-    authorize_outfit_scoped(
+    authorize_outfit_mutation(
         &state,
         &outfit,
         current_user.sub.clone(),
@@ -8553,7 +8624,7 @@ pub async fn rename_outfit<P: Ports>(
     responses(
         (status = 200, body = AggregateVersion),
         (status = 404, body = ProblemDetails),
-        (status = 409, body = ProblemDetails),
+        (status = 409, description = "Season archived", body = ProblemDetails),
         (status = 422, body = ProblemDetails),
     )
 )]
@@ -8564,7 +8635,7 @@ pub async fn update_outfit_notes<P: Ports>(
     Json(req): Json<UpdateOutfitNotesRequest>,
 ) -> ApiResult<AggregateVersion> {
     let outfit = state.ports.outfit_repo().find_by_id(id).await?;
-    authorize_outfit_scoped(
+    authorize_outfit_mutation(
         &state,
         &outfit,
         current_user.sub.clone(),
@@ -8594,7 +8665,7 @@ pub async fn update_outfit_notes<P: Ports>(
     responses(
         (status = 200, body = AggregateVersion),
         (status = 404, description = "Outfit or piece not found", body = ProblemDetails),
-        (status = 409, body = ProblemDetails),
+        (status = 409, description = "Season archived", body = ProblemDetails),
     )
 )]
 pub async fn add_outfit_piece<P: Ports>(
@@ -8604,7 +8675,7 @@ pub async fn add_outfit_piece<P: Ports>(
     Json(req): Json<AddOutfitPieceRequest>,
 ) -> ApiResult<AggregateVersion> {
     let outfit = state.ports.outfit_repo().find_by_id(id).await?;
-    authorize_outfit_scoped(
+    authorize_outfit_mutation(
         &state,
         &outfit,
         current_user.sub.clone(),
@@ -8635,7 +8706,7 @@ pub async fn add_outfit_piece<P: Ports>(
     responses(
         (status = 200, body = AggregateVersion),
         (status = 404, body = ProblemDetails),
-        (status = 409, body = ProblemDetails),
+        (status = 409, description = "Season archived", body = ProblemDetails),
     )
 )]
 pub async fn remove_outfit_piece<P: Ports>(
@@ -8645,7 +8716,7 @@ pub async fn remove_outfit_piece<P: Ports>(
     Query(version): Query<VersionRequest>,
 ) -> ApiResult<AggregateVersion> {
     let outfit = state.ports.outfit_repo().find_by_id(id).await?;
-    authorize_outfit_scoped(
+    authorize_outfit_mutation(
         &state,
         &outfit,
         current_user.sub.clone(),

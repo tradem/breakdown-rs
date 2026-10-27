@@ -48,7 +48,7 @@ use infra::projectors::{
     ProjectorFlushConfig, spawn_scene_projector, spawn_scene_shoot_projector,
     spawn_shooting_day_projector,
 };
-use infra::queries::{SceneShootRepositoryImpl, ShootingDayRepositoryImpl};
+use infra::queries::{SceneShootRepositoryImpl, SeasonRepositoryImpl, ShootingDayRepositoryImpl};
 use kameo_es::command_service::CommandService;
 use uuid::Uuid;
 
@@ -110,6 +110,7 @@ struct Harness {
         SceneShootCommandsImpl,
         PgAiImportMappingRepository,
         infra::ai::PgAiImportQueue,
+        SeasonRepositoryImpl,
     >,
     preview_id: AiImportJobId,
     episode_id: EpisodeId,
@@ -158,6 +159,8 @@ async fn harness() -> Result<Harness> {
         )),
         mappings: Arc::new(PgAiImportMappingRepository::new(pool.clone())),
         queue: Arc::new(infra::ai::PgAiImportQueue::new(pool.clone())),
+        // CR-002/D2: the worker refuses the outfit step of an archived season.
+        season_repo: Arc::new(SeasonRepositoryImpl::new(pool.clone())),
     };
     Ok(Harness {
         _pg: pg_container,

@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: gpt-5.6-luna (opencode-go)
 // Co-authored-by: hy3 (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 // Co-authored-by: deepseek-v4-flash (opencode-go)
 // Co-authored-by: hy4-preview (opencode-go)
 // Co-authored-by: omen-alpha (opencode-go)
@@ -321,11 +322,14 @@ pub fn requirement_for(path: &str) -> Requirement {
     if path == "/blocks" {
         return Requirement::Authenticated;
     }
-    // Photo endpoints — costume photos (`/costumes/{id}/photos…`) and the
-    // continuity photos of a scene shoot (`…/scene-shoots/{id}/continuity-photos…`).
-    // Both families use season-scoped authorization (SeasonPhotoAccessPolicy /
-    // the shooting_day → episode → block → season chain) checked *inside* the
-    // handler (see AGENTS.md §7, `// AUTHZ-GATE:`), not by this middleware.
+    // Photo endpoints — piece photos (`/pieces/{id}/photos…`), outfit photos
+    // (`/outfits/{id}/photos…`) and the continuity photos of a scene shoot
+    // (`…/scene-shoots/{id}/continuity-photos…`).
+    // All three families use season-/series-scoped authorization
+    // (`authorize_piece_in_project` / `authorize_outfit_scoped` for the piece and
+    // outfit photos, the shooting_day → episode → block → season chain for
+    // continuity) checked *inside* the handler (see AGENTS.md §3,
+    // `// AUTHZ-GATE:`), not by this middleware.
     // `/continuity-photos` is matched explicitly: a bare `contains("/photos")`
     // misses the hyphenated segment.
     if path.contains("/photos") || path.contains("/continuity-photos") {
@@ -401,7 +405,7 @@ pub fn requirement_for(path: &str) -> Requirement {
         return Requirement::Authenticated;
     }
 
-    // Everything else (scenes, characters, costumes, episodes, and
+    // Everything else (scenes, characters, pieces, outfits, episodes, and
     // block detail / time-span updates) is block-scoped.
     // Self-service invitation acceptance: the invitee is *not yet* an active
     // member (they are pending until they accept), so this endpoint cannot

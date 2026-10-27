@@ -46,6 +46,7 @@ use breakdown_core::scene::events::{SceneDetails, SceneSource};
 use breakdown_core::scene::ports::SceneCommands;
 use breakdown_core::scene_shoot::commands::PlanSceneShoot;
 use breakdown_core::scene_shoot::ports::SceneShootCommands;
+use breakdown_core::season::ports::SeasonRepository;
 use breakdown_core::shared::{
     AggregateVersion, BlockId, EpisodeId, LexicalSortKey, ProjectId, SceneShootId, SeasonId,
     ShootingDayId, UserId,
@@ -1091,7 +1092,7 @@ impl MergeWorker {
 /// Every kind is checked against the persisted mapping before it dispatches, so
 /// a crash or a concurrent duplicate cannot create a second Scene, Character or
 /// Costume.
-pub struct ApplyWorker<C, CH, CO, E, SD, SS, M, Q> {
+pub struct ApplyWorker<C, CH, CO, E, SD, SS, M, Q, SR> {
     pub scene_commands: Arc<C>,
     pub character_commands: Arc<CH>,
     pub costume_commands: Arc<CO>,
@@ -1109,6 +1110,11 @@ pub struct ApplyWorker<C, CH, CO, E, SD, SS, M, Q> {
     pub scene_shoot_commands: Arc<SS>,
     pub mappings: Arc<M>,
     pub queue: Arc<Q>,
+    /// Season read model, used for exactly one thing: refusing the **outfit**
+    /// step when the target season is archived (CR-002/D2, issue #533). See
+    /// `apply_costume` step 3 for why this is a dispatch precondition and not
+    /// an audit-context lookup.
+    pub season_repo: Arc<SR>,
 }
 
 /// Parameters for one reserved scene create in the script apply path.
@@ -1399,7 +1405,7 @@ struct BeatDispatch<'a> {
     scene_version: &'a mut AggregateVersion,
 }
 
-impl<C, CH, CO, E, SD, SS, M, Q> ApplyWorker<C, CH, CO, E, SD, SS, M, Q>
+impl<C, CH, CO, E, SD, SS, M, Q, SR> ApplyWorker<C, CH, CO, E, SD, SS, M, Q, SR>
 where
     C: SceneCommands + 'static,
     CH: CharacterCommands + 'static,
@@ -1409,6 +1415,7 @@ where
     SS: SceneShootCommands + 'static,
     M: AiImportMappingRepository + 'static,
     Q: AiImportQueue + 'static,
+    SR: SeasonRepository + 'static,
 {
     pub async fn apply_script(
         &self,
@@ -2175,6 +2182,54 @@ where
         // piece in the fundus — visible and correctable — and the retry reuses
         // this mapping row instead of creating a second piece.
         if version >= phases.piece_complete() {
+            // CR-002/D2: an outfit mutation inside an archived season is refused
+            // by every manual route with 409 `season.archived` (issue #533 makes
+            // the archive terminal), and the AI apply owes the same invariant.
+            // The refusal must land HERE and not earlier: steps 1 and 2 already
+            // appended a valid `Piece`, which stays in the fundus — visible and
+            // correctable — exactly as the spec requires.
+            //
+            // This read is a *dispatch precondition*, not audit-context
+            // resolution (AGENTS.md §1): the worker is not deriving a
+            // `project_id` for `EventMetadata`, it asks whether the target season
+            // still accepts mutations at all. No command field can carry the
+            // answer, because it has to be true at the moment of the outfit
+            // append; the same reasoning the mapping-reservation reads above rely
+            // on.
+            let season = self
+                .season_repo
+                .find_by_id(season_id.0) // ast-grep-ignore: cqrs-boundary
+                .await;
+            match season {
+                Ok(season) if season.archived => {
+                    tracing::info!(
+                        season = %season_id.0,
+                        "AI apply refused the outfit step: the target season is archived"
+                    );
+                    refused!(
+                        UnappliedCostumeReason::BindingRejected,
+                        DomainError::conflict("target season is archived")
+                    );
+                }
+                Ok(_) => {}
+                // A dependency outage is not a refusal: fail the apply so the
+                // retry re-drives the unfinished rows from their reservations.
+                Err(error) if is_infra_outage(&error) => return Err(error),
+                // A projection miss is permanent for this attempt. Refusing the
+                // outfit step fails *closed* (nothing is created in a season we
+                // cannot prove mutable) while the piece stays correctable.
+                Err(error) => {
+                    tracing::warn!(
+                        %error,
+                        season = %season_id.0,
+                        "AI apply could not resolve the target season; refusing the outfit step"
+                    );
+                    refused!(
+                        UnappliedCostumeReason::BindingRejected,
+                        DomainError::conflict("target season could not be resolved")
+                    );
+                }
+            }
             let outfit_id = derive_id(
                 preview_id,
                 &character_mapping_ref(&costume.character_identity),

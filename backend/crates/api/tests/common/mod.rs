@@ -270,6 +270,12 @@ pub struct FakePieceCommands {
     /// can assert the body/path id agreement and that a denied caller sends
     /// nothing at all.
     pub detail_calls: Arc<Mutex<Vec<(DetailCommandKind, Uuid)>>>,
+    /// CR-001: programmable outcome for the photo-link dispatches (piece and
+    /// outfit alike), so a handler test can prove the compensating storage
+    /// delete runs when the link is refused. Absent = success.
+    pub link_photo_result: Arc<Mutex<Option<DomainError>>>,
+    /// CR-001: the `photo_id`s whose link the handler actually dispatched.
+    pub link_photo_calls: Arc<Mutex<Vec<Uuid>>>,
 }
 
 // This `mod common` is compiled into EVERY api test binary, but the #544
@@ -285,6 +291,25 @@ impl FakePieceCommands {
     /// The `detail_id`s dispatched so far, in order.
     pub async fn detail_ids(&self) -> Vec<(DetailCommandKind, Uuid)> {
         self.detail_calls.lock().await.clone()
+    }
+
+    /// CR-001: make every following photo link fail (e.g. with a version
+    /// conflict) so the handler's compensation path runs.
+    pub async fn fail_link_photo(&self, err: DomainError) {
+        self.link_photo_result.lock().await.replace(err);
+    }
+
+    /// CR-001: the `photo_id`s whose link was dispatched, in order.
+    pub async fn link_photo_ids(&self) -> Vec<Uuid> {
+        self.link_photo_calls.lock().await.clone()
+    }
+
+    async fn record_link_photo(&self, photo_id: Uuid) -> Result<AggregateVersion, DomainError> {
+        self.link_photo_calls.lock().await.push(photo_id);
+        match self.link_photo_result.lock().await.clone() {
+            Some(err) => Err(err),
+            None => Ok(AggregateVersion::INITIAL.next()),
+        }
     }
 
     async fn record_detail(
@@ -369,9 +394,9 @@ impl PieceCommands for FakePieceCommands {
     async fn link_photo(
         &self,
         _actor: UserId,
-        _cmd: LinkPiecePhoto,
+        cmd: LinkPiecePhoto,
     ) -> Result<AggregateVersion, DomainError> {
-        Ok(AggregateVersion::INITIAL.next())
+        self.record_link_photo(cmd.photo_id).await
     }
     async fn unlink_photo(
         &self,
@@ -428,9 +453,9 @@ impl OutfitCommands for FakePieceCommands {
     async fn link_photo(
         &self,
         _actor: UserId,
-        _cmd: LinkOutfitPhoto,
+        cmd: LinkOutfitPhoto,
     ) -> Result<AggregateVersion, DomainError> {
-        Ok(AggregateVersion::INITIAL.next())
+        self.record_link_photo(cmd.photo_id).await
     }
     async fn unlink_photo(
         &self,

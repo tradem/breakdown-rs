@@ -40,9 +40,36 @@ SHALL carry no `season_id` column of its own.
 
 #### Scenario: Archived season blocks outfit mutation
 
-- **WHEN** the character's season is archived and an outfit mutation is
-  attempted
-- **THEN** the API edge SHALL answer 409 `season.archived` before dispatch
+- **WHEN** the character's season is archived and **any** outfit mutation is
+  attempted — `CreateOutfit`, `CreateOutfitVariant`, `RenameOutfit`,
+  `UpdateOutfitNotes`, `AddPieceToOutfit`, `RemovePieceFromOutfit`,
+  photo link (`POST /v1/outfits/{id}/photos`) or photo unlink
+  (`DELETE /v1/outfits/{id}/photos/{photo_id}`)
+- **THEN** the API edge SHALL answer 409 `season.archived` before dispatch and
+  SHALL NOT write an event
+- **AND** the gate SHALL be shared by all eight mutation routes (one helper),
+  never re-implemented per handler
+
+#### Scenario: Archived seasons stay readable
+
+- **WHEN** `GET /v1/outfits/{id}` or `GET /v1/characters/{id}/outfits` is
+  requested for an outfit of an archived season
+- **THEN** the read SHALL answer 200 (issue #533: the archive is terminal for
+  **mutations**, not for the inventory)
+- **AND** the archived check SHALL therefore live in the mutation gate only,
+  never in the shared scope-resolution helper the reads use
+
+#### Scenario: Archived season refuses the AI outfit step and keeps the piece
+
+- **WHEN** the AI script-apply drives a wardrobe row (the apply's costume
+  plan: piece + outfit) whose target season is archived
+- **THEN** steps 1 and 2 (`CreatePiece`, `UpdatePieceNotes`) SHALL still run
+  and the piece SHALL remain in the fundus, visible and correctable
+- **AND** the outfit step SHALL be refused: the mapping row SHALL end as
+  `refused` with reason `BindingRejected`, and **no** `OutfitCreated` event
+  SHALL be appended
+- **AND** a season-lookup **outage** SHALL NOT be treated as a refusal — it
+  fails the whole apply so the retry re-drives the unfinished rows
 
 ### Requirement: An outfit may be created as an empty shell
 

@@ -105,10 +105,26 @@ beats had), and the aggregate cannot resolve cross-aggregate state anyway.
 
 #### Scenario: Consecutive-identical-beat guard
 
-- **WHEN** an `AddOutfitBeat` appends a beat whose `outfit_id` equals the
-  character's current last beat's `outfit_id`
+- **WHEN** an `AddOutfitBeat` appends a beat whose `outfit_id` **and** `note`
+  both equal the character's current last beat's
 - **THEN** the command SHALL fail with 422 `scene.validation`
 - **AND** no event SHALL be emitted
+
+#### Scenario: Re-wearing the same outfit with a new cue
+
+- **WHEN** an `AddOutfitBeat` repeats the character's last `outfit_id` but
+  carries a **different** `note` (e.g. `None` → `Some("nach dem Telefonat")`)
+- **THEN** the command SHALL succeed and the beat SHALL be appended with the
+  next dense `order`
+- **AND** the previous beat SHALL remain unchanged
+
+Rationale: the guard is about the **whole** beat, not the garment alone. An
+identical `(outfit_id, note)` pair is virtually always a double-tap artifact
+("on change, then straight back on"), which the crew gains nothing from
+storing. The same look with a new cue is the opposite — it is the deliberate
+re-wear signal (coat back on after the phone call, apron for the kitchen
+scene) that the beat list exists to express, so the guard MUST NOT collapse
+it.
 
 #### Scenario: Updating a beat in place
 

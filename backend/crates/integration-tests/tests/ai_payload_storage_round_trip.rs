@@ -39,7 +39,7 @@ use infra::event_store::{
     CharacterCommandsImpl, EpisodeCommandsImpl, SceneCommandsImpl, SceneShootCommandsImpl,
     ShootingDayCommandsImpl, WardrobeCommandsImpl, WrapFinalityGate,
 };
-use infra::queries::SceneRepositoryImpl;
+use infra::queries::{SceneRepositoryImpl, SeasonRepositoryImpl};
 use kameo_es::command_service::CommandService;
 use uuid::Uuid;
 
@@ -510,6 +510,10 @@ async fn ai_payload_apply_round_trips_through_projection() -> Result<()> {
         )),
         mappings: Arc::new(mappings_b),
         queue: Arc::new(queue_b),
+        // The row names no figure, so the outfit step (and with it the
+        // archived-season precondition, CR-002/D2) is never reached — the port
+        // is wired for the production shape only.
+        season_repo: Arc::new(SeasonRepositoryImpl::new(pool.clone())),
     };
     let applied = worker
         .apply_script(ApplyScriptRequest {

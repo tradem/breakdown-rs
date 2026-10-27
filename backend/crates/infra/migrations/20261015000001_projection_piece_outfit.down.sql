@@ -67,6 +67,12 @@ CREATE TABLE projection_scene_costume_assignment (
 CREATE INDEX idx_projection_scene_costume_assignment_costume
     ON projection_scene_costume_assignment(costume_id);
 
-UPDATE projection_photo SET binding = 'Costume' WHERE binding = 'Piece';
+-- The split renamed the `Costume` discriminator to `Piece` (up migration) and
+-- introduced `Outfit` as a second wardrobe binding. A rollback must fold BOTH
+-- back: the pre-split enum has no `Outfit` variant, so leaving those rows behind
+-- would hand the old binary a binding it cannot deserialize. Nothing is lost in
+-- either direction — the pre-split `Costume` stream category is inert and the
+-- down migration already drops the outfit projections.
+UPDATE projection_photo SET binding = 'Costume' WHERE binding IN ('Piece', 'Outfit');
 
 ALTER TABLE projection_continuity_photo RENAME COLUMN piece_id TO costume_id;

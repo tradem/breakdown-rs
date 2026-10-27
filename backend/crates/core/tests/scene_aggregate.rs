@@ -646,6 +646,37 @@ fn test_consecutive_identical_beat_guard() {
     assert!(matches!(result, Err(SceneError::ValidationError(_))));
 }
 
+/// CR-003: the consecutive-identical guard is about the **whole** beat, not just
+/// the outfit. Re-wearing the same look with a new cue is a deliberate signal
+/// ("derselbe Mantel nach dem Telefonat") and must be accepted.
+#[test]
+fn test_same_outfit_with_a_new_note_is_a_valid_rewear() {
+    let mut agg = scene_with_character();
+    let character_id = agg.assigned_characters[0];
+    let outfit = Uuid::now_v7();
+    add_beat(&mut agg, character_id, outfit, None);
+    let event = agg
+        .handle(
+            AddOutfitBeat {
+                id: agg.id,
+                character_id,
+                outfit_id: outfit,
+                note: Some("nach dem Telefonat".into()),
+                project_id: Some(project_id()),
+                version: agg.version,
+            },
+            make_ctx(),
+        )
+        .expect("the same outfit with a new cue is a valid re-wear");
+    test_support::replay_events(&mut agg, event);
+    assert_eq!(agg.outfit_beats.len(), 2, "both beats must be recorded");
+    assert_eq!(agg.outfit_beats[1].outfit_id, outfit);
+    assert_eq!(
+        agg.outfit_beats[1].note.as_deref(),
+        Some("nach dem Telefonat")
+    );
+}
+
 #[test]
 fn test_on_change_two_costumes_same_character_allowed() {
     let mut agg = scene_with_character();

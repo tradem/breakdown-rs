@@ -89,7 +89,9 @@ pub trait Ports: Clone + Send + Sync + 'static {
     type CostumeCategoryCommands: CostumeCategoryCommands;
     type CostumeCategoryRepo: CostumeCategoryRepository;
     type SeasonCommands: SeasonCommands;
-    type SeasonRepo: SeasonRepository;
+    // `+ Clone` because the AI script-apply worker owns the port behind an
+    // `Arc` to refuse the outfit step of an archived season (CR-002/D2).
+    type SeasonRepo: SeasonRepository + Clone;
     type BlockCommands: BlockCommands;
     type BlockRepo: BlockRepository;
     type EpisodeCommands: EpisodeCommands + Clone;
