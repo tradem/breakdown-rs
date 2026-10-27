@@ -33,17 +33,24 @@ CREATE TABLE projection_costume_season (
     PRIMARY KEY (costume_id, season_id)
 );
 
+-- Column set as of the pre-split schema: `20250701000001` added the legacy
+-- category columns and `20260806000001` the projector marker, so both must be
+-- present for those migrations to roll back cleanly.
 CREATE TABLE projection_costume_detail (
-    costume_id UUID NOT NULL REFERENCES projection_costume(id) ON DELETE CASCADE,
-    detail_id  UUID NOT NULL,
-    subject    TEXT,
-    text       TEXT NOT NULL,
+    costume_id        UUID NOT NULL REFERENCES projection_costume(id) ON DELETE CASCADE,
+    detail_id         UUID NOT NULL,
+    subject           TEXT,
+    text              TEXT NOT NULL,
+    category_id       UUID,
+    category_name     TEXT,
+    projector_version BIGINT NOT NULL DEFAULT 0,
     PRIMARY KEY (costume_id, detail_id)
 );
 
 CREATE TABLE projection_costume_photo (
-    costume_id UUID NOT NULL REFERENCES projection_costume(id) ON DELETE CASCADE,
-    photo_id   UUID NOT NULL,
+    costume_id        UUID NOT NULL REFERENCES projection_costume(id) ON DELETE CASCADE,
+    photo_id          UUID NOT NULL,
+    projector_version BIGINT NOT NULL DEFAULT 0,
     PRIMARY KEY (costume_id, photo_id)
 );
 
