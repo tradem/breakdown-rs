@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: glm-5.3 (neuralwatt)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 import 'dart:async';
 import 'dart:typed_data';
@@ -41,7 +42,17 @@ Future<Result<List<OutfitView>>> characterOutfits(
   String characterId,
 ) async {
   final repo = ref.watch(outfitRepositoryProvider);
-  return repo.listByCharacter(characterId, clock: ref.watch(clockProvider));
+  final clock = ref.watch(clockProvider);
+  final generation = ref.watch(cacheGenerationProvider);
+  return repo.listByCharacter(
+    characterId,
+    clock: clock,
+    fence: CacheWriteFence(
+      generation: generation,
+      isCurrentGeneration: (g) =>
+          ref.mounted && ref.read(cacheGenerationProvider) == g,
+    ),
+  );
 }
 
 /// Photo repository for fitting photos (upload / bytes / delete / watch).
@@ -257,12 +268,50 @@ class OutfitsController extends _$OutfitsController {
   // character's season). Mirror it: await the backend-computed predicate and
   // deny only on a RESOLVED `false` — a pending fetch disables the affordance
   // in the UI, it never denies.
-  Future<bool> _allowed(String seasonId) async {
-    final membership = await ref.read(membershipFetchProvider(seasonId).future);
-    return membership.match(
-      (_) => false,
-      (dto) => dto.hasActiveCostumeRoleInSeason,
-    );
+  //
+  // Tri-state: `null` means the command may proceed. A fetch [Left] (network /
+  // transport / DTO failure) is a PENDING state ('membership.pending'), never
+  // a denial, and the failed provider state is dropped so the NEXT attempt
+  // re-executes the fetch instead of replaying the retained failure (mirror of
+  // the pieces `_photoGate` and seasons `archive` gates). A resolved `false`
+  // is `domain.forbidden` — the code the server renders on every outfit route
+  // (`authorize_outfit_scoped` → `ApiError::Forbidden` → 403
+  // `domain.forbidden`); `outfit.forbidden`/`photo.forbidden` do not exist
+  // server-side. An empty scope (the projection's `season_id` is nullable)
+  // can never be verified, so it stays pending rather than skipping the
+  // client-side mirror silently.
+  Future<ProblemError?> _allowed(String seasonId) async {
+    if (seasonId.isEmpty) {
+      return const ProblemError(code: 'membership.pending', status: 403);
+    }
+    final ProblemError? denial;
+    try {
+      final membership = await ref.read(
+        membershipFetchProvider(seasonId).future,
+      );
+      denial = membership.match(
+        // Retry-ability: drop the failed result so a subsequent command
+        // re-executes the fetch (the retained Left would otherwise be
+        // replayed as a permanent pending).
+        (_) => _pending(seasonId),
+        (dto) => dto.hasActiveCostumeRoleInSeason
+            ? null
+            : const ProblemError(code: 'domain.forbidden', status: 403),
+      );
+    } on Object {
+      // A throw (transport fault, provider torn down mid-await) is pending as
+      // well — same retry-ability, same non-denial verdict.
+      ref.invalidate(membershipFetchProvider(seasonId));
+      return const ProblemError(code: 'membership.pending', status: 403);
+    }
+    return denial;
+  }
+
+  /// Drops the retained fetch failure so the NEXT command attempt re-executes
+  /// the membership lookup instead of replaying it as a permanent pending.
+  ProblemError _pending(String seasonId) {
+    ref.invalidate(membershipFetchProvider(seasonId));
+    return const ProblemError(code: 'membership.pending', status: 403);
   }
 
   void _fail(OutfitCommandSurface surface, ProblemError error) {
@@ -293,9 +342,8 @@ class OutfitsController extends _$OutfitsController {
     required String name,
     List<String> pieceIds = const [],
   }) async {
-    if (!await _allowed(seasonId)) {
-      return const Left(ProblemError(code: 'outfit.forbidden'));
-    }
+    final denial = await _allowed(seasonId);
+    if (denial != null) return Left(denial);
     final created = await _repo.create(
       characterId: characterId,
       name: name,
@@ -307,6 +355,7 @@ class OutfitsController extends _$OutfitsController {
         return Left<ProblemError, String>(err);
       },
       (ack) {
+        ref.read(outfitsCommandErrorProvider(characterId).notifier).clear();
         _installCreateOverlay(
           id: ack.id,
           seasonId: seasonId,
@@ -327,9 +376,8 @@ class OutfitsController extends _$OutfitsController {
     String? seasonId,
   }) async {
     final scope = seasonId ?? source.seasonId ?? '';
-    if (scope.isNotEmpty && !await _allowed(scope)) {
-      return const Left(ProblemError(code: 'outfit.forbidden'));
-    }
+    final denial = await _allowed(scope);
+    if (denial != null) return Left(denial);
     final created = await _repo.createVariant(source.id, name: name);
     return created.match(
       (err) {
@@ -337,6 +385,7 @@ class OutfitsController extends _$OutfitsController {
         return Left<ProblemError, String>(err);
       },
       (ack) {
+        ref.read(outfitsCommandErrorProvider(characterId).notifier).clear();
         _installCreateOverlay(
           id: ack.id,
           seasonId: source.seasonId ?? '',
@@ -358,9 +407,8 @@ class OutfitsController extends _$OutfitsController {
     String? seasonId,
   }) async {
     final scope = seasonId ?? outfit.seasonId ?? '';
-    if (scope.isNotEmpty && !await _allowed(scope)) {
-      return const Left(ProblemError(code: 'outfit.forbidden'));
-    }
+    final denial = await _allowed(scope);
+    if (denial != null) return Left(denial);
     final result = await _repo.rename(
       outfit.id,
       RenameOutfitRequest(
@@ -375,6 +423,7 @@ class OutfitsController extends _$OutfitsController {
         return Left<ProblemError, int>(err);
       },
       (version) {
+        ref.read(outfitsCommandErrorProvider(characterId).notifier).clear();
         _installOverlay(
           applyOutfitRenameOptimistic(outfit, name),
           acknowledgedVersion: version,
@@ -391,9 +440,8 @@ class OutfitsController extends _$OutfitsController {
     String? seasonId,
   }) async {
     final scope = seasonId ?? outfit.seasonId ?? '';
-    if (scope.isNotEmpty && !await _allowed(scope)) {
-      return const Left(ProblemError(code: 'outfit.forbidden'));
-    }
+    final denial = await _allowed(scope);
+    if (denial != null) return Left(denial);
     final result = await _repo.updateNotes(
       outfit.id,
       UpdateOutfitNotesRequest(
@@ -408,6 +456,7 @@ class OutfitsController extends _$OutfitsController {
         return Left<ProblemError, int>(err);
       },
       (version) {
+        ref.read(outfitsCommandErrorProvider(characterId).notifier).clear();
         _installOverlay(
           applyOutfitNotesOptimistic(outfit, notes),
           acknowledgedVersion: version,
@@ -426,9 +475,8 @@ class OutfitsController extends _$OutfitsController {
     String? seasonId,
   }) async {
     final scope = seasonId ?? outfit.seasonId ?? '';
-    if (scope.isNotEmpty && !await _allowed(scope)) {
-      return const Left(ProblemError(code: 'outfit.forbidden'));
-    }
+    final denial = await _allowed(scope);
+    if (denial != null) return Left(denial);
     final result = await _repo.addPiece(
       outfit.id,
       AddOutfitPieceRequest(
@@ -443,6 +491,7 @@ class OutfitsController extends _$OutfitsController {
         return Left<ProblemError, int>(err);
       },
       (version) {
+        ref.read(outfitsCommandErrorProvider(characterId).notifier).clear();
         _installOverlay(
           applyOutfitAddPieceOptimistic(
             outfit,
@@ -470,9 +519,8 @@ class OutfitsController extends _$OutfitsController {
     String? seasonId,
   }) async {
     final scope = seasonId ?? outfit.seasonId ?? '';
-    if (scope.isNotEmpty && !await _allowed(scope)) {
-      return const Left(ProblemError(code: 'outfit.forbidden'));
-    }
+    final denial = await _allowed(scope);
+    if (denial != null) return Left(denial);
     final result = await _repo.removePiece(outfit.id, pieceId, outfit.version);
     return result.match(
       (err) {
@@ -480,6 +528,7 @@ class OutfitsController extends _$OutfitsController {
         return Left<ProblemError, int>(err);
       },
       (version) {
+        ref.read(outfitsCommandErrorProvider(characterId).notifier).clear();
         _installOverlay(
           applyOutfitRemovePieceOptimistic(outfit, pieceId),
           acknowledgedVersion: version,
@@ -498,16 +547,15 @@ class OutfitsController extends _$OutfitsController {
     String? seasonId,
   }) async {
     final scope = seasonId ?? outfit.seasonId ?? '';
-    if (scope.isNotEmpty && !await _allowed(scope)) {
-      return const Left(ProblemError(code: 'photo.forbidden'));
-    }
+    final denial = await _allowed(scope);
+    if (denial != null) return Left(denial);
     final result = await ref
         .read(outfitPhotoRepositoryProvider)
         .uploadOutfit(outfit.id, bytes, contentType);
-    result.match(
-      (err) => _fail(OutfitCommandSurface.photo, err),
-      (_) => unawaited(_resync()),
-    );
+    result.match((err) => _fail(OutfitCommandSurface.photo, err), (_) {
+      ref.read(outfitsCommandErrorProvider(characterId).notifier).clear();
+      unawaited(_resync());
+    });
     return result;
   }
 
@@ -518,16 +566,15 @@ class OutfitsController extends _$OutfitsController {
     String? seasonId,
   }) async {
     final scope = seasonId ?? outfit.seasonId ?? '';
-    if (scope.isNotEmpty && !await _allowed(scope)) {
-      return const Left(ProblemError(code: 'photo.forbidden'));
-    }
+    final denial = await _allowed(scope);
+    if (denial != null) return Left(denial);
     final result = await ref
         .read(outfitPhotoRepositoryProvider)
         .deleteOutfitPhoto(outfit.id, photoId);
-    result.match(
-      (err) => _fail(OutfitCommandSurface.photo, err),
-      (_) => unawaited(_resync()),
-    );
+    result.match((err) => _fail(OutfitCommandSurface.photo, err), (_) {
+      ref.read(outfitsCommandErrorProvider(characterId).notifier).clear();
+      unawaited(_resync());
+    });
     return result;
   }
 
@@ -576,6 +623,10 @@ class OutfitsController extends _$OutfitsController {
   /// (never silently dropped) when the budget is exhausted.
   Future<void> _resync() async {
     final scheduler = ref.read(reconciliationSchedulerProvider);
+    // The TTL staleness verdict is re-read alongside the refetch, so a
+    // reconciled row does not keep rendering the stale banner (mirror of the
+    // pieces `_refetchProjection`).
+    ref.invalidate(outfitsCacheStaleProvider(characterId));
     for (var attempt = 0; attempt < kMaxReconcileAttempts; attempt++) {
       if (attempt > 0) await scheduler.tick(attempt - 1);
       if (!ref.mounted) return;
