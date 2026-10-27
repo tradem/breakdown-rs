@@ -118,9 +118,10 @@ class _ContinuityStripState extends ConsumerState<ContinuityStrip> {
                 _LinkedPhoto(:final pieceId, :final photo) => SizedBox(
                   width: 96,
                   child: PhotoTile(
-                    pieceId: pieceId,
-                    photo: photo,
-                    repository: repo,
+                    ownerId: pieceId,
+                    photo: GalleryPhoto.fromPiece(photo),
+                    fetch: (photoId, variant) =>
+                        repo.getBytes(pieceId, photoId, variant),
                     lru: lru,
                     onDelete: widget.enabled
                         ? () => _confirmUnlink(photo.id)

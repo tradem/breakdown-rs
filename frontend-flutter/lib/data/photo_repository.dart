@@ -59,7 +59,37 @@ Future<void> _defaultWatchDelay(int attempt) => Future<void>.delayed(
 class PhotoRepository extends BaseRepository {
   const PhotoRepository(super.api);
 
-  /// Raw-bytes upload (`POST /v1/pieces/{costume_id}/photos`).
+  /// Raw-bytes upload for a fundus garment (`POST /v1/pieces/{id}/photos`,
+  /// the split of the retired `/v1/costumes/{id}/photos` route — a literal
+  /// that would answer 404 while the compiler stays silent, which is why the
+  /// route is asserted in the repository tests).
+  Future<Result<PhotoView>> upload(
+    String pieceId,
+    Uint8List bytes,
+    String contentType, {
+    ProgressCallback? onSendProgress,
+  }) => _upload(
+    '/v1/pieces/$pieceId/photos',
+    bytes,
+    contentType,
+    onSendProgress: onSendProgress,
+  );
+
+  /// Raw-bytes upload for a character's composed look
+  /// (`POST /v1/outfits/{id}/photos`).
+  Future<Result<PhotoView>> uploadOutfit(
+    String outfitId,
+    Uint8List bytes,
+    String contentType, {
+    ProgressCallback? onSendProgress,
+  }) => _upload(
+    '/v1/outfits/$outfitId/photos',
+    bytes,
+    contentType,
+    onSendProgress: onSendProgress,
+  );
+
+  /// Shared raw-bytes upload.
   ///
   /// [contentType] must be one of [kPhotoContentTypes]; the caller (prepare
   /// pipeline) guarantees the bytes fit the size budget, else it fails
@@ -68,8 +98,8 @@ class PhotoRepository extends BaseRepository {
   /// Implemented via the underlying [Dio] (the generated client types the
   /// body as `String`, which cannot carry binary safely) with the same
   /// error mapping as [BaseRepository.run] (RFC 9457 `code`, never `detail`).
-  Future<Result<PhotoView>> upload(
-    String pieceId,
+  Future<Result<PhotoView>> _upload(
+    String path,
     Uint8List bytes,
     String contentType, {
     ProgressCallback? onSendProgress,
@@ -79,7 +109,7 @@ class PhotoRepository extends BaseRepository {
     }
     try {
       final response = await api.dio.post<Object>(
-        '/v1/pieces/$pieceId/photos',
+        path,
         // Pass the bytes directly (not a Stream): Dio sets the content
         // length automatically, so `onSendProgress` receives a valid
         // total (a Stream payload leaves the length unset and progress
@@ -140,6 +170,37 @@ class PhotoRepository extends BaseRepository {
     }
   }
 
+  /// Fetches the raw bytes of an outfit (fitting) photo variant
+  /// (`GET /v1/outfits/{outfit_id}/photos/{photo_id}/bytes`).
+  Future<Result<Uint8List>> getOutfitBytes(
+    String outfitId,
+    String photoId,
+    String variant,
+  ) => run(
+    () => api.getHandlersApi().getOutfitPhotoBytes(
+      outfitId: outfitId,
+      photoId: photoId,
+      variant: variant,
+    ),
+  );
+
+  /// Deletes an outfit photo (204 → optimistic removal + reconcile).
+  /// A `null` body is success (not `dto.invalid`).
+  Future<Result<void>> deleteOutfitPhoto(
+    String outfitId,
+    String photoId,
+  ) async {
+    try {
+      await api.getHandlersApi().deleteOutfitPhoto(
+        outfitId: outfitId,
+        photoId: photoId,
+      );
+      return const Right<ProblemError, void>(null);
+    } on DioException catch (e) {
+      return Left(problemErrorFromDio(e));
+    }
+  }
+
   /// Bounded-backoff piece refetch stream for variant watching (D5).
   ///
   /// Refetches the piece view via [fetchPiece] until the terminal
@@ -156,16 +217,46 @@ class PhotoRepository extends BaseRepository {
   ///   subscription — no background polling, foreground-only).
   /// * [delay] is injectable (fake scheduler in tests — never a real
   ///   `Future.delayed` wall-clock).
-  Stream<PhotoWatchEvent> watch(
+  Stream<PhotoWatchEvent<PieceView>> watch(
     String pieceId,
     Future<Result<PieceView>> Function() fetchPiece, {
+    Clock clock = Clock.system,
+    Future<void> Function(int attempt)? delay,
+  }) => watchPhotos<PieceView>(
+    fetch: fetchPiece,
+    isTerminal: isPhotoWatchTerminal,
+    clock: clock,
+    delay: delay,
+  );
+
+  /// The outfit twin of [watch]: the same bounded backoff over the look's
+  /// fitting photos, so the two aggregate boundaries share ONE polling
+  /// implementation instead of drifting apart.
+  Stream<PhotoWatchEvent<OutfitView>> watchOutfit(
+    String outfitId,
+    Future<Result<OutfitView>> Function() fetchOutfit, {
+    Clock clock = Clock.system,
+    Future<void> Function(int attempt)? delay,
+  }) => watchPhotos<OutfitView>(
+    fetch: fetchOutfit,
+    isTerminal: isOutfitPhotoWatchTerminal,
+    clock: clock,
+    delay: delay,
+  );
+
+  /// Generic bounded-backoff watch over an enriched view whose photos carry
+  /// variants. [isTerminal] decides the whole-pass terminal condition for the
+  /// concrete view ([isPhotoWatchTerminal] / [isOutfitPhotoWatchTerminal]).
+  Stream<PhotoWatchEvent<View>> watchPhotos<View>({
+    required Future<Result<View>> Function() fetch,
+    required bool Function(View view) isTerminal,
     Clock clock = Clock.system,
     Future<void> Function(int attempt)? delay,
   }) async* {
     final startedAt = clock.now();
     var attempts = 0;
-    Stream<PhotoWatchEvent> emitExpired() async* {
-      final last = await fetchPiece();
+    Stream<PhotoWatchEvent<View>> emitExpired() async* {
+      final last = await fetch();
       yield* last.match(
         (err) async* {
           yield PhotoWatchEvent.expired(null, err);
@@ -192,10 +283,10 @@ class PhotoRepository extends BaseRepository {
         return;
       }
       attempts++;
-      final result = await fetchPiece();
+      final result = await fetch();
       final done = await result.match(
         (_) async => false,
-        (view) async => isPhotoWatchTerminal(view),
+        (view) async => isTerminal(view),
       );
       yield* result.match(
         (err) async* {
@@ -224,24 +315,21 @@ enum PhotoWatchState {
   expired,
 }
 
-/// One emission of [PhotoRepository.watch].
-class PhotoWatchEvent {
+/// One emission of [PhotoRepository.watch] / [PhotoRepository.watchOutfit].
+class PhotoWatchEvent<View> {
   const PhotoWatchEvent._(this.state, this.view, this.attempts, this.error);
 
-  const PhotoWatchEvent.progress(
-    PieceView? view,
-    int attempts,
-    ProblemError? error,
-  ) : this._(PhotoWatchState.progress, view, attempts, error);
+  const PhotoWatchEvent.progress(View? view, int attempts, ProblemError? error)
+    : this._(PhotoWatchState.progress, view, attempts, error);
 
-  const PhotoWatchEvent.terminal(PieceView view)
+  const PhotoWatchEvent.terminal(View view)
     : this._(PhotoWatchState.terminal, view, 0, null);
 
-  const PhotoWatchEvent.expired(PieceView? view, ProblemError? error)
+  const PhotoWatchEvent.expired(View? view, ProblemError? error)
     : this._(PhotoWatchState.expired, view, 0, error);
 
   final PhotoWatchState state;
-  final PieceView? view;
+  final View? view;
   final int attempts;
   final ProblemError? error;
 }
@@ -254,14 +342,21 @@ class PhotoWatchEvent {
 ///
 /// A photo with one `Ready` and one `Pending` variant keeps the pass running.
 /// An empty photo list is terminal (nothing to wait for).
-bool isPhotoWatchTerminal(PieceView view) {
-  if (view.photos.isEmpty) return true;
-  for (final photo in view.photos) {
-    // A photo with no variants yet (upload ack racing the variant saga)
-    // is not terminal: keep polling until variants appear and settle.
-    if (photo.variants.isEmpty) return false;
-    for (final variant in photo.variants) {
-      // Direct enum comparison (same rationale as `photoRowStatus`).
+bool isPhotoWatchTerminal(PieceView view) =>
+    _variantsTerminal(view.photos.map((photo) => photo.variants));
+
+/// Outfit terminal condition: the same whole-pass rule over
+/// `OutfitView.photos[].variants[].status`. A fitting photo whose variant set
+/// has not appeared yet keeps the pass running; an empty list is terminal.
+bool isOutfitPhotoWatchTerminal(OutfitView view) =>
+    _variantsTerminal(view.photos.map((photo) => photo.variants));
+
+/// One rule for both aggregates: every photo must have a variant set, and
+/// every variant must be terminal (`Ready` or `Failed`).
+bool _variantsTerminal(Iterable<Iterable<PhotoVariantView>> photos) {
+  for (final variants in photos) {
+    if (variants.isEmpty) return false;
+    for (final variant in variants) {
       if (variant.status != VariantStatus.ready &&
           variant.status != VariantStatus.failed) {
         return false;

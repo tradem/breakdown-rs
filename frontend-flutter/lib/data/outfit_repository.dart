@@ -173,7 +173,13 @@ OutfitView applyOutfitAddPieceOptimistic(
   OutfitView row,
   OutfitPieceView piece,
 ) {
-  if (row.pieces.any((p) => p.pieceId == piece.pieceId)) return row;
+  // Both id collections guard the duplicate: `pieces` carries the joined
+  // rows, `pieceIds` the aggregate's reference list — a look whose joined
+  // row has not projected yet would otherwise desync the id-keyed list.
+  if (row.pieces.any((p) => p.pieceId == piece.pieceId) ||
+      row.pieceIds.contains(piece.pieceId)) {
+    return row;
+  }
   return row.rebuild((b) => b.pieces.add(piece));
 }
 

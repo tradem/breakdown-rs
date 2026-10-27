@@ -112,10 +112,11 @@ class _TileSurface extends StatelessWidget {
       return Image(
         key: Key('piece-photo-${piece.id}'),
         image: PhotoVariantImage(
-          pieceId: piece.id,
-          photo: photo!,
+          ownerId: piece.id,
+          photoId: photo!.id,
           variant: 'Thumb',
-          repository: repository!,
+          fetch: (photoId, variant) =>
+              repository!.getBytes(piece.id, photoId, variant),
           lru: bytesLru,
         ),
         fit: BoxFit.cover,

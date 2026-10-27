@@ -22,11 +22,13 @@ final piecePhotoWatchProvider = PiecePhotoWatchFamily._();
 final class PiecePhotoWatchProvider
     extends
         $FunctionalProvider<
-          AsyncValue<PhotoWatchEvent>,
-          PhotoWatchEvent,
-          Stream<PhotoWatchEvent>
+          AsyncValue<PhotoWatchEvent<PieceView>>,
+          PhotoWatchEvent<PieceView>,
+          Stream<PhotoWatchEvent<PieceView>>
         >
-    with $FutureModifier<PhotoWatchEvent>, $StreamProvider<PhotoWatchEvent> {
+    with
+        $FutureModifier<PhotoWatchEvent<PieceView>>,
+        $StreamProvider<PhotoWatchEvent<PieceView>> {
   /// Foreground-only variant watch for one piece (D5): bounded-backoff
   /// piece refetches while subscribed; terminal variants end the pass; the
   /// subscription dies with the screen (no background polling).
@@ -53,12 +55,12 @@ final class PiecePhotoWatchProvider
 
   @$internal
   @override
-  $StreamProviderElement<PhotoWatchEvent> $createElement(
+  $StreamProviderElement<PhotoWatchEvent<PieceView>> $createElement(
     $ProviderPointer pointer,
   ) => $StreamProviderElement(pointer);
 
   @override
-  Stream<PhotoWatchEvent> create(Ref ref) {
+  Stream<PhotoWatchEvent<PieceView>> create(Ref ref) {
     final argument = this.argument as (String, String);
     return piecePhotoWatch(ref, argument.$1, argument.$2);
   }
@@ -74,14 +76,18 @@ final class PiecePhotoWatchProvider
   }
 }
 
-String _$piecePhotoWatchHash() => r'3f0bbc2541bd83acf851ac6f5b7c615d7e3a15c7';
+String _$piecePhotoWatchHash() => r'74c6d785878bab836c90742e6dc64fc61fbce391';
 
 /// Foreground-only variant watch for one piece (D5): bounded-backoff
 /// piece refetches while subscribed; terminal variants end the pass; the
 /// subscription dies with the screen (no background polling).
 
 final class PiecePhotoWatchFamily extends $Family
-    with $FunctionalFamilyOverride<Stream<PhotoWatchEvent>, (String, String)> {
+    with
+        $FunctionalFamilyOverride<
+          Stream<PhotoWatchEvent<PieceView>>,
+          (String, String)
+        > {
   PiecePhotoWatchFamily._()
     : super(
         retry: null,

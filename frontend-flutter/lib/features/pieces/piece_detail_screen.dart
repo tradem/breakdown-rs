@@ -35,7 +35,7 @@ part 'piece_detail_screen.g.dart';
 /// piece refetches while subscribed; terminal variants end the pass; the
 /// subscription dies with the screen (no background polling).
 @riverpod
-Stream<PhotoWatchEvent> piecePhotoWatch(
+Stream<PhotoWatchEvent<PieceView>> piecePhotoWatch(
   Ref ref,
   String seasonId,
   String pieceId,
@@ -1224,8 +1224,13 @@ class _PhotosSectionState extends ConsumerState<_PhotosSection> {
           ),
         if (repo != null)
           PhotoGallery(
-            piece: _detail ?? widget.piece,
-            repository: repo,
+            ownerId: (_detail ?? widget.piece).id,
+            photos: [
+              for (final photo in (_detail ?? widget.piece).photos)
+                GalleryPhoto.fromPiece(photo),
+            ],
+            fetch: (photoId, variant) =>
+                repo.getBytes((_detail ?? widget.piece).id, photoId, variant),
             lru: lru,
             canCapture: canManagePhotos,
             onCapture: canManagePhotos

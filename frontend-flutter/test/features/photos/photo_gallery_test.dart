@@ -116,15 +116,19 @@ void main() {
 
     test('mixed Ready + Pending keeps pending; Failed wins', () {
       expect(
-        photoRowStatus(_photo('p', ['Ready', 'Ready'])),
+        photoRowStatus(GalleryPhoto.fromPiece(_photo('p', ['Ready', 'Ready']))),
         PhotoRowStatus.ready,
       );
       expect(
-        photoRowStatus(_photo('p', ['Ready', 'Pending'])),
+        photoRowStatus(
+          GalleryPhoto.fromPiece(_photo('p', ['Ready', 'Pending'])),
+        ),
         PhotoRowStatus.pending,
       );
       expect(
-        photoRowStatus(_photo('p', ['Ready', 'Failed'])),
+        photoRowStatus(
+          GalleryPhoto.fromPiece(_photo('p', ['Ready', 'Failed'])),
+        ),
         PhotoRowStatus.failed,
       );
     });
@@ -327,8 +331,13 @@ void main() {
           child: MaterialApp(
             home: Scaffold(
               body: PhotoGallery(
-                piece: piece,
-                repository: repo,
+                ownerId: piece.id,
+                photos: [
+                  for (final photo in piece.photos)
+                    GalleryPhoto.fromPiece(photo),
+                ],
+                fetch: (photoId, variant) =>
+                    repo.getBytes(piece.id, photoId, variant),
                 lru: PhotoBytesLru(),
                 onDelete: onDelete == null ? null : (photo) => onDelete(),
               ),
@@ -370,7 +379,10 @@ void main() {
           ..sizeBytes = 10
           ..variants.replace(BuiltList<PhotoVariantView>()),
       );
-      expect(photoRowStatus(photo), PhotoRowStatus.pending);
+      expect(
+        photoRowStatus(GalleryPhoto.fromPiece(photo)),
+        PhotoRowStatus.pending,
+      );
       await pumpGallery(tester, _piece([photo]));
       expect(find.byKey(const Key('photo-tile-p-empty')), findsOneWidget);
       expect(find.byKey(const Key('photo-pending-spinner')), findsOneWidget);
@@ -387,10 +399,12 @@ void main() {
           child: MaterialApp(
             home: Scaffold(
               body: PhotoGallery(
-                piece: _piece([
-                  _photo('p-1', ['Failed']),
-                ]),
-                repository: repo,
+                ownerId: 'c-1',
+                photos: [
+                  GalleryPhoto.fromPiece(_photo('p-1', ['Failed'])),
+                ],
+                fetch: (photoId, variant) =>
+                    repo.getBytes('c-1', photoId, variant),
                 lru: PhotoBytesLru(),
                 onRetryCapture: () => again++,
               ),
@@ -441,11 +455,14 @@ void main() {
               themeMode: mode,
               home: Scaffold(
                 body: PhotoGallery(
-                  piece: _piece([
-                    _photo('p-1', ['Pending']),
-                    _photo('p-2', ['Failed']),
-                  ]),
-                  repository: _FakePhotoRepository(BreakdownApi()),
+                  ownerId: 'c-1',
+                  photos: [
+                    GalleryPhoto.fromPiece(_photo('p-1', ['Pending'])),
+                    GalleryPhoto.fromPiece(_photo('p-2', ['Failed'])),
+                  ],
+                  fetch: (photoId, variant) =>
+                      _FakePhotoRepository(BreakdownApi())
+                          .getBytes('c-1', photoId, variant),
                   lru: PhotoBytesLru(),
                 ),
               ),
