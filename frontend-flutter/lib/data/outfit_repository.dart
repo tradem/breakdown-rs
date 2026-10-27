@@ -180,16 +180,30 @@ OutfitView applyOutfitAddPieceOptimistic(
       row.pieceIds.contains(piece.pieceId)) {
     return row;
   }
-  return row.rebuild((b) => b.pieces.add(piece));
+  // `pieceIds` is appended with the row: the aggregate now references the
+  // garment, and [OutfitsController.createVariant] builds its optimistic fork
+  // from `source.pieceIds` — a row-only add would make the fork silently drop
+  // a piece that is already on screen.
+  return row.rebuild(
+    (b) => b
+      ..pieces.add(piece)
+      ..pieceIds.add(piece.pieceId),
+  );
 }
 
-/// Optimistic overlay: drops a piece from the look.
+/// Optimistic overlay: drops a piece from the look. Both id collections are
+/// rebuilt together — [applyOutfitAddPieceOptimistic]' duplicate guard reads
+/// `pieceIds` as well, so a remove leaving a stale id behind would suppress
+/// the re-add of the same garment inside the same reconciliation window.
 OutfitView applyOutfitRemovePieceOptimistic(OutfitView row, String pieceId) {
-  final remaining = row.pieces.where((p) => p.pieceId != pieceId);
+  final remaining = row.pieces.where((p) => p.pieceId != pieceId).toList();
+  final remainingIds = row.pieceIds.where((id) => id != pieceId).toList();
   return row.rebuild(
-    (b) => b.pieces
-      ..clear()
-      ..addAll(remaining),
+    (b) => b
+      ..pieces.clear()
+      ..pieces.addAll(remaining)
+      ..pieceIds.clear()
+      ..pieceIds.addAll(remainingIds),
   );
 }
 

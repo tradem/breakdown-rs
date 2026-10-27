@@ -17,6 +17,7 @@ import '../../../auth/membership/capability.dart';
 import '../../../auth/membership/membership_providers.dart';
 import '../../../core/problem_error.dart';
 import '../../../l10n/app_localizations_provider.dart';
+import '../../../l10n/generated/app_localizations.dart';
 import '../../pieces/pieces_controller.dart';
 import '../../photos/capture.dart';
 import '../../photos/prepare.dart';
@@ -166,7 +167,7 @@ class _ContinuityStripState extends ConsumerState<ContinuityStrip> {
                   // critical scenario (piece pick on device).
                   key: Key('continuity-piece-option-${c.id}'),
                   value: c.id,
-                  child: Text(_pieceLabel(c)),
+                  child: Text(_pieceLabel(l10nOf(context), c)),
                 ),
             ],
             onChanged: (v) => setState(() => _pieceId = v),
@@ -446,8 +447,10 @@ List<_ResolvedContinuity> _resolve(
   ];
 }
 
-String _pieceLabel(PieceView piece) {
+String _pieceLabel(AppLocalizations l10n, PieceView piece) {
   final id = piece.id.length > 8 ? piece.id.substring(0, 8) : piece.id;
   final notes = piece.notes.trim();
-  return notes.isEmpty ? 'Piece $id' : 'Piece $id — $notes';
+  return notes.isEmpty
+      ? l10n.continuityPieceLabel(id)
+      : l10n.continuityPieceLabelWithNotes(id, notes);
 }

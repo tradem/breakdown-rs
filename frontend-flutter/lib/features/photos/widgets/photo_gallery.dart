@@ -469,7 +469,9 @@ String photoErrorCopy(AppLocalizations l10n, ProblemError error) =>
     switch (error.code) {
       'photo.too_large' => l10n.photoErrorTooLarge,
       'photo.unsupported_media_type' => l10n.photoErrorUnsupported,
-      'photo.forbidden' || 'authz.denied' => l10n.photoErrorForbidden,
+      'photo.forbidden' ||
+      'authz.denied' ||
+      'domain.forbidden' => l10n.photoErrorForbidden,
       // Issue #535: the piece's owning series could not be resolved (no
       // repertoire entry, no outfit referencing it) — the server answers 422
       // with this code.

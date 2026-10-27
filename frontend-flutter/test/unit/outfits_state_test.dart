@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: glm-5.3 (neuralwatt)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 // Tier-1 unit test: the look controller's pure state shaping (rows + version
 // fence), the overlay clear condition and the problem-code → copy mapping.
@@ -23,6 +24,7 @@ OutfitView _outfit(
   String name = 'Look',
   String? variantOf,
   List<String> pieceIds = const [],
+  List<OutfitPieceView> pieces = const [],
 }) => OutfitView(
   (b) => b
     ..id = id
@@ -34,7 +36,7 @@ OutfitView _outfit(
     ..version = version
     ..updatedAt = DateTime.utc(2026, 10, 27)
     ..pieceIds.replace(BuiltList<String>(pieceIds))
-    ..pieces.replace(BuiltList<OutfitPieceView>())
+    ..pieces.replace(BuiltList<OutfitPieceView>(pieces))
     ..photos.replace(BuiltList<OutfitPhotoView>()),
 );
 
@@ -181,6 +183,58 @@ void main() {
         ).pieces.map((p) => p.pieceId),
         ['p-2'],
       );
+    });
+
+    test('remove keeps pieceIds in step so a re-add in the same window is '
+        'not suppressed', () {
+      final projected = _outfit(
+        'o-1',
+        version: 2,
+        pieceIds: ['p-1'],
+        pieces: [
+          OutfitPieceView(
+            (b) => b
+              ..pieceId = 'p-1'
+              ..position = 0
+              ..name = 'Hemd',
+          ),
+        ],
+      );
+      final removed = applyOutfitRemovePieceOptimistic(projected, 'p-1');
+      expect(removed.pieces, isEmpty);
+      expect(removed.pieceIds, isEmpty);
+
+      // The add guard reads `pieceIds` too: a stale id would make the re-add
+      // a silent no-op until the projection caught up.
+      final reAdded = applyOutfitAddPieceOptimistic(
+        removed,
+        OutfitPieceView(
+          (b) => b
+            ..pieceId = 'p-1'
+            ..position = 0
+            ..name = 'Hemd',
+        ),
+      );
+      expect(reAdded.pieces.map((p) => p.pieceId), ['p-1']);
+      // The reverse direction matters as well: `createVariant` builds its
+      // optimistic fork from `source.pieceIds`, so a row-only add would fork a
+      // look that silently drops the garment still on screen.
+      expect(reAdded.pieceIds, ['p-1']);
+    });
+
+    test('add appends to pieceIds so a variant fork keeps the garment', () {
+      final projected = _outfit('o-1', version: 2, pieceIds: ['p-1']);
+      final added = applyOutfitAddPieceOptimistic(
+        projected,
+        OutfitPieceView(
+          (b) => b
+            ..pieceId = 'p-2'
+            ..position = 1
+            ..name = 'Weste',
+        ),
+      );
+      expect(added.pieceIds, ['p-1', 'p-2']);
+      expect(added.pieces.map((p) => p.pieceId), ['p-2']);
     });
   });
 

@@ -23,6 +23,48 @@ releases are cut as `vX.Y.Z` tags (`v<build-name>`, enforced by
 
 ## [Unreleased]
 
+- **Issue #739 follow-up — review round on the look surface:**
+  `0.4.0-beta.15+107 → 0.4.0-beta.16+108`. The review edits below were still
+  unstaged in the working tree when #741 was squash-merged, so `main` carried
+  the pre-review shape; they land here (no new screen, no wire change):
+
+  - **AUTHZ-GATE is tri-state:** an unresolved membership fetch (transport
+    fault, empty projection scope, provider torn down mid-await) is
+    `membership.pending` and never a denial; a resolved `false` is
+    `domain.forbidden` — the code the server actually renders on every
+    `/v1/outfits*` route (`authorize_outfit_scoped` → 403). The retired
+    `outfit.forbidden` never existed server-side. A failed fetch result is
+    dropped so the NEXT command re-fetches instead of replaying the pending
+    verdict as permanent, a successful command clears the retained failure,
+    and `photoErrorCopy` localizes `domain.forbidden` alongside the photo
+    codes.
+  - **Cross-identity safety:** `characterOutfits` writes through the
+    `CacheWriteFence` generation captured at fetch start, and sign-out
+    invalidates the six look families, so no previous identity's rows or
+    command failure survive the reset (`OutfitsPrevRows` is keepAlive and the
+    empty-cache branch preserves nonempty state).
+  - **Optimistic removal:** `applyOutfitRemovePieceOptimistic` rebuilds
+    `pieceIds` together with `pieces`, so a remove → re-add of the same
+    garment inside one reconciliation window is no longer a silent no-op.
+    `applyOutfitAddPieceOptimistic` appends to `pieceIds` too — the mirror
+    direction of the same desync: `createVariant` builds its optimistic fork
+    from `source.pieceIds`, so a row-only add forked a look that silently
+    omitted a garment still on screen.
+  - **Garment picker:** the look detail's add-picker awaits
+    `piecesListFetchProvider(season)` instead of reading a projection no
+    surface ever watched — entered from Character → Looks → detail it now
+    lists the season's garments. A failed fetch reports
+    `outfitPieceListFetchError` with a retry action instead of the picker's
+    "no garments in this season" copy (a false claim about the repertoire),
+    and the await is held by a manual subscription so the auto-dispose fetch
+    provider cannot tear down mid-request and fail its cache-write fence.
+  - **Copy:** the continuity dropdown uses `continuityPieceLabel` /
+    `continuityPieceLabelWithNotes` (de/en) instead of interpolating
+    `'Piece $id'` inline.
+  - **Verified locally:** `flutter analyze` clean, `flutter test` 1895/1895
+    green, `breakdown_lints` clean, `scripts/check-authz-gates.sh` passed,
+    ARB de/en parity + glossary inventory clean.
+
 - **Wardrobe port to the `Piece`/`Outfit` split (backend change
   `separate-piece-and-outfit-domain`):** `0.4.0-beta.13+105 →
   0.4.0-beta.14+106`. The backend retired the single `Costume` aggregate and

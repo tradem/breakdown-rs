@@ -1648,6 +1648,16 @@ class AppLocalizationsDe extends AppLocalizations {
   }
 
   @override
+  String continuityPieceLabel(String id) {
+    return 'Kleidungsstück $id';
+  }
+
+  @override
+  String continuityPieceLabelWithNotes(String id, String notes) {
+    return 'Kleidungsstück $id — $notes';
+  }
+
+  @override
   String get continuityStoreOn => 'Foto speichern unter …';
 
   @override

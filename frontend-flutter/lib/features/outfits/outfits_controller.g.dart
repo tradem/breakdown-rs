@@ -127,7 +127,7 @@ final class CharacterOutfitsProvider
   }
 }
 
-String _$characterOutfitsHash() => r'97e4c6976e9bea68e8c506e3648318386f18fe52';
+String _$characterOutfitsHash() => r'f962480318d4b18831f4398d08489af58d6ed945';
 
 /// The outfits of one character (fetch + snapshot-replace). The scene-beat
 /// picker watches this; a fetch failure surfaces as a `Result` error.
@@ -960,7 +960,7 @@ final class OutfitsControllerProvider
   }
 }
 
-String _$outfitsControllerHash() => r'7a912c1a55e6d0c7ac11e4dc2c4c3fe6a7384ac2';
+String _$outfitsControllerHash() => r'b2bb3ed24e68911378c897bb064af55cb9134efb';
 
 /// `OutfitsController(characterId)`: one character's look commands with
 /// optimistic-after-2xx + bounded-retry reconciliation (version fence).

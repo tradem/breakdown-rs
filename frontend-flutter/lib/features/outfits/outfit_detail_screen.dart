@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: glm-5.3 (neuralwatt)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 import 'dart:async';
 import 'dart:typed_data';
@@ -13,6 +14,7 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../../auth/membership/membership_providers.dart';
 import '../../core/problem_error.dart';
+import '../../core/result.dart';
 import '../../data/photo_repository.dart';
 import '../../design/material_icons.dart';
 import '../../l10n/app_localizations_provider.dart';
@@ -270,15 +272,34 @@ class _OutfitDetailScreenState extends ConsumerState<OutfitDetailScreen> {
     OutfitView outfit,
     OutfitsController controller,
   ) async {
-    // The picker reads the season's garment projection the user already
-    // watches — never a second lookup to fill the command payload.
-    final pieces = ref.read(piecesViewProvider(widget.season.id)).rows;
+    final pieces = await _seasonPiecesForPicker();
+    if (!mounted) return;
+    final failure = pieces.fold<ProblemError?>((err) => err, (_) => null);
+    if (failure != null) {
+      // A failed fetch must never read as an empty repertoire: the picker's
+      // empty state answers "this season has no garments", which is a
+      // different (and false) claim — and it offers no way back. The failure
+      // gets its own localized narrative, the dropped fetch makes the retry
+      // re-request, and the dialog never opens with a phantom-empty list.
+      ref.invalidate(piecesListFetchProvider(widget.season.id));
+      final l10n = l10nOf(context);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          key: const Key('outfit-piece-fetch-error'),
+          content: Text(l10n.outfitPieceListFetchError(failure.code)),
+          action: SnackBarAction(
+            label: l10n.commonRetry,
+            onPressed: () => _addPiece(outfit, controller),
+          ),
+        ),
+      );
+      return;
+    }
     final held = outfit.pieces.map((p) => p.pieceId).toSet();
     final candidates = [
-      for (final piece in pieces)
+      for (final piece in pieces.getOrElse((_) => const <PieceView>[]))
         if (!held.contains(piece.id)) piece,
     ];
-    if (!mounted) return;
     final picked = await showPickPieceDialog(context, candidates);
     if (picked == null) return;
     // Handled: failures surface through the command-error banner.
@@ -288,6 +309,27 @@ class _OutfitDetailScreenState extends ConsumerState<OutfitDetailScreen> {
       seasonId: widget.season.id,
     );
     if (result.isRight()) await _loadDetail();
+  }
+
+  /// The season's garment projection for the picker, awaited through its fetch
+  /// seam. The picker reads the projection the user acts on — never a second
+  /// lookup to fill the command payload — and the seam is awaited first because
+  /// the detail route is reachable straight from the character surface
+  /// (Character → Looks → detail) without the piece chain ever having been
+  /// watched.
+  ///
+  /// The fetch provider is auto-dispose and a bare `ref.read(...future)` holds
+  /// no listener: the request could outlive the provider and its generation
+  /// fence would then reject the cache write. The subscription is held for the
+  /// duration of the await and released afterwards.
+  Future<Result<List<PieceView>>> _seasonPiecesForPicker() async {
+    final fetch = piecesListFetchProvider(widget.season.id);
+    final subscription = ref.listenManual(fetch, (_, _) {});
+    try {
+      return await ref.read(fetch.future);
+    } finally {
+      subscription.close();
+    }
   }
 
   Future<void> _removePiece(
