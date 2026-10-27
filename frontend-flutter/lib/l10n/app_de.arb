@@ -443,6 +443,8 @@
   "continuityRoleGate": "Du benötigst eine aktive Kostüm-Rolle in dieser Staffel, um Kontinuitätsfotos zu verwalten.",
   "continuityEmpty": "Noch keine Kontinuitätsfotos verknüpft.",
   "continuityPhotoLabel": "Foto {id}",
+  "continuityPieceLabel": "Kleidungsstück {id}",
+  "continuityPieceLabelWithNotes": "Kleidungsstück {id} — {notes}",
   "continuityStoreOn": "Foto speichern unter …",
   "continuityPieceHint": "Wähle das Kleidungsstück, zu dem das Foto gehört – es wird am Kleidungsstück gespeichert und mit diesem Shot verknüpft.",
   "continuityRationaleTitle": "Kontinuität mit Fotos dokumentieren?",
@@ -1156,5 +1158,24 @@
   },
   "@outfitVariantCreated": {
     "description": "Confirmation after a variant fork succeeded."
+  },
+  "@continuityPieceLabel": {
+    "description": "Continuity capture dropdown label for the owning garment (short id).",
+    "placeholders": {
+      "id": {
+        "type": "String"
+      }
+    }
+  },
+  "@continuityPieceLabelWithNotes": {
+    "description": "Continuity capture dropdown label for the owning garment, including its notes.",
+    "placeholders": {
+      "id": {
+        "type": "String"
+      },
+      "notes": {
+        "type": "String"
+      }
+    }
   }
 }

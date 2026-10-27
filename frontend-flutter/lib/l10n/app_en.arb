@@ -443,6 +443,8 @@
   "continuityRoleGate": "You need an active costume role in this season to manage continuity photos.",
   "continuityEmpty": "No continuity photos linked.",
   "continuityPhotoLabel": "Photo {id}",
+  "continuityPieceLabel": "Piece {id}",
+  "continuityPieceLabelWithNotes": "Piece {id} — {notes}",
   "continuityStoreOn": "Store photo on…",
   "continuityPieceHint": "Pick the look the photo belongs to — it is stored on the look and linked to this shoot.",
   "continuityRationaleTitle": "Document continuity with photos?",

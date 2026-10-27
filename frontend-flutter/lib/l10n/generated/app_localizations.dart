@@ -2701,6 +2701,18 @@ abstract class AppLocalizations {
   /// **'Foto {id}'**
   String continuityPhotoLabel(Object id);
 
+  /// Continuity capture dropdown label for the owning garment (short id).
+  ///
+  /// In de, this message translates to:
+  /// **'Kleidungsstück {id}'**
+  String continuityPieceLabel(String id);
+
+  /// Continuity capture dropdown label for the owning garment, including its notes.
+  ///
+  /// In de, this message translates to:
+  /// **'Kleidungsstück {id} — {notes}'**
+  String continuityPieceLabelWithNotes(String id, String notes);
+
   /// No description provided for @continuityStoreOn.
   ///
   /// In de, this message translates to:
