@@ -19,7 +19,7 @@ own screen):
 | Soll-Ist report | `soll_ist_report.feature` | planned vs actual; moved/missing/skipped/reshot; `final` from `wrapped_at` |
 | Soll-Ist execution | `soll_ist_execution.feature` | plan → start → actual-order → finish; skip; wrap finality on the day board |
 | Continuity photo capture | `continuity_photo_capture.feature` | AUTHZ-GATE preflight + server handler gate; upload → projector-lag → thumb |
-| Costume assignment | `costume_assignment.feature` | optimistic update + projection refresh; role denial on the costume stream |
+| Outfit casting | `outfit_casting.feature` | optimistic beat cast + projection refresh; continuity by repeated `outfit_id`, deviation via variant fork; role denial on the look surface |
 | Season setup wizard | `setup/season-wizard.feature` | smart defaults; sequential dispatch + per-step reconciliation; partial failure + in-session retry; destructive abort (shipped with `add-season-setup-wizard`) |
 
 `smoke.feature` is **not** a critical scope — it is a harness-proof scenario
@@ -84,7 +84,7 @@ bash tool/run_gherkin.sh          # needs a connected device/emulator
 The `@critical` acceptance scenarios whose screens have not landed carry
 `@pending`; the runner's `tagExpression` is `not @pending`, so the default
 on-device pass runs `smoke.feature` plus every **promoted** critical scope.
-The costume assignment scope is fully promoted (issue #459): no `@pending`
+The outfit-casting scope is fully promoted (issue #459; re-scoped from costume assignment by issue #739 after the Piece/Outfit split): no `@pending`
 left, so its scenarios now run in the default on-device pass. The season
 setup wizard scope is fully promoted (issues #455 + #463): the happy path
 under #455 and its three sibling scenarios (template application, abort

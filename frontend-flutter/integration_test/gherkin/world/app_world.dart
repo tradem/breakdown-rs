@@ -36,6 +36,13 @@ class AppWorld extends FlutterWorld {
   String? lastPieceId;
   String? lastCharacterId;
 
+  /// IDs from the most recent CAST action (outfit casting replaced costume
+  /// assignment in issue #739), so assertion steps can build the beat keys
+  /// (`scene-piece-beat-<character><order>`) and the look keys
+  /// (`outfit-row-<outfit>`).
+  String? lastOutfitId;
+  String? lastSceneId;
+
   /// Real backend ids resolved by the host-side seeding step (issue #368):
   /// the symbolic ids in `outfit_casting.feature` (season "1", piece
   /// "c-7", character "ch-3") map to the freshly created aggregates. The
@@ -62,6 +69,8 @@ class AppWorld extends FlutterWorld {
     requestsLeftDevice = 0;
     lastPieceId = null;
     lastCharacterId = null;
+    lastOutfitId = null;
+    lastSceneId = null;
     seedIds.clear();
     wizardFreeSeasonNumber = null;
     wizardExpectsPartialFailure = false;

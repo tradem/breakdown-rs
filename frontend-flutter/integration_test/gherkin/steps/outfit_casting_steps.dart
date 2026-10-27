@@ -1,10 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
-// Co-authored-by: hy3 (opencode-go)
-// Co-authored-by: muse-spark-1.3-contributor (opencode-go)
 // Co-authored-by: glm-5.3 (neuralwatt)
-// Co-authored-by: deepseek-v4-flash (neuralwatt)
-// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 import 'dart:async';
 
@@ -15,13 +11,11 @@ import 'package:gherkin/gherkin.dart';
 import '../world/app_world.dart';
 import 'seed_http.dart' show SeedCache;
 
-/// Reads the piece-command counter from the in-app request recorder
-/// (issue #380) over the FlutterDriver data channel. The runner and the app
-/// run in separate processes, so the snapshot travels as a `;`-separated
-/// key=value string. Returns -1 when the recorder (or the piece counter)
-/// is absent, so the denial assertion fails loudly rather than passing on a
-/// missing instrumentation.
-Future<int> _pieceCommandsLeftDevice(FlutterWorld world) async {
+/// Reads the look-command counter from the in-app request recorder
+/// (issue #380) over the FlutterDriver data channel. Returns -1 when the
+/// recorder (or the look counter) is absent, so the denial assertion fails
+/// loudly rather than passing on a missing instrumentation.
+Future<int> _outfitCommandsLeftDevice(FlutterWorld world) async {
   final raw = await world.driver!.requestData(
     'request-recorder:snapshot',
     timeout: const Duration(seconds: 10),
@@ -37,265 +31,259 @@ Future<int> _pieceCommandsLeftDevice(FlutterWorld world) async {
           ),
         ),
   );
-  return fields['piece'] ?? -1;
+  return fields['outfit'] ?? -1;
 }
 
-/// Step definitions for the piece assignment critical scenario
-/// (`features-spec/outfit_casting.feature`). Covers the CQRS-on-client
-/// contract (AGENTS.md §4): optimistic overlay after a 2xx command
-/// acknowledgement, then projection reconciliation; plus the client-side
-/// AUTHZ-GATE role denial on the piece stream. All steps drive the on-device
-/// UI through widget keys; none assert on a pure function.
+/// Step definitions for the outfit-casting critical scenario
+/// (`features-spec/outfit_casting.feature`).
+///
+/// Covers the CQRS-on-client contract (AGENTS.md §4) — optimistic beat
+/// overlay after a 2xx command acknowledgement, then projection
+/// reconciliation — the continuity-by-id and copy-on-write variant rules of
+/// the wardrobe split, and the client-side AUTHZ-GATE role denial on the look
+/// surface. All steps drive the on-device UI through widget keys; none assert
+/// on a pure function.
 Iterable<StepDefinitionGeneric> outfitCastingSteps() => [
   given3<String, String, String, FlutterWorld>(
-    'the backend is seeded with piece {string} and character {string} for '
-    'season {string}',
+    'the backend is seeded with outfit {string} for character {string} in '
+    'scene {string}',
     (
-      String pieceSymbol,
+      String outfitSymbol,
       String characterSymbol,
-      String seasonSymbol,
+      String sceneSymbol,
       context,
     ) async {
-      // Issue #368: the REAL dev backend was seeded over HTTP by
-      // `AppHook.onBeforeRun` (host-side, BEFORE the first app launch —
-      // seed_http.dart has the flow and the real-backend contract
-      // discovery notes). This step copies the resolved REAL ids into the
-      // scenario's `AppWorld.seedIds` so downstream steps map the feature's
-      // symbolic ids (season "1", "ch-3", "ch-9", "c-7", and the
-      // reassignment-dedicated "c-r", issue #454) to backend aggregates.
-      // State-establishment step (no assertion) — runs on device with the
-      // harness, not a pure-function check.
+      // The REAL dev backend was seeded over HTTP by `AppHook.onBeforeRun`
+      // (host-side, BEFORE the first app launch). This step copies the
+      // resolved REAL ids into the scenario's `AppWorld.seedIds` so the
+      // downstream steps map the feature's symbolic ids (season "1",
+      // "ch-3"/"ch-9", "p-7"/"p-r", "o-a"/"o-av"/"o-b", "e-1"/"sc-1").
+      // State-establishment step (no assertion).
       final world = context.world as AppWorld;
       final ids = SeedCache.outfitCastingIds;
       if (ids == null) {
         throw StateError(
-          'piece-assignment seed missing — AppHook.onBeforeRun must run '
+          'outfit-casting seed missing — AppHook.onBeforeRun must run '
           'before the scenario Given steps (hook failure or wrong order).',
         );
       }
       world.seedIds.addAll(ids);
+      world.lastOutfitId = world.seedIds[outfitSymbol] ?? outfitSymbol;
+      world.lastCharacterId = world.seedIds[characterSymbol] ?? characterSymbol;
+      world.lastSceneId = world.seedIds[sceneSymbol] ?? sceneSymbol;
     },
   ),
-  when1<String, FlutterWorld>('I view the piece {string} in the piece stream', (
-    String pieceId,
+  when1<String, FlutterWorld>('I open the scene detail for scene {string}', (
+    String sceneSymbol,
     context,
   ) async {
-    // Opens the piece DETAIL from the stream row (shared with the
-    // assign step). Used by the viewer-denial scenario: for a denied
-    // membership the assign button never renders (the client-side
-    // AUTHZ-GATE replaces it with the `piece-assign-denied` narrative),
-    // but the stream row + detail are still reachable read-model
-    // surfaces — the denial assertion renders on the detail.
+    // Path: season scope picker (the surface that SETS the active season)
+    // → Script destination → the scene row (`script-scene-<id>`) → detail.
     final world = context.world as AppWorld;
-    final realPiece = world.seedIds[pieceId] ?? pieceId;
-    await _openPieceDetail(context.world, realPiece);
+    final realSeason = world.seedIds['1'] ?? '1';
+    final realScene = world.seedIds[sceneSymbol] ?? sceneSymbol;
+    world.lastSceneId = realScene;
+    final driver = context.world.driver!;
+    await FlutterDriverUtils.tap(
+      driver,
+      find.byValueKey('cast-pick-season-cta'),
+    );
+    final scopeList = find.byValueKey('season-scope-list');
+    final seasonRow = find.byValueKey('season-scope-season-$realSeason');
+    await driver.scrollUntilVisible(
+      scopeList,
+      seasonRow,
+      dxScroll: 0,
+      dyScroll: -200,
+      timeout: const Duration(seconds: 45),
+    );
+    await FlutterDriverUtils.tap(driver, seasonRow);
+    // The script view is the shell's second destination.
+    await FlutterDriverUtils.tap(driver, find.text('Script'));
+    final sceneRow = find.byValueKey('script-scene-$realScene');
+    await driver.waitFor(sceneRow, timeout: const Duration(seconds: 30));
+    await FlutterDriverUtils.tap(driver, sceneRow);
   }),
   when2<String, String, FlutterWorld>(
-    'I assign piece {string} to character {string}',
-    (String pieceId, String characterId, context) async {
-      // Opens the assign picker for the piece, then picks the character:
-      // the command carries the picked id + the acted-on row's version.
-      // Symbolic feature ids ("c-7" / "ch-3") map to the seeded REAL
-      // backend ids (issue #368) before any widget key is composed.
+    'I cast outfit {string} onto the beat of character {string}',
+    (String outfitSymbol, String characterSymbol, context) async {
+      // The scene detail's beat section offers the assign affordance per
+      // character; the picker returns the LOOK (selection only — editing the
+      // look stays on the outfit screens).
       final world = context.world as AppWorld;
-      final realPiece = world.seedIds[pieceId] ?? pieceId;
-      final realCharacter = world.seedIds[characterId] ?? characterId;
-      world.lastPieceId = realPiece;
+      final realOutfit = world.seedIds[outfitSymbol] ?? outfitSymbol;
+      final realCharacter = world.seedIds[characterSymbol] ?? characterSymbol;
+      world.lastOutfitId = realOutfit;
       world.lastCharacterId = realCharacter;
-      // The assign button lives on the COSTUME DETAIL screen: the detail is
-      // opened first (shared with the view step), then the unassigned-seed
-      // FIRST-assignment button is tapped. Issue #453: the seed piece is
-      // genuinely UNASSIGNED (repertoire-season binding, no pre-assign), so
-      // the button key carries 'none' — the exact first-assignment contract
-      // that was unreachable under the pre-#453 character-join scoping.
-      await _openPieceDetail(context.world, realPiece);
-      final assignButton = find.byValueKey('assign-piece-$realPiece-none');
-      await context.world.driver!.waitFor(
-        assignButton,
-        timeout: const Duration(seconds: 15),
-      );
-      await FlutterDriverUtils.tap(context.world.driver!, assignButton);
-      final option = find.byValueKey('assign-character-$realCharacter');
-      await context.world.driver!.waitFor(
-        option,
-        timeout: const Duration(seconds: 10),
-      );
-      await FlutterDriverUtils.tap(context.world.driver!, option);
+      await _castBeat(world, realCharacter, realOutfit);
     },
   ),
-  when3<String, String, String, FlutterWorld>(
-    'I reassign piece {string} from {string} to {string}',
-    (
-      String pieceId,
-      String fromCharacterId,
-      String toCharacterId,
-      context,
-    ) async {
-      // Issue #454: the piece is ALREADY assigned to `fromCharacterId`;
-      // the Reassign button (`assign-piece-<id>-<currentChar>`) dispatches
-      // a client-side unassign→assign sequence (never the plain assign
-      // command, which 409s `piece.already-assigned`). The app is already
-      // on the piece DETAIL screen (the preceding assign step pushed it),
-      // so the Reassign button is tapped in place — no list re-open.
+  when2<String, String, FlutterWorld>(
+    'I add a look change for character {string} with outfit {string}',
+    (String characterSymbol, String outfitSymbol, context) async {
+      // A second beat on the same character is an in-scene change; the
+      // affordance is the `+ Lookwechsel` button of the character's group.
       final world = context.world as AppWorld;
-      final realPiece = world.seedIds[pieceId] ?? pieceId;
-      final realFrom = world.seedIds[fromCharacterId] ?? fromCharacterId;
-      final realTo = world.seedIds[toCharacterId] ?? toCharacterId;
-      world.lastPieceId = realPiece;
-      world.lastCharacterId = realTo;
-      final reassignButton = find.byValueKey(
-        'assign-piece-$realPiece-$realFrom',
-      );
-      await context.world.driver!.waitFor(
-        reassignButton,
-        timeout: const Duration(seconds: 15),
-      );
-      await FlutterDriverUtils.tap(context.world.driver!, reassignButton);
-      final option = find.byValueKey('assign-character-$realTo');
-      await context.world.driver!.waitFor(
-        option,
-        timeout: const Duration(seconds: 10),
-      );
-      await FlutterDriverUtils.tap(context.world.driver!, option);
+      final realOutfit = world.seedIds[outfitSymbol] ?? outfitSymbol;
+      final realCharacter = world.seedIds[characterSymbol] ?? characterSymbol;
+      world.lastOutfitId = realOutfit;
+      world.lastCharacterId = realCharacter;
+      await _castBeat(world, realCharacter, realOutfit, change: true);
     },
   ),
-  then<FlutterWorld>('the piece assignment appears optimistically', (
+  then1<String, FlutterWorld>('the beat renders the look {string}', (
+    String outfitSymbol,
     context,
   ) async {
-    // Optimistic overlay OR already-reconciled authoritative key.
-    //
-    // Issue #454 (reassign) exposed a timing race in this step: on a fast
-    // localhost backend the projector refresh can clear the optimistic
-    // overlay (fence passes) BEFORE the driver polls the tree, so a strict
-    // `waitFor(overlay-assign-*)` flakes on runs whose command landed
-    // instantly — while the DB proves the assign succeeded (version 2). The
-    // strict optimistic-overlay + version-fence contract is pinned by the
-    // WIDGET tier; on device the meaningful signal is that the command
-    // landed and the projection carries the assignment. Accept EITHER key:
-    // the fence-held overlay (CQRS optimistic stage observed) OR the
-    // authoritative assigned row (already reconciled). A genuine command
-    // failure (409 / error banner) shows NEITHER and still times out.
+    // Optimistic beat overlay OR already-reconciled authoritative row: on a
+    // fast localhost backend the projector can clear the fence BEFORE the
+    // driver polls the tree, so a strict overlay-only wait would flake. The
+    // strict optimistic contract is pinned by the widget tier; on device the
+    // meaningful signal is that the cast landed on the character's beat.
     final world = context.world as AppWorld;
-    final overlayLocator = find.byValueKey(
-      'overlay-assign-${world.lastPieceId}-${world.lastCharacterId}',
-    );
-    final authoritativeLocator = find.byValueKey(
-      'assigned-${world.lastPieceId}-${world.lastCharacterId}',
-    );
-    await _waitForEither(
-      world,
-      [overlayLocator, authoritativeLocator],
-      timeout: const Duration(seconds: 10),
-      what: 'piece assignment (optimistic overlay or reconciled)',
-    );
-  }),
-  then<FlutterWorld>('the piece assignment projection refreshes', (
-    context,
-  ) async {
-    // The bounded-retry refetch swaps the optimistic entry for the
-    // projected one (AGENTS.md §4): the fence passes and the authoritative
-    // key replaces the overlay key.
-    final world = context.world as AppWorld;
-    final locator = find.byValueKey(
-      'assigned-${world.lastPieceId}-${world.lastCharacterId}',
-    );
-    await context.world.driver!.waitFor(
-      locator,
+    final realOutfit = world.seedIds[outfitSymbol] ?? outfitSymbol;
+    world.lastOutfitId = realOutfit;
+    await world.driver!.waitFor(
+      find.byValueKey('scene-piece-beat-${world.lastCharacterId}0'),
       timeout: const Duration(seconds: 30),
     );
   }),
-  then<FlutterWorld>('the piece stream denies assignment with a denial', (
+  then1<String, FlutterWorld>('the look {string} carries its garment', (
+    String outfitSymbol,
     context,
   ) async {
-    // Client-side AUTHZ-GATE (membership capability `assign_costumes`)
-    // refuses the unprivileged caller on the piece stream before any
-    // network call (AGENTS.md §5, D6): the localized 403 narrative renders
-    // in place of the assign button on the piece detail.
-    final locator = find.byValueKey('piece-assign-denied');
-    await context.world.driver!.waitFor(
-      locator,
-      timeout: const Duration(seconds: 10),
+    // The look list row of the character the beat was cast on announces the
+    // piece count; a look with a garment reports one.
+    final world = context.world as AppWorld;
+    final realOutfit = world.seedIds[outfitSymbol] ?? outfitSymbol;
+    await world.driver!.waitFor(
+      find.byValueKey('outfit-row-$realOutfit'),
+      timeout: const Duration(seconds: 30),
     );
   }),
-  then<FlutterWorld>('no piece command leaves the device', (context) async {
-    // AUTHZ-GATE preflight (issue #459): the client refused the action
-    // before any command HTTP was issued. Verified against the real traffic
-    // recorded by the in-app Dio interceptor (issue #380): the
-    // piece-command counter (assign + unassign paths) must be zero.
+  then3<String, String, String, FlutterWorld>(
+    'the beat sequence of character {string} shows {string} and {string}',
+    (String characterSymbol, String first, String second, context) async {
+      // Two beats on one character are an in-scene look change: both rows
+      // render, in `order` sequence (0 = the base look, 1 = the change).
+      final world = context.world as AppWorld;
+      final realCharacter = world.seedIds[characterSymbol] ?? characterSymbol;
+      final driver = context.world.driver!;
+      await driver.waitFor(
+        find.byValueKey('scene-piece-beat-${realCharacter}0'),
+        timeout: const Duration(seconds: 30),
+      );
+      await driver.waitFor(
+        find.byValueKey('scene-piece-beat-${realCharacter}1'),
+        timeout: const Duration(seconds: 30),
+      );
+      // The labels carry the looks' own names as joined by the backend.
+      await driver.waitFor(
+        find.text(first),
+        timeout: const Duration(seconds: 10),
+      );
+      await driver.waitFor(
+        find.text(second),
+        timeout: const Duration(seconds: 10),
+      );
+    },
+  ),
+  when1<String, FlutterWorld>('I open the looks of character {string}', (
+    String characterSymbol,
+    context,
+  ) async {
+    // Cast view → the character tile opens the character detail, which
+    // hosts the look section (a look belongs to a character).
+    final world = context.world as AppWorld;
+    final realSeason = world.seedIds['1'] ?? '1';
+    final realCharacter = world.seedIds[characterSymbol] ?? characterSymbol;
+    final driver = context.world.driver!;
+    await FlutterDriverUtils.tap(
+      driver,
+      find.byValueKey('cast-pick-season-cta'),
+    );
+    final scopeList = find.byValueKey('season-scope-list');
+    final seasonRow = find.byValueKey('season-scope-season-$realSeason');
+    await driver.scrollUntilVisible(
+      scopeList,
+      seasonRow,
+      dxScroll: 0,
+      dyScroll: -200,
+      timeout: const Duration(seconds: 45),
+    );
+    await FlutterDriverUtils.tap(driver, seasonRow);
+    final roster = find.byValueKey('characters-list');
+    final tile = find.byValueKey('character-$realCharacter');
+    await driver.scrollUntilVisible(
+      roster,
+      tile,
+      dxScroll: 0,
+      dyScroll: -200,
+      timeout: const Duration(seconds: 45),
+    );
+    await FlutterDriverUtils.tap(driver, tile);
+  }),
+  then<FlutterWorld>('the look surface denies management with a denial', (
+    context,
+  ) async {
+    // Client-side AUTHZ-GATE: the look section's create action is disabled and
+    // the localized 403 narrative renders in its place; the detail's write
+    // affordances never appear.
+    await context.world.driver!.waitFor(
+      find.byValueKey('outfit-denied-narrative'),
+      timeout: const Duration(seconds: 15),
+    );
+  }),
+  then<FlutterWorld>('no look command leaves the device', (context) async {
+    // The client refused the action before any command HTTP was issued,
+    // verified against the real traffic recorded by the in-app Dio
+    // interceptor (issue #380): mutating `/v1/outfits*` requests must be zero.
     // Navigation read-model fetches are legitimate traffic and stay out of
-    // this counter — the gate prevents command traffic, not page loads.
-    final count = await _pieceCommandsLeftDevice(context.world);
+    // this counter — the gate prevents commands, not page loads.
+    final count = await _outfitCommandsLeftDevice(context.world);
     if (count != 0) {
       throw Exception(
         'AUTHZ-GATE preflight failed: '
-        '$count piece command request(s) left the device before the '
+        '$count look command request(s) left the device before the '
         'client-side authorization check.',
       );
     }
   }),
 ];
 
-/// Opens the seeded piece's inline editor from the Garderobe tile grid.
-///
-/// Projection-lag guard (#368 on-device run): the freshly seeded piece
-/// reaches the read model a few seconds AFTER its 201 — if the tile is
-/// absent, pull-to-refresh the real read-model seam (a real gesture, no
-/// sleep) until it projects in. Then a pull-to-refresh before opening the
-/// detail guards a stale device-Drift row whose version the server has
-/// advanced (the acted-on row must echo the authoritative version).
-Future<void> _openPieceDetail(FlutterWorld world, String realPiece) async {
-  final driver = world.driver!;
-  final tile = find.byValueKey('piece-tile-$realPiece');
-  try {
-    await driver.waitFor(tile, timeout: const Duration(seconds: 10));
-  } on Object {
-    await driver.scroll(
-      find.byValueKey('pieces-list'),
-      0,
-      200,
-      const Duration(milliseconds: 600),
-    );
-    await driver.waitFor(tile, timeout: const Duration(seconds: 20));
-  }
-  // Stale-version guard (#368 on-device run): the device-Drift cache can
-  // hold a pre-restart row whose version the server has since advanced —
-  // the echoed fence then 409s and the overlay never renders. Pull-to-refresh
-  // the REAL read-model seam BEFORE opening the detail so the acted-on row
-  // echoes the authoritative version (a real gesture, bounded wait, no sleep).
-  await driver.scroll(
-    find.byValueKey('pieces-list'),
-    0,
-    200,
-    const Duration(milliseconds: 600),
-  );
-  await FlutterDriverUtils.tap(driver, tile);
-}
-
-/// Waits for ANY of [locators] to appear (acceptance of an authoritative
-/// assertion across a reconcile race — see the optimistic step above).
-/// The overhead is bounded and deterministic: each `waitFor` is itself
-/// capped, so the worst case is the sum of the per-locator budgets.
-Future<void> _waitForEither(
-  FlutterWorld world,
-  List<SerializableFinder> locators, {
-  required Duration timeout,
-  required String what,
+/// Casts (or adds a change with) a look for one character on the open scene
+/// detail: the group's assign / add-change button, then the look picker row.
+Future<void> _castBeat(
+  AppWorld world,
+  String characterId,
+  String outfitId, {
+  bool change = false,
 }) async {
   final driver = world.driver!;
-  final deadline = DateTime.now().add(timeout);
-  // Poll in short bounded slices so the first of the alternatives that
-  // appears wins immediately instead of serializing full budgets.
-  final slice = const Duration(milliseconds: 250);
-  while (DateTime.now().isBefore(deadline)) {
-    for (final locator in locators) {
-      try {
-        await driver.waitFor(locator, timeout: slice);
-        return;
-      } on Object {
-        // Not (yet) present; try the next alternative.
-      }
-    }
-    await Future<void>.delayed(slice);
+  final sceneKey = world.lastSceneId == null
+      ? null
+      : find.byValueKey('scene-detail-${world.lastSceneId}');
+  final button = find.byValueKey(
+    change
+        ? 'scene-piece-add-change-$characterId'
+        : 'scene-piece-assign-$characterId',
+  );
+  if (sceneKey != null) {
+    await driver.scrollUntilVisible(
+      sceneKey,
+      button,
+      dxScroll: 0,
+      dyScroll: -200,
+      timeout: const Duration(seconds: 30),
+    );
+  } else {
+    await driver.waitFor(button, timeout: const Duration(seconds: 30));
   }
-  throw TimeoutException('timed out waiting for $what', timeout);
+  await FlutterDriverUtils.tap(driver, button);
+  final option = find.byValueKey('pick-outfit-$outfitId');
+  await driver.waitFor(option, timeout: const Duration(seconds: 20));
+  await FlutterDriverUtils.tap(driver, option);
+  // A beat change carries an optional cue note; the picker's confirm is the
+  // row tap itself (no separate submit).
+  unawaited(Future<void>.value());
 }

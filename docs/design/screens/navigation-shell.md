@@ -139,7 +139,7 @@ longer chain wraps as described in the Row 2 bullet.
 | Search affordance | Icon button with tooltip (row 2, trailing) | Opens the OmniSearch surface from anywhere inside the shell; never a bottom-bar destination | `omniSearchTooltip` |
 | Cast view actions | Icon buttons in the Cast view's own toolbar | Costume categories (season-gated) and Fundus; they live with the Cast content, below the shell view bar — costume vocabulary never with the user settings | `castCategoriesTooltip` / `fundusTooltip` |
 | Season scope picker | Screen | Season rows (pick), *Seasons verwalten*, *Produktion verwalten* | `scopeChipSeasonPickTitle` / `seasonScopeManageSeasons` / `seasonScopeManageProduction` |
-| Cast destination | Navigation destination | Roster + costumes + costume categories for the active season | `navCast` |
+| Cast destination | Navigation destination | Roster + looks + garment wardrobe + costume categories for the active season | `navCast` |
 | Script destination | Navigation destination | The season's chronological scene overview | `navScript` |
 | Schedule/Dispo destination | Navigation destination | The season's shooting days in calendar order | `navSchedule` |
 | Destination labels | Visible text | Mandatory on every destination in every morphology | — |
@@ -193,6 +193,6 @@ bar); the prerequisite visibility arms of the three scope pills and their
 per-level highlight color; the title + breadcrumb + search row. Destination
 state preservation and the back contract (no hop, exit at the Cast root).
 Goldens: shell × {compact, medium, expanded} × {light, dark}. Gherkin: the
-costume-assignment critical scenario enters through the Cast view (the
+outfit-casting critical scenario enters through the Cast view (the
 season is set from the scope picker). Integration: destination-switch smoke
 on device.

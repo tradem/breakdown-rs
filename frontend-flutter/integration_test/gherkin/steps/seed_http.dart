@@ -255,17 +255,17 @@ Future<Map<String, dynamic>> _createSeedBlock({
   );
 }
 
-/// Seeds the piece-assignment acceptance state against the REAL dev
-/// backend (issue #368): season → block (auto-bootstraps the dev principal
-/// as active piece-dept member in dev-auth mode) → two characters →
-/// piece created with the repertoire season binding (issue #453 backend
-/// fix: `POST /v1/pieces` accepts `season_id`, the piece stays UNASSIGNED
-/// and is still visible in the season stream — the stream's repertoire union
-/// replaces the old character-join-only scoping that required the
-/// server-side pre-assign workaround).
+/// Seeds the **outfit-casting** acceptance state against the REAL dev backend
+/// (issue #368, re-scoped by issue #739 after the Piece/Outfit split): season
+/// → block (auto-bootstraps the dev principal as an active costume-dept member
+/// in dev-auth mode) → two characters → two garments (repertoire-bound, no
+/// character) → one look per character plus a copy-on-write variant of the
+/// first look → an episode → a scene with both characters assigned, so the
+/// scenario can cast a look onto a beat.
 ///
-/// Returns the symbolic→real id map (`1`, `ch-3`, `ch-9`, `c-7`, and the
-/// reassignment-dedicated `c-r`).
+/// Returns the symbolic→real id map: season `1`, characters `ch-3` / `ch-9`,
+/// garments `p-7` / `p-r`, looks `o-a` (character ch-3) / `o-b` (ch-9) /
+/// `o-av` (variant of `o-a`), episode `e-1` and scene `sc-1`.
 Future<Map<String, String>> seedOutfitCasting() async {
   final seasonNumber = await resolveFreeSeasonNumber();
   final season = await postJson('/v1/seasons', {
@@ -295,25 +295,65 @@ Future<Map<String, String>> seedOutfitCasting() async {
     'name': 'Gherkin Vorbefund',
     'category': 'guest',
   }, activeBlock: blockId);
+  final character3Id = character3['id']! as String;
+  final character9Id = character9['id']! as String;
+  // Garments are fundus rows: one repertoire season, NO character binding.
   final piece = await postJson('/v1/pieces', <String, Object?>{
-    'season_id': seasonId, // #453: repertoire binding → visible unassigned
+    'season_id': seasonId,
+    'name': 'Gherkin Kleidungsstück',
   }, activeBlock: blockId);
   final pieceId = piece['id']! as String;
-  // Second, DISTINCT unassigned piece for the reassignment scenario
-  // (issue #454): the suite's scenarios share ONE seed run, so scenario 1's
-  // assign mutates `c-7` (leaves it at version 2 = assigned); a scenario that
-  // needs to first-assign then reassign must operate on its OWN piece that
-  // no other scenario touches. `c-r` stays unassigned until the reassign
-  // scenario assigns it.
-  final reassignOutfit = await postJson('/v1/pieces', <String, Object?>{
+  final secondPiece = await postJson('/v1/pieces', <String, Object?>{
     'season_id': seasonId,
+    'name': 'Gherkin Zweites Kleidungsstück',
   }, activeBlock: blockId);
-  final reassignOutfitId = reassignOutfit['id']! as String;
+  final secondPieceId = secondPiece['id']! as String;
+  // Looks carry the character: one per figure plus a variant of the first.
+  final outfitA = await postJson('/v1/outfits', <String, Object?>{
+    'character_id': character3Id,
+    'name': 'Gherkin Alltagslook',
+    'piece_ids': [pieceId],
+  }, activeBlock: blockId);
+  final outfitAId = outfitA['id']! as String;
+  final outfitAVariant = await postJson(
+    '/v1/outfits/$outfitAId/variants',
+    <String, Object?>{'name': 'Gherkin Alltagslook Variante'},
+    activeBlock: blockId,
+  );
+  final outfitB = await postJson('/v1/outfits', <String, Object?>{
+    'character_id': character9Id,
+    'name': 'Gherkin Abendlook',
+    'piece_ids': [secondPieceId],
+  }, activeBlock: blockId);
+  // The casting surface: an episode with a scene the characters are assigned
+  // to (a beat references an assigned character).
+  final episode = await postJson('/v1/episodes', <String, Object?>{
+    'project_id': seedProjectId,
+    'block_id': blockId,
+    'number': 1,
+    'name': 'Gherkin Episode',
+  }, activeBlock: blockId);
+  final episodeId = episode['id']! as String;
+  final scene = await postJson('/v1/scenes', <String, Object?>{
+    'episode_id': episodeId,
+    'details': {'scene_number': 1, 'summary': 'Gherkin Szene'},
+  }, activeBlock: blockId);
+  final sceneId = scene['id']! as String;
+  for (final characterId in [character3Id, character9Id]) {
+    await postJson('/v1/scenes/$sceneId/characters', <String, Object?>{
+      'character_id': characterId,
+    }, activeBlock: blockId);
+  }
   return {
     '1': seasonId,
-    'ch-3': character3['id']! as String,
-    'ch-9': character9['id']! as String,
-    'c-7': pieceId,
-    'c-r': reassignOutfitId,
+    'ch-3': character3Id,
+    'ch-9': character9Id,
+    'p-7': pieceId,
+    'p-r': secondPieceId,
+    'o-a': outfitAId,
+    'o-av': outfitAVariant['id']! as String,
+    'o-b': outfitB['id']! as String,
+    'e-1': episodeId,
+    'sc-1': sceneId,
   };
 }

@@ -1,98 +1,70 @@
 # SPDX-License-Identifier: AGPL-3.0
 # Copyright (C) 2024-2026 Breakdown RS Contributors
 # Co-authored-by: glm-5.3 (neuralwatt)
-# Co-authored-by: deepseek-v4-flash (neuralwatt)
 
 @critical
-Feature: Costume assignment (optimistic update + role denial)
+Feature: Outfit casting (optimistic update + variant deviation + role denial)
   Designated business-critical acceptance scope (AGENTS.md §6, spec
   flutter-gherkin-hybrid). End-to-end on device via flutter_gherkin.
 
-  Covers the CQRS-on-client contract (AGENTS.md §4): a successful command is
-  acknowledged immediately (optimistic overlay) and the read projection is
-  reconciled afterwards; and the client-side AUTHZ-GATE (D6) that denies the
-  assignment on the costume stream for an unprivileged caller.
+  The wardrobe split (`separate-piece-and-outfit-domain`, issue #739) replaced
+  costume assignment with **outfit casting**: a scene casts a character's
+  composed look (`SceneOutfitBeat`), never a bare garment. Continuity comes
+  from reusing the same `outfit_id`; a deviation is a copy-on-write variant
+  (`CreateOutfitVariant`) so editing the fork never mutates scenes that
+  reference the source.
 
-  HARNESS STATUS (promoted, issue #459): the two device gaps recorded by the
-  #368 on-device run are closed by the backend repertoire fix (issue #453,
-  merged via #458) and the scenarios below are PROMOTED into the default
-  on-device pass — neither carries `@pending`, so the runner's
-  `not @pending` tagExpression runs them against the real dev backend:
-
-  - G1 (closed): the season costume stream (`list_by_season`) now returns the
-    union of assigned-to-season-character OR in-repertoire costumes
-    (`projection_costume_season` join), so an UNASSIGNED costume seeded with
-    `POST /v1/costumes {season_id}` renders in the Garderobe stream — the
-    app's `assign-costume-<id>-none` first-assignment row key is reachable.
-  - G2 (closed): with the seed costume UNASSIGNED, the scenario exercises a
-    genuine FIRST assignment (c-7 → ch-3) instead of the reassign path that
-    409'd `costume.already-assigned`. The `assign-costume-<id>-none` button
-    key is the first-assignment entry; the picker submit carries the picked
-    character + the acted-on row's version.
-
-  # Issue #454 (this change): the FIRST-assignment-only workaround above left
-  # the Reassign button broken — an assigned costume taking the plain assign
-  # command 409s `costume.already-assigned`. The client controller now runs a
-  # client-side **unassign→assign sequence** for a reassignment (unassign
-  # echoes the acted-on row's version; the follow-up assign echoes the
-  # unassign ACK version — fence-friendly version echoes). The third
-  # scenario below exercises that exact path on device: it first performs
-  # the first assignment (c-7 → ch-3), waits for the projection, then
-  # reassigns to ch-9 and asserts the optimistic overlay + projected
-  # reconciliation.
+  Covers the CQRS-on-client contract (AGENTS.md §4) — the command is
+  acknowledged immediately and the read projection reconciles afterwards —
+  plus the client-side AUTHZ-GATE (D6) that refuses an unprivileged caller on
+  the look surface before any network call.
 
   Harness contract:
-  - `AppHook.onBeforeRun` seeds the REAL dev backend over HTTP
-    (`API_BASE`, host-resolved): season → block (block creation
-    auto-bootstraps the dev principal as an active costume-dept member in
-    dev-auth mode) → characters → costume (repertoire season binding, UNASSIGNED;
-    issue #453) → server-side pre-assignment is REMOVED — the seed leaves c-7
-    unassigned on purpose so the scenario exercises THE first assignment. The
-    resolved REAL ids are mapped from the symbolic ids (season "1",
-    "ch-3", "ch-9", "c-7") via `SeedCache` into `AppWorld.seedIds`.
+  - `AppHook.onBeforeRun` seeds the REAL dev backend over HTTP (`API_BASE`,
+    host-resolved): season → block (creation auto-bootstraps the dev principal
+    as an active costume-dept member in dev-auth mode) → two characters → two
+    garments (repertoire-bound fundus rows, no character) → one look per
+    character plus a variant of the first look → an episode → a scene with
+    both characters assigned. The resolved REAL ids are mapped from the
+    symbolic ids (season "1", "ch-3"/"ch-9", "p-7"/"p-r", "o-a"/"o-av"/"o-b",
+    "e-1"/"sc-1") via `SeedCache` into `AppWorld.seedIds`.
   - The `I am authenticated as a "{string}" user` step flips the app's
     dev-auth membership override at runtime via the FlutterDriver data
     channel (`dev-membership:role=<role>`) — the runner builds the app once
     with fixed dart-defines, so a per-scenario membership shape cannot be a
     compile-time define. "viewer" yields a capability-less membership: the
-    client-side AUTHZ-GATE denies any costume command before that command's
-    network call (read-model/detail traffic stays allowed). The denial
-    scenario therefore OPENS the costume detail (the `costume-assign-denied`
-    narrative renders in place of the assign button) and asserts the #380
-    request recorder proves zero costume command traffic left the device.
+    client-side AUTHZ-GATE denies every look command before its network call
+    (read-model traffic stays allowed). The denial scenario therefore OPENS
+    the character detail, where the look section renders the
+    `outfit-denied-narrative` in place of the create action, and asserts the
+    #380 request recorder proves zero look-command traffic left the device.
 
-  Scenario: Command shows optimistically then reconciles with the projection
+  Scenario: Casting a look onto a scene beat reconciles with the projection
     Given the app is launched in dev-auth mode
     And I am authenticated as a "costume_dept" user
-    And the backend is seeded with costume "c-7" and character "ch-3" for season "1"
-    When I open the costume assignment for season "1"
-    And I assign costume "c-7" to character "ch-3"
-    Then the costume assignment appears optimistically
-    And the costume assignment projection refreshes
+    And the backend is seeded with outfit "o-a" for character "ch-3" in scene "sc-1"
+    When I open the scene detail for scene "sc-1"
+    And I cast outfit "o-a" onto the beat of character "ch-3"
+    Then the beat renders the look "o-a"
+    And the look "o-a" carries its garment
 
-  Scenario: Reassigning an assigned costume runs the unassign→assign sequence
-    # Issue #454: the Reassign button must not dispatch the plain assign
-    # command onto an assigned costume (it 409s `costume.already-assigned`).
-    # The client runs unassign (acted-on version) then assign (unassign ACK
-    # version); the optimistic overlay shows the TARGET character before the
-    # projection reconciles to it. Uses the dedicated `c-r` costume (no other
-    # scenario touches it, so it is genuinely unassigned here).
+  Scenario: Continuity reuses the same look, a deviation forks a variant
+    # Continuity is an ID reference: casting the SAME look on a second beat is
+    # the documented way to say "same wardrobe". A deviation must fork a
+    # variant instead — editing the source would silently rewrite every scene
+    # that references it.
     Given the app is launched in dev-auth mode
     And I am authenticated as a "costume_dept" user
-    And the backend is seeded with costume "c-r" and character "ch-3" for season "1"
-    When I open the costume assignment for season "1"
-    And I assign costume "c-r" to character "ch-3"
-    Then the costume assignment appears optimistically
-    And the costume assignment projection refreshes
-    When I reassign costume "c-r" from "ch-3" to "ch-9"
-    Then the costume assignment appears optimistically
-    And the costume assignment projection refreshes
+    And the backend is seeded with outfit "o-a" for character "ch-3" in scene "sc-1"
+    When I open the scene detail for scene "sc-1"
+    And I cast outfit "o-a" onto the beat of character "ch-3"
+    And I add a look change for character "ch-3" with outfit "o-av"
+    Then the beat sequence of character "ch-3" shows "Gherkin Alltagslook" and "Gherkin Alltagslook Variante"
 
-  Scenario: Unprivileged caller is denied on the costume stream
+  Scenario: Unprivileged caller is denied on the look surface
     Given the app is launched in dev-auth mode
     And I am authenticated as a "viewer" user
-    And the backend is seeded with costume "c-7" and character "ch-3" for season "1"
-    When I open the costume assignment for season "1"
-    And I view the costume "c-7" in the costume stream
-    Then the costume stream denies assignment with a denial
-    And no costume command leaves the device
+    And the backend is seeded with outfit "o-a" for character "ch-3" in scene "sc-1"
+    When I open the looks of character "ch-3"
+    Then the look surface denies management with a denial
+    And no look command leaves the device

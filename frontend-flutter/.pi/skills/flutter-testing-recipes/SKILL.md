@@ -101,8 +101,9 @@ via `flutter_gherkin`. **Only** the designated critical scopes (minimum):
   `final` from `wrapped_at`.
 - **Continuity photo capture** — AUTHZ-GATE → multipart upload → projector-lag
   reconciliation → thumb appears.
-- **Costume assignment** — command → optimistic update → projection refresh;
-  role denial on the costume stream.
+- **Outfit casting** — command → optimistic update → projection refresh;
+  continuity by repeated `outfit_id`, deviation via a variant fork, role
+  denial on the look surface.
 
 Rules:
 - A `.feature` for a non-critical screen is *challenged* at review; the default

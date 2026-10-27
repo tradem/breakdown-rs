@@ -13,20 +13,20 @@
 ## Purpose & Context
 The Cast view answers „who is in this season, and what do they wear?" — the
 actor roster (Figuren) with their contacts and measurements, and the
-season's costumes with their assignment and photos. Used by the costume and
+season's characters with their looks (composed outfits) and the garment wardrobe with photos. Used by the costume and
 production departments throughout the shoot, mostly as a lookup surface.
 
 ## Navigation
 Reached as navigation destination 1 of 3 (selected on app start); never
 pushed. Tapping a character row opens the role extract (issue #611,
 spec `role-extract.md` — currently its degraded fallback, the character
-detail as today, pending backend read model #621), a costume row the
-inline costume editor (both unchanged, on this destination's nested
+detail as today, pending backend read model #621), a look row and the
+inline piece editor (both on this destination's nested
 navigator). The app-bar action opens the season-scoped costume-category
 vocabulary; the profile action opens the identity/about/settings/sign-out
 sheet. With no active season the view shows a season-selection empty state
 whose CTA opens the season scope picker — there is no Season destination to
-jump to any more. AUTHZ-GATE: the costume and character writes keep their
+jump to any more. AUTHZ-GATE: the wardrobe and character writes keep their
 client-side membership checks before any network call (unchanged); this view
 adds no call of its own.
 
@@ -46,14 +46,14 @@ season arrives as plain data from the shell state (never re-resolved here).
   --
   { "Scope: Season {n}" | "Filter: Block {n}" }
   --
-  [ {person_outline Figuren} | {checkroom_outlined Kostüme} ]
+  [ {person_outline Figuren} | {checkroom_outlined Looks} ]
   --
-  { "Figuren-Liste" | "Kostüm-Liste" }
+  { "Figuren-Liste" | "Look-Liste je Figur + Kleidungsstück-Garderobe" }
 }
 @endsalt
 ```
 
-Static structure only: the switch has exactly two halves (roster, costumes);
+Static structure only: the switch has exactly two halves (roster/looks, garment wardrobe);
 which half is active, the season scoping and the empty states are described
 in Interactions and States.
 
@@ -64,11 +64,11 @@ in Interactions and States.
 | Roster/costume switch | Segmented button | Two labeled segments, both labels always visible | `castSegmentCharacters` / `castSegmentCostumes` |
 | Costume categories action | Icon button with tooltip | Opens the season-scoped category vocabulary; never offered with no season scope | `castCategoriesTooltip` |
 | Profile action | Icon button with tooltip | Identity, Über die App, Einstellungen, Abmelden | `profileTooltip` |
-| Season-empty state | List with CTA | „Wähle eine Season, um Kostüme und Figuren zu sehen." + „Season wählen" | `castNoSeason` / `castPickSeason` |
+| Season-empty state | List with CTA | „Wähle eine Season, um Kleidungsstücke und Figuren zu sehen." + „Season wählen" | `castNoSeason` / `castPickSeason` |
 | Roster / costume list | List (hosted screen) | Unchanged `CharactersScreen` / `CostumesScreen` content | — |
 
 ## States
-Loading/error/empty/stale/optimistic: owned by the hosted roster and costume
+Loading/error/empty/stale/optimistic: owned by the hosted roster and wardrobe
 screens (unchanged). View-level empty: no active season → season-selection
 state (never an error). Stale scope: a season chip for another season is
 never rendered as if it applied (the block chip's foreign-season narrative).
@@ -94,5 +94,5 @@ season-empty CTA is a filled button with a visible label. All copy via keys.
 Widget tests: season-empty state (CTA opens the scope picker); the switch and
 the categories action render with an active season; the category screen
 pushes (navigation test in the hierarchy suite). Goldens: the view root in
-{light, dark}. Gherkin: the costume-assignment critical scenario enters here
+{light, dark}. Gherkin: the outfit-casting critical scenario enters here
 after setting the season through the scope picker.

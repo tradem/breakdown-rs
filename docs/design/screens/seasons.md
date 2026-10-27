@@ -34,9 +34,9 @@ membership-scoped server-side.
   [Banner: 'Cached data may be outdated']
   --
   {^ "Season 2"
-     "3 Blocks · 42 Szenen · 118 Kostüme" [›]}
+     "3 Blocks · 42 Szenen · 118 Kleidungsstücke" [›]}
   {^ "Season 1"
-     "4 Blocks · 38 Szenen · 96 Kostüme" [›]}
+     "4 Blocks · 38 Szenen · 96 Kleidungsstücke" [›]}
   --
   ( + )
 }

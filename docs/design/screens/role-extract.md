@@ -17,14 +17,14 @@
 The role extract is the Cast view's deep content per character: one screen
 that reads like the traditional physical ring binder/Register per role —
 every scene the character appears in, in script order, with that
-character's costume per scene. Used by the costume department during prep
+character's looks per scene. Used by the costume department during prep
 and on set as the per-role lookup surface.
 
 ## Navigation
 Pushed on the Cast destination's nested navigator by tapping a character
 row (the Cast entry point IS the extract — never the bare detail, issue
 #611 decision). Extract rows deep-link into the existing scene detail /
-costume assignment affordances. Back returns to the Cast view. The screen
+look (outfit) casting affordances. Back returns to the Cast view. The screen
 receives the season scope as plain data (same seam as the roster) and the
 character id as route parameter. AUTHZ-GATE: reads inherit the Cast
 view's session/membership gate; this screen dispatches no command of its
@@ -51,8 +51,8 @@ Soll state (pending backend #621) — static structure only:
   --
   { "Register: {Figurenname}" }
   --
-  { "Szene {n} | {Synopsis} | [Kostüm-Chip]" }
-  { "Szene {n+1} | {Synopsis} | [Kostüm-Chip]" }
+  { "Szene {n} | {Synopsis} | [Look-Chip]" }
+  { "Szene {n+1} | {Synopsis} | [Look-Chip]" }
   ...
   --
   { "Kontakte" | "Maße" }
@@ -84,7 +84,7 @@ pull-to-refresh as the recovery affordance.
 ## Interactions
 Degraded: today's detail editors (full-replacement PATCH with `version`
 echo from the read row). Soll: extract row tap pushes the scene detail;
-costume chip opens the costume assignment affordances; pull-to-refresh
+costume chip opens the look (outfit) casting affordances; pull-to-refresh
 refetches the appearances read. No command is dispatched by the extract
 itself.
 

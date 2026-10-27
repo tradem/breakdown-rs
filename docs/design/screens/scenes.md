@@ -7,7 +7,7 @@
 ## Purpose & Context
 The scene detail screen is the working surface for one scene's costume
 preparation: its summary, its assigned characters, the costume each
-character wears IN THIS SCENE (ordered costume beats, issue #546), and
+character wears IN THIS SCENE (ordered outfit beats, issue #546), and
 the shooting days it is scheduled on. Used by the costume department
 while prepping and on set; short dwell time, one-handed phone use.
 
@@ -16,8 +16,8 @@ Reached from the Planen tab → Block → Episode → scene list (drill-down
 push). Back returns to the episode's scene list. Route parameters:
 `seasonId`, `episodeId`, `sceneId` — all read-DTO ids the user acted on
 (never a second projection lookup to fill in command context — CQRS
-boundary). AUTHZ-GATE: costume-beat commands (`POST/PATCH/DELETE
-/v1/scenes/{id}/costumes…`) run the client-side `assign_costumes`
+boundary). AUTHZ-GATE: outfit-beat commands (`POST/PATCH/DELETE
+/v1/scenes/{id}/outfits…`) run the client-side `assign_costumes`
 capability check BEFORE any network call (denial shows the localized
 403 narrative and never issues the request).
 
@@ -35,13 +35,13 @@ tests/goldens push without the argument — the strip stays hidden.
 {
   {‹ Back} | "Szene 7 — Nachtdreh" | T
   --
-  {^ "Kostüme (2)" [▾]}
+  {^ "Looks (2)" [▾]}
   {
     (i) "Figur: Ada" — "Rotkäppchen-Mantel" [X]
     (→) (i) "Hut" [X]
-    "+ Kostümwechsel"
+    "+ Lookwechsel"
     --
-    "Figur: Bea" — "Kein Kostüm in dieser Szene." [Kostüm zuweisen]
+    "Figur: Bea" — "Kein Look in dieser Szene." [Look zuweisen]
   }
   {^ "Figuren (2)" [▾]}
   {^ "Drehtage (1)" [▾]}
@@ -82,13 +82,13 @@ silent discard. Error: read errors per `code`
 sign-in/network/generic fallbacks).
 
 ## Interactions
-* Pick costume (empty state or `+ Kostümwechsel`): opens the picker
-  sheet → `POST /v1/scenes/{id}/costumes` with the acted-on scene's
+* Pick costume (empty state or `+ Lookwechsel`): opens the picker
+  sheet → `POST /v1/scenes/{id}/outfits` with the acted-on scene's
   version echo (version fence: freshest known version wins). 2xx →
   optimistic beat append + bounded-retry reconciliation.
 * Remove beat: confirm-first dialog → single remaining beat dispatches
-  `DELETE /v1/scenes/{id}/costumes/{character_id}` (clear-all = „kein
-  Kostüm in dieser Szene"), otherwise
+  `DELETE /v1/scenes/{id}/outfits/{character_id}` (clear-all = „kein
+  Look in dieser Szene"), otherwise
   `DELETE …/costumes/{character_id}/{order}`.
 * Failed command: no local edit was made before the ack — the projected
   state stays, the projection refreshes (version reconcile), the error
@@ -113,7 +113,7 @@ en parity gate); backend `detail` text is never rendered.
 
 ## Tests
 Widget tests (Tier 2): one beat row; two rows with `→`; `+
-Kostümwechsel`; empty-state affordance; picker dispatch; AUTHZ-GATE
+Lookwechsel`; empty-state affordance; picker dispatch; AUTHZ-GATE
 denial (capability check blocks before the network call — fake repo
 call count of zero); optimistic 2xx render + 409 refetch. Unit (Tier
 1): beat grouping order, tile-identity label resolution. Golden (Tier

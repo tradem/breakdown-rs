@@ -50,7 +50,7 @@ Compact — Season tab content with card list and extended FAB:
   { "Season"                          | "Manuell" }
   --
   {^ "Season 2 · Sommer 2026"
-     "3 Blöcke · 42 Szenen · 118 Kostüme" [›]}
+     "3 Blöcke · 42 Szenen · 118 Kleidungsstücke" [›]}
   {^ "Season 1"
      "4 Blöcke · 38 Szenen" [›]}
   --

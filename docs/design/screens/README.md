@@ -105,7 +105,7 @@ is not deleted).
 ## Tests
 <!-- Golden test names, widget-test keys, Gherkin tag if the screen is
      a designated critical flow (Soll/Ist report, continuity photo,
-     costume assignment). -->
+     outfit casting). -->
 ```
 
 ---
