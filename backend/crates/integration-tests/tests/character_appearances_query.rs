@@ -1,14 +1,15 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: deepseek-v4.1-flash (neuralwatt)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 //! Read-model round trip for the per-character appearances query (issue #621,
 //! `GET /v1/characters/{id}/appearances`).
 //!
 //! Pins the two data properties the route promises: script order
 //! (`scene_number`, unnumbered scenes last) and the **character's own** ordered
-//! costume beats per scene (costume binding), enriched best-effort with the
-//! costume category by join. The HTTP surface (authz denial, 404, 200) is
+//! piece beats per scene (piece binding), enriched best-effort with the
+//! piece category by join. The HTTP surface (authz denial, 404, 200) is
 //! covered separately in `crates/api/tests/handler_character_appearances.rs`;
 //! here we exercise the real SQL against Postgres.
 
@@ -100,29 +101,24 @@ async fn assign_character(pool: &sqlx::PgPool, scene_id: Uuid, character_id: Uui
     Ok(())
 }
 
-/// Insert a costume with an optional category and return its id.
-async fn insert_costume(
-    pool: &sqlx::PgPool,
-    category_id: Option<Uuid>,
-    category_name: Option<&str>,
-    now: DateTime<Utc>,
-) -> Result<Uuid> {
-    let costume_id = Uuid::now_v7();
+/// Insert an outfit (the composed look a scene casts) and return its id.
+async fn insert_outfit(pool: &sqlx::PgPool, name: &str, now: DateTime<Utc>) -> Result<Uuid> {
+    let outfit_id = Uuid::now_v7();
+    let character_id = Uuid::now_v7();
     sqlx::query(
         r#"
-        INSERT INTO projection_costume
-            (id, character_id, notes, category_id, category_name,
-             version, updated_at)
-        VALUES ($1, NULL, '', $2, $3, 1, $4)
+        INSERT INTO projection_outfit
+            (id, character_id, name, notes, version, updated_at)
+        VALUES ($1, $2, $3, '', 1, $4)
         "#,
     )
-    .bind(costume_id)
-    .bind(category_id)
-    .bind(category_name)
+    .bind(outfit_id)
+    .bind(character_id)
+    .bind(name)
     .bind(now)
     .execute(pool)
     .await?;
-    Ok(costume_id)
+    Ok(outfit_id)
 }
 
 async fn add_beat(
@@ -130,20 +126,20 @@ async fn add_beat(
     scene_id: Uuid,
     character_id: Uuid,
     order: i32,
-    costume_id: Uuid,
+    piece_id: Uuid,
     note: Option<&str>,
 ) -> Result<()> {
     sqlx::query(
         r#"
-        INSERT INTO projection_scene_costume_assignment
-            (scene_id, character_id, "order", costume_id, note, version)
+        INSERT INTO projection_scene_outfit_assignment
+            (scene_id, character_id, "order", outfit_id, note, version)
         VALUES ($1, $2, $3, $4, $5, 1)
         "#,
     )
     .bind(scene_id)
     .bind(character_id)
     .bind(order)
-    .bind(costume_id)
+    .bind(piece_id)
     .bind(note)
     .execute(pool)
     .await?;
@@ -153,10 +149,10 @@ async fn add_beat(
 /// Appearances come back in script order — episode number first, then the
 /// episode-local `scene_number` (unnumbered last) — carry only the queried
 /// character's beats, and order those beats by `order`. A scene without a beat
-/// for the character yields an empty costume list, and a scene that features
+/// for the character yields an empty piece list, and a scene that features
 /// another character only is not returned.
 #[tokio::test]
-async fn appearances_are_script_ordered_with_the_characters_own_costumes() -> Result<()> {
+async fn appearances_are_script_ordered_with_the_characters_own_pieces() -> Result<()> {
     let (pool, _container) = fixtures::spawn_postgres().await?;
 
     // Two episodes: `scene_number` is episode-local, so episode 2's scene 1 must
@@ -192,12 +188,11 @@ async fn appearances_are_script_ordered_with_the_characters_own_costumes() -> Re
     }
     assign_character(&pool, scene_other, extra).await?;
 
-    // Two costumes on scene 20 (order 0 = coat, order 1 = shirt), one on
+    // Two outfit beats on scene 20 (order 0 = coat, order 1 = shirt), one on
     // scene 10; scenes 30 / unnumbered / ep2-1 intentionally have no beat.
-    let category_id = Uuid::now_v7();
-    let coat = insert_costume(&pool, Some(category_id), Some("Oberteil"), now).await?;
-    let shirt = insert_costume(&pool, None, None, now).await?;
-    let boots = insert_costume(&pool, Some(category_id), Some("Oberteil"), now).await?;
+    let coat = insert_outfit(&pool, "Oberteil", now).await?;
+    let shirt = insert_outfit(&pool, "Hemd", now).await?;
+    let boots = insert_outfit(&pool, "Oberteil", now).await?;
     add_beat(&pool, scene_10, hero, 0, boots, Some("Regen")).await?;
     add_beat(&pool, scene_20, hero, 0, coat, None).await?;
     add_beat(&pool, scene_20, hero, 1, shirt, Some("drunter")).await?;
@@ -215,28 +210,28 @@ async fn appearances_are_script_ordered_with_the_characters_own_costumes() -> Re
     );
     assert_eq!(appearances[0].synopsis.as_deref(), Some("First"));
 
-    // Scene 10: exactly the one boot beat, with its category resolved.
-    assert_eq!(appearances[0].costumes.len(), 1);
-    assert_eq!(appearances[0].costumes[0].costume_id, boots);
-    assert_eq!(appearances[0].costumes[0].order, 0);
-    assert_eq!(appearances[0].costumes[0].note.as_deref(), Some("Regen"));
+    // Scene 10: exactly the one boot beat, with its outfit name resolved.
+    assert_eq!(appearances[0].outfits.len(), 1);
+    assert_eq!(appearances[0].outfits[0].outfit_id, boots);
+    assert_eq!(appearances[0].outfits[0].order, 0);
+    assert_eq!(appearances[0].outfits[0].note.as_deref(), Some("Regen"));
     assert_eq!(
-        appearances[0].costumes[0].costume_category_name.as_deref(),
+        appearances[0].outfits[0].outfit_name.as_deref(),
         Some("Oberteil")
     );
 
     // Scene 20: both beats, ordered, and none of the other character's.
     let scene_20_row = &appearances[1];
-    let ids: Vec<Uuid> = scene_20_row.costumes.iter().map(|c| c.costume_id).collect();
+    let ids: Vec<Uuid> = scene_20_row.outfits.iter().map(|c| c.outfit_id).collect();
     assert_eq!(ids, vec![coat, shirt]);
-    assert_eq!(scene_20_row.costumes[0].order, 0);
-    assert_eq!(scene_20_row.costumes[1].order, 1);
-    assert_eq!(scene_20_row.costumes[1].note.as_deref(), Some("drunter"));
+    assert_eq!(scene_20_row.outfits[0].order, 0);
+    assert_eq!(scene_20_row.outfits[1].order, 1);
+    assert_eq!(scene_20_row.outfits[1].note.as_deref(), Some("drunter"));
 
     // Scenes without a beat for the character resolve to an empty list.
-    assert!(appearances[2].costumes.is_empty());
-    assert!(appearances[3].costumes.is_empty());
-    assert!(appearances[4].costumes.is_empty());
+    assert!(appearances[2].outfits.is_empty());
+    assert!(appearances[3].outfits.is_empty());
+    assert!(appearances[4].outfits.is_empty());
 
     // The other character's scene is not part of the hero's extract.
     assert!(appearances.iter().all(|a| a.scene_id != scene_other));

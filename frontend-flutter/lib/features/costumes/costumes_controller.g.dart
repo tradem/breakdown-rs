@@ -17,12 +17,8 @@ final costumeRepositoryProvider = CostumeRepositoryProvider._();
 
 final class CostumeRepositoryProvider
     extends
-        $FunctionalProvider<
-          CostumeRepository,
-          CostumeRepository,
-          CostumeRepository
-        >
-    with $Provider<CostumeRepository> {
+        $FunctionalProvider<PieceRepository, PieceRepository, PieceRepository>
+    with $Provider<PieceRepository> {
   /// Costume repository: owns network + Drift cache writes.
   CostumeRepositoryProvider._()
     : super(
@@ -40,25 +36,174 @@ final class CostumeRepositoryProvider
 
   @$internal
   @override
-  $ProviderElement<CostumeRepository> $createElement(
-    $ProviderPointer pointer,
-  ) => $ProviderElement(pointer);
+  $ProviderElement<PieceRepository> $createElement($ProviderPointer pointer) =>
+      $ProviderElement(pointer);
 
   @override
-  CostumeRepository create(Ref ref) {
+  PieceRepository create(Ref ref) {
     return costumeRepository(ref);
   }
 
   /// {@macro riverpod.override_with_value}
-  Override overrideWithValue(CostumeRepository value) {
+  Override overrideWithValue(PieceRepository value) {
     return $ProviderOverride(
       origin: this,
-      providerOverride: $SyncValueProvider<CostumeRepository>(value),
+      providerOverride: $SyncValueProvider<PieceRepository>(value),
     );
   }
 }
 
-String _$costumeRepositoryHash() => r'81a1f9252aff1390902bd2c23acb57a2197a0c07';
+String _$costumeRepositoryHash() => r'9a0ae2884fc48a141f8e169b2e04e1cd894b9825';
+
+/// Outfit repository: the character's composed looks (own network + Drift
+/// cache slice). A scene beat casts an OUTFIT, so the beat picker reads here.
+
+@ProviderFor(outfitRepository)
+final outfitRepositoryProvider = OutfitRepositoryProvider._();
+
+/// Outfit repository: the character's composed looks (own network + Drift
+/// cache slice). A scene beat casts an OUTFIT, so the beat picker reads here.
+
+final class OutfitRepositoryProvider
+    extends
+        $FunctionalProvider<
+          OutfitRepository,
+          OutfitRepository,
+          OutfitRepository
+        >
+    with $Provider<OutfitRepository> {
+  /// Outfit repository: the character's composed looks (own network + Drift
+  /// cache slice). A scene beat casts an OUTFIT, so the beat picker reads here.
+  OutfitRepositoryProvider._()
+    : super(
+        from: null,
+        argument: null,
+        retry: null,
+        name: r'outfitRepositoryProvider',
+        isAutoDispose: true,
+        dependencies: null,
+        $allTransitiveDependencies: null,
+      );
+
+  @override
+  String debugGetCreateSourceHash() => _$outfitRepositoryHash();
+
+  @$internal
+  @override
+  $ProviderElement<OutfitRepository> $createElement($ProviderPointer pointer) =>
+      $ProviderElement(pointer);
+
+  @override
+  OutfitRepository create(Ref ref) {
+    return outfitRepository(ref);
+  }
+
+  /// {@macro riverpod.override_with_value}
+  Override overrideWithValue(OutfitRepository value) {
+    return $ProviderOverride(
+      origin: this,
+      providerOverride: $SyncValueProvider<OutfitRepository>(value),
+    );
+  }
+}
+
+String _$outfitRepositoryHash() => r'cf39e06765dc6cda94f4e081ec5480e7609c9ab0';
+
+/// The outfits of one character (fetch + snapshot-replace). The scene beat
+/// picker watches this; a fetch failure surfaces as a `Result` error, never
+/// a throw.
+
+@ProviderFor(characterOutfits)
+final characterOutfitsProvider = CharacterOutfitsFamily._();
+
+/// The outfits of one character (fetch + snapshot-replace). The scene beat
+/// picker watches this; a fetch failure surfaces as a `Result` error, never
+/// a throw.
+
+final class CharacterOutfitsProvider
+    extends
+        $FunctionalProvider<
+          AsyncValue<Result<List<OutfitView>>>,
+          Result<List<OutfitView>>,
+          FutureOr<Result<List<OutfitView>>>
+        >
+    with
+        $FutureModifier<Result<List<OutfitView>>>,
+        $FutureProvider<Result<List<OutfitView>>> {
+  /// The outfits of one character (fetch + snapshot-replace). The scene beat
+  /// picker watches this; a fetch failure surfaces as a `Result` error, never
+  /// a throw.
+  CharacterOutfitsProvider._({
+    required CharacterOutfitsFamily super.from,
+    required String super.argument,
+  }) : super(
+         retry: null,
+         name: r'characterOutfitsProvider',
+         isAutoDispose: true,
+         dependencies: null,
+         $allTransitiveDependencies: null,
+       );
+
+  @override
+  String debugGetCreateSourceHash() => _$characterOutfitsHash();
+
+  @override
+  String toString() {
+    return r'characterOutfitsProvider'
+        ''
+        '($argument)';
+  }
+
+  @$internal
+  @override
+  $FutureProviderElement<Result<List<OutfitView>>> $createElement(
+    $ProviderPointer pointer,
+  ) => $FutureProviderElement(pointer);
+
+  @override
+  FutureOr<Result<List<OutfitView>>> create(Ref ref) {
+    final argument = this.argument as String;
+    return characterOutfits(ref, argument);
+  }
+
+  @override
+  bool operator ==(Object other) {
+    return other is CharacterOutfitsProvider && other.argument == argument;
+  }
+
+  @override
+  int get hashCode {
+    return argument.hashCode;
+  }
+}
+
+String _$characterOutfitsHash() => r'97e4c6976e9bea68e8c506e3648318386f18fe52';
+
+/// The outfits of one character (fetch + snapshot-replace). The scene beat
+/// picker watches this; a fetch failure surfaces as a `Result` error, never
+/// a throw.
+
+final class CharacterOutfitsFamily extends $Family
+    with $FunctionalFamilyOverride<FutureOr<Result<List<OutfitView>>>, String> {
+  CharacterOutfitsFamily._()
+    : super(
+        retry: null,
+        name: r'characterOutfitsProvider',
+        dependencies: null,
+        $allTransitiveDependencies: null,
+        isAutoDispose: true,
+      );
+
+  /// The outfits of one character (fetch + snapshot-replace). The scene beat
+  /// picker watches this; a fetch failure surfaces as a `Result` error, never
+  /// a throw.
+
+  CharacterOutfitsProvider call(String characterId) =>
+      CharacterOutfitsProvider._(argument: characterId, from: this);
+
+  @override
+  String toString() => r'characterOutfitsProvider';
+}
 
 /// Photo repository (upload / bytes / delete / watch).
 
@@ -122,13 +267,13 @@ final costumesListFetchProvider = CostumesListFetchFamily._();
 final class CostumesListFetchProvider
     extends
         $FunctionalProvider<
-          AsyncValue<Result<List<CostumeView>>>,
-          Result<List<CostumeView>>,
-          FutureOr<Result<List<CostumeView>>>
+          AsyncValue<Result<List<PieceView>>>,
+          Result<List<PieceView>>,
+          FutureOr<Result<List<PieceView>>>
         >
     with
-        $FutureModifier<Result<List<CostumeView>>>,
-        $FutureProvider<Result<List<CostumeView>>> {
+        $FutureModifier<Result<List<PieceView>>>,
+        $FutureProvider<Result<List<PieceView>>> {
   /// The injected season-scoped list-fetch seam
   /// (`GET /v1/costumes?season_id=…`). Tests override this provider with a
   /// fake.
@@ -155,12 +300,12 @@ final class CostumesListFetchProvider
 
   @$internal
   @override
-  $FutureProviderElement<Result<List<CostumeView>>> $createElement(
+  $FutureProviderElement<Result<List<PieceView>>> $createElement(
     $ProviderPointer pointer,
   ) => $FutureProviderElement(pointer);
 
   @override
-  FutureOr<Result<List<CostumeView>>> create(Ref ref) {
+  FutureOr<Result<List<PieceView>>> create(Ref ref) {
     final argument = this.argument as String;
     return costumesListFetch(ref, argument);
   }
@@ -176,15 +321,14 @@ final class CostumesListFetchProvider
   }
 }
 
-String _$costumesListFetchHash() => r'1bcd1ed4245ae1b5f7ffd189cbadab4d73a05302';
+String _$costumesListFetchHash() => r'cc78b304b0e79d39864f78efc870f616f05cf7eb';
 
 /// The injected season-scoped list-fetch seam
 /// (`GET /v1/costumes?season_id=…`). Tests override this provider with a
 /// fake.
 
 final class CostumesListFetchFamily extends $Family
-    with
-        $FunctionalFamilyOverride<FutureOr<Result<List<CostumeView>>>, String> {
+    with $FunctionalFamilyOverride<FutureOr<Result<List<PieceView>>>, String> {
   CostumesListFetchFamily._()
     : super(
         retry: null,
@@ -212,7 +356,7 @@ final costumesPrevRowsProvider = CostumesPrevRowsFamily._();
 
 /// Retained last-good snapshot per season.
 final class CostumesPrevRowsProvider
-    extends $NotifierProvider<CostumesPrevRows, List<CostumeView>> {
+    extends $NotifierProvider<CostumesPrevRows, List<PieceView>> {
   /// Retained last-good snapshot per season.
   CostumesPrevRowsProvider._({
     required CostumesPrevRowsFamily super.from,
@@ -240,10 +384,10 @@ final class CostumesPrevRowsProvider
   CostumesPrevRows create() => CostumesPrevRows();
 
   /// {@macro riverpod.override_with_value}
-  Override overrideWithValue(List<CostumeView> value) {
+  Override overrideWithValue(List<PieceView> value) {
     return $ProviderOverride(
       origin: this,
-      providerOverride: $SyncValueProvider<List<CostumeView>>(value),
+      providerOverride: $SyncValueProvider<List<PieceView>>(value),
     );
   }
 
@@ -258,7 +402,7 @@ final class CostumesPrevRowsProvider
   }
 }
 
-String _$costumesPrevRowsHash() => r'a2e996fe7383aa892b140ef91506ea96eaf4134c';
+String _$costumesPrevRowsHash() => r'70777e041fb24f24dd7e6b8f7d12b7093933ed12';
 
 /// Retained last-good snapshot per season.
 
@@ -266,9 +410,9 @@ final class CostumesPrevRowsFamily extends $Family
     with
         $ClassFamilyOverride<
           CostumesPrevRows,
-          List<CostumeView>,
-          List<CostumeView>,
-          List<CostumeView>,
+          List<PieceView>,
+          List<PieceView>,
+          List<PieceView>,
           String
         > {
   CostumesPrevRowsFamily._()
@@ -291,20 +435,20 @@ final class CostumesPrevRowsFamily extends $Family
 
 /// Retained last-good snapshot per season.
 
-abstract class _$CostumesPrevRows extends $Notifier<List<CostumeView>> {
+abstract class _$CostumesPrevRows extends $Notifier<List<PieceView>> {
   late final _$args = ref.$arg as String;
   String get seasonId => _$args;
 
-  List<CostumeView> build(String seasonId);
+  List<PieceView> build(String seasonId);
   @$mustCallSuper
   @override
   WhenComplete runBuild() {
-    final ref = this.ref as $Ref<List<CostumeView>, List<CostumeView>>;
+    final ref = this.ref as $Ref<List<PieceView>, List<PieceView>>;
     final element =
         ref.element
             as $ClassProviderElement<
-              AnyNotifier<List<CostumeView>, List<CostumeView>>,
-              List<CostumeView>,
+              AnyNotifier<List<PieceView>, List<PieceView>>,
+              List<PieceView>,
               Object?,
               Object?
             >;
@@ -368,7 +512,7 @@ final class CostumesViewControllerProvider
 }
 
 String _$costumesViewControllerHash() =>
-    r'f8685372baf10686442734df9e8b0977d9f42ee8';
+    r'2d897bca8eae9d861200979407aad529dbbafd6a';
 
 /// Read-projection controller (seeder watches repository + fetch only).
 
@@ -648,7 +792,7 @@ final class CostumesOverlaysProvider
   }
 }
 
-String _$costumesOverlaysHash() => r'71ff5ddf50f074d5bd5b2e382479946d174fc56e';
+String _$costumesOverlaysHash() => r'a0b33914f6ff9690453f9045576d2e73c8d08e96';
 
 /// Ephemeral row-level optimistic overlays per season (controller state,
 /// NOT Drift). Entries clear by the version fence during the projection
@@ -825,39 +969,39 @@ abstract class _$CostumesCommandError
   }
 }
 
-/// `CostumesController(seasonId)` on the shared reconciliation runner.
+/// `PiecesController(seasonId)` on the shared reconciliation runner.
 
-@ProviderFor(CostumesController)
-final costumesControllerProvider = CostumesControllerFamily._();
+@ProviderFor(PiecesController)
+final piecesControllerProvider = PiecesControllerFamily._();
 
-/// `CostumesController(seasonId)` on the shared reconciliation runner.
-final class CostumesControllerProvider
-    extends $NotifierProvider<CostumesController, CostumesScreenState> {
-  /// `CostumesController(seasonId)` on the shared reconciliation runner.
-  CostumesControllerProvider._({
-    required CostumesControllerFamily super.from,
+/// `PiecesController(seasonId)` on the shared reconciliation runner.
+final class PiecesControllerProvider
+    extends $NotifierProvider<PiecesController, CostumesScreenState> {
+  /// `PiecesController(seasonId)` on the shared reconciliation runner.
+  PiecesControllerProvider._({
+    required PiecesControllerFamily super.from,
     required String super.argument,
   }) : super(
          retry: null,
-         name: r'costumesControllerProvider',
+         name: r'piecesControllerProvider',
          isAutoDispose: false,
          dependencies: null,
          $allTransitiveDependencies: null,
        );
 
   @override
-  String debugGetCreateSourceHash() => _$costumesControllerHash();
+  String debugGetCreateSourceHash() => _$piecesControllerHash();
 
   @override
   String toString() {
-    return r'costumesControllerProvider'
+    return r'piecesControllerProvider'
         ''
         '($argument)';
   }
 
   @$internal
   @override
-  CostumesController create() => CostumesController();
+  PiecesController create() => PiecesController();
 
   /// {@macro riverpod.override_with_value}
   Override overrideWithValue(CostumesScreenState value) {
@@ -869,7 +1013,7 @@ final class CostumesControllerProvider
 
   @override
   bool operator ==(Object other) {
-    return other is CostumesControllerProvider && other.argument == argument;
+    return other is PiecesControllerProvider && other.argument == argument;
   }
 
   @override
@@ -878,41 +1022,40 @@ final class CostumesControllerProvider
   }
 }
 
-String _$costumesControllerHash() =>
-    r'828550bad250094c579cc31ae22d61d320beded5';
+String _$piecesControllerHash() => r'638934d0cc6cac072c6561b2ff2f46dc67473702';
 
-/// `CostumesController(seasonId)` on the shared reconciliation runner.
+/// `PiecesController(seasonId)` on the shared reconciliation runner.
 
-final class CostumesControllerFamily extends $Family
+final class PiecesControllerFamily extends $Family
     with
         $ClassFamilyOverride<
-          CostumesController,
+          PiecesController,
           CostumesScreenState,
           CostumesScreenState,
           CostumesScreenState,
           String
         > {
-  CostumesControllerFamily._()
+  PiecesControllerFamily._()
     : super(
         retry: null,
-        name: r'costumesControllerProvider',
+        name: r'piecesControllerProvider',
         dependencies: null,
         $allTransitiveDependencies: null,
         isAutoDispose: false,
       );
 
-  /// `CostumesController(seasonId)` on the shared reconciliation runner.
+  /// `PiecesController(seasonId)` on the shared reconciliation runner.
 
-  CostumesControllerProvider call(String seasonId) =>
-      CostumesControllerProvider._(argument: seasonId, from: this);
+  PiecesControllerProvider call(String seasonId) =>
+      PiecesControllerProvider._(argument: seasonId, from: this);
 
   @override
-  String toString() => r'costumesControllerProvider';
+  String toString() => r'piecesControllerProvider';
 }
 
-/// `CostumesController(seasonId)` on the shared reconciliation runner.
+/// `PiecesController(seasonId)` on the shared reconciliation runner.
 
-abstract class _$CostumesController extends $Notifier<CostumesScreenState> {
+abstract class _$PiecesController extends $Notifier<CostumesScreenState> {
   late final _$args = ref.$arg as String;
   String get seasonId => _$args;
 

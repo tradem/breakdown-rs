@@ -3,6 +3,7 @@
 // Co-authored-by: mimo-v2.5 (opencode-go)
 // Co-authored-by: longcat-2.0 (opencode-go)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 use chrono::{DateTime, Utc};
 use kameo_es::{Apply, Command, Context, Entity, Metadata};
@@ -321,8 +322,8 @@ mod tests {
             ],
             exif_stripped_at: None,
             deleted_at: None,
-            binding: PhotoBinding::Costume {
-                costume_id: uuid::Uuid::now_v7(),
+            binding: PhotoBinding::Piece {
+                piece_id: uuid::Uuid::now_v7(),
             },
             version: AggregateVersion::INITIAL,
         }

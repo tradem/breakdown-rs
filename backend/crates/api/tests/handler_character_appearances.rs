@@ -1,16 +1,17 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: deepseek-v4.1-flash (neuralwatt)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 //! Handler tests for the per-character appearances route (issue #621):
 //! `GET /v1/characters/{id}/appearances`.
 //!
 //! The route is classified `Authenticated` at the middleware and gated
-//! handler-internally on an active costume-department role in the character's
+//! handler-internally on an active piece-department role in the character's
 //! season (`// AUTHZ-GATE:`). This file pins the HTTP surface — 200 shape,
 //! `404` for an unknown id (the fake emits the generic `domain.not-found`;
 //! production emits `character.not-found`), and the `403` denial — while
-//! the real SQL ordering / costume binding is covered against Postgres in
+//! the real SQL ordering / piece binding is covered against Postgres in
 //! `crates/integration-tests/tests/character_appearances_query.rs`.
 
 #![allow(
@@ -33,7 +34,7 @@ use api::handlers::get_character_appearances;
 use api::problems::{Json, Path};
 use api::state::AppState;
 use breakdown_core::character::views::{
-    AppearanceCostumeView, CharacterAppearanceView, CharacterView,
+    AppearanceOutfitView, CharacterAppearanceView, CharacterView,
 };
 use breakdown_core::character::{CharacterCategory, CharacterMeasurements, ContactInfo};
 use breakdown_core::membership::Role;
@@ -62,9 +63,9 @@ async fn seed_character(ports: &FakePorts, character_id: Uuid, season_id: Season
     );
 }
 
-/// Grant the caller an active costume role in `season_id` (the handler's
+/// Grant the caller an active piece role in `season_id` (the handler's
 /// `has_active_costume_role_in_season` predicate).
-async fn grant_costume_role(ports: &FakePorts, season_id: SeasonId) {
+async fn grant_piece_role(ports: &FakePorts, season_id: SeasonId) {
     ports
         .membership_repo
         .seed_active(
@@ -77,16 +78,16 @@ async fn grant_costume_role(ports: &FakePorts, season_id: SeasonId) {
         .await;
 }
 
-fn appearance(scene_id: Uuid, number: u32, costume_id: Uuid) -> CharacterAppearanceView {
+fn appearance(scene_id: Uuid, number: u32, outfit_id: Uuid) -> CharacterAppearanceView {
     CharacterAppearanceView {
         scene_id,
         episode_id: EpisodeId::new(),
         scene_number: Some(number),
         synopsis: Some(format!("Szene {number}")),
-        costumes: vec![AppearanceCostumeView {
-            costume_id,
-            costume_category_id: None,
-            costume_category_name: Some("Oberteil".into()),
+        outfits: vec![AppearanceOutfitView {
+            outfit_id,
+            outfit_name: Some("Alltagslook".into()),
+            variant_of: None,
             order: 0,
             note: None,
         }],
@@ -99,7 +100,7 @@ async fn appearances_returns_200_with_the_seeded_rows() {
     let season_id = SeasonId::new();
     let character_id = Uuid::now_v7();
     seed_character(&ports, character_id, season_id).await;
-    grant_costume_role(&ports, season_id).await;
+    grant_piece_role(&ports, season_id).await;
 
     let rows = vec![
         appearance(Uuid::now_v7(), 10, Uuid::now_v7()),
@@ -121,11 +122,8 @@ async fn appearances_returns_200_with_the_seeded_rows() {
     assert_eq!(status, StatusCode::OK);
     assert_eq!(body.len(), 2);
     assert_eq!(body[0].scene_number, Some(10));
-    assert_eq!(body[0].costumes.len(), 1);
-    assert_eq!(
-        body[0].costumes[0].costume_id,
-        rows[0].costumes[0].costume_id
-    );
+    assert_eq!(body[0].outfits.len(), 1);
+    assert_eq!(body[0].outfits[0].outfit_id, rows[0].outfits[0].outfit_id);
 }
 
 #[tokio::test]
@@ -146,8 +144,8 @@ async fn appearances_unknown_character_is_404() {
 }
 
 #[tokio::test]
-async fn appearances_without_a_costume_role_is_403() {
-    // The character exists, but the caller holds no active costume role in its
+async fn appearances_without_a_piece_role_is_403() {
+    // The character exists, but the caller holds no active piece role in its
     // season — the handler-internal gate must deny before reading appearances.
     let ports = FakePorts::default();
     let character_id = Uuid::now_v7();
@@ -157,16 +155,16 @@ async fn appearances_without_a_costume_role_is_403() {
     let problem =
         get_character_appearances::<FakePorts>(State(state), dummy_user(), Path(character_id))
             .await
-            .expect_err("caller without a costume role must be denied")
+            .expect_err("caller without a piece role must be denied")
             .into_problem();
 
     assert_eq!(problem.status, 403);
 }
 
 #[tokio::test]
-async fn appearances_with_a_non_costume_role_is_403() {
-    // A block member with a non-costume role (e.g. an ops admin) does not
-    // satisfy the costume-department predicate.
+async fn appearances_with_a_non_piece_role_is_403() {
+    // A block member with a non-piece role (e.g. an ops admin) does not
+    // satisfy the piece-department predicate.
     let ports = FakePorts::default();
     let season_id = SeasonId::new();
     let character_id = Uuid::now_v7();
@@ -186,7 +184,7 @@ async fn appearances_with_a_non_costume_role_is_403() {
     let problem =
         get_character_appearances::<FakePorts>(State(state), dummy_user(), Path(character_id))
             .await
-            .expect_err("a non-costume role must be denied")
+            .expect_err("a non-piece role must be denied")
             .into_problem();
 
     assert_eq!(problem.status, 403);

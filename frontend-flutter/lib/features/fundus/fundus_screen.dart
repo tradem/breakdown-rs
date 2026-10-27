@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: deepseek-v4.1-flash (neuralwatt)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 import 'package:breakdown_api/breakdown_api.dart';
 import 'package:flutter/material.dart';
@@ -268,7 +269,7 @@ class _CostumeRow extends StatelessWidget {
     required this.projectSeasons,
   });
 
-  final CostumeView costume;
+  final PieceView costume;
   final SeasonView season;
   final List<SeasonView> projectSeasons;
 

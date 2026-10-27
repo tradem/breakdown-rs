@@ -4,6 +4,7 @@
 // Co-authored-by: hy3 (opencode-go)
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
 // Co-authored-by: omen-alpha (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 import 'dart:async';
 import 'dart:typed_data';
@@ -68,7 +69,7 @@ class PhotoRepository extends BaseRepository {
   /// body as `String`, which cannot carry binary safely) with the same
   /// error mapping as [BaseRepository.run] (RFC 9457 `code`, never `detail`).
   Future<Result<PhotoView>> upload(
-    String costumeId,
+    String pieceId,
     Uint8List bytes,
     String contentType, {
     ProgressCallback? onSendProgress,
@@ -78,7 +79,7 @@ class PhotoRepository extends BaseRepository {
     }
     try {
       final response = await api.dio.post<Object>(
-        '/v1/costumes/$costumeId/photos',
+        '/v1/costumes/$pieceId/photos',
         // Pass the bytes directly (not a Stream): Dio sets the content
         // length automatically, so `onSendProgress` receives a valid
         // total (a Stream payload leaves the length unset and progress
@@ -114,12 +115,12 @@ class PhotoRepository extends BaseRepository {
   /// client surfaces it as `Uint8List` (it is never JSON-deserialized), so the
   /// [Result] carries the undecoded bytes for rendering, caching, or saving.
   Future<Result<Uint8List>> getBytes(
-    String costumeId,
+    String pieceId,
     String photoId,
     String variant,
   ) => run(
-    () => api.getHandlersApi().getCostumePhotoBytes(
-      costumeId: costumeId,
+    () => api.getHandlersApi().getPiecePhotoBytes(
+      pieceId: pieceId,
       photoId: photoId,
       variant: variant,
     ),
@@ -127,10 +128,10 @@ class PhotoRepository extends BaseRepository {
 
   /// Deletes a costume photo (204 → optimistic removal + reconcile).
   /// A `null` body is success (not `dto.invalid`).
-  Future<Result<void>> delete(String costumeId, String photoId) async {
+  Future<Result<void>> delete(String pieceId, String photoId) async {
     try {
-      await api.getHandlersApi().deleteCostumePhoto(
-        costumeId: costumeId,
+      await api.getHandlersApi().deletePiecePhoto(
+        pieceId: pieceId,
         photoId: photoId,
       );
       return const Right<ProblemError, void>(null);
@@ -156,8 +157,8 @@ class PhotoRepository extends BaseRepository {
   /// * [delay] is injectable (fake scheduler in tests — never a real
   ///   `Future.delayed` wall-clock).
   Stream<PhotoWatchEvent> watch(
-    String costumeId,
-    Future<Result<CostumeView>> Function() fetchCostume, {
+    String pieceId,
+    Future<Result<PieceView>> Function() fetchCostume, {
     Clock clock = Clock.system,
     Future<void> Function(int attempt)? delay,
   }) async* {
@@ -228,32 +229,32 @@ class PhotoWatchEvent {
   const PhotoWatchEvent._(this.state, this.view, this.attempts, this.error);
 
   const PhotoWatchEvent.progress(
-    CostumeView? view,
+    PieceView? view,
     int attempts,
     ProblemError? error,
   ) : this._(PhotoWatchState.progress, view, attempts, error);
 
-  const PhotoWatchEvent.terminal(CostumeView view)
+  const PhotoWatchEvent.terminal(PieceView view)
     : this._(PhotoWatchState.terminal, view, 0, null);
 
-  const PhotoWatchEvent.expired(CostumeView? view, ProblemError? error)
+  const PhotoWatchEvent.expired(PieceView? view, ProblemError? error)
     : this._(PhotoWatchState.expired, view, 0, error);
 
   final PhotoWatchState state;
-  final CostumeView? view;
+  final PieceView? view;
   final int attempts;
   final ProblemError? error;
 }
 
 /// Terminal condition (whole pass, not per-variant): the variant status lives
-/// at `CostumeView.photos[].variants[].status` — `variants` belongs to each
-/// `CostumePhotoView` inside `CostumeView.photos`, NOT to `CostumeView`
+/// at `PieceView.photos[].variants[].status` — `variants` belongs to each
+/// `PiecePhotoView` inside `PieceView.photos`, NOT to `PieceView`
 /// itself. The watch ends only when **every** variant of **every** photo of
 /// the watched costume is terminal (`Ready` or `Failed`).
 ///
 /// A photo with one `Ready` and one `Pending` variant keeps the pass running.
 /// An empty photo list is terminal (nothing to wait for).
-bool isPhotoWatchTerminal(CostumeView view) {
+bool isPhotoWatchTerminal(PieceView view) {
   if (view.photos.isEmpty) return true;
   for (final photo in view.photos) {
     // A photo with no variants yet (upload ack racing the variant saga)

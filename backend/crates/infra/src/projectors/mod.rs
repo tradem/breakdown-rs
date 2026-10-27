@@ -5,6 +5,7 @@
 // Co-authored-by: deepseek-v4-flash (opencode-go)
 // Co-authored-by: hy3 (opencode-go)
 // Co-authored-by: omen-alpha (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 //! Projection actors – one `PostgresProcessor` per aggregate.
 //!
@@ -15,12 +16,13 @@ mod ai_config;
 mod audit;
 mod block;
 mod character;
-mod costume;
 mod costume_category;
 mod episode;
 pub mod health;
 mod invariant_skip;
 mod membership;
+mod outfit;
+mod piece;
 mod reservation;
 mod scene;
 mod scene_shoot;
@@ -33,9 +35,10 @@ pub use crate::photo::projector::PhotoProjector;
 pub use ai_config::AiConfigProjector;
 pub use audit::{
     AuditCategory, AuditProjector, BlockAuditProjector, CharacterAuditProjector,
-    CostumeAuditProjector, CostumeCategoryAuditProjector, EpisodeAuditProjector,
-    MembershipAuditProjector, PhotoAuditProjector, SceneAuditProjector, SceneShootAuditProjector,
-    SeasonAuditProjector, SettingsAuditProjector, ShootingDayAuditProjector,
+    CostumeCategoryAuditProjector, EpisodeAuditProjector, MembershipAuditProjector,
+    OutfitAuditProjector, PhotoAuditProjector, PieceAuditProjector, SceneAuditProjector,
+    SceneShootAuditProjector, SeasonAuditProjector, SettingsAuditProjector,
+    ShootingDayAuditProjector,
 };
 pub use block::BlockProjector;
 pub use character::CharacterProjector;
@@ -43,11 +46,12 @@ pub use character::CharacterProjector;
 // #37 API compatibility. `ProjectorHealthRepository` is the concrete sqlx
 // adapter, distinct from the core port trait of the same name.
 pub use breakdown_core::ops::{CheckpointProgress, DeadLetterEntry};
-pub use costume::CostumeProjector;
 pub use costume_category::CostumeCategoryProjector;
 pub use episode::EpisodeProjector;
 pub use health::ProjectorHealthRepository;
 pub use membership::MembershipProjector;
+pub use outfit::OutfitProjector;
+pub use piece::PieceProjector;
 pub use reservation::ReservationProjector;
 pub use scene::SceneProjector;
 pub use scene_shoot::SceneShootProjector;
@@ -61,11 +65,12 @@ use anyhow::{self, Result};
 use breakdown_core::ai::aggregate::AiConfig;
 use breakdown_core::block::aggregate::BlockAggregate;
 use breakdown_core::character::aggregate::CharacterAggregate;
-use breakdown_core::costume::aggregate::CostumeAggregate;
 use breakdown_core::costume_category::aggregate::CostumeCategoryAggregate;
 use breakdown_core::episode::aggregate::EpisodeAggregate;
 use breakdown_core::membership::aggregate::BlockMembership;
+use breakdown_core::outfit::aggregate::OutfitAggregate;
 use breakdown_core::photo::aggregate::PhotoAggregate;
+use breakdown_core::piece::aggregate::PieceAggregate;
 use breakdown_core::scene::aggregate::SceneAggregate;
 use breakdown_core::scene_shoot::aggregate::SceneShootAggregate;
 use breakdown_core::season::aggregate::SeasonAggregate;
@@ -166,7 +171,8 @@ use std::time::Duration;
 type SceneProcessor = PostgresProcessor<(SceneAggregate,), SceneProjector>;
 type SceneShootProcessor = PostgresProcessor<(SceneShootAggregate,), SceneShootProjector>;
 type CharacterProcessor = PostgresProcessor<(CharacterAggregate,), CharacterProjector>;
-type CostumeProcessor = PostgresProcessor<(CostumeAggregate,), CostumeProjector>;
+type PieceProcessor = PostgresProcessor<(PieceAggregate,), PieceProjector>;
+type OutfitProcessor = PostgresProcessor<(OutfitAggregate,), OutfitProjector>;
 type CostumeCategoryProcessor =
     PostgresProcessor<(CostumeCategoryAggregate,), CostumeCategoryProjector>;
 type SeasonProcessor = PostgresProcessor<(SeasonAggregate,), SeasonProjector>;
@@ -186,7 +192,8 @@ type SceneShootAuditProcessor = PostgresProcessor<(SceneShootAggregate,), SceneS
 type ShootingDayAuditProcessor =
     PostgresProcessor<(ShootingDayAggregate,), ShootingDayAuditProjector>;
 type CharacterAuditProcessor = PostgresProcessor<(CharacterAggregate,), CharacterAuditProjector>;
-type CostumeAuditProcessor = PostgresProcessor<(CostumeAggregate,), CostumeAuditProjector>;
+type PieceAuditProcessor = PostgresProcessor<(PieceAggregate,), PieceAuditProjector>;
+type OutfitAuditProcessor = PostgresProcessor<(OutfitAggregate,), OutfitAuditProjector>;
 type CostumeCategoryAuditProcessor =
     PostgresProcessor<(CostumeCategoryAggregate,), CostumeCategoryAuditProjector>;
 type PhotoAuditProcessor = PostgresProcessor<(PhotoAggregate,), PhotoAuditProjector>;
@@ -262,12 +269,16 @@ macro_rules! run_projection_stream_handle {
     }};
 }
 
+/// Number of audited aggregate categories (`AuditCategory` variants). Adding a
+/// category grows the handle array — the compile-time guard below fails first.
+pub const AUDIT_CATEGORY_COUNT: usize = 13;
+
 /// Holds all supervisor `JoinHandle`s for the audit projectors.
 /// Dropping this struct drops all handles, which gracefully stops
 /// all projector subscription loops.
 #[must_use = "Projector handles must be kept alive to prevent suppression"]
 pub struct AuditProjectorHandles {
-    pub handles: [Option<tokio::task::JoinHandle<()>>; 12],
+    pub handles: [Option<tokio::task::JoinHandle<()>>; AUDIT_CATEGORY_COUNT],
 }
 
 impl Default for AuditProjectorHandles {
@@ -279,14 +290,12 @@ impl Default for AuditProjectorHandles {
 impl AuditProjectorHandles {
     pub fn new() -> Self {
         Self {
-            handles: [
-                None, None, None, None, None, None, None, None, None, None, None, None,
-            ],
+            handles: [const { None }; AUDIT_CATEGORY_COUNT],
         }
     }
 
     pub fn store(&mut self, idx: usize, handle: tokio::task::JoinHandle<()>) {
-        debug_assert!(idx < 12);
+        debug_assert!(idx < AUDIT_CATEGORY_COUNT);
         self.handles[idx] = Some(handle);
     }
 }
@@ -350,25 +359,49 @@ pub async fn spawn_character_projector(
     Ok(actor_ref)
 }
 
-/// Spawn the costume projector actor and start its subscription loop.
-pub async fn spawn_costume_projector(
+/// Spawn the piece (wardrobe fundus) projector actor and start its
+/// subscription loop.
+pub async fn spawn_piece_projector(
     pool: PgPool,
     redis_client: Arc<RedisClient>,
     config: ProjectorFlushConfig,
-) -> Result<ActorRef<CostumeProcessor>> {
+) -> Result<ActorRef<PieceProcessor>> {
     let conn = redis_client.get_multiplexed_async_connection().await?;
     let processor = config.apply(
-        CostumeProcessor::new(
+        PieceProcessor::new(
             pool.clone(),
             conn,
             CHECKPOINTS_TABLE,
-            "costume",
-            CostumeProjector,
+            "piece",
+            PieceProjector,
         )
         .await?,
     );
-    let actor_ref = CostumeProcessor::spawn(processor);
-    run_projection_stream!(CostumeAggregate, "costume", redis_client, actor_ref.clone())?;
+    let actor_ref = PieceProcessor::spawn(processor);
+    run_projection_stream!(PieceAggregate, "piece", redis_client, actor_ref.clone())?;
+    Ok(actor_ref)
+}
+
+/// Spawn the outfit (character look) projector actor and start its subscription
+/// loop.
+pub async fn spawn_outfit_projector(
+    pool: PgPool,
+    redis_client: Arc<RedisClient>,
+    config: ProjectorFlushConfig,
+) -> Result<ActorRef<OutfitProcessor>> {
+    let conn = redis_client.get_multiplexed_async_connection().await?;
+    let processor = config.apply(
+        OutfitProcessor::new(
+            pool.clone(),
+            conn,
+            CHECKPOINTS_TABLE,
+            "outfit",
+            OutfitProjector,
+        )
+        .await?,
+    );
+    let actor_ref = OutfitProcessor::spawn(processor);
+    run_projection_stream!(OutfitAggregate, "outfit", redis_client, actor_ref.clone())?;
     Ok(actor_ref)
 }
 
@@ -713,27 +746,54 @@ pub async fn spawn_character_audit_projector(
     Ok(actor_ref)
 }
 
-/// Spawn the costume audit projector.
-pub async fn spawn_costume_audit_projector(
+/// Spawn the piece audit projector.
+pub async fn spawn_piece_audit_projector(
     pool: PgPool,
     redis_client: Arc<RedisClient>,
     config: ProjectorFlushConfig,
-) -> Result<ActorRef<CostumeAuditProcessor>> {
+) -> Result<ActorRef<PieceAuditProcessor>> {
     let conn = redis_client.get_multiplexed_async_connection().await?;
     let processor = config.apply(
-        CostumeAuditProcessor::new(
+        PieceAuditProcessor::new(
             pool,
             conn,
             CHECKPOINTS_TABLE,
-            "audit:costume",
-            CostumeAuditProjector,
+            "audit:piece",
+            PieceAuditProjector,
         )
         .await?,
     );
-    let actor_ref = CostumeAuditProcessor::spawn(processor);
+    let actor_ref = PieceAuditProcessor::spawn(processor);
     run_projection_stream_handle!(
-        CostumeAggregate,
-        "audit:costume",
+        PieceAggregate,
+        "audit:piece",
+        redis_client,
+        actor_ref.clone()
+    )?;
+    Ok(actor_ref)
+}
+
+/// Spawn the outfit audit projector.
+pub async fn spawn_outfit_audit_projector(
+    pool: PgPool,
+    redis_client: Arc<RedisClient>,
+    config: ProjectorFlushConfig,
+) -> Result<ActorRef<OutfitAuditProcessor>> {
+    let conn = redis_client.get_multiplexed_async_connection().await?;
+    let processor = config.apply(
+        OutfitAuditProcessor::new(
+            pool,
+            conn,
+            CHECKPOINTS_TABLE,
+            "audit:outfit",
+            OutfitAuditProjector,
+        )
+        .await?,
+    );
+    let actor_ref = OutfitAuditProcessor::spawn(processor);
+    run_projection_stream_handle!(
+        OutfitAggregate,
+        "audit:outfit",
         redis_client,
         actor_ref.clone()
     )?;
@@ -837,7 +897,8 @@ pub async fn spawn_all_audit_projectors(
         AuditCategory::SceneShoot,
         AuditCategory::ShootingDay,
         AuditCategory::Character,
-        AuditCategory::Costume,
+        AuditCategory::Piece,
+        AuditCategory::Outfit,
         AuditCategory::CostumeCategory,
         AuditCategory::Photo,
         AuditCategory::Membership,
@@ -1018,26 +1079,47 @@ pub async fn spawn_single_audit_projector(
             )?;
             handlers.store(AuditCategory::Character as usize, handle);
         }
-        AuditCategory::Costume => {
+        AuditCategory::Piece => {
             let conn = redis_client.get_multiplexed_async_connection().await?;
             let processor = config.apply(
-                CostumeAuditProcessor::new(
+                PieceAuditProcessor::new(
                     pool,
                     conn,
                     CHECKPOINTS_TABLE,
-                    "audit:costume",
-                    CostumeAuditProjector,
+                    "audit:piece",
+                    PieceAuditProjector,
                 )
                 .await?,
             );
-            let ar = CostumeAuditProcessor::spawn(processor);
+            let ar = PieceAuditProcessor::spawn(processor);
             let handle = run_projection_stream_handle!(
-                CostumeAggregate,
-                "audit:costume",
+                PieceAggregate,
+                "audit:piece",
                 redis_client,
                 ar.clone()
             )?;
-            handlers.store(AuditCategory::Costume as usize, handle);
+            handlers.store(AuditCategory::Piece as usize, handle);
+        }
+        AuditCategory::Outfit => {
+            let conn = redis_client.get_multiplexed_async_connection().await?;
+            let processor = config.apply(
+                OutfitAuditProcessor::new(
+                    pool,
+                    conn,
+                    CHECKPOINTS_TABLE,
+                    "audit:outfit",
+                    OutfitAuditProjector,
+                )
+                .await?,
+            );
+            let ar = OutfitAuditProcessor::spawn(processor);
+            let handle = run_projection_stream_handle!(
+                OutfitAggregate,
+                "audit:outfit",
+                redis_client,
+                ar.clone()
+            )?;
+            handlers.store(AuditCategory::Outfit as usize, handle);
         }
         AuditCategory::CostumeCategory => {
             let conn = redis_client.get_multiplexed_async_connection().await?;

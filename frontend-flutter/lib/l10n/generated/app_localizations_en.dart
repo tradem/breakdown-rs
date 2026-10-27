@@ -28,10 +28,10 @@ class AppLocalizationsEn extends AppLocalizations {
   String get costumeCategoryCreateTitle => 'Create category';
 
   @override
-  String get costumeCategoryNameLabel => 'Name';
+  String get outfitNameLabel => 'Name';
 
   @override
-  String get costumeCategoryNameRequired => 'A name is required';
+  String get outfitNameRequired => 'A name is required';
 
   @override
   String get costumeCategoryRenameTitle => 'Rename category';
@@ -1708,8 +1708,8 @@ class AppLocalizationsEn extends AppLocalizations {
   String get photoGalleryDeleteTooltip => 'Delete photo';
 
   @override
-  String photoTileSemantics(Object costumeId) {
-    return 'Photo of costume $costumeId';
+  String photoTileSemantics(Object pieceId) {
+    return 'Photo of costume $pieceId';
   }
 
   @override

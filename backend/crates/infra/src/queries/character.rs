@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 //! `sqlx`-backed implementation of the `CharacterRepository` port.
 
 use breakdown_core::character::category::CharacterCategory;
 use breakdown_core::character::ports::CharacterRepository;
 use breakdown_core::character::views::{
-    AppearanceCostumeView, CharacterAppearanceView, CharacterView,
+    AppearanceOutfitView, CharacterAppearanceView, CharacterView,
 };
 use breakdown_core::error::DomainError;
 use breakdown_core::error_registry::CHARACTER_NOT_FOUND;
@@ -110,11 +111,11 @@ impl CharacterRepository for CharacterRepositoryImpl {
         character_id: Uuid,
     ) -> Result<Vec<CharacterAppearanceView>, DomainError> {
         // Issue #621: script-order appearances of one character, each carrying
-        // that character's own ordered costume beats. `scene_number` is
+        // that character's own ordered outfit beats. `scene_number` is
         // episode-local, so the order is episode number first, then scene
         // number (`episode.number` is NOT NULL; the LEFT JOIN + NULLS LAST only
         // guards a lagging episode projection, which must not drop the scene).
-        // The costume list is a correlated scalar subquery keyed on
+        // The outfit list is a correlated scalar subquery keyed on
         // `(scene_id, character_id)` so the one-to-many join cannot multiply
         // the scene rows (issue #550 pattern); `COALESCE` keeps a scene with no
         // beat for this character as an empty list. `s.id` is the deterministic
@@ -129,17 +130,17 @@ impl CharacterRepository for CharacterRepositoryImpl {
                 COALESCE((
                     SELECT jsonb_agg(
                         jsonb_build_object(
-                            'costume_id', psca.costume_id,
-                            'costume_category_id', co.category_id,
-                            'costume_category_name', co.category_name,
-                            'order', psca."order",
-                            'note', psca.note
-                        ) ORDER BY psca."order"
+                            'outfit_id', psoa.outfit_id,
+                            'outfit_name', o.name,
+                            'variant_of', o.variant_of,
+                            'order', psoa."order",
+                            'note', psoa.note
+                        ) ORDER BY psoa."order"
                     )
-                    FROM projection_scene_costume_assignment psca
-                    LEFT JOIN projection_costume co ON co.id = psca.costume_id
-                    WHERE psca.scene_id = s.id AND psca.character_id = $1
-                ), '[]'::jsonb) AS costumes
+                    FROM projection_scene_outfit_assignment psoa
+                    LEFT JOIN projection_outfit o ON o.id = psoa.outfit_id
+                    WHERE psoa.scene_id = s.id AND psoa.character_id = $1
+                ), '[]'::jsonb) AS outfits
             FROM projection_scene_character psc
             JOIN projection_scene s ON s.id = psc.scene_id
             LEFT JOIN projection_episode e ON e.id = s.episode_id
@@ -176,11 +177,11 @@ fn map_character_row(row: sqlx::postgres::PgRow) -> Result<CharacterView, Domain
 }
 
 fn map_appearance_row(row: sqlx::postgres::PgRow) -> Result<CharacterAppearanceView, DomainError> {
-    let costumes_json: serde_json::Value = row.try_get("costumes").map_err(map_err)?;
-    let costumes: Vec<AppearanceCostumeView> =
-        serde_json::from_value(costumes_json.clone()).map_err(|e| {
+    let outfits_json: serde_json::Value = row.try_get("outfits").map_err(map_err)?;
+    let outfits: Vec<AppearanceOutfitView> =
+        serde_json::from_value(outfits_json.clone()).map_err(|e| {
             DomainError::internal(format!(
-                "failed to deserialize character appearance costumes from projection row: {e}; json={costumes_json}"
+                "failed to deserialize character appearance outfits from projection row: {e}; json={outfits_json}"
             ))
         })?;
     let scene_number: Option<i32> = row.try_get("scene_number").map_err(map_err)?;
@@ -190,7 +191,7 @@ fn map_appearance_row(row: sqlx::postgres::PgRow) -> Result<CharacterAppearanceV
         episode_id: EpisodeId(row.try_get("episode_id").map_err(map_err)?),
         scene_number: scene_number.map(|n| n as u32),
         synopsis: row.try_get("summary").map_err(map_err)?,
-        costumes,
+        outfits,
     })
 }
 

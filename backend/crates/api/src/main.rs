@@ -6,6 +6,7 @@
 // Co-authored-by: deepseek-v4-flash (opencode-go)
 // Co-authored-by: glm-5.2 (neuralwatt)
 // Co-authored-by: longcat-2.0-free (opencode)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 //! # Breakdown RS – API-Server
 //!
@@ -37,17 +38,17 @@ use infra::ai::{
 };
 use infra::event_store::{
     AiConfigCommandsImpl, BlockCommandsImpl, CharacterCommandsImpl, CostumeCategoryCommandsImpl,
-    CostumeCommandsImpl, EpisodeCommandsImpl, MembershipCommandsImpl, PhotoCommandsImpl,
-    SceneCommandsImpl, SceneShootCommandsImpl, SeasonCommandsImpl, SettingsCommandsImpl,
-    ShootingDayCommandsImpl, WrapFinalityGate,
+    EpisodeCommandsImpl, MembershipCommandsImpl, PhotoCommandsImpl, SceneCommandsImpl,
+    SceneShootCommandsImpl, SeasonCommandsImpl, SettingsCommandsImpl, ShootingDayCommandsImpl,
+    WardrobeCommandsImpl, WrapFinalityGate,
 };
 use infra::photo::{
     gc::spawn_gc_scheduler, repository::PhotoRepositoryImpl, storage::OpenDalPhotoStorage,
 };
 use infra::queries::{
     AiConfigRepositoryImpl, AuditRepositoryImpl, BlockRepositoryImpl, CharacterRepositoryImpl,
-    CostumeCategoryRepositoryImpl, CostumeRepositoryImpl, EpisodeRepositoryImpl,
-    MembershipRepositoryImpl, SceneRepositoryImpl, SceneShootReportRepositoryImpl,
+    CostumeCategoryRepositoryImpl, EpisodeRepositoryImpl, MembershipRepositoryImpl,
+    OutfitRepositoryImpl, PieceRepositoryImpl, SceneRepositoryImpl, SceneShootReportRepositoryImpl,
     SceneShootRepositoryImpl, SeasonRepositoryImpl, SettingsRepositoryImpl,
     ShootingDayRepositoryImpl,
 };
@@ -313,7 +314,15 @@ async fn main() -> Result<()> {
         infra::projectors::ProjectorFlushConfig::default(),
     )
     .await?;
-    let _costume_projector = infra::projectors::spawn_costume_projector(
+    let _piece_projector = infra::projectors::spawn_piece_projector(
+        pool.clone(),
+        Arc::clone(&redis_client),
+        infra::projectors::ProjectorFlushConfig::default(),
+    )
+    .await?;
+    // Outfits are their own aggregate/stream: the character-bound look that
+    // scenes cast. A separate projector keeps replay/checkpoint independent.
+    let _outfit_projector = infra::projectors::spawn_outfit_projector(
         pool.clone(),
         Arc::clone(&redis_client),
         infra::projectors::ProjectorFlushConfig::default(),
@@ -376,7 +385,7 @@ async fn main() -> Result<()> {
     // The photo read model (`projection_photo` + `projection_photo_variant`)
     // is written ONLY by this projector. Without it the upload path still
     // returns 201 and the thumbnail saga still generates variants, but the
-    // read side stays empty forever — `GET /costumes/{id}/photos` lists
+    // read side stays empty forever — `GET /pieces/{id}/photos` lists
     // nothing and the client renders no thumbnail. The integration tests
     // call `spawn_photo_projector` explicitly, which is why the omission
     // was invisible to CI; the four photo sagas below are NOT a substitute
@@ -398,7 +407,8 @@ async fn main() -> Result<()> {
 
     // Create repositories first (commands depend on them for project_id resolution)
     let photo_repo = PhotoRepositoryImpl::new(pool.clone());
-    let costume_repo = CostumeRepositoryImpl::new(pool.clone());
+    let piece_repo = PieceRepositoryImpl::new(pool.clone());
+    let outfit_repo = OutfitRepositoryImpl::new(pool.clone());
     let character_repo = CharacterRepositoryImpl::new(pool.clone());
     let season_repo = SeasonRepositoryImpl::new(pool.clone());
     let scene_shoot_repo = SceneShootRepositoryImpl::new(pool.clone());
@@ -641,8 +651,9 @@ async fn main() -> Result<()> {
         shooting_day_repo,
         CharacterCommandsImpl::new(cmd_service.clone()),
         character_repo.clone(),
-        CostumeCommandsImpl::new(cmd_service.clone()),
-        costume_repo,
+        WardrobeCommandsImpl::new(cmd_service.clone()),
+        piece_repo,
+        outfit_repo,
         CostumeCategoryCommandsImpl::new(cmd_service.clone()),
         costume_category_repo,
         SeasonCommandsImpl::new(cmd_service.clone()),

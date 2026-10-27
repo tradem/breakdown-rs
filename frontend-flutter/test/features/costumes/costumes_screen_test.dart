@@ -4,10 +4,11 @@
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
 // Co-authored-by: glm-5.3-flash (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 // Tier-2 widget + controller tests for `CostumesScreen` (Task 4.3):
 // data/empty/error/stale/overlay states (semantic finders, never `byType`
-// alone), create (empty-body contract + overlay), assign/unassign version
+// alone), create (named-shell contract + overlay), rename/notes version
 // fence, 409 conflict copy, role-denial with request-counter proof, and
 // goldens {light,dark}×{android,macos}.
 
@@ -28,12 +29,12 @@ import 'package:frontend_flutter/core/result.dart';
 import 'package:frontend_flutter/l10n/generated/app_localizations_en.dart';
 import 'package:frontend_flutter/data/cache/cache_database.dart';
 import 'package:frontend_flutter/data/cache/clock.dart';
-import 'package:frontend_flutter/data/cache/costume_domains_cache_dao.dart';
+import 'package:frontend_flutter/data/cache/piece_domains_cache_dao.dart';
 import 'package:frontend_flutter/data/cache/seasons_cache_providers.dart';
 import 'package:frontend_flutter/data/character_repository.dart';
 import 'package:frontend_flutter/data/cache/season_cache_dao.dart';
 import 'package:frontend_flutter/data/season_repository.dart';
-import 'package:frontend_flutter/data/costume_repository.dart';
+import 'package:frontend_flutter/data/piece_repository.dart';
 import 'package:frontend_flutter/domain/reconciliation/reconciliation_scheduler.dart';
 import 'package:frontend_flutter/features/blocks/blocks_controller.dart';
 import 'package:frontend_flutter/features/characters/characters_controller.dart';
@@ -56,51 +57,25 @@ final _uuidV7 = RegExp(
   r'^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$',
 );
 
-CostumeView _costume(
+PieceView _costume(
   String id, {
-  String? characterId,
   int version = 1,
+  String name = 'Fundus-Piece',
   String notes = '',
   String? categoryName,
-  List<CostumeDetailView> details = const [],
-  List<CostumePhotoView> photos = const [],
-}) => CostumeView(
+  List<PieceDetailView> details = const [],
+  List<PiecePhotoView> photos = const [],
+}) => PieceView(
   (b) => b
+    ..name = name
     ..id = id
-    ..characterId = characterId
-    ..notes = notes.isEmpty ? 'Costume $id' : notes
+    ..notes = notes.isEmpty ? 'Kleidungsstück $id' : notes
     // Issue #543: the category is a COSTUME-level field.
     ..categoryName = categoryName
-    ..details.replace(BuiltList<CostumeDetailView>(details))
-    ..photos.replace(BuiltList<CostumePhotoView>(photos))
+    ..details.replace(BuiltList<PieceDetailView>(details))
+    ..photos.replace(BuiltList<PiecePhotoView>(photos))
     ..updatedAt = DateTime.utc(2026, 1, 1)
     ..version = version,
-);
-
-CharacterView _character(String id, {String name = 'Bea'}) => CharacterView(
-  (b) => b
-    ..id = id
-    ..seasonId = 'season-1'
-    ..name = name
-    ..category = serializers.deserializeWith(
-      CharacterCategory.serializer,
-      'main_cast',
-    )!
-    ..measurements.replace(
-      CharacterMeasurements(
-        (m) => m
-          ..height = 'h'
-          ..weight = 'w'
-          ..chest = 'c'
-          ..waist = 'wa'
-          ..hips = 'hi'
-          ..shoeSize = 's'
-          ..hatSize = 'ha',
-      ),
-    )
-    ..contact.replace(ContactInfo((c) => c..email = 'a@b.c'))
-    ..updatedAt = DateTime.utc(2026, 1, 1)
-    ..version = 1,
 );
 
 SeasonView _season() => SeasonView(
@@ -143,22 +118,18 @@ SeriesMembershipDto _seriesMembership(bool hasRole) => SeriesMembershipDto(
     ..capabilities.replace(const <String>[]),
 );
 
-class _FakeCostumeRepository extends CostumeRepository {
-  _FakeCostumeRepository(super.api, super.cache);
+class _FakePieceRepository extends PieceRepository {
+  _FakePieceRepository(super.api, super.cache);
 
   Result<IdVersionResponse>? nextCreate;
   Result<int>? nextWrite;
   int listCalls = 0;
   int createCalls = 0;
-  int assignCalls = 0;
-  int unassignCalls = 0;
-  String? lastAssignCharacter;
-  int? lastAssignVersion;
   int? lastNotesVersion;
-  AddCostumeDetailRequest? lastAddDetailRequest;
+  AddPieceDetailRequest? lastAddDetailRequest;
   // Issue #544: the detail edit/delete seam. The call counters back the
   // AUTHZ-GATE assertion (a denied caller must issue ZERO requests).
-  UpdateCostumeDetailRequest? lastUpdateDetailRequest;
+  UpdatePieceDetailRequest? lastUpdateDetailRequest;
   String? lastUpdateDetailId;
   String? lastRemoveDetailId;
   VersionRequest? lastRemoveDetailRequest;
@@ -173,11 +144,11 @@ class _FakeCostumeRepository extends CostumeRepository {
   /// the REAL Dio client: the request never settles under `testWidgets`, and the
   /// socket timer is still pending at teardown — the exact reason
   /// `selecting a tile opens the editor on the first screen` failed.
-  Result<CostumeView>? detailResult;
+  Result<PieceView>? detailResult;
   int detailCalls = 0;
 
   @override
-  Future<Result<CostumeView>> getAndCache(
+  Future<Result<PieceView>> getAndCache(
     String seasonId,
     String id, {
     Clock clock = Clock.system,
@@ -195,7 +166,11 @@ class _FakeCostumeRepository extends CostumeRepository {
   }
 
   @override
-  Future<Result<IdVersionResponse>> create(String? seasonId) {
+  Future<Result<IdVersionResponse>> create({
+    required String name,
+    String? seasonId,
+    String? categoryId,
+  }) {
     createCalls++;
     final scripted = nextCreate;
     if (scripted != null) return Future.value(scripted);
@@ -211,28 +186,9 @@ class _FakeCostumeRepository extends CostumeRepository {
   }
 
   @override
-  Future<Result<int>> assign(String id, AssignCostumeRequest request) {
-    assignCalls++;
-    lastAssignCharacter = request.characterId;
-    lastAssignVersion = request.version;
-    final scripted = nextWrite;
-    if (scripted != null) return Future.value(scripted);
-    return Future.value(const Right<ProblemError, int>(2));
-  }
-
   @override
-  Future<Result<int>> unassign(String id, VersionRequest request) {
-    unassignCalls++;
-    final scripted = nextWrite;
-    if (scripted != null) return Future.value(scripted);
-    return Future.value(const Right<ProblemError, int>(2));
-  }
-
   @override
-  Future<Result<int>> updateNotes(
-    String id,
-    UpdateCostumeNotesRequest request,
-  ) {
+  Future<Result<int>> updateNotes(String id, UpdatePieceNotesRequest request) {
     lastNotesVersion = request.version;
     final scripted = nextWrite;
     if (scripted != null) return Future.value(scripted);
@@ -240,7 +196,7 @@ class _FakeCostumeRepository extends CostumeRepository {
   }
 
   @override
-  Future<Result<int>> addDetail(String id, AddCostumeDetailRequest request) {
+  Future<Result<int>> addDetail(String id, AddPieceDetailRequest request) {
     lastAddDetailRequest = request;
     final scripted = nextWrite;
     if (scripted != null) return Future.value(scripted);
@@ -251,7 +207,7 @@ class _FakeCostumeRepository extends CostumeRepository {
   Future<Result<int>> updateDetail(
     String id,
     String detailId,
-    UpdateCostumeDetailRequest request,
+    UpdatePieceDetailRequest request,
   ) {
     updateDetailCalls++;
     lastUpdateDetailId = detailId;
@@ -286,8 +242,8 @@ Future<void> _pumpFrames(WidgetTester tester, {int n = 6}) async {
 
 void main() {
   late CacheDatabase db;
-  late _FakeCostumeRepository repo;
-  late ValueNotifier<Result<List<CostumeView>>> holder;
+  late _FakePieceRepository repo;
+  late ValueNotifier<Result<List<PieceView>>> holder;
   late ValueNotifier<Result<SeasonMembershipDto>> membershipHolder;
   late ValueNotifier<Result<SeriesMembershipDto>> seriesMembershipHolder;
   late ManualReconciliationScheduler scheduler;
@@ -295,16 +251,16 @@ void main() {
   int listFetchCalls = 0;
 
   Future<void> setupContainer({
-    List<CostumeView> initialRows = const [],
-    Result<List<CostumeView>>? initialFetch,
+    List<PieceView> initialRows = const [],
+    Result<List<PieceView>>? initialFetch,
     List<String> capabilities = const ['assign_costumes'],
     List<CharacterView> characters = const [],
   }) async {
     db = CacheDatabase(NativeDatabase.memory());
     addTearDown(db.close);
     listFetchCalls = 0;
-    repo = _FakeCostumeRepository(BreakdownApi(), CostumeCacheDao(db));
-    holder = ValueNotifier<Result<List<CostumeView>>>(
+    repo = _FakePieceRepository(BreakdownApi(), PieceCacheDao(db));
+    holder = ValueNotifier<Result<List<PieceView>>>(
       initialFetch ?? Right(initialRows),
     );
     membershipHolder = ValueNotifier<Result<SeasonMembershipDto>>(
@@ -359,16 +315,16 @@ void main() {
           // Issue #544: a reconcile is only observable through this seam, so
           // count it — a 404 `costume-detail.not-found` must resync the list.
           listFetchCalls++;
-          final dao = CostumeCacheDao(ref.watch(cacheDatabaseProvider));
+          final dao = PieceCacheDao(ref.watch(cacheDatabaseProvider));
           return holder.value.match(
-            (err) => Left<ProblemError, List<CostumeView>>(err),
+            (err) => Left<ProblemError, List<PieceView>>(err),
             (rows) async {
               await dao.applySnapshotForSeason(
                 'season-1',
                 rows,
                 DateTime.utc(2026, 1, 1),
               );
-              return Right<ProblemError, List<CostumeView>>(rows);
+              return Right<ProblemError, List<PieceView>>(rows);
             },
           );
         }),
@@ -392,21 +348,6 @@ void main() {
   }
 
   group('CostumesScreen states (4.3, semantic finders)', () {
-    testWidgets('data: rows render with assignment state', (tester) async {
-      await setupContainer(
-        initialRows: [
-          _costume('c-1'),
-          _costume('c-2', characterId: 'ch-1'),
-        ],
-      );
-      await pumpScreen(tester);
-      // Semantic pair: tile keys and text, never byType alone for layout.
-      expect(find.byKey(const Key('costume-tile-c-1')), findsOneWidget);
-      expect(find.byKey(const Key('costume-tile-c-2')), findsOneWidget);
-      expect(find.text('Costume c-1'), findsOneWidget);
-      expect(find.text('Costume c-2'), findsOneWidget);
-    });
-
     testWidgets('tile surfaces identity, category icon, and placeholder', (
       tester,
     ) async {
@@ -414,11 +355,11 @@ void main() {
         initialRows: [
           _costume(
             'c-1',
-            // Issue #543: the tile's category comes from the costume, not
-            // from `details.first`.
+            // The piece's required `name` is the authoritative tile label.
+            name: 'Rote Lederjacke',
             categoryName: 'Jacke',
             details: [
-              CostumeDetailView(
+              PieceDetailView(
                 (b) => b
                   ..id = 'detail-1'
                   ..subject = 'Rote Lederjacke'
@@ -515,76 +456,12 @@ void main() {
       // Controller-level: the empty-body POST dispatches after the session
       // gate; on 201 the overlay row (server id) renders.
       final result = await container
-          .read(costumesControllerProvider('season-1').notifier)
-          .create();
+          .read(piecesControllerProvider('season-1').notifier)
+          .create(name: 'Fundus-Piece');
       expect(result.isRight(), isTrue);
       expect(repo.createCalls, 1);
       await _pumpFrames(tester);
       expect(find.byKey(const Key('overlay-c-new-1')), findsOneWidget);
-    });
-
-    testWidgets('assign: optimistic row carries the assignment (fence)', (
-      tester,
-    ) async {
-      // Acted-on row v1, ack v2: the fence holds until the projection
-      // reaches the acknowledged version (realistic 1-based increment).
-      final row = _costume('c-7');
-      await setupContainer(initialRows: [row]);
-      await pumpScreen(tester);
-      final result = await container
-          .read(costumesControllerProvider('season-1').notifier)
-          .assign(costume: row, characterId: 'ch-3');
-      expect(result.isRight(), isTrue);
-      expect(repo.assignCalls, 1);
-      expect(repo.lastAssignCharacter, 'ch-3');
-      await _pumpFrames(tester);
-      // Overlay survives while the projection is stale (version fence).
-      final state = container.read(costumesControllerProvider('season-1'));
-      expect(state.overlays.where((o) => o.id == 'c-7'), hasLength(1));
-    });
-
-    testWidgets('conflict: 409 renders keyed copy, no optimistic edit', (
-      tester,
-    ) async {
-      final row = _costume('c-7', version: 3);
-      await setupContainer(initialRows: [row]);
-      await pumpScreen(tester);
-      repo.nextWrite = const Left(_conflict);
-      final result = await container
-          .read(costumesControllerProvider('season-1').notifier)
-          .assign(costume: row, characterId: 'ch-3');
-      expect(result.isLeft(), isTrue);
-      await _pumpFrames(tester);
-      expect(
-        find.byKey(const Key('costume-command-error-banner')),
-        findsOneWidget,
-      );
-      expect(find.byKey(const Key('costume-detail-error')), findsNothing);
-      expect(
-        find.text('Changed elsewhere — pull to refresh and try again.'),
-        findsOneWidget,
-      );
-      final state = container.read(costumesControllerProvider('season-1'));
-      expect(state.overlays, isEmpty);
-    });
-
-    testWidgets('denial: no capability → 403 narrative, zero network calls', (
-      tester,
-    ) async {
-      final row = _costume('c-7', version: 3);
-      await setupContainer(initialRows: [row], capabilities: const []);
-      await pumpScreen(tester);
-      final result = await container
-          .read(costumesControllerProvider('season-1').notifier)
-          .assign(costume: row, characterId: 'ch-3');
-      expect(result.isLeft(), isTrue);
-      // Request-counter proof: the gate short-circuits before the network.
-      expect(repo.assignCalls, 0);
-      await _pumpFrames(tester);
-      expect(
-        find.text('You need an active costume role in this season.'),
-        findsOneWidget,
-      );
     });
   });
 
@@ -624,12 +501,7 @@ void main() {
     }
 
     testWidgets('golden light android', (tester) async {
-      await setupContainer(
-        initialRows: [
-          _costume('c-1'),
-          _costume('c-2', characterId: 'ch-1'),
-        ],
-      );
+      await setupContainer(initialRows: [_costume('c-1'), _costume('c-2')]);
       await pumpGolden(
         tester,
         golden: 'costumes_screen_light_android.png',
@@ -639,12 +511,7 @@ void main() {
     });
 
     testWidgets('golden dark android', (tester) async {
-      await setupContainer(
-        initialRows: [
-          _costume('c-1'),
-          _costume('c-2', characterId: 'ch-1'),
-        ],
-      );
+      await setupContainer(initialRows: [_costume('c-1'), _costume('c-2')]);
       await pumpGolden(
         tester,
         golden: 'costumes_screen_dark_android.png',
@@ -654,12 +521,7 @@ void main() {
     });
 
     testWidgets('golden light macos', (tester) async {
-      await setupContainer(
-        initialRows: [
-          _costume('c-1'),
-          _costume('c-2', characterId: 'ch-1'),
-        ],
-      );
+      await setupContainer(initialRows: [_costume('c-1'), _costume('c-2')]);
       await pumpGolden(
         tester,
         golden: 'costumes_screen_light_macos.png',
@@ -669,12 +531,7 @@ void main() {
     });
 
     testWidgets('golden dark macos', (tester) async {
-      await setupContainer(
-        initialRows: [
-          _costume('c-1'),
-          _costume('c-2', characterId: 'ch-1'),
-        ],
-      );
+      await setupContainer(initialRows: [_costume('c-1'), _costume('c-2')]);
       await pumpGolden(
         tester,
         golden: 'costumes_screen_dark_macos.png',
@@ -685,88 +542,6 @@ void main() {
   });
 
   group('CostumesScreen extras (8.3)', () {
-    testWidgets('unassign/addDetail/updateNotes conflicts surface copy', (
-      tester,
-    ) async {
-      final row = _costume('c-7');
-      await setupContainer(initialRows: [row]);
-      await pumpScreen(tester);
-      repo.nextWrite = const Left(_conflict);
-      final controller = container.read(
-        costumesControllerProvider('season-1').notifier,
-      );
-      expect((await controller.unassign(costume: row)).isLeft(), isTrue);
-      expect(
-        (await controller.addDetail(costume: row, text: 't')).isLeft(),
-        isTrue,
-      );
-      expect(
-        (await controller.updateNotes(costume: row, notes: 'n')).isLeft(),
-        isTrue,
-      );
-      await _pumpFrames(tester);
-      expect(
-        find.text('Changed elsewhere — pull to refresh and try again.'),
-        findsOneWidget,
-      );
-      controller.dismissCommandError();
-      await controller.refresh();
-      await _pumpFrames(tester);
-      expect(
-        container.read(costumesControllerProvider('season-1')).commandError,
-        isNull,
-      );
-    });
-
-    testWidgets('exhausted reconciliation retains a stale overlay', (
-      tester,
-    ) async {
-      await setupContainer(initialRows: [_costume('c-1')]);
-      await pumpScreen(tester);
-      // The projection never carries the created id: bounded retries
-      // exhaust and the overlay is retained stale (never discarded).
-      final result = await container
-          .read(costumesControllerProvider('season-1').notifier)
-          .create();
-      expect(result.isRight(), isTrue);
-      for (var i = 0; i < 6; i++) {
-        scheduler.advanceAll();
-        await _pumpFrames(tester, n: 10);
-      }
-      final state = container.read(costumesControllerProvider('season-1'));
-      expect(state.overlays, hasLength(1));
-      expect(find.byKey(const Key('overlay-warning')), findsOneWidget);
-    });
-
-    testWidgets('overlay version advances: follow-up echoes the ack', (
-      tester,
-    ) async {
-      final row = _costume('c-7');
-      await setupContainer(initialRows: [row]);
-      await pumpScreen(tester);
-      final controller = container.read(
-        costumesControllerProvider('season-1').notifier,
-      );
-      expect(
-        (await controller.assign(costume: row, characterId: 'ch-3')).isRight(),
-        isTrue,
-      );
-      expect(repo.lastAssignVersion, 1);
-      // The fence-held overlay carries the ack version, so the follow-up
-      // notes command echoes 2 instead of the stale pre-command 1.
-      final overlay = container
-          .read(costumesControllerProvider('season-1'))
-          .overlays
-          .single
-          .overlay;
-      expect(overlay.version, 2);
-      expect(
-        (await controller.updateNotes(costume: overlay, notes: 'n')).isRight(),
-        isTrue,
-      );
-      expect(repo.lastNotesVersion, 2);
-    });
-
     testWidgets(
       'stale snapshot echoes the freshest known version, not the captured one',
       (tester) async {
@@ -781,7 +556,7 @@ void main() {
         await setupContainer(initialRows: [row]);
         await pumpScreen(tester);
         final controller = container.read(
-          costumesControllerProvider('season-1').notifier,
+          piecesControllerProvider('season-1').notifier,
         );
         // First command acks 1 → 2; the version fence holds because the
         // projection is still v1 (projector lag).
@@ -791,7 +566,7 @@ void main() {
         );
         expect(
           container
-              .read(costumesControllerProvider('season-1'))
+              .read(piecesControllerProvider('season-1'))
               .overlays
               .single
               .acknowledgedVersion,
@@ -822,7 +597,7 @@ void main() {
         await setupContainer(initialRows: [row]);
         await pumpScreen(tester);
         final controller = container.read(
-          costumesControllerProvider('season-1').notifier,
+          piecesControllerProvider('season-1').notifier,
         );
         final result = await controller.addDetail(costume: row, text: 'Mantel');
         expect(result.isRight(), isTrue);
@@ -836,7 +611,7 @@ void main() {
         // The optimistic overlay rides a SEPARATE transient placeholder keyed
         // by version, reconciled from the projection (not from the wire id).
         final overlay = container
-            .read(costumesControllerProvider('season-1'))
+            .read(piecesControllerProvider('season-1'))
             .overlays
             .single
             .overlay;
@@ -854,14 +629,14 @@ void main() {
       await pumpScreen(tester);
       repo.nextWrite = const Left(_validation422);
       final controller = container.read(
-        costumesControllerProvider('season-1').notifier,
+        piecesControllerProvider('season-1').notifier,
       );
       expect(
         (await controller.addDetail(costume: row, text: 'Mantel')).isLeft(),
         isTrue,
       );
       final error = container
-          .read(costumesControllerProvider('season-1'))
+          .read(piecesControllerProvider('season-1'))
           .commandError;
       expect(error, isNotNull);
       // Costume-surface write failure: the copy routes through the costume
@@ -884,11 +659,11 @@ void main() {
     // Issue #544: costume detail edit + delete (the data layer #545's row
     // actions sit on). Every `Result` path is exercised in BOTH branches.
     group('Costume detail edit + delete (issue #544)', () {
-      CostumeDetailView detailView(
+      PieceDetailView detailView(
         String id, {
         String? subject,
         String text = '',
-      }) => CostumeDetailView(
+      }) => PieceDetailView(
         (b) => b
           ..id = id
           ..subject = subject
@@ -908,7 +683,7 @@ void main() {
           await setupContainer(initialRows: [row]);
           await pumpScreen(tester);
           final controller = container.read(
-            costumesControllerProvider('season-1').notifier,
+            piecesControllerProvider('season-1').notifier,
           );
 
           final res = await controller.updateDetail(
@@ -933,7 +708,7 @@ void main() {
           // The overlay keeps the entry's POSITION (a re-append would flicker
           // the card down the list) and the version advances to the ack.
           final overlay = container
-              .read(costumesControllerProvider('season-1'))
+              .read(piecesControllerProvider('season-1'))
               .overlays
               .single
               .overlay;
@@ -954,7 +729,7 @@ void main() {
           await setupContainer(initialRows: [row], capabilities: const []);
           await pumpScreen(tester);
           final controller = container.read(
-            costumesControllerProvider('season-1').notifier,
+            piecesControllerProvider('season-1').notifier,
           );
 
           final res = await controller.updateDetail(
@@ -969,7 +744,7 @@ void main() {
             reason: 'the client-side AUTHZ-GATE must precede the request',
           );
           final error = container
-              .read(costumesControllerProvider('season-1'))
+              .read(piecesControllerProvider('season-1'))
               .commandError;
           expect(error, isNotNull);
           expect(error!.error.status, 403);
@@ -989,7 +764,7 @@ void main() {
             ProblemError(code: 'costume-detail.not-found', status: 404),
           );
           final controller = container.read(
-            costumesControllerProvider('season-1').notifier,
+            piecesControllerProvider('season-1').notifier,
           );
 
           expect(
@@ -1002,7 +777,7 @@ void main() {
           );
           expect(repo.updateDetailCalls, 1);
           final error = container
-              .read(costumesControllerProvider('season-1'))
+              .read(piecesControllerProvider('season-1'))
               .commandError;
           expect(error, isNotNull);
           expect(error!.error.code, 'costume-detail.not-found');
@@ -1024,7 +799,7 @@ void main() {
         await setupContainer(initialRows: [row]);
         await pumpScreen(tester);
         final controller = container.read(
-          costumesControllerProvider('season-1').notifier,
+          piecesControllerProvider('season-1').notifier,
         );
 
         final res = await controller.removeDetail(
@@ -1040,7 +815,7 @@ void main() {
         );
 
         final overlay = container
-            .read(costumesControllerProvider('season-1'))
+            .read(piecesControllerProvider('season-1'))
             .overlays
             .single
             .overlay;
@@ -1065,7 +840,7 @@ void main() {
             ProblemError(code: 'costume-detail.not-found', status: 404),
           );
           final controller = container.read(
-            costumesControllerProvider('season-1').notifier,
+            piecesControllerProvider('season-1').notifier,
           );
 
           expect(
@@ -1100,7 +875,7 @@ void main() {
           await pumpScreen(tester);
           repo.nextWrite = const Left(_conflict);
           final controller = container.read(
-            costumesControllerProvider('season-1').notifier,
+            piecesControllerProvider('season-1').notifier,
           );
           final before = listFetchCalls;
 
@@ -1123,7 +898,7 @@ void main() {
           await setupContainer(initialRows: [row], capabilities: const []);
           await pumpScreen(tester);
           final controller = container.read(
-            costumesControllerProvider('season-1').notifier,
+            piecesControllerProvider('season-1').notifier,
           );
 
           expect(
@@ -1139,7 +914,7 @@ void main() {
             reason: 'the client-side AUTHZ-GATE must precede the request',
           );
           final error = container
-              .read(costumesControllerProvider('season-1'))
+              .read(piecesControllerProvider('season-1'))
               .commandError;
           expect(error, isNotNull);
           expect(error!.error.status, 403);
@@ -1154,7 +929,7 @@ void main() {
         await pumpScreen(tester);
         repo.nextWrite = const Left(_conflict);
         final controller = container.read(
-          costumesControllerProvider('season-1').notifier,
+          piecesControllerProvider('season-1').notifier,
         );
 
         expect(
@@ -1166,27 +941,16 @@ void main() {
         );
         expect(repo.removeDetailCalls, 1);
         final error = container
-            .read(costumesControllerProvider('season-1'))
+            .read(piecesControllerProvider('season-1'))
             .commandError;
         expect(error, isNotNull);
         expect(error!.error.code, 'concurrency.version-mismatch');
         // No optimistic mutation on a failed command.
         expect(
-          container.read(costumesControllerProvider('season-1')).overlays,
+          container.read(piecesControllerProvider('season-1')).overlays,
           isEmpty,
         );
       });
-    });
-
-    testWidgets('list resolves assigned names via characters join', (
-      tester,
-    ) async {
-      await setupContainer(
-        initialRows: [_costume('c-7', characterId: 'ch-3')],
-        characters: [_character('ch-3')],
-      );
-      await pumpScreen(tester);
-      expect(find.textContaining('Worn by Bea'), findsOneWidget);
     });
   });
 }

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: glm-5.3-flash-flex (neuralwatt)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 //! Tier-4 round trip for the script-apply shooting-day path (issue #706).
 //!
@@ -40,8 +41,8 @@ use breakdown_core::shooting_day::ports::ShootingDayRepository;
 use fixtures::{spawn_postgres_with_connections, spawn_sierradb};
 use infra::ai::{ApplyScriptRequest, ApplyWorker, PgAiImportMappingRepository};
 use infra::event_store::{
-    CharacterCommandsImpl, CostumeCommandsImpl, EpisodeCommandsImpl, SceneCommandsImpl,
-    SceneShootCommandsImpl, ShootingDayCommandsImpl, WrapFinalityGate,
+    CharacterCommandsImpl, EpisodeCommandsImpl, SceneCommandsImpl, SceneShootCommandsImpl,
+    ShootingDayCommandsImpl, WardrobeCommandsImpl, WrapFinalityGate,
 };
 use infra::projectors::{
     ProjectorFlushConfig, spawn_scene_projector, spawn_scene_shoot_projector,
@@ -103,7 +104,7 @@ struct Harness {
     worker: ApplyWorker<
         SceneCommandsImpl,
         CharacterCommandsImpl,
-        CostumeCommandsImpl,
+        WardrobeCommandsImpl,
         EpisodeCommandsImpl,
         ShootingDayCommandsImpl,
         SceneShootCommandsImpl,
@@ -143,7 +144,7 @@ async fn harness() -> Result<Harness> {
     let worker = ApplyWorker {
         scene_commands: Arc::new(SceneCommandsImpl::new(cmd_service.clone())),
         character_commands: Arc::new(CharacterCommandsImpl::new(cmd_service.clone())),
-        costume_commands: Arc::new(CostumeCommandsImpl::new(cmd_service.clone())),
+        costume_commands: Arc::new(WardrobeCommandsImpl::new(cmd_service.clone())),
         // No group maps to a NEW episode, so the episode port stays idle —
         // but the production write chain must be wired (issue #581 shape).
         episode_commands: Arc::new(EpisodeCommandsImpl::new(cmd_service.clone())),

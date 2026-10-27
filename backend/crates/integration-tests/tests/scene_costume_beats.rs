@@ -1,16 +1,17 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: glm-5.3-flash (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
-//! Projection + read-model round trip for scene costume beats (issue #546).
+//! Projection + read-model round trip for scene piece beats (issue #546).
 //!
 //! Pins: (a) all four projector branches persist/repair exactly the beat
 //! rows and leave surviving orders untouched on removal, (b) the
-//! `PRIMARY KEY (scene_id, character_id, "order")` rules out two costumes
+//! `PRIMARY KEY (scene_id, character_id, "order")` rules out two pieces
 //! at one position (structural backstop), (c) the FK cascade deletes the
 //! beats when the scene row disappears, (d) aggregate state and
-//! `SceneView.costume_beats` agree for the same event stream (the `on
-//! change` case: two costumes for one character, in order), and (e) the
+//! `SceneView.outfit_beats` agree for the same event stream (the `on
+//! change` case: two pieces for one character, in order), and (e) the
 //! query enrichment resolves character names best-effort (`None` on a
 //! projection miss — never an error).
 
@@ -84,29 +85,29 @@ async fn beat_events_project_and_read_back_in_order() -> Result<()> {
             version: AggregateVersion::INITIAL,
             source: SceneSource::Manual,
         },
-        // The `on change` case: two costumes for the same character, in order.
-        SceneEvent::CostumeBeatAdded {
+        // The `on change` case: two pieces for the same character, in order.
+        SceneEvent::OutfitBeatAdded {
             id: scene_id,
             character_id,
-            costume_id: coat,
+            outfit_id: coat,
             order: 0,
             note: Some("Mantel".into()),
             version: AggregateVersion(2),
         },
-        SceneEvent::CostumeBeatAdded {
+        SceneEvent::OutfitBeatAdded {
             id: scene_id,
             character_id,
-            costume_id: shirt,
+            outfit_id: shirt,
             order: 1,
             note: None,
             version: AggregateVersion(3),
         },
         // In-place edit never renumbers.
-        SceneEvent::CostumeBeatUpdated {
+        SceneEvent::OutfitBeatUpdated {
             id: scene_id,
             character_id,
             order: 0,
-            costume_id: coat,
+            outfit_id: coat,
             note: Some("Mantel, naß".into()),
             version: AggregateVersion(4),
         },
@@ -119,18 +120,18 @@ async fn beat_events_project_and_read_back_in_order() -> Result<()> {
     let repo = SceneRepositoryImpl::new(pool.clone());
     let view = repo.find_by_id(scene_id).await?;
 
-    assert_eq!(view.costume_beats.len(), 2);
-    assert_eq!(view.costume_beats[0].character_id, character_id);
-    assert_eq!(view.costume_beats[0].costume_id, coat);
-    assert_eq!(view.costume_beats[0].order, 0);
-    assert_eq!(view.costume_beats[0].note.as_deref(), Some("Mantel, naß"));
-    assert_eq!(view.costume_beats[1].costume_id, shirt);
-    assert_eq!(view.costume_beats[1].order, 1);
+    assert_eq!(view.outfit_beats.len(), 2);
+    assert_eq!(view.outfit_beats[0].character_id, character_id);
+    assert_eq!(view.outfit_beats[0].outfit_id, coat);
+    assert_eq!(view.outfit_beats[0].order, 0);
+    assert_eq!(view.outfit_beats[0].note.as_deref(), Some("Mantel, naß"));
+    assert_eq!(view.outfit_beats[1].outfit_id, shirt);
+    assert_eq!(view.outfit_beats[1].order, 1);
 
-    // Enrichment is best-effort: no projection_character / projection_costume
+    // Enrichment is best-effort: no projection_character / projection_piece
     // rows were seeded, so the names resolve to None without failing.
-    assert_eq!(view.costume_beats[0].character_name, None);
-    assert_eq!(view.costume_beats[0].costume_category_name, None);
+    assert_eq!(view.outfit_beats[0].character_name, None);
+    assert_eq!(view.outfit_beats[0].outfit_name, None);
 
     Ok(())
 }
@@ -153,32 +154,32 @@ async fn beat_removal_keeps_surviving_orders_and_clear_deletes_all() -> Result<(
             version: AggregateVersion::INITIAL,
             source: SceneSource::Manual,
         },
-        SceneEvent::CostumeBeatAdded {
+        SceneEvent::OutfitBeatAdded {
             id: scene_id,
             character_id,
-            costume_id: Uuid::now_v7(),
+            outfit_id: Uuid::now_v7(),
             order: 0,
             note: None,
             version: AggregateVersion(2),
         },
-        SceneEvent::CostumeBeatAdded {
+        SceneEvent::OutfitBeatAdded {
             id: scene_id,
             character_id,
-            costume_id: Uuid::now_v7(),
+            outfit_id: Uuid::now_v7(),
             order: 1,
             note: None,
             version: AggregateVersion(3),
         },
-        SceneEvent::CostumeBeatAdded {
+        SceneEvent::OutfitBeatAdded {
             id: scene_id,
             character_id,
-            costume_id: Uuid::now_v7(),
+            outfit_id: Uuid::now_v7(),
             order: 2,
             note: None,
             version: AggregateVersion(4),
         },
         // Remove the middle beat: exactly one row goes.
-        SceneEvent::CostumeBeatRemoved {
+        SceneEvent::OutfitBeatRemoved {
             id: scene_id,
             character_id,
             order: 1,
@@ -190,7 +191,7 @@ async fn beat_removal_keeps_surviving_orders_and_clear_deletes_all() -> Result<(
 
     let repo = SceneRepositoryImpl::new(pool.clone());
     let view = repo.find_by_id(scene_id).await?;
-    let mut orders: Vec<u32> = view.costume_beats.iter().map(|b| b.order).collect();
+    let mut orders: Vec<u32> = view.outfit_beats.iter().map(|b| b.order).collect();
     orders.sort_unstable();
     assert_eq!(orders, vec![0, 2], "surviving orders must be untouched");
 
@@ -198,7 +199,7 @@ async fn beat_removal_keeps_surviving_orders_and_clear_deletes_all() -> Result<(
     project(
         &pool,
         scene_id,
-        SceneEvent::CostumeBeatsCleared {
+        SceneEvent::OutfitBeatsCleared {
             id: scene_id,
             character_id,
             version: AggregateVersion(6),
@@ -207,7 +208,7 @@ async fn beat_removal_keeps_surviving_orders_and_clear_deletes_all() -> Result<(
     )
     .await?;
     let view = repo.find_by_id(scene_id).await?;
-    assert!(view.costume_beats.is_empty());
+    assert!(view.outfit_beats.is_empty());
 
     Ok(())
 }
@@ -238,10 +239,10 @@ async fn projection_primary_key_rules_out_duplicate_position() -> Result<()> {
     project(
         &pool,
         scene_id,
-        SceneEvent::CostumeBeatAdded {
+        SceneEvent::OutfitBeatAdded {
             id: scene_id,
             character_id,
-            costume_id: Uuid::now_v7(),
+            outfit_id: Uuid::now_v7(),
             order: 0,
             note: None,
             version: AggregateVersion(2),
@@ -255,8 +256,8 @@ async fn projection_primary_key_rules_out_duplicate_position() -> Result<()> {
     // table must reject it regardless.
     let duplicate = sqlx::query(
         r#"
-        INSERT INTO projection_scene_costume_assignment
-            (scene_id, character_id, "order", costume_id, note, version)
+        INSERT INTO projection_scene_outfit_assignment
+            (scene_id, character_id, "order", outfit_id, note, version)
         VALUES ($1, $2, 0, $3, NULL, 99)
         "#,
     )
@@ -292,10 +293,10 @@ async fn scene_row_deletion_cascades_to_beats() -> Result<()> {
             version: AggregateVersion::INITIAL,
             source: SceneSource::Manual,
         },
-        SceneEvent::CostumeBeatAdded {
+        SceneEvent::OutfitBeatAdded {
             id: scene_id,
             character_id,
-            costume_id: Uuid::now_v7(),
+            outfit_id: Uuid::now_v7(),
             order: 0,
             note: None,
             version: AggregateVersion(2),
@@ -311,7 +312,7 @@ async fn scene_row_deletion_cascades_to_beats() -> Result<()> {
 
     let remaining: i64 = sqlx::query_scalar(
         r#"
-        SELECT COUNT(*) FROM projection_scene_costume_assignment WHERE scene_id = $1
+        SELECT COUNT(*) FROM projection_scene_outfit_assignment WHERE scene_id = $1
         "#,
     )
     .bind(scene_id)
@@ -331,9 +332,9 @@ async fn aggregate_state_and_read_model_agree_for_the_same_beat_stream() -> Resu
     let scene_id = Uuid::now_v7();
     let character_id = Uuid::now_v7();
     let other = Uuid::now_v7();
-    let costume_a = Uuid::now_v7();
-    let costume_b = Uuid::now_v7();
-    let costume_c = Uuid::now_v7();
+    let piece_a = Uuid::now_v7();
+    let piece_b = Uuid::now_v7();
+    let piece_c = Uuid::now_v7();
     let now = Utc::now();
 
     let events = vec![
@@ -345,26 +346,26 @@ async fn aggregate_state_and_read_model_agree_for_the_same_beat_stream() -> Resu
             version: AggregateVersion::INITIAL,
             source: SceneSource::Manual,
         },
-        SceneEvent::CostumeBeatAdded {
+        SceneEvent::OutfitBeatAdded {
             id: scene_id,
             character_id,
-            costume_id: costume_a,
+            outfit_id: piece_a,
             order: 0,
             note: None,
             version: AggregateVersion(2),
         },
-        SceneEvent::CostumeBeatAdded {
+        SceneEvent::OutfitBeatAdded {
             id: scene_id,
             character_id,
-            costume_id: costume_b,
+            outfit_id: piece_b,
             order: 1,
             note: None,
             version: AggregateVersion(3),
         },
-        SceneEvent::CostumeBeatAdded {
+        SceneEvent::OutfitBeatAdded {
             id: scene_id,
             character_id: other,
-            costume_id: costume_c,
+            outfit_id: piece_c,
             order: 0,
             note: None,
             version: AggregateVersion(4),
@@ -380,22 +381,22 @@ async fn aggregate_state_and_read_model_agree_for_the_same_beat_stream() -> Resu
     let repo = SceneRepositoryImpl::new(pool.clone());
     let view = repo.find_by_id(scene_id).await?;
 
-    let mut agg_beats = expected_state.costume_beats.clone();
+    let mut agg_beats = expected_state.outfit_beats.clone();
     agg_beats.sort_by_key(|b| (b.character_id, b.order));
     let mut view_beats: Vec<(Uuid, u32, Uuid)> = view
-        .costume_beats
+        .outfit_beats
         .iter()
-        .map(|b| (b.character_id, b.order, b.costume_id))
+        .map(|b| (b.character_id, b.order, b.outfit_id))
         .collect();
     view_beats.sort();
 
     assert_eq!(
         agg_beats
             .iter()
-            .map(|b| (b.character_id, b.order, b.costume_id))
+            .map(|b| (b.character_id, b.order, b.outfit_id))
             .collect::<Vec<_>>(),
         view_beats,
-        "aggregate and read model disagree on costume beats"
+        "aggregate and read model disagree on piece beats"
     );
 
     Ok(())
@@ -423,10 +424,10 @@ async fn beat_projector_redelivery_is_idempotent_under_guard_parent() -> Result<
         version: AggregateVersion::INITIAL,
         source: SceneSource::Manual,
     };
-    let add = SceneEvent::CostumeBeatAdded {
+    let add = SceneEvent::OutfitBeatAdded {
         id: scene_id,
         character_id,
-        costume_id: Uuid::now_v7(),
+        outfit_id: Uuid::now_v7(),
         order: 0,
         note: Some("Mantel".into()),
         version: AggregateVersion(2),
@@ -442,7 +443,7 @@ async fn beat_projector_redelivery_is_idempotent_under_guard_parent() -> Result<
     }
     let repo = SceneRepositoryImpl::new(pool.clone());
     let view = repo.find_by_id(scene_id).await?;
-    assert_eq!(view.costume_beats.len(), 1, "redelivery must not duplicate");
+    assert_eq!(view.outfit_beats.len(), 1, "redelivery must not duplicate");
     let parent_version: i64 =
         sqlx::query_scalar("SELECT version FROM projection_scene WHERE id = $1")
             .bind(scene_id)
@@ -456,7 +457,7 @@ async fn beat_projector_redelivery_is_idempotent_under_guard_parent() -> Result<
     project(
         &pool,
         scene_id,
-        SceneEvent::CostumeBeatsCleared {
+        SceneEvent::OutfitBeatsCleared {
             id: scene_id,
             character_id,
             version: AggregateVersion(3),
@@ -467,7 +468,7 @@ async fn beat_projector_redelivery_is_idempotent_under_guard_parent() -> Result<
     project(&pool, scene_id, add, now).await?;
     let view = repo.find_by_id(scene_id).await?;
     assert!(
-        view.costume_beats.is_empty(),
+        view.outfit_beats.is_empty(),
         "a replayed stale add must not recreate a removed beat"
     );
     let parent_version: i64 =

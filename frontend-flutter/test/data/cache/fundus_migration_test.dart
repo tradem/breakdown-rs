@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: deepseek-v4.1-flash (neuralwatt)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 // Migration probe for the v13 → v14 upgrade (issue #625,
 // `flutter-fundus-search`): the project-scoped fundus cache slice is a fresh
@@ -16,7 +17,7 @@ import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:frontend_flutter/data/cache/cache_database.dart';
-import 'package:frontend_flutter/data/cache/costume_domains_cache_dao.dart';
+import 'package:frontend_flutter/data/cache/piece_domains_cache_dao.dart';
 import 'package:frontend_flutter/data/cache/season_cache_dao.dart';
 
 void main() {
@@ -47,18 +48,22 @@ void main() {
             ..version = 1,
         ),
       ], DateTime.utc(2026, 1, 1, 10));
-      await seeded.customStatement('DROP TABLE fundus_costume_cache_rows');
+      await seeded.customStatement(
+        'DROP TABLE IF EXISTS fundus_costume_cache_rows',
+      );
       await seeded.customStatement('PRAGMA user_version = 13');
       await seeded.close();
 
-      // 2. Reopen at v14: the migration creates the fundus table.
+      // 2. Reopen at v16: the wardrobe split drops the retired costume
+      //    snapshot tables and creates `fundus_piece_cache_rows` in one step
+      //    (the v14 table the older build created is gone with the DTO).
       final upgraded = CacheDatabase(NativeDatabase(file));
       addTearDown(upgraded.close);
 
       final columns =
           (await upgraded
                   .customSelect(
-                    "SELECT name FROM pragma_table_info('fundus_costume_cache_rows')",
+                    "SELECT name FROM pragma_table_info('fundus_piece_cache_rows')",
                   )
                   .get())
               .map((r) => r.read<String>('name'))
@@ -70,14 +75,15 @@ void main() {
       expect((await SeasonCacheDao(upgraded).readAll()).single.id, 's1');
 
       // 4. The new DAO can write and read through the migrated table.
-      final dao = FundusCostumeCacheDao(upgraded);
+      final dao = FundusPieceCacheDao(upgraded);
       await dao.applySnapshotForProject('project-1', [
-        CostumeView(
+        PieceView(
           (b) => b
+            ..name = 'Fundus-Piece'
             ..id = 'k1'
             ..notes = 'Jacke'
-            ..details.replace(BuiltList<CostumeDetailView>())
-            ..photos.replace(BuiltList<CostumePhotoView>())
+            ..details.replace(BuiltList<PieceDetailView>())
+            ..photos.replace(BuiltList<PiecePhotoView>())
             ..seasonIds.replace(BuiltList<String>(['s1']))
             ..updatedAt = DateTime.utc(2026, 1, 1)
             ..version = 1,

@@ -3,6 +3,7 @@
 // Co-authored-by: deepseek-v4-flash (opencode-go)
 // Co-authored-by: glm-5.2 (neuralwatt)
 // Co-authored-by: qwen3.8-flash (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 #![allow(
     clippy::unwrap_used,
@@ -66,18 +67,17 @@ async fn seed_character(pool: &sqlx::PgPool, season_id: Uuid) -> Result<Uuid> {
     Ok(char_id)
 }
 
-/// Seed a Costume into projection_costume.
-async fn seed_costume(pool: &sqlx::PgPool, character_id: Uuid) -> Result<Uuid> {
-    let costume_id = Uuid::now_v7();
+/// Seed a Piece into projection_piece.
+async fn seed_piece(pool: &sqlx::PgPool) -> Result<Uuid> {
+    let piece_id = Uuid::now_v7();
     sqlx::query(
-        r#"INSERT INTO projection_costume (id, character_id, notes, version, updated_at)
-           VALUES ($1, $2, '', 1, now())"#,
+        r#"INSERT INTO projection_piece (id, name, notes, version, updated_at)
+           VALUES ($1, 'Fundus-Piece', '', 1, now())"#,
     )
-    .bind(costume_id)
-    .bind(character_id)
+    .bind(piece_id)
     .execute(pool)
     .await?;
-    Ok(costume_id)
+    Ok(piece_id)
 }
 
 /// True when `kind` has reached a terminal status (`Ready` or `Failed`) in the
@@ -165,10 +165,12 @@ async fn photo_upload_then_delete_round_trip() -> Result<()> {
     };
     let photo_repo = PhotoRepositoryImpl::new(pg_pool.clone());
 
-    // Seed Season → Character → Costume before creating PhotoCommandsImpl.
+    // Seed Season → Character → Piece before creating PhotoCommandsImpl.
     let season_id = seed_season(&pg_pool).await?;
-    let character_id = seed_character(&pg_pool, season_id.0).await?;
-    let costume_id = seed_costume(&pg_pool, character_id).await?;
+    // The character row is still needed: continuity/garment photos resolve
+    // their authorisation scope through it in other fixtures.
+    let _character_id = seed_character(&pg_pool, season_id.0).await?;
+    let piece_id = seed_piece(&pg_pool).await?;
 
     let photo_commands = infra::event_store::PhotoCommandsImpl::new(cmd_service.clone());
 
@@ -213,7 +215,7 @@ async fn photo_upload_then_delete_round_trip() -> Result<()> {
         )
         .await?;
 
-    // 1. Dispatch UploadPhoto command — binding points to the seeded costume.
+    // 1. Dispatch UploadPhoto command — binding points to the seeded piece.
     let version = photo_commands
         .upload(
             test_user(),
@@ -221,7 +223,7 @@ async fn photo_upload_then_delete_round_trip() -> Result<()> {
                 id: photo_id,
                 content_type: content_type.clone(),
                 size_bytes: image_bytes.len() as u64,
-                binding: breakdown_core::photo::binding::PhotoBinding::Costume { costume_id },
+                binding: breakdown_core::photo::binding::PhotoBinding::Piece { piece_id },
                 project_id: Some(breakdown_core::shared::ProjectId::new()),
             },
         )

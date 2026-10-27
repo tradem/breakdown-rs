@@ -3,6 +3,7 @@
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
 // Co-authored-by: glm-5.3-flash (neuralwatt)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 import 'package:breakdown_api/breakdown_api.dart';
 import 'package:flutter/material.dart';
@@ -47,11 +48,6 @@ class CostumeTile extends StatelessWidget {
       ProjectedCostumeRow() => null,
       OptimisticCostumeRow(:final overlay) => overlay,
     };
-    final characterName = switch (row) {
-      ProjectedCostumeRow(:final characterName) => characterName,
-      OptimisticCostumeRow(:final characterName) => characterName,
-    };
-
     return Semantics(
       key: status == null ? null : Key('overlay-${costume.id}'),
       label: '$name · $category',
@@ -80,9 +76,8 @@ class CostumeTile extends StatelessWidget {
                   category: category,
                   text: identity.text,
                   categoryName: identity.categoryName,
-                  costumeId: costume.id,
+                  pieceId: costume.id,
                   status: status,
-                  characterName: characterName,
                 ),
               ),
             ],
@@ -103,8 +98,8 @@ class _TileSurface extends StatelessWidget {
     required this.categoryName,
   });
 
-  final CostumeView costume;
-  final CostumePhotoView? photo;
+  final PieceView costume;
+  final PiecePhotoView? photo;
   final bool canViewPhotos;
   final PhotoRepository? repository;
   final PhotoBytesLru bytesLru;
@@ -117,7 +112,7 @@ class _TileSurface extends StatelessWidget {
       return Image(
         key: Key('costume-photo-${costume.id}'),
         image: PhotoVariantImage(
-          costumeId: costume.id,
+          pieceId: costume.id,
           photo: photo!,
           variant: 'Thumb',
           repository: repository!,
@@ -126,13 +121,13 @@ class _TileSurface extends StatelessWidget {
         fit: BoxFit.cover,
         errorBuilder: (_, _, _) => _PlaceholderSurface(
           categoryName: categoryName,
-          costumeId: costume.id,
+          pieceId: costume.id,
         ),
       );
     }
     return _PlaceholderSurface(
       categoryName: categoryName,
-      costumeId: costume.id,
+      pieceId: costume.id,
       color: scheme.surfaceContainerHighest,
     );
   }
@@ -141,24 +136,24 @@ class _TileSurface extends StatelessWidget {
 class _PlaceholderSurface extends StatelessWidget {
   const _PlaceholderSurface({
     required this.categoryName,
-    required this.costumeId,
+    required this.pieceId,
     this.color,
   });
 
   final String? categoryName;
-  final String costumeId;
+  final String pieceId;
   final Color? color;
 
   @override
   Widget build(BuildContext context) {
     final surface = color ?? Theme.of(context).colorScheme.surfaceContainer;
     return ColoredBox(
-      key: Key('costume-placeholder-$costumeId'),
+      key: Key('costume-placeholder-$pieceId'),
       color: surface,
       child: Center(
         child: Icon(
           BreakdownMaterialIcons.forCostumeCategory(categoryName),
-          key: Key('costume-placeholder-icon-$costumeId'),
+          key: Key('costume-placeholder-icon-$pieceId'),
           size: 48,
           color: Theme.of(context).colorScheme.onSurfaceVariant,
         ),
@@ -173,18 +168,16 @@ class _TileIdentityOverlay extends StatelessWidget {
     required this.category,
     required this.text,
     required this.categoryName,
-    required this.costumeId,
+    required this.pieceId,
     required this.status,
-    required this.characterName,
   });
 
   final String name;
   final String category;
   final String text;
   final String? categoryName;
-  final String costumeId;
+  final String pieceId;
   final CostumeRowOverlay? status;
-  final String? characterName;
 
   @override
   Widget build(BuildContext context) {
@@ -214,7 +207,7 @@ class _TileIdentityOverlay extends StatelessWidget {
                 Expanded(
                   child: Text(
                     name,
-                    key: Key('costume-name-$costumeId'),
+                    key: Key('costume-name-$pieceId'),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: Theme.of(context).textTheme.titleMedium
@@ -224,7 +217,7 @@ class _TileIdentityOverlay extends StatelessWidget {
                 const SizedBox(width: 6),
                 Icon(
                   BreakdownMaterialIcons.forCostumeCategory(categoryName),
-                  key: Key('costume-category-icon-$costumeId'),
+                  key: Key('costume-category-icon-$pieceId'),
                   size: 20,
                   color: onScrim,
                 ),
@@ -232,24 +225,16 @@ class _TileIdentityOverlay extends StatelessWidget {
             ),
             Text(
               category,
-              key: Key('costume-category-label-$costumeId'),
+              key: Key('costume-category-label-$pieceId'),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: Theme.of(context).textTheme.labelMedium
                   ?.copyWith(color: onScrim),
             ),
-            if (characterName != null)
-              Text(
-                l10nOf(context).costumeWornBy(characterName!),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: Theme.of(context).textTheme.labelSmall
-                    ?.copyWith(color: onScrim),
-              ),
             if (text.isNotEmpty)
               Text(
                 text,
-                key: Key('costume-text-$costumeId'),
+                key: Key('costume-text-$pieceId'),
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
                 style: Theme.of(context).textTheme.bodySmall

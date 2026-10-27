@@ -74,7 +74,7 @@ final class CostumePhotoWatchProvider
   }
 }
 
-String _$costumePhotoWatchHash() => r'6af831f054d59ad6f7402ee55719d0950665c569';
+String _$costumePhotoWatchHash() => r'664afb31f55a78adb803fd9672dec21ce310734c';
 
 /// Foreground-only variant watch for one costume (D5): bounded-backoff
 /// costume refetches while subscribed; terminal variants end the pass; the
@@ -95,8 +95,8 @@ final class CostumePhotoWatchFamily extends $Family
   /// costume refetches while subscribed; terminal variants end the pass; the
   /// subscription dies with the screen (no background polling).
 
-  CostumePhotoWatchProvider call(String seasonId, String costumeId) =>
-      CostumePhotoWatchProvider._(argument: (seasonId, costumeId), from: this);
+  CostumePhotoWatchProvider call(String seasonId, String pieceId) =>
+      CostumePhotoWatchProvider._(argument: (seasonId, pieceId), from: this);
 
   @override
   String toString() => r'costumePhotoWatchProvider';

@@ -5,6 +5,7 @@
 # Co-authored-by: kimi-k3 (neuralwatt)
 # Co-authored-by: omen-alpha (opencode-go)
 # Co-authored-by: deepseek-v4-flash (neuralwatt)
+# Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 # Problem-detail messages (ADR-031 D5). One message per registered
 # problem code; the key is derived 1:1 from the code
@@ -126,25 +127,28 @@ problem-costume-category-not-found =
     Costume category not found.
 
 problem-costume-category-season-mismatch =
-    The costume category belongs to a season outside this costume's repertoire and character season.
+    The costume category belongs to a season outside the garment's repertoire.
 
 problem-costume-category-validation =
     The costume category request is not valid.
 
-problem-costume-already-assigned =
-    The costume is already assigned to a character (character { $assigned_character_id }).
+problem-piece-detail-not-found =
+    Garment detail not found.
 
-problem-costume-detail-not-found =
-    Costume detail not found.
+problem-piece-not-found =
+    Garment not found.
 
-problem-costume-not-found =
-    Costume not found.
+problem-piece-validation =
+    The garment request is not valid.
 
-problem-costume-validation =
-    The costume request is not valid.
+problem-piece-container-unresolved =
+    The garment is not filed into any season repertoire — its owning container cannot be determined. Refetch the wardrobe list and retry.
 
-problem-costume-container-unresolved =
-    The costume has neither an assigned character nor a repertoire season — its owning container cannot be determined. Refetch the costume list and retry.
+problem-outfit-not-found =
+    Outfit not found.
+
+problem-outfit-validation =
+    The outfit request is not valid.
 
 problem-domain-conflict =
     The operation conflicts with the current state.
@@ -270,7 +274,7 @@ problem-scene-character-not-in-scene =
     The character is not assigned to this scene.
 
 problem-scene-beat-not-found =
-    No costume beat exists for this character at this order.
+    No outfit beat exists for this character at this order.
 
 problem-scene-character-not-found =
     Character not found.

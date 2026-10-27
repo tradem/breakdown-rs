@@ -1,0 +1,7 @@
+{
+  "code": "outfit.validation",
+  "detail": "Die Outfit-Anfrage ist nicht gültig.",
+  "status": 422,
+  "title": "Outfit validation failed",
+  "type": "https://docs.breakdown.example/problems/outfit.validation"
+}

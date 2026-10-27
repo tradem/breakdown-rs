@@ -8,10 +8,11 @@ part of 'serializers.dart';
 
 Serializers _$serializers = (Serializers().toBuilder()
       ..add($GDriveCredentialRequest.serializer)
-      ..add(AddCostumeDetailRequest.serializer)
-      ..add(AddCostumeToSeasonRequest.serializer)
       ..add(AddNoteRequest.serializer)
-      ..add(AddSceneCostumeBeatRequest.serializer)
+      ..add(AddOutfitPieceRequest.serializer)
+      ..add(AddPieceDetailRequest.serializer)
+      ..add(AddPieceToSeasonRequest.serializer)
+      ..add(AddSceneOutfitBeatRequest.serializer)
       ..add(AggregateSollIstDiffRow.serializer)
       ..add(AggregateSollIstReport.serializer)
       ..add(AiConfigView.serializer)
@@ -30,7 +31,7 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..add(AiPreviewPayloadOneOf2KindEnum.serializer)
       ..add(AiPreviewPayloadOneOfKindEnum.serializer)
       ..add(AiProviderInfo.serializer)
-      ..add(AppearanceCostumeView.serializer)
+      ..add(AppearanceOutfitView.serializer)
       ..add(ApplyAiImportRequest.serializer)
       ..add(ApplyAiImportResponse.serializer)
       ..add(ApplyEpisodeGroupRequest.serializer)
@@ -40,7 +41,6 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..add(ApplyMappingDecisionOneOfUpdate.serializer)
       ..add(ApplyShootingDayRequest.serializer)
       ..add(AssignCharacterRequest.serializer)
-      ..add(AssignCostumeRequest.serializer)
       ..add(AuditEntry.serializer)
       ..add(BlockView.serializer)
       ..add(CharacterAppearanceView.serializer)
@@ -54,18 +54,15 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..add(CostStatus.serializer)
       ..add(CostumeCategoryView.serializer)
       ..add(CostumeDecision.serializer)
-      ..add(CostumeDetail.serializer)
-      ..add(CostumeDetailRequest.serializer)
-      ..add(CostumeDetailView.serializer)
-      ..add(CostumePhotoView.serializer)
-      ..add(CostumeView.serializer)
       ..add(CreateAiConfigRequest.serializer)
       ..add(CreateBlockRequest.serializer)
       ..add(CreateCharacterRequest.serializer)
       ..add(CreateCostumeCategoryRequest.serializer)
-      ..add(CreateCostumeRequest.serializer)
       ..add(CreateCredentialRequest.serializer)
       ..add(CreateEpisodeRequest.serializer)
+      ..add(CreateOutfitRequest.serializer)
+      ..add(CreateOutfitVariantRequest.serializer)
+      ..add(CreatePieceRequest.serializer)
       ..add(CreateSceneRequest.serializer)
       ..add(CreateSeasonRequest.serializer)
       ..add(CreateShootingDayRequest.serializer)
@@ -112,26 +109,37 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..add(MetaVersionsResponse.serializer)
       ..add(ModelInfo.serializer)
       ..add(ModelPricing.serializer)
+      ..add(OutfitPhotoView.serializer)
+      ..add(OutfitPieceView.serializer)
+      ..add(OutfitView.serializer)
       ..add(PhotoBinding.serializer)
       ..add(PhotoBindingOneOf.serializer)
       ..add(PhotoBindingOneOf1.serializer)
-      ..add(PhotoBindingOneOf1Continuity.serializer)
-      ..add(PhotoBindingOneOfCostume.serializer)
+      ..add(PhotoBindingOneOf1Outfit.serializer)
+      ..add(PhotoBindingOneOf2.serializer)
+      ..add(PhotoBindingOneOf2Continuity.serializer)
+      ..add(PhotoBindingOneOfPiece.serializer)
       ..add(PhotoBytesQuery.serializer)
       ..add(PhotoVariant.serializer)
       ..add(PhotoVariantView.serializer)
       ..add(PhotoView.serializer)
+      ..add(PieceDetailRequest.serializer)
+      ..add(PieceDetailView.serializer)
+      ..add(PiecePhotoView.serializer)
+      ..add(PieceView.serializer)
       ..add(PlanSceneShootRequest.serializer)
       ..add(PricingSource.serializer)
       ..add(ProblemDetails.serializer)
       ..add(ProjectorHealthSnapshot.serializer)
       ..add(RenameEpisodeRequest.serializer)
+      ..add(RenameOutfitRequest.serializer)
+      ..add(RenamePieceRequest.serializer)
       ..add(RenameSeasonRequest.serializer)
       ..add(ReplanSceneShootRequest.serializer)
       ..add(RevokeAiConfigRequest.serializer)
       ..add(Role.serializer)
-      ..add(SceneCostumeBeatView.serializer)
       ..add(SceneDetails.serializer)
+      ..add(SceneOutfitBeatView.serializer)
       ..add(SceneShootStatus.serializer)
       ..add(SceneShootView.serializer)
       ..add(SceneSource.serializer)
@@ -145,7 +153,7 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..add(SerializedNote.serializer)
       ..add(SeriesMembershipDto.serializer)
       ..add(SetActualOrderRequest.serializer)
-      ..add(SetCostumeCategoryRequest.serializer)
+      ..add(SetPieceCategoryRequest.serializer)
       ..add(SettingsView.serializer)
       ..add(ShootDayRow.serializer)
       ..add(ShootingDaySource.serializer)
@@ -168,12 +176,13 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..add(UpdateCharacterCategoryRequest.serializer)
       ..add(UpdateContactInfoRequest.serializer)
       ..add(UpdateCostumeCategoryRequest.serializer)
-      ..add(UpdateCostumeDetailRequest.serializer)
-      ..add(UpdateCostumeNotesRequest.serializer)
       ..add(UpdateMeasurementsRequest.serializer)
       ..add(UpdateNoteRequest.serializer)
-      ..add(UpdateSceneCostumeBeatRequest.serializer)
+      ..add(UpdateOutfitNotesRequest.serializer)
+      ..add(UpdatePieceDetailRequest.serializer)
+      ..add(UpdatePieceNotesRequest.serializer)
       ..add(UpdateSceneDetailsRequest.serializer)
+      ..add(UpdateSceneOutfitBeatRequest.serializer)
       ..add(UpdateShootingDayRequest.serializer)
       ..add(VariantStatus.serializer)
       ..add(VersionRequest.serializer)
@@ -187,8 +196,8 @@ Serializers _$serializers = (Serializers().toBuilder()
           () => ListBuilder<AiImportAttempt>())
       ..addBuilderFactory(
           const FullType(
-              BuiltList, const [const FullType(AppearanceCostumeView)]),
-          () => ListBuilder<AppearanceCostumeView>())
+              BuiltList, const [const FullType(AppearanceOutfitView)]),
+          () => ListBuilder<AppearanceOutfitView>())
       ..addBuilderFactory(
           const FullType(
               BuiltList, const [const FullType(ApplyEpisodeGroupRequest)]),
@@ -213,15 +222,6 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..addBuilderFactory(
           const FullType(BuiltList, const [const FullType(CostumeDecision)]),
           () => ListBuilder<CostumeDecision>())
-      ..addBuilderFactory(
-          const FullType(BuiltList, const [const FullType(CostumeDetailView)]),
-          () => ListBuilder<CostumeDetailView>())
-      ..addBuilderFactory(
-          const FullType(BuiltList, const [const FullType(CostumePhotoView)]),
-          () => ListBuilder<CostumePhotoView>())
-      ..addBuilderFactory(
-          const FullType(BuiltList, const [const FullType(String)]),
-          () => ListBuilder<String>())
       ..addBuilderFactory(
           const FullType(BuiltList, const [const FullType(DocumentKind)]),
           () => ListBuilder<DocumentKind>())
@@ -262,11 +262,32 @@ Serializers _$serializers = (Serializers().toBuilder()
           const FullType(BuiltList, const [const FullType(MetaCreditsEntry)]),
           () => ListBuilder<MetaCreditsEntry>())
       ..addBuilderFactory(
+          const FullType(BuiltList, const [const FullType(OutfitPhotoView)]),
+          () => ListBuilder<OutfitPhotoView>())
+      ..addBuilderFactory(
+          const FullType(BuiltList, const [const FullType(String)]),
+          () => ListBuilder<String>())
+      ..addBuilderFactory(
+          const FullType(BuiltList, const [const FullType(OutfitPieceView)]),
+          () => ListBuilder<OutfitPieceView>())
+      ..addBuilderFactory(
           const FullType(BuiltList, const [const FullType(PhotoVariantView)]),
           () => ListBuilder<PhotoVariantView>())
       ..addBuilderFactory(
           const FullType(BuiltList, const [const FullType(PhotoVariantView)]),
           () => ListBuilder<PhotoVariantView>())
+      ..addBuilderFactory(
+          const FullType(BuiltList, const [const FullType(PhotoVariantView)]),
+          () => ListBuilder<PhotoVariantView>())
+      ..addBuilderFactory(
+          const FullType(BuiltList, const [const FullType(PieceDetailView)]),
+          () => ListBuilder<PieceDetailView>())
+      ..addBuilderFactory(
+          const FullType(BuiltList, const [const FullType(PiecePhotoView)]),
+          () => ListBuilder<PiecePhotoView>())
+      ..addBuilderFactory(
+          const FullType(BuiltList, const [const FullType(String)]),
+          () => ListBuilder<String>())
       ..addBuilderFactory(
           const FullType(
               BuiltList, const [const FullType(ShootingScheduleRow)]),
@@ -297,9 +318,15 @@ Serializers _$serializers = (Serializers().toBuilder()
           const FullType(BuiltList, const [const FullType(String)]),
           () => ListBuilder<String>())
       ..addBuilderFactory(
+          const FullType(BuiltList, const [const FullType(String)]),
+          () => ListBuilder<String>())
+      ..addBuilderFactory(
+          const FullType(BuiltList, const [const FullType(String)]),
+          () => ListBuilder<String>())
+      ..addBuilderFactory(
           const FullType(
-              BuiltList, const [const FullType(SceneCostumeBeatView)]),
-          () => ListBuilder<SceneCostumeBeatView>())
+              BuiltList, const [const FullType(SceneOutfitBeatView)]),
+          () => ListBuilder<SceneOutfitBeatView>())
       ..addBuilderFactory(
           const FullType(BuiltList, const [const FullType(String)]),
           () => ListBuilder<String>())

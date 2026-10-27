@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 #![allow(
     clippy::unwrap_used,
     clippy::expect_used,
@@ -143,7 +144,7 @@ fn openapi_doc_hides_block_id_on_sibling_lists() {
         "/v1/blocks/{id}/audit",
         "/v1/blocks/{id}/members",
         "/v1/characters",
-        "/v1/costumes",
+        "/v1/pieces",
         "/v1/scenes",
     ] {
         let params = &json["paths"][path]["get"]["parameters"];

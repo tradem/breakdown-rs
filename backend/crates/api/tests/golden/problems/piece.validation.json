@@ -1,0 +1,7 @@
+{
+  "code": "piece.validation",
+  "detail": "Die Anfrage zum Kleidungsstück ist nicht gültig.",
+  "status": 422,
+  "title": "Piece validation failed",
+  "type": "https://docs.breakdown.example/problems/piece.validation"
+}

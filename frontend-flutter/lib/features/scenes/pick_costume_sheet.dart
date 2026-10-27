@@ -1,41 +1,41 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: glm-5.3-flash (neuralwatt)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 import 'package:breakdown_api/breakdown_api.dart';
 import 'package:flutter/material.dart';
 
 import '../../design/material_icons.dart';
 import '../../l10n/app_localizations_provider.dart';
-import '../costumes/costume_identity.dart';
 
-/// Opens the costume picker for a scene costume beat (issue #546): a
+/// Opens the OUTFIT picker for a scene outfit beat (issue #546; the look
+/// replaced the bare costume when the wardrobe split into Piece + Outfit): a
 /// centered dialog on macOS (side-sheet width cap 480 dp) and a bottom
 /// sheet on Android — the create-sheet convention, never a naked
 /// `showDialog` list.
 ///
-/// The picker is a SELECTION, not an editor: it returns the picked costume
-/// id plus the optional wardrobe cue note. In-place editing stays on the
-/// costume detail screen (issue #545). Tile identity uses the SAME helper
-/// as the costume grid tile (`costumeTileIdentity` — never a name invented
-/// from a random detail).
-Future<({String costumeId, String? note})?> showPickCostumeSheet(
+/// The picker is a SELECTION, not an editor: it returns the picked outfit id
+/// plus the optional wardrobe cue note. Editing the look itself stays on the
+/// outfit screens. The label is the look's own `name` (the aggregate requires
+/// a non-blank one) — never a name invented from a random piece detail.
+Future<({String outfitId, String? note})?> showPickOutfitSheet(
   BuildContext context,
-  List<CostumeView> costumes,
+  List<OutfitView> outfits,
 ) {
   final isMacOs = Theme.of(context).platform == TargetPlatform.macOS;
   if (isMacOs) {
-    return showDialog<({String costumeId, String? note})>(
+    return showDialog<({String outfitId, String? note})>(
       context: context,
       builder: (dialogContext) => Dialog(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 480),
-          child: _PickCostumeForm(costumes: costumes),
+          child: _PickOutfitForm(outfits: outfits),
         ),
       ),
     );
   }
-  return showModalBottomSheet<({String costumeId, String? note})>(
+  return showModalBottomSheet<({String outfitId, String? note})>(
     context: context,
     isScrollControlled: true,
     builder: (sheetContext) => Padding(
@@ -46,22 +46,22 @@ Future<({String costumeId, String? note})?> showPickCostumeSheet(
         constraints: BoxConstraints(
           maxHeight: MediaQuery.of(sheetContext).size.height * 0.9,
         ),
-        child: _PickCostumeForm(costumes: costumes),
+        child: _PickOutfitForm(outfits: outfits),
       ),
     ),
   );
 }
 
-class _PickCostumeForm extends StatefulWidget {
-  const _PickCostumeForm({required this.costumes});
+class _PickOutfitForm extends StatefulWidget {
+  const _PickOutfitForm({required this.outfits});
 
-  final List<CostumeView> costumes;
+  final List<OutfitView> outfits;
 
   @override
-  State<_PickCostumeForm> createState() => _PickCostumeFormState();
+  State<_PickOutfitForm> createState() => _PickOutfitFormState();
 }
 
-class _PickCostumeFormState extends State<_PickCostumeForm> {
+class _PickOutfitFormState extends State<_PickOutfitForm> {
   final _noteController = TextEditingController();
 
   @override
@@ -70,10 +70,10 @@ class _PickCostumeFormState extends State<_PickCostumeForm> {
     super.dispose();
   }
 
-  void _pick(CostumeView costume) {
+  void _pick(OutfitView outfit) {
     final note = _noteController.text.trim();
     Navigator.of(context)
-        .pop((costumeId: costume.id, note: note.isEmpty ? null : note));
+        .pop((outfitId: outfit.id, note: note.isEmpty ? null : note));
   }
 
   @override
@@ -106,24 +106,32 @@ class _PickCostumeFormState extends State<_PickCostumeForm> {
           Flexible(
             child: ListView.builder(
               shrinkWrap: true,
-              itemCount: widget.costumes.length,
+              itemCount: widget.outfits.length,
               itemBuilder: (context, i) {
-                final costume = widget.costumes[i];
-                final identity = costumeTileIdentity(costume);
+                final outfit = widget.outfits[i];
+                // The look's own name is the identity; the piece count plus a
+                // variant marker help the crew tell look-alikes apart.
+                final pieceCount = outfit.pieces.length;
                 return ListTile(
-                  key: Key('pick-costume-${costume.id}'),
+                  key: Key('pick-outfit-${outfit.id}'),
                   leading: Icon(
                     BreakdownMaterialIcons.forCostumeCategory(
-                      identity.categoryName,
+                      outfit.pieces.isEmpty
+                          ? null
+                          : outfit.pieces.first.categoryName,
                     ),
                   ),
                   title: Text(
-                    costumeDisplayName(costume, l10n.costumeTileLabelFallback),
+                    outfit.name.trim().isEmpty
+                        ? l10n.costumeTileLabelFallback
+                        : outfit.name,
                   ),
                   subtitle: Text(
-                    identity.categoryName ?? l10n.costumeCategoryUncategorized,
+                    outfit.variantOf == null
+                        ? '$pieceCount'
+                        : '$pieceCount · ${l10n.costumeDetailReassign}',
                   ),
-                  onTap: () => _pick(costume),
+                  onTap: () => _pick(outfit),
                 );
               },
             ),

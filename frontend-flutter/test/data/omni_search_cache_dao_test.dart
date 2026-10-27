@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: glm-5.3-flash (opencode-go)
 // Co-authored-by: glm-5.3-flash (neuralwatt)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 // Read-only DAO tests for the OmniSearch season composition (issue #616,
 // tasks §2.3): the season scope cannot leak through the hierarchy join,
@@ -18,7 +19,7 @@ import 'package:test/test.dart';
 
 import 'package:frontend_flutter/data/cache/cache_database.dart';
 import 'package:frontend_flutter/data/cache/clock.dart';
-import 'package:frontend_flutter/data/cache/costume_domains_cache_dao.dart';
+import 'package:frontend_flutter/data/cache/piece_domains_cache_dao.dart';
 import 'package:frontend_flutter/data/cache/hierarchy_cache_dao.dart';
 import 'package:frontend_flutter/data/omni_search_cache_dao.dart';
 import 'package:frontend_flutter/features/omni_search/omni_search_model.dart';
@@ -389,13 +390,14 @@ Future<void> seedCostume(
   required String id,
   required String notes,
 }) async {
-  await CostumeCacheDao(db).applySnapshotForSeason(season, [
-    CostumeView(
+  await PieceCacheDao(db).applySnapshotForSeason(season, [
+    PieceView(
       (b) => b
+        ..name = 'Fundus-Piece'
         ..id = id
         ..notes = notes
-        ..details.replace(BuiltList<CostumeDetailView>())
-        ..photos.replace(BuiltList<CostumePhotoView>())
+        ..details.replace(BuiltList<PieceDetailView>())
+        ..photos.replace(BuiltList<PiecePhotoView>())
         ..updatedAt = DateTime.utc(2026, 1, 1)
         ..version = 1,
     ),

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 //! Hexagonal ports for the Scene context.
 //!
@@ -13,8 +14,8 @@ use crate::error::DomainError;
 use crate::shared::{AggregateVersion, EpisodeId, UserId};
 
 use super::commands::{
-    AddCostumeBeat, AssignCharacter, CreateScene, RemoveCharacter, RemoveCostumeBeat,
-    ScheduleSceneOnShootingDay, UnscheduleSceneFromShootingDay, UpdateCostumeBeat,
+    AddOutfitBeat, AssignCharacter, CreateScene, RemoveCharacter, RemoveOutfitBeat,
+    ScheduleSceneOnShootingDay, UnscheduleSceneFromShootingDay, UpdateOutfitBeat,
     UpdateSceneDetails,
 };
 use super::views::SceneView;
@@ -52,26 +53,26 @@ pub trait SceneCommands: Send + Sync {
         cmd: RemoveCharacter,
     ) -> Result<AggregateVersion, DomainError>;
 
-    /// Add a costume beat (order computed by the aggregate, issue #546).
-    async fn add_costume_beat(
+    /// Add a outfit beat (order computed by the aggregate, issue #546).
+    async fn add_outfit_beat(
         &self,
         actor: UserId,
-        cmd: AddCostumeBeat,
+        cmd: AddOutfitBeat,
     ) -> Result<AggregateVersion, DomainError>;
 
-    /// Update a costume beat in place at `(character_id, order)`.
-    async fn update_costume_beat(
+    /// Update a outfit beat in place at `(character_id, order)`.
+    async fn update_outfit_beat(
         &self,
         actor: UserId,
-        cmd: UpdateCostumeBeat,
+        cmd: UpdateOutfitBeat,
     ) -> Result<AggregateVersion, DomainError>;
 
-    /// Remove one (`Some(order)`) or all (`None`) costume beats of a
+    /// Remove one (`Some(order)`) or all (`None`) outfit beats of a
     /// character.
-    async fn remove_costume_beat(
+    async fn remove_outfit_beat(
         &self,
         actor: UserId,
-        cmd: RemoveCostumeBeat,
+        cmd: RemoveOutfitBeat,
     ) -> Result<AggregateVersion, DomainError>;
 
     /// Link a `ShootingDay` to this scene (scene owns the collection).

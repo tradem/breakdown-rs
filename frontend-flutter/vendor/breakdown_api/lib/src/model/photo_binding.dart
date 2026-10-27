@@ -7,23 +7,26 @@
 // ignore_for_file: unused_element
 import 'package:breakdown_api/src/model/photo_binding_one_of.dart';
 import 'package:breakdown_api/src/model/photo_binding_one_of1.dart';
-import 'package:breakdown_api/src/model/photo_binding_one_of1_continuity.dart';
-import 'package:breakdown_api/src/model/photo_binding_one_of_costume.dart';
+import 'package:breakdown_api/src/model/photo_binding_one_of2_continuity.dart';
+import 'package:breakdown_api/src/model/photo_binding_one_of2.dart';
+import 'package:breakdown_api/src/model/photo_binding_one_of1_outfit.dart';
+import 'package:breakdown_api/src/model/photo_binding_one_of_piece.dart';
 import 'package:built_value/built_value.dart';
 import 'package:built_value/serializer.dart';
 import 'package:one_of/one_of.dart';
 
 part 'photo_binding.g.dart';
 
-/// Discriminates what a photo is attached to.  `Costume` — Anprobe/planning photo (taken before the shoot). `Continuity` — continuity photo taken during the shoot; `costume_id` is `Option` so prop-only continuity shots are permitted (the edge case).  The `Default` implementation returns `Costume { costume_id: Uuid::nil() }` so that historical `PhotoUploaded` events (pre-binding) deserialise as costume photos, matching the backward-compat requirement.
+/// Discriminates what a photo is attached to.  `Piece` — a single fundus garment's Anprobe/planning photo. `Outfit` — a fitting photo of a composed look (also surfaced on every piece of the outfit, see the `piece-fundus` capability). `Continuity` — continuity photo taken during the shoot; `piece_id` is `Option` so prop-only continuity shots are permitted (the edge case).  The `Default` implementation returns `Piece { piece_id: Uuid::nil() }` so that historical `PhotoUploaded` events (pre-binding) deserialise as garment photos, matching the backward-compat requirement.
 ///
 /// Properties:
-/// * [costume]
+/// * [piece]
+/// * [outfit]
 /// * [continuity]
 @BuiltValue()
 abstract class PhotoBinding
     implements Built<PhotoBinding, PhotoBindingBuilder> {
-  /// One Of [PhotoBindingOneOf], [PhotoBindingOneOf1]
+  /// One Of [PhotoBindingOneOf], [PhotoBindingOneOf1], [PhotoBindingOneOf2]
   OneOf get oneOf;
 
   PhotoBinding._();
@@ -72,6 +75,7 @@ class _$PhotoBindingSerializer implements PrimitiveSerializer<PhotoBinding> {
     final targetType = const FullType(OneOf, [
       FullType(PhotoBindingOneOf),
       FullType(PhotoBindingOneOf1),
+      FullType(PhotoBindingOneOf2),
     ]);
     oneOfDataSrc = serialized;
     result.oneOf = serializers.deserialize(oneOfDataSrc,

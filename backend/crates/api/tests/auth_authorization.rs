@@ -4,6 +4,7 @@
 // Co-authored-by: mimo-v2.5 (opencode-go)
 // Co-authored-by: hy4-preview (opencode-go)
 // Co-authored-by: omen-alpha (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 #![allow(
     clippy::unwrap_used,
@@ -168,14 +169,14 @@ fn block_scoped_paths_default_to_block_member() {
         "/characters/00000000-0000-7000-8000-000000000000",
         "/characters/00000000-0000-7000-8000-000000000000/measurements",
         "/characters/00000000-0000-7000-8000-000000000000/contact",
-        // Costumes (non-photo)
-        "/costumes",
-        "/costumes/00000000-0000-7000-8000-000000000000",
-        "/costumes/00000000-0000-7000-8000-000000000000/notes",
-        "/costumes/00000000-0000-7000-8000-000000000000/assign",
-        "/costumes/00000000-0000-7000-8000-000000000000/details",
-        "/costumes/00000000-0000-7000-8000-000000000000/unassign",
-        // Costume categories (non-season-scoped)
+        // Pieces (non-photo)
+        "/pieces",
+        "/pieces/00000000-0000-7000-8000-000000000000",
+        "/pieces/00000000-0000-7000-8000-000000000000/notes",
+        "/pieces/00000000-0000-7000-8000-000000000000/assign",
+        "/pieces/00000000-0000-7000-8000-000000000000/details",
+        "/pieces/00000000-0000-7000-8000-000000000000/unassign",
+        // Piece categories (non-season-scoped)
         "/costume-categories/00000000-0000-7000-8000-000000000000",
         "/costume-categories/00000000-0000-7000-8000-000000000000/archive",
     ];
@@ -205,9 +206,9 @@ fn allowlist_paths_map_to_authenticated_only() {
         // Block listing/creation (exact /blocks only)
         "/blocks",
         // Photo paths (contain "/photos")
-        "/costumes/00000000-0000-7000-8000-000000000000/photos",
-        "/costumes/00000000-0000-7000-8000-000000000000/photos/00000000-0000-7000-8000-000000000000/bytes",
-        "/costumes/00000000-0000-7000-8000-000000000000/photos/00000000-0000-7000-8000-000000000000",
+        "/pieces/00000000-0000-7000-8000-000000000000/photos",
+        "/pieces/00000000-0000-7000-8000-000000000000/photos/00000000-0000-7000-8000-000000000000/bytes",
+        "/pieces/00000000-0000-7000-8000-000000000000/photos/00000000-0000-7000-8000-000000000000",
         // Accept invitation
         "/blocks/00000000-0000-7000-8000-000000000000/members/accept",
         // Series-scoped audit journal (issue #342): the handler verifies
@@ -227,7 +228,7 @@ fn allowlist_paths_map_to_authenticated_only() {
         "/ops/projector-health",
         "/v1/ops/projector-health",
         // Per-character appearances (issue #621): season-scoped
-        // handler-internal costume-role gate (`// AUTHZ-GATE:`), authenticated
+        // handler-internal piece-role gate (`// AUTHZ-GATE:`), authenticated
         // only at the middleware.
         "/characters/00000000-0000-7000-8000-000000000000/appearances",
         "/v1/characters/00000000-0000-7000-8000-000000000000/appearances",
@@ -462,7 +463,7 @@ impl MembershipRepository for MockSeasonMembershipRepo {
         _project_id: ProjectId,
         user_id: UserId,
     ) -> Result<bool, DomainError> {
-        // Mirror the costume-role mock behaviour: this repo is keyed on the
+        // Mirror the piece-role mock behaviour: this repo is keyed on the
         // ok/result/err triple, not on the tenant dimension.
         self.has_active_costume_role_in_season(SeasonId::new(), user_id)
             .await
@@ -473,7 +474,7 @@ impl MembershipRepository for MockSeasonMembershipRepo {
         _project_id: ProjectId,
         user_id: UserId,
     ) -> Result<bool, DomainError> {
-        // Mirror the costume-role mock behaviour: this repo is keyed on the
+        // Mirror the piece-role mock behaviour: this repo is keyed on the
         // ok/result/err triple, not on the tenant dimension.
         self.has_active_costume_role_in_season(SeasonId::new(), user_id)
             .await
@@ -497,7 +498,7 @@ impl MembershipRepository for MockSeasonMembershipRepo {
         season_id: SeasonId,
         user_id: UserId,
     ) -> Result<bool, DomainError> {
-        // Mirror costume-role mock behaviour for archive-role checks.
+        // Mirror piece-role mock behaviour for archive-role checks.
         self.has_active_costume_role_in_season(season_id, user_id)
             .await
     }

@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: qwen3.6-35b (neuralwatt)
 // Co-authored-by: deepseek-v4-flash (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 //! Scene projection handler: `SceneEvent` -> `projection_scene` + `projection_scene_character`.
 
@@ -212,10 +213,10 @@ impl<'a> EntityEventHandler<SceneAggregate, Transaction<'a, Postgres>> for Scene
 
                 Self::touch_parent(ctx, id, version, updated_at).await?;
             }
-            SceneEvent::CostumeBeatAdded {
+            SceneEvent::OutfitBeatAdded {
                 id,
                 character_id,
-                costume_id,
+                outfit_id,
                 order,
                 note,
                 version,
@@ -230,11 +231,11 @@ impl<'a> EntityEventHandler<SceneAggregate, Transaction<'a, Postgres>> for Scene
                 }
                 sqlx::query(
                     r#"
-                    INSERT INTO projection_scene_costume_assignment
-                        (scene_id, character_id, "order", costume_id, note, version)
+                    INSERT INTO projection_scene_outfit_assignment
+                        (scene_id, character_id, "order", outfit_id, note, version)
                     VALUES ($1, $2, $3, $4, $5, $6)
                     ON CONFLICT (scene_id, character_id, "order") DO UPDATE SET
-                        costume_id = EXCLUDED.costume_id,
+                        outfit_id = EXCLUDED.outfit_id,
                         note = EXCLUDED.note,
                         version = EXCLUDED.version
                     "#,
@@ -242,7 +243,7 @@ impl<'a> EntityEventHandler<SceneAggregate, Transaction<'a, Postgres>> for Scene
                 .bind(id)
                 .bind(character_id)
                 .bind(order as i32)
-                .bind(costume_id)
+                .bind(outfit_id)
                 .bind(note)
                 .bind(version)
                 .execute(&mut **ctx)
@@ -250,11 +251,11 @@ impl<'a> EntityEventHandler<SceneAggregate, Transaction<'a, Postgres>> for Scene
 
                 Self::touch_parent(ctx, id, version, updated_at).await?;
             }
-            SceneEvent::CostumeBeatUpdated {
+            SceneEvent::OutfitBeatUpdated {
                 id,
                 character_id,
                 order,
-                costume_id,
+                outfit_id,
                 note,
                 version,
             } => {
@@ -264,8 +265,8 @@ impl<'a> EntityEventHandler<SceneAggregate, Transaction<'a, Postgres>> for Scene
                 }
                 sqlx::query(
                     r#"
-                    UPDATE projection_scene_costume_assignment
-                    SET costume_id = $3,
+                    UPDATE projection_scene_outfit_assignment
+                    SET outfit_id = $3,
                         note = $4,
                         version = $5
                     WHERE scene_id = $1 AND character_id = $2 AND "order" = $6
@@ -273,7 +274,7 @@ impl<'a> EntityEventHandler<SceneAggregate, Transaction<'a, Postgres>> for Scene
                 )
                 .bind(id)
                 .bind(character_id)
-                .bind(costume_id)
+                .bind(outfit_id)
                 .bind(note)
                 .bind(version)
                 .bind(order as i32)
@@ -282,7 +283,7 @@ impl<'a> EntityEventHandler<SceneAggregate, Transaction<'a, Postgres>> for Scene
 
                 Self::touch_parent(ctx, id, version, updated_at).await?;
             }
-            SceneEvent::CostumeBeatRemoved {
+            SceneEvent::OutfitBeatRemoved {
                 id,
                 character_id,
                 order,
@@ -296,7 +297,7 @@ impl<'a> EntityEventHandler<SceneAggregate, Transaction<'a, Postgres>> for Scene
                 // denseness is an aggregate fact, not a projection repair job.
                 sqlx::query(
                     r#"
-                    DELETE FROM projection_scene_costume_assignment
+                    DELETE FROM projection_scene_outfit_assignment
                     WHERE scene_id = $1 AND character_id = $2 AND "order" = $3
                     "#,
                 )
@@ -308,7 +309,7 @@ impl<'a> EntityEventHandler<SceneAggregate, Transaction<'a, Postgres>> for Scene
 
                 Self::touch_parent(ctx, id, version, updated_at).await?;
             }
-            SceneEvent::CostumeBeatsCleared {
+            SceneEvent::OutfitBeatsCleared {
                 id,
                 character_id,
                 version,
@@ -319,7 +320,7 @@ impl<'a> EntityEventHandler<SceneAggregate, Transaction<'a, Postgres>> for Scene
                 }
                 sqlx::query(
                     r#"
-                    DELETE FROM projection_scene_costume_assignment
+                    DELETE FROM projection_scene_outfit_assignment
                     WHERE scene_id = $1 AND character_id = $2
                     "#,
                 )

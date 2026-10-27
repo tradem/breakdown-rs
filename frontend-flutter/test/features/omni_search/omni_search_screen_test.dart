@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: glm-5.3-flash (opencode-go)
 // Co-authored-by: glm-5.3-flash (neuralwatt)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 // Widget tests for the OmniSearch surface (issue #616, task 7.1 + the
 // deep-link contract 7.2): facet defaults/restriction, grouping, deep
@@ -31,12 +32,12 @@ import 'package:frontend_flutter/core/result.dart';
 import 'package:frontend_flutter/data/cache/cache_database.dart';
 import 'package:frontend_flutter/data/block_repository.dart';
 import 'package:frontend_flutter/data/cache/cache_generation.dart';
-import 'package:frontend_flutter/data/cache/costume_domains_cache_dao.dart';
+import 'package:frontend_flutter/data/cache/piece_domains_cache_dao.dart';
 import 'package:frontend_flutter/data/cache/hierarchy_cache_dao.dart';
 import 'package:frontend_flutter/data/cache/cache_ttl.dart';
 import 'package:frontend_flutter/data/cache/clock.dart';
 import 'package:frontend_flutter/data/character_repository.dart';
-import 'package:frontend_flutter/data/costume_repository.dart';
+import 'package:frontend_flutter/data/piece_repository.dart';
 import 'package:frontend_flutter/data/episode_repository.dart';
 import 'package:frontend_flutter/data/scene_repository.dart';
 import 'package:frontend_flutter/data/shooting_day_repository.dart';
@@ -148,7 +149,7 @@ void main() {
           _FakeCharacterRepository(() => seamResult()),
         ),
         costumeRepositoryProvider.overrideWithValue(
-          _FakeCostumeRepository(() => seamResult()),
+          _FakePieceRepository(() => seamResult()),
         ),
         blockRepositoryProvider.overrideWithValue(
           _FakeBlockRepository(() => seamResult()),
@@ -589,17 +590,17 @@ class _FakeCharacterRepository extends CharacterRepository {
   }) async => _result();
 }
 
-class _FakeCostumeRepository extends CostumeRepository {
-  _FakeCostumeRepository(this._result)
+class _FakePieceRepository extends PieceRepository {
+  _FakePieceRepository(this._result)
     : super(
         BreakdownApi(),
-        CostumeCacheDao(CacheDatabase(NativeDatabase.memory())),
+        PieceCacheDao(CacheDatabase(NativeDatabase.memory())),
       );
 
-  final Result<List<CostumeView>> Function() _result;
+  final Result<List<PieceView>> Function() _result;
 
   @override
-  Future<Result<List<CostumeView>>> listBySeason(
+  Future<Result<List<PieceView>>> listBySeason(
     String seasonId, {
     Clock clock = Clock.system,
     CacheWriteFence? fence,
@@ -724,13 +725,14 @@ CharacterOmniHit characterHitFixture(String name) => CharacterOmniHit(
 
 CostumeOmniHit costumeHitFixture({String notes = 'Marineblau Wolle'}) =>
     CostumeOmniHit(
-      costume: CostumeView(
+      costume: PieceView(
         (b) => b
+          ..name = 'Fundus-Piece'
           ..id = 'k1'
           ..notes = notes
           ..categoryName = 'Trachten'
-          ..details.replace(BuiltList<CostumeDetailView>())
-          ..photos.replace(BuiltList<CostumePhotoView>())
+          ..details.replace(BuiltList<PieceDetailView>())
+          ..photos.replace(BuiltList<PiecePhotoView>())
           ..updatedAt = DateTime.utc(2026, 1, 1)
           ..version = 1,
       ),

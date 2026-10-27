@@ -2,13 +2,14 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: qwen3.6-35b (neuralwatt)
 // Co-authored-by: deepseek-v4-flash (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
-//! CostumeCategory projection handler: `CostumeCategoryEvent` -> `projection_costume_category`
-//! (+ denormalised `category_name` refresh on `projection_costume`).
+//! CostumeCategory projection handler: `CostumeCategoryEvent` ->
+//! `projection_costume_category` (+ denormalised `category_name` refresh on
+//! `projection_piece`).
 //!
-//! Issue #543: the category lives on the costume, so rename propagation
-//! targets `projection_costume.category_name` (one row per costume) instead
-//! of the legacy `projection_costume_detail.category_name`.
+//! The category classifies fundus **pieces** (n:1, optional), so rename
+//! propagation targets `projection_piece.category_name` (one row per piece).
 
 use super::PROJECTOR_VERSION;
 use breakdown_core::costume_category::aggregate::CostumeCategoryAggregate;
@@ -87,14 +88,12 @@ impl<'a> EntityEventHandler<CostumeCategoryAggregate, Transaction<'a, Postgres>>
                 .execute(&mut **ctx)
                 .await?;
 
-                // Refresh the denormalised name on every costume holding the
-                // category (issue #543: the category moved from the detail to
-                // the costume; the legacy `projection_costume_detail.category_name`
-                // columns are frozen at their last replayed value and cleaned
-                // up by a later migration).
+                // Refresh the denormalised name on every piece holding the
+                // category (the category is a piece-level binding, never a
+                // detail-level one since the clean cut).
                 sqlx::query(
                     r#"
-                    UPDATE projection_costume
+                    UPDATE projection_piece
                     SET category_name = $1
                     WHERE category_id = $2
                     "#,
@@ -138,10 +137,8 @@ impl<'a> EntityEventHandler<CostumeCategoryAggregate, Transaction<'a, Postgres>>
                 .bind(updated_at)
                 .execute(&mut **ctx)
                 .await?;
-                // Historical costume references keep their last-known
+                // Historical piece references keep their last-known
                 // `category_name`; we deliberately do NOT null them out.
-                // (Legacy `projection_costume_detail.category_name` rows are
-                // likewise frozen — issue #543.)
             }
         }
 

@@ -6,7 +6,7 @@
 // Co-authored-by: kimi-k3 (neuralwatt)
 // Co-authored-by: deepseek-v4-flash (opencode-go)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
-// Co-authored-by: glm-5.3 (neuralwatt)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 //! Stable problem-code registry (ADR-031).
 //!
@@ -39,7 +39,7 @@ pub const PROBLEM_DOCS_BASE: &str = "https://docs.breakdown.example";
 /// Kept in sync with the `problem_codes!` invocation below by a compile-time
 /// assertion — adding or removing a code without deliberately updating this
 /// count fails the build (issue #232).
-const PROBLEM_CODE_COUNT: usize = 106;
+const PROBLEM_CODE_COUNT: usize = 107;
 
 /// One registered problem code (ADR-031 D2/D4).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -535,55 +535,59 @@ problem_codes! {
     },
 
 
-    // --- costume ---
-    COSTUME_NOT_FOUND {
-        code: "costume.not-found",
+    // --- piece (wardrobe fundus) ---
+    PIECE_NOT_FOUND {
+        code: "piece.not-found",
         status: 404,
-        title: "Costume not found",
+        title: "Piece not found",
         extensions: &["id"],
     },
 
-    /// Conflict: the costume is already assigned to a character. The assigned
-    /// character is in-scope (S1) — the caller passed the season auth gate.
-    COSTUME_ALREADY_ASSIGNED {
-        code: "costume.already-assigned",
-        status: 409,
-        title: "Costume already assigned",
-        extensions: &["assigned_character_id"],
-    },
-
-    COSTUME_VALIDATION {
-        code: "costume.validation",
+    PIECE_VALIDATION {
+        code: "piece.validation",
         status: 422,
-        title: "Costume validation failed",
+        title: "Piece validation failed",
         extensions: &[],
     },
 
-    /// The costume exists but has neither a character it is assigned to nor
-    /// a repertoire season it stands in — its owning container (project)
-    /// cannot be resolved, so the scoped photo authorization cannot even run
-    /// (issue #535). Not `costume.not-found` (the costume itself exists) and
-    /// not `costume.validation` (nothing about the request was malformed):
+    /// The piece exists but has no repertoire season, so its owning container
+    /// (project) cannot be resolved and the scoped photo authorization cannot
+    /// even run (issue #535). Not `piece.not-found` (the piece itself exists)
+    /// and not `piece.validation` (nothing about the request was malformed):
     /// a distinct 422 so the client can reconcile via refetch.
-    COSTUME_CONTAINER_UNRESOLVED {
-        code: "costume.container-unresolved",
+    PIECE_CONTAINER_UNRESOLVED {
+        code: "piece.container-unresolved",
         status: 422,
-        title: "Costume has no resolvable container",
+        title: "Piece has no resolvable container",
         extensions: &[],
     },
 
-    /// The costume exists, the addressed **detail** does not (issue #544).
-    /// A distinct 404 rather than `costume.validation` (422) so the client
-    /// can tell "the detail is gone" apart from a real validation failure
-    /// and reconcile by refetching. `id` is S0 — the caller passed the
+    /// The piece exists, the addressed **detail** does not (issue #544).
+    /// A distinct 404 rather than `piece.validation` (422) so the client can
+    /// tell "the detail is gone" apart from a real validation failure and
+    /// reconcile by refetching. `id` is S0 — the caller passed the
     /// `detail_id` path parameter.
-    COSTUME_DETAIL_NOT_FOUND {
-        code: "costume-detail.not-found",
+    PIECE_DETAIL_NOT_FOUND {
+        code: "piece-detail.not-found",
         status: 404,
-        title: "Costume detail not found",
+        title: "Piece detail not found",
         extensions: &["id"],
     },
 
+    // --- outfit (character look) ---
+    OUTFIT_NOT_FOUND {
+        code: "outfit.not-found",
+        status: 404,
+        title: "Outfit not found",
+        extensions: &["id"],
+    },
+
+    OUTFIT_VALIDATION {
+        code: "outfit.validation",
+        status: 422,
+        title: "Outfit validation failed",
+        extensions: &[],
+    },
 
     // --- costume category ---
     COSTUME_CATEGORY_NOT_FOUND {

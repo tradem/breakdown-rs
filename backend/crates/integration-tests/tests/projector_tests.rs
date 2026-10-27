@@ -3,6 +3,7 @@
 // Co-authored-by: space-bunny-free (opencode-go)
 // Co-authored-by: glm-5.3-flash (neuralwatt)
 // Co-authored-by: glm-5.2 (neuralwatt)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 #![allow(
     clippy::unwrap_used,
@@ -31,7 +32,7 @@ use anyhow::{Result, anyhow};
 
 use breakdown_core::character::category::CharacterCategory;
 use breakdown_core::character::ports::CharacterRepository;
-use breakdown_core::costume::ports::CostumeRepository;
+use breakdown_core::piece::ports::PieceRepository;
 use breakdown_core::scene::events::SceneSource;
 use breakdown_core::scene::ports::SceneRepository;
 use breakdown_core::shared::{AggregateVersion, EpisodeId, SeasonId};
@@ -588,30 +589,31 @@ async fn character_contact_info_updated_projects_values() -> Result<()> {
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
-async fn costume_created_projects_basic_fields() -> Result<()> {
+async fn piece_created_projects_basic_fields() -> Result<()> {
     let (pool, _pg) = crate::fixtures::spawn_postgres().await?;
     let (redis_client, _sierra_conn, _sierra) = crate::fixtures::spawn_sierradb().await?;
 
-    let _costume_ref = infra::projectors::spawn_costume_projector(
+    let _piece_ref = infra::projectors::spawn_piece_projector(
         pool.clone(),
         Arc::clone(&redis_client),
         infra::projectors::ProjectorFlushConfig::test_profile(),
     )
     .await?;
 
-    let costume_repo = infra::queries::CostumeRepositoryImpl::new(pool.clone());
+    let piece_repo = infra::queries::PieceRepositoryImpl::new(pool.clone());
 
-    let costume_id = Uuid::now_v7();
-    let stream_id = format!("costume-{}", costume_id);
+    let piece_id = Uuid::now_v7();
+    let stream_id = format!("piece-{}", piece_id);
 
     eappend_event(
         Arc::clone(&redis_client),
         &stream_id,
-        "CostumeCreated",
+        "PieceCreated",
         "EMPTY",
-        &breakdown_core::costume::events::CostumeEvent::CostumeCreated {
-            id: costume_id,
-            character_id: None,
+        &breakdown_core::piece::events::PieceEvent::PieceCreated {
+            id: piece_id,
+            name: "Fundus-Piece".to_string(),
+            category_id: None,
             season_id: None,
             notes: "Blue dress".into(),
             details: vec![],
@@ -623,44 +625,45 @@ async fn costume_created_projects_basic_fields() -> Result<()> {
 
     await_proj_row(
         || {
-            let c_repo = costume_repo.clone();
-            Box::pin(async move { c_repo.find_by_id(costume_id).await.is_ok() })
+            let c_repo = piece_repo.clone();
+            Box::pin(async move { c_repo.find_by_id(piece_id).await.is_ok() })
         },
-        "costume",
+        "piece",
     )
     .await?;
 
-    let v = costume_repo.find_by_id(costume_id).await?;
+    let v = piece_repo.find_by_id(piece_id).await?;
     assert_eq!(v.notes, "Blue dress");
-    assert!(v.character_id.is_none());
+    assert_eq!(v.name, "Fundus-Piece");
     Ok(())
 }
 
 #[tokio::test]
-async fn costume_notes_updated_projects_changes() -> Result<()> {
+async fn piece_notes_updated_projects_changes() -> Result<()> {
     let (pool, _pg) = crate::fixtures::spawn_postgres().await?;
     let (redis_client, _sierra_conn, _sierra) = crate::fixtures::spawn_sierradb().await?;
 
-    let _costume_ref = infra::projectors::spawn_costume_projector(
+    let _piece_ref = infra::projectors::spawn_piece_projector(
         pool.clone(),
         Arc::clone(&redis_client),
         infra::projectors::ProjectorFlushConfig::test_profile(),
     )
     .await?;
 
-    let costume_repo = infra::queries::CostumeRepositoryImpl::new(pool.clone());
+    let piece_repo = infra::queries::PieceRepositoryImpl::new(pool.clone());
 
-    let costume_id = Uuid::now_v7();
-    let stream_id = format!("costume-{}", costume_id);
+    let piece_id = Uuid::now_v7();
+    let stream_id = format!("piece-{}", piece_id);
 
     eappend_event(
         Arc::clone(&redis_client),
         &stream_id,
-        "CostumeCreated",
+        "PieceCreated",
         "EMPTY",
-        &breakdown_core::costume::events::CostumeEvent::CostumeCreated {
-            id: costume_id,
-            character_id: None,
+        &breakdown_core::piece::events::PieceEvent::PieceCreated {
+            id: piece_id,
+            name: "Fundus-Piece".to_string(),
+            category_id: None,
             season_id: None,
             notes: "Initial".into(),
             details: vec![],
@@ -673,160 +676,137 @@ async fn costume_notes_updated_projects_changes() -> Result<()> {
     eappend_event(
         Arc::clone(&redis_client),
         &stream_id,
-        "CostumeNotesUpdated",
+        "PieceNotesUpdated",
         "0",
-        &breakdown_core::costume::events::CostumeEvent::CostumeNotesUpdated {
-            id: costume_id,
+        &breakdown_core::piece::events::PieceEvent::PieceNotesUpdated {
+            id: piece_id,
             notes: "Updated notes".into(),
             version: AggregateVersion(2),
         },
     )
     .await?;
 
-    await_proj_version(&pool, "projection_costume", costume_id, 2).await?;
+    await_proj_version(&pool, "projection_piece", piece_id, 2).await?;
 
-    let v = costume_repo.find_by_id(costume_id).await?;
+    let v = piece_repo.find_by_id(piece_id).await?;
     assert_eq!(v.notes, "Updated notes");
 
     Ok(())
 }
 
 #[tokio::test]
-async fn costume_assign_unassign_characters() -> Result<()> {
+async fn piece_category_set_projects_name() -> Result<()> {
     let (pool, _pg) = crate::fixtures::spawn_postgres().await?;
     let (redis_client, _sierra_conn, _sierra) = crate::fixtures::spawn_sierradb().await?;
 
-    let _costume_ref = infra::projectors::spawn_costume_projector(
+    let _piece_ref = infra::projectors::spawn_piece_projector(
         pool.clone(),
         Arc::clone(&redis_client),
         infra::projectors::ProjectorFlushConfig::test_profile(),
     )
     .await?;
-    // The costume projector's `CostumeAssignedToCharacter` handler writes
-    // `character_id` into `projection_costume`, whose FK references
-    // `projection_character(id)`. We therefore also run the character
-    // projector and project the referenced character *before* appending the
-    // assign event, so the projector does not hit a foreign-key violation
-    // and stall the checkpoint.
-    let _char_ref = infra::projectors::spawn_character_projector(
+    let _category_ref = infra::projectors::spawn_costume_category_projector(
         pool.clone(),
         Arc::clone(&redis_client),
         infra::projectors::ProjectorFlushConfig::test_profile(),
     )
     .await?;
 
-    let costume_repo = infra::queries::CostumeRepositoryImpl::new(pool.clone());
-
-    let costume_id = Uuid::now_v7();
-    let character_id = Uuid::now_v7();
-    let season_id = SeasonId::new();
-    let stream_id = format!("costume-{}", costume_id);
+    let piece_id = Uuid::now_v7();
+    let category_id = Uuid::now_v7();
+    let season_id = breakdown_core::shared::SeasonId::new();
+    let piece_stream_id = format!("piece-{}", piece_id);
 
     eappend_event(
         Arc::clone(&redis_client),
-        &stream_id,
-        "CostumeCreated",
+        &piece_stream_id,
+        "PieceCreated",
         "EMPTY",
-        &breakdown_core::costume::events::CostumeEvent::CostumeCreated {
-            id: costume_id,
-            character_id: None,
-            season_id: None,
+        &breakdown_core::piece::events::PieceEvent::PieceCreated {
+            id: piece_id,
+            name: "Rote Lederjacke".into(),
+            category_id: None,
+            season_id: Some(season_id.0),
             notes: String::new(),
-            details: vec![],
-            photos: vec![],
+            details: Vec::new(),
+            photos: Vec::new(),
             version: AggregateVersion::INITIAL,
         },
     )
     .await?;
+    await_proj_version(&pool, "projection_piece", piece_id, 1).await?;
 
-    // Create the referenced character so the `projection_costume.character_id`
-    // foreign key (-> projection_character.id) is satisfied when the assign
-    // event is projected.
-    let char_stream_id = format!("character-{}", character_id);
+    // A category in the piece's repertoire season, then the set event.
+    let category_stream_id = format!("costume_category-{}", category_id);
     eappend_event(
         Arc::clone(&redis_client),
-        &char_stream_id,
-        "CharacterCreated",
+        &category_stream_id,
+        "CostumeCategoryCreated",
         "EMPTY",
-        &breakdown_core::character::events::CharacterEvent::CharacterCreated {
-            id: character_id,
+        &breakdown_core::costume_category::events::CostumeCategoryEvent::CostumeCategoryCreated {
+            id: category_id,
             season_id,
-            name: "Wearer".into(),
-            category: CharacterCategory::Guest,
-            measurements: Default::default(),
-            contact_info: Default::default(),
+            name: "Jacke".into(),
+            order_key: breakdown_core::shared::LexicalSortKey("a".into()),
             version: AggregateVersion::INITIAL,
         },
     )
     .await?;
-    await_proj_version(&pool, "projection_character", character_id, 1).await?;
+    await_proj_version(&pool, "projection_costume_category", category_id, 1).await?;
 
-    // Assign
     eappend_event(
         Arc::clone(&redis_client),
-        &stream_id,
-        "CostumeAssignedToCharacter",
+        &piece_stream_id,
+        "PieceCategorySet",
         "0",
-        &breakdown_core::costume::events::CostumeEvent::CostumeAssignedToCharacter {
-            id: costume_id,
-            character_id,
+        &breakdown_core::piece::events::PieceEvent::PieceCategorySet {
+            id: piece_id,
+            category_id: Some(breakdown_core::shared::CostumeCategoryId(category_id)),
             version: AggregateVersion(2),
         },
     )
     .await?;
+    await_proj_version(&pool, "projection_piece", piece_id, 2).await?;
 
-    await_proj_version(&pool, "projection_costume", costume_id, 2).await?;
-
-    let v = costume_repo.find_by_id(costume_id).await?;
-    assert_eq!(v.character_id, Some(character_id));
-
-    // Unassign
-    eappend_event(
-        Arc::clone(&redis_client),
-        &stream_id,
-        "CostumeUnassigned",
-        "1",
-        &breakdown_core::costume::events::CostumeEvent::CostumeUnassigned {
-            id: costume_id,
-            version: AggregateVersion(3),
-        },
-    )
-    .await?;
-
-    await_proj_version(&pool, "projection_costume", costume_id, 3).await?;
-
-    let v = costume_repo.find_by_id(costume_id).await?;
-    assert!(v.character_id.is_none());
+    let repo = infra::queries::PieceRepositoryImpl::new(pool.clone());
+    let v = repo.find_by_id(piece_id).await?;
+    assert_eq!(
+        v.category_id,
+        Some(breakdown_core::shared::CostumeCategoryId(category_id))
+    );
+    assert_eq!(v.category_name.as_deref(), Some("Jacke"));
+    assert_eq!(v.season_ids, vec![season_id.0]);
 
     Ok(())
 }
 
 #[tokio::test]
-async fn costume_detail_add_remove() -> Result<()> {
+async fn piece_detail_add_remove() -> Result<()> {
     let (pool, _pg) = crate::fixtures::spawn_postgres().await?;
     let (redis_client, _sierra_conn, _sierra) = crate::fixtures::spawn_sierradb().await?;
 
-    let _costume_ref = infra::projectors::spawn_costume_projector(
+    let _piece_ref = infra::projectors::spawn_piece_projector(
         pool.clone(),
         Arc::clone(&redis_client),
         infra::projectors::ProjectorFlushConfig::test_profile(),
     )
     .await?;
 
-    let costume_repo = infra::queries::CostumeRepositoryImpl::new(pool.clone());
+    let piece_repo = infra::queries::PieceRepositoryImpl::new(pool.clone());
 
-    let costume_id = Uuid::now_v7();
+    let piece_id = Uuid::now_v7();
     let detail_id = Uuid::now_v7();
-    let stream_id = format!("costume-{}", costume_id);
+    let stream_id = format!("piece-{}", piece_id);
 
     eappend_event(
         Arc::clone(&redis_client),
         &stream_id,
-        "CostumeCreated",
+        "PieceCreated",
         "EMPTY",
-        &breakdown_core::costume::events::CostumeEvent::CostumeCreated {
-            id: costume_id,
-            character_id: None,
+        &breakdown_core::piece::events::PieceEvent::PieceCreated {
+            id: piece_id,
+            name: "Fundus-Piece".to_string(),
+            category_id: None,
             season_id: None,
             notes: String::new(),
             details: vec![],
@@ -840,14 +820,13 @@ async fn costume_detail_add_remove() -> Result<()> {
     eappend_event(
         Arc::clone(&redis_client),
         &stream_id,
-        "DetailAdded",
+        "PieceDetailAdded",
         "0",
-        &breakdown_core::costume::events::CostumeEvent::DetailAdded {
-            id: costume_id,
-            detail: breakdown_core::costume::events::CostumeDetail {
+        &breakdown_core::piece::events::PieceEvent::PieceDetailAdded {
+            id: piece_id,
+            detail: breakdown_core::piece::events::PieceDetail {
                 id: detail_id,
                 subject: None,
-                category_id: None,
                 text: "Red lining".into(),
             },
             version: AggregateVersion(2),
@@ -855,27 +834,26 @@ async fn costume_detail_add_remove() -> Result<()> {
     )
     .await?;
 
-    await_proj_version(&pool, "projection_costume", costume_id, 2).await?;
+    await_proj_version(&pool, "projection_piece", piece_id, 2).await?;
 
-    let v = costume_repo.costume_with_details_photos(costume_id).await?;
+    let v = piece_repo.piece_with_details_photos(piece_id).await?;
     assert_eq!(v.details.len(), 1);
     assert_eq!(v.details[0].text, "Red lining");
 
     // DetailUpdated (issue #544): the projector reuses the `DetailAdded`
-    // upsert on `(costume_id, detail_id)`, so the row is overwritten IN PLACE
+    // upsert on `(piece_id, detail_id)`, so the row is overwritten IN PLACE
     // — no migration, and no second row. A cleared `subject` must land as
     // NULL, not survive from the previous value.
     eappend_event(
         Arc::clone(&redis_client),
         &stream_id,
-        "DetailUpdated",
+        "PieceDetailUpdated",
         "1",
-        &breakdown_core::costume::events::CostumeEvent::DetailUpdated {
-            id: costume_id,
-            detail: breakdown_core::costume::events::CostumeDetail {
+        &breakdown_core::piece::events::PieceEvent::PieceDetailUpdated {
+            id: piece_id,
+            detail: breakdown_core::piece::events::PieceDetail {
                 id: detail_id,
                 subject: Some("Rote Lederjacke".into()),
-                category_id: None,
                 text: "Leder, rot gefüttert".into(),
             },
             version: AggregateVersion(3),
@@ -883,9 +861,9 @@ async fn costume_detail_add_remove() -> Result<()> {
     )
     .await?;
 
-    await_proj_version(&pool, "projection_costume", costume_id, 3).await?;
+    await_proj_version(&pool, "projection_piece", piece_id, 3).await?;
 
-    let v = costume_repo.costume_with_details_photos(costume_id).await?;
+    let v = piece_repo.piece_with_details_photos(piece_id).await?;
     assert_eq!(v.details.len(), 1, "an edit must not insert a second row");
     assert_eq!(v.details[0].id, detail_id, "the row must be the same one");
     assert_eq!(v.details[0].text, "Leder, rot gefüttert");
@@ -895,50 +873,51 @@ async fn costume_detail_add_remove() -> Result<()> {
     eappend_event(
         Arc::clone(&redis_client),
         &stream_id,
-        "DetailRemoved",
+        "PieceDetailRemoved",
         "2",
-        &breakdown_core::costume::events::CostumeEvent::DetailRemoved {
-            id: costume_id,
+        &breakdown_core::piece::events::PieceEvent::PieceDetailRemoved {
+            id: piece_id,
             detail_id,
             version: AggregateVersion(4),
         },
     )
     .await?;
 
-    await_proj_version(&pool, "projection_costume", costume_id, 4).await?;
+    await_proj_version(&pool, "projection_piece", piece_id, 4).await?;
 
-    let v = costume_repo.costume_with_details_photos(costume_id).await?;
+    let v = piece_repo.piece_with_details_photos(piece_id).await?;
     assert!(v.details.is_empty());
 
     Ok(())
 }
 
 #[tokio::test]
-async fn costume_photo_link_unlink() -> Result<()> {
+async fn piece_photo_link_unlink() -> Result<()> {
     let (pool, _pg) = crate::fixtures::spawn_postgres().await?;
     let (redis_client, _sierra_conn, _sierra) = crate::fixtures::spawn_sierradb().await?;
 
-    let _costume_ref = infra::projectors::spawn_costume_projector(
+    let _piece_ref = infra::projectors::spawn_piece_projector(
         pool.clone(),
         Arc::clone(&redis_client),
         infra::projectors::ProjectorFlushConfig::test_profile(),
     )
     .await?;
 
-    let costume_repo = infra::queries::CostumeRepositoryImpl::new(pool.clone());
+    let piece_repo = infra::queries::PieceRepositoryImpl::new(pool.clone());
 
-    let costume_id = Uuid::now_v7();
+    let piece_id = Uuid::now_v7();
     let photo_id = Uuid::now_v7();
-    let stream_id = format!("costume-{}", costume_id);
+    let stream_id = format!("piece-{}", piece_id);
 
     eappend_event(
         Arc::clone(&redis_client),
         &stream_id,
-        "CostumeCreated",
+        "PieceCreated",
         "EMPTY",
-        &breakdown_core::costume::events::CostumeEvent::CostumeCreated {
-            id: costume_id,
-            character_id: None,
+        &breakdown_core::piece::events::PieceEvent::PieceCreated {
+            id: piece_id,
+            name: "Fundus-Piece".to_string(),
+            category_id: None,
             season_id: None,
             notes: String::new(),
             details: vec![],
@@ -952,19 +931,19 @@ async fn costume_photo_link_unlink() -> Result<()> {
     eappend_event(
         Arc::clone(&redis_client),
         &stream_id,
-        "PhotoLinked",
+        "PiecePhotoLinked",
         "0",
-        &breakdown_core::costume::events::CostumeEvent::PhotoLinked {
-            id: costume_id,
+        &breakdown_core::piece::events::PieceEvent::PiecePhotoLinked {
+            id: piece_id,
             photo_id,
             version: AggregateVersion(2),
         },
     )
     .await?;
 
-    await_proj_version(&pool, "projection_costume", costume_id, 2).await?;
+    await_proj_version(&pool, "projection_piece", piece_id, 2).await?;
 
-    let v = costume_repo.costume_with_details_photos(costume_id).await?;
+    let v = piece_repo.piece_with_details_photos(piece_id).await?;
     assert_eq!(v.photos.len(), 1);
     assert_eq!(v.photos[0].id, photo_id);
 
@@ -972,19 +951,19 @@ async fn costume_photo_link_unlink() -> Result<()> {
     eappend_event(
         Arc::clone(&redis_client),
         &stream_id,
-        "PhotoUnlinked",
+        "PiecePhotoUnlinked",
         "1",
-        &breakdown_core::costume::events::CostumeEvent::PhotoUnlinked {
-            id: costume_id,
+        &breakdown_core::piece::events::PieceEvent::PiecePhotoUnlinked {
+            id: piece_id,
             photo_id,
             version: AggregateVersion(3),
         },
     )
     .await?;
 
-    await_proj_version(&pool, "projection_costume", costume_id, 3).await?;
+    await_proj_version(&pool, "projection_piece", piece_id, 3).await?;
 
-    let v = costume_repo.costume_with_details_photos(costume_id).await?;
+    let v = piece_repo.piece_with_details_photos(piece_id).await?;
     assert!(v.photos.is_empty());
 
     Ok(())
@@ -992,37 +971,38 @@ async fn costume_photo_link_unlink() -> Result<()> {
 
 // ---------------------------------------------------------------------------
 
-/// Issue #453: a costume created with a repertoire `season_id` appears in the
-/// season's costume stream (`list_by_season`) even while unassigned
+/// Issue #453: a piece created with a repertoire `season_id` appears in the
+/// season's piece stream (`list_by_season`) even while unassigned
 /// (`character_id IS NULL`). The pre-#453 INNER-JOIN-through-character query
 /// returned 0 rows for this case — leaving no UI path to a first assignment.
 #[tokio::test]
-async fn costume_created_with_repertoire_season_is_visible_in_season_stream() -> Result<()> {
+async fn piece_created_with_repertoire_season_is_visible_in_season_stream() -> Result<()> {
     let (pool, _pg) = crate::fixtures::spawn_postgres().await?;
     let (redis_client, _sierra_conn, _sierra) = crate::fixtures::spawn_sierradb().await?;
 
-    let _costume_ref = infra::projectors::spawn_costume_projector(
+    let _piece_ref = infra::projectors::spawn_piece_projector(
         pool.clone(),
         Arc::clone(&redis_client),
         infra::projectors::ProjectorFlushConfig::test_profile(),
     )
     .await?;
 
-    let costume_repo = infra::queries::CostumeRepositoryImpl::new(pool.clone());
+    let piece_repo = infra::queries::PieceRepositoryImpl::new(pool.clone());
     let season_id = Uuid::now_v7();
-    let costume_id = Uuid::now_v7();
-    let stream_id = format!("costume-{}", costume_id);
+    let piece_id = Uuid::now_v7();
+    let stream_id = format!("piece-{}", piece_id);
 
     eappend_event(
         Arc::clone(&redis_client),
         &stream_id,
-        "CostumeCreated",
+        "PieceCreated",
         "EMPTY",
-        &breakdown_core::costume::events::CostumeEvent::CostumeCreated {
-            id: costume_id,
-            character_id: None,
+        &breakdown_core::piece::events::PieceEvent::PieceCreated {
+            id: piece_id,
+            name: "Fundus-Piece".to_string(),
+            category_id: None,
             season_id: Some(season_id),
-            notes: "Unassigned Repertoire Costume".into(),
+            notes: "Unassigned Repertoire Piece".into(),
             details: vec![],
             photos: vec![],
             version: AggregateVersion::INITIAL,
@@ -1032,73 +1012,73 @@ async fn costume_created_with_repertoire_season_is_visible_in_season_stream() ->
 
     await_proj_row(
         || {
-            let c_repo = costume_repo.clone();
+            let c_repo = piece_repo.clone();
             let expected_season = season_id;
             Box::pin(async move {
                 c_repo
                     .list_by_season(SeasonId(expected_season), 50, 0)
                     .await
-                    .map(|rows| rows.iter().any(|v| v.id == costume_id))
+                    .map(|rows| rows.iter().any(|v| v.id == piece_id))
                     .unwrap_or(false)
             })
         },
-        "costume in season stream",
+        "piece in season stream",
     )
     .await?;
 
-    let listed = costume_repo
+    let listed = piece_repo
         .list_by_season(SeasonId(season_id), 50, 0)
         .await?;
-    assert_eq!(listed.len(), 1, "unassigned repertoire costume is visible");
-    assert_eq!(listed[0].id, costume_id);
-    assert!(listed[0].character_id.is_none());
+    assert_eq!(listed.len(), 1, "unassigned repertoire piece is visible");
+    assert_eq!(listed[0].id, piece_id);
+    assert!(listed[0].season_ids.contains(&season_id));
 
-    // A different season must NOT list the costume (no cross-stream bleed).
-    let other = costume_repo
+    // A different season must NOT list the piece (no cross-stream bleed).
+    let other = piece_repo
         .list_by_season(SeasonId(Uuid::now_v7()), 50, 0)
         .await?;
-    assert!(other.is_empty(), "costume must not leak into other seasons");
+    assert!(other.is_empty(), "piece must not leak into other seasons");
 
     Ok(())
 }
 
-/// Issue #453 backwards compatibility: a pre-#453 `CostumeCreated` event
+/// Issue #453 backwards compatibility: a pre-#453 `PieceCreated` event
 /// (no `season_id` field — old CBOR payload) must still project; the
 /// `#[serde(default)]` on the event field deserializes it as `None` and the
-/// costume simply has no repertoire binding.
+/// piece simply has no repertoire binding.
 #[tokio::test]
-async fn costume_created_without_season_still_projects() -> Result<()> {
+async fn piece_created_without_season_still_projects() -> Result<()> {
     let (pool, _pg) = crate::fixtures::spawn_postgres().await?;
     let (redis_client, _sierra_conn, _sierra) = crate::fixtures::spawn_sierradb().await?;
 
-    let _costume_ref = infra::projectors::spawn_costume_projector(
+    let _piece_ref = infra::projectors::spawn_piece_projector(
         pool.clone(),
         Arc::clone(&redis_client),
         infra::projectors::ProjectorFlushConfig::test_profile(),
     )
     .await?;
 
-    let costume_repo = infra::queries::CostumeRepositoryImpl::new(pool.clone());
+    let piece_repo = infra::queries::PieceRepositoryImpl::new(pool.clone());
 
-    let costume_id = Uuid::now_v7();
-    let stream_id = format!("costume-{}", costume_id);
+    let piece_id = Uuid::now_v7();
+    let stream_id = format!("piece-{}", piece_id);
 
     // Pre-#453 payload shape: externally tagged enum WITHOUT `season_id`,
     // UUID encoded as CBOR bytes (matching the real old events' encoder).
     let legacy_cbor = ciborium::value::Value::Map(vec![(
-        ciborium::value::Value::Text("CostumeCreated".into()),
+        ciborium::value::Value::Text("PieceCreated".into()),
         ciborium::value::Value::Map(vec![
             (
                 ciborium::value::Value::Text("id".into()),
-                ciborium::value::Value::Bytes(costume_id.as_bytes().to_vec()),
+                ciborium::value::Value::Bytes(piece_id.as_bytes().to_vec()),
             ),
             (
-                ciborium::value::Value::Text("character_id".into()),
-                ciborium::value::Value::Null,
+                ciborium::value::Value::Text("name".into()),
+                ciborium::value::Value::Text("Fundus-Piece".into()),
             ),
             (
                 ciborium::value::Value::Text("notes".into()),
-                ciborium::value::Value::Text("Legacy costume".into()),
+                ciborium::value::Value::Text("Legacy piece".into()),
             ),
             (
                 ciborium::value::Value::Text("details".into()),
@@ -1118,7 +1098,7 @@ async fn costume_created_without_season_still_projects() -> Result<()> {
     eappend_event(
         Arc::clone(&redis_client),
         &stream_id,
-        "CostumeCreated",
+        "PieceCreated",
         "EMPTY",
         &legacy_cbor,
     )
@@ -1126,18 +1106,18 @@ async fn costume_created_without_season_still_projects() -> Result<()> {
 
     await_proj_row(
         || {
-            let c_repo = costume_repo.clone();
-            Box::pin(async move { c_repo.find_by_id(costume_id).await.is_ok() })
+            let c_repo = piece_repo.clone();
+            Box::pin(async move { c_repo.find_by_id(piece_id).await.is_ok() })
         },
-        "costume",
+        "piece",
     )
     .await?;
 
-    let v = costume_repo.find_by_id(costume_id).await?;
-    assert_eq!(v.notes, "Legacy costume");
+    let v = piece_repo.find_by_id(piece_id).await?;
+    assert_eq!(v.notes, "Legacy piece");
 
     // No repertoire binding → not visible in any season stream.
-    let listed = costume_repo
+    let listed = piece_repo
         .list_by_season(SeasonId(Uuid::now_v7()), 50, 0)
         .await?;
     assert!(listed.is_empty());
@@ -1148,39 +1128,40 @@ async fn costume_created_without_season_still_projects() -> Result<()> {
 // ---------------------------------------------------------------------------
 
 /// Issue #534: the repertoire becomes real aggregate state and
-/// `projection_costume_season` becomes truly m:n. A costume carried from
+/// `projection_piece_season` becomes truly m:n. A piece carried from
 /// season 1 into season 2 is visible in BOTH season streams; removing it
-/// from season 1 leaves it only in season 2. `CostumeView.season_ids`
+/// from season 1 leaves it only in season 2. `PieceView.season_ids`
 /// mirrors the rows through the enrich path.
 #[tokio::test]
-async fn costume_repertoire_spans_two_seasons_and_removal_leaves_one() -> Result<()> {
+async fn piece_repertoire_spans_two_seasons_and_removal_leaves_one() -> Result<()> {
     let (pool, _pg) = crate::fixtures::spawn_postgres().await?;
     let (redis_client, _sierra_conn, _sierra) = crate::fixtures::spawn_sierradb().await?;
 
-    let _costume_ref = infra::projectors::spawn_costume_projector(
+    let _piece_ref = infra::projectors::spawn_piece_projector(
         pool.clone(),
         Arc::clone(&redis_client),
         infra::projectors::ProjectorFlushConfig::test_profile(),
     )
     .await?;
 
-    let costume_repo = infra::queries::CostumeRepositoryImpl::new(pool.clone());
+    let piece_repo = infra::queries::PieceRepositoryImpl::new(pool.clone());
     let season1 = Uuid::now_v7();
     let season2 = Uuid::now_v7();
-    let costume_id = Uuid::now_v7();
-    let stream_id = format!("costume-{}", costume_id);
+    let piece_id = Uuid::now_v7();
+    let stream_id = format!("piece-{}", piece_id);
 
-    // Costume built for season 1.
+    // Piece built for season 1.
     eappend_event(
         Arc::clone(&redis_client),
         &stream_id,
-        "CostumeCreated",
+        "PieceCreated",
         "EMPTY",
-        &breakdown_core::costume::events::CostumeEvent::CostumeCreated {
-            id: costume_id,
-            character_id: None,
+        &breakdown_core::piece::events::PieceEvent::PieceCreated {
+            id: piece_id,
+            name: "Fundus-Piece".to_string(),
+            category_id: None,
             season_id: Some(season1),
-            notes: "Repertoire Costume".into(),
+            notes: "Repertoire Piece".into(),
             details: vec![],
             photos: vec![],
             version: AggregateVersion::INITIAL,
@@ -1188,14 +1169,14 @@ async fn costume_repertoire_spans_two_seasons_and_removal_leaves_one() -> Result
     )
     .await?;
 
-    // Carried over into season 2 (CostumeAddedToSeason, v1 -> v2).
+    // Carried over into season 2 (PieceAddedToSeason, v1 -> v2).
     eappend_event(
         Arc::clone(&redis_client),
         &stream_id,
-        "CostumeAddedToSeason",
+        "PieceAddedToSeason",
         "0",
-        &breakdown_core::costume::events::CostumeEvent::CostumeAddedToSeason {
-            id: costume_id,
+        &breakdown_core::piece::events::PieceEvent::PieceAddedToSeason {
+            id: piece_id,
             season_id: season2,
             version: AggregateVersion(2),
         },
@@ -1205,37 +1186,33 @@ async fn costume_repertoire_spans_two_seasons_and_removal_leaves_one() -> Result
     // Visible in BOTH season streams; the view lists both seasons.
     await_proj_row(
         || {
-            let c_repo = costume_repo.clone();
-            let expected = (season1, season2, costume_id);
+            let c_repo = piece_repo.clone();
+            let expected = (season1, season2, piece_id);
             Box::pin(async move {
-                let Ok(v) = c_repo.costume_with_details_photos(expected.2).await else {
+                let Ok(v) = c_repo.piece_with_details_photos(expected.2).await else {
                     return false;
                 };
                 v.season_ids == vec![expected.0, expected.1]
             })
         },
-        "costume in both season streams",
+        "piece in both season streams",
     )
     .await?;
 
-    let in_s1 = costume_repo
-        .list_by_season(SeasonId(season1), 50, 0)
-        .await?;
-    let in_s2 = costume_repo
-        .list_by_season(SeasonId(season2), 50, 0)
-        .await?;
-    assert_eq!(in_s1.len(), 1, "costume visible in season 1");
-    assert_eq!(in_s2.len(), 1, "costume visible in season 2");
+    let in_s1 = piece_repo.list_by_season(SeasonId(season1), 50, 0).await?;
+    let in_s2 = piece_repo.list_by_season(SeasonId(season2), 50, 0).await?;
+    assert_eq!(in_s1.len(), 1, "piece visible in season 1");
+    assert_eq!(in_s2.len(), 1, "piece visible in season 2");
 
-    // Season 1 wrapped: the wardrobe carries the costume back (removal,
+    // Season 1 wrapped: the wardrobe carries the piece back (removal,
     // v2 -> v3) — it stays only in season 2.
     eappend_event(
         Arc::clone(&redis_client),
         &stream_id,
-        "CostumeRemovedFromSeason",
+        "PieceRemovedFromSeason",
         "1",
-        &breakdown_core::costume::events::CostumeEvent::CostumeRemovedFromSeason {
-            id: costume_id,
+        &breakdown_core::piece::events::PieceEvent::PieceRemovedFromSeason {
+            id: piece_id,
             season_id: season1,
             version: AggregateVersion(3),
         },
@@ -1244,70 +1221,66 @@ async fn costume_repertoire_spans_two_seasons_and_removal_leaves_one() -> Result
 
     await_proj_row(
         || {
-            let c_repo = costume_repo.clone();
-            let expected = (season2, costume_id);
+            let c_repo = piece_repo.clone();
+            let expected = (season2, piece_id);
             Box::pin(async move {
-                let Ok(v) = c_repo.costume_with_details_photos(expected.1).await else {
+                let Ok(v) = c_repo.piece_with_details_photos(expected.1).await else {
                     return false;
                 };
                 v.season_ids == vec![expected.0]
             })
         },
-        "costume only in season 2",
+        "piece only in season 2",
     )
     .await?;
 
-    let in_s1 = costume_repo
-        .list_by_season(SeasonId(season1), 50, 0)
-        .await?;
-    let in_s2 = costume_repo
-        .list_by_season(SeasonId(season2), 50, 0)
-        .await?;
+    let in_s1 = piece_repo.list_by_season(SeasonId(season1), 50, 0).await?;
+    let in_s2 = piece_repo.list_by_season(SeasonId(season2), 50, 0).await?;
     assert!(
-        in_s1.iter().all(|v| v.id != costume_id),
-        "season 1 must no longer list the costume"
+        in_s1.iter().all(|v| v.id != piece_id),
+        "season 1 must no longer list the piece"
     );
-    assert_eq!(in_s2.len(), 1, "season 2 keeps the costume");
+    assert_eq!(in_s2.len(), 1, "season 2 keeps the piece");
 
     Ok(())
 }
 
-/// Issue #534 replay compatibility, DELETE path: a legacy costume stream
+/// Issue #534 replay compatibility, DELETE path: a legacy piece stream
 /// (no `season_id` at all) that later gains repertoire events still
 /// projects — the DELETE of a never-inserted row affects 0 rows and the
 /// version guard still advances.
 #[tokio::test]
-async fn costume_repertoire_events_on_legacy_stream_project() -> Result<()> {
+async fn piece_repertoire_events_on_legacy_stream_project() -> Result<()> {
     let (pool, _pg) = crate::fixtures::spawn_postgres().await?;
     let (redis_client, _sierra_conn, _sierra) = crate::fixtures::spawn_sierradb().await?;
 
-    let _costume_ref = infra::projectors::spawn_costume_projector(
+    let _piece_ref = infra::projectors::spawn_piece_projector(
         pool.clone(),
         Arc::clone(&redis_client),
         infra::projectors::ProjectorFlushConfig::test_profile(),
     )
     .await?;
 
-    let costume_repo = infra::queries::CostumeRepositoryImpl::new(pool.clone());
+    let piece_repo = infra::queries::PieceRepositoryImpl::new(pool.clone());
     let season1 = Uuid::now_v7();
-    let costume_id = Uuid::now_v7();
-    let stream_id = format!("costume-{}", costume_id);
+    let piece_id = Uuid::now_v7();
+    let stream_id = format!("piece-{}", piece_id);
 
-    // Pre-#453 `CostumeCreated` (no `season_id`) — CBOR bytes for UUIDs.
+    // Pre-#453 `PieceCreated` (no `season_id`) — CBOR bytes for UUIDs.
     let legacy_cbor = ciborium::value::Value::Map(vec![(
-        ciborium::value::Value::Text("CostumeCreated".into()),
+        ciborium::value::Value::Text("PieceCreated".into()),
         ciborium::value::Value::Map(vec![
             (
                 ciborium::value::Value::Text("id".into()),
-                ciborium::value::Value::Bytes(costume_id.as_bytes().to_vec()),
+                ciborium::value::Value::Bytes(piece_id.as_bytes().to_vec()),
             ),
             (
-                ciborium::value::Value::Text("character_id".into()),
-                ciborium::value::Value::Null,
+                ciborium::value::Value::Text("name".into()),
+                ciborium::value::Value::Text("Fundus-Piece".into()),
             ),
             (
                 ciborium::value::Value::Text("notes".into()),
-                ciborium::value::Value::Text("Legacy costume".into()),
+                ciborium::value::Value::Text("Legacy piece".into()),
             ),
             (
                 ciborium::value::Value::Text("details".into()),
@@ -1327,7 +1300,7 @@ async fn costume_repertoire_events_on_legacy_stream_project() -> Result<()> {
     eappend_event(
         Arc::clone(&redis_client),
         &stream_id,
-        "CostumeCreated",
+        "PieceCreated",
         "EMPTY",
         &legacy_cbor,
     )
@@ -1335,10 +1308,10 @@ async fn costume_repertoire_events_on_legacy_stream_project() -> Result<()> {
 
     await_proj_row(
         || {
-            let c_repo = costume_repo.clone();
-            Box::pin(async move { c_repo.find_by_id(costume_id).await.is_ok() })
+            let c_repo = piece_repo.clone();
+            Box::pin(async move { c_repo.find_by_id(piece_id).await.is_ok() })
         },
-        "costume",
+        "piece",
     )
     .await?;
 
@@ -1347,10 +1320,10 @@ async fn costume_repertoire_events_on_legacy_stream_project() -> Result<()> {
     eappend_event(
         Arc::clone(&redis_client),
         &stream_id,
-        "CostumeAddedToSeason",
+        "PieceAddedToSeason",
         "0",
-        &breakdown_core::costume::events::CostumeEvent::CostumeAddedToSeason {
-            id: costume_id,
+        &breakdown_core::piece::events::PieceEvent::PieceAddedToSeason {
+            id: piece_id,
             season_id: season1,
             version: AggregateVersion(2),
         },
@@ -1359,10 +1332,10 @@ async fn costume_repertoire_events_on_legacy_stream_project() -> Result<()> {
     eappend_event(
         Arc::clone(&redis_client),
         &stream_id,
-        "CostumeRemovedFromSeason",
+        "PieceRemovedFromSeason",
         "1",
-        &breakdown_core::costume::events::CostumeEvent::CostumeRemovedFromSeason {
-            id: costume_id,
+        &breakdown_core::piece::events::PieceEvent::PieceRemovedFromSeason {
+            id: piece_id,
             season_id: season1,
             version: AggregateVersion(3),
         },
@@ -1371,9 +1344,9 @@ async fn costume_repertoire_events_on_legacy_stream_project() -> Result<()> {
 
     await_proj_row(
         || {
-            let c_repo = costume_repo.clone();
+            let c_repo = piece_repo.clone();
             Box::pin(async move {
-                let Ok(v) = c_repo.costume_with_details_photos(costume_id).await else {
+                let Ok(v) = c_repo.piece_with_details_photos(piece_id).await else {
                     return false;
                 };
                 v.version == AggregateVersion(3) && v.season_ids.is_empty()
@@ -1383,11 +1356,9 @@ async fn costume_repertoire_events_on_legacy_stream_project() -> Result<()> {
     )
     .await?;
 
-    let listed = costume_repo
-        .list_by_season(SeasonId(season1), 50, 0)
-        .await?;
+    let listed = piece_repo.list_by_season(SeasonId(season1), 50, 0).await?;
     assert!(
-        listed.iter().all(|v| v.id != costume_id),
+        listed.iter().all(|v| v.id != piece_id),
         "removed repertoire row must leave the season stream"
     );
 

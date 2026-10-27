@@ -4,6 +4,7 @@
 // Co-authored-by: deepseek-v4-flash (opencode-go)
 // Co-authored-by: hy3 (opencode-go)
 // Co-authored-by: glm-5.2 (neuralwatt)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 //! Saga that reacts to `ContinuityPhotoUnlinked` events on the `scene_shoot`
 //! stream. Checks refcount via `projection_continuity_photo` and dispatches
@@ -40,8 +41,9 @@ use crate::projectors::supervisor;
 ///
 /// Tracks `ContinuityPhotoLinked` / `ContinuityPhotoUnlinked` events on the
 /// `scene_shoot` stream. When a `ContinuityPhotoUnlinked` event brings the
-/// in-memory refcount to zero, the saga also queries `projection_costume_photo`
-/// to check for remaining costume-side references before dispatching delete.
+/// in-memory refcount to zero, the saga also counts the wardrobe-side
+/// references (`projection_piece_photo` + `projection_outfit_photo`) before
+/// dispatching delete.
 #[derive(Clone, Debug)]
 pub struct ContinuityDeletionSaga {
     cmd_service: CommandService,
@@ -82,10 +84,10 @@ impl EntityEventHandler<SceneShootAggregate, ()> for ContinuityDeletionSaga {
                 if *entry == 0 {
                     self.refcounts.remove(&photo_id.0);
 
-                    // Also check costume-side refcounts before deleting.
+                    // Also check the wardrobe-side refcounts before deleting.
                     match self.repo.count_links(photo_id).await {
-                        Ok(costume_refs) if costume_refs > 0 => {
-                            // Still referenced by a costume — don't delete.
+                        Ok(wardrobe_refs) if wardrobe_refs > 0 => {
+                            // Still referenced by a piece or outfit — don't delete.
                             return Ok(());
                         }
                         Ok(_) => {

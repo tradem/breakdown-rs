@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 import 'dart:async';
 
@@ -79,8 +80,8 @@ class _CostumesScreenState extends ConsumerState<CostumesScreen> {
           return NoBlocksHintScaffold(title: l10nOf(context).navCostumes);
         }
     }
-    final state = ref.watch(costumesControllerProvider(season.id));
-    final controller = ref.read(costumesControllerProvider(season.id).notifier);
+    final state = ref.watch(piecesControllerProvider(season.id));
+    final controller = ref.read(piecesControllerProvider(season.id).notifier);
     final rows = state.rows;
     final notFound = state.notFound;
     final canViewPhotos = switch (ref.watch(
@@ -175,11 +176,15 @@ class _CostumesScreenState extends ConsumerState<CostumesScreen> {
     return session is AsyncData && session.value != null;
   }
 
-  /// Creates the empty shell and keeps the editor on the first screen.
+  /// Catalogues a new piece and keeps the editor on the first screen.
+  ///
+  /// The aggregate requires a non-blank name (422 `piece.validation`), so the
+  /// create path sends the localized fallback label; the crew renames it in
+  /// the detail panel, which is the first thing the editor opens anyway.
   Future<void> _createAndShowEditor(WidgetRef ref) async {
     final result = await ref
-        .read(costumesControllerProvider(season.id).notifier)
-        .create();
+        .read(piecesControllerProvider(season.id).notifier)
+        .create(name: l10nOf(context).costumeTileLabelFallback);
     final id = result.match((_) => null, (ack) => ack.id);
     if (id != null && mounted) _selectCostume(id);
   }
@@ -259,7 +264,7 @@ class _CostumeOverview extends StatelessWidget {
             child: CostumeDetailPanel(
               key: Key('costume-editor-$selectedId'),
               season: season,
-              costumeId: selectedId!,
+              pieceId: selectedId!,
             ),
           ),
       ],

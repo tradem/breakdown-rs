@@ -8,9 +8,9 @@ part of 'character_appearance_view.dart';
 
 class _$CharacterAppearanceView extends CharacterAppearanceView {
   @override
-  final BuiltList<AppearanceCostumeView>? costumes;
-  @override
   final String episodeId;
+  @override
+  final BuiltList<AppearanceOutfitView>? outfits;
   @override
   final String sceneId;
   @override
@@ -23,8 +23,8 @@ class _$CharacterAppearanceView extends CharacterAppearanceView {
       (CharacterAppearanceViewBuilder()..update(updates))._build();
 
   _$CharacterAppearanceView._(
-      {this.costumes,
-      required this.episodeId,
+      {required this.episodeId,
+      this.outfits,
       required this.sceneId,
       this.sceneNumber,
       this.synopsis})
@@ -42,8 +42,8 @@ class _$CharacterAppearanceView extends CharacterAppearanceView {
   bool operator ==(Object other) {
     if (identical(other, this)) return true;
     return other is CharacterAppearanceView &&
-        costumes == other.costumes &&
         episodeId == other.episodeId &&
+        outfits == other.outfits &&
         sceneId == other.sceneId &&
         sceneNumber == other.sceneNumber &&
         synopsis == other.synopsis;
@@ -52,8 +52,8 @@ class _$CharacterAppearanceView extends CharacterAppearanceView {
   @override
   int get hashCode {
     var _$hash = 0;
-    _$hash = $jc(_$hash, costumes.hashCode);
     _$hash = $jc(_$hash, episodeId.hashCode);
+    _$hash = $jc(_$hash, outfits.hashCode);
     _$hash = $jc(_$hash, sceneId.hashCode);
     _$hash = $jc(_$hash, sceneNumber.hashCode);
     _$hash = $jc(_$hash, synopsis.hashCode);
@@ -64,8 +64,8 @@ class _$CharacterAppearanceView extends CharacterAppearanceView {
   @override
   String toString() {
     return (newBuiltValueToStringHelper(r'CharacterAppearanceView')
-          ..add('costumes', costumes)
           ..add('episodeId', episodeId)
+          ..add('outfits', outfits)
           ..add('sceneId', sceneId)
           ..add('sceneNumber', sceneNumber)
           ..add('synopsis', synopsis))
@@ -78,15 +78,15 @@ class CharacterAppearanceViewBuilder
         Builder<CharacterAppearanceView, CharacterAppearanceViewBuilder> {
   _$CharacterAppearanceView? _$v;
 
-  ListBuilder<AppearanceCostumeView>? _costumes;
-  ListBuilder<AppearanceCostumeView> get costumes =>
-      _$this._costumes ??= ListBuilder<AppearanceCostumeView>();
-  set costumes(ListBuilder<AppearanceCostumeView>? costumes) =>
-      _$this._costumes = costumes;
-
   String? _episodeId;
   String? get episodeId => _$this._episodeId;
   set episodeId(String? episodeId) => _$this._episodeId = episodeId;
+
+  ListBuilder<AppearanceOutfitView>? _outfits;
+  ListBuilder<AppearanceOutfitView> get outfits =>
+      _$this._outfits ??= ListBuilder<AppearanceOutfitView>();
+  set outfits(ListBuilder<AppearanceOutfitView>? outfits) =>
+      _$this._outfits = outfits;
 
   String? _sceneId;
   String? get sceneId => _$this._sceneId;
@@ -107,8 +107,8 @@ class CharacterAppearanceViewBuilder
   CharacterAppearanceViewBuilder get _$this {
     final $v = _$v;
     if ($v != null) {
-      _costumes = $v.costumes?.toBuilder();
       _episodeId = $v.episodeId;
+      _outfits = $v.outfits?.toBuilder();
       _sceneId = $v.sceneId;
       _sceneNumber = $v.sceneNumber;
       _synopsis = $v.synopsis;
@@ -135,9 +135,9 @@ class CharacterAppearanceViewBuilder
     try {
       _$result = _$v ??
           _$CharacterAppearanceView._(
-            costumes: _costumes?.build(),
             episodeId: BuiltValueNullFieldError.checkNotNull(
                 episodeId, r'CharacterAppearanceView', 'episodeId'),
+            outfits: _outfits?.build(),
             sceneId: BuiltValueNullFieldError.checkNotNull(
                 sceneId, r'CharacterAppearanceView', 'sceneId'),
             sceneNumber: sceneNumber,
@@ -146,8 +146,8 @@ class CharacterAppearanceViewBuilder
     } catch (_) {
       late String _$failedField;
       try {
-        _$failedField = 'costumes';
-        _costumes?.build();
+        _$failedField = 'outfits';
+        _outfits?.build();
       } catch (e) {
         throw BuiltValueNestedFieldError(
             r'CharacterAppearanceView', _$failedField, e.toString());

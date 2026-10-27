@@ -1,29 +1,5 @@
 components:
   schemas:
-    AddCostumeDetailRequest:
-      properties:
-        detail:
-          $ref: '#/components/schemas/CostumeDetailRequest'
-        version:
-          $ref: '#/components/schemas/AggregateVersion'
-      required:
-      - detail
-      - version
-      type: object
-    AddCostumeToSeasonRequest:
-      description: |-
-        Add a costume to a season's repertoire (issue #534). Idempotent: a season
-        already in the repertoire is a no-op success with the unchanged version.
-      properties:
-        season_id:
-          format: uuid
-          type: string
-        version:
-          $ref: '#/components/schemas/AggregateVersion'
-      required:
-      - season_id
-      - version
-      type: object
     AddNoteRequest:
       properties:
         body:
@@ -36,16 +12,48 @@ components:
       required:
       - body
       type: object
-    AddSceneCostumeBeatRequest:
+    AddOutfitPieceRequest:
+      properties:
+        piece_id:
+          format: uuid
+          type: string
+        version:
+          $ref: '#/components/schemas/AggregateVersion'
+      required:
+      - piece_id
+      - version
+      type: object
+    AddPieceDetailRequest:
+      properties:
+        detail:
+          $ref: '#/components/schemas/PieceDetailRequest'
+        version:
+          $ref: '#/components/schemas/AggregateVersion'
+      required:
+      - detail
+      - version
+      type: object
+    AddPieceToSeasonRequest:
       description: |-
-        Request body for adding a costume beat (issue #546). The `order` is
+        Add a piece to a season's repertoire (issue #534). Idempotent: a season
+        already in the repertoire is a no-op success with the unchanged version.
+      properties:
+        season_id:
+          format: uuid
+          type: string
+        version:
+          $ref: '#/components/schemas/AggregateVersion'
+      required:
+      - season_id
+      - version
+      type: object
+    AddSceneOutfitBeatRequest:
+      description: |-
+        Request body for adding a outfit beat (issue #546). The `order` is
         deliberately absent — the aggregate computes it (`max + 1` per character);
         a client-chosen order would be a race.
       properties:
         character_id:
-          format: uuid
-          type: string
-        costume_id:
           format: uuid
           type: string
         note:
@@ -53,11 +61,14 @@ components:
           type:
           - string
           - 'null'
+        outfit_id:
+          format: uuid
+          type: string
         version:
           $ref: '#/components/schemas/AggregateVersion'
       required:
       - character_id
-      - costume_id
+      - outfit_id
       - version
       type: object
     AggregateSollIstDiffRow:
@@ -598,24 +609,12 @@ components:
       - provider
       - key
       type: object
-    AppearanceCostumeView:
+    AppearanceOutfitView:
       description: |-
-        One costume beat of a character within one scene (issue #621): the
-        character-scoped slice of `projection_scene_costume_assignment`, enriched by
-        join with `projection_costume` for the category.
+        One outfit beat of a character within one scene (issue #621): the
+        character-scoped slice of `projection_scene_outfit_assignment`, enriched by
+        join with `projection_outfit` for the look's name and variant lineage.
       properties:
-        costume_category_id:
-          format: uuid
-          type:
-          - string
-          - 'null'
-        costume_category_name:
-          type:
-          - string
-          - 'null'
-        costume_id:
-          format: uuid
-          type: string
         note:
           description: Optional free-text cue for the wardrobe crew.
           type:
@@ -626,8 +625,20 @@ components:
           format: int32
           minimum: 0
           type: integer
+        outfit_id:
+          format: uuid
+          type: string
+        outfit_name:
+          type:
+          - string
+          - 'null'
+        variant_of:
+          format: uuid
+          type:
+          - string
+          - 'null'
       required:
-      - costume_id
+      - outfit_id
       - order
       type: object
     ApplyAiImportRequest:
@@ -706,7 +717,11 @@ components:
           minimum: 0
           type: integer
         created_costumes:
-          description: Costumes the script apply created (unassigned, then bound).
+          description: |-
+            Costume rows the script apply created (a piece in the fundus, then
+            joined to the figure's outfit). The field keeps the `costume` name until
+            the AI-import vocabulary is renamed as one coherent step (successor
+            change `ai-import-outfit-and-pieces`).
           format: int32
           minimum: 0
           type: integer
@@ -735,10 +750,10 @@ components:
           type: array
         unapplied_costumes:
           description: |-
-            Costume rows that did **not** become a `Costume`, each with the reason.
-            An apply that created a costume but could not bind it reports the row
-            here while `created_costumes` still counts it — a partially applied row
-            must never look like a fully applied one.
+            Costume rows that were **not** fully applied, each with the reason.
+            An apply that created a piece but could not put it into the figure's
+            outfit reports the row here while `created_costumes` still counts it — a
+            partially applied row must never look like a fully applied one.
           items:
             $ref: '#/components/schemas/UnappliedCostume'
           type: array
@@ -825,17 +840,6 @@ components:
       - accepted
       type: object
     AssignCharacterRequest:
-      properties:
-        character_id:
-          format: uuid
-          type: string
-        version:
-          $ref: '#/components/schemas/AggregateVersion'
-      required:
-      - character_id
-      - version
-      type: object
-    AssignCostumeRequest:
       properties:
         character_id:
           format: uuid
@@ -937,21 +941,21 @@ components:
     CharacterAppearanceView:
       description: |-
         One appearance of a character in a scene (issue #621): the scene reference
-        in script order plus the character's own costume beats in that scene.
+        in script order plus the character's own outfit beats in that scene.
 
         Backs `GET /v1/characters/{id}/appearances` — the role extract ("Ring
         binder per role"): every scene the character appears in, in `scene_number`
-        order, with the costume(s) that character wears there.
+        order, with the outfit(s) that character wears there.
       properties:
-        costumes:
-          description: |-
-            The character's costume beats in this scene, ordered by `order`.
-            Empty when the character has no costume beat in the scene yet.
-          items:
-            $ref: '#/components/schemas/AppearanceCostumeView'
-          type: array
         episode_id:
           $ref: '#/components/schemas/EpisodeId'
+        outfits:
+          description: |-
+            The character's outfit beats in this scene, ordered by `order`.
+            Empty when the character has no outfit beat in the scene yet.
+          items:
+            $ref: '#/components/schemas/AppearanceOutfitView'
+          type: array
         scene_id:
           format: uuid
           type: string
@@ -1209,167 +1213,6 @@ components:
       - ordinal
       - accepted
       type: object
-    CostumeDetail:
-      properties:
-        category_id:
-          oneOf:
-          - $ref: '#/components/schemas/CostumeCategoryId'
-            description: |-
-              **Legacy field (issue #543).** The category moved to the costume
-              aggregate (`CostumeCategorySet`); details are pure description now.
-              The field stays on the event payload with `serde(default)` so old
-              events replay: the aggregate and the projector derive the costume's
-              category from it (first-wins rule). Newly added details carry `None`.
-          - type: 'null'
-        id:
-          format: uuid
-          type: string
-        subject:
-          description: Free-form per-detail micro-title (e.g. "Rote Lederjacke"). Optional.
-          type:
-          - string
-          - 'null'
-        text:
-          description: The description (unchanged meaning — never reinterpreted from `subject`).
-          type: string
-      required:
-      - id
-      - text
-      type: object
-    CostumeDetailRequest:
-      description: |-
-        Wire payload for a costume detail (issue #543): pure description —
-        `subject` + `text`. The category is no longer part of the detail wire
-        contract; it is set on the costume via `POST /costumes/{id}/category`.
-        New details deserialize with `category_id: None` in the domain event.
-      properties:
-        id:
-          format: uuid
-          type: string
-        subject:
-          type:
-          - string
-          - 'null'
-        text:
-          type: string
-      required:
-      - id
-      - text
-      type: object
-    CostumeDetailView:
-      description: |-
-        Detailed costume element (e.g. belt, hat, shoes).
-
-        Pure description since issue #543: the category lives on the costume
-        (`CostumeView.category_id`), not on the detail. `subject` + `text` remain.
-      properties:
-        id:
-          format: uuid
-          type: string
-        subject:
-          description: Free-form per-detail micro-title (e.g. "Rote Lederjacke").
-          type:
-          - string
-          - 'null'
-        text:
-          description: The description (unchanged meaning).
-          type: string
-      required:
-      - id
-      - text
-      type: object
-    CostumePhotoView:
-      description: Linked photo reference for a costume, enriched with variant metadata.
-      properties:
-        content_type:
-          description: MIME type of the uploaded original (e.g. `image/jpeg`).
-          type: string
-        id:
-          format: uuid
-          type: string
-        size_bytes:
-          description: Size of the re-encoded original in bytes.
-          format: int64
-          minimum: 0
-          type: integer
-        variants:
-          description: Generation status and size of each variant.
-          items:
-            $ref: '#/components/schemas/PhotoVariantView'
-          type: array
-      required:
-      - id
-      - content_type
-      - size_bytes
-      - variants
-      type: object
-    CostumeView:
-      description: |-
-        Complete costume read model, optionally populated with child details/photos.
-
-        `updated_at` is sourced from the timestamp of the last applied `CostumeEvent`.
-      properties:
-        category_id:
-          oneOf:
-          - $ref: '#/components/schemas/CostumeCategoryId'
-            description: |-
-              The costume's single category (issue #543): reference into the
-              season-scoped vocabulary. `None` = uncategorised. A cross-aggregate
-              reference like `character_id` — no scope column, resolved by join in
-              the read model.
-          - type: 'null'
-        category_name:
-          description: |-
-            Denormalised category name, resolved by the projector at write time;
-            `None` on a projection miss (dangling reference, best-effort).
-          type:
-          - string
-          - 'null'
-        character_id:
-          format: uuid
-          type:
-          - string
-          - 'null'
-        details:
-          items:
-            $ref: '#/components/schemas/CostumeDetailView'
-          type: array
-        id:
-          format: uuid
-          type: string
-        notes:
-          type: string
-        photos:
-          items:
-            $ref: '#/components/schemas/CostumePhotoView'
-          type: array
-        season_ids:
-          description: |-
-            The costume's season **repertoire** (issue #534): the seasons whose
-            costume streams the costume stands in, populated from
-            `projection_costume_season` by the enrich path. Ordered by
-            `season_id` (deterministic). Empty for a costume without a
-            repertoire binding — its scope then falls back to the character's
-            season.
-          items:
-            format: uuid
-            type: string
-          type: array
-        updated_at:
-          format: date-time
-          type: string
-        version:
-          $ref: '#/components/schemas/AggregateVersion'
-          description: Aggregate version for optimistic-locking round-trips.
-      required:
-      - id
-      - notes
-      - details
-      - photos
-      - version
-      - updated_at
-      - season_ids
-      type: object
     CreateAiConfigRequest:
       properties:
         assistant_model:
@@ -1470,20 +1313,6 @@ components:
       - name
       - order_key
       type: object
-    CreateCostumeRequest:
-      description: |-
-        Create-costume payload (issue #453).
-
-        `season_id` is the optional repertoire season: when present, the costume
-        joins that season's costume stream while unassigned. The API edge resolves
-        the `project_id` audit metadata from the season projection (404 on an
-        unknown season).
-      properties:
-        season_id:
-          oneOf:
-          - $ref: '#/components/schemas/SeasonId'
-          - type: 'null'
-      type: object
     CreateCredentialRequest:
       description: |-
         Generic credential submission kept for non-GDrive providers. GDrive uses
@@ -1515,6 +1344,73 @@ components:
       - block_id
       - project_id
       - number
+      type: object
+    CreateOutfitRequest:
+      description: |-
+        Create an outfit for a character. `piece_ids` may be empty (an empty shell
+        establishes a named look before the garments are catalogued); layering is
+        permitted, and piece existence is pre-checked at this edge.
+      properties:
+        character_id:
+          format: uuid
+          type: string
+        name:
+          type: string
+        piece_ids:
+          items:
+            format: uuid
+            type: string
+          type: array
+      required:
+      - character_id
+      - name
+      type: object
+    CreateOutfitVariantRequest:
+      description: |-
+        Fork an existing outfit into an independent copy. Omitted fields inherit
+        from the source outfit, which the handler reads at the API edge (the only
+        legitimate read-model consumer per the CQRS boundary).
+      properties:
+        name:
+          type:
+          - string
+          - 'null'
+        notes:
+          type:
+          - string
+          - 'null'
+        piece_ids:
+          items:
+            format: uuid
+            type: string
+          type:
+          - array
+          - 'null'
+      type: object
+    CreatePieceRequest:
+      description: |-
+        Create-piece payload.
+
+        `name` is required (a fundus garment without a name is unreachable for the
+        wardrobe crew). `category_id` is the optional single category — the API edge
+        pre-checks the season invariant (`category.season_id ∈ piece.seasons`).
+        `season_id` is the optional initial repertoire season; the API edge resolves
+        the `project_id` audit metadata from the season projection (404 on an
+        unknown season).
+      properties:
+        category_id:
+          format: uuid
+          type:
+          - string
+          - 'null'
+        name:
+          type: string
+        season_id:
+          oneOf:
+          - $ref: '#/components/schemas/SeasonId'
+          - type: 'null'
+      required:
+      - name
       type: object
     CreateSceneRequest:
       properties:
@@ -2559,38 +2455,170 @@ components:
       - pricing_source
       - price_as_of
       type: object
+    OutfitPhotoView:
+      description: Linked photo reference for an outfit, enriched with variant metadata.
+      properties:
+        content_type:
+          type: string
+        id:
+          format: uuid
+          type: string
+        size_bytes:
+          format: int64
+          minimum: 0
+          type: integer
+        variants:
+          items:
+            $ref: '#/components/schemas/PhotoVariantView'
+          type: array
+      required:
+      - id
+      - content_type
+      - size_bytes
+      - variants
+      type: object
+    OutfitPieceView:
+      description: One piece inside an outfit, in presentation order.
+      properties:
+        category_id:
+          format: uuid
+          type:
+          - string
+          - 'null'
+        category_name:
+          type:
+          - string
+          - 'null'
+        name:
+          description: |-
+            Piece display name; `None` on a projection miss (best-effort, never an
+            error — a dangling reference must not fail the outfit read).
+          type:
+          - string
+          - 'null'
+        piece_id:
+          format: uuid
+          type: string
+        position:
+          description: Insertion position (ascending presentation order).
+          format: int32
+          type: integer
+      required:
+      - piece_id
+      - position
+      type: object
+    OutfitView:
+      description: |-
+        Complete outfit read model.
+
+        `season_id` and `character_name` are resolved by the read model through the
+        character join (`projection_outfit.character_id → projection_character`);
+        both are `None` on a projection miss and never block the read.
+      properties:
+        character_id:
+          format: uuid
+          type: string
+        character_name:
+          type:
+          - string
+          - 'null'
+        id:
+          format: uuid
+          type: string
+        name:
+          description: Required, non-blank look name.
+          type: string
+        notes:
+          type: string
+        photos:
+          items:
+            $ref: '#/components/schemas/OutfitPhotoView'
+          type: array
+        piece_ids:
+          description: Insertion-ordered piece references (parallel to `pieces`).
+          items:
+            format: uuid
+            type: string
+          type: array
+        pieces:
+          items:
+            $ref: '#/components/schemas/OutfitPieceView'
+          type: array
+        season_id:
+          format: uuid
+          type:
+          - string
+          - 'null'
+        updated_at:
+          format: date-time
+          type: string
+        variant_of:
+          description: '`Some(source_outfit_id)` when this outfit was forked as a variant.'
+          format: uuid
+          type:
+          - string
+          - 'null'
+        version:
+          $ref: '#/components/schemas/AggregateVersion'
+      required:
+      - id
+      - character_id
+      - name
+      - piece_ids
+      - pieces
+      - notes
+      - photos
+      - version
+      - updated_at
+      type: object
     PhotoBinding:
       description: |-
         Discriminates what a photo is attached to.
 
-        `Costume` — Anprobe/planning photo (taken before the shoot).
-        `Continuity` — continuity photo taken during the shoot; `costume_id` is
+        `Piece` — a single fundus garment's Anprobe/planning photo.
+        `Outfit` — a fitting photo of a composed look (also surfaced on every piece
+        of the outfit, see the `piece-fundus` capability).
+        `Continuity` — continuity photo taken during the shoot; `piece_id` is
         `Option` so prop-only continuity shots are permitted (the edge case).
 
-        The `Default` implementation returns `Costume { costume_id: Uuid::nil() }`
-        so that historical `PhotoUploaded` events (pre-binding) deserialise as
-        costume photos, matching the backward-compat requirement.
+        The `Default` implementation returns `Piece { piece_id: Uuid::nil() }` so
+        that historical `PhotoUploaded` events (pre-binding) deserialise as garment
+        photos, matching the backward-compat requirement.
       oneOf:
-      - description: Costume (Anprobe) photo — taken before the shoot for planning.
+      - description: Piece (Anprobe) photo — one garment, taken before the shoot.
         properties:
-          costume:
-            description: Costume (Anprobe) photo — taken before the shoot for planning.
+          piece:
+            description: Piece (Anprobe) photo — one garment, taken before the shoot.
             properties:
-              costume_id:
+              piece_id:
                 format: uuid
                 type: string
             required:
-            - costume_id
+            - piece_id
             type: object
         required:
-        - costume
+        - piece
+        type: object
+      - description: Outfit (Anprobe) photo — a composed look, taken before the shoot.
+        properties:
+          outfit:
+            description: Outfit (Anprobe) photo — a composed look, taken before the shoot.
+            properties:
+              outfit_id:
+                format: uuid
+                type: string
+            required:
+            - outfit_id
+            type: object
+        required:
+        - outfit
         type: object
       - description: Continuity (Anschluss) photo — taken during the shoot.
         properties:
           continuity:
             description: Continuity (Anschluss) photo — taken during the shoot.
             properties:
-              costume_id:
+              piece_id:
                 format: uuid
                 type:
                 - string
@@ -2684,6 +2712,136 @@ components:
       - variants
       - binding
       - version
+      type: object
+    PieceDetailRequest:
+      description: |-
+        Wire payload for a piece detail (issue #543): pure description —
+        `subject` + `text`. The category is no longer part of the detail wire
+        contract; it is set on the piece via `POST /pieces/{id}/category`.
+        New details deserialize with `category_id: None` in the domain event.
+      properties:
+        id:
+          format: uuid
+          type: string
+        subject:
+          type:
+          - string
+          - 'null'
+        text:
+          type: string
+      required:
+      - id
+      - text
+      type: object
+    PieceDetailView:
+      description: |-
+        Description element of a piece (e.g. belt, hat, shoes).
+
+        Pure description: the category lives on the piece
+        (`PieceView.category_id`), never on the detail.
+      properties:
+        id:
+          format: uuid
+          type: string
+        subject:
+          description: Free-form per-detail micro-title (e.g. "Rote Lederjacke").
+          type:
+          - string
+          - 'null'
+        text:
+          description: The description.
+          type: string
+      required:
+      - id
+      - text
+      type: object
+    PiecePhotoView:
+      description: Linked photo reference for a piece, enriched with variant metadata.
+      properties:
+        content_type:
+          description: MIME type of the uploaded original (e.g. `image/jpeg`).
+          type: string
+        id:
+          format: uuid
+          type: string
+        size_bytes:
+          description: Size of the re-encoded original in bytes.
+          format: int64
+          minimum: 0
+          type: integer
+        variants:
+          description: Generation status and size of each variant.
+          items:
+            $ref: '#/components/schemas/PhotoVariantView'
+          type: array
+      required:
+      - id
+      - content_type
+      - size_bytes
+      - variants
+      type: object
+    PieceView:
+      description: |-
+        Complete piece read model, optionally populated with child details/photos.
+
+        `photos` merges the piece's directly linked photos with the photos linked
+        to any outfit containing this piece (fitting photos are usually taken at
+        outfit level), deduplicated by photo id.
+
+        `updated_at` is sourced from the timestamp of the last applied `PieceEvent`.
+      properties:
+        category_id:
+          oneOf:
+          - $ref: '#/components/schemas/CostumeCategoryId'
+            description: The piece's single category reference. `None` = uncategorised.
+          - type: 'null'
+        category_name:
+          description: |-
+            Denormalised category name, resolved by the projector at write time;
+            `None` on a projection miss (dangling reference, best-effort).
+          type:
+          - string
+          - 'null'
+        details:
+          items:
+            $ref: '#/components/schemas/PieceDetailView'
+          type: array
+        id:
+          format: uuid
+          type: string
+        name:
+          description: Required, non-blank display name.
+          type: string
+        notes:
+          type: string
+        photos:
+          items:
+            $ref: '#/components/schemas/PiecePhotoView'
+          type: array
+        season_ids:
+          description: |-
+            The piece's season repertoire, populated from `projection_piece_season`.
+            Ordered by season id (deterministic). Empty for a piece not yet filed
+            into any season.
+          items:
+            format: uuid
+            type: string
+          type: array
+        updated_at:
+          format: date-time
+          type: string
+        version:
+          $ref: '#/components/schemas/AggregateVersion'
+          description: Aggregate version for optimistic-locking round-trips.
+      required:
+      - id
+      - name
+      - notes
+      - details
+      - photos
+      - version
+      - updated_at
+      - season_ids
       type: object
     PlanSceneShootRequest:
       properties:
@@ -2824,6 +2982,27 @@ components:
       required:
       - version
       type: object
+    RenameOutfitRequest:
+      properties:
+        name:
+          type: string
+        version:
+          $ref: '#/components/schemas/AggregateVersion'
+      required:
+      - name
+      - version
+      type: object
+    RenamePieceRequest:
+      description: Rename a piece. Names are not unique within a season.
+      properties:
+        name:
+          type: string
+        version:
+          $ref: '#/components/schemas/AggregateVersion'
+      required:
+      - name
+      - version
+      type: object
     RenameSeasonRequest:
       properties:
         title:
@@ -2889,47 +3068,6 @@ components:
       - costume_assistant
       - ops_admin
       type: string
-    SceneCostumeBeatView:
-      description: |-
-        One costume beat of a scene, enriched by the query layer: character and
-        costume identity resolved by join (`projection_character`,
-        `projection_costume`); a projection miss yields `None`, never an error
-        (audit/derived metadata never blocks reads, issue #546).
-      properties:
-        character_id:
-          format: uuid
-          type: string
-        character_name:
-          type:
-          - string
-          - 'null'
-        costume_category_id:
-          format: uuid
-          type:
-          - string
-          - 'null'
-        costume_category_name:
-          type:
-          - string
-          - 'null'
-        costume_id:
-          format: uuid
-          type: string
-        note:
-          description: Optional free-text cue for the wardrobe crew.
-          type:
-          - string
-          - 'null'
-        order:
-          description: Dense, zero-based, unique per character within this scene.
-          format: int32
-          minimum: 0
-          type: integer
-      required:
-      - character_id
-      - costume_id
-      - order
-      type: object
     SceneDetails:
       properties:
         is_schedule_set:
@@ -2962,6 +3100,47 @@ components:
           - 'null'
       required:
       - is_schedule_set
+      type: object
+    SceneOutfitBeatView:
+      description: |-
+        One outfit beat of a scene, enriched by the query layer: character and
+        outfit identity resolved by join (`projection_character`,
+        `projection_outfit`); a projection miss yields `None`, never an error
+        (audit/derived metadata never blocks reads, issue #546).
+      properties:
+        character_id:
+          format: uuid
+          type: string
+        character_name:
+          type:
+          - string
+          - 'null'
+        note:
+          description: Optional free-text cue for the wardrobe crew.
+          type:
+          - string
+          - 'null'
+        order:
+          description: Dense, zero-based, unique per character within this scene.
+          format: int32
+          minimum: 0
+          type: integer
+        outfit_id:
+          format: uuid
+          type: string
+        outfit_name:
+          type:
+          - string
+          - 'null'
+        variant_of:
+          format: uuid
+          type:
+          - string
+          - 'null'
+      required:
+      - character_id
+      - outfit_id
+      - order
       type: object
     SceneShootId:
       description: |-
@@ -3100,14 +3279,6 @@ components:
             format: uuid
             type: string
           type: array
-        costume_beats:
-          description: |-
-            Ordered costume beats per (character, order) — the scene-side casting
-            relation (issue #546). Additive on the wire; empty for scenes without
-            beats.
-          items:
-            $ref: '#/components/schemas/SceneCostumeBeatView'
-          type: array
         episode_id:
           $ref: '#/components/schemas/EpisodeId'
         id:
@@ -3123,6 +3294,14 @@ components:
           type:
           - string
           - 'null'
+        outfit_beats:
+          description: |-
+            Ordered outfit beats per (character, order) — the scene-side casting
+            relation (issue #546). Additive on the wire; empty for scenes without
+            beats.
+          items:
+            $ref: '#/components/schemas/SceneOutfitBeatView'
+          type: array
         scene_number:
           format: int32
           minimum: 0
@@ -3213,7 +3392,7 @@ components:
 
         `has_active_costume_role_in_season` is the backend-computed predicate the
         client must NOT re-implement (CQRS-boundary rule). `capabilities` is derived
-        server-side from the caller's active costume-dept role; the client consumes
+        server-side from the caller's active piece-dept role; the client consumes
         it with strict parsing (unknown entries reject the DTO).
       properties:
         capabilities:
@@ -3286,7 +3465,7 @@ components:
       description: |-
         Series membership DTO — the series-level counterpart of
         [`SeasonMembershipDto`] for the client-side AUTHZ-GATE mirror of the
-        costume-photo policy (issue #535, ADR-035 B2/S2: photos authorize
+        piece-photo policy (issue #535, ADR-035 B2/S2: photos authorize
         series-wide, so the client needs a series-level, backend-computed signal).
 
         `has_active_costume_role_in_project` is the backend-computed predicate the
@@ -3317,9 +3496,9 @@ components:
       - actual_order
       - version
       type: object
-    SetCostumeCategoryRequest:
+    SetPieceCategoryRequest:
       description: |-
-        Set (or clear) the costume's single category (issue #543). `category_id:
+        Set (or clear) the piece's single category (issue #543). `category_id:
         None` clears the binding.
       properties:
         category_id:
@@ -3932,35 +4111,6 @@ components:
       required:
       - version
       type: object
-    UpdateCostumeDetailRequest:
-      description: |-
-        Replace an existing costume detail in full (issue #544).
-
-        The body carries the **whole** detail, not a patch: a patch-merge would
-        leave the field merging to the client and make an emptied `subject`
-        ambiguous (cleared on purpose vs. lost). `detail.id` must equal the
-        `detail_id` path parameter — the aggregate validates the id against its
-        state and answers 404 `costume-detail.not-found` without emitting an
-        event when the detail is unknown.
-      properties:
-        detail:
-          $ref: '#/components/schemas/CostumeDetailRequest'
-        version:
-          $ref: '#/components/schemas/AggregateVersion'
-      required:
-      - detail
-      - version
-      type: object
-    UpdateCostumeNotesRequest:
-      properties:
-        notes:
-          type: string
-        version:
-          $ref: '#/components/schemas/AggregateVersion'
-      required:
-      - notes
-      - version
-      type: object
     UpdateMeasurementsRequest:
       properties:
         measurements:
@@ -3981,22 +4131,43 @@ components:
       - body
       - version
       type: object
-    UpdateSceneCostumeBeatRequest:
-      description: |-
-        Request body for updating a costume beat in place at the path-addressed
-        `(character_id, order)` (issue #546).
+    UpdateOutfitNotesRequest:
       properties:
-        costume_id:
-          format: uuid
+        notes:
           type: string
-        note:
-          type:
-          - string
-          - 'null'
         version:
           $ref: '#/components/schemas/AggregateVersion'
       required:
-      - costume_id
+      - notes
+      - version
+      type: object
+    UpdatePieceDetailRequest:
+      description: |-
+        Replace an existing piece detail in full (issue #544).
+
+        The body carries the **whole** detail, not a patch: a patch-merge would
+        leave the field merging to the client and make an emptied `subject`
+        ambiguous (cleared on purpose vs. lost). `detail.id` must equal the
+        `detail_id` path parameter — the aggregate validates the id against its
+        state and answers 404 `piece-detail.not-found` without emitting an
+        event when the detail is unknown.
+      properties:
+        detail:
+          $ref: '#/components/schemas/PieceDetailRequest'
+        version:
+          $ref: '#/components/schemas/AggregateVersion'
+      required:
+      - detail
+      - version
+      type: object
+    UpdatePieceNotesRequest:
+      properties:
+        notes:
+          type: string
+        version:
+          $ref: '#/components/schemas/AggregateVersion'
+      required:
+      - notes
       - version
       type: object
     UpdateSceneDetailsRequest:
@@ -4007,6 +4178,24 @@ components:
           $ref: '#/components/schemas/AggregateVersion'
       required:
       - details
+      - version
+      type: object
+    UpdateSceneOutfitBeatRequest:
+      description: |-
+        Request body for updating a outfit beat in place at the path-addressed
+        `(character_id, order)` (issue #546).
+      properties:
+        note:
+          type:
+          - string
+          - 'null'
+        outfit_id:
+          format: uuid
+          type: string
+        version:
+          $ref: '#/components/schemas/AggregateVersion'
+      required:
+      - outfit_id
       - version
       type: object
     UpdateShootingDayRequest:
@@ -4074,7 +4263,7 @@ components:
       type: object
 info:
   description: |-
-    Costume scheduling API for Breakdown RS (ADR-006). Routes are mounted under the /v1 path prefix; the path version is bumped only on a breaking wire change (ADR-021).
+    Wardrobe and production scheduling API for Breakdown RS (ADR-006). Routes are mounted under the /v1 path prefix; the path version is bumped only on a breaking wire change (ADR-021).
     Error contract (ADR-031): every error response (status ≥ 400) is an RFC 9457 `application/problem+json` document carrying a stable `code` (`{context}.{reason}` kebab-case) and a `trace_id` extension. The full code registry is exposed under `x-code-registry`; per-code documentation lives at `docs/errors/`.
   license:
     identifier: AGPL-3.0
@@ -5449,6 +5638,33 @@ paths:
           description: Validation error
       tags:
       - handlers
+  /v1/characters/{character_id}/outfits:
+    get:
+      description: Lists the outfits of one character, newest first.
+      operationId: list_character_outfits
+      parameters:
+      - description: Character id
+        in: path
+        name: character_id
+        required: true
+        schema:
+          format: uuid
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                items:
+                  $ref: '#/components/schemas/OutfitView'
+                type: array
+        '404':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+      tags:
+      - handlers
   /v1/characters/{id}:
     get:
       operationId: get_character
@@ -5478,7 +5694,7 @@ paths:
       description: |-
         Season-scoped read gated handler-internally (the route is classified
         `Authenticated` in `requirement_for`, mirroring the report/photo families):
-        the caller must hold an active costume-department role in the character's
+        the caller must hold an active piece-department role in the character's
         season. The character fetch runs first so an unknown id answers
         `404 character.not-found` before the policy.
       operationId: get_character_appearances
@@ -5513,7 +5729,7 @@ paths:
       summary: |-
         Per-character appearances read model (issue #621): the role extract
         ("Ring binder per role") — every scene the character appears in, in script
-        order, each with that character's own ordered costume beats.
+        order, each with that character's own ordered outfit beats.
       tags:
       - handlers
   /v1/characters/{id}/category:
@@ -5632,7 +5848,7 @@ paths:
     patch:
       operationId: update_costume_category
       parameters:
-      - description: Costume category id
+      - description: Piece category id
         in: path
         name: id
         required: true
@@ -5668,7 +5884,7 @@ paths:
     post:
       operationId: archive_costume_category
       parameters:
-      - description: Costume category id
+      - description: Piece category id
         in: path
         name: id
         required: true
@@ -5692,695 +5908,6 @@ paths:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
-      tags:
-      - handlers
-  /v1/costumes:
-    get:
-      description: Lists the costumes of a season. Requires the season_id query parameter (400 otherwise).
-      operationId: list_costumes
-      parameters:
-      - in: query
-        name: limit
-        required: false
-        schema:
-          default: 50
-          format: int64
-          type:
-          - integer
-          - 'null'
-      - in: query
-        name: offset
-        required: false
-        schema:
-          default: 0
-          format: int64
-          type:
-          - integer
-          - 'null'
-      - in: query
-        name: episode_id
-        required: false
-        schema:
-          oneOf:
-          - $ref: '#/components/schemas/EpisodeId'
-          - type: 'null'
-      - in: query
-        name: season_id
-        required: false
-        schema:
-          oneOf:
-          - $ref: '#/components/schemas/SeasonId'
-          - type: 'null'
-      - in: query
-        name: project_id
-        required: false
-        schema:
-          oneOf:
-          - $ref: '#/components/schemas/ProjectId'
-          - type: 'null'
-      responses:
-        '200':
-          content:
-            application/json:
-              schema:
-                items:
-                  $ref: '#/components/schemas/CostumeView'
-                type: array
-        '400':
-          content:
-            application/problem+json:
-              schema:
-                $ref: '#/components/schemas/ProblemDetails'
-          description: Missing season_id query parameter
-      tags:
-      - handlers
-    post:
-      operationId: create_costume
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/CreateCostumeRequest'
-        required: true
-      responses:
-        '201':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/IdVersionResponse'
-          description: Costume created
-        '422':
-          content:
-            application/problem+json:
-              schema:
-                $ref: '#/components/schemas/ProblemDetails'
-          description: Validation error
-      tags:
-      - handlers
-  /v1/costumes/{costume_id}/photos:
-    post:
-      description: |-
-        The request body is raw image bytes; the `Content-Type` header MUST be one of
-        `image/jpeg`, `image/png`, or `image/webp`. HEIC/HEIF is rejected with 415.
-        The file size MUST NOT exceed `PHOTO_MAX_SIZE_MB` (default 20 MB).
-        Authorization is checked per-request via season-scoped membership.
-      operationId: upload_costume_photo
-      parameters:
-      - description: Costume id
-        in: path
-        name: costume_id
-        required: true
-        schema:
-          format: uuid
-          type: string
-      requestBody:
-        content:
-          image/jpeg:
-            schema:
-              type: string
-        description: Raw image bytes (JPEG/PNG/WebP)
-        required: true
-      responses:
-        '201':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/PhotoView'
-          description: Photo uploaded
-        '403':
-          content:
-            application/problem+json:
-              schema:
-                $ref: '#/components/schemas/ProblemDetails'
-          description: Not authorized
-        '413':
-          content:
-            application/problem+json:
-              schema:
-                $ref: '#/components/schemas/ProblemDetails'
-          description: Payload too large
-        '415':
-          content:
-            application/problem+json:
-              schema:
-                $ref: '#/components/schemas/ProblemDetails'
-          description: Unsupported media type
-        '422':
-          content:
-            application/problem+json:
-              schema:
-                $ref: '#/components/schemas/ProblemDetails'
-          description: Validation error
-      summary: Upload a photo and link it to a costume.
-      tags:
-      - handlers
-  /v1/costumes/{costume_id}/photos/{photo_id}:
-    delete:
-      description: |-
-        Authorization is checked per-request via season-scoped membership.
-        The photo bytes are only deleted when the refcount reaches zero.
-      operationId: delete_costume_photo
-      parameters:
-      - description: Costume id
-        in: path
-        name: costume_id
-        required: true
-        schema:
-          format: uuid
-          type: string
-      - description: Photo id
-        in: path
-        name: photo_id
-        required: true
-        schema:
-          format: uuid
-          type: string
-      responses:
-        '204':
-          description: Photo unlinked
-        '403':
-          content:
-            application/problem+json:
-              schema:
-                $ref: '#/components/schemas/ProblemDetails'
-          description: Not authorized
-        '404':
-          content:
-            application/problem+json:
-              schema:
-                $ref: '#/components/schemas/ProblemDetails'
-          description: Costume not found
-      summary: Unlink a photo from a costume (deletion saga handles refcount + bytes cleanup).
-      tags:
-      - handlers
-  /v1/costumes/{costume_id}/photos/{photo_id}/bytes:
-    get:
-      description: |-
-        Authorization is checked on every request via season-scoped membership.
-        The response includes `Cache-Control: private, max-age=300`.
-      operationId: get_costume_photo_bytes
-      parameters:
-      - description: Costume id
-        in: path
-        name: costume_id
-        required: true
-        schema:
-          format: uuid
-          type: string
-      - description: Photo id
-        in: path
-        name: photo_id
-        required: true
-        schema:
-          format: uuid
-          type: string
-      - description: 'Variant: original, thumb, or medium'
-        in: query
-        name: variant
-        required: true
-        schema:
-          type: string
-      responses:
-        '200':
-          content:
-            image/jpeg:
-              schema:
-                description: Raw costume photo variant bytes (JPEG/PNG/WebP).
-                format: binary
-                type: string
-          description: Photo bytes
-        '403':
-          content:
-            application/problem+json:
-              schema:
-                $ref: '#/components/schemas/ProblemDetails'
-          description: Not authorized
-        '404':
-          content:
-            application/problem+json:
-              schema:
-                $ref: '#/components/schemas/ProblemDetails'
-          description: Photo or costume not found
-      summary: Download photo bytes (proxy download with per-request authorization).
-      tags:
-      - handlers
-  /v1/costumes/{id}:
-    get:
-      operationId: get_costume
-      parameters:
-      - description: Costume id
-        in: path
-        name: id
-        required: true
-        schema:
-          format: uuid
-          type: string
-      responses:
-        '200':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/CostumeView'
-        '404':
-          content:
-            application/problem+json:
-              schema:
-                $ref: '#/components/schemas/ProblemDetails'
-      tags:
-      - handlers
-  /v1/costumes/{id}/assign:
-    post:
-      operationId: assign_costume
-      parameters:
-      - in: path
-        name: id
-        required: true
-        schema:
-          format: uuid
-          type: string
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/AssignCostumeRequest'
-        required: true
-      responses:
-        '200':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/AggregateVersion'
-        '409':
-          content:
-            application/problem+json:
-              schema:
-                $ref: '#/components/schemas/ProblemDetails'
-      tags:
-      - handlers
-  /v1/costumes/{id}/category:
-    post:
-      description: |-
-        API-edge pre-check for the cross-aggregate season invariant (doctrine,
-        AGENTS.md §1): `category.season_id ∈ (repertoire_seasons(costume) ∪
-        season(character))`. The command is dispatched only after the pre-check;
-        the projector resolves `category_name` best-effort and cannot fail.
-      operationId: set_costume_category
-      parameters:
-      - description: Costume id
-        in: path
-        name: id
-        required: true
-        schema:
-          format: uuid
-          type: string
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/SetCostumeCategoryRequest'
-        required: true
-      responses:
-        '200':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/AggregateVersion'
-        '403':
-          content:
-            application/problem+json:
-              schema:
-                $ref: '#/components/schemas/ProblemDetails'
-          description: Caller holds no costume role in any season scope of the costume
-        '404':
-          content:
-            application/problem+json:
-              schema:
-                $ref: '#/components/schemas/ProblemDetails'
-          description: Costume or category not found
-        '409':
-          content:
-            application/problem+json:
-              schema:
-                $ref: '#/components/schemas/ProblemDetails'
-          description: Archived category or category from a foreign season
-      summary: 'Set (or clear) the costume''s single category (issue #543).'
-      tags:
-      - handlers
-  /v1/costumes/{id}/details:
-    post:
-      operationId: add_costume_detail
-      parameters:
-      - description: Costume id
-        in: path
-        name: id
-        required: true
-        schema:
-          format: uuid
-          type: string
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/AddCostumeDetailRequest'
-        required: true
-      responses:
-        '200':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/AggregateVersion'
-        '404':
-          content:
-            application/problem+json:
-              schema:
-                $ref: '#/components/schemas/ProblemDetails'
-          description: Costume not found
-        '409':
-          content:
-            application/problem+json:
-              schema:
-                $ref: '#/components/schemas/ProblemDetails'
-          description: Conflict
-        '422':
-          content:
-            application/problem+json:
-              schema:
-                $ref: '#/components/schemas/ProblemDetails'
-          description: Validation error
-      tags:
-      - handlers
-  /v1/costumes/{id}/details/{detail_id}:
-    delete:
-      description: |-
-        `RemoveDetail` was fully implemented but unreachable before this route
-        existed; a detail was permanent once added. The body is a `VersionRequest`
-        — the echo of the **costume** aggregate's version, the same fence every
-        other costume write uses.
-      operationId: remove_costume_detail
-      parameters:
-      - description: Costume id
-        in: path
-        name: id
-        required: true
-        schema:
-          format: uuid
-          type: string
-      - description: Costume detail id
-        in: path
-        name: detail_id
-        required: true
-        schema:
-          format: uuid
-          type: string
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/VersionRequest'
-        required: true
-      responses:
-        '200':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/AggregateVersion'
-        '403':
-          content:
-            application/problem+json:
-              schema:
-                $ref: '#/components/schemas/ProblemDetails'
-          description: Caller holds no costume role in any season scope of the costume
-        '404':
-          content:
-            application/problem+json:
-              schema:
-                $ref: '#/components/schemas/ProblemDetails'
-          description: Costume or detail not found
-        '409':
-          content:
-            application/problem+json:
-              schema:
-                $ref: '#/components/schemas/ProblemDetails'
-          description: Version conflict
-        '422':
-          content:
-            application/problem+json:
-              schema:
-                $ref: '#/components/schemas/ProblemDetails'
-          description: Validation error
-      summary: 'Remove a costume detail (issue #544).'
-      tags:
-      - handlers
-    patch:
-      description: |-
-        The command carries the full detail, so the event is a snapshot: replay
-        needs no field-merge logic and the projector reuses its `DetailAdded`
-        upsert unchanged (no migration). An unknown `detail_id` is rejected by the
-        aggregate **before** any event is appended, so a typo can never create a
-        second detail.
-      operationId: update_costume_detail
-      parameters:
-      - description: Costume id
-        in: path
-        name: id
-        required: true
-        schema:
-          format: uuid
-          type: string
-      - description: Costume detail id
-        in: path
-        name: detail_id
-        required: true
-        schema:
-          format: uuid
-          type: string
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/UpdateCostumeDetailRequest'
-        required: true
-      responses:
-        '200':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/AggregateVersion'
-        '403':
-          content:
-            application/problem+json:
-              schema:
-                $ref: '#/components/schemas/ProblemDetails'
-          description: Caller holds no costume role in any season scope of the costume
-        '404':
-          content:
-            application/problem+json:
-              schema:
-                $ref: '#/components/schemas/ProblemDetails'
-          description: Costume or detail not found
-        '409':
-          content:
-            application/problem+json:
-              schema:
-                $ref: '#/components/schemas/ProblemDetails'
-          description: Version conflict
-        '422':
-          content:
-            application/problem+json:
-              schema:
-                $ref: '#/components/schemas/ProblemDetails'
-          description: Validation error
-      summary: 'Replace an existing costume detail in place (issue #544).'
-      tags:
-      - handlers
-  /v1/costumes/{id}/notes:
-    patch:
-      operationId: update_costume_notes
-      parameters:
-      - in: path
-        name: id
-        required: true
-        schema:
-          format: uuid
-          type: string
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/UpdateCostumeNotesRequest'
-        required: true
-      responses:
-        '200':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/AggregateVersion'
-        '404':
-          content:
-            application/problem+json:
-              schema:
-                $ref: '#/components/schemas/ProblemDetails'
-        '409':
-          content:
-            application/problem+json:
-              schema:
-                $ref: '#/components/schemas/ProblemDetails'
-      tags:
-      - handlers
-  /v1/costumes/{id}/seasons:
-    post:
-      description: |-
-        API-edge pre-checks for the cross-aggregate target-season state (the
-        aggregate cannot validate it): the season must exist (404
-        `season.not-found`) and must not be archived (409 `season.archived`,
-        #533 terminal-state semantics — an archived season rejects all further
-        mutations). The command itself is a state-based idempotent no-op when
-        the season is already in the repertoire (no event, unchanged version).
-      operationId: add_costume_to_season
-      parameters:
-      - description: Costume id
-        in: path
-        name: id
-        required: true
-        schema:
-          format: uuid
-          type: string
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/AddCostumeToSeasonRequest'
-        required: true
-      responses:
-        '200':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/AggregateVersion'
-        '403':
-          content:
-            application/problem+json:
-              schema:
-                $ref: '#/components/schemas/ProblemDetails'
-          description: Caller holds no active costume role in the target season or in any current season scope of the costume
-        '404':
-          content:
-            application/problem+json:
-              schema:
-                $ref: '#/components/schemas/ProblemDetails'
-          description: Costume or season not found
-        '409':
-          content:
-            application/problem+json:
-              schema:
-                $ref: '#/components/schemas/ProblemDetails'
-          description: Target season is archived or version conflict
-        '422':
-          content:
-            application/problem+json:
-              schema:
-                $ref: '#/components/schemas/ProblemDetails'
-          description: Validation error
-      summary: 'Add a costume to a season''s repertoire (issue #534).'
-      tags:
-      - handlers
-  /v1/costumes/{id}/seasons/{season_id}:
-    delete:
-      description: |-
-        Idempotent mirror of [`add_costume_to_season`]: a season that is not in
-        the repertoire is a no-op success with the unchanged version. Same
-        pre-checks: season exists (404), not archived (409 `season.archived`).
-        An empty repertoire is legitimate — the authz scope then falls back to
-        the character's season.
-      operationId: remove_costume_from_season
-      parameters:
-      - description: Costume id
-        in: path
-        name: id
-        required: true
-        schema:
-          format: uuid
-          type: string
-      - description: Season id
-        in: path
-        name: season_id
-        required: true
-        schema:
-          format: uuid
-          type: string
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/VersionRequest'
-        required: true
-      responses:
-        '200':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/AggregateVersion'
-        '403':
-          content:
-            application/problem+json:
-              schema:
-                $ref: '#/components/schemas/ProblemDetails'
-          description: Caller holds no active costume role in the target season
-        '404':
-          content:
-            application/problem+json:
-              schema:
-                $ref: '#/components/schemas/ProblemDetails'
-          description: Costume or season not found
-        '409':
-          content:
-            application/problem+json:
-              schema:
-                $ref: '#/components/schemas/ProblemDetails'
-          description: Target season is archived or version conflict
-        '422':
-          content:
-            application/problem+json:
-              schema:
-                $ref: '#/components/schemas/ProblemDetails'
-          description: Validation error
-      summary: 'Remove a costume from a season''s repertoire (issue #534).'
-      tags:
-      - handlers
-  /v1/costumes/{id}/unassign:
-    post:
-      operationId: unassign_costume
-      parameters:
-      - in: path
-        name: id
-        required: true
-        schema:
-          format: uuid
-          type: string
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/VersionRequest'
-        required: true
-      responses:
-        '200':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/AggregateVersion'
-        '404':
-          content:
-            application/problem+json:
-              schema:
-                $ref: '#/components/schemas/ProblemDetails'
-          description: Costume not found
-        '409':
-          content:
-            application/problem+json:
-              schema:
-                $ref: '#/components/schemas/ProblemDetails'
-          description: Conflict
       tags:
       - handlers
   /v1/episodes:
@@ -6795,6 +6322,1068 @@ paths:
         dead-letter and checkpoint tables (issues #37/#409).
       tags:
       - handlers
+  /v1/outfits:
+    post:
+      operationId: create_outfit
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateOutfitRequest'
+        required: true
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdVersionResponse'
+          description: Outfit created
+        '404':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Character or piece not found
+        '409':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Season archived
+        '422':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Validation error
+      tags:
+      - handlers
+  /v1/outfits/{id}:
+    get:
+      operationId: get_outfit
+      parameters:
+      - description: Outfit id
+        in: path
+        name: id
+        required: true
+        schema:
+          format: uuid
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OutfitView'
+        '404':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+      tags:
+      - handlers
+  /v1/outfits/{id}/name:
+    patch:
+      operationId: rename_outfit
+      parameters:
+      - description: Outfit id
+        in: path
+        name: id
+        required: true
+        schema:
+          format: uuid
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RenameOutfitRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AggregateVersion'
+        '404':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+        '409':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+        '422':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+      tags:
+      - handlers
+  /v1/outfits/{id}/notes:
+    patch:
+      operationId: update_outfit_notes
+      parameters:
+      - description: Outfit id
+        in: path
+        name: id
+        required: true
+        schema:
+          format: uuid
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateOutfitNotesRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AggregateVersion'
+        '404':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+        '409':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+        '422':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+      tags:
+      - handlers
+  /v1/outfits/{id}/pieces:
+    post:
+      operationId: add_outfit_piece
+      parameters:
+      - description: Outfit id
+        in: path
+        name: id
+        required: true
+        schema:
+          format: uuid
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddOutfitPieceRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AggregateVersion'
+        '404':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Outfit or piece not found
+        '409':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+      tags:
+      - handlers
+  /v1/outfits/{id}/pieces/{piece_id}:
+    delete:
+      operationId: remove_outfit_piece
+      parameters:
+      - in: query
+        name: version
+        required: true
+        schema:
+          $ref: '#/components/schemas/AggregateVersion'
+      - in: path
+        name: id
+        required: true
+        schema:
+          format: uuid
+          type: string
+      - in: path
+        name: piece_id
+        required: true
+        schema:
+          format: uuid
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AggregateVersion'
+        '404':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+        '409':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+      tags:
+      - handlers
+  /v1/outfits/{id}/variants:
+    post:
+      operationId: create_outfit_variant
+      parameters:
+      - description: Source outfit id
+        in: path
+        name: id
+        required: true
+        schema:
+          format: uuid
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateOutfitVariantRequest'
+        required: true
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdVersionResponse'
+          description: Variant created
+        '404':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+        '409':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+        '422':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+      tags:
+      - handlers
+  /v1/outfits/{outfit_id}/photos:
+    post:
+      description: |-
+        The photo is bound to the **outfit** (`PhotoBinding::Outfit`); the read model
+        surfaces it on every piece of the outfit as well (a garment is usually
+        photographed as part of a look). Authorization resolves the outfit's
+        character season inside the handler (`// AUTHZ-GATE:`).
+      operationId: upload_outfit_photo
+      parameters:
+      - description: Outfit id
+        in: path
+        name: outfit_id
+        required: true
+        schema:
+          format: uuid
+          type: string
+      requestBody:
+        content:
+          image/jpeg:
+            schema:
+              type: string
+        description: Raw image bytes (JPEG/PNG/WebP)
+        required: true
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PhotoView'
+          description: Photo uploaded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Not authorized
+        '413':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Payload too large
+        '415':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Unsupported media type
+        '422':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Validation error
+      summary: Upload a fitting photo for an outfit.
+      tags:
+      - handlers
+  /v1/outfits/{outfit_id}/photos/{photo_id}:
+    delete:
+      operationId: delete_outfit_photo
+      parameters:
+      - description: Outfit id
+        in: path
+        name: outfit_id
+        required: true
+        schema:
+          format: uuid
+          type: string
+      - description: Photo id
+        in: path
+        name: photo_id
+        required: true
+        schema:
+          format: uuid
+          type: string
+      responses:
+        '204':
+          description: Photo unlinked
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Not authorized
+        '404':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Outfit not found
+      tags:
+      - handlers
+  /v1/outfits/{outfit_id}/photos/{photo_id}/bytes:
+    get:
+      operationId: get_outfit_photo_bytes
+      parameters:
+      - description: Outfit id
+        in: path
+        name: outfit_id
+        required: true
+        schema:
+          format: uuid
+          type: string
+      - description: Photo id
+        in: path
+        name: photo_id
+        required: true
+        schema:
+          format: uuid
+          type: string
+      - description: 'Variant: "original", "thumb", or "medium". Defaults to "original".'
+        in: query
+        name: variant
+        required: false
+        schema:
+          type:
+          - string
+          - 'null'
+      responses:
+        '200':
+          content:
+            image/jpeg:
+              schema:
+                description: Raw piece photo variant bytes (JPEG/PNG/WebP).
+                format: binary
+                type: string
+          description: Raw outfit photo variant bytes
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Not authorized
+        '404':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Outfit not found
+      tags:
+      - handlers
+  /v1/pieces:
+    get:
+      description: Lists the pieces of a season. Requires the season_id query parameter (400 otherwise).
+      operationId: list_pieces
+      parameters:
+      - in: query
+        name: limit
+        required: false
+        schema:
+          default: 50
+          format: int64
+          type:
+          - integer
+          - 'null'
+      - in: query
+        name: offset
+        required: false
+        schema:
+          default: 0
+          format: int64
+          type:
+          - integer
+          - 'null'
+      - in: query
+        name: episode_id
+        required: false
+        schema:
+          oneOf:
+          - $ref: '#/components/schemas/EpisodeId'
+          - type: 'null'
+      - in: query
+        name: season_id
+        required: false
+        schema:
+          oneOf:
+          - $ref: '#/components/schemas/SeasonId'
+          - type: 'null'
+      - in: query
+        name: project_id
+        required: false
+        schema:
+          oneOf:
+          - $ref: '#/components/schemas/ProjectId'
+          - type: 'null'
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                items:
+                  $ref: '#/components/schemas/PieceView'
+                type: array
+        '400':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Missing season_id query parameter
+      tags:
+      - handlers
+    post:
+      operationId: create_piece
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreatePieceRequest'
+        required: true
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdVersionResponse'
+          description: Piece created
+        '422':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Validation error
+      tags:
+      - handlers
+  /v1/pieces/{id}:
+    get:
+      operationId: get_piece
+      parameters:
+      - description: Piece id
+        in: path
+        name: id
+        required: true
+        schema:
+          format: uuid
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PieceView'
+        '404':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+      tags:
+      - handlers
+  /v1/pieces/{id}/category:
+    post:
+      description: |-
+        API-edge pre-check for the cross-aggregate season invariant (doctrine,
+        AGENTS.md §1): `category.season_id ∈ (repertoire_seasons(piece) ∪
+        season(character))`. The command is dispatched only after the pre-check;
+        the projector resolves `category_name` best-effort and cannot fail.
+      operationId: set_piece_category
+      parameters:
+      - description: Piece id
+        in: path
+        name: id
+        required: true
+        schema:
+          format: uuid
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SetPieceCategoryRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AggregateVersion'
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Caller holds no piece role in any season scope of the piece
+        '404':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Piece or category not found
+        '409':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Archived category or category from a foreign season
+      summary: 'Set (or clear) the piece''s single category (issue #543).'
+      tags:
+      - handlers
+  /v1/pieces/{id}/details:
+    post:
+      operationId: add_piece_detail
+      parameters:
+      - description: Piece id
+        in: path
+        name: id
+        required: true
+        schema:
+          format: uuid
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddPieceDetailRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AggregateVersion'
+        '404':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Piece not found
+        '409':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Conflict
+        '422':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Validation error
+      tags:
+      - handlers
+  /v1/pieces/{id}/details/{detail_id}:
+    delete:
+      description: |-
+        `RemovePieceDetail` was fully implemented but unreachable before this route
+        existed; a detail was permanent once added. The body is a `VersionRequest`
+        — the echo of the **piece** aggregate's version, the same fence every
+        other piece write uses.
+      operationId: remove_piece_detail
+      parameters:
+      - description: Piece id
+        in: path
+        name: id
+        required: true
+        schema:
+          format: uuid
+          type: string
+      - description: Piece detail id
+        in: path
+        name: detail_id
+        required: true
+        schema:
+          format: uuid
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VersionRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AggregateVersion'
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Caller holds no piece role in any season scope of the piece
+        '404':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Piece or detail not found
+        '409':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Version conflict
+        '422':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Validation error
+      summary: 'Remove a piece detail (issue #544).'
+      tags:
+      - handlers
+    patch:
+      description: |-
+        The command carries the full detail, so the event is a snapshot: replay
+        needs no field-merge logic and the projector reuses its `DetailAdded`
+        upsert unchanged (no migration). An unknown `detail_id` is rejected by the
+        aggregate **before** any event is appended, so a typo can never create a
+        second detail.
+      operationId: update_piece_detail
+      parameters:
+      - description: Piece id
+        in: path
+        name: id
+        required: true
+        schema:
+          format: uuid
+          type: string
+      - description: Piece detail id
+        in: path
+        name: detail_id
+        required: true
+        schema:
+          format: uuid
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdatePieceDetailRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AggregateVersion'
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Caller holds no piece role in any season scope of the piece
+        '404':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Piece or detail not found
+        '409':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Version conflict
+        '422':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Validation error
+      summary: 'Replace an existing piece detail in place (issue #544).'
+      tags:
+      - handlers
+  /v1/pieces/{id}/name:
+    patch:
+      operationId: rename_piece
+      parameters:
+      - description: Piece id
+        in: path
+        name: id
+        required: true
+        schema:
+          format: uuid
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RenamePieceRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AggregateVersion'
+        '404':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+        '409':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+        '422':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Blank name
+      tags:
+      - handlers
+  /v1/pieces/{id}/notes:
+    patch:
+      operationId: update_piece_notes
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          format: uuid
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdatePieceNotesRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AggregateVersion'
+        '404':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+        '409':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+      tags:
+      - handlers
+  /v1/pieces/{id}/seasons:
+    post:
+      description: |-
+        API-edge pre-checks for the cross-aggregate target-season state (the
+        aggregate cannot validate it): the season must exist (404
+        `season.not-found`) and must not be archived (409 `season.archived`,
+        #533 terminal-state semantics — an archived season rejects all further
+        mutations). The command itself is a state-based idempotent no-op when
+        the season is already in the repertoire (no event, unchanged version).
+      operationId: add_piece_to_season
+      parameters:
+      - description: Piece id
+        in: path
+        name: id
+        required: true
+        schema:
+          format: uuid
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddPieceToSeasonRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AggregateVersion'
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Caller holds no active piece role in the target season or in any current season scope of the piece
+        '404':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Piece or season not found
+        '409':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Target season is archived or version conflict
+        '422':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Validation error
+      summary: 'Add a piece to a season''s repertoire (issue #534).'
+      tags:
+      - handlers
+  /v1/pieces/{id}/seasons/{season_id}:
+    delete:
+      description: |-
+        Idempotent mirror of [`add_piece_to_season`]: a season that is not in
+        the repertoire is a no-op success with the unchanged version. Same
+        pre-checks: season exists (404), not archived (409 `season.archived`).
+        An empty repertoire is legitimate — the authz scope then falls back to
+        the character's season.
+      operationId: remove_piece_from_season
+      parameters:
+      - description: Piece id
+        in: path
+        name: id
+        required: true
+        schema:
+          format: uuid
+          type: string
+      - description: Season id
+        in: path
+        name: season_id
+        required: true
+        schema:
+          format: uuid
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VersionRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AggregateVersion'
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Caller holds no active piece role in the target season
+        '404':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Piece or season not found
+        '409':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Target season is archived or version conflict
+        '422':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Validation error
+      summary: 'Remove a piece from a season''s repertoire (issue #534).'
+      tags:
+      - handlers
+  /v1/pieces/{piece_id}/photos:
+    post:
+      description: |-
+        The request body is raw image bytes; the `Content-Type` header MUST be one of
+        `image/jpeg`, `image/png`, or `image/webp`. HEIC/HEIF is rejected with 415.
+        The file size MUST NOT exceed `PHOTO_MAX_SIZE_MB` (default 20 MB).
+        Authorization is checked per-request via season-scoped membership.
+      operationId: upload_piece_photo
+      parameters:
+      - description: Piece id
+        in: path
+        name: piece_id
+        required: true
+        schema:
+          format: uuid
+          type: string
+      requestBody:
+        content:
+          image/jpeg:
+            schema:
+              type: string
+        description: Raw image bytes (JPEG/PNG/WebP)
+        required: true
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PhotoView'
+          description: Photo uploaded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Not authorized
+        '413':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Payload too large
+        '415':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Unsupported media type
+        '422':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Validation error
+      summary: Upload a photo and link it to a piece.
+      tags:
+      - handlers
+  /v1/pieces/{piece_id}/photos/{photo_id}:
+    delete:
+      description: |-
+        Authorization is checked per-request via season-scoped membership.
+        The photo bytes are only deleted when the refcount reaches zero.
+      operationId: delete_piece_photo
+      parameters:
+      - description: Piece id
+        in: path
+        name: piece_id
+        required: true
+        schema:
+          format: uuid
+          type: string
+      - description: Photo id
+        in: path
+        name: photo_id
+        required: true
+        schema:
+          format: uuid
+          type: string
+      responses:
+        '204':
+          description: Photo unlinked
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Not authorized
+        '404':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Piece not found
+      summary: Unlink a photo from a piece (deletion saga handles refcount + bytes cleanup).
+      tags:
+      - handlers
+  /v1/pieces/{piece_id}/photos/{photo_id}/bytes:
+    get:
+      description: |-
+        Authorization is checked on every request via season-scoped membership.
+        The response includes `Cache-Control: private, max-age=300`.
+      operationId: get_piece_photo_bytes
+      parameters:
+      - description: Piece id
+        in: path
+        name: piece_id
+        required: true
+        schema:
+          format: uuid
+          type: string
+      - description: Photo id
+        in: path
+        name: photo_id
+        required: true
+        schema:
+          format: uuid
+          type: string
+      - description: 'Variant: original, thumb, or medium'
+        in: query
+        name: variant
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          content:
+            image/jpeg:
+              schema:
+                description: Raw piece photo variant bytes (JPEG/PNG/WebP).
+                format: binary
+                type: string
+          description: Photo bytes
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Not authorized
+        '404':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Photo or piece not found
+      summary: Download photo bytes (proxy download with per-request authorization).
+      tags:
+      - handlers
   /v1/scenes:
     get:
       description: Lists the scenes of an episode. Requires the episode_id query parameter (400 otherwise).
@@ -6971,9 +7560,9 @@ paths:
                 $ref: '#/components/schemas/ProblemDetails'
       tags:
       - handlers
-  /v1/scenes/{id}/costumes:
-    post:
-      operationId: add_scene_costume_beat
+  /v1/scenes/{id}/details:
+    patch:
+      operationId: update_scene_details
       parameters:
       - in: path
         name: id
@@ -6985,7 +7574,41 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/AddSceneCostumeBeatRequest'
+              $ref: '#/components/schemas/UpdateSceneDetailsRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AggregateVersion'
+        '404':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+        '409':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+      tags:
+      - handlers
+  /v1/scenes/{id}/outfits:
+    post:
+      operationId: add_scene_outfit_beat
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          format: uuid
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddSceneOutfitBeatRequest'
         required: true
       responses:
         '200':
@@ -7011,9 +7634,9 @@ paths:
           description: Character not in scene, identical consecutive beat, or validation error
       tags:
       - handlers
-  /v1/scenes/{id}/costumes/{character_id}:
+  /v1/scenes/{id}/outfits/{character_id}:
     delete:
-      operationId: clear_scene_costume_beats
+      operationId: clear_scene_outfit_beats
       parameters:
       - in: query
         name: version
@@ -7055,13 +7678,13 @@ paths:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Character has no beats or is not in scene
       summary: |-
-        Clears all costume beats of a character in the scene
-        (`RemoveCostumeBeat.order = None` = "no costume in this scene", #546).
+        Clears all outfit beats of a character in the scene
+        (`RemoveOutfitBeat.order = None` = "no piece in this scene", #546).
       tags:
       - handlers
-  /v1/scenes/{id}/costumes/{character_id}/{order}:
+  /v1/scenes/{id}/outfits/{character_id}/{order}:
     delete:
-      operationId: remove_scene_costume_beat
+      operationId: remove_scene_outfit_beat
       parameters:
       - in: query
         name: version
@@ -7112,7 +7735,7 @@ paths:
       tags:
       - handlers
     patch:
-      operationId: update_scene_costume_beat
+      operationId: update_scene_outfit_beat
       parameters:
       - in: path
         name: id
@@ -7137,7 +7760,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/UpdateSceneCostumeBeatRequest'
+              $ref: '#/components/schemas/UpdateSceneOutfitBeatRequest'
         required: true
       responses:
         '200':
@@ -7161,40 +7784,6 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Beat not found, character not in scene, or validation error
-      tags:
-      - handlers
-  /v1/scenes/{id}/details:
-    patch:
-      operationId: update_scene_details
-      parameters:
-      - in: path
-        name: id
-        required: true
-        schema:
-          format: uuid
-          type: string
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/UpdateSceneDetailsRequest'
-        required: true
-      responses:
-        '200':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/AggregateVersion'
-        '404':
-          content:
-            application/problem+json:
-              schema:
-                $ref: '#/components/schemas/ProblemDetails'
-        '409':
-          content:
-            application/problem+json:
-              schema:
-                $ref: '#/components/schemas/ProblemDetails'
       tags:
       - handlers
   /v1/scenes/{id}/shooting-days:
@@ -7408,7 +7997,7 @@ paths:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
-          description: Caller has no active costume-dept role in the season
+          description: Caller has no active piece-dept role in the season
         '404':
           content:
             application/problem+json:
@@ -7614,7 +8203,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/IdVersionResponse'
-          description: Costume category created
+          description: Piece category created
         '404':
           content:
             application/problem+json:
@@ -8706,8 +9295,8 @@ paths:
       description: |-
         Setting-gerechte fallback when automation fails or is delayed. Uses the
         **same** dedup key and pipeline as schedule / wrap triggers — never a
-        parallel pipeline. Gated stricter than PDF routes: only `CostumeDesigner`
-        and `WardrobeSupervisor` (excludes `CostumeAssistant`).
+        parallel pipeline. Gated stricter than PDF routes: only `PieceDesigner`
+        and `WardrobeSupervisor` (excludes `PieceAssistant`).
       operationId: manual_archive_reports
       parameters:
       - description: Shooting day id
@@ -8966,9 +9555,11 @@ tags:
   name: Scenes
 - description: Character read/write endpoints (scoped to a Season)
   name: Characters
-- description: Costume read/write endpoints (scope-free; bound to a Character)
-  name: Costumes
-- description: Costume photo upload/download/delete endpoints
+- description: 'Wardrobe fundus: garment read/write endpoints (season repertoire, no character binding)'
+  name: Pieces
+- description: 'Character looks: outfits composed from 0..n pieces'
+  name: Outfits
+- description: Piece and outfit photo upload/download/delete endpoints
   name: Photos
 x-code-registry:
 - code: http.bad-json-body
@@ -9193,34 +9784,39 @@ x-code-registry:
   status: 422
   title: Character validation failed
   type: https://docs.breakdown.example/problems/character.validation
-- code: costume.not-found
+- code: piece.not-found
   extensions:
   - id
   status: 404
-  title: Costume not found
-  type: https://docs.breakdown.example/problems/costume.not-found
-- code: costume.already-assigned
-  extensions:
-  - assigned_character_id
-  status: 409
-  title: Costume already assigned
-  type: https://docs.breakdown.example/problems/costume.already-assigned
-- code: costume.validation
+  title: Piece not found
+  type: https://docs.breakdown.example/problems/piece.not-found
+- code: piece.validation
   extensions: []
   status: 422
-  title: Costume validation failed
-  type: https://docs.breakdown.example/problems/costume.validation
-- code: costume.container-unresolved
+  title: Piece validation failed
+  type: https://docs.breakdown.example/problems/piece.validation
+- code: piece.container-unresolved
   extensions: []
   status: 422
-  title: Costume has no resolvable container
-  type: https://docs.breakdown.example/problems/costume.container-unresolved
-- code: costume-detail.not-found
+  title: Piece has no resolvable container
+  type: https://docs.breakdown.example/problems/piece.container-unresolved
+- code: piece-detail.not-found
   extensions:
   - id
   status: 404
-  title: Costume detail not found
-  type: https://docs.breakdown.example/problems/costume-detail.not-found
+  title: Piece detail not found
+  type: https://docs.breakdown.example/problems/piece-detail.not-found
+- code: outfit.not-found
+  extensions:
+  - id
+  status: 404
+  title: Outfit not found
+  type: https://docs.breakdown.example/problems/outfit.not-found
+- code: outfit.validation
+  extensions: []
+  status: 422
+  title: Outfit validation failed
+  type: https://docs.breakdown.example/problems/outfit.validation
 - code: costume-category.not-found
   extensions:
   - id

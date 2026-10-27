@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 #![allow(
     clippy::unwrap_used,
@@ -250,8 +251,8 @@ async fn thumbnail_saga_redelivery_is_idempotent_and_converges() -> Result<()> {
         )
         .await?;
 
-    let binding = PhotoBinding::Costume {
-        costume_id: Uuid::now_v7(),
+    let binding = PhotoBinding::Piece {
+        piece_id: Uuid::now_v7(),
     };
     let project_id = Some(ProjectId::new());
     let _uploaded_version = photo_commands

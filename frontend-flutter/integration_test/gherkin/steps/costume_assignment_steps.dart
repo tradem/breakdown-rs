@@ -4,6 +4,7 @@
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
 // Co-authored-by: glm-5.3 (neuralwatt)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 import 'dart:async';
 
@@ -77,7 +78,7 @@ Iterable<StepDefinitionGeneric> costumeAssignmentSteps() => [
   ),
   when1<String, FlutterWorld>(
     'I view the costume {string} in the costume stream',
-    (String costumeId, context) async {
+    (String pieceId, context) async {
       // Opens the costume DETAIL from the stream row (shared with the
       // assign step). Used by the viewer-denial scenario: for a denied
       // membership the assign button never renders (the client-side
@@ -85,19 +86,19 @@ Iterable<StepDefinitionGeneric> costumeAssignmentSteps() => [
       // but the stream row + detail are still reachable read-model
       // surfaces — the denial assertion renders on the detail.
       final world = context.world as AppWorld;
-      final realCostume = world.seedIds[costumeId] ?? costumeId;
+      final realCostume = world.seedIds[pieceId] ?? pieceId;
       await _openCostumeDetail(context.world, realCostume);
     },
   ),
   when2<String, String, FlutterWorld>(
     'I assign costume {string} to character {string}',
-    (String costumeId, String characterId, context) async {
+    (String pieceId, String characterId, context) async {
       // Opens the assign picker for the costume, then picks the character:
       // the command carries the picked id + the acted-on row's version.
       // Symbolic feature ids ("c-7" / "ch-3") map to the seeded REAL
       // backend ids (issue #368) before any widget key is composed.
       final world = context.world as AppWorld;
-      final realCostume = world.seedIds[costumeId] ?? costumeId;
+      final realCostume = world.seedIds[pieceId] ?? pieceId;
       final realCharacter = world.seedIds[characterId] ?? characterId;
       world.lastCostumeId = realCostume;
       world.lastCharacterId = realCharacter;
@@ -125,7 +126,7 @@ Iterable<StepDefinitionGeneric> costumeAssignmentSteps() => [
   when3<String, String, String, FlutterWorld>(
     'I reassign costume {string} from {string} to {string}',
     (
-      String costumeId,
+      String pieceId,
       String fromCharacterId,
       String toCharacterId,
       context,
@@ -137,7 +138,7 @@ Iterable<StepDefinitionGeneric> costumeAssignmentSteps() => [
       // on the costume DETAIL screen (the preceding assign step pushed it),
       // so the Reassign button is tapped in place — no list re-open.
       final world = context.world as AppWorld;
-      final realCostume = world.seedIds[costumeId] ?? costumeId;
+      final realCostume = world.seedIds[pieceId] ?? pieceId;
       final realFrom = world.seedIds[fromCharacterId] ?? fromCharacterId;
       final realTo = world.seedIds[toCharacterId] ?? toCharacterId;
       world.lastCostumeId = realCostume;

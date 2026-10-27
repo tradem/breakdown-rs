@@ -4,16 +4,19 @@
 // Co-authored-by: deepseek-v4-flash (opencode-go)
 // Co-authored-by: hy3 (opencode-go)
 // Co-authored-by: glm-5.2 (neuralwatt)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 use std::collections::HashMap;
 use std::sync::Arc;
 
 use anyhow::Result;
-use breakdown_core::costume::aggregate::CostumeAggregate;
-use breakdown_core::costume::events::CostumeEvent;
+use breakdown_core::outfit::aggregate::OutfitAggregate;
+use breakdown_core::outfit::events::OutfitEvent;
 use breakdown_core::photo::aggregate::PhotoAggregate;
 use breakdown_core::photo::commands::DeletePhoto;
 use breakdown_core::photo::ports::PhotoRepository;
+use breakdown_core::piece::aggregate::PieceAggregate;
+use breakdown_core::piece::events::PieceEvent;
 use breakdown_core::shared::{EventMetadata, PhotoId, Provenance};
 use kameo_es::command_service::CommandService;
 use kameo_es::command_service::ExecuteExt;
@@ -30,22 +33,26 @@ use crate::event_store::map_version_only;
 use crate::photo::repository::PhotoRepositoryImpl;
 use crate::projectors::supervisor;
 
-/// Saga that reacts to `PhotoUnlinked` events on the `costume` stream.
-/// When the refcount reaches zero, dispatches `DeletePhoto` on the `Photo`
-/// aggregate directly via `Aggregate::execute` with `Provenance::Saga`.
+/// Saga that reacts to `PhotoUnlinked` events on the `piece` and `outfit`
+/// streams. When the combined refcount reaches zero, dispatches `DeletePhoto`
+/// on the `Photo` aggregate directly via `Aggregate::execute` with
+/// `Provenance::Saga`.
 ///
 /// Refcounts are tracked **in-memory** (`refcounts` map), NOT by querying the
-/// projection. This avoids a race with the costume projector, which writes to
-/// `projection_costume_photo` asynchronously. Since `start_from()` returns an
-/// empty checkpoint, the saga replays all past events on every start and builds
-/// accurate state from scratch.
+/// projection. This avoids a race with the piece/outfit projectors, which write
+/// `projection_piece_photo` / `projection_outfit_photo` asynchronously. Since
+/// `start_from()` returns an empty checkpoint, the saga replays all past events
+/// on every start and builds accurate state from scratch.
+///
+/// A photo can be linked both directly to a piece and to an outfit containing
+/// it (shared fitting photos), so the count spans **both** streams: only a
+/// combined count of zero deletes the photo.
 #[derive(Clone, Debug)]
 pub struct PhotoDeletionSaga {
     cmd_service: CommandService,
     repo: PhotoRepositoryImpl,
     /// In-memory photo-link refcounts keyed by `PhotoId`.
-    /// Incremented on `PhotoLinked`, decremented on `PhotoUnlinked`.
-    /// When a count reaches 0, `DeletePhoto` is dispatched.
+    /// Incremented on link events, decremented on unlink events.
     refcounts: HashMap<Uuid, u64>,
 }
 
@@ -57,76 +64,83 @@ impl PhotoDeletionSaga {
             refcounts: HashMap::new(),
         }
     }
+
+    fn on_link(&mut self, photo_id: Uuid) {
+        *self.refcounts.entry(photo_id).or_insert(0) += 1;
+    }
+
+    async fn on_unlink(
+        &mut self,
+        photo_id: Uuid,
+        project_id: Option<breakdown_core::shared::ProjectId>,
+    ) -> Result<(), anyhow::Error> {
+        let entry = self.refcounts.entry(photo_id).or_insert(0);
+        *entry = entry.saturating_sub(1);
+
+        if *entry != 0 {
+            return Ok(());
+        }
+        self.refcounts.remove(&photo_id);
+
+        // Fetch the current version to dispatch delete with the correct
+        // expected version. This read-model lookup is a concurrency guard
+        // (ExpectedVersion::Exact for DeletePhoto), NOT audit-context
+        // resolution — `project_id` comes from the event data.
+        let photo_id = PhotoId::from_uuid(photo_id);
+        let Some(photo_view) = self
+            .repo
+            .find_by_id(photo_id) // ast-grep-ignore: cqrs-boundary
+            .await
+            .ok()
+        else {
+            // Photo not found in projections — skip.
+            return Ok(());
+        };
+        let version = photo_view.version;
+        // CQRS boundary: audit context comes from the event data (populated by
+        // the link/unlink command at the API edge), never from a read-model
+        // projection. Missing metadata yields None — same tolerant best-effort
+        // path.
+        let stream_version = crate::event_store::domain_to_stream(version).ok_or_else(|| {
+            anyhow::anyhow!("photo {photo_id} has version 0 — cannot determine stream version")
+        })?;
+        let result = PhotoAggregate::execute(
+            &self.cmd_service,
+            photo_id,
+            DeletePhoto {
+                id: photo_id,
+                project_id,
+                version,
+            },
+        )
+        .expected_version(ExpectedVersion::Exact(stream_version))
+        .metadata(EventMetadata {
+            actor: None,
+            provenance: Provenance::Saga("PhotoDeletionSaga".to_string()),
+            project_id,
+        })
+        .await;
+        map_version_only(result).map_err(|e| anyhow::anyhow!("{e}"))?;
+        Ok(())
+    }
 }
 
 impl EventHandler<()> for PhotoDeletionSaga {
     type Error = anyhow::Error;
 }
 
-impl EntityEventHandler<CostumeAggregate, ()> for PhotoDeletionSaga {
+impl EntityEventHandler<PieceAggregate, ()> for PhotoDeletionSaga {
     async fn handle(
         &mut self,
         _ctx: &mut (),
         _id: Uuid,
-        event: Event<CostumeEvent, EventMetadata>,
+        event: Event<PieceEvent, EventMetadata>,
     ) -> Result<(), Self::Error> {
+        let project_id = event.metadata.data.as_ref().and_then(|m| m.project_id);
         match event.data {
-            CostumeEvent::PhotoLinked { photo_id, .. } => {
-                *self.refcounts.entry(photo_id).or_insert(0) += 1;
-            }
-            CostumeEvent::PhotoUnlinked { photo_id, .. } => {
-                let entry = self.refcounts.entry(photo_id).or_insert(0);
-                *entry = entry.saturating_sub(1);
-
-                if *entry == 0 {
-                    self.refcounts.remove(&photo_id);
-
-                    // Fetch the current version to dispatch delete with the
-                    // correct expected version. This read-model lookup is a
-                    // concurrency guard (ExpectedVersion::Exact for
-                    // DeletePhoto), NOT audit-context resolution — project_id
-                    // below comes from the event data. (Suppression directive
-                    // on the find_by_id line below.)
-                    let photo_id = PhotoId::from_uuid(photo_id);
-                    let Some(photo_view) = self
-                        .repo
-                        .find_by_id(photo_id) // ast-grep-ignore: cqrs-boundary
-                        .await
-                        .ok()
-                    else {
-                        // Photo not found in projections — skip.
-                        return Ok(());
-                    };
-                    let version = photo_view.version;
-                    // CQRS boundary: audit context comes from the event data
-                    // (populated by the Link/UnlinkPhoto command at the API
-                    // edge), never from a read-model projection. Missing
-                    // metadata yields None — same tolerant best-effort path.
-                    let project_id = event.metadata.data.as_ref().and_then(|m| m.project_id);
-                    let stream_version =
-                        crate::event_store::domain_to_stream(version).ok_or_else(|| {
-                            anyhow::anyhow!(
-                                "photo {photo_id} has version 0 — cannot determine stream version"
-                            )
-                        })?;
-                    let result = PhotoAggregate::execute(
-                        &self.cmd_service,
-                        photo_id,
-                        DeletePhoto {
-                            id: photo_id,
-                            project_id,
-                            version,
-                        },
-                    )
-                    .expected_version(ExpectedVersion::Exact(stream_version))
-                    .metadata(EventMetadata {
-                        actor: None,
-                        provenance: Provenance::Saga("PhotoDeletionSaga".to_string()),
-                        project_id,
-                    })
-                    .await;
-                    map_version_only(result).map_err(|e| anyhow::anyhow!("{e}"))?;
-                }
+            PieceEvent::PiecePhotoLinked { photo_id, .. } => self.on_link(photo_id),
+            PieceEvent::PiecePhotoUnlinked { photo_id, .. } => {
+                self.on_unlink(photo_id, project_id).await?
             }
             _ => {}
         }
@@ -134,7 +148,26 @@ impl EntityEventHandler<CostumeAggregate, ()> for PhotoDeletionSaga {
     }
 }
 
-impl EventProcessor<(CostumeAggregate,), PhotoDeletionSaga> for PhotoDeletionSaga {
+impl EntityEventHandler<OutfitAggregate, ()> for PhotoDeletionSaga {
+    async fn handle(
+        &mut self,
+        _ctx: &mut (),
+        _id: Uuid,
+        event: Event<OutfitEvent, EventMetadata>,
+    ) -> Result<(), Self::Error> {
+        let project_id = event.metadata.data.as_ref().and_then(|m| m.project_id);
+        match event.data {
+            OutfitEvent::OutfitPhotoLinked { photo_id, .. } => self.on_link(photo_id),
+            OutfitEvent::OutfitPhotoUnlinked { photo_id, .. } => {
+                self.on_unlink(photo_id, project_id).await?
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+}
+
+impl EventProcessor<(PieceAggregate, OutfitAggregate), PhotoDeletionSaga> for PhotoDeletionSaga {
     type Context = ();
     type Error = anyhow::Error;
 
@@ -146,28 +179,43 @@ impl EventProcessor<(CostumeAggregate,), PhotoDeletionSaga> for PhotoDeletionSag
         &mut self,
         event: Event,
     ) -> Result<(), EventHandlerError<Self::Error, <Self as EventHandler<()>>::Error>> {
-        if event.stream_id.category() != CostumeAggregate::category() {
-            return Ok(());
-        }
-        let id = event
-            .entity_id::<CostumeAggregate>()
-            .map_err(|_| EventHandlerError::ParseID(event.stream_id.cardinal_id().to_string()))?;
-        let event = event
-            .as_entity::<CostumeAggregate>()
-            .map_err(|(event, err)| EventHandlerError::DeserializeEvent {
-                entity: CostumeAggregate::category(),
-                event: event.name,
-                err,
+        if event.stream_id.category() == PieceAggregate::category() {
+            let id = event.entity_id::<PieceAggregate>().map_err(|_| {
+                EventHandlerError::ParseID(event.stream_id.cardinal_id().to_string())
             })?;
-        EntityEventHandler::<CostumeAggregate, ()>::handle(self, &mut (), id, event)
-            .await
-            .map_err(EventHandlerError::Handler)
+            let event = event
+                .as_entity::<PieceAggregate>()
+                .map_err(|(event, err)| EventHandlerError::DeserializeEvent {
+                    entity: PieceAggregate::category(),
+                    event: event.name,
+                    err,
+                })?;
+            return EntityEventHandler::<PieceAggregate, ()>::handle(self, &mut (), id, event)
+                .await
+                .map_err(EventHandlerError::Handler);
+        }
+        if event.stream_id.category() == OutfitAggregate::category() {
+            let id = event.entity_id::<OutfitAggregate>().map_err(|_| {
+                EventHandlerError::ParseID(event.stream_id.cardinal_id().to_string())
+            })?;
+            let event = event
+                .as_entity::<OutfitAggregate>()
+                .map_err(|(event, err)| EventHandlerError::DeserializeEvent {
+                    entity: OutfitAggregate::category(),
+                    event: event.name,
+                    err,
+                })?;
+            return EntityEventHandler::<OutfitAggregate, ()>::handle(self, &mut (), id, event)
+                .await
+                .map_err(EventHandlerError::Handler);
+        }
+        Ok(())
     }
 }
 
 /// Spawn the deletion saga subscription loop (supervised, background).
 ///
-/// Subscribes to the `costume` stream and processes `PhotoUnlinked` events.
+/// Subscribes to the `piece` and `outfit` streams and processes unlink events.
 pub async fn spawn_photo_deletion_saga(
     cmd_service: CommandService,
     repo: PhotoRepositoryImpl,
@@ -180,7 +228,8 @@ pub async fn spawn_photo_deletion_saga(
         async move {
             let mut manager = client.subscription_manager().await?;
             let mut stream =
-                <(CostumeAggregate,)>::event_handler_stream(&mut manager, &mut saga).await?;
+                <(PieceAggregate, OutfitAggregate)>::event_handler_stream(&mut manager, &mut saga)
+                    .await?;
             stream
                 .run(&mut saga)
                 .await

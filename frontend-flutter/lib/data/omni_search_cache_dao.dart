@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: glm-5.3-flash (opencode-go)
 // Co-authored-by: glm-5.3-flash (neuralwatt)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 import 'package:breakdown_api/breakdown_api.dart';
 import 'package:fpdart/fpdart.dart';
@@ -12,7 +13,7 @@ import '../features/omni_search/omni_search_model.dart';
 import 'cache/cache_database.dart';
 import 'cache/cache_ttl.dart';
 import 'cache/clock.dart';
-import 'cache/costume_domains_cache_dao.dart';
+import 'cache/piece_domains_cache_dao.dart';
 import 'cache/hierarchy_cache_dao.dart';
 
 /// Data-access object for the OmniSearch season composition (issue #616,
@@ -68,7 +69,7 @@ class OmniSearchDao {
       final blockRows = await _blockDao.readBySeason(seasonId);
       final characterFresh = await CharacterCacheDao(_db)
           .readBySeasonFresh(seasonId, ttl: ttl, clock: clock);
-      final costumeFresh = await CostumeCacheDao(_db)
+      final costumeFresh = await PieceCacheDao(_db)
           .readBySeasonFresh(seasonId, ttl: ttl, clock: clock);
 
       final sceneComposed = await _sceneDao.readBySeasonComposed(

@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
 // Co-authored-by: omen-alpha (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 // Tier-1 unit tests for the costume-domain data layer (Tasks 1.6, 2.2, 3.1):
 // every repository method Ok AND Err; cache untouched on failure;
@@ -27,25 +28,26 @@ import 'package:frontend_flutter/core/result.dart';
 import 'package:image/image.dart' as img;
 import 'package:frontend_flutter/data/cache/cache_database.dart';
 import 'package:frontend_flutter/data/cache/clock.dart';
-import 'package:frontend_flutter/data/cache/costume_domains_cache_dao.dart';
+import 'package:frontend_flutter/data/cache/piece_domains_cache_dao.dart';
 import 'package:frontend_flutter/data/character_repository.dart';
-import 'package:frontend_flutter/data/costume_repository.dart';
+import 'package:frontend_flutter/data/piece_repository.dart';
 import 'package:frontend_flutter/data/photo_repository.dart';
 import 'package:frontend_flutter/data/shooting_day_repository.dart';
 import 'package:frontend_flutter/features/photos/prepare.dart';
 
-CostumeView _costume(
+PieceView _costume(
   String id, {
-  String? characterId,
+  String name = 'Fundus-Piece',
   int version = 1,
   String notes = 'notes',
-}) => CostumeView(
+}) => PieceView(
   (b) => b
+    ..name = 'Fundus-Piece'
     ..id = id
-    ..characterId = characterId
+    ..name = name
     ..notes = notes
-    ..details.replace(BuiltList<CostumeDetailView>())
-    ..photos.replace(BuiltList<CostumePhotoView>())
+    ..details.replace(BuiltList<PieceDetailView>())
+    ..photos.replace(BuiltList<PiecePhotoView>())
     ..updatedAt = DateTime.utc(2026, 1, 1)
     ..version = version,
 );
@@ -99,42 +101,42 @@ ShootingDayView _day(
     ..version = 1,
 );
 
-CostumeView _costumeWithVariants(String id, List<String> statuses) =>
-    CostumeView(
-      (b) => b
-        ..id = id
-        ..notes = 'n'
-        ..details.replace(BuiltList<CostumeDetailView>())
-        ..photos.replace(
-          BuiltList<CostumePhotoView>([
-            CostumePhotoView(
-              (p) => p
-                ..id = 'photo-1'
-                ..contentType = 'image/jpeg'
-                ..sizeBytes = 10
-                ..variants.replace(
-                  BuiltList<PhotoVariantView>([
-                    for (var i = 0; i < statuses.length; i++)
-                      PhotoVariantView(
-                        (v) => v
-                          ..kind = serializers.deserializeWith(
-                            PhotoVariant.serializer,
-                            'Thumb',
-                          )!
-                          ..status = serializers.deserializeWith(
-                            VariantStatus.serializer,
-                            statuses[i],
-                          )!
-                          ..sizeBytes = 5,
-                      ),
-                  ]),
-                ),
+PieceView _costumeWithVariants(String id, List<String> statuses) => PieceView(
+  (b) => b
+    ..name = 'Fundus-Piece'
+    ..id = id
+    ..notes = 'n'
+    ..details.replace(BuiltList<PieceDetailView>())
+    ..photos.replace(
+      BuiltList<PiecePhotoView>([
+        PiecePhotoView(
+          (p) => p
+            ..id = 'photo-1'
+            ..contentType = 'image/jpeg'
+            ..sizeBytes = 10
+            ..variants.replace(
+              BuiltList<PhotoVariantView>([
+                for (var i = 0; i < statuses.length; i++)
+                  PhotoVariantView(
+                    (v) => v
+                      ..kind = serializers.deserializeWith(
+                        PhotoVariant.serializer,
+                        'Thumb',
+                      )!
+                      ..status = serializers.deserializeWith(
+                        VariantStatus.serializer,
+                        statuses[i],
+                      )!
+                      ..sizeBytes = 5,
+                  ),
+              ]),
             ),
-          ]),
-        )
-        ..updatedAt = DateTime.utc(2026, 1, 1)
-        ..version = 2,
-    );
+        ),
+      ]),
+    )
+    ..updatedAt = DateTime.utc(2026, 1, 1)
+    ..version = 2,
+);
 
 SeasonMembershipDto _membership(List<String> caps) => SeasonMembershipDto(
   (b) => b
@@ -151,10 +153,10 @@ SeriesMembershipDto _seriesMembership(bool hasRole) => SeriesMembershipDto(
 );
 
 void main() {
-  group('CostumeCacheDao', () {
+  group('PieceCacheDao', () {
     test('snapshot-replace is scoped to the season', () async {
       final db = CacheDatabase();
-      final dao = CostumeCacheDao(db);
+      final dao = PieceCacheDao(db);
       final now = DateTime.utc(2026, 1, 1);
       await dao.applySnapshotForSeason('s-1', [_costume('c-1')], now);
       await dao.applySnapshotForSeason('s-2', [_costume('c-2')], now);
@@ -167,26 +169,27 @@ void main() {
 
     test('round-trips details/photos snapshots', () async {
       final db = CacheDatabase();
-      final dao = CostumeCacheDao(db);
-      final view = _costume('c-1', characterId: 'ch-1');
+      final dao = PieceCacheDao(db);
+      final view = _costume('c-1');
       await dao.applySnapshotForSeason('s-1', [view], DateTime.utc(2026));
       final read = await dao.readBySeason('s-1');
-      expect(read.single.characterId, 'ch-1');
+      expect(read.single.name, 'Fundus-Piece');
       expect(read.single.version, 1);
       await db.close();
     });
 
     test('round-trips non-empty details/photos snapshots', () async {
       final db = CacheDatabase();
-      final dao = CostumeCacheDao(db);
-      final view = CostumeView(
+      final dao = PieceCacheDao(db);
+      final view = PieceView(
         (b) => b
+          ..name = 'Fundus-Piece'
           ..id = 'c-1'
           ..notes = 'n'
           ..categoryName = 'Outerwear'
           ..details.replace(
-            BuiltList<CostumeDetailView>([
-              CostumeDetailView(
+            BuiltList<PieceDetailView>([
+              PieceDetailView(
                 (d) => d
                   ..id = 'd-1'
                   ..subject = 'Jacket'
@@ -195,8 +198,8 @@ void main() {
             ]),
           )
           ..photos.replace(
-            BuiltList<CostumePhotoView>([
-              CostumePhotoView(
+            BuiltList<PiecePhotoView>([
+              PiecePhotoView(
                 (photo) => photo
                   ..id = 'p-1'
                   ..contentType = 'image/jpeg'
@@ -270,41 +273,27 @@ void main() {
     });
   });
 
-  group('Costume overlay version fence', () {
+  group('Piece overlay version fence', () {
+    // The character-binding overlays are gone with the assign/unassign
+    // commands (a Piece has no character binding any more — the look that
+    // wears it is an Outfit). The version fence itself still guards every
+    // remaining row command, so it keeps its own coverage.
     test('stale projection retains the overlay', () {
       final base = _costume('c-1', version: 1);
-      final overlay = applyAssignOptimistic(base, 'ch-9');
-      // Acked at version 2; stale refetch still at version 1 → keep overlay.
+      final overlay = applyNotesOptimistic(base, 'fresh notes');
       expect(
         shouldClearCostumeOverlay(projection: base, acknowledgedVersion: 2),
         isFalse,
       );
-      final merged = mergeCostumeOverlays(
-        projected: [base],
-        overlays: {'c-1': (overlay: overlay, acknowledgedVersion: 2)},
-      );
-      expect(merged.single.characterId, 'ch-9');
+      expect(overlay.notes, 'fresh notes');
     });
 
     test('fence passes when projection catches up', () {
-      final base = _costume('c-1', version: 1);
-      final overlay = applyAssignOptimistic(base, 'ch-9');
-      final fresh = _costume('c-1', characterId: 'ch-9', version: 2);
+      final fresh = _costume('c-1', version: 2);
       expect(
         shouldClearCostumeOverlay(projection: fresh, acknowledgedVersion: 2),
         isTrue,
       );
-      final merged = mergeCostumeOverlays(
-        projected: [fresh],
-        overlays: {'c-1': (overlay: overlay, acknowledgedVersion: 2)},
-      );
-      expect(merged.single.characterId, 'ch-9');
-      expect(merged.single.version, 2);
-    });
-
-    test('unassign overlay clears the assignment optimistically', () {
-      final assigned = _costume('c-1', characterId: 'ch-1', version: 3);
-      expect(applyUnassignOptimistic(assigned).characterId, isNull);
     });
   });
 
@@ -406,7 +395,7 @@ void main() {
       () async {
         final repo = PhotoRepository(BreakdownApi(dio: Dio()));
         var calls = 0;
-        Future<Result<CostumeView>> fetch() async {
+        Future<Result<PieceView>> fetch() async {
           calls++;
           // First two Pending, then all Ready.
           if (calls < 3) {
@@ -429,7 +418,7 @@ void main() {
         final repo = PhotoRepository(BreakdownApi(dio: Dio()));
         var calls = 0;
         final gate = Completer<void>();
-        Future<Result<CostumeView>> fetch() async {
+        Future<Result<PieceView>> fetch() async {
           calls++;
           // Park every refetch after the first: without cancellation the
           // pass would run to the bounded budget once released.
@@ -454,19 +443,20 @@ void main() {
     );
 
     test('photo with empty variants keeps polling (not terminal)', () async {
-      final emptyPhoto = CostumePhotoView(
+      final emptyPhoto = PiecePhotoView(
         (b) => b
           ..id = 'photo-1'
           ..contentType = 'image/jpeg'
           ..sizeBytes = 10
           ..variants.replace(BuiltList<PhotoVariantView>()),
       );
-      final view = CostumeView(
+      final view = PieceView(
         (b) => b
+          ..name = 'Fundus-Piece'
           ..id = 'c-1'
           ..notes = 'n'
-          ..details.replace(BuiltList<CostumeDetailView>())
-          ..photos.replace(BuiltList<CostumePhotoView>([emptyPhoto]))
+          ..details.replace(BuiltList<PieceDetailView>())
+          ..photos.replace(BuiltList<PiecePhotoView>([emptyPhoto]))
           ..updatedAt = DateTime.utc(2026, 1, 1)
           ..version = 2,
       );
@@ -476,7 +466,7 @@ void main() {
     test('delay crossing the deadline skips the normal fetch', () async {
       final repo = PhotoRepository(BreakdownApi(dio: Dio()));
       var calls = 0;
-      Future<Result<CostumeView>> fetch() async {
+      Future<Result<PieceView>> fetch() async {
         calls++;
         return Right(_costumeWithVariants('c-1', ['Pending']));
       }
@@ -506,7 +496,7 @@ void main() {
       () async {
         final repo = PhotoRepository(BreakdownApi(dio: Dio()));
         var calls = 0;
-        Future<Result<CostumeView>> fetch() async {
+        Future<Result<PieceView>> fetch() async {
           calls++;
           return Right(_costumeWithVariants('c-1', ['Pending']));
         }
@@ -568,7 +558,7 @@ void main() {
   group('Repository failure leaves cache untouched', () {
     test('costume listBySeason Left does not write', () async {
       final db = CacheDatabase();
-      final dao = CostumeCacheDao(db);
+      final dao = PieceCacheDao(db);
       await dao.applySnapshotForSeason('s-1', [
         _costume('c-keep'),
       ], DateTime.utc(2026));

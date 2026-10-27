@@ -134,17 +134,17 @@ abstract class AppLocalizations {
   /// **'Kategorie erstellen'**
   String get costumeCategoryCreateTitle;
 
-  /// No description provided for @costumeCategoryNameLabel.
+  /// No description provided for @outfitNameLabel.
   ///
   /// In de, this message translates to:
   /// **'Name'**
-  String get costumeCategoryNameLabel;
+  String get outfitNameLabel;
 
-  /// No description provided for @costumeCategoryNameRequired.
+  /// No description provided for @outfitNameRequired.
   ///
   /// In de, this message translates to:
   /// **'Es ist ein Name erforderlich'**
-  String get costumeCategoryNameRequired;
+  String get outfitNameRequired;
 
   /// No description provided for @costumeCategoryRenameTitle.
   ///
@@ -2854,8 +2854,8 @@ abstract class AppLocalizations {
   /// No description provided for @photoTileSemantics.
   ///
   /// In de, this message translates to:
-  /// **'Foto von Kostüm {costumeId}'**
-  String photoTileSemantics(Object costumeId);
+  /// **'Foto von Kostüm {pieceId}'**
+  String photoTileSemantics(Object pieceId);
 
   /// No description provided for @photoGalleryEmpty.
   ///

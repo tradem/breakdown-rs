@@ -977,7 +977,7 @@ final class ScenesControllerProvider
   }
 }
 
-String _$scenesControllerHash() => r'dc9a03a76085454f9d0db3da0020ddcbe6d75b43';
+String _$scenesControllerHash() => r'5d731a36aa91c491f43cd4822687a2c6c82a68e6';
 
 /// `ScenesController(episodeId)` on the shared reconciliation runner.
 

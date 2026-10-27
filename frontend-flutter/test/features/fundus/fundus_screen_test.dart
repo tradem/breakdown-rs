@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: deepseek-v4.1-flash (neuralwatt)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 // Widget tests for the fundus surface (issue #625, tasks §6.1): the season
 // chip facet model, the name prefilter, repertoire season names, the deep
@@ -22,7 +23,7 @@ import 'package:frontend_flutter/core/result.dart';
 import 'package:frontend_flutter/data/cache/cache_database.dart';
 import 'package:frontend_flutter/data/cache/cache_generation.dart';
 import 'package:frontend_flutter/data/cache/clock.dart';
-import 'package:frontend_flutter/data/cache/costume_domains_cache_dao.dart';
+import 'package:frontend_flutter/data/cache/piece_domains_cache_dao.dart';
 import 'package:frontend_flutter/data/fundus_repository.dart';
 import 'package:frontend_flutter/features/costumes/costume_detail_screen.dart';
 import 'package:frontend_flutter/features/fundus/fundus_controller.dart';
@@ -58,18 +59,19 @@ void main() {
       ..version = 1,
   );
 
-  CostumeView costume({
+  PieceView costume({
     required String id,
     required List<String> repertoire,
     String notes = '',
     String? categoryName,
-  }) => CostumeView(
+  }) => PieceView(
     (b) => b
+      ..name = 'Fundus-Piece'
       ..id = id
       ..notes = notes
       ..categoryName = categoryName
-      ..details.replace(BuiltList<CostumeDetailView>())
-      ..photos.replace(BuiltList<CostumePhotoView>())
+      ..details.replace(BuiltList<PieceDetailView>())
+      ..photos.replace(BuiltList<PiecePhotoView>())
       ..seasonIds.replace(BuiltList<String>(repertoire))
       ..updatedAt = DateTime.utc(2026, 1, 1)
       ..version = 1,
@@ -81,7 +83,7 @@ void main() {
   ];
 
   FundusInputs inputs({
-    required List<CostumeView> costumes,
+    required List<PieceView> costumes,
     bool stale = false,
   }) => FundusInputs(
     projectId: projectId,
@@ -104,7 +106,7 @@ void main() {
           () => _FixedShellController(activeSeason),
         ),
         fundusRepositoryProvider.overrideWithValue(
-          _FakeFundusRepository(FundusCostumeCacheDao(db)),
+          _FakeFundusRepository(FundusPieceCacheDao(db)),
         ),
         if (inputsResult != null)
           fundusInputsProvider(projectId)
@@ -339,11 +341,11 @@ class _FixedShellController extends ShellController {
 }
 
 class _FakeFundusRepository extends FundusRepository {
-  _FakeFundusRepository(FundusCostumeCacheDao cache)
+  _FakeFundusRepository(FundusPieceCacheDao cache)
     : super(BreakdownApi(), cache);
 
   @override
-  Future<Result<List<CostumeView>>> listByProject(
+  Future<Result<List<PieceView>>> listByProject(
     String projectId, {
     Clock clock = Clock.system,
     CacheWriteFence? fence,

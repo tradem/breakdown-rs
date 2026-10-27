@@ -3,6 +3,7 @@
 // Co-authored-by: muse-spark-1.3 (opencode)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
 // Co-authored-by: space-bunny-free (opencode)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 import 'dart:typed_data';
 
@@ -59,7 +60,7 @@ class ContinuityStrip extends ConsumerStatefulWidget {
 
 class _ContinuityStripState extends ConsumerState<ContinuityStrip> {
   bool _busy = false;
-  String? _costumeId;
+  String? _pieceId;
 
   @override
   Widget build(BuildContext context) {
@@ -114,10 +115,10 @@ class _ContinuityStripState extends ConsumerState<ContinuityStrip> {
           children: [
             for (final entry in resolved)
               switch (entry) {
-                _LinkedPhoto(:final costumeId, :final photo) => SizedBox(
+                _LinkedPhoto(:final pieceId, :final photo) => SizedBox(
                   width: 96,
                   child: PhotoTile(
-                    costumeId: costumeId,
+                    pieceId: pieceId,
                     photo: photo,
                     repository: repo,
                     lru: lru,
@@ -128,7 +129,7 @@ class _ContinuityStripState extends ConsumerState<ContinuityStrip> {
                         widget.enabled &&
                             canManage &&
                             !_busy &&
-                            _costumeId != null
+                            _pieceId != null
                         ? () => _capture(ImageSource.camera)
                         : null,
                   ),
@@ -155,7 +156,7 @@ class _ContinuityStripState extends ConsumerState<ContinuityStrip> {
           const SizedBox(height: 8),
           DropdownButtonFormField<String>(
             key: Key('continuity-costume-pick-${widget.shoot.id}'),
-            initialValue: _costumeId,
+            initialValue: _pieceId,
             hint: Text(l10nOf(context).continuityStoreOn),
             items: [
               for (final c in costumes.rows)
@@ -167,14 +168,14 @@ class _ContinuityStripState extends ConsumerState<ContinuityStrip> {
                   child: Text(_costumeLabel(c)),
                 ),
             ],
-            onChanged: (v) => setState(() => _costumeId = v),
+            onChanged: (v) => setState(() => _pieceId = v),
           ),
           const SizedBox(height: 8),
           Row(
             children: [
               FilledButton.tonalIcon(
                 key: Key('continuity-capture-camera-${widget.shoot.id}'),
-                onPressed: _busy || _costumeId == null
+                onPressed: _busy || _pieceId == null
                     ? null
                     : () => _capture(ImageSource.camera),
                 icon: const Icon(Icons.photo_camera),
@@ -183,7 +184,7 @@ class _ContinuityStripState extends ConsumerState<ContinuityStrip> {
               const SizedBox(width: 8),
               FilledButton.tonalIcon(
                 key: Key('continuity-capture-gallery-${widget.shoot.id}'),
-                onPressed: _busy || _costumeId == null
+                onPressed: _busy || _pieceId == null
                     ? null
                     : () => _capture(ImageSource.gallery),
                 icon: const Icon(Icons.photo_library),
@@ -191,7 +192,7 @@ class _ContinuityStripState extends ConsumerState<ContinuityStrip> {
               ),
             ],
           ),
-          if (_costumeId == null)
+          if (_pieceId == null)
             Text(
               l10nOf(context).continuityCostumeHint,
               key: Key('continuity-costume-hint-${widget.shoot.id}'),
@@ -202,11 +203,11 @@ class _ContinuityStripState extends ConsumerState<ContinuityStrip> {
   }
 
   Future<void> _capture(ImageSource source) async {
-    final costumeId = _costumeId;
+    final pieceId = _pieceId;
     // Belt and braces: the buttons disable without a costume, and the
     // controller gates the upload + link — this guard only short-circuits
     // the picker intent itself.
-    if (costumeId == null) return;
+    if (pieceId == null) return;
     final picker = ref.read(imagePickerProvider);
     final seen = ref.read(photoRationaleSeenProvider);
     setState(() => _busy = true);
@@ -222,7 +223,7 @@ class _ContinuityStripState extends ConsumerState<ContinuityStrip> {
       if (!mounted) return;
       switch (outcome) {
         case CapturePicked(:final file):
-          await _prepareUploadAndLink(costumeId, file);
+          await _prepareUploadAndLink(pieceId, file);
         case CaptureDenied(:final source):
           await _showDenied(source);
         case CaptureUnavailable():
@@ -295,7 +296,7 @@ class _ContinuityStripState extends ConsumerState<ContinuityStrip> {
     );
   }
 
-  Future<void> _prepareUploadAndLink(String costumeId, XFile file) async {
+  Future<void> _prepareUploadAndLink(String pieceId, XFile file) async {
     Uint8List bytes;
     try {
       bytes = await file.readAsBytes();
@@ -330,7 +331,7 @@ class _ContinuityStripState extends ConsumerState<ContinuityStrip> {
         final upload = await ref
             .read(sceneShootsControllerProvider(widget.scope).notifier)
             .uploadContinuityBytes(
-              costumeId: costumeId,
+              pieceId: pieceId,
               bytes: bytes,
               contentType: contentType,
             );
@@ -408,10 +409,10 @@ sealed class _ResolvedContinuity {
 }
 
 class _LinkedPhoto extends _ResolvedContinuity {
-  const _LinkedPhoto({required this.costumeId, required this.photo});
+  const _LinkedPhoto({required this.pieceId, required this.photo});
 
-  final String costumeId;
-  final CostumePhotoView photo;
+  final String pieceId;
+  final PiecePhotoView photo;
 }
 
 class _OrphanPhoto extends _ResolvedContinuity {
@@ -423,10 +424,10 @@ class _OrphanPhoto extends _ResolvedContinuity {
 /// Joins linked continuity ids against the season costumes' embedded
 /// photos (read-DTO join — the client never fetches bytes blind).
 List<_ResolvedContinuity> _resolve(
-  List<CostumeView> costumes,
+  List<PieceView> costumes,
   Iterable<String> linkedIds,
 ) {
-  final byPhotoId = <String, (String, CostumePhotoView)>{};
+  final byPhotoId = <String, (String, PiecePhotoView)>{};
   for (final costume in costumes) {
     for (final photo in costume.photos) {
       byPhotoId.putIfAbsent(photo.id, () => (costume.id, photo));
@@ -435,8 +436,8 @@ List<_ResolvedContinuity> _resolve(
   return [
     for (final id in linkedIds)
       switch (byPhotoId[id]) {
-        (String costumeId, CostumePhotoView photo) => _LinkedPhoto(
-          costumeId: costumeId,
+        (String pieceId, PiecePhotoView photo) => _LinkedPhoto(
+          pieceId: pieceId,
           photo: photo,
         ),
         null => _OrphanPhoto(id),
@@ -444,7 +445,7 @@ List<_ResolvedContinuity> _resolve(
   ];
 }
 
-String _costumeLabel(CostumeView costume) {
+String _costumeLabel(PieceView costume) {
   final id = costume.id.length > 8 ? costume.id.substring(0, 8) : costume.id;
   final notes = costume.notes.trim();
   return notes.isEmpty ? 'Costume $id' : 'Costume $id — $notes';

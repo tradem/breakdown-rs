@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: glm-5.3-flash (opencode-go)
 // Co-authored-by: glm-5.3-flash (neuralwatt)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 // Tier-1 tests for the per-facet matchers and the grouped composition
 // (issue #616, task 1.3): exact field pinning per spec (scene = number
@@ -97,7 +98,6 @@ void main() {
         categoryName: null,
         detailText: 'Samt',
         photoId: 'photo-portal',
-        characterId: 'character-portal',
       );
       expect(costumeMatches(hit, f('samt')), isFalse);
       expect(costumeMatches(hit, f('portal')), isFalse);
@@ -251,19 +251,18 @@ CostumeOmniHit costumeHit({
   String? categoryName,
   String? detailText,
   String? photoId,
-  String? characterId,
 }) => CostumeOmniHit(
-  costume: CostumeView(
+  costume: PieceView(
     (b) => b
+      ..name = 'Fundus-Piece'
       ..id = 'costume-1'
       ..notes = notes
       ..categoryName = categoryName
-      ..characterId = characterId
       ..details.replace(
         detailText == null
-            ? BuiltList<CostumeDetailView>()
-            : BuiltList<CostumeDetailView>([
-                CostumeDetailView(
+            ? BuiltList<PieceDetailView>()
+            : BuiltList<PieceDetailView>([
+                PieceDetailView(
                   (d) => d
                     ..id = 'detail-1'
                     ..text = detailText,
@@ -272,9 +271,9 @@ CostumeOmniHit costumeHit({
       )
       ..photos.replace(
         photoId == null
-            ? BuiltList<CostumePhotoView>()
-            : BuiltList<CostumePhotoView>([
-                CostumePhotoView(
+            ? BuiltList<PiecePhotoView>()
+            : BuiltList<PiecePhotoView>([
+                PiecePhotoView(
                   (p) => p
                     ..id = photoId
                     ..contentType = 'image/jpeg'

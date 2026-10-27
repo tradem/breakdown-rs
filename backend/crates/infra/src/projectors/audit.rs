@@ -6,6 +6,7 @@
 // Co-authored-by: qwen3.6-35b (neuralwatt)
 // Co-authored-by: deepseek-v4-flash (opencode-go)
 // Co-authored-by: hy3 (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 //! Generic audit / journal projector.
 //!
 //! Generalized to all 11 aggregate categories (`season`, `block`, `episode`,
@@ -29,11 +30,12 @@ use breakdown_core::shared::{EventMetadata, PhotoId, SceneShootId, ShootingDayId
 use breakdown_core::{
     block::{aggregate::BlockAggregate, events::BlockEvent},
     character::{aggregate::CharacterAggregate, events::CharacterEvent},
-    costume::{aggregate::CostumeAggregate, events::CostumeEvent},
     costume_category::{aggregate::CostumeCategoryAggregate, events::CostumeCategoryEvent},
     episode::{aggregate::EpisodeAggregate, events::EpisodeEvent},
     membership::{aggregate::BlockMembership, events::MembershipEvent},
+    outfit::{aggregate::OutfitAggregate, events::OutfitEvent},
     photo::{aggregate::PhotoAggregate, events::PhotoEvent},
+    piece::{aggregate::PieceAggregate, events::PieceEvent},
     scene::{aggregate::SceneAggregate, events::SceneEvent},
     scene_shoot::{aggregate::SceneShootAggregate, events::SceneShootEvent},
     season::{aggregate::SeasonAggregate, events::SeasonEvent},
@@ -69,7 +71,8 @@ pub enum AuditCategory {
     SceneShoot,
     ShootingDay,
     Character,
-    Costume,
+    Piece,
+    Outfit,
     CostumeCategory,
     Photo,
     Membership,
@@ -87,7 +90,8 @@ impl AuditCategory {
             AuditCategory::SceneShoot => "scene_shoot",
             AuditCategory::ShootingDay => "shooting_day",
             AuditCategory::Character => "character",
-            AuditCategory::Costume => "costume",
+            AuditCategory::Piece => "piece",
+            AuditCategory::Outfit => "outfit",
             AuditCategory::CostumeCategory => "costume_category",
             AuditCategory::Photo => "photo",
             AuditCategory::Membership => "membership",
@@ -105,7 +109,8 @@ impl AuditCategory {
             AuditCategory::SceneShoot => "SceneShoot",
             AuditCategory::ShootingDay => "ShootingDay",
             AuditCategory::Character => "Character",
-            AuditCategory::Costume => "Costume",
+            AuditCategory::Piece => "Piece",
+            AuditCategory::Outfit => "Outfit",
             AuditCategory::CostumeCategory => "CostumeCategory",
             AuditCategory::Photo => "Photo",
             AuditCategory::Membership => "Membership",
@@ -358,10 +363,10 @@ impl<'a> EntityEventHandler<SceneAggregate, Transaction<'a, Postgres>> for Scene
             | SceneEvent::CharacterRemoved { id, .. }
             | SceneEvent::ShootingDayScheduled { id, .. }
             | SceneEvent::ShootingDayUnscheduled { id, .. }
-            | SceneEvent::CostumeBeatAdded { id, .. }
-            | SceneEvent::CostumeBeatUpdated { id, .. }
-            | SceneEvent::CostumeBeatRemoved { id, .. }
-            | SceneEvent::CostumeBeatsCleared { id, .. } => id.to_string(),
+            | SceneEvent::OutfitBeatAdded { id, .. }
+            | SceneEvent::OutfitBeatUpdated { id, .. }
+            | SceneEvent::OutfitBeatRemoved { id, .. }
+            | SceneEvent::OutfitBeatsCleared { id, .. } => id.to_string(),
         };
         let event_type = event.data.event_type().to_string();
         let (actor, provenance, project_id) = extract_metadata(&event);
@@ -531,43 +536,92 @@ impl<'a> EntityEventHandler<CharacterAggregate, Transaction<'a, Postgres>>
     }
 }
 
-// ── Category: costume ─────────────────────────────────────────────────
+// ── Category: piece ──────────────────────────────────────────────────
 
-/// Deduplicates events from the **Costume** aggregate into `projection_audit`.
+/// Deduplicates events from the **Piece** (wardrobe fundus) aggregate into
+/// `projection_audit`.
 #[derive(Clone, Default, Debug)]
-pub struct CostumeAuditProjector;
+pub struct PieceAuditProjector;
 
-impl<'a> EventHandler<Transaction<'a, Postgres>> for CostumeAuditProjector {
+impl<'a> EventHandler<Transaction<'a, Postgres>> for PieceAuditProjector {
     type Error = sqlx::Error;
 }
 
-impl<'a> EntityEventHandler<CostumeAggregate, Transaction<'a, Postgres>> for CostumeAuditProjector {
+impl<'a> EntityEventHandler<PieceAggregate, Transaction<'a, Postgres>> for PieceAuditProjector {
     async fn handle(
         &mut self,
         ctx: &mut Transaction<'a, Postgres>,
         _id: uuid::Uuid,
-        event: Event<CostumeEvent, EventMetadata>,
+        event: Event<PieceEvent, EventMetadata>,
     ) -> Result<(), Self::Error> {
         let entity_id = match &event.data {
-            CostumeEvent::CostumeCreated { id, .. }
-            | CostumeEvent::CostumeNotesUpdated { id, .. }
-            | CostumeEvent::CostumeAssignedToCharacter { id, .. }
-            | CostumeEvent::CostumeUnassigned { id, .. }
-            | CostumeEvent::CostumeAddedToSeason { id, .. }
-            | CostumeEvent::CostumeRemovedFromSeason { id, .. }
-            | CostumeEvent::DetailAdded { id, .. }
-            | CostumeEvent::DetailUpdated { id, .. }
-            | CostumeEvent::DetailRemoved { id, .. }
-            | CostumeEvent::PhotoLinked { id, .. }
-            | CostumeEvent::PhotoUnlinked { id, .. }
-            | CostumeEvent::CostumeCategorySet { id, .. } => id.to_string(),
+            PieceEvent::PieceCreated { id, .. }
+            | PieceEvent::PieceRenamed { id, .. }
+            | PieceEvent::PieceNotesUpdated { id, .. }
+            | PieceEvent::PieceAddedToSeason { id, .. }
+            | PieceEvent::PieceRemovedFromSeason { id, .. }
+            | PieceEvent::PieceDetailAdded { id, .. }
+            | PieceEvent::PieceDetailUpdated { id, .. }
+            | PieceEvent::PieceDetailRemoved { id, .. }
+            | PieceEvent::PiecePhotoLinked { id, .. }
+            | PieceEvent::PiecePhotoUnlinked { id, .. }
+            | PieceEvent::PieceCategorySet { id, .. } => id.to_string(),
         };
         let event_type = event.data.event_type().to_string();
         let (actor, provenance, project_id) = extract_metadata(&event);
 
         write_audit_row(
             ctx,
-            "costume",
+            "piece",
+            &entity_id,
+            &event_type,
+            actor,
+            &provenance,
+            project_id,
+            &event.data,
+            event.timestamp,
+            event.id,
+        )
+        .await?;
+
+        Ok(())
+    }
+}
+
+// ── Category: outfit ─────────────────────────────────────────────────
+
+/// Deduplicates events from the **Outfit** (character look) aggregate into
+/// `projection_audit`.
+#[derive(Clone, Default, Debug)]
+pub struct OutfitAuditProjector;
+
+impl<'a> EventHandler<Transaction<'a, Postgres>> for OutfitAuditProjector {
+    type Error = sqlx::Error;
+}
+
+impl<'a> EntityEventHandler<OutfitAggregate, Transaction<'a, Postgres>> for OutfitAuditProjector {
+    async fn handle(
+        &mut self,
+        ctx: &mut Transaction<'a, Postgres>,
+        _id: uuid::Uuid,
+        event: Event<OutfitEvent, EventMetadata>,
+    ) -> Result<(), Self::Error> {
+        let entity_id = match &event.data {
+            OutfitEvent::OutfitCreated { id, .. }
+            | OutfitEvent::OutfitVariantCreated { id, .. }
+            | OutfitEvent::OutfitRenamed { id, .. }
+            | OutfitEvent::OutfitNotesUpdated { id, .. }
+            | OutfitEvent::OutfitPieceAdded { id, .. }
+            | OutfitEvent::OutfitPieceRemoved { id, .. }
+            | OutfitEvent::OutfitPhotoLinked { id, .. }
+            | OutfitEvent::OutfitPhotoUnlinked { id, .. } => id.to_string(),
+        };
+        let event_type = event.data.event_type().to_string();
+        let (actor, provenance, project_id) = extract_metadata(&event);
+
+        write_audit_row(
+            ctx,
+            "outfit",
             &entity_id,
             &event_type,
             actor,
@@ -803,7 +857,7 @@ fn audit_category_coverage_is_exhaustive() {
     // This const list is the source-of-truth for expected variants.
     // Adding a new aggregate MUST add a variant here AND in the enum
     // AND in the supervisor exhaustive match in mod.rs.
-    let expected: [AuditCategory; 12] = [
+    let expected: [AuditCategory; 13] = [
         AuditCategory::Season,
         AuditCategory::Block,
         AuditCategory::Episode,
@@ -811,7 +865,8 @@ fn audit_category_coverage_is_exhaustive() {
         AuditCategory::SceneShoot,
         AuditCategory::ShootingDay,
         AuditCategory::Character,
-        AuditCategory::Costume,
+        AuditCategory::Piece,
+        AuditCategory::Outfit,
         AuditCategory::CostumeCategory,
         AuditCategory::Photo,
         AuditCategory::Membership,
@@ -819,7 +874,7 @@ fn audit_category_coverage_is_exhaustive() {
     ];
 
     // Verify: every category has a known entity_type string.
-    let types: [&str; 12] = [
+    let types: [&str; 13] = [
         "season",
         "block",
         "episode",
@@ -827,7 +882,8 @@ fn audit_category_coverage_is_exhaustive() {
         "scene_shoot",
         "shooting_day",
         "character",
-        "costume",
+        "piece",
+        "outfit",
         "costume_category",
         "photo",
         "membership",
@@ -844,11 +900,11 @@ fn audit_category_coverage_is_exhaustive() {
         );
     }
 
-    // There should be exactly 12 variants — no more, no fewer.
+    // There should be exactly 13 variants — no more, no fewer.
     assert_eq!(
         expected.len(),
-        12,
-        "AuditCategory count is not 12 — did someone add or remove a variant?"
+        13,
+        "AuditCategory count is not 13 — did someone add or remove a variant?"
     );
 }
 
@@ -901,7 +957,8 @@ mod mutation_tests {
             (SceneShoot, "SceneShoot"),
             (ShootingDay, "ShootingDay"),
             (Character, "Character"),
-            (Costume, "Costume"),
+            (Piece, "Piece"),
+            (Outfit, "Outfit"),
             (CostumeCategory, "CostumeCategory"),
             (Photo, "Photo"),
             (Membership, "Membership"),

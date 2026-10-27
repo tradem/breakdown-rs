@@ -4,6 +4,7 @@
 // Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 // Co-authored-by: glm-5.3-flash (neuralwatt)
 // Co-authored-by: deepseek-v4.1-flash (neuralwatt)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 import 'dart:async' show unawaited;
 
@@ -169,7 +170,7 @@ class _ScriptRowTile extends ConsumerWidget {
 
   /// The subtitle line (issue #709): episode before scene number, then
   /// shooting day · location · number of characters · number of costumes
-  /// (distinct `costumeId`s across the beats — the same costume worn twice
+  /// (distinct `pieceId`s across the beats — the same costume worn twice
   /// counts once). Absent optional fields (day, location) are omitted; the
   /// two counts always render, because "0 Figuren" is honest, actionable
   /// information for the costume department, not noise.
@@ -182,10 +183,10 @@ class _ScriptRowTile extends ConsumerWidget {
         : l10n.scriptRowEpisodeScene(episodePart, number);
     final day = row.scene.scriptDay;
     final location = row.scene.location;
-    final beats = row.scene.costumeBeats;
+    final beats = row.scene.outfitBeats;
     final costumes = beats == null
         ? const <String>{}
-        : {for (final beat in beats) beat.costumeId};
+        : {for (final beat in beats) beat.outfitId};
     return [
       identity,
       if (day != null && day.isNotEmpty) l10n.sceneDay(day),

@@ -5,6 +5,7 @@
 # Co-authored-by: kimi-k3 (neuralwatt)
 # Co-authored-by: omen-alpha (opencode-go)
 # Co-authored-by: deepseek-v4-flash (neuralwatt)
+# Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 # Problem-detail messages (ADR-031 D5). One message per registered
 # problem code; the key is derived 1:1 from the code
@@ -126,25 +127,28 @@ problem-costume-category-not-found =
     Kostümkategorie nicht gefunden.
 
 problem-costume-category-season-mismatch =
-    Die Kostümkategorie gehört zu einer Staffel außerhalb des Repertoires und der Charakter-Staffel dieses Kostüms.
+    Die Kostümkategorie gehört zu einer Staffel außerhalb des Repertoires dieses Kleidungsstücks.
 
 problem-costume-category-validation =
     Die Kostümkategorie-Anfrage ist nicht gültig.
 
-problem-costume-already-assigned =
-    Das Kostüm ist bereits einem Charakter zugeordnet (Charakter { $assigned_character_id }).
+problem-piece-detail-not-found =
+    Kleidungsstück-Detail nicht gefunden.
 
-problem-costume-detail-not-found =
-    Kostümdetail nicht gefunden.
+problem-piece-not-found =
+    Kleidungsstück nicht gefunden.
 
-problem-costume-not-found =
-    Kostüm nicht gefunden.
+problem-piece-validation =
+    Die Anfrage zum Kleidungsstück ist nicht gültig.
 
-problem-costume-validation =
-    Die Kostüm-Anfrage ist nicht gültig.
+problem-piece-container-unresolved =
+    Das Kleidungsstück ist keiner Staffel im Repertoire zugeordnet — sein zugehöriger Container kann nicht ermittelt werden. Laden Sie die Garderobenliste neu und versuchen Sie es erneut.
 
-problem-costume-container-unresolved =
-    Das Kostüm hat weder einen zugeordneten Charakter noch eine Repertoire-Staffel — sein zugehöriger Container kann nicht ermittelt werden. Laden Sie die Kostümliste neu und versuchen Sie es erneut.
+problem-outfit-not-found =
+    Outfit nicht gefunden.
+
+problem-outfit-validation =
+    Die Outfit-Anfrage ist nicht gültig.
 
 problem-domain-conflict =
     Der Vorgang steht im Konflikt mit dem aktuellen Zustand.

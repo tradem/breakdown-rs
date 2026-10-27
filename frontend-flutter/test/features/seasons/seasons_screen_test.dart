@@ -6,6 +6,7 @@
 // Co-authored-by: space-bunny-free (opencode-go)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
 // Co-authored-by: glm-5.3-flash (neuralwatt)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 import 'dart:async';
 
@@ -26,7 +27,7 @@ import 'package:frontend_flutter/core/problem_error.dart';
 import 'package:frontend_flutter/core/result.dart';
 import 'package:frontend_flutter/data/cache/cache_database.dart';
 import 'package:frontend_flutter/data/cache/clock.dart';
-import 'package:frontend_flutter/data/cache/costume_domains_cache_dao.dart';
+import 'package:frontend_flutter/data/cache/piece_domains_cache_dao.dart';
 import 'package:frontend_flutter/data/cache/hierarchy_cache_dao.dart';
 import 'package:frontend_flutter/data/cache/season_cache_dao.dart';
 import 'package:frontend_flutter/data/cache/seasons_cache_providers.dart';
@@ -495,7 +496,7 @@ void main() {
       final blocks = BlockCacheDao(db);
       await blocks.upsert(block('b1', seasonId: 'a'), at);
       await blocks.upsert(block('b2', seasonId: 'a'), at);
-      await CostumeCacheDao(db).upsert('a', costume('c1'), at);
+      await PieceCacheDao(db).upsert('a', costume('c1'), at);
     }
 
     testWidgets('projected card renders cached metadata (counts)', (
@@ -857,7 +858,7 @@ void main() {
             final blocks = BlockCacheDao(db);
             await blocks.upsert(block('b1', seasonId: 'a'), at);
             await blocks.upsert(block('b2', seasonId: 'a'), at);
-            await CostumeCacheDao(db).upsert('a', costume('c1'), at);
+            await PieceCacheDao(db).upsert('a', costume('c1'), at);
           },
           clock: fixedClock,
         );

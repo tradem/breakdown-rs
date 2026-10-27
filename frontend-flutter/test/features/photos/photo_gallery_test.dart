@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 // Tier-2 tests for the photo gallery + capture intent (Task 3.4): variant
 // states (Pending spinner / Ready thumb / Failed explanation +
@@ -27,7 +28,7 @@ import 'package:frontend_flutter/data/photo_repository.dart';
 import 'package:frontend_flutter/features/photos/capture.dart';
 import 'package:frontend_flutter/features/photos/widgets/photo_gallery.dart';
 
-CostumePhotoView _photo(String id, List<String> statuses) => CostumePhotoView(
+PiecePhotoView _photo(String id, List<String> statuses) => PiecePhotoView(
   (b) => b
     ..id = id
     ..contentType = 'image/jpeg'
@@ -51,12 +52,13 @@ CostumePhotoView _photo(String id, List<String> statuses) => CostumePhotoView(
     ),
 );
 
-CostumeView _costume(List<CostumePhotoView> photos) => CostumeView(
+PieceView _costume(List<PiecePhotoView> photos) => PieceView(
   (b) => b
+    ..name = 'Fundus-Piece'
     ..id = 'c-1'
     ..notes = 'n'
-    ..details.replace(BuiltList<CostumeDetailView>())
-    ..photos.replace(BuiltList<CostumePhotoView>(photos))
+    ..details.replace(BuiltList<PieceDetailView>())
+    ..photos.replace(BuiltList<PiecePhotoView>(photos))
     ..updatedAt = DateTime.utc(2026, 1, 1)
     ..version = 1,
 );
@@ -90,7 +92,7 @@ class _FakePhotoRepository extends PhotoRepository {
 
   @override
   Future<Result<Uint8List>> getBytes(
-    String costumeId,
+    String pieceId,
     String photoId,
     String variant,
   ) async {
@@ -313,7 +315,7 @@ void main() {
   group('PhotoGallery widget (3.4)', () {
     Future<void> pumpGallery(
       WidgetTester tester,
-      CostumeView costume, {
+      PieceView costume, {
       VoidCallback? onDelete,
     }) async {
       final repo = _FakePhotoRepository(BreakdownApi());
@@ -361,7 +363,7 @@ void main() {
     testWidgets('empty variants: pending spinner (watch continues)', (
       tester,
     ) async {
-      final photo = CostumePhotoView(
+      final photo = PiecePhotoView(
         (b) => b
           ..id = 'p-empty'
           ..contentType = 'image/jpeg'

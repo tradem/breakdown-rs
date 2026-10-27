@@ -16,10 +16,11 @@ import 'package:built_value/iso_8601_date_time_serializer.dart';
 import 'package:breakdown_api/src/date_serializer.dart';
 import 'package:breakdown_api/src/model/date.dart';
 
-import 'package:breakdown_api/src/model/add_costume_detail_request.dart';
-import 'package:breakdown_api/src/model/add_costume_to_season_request.dart';
 import 'package:breakdown_api/src/model/add_note_request.dart';
-import 'package:breakdown_api/src/model/add_scene_costume_beat_request.dart';
+import 'package:breakdown_api/src/model/add_outfit_piece_request.dart';
+import 'package:breakdown_api/src/model/add_piece_detail_request.dart';
+import 'package:breakdown_api/src/model/add_piece_to_season_request.dart';
+import 'package:breakdown_api/src/model/add_scene_outfit_beat_request.dart';
 import 'package:breakdown_api/src/model/aggregate_soll_ist_diff_row.dart';
 import 'package:breakdown_api/src/model/aggregate_soll_ist_report.dart';
 import 'package:breakdown_api/src/model/ai_config_view.dart';
@@ -35,7 +36,7 @@ import 'package:breakdown_api/src/model/ai_preview_payload_one_of.dart';
 import 'package:breakdown_api/src/model/ai_preview_payload_one_of1.dart';
 import 'package:breakdown_api/src/model/ai_preview_payload_one_of2.dart';
 import 'package:breakdown_api/src/model/ai_provider_info.dart';
-import 'package:breakdown_api/src/model/appearance_costume_view.dart';
+import 'package:breakdown_api/src/model/appearance_outfit_view.dart';
 import 'package:breakdown_api/src/model/apply_ai_import_request.dart';
 import 'package:breakdown_api/src/model/apply_ai_import_response.dart';
 import 'package:breakdown_api/src/model/apply_episode_group_request.dart';
@@ -45,7 +46,6 @@ import 'package:breakdown_api/src/model/apply_mapping_decision_one_of.dart';
 import 'package:breakdown_api/src/model/apply_mapping_decision_one_of_update.dart';
 import 'package:breakdown_api/src/model/apply_shooting_day_request.dart';
 import 'package:breakdown_api/src/model/assign_character_request.dart';
-import 'package:breakdown_api/src/model/assign_costume_request.dart';
 import 'package:breakdown_api/src/model/audit_entry.dart';
 import 'package:breakdown_api/src/model/block_view.dart';
 import 'package:breakdown_api/src/model/character_appearance_view.dart';
@@ -59,18 +59,15 @@ import 'package:breakdown_api/src/model/cost_display_preference.dart';
 import 'package:breakdown_api/src/model/cost_status.dart';
 import 'package:breakdown_api/src/model/costume_category_view.dart';
 import 'package:breakdown_api/src/model/costume_decision.dart';
-import 'package:breakdown_api/src/model/costume_detail.dart';
-import 'package:breakdown_api/src/model/costume_detail_request.dart';
-import 'package:breakdown_api/src/model/costume_detail_view.dart';
-import 'package:breakdown_api/src/model/costume_photo_view.dart';
-import 'package:breakdown_api/src/model/costume_view.dart';
 import 'package:breakdown_api/src/model/create_ai_config_request.dart';
 import 'package:breakdown_api/src/model/create_block_request.dart';
 import 'package:breakdown_api/src/model/create_character_request.dart';
 import 'package:breakdown_api/src/model/create_costume_category_request.dart';
-import 'package:breakdown_api/src/model/create_costume_request.dart';
 import 'package:breakdown_api/src/model/create_credential_request.dart';
 import 'package:breakdown_api/src/model/create_episode_request.dart';
+import 'package:breakdown_api/src/model/create_outfit_request.dart';
+import 'package:breakdown_api/src/model/create_outfit_variant_request.dart';
+import 'package:breakdown_api/src/model/create_piece_request.dart';
 import 'package:breakdown_api/src/model/create_scene_request.dart';
 import 'package:breakdown_api/src/model/create_season_request.dart';
 import 'package:breakdown_api/src/model/create_shooting_day_request.dart';
@@ -116,26 +113,37 @@ import 'package:breakdown_api/src/model/meta_credits_response.dart';
 import 'package:breakdown_api/src/model/meta_versions_response.dart';
 import 'package:breakdown_api/src/model/model_info.dart';
 import 'package:breakdown_api/src/model/model_pricing.dart';
+import 'package:breakdown_api/src/model/outfit_photo_view.dart';
+import 'package:breakdown_api/src/model/outfit_piece_view.dart';
+import 'package:breakdown_api/src/model/outfit_view.dart';
 import 'package:breakdown_api/src/model/photo_binding.dart';
 import 'package:breakdown_api/src/model/photo_binding_one_of.dart';
 import 'package:breakdown_api/src/model/photo_binding_one_of1.dart';
-import 'package:breakdown_api/src/model/photo_binding_one_of1_continuity.dart';
-import 'package:breakdown_api/src/model/photo_binding_one_of_costume.dart';
+import 'package:breakdown_api/src/model/photo_binding_one_of1_outfit.dart';
+import 'package:breakdown_api/src/model/photo_binding_one_of2.dart';
+import 'package:breakdown_api/src/model/photo_binding_one_of2_continuity.dart';
+import 'package:breakdown_api/src/model/photo_binding_one_of_piece.dart';
 import 'package:breakdown_api/src/model/photo_bytes_query.dart';
 import 'package:breakdown_api/src/model/photo_variant.dart';
 import 'package:breakdown_api/src/model/photo_variant_view.dart';
 import 'package:breakdown_api/src/model/photo_view.dart';
+import 'package:breakdown_api/src/model/piece_detail_request.dart';
+import 'package:breakdown_api/src/model/piece_detail_view.dart';
+import 'package:breakdown_api/src/model/piece_photo_view.dart';
+import 'package:breakdown_api/src/model/piece_view.dart';
 import 'package:breakdown_api/src/model/plan_scene_shoot_request.dart';
 import 'package:breakdown_api/src/model/pricing_source.dart';
 import 'package:breakdown_api/src/model/problem_details.dart';
 import 'package:breakdown_api/src/model/projector_health_snapshot.dart';
 import 'package:breakdown_api/src/model/rename_episode_request.dart';
+import 'package:breakdown_api/src/model/rename_outfit_request.dart';
+import 'package:breakdown_api/src/model/rename_piece_request.dart';
 import 'package:breakdown_api/src/model/rename_season_request.dart';
 import 'package:breakdown_api/src/model/replan_scene_shoot_request.dart';
 import 'package:breakdown_api/src/model/revoke_ai_config_request.dart';
 import 'package:breakdown_api/src/model/role.dart';
-import 'package:breakdown_api/src/model/scene_costume_beat_view.dart';
 import 'package:breakdown_api/src/model/scene_details.dart';
+import 'package:breakdown_api/src/model/scene_outfit_beat_view.dart';
 import 'package:breakdown_api/src/model/scene_shoot_status.dart';
 import 'package:breakdown_api/src/model/scene_shoot_view.dart';
 import 'package:breakdown_api/src/model/scene_source.dart';
@@ -149,7 +157,7 @@ import 'package:breakdown_api/src/model/season_view.dart';
 import 'package:breakdown_api/src/model/serialized_note.dart';
 import 'package:breakdown_api/src/model/series_membership_dto.dart';
 import 'package:breakdown_api/src/model/set_actual_order_request.dart';
-import 'package:breakdown_api/src/model/set_costume_category_request.dart';
+import 'package:breakdown_api/src/model/set_piece_category_request.dart';
 import 'package:breakdown_api/src/model/settings_view.dart';
 import 'package:breakdown_api/src/model/shoot_day_row.dart';
 import 'package:breakdown_api/src/model/shooting_day_source.dart';
@@ -172,12 +180,13 @@ import 'package:breakdown_api/src/model/update_block_time_span_request.dart';
 import 'package:breakdown_api/src/model/update_character_category_request.dart';
 import 'package:breakdown_api/src/model/update_contact_info_request.dart';
 import 'package:breakdown_api/src/model/update_costume_category_request.dart';
-import 'package:breakdown_api/src/model/update_costume_detail_request.dart';
-import 'package:breakdown_api/src/model/update_costume_notes_request.dart';
 import 'package:breakdown_api/src/model/update_measurements_request.dart';
 import 'package:breakdown_api/src/model/update_note_request.dart';
-import 'package:breakdown_api/src/model/update_scene_costume_beat_request.dart';
+import 'package:breakdown_api/src/model/update_outfit_notes_request.dart';
+import 'package:breakdown_api/src/model/update_piece_detail_request.dart';
+import 'package:breakdown_api/src/model/update_piece_notes_request.dart';
 import 'package:breakdown_api/src/model/update_scene_details_request.dart';
+import 'package:breakdown_api/src/model/update_scene_outfit_beat_request.dart';
 import 'package:breakdown_api/src/model/update_shooting_day_request.dart';
 import 'package:breakdown_api/src/model/variant_status.dart';
 import 'package:breakdown_api/src/model/version_request.dart';
@@ -186,10 +195,11 @@ import 'package:breakdown_api/src/model/wrap_shooting_day_request.dart';
 part 'serializers.g.dart';
 
 @SerializersFor([
-  AddCostumeDetailRequest,
-  AddCostumeToSeasonRequest,
   AddNoteRequest,
-  AddSceneCostumeBeatRequest,
+  AddOutfitPieceRequest,
+  AddPieceDetailRequest,
+  AddPieceToSeasonRequest,
+  AddSceneOutfitBeatRequest,
   AggregateSollIstDiffRow,
   AggregateSollIstReport,
   AiConfigView,
@@ -205,7 +215,7 @@ part 'serializers.g.dart';
   AiPreviewPayloadOneOf1,
   AiPreviewPayloadOneOf2,
   AiProviderInfo,
-  AppearanceCostumeView,
+  AppearanceOutfitView,
   ApplyAiImportRequest,
   ApplyAiImportResponse,
   ApplyEpisodeGroupRequest,
@@ -215,7 +225,6 @@ part 'serializers.g.dart';
   ApplyMappingDecisionOneOfUpdate,
   ApplyShootingDayRequest,
   AssignCharacterRequest,
-  AssignCostumeRequest,
   AuditEntry,
   BlockView,
   CharacterAppearanceView,
@@ -229,18 +238,15 @@ part 'serializers.g.dart';
   CostStatus,
   CostumeCategoryView,
   CostumeDecision,
-  CostumeDetail,
-  CostumeDetailRequest,
-  CostumeDetailView,
-  CostumePhotoView,
-  CostumeView,
   CreateAiConfigRequest,
   CreateBlockRequest,
   CreateCharacterRequest,
   CreateCostumeCategoryRequest,
-  CreateCostumeRequest,
   CreateCredentialRequest,
   CreateEpisodeRequest,
+  CreateOutfitRequest,
+  CreateOutfitVariantRequest,
+  CreatePieceRequest,
   CreateSceneRequest,
   CreateSeasonRequest,
   CreateShootingDayRequest,
@@ -287,26 +293,37 @@ part 'serializers.g.dart';
   MetaVersionsResponse,
   ModelInfo,
   ModelPricing,
+  OutfitPhotoView,
+  OutfitPieceView,
+  OutfitView,
   PhotoBinding,
   PhotoBindingOneOf,
   PhotoBindingOneOf1,
-  PhotoBindingOneOf1Continuity,
-  PhotoBindingOneOfCostume,
+  PhotoBindingOneOf1Outfit,
+  PhotoBindingOneOf2,
+  PhotoBindingOneOf2Continuity,
+  PhotoBindingOneOfPiece,
   PhotoBytesQuery,
   PhotoVariant,
   PhotoVariantView,
   PhotoView,
+  PieceDetailRequest,
+  PieceDetailView,
+  PiecePhotoView,
+  PieceView,
   PlanSceneShootRequest,
   PricingSource,
   ProblemDetails,
   ProjectorHealthSnapshot,
   RenameEpisodeRequest,
+  RenameOutfitRequest,
+  RenamePieceRequest,
   RenameSeasonRequest,
   ReplanSceneShootRequest,
   RevokeAiConfigRequest,
   Role,
-  SceneCostumeBeatView,
   SceneDetails,
+  SceneOutfitBeatView,
   SceneShootStatus,
   SceneShootView,
   SceneSource,
@@ -320,7 +337,7 @@ part 'serializers.g.dart';
   SerializedNote,
   SeriesMembershipDto,
   SetActualOrderRequest,
-  SetCostumeCategoryRequest,
+  SetPieceCategoryRequest,
   SettingsView,
   ShootDayRow,
   ShootingDaySource,
@@ -343,12 +360,13 @@ part 'serializers.g.dart';
   UpdateCharacterCategoryRequest,
   UpdateContactInfoRequest,
   UpdateCostumeCategoryRequest,
-  UpdateCostumeDetailRequest,
-  UpdateCostumeNotesRequest,
   UpdateMeasurementsRequest,
   UpdateNoteRequest,
-  UpdateSceneCostumeBeatRequest,
+  UpdateOutfitNotesRequest,
+  UpdatePieceDetailRequest,
+  UpdatePieceNotesRequest,
   UpdateSceneDetailsRequest,
+  UpdateSceneOutfitBeatRequest,
   UpdateShootingDayRequest,
   VariantStatus,
   VersionRequest,
@@ -360,10 +378,6 @@ Serializers serializers = (_$serializers.toBuilder()
         () => ListBuilder<ApplyMapping>(),
       )
       ..addBuilderFactory(
-        const FullType(BuiltList, [FullType(CostumeDetailView)]),
-        () => ListBuilder<CostumeDetailView>(),
-      )
-      ..addBuilderFactory(
         const FullType(BuiltList, [FullType(SerializedNote)]),
         () => ListBuilder<SerializedNote>(),
       )
@@ -372,8 +386,8 @@ Serializers serializers = (_$serializers.toBuilder()
         () => ListBuilder<CharacterView>(),
       )
       ..addBuilderFactory(
-        const FullType(BuiltList, [FullType(CostumePhotoView)]),
-        () => ListBuilder<CostumePhotoView>(),
+        const FullType(BuiltList, [FullType(PiecePhotoView)]),
+        () => ListBuilder<PiecePhotoView>(),
       )
       ..addBuilderFactory(
         const FullType(BuiltList, [FullType(DispoRow)]),
@@ -382,6 +396,10 @@ Serializers serializers = (_$serializers.toBuilder()
       ..addBuilderFactory(
         const FullType(BuiltList, [FullType(EpisodeView)]),
         () => ListBuilder<EpisodeView>(),
+      )
+      ..addBuilderFactory(
+        const FullType(BuiltList, [FullType(PieceView)]),
+        () => ListBuilder<PieceView>(),
       )
       ..addBuilderFactory(
         const FullType(BuiltList, [FullType(AiImportAttempt)]),
@@ -404,12 +422,20 @@ Serializers serializers = (_$serializers.toBuilder()
         () => ListBuilder<DraftScene>(),
       )
       ..addBuilderFactory(
+        const FullType(BuiltList, [FullType(OutfitPhotoView)]),
+        () => ListBuilder<OutfitPhotoView>(),
+      )
+      ..addBuilderFactory(
         const FullType(BuiltList, [FullType(CheckpointProgress)]),
         () => ListBuilder<CheckpointProgress>(),
       )
       ..addBuilderFactory(
         const FullType(BuiltMap, [FullType(String), FullType(double)]),
         () => MapBuilder<String, double>(),
+      )
+      ..addBuilderFactory(
+        const FullType(BuiltList, [FullType(AppearanceOutfitView)]),
+        () => ListBuilder<AppearanceOutfitView>(),
       )
       ..addBuilderFactory(
         const FullType(BuiltList, [FullType(ShootDayRow)]),
@@ -424,12 +450,16 @@ Serializers serializers = (_$serializers.toBuilder()
         () => ListBuilder<SceneShootView>(),
       )
       ..addBuilderFactory(
-        const FullType(BuiltList, [FullType(SceneCostumeBeatView)]),
-        () => ListBuilder<SceneCostumeBeatView>(),
+        const FullType(BuiltList, [FullType(SceneOutfitBeatView)]),
+        () => ListBuilder<SceneOutfitBeatView>(),
       )
       ..addBuilderFactory(
         const FullType(BuiltList, [FullType(ShootingScheduleRow)]),
         () => ListBuilder<ShootingScheduleRow>(),
+      )
+      ..addBuilderFactory(
+        const FullType(BuiltList, [FullType(PieceDetailView)]),
+        () => ListBuilder<PieceDetailView>(),
       )
       ..addBuilderFactory(
         const FullType(BuiltList, [FullType(AuditEntry)]),
@@ -454,10 +484,6 @@ Serializers serializers = (_$serializers.toBuilder()
       ..addBuilderFactory(
         const FullType(BuiltList, [FullType(BlockView)]),
         () => ListBuilder<BlockView>(),
-      )
-      ..addBuilderFactory(
-        const FullType(BuiltList, [FullType(AppearanceCostumeView)]),
-        () => ListBuilder<AppearanceCostumeView>(),
       )
       ..addBuilderFactory(
         const FullType(BuiltMap, [FullType(String), FullType(String)]),
@@ -520,8 +546,16 @@ Serializers serializers = (_$serializers.toBuilder()
         () => ListBuilder<CostumeCategoryView>(),
       )
       ..addBuilderFactory(
+        const FullType(BuiltList, [FullType(OutfitView)]),
+        () => ListBuilder<OutfitView>(),
+      )
+      ..addBuilderFactory(
         const FullType(BuiltList, [FullType(Uncertainty)]),
         () => ListBuilder<Uncertainty>(),
+      )
+      ..addBuilderFactory(
+        const FullType(BuiltList, [FullType(OutfitPieceView)]),
+        () => ListBuilder<OutfitPieceView>(),
       )
       ..addBuilderFactory(
         const FullType(BuiltList, [FullType(ManualArchiveJobResult)]),
@@ -535,10 +569,6 @@ Serializers serializers = (_$serializers.toBuilder()
         const FullType(
             BuiltMap, [FullType(String), FullType.nullable(JsonObject)]),
         () => MapBuilder<String, JsonObject?>(),
-      )
-      ..addBuilderFactory(
-        const FullType(BuiltList, [FullType(CostumeView)]),
-        () => ListBuilder<CostumeView>(),
       )
       ..addBuilderFactory(
         const FullType(BuiltList, [FullType(CharacterAppearanceView)]),

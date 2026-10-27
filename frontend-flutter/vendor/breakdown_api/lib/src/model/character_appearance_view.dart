@@ -6,30 +6,30 @@
 
 // ignore_for_file: unused_element
 import 'package:built_collection/built_collection.dart';
-import 'package:breakdown_api/src/model/appearance_costume_view.dart';
+import 'package:breakdown_api/src/model/appearance_outfit_view.dart';
 import 'package:built_value/built_value.dart';
 import 'package:built_value/serializer.dart';
 
 part 'character_appearance_view.g.dart';
 
-/// One appearance of a character in a scene (issue #621): the scene reference in script order plus the character's own costume beats in that scene.  Backs `GET /v1/characters/{id}/appearances` — the role extract (\"Ring binder per role\"): every scene the character appears in, in `scene_number` order, with the costume(s) that character wears there.
+/// One appearance of a character in a scene (issue #621): the scene reference in script order plus the character's own outfit beats in that scene.  Backs `GET /v1/characters/{id}/appearances` — the role extract (\"Ring binder per role\"): every scene the character appears in, in `scene_number` order, with the outfit(s) that character wears there.
 ///
 /// Properties:
-/// * [costumes] - The character's costume beats in this scene, ordered by `order`. Empty when the character has no costume beat in the scene yet.
 /// * [episodeId] - Opaque identifier for an `Episode` aggregate.
+/// * [outfits] - The character's outfit beats in this scene, ordered by `order`. Empty when the character has no outfit beat in the scene yet.
 /// * [sceneId]
 /// * [sceneNumber] - Script-order scene number; `None` for scenes not yet numbered.
 /// * [synopsis] - Scene synopsis (the scene projection's `summary`), for the extract row.
 @BuiltValue()
 abstract class CharacterAppearanceView
     implements Built<CharacterAppearanceView, CharacterAppearanceViewBuilder> {
-  /// The character's costume beats in this scene, ordered by `order`. Empty when the character has no costume beat in the scene yet.
-  @BuiltValueField(wireName: r'costumes')
-  BuiltList<AppearanceCostumeView>? get costumes;
-
   /// Opaque identifier for an `Episode` aggregate.
   @BuiltValueField(wireName: r'episode_id')
   String get episodeId;
+
+  /// The character's outfit beats in this scene, ordered by `order`. Empty when the character has no outfit beat in the scene yet.
+  @BuiltValueField(wireName: r'outfits')
+  BuiltList<AppearanceOutfitView>? get outfits;
 
   @BuiltValueField(wireName: r'scene_id')
   String get sceneId;
@@ -72,19 +72,19 @@ class _$CharacterAppearanceViewSerializer
     CharacterAppearanceView object, {
     FullType specifiedType = FullType.unspecified,
   }) sync* {
-    if (object.costumes != null) {
-      yield r'costumes';
-      yield serializers.serialize(
-        object.costumes,
-        specifiedType:
-            const FullType(BuiltList, [FullType(AppearanceCostumeView)]),
-      );
-    }
     yield r'episode_id';
     yield serializers.serialize(
       object.episodeId,
       specifiedType: const FullType(String),
     );
+    if (object.outfits != null) {
+      yield r'outfits';
+      yield serializers.serialize(
+        object.outfits,
+        specifiedType:
+            const FullType(BuiltList, [FullType(AppearanceOutfitView)]),
+      );
+    }
     yield r'scene_id';
     yield serializers.serialize(
       object.sceneId,
@@ -129,21 +129,21 @@ class _$CharacterAppearanceViewSerializer
       final key = serializedList[i] as String;
       final value = serializedList[i + 1];
       switch (key) {
-        case r'costumes':
-          final valueDes = serializers.deserialize(
-            value,
-            specifiedType: const FullType.nullable(
-                BuiltList, [FullType(AppearanceCostumeView)]),
-          ) as BuiltList<AppearanceCostumeView>?;
-          if (valueDes == null) continue;
-          result.costumes.replace(valueDes);
-          break;
         case r'episode_id':
           final valueDes = serializers.deserialize(
             value,
             specifiedType: const FullType(String),
           ) as String;
           result.episodeId = valueDes;
+          break;
+        case r'outfits':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType.nullable(
+                BuiltList, [FullType(AppearanceOutfitView)]),
+          ) as BuiltList<AppearanceOutfitView>?;
+          if (valueDes == null) continue;
+          result.outfits.replace(valueDes);
           break;
         case r'scene_id':
           final valueDes = serializers.deserialize(

@@ -3,6 +3,7 @@
 // Co-authored-by: qwen3.6-35b (neuralwatt)
 // Co-authored-by: deepseek-v4-flash (opencode-go)
 // Co-authored-by: longcat-2.0 (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 use breakdown_core::photo::aggregate::PhotoAggregate;
 use breakdown_core::photo::binding::PhotoBinding;
@@ -96,21 +97,21 @@ impl<'a> EntityEventHandler<PhotoAggregate, Transaction<'a, Postgres>> for Photo
                 // Handle continuity binding: populate projection_continuity_photo.
                 if let PhotoBinding::Continuity {
                     scene_shoot_id,
-                    costume_id,
+                    piece_id,
                 } = binding
                 {
                     sqlx::query(
                         r#"
                         INSERT INTO projection_continuity_photo
-                            (photo_id, scene_shoot_id, costume_id)
+                            (photo_id, scene_shoot_id, piece_id)
                         VALUES ($1, $2, $3)
                         ON CONFLICT (photo_id, scene_shoot_id) DO UPDATE SET
-                            costume_id = EXCLUDED.costume_id
+                            piece_id = EXCLUDED.piece_id
                         "#,
                     )
                     .bind(id.0)
                     .bind(scene_shoot_id.0)
-                    .bind(costume_id)
+                    .bind(piece_id)
                     .execute(&mut **ctx)
                     .await?;
                 }

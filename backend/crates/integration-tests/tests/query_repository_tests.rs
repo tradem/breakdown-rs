@@ -3,6 +3,7 @@
 // Co-authored-by: deepseek-v4-flash (opencode-go)
 // Co-authored-by: glm-5.2 (neuralwatt)
 // Co-authored-by: glm-5.3-flash (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 #![allow(
     clippy::unwrap_used,
@@ -14,7 +15,7 @@
 )]
 //! Category D: Query-Repository integration tests.
 //!
-//! Exercise the read-model query implementations for Scene, Character, Costume,
+//! Exercise the read-model query implementations for Scene, Character, Piece,
 //! Season, Block and Episode across an empty → populated projection cycle.
 
 mod fixtures;
@@ -28,11 +29,11 @@ use breakdown_core::character::category::CharacterCategory;
 use breakdown_core::character::commands::{CreateCharacter, UpdateMeasurements};
 use breakdown_core::character::events::CharacterMeasurements;
 use breakdown_core::character::ports::{CharacterCommands, CharacterRepository};
-use breakdown_core::costume::commands::{AddDetail, AssignCostumeToCharacter, CreateCostume};
-use breakdown_core::costume::events::CostumeDetail;
-use breakdown_core::costume::ports::{CostumeCommands, CostumeRepository};
 use breakdown_core::episode::commands::CreateEpisode;
 use breakdown_core::episode::ports::{EpisodeCommands, EpisodeRepository};
+use breakdown_core::piece::commands::{AddPieceDetail, AddPieceToSeason, CreatePiece};
+use breakdown_core::piece::events::PieceDetail;
+use breakdown_core::piece::ports::{PieceCommands, PieceRepository};
 use breakdown_core::scene::commands::CreateScene;
 use breakdown_core::scene::events::{SceneDetails, SceneSource};
 use breakdown_core::scene::ports::{SceneCommands, SceneRepository};
@@ -40,15 +41,15 @@ use breakdown_core::season::commands::{ArchiveSeason, CreateSeason};
 use breakdown_core::season::ports::{SeasonCommands, SeasonRepository};
 use breakdown_core::shared::{BlockId, EpisodeId, ProjectId, SeasonId};
 use infra::event_store::{
-    BlockCommandsImpl, CharacterCommandsImpl, CostumeCommandsImpl, EpisodeCommandsImpl,
-    SceneCommandsImpl, SeasonCommandsImpl,
+    BlockCommandsImpl, CharacterCommandsImpl, EpisodeCommandsImpl, SceneCommandsImpl,
+    SeasonCommandsImpl, WardrobeCommandsImpl,
 };
 use infra::projectors::{
-    spawn_block_projector, spawn_character_projector, spawn_costume_projector,
-    spawn_episode_projector, spawn_scene_projector, spawn_season_projector,
+    spawn_block_projector, spawn_character_projector, spawn_episode_projector,
+    spawn_piece_projector, spawn_scene_projector, spawn_season_projector,
 };
 use infra::queries::{
-    BlockRepositoryImpl, CharacterRepositoryImpl, CostumeRepositoryImpl, EpisodeRepositoryImpl,
+    BlockRepositoryImpl, CharacterRepositoryImpl, EpisodeRepositoryImpl, PieceRepositoryImpl,
     SceneRepositoryImpl, SeasonRepositoryImpl,
 };
 use kameo_es::command_service::CommandService;
@@ -63,7 +64,7 @@ use uuid::Uuid;
 fn pk_column_for(table: &str) -> &str {
     match table {
         "projection_scene_character" => "scene_id",
-        "projection_costume_detail" | "projection_costume_photo" => "costume_id",
+        "projection_piece_detail" | "projection_piece_photo" => "piece_id",
         // All other major projection tables use `id` as primary key.
         _ => "id",
     }
@@ -178,7 +179,7 @@ async fn init() -> Result<(
         infra::projectors::ProjectorFlushConfig::test_profile(),
     )
     .await?;
-    let _sp = spawn_costume_projector(
+    let _sp = spawn_piece_projector(
         pool.clone(),
         r6,
         infra::projectors::ProjectorFlushConfig::test_profile(),
@@ -278,15 +279,15 @@ async fn characters_by_season_returns_data() -> Result<()> {
 }
 
 #[tokio::test]
-async fn costumes_by_season_returns_data() -> Result<()> {
+async fn pieces_by_season_returns_data() -> Result<()> {
     let (pool, cmd_svc, _pg_guard, _sierra_guard) = init().await?;
     let season_id = SeasonId::new();
     let char_cmd = CharacterCommandsImpl::new(cmd_svc.clone());
-    let costume_cmd = CostumeCommandsImpl::new(cmd_svc);
-    let costume_repo = CostumeRepositoryImpl::new(pool.clone());
+    let piece_cmd = WardrobeCommandsImpl::new(cmd_svc);
+    let piece_repo = PieceRepositoryImpl::new(pool.clone());
 
-    // A costume is only visible via `list_by_season` once it is bound to a
-    // character in that season (the query joins through `character_id`).
+    // A piece is visible via `list_by_season` through its season repertoire
+    // (`projection_piece_season`) — a piece has no character binding.
     let char_id = Uuid::now_v7();
     char_cmd
         .create(
@@ -302,72 +303,77 @@ async fn costumes_by_season_returns_data() -> Result<()> {
         .await?;
     await_proj(&pool, "projection_character", char_id).await;
 
-    let costume_id = Uuid::now_v7();
-    let (_id, ver) = costume_cmd
+    let piece_id = Uuid::now_v7();
+    let (_id, ver) = piece_cmd
         .create(
             test_user(),
-            CreateCostume {
-                id: costume_id,
-                season_id: Some(season_id),
+            CreatePiece {
+                id: piece_id,
+                name: "Fundus-Piece".to_string(),
+                category_id: None,
+                season_id: None,
                 project_id: None,
             },
         )
         .await?;
-    await_proj(&pool, "projection_costume", costume_id).await;
+    await_proj(&pool, "projection_piece", piece_id).await;
 
-    costume_cmd
-        .assign_to_character(
+    // A piece reaches a season through its repertoire (the character binding
+    // moved to the outfit); the season-scoped list answers from there.
+    piece_cmd
+        .add_to_season(
             test_user(),
-            AssignCostumeToCharacter {
-                id: costume_id,
-                character_id: char_id,
+            AddPieceToSeason {
+                id: piece_id,
+                season_id,
                 project_id: None,
                 version: ver,
             },
         )
         .await?;
-    await_proj_version(&pool, "projection_costume", costume_id, ver.0 + 1).await;
+    await_proj_version(&pool, "projection_piece", piece_id, ver.0 + 1).await;
 
-    let costumes = costume_repo.list_by_season(season_id, 100, 0).await?;
+    let pieces = piece_repo.list_by_season(season_id, 100, 0).await?;
 
     assert!(
-        !costumes.is_empty(),
-        "expected at least 1 costume, got {}",
-        costumes.len()
+        !pieces.is_empty(),
+        "expected at least 1 piece, got {}",
+        pieces.len()
     );
-    assert!(costumes.iter().any(|c| c.id == costume_id));
+    assert!(pieces.iter().any(|c| c.id == piece_id));
 
     Ok(())
 }
 
 #[tokio::test]
-async fn costumes_with_details_returns_data() -> Result<()> {
+async fn pieces_with_details_returns_data() -> Result<()> {
     let (pool, cmd_svc, _pg_guard, _sierra_guard) = init().await?;
-    let costume_repo = CostumeRepositoryImpl::new(pool.clone());
-    let costume_cmd = CostumeCommandsImpl::new(cmd_svc);
+    let piece_repo = PieceRepositoryImpl::new(pool.clone());
+    let piece_cmd = WardrobeCommandsImpl::new(cmd_svc);
 
-    let costume_id = Uuid::now_v7();
+    let piece_id = Uuid::now_v7();
 
-    let cmd = CreateCostume {
-        id: costume_id,
+    let cmd = CreatePiece {
+        id: piece_id,
+        name: "Fundus-Piece".to_string(),
+        category_id: None,
         season_id: None,
         project_id: None,
     };
-    let (_id, ver) = costume_cmd.create(test_user(), cmd).await?;
+    let (_id, ver) = piece_cmd.create(test_user(), cmd).await?;
 
-    await_proj(&pool, "projection_costume", costume_id).await;
+    await_proj(&pool, "projection_piece", piece_id).await;
 
     // Add a detail
     let detail_id = Uuid::now_v7();
-    let ver2 = costume_cmd
+    let ver2 = piece_cmd
         .add_detail(
             test_user(),
-            AddDetail {
-                id: costume_id,
-                detail: CostumeDetail {
+            AddPieceDetail {
+                id: piece_id,
+                detail: PieceDetail {
                     id: detail_id,
                     subject: None,
-                    category_id: None,
                     text: "Sleeve".into(),
                 },
                 project_id: None,
@@ -376,13 +382,13 @@ async fn costumes_with_details_returns_data() -> Result<()> {
         )
         .await?;
 
-    await_proj_version(&pool, "projection_costume", costume_id, ver2.0 as u64).await;
-    await_proj_version(&pool, "projection_costume_detail", costume_id, 0).await;
+    await_proj_version(&pool, "projection_piece", piece_id, ver2.0 as u64).await;
+    await_proj_version(&pool, "projection_piece_detail", piece_id, 0).await;
 
     // Issue #295: `enrich` must populate `details` on the view — a deleted
     // field would fall back to an empty vec.
-    let view = costume_repo.find_by_id(costume_id).await?;
-    assert_eq!(view.details.len(), 1, "enrich must load costume details");
+    let view = piece_repo.find_by_id(piece_id).await?;
+    assert_eq!(view.details.len(), 1, "enrich must load piece details");
     assert_eq!(view.details[0].id, detail_id);
     assert_eq!(view.details[0].text, "Sleeve");
 
@@ -397,14 +403,14 @@ async fn costumes_with_details_returns_data() -> Result<()> {
     .bind(1234_i64)
     .execute(&pool)
     .await?;
-    sqlx::query("INSERT INTO projection_costume_photo (costume_id, photo_id) VALUES ($1, $2)")
-        .bind(costume_id)
+    sqlx::query("INSERT INTO projection_piece_photo (piece_id, photo_id) VALUES ($1, $2)")
+        .bind(piece_id)
         .bind(photo_id)
         .execute(&pool)
         .await?;
 
-    let view = costume_repo.find_by_id(costume_id).await?;
-    assert_eq!(view.photos.len(), 1, "enrich must load costume photos");
+    let view = piece_repo.find_by_id(piece_id).await?;
+    assert_eq!(view.photos.len(), 1, "enrich must load piece photos");
     assert_eq!(view.photos[0].id, photo_id);
     assert_eq!(view.photos[0].content_type, "image/jpeg");
     assert_eq!(view.photos[0].size_bytes, 1234);

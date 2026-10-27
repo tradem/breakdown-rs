@@ -5,6 +5,7 @@
 // Co-authored-by: muse-spark (opencode-go)
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 import 'dart:async';
 
@@ -92,8 +93,9 @@ BlockView block(String id, {String seasonId = 'season-1'}) => BlockView(
     ..version = 1,
 );
 
-CostumeView costume(String id) => CostumeView(
+PieceView costume(String id) => PieceView(
   (b) => b
+    ..name = 'Fundus-Piece'
     ..id = id
     ..notes = ''
     ..details.replace(const [])

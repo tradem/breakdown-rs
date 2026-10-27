@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: omen-alpha (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 import 'package:drift/drift.dart';
 import 'package:fpdart/fpdart.dart';
@@ -79,12 +80,12 @@ class SeasonMetricsDao {
           _db.blockCacheRows,
         },
       );
-      // Costumes are season-scoped (snapshot rows carry `season_id`).
+      // Pieces are season-scoped (snapshot rows carry `season_id`).
       final costumes = await _grouped(
         'SELECT season_id AS season_id, COUNT(*) AS c, '
-        'MIN(cached_at) AS oldest FROM costume_cache_rows '
+        'MIN(cached_at) AS oldest FROM piece_cache_rows '
         'GROUP BY season_id',
-        readsFrom: {_db.costumeCacheRows},
+        readsFrom: {_db.pieceCacheRows},
       );
 
       final seasonIds = {...blocks.keys, ...scenes.keys, ...costumes.keys};

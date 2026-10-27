@@ -4,6 +4,7 @@
 // Co-authored-by: omen-alpha (opencode-go)
 // Co-authored-by: kimi-k3 (neuralwatt)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 use thiserror::Error;
 use uuid::Uuid;
@@ -11,7 +12,6 @@ use uuid::Uuid;
 use crate::ai::error::AiConfigError;
 use crate::block::error::BlockError;
 use crate::character::error::CharacterError;
-use crate::costume::error::CostumeError;
 use crate::costume_category::error::CostumeCategoryError;
 use crate::episode::error::EpisodeError;
 use crate::error_registry::{
@@ -20,25 +20,27 @@ use crate::error_registry::{
     AI_CONFIG_DECISION_VAULT_KEY_EMPTY, AI_CONFIG_EMPTY_MODEL, AI_CONFIG_EMPTY_PROMPT,
     AI_CONFIG_EMPTY_PROVIDER, AI_CONFIG_EMPTY_VAULT_KEY, AI_CONFIG_NOT_FOUND,
     AI_CONFIG_PROVIDER_MISMATCH, BLOCK_NOT_FOUND, CHARACTER_NOT_FOUND, CHARACTER_VALIDATION,
-    CONCURRENCY_VERSION_MISMATCH, COSTUME_ALREADY_ASSIGNED, COSTUME_CATEGORY_ARCHIVED,
-    COSTUME_CATEGORY_SEASON_MISMATCH, COSTUME_CATEGORY_VALIDATION, COSTUME_DETAIL_NOT_FOUND,
-    COSTUME_NOT_FOUND, COSTUME_VALIDATION, DEPENDENCY_AUTH_FAILED, DOMAIN_CONFLICT,
-    DOMAIN_FORBIDDEN, DOMAIN_NOT_FOUND, DOMAIN_SERVICE_UNAVAILABLE, DOMAIN_VALIDATION,
-    EPISODE_NOT_FOUND, HTTP_INTERNAL_ERROR, MEMBERSHIP_ALREADY_INVITED,
-    MEMBERSHIP_BOOTSTRAP_NOT_ALLOWED, MEMBERSHIP_MISSING_ACTOR, MEMBERSHIP_NO_PENDING_INVITATION,
-    MEMBERSHIP_NOT_ACTIVE_MEMBER, MEMBERSHIP_NOT_FOUND, PHOTO_ALREADY_DELETED, PHOTO_NOT_FOUND,
-    PHOTO_VALIDATION, ProblemCode, SCENE_ALREADY_SCHEDULED, SCENE_BEAT_NOT_FOUND,
-    SCENE_CHARACTER_ALREADY_ASSIGNED, SCENE_CHARACTER_NOT_FOUND, SCENE_CHARACTER_NOT_IN_SCENE,
-    SCENE_NOT_FOUND, SCENE_NOT_SCHEDULED, SCENE_SHOOT_ALREADY_LINKED, SCENE_SHOOT_ALREADY_STARTED,
-    SCENE_SHOOT_NOT_FOUND, SCENE_SHOOT_NOTE_NOT_FOUND, SCENE_SHOOT_PAIR_ALREADY_EXISTS,
-    SCENE_SHOOT_PLANNED_ORDER_FROZEN, SCENE_SHOOT_SHOOTING_DAY_WRAPPED, SCENE_SHOOT_TERMINAL_STATE,
-    SCENE_SHOOT_VALIDATION, SCENE_VALIDATION, SEASON_NOT_FOUND, SETTINGS_ALREADY_REVOKED,
-    SETTINGS_EMPTY_PROVIDER, SETTINGS_EMPTY_VAULT_KEY, SETTINGS_NOT_FOUND,
-    SETTINGS_PROVIDER_MISMATCH, SHOOTING_DAY_ARCHIVED, SHOOTING_DAY_DUPLICATE_ORDER_KEY,
-    SHOOTING_DAY_NOT_FOUND, SHOOTING_DAY_TARGET_WRAPPED, SHOOTING_DAY_VALIDATION,
+    CONCURRENCY_VERSION_MISMATCH, COSTUME_CATEGORY_ARCHIVED, COSTUME_CATEGORY_SEASON_MISMATCH,
+    COSTUME_CATEGORY_VALIDATION, DEPENDENCY_AUTH_FAILED, DOMAIN_CONFLICT, DOMAIN_FORBIDDEN,
+    DOMAIN_NOT_FOUND, DOMAIN_SERVICE_UNAVAILABLE, DOMAIN_VALIDATION, EPISODE_NOT_FOUND,
+    HTTP_INTERNAL_ERROR, MEMBERSHIP_ALREADY_INVITED, MEMBERSHIP_BOOTSTRAP_NOT_ALLOWED,
+    MEMBERSHIP_MISSING_ACTOR, MEMBERSHIP_NO_PENDING_INVITATION, MEMBERSHIP_NOT_ACTIVE_MEMBER,
+    MEMBERSHIP_NOT_FOUND, OUTFIT_NOT_FOUND, OUTFIT_VALIDATION, PHOTO_ALREADY_DELETED,
+    PHOTO_NOT_FOUND, PHOTO_VALIDATION, PIECE_DETAIL_NOT_FOUND, PIECE_NOT_FOUND, PIECE_VALIDATION,
+    ProblemCode, SCENE_ALREADY_SCHEDULED, SCENE_BEAT_NOT_FOUND, SCENE_CHARACTER_ALREADY_ASSIGNED,
+    SCENE_CHARACTER_NOT_FOUND, SCENE_CHARACTER_NOT_IN_SCENE, SCENE_NOT_FOUND, SCENE_NOT_SCHEDULED,
+    SCENE_SHOOT_ALREADY_LINKED, SCENE_SHOOT_ALREADY_STARTED, SCENE_SHOOT_NOT_FOUND,
+    SCENE_SHOOT_NOTE_NOT_FOUND, SCENE_SHOOT_PAIR_ALREADY_EXISTS, SCENE_SHOOT_PLANNED_ORDER_FROZEN,
+    SCENE_SHOOT_SHOOTING_DAY_WRAPPED, SCENE_SHOOT_TERMINAL_STATE, SCENE_SHOOT_VALIDATION,
+    SCENE_VALIDATION, SEASON_NOT_FOUND, SETTINGS_ALREADY_REVOKED, SETTINGS_EMPTY_PROVIDER,
+    SETTINGS_EMPTY_VAULT_KEY, SETTINGS_NOT_FOUND, SETTINGS_PROVIDER_MISMATCH,
+    SHOOTING_DAY_ARCHIVED, SHOOTING_DAY_DUPLICATE_ORDER_KEY, SHOOTING_DAY_NOT_FOUND,
+    SHOOTING_DAY_TARGET_WRAPPED, SHOOTING_DAY_VALIDATION,
 };
 use crate::membership::error::MembershipError;
+use crate::outfit::error::OutfitError;
 use crate::photo::error::PhotoError;
+use crate::piece::error::PieceError;
 use crate::scene::error::SceneError;
 use crate::scene_shoot::error::SceneShootError;
 use crate::season::error::SeasonError;
@@ -123,11 +125,6 @@ pub enum DomainError {
         current: AggregateVersion,
     },
 
-    /// Costume already assigned to a character (409, `costume.already-assigned`).
-    /// `character_id` is S1 — rendered only after the handler's authz gate.
-    #[error("costume is already assigned to character {character_id}")]
-    AlreadyAssigned { character_id: Uuid },
-
     /// Scene already scheduled on another day (409, `scene.already-scheduled`).
     /// `shooting_day_id` is S1 — rendered only after the handler's authz gate.
     #[error("scene is already scheduled on shooting day {shooting_day_id}")]
@@ -164,13 +161,10 @@ pub enum DomainError {
     ShootingDayTargetWrapped { shooting_day_id: Uuid },
 
     /// Costume category from a foreign season (409,
-    /// `costume-category.season-mismatch`, issue #543). The costume's
-    /// permitted season set is `repertoire_seasons ∪ season(character)`;
-    /// the API edge pre-checks it before dispatch. `category_id` is S0
-    /// (client-supplied in the request body).
-    #[error(
-        "costume category {category_id} belongs to a season outside the costume's repertoire and character season"
-    )]
+    /// `costume-category.season-mismatch`, issue #543). A piece's permitted
+    /// season set is exactly its repertoire; the API edge pre-checks it before
+    /// dispatch. `category_id` is S0 (client-supplied in the request body).
+    #[error("costume category {category_id} belongs to a season outside the piece's repertoire")]
     CategorySeasonMismatch { category_id: Uuid },
 }
 
@@ -264,11 +258,11 @@ impl From<SceneError> for DomainError {
                 order,
             } => DomainError::Validation {
                 code: &SCENE_BEAT_NOT_FOUND,
-                reason: format!("no costume beat for character {character_id} at order {order}"),
+                reason: format!("no outfit beat for character {character_id} at order {order}"),
             },
-            SceneError::NoCostumeBeats { character_id } => DomainError::Validation {
+            SceneError::NoOutfitBeats { character_id } => DomainError::Validation {
                 code: &SCENE_BEAT_NOT_FOUND,
-                reason: format!("no costume beats for character {character_id}"),
+                reason: format!("no outfit beats for character {character_id}"),
             },
             SceneError::AlreadyScheduled { shooting_day_id } => DomainError::AlreadyScheduled {
                 shooting_day_id: shooting_day_id.0,
@@ -304,30 +298,55 @@ impl From<CharacterError> for DomainError {
     }
 }
 
-impl From<CostumeError> for DomainError {
-    fn from(err: CostumeError) -> Self {
+impl From<PieceError> for DomainError {
+    fn from(err: PieceError) -> Self {
         match err {
-            CostumeError::ValidationError(msg) => DomainError::Validation {
-                code: &COSTUME_VALIDATION,
+            PieceError::EmptyName => DomainError::Validation {
+                code: &PIECE_VALIDATION,
+                reason: "piece name must not be empty".into(),
+            },
+            PieceError::ValidationError(msg) => DomainError::Validation {
+                code: &PIECE_VALIDATION,
                 reason: msg,
             },
-            CostumeError::NotFound { id } => DomainError::NotFound {
-                code: &COSTUME_NOT_FOUND,
-                resource: "costume",
+            PieceError::NotFound { id } => DomainError::NotFound {
+                code: &PIECE_NOT_FOUND,
+                resource: "piece",
                 id,
             },
-            // Issue #544: the costume exists, the addressed detail does not.
-            // A distinct 404 code (not `costume.validation` 422) so the
-            // client can tell the two apart and reconcile by refetching.
-            CostumeError::DetailNotFound { id } => DomainError::NotFound {
-                code: &COSTUME_DETAIL_NOT_FOUND,
-                resource: "costume-detail",
+            // Issue #544: the piece exists, the addressed detail does not.
+            // A distinct 404 code (not `piece.validation` 422) so the client
+            // can tell the two apart and reconcile by refetching.
+            PieceError::DetailNotFound { id } => DomainError::NotFound {
+                code: &PIECE_DETAIL_NOT_FOUND,
+                resource: "piece-detail",
                 id,
             },
-            CostumeError::AlreadyAssigned { assigned_to } => DomainError::AlreadyAssigned {
-                character_id: assigned_to,
+            PieceError::VersionMismatch { expected, actual } => DomainError::VersionConflict {
+                expected,
+                current: actual,
             },
-            CostumeError::VersionMismatch { expected, actual } => DomainError::VersionConflict {
+        }
+    }
+}
+
+impl From<OutfitError> for DomainError {
+    fn from(err: OutfitError) -> Self {
+        match err {
+            OutfitError::EmptyName => DomainError::Validation {
+                code: &OUTFIT_VALIDATION,
+                reason: "outfit name must not be empty".into(),
+            },
+            OutfitError::ValidationError(msg) => DomainError::Validation {
+                code: &OUTFIT_VALIDATION,
+                reason: msg,
+            },
+            OutfitError::NotFound { id } => DomainError::NotFound {
+                code: &OUTFIT_NOT_FOUND,
+                resource: "outfit",
+                id,
+            },
+            OutfitError::VersionMismatch { expected, actual } => DomainError::VersionConflict {
                 expected,
                 current: actual,
             },
@@ -678,7 +697,6 @@ impl DomainError {
             | DomainError::DependencyAuthFailed { code, .. } => code,
             DomainError::Internal { .. } => &HTTP_INTERNAL_ERROR,
             DomainError::VersionConflict { .. } => &CONCURRENCY_VERSION_MISMATCH,
-            DomainError::AlreadyAssigned { .. } => &COSTUME_ALREADY_ASSIGNED,
             DomainError::AlreadyScheduled { .. } => &SCENE_ALREADY_SCHEDULED,
             DomainError::NotScheduled { .. } => &SCENE_NOT_SCHEDULED,
             DomainError::AlreadyLinked { .. } => &SCENE_SHOOT_ALREADY_LINKED,

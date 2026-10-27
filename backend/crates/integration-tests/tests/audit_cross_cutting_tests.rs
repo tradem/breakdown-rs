@@ -4,6 +4,7 @@
 // Co-authored-by: glm-5.2 (neuralwatt)
 // Co-authored-by: gpt-5.6-luna (opencode-go)
 // Co-authored-by: glm-5.3-flash (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 #![allow(
     clippy::unwrap_used,
@@ -651,7 +652,7 @@ async fn non_membership_events_produce_attributed_audit_rows() -> Result<()> {
     Ok(())
 }
 
-/// Create a costume category via EAPPEND and verify audit row attribution.
+/// Create a piece category via EAPPEND and verify audit row attribution.
 /// (Requires a season to exist for project_id resolution.)
 #[tokio::test]
 async fn costume_category_create_produces_attributed_audit_row() -> Result<()> {
@@ -670,7 +671,7 @@ async fn costume_category_create_produces_attributed_audit_row() -> Result<()> {
         id: season_id,
         project_id,
         number: 2,
-        title: Some("Costume Cat Season".into()),
+        title: Some("Piece Cat Season".into()),
         version: AggregateVersion::INITIAL,
     };
     let season_payload = encode_event(&season_event)?;
@@ -689,7 +690,7 @@ async fn costume_category_create_produces_attributed_audit_row() -> Result<()> {
     // Wait for season to be projected.
     await_audit_rows(&audit_repo, "season", season_id, 1).await?;
 
-    // Create a costume category.
+    // Create a piece category.
     let cc_id = Uuid::now_v7();
     let cc_stream = format!("costume_category-{cc_id}");
     let cc_event = CostumeCategoryEvent::CostumeCategoryCreated {
@@ -753,7 +754,7 @@ async fn costume_category_create_produces_attributed_audit_row() -> Result<()> {
 async fn saga_dispatched_costume_category_shows_saga_provenance() -> Result<()> {
     let containers = init_containers();
 
-    // Spawn the costume category read-model projector on the projector pool so
+    // Spawn the piece category read-model projector on the projector pool so
     // its workers don't compete with test queries for connection slots.
     // Bounded like RESP_ATTEMPT_TIMEOUT above: the spawn opens its own
     // multiplexed Redis connection (no redis-rs default timeout) and a wedged

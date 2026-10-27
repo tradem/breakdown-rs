@@ -2,12 +2,12 @@
   "assigned_characters": [
     "019e7044-8800-7005-8000-000000000005"
   ],
-  "costume_beats": [],
   "episode_id": "019e7044-8800-7003-8000-000000000003",
   "id": "019e7044-8800-7004-8000-000000000004",
   "is_schedule_set": true,
   "location": "Set A",
   "mood": "Tag",
+  "outfit_beats": [],
   "scene_number": 1,
   "script_day": "1. Spieltag",
   "shooting_day_ids": [

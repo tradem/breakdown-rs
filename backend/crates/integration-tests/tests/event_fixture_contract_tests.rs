@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: deepseek-v4-flash (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 // Crate-level lint suppression for this fixture/contract test target
 // (justification, AGENTS.md §3): test code is the exempted class for the
@@ -54,9 +55,9 @@ use anyhow::{Result, anyhow, bail};
 use breakdown_core::block::events::BlockEvent;
 use breakdown_core::character::category::CharacterCategory;
 use breakdown_core::character::events::{CharacterEvent, CharacterMeasurements, ContactInfo};
-use breakdown_core::costume::events::CostumeEvent;
 use breakdown_core::costume_category::events::CostumeCategoryEvent;
 use breakdown_core::episode::events::EpisodeEvent;
+use breakdown_core::piece::events::PieceEvent;
 use breakdown_core::scene::events::{SceneDetails, SceneEvent, SceneSource};
 use breakdown_core::scene_shoot::events::SceneShootEvent;
 use breakdown_core::season::events::SeasonEvent;
@@ -67,8 +68,8 @@ use breakdown_core::shared::{
 use breakdown_core::shooting_day::events::{ShootingDayEvent, ShootingDaySource};
 use chrono::{DateTime, TimeZone, Utc};
 use infra::projectors::{
-    BlockProjector, CharacterProjector, CostumeCategoryProjector, CostumeProjector,
-    EpisodeProjector, PROJECTOR_VERSION, SceneProjector, SceneShootProjector, SeasonProjector,
+    BlockProjector, CharacterProjector, CostumeCategoryProjector, EpisodeProjector,
+    PROJECTOR_VERSION, PieceProjector, SceneProjector, SceneShootProjector, SeasonProjector,
     ShootingDayProjector,
 };
 use kameo_es::Event;
@@ -134,7 +135,7 @@ struct SampleChain {
     episode: EpisodeEvent,
     scene: SceneEvent,
     character: CharacterEvent,
-    costume: CostumeEvent,
+    piece: PieceEvent,
     shooting_day: ShootingDayEvent,
     costume_category: CostumeCategoryEvent,
     scene_shoot: SceneShootEvent,
@@ -144,7 +145,7 @@ struct SampleChain {
     scene_id: Uuid,
     character_id: Uuid,
     project_id: Uuid,
-    costume_id: Uuid,
+    piece_id: Uuid,
     shooting_day_id: Uuid,
     category_id: Uuid,
     scene_shoot_id: Uuid,
@@ -189,7 +190,7 @@ fn sample_chain() -> SampleChain {
     let episode_id = fixed_uuid(3);
     let scene_id = fixed_uuid(4);
     let character_id = fixed_uuid(5);
-    let costume_id = fixed_uuid(6);
+    let piece_id = fixed_uuid(6);
     let shooting_day_id = fixed_uuid(7);
     let category_id = fixed_uuid(8);
     let scene_shoot_id = fixed_uuid(9);
@@ -255,9 +256,10 @@ fn sample_chain() -> SampleChain {
             },
             version: AggregateVersion(1),
         },
-        costume: CostumeEvent::CostumeCreated {
-            id: costume_id,
-            character_id: Some(character_id),
+        piece: PieceEvent::PieceCreated {
+            id: piece_id,
+            name: "Fundus-Piece".to_string(),
+            category_id: None,
             season_id: None,
             notes: "Rote Lederjacke".to_string(),
             details: vec![],
@@ -294,7 +296,7 @@ fn sample_chain() -> SampleChain {
         scene_id,
         character_id,
         project_id: project_id.0,
-        costume_id,
+        piece_id,
         shooting_day_id,
         category_id,
         scene_shoot_id,
@@ -339,8 +341,8 @@ fn sample_fixtures(chain: &SampleChain) -> Result<Vec<(&'static str, EventFixtur
             )?,
         ),
         (
-            "costume_created",
-            EventFixture::new(chain.costume.clone(), chain.costume_id, t, metadata.clone())?,
+            "piece_created",
+            EventFixture::new(chain.piece.clone(), chain.piece_id, t, metadata.clone())?,
         ),
         (
             "shooting_day_created",
@@ -450,9 +452,8 @@ fn captured_event_fixtures_still_deserialize() {
                 serde_json::from_value::<CharacterEvent>(on_disk.event.clone())
                     .expect("CharacterEvent");
             }
-            "costume_created" => {
-                serde_json::from_value::<CostumeEvent>(on_disk.event.clone())
-                    .expect("CostumeEvent");
+            "piece_created" => {
+                serde_json::from_value::<PieceEvent>(on_disk.event.clone()).expect("PieceEvent");
             }
             "shooting_day_created" => {
                 serde_json::from_value::<ShootingDayEvent>(on_disk.event.clone())
@@ -532,7 +533,7 @@ async fn replay_captured_chain_through_projectors_round_trips() -> Result<()> {
     let episode_fx = by_name("episode_created");
     let scene_fx = by_name("scene_created");
     let character_fx = by_name("character_created");
-    let costume_fx = by_name("costume_created");
+    let piece_fx = by_name("piece_created");
     let shooting_day_fx = by_name("shooting_day_created");
     let category_fx = by_name("costume_category_created");
     let scene_shoot_fx = by_name("scene_shoot_planned");
@@ -540,7 +541,7 @@ async fn replay_captured_chain_through_projectors_round_trips() -> Result<()> {
     let mut tx = pool.begin().await?;
 
     // Dependency order: season → block → episode → scene → character →
-    // costume → shooting_day → costume_category → scene_shoot (FK chain).
+    // piece → shooting_day → costume_category → scene_shoot (FK chain).
     let mut season = SeasonProjector;
     season
         .handle(
@@ -581,12 +582,12 @@ async fn replay_captured_chain_through_projectors_round_trips() -> Result<()> {
             event_of::<CharacterEvent, EventMetadata>(&character_fx),
         )
         .await?;
-    let mut costume = CostumeProjector;
-    costume
+    let mut piece = PieceProjector;
+    piece
         .handle(
             &mut tx,
-            costume_fx.aggregate_id,
-            event_of::<CostumeEvent, EventMetadata>(&costume_fx),
+            piece_fx.aggregate_id,
+            event_of::<PieceEvent, EventMetadata>(&piece_fx),
         )
         .await?;
     let mut shooting_day = ShootingDayProjector;
@@ -720,14 +721,14 @@ async fn replay_captured_chain_through_projectors_round_trips() -> Result<()> {
     .await?;
     assert_projected(
         &pool,
-        "SELECT to_jsonb(projection_costume) - 'updated_at' FROM projection_costume WHERE id = $1",
-        "SELECT (updated_at = $1) FROM projection_costume WHERE id = $2",
-        costume_fx.aggregate_id,
+        "SELECT to_jsonb(projection_piece) - 'updated_at' FROM projection_piece WHERE id = $1",
+        "SELECT (updated_at = $1) FROM projection_piece WHERE id = $2",
+        piece_fx.aggregate_id,
         json!({
-            "id": costume_fx.aggregate_id,
-            "character_id": character_fx.aggregate_id,
-            // Issue #543: the costume-level category columns (NULL for an
-            // uncategorised costume until `CostumeCategorySet`).
+            "id": piece_fx.aggregate_id,
+            // A piece is character-free: the character binding lives on the
+            // outfit. `name` is required by the clean-cut model.
+            "name": "Fundus-Piece",
             "category_id": null,
             "category_name": null,
             "notes": "Rote Lederjacke",

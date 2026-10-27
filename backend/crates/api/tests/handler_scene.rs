@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: mimo-v2.5 (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 #![allow(
     clippy::unwrap_used,
@@ -57,7 +58,7 @@ async fn get_scene_returns_view_from_repo() {
         script_day: None,
         shooting_day_ids: Vec::new(),
         assigned_characters: Vec::new(),
-        costume_beats: Vec::new(),
+        outfit_beats: Vec::new(),
         version: AggregateVersion::INITIAL,
         updated_at: Utc::now(),
         source: Some(SceneSource::Manual),

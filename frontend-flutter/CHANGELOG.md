@@ -23,6 +23,42 @@ releases are cut as `vX.Y.Z` tags (`v<build-name>`, enforced by
 
 ## [Unreleased]
 
+- **Wardrobe port to the `Piece`/`Outfit` split (backend change
+  `separate-piece-and-outfit-domain`):** `0.4.0-beta.13+105 →
+  0.4.0-beta.14+106`. The backend retired the single `Costume` aggregate and
+  replaced it with two — `Piece` (fundus garment: required `name`, one optional
+  category, season repertoire, details, photos, **no character binding**) and
+  `Outfit` (a character's composed look: mandatory character, `0..n` pieces
+  with layering, `variant_of`, photos) — and re-pointed scene casting to
+  `SceneOutfitBeat`. The client follows in one step:
+
+  - **Generated client:** regenerated from `backend/openapi.yaml`
+    (`/v1/pieces*`, `/v1/outfits*`, `/v1/characters/{id}/outfits`,
+    `/v1/scenes/{id}/outfits*`; the `/v1/costumes*` routes are gone). The
+    `costume-category` vocabulary routes are unchanged by design.
+  - **Offline cache (schema v16):** `piece_cache_rows` /
+    `fundus_piece_cache_rows` carry the required `name` and no `character_id`;
+    a new `outfit_cache_rows` slice is keyed by character. The retired
+    `costume_cache_rows` snapshots are dropped in the migration — they describe
+    a DTO that no longer exists and could never be read again — and refill on
+    the next TTL snapshot-replace (the one deliberate exception to the
+    "no destructive cache migrations" rule, documented in the migration).
+  - **Data layer:** `PieceRepository` (create-with-name, rename, notes,
+    details, category, repertoire, photos) and the new `OutfitRepository`
+    (list by character, create, variant fork, rename, notes, add/remove piece)
+    with optimistic overlays; scene beats dispatch outfit ids; the photo
+    bindings are `piece`/`outfit`.
+  - **UI:** the wardrobe screens operate on **pieces**; the character
+    assignment actions are removed (a garment no longer belongs to a
+    character), and the scene beat picker lists the character's **outfits**,
+    labelled by the look's own name. Tile identity uses the piece's required
+    `name`, falling back to the detail subject and notes.
+  - **Verified locally:** `flutter analyze` clean, `flutter test` 1853/1853
+    green, client regeneration byte-identical (drift job), goldens
+    regenerated for the tile/editor/detail/beat sections.
+
+  The fuller wardrobe UX (dedicated outfit list/detail screens, piece↔outfit
+  navigation, German copy) is tracked in follow-up issue #739.
 - **Issue #736 — Decision provider picker driven by the backend capability:**
   `0.4.0-beta.12+104 → 0.4.0-beta.13+105`. The Decision Model provider
   picker filtered its entries through the client-side allowlist

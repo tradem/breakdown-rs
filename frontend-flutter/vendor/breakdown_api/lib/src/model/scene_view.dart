@@ -7,7 +7,7 @@
 // ignore_for_file: unused_element
 import 'package:breakdown_api/src/model/scene_source.dart';
 import 'package:built_collection/built_collection.dart';
-import 'package:breakdown_api/src/model/scene_costume_beat_view.dart';
+import 'package:breakdown_api/src/model/scene_outfit_beat_view.dart';
 import 'package:built_value/built_value.dart';
 import 'package:built_value/serializer.dart';
 
@@ -17,12 +17,12 @@ part 'scene_view.g.dart';
 ///
 /// Properties:
 /// * [assignedCharacters]
-/// * [costumeBeats] - Ordered costume beats per (character, order) — the scene-side casting relation (issue #546). Additive on the wire; empty for scenes without beats.
 /// * [episodeId] - Opaque identifier for an `Episode` aggregate.
 /// * [id]
 /// * [isScheduleSet]
 /// * [location]
 /// * [mood]
+/// * [outfitBeats] - Ordered outfit beats per (character, order) — the scene-side casting relation (issue #546). Additive on the wire; empty for scenes without beats.
 /// * [sceneNumber]
 /// * [scriptDay] - Fictional script-chronology day (e.g. \"1. Spieltag\"), distinct from the calendar `ShootingDay.date`.
 /// * [shootingDayIds] - Shooting days this scene is scheduled on.
@@ -34,10 +34,6 @@ part 'scene_view.g.dart';
 abstract class SceneView implements Built<SceneView, SceneViewBuilder> {
   @BuiltValueField(wireName: r'assigned_characters')
   BuiltList<String> get assignedCharacters;
-
-  /// Ordered costume beats per (character, order) — the scene-side casting relation (issue #546). Additive on the wire; empty for scenes without beats.
-  @BuiltValueField(wireName: r'costume_beats')
-  BuiltList<SceneCostumeBeatView>? get costumeBeats;
 
   /// Opaque identifier for an `Episode` aggregate.
   @BuiltValueField(wireName: r'episode_id')
@@ -54,6 +50,10 @@ abstract class SceneView implements Built<SceneView, SceneViewBuilder> {
 
   @BuiltValueField(wireName: r'mood')
   String? get mood;
+
+  /// Ordered outfit beats per (character, order) — the scene-side casting relation (issue #546). Additive on the wire; empty for scenes without beats.
+  @BuiltValueField(wireName: r'outfit_beats')
+  BuiltList<SceneOutfitBeatView>? get outfitBeats;
 
   @BuiltValueField(wireName: r'scene_number')
   int? get sceneNumber;
@@ -108,14 +108,6 @@ class _$SceneViewSerializer implements PrimitiveSerializer<SceneView> {
       object.assignedCharacters,
       specifiedType: const FullType(BuiltList, [FullType(String)]),
     );
-    if (object.costumeBeats != null) {
-      yield r'costume_beats';
-      yield serializers.serialize(
-        object.costumeBeats,
-        specifiedType:
-            const FullType(BuiltList, [FullType(SceneCostumeBeatView)]),
-      );
-    }
     yield r'episode_id';
     yield serializers.serialize(
       object.episodeId,
@@ -143,6 +135,14 @@ class _$SceneViewSerializer implements PrimitiveSerializer<SceneView> {
       yield serializers.serialize(
         object.mood,
         specifiedType: const FullType.nullable(String),
+      );
+    }
+    if (object.outfitBeats != null) {
+      yield r'outfit_beats';
+      yield serializers.serialize(
+        object.outfitBeats,
+        specifiedType:
+            const FullType(BuiltList, [FullType(SceneOutfitBeatView)]),
       );
     }
     if (object.sceneNumber != null) {
@@ -220,15 +220,6 @@ class _$SceneViewSerializer implements PrimitiveSerializer<SceneView> {
           ) as BuiltList<String>;
           result.assignedCharacters.replace(valueDes);
           break;
-        case r'costume_beats':
-          final valueDes = serializers.deserialize(
-            value,
-            specifiedType: const FullType.nullable(
-                BuiltList, [FullType(SceneCostumeBeatView)]),
-          ) as BuiltList<SceneCostumeBeatView>?;
-          if (valueDes == null) continue;
-          result.costumeBeats.replace(valueDes);
-          break;
         case r'episode_id':
           final valueDes = serializers.deserialize(
             value,
@@ -265,6 +256,15 @@ class _$SceneViewSerializer implements PrimitiveSerializer<SceneView> {
           ) as String?;
           if (valueDes == null) continue;
           result.mood = valueDes;
+          break;
+        case r'outfit_beats':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType.nullable(
+                BuiltList, [FullType(SceneOutfitBeatView)]),
+          ) as BuiltList<SceneOutfitBeatView>?;
+          if (valueDes == null) continue;
+          result.outfitBeats.replace(valueDes);
           break;
         case r'scene_number':
           final valueDes = serializers.deserialize(

@@ -858,7 +858,7 @@ final class SceneShootsControllerProvider
 }
 
 String _$sceneShootsControllerHash() =>
-    r'13acea9e227049e8bb7eb0c0449c1f3d3e5caadb';
+    r'3a7f8efab2cbdcf3a688c813fe6422c72adfea30';
 
 /// `SceneShootsController(scope)` on the shared reconciliation runner:
 /// plan derives no client ids (path-authoritative); execution commands

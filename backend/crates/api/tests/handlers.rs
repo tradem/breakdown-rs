@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: deepseek-v4.1-flash (neuralwatt)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 //! Consolidated handler integration-test harness (issue #631).
 //!
@@ -19,17 +20,17 @@ mod handler_authz_batch2;
 #[path = "handler_character_appearances.rs"]
 mod handler_character_appearances;
 
-#[path = "handler_costume_category.rs"]
-mod handler_costume_category;
+#[path = "handler_piece_category.rs"]
+mod handler_piece_category;
 
-#[path = "handler_costume_detail.rs"]
-mod handler_costume_detail;
+#[path = "handler_piece_detail.rs"]
+mod handler_piece_detail;
 
-#[path = "handler_costume_repertoire.rs"]
-mod handler_costume_repertoire;
+#[path = "handler_piece_repertoire.rs"]
+mod handler_piece_repertoire;
 
-#[path = "handler_costume_scope.rs"]
-mod handler_costume_scope;
+#[path = "handler_piece_scope.rs"]
+mod handler_piece_scope;
 
 #[path = "handler_episode.rs"]
 mod handler_episode;
@@ -49,8 +50,8 @@ mod handler_report;
 #[path = "handler_scene.rs"]
 mod handler_scene;
 
-#[path = "handler_scene_costume_beats.rs"]
-mod handler_scene_costume_beats;
+#[path = "handler_scene_outfit_beats.rs"]
+mod handler_scene_outfit_beats;
 
 #[path = "handler_season_archive.rs"]
 mod handler_season_archive;

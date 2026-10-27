@@ -3,6 +3,7 @@
 // Co-authored-by: space-bunny-free (opencode-go)
 // Co-authored-by: muse-spark-1.3 (opencode)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 // Widget tests + goldens (`flutter-shoot-day-execution` 2.4): the day
 // board across {light,dark} × {android,macOS} (macOS via
@@ -27,10 +28,10 @@ import 'package:frontend_flutter/auth/membership/membership_providers.dart';
 import 'package:frontend_flutter/core/problem_error.dart';
 import 'package:frontend_flutter/core/result.dart';
 import 'package:frontend_flutter/data/cache/cache_database.dart';
-import 'package:frontend_flutter/data/cache/costume_domains_cache_dao.dart';
+import 'package:frontend_flutter/data/cache/piece_domains_cache_dao.dart';
 import 'package:frontend_flutter/data/cache/scene_shoot_cache_dao.dart';
 import 'package:frontend_flutter/data/cache/seasons_cache_providers.dart';
-import 'package:frontend_flutter/data/costume_repository.dart';
+import 'package:frontend_flutter/data/piece_repository.dart';
 import 'package:frontend_flutter/data/photo_repository.dart';
 import 'package:frontend_flutter/data/scene_shoot_repository.dart';
 import 'package:frontend_flutter/domain/reconciliation/reconciliation_scheduler.dart';
@@ -325,7 +326,7 @@ void main() {
           PhotoRepository(BreakdownApi()),
         ),
         costumeRepositoryProvider.overrideWithValue(
-          CostumeRepository(BreakdownApi(), CostumeCacheDao(db)),
+          PieceRepository(BreakdownApi(), PieceCacheDao(db)),
         ),
         costumesListFetchProvider('season-1')
             .overrideWith((ref) async => const Right([])),

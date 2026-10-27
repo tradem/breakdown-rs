@@ -8,6 +8,7 @@
 // Co-authored-by: deepseek-v4-flash (opencode-go)
 // Co-authored-by: hy4-preview (opencode-go)
 // Co-authored-by: omen-alpha (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 #![allow(
     clippy::unwrap_used,
@@ -89,7 +90,7 @@ fn api_routes_are_behind_auth_middleware() {
     //  patterns, not method-verb pairs.)
     assert_eq!(
         api.len(),
-        100,
+        110,
         "number of API route path patterns has changed — \
          see doc comment above for update instructions"
     );
@@ -181,15 +182,15 @@ fn api_routes_have_deliberate_authorization_requirement() {
             "/scenes/{id}/characters/{character_id}",
             Requirement::BlockMember,
         ),
-        // Costume beats (issue #546) — same scene route group, block
-        // membership middleware applies (no handler-internal gate needed).
-        ("/scenes/{id}/costumes", Requirement::BlockMember),
+        // Outfit beats — same scene route group, block membership middleware
+        // applies (no handler-internal gate needed).
+        ("/scenes/{id}/outfits", Requirement::BlockMember),
         (
-            "/scenes/{id}/costumes/{character_id}",
+            "/scenes/{id}/outfits/{character_id}",
             Requirement::BlockMember,
         ),
         (
-            "/scenes/{id}/costumes/{character_id}/{order}",
+            "/scenes/{id}/outfits/{character_id}/{order}",
             Requirement::BlockMember,
         ),
         ("/scenes/{id}/shooting-days", Requirement::BlockMember),
@@ -255,45 +256,62 @@ fn api_routes_have_deliberate_authorization_requirement() {
         // `has_active_costume_role_in_season` — the middleware cannot scope a
         // character to a season.
         ("/characters/{id}/appearances", Requirement::Authenticated),
-        // Costumes
-        ("/costumes", Requirement::BlockMember),
-        ("/costumes/{id}", Requirement::BlockMember),
-        ("/costumes/{id}/notes", Requirement::BlockMember),
-        ("/costumes/{id}/assign", Requirement::BlockMember),
-        ("/costumes/{id}/unassign", Requirement::BlockMember),
-        ("/costumes/{id}/details", Requirement::BlockMember),
+        // Pieces
+        ("/pieces", Requirement::BlockMember),
+        ("/pieces/{id}", Requirement::BlockMember),
+        ("/pieces/{id}/notes", Requirement::BlockMember),
+        ("/pieces/{id}/name", Requirement::BlockMember),
+        ("/pieces/{id}/details", Requirement::BlockMember),
         // Issue #544: PATCH + DELETE detail edit. Middleware-gated
         // `BlockMember`, but each handler performs an additional internal
-        // costume-role gate (// AUTHZ-GATE:, ANY scope) — the middleware
-        // cannot scope a costume to a season.
-        (
-            "/costumes/{id}/details/{detail_id}",
-            Requirement::BlockMember,
-        ),
+        // piece-role gate (// AUTHZ-GATE:, ANY scope) — the middleware
+        // cannot scope a piece to a season.
+        ("/pieces/{id}/details/{detail_id}", Requirement::BlockMember),
         // Issue #543: middleware-gated `BlockMember`, but the handler performs
-        // an additional internal costume-role gate (// AUTHZ-GATE:, ANY scope).
-        ("/costumes/{id}/category", Requirement::BlockMember),
+        // an additional internal piece-role gate (// AUTHZ-GATE:, ANY scope).
+        ("/pieces/{id}/category", Requirement::BlockMember),
         // Issue #534: repertoire add/remove. Middleware-gated `BlockMember`,
-        // but the handler performs an additional internal costume-role gate
+        // but the handler performs an additional internal piece-role gate
         // on the TARGET season (// AUTHZ-GATE:) — the middleware cannot know
         // the season the repertoire mutation acts on.
-        ("/costumes/{id}/seasons", Requirement::BlockMember),
-        (
-            "/costumes/{id}/seasons/{season_id}",
-            Requirement::BlockMember,
-        ),
-        // Costume categories — id-based PATCH/archive needs membership
+        ("/pieces/{id}/seasons", Requirement::BlockMember),
+        ("/pieces/{id}/seasons/{season_id}", Requirement::BlockMember),
+        // Piece categories — id-based PATCH/archive needs membership
         ("/costume-categories/{id}", Requirement::BlockMember),
         ("/costume-categories/{id}/archive", Requirement::BlockMember),
-        // Photos — Authenticated at middleware level,
-        // handler-internal season-scoped auth gate (see AGENTS.md §7)
-        ("/costumes/{costume_id}/photos", Requirement::Authenticated),
+        // Photos — Authenticated at middleware level, handler-internal
+        // season-scoped auth gate (see AGENTS.md §7)
+        ("/pieces/{piece_id}/photos", Requirement::Authenticated),
         (
-            "/costumes/{costume_id}/photos/{photo_id}",
+            "/pieces/{piece_id}/photos/{photo_id}",
             Requirement::Authenticated,
         ),
         (
-            "/costumes/{costume_id}/photos/{photo_id}/bytes",
+            "/pieces/{piece_id}/photos/{photo_id}/bytes",
+            Requirement::Authenticated,
+        ),
+        // Outfits — middleware-gated `BlockMember`, and every handler performs
+        // an additional internal gate that resolves the owning character's
+        // season (// AUTHZ-GATE:): the middleware cannot scope an outfit to a
+        // season.
+        ("/outfits", Requirement::BlockMember),
+        ("/outfits/{id}", Requirement::BlockMember),
+        ("/outfits/{id}/variants", Requirement::BlockMember),
+        ("/outfits/{id}/name", Requirement::BlockMember),
+        ("/outfits/{id}/notes", Requirement::BlockMember),
+        ("/outfits/{id}/pieces", Requirement::BlockMember),
+        ("/outfits/{id}/pieces/{piece_id}", Requirement::BlockMember),
+        (
+            "/characters/{character_id}/outfits",
+            Requirement::BlockMember,
+        ),
+        ("/outfits/{outfit_id}/photos", Requirement::Authenticated),
+        (
+            "/outfits/{outfit_id}/photos/{photo_id}",
+            Requirement::Authenticated,
+        ),
+        (
+            "/outfits/{outfit_id}/photos/{photo_id}/bytes",
             Requirement::Authenticated,
         ),
         // Continuity photos — Authenticated at middleware level,

@@ -3,6 +3,7 @@
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
 // Co-authored-by: longcat-2.0 (opencode-go)
 // Co-authored-by: glm-5.3-flash (neuralwatt)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 import 'package:breakdown_api/breakdown_api.dart';
 import 'package:fpdart/fpdart.dart';
@@ -157,44 +158,44 @@ class SceneRepository extends BaseRepository {
     ),
   );
 
-  /// Adds a costume beat (`POST /v1/scenes/{id}/costumes`, issue #546).
+  /// Adds a outfit beat (`POST /v1/scenes/{id}/outfits`, issue #546).
   /// The wire body carries NO `order` — the aggregate computes the dense
   /// zero-based position per character. The 200 body is the new aggregate
   /// version (echo for the optimistic fence).
-  Future<Result<int>> addCostumeBeat(
+  Future<Result<int>> addOutfitBeat(
     String id,
-    AddSceneCostumeBeatRequest request,
+    AddSceneOutfitBeatRequest request,
   ) => run(
-    () => api.getHandlersApi().addSceneCostumeBeat(
+    () => api.getHandlersApi().addSceneOutfitBeat(
       id: id,
-      addSceneCostumeBeatRequest: request,
+      addSceneOutfitBeatRequest: request,
     ),
   );
 
-  /// Updates a costume beat (`PATCH /v1/scenes/{id}/costumes/{character_id}/{order}`).
-  Future<Result<int>> updateCostumeBeat(
+  /// Updates a outfit beat (`PATCH /v1/scenes/{id}/outfits/{character_id}/{order}`).
+  Future<Result<int>> updateOutfitBeat(
     String id,
     String characterId,
     int order,
-    UpdateSceneCostumeBeatRequest request,
+    UpdateSceneOutfitBeatRequest request,
   ) => run(
-    () => api.getHandlersApi().updateSceneCostumeBeat(
+    () => api.getHandlersApi().updateSceneOutfitBeat(
       id: id,
       characterId: characterId,
       order: order,
-      updateSceneCostumeBeatRequest: request,
+      updateSceneOutfitBeatRequest: request,
     ),
   );
 
-  /// Removes one costume beat
-  /// (`DELETE /v1/scenes/{id}/costumes/{character_id}/{order}?version=N`).
-  Future<Result<int>> removeCostumeBeat(
+  /// Removes one outfit beat
+  /// (`DELETE /v1/scenes/{id}/outfits/{character_id}/{order}?version=N`).
+  Future<Result<int>> removeOutfitBeat(
     String id,
     String characterId,
     int order,
     int version,
   ) => run(
-    () => api.getHandlersApi().removeSceneCostumeBeat(
+    () => api.getHandlersApi().removeSceneOutfitBeat(
       id: id,
       characterId: characterId,
       order: order,
@@ -202,16 +203,16 @@ class SceneRepository extends BaseRepository {
     ),
   );
 
-  /// Clears ALL costume beats of a character
-  /// (`DELETE /v1/scenes/{id}/costumes/{character_id}?version=N` = "no
+  /// Clears ALL outfit beats of a character
+  /// (`DELETE /v1/scenes/{id}/outfits/{character_id}?version=N` = "no
   /// costume in this scene"). `scene.beat-not-found` (422) when there are
   /// no beats to clear.
-  Future<Result<int>> clearCostumeBeats(
+  Future<Result<int>> clearOutfitBeats(
     String id,
     String characterId,
     int version,
   ) => run(
-    () => api.getHandlersApi().clearSceneCostumeBeats(
+    () => api.getHandlersApi().clearSceneOutfitBeats(
       id: id,
       characterId: characterId,
       version: version,

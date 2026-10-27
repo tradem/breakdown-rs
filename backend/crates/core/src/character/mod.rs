@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024 Breakdown RS Contributors
 // Co-authored-by: glm-5.3-flash-flex (neuralwatt)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 //! Character domain.
 
@@ -20,4 +21,4 @@ pub use commands::{
 pub use error::CharacterError;
 pub use events::{CharacterEvent, CharacterMeasurements, ContactInfo};
 pub use ports::{CharacterCommands, CharacterRepository};
-pub use views::{AppearanceCostumeView, CharacterAppearanceView, CharacterView};
+pub use views::{AppearanceOutfitView, CharacterAppearanceView, CharacterView};

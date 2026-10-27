@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: glm-5.3-flash (neuralwatt)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 import 'package:breakdown_api/breakdown_api.dart';
 
@@ -8,7 +9,7 @@ import 'package:breakdown_api/breakdown_api.dart';
 /// ordered costume beats.
 typedef SceneBeatGroup = ({
   String characterId,
-  List<SceneCostumeBeatView> beats,
+  List<SceneOutfitBeatView> beats,
 });
 
 /// Groups scene costume beats per character in stable render order
@@ -25,9 +26,9 @@ typedef SceneBeatGroup = ({
 /// * Beats within a character sort by their dense zero-based `order`.
 List<SceneBeatGroup> groupSceneBeats({
   required Iterable<String> assignedCharacters,
-  required Iterable<SceneCostumeBeatView> beats,
+  required Iterable<SceneOutfitBeatView> beats,
 }) {
-  final byCharacter = <String, List<SceneCostumeBeatView>>{};
+  final byCharacter = <String, List<SceneOutfitBeatView>>{};
   for (final beat in beats) {
     byCharacter.putIfAbsent(beat.characterId, () => []).add(beat);
   }
@@ -40,7 +41,7 @@ List<SceneBeatGroup> groupSceneBeats({
     if (!seen.add(id)) continue;
     ordered.add((
       characterId: id,
-      beats: byCharacter[id] ?? const <SceneCostumeBeatView>[],
+      beats: byCharacter[id] ?? const <SceneOutfitBeatView>[],
     ));
   }
   for (final entry in byCharacter.entries) {

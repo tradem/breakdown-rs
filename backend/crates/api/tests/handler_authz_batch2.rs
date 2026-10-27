@@ -4,6 +4,7 @@
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
 // Co-authored-by: hy4-preview (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 //! Batch 2 — Authz-Handler 403-Tests for mutation-test hardening (issue #274).
 //!
@@ -28,17 +29,17 @@ use axum::extract::State;
 
 use api::auth::CurrentUser;
 use api::handlers::{
-    LinkContinuityPhotoRequest, ListParams, PhotoBytesQuery, VersionRequest, delete_costume_photo,
-    dispo_report, dispo_report_pdf, get_costume_photo_bytes, link_continuity_photo,
+    LinkContinuityPhotoRequest, ListParams, PhotoBytesQuery, VersionRequest, delete_piece_photo,
+    dispo_report, dispo_report_pdf, get_piece_photo_bytes, link_continuity_photo,
     manual_archive_reports, planned_vs_actual_report_pdf, shoot_day_report, shoot_day_report_pdf,
-    soll_ist_report, unlink_continuity_photo, upload_costume_photo,
+    soll_ist_report, unlink_continuity_photo, upload_piece_photo,
 };
 use api::problems::{Json, Path, Query};
 use api::state::AppState;
 use breakdown_core::block::BlockView;
 use breakdown_core::character::CharacterView;
-use breakdown_core::costume::CostumeView;
 use breakdown_core::episode::EpisodeView;
+use breakdown_core::piece::PieceView;
 use breakdown_core::shared::{
     AggregateVersion, BlockId, EpisodeId, PhotoId, PhotoVariant, ProjectId, SceneShootId, SeasonId,
     ShootingDayId, UserId, VariantStatus,
@@ -136,9 +137,9 @@ async fn seed_shooting_day_chain(ports: &FakePorts) -> (ShootingDayId, SeasonId)
     (sd_id, sid)
 }
 
-/// Seed the costume → character chain for photo handlers.
-async fn seed_costume_chain(ports: &FakePorts) -> (uuid::Uuid, SeasonId) {
-    let costume_id = uuid::Uuid::now_v7();
+/// Seed the piece → character chain for photo handlers.
+async fn seed_piece_chain(ports: &FakePorts) -> (uuid::Uuid, SeasonId) {
+    let outfit_id = uuid::Uuid::now_v7();
     let char_id = uuid::Uuid::now_v7();
     let sid = season_id();
 
@@ -155,11 +156,11 @@ async fn seed_costume_chain(ports: &FakePorts) -> (uuid::Uuid, SeasonId) {
             updated_at: chrono::Utc::now(),
         },
     );
-    ports.costume_repo.costumes.lock().await.insert(
-        costume_id,
-        CostumeView {
-            id: costume_id,
-            character_id: Some(char_id),
+    ports.piece_repo.pieces.lock().await.insert(
+        outfit_id,
+        PieceView {
+            id: outfit_id,
+            name: "Fundus-Piece".to_string(),
             category_id: None,
             category_name: None,
             notes: String::new(),
@@ -170,26 +171,34 @@ async fn seed_costume_chain(ports: &FakePorts) -> (uuid::Uuid, SeasonId) {
             season_ids: vec![],
         },
     );
-    (costume_id, sid)
+    // The piece's scope is its season repertoire (a piece has no character
+    // binding any more): the series resolution walks repertoire → season.
+    ports
+        .piece_repo
+        .repertoire
+        .lock()
+        .await
+        .insert(outfit_id, vec![sid]);
+    (outfit_id, sid)
 }
 
 // ---------------------------------------------------------------------------
-// P2.1 — Costume Photo Handlers (upload, get, delete)
+// P2.1 — Piece Photo Handlers (upload, get, delete)
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
-async fn upload_costume_photo_denies_non_member() {
+async fn upload_piece_photo_denies_non_member() {
     let ports = FakePorts::default();
-    let (costume_id, _sid) = seed_costume_chain(&ports).await;
-    *ports.membership_repo.costume_role_override.lock().await = Some(Ok(false));
+    let (outfit_id, _sid) = seed_piece_chain(&ports).await;
+    *ports.membership_repo.piece_role_override.lock().await = Some(Ok(false));
     let state = app_state(ports);
 
     let mut headers = axum::http::HeaderMap::new();
     headers.insert("content-type", "image/jpeg".parse().unwrap());
-    let result = upload_costume_photo::<FakePorts>(
+    let result = upload_piece_photo::<FakePorts>(
         State(state),
         dummy_user(),
-        Path(costume_id),
+        Path(outfit_id),
         headers,
         Bytes::from_static(b"fake-image-data"),
     )
@@ -210,15 +219,15 @@ async fn upload_costume_photo_denies_non_member() {
 /// built its response via a synchronous `photo_repo().find_by_id` read-back —
 /// turned the successful write into a spurious 404 `photo.not-found`.
 #[tokio::test]
-async fn upload_costume_photo_returns_201_despite_projection_lag() {
+async fn upload_piece_photo_returns_201_despite_projection_lag() {
     let ports = FakePorts::default();
-    let (costume_id, _sid) = seed_costume_chain(&ports).await;
+    let (outfit_id, _sid) = seed_piece_chain(&ports).await;
     // Authorize the caller (the handler-internal AUTHZ-GATE must pass —
     // issue #535: the photo path is series-scoped, so the series predicate
     // is pinned instead of the season override).
     *ports
         .membership_repo
-        .series_costume_role_override
+        .series_piece_role_override
         .lock()
         .await = Some(Ok(true));
     // Keep a handle on the photo-command spy before `ports` is moved into the state.
@@ -228,10 +237,10 @@ async fn upload_costume_photo_returns_201_despite_projection_lag() {
     let mut headers = axum::http::HeaderMap::new();
     headers.insert("content-type", "image/jpeg".parse().unwrap());
     let payload = b"fake-image-data";
-    let result = upload_costume_photo::<FakePorts>(
+    let result = upload_piece_photo::<FakePorts>(
         State(state),
         dummy_user(),
-        Path(costume_id),
+        Path(outfit_id),
         headers,
         Bytes::from_static(payload),
     )
@@ -276,7 +285,9 @@ async fn upload_costume_photo_returns_201_despite_projection_lag() {
     assert_eq!(view.exif_stripped_at, None);
     assert_eq!(
         view.binding,
-        breakdown_core::photo::binding::PhotoBinding::Costume { costume_id }
+        breakdown_core::photo::binding::PhotoBinding::Piece {
+            piece_id: outfit_id
+        }
     );
     let statuses: Vec<_> = view.variants.iter().map(|v| (v.kind, v.status)).collect();
     assert_eq!(
@@ -290,17 +301,17 @@ async fn upload_costume_photo_returns_201_despite_projection_lag() {
 }
 
 #[tokio::test]
-async fn get_costume_photo_bytes_denies_non_member() {
+async fn get_piece_photo_bytes_denies_non_member() {
     let ports = FakePorts::default();
-    let (costume_id, _sid) = seed_costume_chain(&ports).await;
+    let (outfit_id, _sid) = seed_piece_chain(&ports).await;
     let photo_id = uuid::Uuid::now_v7();
-    *ports.membership_repo.costume_role_override.lock().await = Some(Ok(false));
+    *ports.membership_repo.piece_role_override.lock().await = Some(Ok(false));
     let state = app_state(ports);
 
-    let result = get_costume_photo_bytes::<FakePorts>(
+    let result = get_piece_photo_bytes::<FakePorts>(
         State(state),
         dummy_user(),
-        Path((costume_id, photo_id)),
+        Path((outfit_id, photo_id)),
         Query(PhotoBytesQuery {
             variant: Some("original".to_string()),
         }),
@@ -316,15 +327,15 @@ async fn get_costume_photo_bytes_denies_non_member() {
 }
 
 #[tokio::test]
-async fn delete_costume_photo_denies_non_member() {
+async fn delete_piece_photo_denies_non_member() {
     let ports = FakePorts::default();
-    let (costume_id, _sid) = seed_costume_chain(&ports).await;
+    let (outfit_id, _sid) = seed_piece_chain(&ports).await;
     let photo_id = uuid::Uuid::now_v7();
-    *ports.membership_repo.costume_role_override.lock().await = Some(Ok(false));
+    *ports.membership_repo.piece_role_override.lock().await = Some(Ok(false));
     let state = app_state(ports);
 
     let result =
-        delete_costume_photo::<FakePorts>(State(state), dummy_user(), Path((costume_id, photo_id)))
+        delete_piece_photo::<FakePorts>(State(state), dummy_user(), Path((outfit_id, photo_id)))
             .await;
 
     let problem = result
@@ -343,7 +354,7 @@ async fn delete_costume_photo_denies_non_member() {
 async fn link_continuity_photo_denies_non_member() {
     let ports = FakePorts::default();
     let (sd_id, _sid) = seed_shooting_day_chain(&ports).await;
-    *ports.membership_repo.costume_role_override.lock().await = Some(Ok(false));
+    *ports.membership_repo.piece_role_override.lock().await = Some(Ok(false));
     let state = app_state(ports);
 
     let result = link_continuity_photo::<FakePorts>(
@@ -369,7 +380,7 @@ async fn link_continuity_photo_denies_non_member() {
 async fn unlink_continuity_photo_denies_non_member() {
     let ports = FakePorts::default();
     let (sd_id, _sid) = seed_shooting_day_chain(&ports).await;
-    *ports.membership_repo.costume_role_override.lock().await = Some(Ok(false));
+    *ports.membership_repo.piece_role_override.lock().await = Some(Ok(false));
     let state = app_state(ports);
 
     let result = unlink_continuity_photo::<FakePorts>(
@@ -399,7 +410,7 @@ async fn unlink_continuity_photo_denies_non_member() {
 async fn dispo_report_denies_non_member() {
     let ports = FakePorts::default();
     let (sd_id, _sid) = seed_shooting_day_chain(&ports).await;
-    *ports.membership_repo.costume_role_override.lock().await = Some(Ok(false));
+    *ports.membership_repo.piece_role_override.lock().await = Some(Ok(false));
     let state = app_state(ports);
 
     let result = dispo_report::<FakePorts>(State(state), dummy_user(), Path(sd_id)).await;
@@ -416,7 +427,7 @@ async fn dispo_report_denies_non_member() {
 async fn shoot_day_report_denies_non_member() {
     let ports = FakePorts::default();
     let (sd_id, _sid) = seed_shooting_day_chain(&ports).await;
-    *ports.membership_repo.costume_role_override.lock().await = Some(Ok(false));
+    *ports.membership_repo.piece_role_override.lock().await = Some(Ok(false));
     let state = app_state(ports);
 
     let result = shoot_day_report::<FakePorts>(State(state), dummy_user(), Path(sd_id)).await;
@@ -433,7 +444,7 @@ async fn shoot_day_report_denies_non_member() {
 async fn soll_ist_report_denies_non_member() {
     let ports = FakePorts::default();
     let (sd_id, _sid) = seed_shooting_day_chain(&ports).await;
-    *ports.membership_repo.costume_role_override.lock().await = Some(Ok(false));
+    *ports.membership_repo.piece_role_override.lock().await = Some(Ok(false));
     let state = app_state(ports);
 
     let result = soll_ist_report::<FakePorts>(State(state), dummy_user(), Path(sd_id)).await;
@@ -450,7 +461,7 @@ async fn soll_ist_report_denies_non_member() {
 async fn dispo_report_pdf_denies_non_member() {
     let ports = FakePorts::default();
     let (sd_id, _sid) = seed_shooting_day_chain(&ports).await;
-    *ports.membership_repo.costume_role_override.lock().await = Some(Ok(false));
+    *ports.membership_repo.piece_role_override.lock().await = Some(Ok(false));
     let state = app_state(ports);
 
     let result = dispo_report_pdf::<FakePorts>(State(state), dummy_user(), Path(sd_id)).await;
@@ -467,7 +478,7 @@ async fn dispo_report_pdf_denies_non_member() {
 async fn shoot_day_report_pdf_denies_non_member() {
     let ports = FakePorts::default();
     let (sd_id, _sid) = seed_shooting_day_chain(&ports).await;
-    *ports.membership_repo.costume_role_override.lock().await = Some(Ok(false));
+    *ports.membership_repo.piece_role_override.lock().await = Some(Ok(false));
     let state = app_state(ports);
 
     let result = shoot_day_report_pdf::<FakePorts>(State(state), dummy_user(), Path(sd_id)).await;
@@ -484,7 +495,7 @@ async fn shoot_day_report_pdf_denies_non_member() {
 async fn planned_vs_actual_report_pdf_denies_non_member() {
     let ports = FakePorts::default();
     let (sd_id, _sid) = seed_shooting_day_chain(&ports).await;
-    *ports.membership_repo.costume_role_override.lock().await = Some(Ok(false));
+    *ports.membership_repo.piece_role_override.lock().await = Some(Ok(false));
     let state = app_state(ports);
 
     let result =
@@ -1049,10 +1060,10 @@ async fn get_audit_history_returns_series_journal_for_series_member() {
 
 /// Helper: build a valid jpeg header (first 3 bytes: FF D8 FF).
 #[tokio::test]
-async fn upload_costume_photo_rejects_payload_too_large() {
+async fn upload_piece_photo_rejects_payload_too_large() {
     let ports = FakePorts::default();
-    let (costume_id, _sid) = seed_costume_chain(&ports).await;
-    *ports.membership_repo.costume_role_override.lock().await = Some(Ok(true));
+    let (outfit_id, _sid) = seed_piece_chain(&ports).await;
+    *ports.membership_repo.piece_role_override.lock().await = Some(Ok(true));
     let state = app_state(ports);
 
     // Set PHOTO_MAX_SIZE_MB to 1 so we can trigger the rejection easily.
@@ -1069,10 +1080,10 @@ async fn upload_costume_photo_rejects_payload_too_large() {
     headers.insert("content-type", "image/jpeg".parse().unwrap());
     // 2 MB payload — exceeds the 1 MB limit.
     let big_payload = vec![0u8; 2 * 1024 * 1024];
-    let result = upload_costume_photo::<FakePorts>(
+    let result = upload_piece_photo::<FakePorts>(
         State(state),
         dummy_user(),
-        Path(costume_id),
+        Path(outfit_id),
         headers,
         Bytes::from(big_payload),
     )
@@ -1097,18 +1108,18 @@ async fn upload_costume_photo_rejects_payload_too_large() {
 }
 
 #[tokio::test]
-async fn upload_costume_photo_rejects_wrong_content_type() {
+async fn upload_piece_photo_rejects_wrong_content_type() {
     let ports = FakePorts::default();
-    let (costume_id, _sid) = seed_costume_chain(&ports).await;
-    *ports.membership_repo.costume_role_override.lock().await = Some(Ok(true));
+    let (outfit_id, _sid) = seed_piece_chain(&ports).await;
+    *ports.membership_repo.piece_role_override.lock().await = Some(Ok(true));
     let state = app_state(ports);
 
     let mut headers = axum::http::HeaderMap::new();
     headers.insert("content-type", "text/plain".parse().unwrap());
-    let result = upload_costume_photo::<FakePorts>(
+    let result = upload_piece_photo::<FakePorts>(
         State(state),
         dummy_user(),
-        Path(costume_id),
+        Path(outfit_id),
         headers,
         Bytes::from_static(b"hello"),
     )
@@ -1123,18 +1134,18 @@ async fn upload_costume_photo_rejects_wrong_content_type() {
 }
 
 #[tokio::test]
-async fn upload_costume_photo_rejects_heic_content_type() {
+async fn upload_piece_photo_rejects_heic_content_type() {
     let ports = FakePorts::default();
-    let (costume_id, _sid) = seed_costume_chain(&ports).await;
-    *ports.membership_repo.costume_role_override.lock().await = Some(Ok(true));
+    let (outfit_id, _sid) = seed_piece_chain(&ports).await;
+    *ports.membership_repo.piece_role_override.lock().await = Some(Ok(true));
     let state = app_state(ports);
 
     let mut headers = axum::http::HeaderMap::new();
     headers.insert("content-type", "image/heic".parse().unwrap());
-    let result = upload_costume_photo::<FakePorts>(
+    let result = upload_piece_photo::<FakePorts>(
         State(state),
         dummy_user(),
-        Path(costume_id),
+        Path(outfit_id),
         headers,
         Bytes::from_static(b"heic-data"),
     )
@@ -1164,14 +1175,14 @@ fn predicate_outage() -> breakdown_core::error::DomainError {
     breakdown_core::error::DomainError::internal("projection store outage (issue #537 test)")
 }
 
-/// Costume-role family — `unlink_continuity_photo` is a **write**: the fake
+/// Piece-role family — `unlink_continuity_photo` is a **write**: the fake
 /// command port panics (`unreachable!`) when reached, so the test only passes
 /// if the gate failed closed *before* dispatch.
 #[tokio::test]
 async fn unlink_continuity_photo_predicate_error_is_500_fail_closed() {
     let ports = FakePorts::default();
     let (sd_id, _sid) = seed_shooting_day_chain(&ports).await;
-    *ports.membership_repo.costume_role_override.lock().await = Some(Err(predicate_outage()));
+    *ports.membership_repo.piece_role_override.lock().await = Some(Err(predicate_outage()));
     let state = app_state(ports);
 
     let result = unlink_continuity_photo::<FakePorts>(

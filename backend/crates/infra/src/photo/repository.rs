@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: glm-5.2 (neuralwatt)
 // Co-authored-by: longcat-2.0 (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 use async_trait::async_trait;
 use breakdown_core::error::DomainError;
@@ -106,11 +107,15 @@ impl PhotoRepository for PhotoRepositoryImpl {
         Ok(rows.into_iter().map(PhotoId::from_uuid).collect())
     }
 
+    /// Reference count across the wardrobe: a photo can be linked directly to
+    /// a piece **and** to an outfit containing it (shared fitting photos), so
+    /// both tables count.
     async fn count_links(&self, photo_id: PhotoId) -> Result<u64, DomainError> {
         let count: Option<i64> = sqlx::query_scalar(
             r#"
-            SELECT COUNT(*) FROM projection_costume_photo
-            WHERE photo_id = $1
+            SELECT
+                (SELECT COUNT(*) FROM projection_piece_photo WHERE photo_id = $1)
+              + (SELECT COUNT(*) FROM projection_outfit_photo WHERE photo_id = $1)
             "#,
         )
         .bind(photo_id.0)
@@ -151,8 +156,12 @@ fn parse_binding(val: &str) -> Result<PhotoBinding, String> {
     }
     // Fall back to legacy string format for backward compatibility.
     match val {
-        "Costume" => Ok(PhotoBinding::Costume {
-            costume_id: Uuid::default(),
+        // Legacy column value from before the piece/outfit split.
+        "Costume" | "Piece" => Ok(PhotoBinding::Piece {
+            piece_id: Uuid::default(),
+        }),
+        "Outfit" => Ok(PhotoBinding::Outfit {
+            outfit_id: Uuid::default(),
         }),
         _ => Err(format!("Unknown binding: {val}")),
     }
@@ -212,12 +221,17 @@ mod tests {
         assert!(parse_status("").is_err());
     }
 
-    /// Kills the `delete match arm "Costume" in parse_binding` mutants: the
-    /// legacy string fallback must still resolve `Costume`.
+    /// Kills the `delete match arm "…" in parse_binding` mutants: the legacy
+    /// `Costume` string still resolves to a garment binding, `Outfit` to a look
+    /// binding.
     #[test]
-    fn parse_binding_legacy_costume_string() {
-        let binding = parse_binding("Costume").expect("legacy Costume string");
-        assert!(matches!(binding, PhotoBinding::Costume { .. }));
+    fn parse_binding_legacy_strings() {
+        let legacy = parse_binding("Costume").expect("legacy Costume string");
+        assert!(matches!(legacy, PhotoBinding::Piece { .. }));
+        let piece = parse_binding("Piece").expect("Piece string");
+        assert!(matches!(piece, PhotoBinding::Piece { .. }));
+        let outfit = parse_binding("Outfit").expect("Outfit string");
+        assert!(matches!(outfit, PhotoBinding::Outfit { .. }));
     }
 
     #[test]

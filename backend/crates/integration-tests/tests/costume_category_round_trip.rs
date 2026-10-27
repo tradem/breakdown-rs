@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C2024-2026 Breakdown RS Contributors
 // Co-authored-by: glm-5.2 (neuralwatt)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 #![allow(
     clippy::unwrap_used,
@@ -11,7 +12,7 @@
     clippy::dbg_macro
 )]
 //! Tier-4 round-trip integration tests for the season-scoped `CostumeCategory`
-//! aggregate, the detail-enrichment of `CostumeDetail`, and the
+//! aggregate, the detail-enrichment of `PieceDetail`, and the
 //! seed-on-create saga (ADR-014 / ADR-015 / ADR-016).
 //!
 //! These tests drive the full live chain against ephemeral containers:
@@ -30,17 +31,17 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use anyhow::{Result, anyhow, bail};
-use breakdown_core::costume::events::{CostumeDetail, CostumeEvent};
-use breakdown_core::costume::ports::CostumeRepository as _;
-use breakdown_core::costume::views::CostumeView;
 use breakdown_core::costume_category::events::CostumeCategoryEvent;
 use breakdown_core::costume_category::ports::CostumeCategoryRepository as _;
 use breakdown_core::costume_category::views::CostumeCategoryView;
+use breakdown_core::piece::events::{PieceDetail, PieceEvent};
+use breakdown_core::piece::ports::PieceRepository as _;
+use breakdown_core::piece::views::PieceView;
 use breakdown_core::shared::{
     AggregateVersion, CostumeCategoryId, LexicalSortKey, ProjectId, SeasonId,
 };
 use chrono::Utc;
-use infra::queries::{CostumeCategoryRepositoryImpl, CostumeRepositoryImpl};
+use infra::queries::{CostumeCategoryRepositoryImpl, PieceRepositoryImpl};
 use uuid::Uuid;
 
 const PROJECTION_DEADLINE: Duration = Duration::from_secs(15);
@@ -138,7 +139,7 @@ async fn await_category_excluded_from_list(
     }
 }
 
-async fn await_costume_found(repo: &CostumeRepositoryImpl, id: Uuid) -> Result<CostumeView> {
+async fn await_piece_found(repo: &PieceRepositoryImpl, id: Uuid) -> Result<PieceView> {
     let deadline = Instant::now() + PROJECTION_DEADLINE;
     loop {
         match repo.find_by_id(id).await {
@@ -149,21 +150,21 @@ async fn await_costume_found(repo: &CostumeRepositoryImpl, id: Uuid) -> Result<C
                 tokio::time::sleep(POLL_INTERVAL).await;
             }
             Err(breakdown_core::error::DomainError::NotFound { .. }) => {
-                bail!("projection lag: Costume({id}) not projected within {PROJECTION_DEADLINE:?}");
+                bail!("projection lag: Piece({id}) not projected within {PROJECTION_DEADLINE:?}");
             }
             Err(other) => return Err(anyhow!(other.to_string())),
         }
     }
 }
 
-/// Wait until a costume is projected with at least `min_details` detail rows.
-/// This handles the eventual-consistency gap between `CostumeCreated` (0
+/// Wait until a piece is projected with at least `min_details` detail rows.
+/// This handles the eventual-consistency gap between `PieceCreated` (0
 /// details) and the subsequent `DetailAdded` events on the same stream.
-async fn await_costume_with_details(
-    repo: &CostumeRepositoryImpl,
+async fn await_piece_with_details(
+    repo: &PieceRepositoryImpl,
     id: Uuid,
     min_details: usize,
-) -> Result<CostumeView> {
+) -> Result<PieceView> {
     let deadline = Instant::now() + PROJECTION_DEADLINE;
     loop {
         match repo.find_by_id(id).await {
@@ -173,7 +174,7 @@ async fn await_costume_with_details(
             }
             Ok(view) => {
                 bail!(
-                    "projection lag: Costume({id}) has {} details, expected >= {min_details} within {PROJECTION_DEADLINE:?}",
+                    "projection lag: Piece({id}) has {} details, expected >= {min_details} within {PROJECTION_DEADLINE:?}",
                     view.details.len()
                 );
             }
@@ -183,7 +184,7 @@ async fn await_costume_with_details(
                 tokio::time::sleep(POLL_INTERVAL).await;
             }
             Err(breakdown_core::error::DomainError::NotFound { .. }) => {
-                bail!("projection lag: Costume({id}) not projected within {PROJECTION_DEADLINE:?}");
+                bail!("projection lag: Piece({id}) not projected within {PROJECTION_DEADLINE:?}");
             }
             Err(other) => return Err(anyhow!(other.to_string())),
         }
@@ -336,8 +337,8 @@ async fn season_created_seeds_exactly_five_categories_and_is_idempotent() -> Res
 }
 
 // ---------------------------------------------------------------------------
-// 8.3 — Costume category derivation: a categorized legacy detail fills the
-// costume's category (first-wins); details are pure description on the view
+// 8.3 — Piece category derivation: a categorized legacy detail fills the
+// piece's category (first-wins); details are pure description on the view
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
@@ -352,7 +353,7 @@ async fn costume_category_derives_from_categorized_detail_and_view_is_pure_descr
         infra::projectors::ProjectorFlushConfig::test_profile(),
     )
     .await?;
-    let _costume_ref = infra::projectors::spawn_costume_projector(
+    let _piece_ref = infra::projectors::spawn_piece_projector(
         pool.clone(),
         Arc::clone(&redis_client),
         infra::projectors::ProjectorFlushConfig::test_profile(),
@@ -360,9 +361,9 @@ async fn costume_category_derives_from_categorized_detail_and_view_is_pure_descr
     .await?;
 
     let cat_repo = CostumeCategoryRepositoryImpl::new(pool.clone());
-    let costume_repo = CostumeRepositoryImpl::new(pool.clone());
+    let piece_repo = PieceRepositoryImpl::new(pool.clone());
 
-    // Seed a known category so the costume projector can resolve its name.
+    // Seed a known category so the piece projector can resolve its name.
     let cat_id = CostumeCategoryId(Uuid::now_v7());
     let season_id = SeasonId::new();
     let cat_stream = format!("costume_category-{cat_id}");
@@ -384,49 +385,56 @@ async fn costume_category_derives_from_categorized_detail_and_view_is_pure_descr
     .await?;
     await_category_found(&cat_repo, cat_id).await?;
 
-    // Create the costume, then add a detail referencing the category.
-    let costume_id = Uuid::now_v7();
-    let costume_stream = format!("costume-{costume_id}");
-    let costume_created = CostumeEvent::CostumeCreated {
-        id: costume_id,
-        character_id: None,
+    // Create the piece already carrying the category.
+    let piece_id = Uuid::now_v7();
+    let piece_stream = format!("piece-{piece_id}");
+    let piece_created = PieceEvent::PieceCreated {
+        id: piece_id,
+        name: "Fundus-Piece".to_string(),
+        category_id: Some(cat_id),
         season_id: None,
         notes: String::new(),
         details: vec![],
         photos: vec![],
         version: AggregateVersion::INITIAL,
     };
-    let payload = encode_event(&costume_created)?;
+    let payload = encode_event(&piece_created)?;
     eappend(
         &redis_client,
-        &costume_stream,
-        "CostumeCreated",
+        &piece_stream,
+        "PieceCreated",
         "EMPTY",
         &payload,
     )
     .await?;
 
     let detail_id = Uuid::now_v7();
-    let detail_added = CostumeEvent::DetailAdded {
-        id: costume_id,
-        detail: CostumeDetail {
+    let detail_added = PieceEvent::PieceDetailAdded {
+        id: piece_id,
+        detail: PieceDetail {
             id: detail_id,
             subject: Some("Kopf".into()),
-            category_id: Some(cat_id),
             text: "Helm mit Visier".into(),
         },
         version: AggregateVersion(1),
     };
     let payload = encode_event(&detail_added)?;
-    eappend(&redis_client, &costume_stream, "DetailAdded", "0", &payload).await?;
+    eappend(
+        &redis_client,
+        &piece_stream,
+        "PieceDetailAdded",
+        "0",
+        &payload,
+    )
+    .await?;
 
-    let view = await_costume_found(&costume_repo, costume_id).await?;
+    let view = await_piece_found(&piece_repo, piece_id).await?;
     assert_eq!(
         view.details.len(),
         1,
-        "costume should have exactly one detail"
+        "piece should have exactly one detail"
     );
-    // Issue #543: the derived category lives on the COSTUME, not the detail.
+    // The category lives on the PIECE, never on a detail.
     assert_eq!(view.category_id, Some(cat_id));
     assert_eq!(view.category_name.as_deref(), Some("Oberteil"));
     let detail = &view.details[0];
@@ -499,17 +507,17 @@ async fn costume_category_projector_is_idempotent_under_redelivery() -> Result<(
 }
 
 // ---------------------------------------------------------------------------
-// 8.2 — Rename propagation: renaming a category refreshes the costume category_name
+// 8.2 — Rename propagation: renaming a category refreshes the piece category_name
 // ---------------------------------------------------------------------------
 
-async fn await_costume_category_name(
-    repo: &CostumeRepositoryImpl,
-    costume_id: Uuid,
+async fn await_outfit_name(
+    repo: &PieceRepositoryImpl,
+    piece_id: Uuid,
     expected: &str,
 ) -> Result<()> {
     let deadline = Instant::now() + PROJECTION_DEADLINE;
     loop {
-        match repo.find_by_id(costume_id).await {
+        match repo.find_by_id(piece_id).await {
             Ok(view) => {
                 if view.category_name.as_deref() == Some(expected) {
                     return Ok(());
@@ -522,7 +530,7 @@ async fn await_costume_category_name(
             }
             Err(breakdown_core::error::DomainError::NotFound { .. }) => {
                 bail!(
-                    "projection lag: Costume({costume_id}) not projected within {PROJECTION_DEADLINE:?}"
+                    "projection lag: Piece({piece_id}) not projected within {PROJECTION_DEADLINE:?}"
                 );
             }
             Err(other) => return Err(anyhow!(other.to_string())),
@@ -531,14 +539,14 @@ async fn await_costume_category_name(
             tokio::time::sleep(POLL_INTERVAL).await;
         } else {
             bail!(
-                "projection lag: costume category_name did not become {expected:?} within {PROJECTION_DEADLINE:?}"
+                "projection lag: piece category_name did not become {expected:?} within {PROJECTION_DEADLINE:?}"
             );
         }
     }
 }
 
 #[tokio::test]
-async fn rename_category_refreshes_costume_category_name() -> Result<()> {
+async fn rename_category_refreshes_outfit_name() -> Result<()> {
     let (pool, _pg) = crate::fixtures::spawn_postgres().await?;
     let (redis_client, _sierra_conn, _sierra) = crate::fixtures::spawn_sierradb().await?;
 
@@ -548,7 +556,7 @@ async fn rename_category_refreshes_costume_category_name() -> Result<()> {
         infra::projectors::ProjectorFlushConfig::test_profile(),
     )
     .await?;
-    let _costume_ref = infra::projectors::spawn_costume_projector(
+    let _piece_ref = infra::projectors::spawn_piece_projector(
         pool.clone(),
         Arc::clone(&redis_client),
         infra::projectors::ProjectorFlushConfig::test_profile(),
@@ -556,7 +564,7 @@ async fn rename_category_refreshes_costume_category_name() -> Result<()> {
     .await?;
 
     let cat_repo = CostumeCategoryRepositoryImpl::new(pool.clone());
-    let costume_repo = CostumeRepositoryImpl::new(pool.clone());
+    let piece_repo = PieceRepositoryImpl::new(pool.clone());
 
     let cat_id = CostumeCategoryId(Uuid::now_v7());
     let season_id = SeasonId::new();
@@ -577,16 +585,17 @@ async fn rename_category_refreshes_costume_category_name() -> Result<()> {
     .await?;
     await_category_found(&cat_repo, cat_id).await?;
 
-    let costume_id = Uuid::now_v7();
-    let costume_stream = format!("costume-{costume_id}");
+    let piece_id = Uuid::now_v7();
+    let piece_stream = format!("piece-{piece_id}");
     eappend(
         &redis_client,
-        &costume_stream,
-        "CostumeCreated",
+        &piece_stream,
+        "PieceCreated",
         "EMPTY",
-        &encode_event(&CostumeEvent::CostumeCreated {
-            id: costume_id,
-            character_id: None,
+        &encode_event(&PieceEvent::PieceCreated {
+            id: piece_id,
+            name: "Fundus-Piece".to_string(),
+            category_id: Some(cat_id),
             season_id: None,
             notes: String::new(),
             details: vec![],
@@ -598,15 +607,14 @@ async fn rename_category_refreshes_costume_category_name() -> Result<()> {
     let detail_id = Uuid::now_v7();
     eappend(
         &redis_client,
-        &costume_stream,
-        "DetailAdded",
+        &piece_stream,
+        "PieceDetailAdded",
         "0",
-        &encode_event(&CostumeEvent::DetailAdded {
-            id: costume_id,
-            detail: CostumeDetail {
+        &encode_event(&PieceEvent::PieceDetailAdded {
+            id: piece_id,
+            detail: PieceDetail {
                 id: detail_id,
                 subject: Some("Kopf".into()),
-                category_id: Some(cat_id),
                 text: "Helm".into(),
             },
             version: AggregateVersion(1),
@@ -614,11 +622,11 @@ async fn rename_category_refreshes_costume_category_name() -> Result<()> {
     )
     .await?;
 
-    await_costume_category_name(&costume_repo, costume_id, "Oberteil").await?;
+    await_outfit_name(&piece_repo, piece_id, "Oberteil").await?;
 
     // Rename the category; the costume_category projector must propagate the
-    // new name into projection_costume.category_name (issue #543: the
-    // category lives on the costume now).
+    // new name into projection_piece.category_name (issue #543: the
+    // category lives on the piece now).
     eappend(
         &redis_client,
         &cat_stream,
@@ -632,17 +640,17 @@ async fn rename_category_refreshes_costume_category_name() -> Result<()> {
     )
     .await?;
 
-    await_costume_category_name(&costume_repo, costume_id, "Kopfbedeckung").await?;
+    await_outfit_name(&piece_repo, piece_id, "Kopfbedeckung").await?;
 
     Ok(())
 }
 
 // ---------------------------------------------------------------------------
-// 8.3 — Archive preserves history: costume keeps name, picker hides category
+// 8.3 — Archive preserves history: piece keeps name, picker hides category
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
-async fn archive_category_preserves_costume_name_and_hides_from_picker() -> Result<()> {
+async fn archive_category_preserves_piece_name_and_hides_from_picker() -> Result<()> {
     let (pool, _pg) = crate::fixtures::spawn_postgres().await?;
     let (redis_client, _sierra_conn, _sierra) = crate::fixtures::spawn_sierradb().await?;
 
@@ -652,7 +660,7 @@ async fn archive_category_preserves_costume_name_and_hides_from_picker() -> Resu
         infra::projectors::ProjectorFlushConfig::test_profile(),
     )
     .await?;
-    let _costume_ref = infra::projectors::spawn_costume_projector(
+    let _piece_ref = infra::projectors::spawn_piece_projector(
         pool.clone(),
         Arc::clone(&redis_client),
         infra::projectors::ProjectorFlushConfig::test_profile(),
@@ -660,7 +668,7 @@ async fn archive_category_preserves_costume_name_and_hides_from_picker() -> Resu
     .await?;
 
     let cat_repo = CostumeCategoryRepositoryImpl::new(pool.clone());
-    let costume_repo = CostumeRepositoryImpl::new(pool.clone());
+    let piece_repo = PieceRepositoryImpl::new(pool.clone());
 
     let cat_id = CostumeCategoryId(Uuid::now_v7());
     let season_id = SeasonId::new();
@@ -681,16 +689,17 @@ async fn archive_category_preserves_costume_name_and_hides_from_picker() -> Resu
     .await?;
     await_category_found(&cat_repo, cat_id).await?;
 
-    let costume_id = Uuid::now_v7();
-    let costume_stream = format!("costume-{costume_id}");
+    let piece_id = Uuid::now_v7();
+    let piece_stream = format!("piece-{piece_id}");
     eappend(
         &redis_client,
-        &costume_stream,
-        "CostumeCreated",
+        &piece_stream,
+        "PieceCreated",
         "EMPTY",
-        &encode_event(&CostumeEvent::CostumeCreated {
-            id: costume_id,
-            character_id: None,
+        &encode_event(&PieceEvent::PieceCreated {
+            id: piece_id,
+            name: "Fundus-Piece".to_string(),
+            category_id: Some(cat_id),
             season_id: None,
             notes: String::new(),
             details: vec![],
@@ -702,24 +711,23 @@ async fn archive_category_preserves_costume_name_and_hides_from_picker() -> Resu
     let detail_id = Uuid::now_v7();
     eappend(
         &redis_client,
-        &costume_stream,
-        "DetailAdded",
+        &piece_stream,
+        "PieceDetailAdded",
         "0",
-        &encode_event(&CostumeEvent::DetailAdded {
-            id: costume_id,
-            detail: CostumeDetail {
+        &encode_event(&PieceEvent::PieceDetailAdded {
+            id: piece_id,
+            detail: PieceDetail {
                 id: detail_id,
                 subject: Some("Kopf".into()),
-                category_id: Some(cat_id),
                 text: "Helm".into(),
             },
             version: AggregateVersion(1),
         })?,
     )
     .await?;
-    await_costume_category_name(&costume_repo, costume_id, "Oberteil").await?;
+    await_outfit_name(&piece_repo, piece_id, "Oberteil").await?;
 
-    // Archive the (referenced) category. It must NOT null the costume's name.
+    // Archive the (referenced) category. It must NOT null the piece's name.
     eappend(
         &redis_client,
         &cat_stream,
@@ -735,23 +743,23 @@ async fn archive_category_preserves_costume_name_and_hides_from_picker() -> Resu
     // Wait for the archive event to be projected (replaces static sleep)
     await_category_excluded_from_list(&cat_repo, season_id, cat_id.0).await?;
 
-    // The costume still resolves the (now historical) category name.
-    let view = costume_repo.find_by_id(costume_id).await?;
+    // The piece still resolves the (now historical) category name.
+    let view = piece_repo.find_by_id(piece_id).await?;
     assert_eq!(
         view.category_name.as_deref(),
         Some("Oberteil"),
-        "archiving a category must not drop costume category names"
+        "archiving a category must not drop piece category names"
     );
 
     Ok(())
 }
 
 // ---------------------------------------------------------------------------
-// 8.4 — End-to-end categorisation: costume → character → categorized detail
+// 8.4 — End-to-end categorisation: piece → character → categorized detail
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
-async fn end_to_end_costume_categorisation_with_character() -> Result<()> {
+async fn end_to_end_piece_categorisation_with_character() -> Result<()> {
     let (pool, _pg) = crate::fixtures::spawn_postgres().await?;
     let (redis_client, _sierra_conn, _sierra) = crate::fixtures::spawn_sierradb().await?;
 
@@ -761,13 +769,13 @@ async fn end_to_end_costume_categorisation_with_character() -> Result<()> {
         infra::projectors::ProjectorFlushConfig::test_profile(),
     )
     .await?;
-    let _costume_ref = infra::projectors::spawn_costume_projector(
+    let _piece_ref = infra::projectors::spawn_piece_projector(
         pool.clone(),
         Arc::clone(&redis_client),
         infra::projectors::ProjectorFlushConfig::test_profile(),
     )
     .await?;
-    // The projection_costume table has a FK to projection_character,
+    // The projection_piece table has a FK to projection_character,
     // so we need the character projector to populate it.
     let _char_ref = infra::projectors::spawn_character_projector(
         pool.clone(),
@@ -777,9 +785,9 @@ async fn end_to_end_costume_categorisation_with_character() -> Result<()> {
     .await?;
 
     let cat_repo = CostumeCategoryRepositoryImpl::new(pool.clone());
-    let costume_repo = CostumeRepositoryImpl::new(pool.clone());
+    let piece_repo = PieceRepositoryImpl::new(pool.clone());
 
-    // A known category so the costume detail can resolve its name.
+    // A known category so the piece detail can resolve its name.
     let cat_id = CostumeCategoryId(Uuid::now_v7());
     let season_id = SeasonId::new();
     let cat_stream = format!("costume_category-{cat_id}");
@@ -821,18 +829,19 @@ async fn end_to_end_costume_categorisation_with_character() -> Result<()> {
     )
     .await?;
 
-    // Create the costume bound to the character, then assign explicitly, then
-    // add a categorized detail.
-    let costume_id = Uuid::now_v7();
-    let costume_stream = format!("costume-{costume_id}");
+    // Create the piece in the season's repertoire, then set its category
+    // explicitly, then add a pure-description detail.
+    let piece_id = Uuid::now_v7();
+    let piece_stream = format!("piece-{piece_id}");
     eappend(
         &redis_client,
-        &costume_stream,
-        "CostumeCreated",
+        &piece_stream,
+        "PieceCreated",
         "EMPTY",
-        &encode_event(&CostumeEvent::CostumeCreated {
-            id: costume_id,
-            character_id: Some(char_id),
+        &encode_event(&PieceEvent::PieceCreated {
+            id: piece_id,
+            name: "Fundus-Piece".to_string(),
+            category_id: None,
             season_id: None,
             notes: String::new(),
             details: vec![],
@@ -843,38 +852,49 @@ async fn end_to_end_costume_categorisation_with_character() -> Result<()> {
     .await?;
     eappend(
         &redis_client,
-        &costume_stream,
-        "CostumeAssignedToCharacter",
+        &piece_stream,
+        "PieceAddedToSeason",
         "0",
-        &encode_event(&CostumeEvent::CostumeAssignedToCharacter {
-            id: costume_id,
-            character_id: char_id,
+        &encode_event(&PieceEvent::PieceAddedToSeason {
+            id: piece_id,
+            season_id: season_id.0,
             version: AggregateVersion(1),
+        })?,
+    )
+    .await?;
+    eappend(
+        &redis_client,
+        &piece_stream,
+        "PieceCategorySet",
+        "1",
+        &encode_event(&PieceEvent::PieceCategorySet {
+            id: piece_id,
+            category_id: Some(cat_id),
+            version: AggregateVersion(2),
         })?,
     )
     .await?;
     let detail_id = Uuid::now_v7();
     eappend(
         &redis_client,
-        &costume_stream,
-        "DetailAdded",
-        "1",
-        &encode_event(&CostumeEvent::DetailAdded {
-            id: costume_id,
-            detail: CostumeDetail {
+        &piece_stream,
+        "PieceDetailAdded",
+        "2",
+        &encode_event(&PieceEvent::PieceDetailAdded {
+            id: piece_id,
+            detail: PieceDetail {
                 id: detail_id,
                 subject: Some("Fuesse".into()),
-                category_id: Some(cat_id),
                 text: "Stiefel".into(),
             },
-            version: AggregateVersion(2),
+            version: AggregateVersion(3),
         })?,
     )
     .await?;
 
-    let view = await_costume_with_details(&costume_repo, costume_id, 1).await?;
-    assert_eq!(view.character_id, Some(char_id));
-    // Issue #543: the category is costume-level.
+    let view = await_piece_with_details(&piece_repo, piece_id, 1).await?;
+    assert_eq!(view.season_ids, vec![season_id.0]);
+    // Issue #543: the category is piece-level.
     assert_eq!(view.category_id, Some(cat_id));
     assert_eq!(view.category_name.as_deref(), Some("Schuhe"));
 
@@ -883,14 +903,14 @@ async fn end_to_end_costume_categorisation_with_character() -> Result<()> {
 
 // ---------------------------------------------------------------------------
 // Issue #543 — mandatory legacy-replay parity: a legacy event stream (only
-// `CostumeCreated` with a categorized detail, no `CostumeCategorySet`) must
+// `PieceCreated` with a categorized detail, no `CostumeCategorySet`) must
 // yield the SAME category in the aggregate (in-memory apply) and in the
-// projector's `projection_costume`. Divergence is a failure.
+// projector's `projection_piece`. Divergence is a failure.
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
-async fn legacy_stream_replay_parity_aggregate_vs_projector() -> Result<()> {
-    use breakdown_core::costume::aggregate::CostumeAggregate;
+async fn piece_category_replay_parity_aggregate_vs_projector() -> Result<()> {
+    use breakdown_core::piece::aggregate::PieceAggregate;
     use kameo_es::Apply;
 
     let (pool, _pg) = crate::fixtures::spawn_postgres().await?;
@@ -902,7 +922,7 @@ async fn legacy_stream_replay_parity_aggregate_vs_projector() -> Result<()> {
         infra::projectors::ProjectorFlushConfig::test_profile(),
     )
     .await?;
-    let _costume_ref = infra::projectors::spawn_costume_projector(
+    let _piece_ref = infra::projectors::spawn_piece_projector(
         pool.clone(),
         Arc::clone(&redis_client),
         infra::projectors::ProjectorFlushConfig::test_profile(),
@@ -910,7 +930,7 @@ async fn legacy_stream_replay_parity_aggregate_vs_projector() -> Result<()> {
     .await?;
 
     let cat_repo = CostumeCategoryRepositoryImpl::new(pool.clone());
-    let costume_repo = CostumeRepositoryImpl::new(pool.clone());
+    let piece_repo = PieceRepositoryImpl::new(pool.clone());
 
     let cat_id = CostumeCategoryId(Uuid::now_v7());
     let season_id = SeasonId::new();
@@ -931,18 +951,17 @@ async fn legacy_stream_replay_parity_aggregate_vs_projector() -> Result<()> {
     .await?;
     await_category_found(&cat_repo, cat_id).await?;
 
-    // The legacy event: a `CostumeCreated` whose detail already carries a
-    // category — and NO `CostumeCategorySet` event anywhere in the stream.
-    let costume_id = Uuid::now_v7();
-    let legacy = CostumeEvent::CostumeCreated {
-        id: costume_id,
-        character_id: None,
+    // A `PieceCreated` that already carries the category — the clean-cut shape.
+    let piece_id = Uuid::now_v7();
+    let legacy = PieceEvent::PieceCreated {
+        id: piece_id,
+        name: "Fundus-Piece".to_string(),
+        category_id: Some(cat_id),
         season_id: None,
         notes: String::new(),
-        details: vec![CostumeDetail {
+        details: vec![PieceDetail {
             id: Uuid::now_v7(),
             subject: Some("Kopf".into()),
-            category_id: Some(cat_id),
             text: "Helm".into(),
         }],
         photos: vec![],
@@ -951,22 +970,22 @@ async fn legacy_stream_replay_parity_aggregate_vs_projector() -> Result<()> {
     let payload = encode_event(&legacy)?;
     eappend(
         &redis_client,
-        &format!("costume-{costume_id}"),
-        "CostumeCreated",
+        &format!("piece-{piece_id}"),
+        "PieceCreated",
         "EMPTY",
         &payload,
     )
     .await?;
 
     // 1. Aggregate side: replay the identical event bytes through `apply`.
-    let mut aggregate = CostumeAggregate::default();
+    let mut aggregate = PieceAggregate::default();
     aggregate.apply(legacy, kameo_es::Metadata::default());
     let aggregate_category = aggregate.category_id;
 
     // 2. Projector side: wait for the projection, then compare.
     let deadline = Instant::now() + PROJECTION_DEADLINE;
     let projection_category = loop {
-        match costume_repo.find_by_id(costume_id).await {
+        match piece_repo.find_by_id(piece_id).await {
             Ok(view) => break (view.category_id, view.category_name),
             Err(breakdown_core::error::DomainError::NotFound { .. })
                 if Instant::now() < deadline =>
@@ -976,20 +995,19 @@ async fn legacy_stream_replay_parity_aggregate_vs_projector() -> Result<()> {
             Err(other) => return Err(anyhow!(other.to_string())),
         }
         if Instant::now() >= deadline {
-            bail!("projection lag: costume not projected within {PROJECTION_DEADLINE:?}");
+            bail!("projection lag: piece not projected within {PROJECTION_DEADLINE:?}");
         }
     };
     let (projection_category_id, projection_category_name) = projection_category;
 
     assert_eq!(
         aggregate_category, projection_category_id,
-        "DIVERGENCE: aggregate and projector derived different categories from \
-         the same legacy stream"
+        "DIVERGENCE: aggregate and projector disagree on the category of the same stream"
     );
     assert_eq!(
         projection_category_name.as_deref(),
         Some("Oberteil"),
-        "the projector must resolve the derived category's name"
+        "the projector must resolve the category's name"
     );
 
     Ok(())
@@ -997,7 +1015,7 @@ async fn legacy_stream_replay_parity_aggregate_vs_projector() -> Result<()> {
 
 // ---------------------------------------------------------------------------
 // Issue #543 — the `CostumeCategorySet` branch: an explicit set event updates
-// `projection_costume.category_id/category_name`; clearing nulls both.
+// `projection_piece.category_id/category_name`; clearing nulls both.
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
@@ -1011,7 +1029,7 @@ async fn costume_category_set_event_round_trips_and_clears() -> Result<()> {
         infra::projectors::ProjectorFlushConfig::test_profile(),
     )
     .await?;
-    let _costume_ref = infra::projectors::spawn_costume_projector(
+    let _piece_ref = infra::projectors::spawn_piece_projector(
         pool.clone(),
         Arc::clone(&redis_client),
         infra::projectors::ProjectorFlushConfig::test_profile(),
@@ -1019,7 +1037,7 @@ async fn costume_category_set_event_round_trips_and_clears() -> Result<()> {
     .await?;
 
     let cat_repo = CostumeCategoryRepositoryImpl::new(pool.clone());
-    let costume_repo = CostumeRepositoryImpl::new(pool.clone());
+    let piece_repo = PieceRepositoryImpl::new(pool.clone());
 
     let cat_id = CostumeCategoryId(Uuid::now_v7());
     let season_id = SeasonId::new();
@@ -1039,16 +1057,17 @@ async fn costume_category_set_event_round_trips_and_clears() -> Result<()> {
     .await?;
     await_category_found(&cat_repo, cat_id).await?;
 
-    let costume_id = Uuid::now_v7();
-    let costume_stream = format!("costume-{costume_id}");
+    let piece_id = Uuid::now_v7();
+    let piece_stream = format!("piece-{piece_id}");
     eappend(
         &redis_client,
-        &costume_stream,
-        "CostumeCreated",
+        &piece_stream,
+        "PieceCreated",
         "EMPTY",
-        &encode_event(&CostumeEvent::CostumeCreated {
-            id: costume_id,
-            character_id: None,
+        &encode_event(&PieceEvent::PieceCreated {
+            id: piece_id,
+            name: "Fundus-Piece".to_string(),
+            category_id: None,
             season_id: None,
             notes: String::new(),
             details: vec![],
@@ -1061,20 +1080,20 @@ async fn costume_category_set_event_round_trips_and_clears() -> Result<()> {
     // Set the category explicitly.
     eappend(
         &redis_client,
-        &costume_stream,
-        "CostumeCategorySet",
+        &piece_stream,
+        "PieceCategorySet",
         "0",
-        &encode_event(&CostumeEvent::CostumeCategorySet {
-            id: costume_id,
+        &encode_event(&PieceEvent::PieceCategorySet {
+            id: piece_id,
             category_id: Some(cat_id),
-            version: AggregateVersion(1),
+            version: AggregateVersion(2),
         })?,
     )
     .await?;
 
     let deadline = Instant::now() + PROJECTION_DEADLINE;
     loop {
-        match costume_repo.find_by_id(costume_id).await {
+        match piece_repo.find_by_id(piece_id).await {
             Ok(view) if view.category_id == Some(cat_id) => break,
             Ok(_) if Instant::now() < deadline => tokio::time::sleep(POLL_INTERVAL).await,
             Ok(_) => {
@@ -1090,26 +1109,26 @@ async fn costume_category_set_event_round_trips_and_clears() -> Result<()> {
             Err(other) => return Err(anyhow!(other.to_string())),
         }
     }
-    let view = costume_repo.find_by_id(costume_id).await?;
+    let view = piece_repo.find_by_id(piece_id).await?;
     assert_eq!(view.category_name.as_deref(), Some("Oberteil"));
 
     // Clearing (`None`) nulls both columns.
     eappend(
         &redis_client,
-        &costume_stream,
-        "CostumeCategorySet",
+        &piece_stream,
+        "PieceCategorySet",
         "1",
-        &encode_event(&CostumeEvent::CostumeCategorySet {
-            id: costume_id,
+        &encode_event(&PieceEvent::PieceCategorySet {
+            id: piece_id,
             category_id: None,
-            version: AggregateVersion(2),
+            version: AggregateVersion(3),
         })?,
     )
     .await?;
 
     let deadline = Instant::now() + PROJECTION_DEADLINE;
     loop {
-        match costume_repo.find_by_id(costume_id).await {
+        match piece_repo.find_by_id(piece_id).await {
             Ok(view) if view.category_id.is_none() && view.category_name.is_none() => break,
             Ok(_) if Instant::now() < deadline => tokio::time::sleep(POLL_INTERVAL).await,
             Ok(view) => bail!(

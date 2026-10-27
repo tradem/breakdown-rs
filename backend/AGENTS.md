@@ -4,6 +4,7 @@
 <!-- Co-authored-by: omen-alpha (opencode-go) -->
 <!-- Co-authored-by: glm-5.3-flash (neuralwatt) -->
 <!-- Co-authored-by: deepseek-v4.1-flash (neuralwatt) -->
+<!-- Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 # Agent Guidelines for breakdown-rs
 
@@ -32,7 +33,7 @@ You are the primary coding agent for `breakdown-rs` – a collaborative costume 
 - **`crates/api`:** Axum web server — HTTP → Core Commands (Write) / Infrastructure Queries (Read).
 
 **Domain map (production hierarchy, ADR: introduce-season-block-episode-hierarchy):**
-`Project` (opaque `ProjectId` seam, no aggregate yet; renamed from `Series`/`SeriesId` by issue #591; projection columns and wire fields follow in #599, only persisted event payloads keep the old key) → `Season` → `Block` → `Episode` → `Scene`; `Character` scoped to a Season, `Costume` bound to a Character. Core modules: `season`, `block`, `episode`, `scene`, `scene_shoot`, `shooting_day`, `character`, `costume`, `costume_category`, `shared`. The `calculation` context was removed — do not reintroduce it.
+`Project` (opaque `ProjectId` seam, no aggregate yet; renamed from `Series`/`SeriesId` by issue #591; projection columns and wire fields follow in #599, only persisted event payloads keep the old key) → `Season` → `Block` → `Episode` → `Scene`; `Character` scoped to a Season. The wardrobe is **two** aggregates (OpenSpec change `separate-piece-and-outfit-domain`): `Piece` (a fundus garment — `name`, one optional `category_id`, season repertoire, no character binding) and `Outfit` (a character's composed look — mandatory `character_id`, `0..n` pieces with layering allowed, `variant_of` for copy-on-write forks). Scenes cast `Outfit`s (`SceneOutfitBeat`), never bare pieces. Core modules: `season`, `block`, `episode`, `scene`, `scene_shoot`, `shooting_day`, `character`, `piece`, `outfit`, `costume_category`, `shared`. The `calculation` context was removed — do not reintroduce it; the former `costume` module was split into `piece` + `outfit` — do not reintroduce it.
 Aggregate details and invariants (`shooting_day`/`wrapped_at`, `scene_shoot` lifecycle & pair-uniqueness, `costume_category` seeding saga, `photo` bounded context with sagas) → long form: `.github/instructions/domain-model.instructions.md` and `.github/instructions/photo-context.instructions.md`
 
 ## 3. Workflow & Best Practices

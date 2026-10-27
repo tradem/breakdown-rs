@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
 // Co-authored-by: glm-5.3-flash (neuralwatt)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 import 'package:breakdown_api/breakdown_api.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -92,7 +93,7 @@ class SceneBeatOverlay implements ReconciliationOverlay {
 
   /// The complete optimistic beat list of the scene (display rendering
   /// only; the projected list replaces it once the projection catches up).
-  final List<SceneCostumeBeatView> beats;
+  final List<SceneOutfitBeatView> beats;
 
   @override
   final OverlayStatus status;
@@ -117,7 +118,7 @@ class SceneBeatOverlay implements ReconciliationOverlay {
   /// (display-only; the projected row wins after the version-fenced drop).
   SceneView applyTo(SceneView row) => row.rebuild(
     (b) => b
-      ..costumeBeats.replace(beats)
+      ..outfitBeats.replace(beats)
       ..version = version,
   );
 

@@ -6,6 +6,7 @@
 // Co-authored-by: space-bunny-free (opencode-go)
 // Co-authored-by: longcat-2.0 (opencode-go)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 //! RFC 9457 problem-detail error surface (ADR-031).
 //!
@@ -247,9 +248,6 @@ fn domain_error_problem(err: DomainError) -> ProblemDetails {
         DomainError::VersionConflict { expected, current } => problem(code)
             .extension("expected_version", expected)
             .extension("current_version", current)
-            .build(),
-        DomainError::AlreadyAssigned { character_id } => problem(code)
-            .extension("assigned_character_id", character_id)
             .build(),
         DomainError::AlreadyScheduled { shooting_day_id } => problem(code)
             .extension("offending_shooting_day_id", shooting_day_id)
@@ -905,12 +903,21 @@ mod tests {
         );
 
         // Per-context not-found codes flow through (no more generic domain.*).
-        use breakdown_core::costume::error::CostumeError;
-        let problem = ApiError::from(DomainError::from(CostumeError::NotFound {
+        use breakdown_core::piece::error::PieceError;
+        let problem = ApiError::from(DomainError::from(PieceError::NotFound {
             id: Uuid::now_v7(),
         }))
         .into_problem();
-        assert_eq!(problem.code, "costume.not-found");
+        assert_eq!(problem.code, "piece.not-found");
+        assert_eq!(problem.status, 404);
+
+        // The outfit context has its own not-found code.
+        use breakdown_core::outfit::error::OutfitError;
+        let problem = ApiError::from(DomainError::from(OutfitError::NotFound {
+            id: Uuid::now_v7(),
+        }))
+        .into_problem();
+        assert_eq!(problem.code, "outfit.not-found");
         assert_eq!(problem.status, 404);
 
         // Costume stale-version writes surface the typed 409 with the
@@ -919,7 +926,7 @@ mod tests {
         // offer the pull-to-refresh retry, instead of a wire-indistinguishable
         // generic `domain.validation` 422.
         use breakdown_core::shared::AggregateVersion as Av;
-        let problem = ApiError::from(DomainError::from(CostumeError::VersionMismatch {
+        let problem = ApiError::from(DomainError::from(PieceError::VersionMismatch {
             expected: Av(5),
             actual: Av(4),
         }))

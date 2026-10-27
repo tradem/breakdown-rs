@@ -56,14 +56,6 @@ use breakdown_core::character::commands::{
 use breakdown_core::character::events::{CharacterMeasurements, ContactInfo};
 use breakdown_core::character::ports::{CharacterCommands, CharacterRepository};
 use breakdown_core::character::views::{CharacterAppearanceView, CharacterView};
-use breakdown_core::costume::commands::{
-    AddCostumeToSeason, AddDetail, AssignCostumeToCharacter, CreateCostume, LinkPhoto,
-    RemoveCostumeFromSeason, RemoveDetail, SetCostumeCategory, UnassignCostume, UnlinkPhoto,
-    UpdateCostumeDetail, UpdateCostumeNotes,
-};
-use breakdown_core::costume::events::CostumeDetail;
-use breakdown_core::costume::ports::{CostumeCommands, CostumeRepository};
-use breakdown_core::costume::views::CostumeView;
 use breakdown_core::costume_category::commands::{
     ArchiveCostumeCategory, CreateCostumeCategory, RenameCostumeCategory, ReorderCostumeCategory,
 };
@@ -74,8 +66,8 @@ use breakdown_core::episode::ports::{EpisodeCommands, EpisodeRepository};
 use breakdown_core::episode::views::EpisodeView;
 use breakdown_core::error::DomainError;
 use breakdown_core::error_registry::{
-    BLOCK_NUMBER_ALREADY_EXISTS, COSTUME_CATEGORY_ARCHIVED, COSTUME_CONTAINER_UNRESOLVED,
-    MEMBERSHIP_NOT_FOUND, SCENE_SHOOT_PAIR_ALREADY_EXISTS, SEASON_ARCHIVED, SEASON_NOT_FOUND,
+    BLOCK_NUMBER_ALREADY_EXISTS, COSTUME_CATEGORY_ARCHIVED, MEMBERSHIP_NOT_FOUND,
+    PIECE_CONTAINER_UNRESOLVED, SCENE_SHOOT_PAIR_ALREADY_EXISTS, SEASON_ARCHIVED, SEASON_NOT_FOUND,
     SEASON_NUMBER_ALREADY_EXISTS, SHOOTING_DAY_EPISODE_MISMATCH,
 };
 use breakdown_core::membership::policy::{Action, PolicyDecision, SeasonAuthContext};
@@ -85,6 +77,20 @@ use breakdown_core::membership::{
     MembershipRepository, RemoveMember, Role,
 };
 use breakdown_core::ops::ProjectorHealthSnapshot;
+use breakdown_core::outfit::commands::{
+    AddPieceToOutfit, CreateOutfit, CreateOutfitVariant, LinkOutfitPhoto, RemovePieceFromOutfit,
+    RenameOutfit, UnlinkOutfitPhoto, UpdateOutfitNotes,
+};
+use breakdown_core::outfit::ports::{OutfitCommands, OutfitRepository};
+use breakdown_core::outfit::views::OutfitView;
+use breakdown_core::piece::commands::{
+    AddPieceDetail, AddPieceToSeason, CreatePiece, LinkPiecePhoto, RemovePieceDetail,
+    RemovePieceFromSeason, RenamePiece, SetPieceCategory, UnlinkPiecePhoto, UpdatePieceDetail,
+    UpdatePieceNotes,
+};
+use breakdown_core::piece::events::PieceDetail;
+use breakdown_core::piece::ports::{PieceCommands, PieceRepository};
+use breakdown_core::piece::views::PieceView;
 // Trait method scope for the ops handler (`dead_letter_count` etc.).
 use breakdown_core::ops::ProjectorHealthRepository as _;
 use breakdown_core::photo::binding::PhotoBinding;
@@ -97,8 +103,8 @@ use breakdown_core::reporting::{
     TEMPLATE_VERSION,
 };
 use breakdown_core::scene::commands::{
-    AddCostumeBeat, AssignCharacter, CreateScene, RemoveCharacter, RemoveCostumeBeat,
-    ScheduleSceneOnShootingDay, UnscheduleSceneFromShootingDay, UpdateCostumeBeat,
+    AddOutfitBeat, AssignCharacter, CreateScene, RemoveCharacter, RemoveOutfitBeat,
+    ScheduleSceneOnShootingDay, UnscheduleSceneFromShootingDay, UpdateOutfitBeat,
     UpdateSceneDetails,
 };
 use breakdown_core::scene::events::{SceneDetails, SceneSource};
@@ -161,7 +167,7 @@ pub struct IdVersionResponse {
 
 /// Query parameters for paginated list endpoints.
 ///
-/// `episode_id` scopes Scene lists; `season_id` scopes Character/Block/Episode/Costume lists;
+/// `episode_id` scopes Scene lists; `season_id` scopes Character/Block/Episode/Piece lists;
 /// `project_id` scopes Episode lists (seasons take the dedicated
 /// `SeasonListParams` below, issue #377 review).
 #[derive(Debug, Clone, Deserialize, IntoParams)]
@@ -211,15 +217,26 @@ pub struct CreateCharacterRequest {
     pub category: CharacterCategory,
 }
 
-/// Create-costume payload (issue #453).
+/// Create-piece payload.
 ///
-/// `season_id` is the optional repertoire season: when present, the costume
-/// joins that season's costume stream while unassigned. The API edge resolves
+/// `name` is required (a fundus garment without a name is unreachable for the
+/// wardrobe crew). `category_id` is the optional single category — the API edge
+/// pre-checks the season invariant (`category.season_id ∈ piece.seasons`).
+/// `season_id` is the optional initial repertoire season; the API edge resolves
 /// the `project_id` audit metadata from the season projection (404 on an
 /// unknown season).
 #[derive(Debug, Clone, Deserialize, ToSchema)]
-pub struct CreateCostumeRequest {
+pub struct CreatePieceRequest {
+    pub name: String,
+    pub category_id: Option<Uuid>,
     pub season_id: Option<SeasonId>,
+}
+
+/// Rename a piece. Names are not unique within a season.
+#[derive(Debug, Clone, Deserialize, ToSchema)]
+pub struct RenamePieceRequest {
+    pub name: String,
+    pub version: AggregateVersion,
 }
 
 #[derive(Debug, Clone, Deserialize, ToSchema)]
@@ -236,49 +253,49 @@ pub struct UpdateCostumeCategoryRequest {
     pub order_key: Option<LexicalSortKey>,
 }
 
-/// Wire payload for a costume detail (issue #543): pure description —
+/// Wire payload for a piece detail (issue #543): pure description —
 /// `subject` + `text`. The category is no longer part of the detail wire
-/// contract; it is set on the costume via `POST /costumes/{id}/category`.
+/// contract; it is set on the piece via `POST /pieces/{id}/category`.
 /// New details deserialize with `category_id: None` in the domain event.
 #[derive(Debug, Clone, Deserialize, ToSchema)]
-pub struct CostumeDetailRequest {
+pub struct PieceDetailRequest {
     pub id: Uuid,
     pub subject: Option<String>,
     pub text: String,
 }
 
 #[derive(Debug, Clone, Deserialize, ToSchema)]
-pub struct AddCostumeDetailRequest {
-    pub detail: CostumeDetailRequest,
+pub struct AddPieceDetailRequest {
+    pub detail: PieceDetailRequest,
     pub version: AggregateVersion,
 }
 
-/// Replace an existing costume detail in full (issue #544).
+/// Replace an existing piece detail in full (issue #544).
 ///
 /// The body carries the **whole** detail, not a patch: a patch-merge would
 /// leave the field merging to the client and make an emptied `subject`
 /// ambiguous (cleared on purpose vs. lost). `detail.id` must equal the
 /// `detail_id` path parameter — the aggregate validates the id against its
-/// state and answers 404 `costume-detail.not-found` without emitting an
+/// state and answers 404 `piece-detail.not-found` without emitting an
 /// event when the detail is unknown.
 #[derive(Debug, Clone, Deserialize, ToSchema)]
-pub struct UpdateCostumeDetailRequest {
-    pub detail: CostumeDetailRequest,
+pub struct UpdatePieceDetailRequest {
+    pub detail: PieceDetailRequest,
     pub version: AggregateVersion,
 }
 
-/// Set (or clear) the costume's single category (issue #543). `category_id:
+/// Set (or clear) the piece's single category (issue #543). `category_id:
 /// None` clears the binding.
 #[derive(Debug, Clone, Deserialize, ToSchema)]
-pub struct SetCostumeCategoryRequest {
+pub struct SetPieceCategoryRequest {
     pub category_id: Option<Uuid>,
     pub version: AggregateVersion,
 }
 
-/// Add a costume to a season's repertoire (issue #534). Idempotent: a season
+/// Add a piece to a season's repertoire (issue #534). Idempotent: a season
 /// already in the repertoire is a no-op success with the unchanged version.
 #[derive(Debug, Clone, Deserialize, ToSchema)]
-pub struct AddCostumeToSeasonRequest {
+pub struct AddPieceToSeasonRequest {
     pub season_id: Uuid,
     pub version: AggregateVersion,
 }
@@ -332,7 +349,7 @@ pub struct UpdateCharacterCategoryRequest {
 }
 
 #[derive(Debug, Clone, Deserialize, ToSchema)]
-pub struct UpdateCostumeNotesRequest {
+pub struct UpdatePieceNotesRequest {
     pub notes: String,
     pub version: AggregateVersion,
 }
@@ -456,29 +473,29 @@ pub struct AssignCharacterRequest {
     pub version: AggregateVersion,
 }
 
-/// Request body for adding a costume beat (issue #546). The `order` is
+/// Request body for adding a outfit beat (issue #546). The `order` is
 /// deliberately absent — the aggregate computes it (`max + 1` per character);
 /// a client-chosen order would be a race.
 #[derive(Debug, Clone, Deserialize, ToSchema)]
-pub struct AddSceneCostumeBeatRequest {
+pub struct AddSceneOutfitBeatRequest {
     pub character_id: Uuid,
-    pub costume_id: Uuid,
+    pub outfit_id: Uuid,
     /// Optional free-text cue for the wardrobe crew ("nach dem Telefonat").
     pub note: Option<String>,
     pub version: AggregateVersion,
 }
 
-/// Request body for updating a costume beat in place at the path-addressed
+/// Request body for updating a outfit beat in place at the path-addressed
 /// `(character_id, order)` (issue #546).
 #[derive(Debug, Clone, Deserialize, ToSchema)]
-pub struct UpdateSceneCostumeBeatRequest {
-    pub costume_id: Uuid,
+pub struct UpdateSceneOutfitBeatRequest {
+    pub outfit_id: Uuid,
     pub note: Option<String>,
     pub version: AggregateVersion,
 }
 
 #[derive(Debug, Clone, Deserialize, ToSchema)]
-pub struct AssignCostumeRequest {
+pub struct AssignPieceRequest {
     pub character_id: Uuid,
     pub version: AggregateVersion,
 }
@@ -566,7 +583,7 @@ async fn project_id_for_character<P: Ports>(
     Ok(season.project_id)
 }
 
-/// Resolve the `project_id` for a costume category (category → season → series).
+/// Resolve the `project_id` for a piece category (category → season → series).
 async fn project_id_for_costume_category<P: Ports>(
     state: &AppState<P>,
     category_id: Uuid,
@@ -637,71 +654,55 @@ async fn ensure_execution_open<P: Ports>(
     Ok(())
 }
 
-/// Resolve the (optional) `project_id` for a costume
-/// (costume → character(opt) → season → series, with the repertoire as the
-/// fallback for an unassigned costume).
+/// Resolve the (optional) `project_id` for a piece: its season repertoire is
+/// the only scope relation (a piece has no character binding any more).
 ///
-/// `Ok(None)` when the costume is neither assigned to a character nor bound to
-/// any season's repertoire (mirrors the pre-migration adapter semantics);
-/// hard-404 when the costume itself is missing.
-/// Costume → series resolution, **strict** (issue #535 review): repertoire
+/// `Ok(None)` when the piece stands in no season's repertoire (mirrors the
+/// pre-migration adapter semantics); hard-404 when the piece itself is missing.
+/// Piece → series resolution, **strict** (issue #535 review): repertoire
 /// and season lookup failures propagate with `?` instead of collapsing to
 /// `Ok(None)`. The photo AUTHZ-GATE uses this variant so a database outage
-/// answers 500 — never the misleading 422 `costume.container-unresolved`
+/// answers 500 — never the misleading 422 `piece.container-unresolved`
 /// (issue #537 doctrine: infrastructure failures must not surface as
-/// domain/permission answers). The best-effort [`project_id_for_costume`]
+/// domain/permission answers). The best-effort [`project_id_for_piece`]
 /// wrapper keeps this for audit metadata, where the hard rule is the
 /// opposite: metadata must never block command processing.
-async fn project_id_for_costume_strict<P: Ports>(
+async fn project_id_for_piece_strict<P: Ports>(
     state: &AppState<P>,
-    costume_id: Uuid,
+    piece_id: Uuid,
 ) -> Result<Option<ProjectId>, ApiError> {
-    let costume = state.ports.costume_repo().find_by_id(costume_id).await?;
-    match costume.character_id {
-        Some(character_id) => {
-            let ch = state
-                .ports
-                .character_repo()
-                .find_by_id(character_id)
-                .await?;
-            let season = state.ports.season_repo().find_by_id(ch.season_id.0).await?;
-            Ok(Some(season.project_id))
-        }
-        // Repertoire fallback (issue #532): an unassigned costume can still
-        // stand in a season's repertoire (`projection_costume_season`,
-        // issue #453), and that season resolves the series. The binding is
-        // m:n, so the *first* season in the repository's deterministic order
-        // is used (mirrored by the client gate, issue #535 review).
-        None => {
-            let seasons = state
-                .ports
-                .costume_repo()
-                .repertoire_seasons(costume_id)
-                .await?;
-            let Some(season_id) = seasons.into_iter().next() else {
-                return Ok(None);
-            };
-            let season = state.ports.season_repo().find_by_id(season_id.0).await?;
-            Ok(Some(season.project_id))
-        }
-    }
+    // The repertoire is the piece's only scope relation (issue #453/#534):
+    // the season resolves the series. The binding is m:n, so the *first*
+    // season in the repository's deterministic order is used (mirrored by the
+    // client gate, issue #535 review).
+    state.ports.piece_repo().find_by_id(piece_id).await?;
+    let seasons = state
+        .ports
+        .piece_repo()
+        .repertoire_seasons(piece_id)
+        .await?;
+    let Some(season_id) = seasons.into_iter().next() else {
+        return Ok(None);
+    };
+    let season = state.ports.season_repo().find_by_id(season_id.0).await?;
+    Ok(Some(season.project_id))
 }
 
-/// Best-effort costume → series resolution for **audit metadata** (the
-/// command `project_id` field): identical to [`project_id_for_costume_strict`]
+/// Best-effort piece → series resolution for **audit metadata** (the
+/// command `project_id` field): identical to [`project_id_for_piece_strict`]
 /// but a lookup failure narrows to `Ok(None)` instead of failing the
 /// request — audit metadata must never block command processing (hard
 /// rule). The photo gate uses the strict variant directly.
-async fn project_id_for_costume<P: Ports>(
+async fn project_id_for_piece<P: Ports>(
     state: &AppState<P>,
-    costume_id: Uuid,
+    piece_id: Uuid,
 ) -> Result<Option<ProjectId>, ApiError> {
-    match project_id_for_costume_strict(state, costume_id).await {
+    match project_id_for_piece_strict(state, piece_id).await {
         Ok(project_id) => Ok(project_id),
         Err(err) => {
             tracing::warn!(
                 error = ?err,
-                costume_id = %costume_id,
+                piece_id = %piece_id,
                 "project lookup failed; continuing without project_id (best-effort audit metadata, issue #532)"
             );
             Ok(None)
@@ -709,36 +710,15 @@ async fn project_id_for_costume<P: Ports>(
     }
 }
 
-/// Season scopes of a costume: the character's season (when assigned) **∪**
-/// the seasons it stands in as repertoire (issue #532).
+/// Season scopes of a piece: exactly its season repertoire. A piece has no
+/// character binding any more (the character lives on the outfit), so the
+/// repertoire is the whole scope set.
 ///
 /// Best-effort projection reads at the API edge — the only legitimate
-/// read-model consumer per the CQRS boundary hard rule. A character that has
-/// not projected yet must not swallow the repertoire scope, so the character
-/// lookup is a logged fallback rather than a hard error.
-async fn costume_season_scopes<P: Ports>(
-    state: &AppState<P>,
-    costume: &CostumeView,
-) -> Vec<SeasonId> {
+/// read-model consumer per the CQRS boundary hard rule.
+async fn piece_season_scopes<P: Ports>(state: &AppState<P>, piece: &PieceView) -> Vec<SeasonId> {
     let mut scopes: Vec<SeasonId> = Vec::new();
-    if let Some(character_id) = costume.character_id {
-        match state.ports.character_repo().find_by_id(character_id).await {
-            Ok(character) => scopes.push(character.season_id),
-            Err(err) => tracing::warn!(
-                error = %err,
-                character_id = %character_id,
-                costume_id = %costume.id,
-                "character scope lookup failed; falling back to the costume's \
-                 repertoire scopes (issue #532)"
-            ),
-        }
-    }
-    match state
-        .ports
-        .costume_repo()
-        .repertoire_seasons(costume.id)
-        .await
-    {
+    match state.ports.piece_repo().repertoire_seasons(piece.id).await {
         Ok(seasons) => {
             for season_id in seasons {
                 if !scopes.contains(&season_id) {
@@ -748,8 +728,8 @@ async fn costume_season_scopes<P: Ports>(
         }
         Err(err) => tracing::warn!(
             error = %err,
-            costume_id = %costume.id,
-            "repertoire scope lookup failed; continuing with the character scope only (issue #532)"
+            piece_id = %piece.id,
+            "repertoire scope lookup failed; continuing with no scope (issue #532)"
         ),
     }
     scopes
@@ -803,7 +783,7 @@ where
 /// authorize — but if no scope authorizes and at least one lookup failed, the
 /// last error is propagated as a 500 instead of a 403: a database outage must
 /// not masquerade as a permission problem. Fail-closed is intentional; an
-/// error never grants access. Backs [`authorize_costume_scoped`].
+/// error never grants access. Backs [`authorize_piece_scoped`].
 async fn membership_gate_any<P: Ports>(
     state: &AppState<P>,
     scopes: Vec<SeasonId>,
@@ -824,7 +804,7 @@ async fn membership_gate_any<P: Ports>(
                 tracing::warn!(
                     error = %err,
                     season_id = %season_id.0,
-                    "costume-role lookup failed; continuing with the remaining scopes"
+                    "piece-role lookup failed; continuing with the remaining scopes"
                 );
                 last_lookup_error = Some(err);
             }
@@ -845,30 +825,30 @@ async fn membership_gate_any<P: Ports>(
     }
 }
 
-/// AUTHZ-GATE seam for costume handlers performing privileged, season-scoped
-/// actions on a costume the middleware alone cannot scope (issue #543).
-/// Authorize the caller against **any** season scope the costume belongs to,
+/// AUTHZ-GATE seam for piece handlers performing privileged, season-scoped
+/// actions on a piece the middleware alone cannot scope (issue #543).
+/// Authorize the caller against **any** season scope the piece belongs to,
 /// and return that season.
 ///
 /// Before issue #532 the photo handlers only ever looked at the character's
-/// season, so a costume that carries a repertoire season (which the client
+/// season, so a piece that carries a repertoire season (which the client
 /// always sets, issue #453) was rejected as "unassigned" even though the
 /// server already knew the season — a lookup omission, not a feature.
 /// As of issue #535 (ADR-035 B2/S2) the **photo** path no longer routes
 /// through this helper: those three handlers gate series-wide via
-/// [`authorize_costume_in_project`]. What remains here are the genuinely
-/// season-scoped costume operations — detail editing (#543/#544),
-/// `set_costume_category` (season-match invariant) and the repertoire
+/// [`authorize_piece_in_project`]. What remains here are the genuinely
+/// season-scoped piece operations — detail editing (#543/#544),
+/// `set_piece_category` (season-match invariant) and the repertoire
 /// commands' **target-season** gate (#534, #533 terminal semantics).
 ///
 /// The ANY semantics are required because the repertoire binding is m:n: a
-/// costume may stand in several seasons' repertoires, and holding the costume
+/// piece may stand in several seasons' repertoires, and holding the piece
 /// role in *any* of them is what authorizes the photo operation. This helper
 /// is the single seam the 0.4.x series extends (issues #534/#535) — keep it
 /// container-neutral.
 ///
 /// Errors:
-/// - 422 `domain.validation` when the costume has **no** scope at all (no
+/// - 422 `domain.validation` when the piece has **no** scope at all (no
 ///   character and no repertoire) — nothing to authorize against,
 /// - 403 `domain.forbidden` ([denial]) when every scope lookup **succeeded**
 ///   and none authorizes,
@@ -879,45 +859,45 @@ async fn membership_gate_any<P: Ports>(
 /// N scopes a swallowed error would silently turn a database outage into a 403
 /// that no operator can trace. Since issue #537 the error behavior lives in
 /// the shared [`membership_gate_any`] helper — this function only resolves
-/// the costume's season scopes and delegates.
-async fn authorize_costume_scoped<P: Ports>(
+/// the piece's season scopes and delegates.
+async fn authorize_piece_scoped<P: Ports>(
     state: &AppState<P>,
-    costume: &CostumeView,
+    piece: &PieceView,
     user_id: UserId,
     denial: &'static str,
 ) -> Result<SeasonId, ApiError> {
-    let scopes = costume_season_scopes(state, costume).await;
+    let scopes = piece_season_scopes(state, piece).await;
     if scopes.is_empty() {
         return Err(ApiError::Validation(
-            "costume has no assigned character and no season repertoire — cannot determine season",
+            "piece has no assigned character and no season repertoire — cannot determine season",
         ));
     }
     membership_gate_any(state, scopes, user_id, denial).await
 }
 
-/// AUTHZ-GATE seam for the three costume-photo handlers
-/// (`upload_costume_photo`, `get_costume_photo_bytes`, `delete_costume_photo`)
+/// AUTHZ-GATE seam for the three piece-photo handlers
+/// (`upload_piece_photo`, `get_piece_photo_bytes`, `delete_piece_photo`)
 /// as of issue #535 (ADR-035 B2/S2): resolve the **series** that owns
-/// `costume` and require a costume-department role in any active block of
+/// `piece` and require a piece-department role in any active block of
 /// that series.
 ///
 /// This is the documented authorization-boundary **widening** (deliberate,
-/// reviewed in the issue): whoever holds a costume-dept role anywhere in the
-/// series can afterwards read/write the photos of all costumes in that
-/// series — not only those of their own season. The costume department is
+/// reviewed in the issue): whoever holds a piece-dept role anywhere in the
+/// series can afterwards read/write the photos of all pieces in that
+/// series — not only those of their own season. The piece department is
 /// institutionally a cross-season domain (the `any active block` semantics of
-/// the existing predicates), and a carried-over costume would otherwise be
+/// the existing predicates), and a carried-over piece would otherwise be
 /// unmanageable for the wardrobe team that brought it into its new season.
-/// The season union (`costume_season_scopes`) must **not** be re-introduced
+/// The season union (`piece_season_scopes`) must **not** be re-introduced
 /// here as an authorization input.
 ///
-/// The series resolution is the **strict** [`project_id_for_costume_strict`]
+/// The series resolution is the **strict** [`project_id_for_piece_strict`]
 /// lookup at the API edge (the only legitimate read-model consumer per the
 /// CQRS boundary hard rule): repertoire/season lookup *failures* propagate
 /// as 500 (issue #537 doctrine — an infrastructure outage must not surface
-/// as a domain answer), while a costume with neither a character nor a
+/// as a domain answer), while a piece with neither a character nor a
 /// repertoire season genuinely cannot name a container at all → 422
-/// `costume.container-unresolved` (registered problem code, issue #535).
+/// `piece.container-unresolved` (registered problem code, issue #535).
 /// The resolved [`ProjectId`] is returned so the photo handlers can carry
 /// it into the command's audit metadata — one resolution, shared by gate
 /// and command.
@@ -925,16 +905,16 @@ async fn authorize_costume_scoped<P: Ports>(
 /// Error behavior follows the issue #537 doctrine: `Ok(true)` passes,
 /// `Ok(false)` is a genuine 403 ([denial]), and a failed predicate lookup
 /// fails closed as a 500 — never a masquerading 403 ([`membership_gate`]).
-async fn authorize_costume_in_project<P: Ports>(
+async fn authorize_piece_in_project<P: Ports>(
     state: &AppState<P>,
-    costume: &CostumeView,
+    piece: &PieceView,
     user_id: UserId,
     denial: &'static str,
 ) -> Result<ProjectId, ApiError> {
-    let Some(project_id) = project_id_for_costume_strict(state, costume.id).await? else {
+    let Some(project_id) = project_id_for_piece_strict(state, piece.id).await? else {
         return Err(ApiError::Domain(DomainError::Validation {
-            code: &COSTUME_CONTAINER_UNRESOLVED,
-            reason: "costume has no assigned character and no season repertoire — cannot determine its series".into(),
+            code: &PIECE_CONTAINER_UNRESOLVED,
+            reason: "piece has no assigned character and no season repertoire — cannot determine its series".into(),
         }));
     };
     membership_gate(
@@ -972,7 +952,7 @@ pub async fn get_audit_history<P: Ports>(
     // `requirement_for` classifies `/audit` as `Authenticated` and the
     // membership check happens here (issue #342). Any *active* membership in
     // any block of the series grants access — the journal is an operational
-    // record of the whole production, not a costume-department artefact, so
+    // record of the whole production, not a piece-department artefact, so
     // the predicate is deliberately role-agnostic. Fails closed: a repository
     // error surfaces as a 500, never as a 403 (issue #537).
     membership_gate(
@@ -1112,7 +1092,7 @@ pub async fn list_seasons<P: Ports>(
 ///
 /// `has_active_costume_role_in_season` is the backend-computed predicate the
 /// client must NOT re-implement (CQRS-boundary rule). `capabilities` is derived
-/// server-side from the caller's active costume-dept role; the client consumes
+/// server-side from the caller's active piece-dept role; the client consumes
 /// it with strict parsing (unknown entries reject the DTO).
 #[derive(Debug, Clone, Serialize, ToSchema)]
 pub struct SeasonMembershipDto {
@@ -1122,12 +1102,12 @@ pub struct SeasonMembershipDto {
     pub capabilities: Vec<String>,
 }
 
-/// Derive the caller's season-scoped capabilities from their active costume-dept
+/// Derive the caller's season-scoped capabilities from their active piece-dept
 /// role.
 ///
 /// v1 maps a single boolean (`has_active_costume_role_in_season`) to the full
-/// capability set: a costumer with any active costume-dept role in the season
-/// can both upload continuity photos and assign costumes. Future role-distinct
+/// capability set: a piecer with any active piece-dept role in the season
+/// can both upload continuity photos and assign pieces. Future role-distinct
 /// policies can split this without changing the DTO surface.
 fn derive_capabilities(has_active_costume_role_in_season: bool) -> Vec<String> {
     if has_active_costume_role_in_season {
@@ -1142,7 +1122,7 @@ fn derive_capabilities(has_active_costume_role_in_season: bool) -> Vec<String> {
 
 /// Series membership DTO — the series-level counterpart of
 /// [`SeasonMembershipDto`] for the client-side AUTHZ-GATE mirror of the
-/// costume-photo policy (issue #535, ADR-035 B2/S2: photos authorize
+/// piece-photo policy (issue #535, ADR-035 B2/S2: photos authorize
 /// series-wide, so the client needs a series-level, backend-computed signal).
 ///
 /// `has_active_costume_role_in_project` is the backend-computed predicate the
@@ -1276,7 +1256,7 @@ pub async fn rename_season<P: Ports>(
     request_body = VersionRequest,
     responses(
         (status = 200, body = AggregateVersion),
-        (status = 403, body = ProblemDetails, description = "Caller has no active costume-dept role in the season"),
+        (status = 403, body = ProblemDetails, description = "Caller has no active piece-dept role in the season"),
         (status = 404, body = ProblemDetails, description = "Season not found"),
         (status = 409, body = ProblemDetails, description = "Season already archived (idempotent-reject) or concurrency conflict"),
     ),
@@ -1302,7 +1282,7 @@ pub async fn archive_season<P: Ports>(
         Ok(true) => {}
         Ok(false) => {
             return Err(ApiError::Forbidden(
-                "no active costume-dept role in the season",
+                "no active piece-dept role in the season",
             ));
         }
         Err(e) => return Err(e.into()),
@@ -1822,8 +1802,8 @@ pub async fn remove_scene_character<P: Ports>(
 
 #[utoipa::path(
     post,
-    path = "/scenes/{id}/costumes",
-    request_body = AddSceneCostumeBeatRequest,
+    path = "/scenes/{id}/outfits",
+    request_body = AddSceneOutfitBeatRequest,
     responses(
         (status = 200, body = AggregateVersion),
         (status = 404, body = ProblemDetails),
@@ -1831,17 +1811,17 @@ pub async fn remove_scene_character<P: Ports>(
         (status = 422, body = ProblemDetails, description = "Character not in scene, identical consecutive beat, or validation error"),
     )
 )]
-pub async fn add_scene_costume_beat<P: Ports>(
+pub async fn add_scene_outfit_beat<P: Ports>(
     State(state): State<AppState<P>>,
     current_user: CurrentUser,
     Path(id): Path<Uuid>,
-    Json(req): Json<AddSceneCostumeBeatRequest>,
+    Json(req): Json<AddSceneOutfitBeatRequest>,
 ) -> ApiResult<AggregateVersion> {
     let project_id = Some(project_id_for_scene(&state, id).await?);
-    let cmd = AddCostumeBeat {
+    let cmd = AddOutfitBeat {
         id,
         character_id: req.character_id,
-        costume_id: req.costume_id,
+        outfit_id: req.outfit_id,
         note: req.note,
         project_id,
         version: req.version,
@@ -1849,16 +1829,16 @@ pub async fn add_scene_costume_beat<P: Ports>(
     let version = state
         .ports
         .scene_commands()
-        .add_costume_beat(current_user.sub.clone(), cmd)
+        .add_outfit_beat(current_user.sub.clone(), cmd)
         .await?;
     Ok((StatusCode::OK, Json(version)))
 }
 
 #[utoipa::path(
     patch,
-    path = "/scenes/{id}/costumes/{character_id}/{order}",
+    path = "/scenes/{id}/outfits/{character_id}/{order}",
     params(("id" = Uuid, Path), ("character_id" = Uuid, Path), ("order" = u32, Path)),
-    request_body = UpdateSceneCostumeBeatRequest,
+    request_body = UpdateSceneOutfitBeatRequest,
     responses(
         (status = 200, body = AggregateVersion),
         (status = 404, body = ProblemDetails),
@@ -1866,18 +1846,18 @@ pub async fn add_scene_costume_beat<P: Ports>(
         (status = 422, body = ProblemDetails, description = "Beat not found, character not in scene, or validation error"),
     )
 )]
-pub async fn update_scene_costume_beat<P: Ports>(
+pub async fn update_scene_outfit_beat<P: Ports>(
     State(state): State<AppState<P>>,
     current_user: CurrentUser,
     Path((id, character_id, order)): Path<(Uuid, Uuid, u32)>,
-    Json(req): Json<UpdateSceneCostumeBeatRequest>,
+    Json(req): Json<UpdateSceneOutfitBeatRequest>,
 ) -> ApiResult<AggregateVersion> {
     let project_id = Some(project_id_for_scene(&state, id).await?);
-    let cmd = UpdateCostumeBeat {
+    let cmd = UpdateOutfitBeat {
         id,
         character_id,
         order,
-        costume_id: req.costume_id,
+        outfit_id: req.outfit_id,
         note: req.note,
         project_id,
         version: req.version,
@@ -1885,14 +1865,14 @@ pub async fn update_scene_costume_beat<P: Ports>(
     let version = state
         .ports
         .scene_commands()
-        .update_costume_beat(current_user.sub.clone(), cmd)
+        .update_outfit_beat(current_user.sub.clone(), cmd)
         .await?;
     Ok((StatusCode::OK, Json(version)))
 }
 
 #[utoipa::path(
     delete,
-    path = "/scenes/{id}/costumes/{character_id}/{order}",
+    path = "/scenes/{id}/outfits/{character_id}/{order}",
     params(VersionRequest, ("id" = Uuid, Path), ("character_id" = Uuid, Path), ("order" = u32, Path)),
     responses(
         (status = 200, body = AggregateVersion),
@@ -1901,14 +1881,14 @@ pub async fn update_scene_costume_beat<P: Ports>(
         (status = 422, body = ProblemDetails, description = "Beat not found or character not in scene"),
     )
 )]
-pub async fn remove_scene_costume_beat<P: Ports>(
+pub async fn remove_scene_outfit_beat<P: Ports>(
     State(state): State<AppState<P>>,
     current_user: CurrentUser,
     Path((id, character_id, order)): Path<(Uuid, Uuid, u32)>,
     Query(version): Query<VersionRequest>,
 ) -> ApiResult<AggregateVersion> {
     let project_id = Some(project_id_for_scene(&state, id).await?);
-    let cmd = RemoveCostumeBeat {
+    let cmd = RemoveOutfitBeat {
         id,
         character_id,
         order: Some(order),
@@ -1918,16 +1898,16 @@ pub async fn remove_scene_costume_beat<P: Ports>(
     let version = state
         .ports
         .scene_commands()
-        .remove_costume_beat(current_user.sub.clone(), cmd)
+        .remove_outfit_beat(current_user.sub.clone(), cmd)
         .await?;
     Ok((StatusCode::OK, Json(version)))
 }
 
-/// Clears all costume beats of a character in the scene
-/// (`RemoveCostumeBeat.order = None` = "no costume in this scene", #546).
+/// Clears all outfit beats of a character in the scene
+/// (`RemoveOutfitBeat.order = None` = "no piece in this scene", #546).
 #[utoipa::path(
     delete,
-    path = "/scenes/{id}/costumes/{character_id}",
+    path = "/scenes/{id}/outfits/{character_id}",
     params(VersionRequest, ("id" = Uuid, Path), ("character_id" = Uuid, Path)),
     responses(
         (status = 200, body = AggregateVersion),
@@ -1936,14 +1916,14 @@ pub async fn remove_scene_costume_beat<P: Ports>(
         (status = 422, body = ProblemDetails, description = "Character has no beats or is not in scene"),
     )
 )]
-pub async fn clear_scene_costume_beats<P: Ports>(
+pub async fn clear_scene_outfit_beats<P: Ports>(
     State(state): State<AppState<P>>,
     current_user: CurrentUser,
     Path((id, character_id)): Path<(Uuid, Uuid)>,
     Query(version): Query<VersionRequest>,
 ) -> ApiResult<AggregateVersion> {
     let project_id = Some(project_id_for_scene(&state, id).await?);
-    let cmd = RemoveCostumeBeat {
+    let cmd = RemoveOutfitBeat {
         id,
         character_id,
         order: None,
@@ -1953,7 +1933,7 @@ pub async fn clear_scene_costume_beats<P: Ports>(
     let version = state
         .ports
         .scene_commands()
-        .remove_costume_beat(current_user.sub.clone(), cmd)
+        .remove_outfit_beat(current_user.sub.clone(), cmd)
         .await?;
     Ok((StatusCode::OK, Json(version)))
 }
@@ -2460,11 +2440,11 @@ pub async fn get_character<P: Ports>(
 
 /// Per-character appearances read model (issue #621): the role extract
 /// ("Ring binder per role") — every scene the character appears in, in script
-/// order, each with that character's own ordered costume beats.
+/// order, each with that character's own ordered outfit beats.
 ///
 /// Season-scoped read gated handler-internally (the route is classified
 /// `Authenticated` in `requirement_for`, mirroring the report/photo families):
-/// the caller must hold an active costume-department role in the character's
+/// the caller must hold an active piece-department role in the character's
 /// season. The character fetch runs first so an unknown id answers
 /// `404 character.not-found` before the policy.
 #[utoipa::path(
@@ -2627,32 +2607,33 @@ pub async fn update_character_category<P: Ports>(
 }
 
 // ---------------------------------------------------------------------------
-// Costume handlers
+// Piece handlers
 // ---------------------------------------------------------------------------
 
 #[utoipa::path(
     post,
-    path = "/costumes",
-    request_body = CreateCostumeRequest,
+    path = "/pieces",
+    request_body = CreatePieceRequest,
     responses(
-        (status = 201, description = "Costume created", body = IdVersionResponse),
+        (status = 201, description = "Piece created", body = IdVersionResponse),
         (status = 422, description = "Validation error", body = ProblemDetails),
     )
 )]
-pub async fn create_costume<P: Ports>(
+pub async fn create_piece<P: Ports>(
     State(state): State<AppState<P>>,
     current_user: CurrentUser,
     active_block: ActiveBlock,
-    Json(req): Json<CreateCostumeRequest>,
+    Json(req): Json<CreatePieceRequest>,
 ) -> ApiResult<IdVersionResponse> {
     let id = Uuid::now_v7();
+    let mut project_id_hint: Option<ProjectId> = None;
     let project_id = match req.season_id {
         Some(season_id) => {
             // AUTHZ-GATE: the route is gated only by block-membership
             // middleware, so the target season must be verified against the
             // caller's active block INSIDE the handler — otherwise a member
             // of block A could create a repertoire row for a season of
-            // another block and expose it via season-scoped costume reads
+            // another block and expose it via season-scoped piece reads
             // (issue #453 CodeRabbit review). The active block's projection
             // is the authoritative block→season attribution; a cross-block
             // season is rejected as not-found (no scope oracle) before any
@@ -2686,51 +2667,88 @@ pub async fn create_costume<P: Ports>(
         }
         None => None,
     };
-    let cmd = CreateCostume {
+    // AUTHZ-GATE (category season invariant): the aggregate cannot validate
+    // cross-aggregate state, so the category's season membership is pre-checked
+    // here — the handler is the only legitimate read-model consumer. The piece
+    // is not created yet, so its repertoire is exactly the requested season.
+    if let Some(category_id) = req.category_id {
+        let category = state
+            .ports
+            .costume_category_repo()
+            .find_by_id(category_id)
+            .await?;
+        if category.archived {
+            return Err(ApiError::Domain(DomainError::Conflict {
+                code: &COSTUME_CATEGORY_ARCHIVED,
+                reason: "costume category is archived".into(),
+            }));
+        }
+        let permitted = req.season_id.is_some_and(|s| s.0 == category.season_id.0);
+        if !permitted {
+            return Err(ApiError::Domain(DomainError::CategorySeasonMismatch {
+                category_id,
+            }));
+        }
+        // Audit metadata follows the category's season when no repertoire
+        // season was requested (best-effort: never blocks the command).
+        if project_id.is_none() {
+            project_id_hint = state
+                .ports
+                .season_repo()
+                .find_by_id(category.season_id.0)
+                .await
+                .ok()
+                .map(|season| season.project_id);
+        }
+    }
+    let cmd = CreatePiece {
         id,
+        name: req.name,
+        category_id: req.category_id.map(CostumeCategoryId),
         season_id: req.season_id,
-        project_id,
+        project_id: project_id.or(project_id_hint),
     };
-    let (id, version) = state
-        .ports
-        .costume_commands()
-        .create(current_user.sub.clone(), cmd)
-        .await?;
+    let (id, version) = PieceCommands::create(
+        state.ports.wardrobe_commands(),
+        current_user.sub.clone(),
+        cmd,
+    )
+    .await?;
     Ok((StatusCode::CREATED, Json(IdVersionResponse { id, version })))
 }
 
 #[utoipa::path(
     get,
-    path = "/costumes/{id}",
-    params(("id" = Uuid, Path, description = "Costume id")),
-    responses((status = 200, body = CostumeView), (status = 404, body = ProblemDetails))
+    path = "/pieces/{id}",
+    params(("id" = Uuid, Path, description = "Piece id")),
+    responses((status = 200, body = PieceView), (status = 404, body = ProblemDetails))
 )]
-pub async fn get_costume<P: Ports>(
+pub async fn get_piece<P: Ports>(
     State(state): State<AppState<P>>,
     Path(id): Path<Uuid>,
-) -> ApiResult<CostumeView> {
-    let view = state.ports.costume_repo().find_by_id(id).await?;
+) -> ApiResult<PieceView> {
+    let view = state.ports.piece_repo().find_by_id(id).await?;
     Ok((StatusCode::OK, Json(view)))
 }
 
 #[utoipa::path(
     get,
-    path = "/costumes",
-    description = "Lists the costumes of a season. Requires the season_id query parameter (400 otherwise).",
+    path = "/pieces",
+    description = "Lists the pieces of a season. Requires the season_id query parameter (400 otherwise).",
     params(ListParams),
     responses(
-        (status = 200, body = Vec<CostumeView>),
+        (status = 200, body = Vec<PieceView>),
         (status = 400, body = ProblemDetails, description = "Missing season_id query parameter"),
     )
 )]
-pub async fn list_costumes<P: Ports>(
+pub async fn list_pieces<P: Ports>(
     State(state): State<AppState<P>>,
     Query(params): Query<ListParams>,
-) -> ApiResult<Vec<CostumeView>> {
+) -> ApiResult<Vec<PieceView>> {
     let season_id = require_season(&params)?;
     let views = state
         .ports
-        .costume_repo()
+        .piece_repo()
         .list_by_season(
             season_id,
             params.limit.unwrap_or(50),
@@ -2742,130 +2760,106 @@ pub async fn list_costumes<P: Ports>(
 
 #[utoipa::path(
     patch,
-    path = "/costumes/{id}/notes",
-    request_body = UpdateCostumeNotesRequest,
+    path = "/pieces/{id}/notes",
+    request_body = UpdatePieceNotesRequest,
     responses(
         (status = 200, body = AggregateVersion),
         (status = 404, body = ProblemDetails),
         (status = 409, body = ProblemDetails),
     )
 )]
-pub async fn update_costume_notes<P: Ports>(
+pub async fn update_piece_notes<P: Ports>(
     State(state): State<AppState<P>>,
     current_user: CurrentUser,
     Path(id): Path<Uuid>,
-    Json(req): Json<UpdateCostumeNotesRequest>,
+    Json(req): Json<UpdatePieceNotesRequest>,
 ) -> ApiResult<AggregateVersion> {
-    let project_id = project_id_for_costume(&state, id).await?;
-    let cmd = UpdateCostumeNotes {
+    let project_id = project_id_for_piece(&state, id).await?;
+    let cmd = UpdatePieceNotes {
         id,
         notes: req.notes,
         project_id,
         version: req.version,
     };
-    let version = state
-        .ports
-        .costume_commands()
-        .update_notes(current_user.sub.clone(), cmd)
-        .await?;
+    let version = PieceCommands::update_notes(
+        state.ports.wardrobe_commands(),
+        current_user.sub.clone(),
+        cmd,
+    )
+    .await?;
     Ok((StatusCode::OK, Json(version)))
 }
 
 #[utoipa::path(
-    post,
-    path = "/costumes/{id}/assign",
-    request_body = AssignCostumeRequest,
-    responses((status = 200, body = AggregateVersion), (status = 409, body = ProblemDetails)),
-)]
-pub async fn assign_costume<P: Ports>(
-    State(state): State<AppState<P>>,
-    current_user: CurrentUser,
-    Path(id): Path<Uuid>,
-    Json(req): Json<AssignCostumeRequest>,
-) -> ApiResult<AggregateVersion> {
-    let project_id = Some(project_id_for_character(&state, req.character_id).await?);
-    let cmd = AssignCostumeToCharacter {
-        id,
-        character_id: req.character_id,
-        project_id,
-        version: req.version,
-    };
-    let version = state
-        .ports
-        .costume_commands()
-        .assign_to_character(current_user.sub.clone(), cmd)
-        .await?;
-    Ok((StatusCode::OK, Json(version)))
-}
-
-#[utoipa::path(
-    post,
-    path = "/costumes/{id}/unassign",
-    request_body = VersionRequest,
+    patch,
+    path = "/pieces/{id}/name",
+    params(("id" = Uuid, Path, description = "Piece id")),
+    request_body = RenamePieceRequest,
     responses(
         (status = 200, body = AggregateVersion),
-        (status = 404, body = ProblemDetails, description = "Costume not found"),
-        (status = 409, body = ProblemDetails, description = "Conflict"),
-    ),
+        (status = 404, body = ProblemDetails),
+        (status = 409, body = ProblemDetails),
+        (status = 422, body = ProblemDetails, description = "Blank name"),
+    )
 )]
-pub async fn unassign_costume<P: Ports>(
+pub async fn rename_piece<P: Ports>(
     State(state): State<AppState<P>>,
     current_user: CurrentUser,
     Path(id): Path<Uuid>,
-    Json(req): Json<VersionRequest>,
+    Json(req): Json<RenamePieceRequest>,
 ) -> ApiResult<AggregateVersion> {
-    let project_id = project_id_for_costume(&state, id).await?;
-    let cmd = UnassignCostume {
+    let project_id = project_id_for_piece(&state, id).await?;
+    let cmd = RenamePiece {
         id,
+        name: req.name,
         project_id,
         version: req.version,
     };
-    let version = state
-        .ports
-        .costume_commands()
-        .unassign(current_user.sub.clone(), cmd)
-        .await?;
+    let version = PieceCommands::rename(
+        state.ports.wardrobe_commands(),
+        current_user.sub.clone(),
+        cmd,
+    )
+    .await?;
     Ok((StatusCode::OK, Json(version)))
 }
 
 // ---------------------------------------------------------------------------
-// Costume detail handlers
+// Piece detail handlers
 // ---------------------------------------------------------------------------
 #[utoipa::path(
     post,
-    path = "/costumes/{id}/details",
-    params(("id" = Uuid, Path, description = "Costume id")),
-    request_body = AddCostumeDetailRequest,
+    path = "/pieces/{id}/details",
+    params(("id" = Uuid, Path, description = "Piece id")),
+    request_body = AddPieceDetailRequest,
     responses(
         (status = 200, body = AggregateVersion),
-        (status = 404, body = ProblemDetails, description = "Costume not found"),
+        (status = 404, body = ProblemDetails, description = "Piece not found"),
         (status = 422, body = ProblemDetails, description = "Validation error"),
         (status = 409, body = ProblemDetails, description = "Conflict"),
     ),
 )]
-pub async fn add_costume_detail<P: Ports>(
+pub async fn add_piece_detail<P: Ports>(
     State(state): State<AppState<P>>,
     current_user: CurrentUser,
     Path(id): Path<Uuid>,
-    Json(req): Json<AddCostumeDetailRequest>,
+    Json(req): Json<AddPieceDetailRequest>,
 ) -> ApiResult<AggregateVersion> {
     let version = state
         .ports
-        .costume_commands()
+        .wardrobe_commands()
         .add_detail(
             current_user.sub.clone(),
-            AddDetail {
+            AddPieceDetail {
                 id,
-                // Issue #543: details are pure description — the wire request
-                // carries no category; the domain detail deserializes with
-                // `category_id: None` (the legacy field stays for old events).
-                detail: CostumeDetail {
+                // Details are pure description: the category lives on the
+                // piece (`SetPieceCategory`), never on a detail.
+                detail: PieceDetail {
                     id: req.detail.id,
                     subject: req.detail.subject,
-                    category_id: None,
                     text: req.detail.text,
                 },
-                project_id: project_id_for_costume(&state, id).await?,
+                project_id: project_id_for_piece(&state, id).await?,
                 version: req.version,
             },
         )
@@ -2873,7 +2867,7 @@ pub async fn add_costume_detail<P: Ports>(
     Ok((StatusCode::OK, Json(version)))
 }
 
-/// Replace an existing costume detail in place (issue #544).
+/// Replace an existing piece detail in place (issue #544).
 ///
 /// The command carries the full detail, so the event is a snapshot: replay
 /// needs no field-merge logic and the projector reuses its `DetailAdded`
@@ -2882,37 +2876,37 @@ pub async fn add_costume_detail<P: Ports>(
 /// second detail.
 #[utoipa::path(
     patch,
-    path = "/costumes/{id}/details/{detail_id}",
+    path = "/pieces/{id}/details/{detail_id}",
     params(
-        ("id" = Uuid, Path, description = "Costume id"),
-        ("detail_id" = Uuid, Path, description = "Costume detail id")
+        ("id" = Uuid, Path, description = "Piece id"),
+        ("detail_id" = Uuid, Path, description = "Piece detail id")
     ),
-    request_body = UpdateCostumeDetailRequest,
+    request_body = UpdatePieceDetailRequest,
     responses(
         (status = 200, body = AggregateVersion),
-        (status = 403, body = ProblemDetails, description = "Caller holds no costume role in any season scope of the costume"),
-        (status = 404, body = ProblemDetails, description = "Costume or detail not found"),
+        (status = 403, body = ProblemDetails, description = "Caller holds no piece role in any season scope of the piece"),
+        (status = 404, body = ProblemDetails, description = "Piece or detail not found"),
         (status = 409, body = ProblemDetails, description = "Version conflict"),
         (status = 422, body = ProblemDetails, description = "Validation error"),
     ),
 )]
-pub async fn update_costume_detail<P: Ports>(
+pub async fn update_piece_detail<P: Ports>(
     State(state): State<AppState<P>>,
     current_user: CurrentUser,
     Path((id, detail_id)): Path<(Uuid, Uuid)>,
-    Json(req): Json<UpdateCostumeDetailRequest>,
+    Json(req): Json<UpdatePieceDetailRequest>,
 ) -> ApiResult<AggregateVersion> {
-    let costume = state.ports.costume_repo().find_by_id(id).await?;
+    let piece = state.ports.piece_repo().find_by_id(id).await?;
 
-    // AUTHZ-GATE: the route is classified by the middleware, but a costume
-    // detail is season-scoped data — the caller must hold the costume role in
-    // at least ONE season scope of the costume (character season ∪ repertoire,
-    // ANY semantics). Issue #544; same seam as `set_costume_category` (#543).
-    let _season_id = authorize_costume_scoped(
+    // AUTHZ-GATE: the route is classified by the middleware, but a piece
+    // detail is season-scoped data — the caller must hold the piece role in
+    // at least ONE season scope of the piece (character season ∪ repertoire,
+    // ANY semantics). Issue #544; same seam as `set_piece_category` (#543).
+    let _season_id = authorize_piece_scoped(
         &state,
-        &costume,
+        &piece,
         current_user.sub.clone(),
-        "costume detail update requires a costume role in a season scope of the costume",
+        "piece detail update requires a piece role in a season scope of the piece",
     )
     .await?;
 
@@ -2927,23 +2921,22 @@ pub async fn update_costume_detail<P: Ports>(
 
     let version = state
         .ports
-        .costume_commands()
+        .wardrobe_commands()
         .update_detail(
             current_user.sub.clone(),
-            UpdateCostumeDetail {
+            UpdatePieceDetail {
                 id,
                 // Issue #543: details are pure description — no category on
                 // the wire; the legacy `category_id` field stays on the event
                 // payload only so old streams replay.
-                detail: CostumeDetail {
+                detail: PieceDetail {
                     id: detail_id,
                     subject: req.detail.subject,
-                    category_id: None,
                     text: req.detail.text,
                 },
                 // Audit metadata, resolved here at the edge (the only
                 // legitimate read-model consumer — CQRS boundary).
-                project_id: project_id_for_costume(&state, id).await?,
+                project_id: project_id_for_piece(&state, id).await?,
                 version: req.version,
             },
         )
@@ -2951,58 +2944,58 @@ pub async fn update_costume_detail<P: Ports>(
     Ok((StatusCode::OK, Json(version)))
 }
 
-/// Remove a costume detail (issue #544).
+/// Remove a piece detail (issue #544).
 ///
-/// `RemoveDetail` was fully implemented but unreachable before this route
+/// `RemovePieceDetail` was fully implemented but unreachable before this route
 /// existed; a detail was permanent once added. The body is a `VersionRequest`
-/// — the echo of the **costume** aggregate's version, the same fence every
-/// other costume write uses.
+/// — the echo of the **piece** aggregate's version, the same fence every
+/// other piece write uses.
 #[utoipa::path(
     delete,
-    path = "/costumes/{id}/details/{detail_id}",
+    path = "/pieces/{id}/details/{detail_id}",
     params(
-        ("id" = Uuid, Path, description = "Costume id"),
-        ("detail_id" = Uuid, Path, description = "Costume detail id")
+        ("id" = Uuid, Path, description = "Piece id"),
+        ("detail_id" = Uuid, Path, description = "Piece detail id")
     ),
     request_body = VersionRequest,
     responses(
         (status = 200, body = AggregateVersion),
-        (status = 403, body = ProblemDetails, description = "Caller holds no costume role in any season scope of the costume"),
-        (status = 404, body = ProblemDetails, description = "Costume or detail not found"),
+        (status = 403, body = ProblemDetails, description = "Caller holds no piece role in any season scope of the piece"),
+        (status = 404, body = ProblemDetails, description = "Piece or detail not found"),
         (status = 409, body = ProblemDetails, description = "Version conflict"),
         (status = 422, body = ProblemDetails, description = "Validation error"),
     ),
 )]
-pub async fn remove_costume_detail<P: Ports>(
+pub async fn remove_piece_detail<P: Ports>(
     State(state): State<AppState<P>>,
     current_user: CurrentUser,
     Path((id, detail_id)): Path<(Uuid, Uuid)>,
     Json(req): Json<VersionRequest>,
 ) -> ApiResult<AggregateVersion> {
-    let costume = state.ports.costume_repo().find_by_id(id).await?;
+    let piece = state.ports.piece_repo().find_by_id(id).await?;
 
-    // AUTHZ-GATE: identical seam to `update_costume_detail` — a detail delete
+    // AUTHZ-GATE: identical seam to `update_piece_detail` — a detail delete
     // is a privileged, season-scoped write that the middleware's membership
     // check cannot scope. Issue #544.
-    let _season_id = authorize_costume_scoped(
+    let _season_id = authorize_piece_scoped(
         &state,
-        &costume,
+        &piece,
         current_user.sub.clone(),
-        "costume detail delete requires a costume role in a season scope of the costume",
+        "piece detail delete requires a piece role in a season scope of the piece",
     )
     .await?;
 
     let version = state
         .ports
-        .costume_commands()
+        .wardrobe_commands()
         .remove_detail(
             current_user.sub.clone(),
-            RemoveDetail {
+            RemovePieceDetail {
                 id,
                 detail_id,
                 // Audit metadata resolved at the edge, never re-queried by the
                 // adapter (CQRS boundary).
-                project_id: project_id_for_costume(&state, id).await?,
+                project_id: project_id_for_piece(&state, id).await?,
                 version: req.version,
             },
         )
@@ -3012,40 +3005,40 @@ pub async fn remove_costume_detail<P: Ports>(
 
 #[utoipa::path(
     post,
-    path = "/costumes/{id}/category",
-    params(("id" = Uuid, Path, description = "Costume id")),
-    request_body = SetCostumeCategoryRequest,
+    path = "/pieces/{id}/category",
+    params(("id" = Uuid, Path, description = "Piece id")),
+    request_body = SetPieceCategoryRequest,
     responses(
         (status = 200, body = AggregateVersion),
-        (status = 404, body = ProblemDetails, description = "Costume or category not found"),
+        (status = 404, body = ProblemDetails, description = "Piece or category not found"),
         (status = 409, body = ProblemDetails, description = "Archived category or category from a foreign season"),
-        (status = 403, body = ProblemDetails, description = "Caller holds no costume role in any season scope of the costume"),
+        (status = 403, body = ProblemDetails, description = "Caller holds no piece role in any season scope of the piece"),
     ),
 )]
-/// Set (or clear) the costume's single category (issue #543).
+/// Set (or clear) the piece's single category (issue #543).
 ///
 /// API-edge pre-check for the cross-aggregate season invariant (doctrine,
-/// AGENTS.md §1): `category.season_id ∈ (repertoire_seasons(costume) ∪
+/// AGENTS.md §1): `category.season_id ∈ (repertoire_seasons(piece) ∪
 /// season(character))`. The command is dispatched only after the pre-check;
 /// the projector resolves `category_name` best-effort and cannot fail.
-pub async fn set_costume_category<P: Ports>(
+pub async fn set_piece_category<P: Ports>(
     State(state): State<AppState<P>>,
     current_user: CurrentUser,
     Path(id): Path<Uuid>,
-    Json(req): Json<SetCostumeCategoryRequest>,
+    Json(req): Json<SetPieceCategoryRequest>,
 ) -> ApiResult<AggregateVersion> {
-    let costume = state.ports.costume_repo().find_by_id(id).await?;
+    let piece = state.ports.piece_repo().find_by_id(id).await?;
 
     // AUTHZ-GATE: the route is classified `BlockMember` (middleware), but the
-    // costume write acts on season-scoped data, so the caller must hold the
-    // costume role in at least ONE season scope of the costume (character
+    // piece write acts on season-scoped data, so the caller must hold the
+    // piece role in at least ONE season scope of the piece (character
     // season ∪ repertoire, ANY semantics as for the photo handlers, #532).
-    // Issue #543; same seam as `authorize_costume_scoped`.
-    authorize_costume_scoped(
+    // Issue #543; same seam as `authorize_piece_scoped`.
+    authorize_piece_scoped(
         &state,
-        &costume,
+        &piece,
         current_user.sub.clone(),
-        "costume category write requires a costume role in a season scope of the costume",
+        "piece category write requires a piece role in a season scope of the piece",
     )
     .await?;
 
@@ -3057,16 +3050,16 @@ pub async fn set_costume_category<P: Ports>(
             .costume_category_repo()
             .find_by_id(category_id.0)
             .await?;
-        // Pre-check 2: not archived (409 costume-category.archived).
+        // Pre-check 2: not archived (409 piece-category.archived).
         if category.archived {
             return Err(ApiError::Domain(DomainError::Conflict {
                 code: &COSTUME_CATEGORY_ARCHIVED,
-                reason: format!("costume category {category_id} is archived"),
+                reason: format!("piece category {category_id} is archived"),
             }));
         }
-        // Pre-check 3: the category's season must be in the costume's
-        // permitted set (409 costume-category.season-mismatch).
-        let scopes = costume_season_scopes(&state, &costume).await;
+        // Pre-check 3: the category's season must be in the piece's
+        // permitted set (409 piece-category.season-mismatch).
+        let scopes = piece_season_scopes(&state, &piece).await;
         if !scopes.contains(&category.season_id) {
             return Err(ApiError::Domain(DomainError::CategorySeasonMismatch {
                 category_id: category_id.0,
@@ -3083,10 +3076,10 @@ pub async fn set_costume_category<P: Ports>(
         );
         let version = state
             .ports
-            .costume_commands()
+            .wardrobe_commands()
             .set_category(
                 current_user.sub.clone(),
-                SetCostumeCategory {
+                SetPieceCategory {
                     id,
                     category_id: Some(category_id),
                     project_id,
@@ -3097,15 +3090,15 @@ pub async fn set_costume_category<P: Ports>(
         return Ok((StatusCode::OK, Json(version)));
     }
 
-    // Clearing (`category_id: None`): audit metadata from the costume
+    // Clearing (`category_id: None`): audit metadata from the piece
     // projection (best-effort, never blocks).
-    let project_id = project_id_for_costume(&state, id).await?;
+    let project_id = project_id_for_piece(&state, id).await?;
     let version = state
         .ports
-        .costume_commands()
+        .wardrobe_commands()
         .set_category(
             current_user.sub.clone(),
-            SetCostumeCategory {
+            SetPieceCategory {
                 id,
                 category_id: None,
                 project_id,
@@ -3116,7 +3109,7 @@ pub async fn set_costume_category<P: Ports>(
     Ok((StatusCode::OK, Json(version)))
 }
 
-/// Add a costume to a season's repertoire (issue #534).
+/// Add a piece to a season's repertoire (issue #534).
 ///
 /// API-edge pre-checks for the cross-aggregate target-season state (the
 /// aggregate cannot validate it): the season must exist (404
@@ -3126,52 +3119,52 @@ pub async fn set_costume_category<P: Ports>(
 /// the season is already in the repertoire (no event, unchanged version).
 #[utoipa::path(
     post,
-    path = "/costumes/{id}/seasons",
-    params(("id" = Uuid, Path, description = "Costume id")),
-    request_body = AddCostumeToSeasonRequest,
+    path = "/pieces/{id}/seasons",
+    params(("id" = Uuid, Path, description = "Piece id")),
+    request_body = AddPieceToSeasonRequest,
     responses(
         (status = 200, body = AggregateVersion),
-        (status = 403, body = ProblemDetails, description = "Caller holds no active costume role in the target season or in any current season scope of the costume"),
-        (status = 404, body = ProblemDetails, description = "Costume or season not found"),
+        (status = 403, body = ProblemDetails, description = "Caller holds no active piece role in the target season or in any current season scope of the piece"),
+        (status = 404, body = ProblemDetails, description = "Piece or season not found"),
         (status = 409, body = ProblemDetails, description = "Target season is archived or version conflict"),
         (status = 422, body = ProblemDetails, description = "Validation error"),
     ),
 )]
-pub async fn add_costume_to_season<P: Ports>(
+pub async fn add_piece_to_season<P: Ports>(
     State(state): State<AppState<P>>,
     current_user: CurrentUser,
     Path(id): Path<Uuid>,
-    Json(req): Json<AddCostumeToSeasonRequest>,
+    Json(req): Json<AddPieceToSeasonRequest>,
 ) -> ApiResult<AggregateVersion> {
-    // The costume must exist and be UNDER THE CALLER'S CONTROL before it can
-    // be extended (CodeRabbit review): without the costume-scope gate a
-    // caller holding a costume role in season B could pull a costume whose
+    // The piece must exist and be UNDER THE CALLER'S CONTROL before it can
+    // be extended (CodeRabbit review): without the piece-scope gate a
+    // caller holding a piece role in season B could pull a piece whose
     // scopes live entirely in season A into B's repertoire — and B then
-    // becomes one of the costume's authorization scopes, opening the
+    // becomes one of the piece's authorization scopes, opening the
     // any-scope gates (photos, details, category) with the caller's B role.
-    // A costume with no scope at all answers 422, exactly like every other
-    // `authorize_costume_scoped` consumer.
-    let costume = state.ports.costume_repo().find_by_id(id).await?;
+    // A piece with no scope at all answers 422, exactly like every other
+    // `authorize_piece_scoped` consumer.
+    let piece = state.ports.piece_repo().find_by_id(id).await?;
 
-    // AUTHZ-GATE (costume scope, ANY semantics): the caller must hold an
-    // active costume role in at least ONE current scope of the costume
+    // AUTHZ-GATE (piece scope, ANY semantics): the caller must hold an
+    // active piece role in at least ONE current scope of the piece
     // (character season ∪ repertoire). Lookup failures propagate as a
     // server error — never as an empty scope set (issue #537).
-    authorize_costume_scoped(
+    authorize_piece_scoped(
         &state,
-        &costume,
+        &piece,
         current_user.sub.clone(),
-        "costume repertoire add requires a costume role in a season scope of the costume",
+        "piece repertoire add requires a piece role in a season scope of the piece",
     )
     .await?;
 
     let season = state.ports.season_repo().find_by_id(req.season_id).await?;
 
     // AUTHZ-GATE (target season): the mutation acts on the **target**
-    // season's repertoire, so the caller must hold an active costume-dept
+    // season's repertoire, so the caller must hold an active piece-dept
     // role in that season — the existing predicate, no new
     // ADR-035-B2-disallowed `*_in_season` variant. Handler-internal because
-    // repertoire routes sit under the `/costumes` prefix, whose middleware
+    // repertoire routes sit under the `/pieces` prefix, whose middleware
     // classification cannot scope a specific target season.
     match state
         .ports
@@ -3182,7 +3175,7 @@ pub async fn add_costume_to_season<P: Ports>(
         Ok(true) => {}
         Ok(false) => {
             return Err(ApiError::Forbidden(
-                "no active costume-dept role in the target season",
+                "no active piece-dept role in the target season",
             ));
         }
         Err(e) => return Err(e.into()),
@@ -3199,10 +3192,10 @@ pub async fn add_costume_to_season<P: Ports>(
 
     let version = state
         .ports
-        .costume_commands()
+        .wardrobe_commands()
         .add_to_season(
             current_user.sub.clone(),
-            AddCostumeToSeason {
+            AddPieceToSeason {
                 id,
                 season_id: SeasonId::from_uuid(season.id),
                 // Audit metadata from the target season's projection (the
@@ -3215,44 +3208,44 @@ pub async fn add_costume_to_season<P: Ports>(
     Ok((StatusCode::OK, Json(version)))
 }
 
-/// Remove a costume from a season's repertoire (issue #534).
+/// Remove a piece from a season's repertoire (issue #534).
 ///
-/// Idempotent mirror of [`add_costume_to_season`]: a season that is not in
+/// Idempotent mirror of [`add_piece_to_season`]: a season that is not in
 /// the repertoire is a no-op success with the unchanged version. Same
 /// pre-checks: season exists (404), not archived (409 `season.archived`).
 /// An empty repertoire is legitimate — the authz scope then falls back to
 /// the character's season.
 #[utoipa::path(
     delete,
-    path = "/costumes/{id}/seasons/{season_id}",
+    path = "/pieces/{id}/seasons/{season_id}",
     params(
-        ("id" = Uuid, Path, description = "Costume id"),
+        ("id" = Uuid, Path, description = "Piece id"),
         ("season_id" = Uuid, Path, description = "Season id")
     ),
     request_body = VersionRequest,
     responses(
         (status = 200, body = AggregateVersion),
-        (status = 403, body = ProblemDetails, description = "Caller holds no active costume role in the target season"),
-        (status = 404, body = ProblemDetails, description = "Costume or season not found"),
+        (status = 403, body = ProblemDetails, description = "Caller holds no active piece role in the target season"),
+        (status = 404, body = ProblemDetails, description = "Piece or season not found"),
         (status = 409, body = ProblemDetails, description = "Target season is archived or version conflict"),
         (status = 422, body = ProblemDetails, description = "Validation error"),
     ),
 )]
-pub async fn remove_costume_from_season<P: Ports>(
+pub async fn remove_piece_from_season<P: Ports>(
     State(state): State<AppState<P>>,
     current_user: CurrentUser,
     Path((id, season_id)): Path<(Uuid, Uuid)>,
     Json(req): Json<VersionRequest>,
 ) -> ApiResult<AggregateVersion> {
-    // No costume existence pre-fetch: the aggregate load below answers an
-    // unknown costume with 404 `costume.not-found` — the authz gate keys on
-    // the target season, not on the costume.
+    // No piece existence pre-fetch: the aggregate load below answers an
+    // unknown piece with 404 `piece.not-found` — the authz gate keys on
+    // the target season, not on the piece.
     let season = state.ports.season_repo().find_by_id(season_id).await?;
 
-    // AUTHZ-GATE: identical seam to `add_costume_to_season` — the mutation
-    // acts on the target season's repertoire, so the costume role is
+    // AUTHZ-GATE: identical seam to `add_piece_to_season` — the mutation
+    // acts on the target season's repertoire, so the piece role is
     // required in that season. Handler-internal (repertoire routes sit
-    // under `/costumes`).
+    // under `/pieces`).
     match state
         .ports
         .membership_repo()
@@ -3262,7 +3255,7 @@ pub async fn remove_costume_from_season<P: Ports>(
         Ok(true) => {}
         Ok(false) => {
             return Err(ApiError::Forbidden(
-                "no active costume-dept role in the target season",
+                "no active piece-dept role in the target season",
             ));
         }
         Err(e) => return Err(e.into()),
@@ -3277,10 +3270,10 @@ pub async fn remove_costume_from_season<P: Ports>(
 
     let version = state
         .ports
-        .costume_commands()
+        .wardrobe_commands()
         .remove_from_season(
             current_user.sub.clone(),
-            RemoveCostumeFromSeason {
+            RemovePieceFromSeason {
                 id,
                 season_id: SeasonId::from_uuid(season.id),
                 project_id: Some(season.project_id),
@@ -3301,7 +3294,7 @@ pub async fn remove_costume_from_season<P: Ports>(
     params(("season_id" = SeasonId, Path, description = "Season id")),
     request_body = CreateCostumeCategoryRequest,
     responses(
-        (status = 201, description = "Costume category created", body = IdVersionResponse),
+        (status = 201, description = "Piece category created", body = IdVersionResponse),
         (status = 404, body = ProblemDetails, description = "Season not found"),
         (status = 422, body = ProblemDetails, description = "Validation error"),
         (status = 409, body = ProblemDetails, description = "Conflict"),
@@ -3361,7 +3354,7 @@ pub async fn list_costume_categories<P: Ports>(
 #[utoipa::path(
     patch,
     path = "/costume-categories/{id}",
-    params(("id" = Uuid, Path, description = "Costume category id")),
+    params(("id" = Uuid, Path, description = "Piece category id")),
     request_body = UpdateCostumeCategoryRequest,
     responses(
         (status = 200, body = AggregateVersion),
@@ -3414,7 +3407,7 @@ pub async fn update_costume_category<P: Ports>(
 #[utoipa::path(
     post,
     path = "/costume-categories/{id}/archive",
-    params(("id" = Uuid, Path, description = "Costume category id")),
+    params(("id" = Uuid, Path, description = "Piece category id")),
     request_body = VersionRequest,
     responses((status = 200, body = AggregateVersion), (status = 409, body = ProblemDetails)),
 )]
@@ -3469,7 +3462,7 @@ pub async fn invite_member<P: Ports>(
     // AUTHZ-GATE: ops escalation guard (issue #409) — the deployment-scoped
     // `ops_admin` role may only be granted by an existing ops holder (active
     // ops membership in any block or the OPS_ADMIN_SUBS bootstrap allowlist);
-    // block-scoped costume roles can never self-escalate into ops.
+    // block-scoped piece roles can never self-escalate into ops.
     if req.role == Role::OpsAdmin {
         match state
             .authorization_policy
@@ -3750,7 +3743,7 @@ pub async fn get_member<P: Ports>(
     }
 }
 
-/// Upload a photo and link it to a costume.
+/// Upload a photo and link it to a piece.
 ///
 /// The request body is raw image bytes; the `Content-Type` header MUST be one of
 /// `image/jpeg`, `image/png`, or `image/webp`. HEIC/HEIF is rejected with 415.
@@ -3758,8 +3751,8 @@ pub async fn get_member<P: Ports>(
 /// Authorization is checked per-request via season-scoped membership.
 #[utoipa::path(
     post,
-    path = "/costumes/{costume_id}/photos",
-    params(("costume_id" = Uuid, Path, description = "Costume id")),
+    path = "/pieces/{piece_id}/photos",
+    params(("piece_id" = Uuid, Path, description = "Piece id")),
     request_body(content = String, description = "Raw image bytes (JPEG/PNG/WebP)",
         content_type = "image/jpeg"),
     responses(
@@ -3770,10 +3763,10 @@ pub async fn get_member<P: Ports>(
         (status = 415, body = ProblemDetails, description = "Unsupported media type"),
     ),
 )]
-pub async fn upload_costume_photo<P: Ports>(
+pub async fn upload_piece_photo<P: Ports>(
     State(state): State<AppState<P>>,
     current_user: CurrentUser,
-    Path(costume_id): Path<Uuid>,
+    Path(piece_id): Path<Uuid>,
     headers: axum::http::HeaderMap,
     body: axum::body::Bytes,
 ) -> ApiResult<PhotoView> {
@@ -3810,21 +3803,21 @@ pub async fn upload_costume_photo<P: Ports>(
         ));
     }
 
-    // Fetch the costume to resolve its owning series for authorization.
-    let costume = state.ports.costume_repo().find_by_id(costume_id).await?;
+    // Fetch the piece to resolve its owning series for authorization.
+    let piece = state.ports.piece_repo().find_by_id(piece_id).await?;
 
-    // AUTHZ-GATE: authorize_costume_in_project — handler-internal auth gate
+    // AUTHZ-GATE: authorize_piece_in_project — handler-internal auth gate
     // (see AGENTS.md). Since issue #535 (ADR-035 B2/S2) the photo policy is
-    // **series-scoped**: a costume-dept role in any active block of the
-    // costume's owning series authorizes the upload (deliberate boundary
+    // **series-scoped**: a piece-dept role in any active block of the
+    // piece's owning series authorizes the upload (deliberate boundary
     // widening, documented in the security architecture). An unassigned
-    // costume reachable via its repertoire is allowed; a costume with no
-    // resolvable container answers 422 `costume.container-unresolved`. The
+    // piece reachable via its repertoire is allowed; a piece with no
+    // resolvable container answers 422 `piece.container-unresolved`. The
     // gate returns the resolved series so the commands below reuse ONE
     // resolution for their audit metadata (no second best-effort walk).
-    let project_id = authorize_costume_in_project(
+    let project_id = authorize_piece_in_project(
         &state,
-        &costume,
+        &piece,
         current_user.sub.clone(),
         "not authorized to upload photos in this series",
     )
@@ -3857,7 +3850,7 @@ pub async fn upload_costume_photo<P: Ports>(
                 id: photo_id,
                 content_type: content_type.clone(),
                 size_bytes,
-                binding: PhotoBinding::Costume { costume_id },
+                binding: PhotoBinding::Piece { piece_id },
                 project_id: Some(project_id),
             },
         )
@@ -3867,25 +3860,23 @@ pub async fn upload_costume_photo<P: Ports>(
             drop(state.ports.photo_storage().delete_all(photo_id));
         })?;
 
-    // Dispatch LinkPhoto command on the costume aggregate.
-    let version = costume.version;
-    state
-        .ports
-        .costume_commands()
-        .link_photo(
-            current_user.sub.clone(),
-            LinkPhoto {
-                id: costume_id,
-                photo_id: photo_id.0,
-                project_id: Some(project_id),
-                version,
-            },
-        )
-        .await
-        .inspect_err(|_| {
-            // Compensating delete: best-effort, cannot await in sync closure.
-            drop(state.ports.photo_storage().delete_all(photo_id));
-        })?;
+    // Dispatch LinkPiecePhoto command on the piece aggregate.
+    let version = piece.version;
+    PieceCommands::link_photo(
+        state.ports.wardrobe_commands(),
+        current_user.sub.clone(),
+        LinkPiecePhoto {
+            id: piece_id,
+            photo_id: photo_id.0,
+            project_id: Some(project_id),
+            version,
+        },
+    )
+    .await
+    .inspect_err(|_| {
+        // Compensating delete: best-effort, cannot await in sync closure.
+        drop(state.ports.photo_storage().delete_all(photo_id));
+    })?;
 
     // Build the 201 response from the dispatch/command output instead of
     // reading the freshly written photo back from the projection: the photo
@@ -3917,14 +3908,14 @@ pub async fn upload_costume_photo<P: Ports>(
             },
         ],
         exif_stripped_at: None,
-        binding: PhotoBinding::Costume { costume_id },
+        binding: PhotoBinding::Piece { piece_id },
         version: photo_version,
     };
 
     Ok((StatusCode::CREATED, Json(view)))
 }
 
-/// OpenAPI documentation type for the costume-photo byte response.
+/// OpenAPI documentation type for the piece-photo byte response.
 //
 /// The handler returns `Vec<u8>`; utoipa would otherwise document that as
 /// `array of integer`, which the OpenAPI generator turns into a
@@ -3935,9 +3926,9 @@ pub async fn upload_costume_photo<P: Ports>(
 /// utoipa 5 has no built-in `Vec<u8>` -> binary mapping, so the schema is
 /// built by hand here.
 #[allow(dead_code)]
-struct CostumePhotoBytes;
+struct PiecePhotoBytes;
 
-impl utoipa::PartialSchema for CostumePhotoBytes {
+impl utoipa::PartialSchema for PiecePhotoBytes {
     fn schema() -> utoipa::openapi::RefOr<utoipa::openapi::Schema> {
         utoipa::openapi::RefOr::T(utoipa::openapi::Schema::Object(
             utoipa::openapi::schema::ObjectBuilder::new()
@@ -3947,13 +3938,13 @@ impl utoipa::PartialSchema for CostumePhotoBytes {
                 .format(Some(utoipa::openapi::SchemaFormat::KnownFormat(
                     utoipa::openapi::KnownFormat::Binary,
                 )))
-                .description(Some("Raw costume photo variant bytes (JPEG/PNG/WebP)."))
+                .description(Some("Raw piece photo variant bytes (JPEG/PNG/WebP)."))
                 .build(),
         ))
     }
 }
 
-impl utoipa::ToSchema for CostumePhotoBytes {}
+impl utoipa::ToSchema for PiecePhotoBytes {}
 
 /// Download photo bytes (proxy download with per-request authorization).
 ///
@@ -3961,33 +3952,33 @@ impl utoipa::ToSchema for CostumePhotoBytes {}
 /// The response includes `Cache-Control: private, max-age=300`.
 #[utoipa::path(
     get,
-    path = "/costumes/{costume_id}/photos/{photo_id}/bytes",
+    path = "/pieces/{piece_id}/photos/{photo_id}/bytes",
     params(
-        ("costume_id" = Uuid, Path, description = "Costume id"),
+        ("piece_id" = Uuid, Path, description = "Piece id"),
         ("photo_id" = Uuid, Path, description = "Photo id"),
         ("variant" = String, Query, description = "Variant: original, thumb, or medium"),
     ),
     responses(
-        (status = 200, description = "Photo bytes", body = inline(CostumePhotoBytes), content_type = "image/jpeg"),
+        (status = 200, description = "Photo bytes", body = inline(PiecePhotoBytes), content_type = "image/jpeg"),
         (status = 403, body = ProblemDetails, description = "Not authorized"),
-        (status = 404, body = ProblemDetails, description = "Photo or costume not found"),
+        (status = 404, body = ProblemDetails, description = "Photo or piece not found"),
     ),
 )]
-pub async fn get_costume_photo_bytes<P: Ports>(
+pub async fn get_piece_photo_bytes<P: Ports>(
     State(state): State<AppState<P>>,
     current_user: CurrentUser,
-    Path((costume_id, photo_id)): Path<(Uuid, Uuid)>,
+    Path((piece_id, photo_id)): Path<(Uuid, Uuid)>,
     Query(query): Query<PhotoBytesQuery>,
 ) -> Result<(StatusCode, axum::http::HeaderMap, Vec<u8>), ApiError> {
-    // Fetch the costume to resolve its owning series for authorization.
-    let costume = state.ports.costume_repo().find_by_id(costume_id).await?;
+    // Fetch the piece to resolve its owning series for authorization.
+    let piece = state.ports.piece_repo().find_by_id(piece_id).await?;
 
-    // AUTHZ-GATE: authorize_costume_in_project — handler-internal auth gate
+    // AUTHZ-GATE: authorize_piece_in_project — handler-internal auth gate
     // (see AGENTS.md). Series-scoped photo policy as of issue #535
     // (ADR-035 B2/S2) — same seam as upload/delete.
-    authorize_costume_in_project(
+    authorize_piece_in_project(
         &state,
-        &costume,
+        &piece,
         current_user.sub.clone(),
         "not authorized to download photos in this series",
     )
@@ -4044,57 +4035,55 @@ pub async fn get_costume_photo_bytes<P: Ports>(
     Ok((StatusCode::OK, headers, photo_bytes.bytes))
 }
 
-/// Unlink a photo from a costume (deletion saga handles refcount + bytes cleanup).
+/// Unlink a photo from a piece (deletion saga handles refcount + bytes cleanup).
 ///
 /// Authorization is checked per-request via season-scoped membership.
 /// The photo bytes are only deleted when the refcount reaches zero.
 #[utoipa::path(
     delete,
-    path = "/costumes/{costume_id}/photos/{photo_id}",
+    path = "/pieces/{piece_id}/photos/{photo_id}",
     params(
-        ("costume_id" = Uuid, Path, description = "Costume id"),
+        ("piece_id" = Uuid, Path, description = "Piece id"),
         ("photo_id" = Uuid, Path, description = "Photo id"),
     ),
     responses(
         (status = 204, description = "Photo unlinked"),
         (status = 403, body = ProblemDetails, description = "Not authorized"),
-        (status = 404, body = ProblemDetails, description = "Costume not found"),
+        (status = 404, body = ProblemDetails, description = "Piece not found"),
     ),
 )]
-pub async fn delete_costume_photo<P: Ports>(
+pub async fn delete_piece_photo<P: Ports>(
     State(state): State<AppState<P>>,
     current_user: CurrentUser,
-    Path((costume_id, photo_id)): Path<(Uuid, Uuid)>,
+    Path((piece_id, photo_id)): Path<(Uuid, Uuid)>,
 ) -> ApiResult<()> {
-    // Fetch the costume to resolve its owning series for authorization.
-    let costume = state.ports.costume_repo().find_by_id(costume_id).await?;
+    // Fetch the piece to resolve its owning series for authorization.
+    let piece = state.ports.piece_repo().find_by_id(piece_id).await?;
 
-    // AUTHZ-GATE: authorize_costume_in_project — handler-internal auth gate
+    // AUTHZ-GATE: authorize_piece_in_project — handler-internal auth gate
     // (see AGENTS.md). Series-scoped photo policy as of issue #535
     // (ADR-035 B2/S2) — same seam as upload/bytes. The resolved series is
     // reused as the command's audit metadata.
-    let project_id = authorize_costume_in_project(
+    let project_id = authorize_piece_in_project(
         &state,
-        &costume,
+        &piece,
         current_user.sub.clone(),
         "not authorized to delete photos in this series",
     )
     .await?;
 
-    // Dispatch UnlinkPhoto on the costume aggregate.
-    state
-        .ports
-        .costume_commands()
-        .unlink_photo(
-            current_user.sub.clone(),
-            UnlinkPhoto {
-                id: costume_id,
-                photo_id,
-                project_id: Some(project_id),
-                version: costume.version,
-            },
-        )
-        .await?;
+    // Dispatch UnlinkPiecePhoto on the piece aggregate.
+    PieceCommands::unlink_photo(
+        state.ports.wardrobe_commands(),
+        current_user.sub.clone(),
+        UnlinkPiecePhoto {
+            id: piece_id,
+            photo_id,
+            project_id: Some(project_id),
+            version: piece.version,
+        },
+    )
+    .await?;
 
     Ok((StatusCode::NO_CONTENT, Json(())))
 }
@@ -4104,6 +4093,293 @@ pub async fn delete_costume_photo<P: Ports>(
 pub struct PhotoBytesQuery {
     /// Variant: "original", "thumb", or "medium". Defaults to "original".
     pub variant: Option<String>,
+}
+
+// ---------------------------------------------------------------------------
+// Outfit photo handlers (fitting photos; shared with the outfit's pieces)
+// ---------------------------------------------------------------------------
+
+/// Upload a fitting photo for an outfit.
+///
+/// The photo is bound to the **outfit** (`PhotoBinding::Outfit`); the read model
+/// surfaces it on every piece of the outfit as well (a garment is usually
+/// photographed as part of a look). Authorization resolves the outfit's
+/// character season inside the handler (`// AUTHZ-GATE:`).
+#[utoipa::path(
+    post,
+    path = "/outfits/{outfit_id}/photos",
+    params(("outfit_id" = Uuid, Path, description = "Outfit id")),
+    request_body(content = String, description = "Raw image bytes (JPEG/PNG/WebP)",
+        content_type = "image/jpeg"),
+    responses(
+        (status = 201, description = "Photo uploaded", body = PhotoView),
+        (status = 403, body = ProblemDetails, description = "Not authorized"),
+        (status = 413, body = ProblemDetails, description = "Payload too large"),
+        (status = 415, body = ProblemDetails, description = "Unsupported media type"),
+        (status = 422, body = ProblemDetails, description = "Validation error"),
+    )
+)]
+pub async fn upload_outfit_photo<P: Ports>(
+    State(state): State<AppState<P>>,
+    current_user: CurrentUser,
+    Path(outfit_id): Path<Uuid>,
+    headers: axum::http::HeaderMap,
+    body: axum::body::Bytes,
+) -> ApiResult<PhotoView> {
+    let content_type = validate_photo_content_type_and_size(&headers, body.len())?;
+
+    let outfit = state.ports.outfit_repo().find_by_id(outfit_id).await?;
+    // AUTHZ-GATE: the outfit's scope is its character's season.
+    let season_id = authorize_outfit_scoped(
+        &state,
+        &outfit,
+        current_user.sub.clone(),
+        "not authorized to upload photos in this season",
+    )
+    .await?;
+    let project_id = state
+        .ports
+        .season_repo()
+        .find_by_id(season_id.0)
+        .await
+        .ok()
+        .map(|season| season.project_id);
+
+    let photo_id = PhotoId::new();
+    let size_bytes = body.len() as u64;
+    state
+        .ports
+        .photo_storage()
+        .store(
+            photo_id,
+            PhotoVariant::Original,
+            body.to_vec(),
+            content_type.clone(),
+        )
+        .await?;
+
+    let binding = PhotoBinding::Outfit { outfit_id };
+    let photo_version = state
+        .ports
+        .photo_commands()
+        .upload(
+            current_user.sub.clone(),
+            UploadPhotoCmd {
+                id: photo_id,
+                content_type: content_type.clone(),
+                size_bytes,
+                binding: binding.clone(),
+                project_id,
+            },
+        )
+        .await
+        .inspect_err(|_| {
+            drop(state.ports.photo_storage().delete_all(photo_id));
+        })?;
+
+    // Link to the outfit (the piece side is surfaced by the read model, so no
+    // per-piece write is needed — a piece always shows its outfits' photos).
+    OutfitCommands::link_photo(
+        state.ports.wardrobe_commands(),
+        current_user.sub.clone(),
+        LinkOutfitPhoto {
+            id: outfit_id,
+            photo_id: photo_id.0,
+            project_id,
+            version: outfit.version,
+        },
+    )
+    .await
+    .inspect_err(|_| {
+        drop(state.ports.photo_storage().delete_all(photo_id));
+    })?;
+
+    let view = PhotoView {
+        id: photo_id,
+        content_type,
+        size_bytes,
+        variants: vec![
+            PhotoVariantView {
+                kind: PhotoVariant::Original,
+                status: VariantStatus::Pending,
+                size_bytes,
+            },
+            PhotoVariantView {
+                kind: PhotoVariant::Thumb,
+                status: VariantStatus::Pending,
+                size_bytes: 0,
+            },
+            PhotoVariantView {
+                kind: PhotoVariant::Medium,
+                status: VariantStatus::Pending,
+                size_bytes: 0,
+            },
+        ],
+        exif_stripped_at: None,
+        binding,
+        version: photo_version,
+    };
+    Ok((StatusCode::CREATED, Json(view)))
+}
+
+#[utoipa::path(
+    get,
+    path = "/outfits/{outfit_id}/photos/{photo_id}/bytes",
+    params(
+        ("outfit_id" = Uuid, Path, description = "Outfit id"),
+        ("photo_id" = Uuid, Path, description = "Photo id"),
+        PhotoBytesQuery,
+    ),
+    responses(
+        (status = 200, description = "Raw outfit photo variant bytes", body = inline(PiecePhotoBytes), content_type = "image/jpeg"),
+        (status = 403, body = ProblemDetails, description = "Not authorized"),
+        (status = 404, body = ProblemDetails, description = "Outfit not found"),
+    )
+)]
+pub async fn get_outfit_photo_bytes<P: Ports>(
+    State(state): State<AppState<P>>,
+    current_user: CurrentUser,
+    Path((outfit_id, photo_id)): Path<(Uuid, Uuid)>,
+    Query(query): Query<PhotoBytesQuery>,
+) -> Result<(StatusCode, axum::http::HeaderMap, Vec<u8>), ApiError> {
+    let outfit = state.ports.outfit_repo().find_by_id(outfit_id).await?;
+    // AUTHZ-GATE: same season-scoped seam as the upload handler.
+    authorize_outfit_scoped(
+        &state,
+        &outfit,
+        current_user.sub.clone(),
+        "not authorized to download photos in this season",
+    )
+    .await?;
+    photo_bytes_response(&state, photo_id, query.variant.as_deref()).await
+}
+
+#[utoipa::path(
+    delete,
+    path = "/outfits/{outfit_id}/photos/{photo_id}",
+    params(
+        ("outfit_id" = Uuid, Path, description = "Outfit id"),
+        ("photo_id" = Uuid, Path, description = "Photo id"),
+    ),
+    responses(
+        (status = 204, description = "Photo unlinked"),
+        (status = 403, body = ProblemDetails, description = "Not authorized"),
+        (status = 404, body = ProblemDetails, description = "Outfit not found"),
+    )
+)]
+pub async fn delete_outfit_photo<P: Ports>(
+    State(state): State<AppState<P>>,
+    current_user: CurrentUser,
+    Path((outfit_id, photo_id)): Path<(Uuid, Uuid)>,
+) -> ApiResult<()> {
+    let outfit = state.ports.outfit_repo().find_by_id(outfit_id).await?;
+    // AUTHZ-GATE: same season-scoped seam as upload/bytes.
+    let season_id = authorize_outfit_scoped(
+        &state,
+        &outfit,
+        current_user.sub.clone(),
+        "not authorized to delete photos in this season",
+    )
+    .await?;
+    let project_id = state
+        .ports
+        .season_repo()
+        .find_by_id(season_id.0)
+        .await
+        .ok()
+        .map(|season| season.project_id);
+    OutfitCommands::unlink_photo(
+        state.ports.wardrobe_commands(),
+        current_user.sub.clone(),
+        UnlinkOutfitPhoto {
+            id: outfit_id,
+            photo_id,
+            project_id,
+            version: outfit.version,
+        },
+    )
+    .await?;
+    Ok((StatusCode::NO_CONTENT, Json(())))
+}
+
+/// Shared photo content-type/size gate for the outfit upload path.
+fn validate_photo_content_type_and_size(
+    headers: &axum::http::HeaderMap,
+    body_len: usize,
+) -> Result<String, ApiError> {
+    let content_type = headers
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .to_lowercase();
+    if !matches!(
+        content_type.as_str(),
+        "image/jpeg" | "image/png" | "image/webp"
+    ) {
+        if content_type == "image/heic" || content_type == "image/heif" {
+            return Err(ApiError::UnsupportedMediaType(
+                "HEIC/HEIF not supported. Convert to JPEG before upload.",
+            ));
+        }
+        return Err(ApiError::UnsupportedMediaType(
+            "unsupported photo content type; accepted: image/jpeg, image/png, image/webp",
+        ));
+    }
+    let max_size_mb: usize = std::env::var("PHOTO_MAX_SIZE_MB")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(20);
+    if body_len > max_size_mb * 1024 * 1024 {
+        return Err(ApiError::PayloadTooLarge(
+            "uploaded file exceeds the configured size limit",
+        ));
+    }
+    Ok(content_type)
+}
+
+/// Shared storage read + response-header assembly for a photo variant.
+async fn photo_bytes_response<P: Ports>(
+    state: &AppState<P>,
+    photo_id: Uuid,
+    variant: Option<&str>,
+) -> Result<(StatusCode, axum::http::HeaderMap, Vec<u8>), ApiError> {
+    let variant = match variant.unwrap_or("original") {
+        "thumb" => PhotoVariant::Thumb,
+        "medium" => PhotoVariant::Medium,
+        _ => PhotoVariant::Original,
+    };
+    let photo_bytes = state
+        .ports
+        .photo_storage()
+        .fetch(PhotoId::from_uuid(photo_id), variant)
+        .await?;
+
+    let mut headers = axum::http::HeaderMap::new();
+    let content_type_header = photo_bytes
+        .content_type
+        .parse::<axum::http::HeaderValue>()
+        .map_err(|e| {
+            tracing::error!(error = %e, "invalid content-type in photo metadata");
+            ApiError::Internal
+        })?;
+    headers.insert(axum::http::header::CONTENT_TYPE, content_type_header);
+    let content_length_header = photo_bytes
+        .size_bytes
+        .to_string()
+        .parse::<axum::http::HeaderValue>()
+        .map_err(|e| {
+            tracing::error!(error = %e, "invalid content-length in photo metadata");
+            ApiError::Internal
+        })?;
+    headers.insert(axum::http::header::CONTENT_LENGTH, content_length_header);
+    if let Some(ref etag) = photo_bytes.etag {
+        let etag_header = etag.parse::<axum::http::HeaderValue>().map_err(|e| {
+            tracing::error!(error = %e, "invalid etag in photo metadata");
+            ApiError::Internal
+        })?;
+        headers.insert(axum::http::header::ETAG, etag_header);
+    }
+    Ok((StatusCode::OK, headers, photo_bytes.bytes))
 }
 
 // ---------------------------------------------------------------------------
@@ -5473,8 +5749,8 @@ pub struct ManualArchiveJobResult {
 ///
 /// Setting-gerechte fallback when automation fails or is delayed. Uses the
 /// **same** dedup key and pipeline as schedule / wrap triggers — never a
-/// parallel pipeline. Gated stricter than PDF routes: only `CostumeDesigner`
-/// and `WardrobeSupervisor` (excludes `CostumeAssistant`).
+/// parallel pipeline. Gated stricter than PDF routes: only `PieceDesigner`
+/// and `WardrobeSupervisor` (excludes `PieceAssistant`).
 #[utoipa::path(
     post,
     path = "/shooting-days/{id}/report/archive",
@@ -5503,8 +5779,8 @@ pub async fn manual_archive_reports<P: Ports>(
         .find_by_id(episode.block_id.0)
         .await?;
 
-    // AUTHZ-GATE: manual archive — CostumeDesigner + WardrobeSupervisor only
-    // (stricter than PDF routes; CostumeAssistant is excluded). Fail closed.
+    // AUTHZ-GATE: manual archive — PieceDesigner + WardrobeSupervisor only
+    // (stricter than PDF routes; PieceAssistant is excluded). Fail closed.
     membership_gate(
         state
             .ports
@@ -5566,7 +5842,7 @@ pub async fn create_gdrive_credential<P: Ports>(
     current_user: CurrentUser,
     Json(req): Json<GDriveCredentialRequest>,
 ) -> ApiResult<IdVersionResponse> {
-    // AUTHZ-GATE: only active CostumeDesigner/CostumeAssistant members may
+    // AUTHZ-GATE: only active PieceDesigner/PieceAssistant members may
     // create GDrive credentials. The bundle is handed to Vault immediately.
     membership_gate(
         state
@@ -5634,7 +5910,7 @@ pub async fn rotate_gdrive_credential<P: Ports>(
     Path(id): Path<Uuid>,
     Json(req): Json<GDriveCredentialUpdateRequest>,
 ) -> ApiResult<IdVersionResponse> {
-    // AUTHZ-GATE: only active CostumeDesigner/CostumeAssistant members may
+    // AUTHZ-GATE: only active PieceDesigner/PieceAssistant members may
     // rotate GDrive credentials.
     membership_gate(
         state
@@ -5762,7 +6038,7 @@ pub async fn create_credential<P: Ports>(
     current_user: CurrentUser,
     Json(req): Json<CreateCredentialRequest>,
 ) -> ApiResult<IdVersionResponse> {
-    // AUTHZ-GATE: only active CostumeDesigner/CostumeAssistant members may
+    // AUTHZ-GATE: only active PieceDesigner/PieceAssistant members may
     // create external credentials (role-specific settings authz, ADR-027).
     membership_gate(
         state
@@ -5830,7 +6106,7 @@ pub async fn get_settings<P: Ports>(
     _current_user: CurrentUser,
     Path(id): Path<Uuid>,
 ) -> ApiResult<SettingsView> {
-    // AUTHZ-GATE: only active CostumeDesigner/CostumeAssistant members may
+    // AUTHZ-GATE: only active PieceDesigner/PieceAssistant members may
     // read external credential binding metadata (never the secret).
     membership_gate(
         state
@@ -5871,7 +6147,7 @@ pub async fn revoke_settings<P: Ports>(
     Path(id): Path<Uuid>,
     Json(req): Json<VersionRequest>,
 ) -> ApiResult<AggregateVersion> {
-    // AUTHZ-GATE: only active CostumeDesigner/CostumeAssistant members may
+    // AUTHZ-GATE: only active PieceDesigner/PieceAssistant members may
     // revoke external credentials; Vault destruction happens after this gate.
     membership_gate(
         state
@@ -5930,7 +6206,7 @@ async fn authorize_ai_block<P: Ports>(
     let block_id = BlockId::from_uuid(uuid);
     let block = state.ports.block_repo().find_by_id(uuid).await?;
     // AUTHZ-GATE: block-scoped AI import (script/schedule upload, apply)
-    // requires active costume-dept membership in the block's season — decided
+    // requires active piece-dept membership in the block's season — decided
     // via the (fallible) season policy so read-model failures surface as
     // mapped errors, not as a silent 403.
     let decision = state
@@ -5959,7 +6235,7 @@ async fn authorize_ai_job<P: Ports>(
     if let Some(block_id) = job.block_id {
         let block = state.ports.block_repo().find_by_id(block_id.0).await?;
         // AUTHZ-GATE: AI job status/preview/apply is privileged — the caller
-        // must hold an active costume-dept role in the job's season, decided
+        // must hold an active piece-dept role in the job's season, decided
         // via the (fallible) season policy.
         let decision = state
             .authorization_policy
@@ -6111,7 +6387,7 @@ pub async fn upload_ai_script<P: Ports>(
     headers: HeaderMap,
     body: Bytes,
 ) -> ApiResult<AiImportJobId> {
-    // AUTHZ-GATE: script uploads require active costume-department membership.
+    // AUTHZ-GATE: script uploads require active piece-department membership.
     let content_type = request_content_type(&headers);
     if content_type != "application/pdf" {
         return Err(ApiError::AiImportUnsupportedMediaType(
@@ -6145,7 +6421,7 @@ pub async fn upload_ai_schedule<P: Ports>(
     headers: HeaderMap,
     body: Bytes,
 ) -> ApiResult<AiImportJobId> {
-    // AUTHZ-GATE: schedule uploads require active costume-department membership.
+    // AUTHZ-GATE: schedule uploads require active piece-department membership.
     let content_type = request_content_type(&headers);
     if !matches!(
         content_type.as_str(),
@@ -6236,7 +6512,7 @@ pub async fn stream_ai_import_job_events<P: Ports>(
     let job = queue.get(id).await?;
     let job = job.ok_or(ApiError::AiImportNotFound("AI import job not found"))?;
     // AUTHZ-GATE: the SSE stream is privileged exactly like the single-job
-    // read — the caller must own the job (and hold an active costume-dept
+    // read — the caller must own the job (and hold an active piece-dept
     // role in the job's season). Runs BEFORE the stream opens so a rejected
     // caller gets a problem document, not an open text/event-stream.
     authorize_ai_job(&state, &current_user, &job, Action::Read).await?;
@@ -6634,7 +6910,10 @@ pub struct ApplyAiImportResponse {
     /// created once, so this is not `applied_count`-related. `0` for a schedule
     /// apply, which has no figures.
     pub created_characters: u32,
-    /// Costumes the script apply created (unassigned, then bound).
+    /// Costume rows the script apply created (a piece in the fundus, then
+    /// joined to the figure's outfit). The field keeps the `costume` name until
+    /// the AI-import vocabulary is renamed as one coherent step (successor
+    /// change `ai-import-outfit-and-pieces`).
     pub created_costumes: u32,
     /// Episodes the script apply created for draft episode groups the reviewer
     /// mapped to a NEW episode (issue #581). `0` for a schedule apply.
@@ -6644,10 +6923,10 @@ pub struct ApplyAiImportResponse {
     /// never a silent one.
     #[serde(default)]
     pub skipped_day_groups: Vec<String>,
-    /// Costume rows that did **not** become a `Costume`, each with the reason.
-    /// An apply that created a costume but could not bind it reports the row
-    /// here while `created_costumes` still counts it — a partially applied row
-    /// must never look like a fully applied one.
+    /// Costume rows that were **not** fully applied, each with the reason.
+    /// An apply that created a piece but could not put it into the figure's
+    /// outfit reports the row here while `created_costumes` still counts it — a
+    /// partially applied row must never look like a fully applied one.
     pub unapplied_costumes: Vec<breakdown_core::ai::UnappliedCostume>,
 }
 
@@ -6720,7 +6999,7 @@ pub async fn apply_ai_import<P: Ports>(
             // The episode is the authoritative source for the series seam;
             // resolving it here keeps the write side free of read-model lookups.
             let project_id = Some(episode.project_id);
-            // A `Character` is scoped to a Season and the costume's repertoire
+            // A `Character` is scoped to a Season and the piece's repertoire
             // binding names one too, but a draft row only knows its episode. The
             // season is therefore resolved here — the handler is the only
             // legitimate read-model consumer (CQRS boundary, AGENTS.md §1) — and
@@ -6768,23 +7047,23 @@ pub async fn apply_ai_import<P: Ports>(
                     "apply carries more mappings than the preview contains scenes",
                 ));
             }
-            // Per-row costume decisions are resolved by a linear scan of that
+            // Per-row piece decisions are resolved by a linear scan of that
             // row's list, so an unbounded decision list would turn one apply into
             // request-body-paid quadratic work. Bound it to what the preview
             // actually carries.
-            let costume_decisions: usize = request
+            let piece_decisions: usize = request
                 .mappings
                 .iter()
                 .map(|mapping| mapping.costume_decisions.len())
                 .sum();
-            let preview_costumes: usize = preview
+            let preview_pieces: usize = preview
                 .scenes
                 .iter()
                 .map(|scene| scene.costumes.len())
                 .sum();
-            if costume_decisions > preview_costumes {
+            if piece_decisions > preview_pieces {
                 return Err(ApiError::Validation(
-                    "apply carries more costume decisions than the preview contains costumes",
+                    "apply carries more piece decisions than the preview contains pieces",
                 ));
             }
             // Issue #581: validate the per-group episode targets against the
@@ -6794,7 +7073,7 @@ pub async fn apply_ai_import<P: Ports>(
             // idx_projection_episode_project_number stays authoritative).
             let preview_group_refs = episode_group_refs(&preview);
             // Bound the per-group loop before any repository read, mirroring
-            // the mappings/costume-decisions bounds above: every valid group
+            // the mappings/piece-decisions bounds above: every valid group
             // ref comes from `preview_group_refs`, so a longer request is
             // rejected by construction (the linear `contains` below stays
             // O(n·m)-free for an oversized body).
@@ -6941,7 +7220,7 @@ pub async fn apply_ai_import<P: Ports>(
             let worker = ApplyWorker {
                 scene_commands: Arc::new(state.ports.scene_commands().clone()),
                 character_commands: Arc::new(state.ports.character_commands().clone()),
-                costume_commands: Arc::new(state.ports.costume_commands().clone()),
+                costume_commands: Arc::new(state.ports.wardrobe_commands().clone()),
                 episode_commands: Arc::new(state.ports.episode_commands().clone()),
                 shooting_day_commands: Arc::new(state.ports.shooting_day_commands().clone()),
                 scene_shoot_commands: Arc::new(state.ports.scene_shoot_commands().clone()),
@@ -7026,7 +7305,7 @@ pub async fn apply_ai_import<P: Ports>(
                     applied_count: 0,
                     created_days: result.created_days,
                     planned_scene_shoots: result.planned_scene_shoots,
-                    // A schedule apply touches no figures, costumes or episodes.
+                    // A schedule apply touches no figures, pieces or episodes.
                     created_characters: 0,
                     created_costumes: 0,
                     created_episodes: 0,
@@ -7254,7 +7533,7 @@ async fn require_owned_vault_key<P: Ports>(
 /// Season-role/ownership denial on an AI import job (upload block-scope,
 /// status/preview/apply) → 403 `ai-import.forbidden` (issue #470). Distinct
 /// from `forbidden_ai_config()` so the job/apply screens can render their
-/// "active costume role in this season" narrative instead of the
+/// "active piece role in this season" narrative instead of the
 /// credential-role one.
 fn forbidden_ai_job() -> ApiError {
     ApiError::AiImportForbidden("not authorized for this AI import job")
@@ -7953,6 +8232,440 @@ pub async fn get_projector_health<P: Ports>(
     ))
 }
 
+// ---------------------------------------------------------------------------
+// Outfit handlers (character look, composed from 0..n fundus pieces)
+// ---------------------------------------------------------------------------
+
+/// AUTHZ-GATE helper for outfit routes: resolve the owning character's season
+/// and require a costume-department role there. The outfit itself carries no
+/// season column — its scope is derived from `character_id`.
+async fn authorize_outfit_scoped<P: Ports>(
+    state: &AppState<P>,
+    outfit: &OutfitView,
+    user_id: UserId,
+    denial: &'static str,
+) -> Result<SeasonId, ApiError> {
+    let character = state
+        .ports
+        .character_repo()
+        .find_by_id(outfit.character_id)
+        .await?;
+    membership_gate(
+        state
+            .ports
+            .membership_repo()
+            .has_active_costume_role_in_season(character.season_id, user_id),
+        || ApiError::Forbidden(denial),
+    )
+    .await?;
+    Ok(character.season_id)
+}
+
+/// Resolve the audit `project_id` for a character (character → season →
+/// series). Missing projections narrow to `None`: audit metadata must never
+/// block a command.
+async fn project_id_for_character_opt<P: Ports>(
+    state: &AppState<P>,
+    character_id: Uuid,
+) -> Option<ProjectId> {
+    match state.ports.character_repo().find_by_id(character_id).await {
+        Ok(character) => match state
+            .ports
+            .season_repo()
+            .find_by_id(character.season_id.0)
+            .await
+        {
+            Ok(season) => Some(season.project_id),
+            Err(err) => {
+                tracing::warn!(error = %err, "season lookup failed; continuing without project_id");
+                None
+            }
+        },
+        Err(err) => {
+            tracing::warn!(error = %err, "character lookup failed; continuing without project_id");
+            None
+        }
+    }
+}
+
+/// Create an outfit for a character. `piece_ids` may be empty (an empty shell
+/// establishes a named look before the garments are catalogued); layering is
+/// permitted, and piece existence is pre-checked at this edge.
+#[derive(Debug, Clone, Deserialize, ToSchema)]
+pub struct CreateOutfitRequest {
+    pub character_id: Uuid,
+    pub name: String,
+    #[serde(default)]
+    pub piece_ids: Vec<Uuid>,
+}
+
+/// Fork an existing outfit into an independent copy. Omitted fields inherit
+/// from the source outfit, which the handler reads at the API edge (the only
+/// legitimate read-model consumer per the CQRS boundary).
+#[derive(Debug, Clone, Deserialize, ToSchema)]
+pub struct CreateOutfitVariantRequest {
+    pub name: Option<String>,
+    pub piece_ids: Option<Vec<Uuid>>,
+    pub notes: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, ToSchema)]
+pub struct RenameOutfitRequest {
+    pub name: String,
+    pub version: AggregateVersion,
+}
+
+#[derive(Debug, Clone, Deserialize, ToSchema)]
+pub struct UpdateOutfitNotesRequest {
+    pub notes: String,
+    pub version: AggregateVersion,
+}
+
+#[derive(Debug, Clone, Deserialize, ToSchema)]
+pub struct AddOutfitPieceRequest {
+    pub piece_id: Uuid,
+    pub version: AggregateVersion,
+}
+
+async fn ensure_pieces_exist<P: Ports>(
+    state: &AppState<P>,
+    piece_ids: &[Uuid],
+) -> Result<(), ApiError> {
+    for piece_id in piece_ids {
+        state.ports.piece_repo().find_by_id(*piece_id).await?;
+    }
+    Ok(())
+}
+
+#[utoipa::path(
+    post,
+    path = "/outfits",
+    request_body = CreateOutfitRequest,
+    responses(
+        (status = 201, description = "Outfit created", body = IdVersionResponse),
+        (status = 404, description = "Character or piece not found", body = ProblemDetails),
+        (status = 409, description = "Season archived", body = ProblemDetails),
+        (status = 422, description = "Validation error", body = ProblemDetails),
+    )
+)]
+pub async fn create_outfit<P: Ports>(
+    State(state): State<AppState<P>>,
+    current_user: CurrentUser,
+    Json(req): Json<CreateOutfitRequest>,
+) -> ApiResult<IdVersionResponse> {
+    // AUTHZ-GATE: the character's season is the outfit's scope; the role check
+    // runs inside the handler because the route is authenticated only.
+    let character = state
+        .ports
+        .character_repo()
+        .find_by_id(req.character_id)
+        .await?;
+    membership_gate(
+        state
+            .ports
+            .membership_repo()
+            .has_active_costume_role_in_season(character.season_id, current_user.sub.clone()),
+        || ApiError::Forbidden("not authorized to manage outfits in this season"),
+    )
+    .await?;
+    let season = state
+        .ports
+        .season_repo()
+        .find_by_id(character.season_id.0)
+        .await?;
+    if season.archived {
+        return Err(ApiError::Domain(DomainError::Conflict {
+            code: &SEASON_ARCHIVED,
+            reason: "season is archived".into(),
+        }));
+    }
+    ensure_pieces_exist(&state, &req.piece_ids).await?;
+
+    let id = Uuid::now_v7();
+    let cmd = CreateOutfit {
+        id,
+        character_id: req.character_id,
+        name: req.name,
+        piece_ids: req.piece_ids,
+        project_id: Some(season.project_id),
+    };
+    let (id, version) = OutfitCommands::create(
+        state.ports.wardrobe_commands(),
+        current_user.sub.clone(),
+        cmd,
+    )
+    .await?;
+    Ok((StatusCode::CREATED, Json(IdVersionResponse { id, version })))
+}
+
+#[utoipa::path(
+    post,
+    path = "/outfits/{id}/variants",
+    params(("id" = Uuid, Path, description = "Source outfit id")),
+    request_body = CreateOutfitVariantRequest,
+    responses(
+        (status = 201, description = "Variant created", body = IdVersionResponse),
+        (status = 404, body = ProblemDetails),
+        (status = 409, body = ProblemDetails),
+        (status = 422, body = ProblemDetails),
+    )
+)]
+pub async fn create_outfit_variant<P: Ports>(
+    State(state): State<AppState<P>>,
+    current_user: CurrentUser,
+    Path(source_id): Path<Uuid>,
+    Json(req): Json<CreateOutfitVariantRequest>,
+) -> ApiResult<IdVersionResponse> {
+    // Copy-on-write fork: the source is read HERE (API edge, CQRS boundary) and
+    // its data travels in the command, so the write side never touches the
+    // projection.
+    let source = state.ports.outfit_repo().find_by_id(source_id).await?;
+    authorize_outfit_scoped(
+        &state,
+        &source,
+        current_user.sub.clone(),
+        "not authorized to manage outfits in this season",
+    )
+    .await?;
+
+    let piece_ids = req.piece_ids.unwrap_or_else(|| source.piece_ids.clone());
+    ensure_pieces_exist(&state, &piece_ids).await?;
+
+    let id = Uuid::now_v7();
+    let cmd = CreateOutfitVariant {
+        id,
+        source_outfit_id: source_id,
+        character_id: source.character_id,
+        name: req.name.unwrap_or_else(|| source.name.clone()),
+        piece_ids,
+        notes: req.notes.unwrap_or_else(|| source.notes.clone()),
+        project_id: project_id_for_character_opt(&state, source.character_id).await,
+    };
+    let (id, version) = state
+        .ports
+        .wardrobe_commands()
+        .create_variant(current_user.sub.clone(), cmd)
+        .await?;
+    Ok((StatusCode::CREATED, Json(IdVersionResponse { id, version })))
+}
+
+#[utoipa::path(
+    get,
+    path = "/outfits/{id}",
+    params(("id" = Uuid, Path, description = "Outfit id")),
+    responses((status = 200, body = OutfitView), (status = 404, body = ProblemDetails))
+)]
+pub async fn get_outfit<P: Ports>(
+    State(state): State<AppState<P>>,
+    current_user: CurrentUser,
+    Path(id): Path<Uuid>,
+) -> ApiResult<OutfitView> {
+    let outfit = state.ports.outfit_repo().find_by_id(id).await?;
+    authorize_outfit_scoped(
+        &state,
+        &outfit,
+        current_user.sub.clone(),
+        "not authorized to read outfits in this season",
+    )
+    .await?;
+    Ok((StatusCode::OK, Json(outfit)))
+}
+
+#[utoipa::path(
+    get,
+    path = "/characters/{character_id}/outfits",
+    description = "Lists the outfits of one character, newest first.",
+    params(("character_id" = Uuid, Path, description = "Character id")),
+    responses((status = 200, body = Vec<OutfitView>), (status = 404, body = ProblemDetails))
+)]
+pub async fn list_character_outfits<P: Ports>(
+    State(state): State<AppState<P>>,
+    current_user: CurrentUser,
+    Path(character_id): Path<Uuid>,
+) -> ApiResult<Vec<OutfitView>> {
+    let character = state
+        .ports
+        .character_repo()
+        .find_by_id(character_id)
+        .await?;
+    membership_gate(
+        state
+            .ports
+            .membership_repo()
+            .has_active_costume_role_in_season(character.season_id, current_user.sub.clone()),
+        || ApiError::Forbidden("not authorized to read outfits in this season"),
+    )
+    .await?;
+    let views = state
+        .ports
+        .outfit_repo()
+        .list_by_character(character_id)
+        .await?;
+    Ok((StatusCode::OK, Json(views)))
+}
+
+#[utoipa::path(
+    patch,
+    path = "/outfits/{id}/name",
+    params(("id" = Uuid, Path, description = "Outfit id")),
+    request_body = RenameOutfitRequest,
+    responses(
+        (status = 200, body = AggregateVersion),
+        (status = 404, body = ProblemDetails),
+        (status = 409, body = ProblemDetails),
+        (status = 422, body = ProblemDetails),
+    )
+)]
+pub async fn rename_outfit<P: Ports>(
+    State(state): State<AppState<P>>,
+    current_user: CurrentUser,
+    Path(id): Path<Uuid>,
+    Json(req): Json<RenameOutfitRequest>,
+) -> ApiResult<AggregateVersion> {
+    let outfit = state.ports.outfit_repo().find_by_id(id).await?;
+    authorize_outfit_scoped(
+        &state,
+        &outfit,
+        current_user.sub.clone(),
+        "not authorized to manage outfits in this season",
+    )
+    .await?;
+    let cmd = RenameOutfit {
+        id,
+        name: req.name,
+        project_id: project_id_for_character_opt(&state, outfit.character_id).await,
+        version: req.version,
+    };
+    let version = OutfitCommands::rename(
+        state.ports.wardrobe_commands(),
+        current_user.sub.clone(),
+        cmd,
+    )
+    .await?;
+    Ok((StatusCode::OK, Json(version)))
+}
+
+#[utoipa::path(
+    patch,
+    path = "/outfits/{id}/notes",
+    params(("id" = Uuid, Path, description = "Outfit id")),
+    request_body = UpdateOutfitNotesRequest,
+    responses(
+        (status = 200, body = AggregateVersion),
+        (status = 404, body = ProblemDetails),
+        (status = 409, body = ProblemDetails),
+        (status = 422, body = ProblemDetails),
+    )
+)]
+pub async fn update_outfit_notes<P: Ports>(
+    State(state): State<AppState<P>>,
+    current_user: CurrentUser,
+    Path(id): Path<Uuid>,
+    Json(req): Json<UpdateOutfitNotesRequest>,
+) -> ApiResult<AggregateVersion> {
+    let outfit = state.ports.outfit_repo().find_by_id(id).await?;
+    authorize_outfit_scoped(
+        &state,
+        &outfit,
+        current_user.sub.clone(),
+        "not authorized to manage outfits in this season",
+    )
+    .await?;
+    let cmd = UpdateOutfitNotes {
+        id,
+        notes: req.notes,
+        project_id: project_id_for_character_opt(&state, outfit.character_id).await,
+        version: req.version,
+    };
+    let version = OutfitCommands::update_notes(
+        state.ports.wardrobe_commands(),
+        current_user.sub.clone(),
+        cmd,
+    )
+    .await?;
+    Ok((StatusCode::OK, Json(version)))
+}
+
+#[utoipa::path(
+    post,
+    path = "/outfits/{id}/pieces",
+    params(("id" = Uuid, Path, description = "Outfit id")),
+    request_body = AddOutfitPieceRequest,
+    responses(
+        (status = 200, body = AggregateVersion),
+        (status = 404, description = "Outfit or piece not found", body = ProblemDetails),
+        (status = 409, body = ProblemDetails),
+    )
+)]
+pub async fn add_outfit_piece<P: Ports>(
+    State(state): State<AppState<P>>,
+    current_user: CurrentUser,
+    Path(id): Path<Uuid>,
+    Json(req): Json<AddOutfitPieceRequest>,
+) -> ApiResult<AggregateVersion> {
+    let outfit = state.ports.outfit_repo().find_by_id(id).await?;
+    authorize_outfit_scoped(
+        &state,
+        &outfit,
+        current_user.sub.clone(),
+        "not authorized to manage outfits in this season",
+    )
+    .await?;
+    // Piece existence is the cross-aggregate pre-check this edge owes the
+    // aggregate (404 `piece.not-found`, never a silently dangling reference).
+    ensure_pieces_exist(&state, &[req.piece_id]).await?;
+    let cmd = AddPieceToOutfit {
+        id,
+        piece_id: req.piece_id,
+        project_id: project_id_for_character_opt(&state, outfit.character_id).await,
+        version: req.version,
+    };
+    let version = state
+        .ports
+        .wardrobe_commands()
+        .add_piece(current_user.sub.clone(), cmd)
+        .await?;
+    Ok((StatusCode::OK, Json(version)))
+}
+
+#[utoipa::path(
+    delete,
+    path = "/outfits/{id}/pieces/{piece_id}",
+    params(VersionRequest, ("id" = Uuid, Path), ("piece_id" = Uuid, Path)),
+    responses(
+        (status = 200, body = AggregateVersion),
+        (status = 404, body = ProblemDetails),
+        (status = 409, body = ProblemDetails),
+    )
+)]
+pub async fn remove_outfit_piece<P: Ports>(
+    State(state): State<AppState<P>>,
+    current_user: CurrentUser,
+    Path((id, piece_id)): Path<(Uuid, Uuid)>,
+    Query(version): Query<VersionRequest>,
+) -> ApiResult<AggregateVersion> {
+    let outfit = state.ports.outfit_repo().find_by_id(id).await?;
+    authorize_outfit_scoped(
+        &state,
+        &outfit,
+        current_user.sub.clone(),
+        "not authorized to manage outfits in this season",
+    )
+    .await?;
+    let cmd = RemovePieceFromOutfit {
+        id,
+        piece_id,
+        project_id: project_id_for_character_opt(&state, outfit.character_id).await,
+        version: version.version,
+    };
+    let version = state
+        .ports
+        .wardrobe_commands()
+        .remove_piece(current_user.sub.clone(), cmd)
+        .await?;
+    Ok((StatusCode::OK, Json(version)))
+}
+
 pub fn routes() -> Router<AppState<ProductionPorts>> {
     // Axum's `Bytes` extractor enforces a default 2 MB request limit; the AI
     // document bound is 20 MB by default. Raise the extractor limit to the same
@@ -7962,7 +8675,7 @@ pub fn routes() -> Router<AppState<ProductionPorts>> {
         .bounds
         .max_document_bytes as usize;
     // The photo upload route must be able to accept what its own handler
-    // accepts. `upload_costume_photo` enforces `PHOTO_MAX_SIZE_MB` (default
+    // accepts. `upload_piece_photo` enforces `PHOTO_MAX_SIZE_MB` (default
     // 20 MB) on the buffered body, but without a matching extractor limit
     // Axum's 2 MB `DefaultBodyLimit` rejects first, so the documented 20 MB
     // contract (and the dev edge's `request_body max_size`) was silently
@@ -8159,17 +8872,17 @@ pub fn routes() -> Router<AppState<ProductionPorts>> {
             routing::delete(remove_scene_character::<ProductionPorts>),
         )
         .route(
-            "/scenes/{id}/costumes",
-            routing::post(add_scene_costume_beat::<ProductionPorts>),
+            "/scenes/{id}/outfits",
+            routing::post(add_scene_outfit_beat::<ProductionPorts>),
         )
         .route(
-            "/scenes/{id}/costumes/{character_id}",
-            routing::delete(clear_scene_costume_beats::<ProductionPorts>),
+            "/scenes/{id}/outfits/{character_id}",
+            routing::delete(clear_scene_outfit_beats::<ProductionPorts>),
         )
         .route(
-            "/scenes/{id}/costumes/{character_id}/{order}",
-            routing::patch(update_scene_costume_beat::<ProductionPorts>)
-                .delete(remove_scene_costume_beat::<ProductionPorts>),
+            "/scenes/{id}/outfits/{character_id}/{order}",
+            routing::patch(update_scene_outfit_beat::<ProductionPorts>)
+                .delete(remove_scene_outfit_beat::<ProductionPorts>),
         )
         .route(
             "/scenes/{id}/shooting-days",
@@ -8226,45 +8939,87 @@ pub fn routes() -> Router<AppState<ProductionPorts>> {
             routing::patch(update_character_category::<ProductionPorts>),
         )
         .route(
-            "/costumes",
-            routing::post(create_costume::<ProductionPorts>).get(list_costumes::<ProductionPorts>),
+            "/pieces",
+            routing::post(create_piece::<ProductionPorts>).get(list_pieces::<ProductionPorts>),
         )
         .route(
-            "/costumes/{id}",
-            routing::get(get_costume::<ProductionPorts>),
+            "/pieces/{id}",
+            routing::get(get_piece::<ProductionPorts>),
         )
         .route(
-            "/costumes/{id}/notes",
-            routing::patch(update_costume_notes::<ProductionPorts>),
+            "/pieces/{id}/notes",
+            routing::patch(update_piece_notes::<ProductionPorts>),
         )
         .route(
-            "/costumes/{id}/assign",
-            routing::post(assign_costume::<ProductionPorts>),
+            "/pieces/{id}/name",
+            routing::patch(rename_piece::<ProductionPorts>),
         )
         .route(
-            "/costumes/{id}/details",
-            routing::post(add_costume_detail::<ProductionPorts>),
+            "/pieces/{id}/details",
+            routing::post(add_piece_detail::<ProductionPorts>),
         )
         .route(
-            "/costumes/{id}/details/{detail_id}",
-            routing::patch(update_costume_detail::<ProductionPorts>)
-                .delete(remove_costume_detail::<ProductionPorts>),
+            "/pieces/{id}/details/{detail_id}",
+            routing::patch(update_piece_detail::<ProductionPorts>)
+                .delete(remove_piece_detail::<ProductionPorts>),
         )
         .route(
-            "/costumes/{id}/category",
-            routing::post(set_costume_category::<ProductionPorts>),
+            "/pieces/{id}/category",
+            routing::post(set_piece_category::<ProductionPorts>),
         )
         .route(
-            "/costumes/{id}/seasons",
-            routing::post(add_costume_to_season::<ProductionPorts>),
+            "/pieces/{id}/seasons",
+            routing::post(add_piece_to_season::<ProductionPorts>),
         )
         .route(
-            "/costumes/{id}/seasons/{season_id}",
-            routing::delete(remove_costume_from_season::<ProductionPorts>),
+            "/pieces/{id}/seasons/{season_id}",
+            routing::delete(remove_piece_from_season::<ProductionPorts>),
+        )
+        // --- Outfit endpoints (character look) ---
+        .route(
+            "/outfits",
+            routing::post(create_outfit::<ProductionPorts>),
         )
         .route(
-            "/costumes/{id}/unassign",
-            routing::post(unassign_costume::<ProductionPorts>),
+            "/outfits/{id}",
+            routing::get(get_outfit::<ProductionPorts>),
+        )
+        .route(
+            "/outfits/{id}/variants",
+            routing::post(create_outfit_variant::<ProductionPorts>),
+        )
+        .route(
+            "/outfits/{id}/name",
+            routing::patch(rename_outfit::<ProductionPorts>),
+        )
+        .route(
+            "/outfits/{id}/notes",
+            routing::patch(update_outfit_notes::<ProductionPorts>),
+        )
+        .route(
+            "/outfits/{id}/pieces",
+            routing::post(add_outfit_piece::<ProductionPorts>),
+        )
+        .route(
+            "/outfits/{id}/pieces/{piece_id}",
+            routing::delete(remove_outfit_piece::<ProductionPorts>),
+        )
+        .route(
+            "/characters/{character_id}/outfits",
+            routing::get(list_character_outfits::<ProductionPorts>),
+        )
+        .route(
+            "/outfits/{outfit_id}/photos",
+            routing::post(upload_outfit_photo::<ProductionPorts>)
+                .layer(DefaultBodyLimit::max(photo_body_limit)),
+        )
+        .route(
+            "/outfits/{outfit_id}/photos/{photo_id}/bytes",
+            routing::get(get_outfit_photo_bytes::<ProductionPorts>),
+        )
+        .route(
+            "/outfits/{outfit_id}/photos/{photo_id}",
+            routing::delete(delete_outfit_photo::<ProductionPorts>),
         )
         .route(
             "/seasons/{season_id}/costume-categories",
@@ -8281,11 +9036,11 @@ pub fn routes() -> Router<AppState<ProductionPorts>> {
         )
         // --- Photo endpoints ---
         .route(
-            "/costumes/{costume_id}/photos",
+            "/pieces/{piece_id}/photos",
             // The limit is scoped to THIS MethodRouter on purpose. A
             // `Router::route_layer` here would wrap every route registered
             // above it — ~70 JSON endpoints including `apply_ai_import`,
-            // `create_season` and `update_costume_notes` would have lost the
+            // `create_season` and `update_piece_notes` would have lost the
             // 2 MiB default and accepted 20 MiB bodies, silently widening the
             // request-size DoS surface for every one of them.
             //
@@ -8293,16 +9048,16 @@ pub fn routes() -> Router<AppState<ProductionPorts>> {
             // check (see `photo_body_limit` above); the 2 MiB Axum default would
             // otherwise 413 every photo larger than that. The handler-side check
             // stays authoritative (it produces the RFC 9457 problem code).
-            routing::post(upload_costume_photo::<ProductionPorts>)
+            routing::post(upload_piece_photo::<ProductionPorts>)
                 .layer(DefaultBodyLimit::max(photo_body_limit)),
         )
         .route(
-            "/costumes/{costume_id}/photos/{photo_id}/bytes",
-            routing::get(get_costume_photo_bytes::<ProductionPorts>),
+            "/pieces/{piece_id}/photos/{photo_id}/bytes",
+            routing::get(get_piece_photo_bytes::<ProductionPorts>),
         )
         .route(
-            "/costumes/{costume_id}/photos/{photo_id}",
-            routing::delete(delete_costume_photo::<ProductionPorts>),
+            "/pieces/{piece_id}/photos/{photo_id}",
+            routing::delete(delete_piece_photo::<ProductionPorts>),
         )
         // --- SceneShoot execution endpoints ---
         .route(
@@ -8402,7 +9157,7 @@ pub fn routes() -> Router<AppState<ProductionPorts>> {
             "/shooting-days/{id}/report/planned-vs-actual.pdf",
             routing::get(planned_vs_actual_report_pdf::<ProductionPorts>),
         )
-        // Manual "archive now" remediation (CostumeDesigner + WardrobeSupervisor).
+        // Manual "archive now" remediation (PieceDesigner + WardrobeSupervisor).
         .route(
             "/shooting-days/{id}/report/archive",
             routing::post(manual_archive_reports::<ProductionPorts>),

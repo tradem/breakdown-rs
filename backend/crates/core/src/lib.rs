@@ -3,6 +3,7 @@
 // Co-authored-by: gpt-5.6-luna (opencode-go)
 // Co-authored-by: deepseek-v4-flash (opencode-go)
 // Co-authored-by: omen-alpha (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 #![cfg_attr(
@@ -17,14 +18,15 @@ pub mod ai;
 pub mod audit;
 pub mod block;
 pub mod character;
-pub mod costume;
 pub mod costume_category;
 pub mod episode;
 pub mod error;
 pub mod error_registry;
 pub mod membership;
 pub mod ops;
+pub mod outfit;
 pub mod photo;
+pub mod piece;
 pub mod reporting;
 pub mod scene;
 pub mod scene_shoot;

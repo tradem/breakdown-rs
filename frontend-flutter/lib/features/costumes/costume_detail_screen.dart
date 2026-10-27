@@ -4,6 +4,7 @@
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
 // Co-authored-by: glm-5.3-flash (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 import 'dart:async';
 
@@ -15,13 +16,11 @@ import 'package:image_picker/image_picker.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../../auth/auth_providers.dart';
-import '../../auth/membership/capability.dart';
 import '../../auth/membership/membership_providers.dart';
 import '../../core/problem_error.dart';
 import '../../data/photo_repository.dart';
 import '../../design/material_icons.dart';
 import '../../l10n/app_localizations_provider.dart';
-import '../characters/characters_controller.dart';
 import '../costume_categories/costume_categories_controller.dart';
 import '../photos/capture.dart';
 import '../photos/prepare.dart';
@@ -29,7 +28,6 @@ import '../photos/widgets/photo_gallery.dart';
 import '../../data/cache/seasons_cache_providers.dart';
 import 'costumes_controller.dart';
 import 'costumes_state.dart';
-import 'widgets/costumes_widgets.dart';
 
 part 'costume_detail_screen.g.dart';
 
@@ -40,14 +38,11 @@ part 'costume_detail_screen.g.dart';
 Stream<PhotoWatchEvent> costumePhotoWatch(
   Ref ref,
   String seasonId,
-  String costumeId,
+  String pieceId,
 ) async* {
   final photos = ref.watch(costumePhotoRepositoryProvider);
   final costumes = ref.watch(costumeRepositoryProvider);
-  yield* photos.watch(
-    costumeId,
-    () => costumes.getAndCache(seasonId, costumeId),
-  );
+  yield* photos.watch(pieceId, () => costumes.getAndCache(seasonId, pieceId));
 }
 
 /// `CostumeDetailScreen` is retained as a compatibility entry point for
@@ -57,11 +52,11 @@ class CostumeDetailScreen extends ConsumerWidget {
   const CostumeDetailScreen({
     super.key,
     required this.season,
-    required this.costumeId,
+    required this.pieceId,
   });
 
   final SeasonView season;
-  final String costumeId;
+  final String pieceId;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -73,19 +68,19 @@ class CostumeDetailScreen extends ConsumerWidget {
         Navigator.of(context).popUntil((route) => route.isFirst);
       }
     });
-    final controller = ref.read(costumesControllerProvider(season.id).notifier);
+    final controller = ref.read(piecesControllerProvider(season.id).notifier);
     return Scaffold(
       appBar: AppBar(title: Text(l10nOf(context).costumeDetailTitle)),
       body: RefreshIndicator(
         onRefresh: controller.refresh,
         child: ListView(
-          key: Key('costume-detail-$costumeId'),
+          key: Key('costume-detail-$pieceId'),
           physics: const AlwaysScrollableScrollPhysics(),
           padding: const EdgeInsets.all(16),
           children: [
             CostumeDetailPanel(
               season: season,
-              costumeId: costumeId,
+              pieceId: pieceId,
               showCommandError: true,
             ),
           ],
@@ -103,21 +98,21 @@ class CostumeDetailPanel extends ConsumerWidget {
   const CostumeDetailPanel({
     super.key,
     required this.season,
-    required this.costumeId,
+    required this.pieceId,
     this.showCommandError = false,
   });
 
   final SeasonView season;
-  final String costumeId;
+  final String pieceId;
   final bool showCommandError;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     // Keep the variant watch alive while the panel is visible; terminal
     // events refresh the costume cache and rebuild the projection.
-    ref.listen(costumePhotoWatchProvider(season.id, costumeId), (_, _) {});
-    final state = ref.watch(costumesControllerProvider(season.id));
-    final controller = ref.read(costumesControllerProvider(season.id).notifier);
+    ref.listen(costumePhotoWatchProvider(season.id, pieceId), (_, _) {});
+    final state = ref.watch(piecesControllerProvider(season.id));
+    final controller = ref.read(piecesControllerProvider(season.id).notifier);
     final costume = _resolveCostume(state);
     if (costume == null) {
       return const SizedBox(
@@ -128,7 +123,7 @@ class CostumeDetailPanel extends ConsumerWidget {
       );
     }
     return Column(
-      key: Key('costume-editor-body-$costumeId'),
+      key: Key('costume-editor-body-$pieceId'),
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Padding(
@@ -145,7 +140,7 @@ class CostumeDetailPanel extends ConsumerWidget {
               text: costumeCommandErrorCopy(l10nOf(context), failure),
               onDismiss: controller.dismissCommandError,
             ),
-        _AssignmentSection(season: season, costume: costume),
+
         const Divider(height: 32),
         // Issue #543: the costume's single category sits in the identity
         // section ABOVE the details (details are pure description now).
@@ -168,14 +163,57 @@ class CostumeDetailPanel extends ConsumerWidget {
 
   /// Resolves the effective row: the fence-held overlay first, then the
   /// projected/cached row. The overlay version is the freshest command ack.
-  CostumeView? _resolveCostume(CostumesScreenState state) {
+  PieceView? _resolveCostume(CostumesScreenState state) {
     for (final o in state.overlays) {
-      if (o.id == costumeId) return o.overlay;
+      if (o.id == pieceId) return o.overlay;
     }
     for (final c in state.cachedRows) {
-      if (c.id == costumeId) return c;
+      if (c.id == pieceId) return c;
     }
     return null;
+  }
+}
+
+/// Repertoire section (issue #534): every season whose costume stream the
+/// costume stands in, plus the add-season picker and confirm-first removal.
+///
+/// // AUTHZ-GATE: the picker's confirm path runs the membership capability
+/// check (`assign_costumes`) inside the controller before any network call;
+/// the backend additionally authorizes the TARGET season's membership —
+/// that cross-season check is the server's alone (AGENTS.md S5: the client
+/// must not deny on the season union).
+class _InlineError extends StatelessWidget {
+  const _InlineError({required this.text, this.onDismiss});
+
+  final String text;
+  final VoidCallback? onDismiss;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return ColoredBox(
+      key: const Key('costume-detail-error'),
+      color: scheme.errorContainer,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        child: Row(
+          children: [
+            Expanded(
+              child: Text(
+                text,
+                style: TextStyle(color: scheme.onErrorContainer),
+              ),
+            ),
+            if (onDismiss != null)
+              IconButton(
+                onPressed: onDismiss,
+                tooltip: l10nOf(context).episodesDismiss,
+                icon: const Icon(Icons.close),
+              ),
+          ],
+        ),
+      ),
+    );
   }
 }
 
@@ -191,7 +229,7 @@ class _RepertoireSection extends ConsumerWidget {
   const _RepertoireSection({required this.season, required this.costume});
 
   final SeasonView season;
-  final CostumeView costume;
+  final PieceView costume;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -270,7 +308,7 @@ class _RepertoireSection extends ConsumerWidget {
     // `_DetailRow._confirmDelete`): a bounded reconcile can rebuild or
     // unmount this section while the modal route is open — the confirmation
     // callback must never touch the possibly-disposed WidgetRef.
-    final controller = ref.read(costumesControllerProvider(season.id).notifier);
+    final controller = ref.read(piecesControllerProvider(season.id).notifier);
     final picked = await showModalBottomSheet<String>(
       context: context,
       builder: (sheetContext) => SafeArea(
@@ -334,7 +372,7 @@ class _RepertoireSection extends ConsumerWidget {
     // Captured BEFORE the dialog opens (CodeRabbit #563 seam, same as
     // `_DetailRow._confirmDelete`): the confirmation callback must never
     // touch the possibly-disposed WidgetRef after the await.
-    final controller = ref.read(costumesControllerProvider(season.id).notifier);
+    final controller = ref.read(piecesControllerProvider(season.id).notifier);
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
@@ -371,198 +409,11 @@ class _RepertoireSection extends ConsumerWidget {
   }
 }
 
-class _InlineError extends StatelessWidget {
-  const _InlineError({required this.text, this.onDismiss});
-
-  final String text;
-  final VoidCallback? onDismiss;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return ColoredBox(
-      key: const Key('costume-detail-error'),
-      color: scheme.errorContainer,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        child: Row(
-          children: [
-            Expanded(
-              child: Text(
-                text,
-                style: TextStyle(color: scheme.onErrorContainer),
-              ),
-            ),
-            if (onDismiss != null)
-              IconButton(
-                onPressed: onDismiss,
-                tooltip: l10nOf(context).episodesDismiss,
-                icon: const Icon(Icons.close),
-              ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-/// Assignment section: current character (read-DTO join) + picker.
-///
-/// // AUTHZ-GATE: the picker's confirm path runs the membership capability
-/// check inside the controller before any network call.
-class _AssignmentSection extends ConsumerWidget {
-  const _AssignmentSection({required this.season, required this.costume});
-
-  final SeasonView season;
-  final CostumeView costume;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final characters = ref.watch(charactersViewProvider(season.id));
-    final names = {for (final c in characters.rows) c.id: c.name};
-    // Fence-held overlays render the optimistic key (Gherkin contract);
-    // reconciled rows render the authoritative key.
-    final controllerState = ref.watch(costumesControllerProvider(season.id));
-    final fenceHeld = controllerState.overlays.any((o) => o.id == costume.id);
-    final assignedId = fenceHeld
-        ? controllerState.overlays
-              .firstWhere((o) => o.id == costume.id)
-              .overlay
-              .characterId
-        : costume.characterId;
-    final assignedName = assignedId == null ? null : names[assignedId];
-    // Client-side denial renders the localized 403 narrative here (the
-    // controller never issues the request when denied).
-    final membership = ref.watch(currentMembershipProvider(season.id));
-    final denied = switch (membership) {
-      AsyncData(:final value) => !value.canAssignCostumes,
-      _ => false,
-    };
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          l10nOf(context).costumeDetailCharacter,
-          style: Theme.of(context).textTheme.titleMedium,
-        ),
-        const SizedBox(height: 8),
-        if (denied)
-          Text(
-            l10nOf(context).costumeDetailAssignGate,
-            key: const Key('costume-assign-denied'),
-          )
-        else
-          ListTile(
-            // Gherkin contract keys: optimistic vs projected assignment.
-            key: Key(
-              fenceHeld
-                  ? 'overlay-assign-${costume.id}-$assignedId'
-                  : assignedId == null
-                  ? 'costume-unassigned-${costume.id}'
-                  : 'assigned-${costume.id}-$assignedId',
-            ),
-            contentPadding: EdgeInsets.zero,
-            title: Text(
-              assignedName ?? l10nOf(context).costumeDetailUnassigned,
-            ),
-            trailing: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                if (costume.characterId != null)
-                  IconButton(
-                    key: Key('costume-unassign-${costume.id}'),
-                    icon: const Icon(Icons.person_remove_outlined),
-                    tooltip: l10nOf(context).costumeDetailUnassignTooltip,
-                    onPressed: () => _confirmUnassign(context, ref),
-                  ),
-                FilledButton.tonal(
-                  key: Key(
-                    'assign-costume-${costume.id}-${costume.characterId ?? "none"}',
-                  ),
-                  onPressed: characters.rows.isEmpty
-                      ? null
-                      : () => _pickCharacter(context, ref, characters.rows),
-                  child: Text(
-                    costume.characterId == null
-                        ? l10nOf(context).costumeDetailAssign
-                        : l10nOf(context).costumeDetailReassign,
-                  ),
-                ),
-              ],
-            ),
-          ),
-      ],
-    );
-  }
-
-  Future<void> _pickCharacter(
-    BuildContext context,
-    WidgetRef ref,
-    List<CharacterView> characters,
-  ) async {
-    final picked = await showModalBottomSheet<String>(
-      context: context,
-      builder: (_) => AssignCharacterSheet(
-        characters: [
-          for (final c in characters)
-            (
-              id: c.id,
-              name: c.name,
-              category: serializers
-                  .serializeWith(CharacterCategory.serializer, c.category)
-                  .toString(),
-            ),
-        ],
-        assignedId: costume.characterId,
-      ),
-    );
-    if (picked == null || !context.mounted) return;
-    // The assignment section re-keys to `overlay-assign-<costume>-<picked>`
-    // while the version fence holds (Gherkin + widget contract) — no
-    // transient SnackBar needed. Handled: failures surface via the
-    // command-error provider.
-    final assignResult = await ref
-        .read(costumesControllerProvider(season.id).notifier)
-        .assign(costume: costume, characterId: picked);
-    assignResult.match<void>((_) {}, (_) {});
-  }
-
-  Future<void> _confirmUnassign(BuildContext context, WidgetRef ref) {
-    final l10n = l10nOf(context);
-    return showDialog<void>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: Text(l10n.costumeDetailUnassignTitle),
-        content: Text(l10n.costumeDetailUnassignMessage),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(),
-            child: Text(l10n.commonCancel),
-          ),
-          FilledButton(
-            key: Key('costume-unassign-confirm-${costume.id}'),
-            onPressed: () async {
-              // Handled: failures surface via the command-error provider.
-              final unassignResult = await ref
-                  .read(costumesControllerProvider(season.id).notifier)
-                  .unassign(costume: costume);
-              unassignResult.match<void>((_) {}, (_) {});
-              if (dialogContext.mounted) Navigator.of(dialogContext).pop();
-            },
-            child: Text(l10n.costumeDetailUnassignTooltip),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 class _NotesSection extends ConsumerStatefulWidget {
   const _NotesSection({required this.season, required this.costume});
 
   final SeasonView season;
-  final CostumeView costume;
+  final PieceView costume;
 
   @override
   ConsumerState<_NotesSection> createState() => _NotesSectionState();
@@ -618,7 +469,7 @@ class _NotesSectionState extends ConsumerState<_NotesSection> {
           onPressed: () async {
             // Handled: failures surface via the command-error provider.
             final notesResult = await ref
-                .read(costumesControllerProvider(widget.season.id).notifier)
+                .read(piecesControllerProvider(widget.season.id).notifier)
                 .updateNotes(costume: widget.costume, notes: _controller.text);
             final saved = notesResult.match((_) => false, (_) => true);
             if (saved && context.mounted) {
@@ -661,14 +512,14 @@ class CostumeCategorySection extends ConsumerWidget {
   });
 
   final SeasonView season;
-  final CostumeView costume;
+  final PieceView costume;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final l10n = l10nOf(context);
     // Fence-held overlays render the optimistic key (Gherkin contract);
     // reconciled rows render the authoritative key.
-    final controllerState = ref.watch(costumesControllerProvider(season.id));
+    final controllerState = ref.watch(piecesControllerProvider(season.id));
     final fenceHeld = controllerState.overlays.any((o) => o.id == costume.id);
     final effective = fenceHeld
         ? controllerState.overlays.firstWhere((o) => o.id == costume.id).overlay
@@ -802,7 +653,7 @@ class CostumeCategorySection extends ConsumerWidget {
     final savedCopy = l10nOf(context).costumeDetailCategorySaved;
     Navigator.of(context).pop();
     final result = await ref
-        .read(costumesControllerProvider(season.id).notifier)
+        .read(piecesControllerProvider(season.id).notifier)
         .setCategory(
           costume: costume,
           categoryId: categoryId,
@@ -841,7 +692,7 @@ class _DetailsSection extends ConsumerStatefulWidget {
   const _DetailsSection({required this.season, required this.costume});
 
   final SeasonView season;
-  final CostumeView costume;
+  final PieceView costume;
 
   @override
   ConsumerState<_DetailsSection> createState() => _DetailsSectionState();
@@ -945,8 +796,8 @@ class _DetailRow extends ConsumerWidget {
   });
 
   final SeasonView season;
-  final CostumeView costume;
-  final CostumeDetailView detail;
+  final PieceView costume;
+  final PieceDetailView detail;
   final bool editing;
   final VoidCallback onEdit;
   final VoidCallback onClose;
@@ -1012,7 +863,7 @@ class _DetailRow extends ConsumerWidget {
     // dialog route is still open — the confirmation callback must never
     // touch the possibly-disposed WidgetRef (same seam as `_pick
     // `.messenger` capture above).
-    final notifier = ref.read(costumesControllerProvider(season.id).notifier);
+    final notifier = ref.read(piecesControllerProvider(season.id).notifier);
     return showDialog<void>(
       context: context,
       builder: (dialogContext) => AlertDialog(
@@ -1068,10 +919,10 @@ class _DetailEditor extends ConsumerStatefulWidget {
   });
 
   final SeasonView season;
-  final CostumeView costume;
+  final PieceView costume;
 
   /// The detail being edited, or `null` in create mode.
-  final CostumeDetailView? initial;
+  final PieceDetailView? initial;
   final VoidCallback onClose;
 
   @override
@@ -1200,7 +1051,7 @@ class _DetailEditorState extends ConsumerState<_DetailEditor> {
     final text = _text.text.trim();
     final subject = _subject.text.trim().isEmpty ? null : _subject.text.trim();
     final notifier = ref.read(
-      costumesControllerProvider(widget.season.id).notifier,
+      piecesControllerProvider(widget.season.id).notifier,
     );
     // Handled: failures surface via the command-error provider.
     final detailResult = widget.initial == null
@@ -1228,7 +1079,7 @@ class _DetailEditorState extends ConsumerState<_DetailEditor> {
   }
 }
 
-/// Photos section: gallery (from `CostumeView.photos`), capture affordance
+/// Photos section: gallery (from `PieceView.photos`), capture affordance
 /// (gated), progress for prepare+upload, delete with confirmation.
 ///
 /// // AUTHZ-GATE: capture/upload/delete run the membership capability check
@@ -1238,7 +1089,7 @@ class _PhotosSection extends ConsumerStatefulWidget {
   const _PhotosSection({required this.season, required this.costume});
 
   final SeasonView season;
-  final CostumeView costume;
+  final PieceView costume;
 
   @override
   ConsumerState<_PhotosSection> createState() => _PhotosSectionState();
@@ -1249,7 +1100,7 @@ class _PhotosSectionState extends ConsumerState<_PhotosSection> {
 
   /// The single-costume DETAIL, fetched on open.
   ///
-  /// The gallery renders `CostumeView.photos` from this row. The costume
+  /// The gallery renders `PieceView.photos` from this row. The costume
   /// handed in via the widget tree is the costume LIST row, which the server
   /// enriches in batch — `list_by_season` runs `enrich_many` (3 queries per
   /// page, details + photos + variants included since the #543/#544
@@ -1261,7 +1112,7 @@ class _PhotosSectionState extends ConsumerState<_PhotosSection> {
   /// after upload/delete). Falls back to the list view while loading and on
   /// failure (a photo-less costume then simply shows the empty-gallery
   /// affordance as before).
-  CostumeView? _detail;
+  PieceView? _detail;
 
   @override
   void initState() {
@@ -1272,7 +1123,7 @@ class _PhotosSectionState extends ConsumerState<_PhotosSection> {
   Future<void> _loadDetail() async {
     if (!mounted) return;
     final res = await ref
-        .read(costumesControllerProvider(widget.season.id).notifier)
+        .read(piecesControllerProvider(widget.season.id).notifier)
         .loadDetail(widget.costume.id);
     if (!mounted) return;
     // Only a successful detail may replace the rendered view: an Err leaves
@@ -1541,7 +1392,7 @@ class _PhotosSectionState extends ConsumerState<_PhotosSection> {
       case PrepareReady(:final bytes, :final contentType):
         // Handled: failures surface via the command-error provider.
         final uploadResult = await ref
-            .read(costumesControllerProvider(widget.season.id).notifier)
+            .read(piecesControllerProvider(widget.season.id).notifier)
             .uploadPhoto(
               costume: _detail ?? widget.costume,
               bytes: Uint8ListBytes(bytes),
@@ -1580,7 +1431,7 @@ class _PhotosSectionState extends ConsumerState<_PhotosSection> {
             onPressed: () async {
               // Handled: failures surface via the command-error provider.
               final deleteResult = await ref
-                  .read(costumesControllerProvider(widget.season.id).notifier)
+                  .read(piecesControllerProvider(widget.season.id).notifier)
                   .deletePhoto(
                     costume: _detail ?? widget.costume,
                     photoId: photoId,

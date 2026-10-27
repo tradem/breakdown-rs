@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: deepseek-v4.1-flash (neuralwatt)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 library;
 
@@ -24,7 +25,7 @@ import '../shell/planning_location.dart';
 /// not intersect the project seasons (an inert tap rather than a wrong
 /// scope).
 SeasonView? fundusDetailSeason({
-  required CostumeView costume,
+  required PieceView costume,
   required SeasonView activeSeason,
   required List<SeasonView> projectSeasons,
 }) {
@@ -42,8 +43,8 @@ SeasonView? fundusDetailSeason({
 /// The destination a fundus row opens.
 Widget fundusDestinationScreen({
   required SeasonView detailSeason,
-  required CostumeView costume,
-}) => CostumeDetailScreen(season: detailSeason, costumeId: costume.id);
+  required PieceView costume,
+}) => CostumeDetailScreen(season: detailSeason, pieceId: costume.id);
 
 /// The [PlanningLocation] the destination route carries (same as from the
 /// costume list — one location contract).
@@ -55,7 +56,7 @@ PlanningLocation fundusDestinationLocation(SeasonView detailSeason) =>
 void pushFundusDestination(
   BuildContext context,
   SeasonView detailSeason,
-  CostumeView costume,
+  PieceView costume,
 ) {
   unawaited(
     Navigator.of(context).push(

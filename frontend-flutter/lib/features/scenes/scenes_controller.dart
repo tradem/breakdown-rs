@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
 // Co-authored-by: glm-5.3-flash (neuralwatt)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 import 'dart:async';
 
@@ -464,9 +465,9 @@ class ScenesController extends _$ScenesController {
   ///   1. the matching projected row (`scenesViewProvider`),
   ///   2. the matching beat overlay (`sceneBeatOverlaysProvider`),
   ///   3. the screen-passed [scene] snapshot.
-  List<SceneCostumeBeatView> _currentBeats(SceneView scene) {
+  List<SceneOutfitBeatView> _currentBeats(SceneView scene) {
     var version = scene.version;
-    var beats = scene.costumeBeats?.toList() ?? const <SceneCostumeBeatView>[];
+    var beats = scene.outfitBeats?.toList() ?? const <SceneOutfitBeatView>[];
     final projected = ref
         .read(scenesViewProvider(episodeId))
         .rows
@@ -474,8 +475,7 @@ class ScenesController extends _$ScenesController {
         .firstOrNull;
     if (projected != null && projected.version > version) {
       version = projected.version;
-      beats =
-          projected.costumeBeats?.toList() ?? const <SceneCostumeBeatView>[];
+      beats = projected.outfitBeats?.toList() ?? const <SceneOutfitBeatView>[];
     }
     final overlay = ref
         .read(sceneBeatOverlaysProvider(episodeId))
@@ -493,24 +493,24 @@ class ScenesController extends _$ScenesController {
   ///
   /// // AUTHZ-GATE: `assign_costumes` capability checked before any network
   /// call — the backend routes ride the same season-scoped costume story.
-  Future<Result<int>> addCostumeBeat({
+  Future<Result<int>> addOutfitBeat({
     required String seasonId,
     required SceneView scene,
     required String characterId,
-    required String costumeId,
+    required String outfitId,
     String? note,
     String? characterName,
-    String? costumeCategoryName,
+    String? outfitName,
   }) async {
     final deny = _beatDeny(await _beatGate(seasonId));
     if (deny != null) return Left(deny);
     final repo = ref.read(sceneRepositoryProvider);
-    final res = await repo.addCostumeBeat(
+    final res = await repo.addOutfitBeat(
       scene.id,
-      AddSceneCostumeBeatRequest(
+      AddSceneOutfitBeatRequest(
         (b) => b
           ..characterId = characterId
-          ..costumeId = costumeId
+          ..outfitId = outfitId
           ..note = note
           ..version = _resolveSceneVersion(scene.id, scene.version),
       ),
@@ -536,12 +536,12 @@ class ScenesController extends _$ScenesController {
                   (maxOrder, order) => order > maxOrder ? order : maxOrder,
                 ) +
             1;
-        final beat = SceneCostumeBeatView(
+        final beat = SceneOutfitBeatView(
           (b) => b
             ..characterId = characterId
             ..characterName = characterName
-            ..costumeId = costumeId
-            ..costumeCategoryName = costumeCategoryName
+            ..outfitId = outfitId
+            ..outfitName = outfitName
             ..order = nextOrder
             ..note = note,
         );
@@ -566,25 +566,25 @@ class ScenesController extends _$ScenesController {
   ///
   /// // AUTHZ-GATE: `assign_costumes` capability checked before any network
   /// call.
-  Future<Result<int>> updateCostumeBeat({
+  Future<Result<int>> updateOutfitBeat({
     required String seasonId,
     required SceneView scene,
     required String characterId,
     required int order,
-    required String costumeId,
+    required String outfitId,
     String? note,
-    String? costumeCategoryName,
+    String? outfitName,
   }) async {
     final deny = _beatDeny(await _beatGate(seasonId));
     if (deny != null) return Left(deny);
     final repo = ref.read(sceneRepositoryProvider);
-    final res = await repo.updateCostumeBeat(
+    final res = await repo.updateOutfitBeat(
       scene.id,
       characterId,
       order,
-      UpdateSceneCostumeBeatRequest(
+      UpdateSceneOutfitBeatRequest(
         (b) => b
-          ..costumeId = costumeId
+          ..outfitId = outfitId
           ..note = note
           ..version = _resolveSceneVersion(scene.id, scene.version),
       ),
@@ -600,12 +600,12 @@ class ScenesController extends _$ScenesController {
         final beats = [
           for (final beat in current)
             if (beat.characterId == characterId && beat.order == order)
-              SceneCostumeBeatView(
+              SceneOutfitBeatView(
                 (b) => b
                   ..characterId = characterId
                   ..characterName = beat.characterName
-                  ..costumeId = costumeId
-                  ..costumeCategoryName = costumeCategoryName
+                  ..outfitId = outfitId
+                  ..outfitName = outfitName
                   ..order = order
                   ..note = note,
               )
@@ -633,7 +633,7 @@ class ScenesController extends _$ScenesController {
   ///
   /// // AUTHZ-GATE: `assign_costumes` capability checked before any network
   /// call.
-  Future<Result<int>> removeCostumeBeat({
+  Future<Result<int>> removeOutfitBeat({
     required String seasonId,
     required SceneView scene,
     required String characterId,
@@ -642,7 +642,7 @@ class ScenesController extends _$ScenesController {
     final deny = _beatDeny(await _beatGate(seasonId));
     if (deny != null) return Left(deny);
     final repo = ref.read(sceneRepositoryProvider);
-    final res = await repo.removeCostumeBeat(
+    final res = await repo.removeOutfitBeat(
       scene.id,
       characterId,
       order,
@@ -681,7 +681,7 @@ class ScenesController extends _$ScenesController {
   ///
   /// // AUTHZ-GATE: `assign_costumes` capability checked before any network
   /// call.
-  Future<Result<int>> clearCostumeBeats({
+  Future<Result<int>> clearOutfitBeats({
     required String seasonId,
     required SceneView scene,
     required String characterId,
@@ -689,7 +689,7 @@ class ScenesController extends _$ScenesController {
     final deny = _beatDeny(await _beatGate(seasonId));
     if (deny != null) return Left(deny);
     final repo = ref.read(sceneRepositoryProvider);
-    final res = await repo.clearCostumeBeats(
+    final res = await repo.clearOutfitBeats(
       scene.id,
       characterId,
       _resolveSceneVersion(scene.id, scene.version),

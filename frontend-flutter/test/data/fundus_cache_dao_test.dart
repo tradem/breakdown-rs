@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: deepseek-v4.1-flash (neuralwatt)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 // Project-scoped fundus cache tests (issue #625, tasks §2.5): the project
 // scope cannot leak between projects, the repertoire survives the cache
@@ -14,15 +15,15 @@ import 'package:test/test.dart';
 
 import 'package:frontend_flutter/data/cache/cache_database.dart';
 import 'package:frontend_flutter/data/cache/clock.dart';
-import 'package:frontend_flutter/data/cache/costume_domains_cache_dao.dart';
+import 'package:frontend_flutter/data/cache/piece_domains_cache_dao.dart';
 
 void main() {
   late CacheDatabase db;
-  late FundusCostumeCacheDao dao;
+  late FundusPieceCacheDao dao;
 
   setUp(() {
     db = CacheDatabase(NativeDatabase.memory());
-    dao = FundusCostumeCacheDao(db);
+    dao = FundusPieceCacheDao(db);
   });
 
   tearDown(() async => db.close());
@@ -31,16 +32,17 @@ void main() {
   final freshClock = Clock.fixed(DateTime.utc(2026, 1, 2));
   const ttl = Duration(hours: 24);
 
-  CostumeView costume({
+  PieceView costume({
     required String id,
     List<String> repertoire = const ['season-1'],
     String notes = '',
-  }) => CostumeView(
+  }) => PieceView(
     (b) => b
+      ..name = 'Fundus-Piece'
       ..id = id
       ..notes = notes
-      ..details.replace(BuiltList<CostumeDetailView>())
-      ..photos.replace(BuiltList<CostumePhotoView>())
+      ..details.replace(BuiltList<PieceDetailView>())
+      ..photos.replace(BuiltList<PiecePhotoView>())
       ..seasonIds.replace(BuiltList<String>(repertoire))
       ..updatedAt = DateTime.utc(2026, 1, 1)
       ..version = 1,

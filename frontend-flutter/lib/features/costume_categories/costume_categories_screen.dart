@@ -3,6 +3,7 @@
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
 // Co-authored-by: space-bunny-free (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 import 'package:breakdown_api/breakdown_api.dart';
 import 'package:flutter/material.dart';
@@ -185,11 +186,9 @@ class CostumeCategoriesScreen extends ConsumerWidget {
           child: TextFormField(
             key: const Key('create-category-name'),
             controller: nameController,
-            decoration: InputDecoration(
-              labelText: l10n.costumeCategoryNameLabel,
-            ),
+            decoration: InputDecoration(labelText: l10n.outfitNameLabel),
             validator: (v) => (v == null || v.trim().isEmpty)
-                ? l10n.costumeCategoryNameRequired
+                ? l10n.outfitNameRequired
                 : null,
           ),
         ),
@@ -232,11 +231,9 @@ class CostumeCategoriesScreen extends ConsumerWidget {
           child: TextFormField(
             key: const Key('rename-category-name'),
             controller: nameController,
-            decoration: InputDecoration(
-              labelText: l10n.costumeCategoryNameLabel,
-            ),
+            decoration: InputDecoration(labelText: l10n.outfitNameLabel),
             validator: (v) => (v == null || v.trim().isEmpty)
-                ? l10n.costumeCategoryNameRequired
+                ? l10n.outfitNameRequired
                 : null,
           ),
         ),

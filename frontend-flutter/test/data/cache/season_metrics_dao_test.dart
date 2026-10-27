@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: omen-alpha (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 import 'package:breakdown_api/breakdown_api.dart';
 import 'package:drift/drift.dart'
@@ -11,7 +12,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:frontend_flutter/data/cache/cache_database.dart';
 import 'package:frontend_flutter/data/cache/cache_ttl.dart';
 import 'package:frontend_flutter/data/cache/clock.dart';
-import 'package:frontend_flutter/data/cache/costume_domains_cache_dao.dart';
+import 'package:frontend_flutter/data/cache/piece_domains_cache_dao.dart';
 import 'package:frontend_flutter/data/cache/hierarchy_cache_dao.dart';
 import 'package:frontend_flutter/data/cache/relative_time.dart';
 import 'package:frontend_flutter/data/cache/season_metrics_dao.dart';
@@ -52,8 +53,9 @@ SceneView _scene(String id, {String episodeId = 'episode-1'}) => SceneView(
     ..version = 1,
 );
 
-CostumeView _costume(String id) => CostumeView(
+PieceView _costume(String id) => PieceView(
   (b) => b
+    ..name = 'Fundus-Piece'
     ..id = id
     ..notes = ''
     ..details.replace(const [])
@@ -125,9 +127,9 @@ void main() {
   });
 
   test('costumes counted per season snapshot scope', () async {
-    await CostumeCacheDao(db).upsert('season-1', _costume('c1'), _now);
-    await CostumeCacheDao(db).upsert('season-1', _costume('c2'), _now);
-    await CostumeCacheDao(db).upsert('season-2', _costume('c3'), _now);
+    await PieceCacheDao(db).upsert('season-1', _costume('c1'), _now);
+    await PieceCacheDao(db).upsert('season-1', _costume('c2'), _now);
+    await PieceCacheDao(db).upsert('season-2', _costume('c3'), _now);
 
     final metrics = (await dao().readAll(clock: _clock))
         .getRight()
@@ -157,7 +159,7 @@ void main() {
           .subtract(const Duration(minutes: 5));
       final blocks = BlockCacheDao(db);
       await blocks.upsert(_block('b1'), expired);
-      await CostumeCacheDao(db).upsert('season-1', _costume('c1'), fresh);
+      await PieceCacheDao(db).upsert('season-1', _costume('c1'), fresh);
 
       final metrics = (await dao().readAll(clock: _clock))
           .getRight()

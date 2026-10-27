@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: omen-alpha (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 // Tier-4 integration smoke (`flutter-shoot-day-execution` 4.1, on
 // device/emulator, dev-auth): the full Soll-Ist execution day — plan a
@@ -32,10 +33,10 @@ import 'package:frontend_flutter/data/cache/cache_database.dart';
 import 'package:frontend_flutter/data/cache/cache_generation.dart';
 import 'package:frontend_flutter/data/cache/cache_ttl.dart';
 import 'package:frontend_flutter/data/cache/clock.dart';
-import 'package:frontend_flutter/data/cache/costume_domains_cache_dao.dart';
+import 'package:frontend_flutter/data/cache/piece_domains_cache_dao.dart';
 import 'package:frontend_flutter/data/cache/scene_shoot_cache_dao.dart';
 import 'package:frontend_flutter/data/cache/seasons_cache_providers.dart';
-import 'package:frontend_flutter/data/costume_repository.dart';
+import 'package:frontend_flutter/data/piece_repository.dart';
 import 'package:frontend_flutter/data/photo_repository.dart';
 import 'package:frontend_flutter/data/scene_shoot_repository.dart';
 import 'package:frontend_flutter/design/theme.dart';
@@ -307,7 +308,7 @@ void main() {
           PhotoRepository(BreakdownApi()),
         ),
         costumeRepositoryProvider.overrideWithValue(
-          CostumeRepository(BreakdownApi(), CostumeCacheDao(db)),
+          PieceRepository(BreakdownApi(), PieceCacheDao(db)),
         ),
         costumesListFetchProvider('season-1')
             .overrideWith((ref) async => const Right([])),

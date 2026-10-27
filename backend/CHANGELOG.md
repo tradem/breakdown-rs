@@ -26,6 +26,61 @@ tag. Never edit a released entry afterwards.
 
 ## [Unreleased]
 
+### Changed
+
+- **Wardrobe split: `Piece` (fundus) and `Outfit` (character look) — clean
+  cut** (OpenSpec change `separate-piece-and-outfit-domain`). The single
+  `Costume` aggregate conflated the garment and the character's look; it is
+  replaced by two aggregates plus a re-pointed scene-side casting relation:
+
+  - `PieceAggregate` (stream `"piece"`) is a garment in the wardrobe fundus:
+    required non-blank `name`, one optional `category_id`, a season
+    **repertoire** (`seasons`), pure-description details, photos, notes — and
+    **no `character_id`**. `PieceView.photos` merges the directly linked piece
+    photos with the photos of every outfit containing the piece.
+  - `OutfitAggregate` (stream `"outfit"`) is the look a character wears:
+    mandatory `character_id` (its season scope derives from the character),
+    required `name`, `0..n` `piece_ids` with **layering explicitly allowed**
+    (several pieces of one category), `variant_of`, photos, notes.
+    `CreateOutfitVariant` forks a source outfit as an independent copy whose
+    data is resolved at the API edge (CQRS boundary) and carried in the
+    command.
+  - Scenes cast **outfits**: `SceneOutfitBeat { character_id, outfit_id,
+    order, note }` replaces `SceneCostumeBeat`, `SceneView.outfit_beats`
+    replaces `costume_beats`.
+  - `PhotoBinding::Piece`/`Outfit` replace `PhotoBinding::Costume`;
+    `PhotoDeletionSaga` refcounts across the `piece` **and** `outfit` streams
+    (a photo linked to an outfit and to its pieces is deleted only at a
+    combined count of zero).
+  - Problem codes `piece.not-found`, `piece.validation`,
+    `piece-detail.not-found`, `piece.container-unresolved`,
+    `outfit.not-found`, `outfit.validation` replace the `costume.*` /
+    `costume-detail.*` entries; `costume-category.*` is unchanged.
+  - Routes: `/v1/pieces*`, `/v1/outfits*`, `/v1/characters/{id}/outfits`,
+    `/v1/scenes/{id}/outfits*`. The former `/v1/costumes*` and
+    `/v1/scenes/{id}/costumes*` routes are **gone** (404, no alias).
+  - Projections: `projection_piece`, `projection_piece_season`,
+    `projection_piece_detail`, `projection_piece_photo`, `projection_outfit`,
+    `projection_outfit_piece` (`position`; deliberately no FK to
+    `projection_piece`), `projection_outfit_photo`,
+    `projection_scene_outfit_assignment`; the `projection_costume*` tables and
+    `projection_scene_costume_assignment` are dropped
+    (migration `20261015000001`), and
+    `projection_continuity_photo.costume_id` is renamed to `piece_id`.
+  - No legacy replay shims: the retired `"costume"` streams are inert (no
+    projector subscribes to them) and no production stream exists. The
+    first-wins detail-category derivation rule is retired with them.
+
+  `core 0.43.0 → 0.44.0` (`costume` → `piece` + `outfit`, scene beat rename,
+  photo binding, registry), `infra 0.51.0 → 0.52.0` (schema migration,
+  piece/outfit projectors + audit projectors, `WardrobeCommandsImpl`
+  implementing `PieceCommands` + `OutfitCommands`, piece/outfit query
+  adapters, deletion-saga refcounting, AI apply now creates a piece plus the
+  figure's outfit), `api 0.41.0 → 0.42.0` (piece/outfit/scene-beat routes and
+  handlers, handler-internal `AUTHZ-GATE`s, localized problem texts,
+  regenerated `openapi.yaml`). Internal workspace crates re-pin in the same
+  commit.
+
 ### Added
 
 - **Decision capability on the provider-discovery wire (issue #736):**

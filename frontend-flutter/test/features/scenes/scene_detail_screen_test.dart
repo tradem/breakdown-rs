@@ -5,6 +5,7 @@
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
 // Co-authored-by: qwen3.8-flash (opencode-go)
 // Co-authored-by: glm-5.3-flash (neuralwatt)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 // Tier-2 widget tests for `SceneDetailScreen` (Tasks 5.2, 6.2): assigned
 // characters (read-DTO join) + assign/unassign with scene version echo,
@@ -25,11 +26,11 @@ import 'package:frontend_flutter/auth/membership/membership_providers.dart';
 import 'package:frontend_flutter/core/problem_error.dart';
 import 'package:frontend_flutter/core/result.dart';
 import 'package:frontend_flutter/data/cache/cache_database.dart';
-import 'package:frontend_flutter/data/cache/costume_domains_cache_dao.dart';
+import 'package:frontend_flutter/data/cache/piece_domains_cache_dao.dart';
 import 'package:frontend_flutter/data/cache/hierarchy_cache_dao.dart';
 import 'package:frontend_flutter/data/cache/seasons_cache_providers.dart';
 import 'package:frontend_flutter/data/character_repository.dart';
-import 'package:frontend_flutter/data/costume_repository.dart';
+import 'package:frontend_flutter/data/piece_repository.dart';
 import 'package:frontend_flutter/data/scene_repository.dart';
 import 'package:frontend_flutter/data/shooting_day_repository.dart';
 import 'package:frontend_flutter/domain/reconciliation/reconciliation_scheduler.dart';
@@ -53,7 +54,7 @@ SceneView _scene({
   List<String> characters = const [],
   List<String> days = const [],
   int version = 1,
-  List<SceneCostumeBeatView> beats = const [],
+  List<SceneOutfitBeatView> beats = const [],
 }) => SceneView(
   (b) => b
     ..id = id
@@ -63,37 +64,48 @@ SceneView _scene({
     ..location = 'Studio A'
     ..sceneNumber = 7
     ..shootingDayIds.replace(days)
-    ..costumeBeats.replace(beats)
+    ..outfitBeats.replace(beats)
     ..summary = 'Night shoot'
     ..updatedAt = DateTime.utc(2026, 1, 1)
     ..version = version,
 );
 
-SceneCostumeBeatView _beat(
+SceneOutfitBeatView _beat(
   String characterId,
   int order, {
-  String costumeId = 'costume-1',
-  String? characterName = 'Ada',
+  String pieceId = 'costume-1',
   String? categoryName = 'Jacke',
   String? note,
-}) => SceneCostumeBeatView(
+}) => SceneOutfitBeatView(
   (b) => b
     ..characterId = characterId
-    ..costumeId = costumeId
-    ..characterName = characterName
-    ..costumeCategoryName = categoryName
+    ..outfitId = pieceId
+    ..outfitName = categoryName
     ..order = order
     ..note = note,
 );
 
-CostumeView _costume(String id, {String? subject, String? categoryName}) =>
-    CostumeView(
+OutfitView _outfit(String id, {String name = 'Alltagslook'}) => OutfitView(
+  (b) => b
+    ..id = id
+    ..characterId = 'ch-1'
+    ..name = name
+    ..notes = ''
+    ..pieces.replace(const [])
+    ..photos.replace(const [])
+    ..updatedAt = DateTime.utc(2026, 1, 1)
+    ..version = 1,
+);
+
+PieceView _costume(String id, {String? subject, String? categoryName}) =>
+    PieceView(
       (b) => b
+        ..name = 'Fundus-Piece'
         ..id = id
         ..notes = ''
         ..categoryName = categoryName
         ..details.replace([
-          CostumeDetailView(
+          PieceDetailView(
             (d) => d
               ..id = 'd-$id'
               ..subject = subject
@@ -180,9 +192,9 @@ class _FakeSceneRepository extends SceneRepository {
   int? lastVersion;
 
   @override
-  Future<Result<int>> addCostumeBeat(
+  Future<Result<int>> addOutfitBeat(
     String id,
-    AddSceneCostumeBeatRequest request,
+    AddSceneOutfitBeatRequest request,
   ) {
     addCalls++;
     lastVersion = request.version;
@@ -190,11 +202,11 @@ class _FakeSceneRepository extends SceneRepository {
   }
 
   @override
-  Future<Result<int>> updateCostumeBeat(
+  Future<Result<int>> updateOutfitBeat(
     String id,
     String characterId,
     int order,
-    UpdateSceneCostumeBeatRequest request,
+    UpdateSceneOutfitBeatRequest request,
   ) {
     updateCalls++;
     lastVersion = request.version;
@@ -202,7 +214,7 @@ class _FakeSceneRepository extends SceneRepository {
   }
 
   @override
-  Future<Result<int>> removeCostumeBeat(
+  Future<Result<int>> removeOutfitBeat(
     String id,
     String characterId,
     int order,
@@ -214,7 +226,7 @@ class _FakeSceneRepository extends SceneRepository {
   }
 
   @override
-  Future<Result<int>> clearCostumeBeats(
+  Future<Result<int>> clearOutfitBeats(
     String id,
     String characterId,
     int version,
@@ -313,7 +325,7 @@ void main() {
     ValueNotifier<List<ShootingDayView>>? dayRowsLive,
     List<int>? scenesFetchLog,
     List<String> membershipCapabilities = const ['assign_costumes'],
-    List<CostumeView> costumeRows = const [],
+    List<PieceView> costumeRows = const [],
   }) async {
     db = CacheDatabase(NativeDatabase.memory());
     addTearDown(db.close);
@@ -338,10 +350,14 @@ void main() {
               Right(_membership(capabilities: membershipCapabilities)),
         ),
         costumeRepositoryProvider.overrideWithValue(
-          CostumeRepository(BreakdownApi(), CostumeCacheDao(db)),
+          PieceRepository(BreakdownApi(), PieceCacheDao(db)),
         ),
         costumesListFetchProvider('season-1')
             .overrideWith((ref) async => Right(costumeRows)),
+        // A scene casts an OUTFIT: the picker reads the character's looks.
+        characterOutfitsProvider('ch-1').overrideWith(
+          (ref) async => Right(<OutfitView>[_outfit('outfit-9', name: 'Hut')]),
+        ),
         scenesListFetchProvider('episode-1').overrideWith((ref) async {
           scenesFetchLog?.add(1);
           return Right(scene == null ? [] : [scene]);
@@ -786,7 +802,9 @@ void main() {
       await setupContainer(
         scene: _scene(
           characters: ['ch-1'],
-          beats: [_beat('ch-1', 0, note: 'Trench, guanti')],
+          beats: [
+            _beat('ch-1', 0, note: 'Trench, guanti', categoryName: 'Hut'),
+          ],
         ),
         characterRows: [_character('ch-1')],
         costumeRows: [_costume('costume-1', subject: 'Mantel')],
@@ -796,9 +814,8 @@ void main() {
         find.byKey(const Key('scene-costume-beat-ch-1-0')),
         findsOneWidget,
       );
-      // Tile-identity discipline: the label comes from the SAME helper as the
-      // costume grid tile (detail subject), never from a random detail.
-      expect(find.text('Mantel'), findsOneWidget);
+      // The beat casts an OUTFIT, so its label is the look's joined name.
+      expect(find.text('Hut'), findsOneWidget);
       expect(find.text('Trench, guanti'), findsOneWidget);
       expect(find.text('Costumes (1)'), findsOneWidget);
     });
@@ -810,8 +827,14 @@ void main() {
         scene: _scene(
           characters: ['ch-1'],
           beats: [
-            _beat('ch-1', 0, costumeId: 'costume-1'),
-            _beat('ch-1', 1, costumeId: 'costume-2', note: 'Wandel'),
+            _beat('ch-1', 0, pieceId: 'costume-1', categoryName: 'Mantel'),
+            _beat(
+              'ch-1',
+              1,
+              pieceId: 'costume-2',
+              note: 'Wandel',
+              categoryName: 'Kleid',
+            ),
           ],
         ),
         characterRows: [_character('ch-1')],
@@ -874,7 +897,7 @@ void main() {
         await pumpDetail(tester);
         await tester.tap(find.byKey(const Key('scene-costume-assign-ch-1')));
         await tester.pumpAndSettle();
-        await tester.tap(find.byKey(const Key('pick-costume-costume-9')));
+        await tester.tap(find.byKey(const Key('pick-outfit-outfit-9')));
         // Pump PAST the sheet's exit animation with a FIXED duration —
         // never `pumpAndSettle`: the reconciling optimistic overlay shows
         // an indeterminate spinner (deterministic-tests rule, AGENTS §6).
@@ -908,7 +931,7 @@ void main() {
       await pumpDetail(tester);
       await tester.tap(find.byKey(const Key('scene-costume-assign-ch-1')));
       await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const Key('pick-costume-costume-9')));
+      await tester.tap(find.byKey(const Key('pick-outfit-outfit-9')));
       await _pumpFrames(tester);
       // The capability check denied before any network call: fake repo call
       // count of zero (provable non-issue of the request).
@@ -937,7 +960,7 @@ void main() {
       sceneRepo.nextWrite = const Left(_conflict);
       await tester.tap(find.byKey(const Key('scene-costume-assign-ch-1')));
       await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const Key('pick-costume-costume-9')));
+      await tester.tap(find.byKey(const Key('pick-outfit-outfit-9')));
       await _pumpFrames(tester);
       expect(sceneRepo.addCalls, 1);
       // Conflict copy renders keyed on `code`…
@@ -981,8 +1004,8 @@ void main() {
         scene: _scene(
           characters: ['ch-1'],
           beats: [
-            _beat('ch-1', 0, costumeId: 'costume-1'),
-            _beat('ch-1', 1, costumeId: 'costume-2'),
+            _beat('ch-1', 0, pieceId: 'costume-1', categoryName: 'Mantel'),
+            _beat('ch-1', 1, pieceId: 'costume-2'),
           ],
         ),
         characterRows: [_character('ch-1')],
@@ -1010,7 +1033,7 @@ void main() {
           characters: ['ch-1', 'ch-2'],
           beats: [
             _beat('ch-1', 0, note: 'Trench, guanti'),
-            _beat('ch-1', 1, costumeId: 'costume-2'),
+            _beat('ch-1', 1, pieceId: 'costume-2'),
           ],
         ),
         characterRows: [
@@ -1062,8 +1085,8 @@ void main() {
       scene: _scene(
         characters: ['ch-1'],
         beats: [
-          _beat('ch-1', 0, costumeId: 'costume-1'),
-          _beat('ch-1', 2, costumeId: 'costume-3'),
+          _beat('ch-1', 0, pieceId: 'costume-1', categoryName: 'Mantel'),
+          _beat('ch-1', 2, pieceId: 'costume-3'),
         ],
       ),
       characterRows: [_character('ch-1')],
@@ -1076,7 +1099,7 @@ void main() {
     await pumpDetail(tester);
     await tester.tap(find.byKey(const Key('scene-costume-add-change-ch-1')));
     await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const Key('pick-costume-costume-9')));
+    await tester.tap(find.byKey(const Key('pick-outfit-outfit-9')));
     await tester.pump(const Duration(milliseconds: 400));
     await tester.pump(const Duration(milliseconds: 400));
     // The optimistic beat renders at order 3 (max 2 + 1) — the same
@@ -1104,7 +1127,7 @@ void main() {
     // First beat: acked version 2, optimistic row 0.
     await tester.tap(find.byKey(const Key('scene-costume-assign-ch-1')));
     await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const Key('pick-costume-costume-9')));
+    await tester.tap(find.byKey(const Key('pick-outfit-outfit-9')));
     await tester.pump(const Duration(milliseconds: 400));
     await tester.pump(const Duration(milliseconds: 400));
     expect(find.byKey(const Key('scene-costume-beat-ch-1-0')), findsOneWidget);
@@ -1116,7 +1139,7 @@ void main() {
     await tester.tap(find.byKey(const Key('scene-costume-add-change-ch-1')));
     await tester.pump(const Duration(milliseconds: 400));
     await tester.pump(const Duration(milliseconds: 400));
-    await tester.tap(find.byKey(const Key('pick-costume-costume-3')));
+    await tester.tap(find.byKey(const Key('pick-outfit-outfit-9')));
     await tester.pump(const Duration(milliseconds: 400));
     await tester.pump(const Duration(milliseconds: 400));
     expect(find.byKey(const Key('scene-costume-beat-ch-1-0')), findsOneWidget);

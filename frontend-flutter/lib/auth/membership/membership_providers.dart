@@ -3,10 +3,10 @@
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
 // Co-authored-by: glm-5.3-flash (opencode-go)
 //Co-authored-by: glm-5.3 (neuralwatt)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 import 'package:breakdown_api/breakdown_api.dart';
 import 'package:built_collection/built_collection.dart';
-import 'package:dio/dio.dart';
 import 'package:fpdart/fpdart.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
@@ -96,7 +96,7 @@ Future<Result<SeasonMembershipDto>> membershipFetch(
 /// The STABLE provider key for [seriesMembershipForCostume] (issue #535
 /// review): only the inputs the series resolution actually depends on — the
 /// costume id and its container candidates (character ∪ repertoire). NOT the
-/// full [CostumeView]: a detail reload after every photo command produces a
+/// full [PieceView]: a detail reload after every photo command produces a
 /// new view (bumped `version`, refreshed `photos`), and keying on it would
 /// re-run the character/season/membership chain per command.
 ///
@@ -104,17 +104,15 @@ Future<Result<SeasonMembershipDto>> membershipFetch(
 /// generated family dedupes correctly across detail reloads. NOTE: no list
 /// fields — a fresh `List` would break record equality by identity.
 typedef CostumeMembershipScope = ({
-  String costumeId,
-  String? characterId,
-  // First repertoire season (season_id-ordered server-side) — the only
-  // repertoire input the resolution uses (deterministic first-season
-  // pick). `null` = no repertoire binding.
+  String pieceId,
+  // First repertoire season (season_id-ordered server-side) — the piece's
+  // only scope relation since the wardrobe split (a `Piece` has no character
+  // binding; the look that wears it is an `Outfit`). `null` = no repertoire.
   String? repertoireSeasonId,
 });
 
-CostumeMembershipScope costumeMembershipScope(CostumeView costume) => (
-  costumeId: costume.id,
-  characterId: costume.characterId,
+CostumeMembershipScope costumeMembershipScope(PieceView costume) => (
+  pieceId: costume.id,
   repertoireSeasonId: costume.seasonIds.isEmpty
       ? null
       : costume.seasonIds.first,
@@ -158,28 +156,15 @@ Future<Result<SeriesMembershipDto>> seriesMembershipForCostume(
     }
     return Right(devAuthSeriesMembership(devProjectId));
   }
-  // Mirror the server's character-first resolution (issue #535 review).
-  final characterId = scope.characterId;
-  if (characterId != null) {
-    try {
-      final response = await BreakdownApi(dio: ref.watch(apiDioProvider))
-          .getHandlersApi()
-          .getCharacter(id: characterId);
-      final character = response.data;
-      if (character == null) {
-        return const Left(ProblemError(code: 'character.dto_invalid'));
-      }
-      return await _seriesMembershipForSeason(ref, character.seasonId);
-    } on DioException catch (e) {
-      return Left(problemErrorFromDio(e));
-    }
-  }
-  // Unassigned costume: the repertoire fallback — the DTO's `season_ids`
-  // are ordered by `season_id` server-side, matching the server's
-  // deterministic first-season pick (carried in the scope key).
+  // Mirror the server's resolution: the repertoire is the piece's only scope
+  // relation (`project_id_for_piece_strict` walks repertoire → season →
+  // project). There is no character-first leg any more.
+  // The repertoire is the whole resolution now: `season_ids` are ordered by
+  // `season_id` server-side, matching the server's deterministic
+  // first-season pick (carried in the scope key).
   final repertoireSeason = scope.repertoireSeasonId;
   if (repertoireSeason == null) {
-    return const Left(ProblemError(code: 'costume.container-unresolved'));
+    return const Left(ProblemError(code: 'piece.container-unresolved'));
   }
   return _seriesMembershipForSeason(ref, repertoireSeason);
 }
