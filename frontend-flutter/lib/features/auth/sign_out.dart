@@ -30,6 +30,7 @@ import '../blocks/blocks_controller.dart';
 import '../characters/characters_controller.dart';
 import '../costume_categories/costume_categories_controller.dart';
 import '../pieces/pieces_controller.dart';
+import '../outfits/outfits_controller.dart';
 import '../episodes/episodes_controller.dart';
 import '../scenes/scenes_controller.dart';
 import '../seasons/seasons_controller.dart';
@@ -328,6 +329,16 @@ class SessionReset extends Notifier<void> {
       ..invalidate(piecesPrevRowsProvider)
       ..invalidate(piecesOverlaysProvider)
       ..invalidate(piecesCommandErrorProvider)
+      // The look domain's families reset with the piece families: the
+      // keepAlive `OutfitsPrevRows` would otherwise serve the previous
+      // identity's rows after a failed refetch (the empty-cache branch
+      // preserves nonempty state).
+      ..invalidate(outfitsControllerProvider)
+      ..invalidate(outfitsViewControllerProvider)
+      ..invalidate(outfitsListFetchProvider)
+      ..invalidate(outfitsPrevRowsProvider)
+      ..invalidate(outfitsOverlaysProvider)
+      ..invalidate(outfitsCommandErrorProvider)
       ..invalidate(charactersControllerProvider)
       ..invalidate(charactersViewControllerProvider)
       ..invalidate(charactersListFetchProvider)

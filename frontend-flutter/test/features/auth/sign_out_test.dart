@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 import 'dart:io';
 
 import 'package:breakdown_api/breakdown_api.dart';
+import 'package:built_collection/built_collection.dart';
 import 'package:drift/native.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage_platform_interface/flutter_secure_storage_platform_interface.dart';
@@ -28,6 +30,8 @@ import 'package:frontend_flutter/data/settings/api_base_override_store.dart';
 import 'package:frontend_flutter/features/auth/login_screen.dart';
 import 'package:frontend_flutter/features/auth/sign_out.dart';
 import 'package:frontend_flutter/features/ai_import/import_jobs/jobs_controller.dart';
+import 'package:frontend_flutter/features/outfits/outfits_controller.dart';
+import 'package:frontend_flutter/features/outfits/outfits_state.dart';
 import 'package:frontend_flutter/features/seasons/seasons_controller.dart';
 import 'package:frontend_flutter/features/seasons/seasons_state.dart';
 import 'package:frontend_flutter/src/network/api_client.dart';
@@ -248,6 +252,42 @@ void main() {
         expect((await store.readScopes()).getRight().toNullable(), isEmpty);
       },
     );
+
+    test('the look-family snapshots do not survive sign-out (no cross-identity '
+        'rows)', () async {
+      setupContainer();
+      expect(await session(), isNotNull);
+      // A previous user's retained look rows + command failure
+      // (keepAlive controller state).
+      container.read(outfitsPrevRowsProvider('char-1').notifier).set([
+        OutfitView(
+          (b) => b
+            ..id = 'o-9'
+            ..characterId = 'char-1'
+            ..name = 'Alter Look'
+            ..notes = ''
+            ..seasonId = 's1'
+            ..version = 1
+            ..updatedAt = DateTime.utc(2026, 1, 1)
+            ..pieceIds.replace(BuiltList<String>())
+            ..pieces.replace(BuiltList<OutfitPieceView>())
+            ..photos.replace(BuiltList<OutfitPhotoView>()),
+        ),
+      ]);
+      container
+          .read(outfitsCommandErrorProvider('char-1').notifier)
+          .set(
+            const OutfitCommandFailure(
+              OutfitCommandSurface.outfit,
+              ProblemError(code: 'outfit.not-found'),
+            ),
+          );
+
+      await container.read(sessionResetProvider.notifier).signOut();
+
+      expect(container.read(outfitsPrevRowsProvider('char-1')), isEmpty);
+      expect(container.read(outfitsCommandErrorProvider('char-1')), isNull);
+    });
 
     test('token wipe Err: gate fails closed, cache still emptied', () async {
       setupContainer();
