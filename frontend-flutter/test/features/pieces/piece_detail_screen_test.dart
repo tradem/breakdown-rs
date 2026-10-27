@@ -532,10 +532,9 @@ void main() {
         ),
         // The variant watch is irrelevant to these assertions; stub
         // it closed so no backoff timers outlive the widget tree.
-        piecePhotoWatchProvider(
-          'season-1',
-          'c-1',
-        ).overrideWith((ref) => const Stream<PhotoWatchEvent>.empty()),
+        piecePhotoWatchProvider('season-1', 'c-1').overrideWith(
+          (ref) => const Stream<PhotoWatchEvent<PieceView>>.empty(),
+        ),
         piecesListFetchProvider('season-1').overrideWith((ref) async {
           final dao = PieceCacheDao(ref.watch(cacheDatabaseProvider));
           return holder.value.match((err) => Left(err), (rows) async {
@@ -1335,10 +1334,9 @@ void main() {
           }),
           // The variant watch is irrelevant to these assertions; stub
           // it closed so no backoff timers outlive the widget tree.
-          piecePhotoWatchProvider(
-            'season-1',
-            'c-1',
-          ).overrideWith((ref) => const Stream<PhotoWatchEvent>.empty()),
+          piecePhotoWatchProvider('season-1', 'c-1').overrideWith(
+            (ref) => const Stream<PhotoWatchEvent<PieceView>>.empty(),
+          ),
           piecesListFetchProvider('season-1').overrideWith((ref) async {
             final dao = PieceCacheDao(ref.watch(cacheDatabaseProvider));
             return holder.value.match((err) => Left(err), (rows) async {

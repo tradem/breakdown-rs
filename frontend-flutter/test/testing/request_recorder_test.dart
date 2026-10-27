@@ -60,13 +60,43 @@ void main() {
     expect(RequestRecorder.photoPipelineRequests, 0);
   });
 
+  test('counts a look command as outfit traffic, not as a read', () {
+    RequestRecorderInterceptor().onRequest(
+      RequestOptions(
+        path: '/v1/outfits/o1/pieces',
+        baseUrl: 'http://10.0.2.2:3000',
+        method: 'POST',
+      ),
+      RequestInterceptorHandler(),
+    );
+    expect(RequestRecorder.outfitCommandRequests, 1);
+    // A read of the same resource is legitimate navigation traffic.
+    RequestRecorderInterceptor().onRequest(
+      RequestOptions(
+        path: '/v1/characters/c1/outfits',
+        baseUrl: 'http://10.0.2.2:3000',
+      ),
+      RequestInterceptorHandler(),
+    );
+    expect(RequestRecorder.outfitCommandRequests, 1);
+    expect(RequestRecorder.totalRequests, 2);
+  });
+
   test('snapshot carries all counts and reset zeroes them', () {
     record('/v1/seasons');
     record('/v1/pieces/c1/photos');
     record('/v1/pieces/c1/assign');
+    RequestRecorderInterceptor().onRequest(
+      RequestOptions(
+        path: '/v1/outfits/o1/name',
+        baseUrl: 'http://10.0.2.2:3000',
+        method: 'PATCH',
+      ),
+      RequestInterceptorHandler(),
+    );
     expect(
       RequestRecorder.snapshot(),
-      'total=3;photo=1;piece=1',
+      'total=4;photo=1;piece=1;outfit=1',
       reason:
           'the driver channel speaks String only — the steps parse '
           'this exact shape',
@@ -76,7 +106,8 @@ void main() {
     expect(RequestRecorder.totalRequests, 0);
     expect(RequestRecorder.photoPipelineRequests, 0);
     expect(RequestRecorder.pieceCommandRequests, 0);
-    expect(RequestRecorder.snapshot(), 'total=0;photo=0;piece=0');
+    expect(RequestRecorder.outfitCommandRequests, 0);
+    expect(RequestRecorder.snapshot(), 'total=0;photo=0;piece=0;outfit=0');
   });
 
   test('interceptor lets the request through to the next handler', () {
