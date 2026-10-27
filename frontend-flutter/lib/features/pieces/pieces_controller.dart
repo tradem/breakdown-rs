@@ -21,7 +21,6 @@ import '../../core/uuid.dart';
 import '../../data/cache/cache_generation.dart';
 import '../../data/cache/piece_domains_cache_dao.dart';
 import '../../data/cache/seasons_cache_providers.dart';
-import '../../data/outfit_repository.dart';
 import '../../data/piece_repository.dart';
 import '../../data/photo_repository.dart';
 import '../../l10n/generated/app_localizations.dart';
@@ -38,26 +37,6 @@ PieceRepository pieceRepository(Ref ref) => PieceRepository(
   ref.watch(apiClientProvider),
   PieceCacheDao(ref.watch(cacheDatabaseProvider)),
 );
-
-/// Outfit repository: the character's composed looks (own network + Drift
-/// cache slice). A scene beat casts an OUTFIT, so the beat picker reads here.
-@riverpod
-OutfitRepository outfitRepository(Ref ref) => OutfitRepository(
-  ref.watch(apiClientProvider),
-  OutfitCacheDao(ref.watch(cacheDatabaseProvider)),
-);
-
-/// The outfits of one character (fetch + snapshot-replace). The scene beat
-/// picker watches this; a fetch failure surfaces as a `Result` error, never
-/// a throw.
-@riverpod
-Future<Result<List<OutfitView>>> characterOutfits(
-  Ref ref,
-  String characterId,
-) async {
-  final repo = ref.watch(outfitRepositoryProvider);
-  return repo.listByCharacter(characterId, clock: ref.watch(clockProvider));
-}
 
 /// Photo repository (upload / bytes / delete / watch).
 @riverpod

@@ -14,6 +14,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../auth/auth_providers.dart';
 import '../../core/problem_error.dart';
 import '../../l10n/app_localizations_provider.dart';
+import '../outfits/outfit_list_section.dart';
 import 'characters_controller.dart';
 import 'characters_state.dart';
 
@@ -72,6 +73,11 @@ class CharacterDetailScreen extends ConsumerWidget {
                 ),
               _CategoryRow(season: season, character: c),
               const SizedBox(height: 16),
+              // The character's composed looks (the wardrobe split moved the
+              // character binding from `Piece` to `Outfit`): a look is what a
+              // scene casts, so it is managed here, next to the character.
+              OutfitListSection(season: season, character: c),
+              const Divider(height: 32),
               _ContactSection(season: season, character: c),
               const Divider(height: 32),
               _MeasurementsSection(season: season, character: c),
