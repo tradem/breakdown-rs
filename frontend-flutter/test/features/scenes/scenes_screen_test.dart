@@ -27,7 +27,7 @@ import 'package:frontend_flutter/data/character_repository.dart';
 import 'package:frontend_flutter/data/piece_repository.dart';
 import 'package:frontend_flutter/data/shooting_day_repository.dart';
 import 'package:frontend_flutter/features/characters/characters_controller.dart';
-import 'package:frontend_flutter/features/costumes/costumes_controller.dart';
+import 'package:frontend_flutter/features/pieces/pieces_controller.dart';
 import 'package:frontend_flutter/features/scenes/scenes_controller.dart';
 import 'package:frontend_flutter/features/scenes/scenes_screen.dart';
 import 'package:frontend_flutter/features/shooting_days/shooting_days_controller.dart';
@@ -232,7 +232,7 @@ void main() {
               'long',
               summary:
                   'Outline-style block with heading and day marker only. '
-                  'No characters, costumes, or props described.',
+                  'No characters, pieces, or props described.',
             ),
           ],
         );
@@ -432,7 +432,7 @@ void main() {
     });
   });
 
-  group('Scene detail navigation (flutter-costume-domains 5.2/6.2)', () {
+  group('Scene detail navigation (flutter-piece-domains 5.2/6.2)', () {
     testWidgets('tile tap pushes the collapsible detail sections', (
       tester,
     ) async {
@@ -464,9 +464,9 @@ void main() {
           characterRepositoryProvider.overrideWithValue(
             CharacterRepository(BreakdownApi(), CharacterCacheDao(db)),
           ),
-          // The costumes section (issue #546) reads the costumes projection;
+          // The pieces section (issue #546) reads the pieces projection;
           // its repository must never touch the pinned production client.
-          costumeRepositoryProvider.overrideWithValue(
+          pieceRepositoryProvider.overrideWithValue(
             PieceRepository(BreakdownApi(), PieceCacheDao(db)),
           ),
           shootingDayRepositoryProvider.overrideWithValue(

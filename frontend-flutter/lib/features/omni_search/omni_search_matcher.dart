@@ -11,7 +11,7 @@
 /// - scene: scene number PREFIX (string startsWith on the number, only
 ///   meaningful for numeric queries) and the `summary` (synopsis) substring,
 /// - character: `name` substring,
-/// - costume: `notes` (description) + `categoryName` substring ONLY
+/// - piece: `notes` (description) + `categoryName` substring ONLY
 ///   (design open question 2: `details`/`photos` never participating),
 /// - shooting day: `label` or the ISO date string substring.
 ///
@@ -37,7 +37,7 @@ class OmniSearchResults {
 
 /// Runs the prefilter over the season's cached inputs for [activeFacets]
 /// and returns the grouped hits in the ONE canonical order (D3: scenes →
-/// characters → costumes → shooting days).
+/// characters → pieces → shooting days).
 ///
 /// Pure: no I/O, no clock, no Riverpod — unit tested directly (tasks 1.3).
 /// Empty groups are dropped here already ("absent, not merely empty").
@@ -69,9 +69,9 @@ OmniSearchResults composeOmniSearchResults(
     for (final hit in inputs.characters)
       if (characterMatches(hit, folded)) hit,
   ]);
-  addGroupIfHits(OmniSearchFacet.costume, [
-    for (final hit in inputs.costumes)
-      if (costumeMatches(hit, folded)) hit,
+  addGroupIfHits(OmniSearchFacet.piece, [
+    for (final hit in inputs.pieces)
+      if (pieceMatches(hit, folded)) hit,
   ]);
   addGroupIfHits(OmniSearchFacet.shootingDay, [
     for (final hit in inputs.shootingDays)
@@ -101,12 +101,12 @@ bool sceneMatches(SceneOmniHit hit, String folded) {
 bool characterMatches(CharacterOmniHit hit, String folded) =>
     foldForSearch(hit.character.name).contains(folded) && folded.isNotEmpty;
 
-/// Costume facet: notes + category name ONLY (design open question 2).
-bool costumeMatches(CostumeOmniHit hit, String folded) {
+/// Piece facet: notes + category name ONLY (design open question 2).
+bool pieceMatches(PieceOmniHit hit, String folded) {
   if (folded.isEmpty) return false;
-  final costume = hit.costume;
-  if (foldForSearch(costume.notes).contains(folded)) return true;
-  final category = costume.categoryName;
+  final piece = hit.piece;
+  if (foldForSearch(piece.notes).contains(folded)) return true;
+  final category = piece.categoryName;
   return category != null && foldForSearch(category).contains(folded);
 }
 

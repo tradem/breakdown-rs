@@ -205,7 +205,7 @@ class SceneRepository extends BaseRepository {
 
   /// Clears ALL outfit beats of a character
   /// (`DELETE /v1/scenes/{id}/outfits/{character_id}?version=N` = "no
-  /// costume in this scene"). `scene.beat-not-found` (422) when there are
+  /// piece in this scene"). `scene.beat-not-found` (422) when there are
   /// no beats to clear.
   Future<Result<int>> clearOutfitBeats(
     String id,

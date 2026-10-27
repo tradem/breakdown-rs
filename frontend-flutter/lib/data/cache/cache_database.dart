@@ -63,7 +63,7 @@ class CacheDatabase extends _$CacheDatabase {
         // `separate-piece-and-outfit-domain` (v16): `PieceView` is retired by
         // a clean cut — a `Piece` is a fundus garment without a character
         // binding, an `Outfit` is the character's composed look. The cached
-        // costume snapshots therefore describe a wire shape that no longer
+        // piece snapshots therefore describe a wire shape that no longer
         // exists and can NEVER be read again, so they are dropped. This is the
         // one legitimate departure from the "no destructive cache migrations"
         // rule: that rule protects *fields of a living DTO* (a dropped column
@@ -103,8 +103,8 @@ class CacheDatabase extends _$CacheDatabase {
         await m.createTable(costumeCategoryCacheRows);
       }
       if (from < 3) {
-        // `flutter-costume-domains` 1.1: costume-domain projection tables
-        // (costumes, characters, shooting_days). Fresh tables for existing
+        // `flutter-piece-domains` 1.1: piece-domain projection tables
+        // (pieces, characters, shooting_days). Fresh tables for existing
         // installs — no data to migrate. Photo bytes are memory-cached
         // only, never persisted (design §3).
         if (!await _tableExists(m.database, 'piece_cache_rows')) {
@@ -114,7 +114,7 @@ class CacheDatabase extends _$CacheDatabase {
         await m.createTable(shootingDayCacheRows);
       }
       // Guarded by `from == 3` (not `< 4`): older databases enter the
-      // `from < 3` branch above, which creates the costume table from the
+      // `from < 3` branch above, which creates the piece table from the
       // CURRENT definition — already including the column — so a second
       // ADD COLUMN would fail with `duplicate column name`. Only a real
       // v3 database (table exists, column missing) needs the ALTER.
@@ -136,7 +136,7 @@ class CacheDatabase extends _$CacheDatabase {
         await m.createTable(aiImportJobCacheRows);
       }
       if (from == 3) {
-        // CodeRabbit review follow-up: snapshot ordinal on the costume rows
+        // CodeRabbit review follow-up: snapshot ordinal on the piece rows
         // so `readBySeason` reproduces the server `ORDER BY updated_at
         // DESC` exactly. Plain `m.addColumn` emits `ADD COLUMN ... NOT
         // NULL` without a default, which SQLite rejects on populated v3
@@ -145,7 +145,7 @@ class CacheDatabase extends _$CacheDatabase {
         // explicitly. The next snapshot replaces all rows anyway.
         //
         // Table-guarded (wardrobe split, v16): the v16 branch above drops the
-        // retired costume snapshot table, so a database climbing from v3 in
+        // retired piece snapshot table, so a database climbing from v3 in
         // one run no longer has it here. The column is irrelevant for the
         // successor piece table, which carries `snapshot_index` from birth.
         if (await _tableExists(m.database, 'costume_cache_rows')) {

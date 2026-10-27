@@ -2733,7 +2733,7 @@ class CostumeCategoryCacheRow extends DataClass
   final String id;
 
   /// Mirrors `CostumeCategoryView.seasonId` (fetch scope:
-  /// `GET /v1/seasons/{season_id}/costume-categories`).
+  /// `GET /v1/seasons/{season_id}/piece-categories`).
   final String seasonId;
 
   /// Mirrors `CostumeCategoryView.name`.

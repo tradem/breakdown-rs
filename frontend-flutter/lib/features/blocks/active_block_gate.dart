@@ -22,7 +22,7 @@ part 'active_block_gate.g.dart';
 
 /// Resolution outcome for the season-direct active-block scope (issue #378).
 ///
-/// `CostumesScreen`/`CharactersScreen` are entered from season level with
+/// `PiecesScreen`/`CharactersScreen` are entered from season level with
 /// only a `SeasonView` — no block in context — yet their routes are
 /// `BlockMember` server-side. Exactly one of the three states holds:
 /// [scope] (ready — render content), [candidates] (ambiguous — pick once,

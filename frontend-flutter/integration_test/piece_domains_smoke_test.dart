@@ -5,7 +5,7 @@
 // Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 // Tier-4 integration smoke (Task 8.1, on device/emulator, dev-auth):
-// season → costume create + detail → assign to a character → capture
+// season → piece create + detail → assign to a character → capture
 // (picker faked) → upload → thumbnail appears after variant `Ready`.
 //
 // Runs against scriptable fakes (no backend needed): the device exercises
@@ -51,8 +51,8 @@ import 'package:frontend_flutter/data/photo_repository.dart';
 import 'package:frontend_flutter/domain/reconciliation/reconciliation_scheduler.dart';
 import 'package:frontend_flutter/features/characters/characters_controller.dart';
 import 'package:frontend_flutter/features/costume_categories/costume_categories_controller.dart';
-import 'package:frontend_flutter/features/costumes/costumes_controller.dart';
-import 'package:frontend_flutter/features/costumes/costumes_screen.dart';
+import 'package:frontend_flutter/features/pieces/pieces_controller.dart';
+import 'package:frontend_flutter/features/pieces/pieces_screen.dart';
 import 'package:frontend_flutter/features/photos/capture.dart';
 import 'package:frontend_flutter/features/photos/prepare.dart';
 
@@ -66,7 +66,7 @@ SeasonView _season() => SeasonView(
     ..version = 1,
 );
 
-PieceView _costume(
+PieceView _piece(
   String id, {
   int version = 1,
   List<PiecePhotoView> photos = const [],
@@ -74,7 +74,7 @@ PieceView _costume(
   (b) => b
     ..name = 'Fundus-Piece'
     ..id = id
-    ..notes = 'E2E costume'
+    ..notes = 'E2E piece'
     ..details.replace(BuiltList<PieceDetailView>())
     ..photos.replace(BuiltList<PiecePhotoView>(photos))
     ..updatedAt = DateTime.utc(2026, 1, 1)
@@ -161,7 +161,7 @@ class _E2ePieceRepository extends PieceRepository {
     String? categoryId,
   }) async {
     final id = 'e2e-piece';
-    rows = [...rows, _costume(id).rebuild((b) => b..name = name)];
+    rows = [...rows, _piece(id).rebuild((b) => b..name = name)];
     return Right(
       IdVersionResponse(
         (b) => b
@@ -306,11 +306,11 @@ void main() {
   ) async {
     final db = CacheDatabase();
     addTearDown(db.close);
-    final costumeRows = <PieceView>[];
+    final pieceRows = <PieceView>[];
     final repo = _E2ePieceRepository(
       BreakdownApi(),
       PieceCacheDao(db),
-      rows: costumeRows,
+      rows: pieceRows,
     );
     // Upload flips the projection's photo to `Ready` so the watch
     // terminates and the gallery renders the thumbnail.
@@ -339,12 +339,12 @@ void main() {
         // on-device triage): the screen resolves the sticky
         // active-block scope BEFORE rendering content; on the device the
         // scope is user-set. A READY scope here unblocks the same
-        // production screen without a picker detour (the costume
+        // production screen without a picker detour (the piece
         // commands themselves remain exercised through the fake repo).
         activeBlockProvider.overrideWith(() => _E2eActiveBlock()),
         cacheDatabaseProvider.overrideWithValue(db),
-        costumeRepositoryProvider.overrideWithValue(repo),
-        costumePhotoRepositoryProvider.overrideWithValue(photos),
+        pieceRepositoryProvider.overrideWithValue(repo),
+        piecePhotoRepositoryProvider.overrideWithValue(photos),
         characterRepositoryProvider.overrideWithValue(
           CharacterRepository(BreakdownApi(), CharacterCacheDao(db)),
         ),
@@ -362,7 +362,7 @@ void main() {
         imagePickerProvider.overrideWithValue(
           _ScriptedPicker(XFile.fromData(_tinyJpeg(), name: 'capture.jpg')),
         ),
-        costumesListFetchProvider('season-1').overrideWith((ref) async {
+        piecesListFetchProvider('season-1').overrideWith((ref) async {
           final dao = PieceCacheDao(ref.watch(cacheDatabaseProvider));
           await dao.applySnapshotForSeason(
             'season-1',
@@ -383,7 +383,7 @@ void main() {
     await tester.pumpWidget(
       UncontrolledProviderScope(
         container: container,
-        child: MaterialApp(home: CostumesScreen(season: _season())),
+        child: MaterialApp(home: PiecesScreen(season: _season())),
       ),
     );
     await tester.pumpAndSettle();
@@ -391,16 +391,16 @@ void main() {
     // Create → inline editor appears automatically (no dead-end row). The
     // aggregate requires a name, so the create path sends the localized
     // fallback; the crew renames it in the editor.
-    await tester.tap(find.byKey(const Key('costume-add-fab')));
+    await tester.tap(find.byKey(const Key('piece-add-fab')));
     await tester.pumpAndSettle();
-    expect(find.byKey(const Key('costume-editor-e2e-piece')), findsOneWidget);
+    expect(find.byKey(const Key('piece-editor-e2e-piece')), findsOneWidget);
 
     // Rename the piece: the name is the piece's authoritative identity.
     await tester.enterText(
-      find.byKey(const Key('costume-notes-e2e-piece')),
+      find.byKey(const Key('piece-notes-e2e-piece')),
       'Rote Lederjacke',
     );
-    await tester.tap(find.byKey(const Key('costume-notes-save-e2e-piece')));
+    await tester.tap(find.byKey(const Key('piece-notes-save-e2e-piece')));
     await tester.pumpAndSettle();
     expect(repo.renameCalls, greaterThanOrEqualTo(0));
 

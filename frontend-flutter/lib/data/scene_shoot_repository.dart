@@ -909,7 +909,7 @@ SerializedNote optimisticNotePlaceholder({
 /// Version-fence clear condition: the overlay is dropped ONLY when the
 /// refetched projection row satisfies `version >= acknowledgedVersion`.
 /// A stale projection carrying an older `version` MUST keep the overlay
-/// visible (same discipline as `shouldClearCostumeOverlay`).
+/// visible (same discipline as `shouldClearPieceOverlay`).
 bool shouldClearSceneShootOverlay({
   required SceneShootView projection,
   required int acknowledgedVersion,

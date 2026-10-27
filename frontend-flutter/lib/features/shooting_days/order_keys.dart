@@ -3,7 +3,7 @@
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
 
 /// Midpoint order-key derivation for single-position reorders
-/// (`flutter-costume-domains` 6.1).
+/// (`flutter-piece-domains` 6.1).
 ///
 /// Keys live over the fixed printable-ASCII alphabet `!`..`~` (bytes
 /// `33..=126`), matching the SQL `ORDER BY order_key ASC` semantics of the

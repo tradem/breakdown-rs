@@ -32,7 +32,7 @@ String costumeCategoryErrorCopy(AppLocalizations l10n, ProblemError error) =>
       _ => l10n.costumeCategoryErrorGeneric(error.code),
     };
 
-/// `CostumeCategoriesScreen` — the season's costume-category vocabulary
+/// `CostumeCategoriesScreen` — the season's piece-category vocabulary
 /// ordered ascending by `order_key` (server `ORDER BY order_key ASC`).
 ///
 /// Entered from the season context with the parent [SeasonView]; archived

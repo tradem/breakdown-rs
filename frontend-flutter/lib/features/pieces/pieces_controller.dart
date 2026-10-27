@@ -28,13 +28,13 @@ import '../../l10n/generated/app_localizations.dart';
 import '../../domain/reconciliation/reconcile_coordinator.dart';
 import '../photos/widgets/photo_gallery.dart';
 import '../../domain/reconciliation/reconciliation_scheduler.dart';
-import 'costumes_state.dart';
+import 'pieces_state.dart';
 
-part 'costumes_controller.g.dart';
+part 'pieces_controller.g.dart';
 
-/// Costume repository: owns network + Drift cache writes.
+/// Piece repository: owns network + Drift cache writes.
 @riverpod
-PieceRepository costumeRepository(Ref ref) => PieceRepository(
+PieceRepository pieceRepository(Ref ref) => PieceRepository(
   ref.watch(apiClientProvider),
   PieceCacheDao(ref.watch(cacheDatabaseProvider)),
 );
@@ -61,18 +61,18 @@ Future<Result<List<OutfitView>>> characterOutfits(
 
 /// Photo repository (upload / bytes / delete / watch).
 @riverpod
-PhotoRepository costumePhotoRepository(Ref ref) =>
+PhotoRepository piecePhotoRepository(Ref ref) =>
     PhotoRepository(ref.watch(apiClientProvider));
 
 /// The injected season-scoped list-fetch seam
-/// (`GET /v1/costumes?season_id=…`). Tests override this provider with a
+/// (`GET /v1/pieces?season_id=…`). Tests override this provider with a
 /// fake.
 @riverpod
-Future<Result<List<PieceView>>> costumesListFetch(
+Future<Result<List<PieceView>>> piecesListFetch(
   Ref ref,
   String seasonId,
 ) async {
-  final repo = ref.watch(costumeRepositoryProvider);
+  final repo = ref.watch(pieceRepositoryProvider);
   final clock = ref.watch(clockProvider);
   final generation = ref.watch(cacheGenerationProvider);
   return repo.listBySeason(
@@ -88,7 +88,7 @@ Future<Result<List<PieceView>>> costumesListFetch(
 
 /// Retained last-good snapshot per season.
 @Riverpod(keepAlive: true)
-class CostumesPrevRows extends _$CostumesPrevRows {
+class PiecesPrevRows extends _$PiecesPrevRows {
   @override
   List<PieceView> build(String seasonId) => const [];
 
@@ -96,8 +96,8 @@ class CostumesPrevRows extends _$CostumesPrevRows {
 }
 
 /// The projection a screen reads from (seasons reference pattern).
-class CostumesView {
-  const CostumesView({required this.rows, required this.isStale, this.error});
+class PiecesView {
+  const PiecesView({required this.rows, required this.isStale, this.error});
 
   final List<PieceView> rows;
   final bool isStale;
@@ -106,48 +106,48 @@ class CostumesView {
 
 /// Read-projection controller (seeder watches repository + fetch only).
 @Riverpod(keepAlive: false)
-class CostumesViewController extends _$CostumesViewController {
+class PiecesViewController extends _$PiecesViewController {
   @override
-  AsyncValue<CostumesView> build(String seasonId) {
-    final repo = ref.watch(costumeRepositoryProvider);
+  AsyncValue<PiecesView> build(String seasonId) {
+    final repo = ref.watch(pieceRepositoryProvider);
 
     unawaited(() async {
       final cached = (await repo.readCached(seasonId))
           .getOrElse((_) => const <PieceView>[]);
       if (!ref.mounted) return;
       if (cached.isNotEmpty ||
-          ref.read(costumesPrevRowsProvider(seasonId)).isEmpty) {
-        ref.read(costumesPrevRowsProvider(seasonId).notifier).set(cached);
+          ref.read(piecesPrevRowsProvider(seasonId)).isEmpty) {
+        ref.read(piecesPrevRowsProvider(seasonId).notifier).set(cached);
       }
     }());
 
-    final fetch = ref.watch(costumesListFetchProvider(seasonId));
+    final fetch = ref.watch(piecesListFetchProvider(seasonId));
     return switch (fetch) {
       AsyncData(:final value) => value.match(
-        (err) => AsyncValue<CostumesView>.error(err, StackTrace.current),
+        (err) => AsyncValue<PiecesView>.error(err, StackTrace.current),
         (rows) {
           unawaited(
             Future.microtask(() {
               if (!ref.mounted) return;
-              ref.read(costumesPrevRowsProvider(seasonId).notifier).set(rows);
+              ref.read(piecesPrevRowsProvider(seasonId).notifier).set(rows);
             }),
           );
-          return AsyncValue<CostumesView>.data(
-            CostumesView(rows: rows, isStale: false),
+          return AsyncValue<PiecesView>.data(
+            PiecesView(rows: rows, isStale: false),
           );
         },
       ),
       AsyncError(:final error, :final stackTrace) =>
-        AsyncValue<CostumesView>.error(error, stackTrace),
-      AsyncLoading() => const AsyncValue<CostumesView>.loading(),
+        AsyncValue<PiecesView>.error(error, stackTrace),
+      AsyncLoading() => const AsyncValue<PiecesView>.loading(),
     };
   }
 }
 
-/// TTL-based cache staleness for one season's costumes (issue #366).
+/// TTL-based cache staleness for one season's pieces (issue #366).
 @riverpod
-Future<bool> costumesCacheStale(Ref ref, String seasonId) async {
-  final repo = ref.watch(costumeRepositoryProvider);
+Future<bool> piecesCacheStale(Ref ref, String seasonId) async {
+  final repo = ref.watch(pieceRepositoryProvider);
   final clock = ref.watch(clockProvider);
   try {
     return await repo.isCacheStale(seasonId, clock: clock);
@@ -158,21 +158,20 @@ Future<bool> costumesCacheStale(Ref ref, String seasonId) async {
 
 /// The projection a screen reads (selector).
 @riverpod
-CostumesView costumesView(Ref ref, String seasonId) {
-  final async = ref.watch(costumesViewControllerProvider(seasonId));
-  final prev = ref.watch(costumesPrevRowsProvider(seasonId));
-  final ttlStale =
-      ref.watch(costumesCacheStaleProvider(seasonId)).value ?? false;
+PiecesView piecesView(Ref ref, String seasonId) {
+  final async = ref.watch(piecesViewControllerProvider(seasonId));
+  final prev = ref.watch(piecesPrevRowsProvider(seasonId));
+  final ttlStale = ref.watch(piecesCacheStaleProvider(seasonId)).value ?? false;
   return switch (async) {
     AsyncData(:final value) => value,
-    AsyncError(:final error) => CostumesView(
+    AsyncError(:final error) => PiecesView(
       rows: prev,
       isStale: prev.isNotEmpty,
       error: error is ProblemError
           ? error
           : const ProblemError(code: 'unknown'),
     ),
-    AsyncLoading() => CostumesView(
+    AsyncLoading() => PiecesView(
       rows: prev,
       isStale: prev.isNotEmpty && ttlStale,
     ),
@@ -183,11 +182,11 @@ CostumesView costumesView(Ref ref, String seasonId) {
 /// NOT Drift). Entries clear by the version fence during the projection
 /// refetch — never by projected id (a row-level edit keeps its id).
 @Riverpod(keepAlive: true)
-class CostumesOverlays extends _$CostumesOverlays {
+class PiecesOverlays extends _$PiecesOverlays {
   @override
-  List<CostumeRowOverlay> build(String seasonId) => const [];
+  List<PieceRowOverlay> build(String seasonId) => const [];
 
-  void add(CostumeRowOverlay overlay) =>
+  void add(PieceRowOverlay overlay) =>
       state = [...state.where((o) => o.id != overlay.id), overlay];
 
   void markAllReconciling() => state = [
@@ -201,7 +200,7 @@ class CostumesOverlays extends _$CostumesOverlays {
       final row = byId[o.id];
       // Create-path overlays (id absent) clear once the id projects.
       if (row == null) return true;
-      return !shouldClearCostumeOverlay(
+      return !shouldClearPieceOverlay(
         projection: row,
         acknowledgedVersion: o.acknowledgedVersion,
       );
@@ -224,72 +223,72 @@ class CostumesOverlays extends _$CostumesOverlays {
 /// Last command failure per season (with its originating surface so the
 /// banner copies correctly), surfaced to the screen keyed on `code`.
 @Riverpod(keepAlive: true)
-class CostumesCommandError extends _$CostumesCommandError {
+class PiecesCommandError extends _$PiecesCommandError {
   @override
-  CostumeCommandFailure? build(String seasonId) => null;
+  PieceCommandFailure? build(String seasonId) => null;
 
-  void set(CostumeCommandFailure failure) => state = failure;
+  void set(PieceCommandFailure failure) => state = failure;
 
   void clear() => state = null;
 }
 
-/// Localized client-side copy for costume command failures, keyed on the
+/// Localized client-side copy for piece command failures, keyed on the
 /// stable problem `code` (never the server's localized `detail`).
-String costumeErrorCopy(AppLocalizations l10n, ProblemError error) =>
+String pieceErrorCopy(AppLocalizations l10n, ProblemError error) =>
     switch (error.code) {
       // 409 `concurrency.version-mismatch`: the echoed aggregate version
       // lost the optimistic-concurrency guard (the backend's ONE
       // version-conflict code — the old
-      // `costume.version_conflict`/`concurrency.conflict` keys were never
+      // `piece.version_conflict`/`concurrency.conflict` keys were never
       // emitted, issue #481). Distinct pull-to-refresh narrative (issue
       // #473 req. #3) so the user resyncs instead of retrying a doomed
       // write.
-      'concurrency.version-mismatch' => l10n.costumeErrorChanged,
-      'costume.forbidden' || 'authz.denied' => l10n.costumeErrorForbidden,
-      'membership.pending' => l10n.costumeErrorMembership,
+      'concurrency.version-mismatch' => l10n.pieceErrorChanged,
+      'piece.forbidden' || 'authz.denied' => l10n.pieceErrorForbidden,
+      'membership.pending' => l10n.pieceErrorMembership,
       'auth.session_required' => l10n.blocksCreateErrorSignIn,
       // Issue #543: the category picked from a foreign season vocabulary
-      // (or a category no longer in the costume's permitted set) is
+      // (or a category no longer in the piece's permitted set) is
       // rejected at the API edge before any event is written — a distinct
       // narrative so the user re-picks from this season's categories.
-      'costume-category.season-mismatch' => l10n.costumeErrorCategorySeason,
-      'costume-category.archived' => l10n.costumeErrorCategoryArchived,
+      'costume-category.season-mismatch' => l10n.pieceErrorCategorySeason,
+      'costume-category.archived' => l10n.pieceErrorCategoryArchived,
       // Issue #544: the detail edit/delete routes answer a dedicated 404
-      // (not `costume.validation` 422) so a stale row can be told apart from
+      // (not `piece.validation` 422) so a stale row can be told apart from
       // a real validation failure. The narrative tells the user the row is
       // gone and that the list was refreshed — the bounded reconcile swaps
       // the projection in behind it.
-      'costume-detail.not-found' => l10n.costumeErrorDetailNotFound,
+      'piece-detail.not-found' => l10n.pieceErrorDetailNotFound,
       // Issue #534: repertoire add/remove pre-checks. An archived season
       // (#533 terminal state) accepts no further repertoire mutations —
       // distinct narrative so the user understands the season, not the
-      // costume, is locked. A vanished target season answers 404.
-      'season.archived' => l10n.costumeErrorSeasonArchived,
-      'season.not-found' => l10n.costumeErrorSeasonNotFound,
+      // piece, is locked. A vanished target season answers 404.
+      'season.archived' => l10n.pieceErrorSeasonArchived,
+      'season.not-found' => l10n.pieceErrorSeasonNotFound,
       // The repertoire AUTHZ-GATE answers with the server's generic
       // season-scoped 403 (the same shape the archive route uses).
-      'domain.forbidden' => l10n.costumeErrorForbidden,
+      'domain.forbidden' => l10n.pieceErrorForbidden,
       _ when error.code.startsWith('transport.') =>
         l10n.costumeCategoryErrorNetwork,
-      _ => l10n.costumeErrorGeneric(error.code),
+      _ => l10n.pieceErrorGeneric(error.code),
     };
 
 /// Copy for the shared season-scoped command-error banner (list + detail
 /// screens), routed by the command ORIGIN.
 ///
-/// Photo commands (upload/delete) share this provider with costume writes;
-/// their failures render through [photoErrorCopy] while costume writes use
-/// [costumeErrorCopy]. Routing by origin — never by the `photo.*` code
+/// Photo commands (upload/delete) share this provider with piece writes;
+/// their failures render through [photoErrorCopy] while piece writes use
+/// [pieceErrorCopy]. Routing by origin — never by the `photo.*` code
 /// prefix (CodeRabbit #4101353471): a photo command can fail with the
 /// generic `domain.validation` (a concurrent unassign races the local gate,
-/// issue #513) and must still render the photo copy, not the "costume could
+/// issue #513) and must still render the photo copy, not the "piece could
 /// not be saved" fallback.
-String costumeCommandErrorCopy(
+String pieceCommandErrorCopy(
   AppLocalizations l10n,
-  CostumeCommandFailure failure,
-) => failure.surface == CostumeCommandSurface.photo
+  PieceCommandFailure failure,
+) => failure.surface == PieceCommandSurface.photo
     ? photoErrorCopy(l10n, failure.error)
-    : costumeErrorCopy(l10n, failure.error);
+    : pieceErrorCopy(l10n, failure.error);
 
 /// `PiecesController(seasonId)` on the shared reconciliation runner.
 @Riverpod(keepAlive: true)
@@ -303,40 +302,40 @@ class PiecesController extends _$PiecesController {
           return rows?.map((c) => c.id).toList();
         },
         hasOverlays: () =>
-            ref.read(costumesOverlaysProvider(seasonId)).isNotEmpty,
+            ref.read(piecesOverlaysProvider(seasonId)).isNotEmpty,
         markAllReconciling: () => ref
-            .read(costumesOverlaysProvider(seasonId).notifier)
+            .read(piecesOverlaysProvider(seasonId).notifier)
             .markAllReconciling(),
         dropProjectedIds: (ids) => ref
-            .read(costumesOverlaysProvider(seasonId).notifier)
+            .read(piecesOverlaysProvider(seasonId).notifier)
             .dropProjectedIds(ids),
         markAllStale: (warning) => ref
-            .read(costumesOverlaysProvider(seasonId).notifier)
+            .read(piecesOverlaysProvider(seasonId).notifier)
             .markAllStale(warning),
         scheduler: () => ref.read(reconciliationSchedulerProvider),
         isAlive: () => ref.mounted,
       );
 
   @override
-  CostumesScreenState build(String seasonId) {
-    final async = ref.watch(costumesViewControllerProvider(seasonId));
-    final view = ref.watch(costumesViewProvider(seasonId));
+  PiecesScreenState build(String seasonId) {
+    final async = ref.watch(piecesViewControllerProvider(seasonId));
+    final view = ref.watch(piecesViewProvider(seasonId));
     final projected = switch (async) {
       AsyncData(:final value) => AsyncValue<List<PieceView>>.data(value.rows),
       AsyncError(:final error, :final stackTrace) =>
         AsyncValue<List<PieceView>>.error(error, stackTrace),
       _ => const AsyncValue<List<PieceView>>.loading(),
     };
-    return CostumesScreenState(
+    return PiecesScreenState(
       projected: projected,
       cachedRows: view.rows,
       isStale: view.isStale,
-      overlays: ref.watch(costumesOverlaysProvider(seasonId)),
-      commandError: ref.watch(costumesCommandErrorProvider(seasonId)),
+      overlays: ref.watch(piecesOverlaysProvider(seasonId)),
+      commandError: ref.watch(piecesCommandErrorProvider(seasonId)),
     );
   }
 
-  /// Client-side AUTHZ-GATE for costume commands (assign/unassign):
+  /// Client-side AUTHZ-GATE for piece commands (assign/unassign):
   /// the `assign_costumes` capability is checked BEFORE any network call.
   /// A denial short-circuits with the localized 403 narrative and never
   /// issues the request (provable by a fake repo call count of zero).
@@ -360,7 +359,7 @@ class PiecesController extends _$PiecesController {
   /// **series-scoped** photo policy mirror (issue #535, ADR-035 B2/S2) —
   /// the backend-computed `has_active_costume_role_in_series` predicate,
   /// resolved from the COSTUME (character-first ∪ repertoire — issue #535
-  /// review), not from the currently open season: a carried-over costume
+  /// review), not from the currently open season: a carried-over piece
   /// opened through a foreign repertoire season gates on its own series.
   /// A client-side denial short-circuits with the localized 403 narrative
   /// and never issues the request.
@@ -369,13 +368,13 @@ class PiecesController extends _$PiecesController {
   /// provider is invalidated so the NEXT command attempt re-executes the
   /// fetch instead of replaying the cached failure (issue #535 review:
   /// retry-ability).
-  Future<GateDecision> _photoGate(PieceView costume) async {
+  Future<GateDecision> _photoGate(PieceView piece) async {
     final session = await _resolveSession();
     if (session == null) return const GateDeny('auth.session_required');
     GateDecision gate;
     try {
       final res = await ref.read(
-        seriesMembershipForCostumeProvider(costumeMembershipScope(costume))
+        seriesMembershipForCostumeProvider(costumeMembershipScope(piece))
             .future,
       );
       gate = res.match((_) {
@@ -383,17 +382,17 @@ class PiecesController extends _$PiecesController {
         // command re-executes the fetch (the retained Left would
         // otherwise be replayed as a permanent pending).
         ref.invalidate(
-          seriesMembershipForCostumeProvider(costumeMembershipScope(costume)),
+          seriesMembershipForCostumeProvider(costumeMembershipScope(piece)),
         );
         return const GateDeny('membership.pending');
-      }, checkCostumePhotoCapability);
+      }, checkPiecePhotoCapability);
     } on Object {
       gate = const GateDeny('membership.pending');
     }
     return gate;
   }
 
-  GateDecision? _deny(CostumeCommandSurface surface, GateDecision gate) {
+  GateDecision? _deny(PieceCommandSurface surface, GateDecision gate) {
     if (gate is GateDeny) {
       _setCommandError(surface, ProblemError(code: gate.code, status: 403));
       return gate;
@@ -401,10 +400,9 @@ class PiecesController extends _$PiecesController {
     return null;
   }
 
-  void _setCommandError(CostumeCommandSurface surface, ProblemError error) =>
-      ref
-          .read(costumesCommandErrorProvider(seasonId).notifier)
-          .set(CostumeCommandFailure(surface, error));
+  void _setCommandError(PieceCommandSurface surface, ProblemError error) => ref
+      .read(piecesCommandErrorProvider(seasonId).notifier)
+      .set(PieceCommandFailure(surface, error));
 
   /// Resolves the freshest version for [pieceId] at command time (issue
   /// #473). A write must echo the version the server aggregate currently
@@ -415,7 +413,7 @@ class PiecesController extends _$PiecesController {
   /// Sources, freshest known state first:
   ///   1. a held overlay's version (this client's latest ack — authoritative
   ///      and above any lagging projection),
-  ///   2. the reconciled projection row's version (`costumesViewProvider`),
+  ///   2. the reconciled projection row's version (`piecesViewProvider`),
   ///   3. the screen-passed [fallback] only when nothing fresher is known.
   ///
   /// The backend guard is strict equality (`cmd.version != self.version` →
@@ -426,12 +424,12 @@ class PiecesController extends _$PiecesController {
   /// can only lag it.
   int _resolveVersion(String pieceId, int fallback) {
     var version = fallback;
-    for (final o in ref.read(costumesOverlaysProvider(seasonId))) {
+    for (final o in ref.read(piecesOverlaysProvider(seasonId))) {
       if (o.id == pieceId && o.overlay.version > version) {
         version = o.overlay.version;
       }
     }
-    for (final row in ref.read(costumesViewProvider(seasonId)).rows) {
+    for (final row in ref.read(piecesViewProvider(seasonId)).rows) {
       if (row.id == pieceId && row.version > version) {
         version = row.version;
       }
@@ -439,17 +437,17 @@ class PiecesController extends _$PiecesController {
     return version;
   }
 
-  /// Creates a costume shell (empty-body contract D1) and immediately
+  /// Creates a piece shell (empty-body contract D1) and immediately
   /// chains to the first detail (the create sheet handles the chaining;
   /// the overlay row never dead-ends).
   Future<Result<IdVersionResponse>> create({required String name}) async {
     // AUTHZ-GATE: authenticated session required before any network call.
     if (await _resolveSession() == null) {
       const error = ProblemError(code: 'auth.session_required', status: 403);
-      _setCommandError(CostumeCommandSurface.costume, error);
+      _setCommandError(PieceCommandSurface.piece, error);
       return const Left(error);
     }
-    final repo = ref.read(costumeRepositoryProvider);
+    final repo = ref.read(pieceRepositoryProvider);
     // File the new piece into the current season's repertoire so it is
     // visible in the wardrobe list. The aggregate requires a name (blank is
     // 422 `piece.validation`); the detail screen renames it right after
@@ -457,15 +455,15 @@ class PiecesController extends _$PiecesController {
     final ack = await repo.create(name: name, seasonId: seasonId);
     return ack.match(
       (err) {
-        _setCommandError(CostumeCommandSurface.costume, err);
+        _setCommandError(PieceCommandSurface.piece, err);
         return Left<ProblemError, IdVersionResponse>(err);
       },
       (res) {
-        ref.read(costumesCommandErrorProvider(seasonId).notifier).clear();
+        ref.read(piecesCommandErrorProvider(seasonId).notifier).clear();
         ref
-            .read(costumesOverlaysProvider(seasonId).notifier)
+            .read(piecesOverlaysProvider(seasonId).notifier)
             .add(
-              CostumeRowOverlay(
+              PieceRowOverlay(
                 id: res.id,
                 overlay: PieceView(
                   (b) => b
@@ -489,20 +487,20 @@ class PiecesController extends _$PiecesController {
   }
 
   /// Adds a detail (pure description — issue #543; the category lives on
-  /// the costume). Optimistic-after-2xx on the costume row.
+  /// the piece). Optimistic-after-2xx on the piece row.
   Future<Result<int>> addDetail({
-    required PieceView costume,
+    required PieceView piece,
     required String text,
     String? subject,
   }) async {
     if (await _resolveSession() == null) {
       const error = ProblemError(code: 'auth.session_required', status: 403);
-      _setCommandError(CostumeCommandSurface.costume, error);
+      _setCommandError(PieceCommandSurface.piece, error);
       return const Left(error);
     }
-    final repo = ref.read(costumeRepositoryProvider);
+    final repo = ref.read(pieceRepositoryProvider);
     final res = await repo.addDetail(
-      costume.id,
+      piece.id,
       AddPieceDetailRequest(
         (b) => b
           // Wire id MUST be a real UUIDv7 (contract-typed `uuid`); the
@@ -513,16 +511,16 @@ class PiecesController extends _$PiecesController {
           ..detail.id = generateUuidV7()
           ..detail.text = text
           ..detail.subject = subject
-          ..version = _resolveVersion(costume.id, costume.version),
+          ..version = _resolveVersion(piece.id, piece.version),
       ),
     );
     return res.match(
       (err) {
-        _setCommandError(CostumeCommandSurface.costume, err);
+        _setCommandError(PieceCommandSurface.piece, err);
         return Left<ProblemError, int>(err);
       },
       (version) {
-        ref.read(costumesCommandErrorProvider(seasonId).notifier).clear();
+        ref.read(piecesCommandErrorProvider(seasonId).notifier).clear();
         // Unique placeholder id per command (detail cards key on it);
         // the overlay version advances to the ack (see assign).
         final detail = optimisticDetailPlaceholder(
@@ -531,12 +529,12 @@ class PiecesController extends _$PiecesController {
           text: text,
         );
         ref
-            .read(costumesOverlaysProvider(seasonId).notifier)
+            .read(piecesOverlaysProvider(seasonId).notifier)
             .add(
-              CostumeRowOverlay(
-                id: costume.id,
+              PieceRowOverlay(
+                id: piece.id,
                 overlay: applyAddDetailOptimistic(
-                  costume,
+                  piece,
                   detail,
                 ).rebuild((b) => b..version = version),
                 acknowledgedVersion: version,
@@ -561,47 +559,47 @@ class PiecesController extends _$PiecesController {
   ///
   /// // AUTHZ-GATE: `assign_costumes` capability checked before any network
   /// call — the backend handlers gate on the same predicate
-  /// (`authorize_costume_scoped`, ANY season scope of the costume).
+  /// (`authorize_costume_scoped`, ANY season scope of the piece).
   Future<Result<int>> updateDetail({
-    required PieceView costume,
+    required PieceView piece,
     required String detailId,
     required String text,
     String? subject,
   }) async {
     final gate = await _assignGate();
-    if (_deny(CostumeCommandSurface.costume, gate) != null) {
+    if (_deny(PieceCommandSurface.piece, gate) != null) {
       return Left(ProblemError(code: (gate as GateDeny).code, status: 403));
     }
-    final repo = ref.read(costumeRepositoryProvider);
+    final repo = ref.read(pieceRepositoryProvider);
     final res = await repo.updateDetail(
-      costume.id,
+      piece.id,
       detailId,
       UpdatePieceDetailRequest(
         (b) => b
           ..detail.id = detailId
           ..detail.subject = subject
           ..detail.text = text
-          ..version = _resolveVersion(costume.id, costume.version),
+          ..version = _resolveVersion(piece.id, piece.version),
       ),
     );
     return res.match(
       (err) {
-        _setCommandError(CostumeCommandSurface.costume, err);
+        _setCommandError(PieceCommandSurface.piece, err);
         _reconcileStaleDetail(err);
         return Left<ProblemError, int>(err);
       },
       (version) {
-        ref.read(costumesCommandErrorProvider(seasonId).notifier).clear();
+        ref.read(piecesCommandErrorProvider(seasonId).notifier).clear();
         // Optimistic-after-2xx: the entry is swapped in place on the row copy
         // and the overlay version advances to the ack (same fence as
         // addDetail/assign).
         ref
-            .read(costumesOverlaysProvider(seasonId).notifier)
+            .read(piecesOverlaysProvider(seasonId).notifier)
             .add(
-              CostumeRowOverlay(
-                id: costume.id,
+              PieceRowOverlay(
+                id: piece.id,
                 overlay: applyUpdateDetailOptimistic(
-                  costume,
+                  piece,
                   detailId,
                   subject: subject,
                   text: text,
@@ -621,44 +619,44 @@ class PiecesController extends _$PiecesController {
   ///
   /// The row leaves the overlay immediately after the 2xx ack; the
   /// projection confirms it on the next refetch. A 404
-  /// `costume-detail.not-found` (the row was already gone server-side)
+  /// `piece-detail.not-found` (the row was already gone server-side)
   /// surfaces in the command-error banner and the bounded reconcile resyncs
   /// the list — no silent discard.
   ///
   /// // AUTHZ-GATE: `assign_costumes` capability checked before any network
   /// call — the backend handler gates on the same predicate
-  /// (`authorize_costume_scoped`, ANY season scope of the costume).
+  /// (`authorize_costume_scoped`, ANY season scope of the piece).
   Future<Result<int>> removeDetail({
-    required PieceView costume,
+    required PieceView piece,
     required String detailId,
   }) async {
     final gate = await _assignGate();
-    if (_deny(CostumeCommandSurface.costume, gate) != null) {
+    if (_deny(PieceCommandSurface.piece, gate) != null) {
       return Left(ProblemError(code: (gate as GateDeny).code, status: 403));
     }
-    final repo = ref.read(costumeRepositoryProvider);
+    final repo = ref.read(pieceRepositoryProvider);
     final res = await repo.removeDetail(
-      costume.id,
+      piece.id,
       detailId,
       VersionRequest(
-        (b) => b..version = _resolveVersion(costume.id, costume.version),
+        (b) => b..version = _resolveVersion(piece.id, piece.version),
       ),
     );
     return res.match(
       (err) {
-        _setCommandError(CostumeCommandSurface.costume, err);
+        _setCommandError(PieceCommandSurface.piece, err);
         _reconcileStaleDetail(err);
         return Left<ProblemError, int>(err);
       },
       (version) {
-        ref.read(costumesCommandErrorProvider(seasonId).notifier).clear();
+        ref.read(piecesCommandErrorProvider(seasonId).notifier).clear();
         ref
-            .read(costumesOverlaysProvider(seasonId).notifier)
+            .read(piecesOverlaysProvider(seasonId).notifier)
             .add(
-              CostumeRowOverlay(
-                id: costume.id,
+              PieceRowOverlay(
+                id: piece.id,
                 overlay: applyRemoveDetailOptimistic(
-                  costume,
+                  piece,
                   detailId,
                 ).rebuild((b) => b..version = version),
                 acknowledgedVersion: version,
@@ -672,10 +670,10 @@ class PiecesController extends _$PiecesController {
     );
   }
 
-  /// Sets (or clears) the costume's single category (issue #543).
+  /// Sets (or clears) the piece's single category (issue #543).
   ///
   /// `categoryId == null` clears; setting the category that is already set
-  /// (or clearing an un-categorised costume) is an idempotent client-side
+  /// (or clearing an un-categorised piece) is an idempotent client-side
   /// no-op — the backend treats the identical value as a state-based no-op
   /// (#515 precedent), so the version never advances and no network call is
   /// needed. The optimistic overlay swaps the category into the freshest
@@ -693,23 +691,23 @@ class PiecesController extends _$PiecesController {
   /// // AUTHZ-GATE: `assign_costumes` capability checked before any network
   /// call. The backend handler authorizes the same predicate
   /// (`authorize_costume_scoped` — costume role in ANY season scope of the
-  /// costume), so the client mirrors exactly that seam.
+  /// piece), so the client mirrors exactly that seam.
   Future<Result<int>> setCategory({
-    required PieceView costume,
+    required PieceView piece,
     required String? categoryId,
     String? categoryName,
   }) {
-    // Serialize category commands per costume (CodeRabbit #4126529962):
+    // Serialize category commands per piece (CodeRabbit #4126529962):
     // while a selection is pending, a newer one awaits its completion so
     // it no-op-detects and version-echoes against the FRESHEST effective
     // state (the older op's ack overlay), never against a racing snapshot.
     // The chained future is pre-caught: the prior op's error must not
     // reject the newer op's await — it lives in the command-error banner
     // (and was returned to the prior caller).
-    final prior = _categoryOps.remove(costume.id);
+    final prior = _categoryOps.remove(piece.id);
     final op = _setCategoryEffective(
       prior: prior,
-      costume: costume,
+      piece: piece,
       categoryId: categoryId,
       categoryName: categoryName,
     );
@@ -720,11 +718,11 @@ class PiecesController extends _$PiecesController {
       // the prior caller).
       onError: (_) {},
     );
-    _trackCategoryOp(costume.id, tracked);
+    _trackCategoryOp(piece.id, tracked);
     return op;
   }
 
-  /// Retains the serialized category op as the next op's per-costume
+  /// Retains the serialized category op as the next op's per-piece
   /// predecessor. `addEntries` (void) statt einer Map-Zuweisung: eine
   /// Zuweisungs-Anweisung trägt den RHS-Typ (`Future<void>`) und die
   /// discard_result-Regel flaggt korrekt jedes Future-typed Statement —
@@ -733,7 +731,7 @@ class PiecesController extends _$PiecesController {
     _categoryOps.addEntries([MapEntry(id, tracked)]);
   }
 
-  /// In-flight category command per costume id (serialization chain).
+  /// In-flight category command per piece id (serialization chain).
   final Map<String, Future<void>> _categoryOps = {};
 
   /// Serialized body of [setCategory]: swallows the prior op's outcome (its
@@ -741,7 +739,7 @@ class PiecesController extends _$PiecesController {
   /// then dispatches against the freshest effective row.
   Future<Result<int>> _setCategoryEffective({
     required Future<void>? prior,
-    required PieceView costume,
+    required PieceView piece,
     required String? categoryId,
     String? categoryName,
   }) async {
@@ -754,7 +752,7 @@ class PiecesController extends _$PiecesController {
       }
     }
     return _setCategoryFresh(
-      costume: costume,
+      piece: piece,
       categoryId: categoryId,
       categoryName: categoryName,
     );
@@ -767,18 +765,18 @@ class PiecesController extends _$PiecesController {
   /// an acknowledged notes value (or any other field edit) survives in the
   /// optimistic window.
   Future<Result<int>> _setCategoryFresh({
-    required PieceView costume,
+    required PieceView piece,
     required String? categoryId,
     String? categoryName,
   }) async {
-    var effective = costume;
-    for (final o in ref.read(costumesOverlaysProvider(seasonId))) {
-      if (o.id == costume.id && o.overlay.version >= effective.version) {
+    var effective = piece;
+    for (final o in ref.read(piecesOverlaysProvider(seasonId))) {
+      if (o.id == piece.id && o.overlay.version >= effective.version) {
         effective = o.overlay;
       }
     }
-    for (final row in ref.read(costumesViewProvider(seasonId)).rows) {
-      if (row.id == costume.id && row.version > effective.version) {
+    for (final row in ref.read(piecesViewProvider(seasonId)).rows) {
+      if (row.id == piece.id && row.version > effective.version) {
         effective = row;
       }
     }
@@ -792,30 +790,30 @@ class PiecesController extends _$PiecesController {
     }
     // AUTHZ-GATE: capability check before any network call.
     final gate = await _assignGate();
-    if (_deny(CostumeCommandSurface.costume, gate) != null) {
+    if (_deny(PieceCommandSurface.piece, gate) != null) {
       return Left(ProblemError(code: (gate as GateDeny).code, status: 403));
     }
-    final repo = ref.read(costumeRepositoryProvider);
+    final repo = ref.read(pieceRepositoryProvider);
     final res = await repo.setCategory(
-      costume.id,
+      piece.id,
       SetPieceCategoryRequest(
         (b) => b
           ..categoryId = categoryId
-          ..version = _resolveVersion(costume.id, effective.version),
+          ..version = _resolveVersion(piece.id, effective.version),
       ),
     );
     return res.match(
       (err) {
-        _setCommandError(CostumeCommandSurface.costume, err);
+        _setCommandError(PieceCommandSurface.piece, err);
         return Left<ProblemError, int>(err);
       },
       (version) {
-        ref.read(costumesCommandErrorProvider(seasonId).notifier).clear();
+        ref.read(piecesCommandErrorProvider(seasonId).notifier).clear();
         ref
-            .read(costumesOverlaysProvider(seasonId).notifier)
+            .read(piecesOverlaysProvider(seasonId).notifier)
             .add(
-              CostumeRowOverlay(
-                id: costume.id,
+              PieceRowOverlay(
+                id: piece.id,
                 overlay: applyCategoryOptimistic(
                   effective,
                   categoryId,
@@ -832,7 +830,7 @@ class PiecesController extends _$PiecesController {
     );
   }
 
-  /// Adds the costume to a season's repertoire (issue #534).
+  /// Adds the piece to a season's repertoire (issue #534).
   ///
   /// Idempotent against the freshest effective row (issue #515 lesson): a
   /// season already in the repertoire no-ops client-side with the UNCHANGED
@@ -852,15 +850,15 @@ class PiecesController extends _$PiecesController {
   /// client can resolve locally (the AGENTS.md S5 rule: never deny on the
   /// season union client-side — the server owns the target-season check).
   Future<Result<int>> addToSeason({
-    required PieceView costume,
+    required PieceView piece,
     required String seasonId,
   }) async {
     if (await _resolveSession() == null) {
       const error = ProblemError(code: 'auth.session_required', status: 403);
-      _setCommandError(CostumeCommandSurface.costume, error);
+      _setCommandError(PieceCommandSurface.piece, error);
       return const Left(error);
     }
-    final effective = _freshestCostume(costume);
+    final effective = _freshestPiece(piece);
     // Idempotent no-op against the FRESHEST state (Authorization-neutral:
     // dispatches no mutating request, same rationale as [setCategory]).
     if (effective.seasonIds.contains(seasonId)) {
@@ -868,30 +866,30 @@ class PiecesController extends _$PiecesController {
     }
     // AUTHZ-GATE: capability check before any network call.
     final gate = await _assignGate();
-    if (_deny(CostumeCommandSurface.costume, gate) != null) {
+    if (_deny(PieceCommandSurface.piece, gate) != null) {
       return Left(ProblemError(code: (gate as GateDeny).code, status: 403));
     }
-    final repo = ref.read(costumeRepositoryProvider);
+    final repo = ref.read(pieceRepositoryProvider);
     final res = await repo.addToSeason(
       effective.id,
       AddPieceToSeasonRequest(
         (b) => b
           ..seasonId = seasonId
-          ..version = _resolveVersion(costume.id, effective.version),
+          ..version = _resolveVersion(piece.id, effective.version),
       ),
     );
     return res.match(
       (err) {
-        _setCommandError(CostumeCommandSurface.costume, err);
+        _setCommandError(PieceCommandSurface.piece, err);
         return Left<ProblemError, int>(err);
       },
       (version) {
-        ref.read(costumesCommandErrorProvider(this.seasonId).notifier).clear();
+        ref.read(piecesCommandErrorProvider(this.seasonId).notifier).clear();
         ref
-            .read(costumesOverlaysProvider(this.seasonId).notifier)
+            .read(piecesOverlaysProvider(this.seasonId).notifier)
             .add(
-              CostumeRowOverlay(
-                id: costume.id,
+              PieceRowOverlay(
+                id: piece.id,
                 overlay: applyAddSeasonOptimistic(
                   effective,
                   seasonId,
@@ -907,49 +905,49 @@ class PiecesController extends _$PiecesController {
     );
   }
 
-  /// Removes the costume from a season's repertoire (issue #534). Idempotent
+  /// Removes the piece from a season's repertoire (issue #534). Idempotent
   /// mirror of [addToSeason]: an absent season no-ops client-side with the
   /// unchanged version. An empty repertoire is legitimate.
   ///
   /// // AUTHZ-GATE: same seam as [addToSeason].
   Future<Result<int>> removeFromSeason({
-    required PieceView costume,
+    required PieceView piece,
     required String seasonId,
   }) async {
     if (await _resolveSession() == null) {
       const error = ProblemError(code: 'auth.session_required', status: 403);
-      _setCommandError(CostumeCommandSurface.costume, error);
+      _setCommandError(PieceCommandSurface.piece, error);
       return const Left(error);
     }
-    final effective = _freshestCostume(costume);
+    final effective = _freshestPiece(piece);
     if (!effective.seasonIds.contains(seasonId)) {
       return Right<ProblemError, int>(effective.version);
     }
     // AUTHZ-GATE: capability check before any network call.
     final gate = await _assignGate();
-    if (_deny(CostumeCommandSurface.costume, gate) != null) {
+    if (_deny(PieceCommandSurface.piece, gate) != null) {
       return Left(ProblemError(code: (gate as GateDeny).code, status: 403));
     }
-    final repo = ref.read(costumeRepositoryProvider);
+    final repo = ref.read(pieceRepositoryProvider);
     final res = await repo.removeFromSeason(
       effective.id,
       seasonId,
       VersionRequest(
-        (b) => b..version = _resolveVersion(costume.id, effective.version),
+        (b) => b..version = _resolveVersion(piece.id, effective.version),
       ),
     );
     return res.match(
       (err) {
-        _setCommandError(CostumeCommandSurface.costume, err);
+        _setCommandError(PieceCommandSurface.piece, err);
         return Left<ProblemError, int>(err);
       },
       (version) {
-        ref.read(costumesCommandErrorProvider(this.seasonId).notifier).clear();
+        ref.read(piecesCommandErrorProvider(this.seasonId).notifier).clear();
         ref
-            .read(costumesOverlaysProvider(this.seasonId).notifier)
+            .read(piecesOverlaysProvider(this.seasonId).notifier)
             .add(
-              CostumeRowOverlay(
-                id: costume.id,
+              PieceRowOverlay(
+                id: piece.id,
                 overlay: applyRemoveSeasonOptimistic(
                   effective,
                   seasonId,
@@ -965,19 +963,19 @@ class PiecesController extends _$PiecesController {
     );
   }
 
-  /// The freshest state of one costume across the fence-held overlays and
+  /// The freshest state of one piece across the fence-held overlays and
   /// the projection (repository pattern of `_setCategoryFresh`, without the
   /// serialization chain): a command echo bumps the version, so the next
   /// repertoire op in the same window must fence against it.
-  PieceView _freshestCostume(PieceView costume) {
-    var effective = costume;
-    for (final o in ref.read(costumesOverlaysProvider(seasonId))) {
-      if (o.id == costume.id && o.overlay.version >= effective.version) {
+  PieceView _freshestPiece(PieceView piece) {
+    var effective = piece;
+    for (final o in ref.read(piecesOverlaysProvider(seasonId))) {
+      if (o.id == piece.id && o.overlay.version >= effective.version) {
         effective = o.overlay;
       }
     }
-    for (final row in ref.read(costumesViewProvider(seasonId)).rows) {
-      if (row.id == costume.id && row.version > effective.version) {
+    for (final row in ref.read(piecesViewProvider(seasonId)).rows) {
+      if (row.id == piece.id && row.version > effective.version) {
         effective = row;
       }
     }
@@ -986,37 +984,37 @@ class PiecesController extends _$PiecesController {
 
   /// Edits notes (PATCH, version echo). Optimistic-after-2xx on the row.
   Future<Result<int>> updateNotes({
-    required PieceView costume,
+    required PieceView piece,
     required String notes,
   }) async {
     if (await _resolveSession() == null) {
       const error = ProblemError(code: 'auth.session_required', status: 403);
-      _setCommandError(CostumeCommandSurface.costume, error);
+      _setCommandError(PieceCommandSurface.piece, error);
       return const Left(error);
     }
-    final repo = ref.read(costumeRepositoryProvider);
+    final repo = ref.read(pieceRepositoryProvider);
     final res = await repo.updateNotes(
-      costume.id,
+      piece.id,
       UpdatePieceNotesRequest(
         (b) => b
           ..notes = notes
-          ..version = _resolveVersion(costume.id, costume.version),
+          ..version = _resolveVersion(piece.id, piece.version),
       ),
     );
     return res.match(
       (err) {
-        _setCommandError(CostumeCommandSurface.costume, err);
+        _setCommandError(PieceCommandSurface.piece, err);
         return Left<ProblemError, int>(err);
       },
       (version) {
-        ref.read(costumesCommandErrorProvider(seasonId).notifier).clear();
+        ref.read(piecesCommandErrorProvider(seasonId).notifier).clear();
         ref
-            .read(costumesOverlaysProvider(seasonId).notifier)
+            .read(piecesOverlaysProvider(seasonId).notifier)
             .add(
-              CostumeRowOverlay(
-                id: costume.id,
+              PieceRowOverlay(
+                id: piece.id,
                 overlay: applyNotesOptimistic(
-                  costume,
+                  piece,
                   notes,
                 ).rebuild((b) => b..version = version),
                 acknowledgedVersion: version,
@@ -1031,65 +1029,65 @@ class PiecesController extends _$PiecesController {
   }
 
   /// Uploads prepared photo bytes (raw bytes, content-type header).
-  /// Returns the Gallery ack; the screen reconciles via the costume refetch
+  /// Returns the Gallery ack; the screen reconciles via the piece refetch
   /// + [PhotoRepository.watch].
   ///
   /// // AUTHZ-GATE: **series-scoped** photo policy checked before the call
   /// (issue #535, ADR-035 B2/S2 — the mirror reads the backend-computed
-  /// `has_active_costume_role_in_series` for the costume's OWN series,
+  /// `has_active_costume_role_in_series` for the piece's OWN series,
   /// resolved character-first ∪ repertoire — issue #535 review). The
   /// server re-resolves and re-checks authoritatively. The server's
-  /// `costume.container-unresolved` for a costume with no resolvable
+  /// `piece.container-unresolved` for a piece with no resolvable
   /// container renders through [photoErrorCopy].
   Future<Result<PhotoView>> uploadPhoto({
-    required PieceView costume,
+    required PieceView piece,
     required Uint8ListBytes bytes,
     required String contentType,
   }) async {
     // AUTHZ-GATE: photo capability checked before any network call.
-    final gate = await _photoGate(costume);
-    if (_deny(CostumeCommandSurface.photo, gate) != null) {
+    final gate = await _photoGate(piece);
+    if (_deny(PieceCommandSurface.photo, gate) != null) {
       return Left(ProblemError(code: (gate as GateDeny).code, status: 403));
     }
-    final repo = ref.read(costumePhotoRepositoryProvider);
-    final res = await repo.upload(costume.id, bytes.bytes, contentType);
+    final repo = ref.read(piecePhotoRepositoryProvider);
+    final res = await repo.upload(piece.id, bytes.bytes, contentType);
     return res.match(
       (err) {
-        _setCommandError(CostumeCommandSurface.photo, err);
+        _setCommandError(PieceCommandSurface.photo, err);
         return Left<ProblemError, PhotoView>(err);
       },
       (view) {
-        ref.read(costumesCommandErrorProvider(seasonId).notifier).clear();
+        ref.read(piecesCommandErrorProvider(seasonId).notifier).clear();
         unawaited(refresh());
         return Right<ProblemError, PhotoView>(view);
       },
     );
   }
 
-  /// Deletes a costume photo (confirm-first in the UI; 204 → optimistic
+  /// Deletes a piece photo (confirm-first in the UI; 204 → optimistic
   /// removal + reconcile).
   ///
   /// // AUTHZ-GATE: **series-scoped** photo policy checked before the call
-  /// (issue #535); the costume's owning series is resolved character-first
+  /// (issue #535); the piece's owning series is resolved character-first
   /// ∪ repertoire (issue #535 review) for the same reason as [uploadPhoto].
   Future<Result<void>> deletePhoto({
-    required PieceView costume,
+    required PieceView piece,
     required String photoId,
   }) async {
     // AUTHZ-GATE: photo capability checked before any network call.
-    final gate = await _photoGate(costume);
-    if (_deny(CostumeCommandSurface.photo, gate) != null) {
+    final gate = await _photoGate(piece);
+    if (_deny(PieceCommandSurface.photo, gate) != null) {
       return Left(ProblemError(code: (gate as GateDeny).code, status: 403));
     }
-    final repo = ref.read(costumePhotoRepositoryProvider);
-    final res = await repo.delete(costume.id, photoId);
+    final repo = ref.read(piecePhotoRepositoryProvider);
+    final res = await repo.delete(piece.id, photoId);
     return res.match(
       (err) {
-        _setCommandError(CostumeCommandSurface.photo, err);
+        _setCommandError(PieceCommandSurface.photo, err);
         return Left<ProblemError, void>(err);
       },
       (_) {
-        ref.read(costumesCommandErrorProvider(seasonId).notifier).clear();
+        ref.read(piecesCommandErrorProvider(seasonId).notifier).clear();
         unawaited(refresh());
         return const Right<ProblemError, void>(null);
       },
@@ -1107,11 +1105,11 @@ class PiecesController extends _$PiecesController {
   Future<void> reconcile() => _reconcile.reconcile();
 
   /// Resyncs the list after a detail command failed with
-  /// `costume-detail.not-found` (issue #544).
+  /// `piece-detail.not-found` (issue #544).
   ///
   /// That 404 means the server no longer holds the addressed detail, so the
   /// row on screen is stale whatever the client intended. The
-  /// `costumeErrorDetailNotFound` copy tells the user "the list was
+  /// `pieceErrorDetailNotFound` copy tells the user "the list was
   /// refreshed" — so this has to actually happen, or the banner promises
   /// something the client never does and a second tap on the same row
   /// returns the identical 404 (CodeRabbit review on PR #561).
@@ -1120,22 +1118,22 @@ class PiecesController extends _$PiecesController {
   /// failure says nothing about the detail's existence, and refetching on
   /// those would fight the user's retry.
   void _reconcileStaleDetail(ProblemError err) {
-    if (err.code != 'costume-detail.not-found') return;
+    if (err.code != 'piece-detail.not-found') return;
     unawaited(reconcile());
   }
 
   Future<void> refresh() async {
-    ref.read(costumesCommandErrorProvider(seasonId).notifier).clear();
+    ref.read(piecesCommandErrorProvider(seasonId).notifier).clear();
     await reconcile();
   }
 
-  /// Fetches the single costume DETAIL and upserts it into the Drift cache.
+  /// Fetches the single piece DETAIL and upserts it into the Drift cache.
   ///
-  /// The list route (`GET /v1/costumes?season_id=…`) returns costume rows
+  /// The list route (`GET /v1/pieces?season_id=…`) returns piece rows
   /// WITHOUT their child collections — the server's list query maps the raw
   /// projection row (`map_costume_row`) and therefore leaves `details` and
-  /// `photos` empty. Only `GET /v1/costumes/{id}` runs the enrichment. The
-  /// detail screen renders from the cached LIST rows, so photos (and costume
+  /// `photos` empty. Only `GET /v1/pieces/{id}` runs the enrichment. The
+  /// detail screen renders from the cached LIST rows, so photos (and piece
   /// details) were structurally unreachable from the editor: every gallery
   /// showed the empty placeholder, no matter how often the user refreshed,
   /// pulled to refresh, cleared the cache or force-stopped the app — the
@@ -1145,21 +1143,21 @@ class PiecesController extends _$PiecesController {
   /// surfaces at once: the cache row now carries the photos, and every
   /// reader of `cachedRows` (detail editor, gallery) sees them.
   Future<Result<PieceView>> loadDetail(String pieceId) =>
-      ref.read(costumeRepositoryProvider).getAndCache(seasonId, pieceId);
+      ref.read(pieceRepositoryProvider).getAndCache(seasonId, pieceId);
 
   void dismissCommandError() =>
-      ref.read(costumesCommandErrorProvider(seasonId).notifier).clear();
+      ref.read(piecesCommandErrorProvider(seasonId).notifier).clear();
 
   Future<List<PieceView>?> _refetchProjection() async {
-    ref.invalidate(costumesListFetchProvider(seasonId));
-    ref.invalidate(costumesCacheStaleProvider(seasonId));
-    final res = await ref.read(costumesListFetchProvider(seasonId).future);
+    ref.invalidate(piecesListFetchProvider(seasonId));
+    ref.invalidate(piecesCacheStaleProvider(seasonId));
+    final res = await ref.read(piecesListFetchProvider(seasonId).future);
     return res.match((_) => null, (rows) {
       // The version fence owns overlay clearing: prune against the fresh
       // projection here so a stale row never restores pre-command state.
       if (ref.mounted) {
         ref
-            .read(costumesOverlaysProvider(seasonId).notifier)
+            .read(piecesOverlaysProvider(seasonId).notifier)
             .pruneWithProjection(rows);
       }
       return rows;

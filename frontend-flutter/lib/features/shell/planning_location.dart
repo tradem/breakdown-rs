@@ -29,8 +29,8 @@ import 'package:breakdown_api/breakdown_api.dart';
 ///
 /// The location travels in `RouteSettings.arguments` of every hierarchy
 /// push (`planning_location_route_observer.dart` resolves it from the
-/// topmost route of a navigator). Season-direct screens (costumes,
-/// characters, costume categories, character detail) take the **season
+/// topmost route of a navigator). Season-direct screens (pieces,
+/// characters, piece categories, character detail) take the **season
 /// level only** — they are not part of the block/episode chain and must not
 /// pretend to be.
 

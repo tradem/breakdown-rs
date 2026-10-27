@@ -31,16 +31,16 @@ class AppWorld extends FlutterWorld {
   int requestsLeftDevice = 0;
 
   /// IDs from the most recent assign action, so assertion steps can build the
-  /// per-assignment widget keys (`overlay-assign-<costume>-<character>` and
-  /// `assigned-<costume>-<character>`).
-  String? lastCostumeId;
+  /// per-assignment widget keys (`overlay-assign-<piece>-<character>` and
+  /// `assigned-<piece>-<character>`).
+  String? lastPieceId;
   String? lastCharacterId;
 
   /// Real backend ids resolved by the host-side seeding step (issue #368):
-  /// the symbolic ids in `costume_assignment.feature` (season "1", costume
+  /// the symbolic ids in `outfit_casting.feature` (season "1", piece
   /// "c-7", character "ch-3") map to the freshly created aggregates. The
   /// navigation/assign/assertion steps translate symbolic → real ids through
-  /// this map (symbolic season key → real season id; costume/character keys
+  /// this map (symbolic season key → real season id; piece/character keys
   /// likewise).
   final Map<String, String> seedIds = {};
 
@@ -60,7 +60,7 @@ class AppWorld extends FlutterWorld {
   void dispose() {
     currentRole = null;
     requestsLeftDevice = 0;
-    lastCostumeId = null;
+    lastPieceId = null;
     lastCharacterId = null;
     seedIds.clear();
     wizardFreeSeasonNumber = null;

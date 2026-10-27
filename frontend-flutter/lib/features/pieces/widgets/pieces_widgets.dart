@@ -12,14 +12,14 @@ import '../../../data/photo_repository.dart';
 import '../../../design/material_icons.dart';
 import '../../../l10n/app_localizations_provider.dart';
 import '../../photos/widgets/photo_gallery.dart';
-import '../costume_identity.dart';
-import '../costumes_state.dart';
+import '../piece_identity.dart';
+import '../pieces_state.dart';
 
-/// Pure presentation trees for `CostumesScreen`: plain data + callbacks in,
+/// Pure presentation trees for `PiecesScreen`: plain data + callbacks in,
 /// widgets out — no Riverpod imports, theme roles only, semantic labels for
 /// `find.text`-paired tests.
-class CostumeTile extends StatelessWidget {
-  const CostumeTile({
+class PieceTile extends StatelessWidget {
+  const PieceTile({
     super.key,
     required this.row,
     required this.photoRepository,
@@ -28,7 +28,7 @@ class CostumeTile extends StatelessWidget {
     this.onTap,
   });
 
-  final CostumeRow row;
+  final PieceRow row;
   final PhotoRepository? photoRepository;
   final PhotoBytesLru photoBytesLru;
   final bool canViewPhotos;
@@ -36,23 +36,23 @@ class CostumeTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final costume = switch (row) {
-      ProjectedCostumeRow(:final costume) => costume,
-      OptimisticCostumeRow(:final overlay) => overlay.overlay,
+    final piece = switch (row) {
+      ProjectedPieceRow(:final piece) => piece,
+      OptimisticPieceRow(:final overlay) => overlay.overlay,
     };
-    final identity = costumeTileIdentity(costume);
+    final identity = pieceTileIdentity(piece);
     final l10n = l10nOf(context);
-    final name = costumeDisplayName(costume, l10n.costumeTileLabelFallback);
+    final name = pieceDisplayName(piece, l10n.pieceTileLabelFallback);
     final category = identity.categoryName ?? l10n.costumeCategoryUncategorized;
     final status = switch (row) {
-      ProjectedCostumeRow() => null,
-      OptimisticCostumeRow(:final overlay) => overlay,
+      ProjectedPieceRow() => null,
+      OptimisticPieceRow(:final overlay) => overlay,
     };
     return Semantics(
-      key: status == null ? null : Key('overlay-${costume.id}'),
+      key: status == null ? null : Key('overlay-${piece.id}'),
       label: '$name · $category',
       child: Card(
-        key: Key('costume-tile-${costume.id}'),
+        key: Key('piece-tile-${piece.id}'),
         clipBehavior: Clip.antiAlias,
         child: InkWell(
           onTap: onTap,
@@ -60,7 +60,7 @@ class CostumeTile extends StatelessWidget {
             fit: StackFit.expand,
             children: [
               _TileSurface(
-                costume: costume,
+                piece: piece,
                 photo: identity.photo,
                 canViewPhotos: canViewPhotos,
                 repository: photoRepository,
@@ -76,7 +76,7 @@ class CostumeTile extends StatelessWidget {
                   category: category,
                   text: identity.text,
                   categoryName: identity.categoryName,
-                  pieceId: costume.id,
+                  pieceId: piece.id,
                   status: status,
                 ),
               ),
@@ -90,7 +90,7 @@ class CostumeTile extends StatelessWidget {
 
 class _TileSurface extends StatelessWidget {
   const _TileSurface({
-    required this.costume,
+    required this.piece,
     required this.photo,
     required this.canViewPhotos,
     required this.repository,
@@ -98,7 +98,7 @@ class _TileSurface extends StatelessWidget {
     required this.categoryName,
   });
 
-  final PieceView costume;
+  final PieceView piece;
   final PiecePhotoView? photo;
   final bool canViewPhotos;
   final PhotoRepository? repository;
@@ -110,24 +110,22 @@ class _TileSurface extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     if (canViewPhotos && photo != null && repository != null) {
       return Image(
-        key: Key('costume-photo-${costume.id}'),
+        key: Key('piece-photo-${piece.id}'),
         image: PhotoVariantImage(
-          pieceId: costume.id,
+          pieceId: piece.id,
           photo: photo!,
           variant: 'Thumb',
           repository: repository!,
           lru: bytesLru,
         ),
         fit: BoxFit.cover,
-        errorBuilder: (_, _, _) => _PlaceholderSurface(
-          categoryName: categoryName,
-          pieceId: costume.id,
-        ),
+        errorBuilder: (_, _, _) =>
+            _PlaceholderSurface(categoryName: categoryName, pieceId: piece.id),
       );
     }
     return _PlaceholderSurface(
       categoryName: categoryName,
-      pieceId: costume.id,
+      pieceId: piece.id,
       color: scheme.surfaceContainerHighest,
     );
   }
@@ -148,12 +146,12 @@ class _PlaceholderSurface extends StatelessWidget {
   Widget build(BuildContext context) {
     final surface = color ?? Theme.of(context).colorScheme.surfaceContainer;
     return ColoredBox(
-      key: Key('costume-placeholder-$pieceId'),
+      key: Key('piece-placeholder-$pieceId'),
       color: surface,
       child: Center(
         child: Icon(
           BreakdownMaterialIcons.forCostumeCategory(categoryName),
-          key: Key('costume-placeholder-icon-$pieceId'),
+          key: Key('piece-placeholder-icon-$pieceId'),
           size: 48,
           color: Theme.of(context).colorScheme.onSurfaceVariant,
         ),
@@ -177,7 +175,7 @@ class _TileIdentityOverlay extends StatelessWidget {
   final String text;
   final String? categoryName;
   final String pieceId;
-  final CostumeRowOverlay? status;
+  final PieceRowOverlay? status;
 
   @override
   Widget build(BuildContext context) {
@@ -207,7 +205,7 @@ class _TileIdentityOverlay extends StatelessWidget {
                 Expanded(
                   child: Text(
                     name,
-                    key: Key('costume-name-$pieceId'),
+                    key: Key('piece-name-$pieceId'),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: Theme.of(context).textTheme.titleMedium
@@ -217,7 +215,7 @@ class _TileIdentityOverlay extends StatelessWidget {
                 const SizedBox(width: 6),
                 Icon(
                   BreakdownMaterialIcons.forCostumeCategory(categoryName),
-                  key: Key('costume-category-icon-$pieceId'),
+                  key: Key('piece-category-icon-$pieceId'),
                   size: 20,
                   color: onScrim,
                 ),
@@ -225,7 +223,7 @@ class _TileIdentityOverlay extends StatelessWidget {
             ),
             Text(
               category,
-              key: Key('costume-category-label-$pieceId'),
+              key: Key('piece-category-label-$pieceId'),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: Theme.of(context).textTheme.labelMedium
@@ -234,7 +232,7 @@ class _TileIdentityOverlay extends StatelessWidget {
             if (text.isNotEmpty)
               Text(
                 text,
-                key: Key('costume-text-$pieceId'),
+                key: Key('piece-text-$pieceId'),
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
                 style: Theme.of(context).textTheme.bodySmall
@@ -278,8 +276,8 @@ class _TileIdentityOverlay extends StatelessWidget {
   }
 }
 
-class CostumesEmptyView extends StatelessWidget {
-  const CostumesEmptyView({super.key, this.onCreate});
+class PiecesEmptyView extends StatelessWidget {
+  const PiecesEmptyView({super.key, this.onCreate});
 
   final VoidCallback? onCreate;
 
@@ -290,14 +288,14 @@ class CostumesEmptyView extends StatelessWidget {
       children: [
         const Icon(Icons.checkroom_outlined, size: 48),
         const SizedBox(height: 8),
-        // Honest empty state — never implies costumes exist that do not.
-        Text(l10nOf(context).costumesEmpty, key: const Key('costumes-empty')),
+        // Honest empty state — never implies pieces exist that do not.
+        Text(l10nOf(context).piecesEmpty, key: const Key('pieces-empty')),
         if (onCreate != null) ...[
           const SizedBox(height: 8),
           FilledButton.tonal(
-            key: const Key('costumes-empty-create'),
+            key: const Key('pieces-empty-create'),
             onPressed: onCreate,
-            child: Text(l10nOf(context).costumeAddFab),
+            child: Text(l10nOf(context).pieceAddFab),
           ),
         ],
       ],
@@ -305,8 +303,8 @@ class CostumesEmptyView extends StatelessWidget {
   );
 }
 
-class CostumesNotFoundView extends StatelessWidget {
-  const CostumesNotFoundView({super.key, required this.code, this.onBack});
+class PiecesNotFoundView extends StatelessWidget {
+  const PiecesNotFoundView({super.key, required this.code, this.onBack});
 
   final String code;
   final VoidCallback? onBack;
@@ -318,7 +316,7 @@ class CostumesNotFoundView extends StatelessWidget {
       children: [
         Text(
           l10nOf(context).charactersGone(code),
-          key: const Key('costumes-gone'),
+          key: const Key('pieces-gone'),
         ),
         if (onBack != null)
           FilledButton.tonal(
@@ -331,7 +329,7 @@ class CostumesNotFoundView extends StatelessWidget {
 }
 
 /// Character picker sheet for assign (lists the season's `CharacterView`s;
-/// the command carries the picked id + the scene/costume version echo).
+/// the command carries the picked id + the scene/piece version echo).
 class AssignCharacterSheet extends StatelessWidget {
   const AssignCharacterSheet({
     super.key,

@@ -53,7 +53,7 @@ SceneView _scene(String id, {String episodeId = 'episode-1'}) => SceneView(
     ..version = 1,
 );
 
-PieceView _costume(String id) => PieceView(
+PieceView _piece(String id) => PieceView(
   (b) => b
     ..name = 'Fundus-Piece'
     ..id = id
@@ -70,7 +70,7 @@ class _InjectedFault implements Exception {}
 
 /// Fault seam: a [CacheDatabase] whose `customSelect` always throws — a
 /// deterministic DAO-read failure (a closed in-memory database does not
-/// reliably fault reads; same lesson as the costume fault tests).
+/// reliably fault reads; same lesson as the piece fault tests).
 class _FaultSelectDatabase extends CacheDatabase {
   _FaultSelectDatabase(super.executor);
 
@@ -98,17 +98,14 @@ void main() {
     expect(res.getRight().toNullable(), isEmpty);
   });
 
-  test(
-    'blocks counted per season; scenes/costumes null when uncached',
-    () async {
-      await BlockCacheDao(db).upsert(_block('b1'), _now);
-      final res = await dao().readAll(clock: _clock);
-      final metrics = res.getRight().toNullable()!;
-      expect(metrics['season-1']?.blockCount, 1);
-      expect(metrics['season-1']?.sceneCount, isNull);
-      expect(metrics['season-1']?.costumeCount, isNull);
-    },
-  );
+  test('blocks counted per season; scenes/pieces null when uncached', () async {
+    await BlockCacheDao(db).upsert(_block('b1'), _now);
+    final res = await dao().readAll(clock: _clock);
+    final metrics = res.getRight().toNullable()!;
+    expect(metrics['season-1']?.blockCount, 1);
+    expect(metrics['season-1']?.sceneCount, isNull);
+    expect(metrics['season-1']?.pieceCount, isNull);
+  });
 
   test('scenes counted through the episode→block join chain', () async {
     final blocks = BlockCacheDao(db);
@@ -126,16 +123,16 @@ void main() {
     expect(metrics['season-1']?.sceneCount, 2);
   });
 
-  test('costumes counted per season snapshot scope', () async {
-    await PieceCacheDao(db).upsert('season-1', _costume('c1'), _now);
-    await PieceCacheDao(db).upsert('season-1', _costume('c2'), _now);
-    await PieceCacheDao(db).upsert('season-2', _costume('c3'), _now);
+  test('pieces counted per season snapshot scope', () async {
+    await PieceCacheDao(db).upsert('season-1', _piece('c1'), _now);
+    await PieceCacheDao(db).upsert('season-1', _piece('c2'), _now);
+    await PieceCacheDao(db).upsert('season-2', _piece('c3'), _now);
 
     final metrics = (await dao().readAll(clock: _clock))
         .getRight()
         .toNullable()!;
-    expect(metrics['season-1']?.costumeCount, 2);
-    expect(metrics['season-2']?.costumeCount, 1);
+    expect(metrics['season-1']?.pieceCount, 2);
+    expect(metrics['season-2']?.pieceCount, 1);
   });
 
   test('empty-season case: a season cached elsewhere but with no '
@@ -159,14 +156,14 @@ void main() {
           .subtract(const Duration(minutes: 5));
       final blocks = BlockCacheDao(db);
       await blocks.upsert(_block('b1'), expired);
-      await PieceCacheDao(db).upsert('season-1', _costume('c1'), fresh);
+      await PieceCacheDao(db).upsert('season-1', _piece('c1'), fresh);
 
       final metrics = (await dao().readAll(clock: _clock))
           .getRight()
           .toNullable()!;
       final m = metrics['season-1']!;
       expect(m.blockCount, 1);
-      expect(m.costumeCount, 1);
+      expect(m.pieceCount, 1);
       expect(
         m.cachedAt,
         DateTime.fromMillisecondsSinceEpoch(
@@ -215,7 +212,7 @@ void main() {
   test('Err branch: a failed DAO read resolves Left, never throws', () async {
     // Deterministic fault seam: a closed in-memory database does NOT
     // reliably fault DAO reads (reads resolve instead of throwing — see
-    // the costume fault tests), so the fault is injected at the executor
+    // the piece fault tests), so the fault is injected at the executor
     // boundary (_FaultSelectDatabase).
     final faultDb = _FaultSelectDatabase(NativeDatabase.memory());
     addTearDown(faultDb.close);

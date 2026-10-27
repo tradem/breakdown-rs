@@ -32,26 +32,26 @@ abstract final class RequestRecorder {
   /// this count.
   static int photoPipelineRequests = 0;
 
-  /// Subset of [totalRequests] against the AUTHZ-GATED costume commands —
-  /// paths ending `/assign` or `/unassign` (the costume-assignment command
+  /// Subset of [totalRequests] against the AUTHZ-GATED piece commands —
+  /// paths ending `/assign` or `/unassign` (the piece-assignment command
   /// surface). The client-side AUTHZ-GATE (AGENTS.md §5, D6) must issue ZERO
   /// of these when it refuses the assignment action (issue #459); the same
   /// navigation read-model fetches stay out of this count.
-  static int costumeCommandRequests = 0;
+  static int pieceCommandRequests = 0;
 
   /// Zeroes all counters (reachable via the driver `reset` command).
   static void reset() {
     totalRequests = 0;
     photoPipelineRequests = 0;
-    costumeCommandRequests = 0;
+    pieceCommandRequests = 0;
   }
 
   /// Compact snapshot for the driver channel; parsed by the host-side steps
-  /// (`total=N;photo=M;costume=K`). Kept string-based — `driver.requestData`
+  /// (`total=N;photo=M;piece=K`). Kept string-based — `driver.requestData`
   /// speaks `String` only.
   static String snapshot() =>
       'total=$totalRequests;photo=$photoPipelineRequests;'
-      'costume=$costumeCommandRequests';
+      'piece=$pieceCommandRequests';
 }
 
 /// Interceptor that records every outgoing request into [RequestRecorder].
@@ -67,13 +67,13 @@ class RequestRecorderInterceptor extends Interceptor {
     if (path.contains('/photos') || path.contains('/continuity-photos')) {
       RequestRecorder.photoPipelineRequests++;
     }
-    // Costume assignment commands: the Gherkin viewer-denial scenario
+    // Piece assignment commands: the Gherkin viewer-denial scenario
     // asserts ZERO of these leave the device (client-side AUTHZ-GATE,
     // issue #459). A path suffix is exact (`/assign` / `/unassign`), so
-    // read fetches under the same resource (e.g. `GET /costumes/{id}`) are
+    // read fetches under the same resource (e.g. `GET /pieces/{id}`) are
     // never miscounted.
     if (path.endsWith('/assign') || path.endsWith('/unassign')) {
-      RequestRecorder.costumeCommandRequests++;
+      RequestRecorder.pieceCommandRequests++;
     }
     handler.next(options);
   }

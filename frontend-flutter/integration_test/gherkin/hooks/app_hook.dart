@@ -16,22 +16,22 @@ import '../steps/seed_http.dart';
 /// a pure-function unit test). Hooks are the place for cross-scenario setup
 /// such as resetting the network recorder or seeding the dev backend.
 ///
-/// The costume-assignment seed (issue #368) runs in `onBeforeRun` — BEFORE
+/// The piece-assignment seed (issue #368) runs in `onBeforeRun` — BEFORE
 /// the first app launch: the app then boots with the seeded aggregates
 /// already projected (its boot-time seasons fetch includes the seeded
-/// season — no read-model refresh race), and both costume scenarios share
+/// season — no read-model refresh race), and both piece scenarios share
 /// the state (the viewer denial fires client-side before any network call).
 /// The scenario Given steps copy the ids from [SeedCache] into
 /// `AppWorld.seedIds`.
 ///
-/// The seed is GATED on the costume_assignment.feature promotion state
+/// The seed is GATED on the outfit_casting.feature promotion state
 /// (CodeRabbit review, #456): when its scenarios are `@pending`, the
 /// runner excludes them and seeding would only mutate the backend for an
 /// unrelated pass — every seed failure would abort the whole run before
 /// the first scenario. Parse the feature file directly (the same file the
 /// runner reads); a promoted scenario must NOT carry `@pending`.
 class AppHook extends Hook {
-  /// True when at least one scenario in `costume_assignment.feature` is
+  /// True when at least one scenario in `outfit_casting.feature` is
   /// free of the `@pending` tag (i.e. promoted into the on-device pass).
   /// Gherkin tags PRECEDE their scenario header, so a pending tag
   /// accumulated before a header attributes to THAT header — a scenario is
@@ -39,12 +39,12 @@ class AppHook extends Hook {
   /// Best-effort: on any read failure the seed runs (fail-open to the
   /// previous behavior) — the seed itself errors loudly on a broken
   /// backend.
-  static bool _costumeScenariosActive() {
+  static bool _pieceScenariosActive() {
     try {
       final running = Platform.environment['GHERKIN_COSTUME_SEED'] ?? 'auto';
       if (running == 'on') return true;
       if (running == 'off') return false;
-      final file = File('features-spec/costume_assignment.feature');
+      final file = File('features-spec/outfit_casting.feature');
       if (!file.existsSync()) return false;
       var pendingTags = 0;
       var promoted = false;
@@ -69,13 +69,13 @@ class AppHook extends Hook {
 
   @override
   Future<void> onBeforeRun(TestConfiguration config) async {
-    if (!_costumeScenariosActive()) {
-      // All costume scenarios are `@pending`: the runner excludes them —
+    if (!_pieceScenariosActive()) {
+      // All piece scenarios are `@pending`: the runner excludes them —
       // skip the seed entirely (repairs the review finding that every
       // unrelated Gherkin run otherwise depended on the seed endpoints).
       return;
     }
-    SeedCache.costumeAssignmentIds = await seedCostumeAssignment();
+    SeedCache.outfitCastingIds = await seedOutfitCasting();
   }
 
   @override

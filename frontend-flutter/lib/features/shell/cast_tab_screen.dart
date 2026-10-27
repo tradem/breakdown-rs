@@ -13,25 +13,25 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../l10n/app_localizations_provider.dart';
 import '../characters/characters_screen.dart';
 import '../costume_categories/costume_categories_screen.dart';
-import '../costumes/costumes_screen.dart';
+import '../pieces/pieces_screen.dart';
 import '../fundus/fundus_screen.dart';
 import 'planning_location.dart';
 import 'season_scope_chip.dart';
 import 'shell_controller.dart';
 
 /// The Cast view (issue #610, destination 1): the actor roster and the
-/// costume surface, scoped to the shell's active season.
+/// piece surface, scoped to the shell's active season.
 ///
 /// Design decision D3: the dissolved `Garderobe` destination did NOT
-/// become a second launcher tab — costumes are integrated here, one switch
+/// become a second launcher tab — pieces are integrated here, one switch
 /// away from the characters they are bound to, and the season-scoped
-/// costume-category vocabulary sits in this view's own toolbar (never with
+/// piece-category vocabulary sits in this view's own toolbar (never with
 /// the user settings, issue #610's hard acceptance criterion).
 ///
 /// Both list screens keep their controllers, repositories, keys and
 /// AUTHZ-GATE comments (issue #610: only the entry point moves). They are
 /// embedded as tab content beneath this view's toolbar; each brings its
-/// own scaffold, so their titles stay visible with the roster/costume
+/// own scaffold, so their titles stay visible with the roster/piece
 /// surface they belong to.
 ///
 /// With no active season the view renders a season-selection empty state
@@ -48,7 +48,7 @@ class CastTabScreen extends ConsumerStatefulWidget {
 class _CastTabScreenState extends ConsumerState<CastTabScreen> {
   /// Which half of the Cast view is on screen. Local view state only — it
   /// is not navigation history (the tab switch is a user "jump").
-  bool _showCostumes = false;
+  bool _showPieces = false;
 
   @override
   Widget build(BuildContext context) {
@@ -56,7 +56,7 @@ class _CastTabScreenState extends ConsumerState<CastTabScreen> {
 
     return Scaffold(
       // Issue #638: no app bar — the shell's sticky view bar carries the
-      // title and the search entry. The Cast view's own costume-domain
+      // title and the search entry. The Cast view's own piece-domain
       // actions move into [_toolbar] below.
       body: Column(
         children: [
@@ -64,8 +64,8 @@ class _CastTabScreenState extends ConsumerState<CastTabScreen> {
           Expanded(
             child: season == null
                 ? _emptyState(context)
-                : (_showCostumes
-                      ? CostumesScreen(season: season)
+                : (_showPieces
+                      ? PiecesScreen(season: season)
                       : CharactersScreen(season: season)),
           ),
         ],
@@ -73,9 +73,9 @@ class _CastTabScreenState extends ConsumerState<CastTabScreen> {
     );
   }
 
-  /// The Cast view's own toolbar (issue #638): the roster/costume switch and
-  /// the view's costume-domain actions (categories, fundus). They live with
-  /// the costume content, below the shell's view bar — the shell top bar
+  /// The Cast view's own toolbar (issue #638): the roster/piece switch and
+  /// the view's piece-domain actions (categories, fundus). They live with
+  /// the piece content, below the shell's view bar — the shell top bar
   /// carries only the title and the search entry. The navigator target is
   /// unchanged (the active destination's nested navigator), so the shell's
   /// breadcrumb still deepens on the pushes.
@@ -99,12 +99,12 @@ class _CastTabScreenState extends ConsumerState<CastTabScreen> {
                       ButtonSegment<bool>(
                         value: true,
                         icon: const Icon(Icons.checkroom_outlined),
-                        label: Text(l10n.castSegmentCostumes),
+                        label: Text(l10n.castSegmentOutfits),
                       ),
                     ],
-                    selected: {_showCostumes},
+                    selected: {_showPieces},
                     onSelectionChanged: (selection) =>
-                        setState(() => _showCostumes = selection.first),
+                        setState(() => _showPieces = selection.first),
                   ),
           ),
           if (season != null)
@@ -115,7 +115,7 @@ class _CastTabScreenState extends ConsumerState<CastTabScreen> {
               // Fire-and-forget navigation (no result consumed).
               onPressed: () => _openCategories(context),
             ),
-          // Fundus browse (issue #625): the cross-season costume surface —
+          // Fundus browse (issue #625): the cross-season piece surface —
           // a SEPARATE surface, not a fifth OmniSearch chip (design D1).
           IconButton(
             key: const Key('cast-fundus-action'),

@@ -6,7 +6,7 @@
 // Co-authored-by: glm-5.3-flash (opencode-go)
 // Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
-// Tier-2 widget + controller tests for `CostumesScreen` (Task 4.3):
+// Tier-2 widget + controller tests for `PiecesScreen` (Task 4.3):
 // data/empty/error/stale/overlay states (semantic finders, never `byType`
 // alone), create (named-shell contract + overlay), rename/notes version
 // fence, 409 conflict copy, role-denial with request-counter proof, and
@@ -38,9 +38,9 @@ import 'package:frontend_flutter/data/piece_repository.dart';
 import 'package:frontend_flutter/domain/reconciliation/reconciliation_scheduler.dart';
 import 'package:frontend_flutter/features/blocks/blocks_controller.dart';
 import 'package:frontend_flutter/features/characters/characters_controller.dart';
-import 'package:frontend_flutter/features/costumes/costumes_controller.dart';
-import 'package:frontend_flutter/features/costumes/costumes_screen.dart';
-import 'package:frontend_flutter/features/costumes/costumes_state.dart';
+import 'package:frontend_flutter/features/pieces/pieces_controller.dart';
+import 'package:frontend_flutter/features/pieces/pieces_screen.dart';
+import 'package:frontend_flutter/features/pieces/pieces_state.dart';
 
 import '../seasons/seasons_test_fakes.dart';
 
@@ -57,7 +57,7 @@ final _uuidV7 = RegExp(
   r'^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$',
 );
 
-PieceView _costume(
+PieceView _piece(
   String id, {
   int version = 1,
   String name = 'Fundus-Piece',
@@ -110,7 +110,7 @@ SeasonMembershipDto _membership(List<String> caps) => SeasonMembershipDto(
     ..capabilities.replace(caps),
 );
 
-/// The series-level membership the costume-photo gate reads (issue #535).
+/// The series-level membership the piece-photo gate reads (issue #535).
 SeriesMembershipDto _seriesMembership(bool hasRole) => SeriesMembershipDto(
   (b) => b
     ..projectId = 'series-1'
@@ -136,7 +136,7 @@ class _FakePieceRepository extends PieceRepository {
   int updateDetailCalls = 0;
   int removeDetailCalls = 0;
 
-  /// Scripted single-costume DETAIL for `getAndCache`, and how often the screen
+  /// Scripted single-piece DETAIL for `getAndCache`, and how often the screen
   /// asked for it. The detail screen fetches the enriched single row on open
   /// and after gallery-affecting commands, because the rendered row may be an
   /// optimistic overlay the last snapshot cannot reflect. Without this
@@ -160,7 +160,7 @@ class _FakePieceRepository extends PieceRepository {
       // would REPLACE a list row that carries photos and empty the gallery.
       detailResult ??
           const Left(
-            ProblemError(code: 'costume.detail-not-scripted', status: 500),
+            ProblemError(code: 'piece.detail-not-scripted', status: 500),
           ),
     );
   }
@@ -278,7 +278,7 @@ void main() {
       overrides: [
         appConfigProvider.overrideWithValue(devAuthConfig),
         cacheDatabaseProvider.overrideWithValue(db),
-        costumeRepositoryProvider.overrideWithValue(repo),
+        pieceRepositoryProvider.overrideWithValue(repo),
         reconciliationSchedulerProvider.overrideWith((ref) => scheduler),
         // Issue #378: season-direct entry resolves its block scope through
         // the blocks seam (single block → silent auto-pick).
@@ -294,26 +294,26 @@ void main() {
         ),
         membershipFetchProvider('season-1')
             .overrideWith((ref) async => membershipHolder.value),
-        // Family-level override (issue #535 review): the costume-keyed series
+        // Family-level override (issue #535 review): the piece-keyed series
         // gate answers from the holder — this file does not exercise the
         // photo gate, so the value only exists for fixture parity.
         seriesMembershipForCostumeProvider.overrideWith(
-          (ref, costume) async => seriesMembershipHolder.value,
+          (ref, piece) async => seriesMembershipHolder.value,
         ),
         characterRepositoryProvider.overrideWithValue(
           CharacterRepository(BreakdownApi(), CharacterCacheDao(db)),
         ),
         charactersListFetchProvider('season-1')
             .overrideWith((ref) async => Right(characters)),
-        // Issue #534: the costume editor's repertoire section reads the
+        // Issue #534: the piece editor's repertoire section reads the
         // seasons projection — keep it off the production seam.
         seasonRepositoryProvider.overrideWithValue(
           SeasonRepository(BreakdownApi(), SeasonCacheDao(db)),
         ),
         seasonsListFetchProvider.overrideWith((ref) async => const Right([])),
-        costumesListFetchProvider('season-1').overrideWith((ref) async {
+        piecesListFetchProvider('season-1').overrideWith((ref) async {
           // Issue #544: a reconcile is only observable through this seam, so
-          // count it — a 404 `costume-detail.not-found` must resync the list.
+          // count it — a 404 `piece-detail.not-found` must resync the list.
           listFetchCalls++;
           final dao = PieceCacheDao(ref.watch(cacheDatabaseProvider));
           return holder.value.match(
@@ -341,19 +341,19 @@ void main() {
     await tester.pumpWidget(
       UncontrolledProviderScope(
         container: container,
-        child: MaterialApp(home: CostumesScreen(season: _season())),
+        child: MaterialApp(home: PiecesScreen(season: _season())),
       ),
     );
     await tester.pumpAndSettle();
   }
 
-  group('CostumesScreen states (4.3, semantic finders)', () {
+  group('PiecesScreen states (4.3, semantic finders)', () {
     testWidgets('tile surfaces identity, category icon, and placeholder', (
       tester,
     ) async {
       await setupContainer(
         initialRows: [
-          _costume(
+          _piece(
             'c-1',
             // The piece's required `name` is the authoritative tile label.
             name: 'Rote Lederjacke',
@@ -370,42 +370,39 @@ void main() {
         ],
       );
       await pumpScreen(tester);
-      expect(find.byKey(const Key('costume-name-c-1')), findsOneWidget);
+      expect(find.byKey(const Key('piece-name-c-1')), findsOneWidget);
       expect(find.text('Rote Lederjacke'), findsOneWidget);
       expect(find.text('Jacke'), findsOneWidget);
-      expect(
-        find.byKey(const Key('costume-category-icon-c-1')),
-        findsOneWidget,
-      );
-      expect(find.byKey(const Key('costume-placeholder-c-1')), findsOneWidget);
+      expect(find.byKey(const Key('piece-category-icon-c-1')), findsOneWidget);
+      expect(find.byKey(const Key('piece-placeholder-c-1')), findsOneWidget);
       expect(find.textContaining('c-1'), findsNothing);
     });
 
     testWidgets('selecting a tile opens the editor on the first screen', (
       tester,
     ) async {
-      await setupContainer(initialRows: [_costume('c-1')]);
+      await setupContainer(initialRows: [_piece('c-1')]);
       await pumpScreen(tester);
-      await tester.tap(find.byKey(const Key('costume-tile-c-1')));
+      await tester.tap(find.byKey(const Key('piece-tile-c-1')));
       await tester.pump();
-      expect(find.byKey(const Key('costume-editor-c-1')), findsOneWidget);
-      expect(find.byKey(const Key('costume-detail-add-c-1')), findsOneWidget);
+      expect(find.byKey(const Key('piece-editor-c-1')), findsOneWidget);
+      expect(find.byKey(const Key('piece-detail-add-c-1')), findsOneWidget);
       expect(find.byType(Scaffold), findsOneWidget);
     });
 
-    // The detail screen fetches the enriched single-costume row on open (an
+    // The detail screen fetches the enriched single-piece row on open (an
     // optimistic overlay row is not enough to render variant state — see the
     // stale-comment fix in issue #545). Contract: one fetch per open, the
     // gallery renders from the FETCHED row, and a failed fetch keeps the list
     // row instead of crashing or faking an empty gallery.
-    testWidgets('opening a costume fetches the enriched detail ONCE', (
+    testWidgets('opening a piece fetches the enriched detail ONCE', (
       tester,
     ) async {
-      await setupContainer(initialRows: [_costume('c-1')]);
+      await setupContainer(initialRows: [_piece('c-1')]);
       await pumpScreen(tester);
       expect(repo.detailCalls, 0, reason: 'no fetch before the screen opens');
 
-      await tester.tap(find.byKey(const Key('costume-tile-c-1')));
+      await tester.tap(find.byKey(const Key('piece-tile-c-1')));
       await tester.pump();
       await tester.pump();
 
@@ -414,18 +411,18 @@ void main() {
 
     testWidgets('a FAILED detail fetch degrades to the list row — never a '
         'crash, never a claim of data we do not have', (tester) async {
-      await setupContainer(initialRows: [_costume('c-1')]);
+      await setupContainer(initialRows: [_piece('c-1')]);
       repo.detailResult = const Left(
-        ProblemError(code: 'costume.detail-unavailable', status: 503),
+        ProblemError(code: 'piece.detail-unavailable', status: 503),
       );
       await pumpScreen(tester);
 
-      await tester.tap(find.byKey(const Key('costume-tile-c-1')));
+      await tester.tap(find.byKey(const Key('piece-tile-c-1')));
       await tester.pump();
       await tester.pump();
 
       // The editor is intact and the gallery keeps the list row's (empty) state.
-      expect(find.byKey(const Key('costume-editor-c-1')), findsOneWidget);
+      expect(find.byKey(const Key('piece-editor-c-1')), findsOneWidget);
       expect(repo.detailCalls, 1, reason: 'the attempt is not retried blindly');
     });
 
@@ -434,8 +431,8 @@ void main() {
     ) async {
       await setupContainer(initialRows: []);
       await pumpScreen(tester);
-      expect(find.byKey(const Key('costumes-empty')), findsOneWidget);
-      expect(find.byKey(const Key('costumes-empty-create')), findsOneWidget);
+      expect(find.byKey(const Key('pieces-empty')), findsOneWidget);
+      expect(find.byKey(const Key('pieces-empty-create')), findsOneWidget);
     });
 
     testWidgets('error: fetch failure renders keyed copy + retry', (
@@ -443,9 +440,9 @@ void main() {
     ) async {
       await setupContainer(initialFetch: const Left(_networkDown));
       await pumpScreen(tester);
-      expect(find.byKey(const Key('costumes-error')), findsOneWidget);
+      expect(find.byKey(const Key('pieces-error')), findsOneWidget);
       expect(find.textContaining('transport.connectionError'), findsOneWidget);
-      expect(find.byKey(const Key('costumes-retry')), findsOneWidget);
+      expect(find.byKey(const Key('pieces-retry')), findsOneWidget);
     });
 
     testWidgets('create: empty-body shell overlays + chains to detail', (
@@ -465,7 +462,7 @@ void main() {
     });
   });
 
-  group('CostumesScreen goldens (4.3, data state)', () {
+  group('PiecesScreen goldens (4.3, data state)', () {
     Future<void> pumpGolden(
       WidgetTester tester, {
       required String golden,
@@ -486,13 +483,13 @@ void main() {
               theme: ThemeData.light(),
               darkTheme: ThemeData.dark(),
               themeMode: mode,
-              home: CostumesScreen(season: _season()),
+              home: PiecesScreen(season: _season()),
             ),
           ),
         );
         await tester.pumpAndSettle();
         await expectLater(
-          find.byType(CostumesScreen),
+          find.byType(PiecesScreen),
           matchesGoldenFile('goldens/$golden'),
         );
       } finally {
@@ -501,58 +498,58 @@ void main() {
     }
 
     testWidgets('golden light android', (tester) async {
-      await setupContainer(initialRows: [_costume('c-1'), _costume('c-2')]);
+      await setupContainer(initialRows: [_piece('c-1'), _piece('c-2')]);
       await pumpGolden(
         tester,
-        golden: 'costumes_screen_light_android.png',
+        golden: 'pieces_screen_light_android.png',
         mode: ThemeMode.light,
         platform: TargetPlatform.android,
       );
     });
 
     testWidgets('golden dark android', (tester) async {
-      await setupContainer(initialRows: [_costume('c-1'), _costume('c-2')]);
+      await setupContainer(initialRows: [_piece('c-1'), _piece('c-2')]);
       await pumpGolden(
         tester,
-        golden: 'costumes_screen_dark_android.png',
+        golden: 'pieces_screen_dark_android.png',
         mode: ThemeMode.dark,
         platform: TargetPlatform.android,
       );
     });
 
     testWidgets('golden light macos', (tester) async {
-      await setupContainer(initialRows: [_costume('c-1'), _costume('c-2')]);
+      await setupContainer(initialRows: [_piece('c-1'), _piece('c-2')]);
       await pumpGolden(
         tester,
-        golden: 'costumes_screen_light_macos.png',
+        golden: 'pieces_screen_light_macos.png',
         mode: ThemeMode.light,
         platform: TargetPlatform.macOS,
       );
     });
 
     testWidgets('golden dark macos', (tester) async {
-      await setupContainer(initialRows: [_costume('c-1'), _costume('c-2')]);
+      await setupContainer(initialRows: [_piece('c-1'), _piece('c-2')]);
       await pumpGolden(
         tester,
-        golden: 'costumes_screen_dark_macos.png',
+        golden: 'pieces_screen_dark_macos.png',
         mode: ThemeMode.dark,
         platform: TargetPlatform.macOS,
       );
     });
   });
 
-  group('CostumesScreen extras (8.3)', () {
+  group('PiecesScreen extras (8.3)', () {
     testWidgets(
       'stale snapshot echoes the freshest known version, not the captured one',
       (tester) async {
-        // Issue #473: every costume write must resolve the echoed version
+        // Issue #473: every piece write must resolve the echoed version
         // from the freshest KNOWN state (the held overlay's ack version),
         // never from the screen-captured snapshot. Here the screen passes a
         // stale v1 snapshot (re-opened cached state / the reconcile result
         // never fed the view object the editor holds) while the previous
         // command already advanced the aggregate to v2 — echoing the stale
         // 1 would 422 as `domain.validation` (the backend equality guard).
-        final row = _costume('c-7'); // v1
+        final row = _piece('c-7'); // v1
         await setupContainer(initialRows: [row]);
         await pumpScreen(tester);
         final controller = container.read(
@@ -561,7 +558,7 @@ void main() {
         // First command acks 1 → 2; the version fence holds because the
         // projection is still v1 (projector lag).
         expect(
-          (await controller.updateNotes(costume: row, notes: 'n1')).isRight(),
+          (await controller.updateNotes(piece: row, notes: 'n1')).isRight(),
           isTrue,
         );
         expect(
@@ -574,10 +571,10 @@ void main() {
         );
         // The screen now submits with a STALE snapshot still at v1 — the
         // command must echo the overlay ack (2), not the captured 1.
-        final staleSnapshot = _costume('c-7');
+        final staleSnapshot = _piece('c-7');
         expect(
           (await controller.updateNotes(
-            costume: staleSnapshot,
+            piece: staleSnapshot,
             notes: 'n2',
           )).isRight(),
           isTrue,
@@ -593,13 +590,13 @@ void main() {
         // optimistic-overlay placeholder `'pending'` as `detail.id`, which the
         // `uuid`-typed contract 422'd as `domain.validation`. The wire id must
         // be a parseable UUIDv7; the overlay keeps its OWN transient placeholder.
-        final row = _costume('c-7');
+        final row = _piece('c-7');
         await setupContainer(initialRows: [row]);
         await pumpScreen(tester);
         final controller = container.read(
           piecesControllerProvider('season-1').notifier,
         );
-        final result = await controller.addDetail(costume: row, text: 'Mantel');
+        final result = await controller.addDetail(piece: row, text: 'Mantel');
         expect(result.isRight(), isTrue);
         final wireId = repo.lastAddDetailRequest!.detail.id;
         expect(wireId, isNot('pending'));
@@ -624,7 +621,7 @@ void main() {
     ) async {
       // Regression for #467-adjacent silent 422s: a server 422 must surface
       // the problem `code` (keyed copy), never a generic transport error.
-      final row = _costume('c-7');
+      final row = _piece('c-7');
       await setupContainer(initialRows: [row]);
       await pumpScreen(tester);
       repo.nextWrite = const Left(_validation422);
@@ -632,33 +629,33 @@ void main() {
         piecesControllerProvider('season-1').notifier,
       );
       expect(
-        (await controller.addDetail(costume: row, text: 'Mantel')).isLeft(),
+        (await controller.addDetail(piece: row, text: 'Mantel')).isLeft(),
         isTrue,
       );
       final error = container
           .read(piecesControllerProvider('season-1'))
           .commandError;
       expect(error, isNotNull);
-      // Costume-surface write failure: the copy routes through the costume
+      // Piece-surface write failure: the copy routes through the piece
       // copy on the underlying ProblemError.
-      expect(error!.surface, CostumeCommandSurface.costume);
+      expect(error!.surface, PieceCommandSurface.piece);
       expect(error.error.code, 'domain.validation');
       expect(error.error.code, isNot(startsWith('transport.')));
       // The localized copy is keyed on the wire code, not a generic network
       // narrative.
       expect(
-        costumeErrorCopy(AppLocalizationsEn(), error.error),
+        pieceErrorCopy(AppLocalizationsEn(), error.error),
         contains('domain.validation'),
       );
       expect(
-        costumeErrorCopy(AppLocalizationsEn(), error.error),
+        pieceErrorCopy(AppLocalizationsEn(), error.error),
         isNot(contains('Network problem')),
       );
     });
 
-    // Issue #544: costume detail edit + delete (the data layer #545's row
+    // Issue #544: piece detail edit + delete (the data layer #545's row
     // actions sit on). Every `Result` path is exercised in BOTH branches.
-    group('Costume detail edit + delete (issue #544)', () {
+    group('Piece detail edit + delete (issue #544)', () {
       PieceDetailView detailView(
         String id, {
         String? subject,
@@ -673,7 +670,7 @@ void main() {
       testWidgets(
         'updateDetail sends the existing id and swaps the row in place',
         (tester) async {
-          final row = _costume(
+          final row = _piece(
             'c-7',
             details: [
               detailView('d-1', subject: 'Jacke', text: 'seide'),
@@ -687,7 +684,7 @@ void main() {
           );
 
           final res = await controller.updateDetail(
-            costume: row,
+            piece: row,
             detailId: 'd-1',
             subject: 'Rote Lederjacke',
             text: 'leder',
@@ -722,7 +719,7 @@ void main() {
       testWidgets(
         'updateDetail without the capability issues no network call',
         (tester) async {
-          final row = _costume(
+          final row = _piece(
             'c-7',
             details: [detailView('d-1', text: 'seide')],
           );
@@ -733,7 +730,7 @@ void main() {
           );
 
           final res = await controller.updateDetail(
-            costume: row,
+            piece: row,
             detailId: 'd-1',
             text: 'leder',
           );
@@ -751,48 +748,44 @@ void main() {
         },
       );
 
-      testWidgets(
-        'updateDetail 404 costume-detail.not-found uses its own copy',
-        (tester) async {
-          final row = _costume(
-            'c-7',
-            details: [detailView('d-1', text: 'seide')],
-          );
-          await setupContainer(initialRows: [row]);
-          await pumpScreen(tester);
-          repo.nextWrite = const Left(
-            ProblemError(code: 'costume-detail.not-found', status: 404),
-          );
-          final controller = container.read(
-            piecesControllerProvider('season-1').notifier,
-          );
-
-          expect(
-            (await controller.updateDetail(
-              costume: row,
-              detailId: 'd-1',
-              text: 'leder',
-            )).isLeft(),
-            isTrue,
-          );
-          expect(repo.updateDetailCalls, 1);
-          final error = container
-              .read(piecesControllerProvider('season-1'))
-              .commandError;
-          expect(error, isNotNull);
-          expect(error!.error.code, 'costume-detail.not-found');
-          // The narrative is keyed on the STABLE code — never the backend
-          // `detail` — and must not fall through to the generic costume copy.
-          final copy = costumeErrorCopy(AppLocalizationsEn(), error.error);
-          expect(copy, contains('no longer exists'));
-          expect(copy, isNot(contains('costume-detail.not-found')));
-        },
-      );
-
-      testWidgets('removeDetail drops the row and echoes the costume version', (
+      testWidgets('updateDetail 404 piece-detail.not-found uses its own copy', (
         tester,
       ) async {
-        final row = _costume(
+        final row = _piece('c-7', details: [detailView('d-1', text: 'seide')]);
+        await setupContainer(initialRows: [row]);
+        await pumpScreen(tester);
+        repo.nextWrite = const Left(
+          ProblemError(code: 'piece-detail.not-found', status: 404),
+        );
+        final controller = container.read(
+          piecesControllerProvider('season-1').notifier,
+        );
+
+        expect(
+          (await controller.updateDetail(
+            piece: row,
+            detailId: 'd-1',
+            text: 'leder',
+          )).isLeft(),
+          isTrue,
+        );
+        expect(repo.updateDetailCalls, 1);
+        final error = container
+            .read(piecesControllerProvider('season-1'))
+            .commandError;
+        expect(error, isNotNull);
+        expect(error!.error.code, 'piece-detail.not-found');
+        // The narrative is keyed on the STABLE code — never the backend
+        // `detail` — and must not fall through to the generic piece copy.
+        final copy = pieceErrorCopy(AppLocalizationsEn(), error.error);
+        expect(copy, contains('no longer exists'));
+        expect(copy, isNot(contains('piece-detail.not-found')));
+      });
+
+      testWidgets('removeDetail drops the row and echoes the piece version', (
+        tester,
+      ) async {
+        final row = _piece(
           'c-7',
           details: [detailView('d-1'), detailView('d-2')],
         );
@@ -802,10 +795,7 @@ void main() {
           piecesControllerProvider('season-1').notifier,
         );
 
-        final res = await controller.removeDetail(
-          costume: row,
-          detailId: 'd-1',
-        );
+        final res = await controller.removeDetail(piece: row, detailId: 'd-1');
         expect(res.isRight(), isTrue);
         expect(repo.lastRemoveDetailId, 'd-1');
         expect(
@@ -824,12 +814,12 @@ void main() {
       });
 
       testWidgets(
-        'a costume-detail.not-found resyncs the list (CodeRabbit PR #561)',
+        'a piece-detail.not-found resyncs the list (CodeRabbit PR #561)',
         (tester) async {
           // The banner copy promises "the list was refreshed" — the error
           // branch must therefore actually reconcile, or the promise is a lie
           // and a second tap on the same row returns the identical 404.
-          final row = _costume(
+          final row = _piece(
             'c-7',
             details: [detailView('d-1', text: 'seide')],
           );
@@ -837,7 +827,7 @@ void main() {
           await pumpScreen(tester);
           final before = listFetchCalls;
           repo.nextWrite = const Left(
-            ProblemError(code: 'costume-detail.not-found', status: 404),
+            ProblemError(code: 'piece-detail.not-found', status: 404),
           );
           final controller = container.read(
             piecesControllerProvider('season-1').notifier,
@@ -845,7 +835,7 @@ void main() {
 
           expect(
             (await controller.updateDetail(
-              costume: row,
+              piece: row,
               detailId: 'd-1',
               text: 'leder',
             )).isLeft(),
@@ -866,7 +856,7 @@ void main() {
           // Guard on the other side of the new branch: a version conflict says
           // nothing about the detail's existence, so refetching there would
           // discard the user's intent and mask the real cause.
-          final row = _costume(
+          final row = _piece(
             'c-7',
             version: 3,
             details: [detailView('d-1', text: 'seide')],
@@ -881,7 +871,7 @@ void main() {
 
           expect(
             (await controller.removeDetail(
-              costume: row,
+              piece: row,
               detailId: 'd-1',
             )).isLeft(),
             isTrue,
@@ -894,7 +884,7 @@ void main() {
       testWidgets(
         'removeDetail without the capability issues no network call',
         (tester) async {
-          final row = _costume('c-7', details: [detailView('d-1')]);
+          final row = _piece('c-7', details: [detailView('d-1')]);
           await setupContainer(initialRows: [row], capabilities: const []);
           await pumpScreen(tester);
           final controller = container.read(
@@ -903,7 +893,7 @@ void main() {
 
           expect(
             (await controller.removeDetail(
-              costume: row,
+              piece: row,
               detailId: 'd-1',
             )).isLeft(),
             isTrue,
@@ -924,7 +914,7 @@ void main() {
       testWidgets('removeDetail surfaces a version conflict in the banner', (
         tester,
       ) async {
-        final row = _costume('c-7', details: [detailView('d-1')]);
+        final row = _piece('c-7', details: [detailView('d-1')]);
         await setupContainer(initialRows: [row]);
         await pumpScreen(tester);
         repo.nextWrite = const Left(_conflict);
@@ -933,10 +923,7 @@ void main() {
         );
 
         expect(
-          (await controller.removeDetail(
-            costume: row,
-            detailId: 'd-1',
-          )).isLeft(),
+          (await controller.removeDetail(piece: row, detailId: 'd-1')).isLeft(),
           isTrue,
         );
         expect(repo.removeDetailCalls, 1);

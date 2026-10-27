@@ -18,7 +18,7 @@ import '../../core/result.dart';
 /// deleted once `GET /v1/seasons/{seasonId}/membership` landed in
 /// `backend/openapi.yaml` (issue #311) and the client was regenerated. The
 /// series-level twin landed with issue #535 (ADR-035 B2/S2 — the
-/// costume-photo policy is series-wide).
+/// piece-photo policy is series-wide).
 class MembershipRepository {
   const MembershipRepository(this._api);
 

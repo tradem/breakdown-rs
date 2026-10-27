@@ -26,30 +26,30 @@ import '../photos/capture.dart';
 import '../photos/prepare.dart';
 import '../photos/widgets/photo_gallery.dart';
 import '../../data/cache/seasons_cache_providers.dart';
-import 'costumes_controller.dart';
-import 'costumes_state.dart';
+import 'pieces_controller.dart';
+import 'pieces_state.dart';
 
-part 'costume_detail_screen.g.dart';
+part 'piece_detail_screen.g.dart';
 
-/// Foreground-only variant watch for one costume (D5): bounded-backoff
-/// costume refetches while subscribed; terminal variants end the pass; the
+/// Foreground-only variant watch for one piece (D5): bounded-backoff
+/// piece refetches while subscribed; terminal variants end the pass; the
 /// subscription dies with the screen (no background polling).
 @riverpod
-Stream<PhotoWatchEvent> costumePhotoWatch(
+Stream<PhotoWatchEvent> piecePhotoWatch(
   Ref ref,
   String seasonId,
   String pieceId,
 ) async* {
-  final photos = ref.watch(costumePhotoRepositoryProvider);
-  final costumes = ref.watch(costumeRepositoryProvider);
-  yield* photos.watch(pieceId, () => costumes.getAndCache(seasonId, pieceId));
+  final photos = ref.watch(piecePhotoRepositoryProvider);
+  final pieces = ref.watch(pieceRepositoryProvider);
+  yield* photos.watch(pieceId, () => pieces.getAndCache(seasonId, pieceId));
 }
 
-/// `CostumeDetailScreen` is retained as a compatibility entry point for
+/// `PieceDetailScreen` is retained as a compatibility entry point for
 /// callers that still provide a route. New overview navigation uses
-/// [CostumeDetailPanel] directly, keeping editing on the first screen.
-class CostumeDetailScreen extends ConsumerWidget {
-  const CostumeDetailScreen({
+/// [PieceDetailPanel] directly, keeping editing on the first screen.
+class PieceDetailScreen extends ConsumerWidget {
+  const PieceDetailScreen({
     super.key,
     required this.season,
     required this.pieceId,
@@ -70,15 +70,15 @@ class CostumeDetailScreen extends ConsumerWidget {
     });
     final controller = ref.read(piecesControllerProvider(season.id).notifier);
     return Scaffold(
-      appBar: AppBar(title: Text(l10nOf(context).costumeDetailTitle)),
+      appBar: AppBar(title: Text(l10nOf(context).pieceDetailTitle)),
       body: RefreshIndicator(
         onRefresh: controller.refresh,
         child: ListView(
-          key: Key('costume-detail-$pieceId'),
+          key: Key('piece-detail-$pieceId'),
           physics: const AlwaysScrollableScrollPhysics(),
           padding: const EdgeInsets.all(16),
           children: [
-            CostumeDetailPanel(
+            PieceDetailPanel(
               season: season,
               pieceId: pieceId,
               showCommandError: true,
@@ -90,12 +90,12 @@ class CostumeDetailScreen extends ConsumerWidget {
   }
 }
 
-/// The costume identity editor embedded below the overview tile grid.
+/// The piece identity editor embedded below the overview tile grid.
 ///
 /// It deliberately contains the existing assignment, detail, notes, and photo
 /// controls so the old detail route is no longer required for editing.
-class CostumeDetailPanel extends ConsumerWidget {
-  const CostumeDetailPanel({
+class PieceDetailPanel extends ConsumerWidget {
+  const PieceDetailPanel({
     super.key,
     required this.season,
     required this.pieceId,
@@ -109,27 +109,27 @@ class CostumeDetailPanel extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     // Keep the variant watch alive while the panel is visible; terminal
-    // events refresh the costume cache and rebuild the projection.
-    ref.listen(costumePhotoWatchProvider(season.id, pieceId), (_, _) {});
+    // events refresh the piece cache and rebuild the projection.
+    ref.listen(piecePhotoWatchProvider(season.id, pieceId), (_, _) {});
     final state = ref.watch(piecesControllerProvider(season.id));
     final controller = ref.read(piecesControllerProvider(season.id).notifier);
-    final costume = _resolveCostume(state);
-    if (costume == null) {
+    final piece = _resolvePiece(state);
+    if (piece == null) {
       return const SizedBox(
         height: 160,
         child: Center(
-          child: CircularProgressIndicator(key: Key('costume-loading')),
+          child: CircularProgressIndicator(key: Key('piece-loading')),
         ),
       );
     }
     return Column(
-      key: Key('costume-editor-body-$pieceId'),
+      key: Key('piece-editor-body-$pieceId'),
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 24, 16, 0),
           child: Text(
-            l10nOf(context).costumeDetailTitle,
+            l10nOf(context).pieceDetailTitle,
             style: Theme.of(context).textTheme.titleLarge,
           ),
         ),
@@ -137,25 +137,25 @@ class CostumeDetailPanel extends ConsumerWidget {
         if (showCommandError)
           if (state.commandError case final failure?)
             _InlineError(
-              text: costumeCommandErrorCopy(l10nOf(context), failure),
+              text: pieceCommandErrorCopy(l10nOf(context), failure),
               onDismiss: controller.dismissCommandError,
             ),
 
         const Divider(height: 32),
-        // Issue #543: the costume's single category sits in the identity
+        // Issue #543: the piece's single category sits in the identity
         // section ABOVE the details (details are pure description now).
-        CostumeCategorySection(season: season, costume: costume),
+        CostumeCategorySection(season: season, piece: piece),
         const Divider(height: 32),
-        // Issue #534: the season repertoire — the seasons whose costume
-        // streams the costume stands in (m:n over the wardrobe lifecycle).
-        _RepertoireSection(season: season, costume: costume),
+        // Issue #534: the season repertoire — the seasons whose piece
+        // streams the piece stands in (m:n over the wardrobe lifecycle).
+        _RepertoireSection(season: season, piece: piece),
         const Divider(height: 32),
         // Identity is primary; notes are deliberately secondary.
-        _DetailsSection(season: season, costume: costume),
+        _DetailsSection(season: season, piece: piece),
         const Divider(height: 32),
-        _NotesSection(season: season, costume: costume),
+        _NotesSection(season: season, piece: piece),
         const Divider(height: 32),
-        _PhotosSection(season: season, costume: costume),
+        _PhotosSection(season: season, piece: piece),
         const SizedBox(height: 24),
       ],
     );
@@ -163,7 +163,7 @@ class CostumeDetailPanel extends ConsumerWidget {
 
   /// Resolves the effective row: the fence-held overlay first, then the
   /// projected/cached row. The overlay version is the freshest command ack.
-  PieceView? _resolveCostume(CostumesScreenState state) {
+  PieceView? _resolvePiece(PiecesScreenState state) {
     for (final o in state.overlays) {
       if (o.id == pieceId) return o.overlay;
     }
@@ -174,8 +174,8 @@ class CostumeDetailPanel extends ConsumerWidget {
   }
 }
 
-/// Repertoire section (issue #534): every season whose costume stream the
-/// costume stands in, plus the add-season picker and confirm-first removal.
+/// Repertoire section (issue #534): every season whose piece stream the
+/// piece stands in, plus the add-season picker and confirm-first removal.
 ///
 /// // AUTHZ-GATE: the picker's confirm path runs the membership capability
 /// check (`assign_costumes`) inside the controller before any network call;
@@ -192,7 +192,7 @@ class _InlineError extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     return ColoredBox(
-      key: const Key('costume-detail-error'),
+      key: const Key('piece-detail-error'),
       color: scheme.errorContainer,
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -217,8 +217,8 @@ class _InlineError extends StatelessWidget {
   }
 }
 
-/// Repertoire section (issue #534): every season whose costume stream the
-/// costume stands in, plus the add-season picker and confirm-first removal.
+/// Repertoire section (issue #534): every season whose piece stream the
+/// piece stands in, plus the add-season picker and confirm-first removal.
 ///
 /// // AUTHZ-GATE: the picker's confirm path runs the membership capability
 /// check (`assign_costumes`) inside the controller before any network call;
@@ -226,10 +226,10 @@ class _InlineError extends StatelessWidget {
 /// that cross-season check is the server's alone (AGENTS.md S5: the client
 /// must not deny on the season union).
 class _RepertoireSection extends ConsumerWidget {
-  const _RepertoireSection({required this.season, required this.costume});
+  const _RepertoireSection({required this.season, required this.piece});
 
   final SeasonView season;
-  final PieceView costume;
+  final PieceView piece;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -238,7 +238,7 @@ class _RepertoireSection extends ConsumerWidget {
     // seasons upstream, so the picker naturally offers only live seasons.
     final seasons = ref.watch(seasonsView).rows;
     final l10n = l10nOf(context);
-    final ids = costume.seasonIds;
+    final ids = piece.seasonIds;
     String nameOf(String id) {
       for (final s in seasons) {
         if (s.id == id) {
@@ -259,40 +259,40 @@ class _RepertoireSection extends ConsumerWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          l10n.costumeDetailRepertoire,
+          l10n.pieceDetailRepertoire,
           style: Theme.of(context).textTheme.titleMedium,
-          key: const Key('costume-repertoire-title'),
+          key: const Key('piece-repertoire-title'),
         ),
         const SizedBox(height: 4),
         if (ids.isEmpty)
           Padding(
             padding: const EdgeInsets.fromLTRB(0, 8, 0, 8),
             child: Text(
-              l10n.costumeDetailRepertoireEmpty,
-              key: const Key('costume-repertoire-empty'),
+              l10n.pieceDetailRepertoireEmpty,
+              key: const Key('piece-repertoire-empty'),
             ),
           )
         else
           for (final id in ids)
             ListTile(
-              key: Key('costume-repertoire-row-${costume.id}-$id'),
+              key: Key('piece-repertoire-row-${piece.id}-$id'),
               contentPadding: EdgeInsets.zero,
               title: Text(nameOf(id)),
               trailing: IconButton(
-                key: Key('costume-repertoire-remove-${costume.id}-$id'),
+                key: Key('piece-repertoire-remove-${piece.id}-$id'),
                 icon: const Icon(Icons.playlist_remove_outlined),
-                tooltip: l10n.costumeDetailRepertoireRemoveTooltip,
-                onPressed: costume.seasonIds.contains(id)
+                tooltip: l10n.pieceDetailRepertoireRemoveTooltip,
+                onPressed: piece.seasonIds.contains(id)
                     ? () => _confirmRemove(context, ref, id, nameOf(id))
                     : null,
               ),
             ),
         FilledButton.tonal(
-          key: Key('costume-repertoire-add-${costume.id}'),
+          key: Key('piece-repertoire-add-${piece.id}'),
           onPressed: eligible.isEmpty
               ? null
               : () => _pickSeason(context, ref, eligible, nameOf),
-          child: Text(l10n.costumeDetailRepertoireAdd),
+          child: Text(l10n.pieceDetailRepertoireAdd),
         ),
       ],
     );
@@ -318,7 +318,7 @@ class _RepertoireSection extends ConsumerWidget {
             Padding(
               padding: const EdgeInsets.all(16),
               child: Text(
-                l10nOf(sheetContext).costumeDetailRepertoirePick,
+                l10nOf(sheetContext).pieceDetailRepertoirePick,
                 style: Theme.of(sheetContext).textTheme.titleMedium,
               ),
             ),
@@ -334,7 +334,7 @@ class _RepertoireSection extends ConsumerWidget {
                             l10nOf(sheetContext).seasonsDefaultTitle(s.number),
                       ),
                       trailing: s.id == season.id
-                          ? Text(l10nOf(sheetContext).costumeDetailRepertoire)
+                          ? Text(l10nOf(sheetContext).pieceDetailRepertoire)
                           : null,
                       onTap: () => Navigator.of(sheetContext).pop(s.id),
                     ),
@@ -348,15 +348,15 @@ class _RepertoireSection extends ConsumerWidget {
     if (picked == null || !context.mounted) return;
     // Handled: failures surface via the command-error provider.
     final addResult = await controller.addToSeason(
-      costume: costume,
+      piece: piece,
       seasonId: picked,
     );
     final saved = addResult.match((_) => false, (_) => true);
     if (saved && context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          key: Key('costume-repertoire-saved-${costume.id}'),
-          content: Text(l10nOf(context).costumeDetailRepertoireSaved),
+          key: Key('piece-repertoire-saved-${piece.id}'),
+          content: Text(l10nOf(context).pieceDetailRepertoireSaved),
         ),
       );
     }
@@ -376,17 +376,17 @@ class _RepertoireSection extends ConsumerWidget {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: Text(l10n.costumeDetailRepertoireRemoveTitle),
-        content: Text(l10n.costumeDetailRepertoireRemoveMessage),
+        title: Text(l10n.pieceDetailRepertoireRemoveTitle),
+        content: Text(l10n.pieceDetailRepertoireRemoveMessage),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(dialogContext).pop(false),
             child: Text(l10n.commonCancel),
           ),
           FilledButton(
-            key: Key('costume-repertoire-confirm-remove'),
+            key: Key('piece-repertoire-confirm-remove'),
             onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: Text(l10n.costumeDetailRepertoireRemoveTooltip),
+            child: Text(l10n.pieceDetailRepertoireRemoveTooltip),
           ),
         ],
       ),
@@ -394,15 +394,15 @@ class _RepertoireSection extends ConsumerWidget {
     if (confirmed != true || !context.mounted) return;
     // Handled: failures surface via the command-error provider.
     final removeResult = await controller.removeFromSeason(
-      costume: costume,
+      piece: piece,
       seasonId: seasonId,
     );
     final saved = removeResult.match((_) => false, (_) => true);
     if (saved && context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          key: Key('costume-repertoire-removed-${costume.id}'),
-          content: Text(l10nOf(context).costumeDetailRepertoireRemoved),
+          key: Key('piece-repertoire-removed-${piece.id}'),
+          content: Text(l10nOf(context).pieceDetailRepertoireRemoved),
         ),
       );
     }
@@ -410,10 +410,10 @@ class _RepertoireSection extends ConsumerWidget {
 }
 
 class _NotesSection extends ConsumerStatefulWidget {
-  const _NotesSection({required this.season, required this.costume});
+  const _NotesSection({required this.season, required this.piece});
 
   final SeasonView season;
-  final PieceView costume;
+  final PieceView piece;
 
   @override
   ConsumerState<_NotesSection> createState() => _NotesSectionState();
@@ -425,15 +425,15 @@ class _NotesSectionState extends ConsumerState<_NotesSection> {
   @override
   void initState() {
     super.initState();
-    _controller = TextEditingController(text: widget.costume.notes);
+    _controller = TextEditingController(text: widget.piece.notes);
   }
 
   @override
   void didUpdateWidget(covariant _NotesSection oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.costume.notes != widget.costume.notes &&
-        _controller.text != widget.costume.notes) {
-      _controller.text = widget.costume.notes;
+    if (oldWidget.piece.notes != widget.piece.notes &&
+        _controller.text != widget.piece.notes) {
+      _controller.text = widget.piece.notes;
     }
   }
 
@@ -448,47 +448,47 @@ class _NotesSectionState extends ConsumerState<_NotesSection> {
     crossAxisAlignment: CrossAxisAlignment.start,
     children: [
       Text(
-        l10nOf(context).costumeDetailNotes,
+        l10nOf(context).pieceDetailNotes,
         style: Theme.of(context).textTheme.titleMedium,
       ),
       const SizedBox(height: 8),
       TextField(
-        key: Key('costume-notes-${widget.costume.id}'),
+        key: Key('piece-notes-${widget.piece.id}'),
         controller: _controller,
         maxLines: 3,
         decoration: InputDecoration(
           border: const OutlineInputBorder(),
-          hintText: l10nOf(context).costumeDetailNotesHint,
+          hintText: l10nOf(context).pieceDetailNotesHint,
         ),
       ),
       const SizedBox(height: 8),
       Align(
         alignment: Alignment.centerRight,
         child: FilledButton.tonal(
-          key: Key('costume-notes-save-${widget.costume.id}'),
+          key: Key('piece-notes-save-${widget.piece.id}'),
           onPressed: () async {
             // Handled: failures surface via the command-error provider.
             final notesResult = await ref
                 .read(piecesControllerProvider(widget.season.id).notifier)
-                .updateNotes(costume: widget.costume, notes: _controller.text);
+                .updateNotes(piece: widget.piece, notes: _controller.text);
             final saved = notesResult.match((_) => false, (_) => true);
             if (saved && context.mounted) {
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
-                  key: const Key('costume-saved-confirmation'),
-                  content: Text(l10nOf(context).costumeDetailSaved),
+                  key: const Key('piece-saved-confirmation'),
+                  content: Text(l10nOf(context).pieceDetailSaved),
                 ),
               );
             }
           },
-          child: Text(l10nOf(context).costumeDetailSaveNotes),
+          child: Text(l10nOf(context).pieceDetailSaveNotes),
         ),
       ),
     ],
   );
 }
 
-/// Category section (issue #543): the costume's single category in the
+/// Category section (issue #543): the piece's single category in the
 /// identity section — always visible with its icon next to the text (the
 /// `categories.icon` glossary rule: icons are redundant reinforcement,
 /// never the sole carrier of meaning).
@@ -508,11 +508,11 @@ class CostumeCategorySection extends ConsumerWidget {
   const CostumeCategorySection({
     super.key,
     required this.season,
-    required this.costume,
+    required this.piece,
   });
 
   final SeasonView season;
-  final PieceView costume;
+  final PieceView piece;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -520,10 +520,10 @@ class CostumeCategorySection extends ConsumerWidget {
     // Fence-held overlays render the optimistic key (Gherkin contract);
     // reconciled rows render the authoritative key.
     final controllerState = ref.watch(piecesControllerProvider(season.id));
-    final fenceHeld = controllerState.overlays.any((o) => o.id == costume.id);
+    final fenceHeld = controllerState.overlays.any((o) => o.id == piece.id);
     final effective = fenceHeld
-        ? controllerState.overlays.firstWhere((o) => o.id == costume.id).overlay
-        : costume;
+        ? controllerState.overlays.firstWhere((o) => o.id == piece.id).overlay
+        : piece;
     // "Ohne Kategorie" is reserved for a null category ID (CodeRabbit
     // #4126529938): the projected name is best-effort — a set category
     // whose name is not (yet) resolved is NOT uncategorised. The label is
@@ -533,11 +533,11 @@ class CostumeCategorySection extends ConsumerWidget {
       _ => effective.categoryName ?? effective.categoryId!,
     };
     return Column(
-      key: const Key('costume-category-section'),
+      key: const Key('piece-category-section'),
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          l10n.costumeDetailCategoryTitle,
+          l10n.pieceDetailCategoryTitle,
           style: Theme.of(context).textTheme.titleMedium,
         ),
         const SizedBox(height: 8),
@@ -546,25 +546,25 @@ class CostumeCategorySection extends ConsumerWidget {
           // pattern as the assignment tile above).
           key: Key(
             fenceHeld
-                ? 'overlay-category-${costume.id}-${effective.categoryId ?? "none"}'
-                : 'costume-category-${costume.id}-${effective.categoryId ?? "none"}',
+                ? 'overlay-category-${piece.id}-${effective.categoryId ?? "none"}'
+                : 'piece-category-${piece.id}-${effective.categoryId ?? "none"}',
           ),
           contentPadding: EdgeInsets.zero,
           leading: Icon(
             BreakdownMaterialIcons.forCostumeCategory(effective.categoryName),
-            key: Key('costume-category-icon-${costume.id}'),
+            key: Key('piece-category-icon-${piece.id}'),
             size: 20,
           ),
           title: Text(
             currentName,
-            key: Key('costume-category-current-${costume.id}'),
+            key: Key('piece-category-current-${piece.id}'),
           ),
         ),
         const SizedBox(height: 0),
         FilledButton.tonal(
-          key: Key('costume-category-pick-${costume.id}'),
+          key: Key('piece-category-pick-${piece.id}'),
           onPressed: () => _showPicker(context, ref),
-          child: Text(l10n.costumeDetailPickCategory),
+          child: Text(l10n.pieceDetailPickCategory),
         ),
       ],
     );
@@ -585,31 +585,31 @@ class CostumeCategorySection extends ConsumerWidget {
                 Padding(
                   padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
                   child: Text(
-                    l10n.costumeDetailPickCategory,
-                    key: const Key('costume-category-picker-title'),
+                    l10n.pieceDetailPickCategory,
+                    key: const Key('piece-category-picker-title'),
                     style: Theme.of(context).textTheme.titleMedium,
                   ),
                 ),
                 Flexible(
                   child: ListView(
-                    key: const Key('costume-category-picker-list'),
+                    key: const Key('piece-category-picker-list'),
                     shrinkWrap: true,
                     children: [
                       // The deliberate "no category" row (None clears the
-                      // costume's category — visible text, never hidden).
+                      // piece's category — visible text, never hidden).
                       ListTile(
-                        key: const Key('costume-category-option-none'),
+                        key: const Key('piece-category-option-none'),
                         leading: Icon(
                           BreakdownMaterialIcons.forCostumeCategory(null),
                         ),
                         title: Text(l10n.costumeCategoryUncategorized),
-                        selected: costume.categoryId == null,
+                        selected: piece.categoryId == null,
                         onTap: () => _pick(context, ref, null, null),
                       ),
                       for (final option in costumeCategoryOptions(view.rows))
                         ListTile(
                           key: Key(
-                            'costume-category-option-${option.category.id}',
+                            'piece-category-option-${option.category.id}',
                           ),
                           leading: Icon(
                             BreakdownMaterialIcons.forCostumeCategory(
@@ -617,7 +617,7 @@ class CostumeCategorySection extends ConsumerWidget {
                             ),
                           ),
                           title: Text(option.category.name),
-                          selected: costume.categoryId == option.category.id,
+                          selected: piece.categoryId == option.category.id,
                           onTap: () => _pick(
                             context,
                             ref,
@@ -650,12 +650,12 @@ class CostumeCategorySection extends ConsumerWidget {
     // same section instance whose later builds never depend on this
     // per-dispatch closure context.
     final messenger = ScaffoldMessenger.maybeOf(context);
-    final savedCopy = l10nOf(context).costumeDetailCategorySaved;
+    final savedCopy = l10nOf(context).pieceDetailCategorySaved;
     Navigator.of(context).pop();
     final result = await ref
         .read(piecesControllerProvider(season.id).notifier)
         .setCategory(
-          costume: costume,
+          piece: piece,
           categoryId: categoryId,
           categoryName: categoryName,
         );
@@ -663,7 +663,7 @@ class CostumeCategorySection extends ConsumerWidget {
     if (saved && messenger != null) {
       messenger.showSnackBar(
         SnackBar(
-          key: const Key('costume-category-saved-confirmation'),
+          key: const Key('piece-category-saved-confirmation'),
           content: Text(savedCopy),
         ),
       );
@@ -689,10 +689,10 @@ class CostumeCategoryOption {
 }
 
 class _DetailsSection extends ConsumerStatefulWidget {
-  const _DetailsSection({required this.season, required this.costume});
+  const _DetailsSection({required this.season, required this.piece});
 
   final SeasonView season;
-  final PieceView costume;
+  final PieceView piece;
 
   @override
   ConsumerState<_DetailsSection> createState() => _DetailsSectionState();
@@ -730,25 +730,25 @@ class _DetailsSectionState extends ConsumerState<_DetailsSection> {
   @override
   Widget build(BuildContext context) {
     final l10n = l10nOf(context);
-    final details = widget.costume.details;
+    final details = widget.piece.details;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          l10n.costumeDetailDetails,
+          l10n.pieceDetailDetails,
           style: Theme.of(context).textTheme.titleMedium,
         ),
         const SizedBox(height: 8),
         if (details.isEmpty && _editingDetailId == null && !_draftOpen)
           Text(
-            l10n.costumeDetailNoDetails,
-            key: const Key('costume-details-empty'),
+            l10n.pieceDetailNoDetails,
+            key: const Key('piece-details-empty'),
           ),
         for (final d in details)
           _DetailRow(
             key: Key('detail-row-${d.id}'),
             season: widget.season,
-            costume: widget.costume,
+            piece: widget.piece,
             detail: d,
             editing: _editingDetailId == d.id,
             onEdit: () => _openEdit(d.id),
@@ -758,9 +758,9 @@ class _DetailsSectionState extends ConsumerState<_DetailsSection> {
           Align(
             alignment: Alignment.centerLeft,
             child: TextButton.icon(
-              key: Key('costume-detail-add-${widget.costume.id}'),
+              key: Key('piece-detail-add-${widget.piece.id}'),
               icon: const Icon(Icons.add),
-              label: Text(l10n.costumeDetailAddDetail),
+              label: Text(l10n.pieceDetailAddDetail),
               onPressed: _openDraft,
             ),
           ),
@@ -768,7 +768,7 @@ class _DetailsSectionState extends ConsumerState<_DetailsSection> {
           _DetailEditor(
             key: const Key('detail-draft'),
             season: widget.season,
-            costume: widget.costume,
+            piece: widget.piece,
             initial: null,
             onClose: _close,
           ),
@@ -788,7 +788,7 @@ class _DetailRow extends ConsumerWidget {
   const _DetailRow({
     super.key,
     required this.season,
-    required this.costume,
+    required this.piece,
     required this.detail,
     required this.editing,
     required this.onEdit,
@@ -796,7 +796,7 @@ class _DetailRow extends ConsumerWidget {
   });
 
   final SeasonView season;
-  final PieceView costume;
+  final PieceView piece;
   final PieceDetailView detail;
   final bool editing;
   final VoidCallback onEdit;
@@ -808,25 +808,25 @@ class _DetailRow extends ConsumerWidget {
         ? detail.subject
         : null;
     return Card(
-      key: Key('costume-detail-${detail.id}'),
+      key: Key('piece-detail-${detail.id}'),
       child: Column(
         children: [
           ListTile(
             key: Key('detail-row-${detail.id}'),
             // Issue #543: details are pure description (subject + text);
-            // the category lives on the costume itself.
+            // the category lives on the piece itself.
             title: Text(subject ?? detail.text),
             subtitle: subject == null ? null : Text(detail.text),
             trailing: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
                 IconButton(
-                  key: Key('costume-detail-edit-${detail.id}'),
+                  key: Key('piece-detail-edit-${detail.id}'),
                   icon: const Icon(Icons.edit_outlined),
                   tooltip: l10nOf(context).commonEdit,
                   // Scroll the row into view first so the editor that
                   // expands below it is actually on screen (issue #545 —
-                  // analog of `_CostumesScreenState._selectCostume`).
+                  // analog of `_PiecesScreenState._selectPiece`).
                   onPressed: () {
                     // Fire-and-forget scroll affordance — the editor's
                     // mount does not depend on the animation completing.
@@ -835,7 +835,7 @@ class _DetailRow extends ConsumerWidget {
                   },
                 ),
                 IconButton(
-                  key: Key('costume-detail-delete-${detail.id}'),
+                  key: Key('piece-detail-delete-${detail.id}'),
                   icon: const Icon(Icons.delete_outline),
                   tooltip: l10nOf(context).commonDelete,
                   onPressed: () => _confirmDelete(context, ref),
@@ -847,7 +847,7 @@ class _DetailRow extends ConsumerWidget {
             _DetailEditor(
               key: Key('detail-editor-${detail.id}'),
               season: season,
-              costume: costume,
+              piece: piece,
               initial: detail,
               onClose: onClose,
             ),
@@ -867,10 +867,10 @@ class _DetailRow extends ConsumerWidget {
     return showDialog<void>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        key: const Key('costume-detail-delete-dialog'),
-        title: Text(l10n.costumeDetailDeleteTitle),
+        key: const Key('piece-detail-delete-dialog'),
+        title: Text(l10n.pieceDetailDeleteTitle),
         content: Text(
-          l10n.costumeDetailDeleteMessage(
+          l10n.pieceDetailDeleteMessage(
             detail.subject != null && detail.subject!.isNotEmpty
                 ? detail.subject!
                 : detail.text,
@@ -882,12 +882,12 @@ class _DetailRow extends ConsumerWidget {
             child: Text(l10n.commonCancel),
           ),
           FilledButton(
-            key: Key('costume-detail-delete-confirm-${detail.id}'),
+            key: Key('piece-detail-delete-confirm-${detail.id}'),
             onPressed: () async {
               Navigator.of(dialogContext).pop();
               // Handled: failures surface via the command-error provider.
               final deleteResult = await notifier.removeDetail(
-                costume: costume,
+                piece: piece,
                 detailId: detail.id,
               );
               deleteResult.match<void>((_) {}, (_) {});
@@ -913,13 +913,13 @@ class _DetailEditor extends ConsumerStatefulWidget {
   const _DetailEditor({
     super.key,
     required this.season,
-    required this.costume,
+    required this.piece,
     required this.initial,
     required this.onClose,
   });
 
   final SeasonView season;
-  final PieceView costume;
+  final PieceView piece;
 
   /// The detail being edited, or `null` in create mode.
   final PieceDetailView? initial;
@@ -964,7 +964,7 @@ class _DetailEditorState extends ConsumerState<_DetailEditor> {
   Widget build(BuildContext context) {
     final l10n = l10nOf(context);
     // Issue #543: no category field here — the category is set on the
-    // costume (identity section), not per detail.
+    // piece (identity section), not per detail.
     return Padding(
       key: widget.initial == null ? const Key('add-detail-editor') : null,
       padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
@@ -978,8 +978,8 @@ class _DetailEditorState extends ConsumerState<_DetailEditor> {
               key: const Key('add-detail-subject'),
               controller: _subject,
               decoration: InputDecoration(
-                labelText: l10n.costumeDetailSubject,
-                helperText: l10n.costumeDetailSubjectOptional,
+                labelText: l10n.pieceDetailSubject,
+                helperText: l10n.pieceDetailSubjectOptional,
               ),
             ),
             const SizedBox(height: 8),
@@ -994,16 +994,16 @@ class _DetailEditorState extends ConsumerState<_DetailEditor> {
                 label: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Text(l10n.costumeDetailText),
+                    Text(l10n.pieceDetailText),
                     const SizedBox(width: 2),
                     const Text('*'),
                   ],
                 ),
-                helperText: l10n.costumeDetailTextRequiredHint,
+                helperText: l10n.pieceDetailTextRequiredHint,
               ),
               onChanged: (_) => setState(() {}),
               validator: (v) => (v == null || v.trim().isEmpty)
-                  ? l10n.costumeDetailTextRequired
+                  ? l10n.pieceDetailTextRequired
                   : null,
             ),
             const SizedBox(height: 12),
@@ -1047,7 +1047,7 @@ class _DetailEditorState extends ConsumerState<_DetailEditor> {
 
   Future<void> _submit(BuildContext context) async {
     final messenger = ScaffoldMessenger.maybeOf(context);
-    final savedCopy = l10nOf(context).costumeDetailSaved;
+    final savedCopy = l10nOf(context).pieceDetailSaved;
     final text = _text.text.trim();
     final subject = _subject.text.trim().isEmpty ? null : _subject.text.trim();
     final notifier = ref.read(
@@ -1056,12 +1056,12 @@ class _DetailEditorState extends ConsumerState<_DetailEditor> {
     // Handled: failures surface via the command-error provider.
     final detailResult = widget.initial == null
         ? await notifier.addDetail(
-            costume: widget.costume,
+            piece: widget.piece,
             text: text,
             subject: subject,
           )
         : await notifier.updateDetail(
-            costume: widget.costume,
+            piece: widget.piece,
             detailId: widget.initial!.id,
             text: text,
             subject: subject,
@@ -1071,7 +1071,7 @@ class _DetailEditorState extends ConsumerState<_DetailEditor> {
     if (saved && messenger != null) {
       messenger.showSnackBar(
         SnackBar(
-          key: const Key('costume-saved-confirmation'),
+          key: const Key('piece-saved-confirmation'),
           content: Text(savedCopy),
         ),
       );
@@ -1086,10 +1086,10 @@ class _DetailEditorState extends ConsumerState<_DetailEditor> {
 /// inside the controller before any network call; denial renders the
 /// localized 403 narrative and never issues the request.
 class _PhotosSection extends ConsumerStatefulWidget {
-  const _PhotosSection({required this.season, required this.costume});
+  const _PhotosSection({required this.season, required this.piece});
 
   final SeasonView season;
-  final PieceView costume;
+  final PieceView piece;
 
   @override
   ConsumerState<_PhotosSection> createState() => _PhotosSectionState();
@@ -1098,19 +1098,19 @@ class _PhotosSection extends ConsumerStatefulWidget {
 class _PhotosSectionState extends ConsumerState<_PhotosSection> {
   bool _busy = false;
 
-  /// The single-costume DETAIL, fetched on open.
+  /// The single-piece DETAIL, fetched on open.
   ///
-  /// The gallery renders `PieceView.photos` from this row. The costume
-  /// handed in via the widget tree is the costume LIST row, which the server
+  /// The gallery renders `PieceView.photos` from this row. The piece
+  /// handed in via the widget tree is the piece LIST row, which the server
   /// enriches in batch — `list_by_season` runs `enrich_many` (3 queries per
   /// page, details + photos + variants included since the #543/#544
   /// tranche), so list rows DO carry child collections. The fetch is kept
   /// anyway because the rendered row can be an OPTIMISTIC OVERLAY, not the
   /// projected row: an upload/delete just acknowledged by a command does not
-  /// exist in the last fetched list snapshot, so the enriched single-costume
+  /// exist in the last fetched list snapshot, so the enriched single-piece
   /// read refreshes this row on gallery-affecting commands (`_loadDetail`
   /// after upload/delete). Falls back to the list view while loading and on
-  /// failure (a photo-less costume then simply shows the empty-gallery
+  /// failure (a photo-less piece then simply shows the empty-gallery
   /// affordance as before).
   PieceView? _detail;
 
@@ -1124,7 +1124,7 @@ class _PhotosSectionState extends ConsumerState<_PhotosSection> {
     if (!mounted) return;
     final res = await ref
         .read(piecesControllerProvider(widget.season.id).notifier)
-        .loadDetail(widget.costume.id);
+        .loadDetail(widget.piece.id);
     if (!mounted) return;
     // Only a successful detail may replace the rendered view: an Err leaves
     // the list view in place (and its command-error surface owns the message).
@@ -1136,17 +1136,17 @@ class _PhotosSectionState extends ConsumerState<_PhotosSection> {
 
   @override
   Widget build(BuildContext context) {
-    // Issue #535: the costume-photo policy is **series-scoped** server-side
+    // Issue #535: the piece-photo policy is **series-scoped** server-side
     // (ADR-035 B2/S2), so the widget gate mirrors the backend-computed series
     // predicate (`has_active_costume_role_in_series`) — and resolves the
     // membership from the COSTUME (character-first ∪ repertoire, issue #535
-    // review), NOT from this screen's open season: a carried-over costume
+    // review), NOT from this screen's open season: a carried-over piece
     // opened through a repertoire season of a different series gates on its
     // own series, exactly like the server. Denying on the season union would
     // block flows the server permits.
-    final costumeView = _detail ?? widget.costume;
+    final pieceView = _detail ?? widget.piece;
     final membership = ref.watch(
-      seriesMembershipForCostumeProvider(costumeMembershipScope(costumeView)),
+      seriesMembershipForCostumeProvider(costumeMembershipScope(pieceView)),
     );
     final hasSeriesRole = switch (membership) {
       AsyncData(:final value) => value.match(
@@ -1164,7 +1164,7 @@ class _PhotosSectionState extends ConsumerState<_PhotosSection> {
     };
     // Issue #535 review: a failed membership fetch must be RECOVERABLE — the
     // fetch result is retained while watched, and pull-to-refresh only
-    // refreshes costumes. A retry affordance invalidates the provider so the
+    // refreshes pieces. A retry affordance invalidates the provider so the
     // next build re-executes the season/character + membership chain.
     final fetchFailed = switch (membership) {
       AsyncData(:final value) => value.isLeft(),
@@ -1172,21 +1172,19 @@ class _PhotosSectionState extends ConsumerState<_PhotosSection> {
       _ => false,
     };
     // Photo affordances are gated on the backend-computed series predicate
-    // only. The costume's series *resolution* is the server's call (issue
-    // #532): an unassigned costume that stands in a repertoire season (which
-    // is how the client creates every costume, issue #453) CAN manage photos,
-    // so no client-side character-assignment gate remains here. A costume
+    // only. The piece's series *resolution* is the server's call (issue
+    // #532): an unassigned piece that stands in a repertoire season (which
+    // is how the client creates every piece, issue #453) CAN manage photos,
+    // so no client-side character-assignment gate remains here. A piece
     // with no resolvable container is rejected by the server with 422
-    // `costume.container-unresolved`, which surfaces through the photo
+    // `piece.container-unresolved`, which surfaces through the photo
     // command-error copy.
     final canManagePhotos = hasSeriesRole;
     // Do not construct the network-backed photo repository while the
     // capability is denied or still pending. This keeps the overview's
     // inline editor renderable during membership resolution and enforces the
     // client-side photo gate before any bytes request.
-    final repo = hasSeriesRole
-        ? ref.watch(costumePhotoRepositoryProvider)
-        : null;
+    final repo = hasSeriesRole ? ref.watch(piecePhotoRepositoryProvider) : null;
     final lru = ref.watch(photoBytesLruProvider);
 
     return Column(
@@ -1195,7 +1193,7 @@ class _PhotosSectionState extends ConsumerState<_PhotosSection> {
         Row(
           children: [
             Text(
-              l10nOf(context).costumeDetailPhotos,
+              l10nOf(context).pieceDetailPhotos,
               style: Theme.of(context).textTheme.titleMedium,
             ),
             const Spacer(),
@@ -1216,17 +1214,17 @@ class _PhotosSectionState extends ConsumerState<_PhotosSection> {
           ),
         if (fetchFailed)
           TextButton(
-            key: Key('photo-membership-retry-${widget.costume.id}'),
+            key: Key('photo-membership-retry-${widget.piece.id}'),
             onPressed: () => ref.invalidate(
               seriesMembershipForCostumeProvider(
-                costumeMembershipScope(costumeView),
+                costumeMembershipScope(pieceView),
               ),
             ),
             child: Text(l10nOf(context).commonRetry),
           ),
         if (repo != null)
           PhotoGallery(
-            costume: _detail ?? widget.costume,
+            piece: _detail ?? widget.piece,
             repository: repo,
             lru: lru,
             canCapture: canManagePhotos,
@@ -1240,27 +1238,27 @@ class _PhotosSectionState extends ConsumerState<_PhotosSection> {
                 ? () => _capture(ImageSource.camera)
                 : null,
           )
-        else if (widget.costume.photos.isEmpty)
+        else if (widget.piece.photos.isEmpty)
           Text(
             l10nOf(context).photoGalleryEmpty,
-            key: Key('photo-gallery-empty-${widget.costume.id}'),
+            key: Key('photo-gallery-empty-${widget.piece.id}'),
           ),
         if (canManagePhotos) ...[
           const SizedBox(height: 8),
           Row(
             children: [
               FilledButton.tonalIcon(
-                key: Key('photo-capture-camera-${widget.costume.id}'),
+                key: Key('photo-capture-camera-${widget.piece.id}'),
                 onPressed: _busy ? null : () => _capture(ImageSource.camera),
                 icon: const Icon(Icons.photo_camera),
-                label: Text(l10nOf(context).costumeDetailCamera),
+                label: Text(l10nOf(context).pieceDetailCamera),
               ),
               const SizedBox(width: 8),
               FilledButton.tonalIcon(
-                key: Key('photo-capture-gallery-${widget.costume.id}'),
+                key: Key('photo-capture-gallery-${widget.piece.id}'),
                 onPressed: _busy ? null : () => _capture(ImageSource.gallery),
                 icon: const Icon(Icons.photo_library),
-                label: Text(l10nOf(context).costumeDetailGallery),
+                label: Text(l10nOf(context).pieceDetailGallery),
               ),
             ],
           ),
@@ -1303,17 +1301,17 @@ class _PhotosSectionState extends ConsumerState<_PhotosSection> {
     final accepted = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: Text(l10nOf(dialogContext).costumeDetailPromptTitle),
-        content: Text(l10nOf(dialogContext).costumeDetailPromptBody),
+        title: Text(l10nOf(dialogContext).pieceDetailPromptTitle),
+        content: Text(l10nOf(dialogContext).pieceDetailPromptBody),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: Text(l10nOf(dialogContext).costumeDetailNotNow),
+            child: Text(l10nOf(dialogContext).pieceDetailNotNow),
           ),
           FilledButton(
             key: const Key('photo-rationale-accept'),
             onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: Text(l10nOf(dialogContext).costumeDetailContinue),
+            child: Text(l10nOf(dialogContext).pieceDetailContinue),
           ),
         ],
       ),
@@ -1341,7 +1339,7 @@ class _PhotosSectionState extends ConsumerState<_PhotosSection> {
                 Navigator.of(dialogContext).pop();
               }
             },
-            child: Text(l10nOf(dialogContext).costumeDetailOpenSettings),
+            child: Text(l10nOf(dialogContext).pieceDetailOpenSettings),
           ),
         ],
       ),
@@ -1394,7 +1392,7 @@ class _PhotosSectionState extends ConsumerState<_PhotosSection> {
         final uploadResult = await ref
             .read(piecesControllerProvider(widget.season.id).notifier)
             .uploadPhoto(
-              costume: _detail ?? widget.costume,
+              piece: _detail ?? widget.piece,
               bytes: Uint8ListBytes(bytes),
               contentType: contentType,
             );
@@ -1420,7 +1418,7 @@ class _PhotosSectionState extends ConsumerState<_PhotosSection> {
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: Text(l10nOf(dialogContext).photoDeleteTitle),
-        content: Text(l10nOf(dialogContext).costumeDetailDeletePhotoMessage),
+        content: Text(l10nOf(dialogContext).pieceDetailDeletePhotoMessage),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(dialogContext).pop(),
@@ -1433,7 +1431,7 @@ class _PhotosSectionState extends ConsumerState<_PhotosSection> {
               final deleteResult = await ref
                   .read(piecesControllerProvider(widget.season.id).notifier)
                   .deletePhoto(
-                    costume: _detail ?? widget.costume,
+                    piece: _detail ?? widget.piece,
                     photoId: photoId,
                   );
               deleteResult.match<void>((_) {}, (_) {});

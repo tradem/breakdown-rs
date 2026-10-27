@@ -5,7 +5,7 @@
 // Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 // Tier-1 unit tests (issue #369): deterministic fault-injection coverage for
-// the costume-domain cache paths. A scriptable DAO fake wraps a REAL DAO over
+// the piece-domain cache paths. A scriptable DAO fake wraps a REAL DAO over
 // an in-memory Drift database and throws on demand (write / read / clear), so
 // every `cache.*_failed` branch in [PieceRepository],
 // [CharacterRepository] and [ShootingDayRepository] resolves to its
@@ -15,7 +15,7 @@
 //
 // Why this seam: a closed in-memory database does not reliably produce DAO
 // faults (reads resolve instead of throwing — verified during the
-// `flutter-costume-domains` implementation), so the defensive `on Object`
+// `flutter-piece-domains` implementation), so the defensive `on Object`
 // branches had no deterministic trigger. The fake injects the fault BEFORE
 // the operation reaches the database, which is exactly the failure surface
 // the repositories must map to `Left(cache.*_failed)`.
@@ -36,9 +36,9 @@ import 'package:frontend_flutter/data/character_repository.dart';
 import 'package:frontend_flutter/data/piece_repository.dart';
 import 'package:frontend_flutter/data/shooting_day_repository.dart';
 
-// --- Fixtures (same wire form as costume_domain_repositories_test.dart) -----
+// --- Fixtures (same wire form as piece_domain_repositories_test.dart) -----
 
-PieceView _costume(String id, {int version = 1}) => PieceView(
+PieceView _piece(String id, {int version = 1}) => PieceView(
   (b) => b
     ..name = 'Fundus-Piece'
     ..id = id
@@ -355,7 +355,7 @@ void main() {
     );
 
     test('listBySeason Ok applies the snapshot', () async {
-      final repo = PieceRepository(_api(listOk([_costume('c-1')])), dao);
+      final repo = PieceRepository(_api(listOk([_piece('c-1')])), dao);
       _expectRight(await repo.listBySeason('s-1', clock: _clock));
       expect((await realDao.readBySeason('s-1')).map((c) => c.id), ['c-1']);
     });
@@ -365,7 +365,7 @@ void main() {
       () async {
         // Seed via a fault-free fetch first.
         await PieceRepository(
-          _api(listOk([_costume('c-1')])),
+          _api(listOk([_piece('c-1')])),
           dao,
         ).listBySeason('s-1', clock: _clock);
         expect((await realDao.readBySeason('s-1')).map((c) => c.id), ['c-1']);
@@ -374,7 +374,7 @@ void main() {
         // the old snapshot survives, the new row never appears.
         dao.phase = _FaultPhase.write;
         final res = await PieceRepository(
-          _api(listOk([_costume('c-2')])),
+          _api(listOk([_piece('c-2')])),
           dao,
         ).listBySeason('s-1', clock: _clock);
         _expectLeftCode(res, 'cache.write_failed');
@@ -384,7 +384,7 @@ void main() {
 
     test('readCached Ok returns the cached rows', () async {
       await PieceRepository(
-        _api(listOk([_costume('c-1')])),
+        _api(listOk([_piece('c-1')])),
         dao,
       ).listBySeason('s-1', clock: _clock);
       final repo = PieceRepository(_api(_ScriptInterceptor()), dao);
@@ -398,7 +398,7 @@ void main() {
 
     test('readCached read-fault → Left(cache.read_failed)', () async {
       await PieceRepository(
-        _api(listOk([_costume('c-1')])),
+        _api(listOk([_piece('c-1')])),
         dao,
       ).listBySeason('s-1', clock: _clock);
       dao.phase = _FaultPhase.read;
@@ -413,7 +413,7 @@ void main() {
 
     test('getAndCache Ok upserts the row', () async {
       final ok = _ScriptInterceptor(
-        respond: (_) => _wire(_costume('c-9'), PieceView.serializer),
+        respond: (_) => _wire(_piece('c-9'), PieceView.serializer),
       );
       final repo = PieceRepository(_api(ok), dao);
       _expectRight(await repo.getAndCache('s-1', 'c-9', clock: _clock));
@@ -425,7 +425,7 @@ void main() {
       () async {
         dao.phase = _FaultPhase.write;
         final ok = _ScriptInterceptor(
-          respond: (_) => _wire(_costume('c-9'), PieceView.serializer),
+          respond: (_) => _wire(_piece('c-9'), PieceView.serializer),
         );
         final repo = PieceRepository(_api(ok), dao);
         _expectLeftCode(
@@ -438,7 +438,7 @@ void main() {
 
     test('clearCache Ok empties the season scope', () async {
       await PieceRepository(
-        _api(listOk([_costume('c-1')])),
+        _api(listOk([_piece('c-1')])),
         dao,
       ).listBySeason('s-1', clock: _clock);
       _expectRight(
@@ -454,7 +454,7 @@ void main() {
       'clearCache clear-fault → Left(cache.clear_failed), rows survive',
       () async {
         await PieceRepository(
-          _api(listOk([_costume('c-1')])),
+          _api(listOk([_piece('c-1')])),
           dao,
         ).listBySeason('s-1', clock: _clock);
         dao.phase = _FaultPhase.clear;

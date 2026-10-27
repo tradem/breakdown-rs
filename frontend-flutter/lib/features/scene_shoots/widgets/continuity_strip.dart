@@ -17,7 +17,7 @@ import '../../../auth/membership/capability.dart';
 import '../../../auth/membership/membership_providers.dart';
 import '../../../core/problem_error.dart';
 import '../../../l10n/app_localizations_provider.dart';
-import '../../costumes/costumes_controller.dart';
+import '../../pieces/pieces_controller.dart';
 import '../../photos/capture.dart';
 import '../../photos/prepare.dart';
 import '../../photos/widgets/photo_gallery.dart';
@@ -28,14 +28,14 @@ import '../scene_shoots_state.dart';
 /// (Anschluss) photos with capture + unlink, reusing the Phase 2 capture
 /// pipeline (point-of-use rationale → isolate prepare → raw-bytes upload).
 ///
-/// Photo bytes are costume-scoped (`POST /v1/costumes/{id}/photos`), so a
-/// capture picks the owning costume from the season's costume read DTOs
+/// Photo bytes are piece-scoped (`POST /v1/pieces/{id}/photos`), so a
+/// capture picks the owning piece from the season's piece read DTOs
 /// and the acknowledged photo is then linked to the scene-shoot context
 /// (`link_continuity_photo`). Thumbnails resolve through the same
-/// read-DTO join: each linked id is looked up in the season costumes'
+/// read-DTO join: each linked id is looked up in the season pieces'
 /// embedded photos and renders through the shared [PhotoTile] (LRU +
-/// variant watch). Linked ids with no owning costume in the projection
-/// (prop-only shots, deleted costume photos) render a neutral row with
+/// variant watch). Linked ids with no owning piece in the projection
+/// (prop-only shots, deleted piece photos) render a neutral row with
 /// the unlink affordance — never a throw, never a guessed byte fetch.
 ///
 /// // AUTHZ-GATE: capture/upload/unlink run the `upload_continuity_photos`
@@ -75,10 +75,10 @@ class _ContinuityStripState extends ConsumerState<ContinuityStrip> {
       AsyncData(:final value) => !value.canUploadContinuityPhotos,
       _ => false,
     };
-    final costumes = ref.watch(costumesViewProvider(widget.scope.seasonId));
-    final repo = ref.watch(costumePhotoRepositoryProvider);
+    final pieces = ref.watch(piecesViewProvider(widget.scope.seasonId));
+    final repo = ref.watch(piecePhotoRepositoryProvider);
     final lru = ref.watch(photoBytesLruProvider);
-    final resolved = _resolve(costumes.rows, widget.shoot.continuityPhotoIds);
+    final resolved = _resolve(pieces.rows, widget.shoot.continuityPhotoIds);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -155,17 +155,17 @@ class _ContinuityStripState extends ConsumerState<ContinuityStrip> {
         if (widget.enabled && canManage) ...[
           const SizedBox(height: 8),
           DropdownButtonFormField<String>(
-            key: Key('continuity-costume-pick-${widget.shoot.id}'),
+            key: Key('continuity-piece-pick-${widget.shoot.id}'),
             initialValue: _pieceId,
             hint: Text(l10nOf(context).continuityStoreOn),
             items: [
-              for (final c in costumes.rows)
+              for (final c in pieces.rows)
                 DropdownMenuItem(
                   // Gherkin contract key for the continuity capture
-                  // critical scenario (costume pick on device).
-                  key: Key('continuity-costume-option-${c.id}'),
+                  // critical scenario (piece pick on device).
+                  key: Key('continuity-piece-option-${c.id}'),
                   value: c.id,
-                  child: Text(_costumeLabel(c)),
+                  child: Text(_pieceLabel(c)),
                 ),
             ],
             onChanged: (v) => setState(() => _pieceId = v),
@@ -179,7 +179,7 @@ class _ContinuityStripState extends ConsumerState<ContinuityStrip> {
                     ? null
                     : () => _capture(ImageSource.camera),
                 icon: const Icon(Icons.photo_camera),
-                label: Text(l10nOf(context).costumeDetailCamera),
+                label: Text(l10nOf(context).pieceDetailCamera),
               ),
               const SizedBox(width: 8),
               FilledButton.tonalIcon(
@@ -188,14 +188,14 @@ class _ContinuityStripState extends ConsumerState<ContinuityStrip> {
                     ? null
                     : () => _capture(ImageSource.gallery),
                 icon: const Icon(Icons.photo_library),
-                label: Text(l10nOf(context).costumeDetailGallery),
+                label: Text(l10nOf(context).pieceDetailGallery),
               ),
             ],
           ),
           if (_pieceId == null)
             Text(
-              l10nOf(context).continuityCostumeHint,
-              key: Key('continuity-costume-hint-${widget.shoot.id}'),
+              l10nOf(context).continuityPieceHint,
+              key: Key('continuity-piece-hint-${widget.shoot.id}'),
             ),
         ],
       ],
@@ -204,7 +204,7 @@ class _ContinuityStripState extends ConsumerState<ContinuityStrip> {
 
   Future<void> _capture(ImageSource source) async {
     final pieceId = _pieceId;
-    // Belt and braces: the buttons disable without a costume, and the
+    // Belt and braces: the buttons disable without a piece, and the
     // controller gates the upload + link — this guard only short-circuits
     // the picker intent itself.
     if (pieceId == null) return;
@@ -246,12 +246,12 @@ class _ContinuityStripState extends ConsumerState<ContinuityStrip> {
         actions: [
           TextButton(
             onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: Text(l10nOf(dialogContext).costumeDetailNotNow),
+            child: Text(l10nOf(dialogContext).pieceDetailNotNow),
           ),
           FilledButton(
             key: const Key('continuity-rationale-accept'),
             onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: Text(l10nOf(dialogContext).costumeDetailContinue),
+            child: Text(l10nOf(dialogContext).pieceDetailContinue),
           ),
         ],
       ),
@@ -279,7 +279,7 @@ class _ContinuityStripState extends ConsumerState<ContinuityStrip> {
                 Navigator.of(dialogContext).pop();
               }
             },
-            child: Text(l10nOf(dialogContext).costumeDetailOpenSettings),
+            child: Text(l10nOf(dialogContext).pieceDetailOpenSettings),
           ),
         ],
       ),
@@ -403,7 +403,7 @@ class _ContinuityStripState extends ConsumerState<ContinuityStrip> {
 }
 
 /// One resolved continuity entry: either a photo found in the season's
-/// costume projection (thumbnail-capable) or an orphan id.
+/// piece projection (thumbnail-capable) or an orphan id.
 sealed class _ResolvedContinuity {
   const _ResolvedContinuity();
 }
@@ -421,16 +421,16 @@ class _OrphanPhoto extends _ResolvedContinuity {
   final String id;
 }
 
-/// Joins linked continuity ids against the season costumes' embedded
+/// Joins linked continuity ids against the season pieces' embedded
 /// photos (read-DTO join — the client never fetches bytes blind).
 List<_ResolvedContinuity> _resolve(
-  List<PieceView> costumes,
+  List<PieceView> pieces,
   Iterable<String> linkedIds,
 ) {
   final byPhotoId = <String, (String, PiecePhotoView)>{};
-  for (final costume in costumes) {
-    for (final photo in costume.photos) {
-      byPhotoId.putIfAbsent(photo.id, () => (costume.id, photo));
+  for (final piece in pieces) {
+    for (final photo in piece.photos) {
+      byPhotoId.putIfAbsent(photo.id, () => (piece.id, photo));
     }
   }
   return [
@@ -445,8 +445,8 @@ List<_ResolvedContinuity> _resolve(
   ];
 }
 
-String _costumeLabel(PieceView costume) {
-  final id = costume.id.length > 8 ? costume.id.substring(0, 8) : costume.id;
-  final notes = costume.notes.trim();
-  return notes.isEmpty ? 'Costume $id' : 'Costume $id — $notes';
+String _pieceLabel(PieceView piece) {
+  final id = piece.id.length > 8 ? piece.id.substring(0, 8) : piece.id;
+  final notes = piece.notes.trim();
+  return notes.isEmpty ? 'Piece $id' : 'Piece $id — $notes';
 }

@@ -192,7 +192,7 @@ class SeasonsController extends _$SeasonsController {
   /// Archives a season (issue #533 — terminal lifecycle state).
   ///
   /// AUTHZ-GATE: the backend `archive_season` handler is middleware-classified
-  /// `Authenticated` and enforces the season-scoped costume-dept membership
+  /// `Authenticated` and enforces the season-scoped piece-dept membership
   /// INSIDE the handler (403 on deny). The client mirrors that gate here —
   /// `membership.hasActiveCostumeRoleInSeason` (the backend-computed
   /// predicate the client must NOT re-implement) is checked before any
@@ -238,7 +238,7 @@ class SeasonsController extends _$SeasonsController {
     if (!role) {
       const error = ProblemError(
         code: 'domain.forbidden',
-        title: 'No active costume-dept role in this season',
+        title: 'No active piece-dept role in this season',
         status: 403,
       );
       ref.read(seasonCommandErrorProvider.notifier).set(error);

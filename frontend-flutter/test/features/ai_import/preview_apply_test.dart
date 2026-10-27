@@ -78,7 +78,7 @@ AiConfigView _namingConfig() => AiConfigView(
 DraftScene _draft(
   String ref, {
   int? number,
-  List<DraftCostume> costumes = const [],
+  List<DraftCostume> pieces = const [],
   DraftEpisode? episode,
   double? sceneScore,
   double? synopsisScore,
@@ -89,7 +89,7 @@ DraftScene _draft(
     ..sceneNumber = number
     ..summary = 'Scene $ref'
     ..characters.replace(const <DraftCharacter>[])
-    ..costumes.replace(costumes);
+    ..costumes.replace(pieces);
   // A complex built_value field is set through its builder; an absent
   // marker stays UNSET (null on the wire — the single-episode flow).
   if (episode != null) b.episode.replace(episode);
@@ -117,7 +117,7 @@ EpisodeView _cachedEpisode(String id, {int number = 2}) => EpisodeView(
     ..version = 1,
 );
 
-DraftCostume _costume(String character, String description, {String? quote}) =>
+DraftCostume _piece(String character, String description, {String? quote}) =>
     DraftCostume(
       (b) => b
         ..characterName = character
@@ -362,25 +362,25 @@ void main() {
       expect(mappings.first.draftRef, 'd1');
     });
 
-    // Tasks 2.x/7.4 (`ai-import` — costumes are decided independently of the
+    // Tasks 2.x/7.4 (`ai-import` — pieces are decided independently of the
     // scene row): only REJECTIONS travel. An absent ordinal reads as accepted
     // server-side, so an untouched row's request stays byte-identical to a
-    // pre-costume client's.
-    test('an accepted costume sends NO decision; a rejected one sends its '
+    // pre-piece client's.
+    test('an accepted piece sends NO decision; a rejected one sends its '
         'ordinal with accepted=false', () {
       final state = AiApplyState(
         rows: [
           const PreviewRow(
             draftRef: 'd1',
             label: 'A',
-            costumes: [
-              PreviewCostume(
+            pieces: [
+              PreviewPiece(
                 ordinal: 0,
                 characterName: 'Renee',
                 description: 'Blue linen dress',
                 sourceQuote: 'trägt das blaue Leinenkleid',
               ),
-              PreviewCostume(
+              PreviewPiece(
                 ordinal: 1,
                 characterName: 'Renee',
                 description: 'Leather coat',
@@ -406,14 +406,14 @@ void main() {
       expect(decisions.single.accepted, isFalse);
     });
 
-    test('a rejected costume is an EDIT: accept_as_is must not be claimed '
+    test('a rejected piece is an EDIT: accept_as_is must not be claimed '
         'over a row whose extraction the reviewer vetoed', () {
       const rows = [
         PreviewRow(
           draftRef: 'd1',
           label: 'A',
-          costumes: [
-            PreviewCostume(
+          pieces: [
+            PreviewPiece(
               ordinal: 0,
               characterName: 'Renee',
               description: 'Blue linen dress',
@@ -432,13 +432,13 @@ void main() {
       expect(vetoed.acceptAsIs, isFalse);
     });
 
-    test('an unknown costume ordinal is ignored, never fabricating a row the '
+    test('an unknown piece ordinal is ignored, never fabricating a row the '
         'payload does not carry', () {
       const row = PreviewRow(
         draftRef: 'd1',
         label: 'A',
-        costumes: [
-          PreviewCostume(
+        pieces: [
+          PreviewPiece(
             ordinal: 0,
             characterName: 'Renee',
             description: 'Blue linen dress',
@@ -446,10 +446,7 @@ void main() {
           ),
         ],
       );
-      expect(
-        row.withCostumeDecision(7, false).costumes.single.accepted,
-        isTrue,
-      );
+      expect(row.withCostumeDecision(7, false).pieces.single.accepted, isTrue);
     });
 
     test('Update carries the picked aggregate id + version; skip is '
@@ -1530,7 +1527,7 @@ void main() {
 
     // Task 7.4 (`ai-import` — the reviewer sees the extraction, its evidence,
     // and can veto it per row).
-    testWidgets('a draft row with costumes lists them with their grounding '
+    testWidgets('a draft row with pieces lists them with their grounding '
         'quote, all accepted by default', (tester) async {
       await setupContainer(
         previewValue: Right(
@@ -1538,9 +1535,9 @@ void main() {
             _scriptPayloadWith([
               _draft(
                 'draft-1',
-                costumes: [
-                  _costume('Renee Sanders', 'blue linen dress'),
-                  _costume(
+                pieces: [
+                  _piece('Renee Sanders', 'blue linen dress'),
+                  _piece(
                     'Renee Sanders',
                     'leather coat',
                     quote: 'greift zum Ledermantel',
@@ -1563,29 +1560,29 @@ void main() {
         expect(
           tester
               .widget<CheckboxListTile>(
-                find.byKey(Key('ai-preview-costume-toggle-draft-1-$ordinal')),
+                find.byKey(Key('ai-preview-piece-toggle-draft-1-$ordinal')),
               )
               .value,
           isTrue,
         );
         expect(
-          find.byKey(Key('ai-preview-costume-rejected-draft-1-$ordinal')),
+          find.byKey(Key('ai-preview-piece-rejected-draft-1-$ordinal')),
           findsNothing,
         );
       }
     });
 
-    testWidgets('rejecting ONE costume leaves the scene decision Create and '
-        'marks only that costume rejected', (tester) async {
+    testWidgets('rejecting ONE piece leaves the scene decision Create and '
+        'marks only that piece rejected', (tester) async {
       await setupContainer(
         previewValue: Right(
           _previewResponse(
             _scriptPayloadWith([
               _draft(
                 'draft-1',
-                costumes: [
-                  _costume('Renee Sanders', 'blue linen dress'),
-                  _costume('Renee Sanders', 'leather coat'),
+                pieces: [
+                  _piece('Renee Sanders', 'blue linen dress'),
+                  _piece('Renee Sanders', 'leather coat'),
                 ],
               ),
             ]),
@@ -1606,20 +1603,20 @@ void main() {
       await pumpPreview(tester);
 
       await tester.tap(
-        find.byKey(const Key('ai-preview-costume-toggle-draft-1-1')),
+        find.byKey(const Key('ai-preview-piece-toggle-draft-1-1')),
       );
       await tester.pumpAndSettle();
 
       expect(
-        find.byKey(const Key('ai-preview-costume-rejected-draft-1-1')),
+        find.byKey(const Key('ai-preview-piece-rejected-draft-1-1')),
         findsOneWidget,
       );
       expect(
-        find.byKey(const Key('ai-preview-costume-rejected-draft-1-0')),
+        find.byKey(const Key('ai-preview-piece-rejected-draft-1-0')),
         findsNothing,
-        reason: 'the veto is per costume row, not per scene',
+        reason: 'the veto is per piece row, not per scene',
       );
-      // The scene row itself is still a Create (the costume veto did not touch
+      // The scene row itself is still a Create (the piece veto did not touch
       // it) — the row stays actionable and accept_as_is is gone.
       expect(
         find.descendant(
@@ -1648,7 +1645,7 @@ void main() {
       expect(mapping.decision.oneOf.value, 'Create');
     });
 
-    testWidgets('a costume the apply could not bind is NAMED with a localized '
+    testWidgets('a piece the apply could not bind is NAMED with a localized '
         'reason — a partial apply never reads as a full one', (tester) async {
       await setupContainer(
         applyQueue: [
@@ -1680,7 +1677,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.byKey(const Key('ai-apply-outcome')), findsOneWidget);
-      // The script wording reports the figures/costumes it produced.
+      // The script wording reports the figures/pieces it produced.
       expect(
         find.textContaining('Applied 1 scene(s), 1 character(s), 1 costume(s)'),
         findsOneWidget,
@@ -1696,7 +1693,7 @@ void main() {
       );
     });
 
-    testWidgets('a costume the server DROPPED is visible as an uncertainty row '
+    testWidgets('a piece the server DROPPED is visible as an uncertainty row '
         'and does NOT gate the apply (design D8)', (tester) async {
       await setupContainer(
         previewValue: Right(
@@ -1707,11 +1704,11 @@ void main() {
                 Uncertainty(
                   (u) => u
                     ..sceneIndex = 1
-                    ..field = 'costumes'
+                    ..field = 'pieces'
                     // The exact note shape the worker writes (design D8): the
                     // stable reason slug first, then the dropped entry.
                     ..note =
-                        'ungrounded_quote: costume of "Renee" '
+                        'ungrounded_quote: piece of "Renee" '
                         '("ball gown") was dropped; row draft-1'
                     ..kind = UncertaintyKind.droppedRow,
                 ),
@@ -1724,7 +1721,7 @@ void main() {
 
       // The reviewer sees the MISSING entry (the note carries the stable reason
       // slug) instead of concluding the script named no costuming.
-      expect(find.textContaining('Uncertainty (costumes)'), findsOneWidget);
+      expect(find.textContaining('Uncertainty (pieces)'), findsOneWidget);
       expect(find.textContaining('ungrounded_quote'), findsOneWidget);
       // `droppedRow` is information, not a gate: the apply stays dispatchable.
       await tester.tap(find.byKey(const Key('ai-apply-review-checkbox')));
@@ -1734,7 +1731,7 @@ void main() {
             .widget<FilledButton>(find.byKey(const Key('ai-apply-submit')))
             .onPressed,
         isNotNull,
-        reason: 'a dropped costume row must not block the whole import',
+        reason: 'a dropped piece row must not block the whole import',
       );
     });
 
@@ -2122,7 +2119,7 @@ void main() {
           Uncertainty(
             (u) => u
               ..sceneIndex = 0
-              ..field = 'costume'
+              ..field = 'piece'
               ..note = 'dropped'
               ..kind = UncertaintyKind.droppedRow,
           ),

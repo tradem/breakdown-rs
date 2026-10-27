@@ -93,7 +93,7 @@ BlockView block(String id, {String seasonId = 'season-1'}) => BlockView(
     ..version = 1,
 );
 
-PieceView costume(String id) => PieceView(
+PieceView piece(String id) => PieceView(
   (b) => b
     ..name = 'Fundus-Piece'
     ..id = id

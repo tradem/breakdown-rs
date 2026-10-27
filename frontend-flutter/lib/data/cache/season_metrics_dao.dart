@@ -30,7 +30,7 @@ class _SeasonCount {
 /// Read-only aggregation DAO for the season-card metadata
 /// (`redesign-seasons-home` task 2.2, team decision 4).
 ///
-/// Counts blocks / scenes / costumes per season from the EXISTING cache
+/// Counts blocks / scenes / pieces per season from the EXISTING cache
 /// tables — no new fetch calls, no schema change (no migration rule
 /// triggered; the change's target is: none). Writes stay owned by the
 /// per-projection DAOs; this class only reads.
@@ -41,7 +41,7 @@ class _SeasonCount {
 /// * `cachedAt` is the OLDEST contributing source's cache-write time and
 ///   `isStale` its TTL verdict per the injectable [clock] — the metadata
 ///   is only as fresh as its oldest source (conservative staleness: a
-///   fresh costume cache never masks an expired hierarchy cache).
+///   fresh piece cache never masks an expired hierarchy cache).
 class SeasonMetricsDao {
   const SeasonMetricsDao(this._db);
 
@@ -81,21 +81,21 @@ class SeasonMetricsDao {
         },
       );
       // Pieces are season-scoped (snapshot rows carry `season_id`).
-      final costumes = await _grouped(
+      final pieces = await _grouped(
         'SELECT season_id AS season_id, COUNT(*) AS c, '
         'MIN(cached_at) AS oldest FROM piece_cache_rows '
         'GROUP BY season_id',
         readsFrom: {_db.pieceCacheRows},
       );
 
-      final seasonIds = {...blocks.keys, ...scenes.keys, ...costumes.keys};
+      final seasonIds = {...blocks.keys, ...scenes.keys, ...pieces.keys};
       return Right({
         for (final id in seasonIds)
           id: _metricsFor(
             id,
             blocks: blocks[id],
             scenes: scenes[id],
-            costumes: costumes[id],
+            pieces: pieces[id],
             ttl: ttl,
             clock: clock,
           ),
@@ -128,11 +128,11 @@ class SeasonMetricsDao {
     String seasonId, {
     _SeasonCount? blocks,
     _SeasonCount? scenes,
-    _SeasonCount? costumes,
+    _SeasonCount? pieces,
     required Duration ttl,
     required Clock clock,
   }) {
-    final sources = [?blocks, ?scenes, ?costumes];
+    final sources = [?blocks, ?scenes, ?pieces];
     // At least one source exists by construction (the id came from a
     // contributing table's group).
     final oldestMs = sources
@@ -145,7 +145,7 @@ class SeasonMetricsDao {
     return SeasonMetrics(
       blockCount: blocks?.count,
       sceneCount: scenes?.count,
-      costumeCount: costumes?.count,
+      pieceCount: pieces?.count,
       cachedAt: cachedAt,
       isStale: clock.now().difference(cachedAt) > ttl,
     );

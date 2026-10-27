@@ -51,7 +51,7 @@ Future<void> _defaultWatchDelay(int attempt) => Future<void>.delayed(
   Duration(seconds: [2, 4, 8, 10][attempt.clamp(1, 4) - 1]),
 );
 
-/// Read/write repository for the `Costume | Continuity` photo bounded context
+/// Read/write repository for the `Piece | Continuity` photo bounded context
 /// (capture/upload, byte fetch, delete — all AUTHZ-GATE'd server-side).
 ///
 /// Upload is raw bytes with the matching `Content-Type` header (NOT
@@ -59,7 +59,7 @@ Future<void> _defaultWatchDelay(int attempt) => Future<void>.delayed(
 class PhotoRepository extends BaseRepository {
   const PhotoRepository(super.api);
 
-  /// Raw-bytes upload (`POST /v1/costumes/{costume_id}/photos`).
+  /// Raw-bytes upload (`POST /v1/pieces/{costume_id}/photos`).
   ///
   /// [contentType] must be one of [kPhotoContentTypes]; the caller (prepare
   /// pipeline) guarantees the bytes fit the size budget, else it fails
@@ -79,7 +79,7 @@ class PhotoRepository extends BaseRepository {
     }
     try {
       final response = await api.dio.post<Object>(
-        '/v1/costumes/$pieceId/photos',
+        '/v1/pieces/$pieceId/photos',
         // Pass the bytes directly (not a Stream): Dio sets the content
         // length automatically, so `onSendProgress` receives a valid
         // total (a Stream payload leaves the length unset and progress
@@ -126,7 +126,7 @@ class PhotoRepository extends BaseRepository {
     ),
   );
 
-  /// Deletes a costume photo (204 → optimistic removal + reconcile).
+  /// Deletes a piece photo (204 → optimistic removal + reconcile).
   /// A `null` body is success (not `dto.invalid`).
   Future<Result<void>> delete(String pieceId, String photoId) async {
     try {
@@ -140,9 +140,9 @@ class PhotoRepository extends BaseRepository {
     }
   }
 
-  /// Bounded-backoff costume refetch stream for variant watching (D5).
+  /// Bounded-backoff piece refetch stream for variant watching (D5).
   ///
-  /// Refetches the costume view via [fetchCostume] until the terminal
+  /// Refetches the piece view via [fetchPiece] until the terminal
   /// condition holds — **every** variant of **every** photo is
   /// `Ready|Failed` (whole pass, not per-variant) — or the bounded budget
   /// is exhausted ([kPhotoWatchMaxAttempts] refetches or
@@ -158,14 +158,14 @@ class PhotoRepository extends BaseRepository {
   ///   `Future.delayed` wall-clock).
   Stream<PhotoWatchEvent> watch(
     String pieceId,
-    Future<Result<PieceView>> Function() fetchCostume, {
+    Future<Result<PieceView>> Function() fetchPiece, {
     Clock clock = Clock.system,
     Future<void> Function(int attempt)? delay,
   }) async* {
     final startedAt = clock.now();
     var attempts = 0;
     Stream<PhotoWatchEvent> emitExpired() async* {
-      final last = await fetchCostume();
+      final last = await fetchPiece();
       yield* last.match(
         (err) async* {
           yield PhotoWatchEvent.expired(null, err);
@@ -192,7 +192,7 @@ class PhotoRepository extends BaseRepository {
         return;
       }
       attempts++;
-      final result = await fetchCostume();
+      final result = await fetchPiece();
       final done = await result.match(
         (_) async => false,
         (view) async => isPhotoWatchTerminal(view),
@@ -250,7 +250,7 @@ class PhotoWatchEvent {
 /// at `PieceView.photos[].variants[].status` — `variants` belongs to each
 /// `PiecePhotoView` inside `PieceView.photos`, NOT to `PieceView`
 /// itself. The watch ends only when **every** variant of **every** photo of
-/// the watched costume is terminal (`Ready` or `Failed`).
+/// the watched piece is terminal (`Ready` or `Failed`).
 ///
 /// A photo with one `Ready` and one `Pending` variant keeps the pass running.
 /// An empty photo list is terminal (nothing to wait for).

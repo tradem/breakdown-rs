@@ -6,7 +6,7 @@
 ///
 /// The on-device Gherkin runner builds the instrumented app ONCE with fixed
 /// dart-defines; `restartAppBetweenScenarios` relaunches the same binary, so
-/// a per-scenario membership shape (permissive costume-dept vs. capability-less
+/// a per-scenario membership shape (permissive piece-dept vs. capability-less
 /// viewer) cannot be expressed as a compile-time define. The override rides
 /// the FlutterDriver data channel instead: the runner-side
 /// `I am authenticated as a "{string}" user` step sends
@@ -32,7 +32,7 @@ import 'package:meta/meta.dart' show visibleForTesting;
 
 abstract final class DebugMembershipOverride {
   /// The overridden dev-auth role, or `null` for the default permissive
-  /// costume-dept membership.
+  /// piece-dept membership.
   @visibleForTesting
   static String? role;
 
@@ -44,7 +44,7 @@ abstract final class DebugMembershipOverride {
     return DebugMembershipOverride.role ?? '';
   }
 
-  /// True when the current override denies the costume-dept membership
+  /// True when the current override denies the piece-dept membership
   /// (capability-less viewer). Unknown role strings deny fail-closed — an
   /// unrecognized harness value must never hand out capabilities. An
   /// explicitly set `costume_dept` stays permissive (CodeRabbit review,
@@ -58,7 +58,7 @@ abstract final class DebugMembershipOverride {
 abstract final class DevAuthRole {
   const DevAuthRole._();
 
-  /// Seeded costume-dept principal — permissive membership (default).
+  /// Seeded piece-dept principal — permissive membership (default).
   static const costumeDept = 'costume_dept';
 
   /// Capability-less viewer — client-side AUTHZ-GATE denies every gated

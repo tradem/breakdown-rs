@@ -5,18 +5,18 @@
 
 // Tier-1 unit tests for the pure scene-beat helpers (issue #546): the
 // grouping order of `groupSceneBeats` and the tile-identity discipline of
-// `sceneBeatCostumeLabel` / `sceneBeatCostumeCategory`. No Flutter imports.
+// `sceneBeatPieceLabel` / `sceneBeatPieceCategory`. No Flutter imports.
 
 import 'package:breakdown_api/breakdown_api.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:frontend_flutter/features/costumes/costume_identity.dart';
+import 'package:frontend_flutter/features/pieces/piece_identity.dart';
 import 'package:frontend_flutter/features/scenes/scene_beats.dart';
 
 SceneOutfitBeatView _beat(
   String characterId,
   int order, {
-  String pieceId = 'costume-1',
+  String pieceId = 'piece-1',
   String? categoryName,
   String? note,
 }) => SceneOutfitBeatView(
@@ -28,7 +28,7 @@ SceneOutfitBeatView _beat(
     ..note = note,
 );
 
-PieceView _costume(
+PieceView _piece(
   String id, {
   String? subject,
   String? categoryName,
@@ -59,8 +59,8 @@ void main() {
         assignedCharacters: ['c-2', 'c-1'],
         beats: [
           _beat('c-1', 0),
-          _beat('c-2', 0, pieceId: 'costume-2'),
-          _beat('c-2', 1, pieceId: 'costume-3'),
+          _beat('c-2', 0, pieceId: 'piece-2'),
+          _beat('c-2', 1, pieceId: 'piece-3'),
         ],
       );
       expect(groups.map((g) => g.characterId), ['c-2', 'c-1']);
@@ -79,7 +79,7 @@ void main() {
     });
 
     test('beat-carrying unknown characters are appended, never dropped', () {
-      // Stale projection between AssignCharacter and AddCostumeBeat: the
+      // Stale projection between AssignCharacter and AddSceneOutfitBeat: the
       // beat references a character the scene's id list does not carry yet.
       final groups = groupSceneBeats(
         assignedCharacters: ['c-1'],
@@ -97,23 +97,23 @@ void main() {
     });
   });
 
-  group('sceneBeatCostumeLabel (tile-identity discipline)', () {
+  group('sceneBeatPieceLabel (tile-identity discipline)', () {
     test('a piece resolves via the SAME tile helper', () {
-      final label = costumeDisplayName(
-        _costume('costume-1', subject: 'Rotkäppchen-Mantel'),
-        'Kostüm',
+      final label = pieceDisplayName(
+        _piece('piece-1', subject: 'Rotkäppchen-Mantel'),
+        'Kleidungsstück',
       );
       // `PieceView.name` is the authoritative label, NOT the detail subject.
       expect(label, 'Fundus-Piece');
     });
 
     test('a blank piece name falls back to the detail subject', () {
-      final label = costumeDisplayName(
-        _costume(
-          'costume-1',
+      final label = pieceDisplayName(
+        _piece(
+          'piece-1',
           subject: 'Rotkäppchen-Mantel',
         ).rebuild((b) => b..name = ' '),
-        'Kostüm',
+        'Kleidungsstück',
       );
       expect(label, 'Rotkäppchen-Mantel');
     });
@@ -122,7 +122,7 @@ void main() {
       expect(
         sceneBeatOutfitLabel(
           outfitName: 'Alltagslook Tag 1',
-          genericFallback: 'Kostüm',
+          genericFallback: 'Kleidungsstück',
         ),
         'Alltagslook Tag 1',
       );
@@ -130,34 +130,37 @@ void main() {
 
     test('projection miss falls back to the generic label', () {
       expect(
-        sceneBeatOutfitLabel(outfitName: null, genericFallback: 'Kostüm'),
-        'Kostüm',
+        sceneBeatOutfitLabel(
+          outfitName: null,
+          genericFallback: 'Kleidungsstück',
+        ),
+        'Kleidungsstück',
       );
     });
 
     test('projection miss without join falls back to the generic label', () {
-      final label = sceneBeatCostumeLabel(
-        costume: null,
+      final label = sceneBeatPieceLabel(
+        piece: null,
         joinedCategoryName: null,
-        genericFallback: 'Kostüm',
+        genericFallback: 'Kleidungsstück',
       );
-      expect(label, 'Kostüm');
+      expect(label, 'Kleidungsstück');
     });
 
-    test('icon category prefers the costume, falls back to the join', () {
+    test('icon category prefers the piece, falls back to the join', () {
       expect(
-        sceneBeatCostumeCategory(
-          costume: _costume('c', categoryName: 'Schuhe'),
+        sceneBeatPieceCategory(
+          piece: _piece('c', categoryName: 'Schuhe'),
           joinedCategoryName: 'Jacke',
         ),
         'Schuhe',
       );
       expect(
-        sceneBeatCostumeCategory(costume: null, joinedCategoryName: 'Jacke'),
+        sceneBeatPieceCategory(piece: null, joinedCategoryName: 'Jacke'),
         'Jacke',
       );
       expect(
-        sceneBeatCostumeCategory(costume: null, joinedCategoryName: null),
+        sceneBeatPieceCategory(piece: null, joinedCategoryName: null),
         isNull,
       );
     });

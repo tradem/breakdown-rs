@@ -225,7 +225,7 @@ void main() {
       expect(find.text('Script'), findsOneWidget);
       expect(find.text('Schedule/Dispo'), findsWidgets);
       // The Cast destination is selected first; its content is the cast
-      // view (roster/costumes — issue #610).
+      // view (roster/pieces — issue #610).
       expect(find.byType(CastTabScreen), findsOneWidget);
       // No season scope yet: the cast view shows its season empty state.
       expect(find.byKey(const Key('cast-empty')), findsOneWidget);
@@ -948,7 +948,7 @@ void main() {
       await setupContainer();
       await pumpShell(tester, widthDp: 360);
       // The shell view bar is the ONLY title surface: the Cast root no
-      // longer owns an AppBar (issue #638). (The hosted roster/costume
+      // longer owns an AppBar (issue #638). (The hosted roster/piece
       // screens keep their own bar, so assert the Cast TITLE is gone from
       // an app bar rather than that no AppBar exists in the subtree.)
       expect(
@@ -958,7 +958,7 @@ void main() {
         ),
         findsNothing,
       );
-      // Its costume-domain actions moved into the Cast view's toolbar.
+      // Its piece-domain actions moved into the Cast view's toolbar.
       expect(find.byKey(const Key('cast-fundus-action')), findsOneWidget);
     });
 

@@ -37,8 +37,8 @@ import 'package:frontend_flutter/data/photo_repository.dart';
 import 'package:frontend_flutter/data/shooting_day_repository.dart';
 import 'package:frontend_flutter/features/characters/characters_controller.dart';
 import 'package:frontend_flutter/features/characters/characters_state.dart';
-import 'package:frontend_flutter/features/costumes/costumes_controller.dart';
-import 'package:frontend_flutter/features/costumes/costumes_state.dart';
+import 'package:frontend_flutter/features/pieces/pieces_controller.dart';
+import 'package:frontend_flutter/features/pieces/pieces_state.dart';
 import 'package:frontend_flutter/features/photos/capture.dart';
 import 'package:frontend_flutter/features/photos/prepare.dart';
 import 'package:frontend_flutter/features/photos/widgets/photo_gallery.dart';
@@ -46,7 +46,7 @@ import 'package:frontend_flutter/features/shooting_days/order_keys.dart';
 import 'package:frontend_flutter/features/shooting_days/shooting_days_controller.dart';
 import 'package:frontend_flutter/features/shooting_days/shooting_days_state.dart';
 
-PieceView _costume(String id, {int version = 1}) => PieceView(
+PieceView _piece(String id, {int version = 1}) => PieceView(
   (b) => b
     ..name = 'Fundus-Piece'
     ..id = id
@@ -238,12 +238,12 @@ void main() {
     });
   });
 
-  group('costume snapshot order (ordinal)', () {
+  group('piece snapshot order (ordinal)', () {
     test('readBySeason reproduces snapshot order incl. ties', () async {
       final db = CacheDatabase();
       addTearDown(db.close);
       final dao = PieceCacheDao(db);
-      PieceView costume(String id) => PieceView(
+      PieceView piece(String id) => PieceView(
         (b) => b
           ..name = 'Fundus-Piece'
           ..id = id
@@ -257,9 +257,9 @@ void main() {
       // Snapshot arrives in server order (updated_at DESC); SQLite must
       // not resurface insertion order instead.
       await dao.applySnapshotForSeason('s-1', [
-        costume('c-b'),
-        costume('c-a'),
-        costume('c-c'),
+        piece('c-b'),
+        piece('c-a'),
+        piece('c-c'),
       ], DateTime.utc(2026, 1, 2));
       expect((await dao.readBySeason('s-1')).map((c) => c.id), [
         'c-b',
@@ -272,7 +272,7 @@ void main() {
       final db = CacheDatabase();
       addTearDown(db.close);
       final dao = PieceCacheDao(db);
-      PieceView costume(String id) => PieceView(
+      PieceView piece(String id) => PieceView(
         (b) => b
           ..name = 'Fundus-Piece'
           ..id = id
@@ -283,14 +283,14 @@ void main() {
           ..version = 1,
       );
       await dao.applySnapshotForSeason('s-1', [
-        costume('c-1'),
-        costume('c-2'),
+        piece('c-1'),
+        piece('c-2'),
       ], DateTime.utc(2026, 1, 1));
       // Refetch of one row keeps its list position …
-      await dao.upsert('s-1', costume('c-2'), DateTime.utc(2026, 1, 2));
+      await dao.upsert('s-1', piece('c-2'), DateTime.utc(2026, 1, 2));
       expect((await dao.readBySeason('s-1')).map((c) => c.id), ['c-1', 'c-2']);
       // … while a brand-new row appends after the season maximum.
-      await dao.upsert('s-1', costume('c-9'), DateTime.utc(2026, 1, 2));
+      await dao.upsert('s-1', piece('c-9'), DateTime.utc(2026, 1, 2));
       expect((await dao.readBySeason('s-1')).map((c) => c.id), [
         'c-1',
         'c-2',
@@ -300,7 +300,7 @@ void main() {
   });
 
   group('DAO TTL/clear/miss', () {
-    test('costume TTL: empty fresh, expired old, cleared gone', () async {
+    test('piece TTL: empty fresh, expired old, cleared gone', () async {
       final db = CacheDatabase();
       addTearDown(db.close);
       final dao = PieceCacheDao(db);
@@ -313,7 +313,7 @@ void main() {
         isFalse,
       );
       await dao.applySnapshotForSeason('s-1', [
-        _costume('c-1'),
+        _piece('c-1'),
       ], DateTime.utc(2026, 1, 1));
       expect(
         await dao.isSeasonExpired(
@@ -417,43 +417,38 @@ void main() {
   });
 
   group('screen-state row merging (pure)', () {
-    test(
-      'costumes: fence-held renders optimistic, passed renders projected',
-      () {
-        final base = _costume('c-1', version: 1);
-        final overlay = CostumeRowOverlay(
-          id: 'c-1',
-          overlay: applyNotesOptimistic(base, 'notes'),
-          acknowledgedVersion: 2,
-          status: OverlayStatus.reconciling,
-        );
-        final held = CostumesScreenState(
-          projected: const AsyncLoading(),
-          cachedRows: [base],
-          overlays: [overlay],
-        );
-        final rows = held.rows;
-        expect(rows.single, isA<OptimisticCostumeRow>());
-        // Fence passes at version 2 → authoritative row.
-        final fresh = _costume('c-1', version: 2);
-        final passed = CostumesScreenState(
-          projected: const AsyncLoading(),
-          cachedRows: [fresh],
-          overlays: [overlay],
-        );
-        expect(passed.rows.single, isA<ProjectedCostumeRow>());
-        // Create-path overlay (id absent) appends.
-        final created = CostumesScreenState(
-          projected: const AsyncLoading(),
-          cachedRows: const [],
-          overlays: [
-            overlay.copyWithStatus(status: OverlayStatus.acknowledged),
-          ],
-        );
-        expect(created.rows.single, isA<OptimisticCostumeRow>());
-        expect(held.notFound, isNull);
-      },
-    );
+    test('pieces: fence-held renders optimistic, passed renders projected', () {
+      final base = _piece('c-1', version: 1);
+      final overlay = PieceRowOverlay(
+        id: 'c-1',
+        overlay: applyNotesOptimistic(base, 'notes'),
+        acknowledgedVersion: 2,
+        status: OverlayStatus.reconciling,
+      );
+      final held = PiecesScreenState(
+        projected: const AsyncLoading(),
+        cachedRows: [base],
+        overlays: [overlay],
+      );
+      final rows = held.rows;
+      expect(rows.single, isA<OptimisticPieceRow>());
+      // Fence passes at version 2 → authoritative row.
+      final fresh = _piece('c-1', version: 2);
+      final passed = PiecesScreenState(
+        projected: const AsyncLoading(),
+        cachedRows: [fresh],
+        overlays: [overlay],
+      );
+      expect(passed.rows.single, isA<ProjectedPieceRow>());
+      // Create-path overlay (id absent) appends.
+      final created = PiecesScreenState(
+        projected: const AsyncLoading(),
+        cachedRows: const [],
+        overlays: [overlay.copyWithStatus(status: OverlayStatus.acknowledged)],
+      );
+      expect(created.rows.single, isA<OptimisticPieceRow>());
+      expect(held.notFound, isNull);
+    });
 
     test('characters/shooting states merge + notFound', () {
       const err = ProblemError(code: 'season.not-found', status: 404);
@@ -480,34 +475,34 @@ void main() {
   });
 
   group('error-copy branches', () {
-    test('costume/character/day/photo copies cover codes', () {
+    test('piece/character/day/photo copies cover codes', () {
       expect(
-        costumeErrorCopy(
+        pieceErrorCopy(
           AppLocalizationsEn(),
           const ProblemError(code: 'membership.pending'),
         ),
         contains('permissions'),
       );
       expect(
-        costumeErrorCopy(
+        pieceErrorCopy(
           AppLocalizationsEn(),
           const ProblemError(code: 'auth.session_required'),
         ),
         contains('sign in'),
       );
       expect(
-        costumeErrorCopy(
+        pieceErrorCopy(
           AppLocalizationsEn(),
           const ProblemError(code: 'transport.x'),
         ),
         contains('Network'),
       );
       expect(
-        costumeErrorCopy(
+        pieceErrorCopy(
           AppLocalizationsEn(),
-          const ProblemError(code: 'costume.unknown_xyz'),
+          const ProblemError(code: 'piece.unknown_xyz'),
         ),
-        contains('costume.unknown_xyz'),
+        contains('piece.unknown_xyz'),
       );
       expect(
         characterErrorCopy(
@@ -557,7 +552,7 @@ void main() {
         'membership.pending',
       );
       expect(
-        (checkCostumePhotoCapability(null) as GateDeny).code,
+        (checkPiecePhotoCapability(null) as GateDeny).code,
         'membership.pending',
       );
     });

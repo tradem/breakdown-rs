@@ -192,7 +192,7 @@ PhotoRowStatus photoRowStatus(PiecePhotoView photo) {
 class PhotoGallery extends StatelessWidget {
   const PhotoGallery({
     super.key,
-    required this.costume,
+    required this.piece,
     required this.repository,
     required this.lru,
     this.canCapture = false,
@@ -201,8 +201,8 @@ class PhotoGallery extends StatelessWidget {
     this.onRetryCapture,
   });
 
-  /// The costume whose `photos` projection renders (read-DTO snapshots).
-  final PieceView costume;
+  /// The piece whose `photos` projection renders (read-DTO snapshots).
+  final PieceView piece;
 
   /// Bytes-fetch backend (the screen gates via `// AUTHZ-GATE:` before
   /// constructing this — the gallery itself never issues the gate).
@@ -222,10 +222,10 @@ class PhotoGallery extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final photos = costume.photos.toList();
+    final photos = piece.photos.toList();
     if (photos.isEmpty) {
       return _EmptyGallery(
-        pieceId: costume.id,
+        pieceId: piece.id,
         canCapture: canCapture,
         onCapture: onCapture,
       );
@@ -234,7 +234,7 @@ class PhotoGallery extends StatelessWidget {
       builder: (context, constraints) {
         final columns = photoGridColumns(constraints.maxWidth);
         return GridView.builder(
-          key: Key('photo-gallery-${costume.id}'),
+          key: Key('photo-gallery-${piece.id}'),
           shrinkWrap: true,
           physics: const NeverScrollableScrollPhysics(),
           gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
@@ -246,7 +246,7 @@ class PhotoGallery extends StatelessWidget {
           itemBuilder: (context, i) {
             final photo = photos[i];
             return PhotoTile(
-              pieceId: costume.id,
+              pieceId: piece.id,
               photo: photo,
               repository: repository,
               lru: lru,
@@ -321,7 +321,7 @@ class PhotoTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final status = photoRowStatus(photo);
     return Semantics(
-      // Semantic label carries "photo of costume X" (spec §5).
+      // Semantic label carries "photo of piece X" (spec §5).
       label: l10nOf(context).photoTileSemantics(pieceId),
       child: Card(
         key: Key('photo-tile-${photo.id}'),
@@ -421,17 +421,13 @@ class _StatusChip extends StatelessWidget {
 /// `code` (never `detail` text).
 String photoErrorCopy(AppLocalizations l10n, ProblemError error) =>
     switch (error.code) {
-      // Client-side AUTHZ-GATE mirror denial (issue #513): the backend
-      // resolves the photo season through the costume's character; the
-      // client refuses upload/delete on an unassigned costume before any
-      // network call.
-      'photo.requires_character' => l10n.photoErrorRequiresCharacter,
       'photo.too_large' => l10n.photoErrorTooLarge,
       'photo.unsupported_media_type' => l10n.photoErrorUnsupported,
       'photo.forbidden' || 'authz.denied' => l10n.photoErrorForbidden,
-      // Issue #535: the costume's owning series could not be resolved (no
-      // character, no repertoire) — the server answers 422 with this code.
-      'costume.container-unresolved' => l10n.photoErrorContainerUnresolved,
+      // Issue #535: the piece's owning series could not be resolved (no
+      // repertoire entry, no outfit referencing it) — the server answers 422
+      // with this code.
+      'piece.container-unresolved' => l10n.photoErrorContainerUnresolved,
       _ when error.code.startsWith('transport.') => l10n.photoErrorNetwork,
       _ => l10n.photoErrorGeneric(error.code),
     };

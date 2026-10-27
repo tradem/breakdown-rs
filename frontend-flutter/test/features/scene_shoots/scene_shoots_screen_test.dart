@@ -35,7 +35,7 @@ import 'package:frontend_flutter/data/piece_repository.dart';
 import 'package:frontend_flutter/data/photo_repository.dart';
 import 'package:frontend_flutter/data/scene_shoot_repository.dart';
 import 'package:frontend_flutter/domain/reconciliation/reconciliation_scheduler.dart';
-import 'package:frontend_flutter/features/costumes/costumes_controller.dart';
+import 'package:frontend_flutter/features/pieces/pieces_controller.dart';
 import 'package:frontend_flutter/features/scene_shoots/scene_shoots_controller.dart';
 import 'package:frontend_flutter/features/scene_shoots/scene_shoots_screen.dart';
 import 'package:frontend_flutter/features/scene_shoots/scene_shoots_state.dart';
@@ -322,13 +322,13 @@ void main() {
             .overrideWith((ref) => daysHolder.value),
         // The continuity strip reads bytes through this provider; the
         // board tests link no resolvable photos, so it is never called.
-        costumePhotoRepositoryProvider.overrideWithValue(
+        piecePhotoRepositoryProvider.overrideWithValue(
           PhotoRepository(BreakdownApi()),
         ),
-        costumeRepositoryProvider.overrideWithValue(
+        pieceRepositoryProvider.overrideWithValue(
           PieceRepository(BreakdownApi(), PieceCacheDao(db)),
         ),
-        costumesListFetchProvider('season-1')
+        piecesListFetchProvider('season-1')
             .overrideWith((ref) async => const Right([])),
         reconciliationSchedulerProvider.overrideWith((ref) => scheduler),
         membershipFetchProvider('season-1')
@@ -713,13 +713,13 @@ void main() {
       expect(repo.unlinkCalls, 1);
     });
 
-    testWidgets('capture requires a picked costume', (tester) async {
+    testWidgets('capture requires a picked piece', (tester) async {
       await setupContainer(initialRows: [_shoot('ssh-1')]);
       await pumpScreen(tester);
-      // Empty costume projection: picker has no entries, capture disabled,
+      // Empty piece projection: picker has no entries, capture disabled,
       // the hint explains why picking matters.
       expect(
-        find.byKey(const Key('continuity-costume-hint-ssh-1')),
+        find.byKey(const Key('continuity-piece-hint-ssh-1')),
         findsOneWidget,
       );
     });

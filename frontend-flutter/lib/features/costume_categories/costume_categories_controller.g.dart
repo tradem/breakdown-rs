@@ -8,12 +8,12 @@ part of 'costume_categories_controller.dart';
 
 // GENERATED CODE - DO NOT MODIFY BY HAND
 // ignore_for_file: type=lint, type=warning
-/// Costume-category repository: owns network + Drift cache writes.
+/// Piece-category repository: owns network + Drift cache writes.
 
 @ProviderFor(costumeCategoryRepository)
 final costumeCategoryRepositoryProvider = CostumeCategoryRepositoryProvider._();
 
-/// Costume-category repository: owns network + Drift cache writes.
+/// Piece-category repository: owns network + Drift cache writes.
 
 final class CostumeCategoryRepositoryProvider
     extends
@@ -23,7 +23,7 @@ final class CostumeCategoryRepositoryProvider
           CostumeCategoryRepository
         >
     with $Provider<CostumeCategoryRepository> {
-  /// Costume-category repository: owns network + Drift cache writes.
+  /// Piece-category repository: owns network + Drift cache writes.
   CostumeCategoryRepositoryProvider._()
     : super(
         from: null,
@@ -62,14 +62,14 @@ String _$costumeCategoryRepositoryHash() =>
     r'6350515a858ce1be96fb1e222947891a1b04513d';
 
 /// The injected season-scoped list-fetch seam
-/// (`GET /v1/seasons/{season_id}/costume-categories`, server
+/// (`GET /v1/seasons/{season_id}/piece-categories`, server
 /// `ORDER BY order_key ASC`). Tests override this provider with a fake.
 
 @ProviderFor(costumeCategoriesListFetch)
 final costumeCategoriesListFetchProvider = CostumeCategoriesListFetchFamily._();
 
 /// The injected season-scoped list-fetch seam
-/// (`GET /v1/seasons/{season_id}/costume-categories`, server
+/// (`GET /v1/seasons/{season_id}/piece-categories`, server
 /// `ORDER BY order_key ASC`). Tests override this provider with a fake.
 
 final class CostumeCategoriesListFetchProvider
@@ -83,7 +83,7 @@ final class CostumeCategoriesListFetchProvider
         $FutureModifier<Result<List<CostumeCategoryView>>>,
         $FutureProvider<Result<List<CostumeCategoryView>>> {
   /// The injected season-scoped list-fetch seam
-  /// (`GET /v1/seasons/{season_id}/costume-categories`, server
+  /// (`GET /v1/seasons/{season_id}/piece-categories`, server
   /// `ORDER BY order_key ASC`). Tests override this provider with a fake.
   CostumeCategoriesListFetchProvider._({
     required CostumeCategoriesListFetchFamily super.from,
@@ -134,7 +134,7 @@ String _$costumeCategoriesListFetchHash() =>
     r'1a4d0cd0c4451cf0af9f66a9009dde1c7a01038a';
 
 /// The injected season-scoped list-fetch seam
-/// (`GET /v1/seasons/{season_id}/costume-categories`, server
+/// (`GET /v1/seasons/{season_id}/piece-categories`, server
 /// `ORDER BY order_key ASC`). Tests override this provider with a fake.
 
 final class CostumeCategoriesListFetchFamily extends $Family
@@ -153,7 +153,7 @@ final class CostumeCategoriesListFetchFamily extends $Family
       );
 
   /// The injected season-scoped list-fetch seam
-  /// (`GET /v1/seasons/{season_id}/costume-categories`, server
+  /// (`GET /v1/seasons/{season_id}/piece-categories`, server
   /// `ORDER BY order_key ASC`). Tests override this provider with a fake.
 
   CostumeCategoriesListFetchProvider call(String seasonId) =>

@@ -6,12 +6,12 @@
 
 import 'package:breakdown_api/breakdown_api.dart';
 
-/// The user-facing identity fields derived from a costume projection.
+/// The user-facing identity fields derived from a piece projection.
 ///
-/// A costume has no wire-level name. The first detail's `subject` is the
+/// A piece has no wire-level name. The first detail's `subject` is the
 /// de-facto designation; `notes` are a deliberate fallback, never a UUID.
-class CostumeTileIdentity {
-  const CostumeTileIdentity({
+class PieceTileIdentity {
+  const PieceTileIdentity({
     required this.subject,
     required this.text,
     required this.categoryName,
@@ -24,10 +24,10 @@ class CostumeTileIdentity {
   final PiecePhotoView? photo;
 }
 
-CostumeTileIdentity costumeTileIdentity(PieceView costume) {
-  final detail = costume.details.isEmpty ? null : costume.details.first;
+PieceTileIdentity pieceTileIdentity(PieceView piece) {
+  final detail = piece.details.isEmpty ? null : piece.details.first;
   PiecePhotoView? thumbnail;
-  for (final photo in costume.photos) {
+  for (final photo in piece.photos) {
     final readyThumb = photo.variants.any(
       (variant) =>
           variant.kind == PhotoVariant.thumb &&
@@ -38,13 +38,13 @@ CostumeTileIdentity costumeTileIdentity(PieceView costume) {
       break;
     }
   }
-  return CostumeTileIdentity(
+  return PieceTileIdentity(
     subject: detail?.subject,
     text: detail?.text ?? '',
     // Issue #543: the category belongs to the COSTUME now — the grid tile
     // reads it from the view itself, never from `details.first` (which was
     // the one-deep model defect this issue fixes).
-    categoryName: costume.categoryName,
+    categoryName: piece.categoryName,
     photo: thumbnail,
   );
 }
@@ -54,13 +54,13 @@ CostumeTileIdentity costumeTileIdentity(PieceView costume) {
 /// `PieceView.name` is the authoritative, required label (the aggregate
 /// rejects a blank name). The detail subject and the notes remain fallbacks
 /// for rows whose name was left at the created placeholder.
-String costumeDisplayName(PieceView costume, String genericFallback) {
-  final name = costume.name.trim();
+String pieceDisplayName(PieceView piece, String genericFallback) {
+  final name = piece.name.trim();
   if (name.isNotEmpty) return name;
-  final identity = costumeTileIdentity(costume);
+  final identity = pieceTileIdentity(piece);
   final subject = identity.subject?.trim();
   if (subject != null && subject.isNotEmpty) return subject;
-  final notes = costume.notes.trim();
+  final notes = piece.notes.trim();
   if (notes.isNotEmpty) return notes;
   return genericFallback;
 }
@@ -79,27 +79,27 @@ String sceneBeatOutfitLabel({
   return genericFallback;
 }
 
-/// Display label for a scene costume beat (issue #546).
+/// Display label for a scene piece beat (issue #546).
 ///
-/// Identity comes from the SAME tile helper ([costumeDisplayName] over
-/// [costumeTileIdentity]) — never from a random detail. A costume missing
+/// Identity comes from the SAME tile helper ([pieceDisplayName] over
+/// [pieceTileIdentity]) — never from a random detail. A piece missing
 /// from the season projection (projection miss) falls back to the
 /// backend-joined `costume_category_name`, then the localized generic
 /// fallback.
-String sceneBeatCostumeLabel({
-  required PieceView? costume,
+String sceneBeatPieceLabel({
+  required PieceView? piece,
   required String? joinedCategoryName,
   required String genericFallback,
 }) {
-  if (costume != null) return costumeDisplayName(costume, genericFallback);
+  if (piece != null) return pieceDisplayName(piece, genericFallback);
   final joined = joinedCategoryName?.trim();
   if (joined != null && joined.isNotEmpty) return joined;
   return genericFallback;
 }
 
-/// Icon category for a scene costume beat: the costume's own category
+/// Icon category for a scene piece beat: the piece's own category
 /// (tile source) wins, the backend-joined name is the fallback.
-String? sceneBeatCostumeCategory({
-  required PieceView? costume,
+String? sceneBeatPieceCategory({
+  required PieceView? piece,
   required String? joinedCategoryName,
-}) => costume?.categoryName ?? joinedCategoryName;
+}) => piece?.categoryName ?? joinedCategoryName;

@@ -6,7 +6,7 @@
 
 // Tier-1 tests for the per-facet matchers and the grouped composition
 // (issue #616, task 1.3): exact field pinning per spec (scene = number
-// prefix + synopsis, character = name, costume = description + category
+// prefix + synopsis, character = name, piece = description + category
 // ONLY, shooting day = label/date), OR over a facet's own fields, D3
 // canonical group order, and active-facet restriction. No Flutter imports.
 
@@ -85,27 +85,27 @@ void main() {
     });
   });
 
-  group('costume facet (description + category ONLY)', () {
+  group('piece facet (description + category ONLY)', () {
     test('matches the notes and the category name', () {
-      final hit = costumeHit(notes: 'Marineblau', categoryName: 'Trachten');
-      expect(costumeMatches(hit, f('marineblau')), isTrue);
-      expect(costumeMatches(hit, f('trachten')), isTrue);
+      final hit = pieceHit(notes: 'Marineblau', categoryName: 'Trachten');
+      expect(pieceMatches(hit, f('marineblau')), isTrue);
+      expect(pieceMatches(hit, f('trachten')), isTrue);
     });
 
     test('design Q2 pin: details/photos/character id never participate', () {
-      final hit = costumeHit(
+      final hit = pieceHit(
         notes: 'Blau',
         categoryName: null,
         detailText: 'Samt',
         photoId: 'photo-portal',
       );
-      expect(costumeMatches(hit, f('samt')), isFalse);
-      expect(costumeMatches(hit, f('portal')), isFalse);
+      expect(pieceMatches(hit, f('samt')), isFalse);
+      expect(pieceMatches(hit, f('portal')), isFalse);
     });
 
     test('empty query matches nothing', () {
-      final hit = costumeHit(notes: 'Blau');
-      expect(costumeMatches(hit, ''), isFalse);
+      final hit = pieceHit(notes: 'Blau');
+      expect(pieceMatches(hit, ''), isFalse);
     });
   });
 
@@ -144,17 +144,17 @@ void main() {
       expect(results.groups.map((g) => g.facet).toList(), [
         OmniSearchFacet.scene,
         OmniSearchFacet.character,
-        OmniSearchFacet.costume,
+        OmniSearchFacet.piece,
         OmniSearchFacet.shootingDay,
       ]);
     });
 
     test('single active facet: only that group is absent-filtered', () {
       final results = composeOmniSearchResults(workload(), 'wo', {
-        OmniSearchFacet.costume,
+        OmniSearchFacet.piece,
       });
       expect(results.groups, hasLength(1));
-      expect(results.groups.single.facet, OmniSearchFacet.costume);
+      expect(results.groups.single.facet, OmniSearchFacet.piece);
     });
 
     test('empty groups are dropped — absent, not merely empty', () {
@@ -164,7 +164,7 @@ void main() {
         kAllOmniSearchFacets,
       );
       expect(results.groups.map((g) => g.facet).toList(), [
-        OmniSearchFacet.costume,
+        OmniSearchFacet.piece,
       ]);
     });
 
@@ -246,16 +246,16 @@ CharacterOmniHit characterHit(String name) => CharacterOmniHit(
   ),
 );
 
-CostumeOmniHit costumeHit({
+PieceOmniHit pieceHit({
   required String notes,
   String? categoryName,
   String? detailText,
   String? photoId,
-}) => CostumeOmniHit(
-  costume: PieceView(
+}) => PieceOmniHit(
+  piece: PieceView(
     (b) => b
       ..name = 'Fundus-Piece'
-      ..id = 'costume-1'
+      ..id = 'piece-1'
       ..notes = notes
       ..categoryName = categoryName
       ..details.replace(
@@ -344,7 +344,7 @@ OmniSearchInputs workload() => OmniSearchInputs(
     sceneHit(sceneNumber: 2, summary: 'Wohngemeinschaft'),
   ],
   characters: [characterHit('Wolfgang')],
-  costumes: [costumeHit(notes: 'Marineblau Wolle')],
+  pieces: [pieceHit(notes: 'Marineblau Wolle')],
   shootingDays: [dayHit(label: 'Wonnemonat Drehstart')],
   facetStates: [
     for (final facet in OmniSearchFacet.values)
@@ -352,5 +352,5 @@ OmniSearchInputs workload() => OmniSearchInputs(
   ],
   hasHierarchyRows: true,
   hasCharacterRows: true,
-  hasCostumeRows: true,
+  hasPieceRows: true,
 );

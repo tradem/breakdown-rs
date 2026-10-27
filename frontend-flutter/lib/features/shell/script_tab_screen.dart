@@ -129,7 +129,7 @@ class _ScriptBody extends ConsumerWidget {
 
 /// One scene row (issue #709): the summary as the single-line ellipsized
 /// title, the episode-then-scene-number identity followed by the metadata
-/// (shooting day · location · characters · costumes) as the subtitle. The
+/// (shooting day · location · characters · pieces) as the subtitle. The
 /// leading avatar keeps the projected scene number (`–` when unnumbered).
 class _ScriptRowTile extends ConsumerWidget {
   const _ScriptRowTile({required this.season, required this.row});
@@ -169,11 +169,11 @@ class _ScriptRowTile extends ConsumerWidget {
   }
 
   /// The subtitle line (issue #709): episode before scene number, then
-  /// shooting day · location · number of characters · number of costumes
-  /// (distinct `pieceId`s across the beats — the same costume worn twice
+  /// shooting day · location · number of characters · number of pieces
+  /// (distinct `pieceId`s across the beats — the same piece worn twice
   /// counts once). Absent optional fields (day, location) are omitted; the
   /// two counts always render, because "0 Figuren" is honest, actionable
-  /// information for the costume department, not noise.
+  /// information for the piece department, not noise.
   String _metadata(AppLocalizations l10n) {
     final episodePart =
         row.episode.name ?? l10n.episodeTileLabel('${row.episode.number}');
@@ -184,7 +184,7 @@ class _ScriptRowTile extends ConsumerWidget {
     final day = row.scene.scriptDay;
     final location = row.scene.location;
     final beats = row.scene.outfitBeats;
-    final costumes = beats == null
+    final pieces = beats == null
         ? const <String>{}
         : {for (final beat in beats) beat.outfitId};
     return [
@@ -192,7 +192,7 @@ class _ScriptRowTile extends ConsumerWidget {
       if (day != null && day.isNotEmpty) l10n.sceneDay(day),
       if (location != null && location.isNotEmpty) location,
       l10n.scriptRowCharacters(row.scene.assignedCharacters.length),
-      l10n.scriptRowCostumes(costumes.length),
+      l10n.scriptRowOutfits(pieces.length),
     ].join(' · ');
   }
 

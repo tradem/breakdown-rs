@@ -30,7 +30,7 @@ import 'package:frontend_flutter/data/shooting_day_repository.dart';
 
 // --- Fixtures ---------------------------------------------------------------
 
-PieceView _costume(String id, {int version = 1}) => PieceView(
+PieceView _piece(String id, {int version = 1}) => PieceView(
   (b) => b
     ..name = 'Fundus-Piece'
     ..id = id
@@ -149,7 +149,7 @@ void main() {
         addTearDown(db.close);
         final dao = PieceCacheDao(db);
         final ok = _ScriptInterceptor(
-          respond: (_) => _wireList([_costume('c-1')], PieceView.serializer),
+          respond: (_) => _wireList([_piece('c-1')], PieceView.serializer),
         );
         final repo = PieceRepository(_api(ok), dao);
         final res = await repo.listBySeason('s-1');
@@ -157,12 +157,12 @@ void main() {
         expect((await dao.readBySeason('s-1')).map((c) => c.id), ['c-1']);
 
         final err = _ScriptInterceptor(
-          problem: 'costume.forbidden',
+          problem: 'piece.forbidden',
           statusCode: 403,
         );
         final failing = PieceRepository(_api(err), dao);
         final left = await failing.listBySeason('s-1');
-        _expectLeftCode(left, 'costume.forbidden');
+        _expectLeftCode(left, 'piece.forbidden');
         // Cache untouched on failure (D1): the earlier row survives.
         expect((await dao.readBySeason('s-1')).map((c) => c.id), ['c-1']);
         await db.close();
@@ -174,20 +174,20 @@ void main() {
       addTearDown(db.close);
       final dao = PieceCacheDao(db);
       final ok = _ScriptInterceptor(
-        respond: (_) => _wire(_costume('c-9'), PieceView.serializer),
+        respond: (_) => _wire(_piece('c-9'), PieceView.serializer),
       );
       final repo = PieceRepository(_api(ok), dao);
       expect((await repo.getAndCache('s-1', 'c-9')).isRight(), isTrue);
       expect(await dao.readById('s-1', 'c-9'), isNotNull);
 
       final err = _ScriptInterceptor(
-        problem: 'costume.not-found',
+        problem: 'piece.not-found',
         statusCode: 404,
       );
       final failing = PieceRepository(_api(err), dao);
       _expectLeftCode(
         await failing.getAndCache('s-1', 'c-missing'),
-        'costume.not-found',
+        'piece.not-found',
       );
       expect(await dao.readById('s-1', 'c-missing'), isNull);
       await db.close();

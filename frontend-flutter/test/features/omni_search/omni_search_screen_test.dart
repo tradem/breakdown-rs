@@ -48,8 +48,8 @@ import 'package:frontend_flutter/domain/reconciliation/reconciliation_scheduler.
 import 'package:frontend_flutter/features/blocks/blocks_controller.dart';
 import 'package:frontend_flutter/features/characters/characters_controller.dart';
 import 'package:frontend_flutter/features/characters/role_extract_screen.dart';
-import 'package:frontend_flutter/features/costumes/costume_detail_screen.dart';
-import 'package:frontend_flutter/features/costumes/costumes_controller.dart';
+import 'package:frontend_flutter/features/pieces/piece_detail_screen.dart';
+import 'package:frontend_flutter/features/pieces/pieces_controller.dart';
 import 'package:frontend_flutter/features/episodes/episodes_controller.dart';
 import 'package:frontend_flutter/features/omni_search/omni_search_controller.dart';
 import 'package:frontend_flutter/features/omni_search/omni_search_destinations.dart';
@@ -148,7 +148,7 @@ void main() {
         characterRepositoryProvider.overrideWithValue(
           _FakeCharacterRepository(() => seamResult()),
         ),
-        costumeRepositoryProvider.overrideWithValue(
+        pieceRepositoryProvider.overrideWithValue(
           _FakePieceRepository(() => seamResult()),
         ),
         blockRepositoryProvider.overrideWithValue(
@@ -214,10 +214,10 @@ void main() {
         isA<RoleExtractScreen>(),
       );
 
-      // Costume → the costume detail/assignment context.
+      // Piece → the piece detail/assignment context.
       expect(
-        omniSearchDestinationScreen(season: season, hit: costumeHitFixture()),
-        isA<CostumeDetailScreen>(),
+        omniSearchDestinationScreen(season: season, hit: pieceHitFixture()),
+        isA<PieceDetailScreen>(),
       );
 
       // Shooting day → the parent episode's day board.
@@ -239,7 +239,7 @@ void main() {
         isA<SeasonLocation>(),
       );
       expect(
-        omniSearchDestinationLocation(season, costumeHitFixture()),
+        omniSearchDestinationLocation(season, pieceHitFixture()),
         isA<SeasonLocation>(),
       );
       expect(
@@ -272,7 +272,7 @@ void main() {
     tester,
   ) async {
     await setUpContainer(
-      inputs: _rowedInputs(seasonId, costumeNotes: 'Marineblau Wolle'),
+      inputs: _rowedInputs(seasonId, pieceNotes: 'Marineblau Wolle'),
     );
     await pumpScreen(tester);
 
@@ -316,9 +316,9 @@ void main() {
     await tester.tap(find.byKey(const Key('omni-search-chip-shooting-day')));
     await pumpFrames(tester, n: 5);
 
-    // The costume group survives alone — the spec's "absent vs empty"
+    // The piece group survives alone — the spec's "absent vs empty"
     // wording, asserted per group key.
-    expect(find.byKey(const Key('omni-search-group-costume')), findsOneWidget);
+    expect(find.byKey(const Key('omni-search-group-piece')), findsOneWidget);
     for (final absent in [
       'omni-search-group-scene',
       'omni-search-group-character',
@@ -326,7 +326,7 @@ void main() {
     ]) {
       expect(find.byKey(Key(absent)), findsNothing, reason: absent);
     }
-    expect(find.byKey(const Key('omni-search-hit-costume-k1')), findsOneWidget);
+    expect(find.byKey(const Key('omni-search-hit-piece-k1')), findsOneWidget);
   });
 
   testWidgets('zero-match echoes the knowingly searched facets', (
@@ -345,7 +345,7 @@ void main() {
     // The fake pass marks ALL four facets loaded (all seams Right) → all
     // four chip labels are echoed (the standalone tree serves the English
     // fallback catalog).
-    for (final label in ['Scene', 'Role', 'Costume', 'Shooting day']) {
+    for (final label in ['Scene', 'Role', 'Piece', 'Shooting day']) {
       expect(text, contains(label));
     }
 
@@ -375,12 +375,12 @@ void main() {
           seasonId: seasonId,
           scenes: [],
           characters: [],
-          costumes: [],
+          pieces: [],
           shootingDays: [],
           facetStates: [],
           hasHierarchyRows: false,
           hasCharacterRows: false,
-          hasCostumeRows: false,
+          hasPieceRows: false,
         ),
       );
       await pumpScreen(tester);
@@ -723,9 +723,9 @@ CharacterOmniHit characterHitFixture(String name) => CharacterOmniHit(
   ),
 );
 
-CostumeOmniHit costumeHitFixture({String notes = 'Marineblau Wolle'}) =>
-    CostumeOmniHit(
-      costume: PieceView(
+PieceOmniHit pieceHitFixture({String notes = 'Marineblau Wolle'}) =>
+    PieceOmniHit(
+      piece: PieceView(
         (b) => b
           ..name = 'Fundus-Piece'
           ..id = 'k1'
@@ -780,12 +780,12 @@ BlockView _blockFixture() => BlockView(
 /// match for the grouped-list tests). Overridable per season.
 OmniSearchInputs _rowedInputs(
   String season, {
-  String costumeNotes = 'Marineblau Wolle',
+  String pieceNotes = 'Marineblau Wolle',
 }) => OmniSearchInputs(
   seasonId: season,
   scenes: [sceneHitFixture(sceneNumber: 12, summary: 'Wohnung Zoe')],
   characters: [characterHitFixture('Zoe')],
-  costumes: [costumeHitFixture(notes: costumeNotes)],
+  pieces: [pieceHitFixture(notes: pieceNotes)],
   shootingDays: [dayHitFixture(label: 'Wonnemonat')],
   facetStates: [
     for (final facet in OmniSearchFacet.values)
@@ -793,5 +793,5 @@ OmniSearchInputs _rowedInputs(
   ],
   hasHierarchyRows: true,
   hasCharacterRows: true,
-  hasCostumeRows: true,
+  hasPieceRows: true,
 );

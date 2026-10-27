@@ -504,7 +504,7 @@ class _TypedPreviewBodyState extends ConsumerState<_TypedPreviewBody> {
             : payload.data.scenes.toList(),
       ),
       for (final uncertainty in payload.data.uncertainties)
-        // A costume the server dropped is reported here rather than vanishing:
+        // A piece the server dropped is reported here rather than vanishing:
         // the reviewer sees a MISSING entry with its reason slug
         // (`ungrounded_quote` / `unlisted_character`) instead of concluding the
         // script named no costuming. Its `kind` is `droppedRow`, which — unlike a
@@ -634,16 +634,16 @@ class _TypedPreviewBodyState extends ConsumerState<_TypedPreviewBody> {
           // The row's extracted shooting day (issue #706). `null` leaves the
           // row unscheduled — correct, not a failure.
           shootingDay: scene.shootingDay,
-          // `costumes` is null on a preview stored before the field existed:
+          // `pieces` is null on a preview stored before the field existed:
           // not a failure, just a row with nothing to decide.
-          costumes: [
-            for (final (index, costume)
+          pieces: [
+            for (final (index, piece)
                 in (scene.costumes ?? <DraftCostume>[]).indexed)
-              PreviewCostume(
+              PreviewPiece(
                 ordinal: index,
-                characterName: costume.characterName,
-                description: costume.description,
-                sourceQuote: costume.sourceQuote,
+                characterName: piece.characterName,
+                description: piece.description,
+                sourceQuote: piece.sourceQuote,
               ),
           ],
         ),
@@ -833,21 +833,21 @@ class _PreviewRowCard extends ConsumerWidget {
                 ),
                 style: Theme.of(context).textTheme.bodySmall,
               ),
-            ..._costumeRows(context, state, controller),
+            ..._pieceRows(context, state, controller),
           ],
         ),
       ),
     );
   }
 
-  /// The row's extracted costumes, each individually acceptable/rejectable.
+  /// The row's extracted pieces, each individually acceptable/rejectable.
   ///
   /// The quoted source fragment is shown NEXT TO the description on purpose:
   /// the reviewer must be able to verify the extraction against the script
   /// without opening the document (spec `ai-import`), and the server's grounding
   /// check only proves the quote exists — whether it is the right garment is a
   /// human call.
-  List<Widget> _costumeRows(
+  List<Widget> _pieceRows(
     BuildContext context,
     AiApplyState state,
     AiApplyController controller,
@@ -859,40 +859,37 @@ class _PreviewRowCard extends ConsumerWidget {
         break;
       }
     }
-    final costumes = matched?.costumes ?? const <PreviewCostume>[];
-    if (costumes.isEmpty) return const [];
+    final pieces = matched?.pieces ?? const <PreviewPiece>[];
+    if (pieces.isEmpty) return const [];
     return [
       const SizedBox(height: 8),
       Text(
-        key: Key('ai-preview-costume-heading-$draftRef'),
-        l10nOf(context).aiPreviewCostumeHeading('${costumes.length}'),
+        key: Key('ai-preview-piece-heading-$draftRef'),
+        l10nOf(context).aiPreviewCostumeHeading('${pieces.length}'),
         style: Theme.of(context).textTheme.labelLarge,
       ),
-      for (final costume in costumes)
+      for (final piece in pieces)
         Column(
-          key: Key('ai-preview-costume-$draftRef-${costume.ordinal}'),
+          key: Key('ai-preview-piece-$draftRef-${piece.ordinal}'),
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Tooltip(
               message: l10nOf(context).aiPreviewCostumeToggleTooltip,
               child: CheckboxListTile(
-                key: Key(
-                  'ai-preview-costume-toggle-$draftRef-${costume.ordinal}',
-                ),
+                key: Key('ai-preview-piece-toggle-$draftRef-${piece.ordinal}'),
                 controlAffinity: ListTileControlAffinity.leading,
                 dense: true,
                 contentPadding: EdgeInsets.zero,
-                value: costume.accepted,
+                value: piece.accepted,
                 onChanged: (value) => controller.decideCostume(
                   draftRef,
-                  costume.ordinal,
+                  piece.ordinal,
                   value ?? true,
                 ),
                 title: Text(
-                  l10nOf(context).aiPreviewCostumeFor(
-                    costume.characterName,
-                    costume.description,
-                  ),
+                  l10nOf(
+                    context,
+                  ).aiPreviewCostumeFor(piece.characterName, piece.description),
                 ),
                 subtitle: Text(
                   // The quote is read-only evidence, never an editable value: it
@@ -900,15 +897,15 @@ class _PreviewRowCard extends ConsumerWidget {
                   // chunk. Showing it NEXT TO the description is what lets the
                   // reviewer verify the extraction without opening the document
                   // (spec `ai-import`).
-                  l10nOf(context).aiPreviewCostumeQuote(costume.sourceQuote),
+                  l10nOf(context).aiPreviewCostumeQuote(piece.sourceQuote),
                   style: Theme.of(context).textTheme.bodySmall,
                 ),
               ),
             ),
-            if (!costume.accepted)
+            if (!piece.accepted)
               Text(
                 key: Key(
-                  'ai-preview-costume-rejected-$draftRef-${costume.ordinal}',
+                  'ai-preview-piece-rejected-$draftRef-${piece.ordinal}',
                 ),
                 l10nOf(context).aiPreviewCostumeRejectedStatus,
                 style: TextStyle(

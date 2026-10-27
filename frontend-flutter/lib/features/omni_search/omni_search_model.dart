@@ -14,7 +14,7 @@ import 'package:breakdown_api/breakdown_api.dart';
 /// No Flutter imports, no Drift, no Riverpod: the facet vocabulary, the
 /// cached-data inputs and the matched-result types. The canonical result
 /// group order IS the enum declaration order (design D3): scenes → roles
-/// (characters) → costumes → shooting days. Dart guarantees enum `index`
+/// (characters) → pieces → shooting days. Dart guarantees enum `index`
 /// follows declaration order, so the UI sort needs no separate order table.
 ///
 /// All fields a user is allowed to search are pinned by the spec
@@ -22,7 +22,7 @@ import 'package:breakdown_api/breakdown_api.dart';
 /// matchers in `omni_search_matcher.dart`:
 /// - scene: scene number prefix + summary (synopsis),
 /// - character: name,
-/// - costume: notes (description) + category name ONLY (design open
+/// - piece: notes (description) + category name ONLY (design open
 ///   question 2: no `details`/`photos` creep),
 /// - shooting day: label or date.
 ///
@@ -39,14 +39,14 @@ sealed class OmniSearchHit {
 /// One searchable entity type. The chip labels (de) ship from the l10n
 /// catalog ("Szene", "Rolle", "Kostüm", "Drehtag"); this enum is the
 /// machine identity behind them and also the display order (D3).
-enum OmniSearchFacet { scene, character, costume, shootingDay }
+enum OmniSearchFacet { scene, character, piece, shootingDay }
 
 /// All four facets active by default (spec: no mixed single list, four
 /// toggleable chips with the shipped German copy).
 const Set<OmniSearchFacet> kAllOmniSearchFacets = <OmniSearchFacet>{
   OmniSearchFacet.scene,
   OmniSearchFacet.character,
-  OmniSearchFacet.costume,
+  OmniSearchFacet.piece,
   OmniSearchFacet.shootingDay,
 };
 
@@ -76,7 +76,7 @@ enum OmniSearchFacetLoad {
 ///
 /// Per-facet: the scene/shooting-day facets are hierarchy-backed (their
 /// rows join through `episode`/`block`), so staleness considers EVERY
-/// involved table's `cachedAt` of the season path; characters/costumes
+/// involved table's `cachedAt` of the season path; characters/pieces
 /// cover their own table.
 class OmniSearchFacetState {
   const OmniSearchFacetState({required this.facet, required this.stale});
@@ -110,11 +110,11 @@ class CharacterOmniHit extends OmniSearchHit {
   final CharacterView character;
 }
 
-/// One costume hit.
-class CostumeOmniHit extends OmniSearchHit {
-  const CostumeOmniHit({required this.costume});
+/// One piece hit.
+class PieceOmniHit extends OmniSearchHit {
+  const PieceOmniHit({required this.piece});
 
-  final PieceView costume;
+  final PieceView piece;
 }
 
 /// One shooting-day hit with the parent episode/block DTOs.
@@ -137,12 +137,12 @@ class OmniSearchInputs {
     required this.seasonId,
     required this.scenes,
     required this.characters,
-    required this.costumes,
+    required this.pieces,
     required this.shootingDays,
     required this.facetStates,
     required this.hasHierarchyRows,
     required this.hasCharacterRows,
-    required this.hasCostumeRows,
+    required this.hasPieceRows,
   });
 
   final String seasonId;
@@ -154,9 +154,9 @@ class OmniSearchInputs {
   /// Season's characters in cache snapshot order.
   final List<CharacterOmniHit> characters;
 
-  /// Season's costumes (the costume scope is the seasonal snapshot; the
+  /// Season's pieces (the piece scope is the seasonal snapshot; the
   /// repertoire cross-season dimension is a fundus NON-goal — proposal).
-  final List<CostumeOmniHit> costumes;
+  final List<PieceOmniHit> pieces;
 
   /// Season's shooting days in server order (`order_key ASC` — the client
   /// never re-sorts) with parent DTOs.
@@ -180,9 +180,9 @@ class OmniSearchInputs {
   /// [hasHierarchyRows] for the honest semantics limit).
   final bool hasCharacterRows;
 
-  /// Whether the costume cache holds any rows for the season (see
+  /// Whether the piece cache holds any rows for the season (see
   /// [hasHierarchyRows] for the honest semantics limit).
-  final bool hasCostumeRows;
+  final bool hasPieceRows;
 
   OmniSearchFacetState facetState(OmniSearchFacet facet) =>
       facetStates.firstWhere((s) => s.facet == facet);
@@ -190,7 +190,7 @@ class OmniSearchInputs {
   bool get isEmpty =>
       scenes.isEmpty &&
       characters.isEmpty &&
-      costumes.isEmpty &&
+      pieces.isEmpty &&
       shootingDays.isEmpty;
 
   bool get anyStale => facetStates.any((s) => s.stale);

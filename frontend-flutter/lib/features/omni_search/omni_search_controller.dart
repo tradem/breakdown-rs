@@ -132,7 +132,7 @@ OmniSearchFacetLoad omniSearchFacetLoad(
     OmniSearchFacet.scene ||
     OmniSearchFacet.shootingDay => inputs.hasHierarchyRows,
     OmniSearchFacet.character => inputs.hasCharacterRows,
-    OmniSearchFacet.costume => inputs.hasCostumeRows,
+    OmniSearchFacet.piece => inputs.hasPieceRows,
   };
   return (passLoaded.contains(facet) || cacheHasRows)
       ? OmniSearchFacetLoad.loaded

@@ -9,7 +9,7 @@ import 'package:image/image.dart' as img;
 
 import '../../data/photo_repository.dart';
 
-/// Photo prepare pipeline (flutter-costume-domains Task 3.1, D4).
+/// Photo prepare pipeline (flutter-piece-domains Task 3.1, D4).
 ///
 /// Capture → prepare (background isolate) → raw-bytes upload. Downscaling is
 /// NOT a size guarantee (a PNG re-encode can still exceed the budget), so the
@@ -149,7 +149,7 @@ PrepareResult prepareImageCore(PrepareInput input) {
 /// cannot complete headless in `flutter_test`; screens therefore call
 /// [preparePhotoProvider] (overridable to the synchronous core in tests)
 /// instead of this function directly. On-device cover lives in
-/// `integration_test/costume_domains_smoke_test.dart` (issue #370: the
+/// `integration_test/piece_domains_smoke_test.dart` (issue #370: the
 /// smoke uses the production seam without override plus a direct
 /// `defaultPreparePhoto` → `PrepareReady` boundary assertion).
 Future<PrepareResult> prepareImage(PrepareInput input) =>

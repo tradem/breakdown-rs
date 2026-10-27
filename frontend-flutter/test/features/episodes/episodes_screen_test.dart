@@ -316,7 +316,7 @@ void main() {
     });
   });
 
-  group('Episode context entries (flutter-costume-domains 6.1)', () {
+  group('Episode context entries (flutter-piece-domains 6.1)', () {
     testWidgets('shooting-days button pushes the episode day list', (
       tester,
     ) async {

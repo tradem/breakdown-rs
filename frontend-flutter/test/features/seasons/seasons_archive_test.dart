@@ -84,7 +84,7 @@ void main() {
           return r.fetchAndCacheList(fetchOnce);
         }),
         seasonsCacheStaleProvider.overrideWith((ref) async => false),
-        // The client-side AUTHZ-GATE source: an active costume-dept role in
+        // The client-side AUTHZ-GATE source: an active piece-dept role in
         // the archived row's season is NOT resolved, the active row's is.
         membershipFetchProvider(_kArchivedSeasonId).overrideWith(
           (ref) async => Right<ProblemError, SeasonMembershipDto>(

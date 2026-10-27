@@ -13,7 +13,7 @@ part 'active_block.g.dart';
 /// The client-side active-block scope (issue #378).
 ///
 /// The backend `authorize_middleware` classifies episodes, scenes, shooting
-/// days, scene shoots, costumes and characters as `BlockMember` and rejects
+/// days, scene shoots, pieces and characters as `BlockMember` and rejects
 /// a missing `X-Active-Block` header with 400. This provider tracks the
 /// block the user is acting in; [ActiveBlockInterceptor] (see
 /// `lib/src/network/active_block_interceptor.dart`) attaches it to every
@@ -21,7 +21,7 @@ part 'active_block.g.dart';
 /// a member of surfaces as a 403 through the keyed-on-`code` error path.
 ///
 /// Both ids are tracked (not just the block): season-direct entries
-/// (`CostumesScreen`, `CharactersScreen`) reuse the sticky scope only when
+/// (`PiecesScreen`, `CharactersScreen`) reuse the sticky scope only when
 /// its `seasonId` matches, so browsing season B never silently sends season
 /// A's block. Set implicitly from the DTO the user acted on (CQRS boundary
 /// — never a second projection lookup); cleared on sign-out so a new

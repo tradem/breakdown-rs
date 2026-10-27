@@ -5,14 +5,14 @@
 
 import 'package:breakdown_api/breakdown_api.dart';
 
-/// One render group of the scene-costume section: a character and its
-/// ordered costume beats.
+/// One render group of the scene-piece section: a character and its
+/// ordered piece beats.
 typedef SceneBeatGroup = ({
   String characterId,
   List<SceneOutfitBeatView> beats,
 });
 
-/// Groups scene costume beats per character in stable render order
+/// Groups scene piece beats per character in stable render order
 /// (issue #546).
 ///
 /// Pure read-model shaping — no Flutter, no network, no throw:
@@ -21,7 +21,7 @@ typedef SceneBeatGroup = ({
 ///   a character WITHOUT beats keeps its (empty) group so the screen can
 ///   render the inline "kein Kostüm in dieser Szene" empty state.
 /// * Characters carrying beats but NOT in `assignedCharacters` (a stale
-///   projection between AssignCharacter and AddCostumeBeat) are appended
+///   projection between AssignCharacter and AddSceneOutfitBeat) are appended
 ///   in first-appearance order of the beat list — never dropped.
 /// * Beats within a character sort by their dense zero-based `order`.
 List<SceneBeatGroup> groupSceneBeats({

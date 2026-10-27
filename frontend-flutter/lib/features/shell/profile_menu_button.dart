@@ -24,8 +24,8 @@ import '../../l10n/app_localizations_provider.dart';
 /// *Über die App*, *Einstellungen*, *Abmelden*) live in
 /// `AccountDrawer`; this widget is only the trigger.
 ///
-/// Note what is NOT here: the costume-category vocabulary. Categories are
-/// costume-domain content and live with the Cast view (hard acceptance
+/// Note what is NOT here: the piece-category vocabulary. Categories are
+/// piece-domain content and live with the Cast view (hard acceptance
 /// criterion of issue #610, cross-confirmed by #613).
 ///
 /// // AUTHZ-GATE: the drawer is `Authenticated`-gated UI that is only

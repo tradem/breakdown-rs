@@ -10,7 +10,7 @@ import '../../design/material_icons.dart';
 import '../../l10n/app_localizations_provider.dart';
 
 /// Opens the OUTFIT picker for a scene outfit beat (issue #546; the look
-/// replaced the bare costume when the wardrobe split into Piece + Outfit): a
+/// replaced the bare piece when the wardrobe split into Piece + Outfit): a
 /// centered dialog on macOS (side-sheet width cap 480 dp) and a bottom
 /// sheet on Android — the create-sheet convention, never a naked
 /// `showDialog` list.
@@ -87,18 +87,18 @@ class _PickOutfitFormState extends State<_PickOutfitForm> {
           Padding(
             padding: const EdgeInsets.all(16),
             child: Text(
-              l10n.sceneDetailPickCostumeTitle,
-              key: const Key('pick-costume-title'),
+              l10n.sceneDetailPickOutfitTitle,
+              key: const Key('pick-piece-title'),
               style: Theme.of(context).textTheme.titleLarge,
             ),
           ),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
             child: TextField(
-              key: const Key('scene-costume-note'),
+              key: const Key('scene-piece-note'),
               controller: _noteController,
               decoration: InputDecoration(
-                labelText: l10n.sceneDetailCostumeCueHint,
+                labelText: l10n.sceneDetailOutfitCueHint,
               ),
             ),
           ),
@@ -123,13 +123,13 @@ class _PickOutfitFormState extends State<_PickOutfitForm> {
                   ),
                   title: Text(
                     outfit.name.trim().isEmpty
-                        ? l10n.costumeTileLabelFallback
+                        ? l10n.pieceTileLabelFallback
                         : outfit.name,
                   ),
                   subtitle: Text(
                     outfit.variantOf == null
                         ? '$pieceCount'
-                        : '$pieceCount · ${l10n.costumeDetailReassign}',
+                        : '$pieceCount · ${l10n.outfitVariantMarker}',
                   ),
                   onTap: () => _pick(outfit),
                 );

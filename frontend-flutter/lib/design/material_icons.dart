@@ -5,7 +5,7 @@
 
 import 'package:flutter/material.dart';
 
-/// Shared Material icon vocabulary for the app shell and costume cards.
+/// Shared Material icon vocabulary for the app shell and piece cards.
 ///
 /// Keeping these values in one source prevents a category tile from drifting
 /// away from the icon family used by the navigation shell. Category names

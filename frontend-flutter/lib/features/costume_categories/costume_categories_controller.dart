@@ -23,7 +23,7 @@ import 'next_order_key.dart';
 
 part 'costume_categories_controller.g.dart';
 
-/// Costume-category repository: owns network + Drift cache writes.
+/// Piece-category repository: owns network + Drift cache writes.
 @riverpod
 CostumeCategoryRepository costumeCategoryRepository(Ref ref) =>
     CostumeCategoryRepository(
@@ -32,7 +32,7 @@ CostumeCategoryRepository costumeCategoryRepository(Ref ref) =>
     );
 
 /// The injected season-scoped list-fetch seam
-/// (`GET /v1/seasons/{season_id}/costume-categories`, server
+/// (`GET /v1/seasons/{season_id}/piece-categories`, server
 /// `ORDER BY order_key ASC`). Tests override this provider with a fake.
 @riverpod
 Future<Result<List<CostumeCategoryView>>> costumeCategoriesListFetch(

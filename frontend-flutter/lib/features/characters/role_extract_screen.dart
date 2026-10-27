@@ -9,7 +9,7 @@ import 'character_detail_screen.dart';
 
 /// `RoleExtractScreen` — the Cast view's deep content for one character
 /// (issue #611): the traditional ring binder/Register per role. Every scene
-/// the character appears in, in script order, with that character's costume
+/// the character appears in, in script order, with that character's piece
 /// per scene — sourced from the per-character appearances read model.
 ///
 /// **Degraded state (deliberate, no client-side aggregation):** the
@@ -41,7 +41,7 @@ class RoleExtractScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     // TODO(#611): replace the degraded pass-through with the generated
-    // appearances read type (scene order + costume per scene) once backend
+    // appearances read type (scene order + piece per scene) once backend
     // issue #621 ships and the client is regenerated (`regen-client.sh`).
     // Until then: characters detail as today — no client-side fan-out.
     return CharacterDetailScreen(season: season, characterId: characterId);

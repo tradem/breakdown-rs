@@ -21,33 +21,33 @@ export '../../data/piece_repository.dart'
         applyCategoryOptimistic,
         applyAddSeasonOptimistic,
         applyRemoveSeasonOptimistic,
-        shouldClearCostumeOverlay;
+        shouldClearPieceOverlay;
 
 /// The command surface a failure belongs to — photo commands (upload/delete)
-/// vs. costume writes. The command-error banner routes the localized copy by
+/// vs. piece writes. The command-error banner routes the localized copy by
 /// this ORIGIN, never by the `photo.*` code prefix: a photo command can fail
 /// with the generic `domain.validation` (e.g. a concurrent unassign races the
-/// local gate) and must still render the photo copy — not the costume
+/// local gate) and must still render the photo copy — not the piece
 /// "could not be saved" fallback (issue #513).
-enum CostumeCommandSurface { costume, photo }
+enum PieceCommandSurface { piece, photo }
 
 /// A command failure with its originating surface, so the UI picks the right
 /// copy without inferring the origin from the error code.
-class CostumeCommandFailure {
-  const CostumeCommandFailure(this.surface, this.error);
+class PieceCommandFailure {
+  const PieceCommandFailure(this.surface, this.error);
 
-  final CostumeCommandSurface surface;
+  final PieceCommandSurface surface;
   final ProblemError error;
 }
 
-/// Controller-state optimistic overlay for a costume-row command: ephemeral
-/// UI state keyed by costume `id` — never in Drift.
+/// Controller-state optimistic overlay for a piece-row command: ephemeral
+/// UI state keyed by piece `id` — never in Drift.
 ///
 /// Unlike create-shell overlays (which vanish by projected id), row-level
-/// edits clear by the **version fence** ([shouldClearCostumeOverlay]): the
+/// edits clear by the **version fence** ([shouldClearPieceOverlay]): the
 /// overlay survives stale projections carrying an older `version`.
-class CostumeRowOverlay implements ReconciliationOverlay {
-  const CostumeRowOverlay({
+class PieceRowOverlay implements ReconciliationOverlay {
+  const PieceRowOverlay({
     required this.id,
     required this.overlay,
     required this.acknowledgedVersion,
@@ -72,11 +72,11 @@ class CostumeRowOverlay implements ReconciliationOverlay {
   final String? warning;
 
   @override
-  CostumeRowOverlay copyWithStatus({
+  PieceRowOverlay copyWithStatus({
     OverlayStatus? status,
     String? warning,
     bool clearWarning = false,
-  }) => CostumeRowOverlay(
+  }) => PieceRowOverlay(
     id: id,
     overlay: overlay,
     acknowledgedVersion: acknowledgedVersion,
@@ -87,7 +87,7 @@ class CostumeRowOverlay implements ReconciliationOverlay {
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
-      other is CostumeRowOverlay &&
+      other is PieceRowOverlay &&
           other.id == id &&
           other.overlay == overlay &&
           other.acknowledgedVersion == acknowledgedVersion &&
@@ -99,32 +99,32 @@ class CostumeRowOverlay implements ReconciliationOverlay {
       Object.hash(id, overlay, acknowledgedVersion, status, warning);
 }
 
-/// One row rendered by `CostumesScreen`.
-sealed class CostumeRow {
-  const CostumeRow();
+/// One row rendered by `PiecesScreen`.
+sealed class PieceRow {
+  const PieceRow();
 }
 
-class ProjectedCostumeRow extends CostumeRow {
-  const ProjectedCostumeRow(this.costume);
+class ProjectedPieceRow extends PieceRow {
+  const ProjectedPieceRow(this.piece);
 
   /// The generated read DTO (`breakdown_api` `PieceView`); authoritative,
   /// comes from Drift only (or the merged overlay while reconciling).
-  final PieceView costume;
+  final PieceView piece;
 
   /// `true` while the version fence holds (the row shows the optimistic
   /// edit, not yet the projection).
   bool get reconciling => false;
 }
 
-class OptimisticCostumeRow extends CostumeRow {
-  const OptimisticCostumeRow(this.overlay);
+class OptimisticPieceRow extends PieceRow {
+  const OptimisticPieceRow(this.overlay);
 
-  final CostumeRowOverlay overlay;
+  final PieceRowOverlay overlay;
 }
 
 /// Controller state shape (seasons reference pattern).
-class CostumesScreenState {
-  const CostumesScreenState({
+class PiecesScreenState {
+  const PiecesScreenState({
     required this.projected,
     this.cachedRows = const [],
     this.isStale = false,
@@ -137,11 +137,11 @@ class CostumesScreenState {
   /// Complete season projection (the fence merges overlays over these).
   final List<PieceView> cachedRows;
   final bool isStale;
-  final List<CostumeRowOverlay> overlays;
+  final List<PieceRowOverlay> overlays;
 
   /// Last command failure (with its originating surface) keyed by its
   /// stable problem `code`.
-  final CostumeCommandFailure? commandError;
+  final PieceCommandFailure? commandError;
 
   /// The `*.not-found` problem of a deleted parent (D5).
   ProblemError? get notFound {
@@ -158,28 +158,27 @@ class CostumesScreenState {
   /// The merged list the screen renders: authoritative rows with
   /// fence-held optimistic edits applied (never a stale restore).
   ///
-  /// An overlay renders as [OptimisticCostumeRow] while the cached
+  /// An overlay renders as [OptimisticPieceRow] while the cached
   /// projection is still behind the acknowledged version; once the fence
-  /// passes the authoritative row renders as [ProjectedCostumeRow].
+  /// passes the authoritative row renders as [ProjectedPieceRow].
   /// Overlays for ids absent from the projection (create path) append.
-  List<CostumeRow> get rows {
+  List<PieceRow> get rows {
     final projectedById = {for (final c in cachedRows) c.id: c};
     final overlayById = {for (final o in overlays) o.id: o};
-    return <CostumeRow>[
+    return <PieceRow>[
       for (final c in cachedRows)
         if (overlayById[c.id] case final pending?
             when !_fencePassed(c, pending.acknowledgedVersion))
-          OptimisticCostumeRow(pending)
+          OptimisticPieceRow(pending)
         else
-          ProjectedCostumeRow(c),
+          ProjectedPieceRow(c),
       for (final o in overlays)
-        if (!projectedById.containsKey(o.id)) OptimisticCostumeRow(o),
+        if (!projectedById.containsKey(o.id)) OptimisticPieceRow(o),
     ];
   }
 
-  bool _fencePassed(PieceView row, int acknowledged) =>
-      shouldClearCostumeOverlay(
-        projection: row,
-        acknowledgedVersion: acknowledged,
-      );
+  bool _fencePassed(PieceView row, int acknowledged) => shouldClearPieceOverlay(
+    projection: row,
+    acknowledgedVersion: acknowledged,
+  );
 }

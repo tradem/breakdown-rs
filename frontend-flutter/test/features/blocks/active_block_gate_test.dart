@@ -387,7 +387,7 @@ void main() {
           container: container,
           child: MaterialApp(
             home: BlockScopePickerScaffold(
-              title: 'Costumes',
+              title: 'Pieces',
               seasonId: 'season-1',
               candidates: [_block('b-1', number: 1), _block('b-2', number: 2)],
             ),

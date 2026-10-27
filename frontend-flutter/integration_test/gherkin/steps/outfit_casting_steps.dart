@@ -15,13 +15,13 @@ import 'package:gherkin/gherkin.dart';
 import '../world/app_world.dart';
 import 'seed_http.dart' show SeedCache;
 
-/// Reads the costume-command counter from the in-app request recorder
+/// Reads the piece-command counter from the in-app request recorder
 /// (issue #380) over the FlutterDriver data channel. The runner and the app
 /// run in separate processes, so the snapshot travels as a `;`-separated
-/// key=value string. Returns -1 when the recorder (or the costume counter)
+/// key=value string. Returns -1 when the recorder (or the piece counter)
 /// is absent, so the denial assertion fails loudly rather than passing on a
 /// missing instrumentation.
-Future<int> _costumeCommandsLeftDevice(FlutterWorld world) async {
+Future<int> _pieceCommandsLeftDevice(FlutterWorld world) async {
   final raw = await world.driver!.requestData(
     'request-recorder:snapshot',
     timeout: const Duration(seconds: 10),
@@ -37,21 +37,21 @@ Future<int> _costumeCommandsLeftDevice(FlutterWorld world) async {
           ),
         ),
   );
-  return fields['costume'] ?? -1;
+  return fields['piece'] ?? -1;
 }
 
-/// Step definitions for the costume assignment critical scenario
-/// (`features-spec/costume_assignment.feature`). Covers the CQRS-on-client
+/// Step definitions for the piece assignment critical scenario
+/// (`features-spec/outfit_casting.feature`). Covers the CQRS-on-client
 /// contract (AGENTS.md §4): optimistic overlay after a 2xx command
 /// acknowledgement, then projection reconciliation; plus the client-side
-/// AUTHZ-GATE role denial on the costume stream. All steps drive the on-device
+/// AUTHZ-GATE role denial on the piece stream. All steps drive the on-device
 /// UI through widget keys; none assert on a pure function.
-Iterable<StepDefinitionGeneric> costumeAssignmentSteps() => [
+Iterable<StepDefinitionGeneric> outfitCastingSteps() => [
   given3<String, String, String, FlutterWorld>(
-    'the backend is seeded with costume {string} and character {string} for '
+    'the backend is seeded with piece {string} and character {string} for '
     'season {string}',
     (
-      String costumeSymbol,
+      String pieceSymbol,
       String characterSymbol,
       String seasonSymbol,
       context,
@@ -66,50 +66,50 @@ Iterable<StepDefinitionGeneric> costumeAssignmentSteps() => [
       // State-establishment step (no assertion) — runs on device with the
       // harness, not a pure-function check.
       final world = context.world as AppWorld;
-      final ids = SeedCache.costumeAssignmentIds;
+      final ids = SeedCache.outfitCastingIds;
       if (ids == null) {
         throw StateError(
-          'costume-assignment seed missing — AppHook.onBeforeRun must run '
+          'piece-assignment seed missing — AppHook.onBeforeRun must run '
           'before the scenario Given steps (hook failure or wrong order).',
         );
       }
       world.seedIds.addAll(ids);
     },
   ),
-  when1<String, FlutterWorld>(
-    'I view the costume {string} in the costume stream',
-    (String pieceId, context) async {
-      // Opens the costume DETAIL from the stream row (shared with the
-      // assign step). Used by the viewer-denial scenario: for a denied
-      // membership the assign button never renders (the client-side
-      // AUTHZ-GATE replaces it with the `costume-assign-denied` narrative),
-      // but the stream row + detail are still reachable read-model
-      // surfaces — the denial assertion renders on the detail.
-      final world = context.world as AppWorld;
-      final realCostume = world.seedIds[pieceId] ?? pieceId;
-      await _openCostumeDetail(context.world, realCostume);
-    },
-  ),
+  when1<String, FlutterWorld>('I view the piece {string} in the piece stream', (
+    String pieceId,
+    context,
+  ) async {
+    // Opens the piece DETAIL from the stream row (shared with the
+    // assign step). Used by the viewer-denial scenario: for a denied
+    // membership the assign button never renders (the client-side
+    // AUTHZ-GATE replaces it with the `piece-assign-denied` narrative),
+    // but the stream row + detail are still reachable read-model
+    // surfaces — the denial assertion renders on the detail.
+    final world = context.world as AppWorld;
+    final realPiece = world.seedIds[pieceId] ?? pieceId;
+    await _openPieceDetail(context.world, realPiece);
+  }),
   when2<String, String, FlutterWorld>(
-    'I assign costume {string} to character {string}',
+    'I assign piece {string} to character {string}',
     (String pieceId, String characterId, context) async {
-      // Opens the assign picker for the costume, then picks the character:
+      // Opens the assign picker for the piece, then picks the character:
       // the command carries the picked id + the acted-on row's version.
       // Symbolic feature ids ("c-7" / "ch-3") map to the seeded REAL
       // backend ids (issue #368) before any widget key is composed.
       final world = context.world as AppWorld;
-      final realCostume = world.seedIds[pieceId] ?? pieceId;
+      final realPiece = world.seedIds[pieceId] ?? pieceId;
       final realCharacter = world.seedIds[characterId] ?? characterId;
-      world.lastCostumeId = realCostume;
+      world.lastPieceId = realPiece;
       world.lastCharacterId = realCharacter;
       // The assign button lives on the COSTUME DETAIL screen: the detail is
       // opened first (shared with the view step), then the unassigned-seed
-      // FIRST-assignment button is tapped. Issue #453: the seed costume is
+      // FIRST-assignment button is tapped. Issue #453: the seed piece is
       // genuinely UNASSIGNED (repertoire-season binding, no pre-assign), so
       // the button key carries 'none' — the exact first-assignment contract
       // that was unreachable under the pre-#453 character-join scoping.
-      await _openCostumeDetail(context.world, realCostume);
-      final assignButton = find.byValueKey('assign-costume-$realCostume-none');
+      await _openPieceDetail(context.world, realPiece);
+      final assignButton = find.byValueKey('assign-piece-$realPiece-none');
       await context.world.driver!.waitFor(
         assignButton,
         timeout: const Duration(seconds: 15),
@@ -124,27 +124,27 @@ Iterable<StepDefinitionGeneric> costumeAssignmentSteps() => [
     },
   ),
   when3<String, String, String, FlutterWorld>(
-    'I reassign costume {string} from {string} to {string}',
+    'I reassign piece {string} from {string} to {string}',
     (
       String pieceId,
       String fromCharacterId,
       String toCharacterId,
       context,
     ) async {
-      // Issue #454: the costume is ALREADY assigned to `fromCharacterId`;
-      // the Reassign button (`assign-costume-<id>-<currentChar>`) dispatches
+      // Issue #454: the piece is ALREADY assigned to `fromCharacterId`;
+      // the Reassign button (`assign-piece-<id>-<currentChar>`) dispatches
       // a client-side unassign→assign sequence (never the plain assign
-      // command, which 409s `costume.already-assigned`). The app is already
-      // on the costume DETAIL screen (the preceding assign step pushed it),
+      // command, which 409s `piece.already-assigned`). The app is already
+      // on the piece DETAIL screen (the preceding assign step pushed it),
       // so the Reassign button is tapped in place — no list re-open.
       final world = context.world as AppWorld;
-      final realCostume = world.seedIds[pieceId] ?? pieceId;
+      final realPiece = world.seedIds[pieceId] ?? pieceId;
       final realFrom = world.seedIds[fromCharacterId] ?? fromCharacterId;
       final realTo = world.seedIds[toCharacterId] ?? toCharacterId;
-      world.lastCostumeId = realCostume;
+      world.lastPieceId = realPiece;
       world.lastCharacterId = realTo;
       final reassignButton = find.byValueKey(
-        'assign-costume-$realCostume-$realFrom',
+        'assign-piece-$realPiece-$realFrom',
       );
       await context.world.driver!.waitFor(
         reassignButton,
@@ -159,7 +159,7 @@ Iterable<StepDefinitionGeneric> costumeAssignmentSteps() => [
       await FlutterDriverUtils.tap(context.world.driver!, option);
     },
   ),
-  then<FlutterWorld>('the costume assignment appears optimistically', (
+  then<FlutterWorld>('the piece assignment appears optimistically', (
     context,
   ) async {
     // Optimistic overlay OR already-reconciled authoritative key.
@@ -177,19 +177,19 @@ Iterable<StepDefinitionGeneric> costumeAssignmentSteps() => [
     // failure (409 / error banner) shows NEITHER and still times out.
     final world = context.world as AppWorld;
     final overlayLocator = find.byValueKey(
-      'overlay-assign-${world.lastCostumeId}-${world.lastCharacterId}',
+      'overlay-assign-${world.lastPieceId}-${world.lastCharacterId}',
     );
     final authoritativeLocator = find.byValueKey(
-      'assigned-${world.lastCostumeId}-${world.lastCharacterId}',
+      'assigned-${world.lastPieceId}-${world.lastCharacterId}',
     );
     await _waitForEither(
       world,
       [overlayLocator, authoritativeLocator],
       timeout: const Duration(seconds: 10),
-      what: 'costume assignment (optimistic overlay or reconciled)',
+      what: 'piece assignment (optimistic overlay or reconciled)',
     );
   }),
-  then<FlutterWorld>('the costume assignment projection refreshes', (
+  then<FlutterWorld>('the piece assignment projection refreshes', (
     context,
   ) async {
     // The bounded-retry refetch swaps the optimistic entry for the
@@ -197,60 +197,60 @@ Iterable<StepDefinitionGeneric> costumeAssignmentSteps() => [
     // key replaces the overlay key.
     final world = context.world as AppWorld;
     final locator = find.byValueKey(
-      'assigned-${world.lastCostumeId}-${world.lastCharacterId}',
+      'assigned-${world.lastPieceId}-${world.lastCharacterId}',
     );
     await context.world.driver!.waitFor(
       locator,
       timeout: const Duration(seconds: 30),
     );
   }),
-  then<FlutterWorld>('the costume stream denies assignment with a denial', (
+  then<FlutterWorld>('the piece stream denies assignment with a denial', (
     context,
   ) async {
     // Client-side AUTHZ-GATE (membership capability `assign_costumes`)
-    // refuses the unprivileged caller on the costume stream before any
+    // refuses the unprivileged caller on the piece stream before any
     // network call (AGENTS.md §5, D6): the localized 403 narrative renders
-    // in place of the assign button on the costume detail.
-    final locator = find.byValueKey('costume-assign-denied');
+    // in place of the assign button on the piece detail.
+    final locator = find.byValueKey('piece-assign-denied');
     await context.world.driver!.waitFor(
       locator,
       timeout: const Duration(seconds: 10),
     );
   }),
-  then<FlutterWorld>('no costume command leaves the device', (context) async {
+  then<FlutterWorld>('no piece command leaves the device', (context) async {
     // AUTHZ-GATE preflight (issue #459): the client refused the action
     // before any command HTTP was issued. Verified against the real traffic
     // recorded by the in-app Dio interceptor (issue #380): the
-    // costume-command counter (assign + unassign paths) must be zero.
+    // piece-command counter (assign + unassign paths) must be zero.
     // Navigation read-model fetches are legitimate traffic and stay out of
     // this counter — the gate prevents command traffic, not page loads.
-    final count = await _costumeCommandsLeftDevice(context.world);
+    final count = await _pieceCommandsLeftDevice(context.world);
     if (count != 0) {
       throw Exception(
         'AUTHZ-GATE preflight failed: '
-        '$count costume command request(s) left the device before the '
+        '$count piece command request(s) left the device before the '
         'client-side authorization check.',
       );
     }
   }),
 ];
 
-/// Opens the seeded costume's inline editor from the Garderobe tile grid.
+/// Opens the seeded piece's inline editor from the Garderobe tile grid.
 ///
-/// Projection-lag guard (#368 on-device run): the freshly seeded costume
+/// Projection-lag guard (#368 on-device run): the freshly seeded piece
 /// reaches the read model a few seconds AFTER its 201 — if the tile is
 /// absent, pull-to-refresh the real read-model seam (a real gesture, no
 /// sleep) until it projects in. Then a pull-to-refresh before opening the
 /// detail guards a stale device-Drift row whose version the server has
 /// advanced (the acted-on row must echo the authoritative version).
-Future<void> _openCostumeDetail(FlutterWorld world, String realCostume) async {
+Future<void> _openPieceDetail(FlutterWorld world, String realPiece) async {
   final driver = world.driver!;
-  final tile = find.byValueKey('costume-tile-$realCostume');
+  final tile = find.byValueKey('piece-tile-$realPiece');
   try {
     await driver.waitFor(tile, timeout: const Duration(seconds: 10));
   } on Object {
     await driver.scroll(
-      find.byValueKey('costumes-list'),
+      find.byValueKey('pieces-list'),
       0,
       200,
       const Duration(milliseconds: 600),
@@ -263,7 +263,7 @@ Future<void> _openCostumeDetail(FlutterWorld world, String realCostume) async {
   // the REAL read-model seam BEFORE opening the detail so the acted-on row
   // echoes the authoritative version (a real gesture, bounded wait, no sleep).
   await driver.scroll(
-    find.byValueKey('costumes-list'),
+    find.byValueKey('pieces-list'),
     0,
     200,
     const Duration(milliseconds: 600),

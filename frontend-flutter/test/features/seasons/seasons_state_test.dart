@@ -89,7 +89,7 @@ void main() {
       'a': SeasonMetrics(
         blockCount: 3,
         sceneCount: 42,
-        costumeCount: 118,
+        pieceCount: 118,
         cachedAt: DateTime.utc(2026, 1, 1),
       ),
     };

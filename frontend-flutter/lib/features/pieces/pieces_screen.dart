@@ -18,27 +18,27 @@ import '../../data/photo_repository.dart';
 import '../../l10n/app_localizations_provider.dart';
 import '../blocks/active_block_gate.dart';
 import '../blocks/blocks_controller.dart';
-import 'costume_detail_screen.dart';
-import 'costumes_controller.dart';
-import 'costumes_state.dart';
+import 'piece_detail_screen.dart';
+import 'pieces_controller.dart';
+import 'pieces_state.dart';
 import '../photos/widgets/photo_gallery.dart';
-import 'widgets/costumes_widgets.dart';
+import 'widgets/pieces_widgets.dart';
 
-/// `CostumesScreen` — the season's costumes and the inline costume editor.
+/// `PiecesScreen` — the season's pieces and the inline piece editor.
 ///
-/// Create dispatches the empty-body `POST /v1/costumes` after the session
+/// Create dispatches the empty-body `POST /v1/pieces` after the session
 /// AUTHZ-GATE. Selecting a tile opens the editor in this screen; there is no
 /// separate detail route.
-class CostumesScreen extends ConsumerStatefulWidget {
-  const CostumesScreen({super.key, required this.season});
+class PiecesScreen extends ConsumerStatefulWidget {
+  const PiecesScreen({super.key, required this.season});
 
   final SeasonView season;
 
   @override
-  ConsumerState<CostumesScreen> createState() => _CostumesScreenState();
+  ConsumerState<PiecesScreen> createState() => _PiecesScreenState();
 }
 
-class _CostumesScreenState extends ConsumerState<CostumesScreen> {
+class _PiecesScreenState extends ConsumerState<PiecesScreen> {
   String? _selectedId;
   final _editorAdapterKey = GlobalKey();
   SeasonView get season => widget.season;
@@ -56,10 +56,10 @@ class _CostumesScreenState extends ConsumerState<CostumesScreen> {
     final resolution = ref.watch(blockScopeResolutionProvider(season.id));
     switch (resolution) {
       case AsyncLoading():
-        return BlockScopeLoadingScaffold(title: l10nOf(context).navCostumes);
+        return BlockScopeLoadingScaffold(title: l10nOf(context).navWardrobe);
       case AsyncError(:final error):
         return BlockScopeErrorScaffold(
-          title: l10nOf(context).navCostumes,
+          title: l10nOf(context).navWardrobe,
           code: blockScopeErrorCode(error),
           onRetry: () => ref.refresh(blocksListFetchProvider(season.id)),
         );
@@ -72,12 +72,12 @@ class _CostumesScreenState extends ConsumerState<CostumesScreen> {
           final candidates = value.candidates;
           if (candidates != null) {
             return BlockScopePickerScaffold(
-              title: l10nOf(context).navCostumes,
+              title: l10nOf(context).navWardrobe,
               seasonId: season.id,
               candidates: candidates,
             );
           }
-          return NoBlocksHintScaffold(title: l10nOf(context).navCostumes);
+          return NoBlocksHintScaffold(title: l10nOf(context).navWardrobe);
         }
     }
     final state = ref.watch(piecesControllerProvider(season.id));
@@ -93,28 +93,28 @@ class _CostumesScreenState extends ConsumerState<CostumesScreen> {
     // Do not construct the photo repository until the capability is known.
     // No photo repository means no bytes request.
     final photoRepository = canViewPhotos
-        ? ref.watch(costumePhotoRepositoryProvider)
+        ? ref.watch(piecePhotoRepositoryProvider)
         : null;
     final photoBytesLru = ref.watch(photoBytesLruProvider);
 
     return Scaffold(
-      appBar: AppBar(title: Text(l10nOf(context).navCostumes)),
+      appBar: AppBar(title: Text(l10nOf(context).navWardrobe)),
       body: Column(
         children: [
           if (state.commandError case final failure?)
             _Banner(
-              key: const Key('costume-command-error-banner'),
-              text: costumeCommandErrorCopy(l10nOf(context), failure),
+              key: const Key('piece-command-error-banner'),
+              text: pieceCommandErrorCopy(l10nOf(context), failure),
               onDismiss: controller.dismissCommandError,
             ),
           if (state.isStale && notFound == null)
             _Banner(
-              key: const Key('costumes-stale-banner'),
-              text: l10nOf(context).costumesStaleBanner,
+              key: const Key('pieces-stale-banner'),
+              text: l10nOf(context).piecesStaleBanner,
             ),
           Expanded(
             child: notFound != null
-                ? CostumesNotFoundView(
+                ? PiecesNotFoundView(
                     code: notFound.code,
                     onBack: () => Navigator.of(context).pop(),
                   )
@@ -123,7 +123,7 @@ class _CostumesScreenState extends ConsumerState<CostumesScreen> {
                     child: switch (state.projected) {
                       AsyncLoading() when rows.isEmpty => const Center(
                         child: CircularProgressIndicator(
-                          key: Key('costumes-loading'),
+                          key: Key('pieces-loading'),
                         ),
                       ),
                       AsyncError(:final error) when rows.isEmpty =>
@@ -134,18 +134,18 @@ class _CostumesScreenState extends ConsumerState<CostumesScreen> {
                       _ =>
                         rows.isEmpty
                             ? ListView(
-                                key: const Key('costumes-list'),
+                                key: const Key('pieces-list'),
                                 physics: const AlwaysScrollableScrollPhysics(),
                                 children: [
                                   const SizedBox(height: 160),
-                                  CostumesEmptyView(
+                                  PiecesEmptyView(
                                     onCreate: _canCreate(ref)
                                         ? () => _createAndShowEditor(ref)
                                         : null,
                                   ),
                                 ],
                               )
-                            : _CostumeOverview(
+                            : _PieceOverview(
                                 rows: rows,
                                 season: season,
                                 canViewPhotos: canViewPhotos,
@@ -153,7 +153,7 @@ class _CostumesScreenState extends ConsumerState<CostumesScreen> {
                                 photoBytesLru: photoBytesLru,
                                 selectedId: _selectedId,
                                 editorAdapterKey: _editorAdapterKey,
-                                onSelect: _selectCostume,
+                                onSelect: _selectPiece,
                               ),
                     },
                   ),
@@ -162,9 +162,9 @@ class _CostumesScreenState extends ConsumerState<CostumesScreen> {
       ),
       floatingActionButton: _canCreate(ref)
           ? FloatingActionButton(
-              key: const Key('costume-add-fab'),
+              key: const Key('piece-add-fab'),
               onPressed: () => _createAndShowEditor(ref),
-              tooltip: l10nOf(context).costumeAddFab,
+              tooltip: l10nOf(context).pieceAddFab,
               child: const Icon(Icons.add),
             )
           : null,
@@ -184,12 +184,12 @@ class _CostumesScreenState extends ConsumerState<CostumesScreen> {
   Future<void> _createAndShowEditor(WidgetRef ref) async {
     final result = await ref
         .read(piecesControllerProvider(season.id).notifier)
-        .create(name: l10nOf(context).costumeTileLabelFallback);
+        .create(name: l10nOf(context).pieceTileLabelFallback);
     final id = result.match((_) => null, (ack) => ack.id);
-    if (id != null && mounted) _selectCostume(id);
+    if (id != null && mounted) _selectPiece(id);
   }
 
-  void _selectCostume(String id) {
+  void _selectPiece(String id) {
     setState(() => _selectedId = id);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final editorContext = _editorAdapterKey.currentContext;
@@ -206,8 +206,8 @@ class _CostumesScreenState extends ConsumerState<CostumesScreen> {
   }
 }
 
-class _CostumeOverview extends StatelessWidget {
-  const _CostumeOverview({
+class _PieceOverview extends StatelessWidget {
+  const _PieceOverview({
     required this.rows,
     required this.season,
     required this.canViewPhotos,
@@ -218,7 +218,7 @@ class _CostumeOverview extends StatelessWidget {
     required this.onSelect,
   });
 
-  final List<CostumeRow> rows;
+  final List<PieceRow> rows;
   final SeasonView season;
   final bool canViewPhotos;
   final PhotoRepository? photoRepository;
@@ -231,7 +231,7 @@ class _CostumeOverview extends StatelessWidget {
   Widget build(BuildContext context) {
     final columns = MediaQuery.sizeOf(context).width < 600 ? 2 : 3;
     return CustomScrollView(
-      key: const Key('costumes-list'),
+      key: const Key('pieces-list'),
       physics: const AlwaysScrollableScrollPhysics(),
       slivers: [
         SliverPadding(
@@ -246,13 +246,13 @@ class _CostumeOverview extends StatelessWidget {
             itemCount: rows.length,
             itemBuilder: (context, index) {
               final row = rows[index];
-              return CostumeTile(
+              return PieceTile(
                 row: row,
                 photoRepository: photoRepository,
                 photoBytesLru: photoBytesLru,
                 canViewPhotos: canViewPhotos,
-                onTap: row is ProjectedCostumeRow
-                    ? () => onSelect(row.costume.id)
+                onTap: row is ProjectedPieceRow
+                    ? () => onSelect(row.piece.id)
                     : null,
               );
             },
@@ -261,8 +261,8 @@ class _CostumeOverview extends StatelessWidget {
         if (selectedId != null)
           SliverToBoxAdapter(
             key: editorAdapterKey,
-            child: CostumeDetailPanel(
-              key: Key('costume-editor-$selectedId'),
+            child: PieceDetailPanel(
+              key: Key('piece-editor-$selectedId'),
               season: season,
               pieceId: selectedId!,
             ),
@@ -280,15 +280,15 @@ class _FetchErrorView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => ListView(
-    key: const Key('costumes-error'),
+    key: const Key('pieces-error'),
     physics: const AlwaysScrollableScrollPhysics(),
     children: [
       const SizedBox(height: 160),
-      Center(child: Text(l10nOf(context).costumesFetchError(code))),
+      Center(child: Text(l10nOf(context).piecesFetchError(code))),
       const SizedBox(height: 8),
       Center(
         child: FilledButton.tonal(
-          key: const Key('costumes-retry'),
+          key: const Key('pieces-retry'),
           onPressed: onRetry,
           child: Text(l10nOf(context).commonRetry),
         ),
@@ -325,7 +325,7 @@ class _Banner extends StatelessWidget {
                 tooltip: l10nOf(context).episodesDismiss,
                 icon: const Icon(
                   Icons.close,
-                  key: Key('costume-command-error-dismiss'),
+                  key: Key('piece-command-error-dismiss'),
                 ),
               ),
           ],

@@ -366,7 +366,7 @@ void main() {
       await tester.pumpAndSettle();
     }
 
-    /// The Cast view (issue #610: the costume surface and the category
+    /// The Cast view (issue #610: the piece surface and the category
     /// vocabulary moved here from the dissolved Kleidung/Mehr
     /// destinations).
     Future<void> pumpCast(WidgetTester tester) async {

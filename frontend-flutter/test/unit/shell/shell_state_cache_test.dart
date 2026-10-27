@@ -8,7 +8,7 @@
 // documented `Err` branches deterministically — the fault surfaces INSIDE
 // the real DAO's defensive catch, which is exactly the surface that must
 // resolve to `Left(shell.state_*_failed)` (same reasoning as
-// `costume_domain_cache_faults_test`: a closed in-memory database does not
+// `piece_domain_cache_faults_test`: a closed in-memory database does not
 // reliably produce DAO faults). Headless, deterministic, no Flutter imports.
 
 import 'package:drift/drift.dart' hide isNull, isNotNull;

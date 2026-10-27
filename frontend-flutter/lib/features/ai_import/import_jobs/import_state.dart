@@ -50,7 +50,7 @@ String aiUploadErrorCopy(AppLocalizations l10n, ProblemError error) =>
       'ai-import.unsupported-media-type' ||
       'ai_import.unsupported_media_type' => l10n.aiUploadUnsupported,
       'ai-import.forbidden' ||
-      'ai_import.forbidden' => l10n.costumeErrorForbidden,
+      'ai_import.forbidden' => l10n.pieceErrorForbidden,
       'ai-import.disabled' => l10n.aiUploadDisabled,
       'ai_import.scope_missing' => l10n.aiUploadScopeMissing,
       'authz.denied' || 'membership.pending' => l10n.aiUploadPermissions,

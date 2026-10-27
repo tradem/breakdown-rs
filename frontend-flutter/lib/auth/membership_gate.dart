@@ -8,10 +8,10 @@ import 'package:breakdown_api/breakdown_api.dart';
 import 'membership/capability.dart';
 
 /// Shared client-side capability gate mirroring the backend authorization
-/// policies (flutter-costume-domains Task 2.1; series-level photo policy
+/// policies (flutter-piece-domains Task 2.1; series-level photo policy
 /// since issue #535).
 ///
-/// Every photo upload, bytes fetch and delete — and every costume assign /
+/// Every photo upload, bytes fetch and delete — and every piece assign /
 /// unassign command — runs a check BEFORE the network call, annotated with
 /// a `// AUTHZ-GATE:` comment at the dispatch site. A client-side denial
 /// renders a localized 403 narrative and never issues the request (provable
@@ -21,10 +21,10 @@ import 'membership/capability.dart';
 /// gated handler — a client `true` is a gate decision only (AGENTS.md §5).
 ///
 /// **Two scopes, two gates (issue #535):**
-/// * **Costume photos** (`/costumes/{id}/photos*`) authorize **series-wide**
+/// * **Piece photos** (`/pieces/{id}/photos*`) authorize **series-wide**
 ///   server-side (`has_active_costume_role_in_series`, ADR-035 B2/S2) — the
 ///   mirror reads the backend-computed series predicate from
-///   `SeriesMembershipDto` via [checkCostumePhotoCapability].
+///   `SeriesMembershipDto` via [checkPiecePhotoCapability].
 /// * **Continuity photos** (scene-shoot bound) stay **season-scoped**
 ///   server-side (`has_active_costume_role_in_season` via the
 ///   shooting_day → episode → block → season chain) — the mirror keeps the
@@ -32,7 +32,7 @@ import 'membership/capability.dart';
 ///
 /// v1 capability set (season DTO, derived server-side from
 /// `has_active_costume_role_in_season`):
-/// * `assign_costumes` — costume assign/unassign, scene-character binding.
+/// * `assign_costumes` — piece assign/unassign, scene-character binding.
 /// * `upload_continuity_photos` — continuity photos (season-scoped policy
 ///   mirror, D3).
 enum GatedCapability {
@@ -58,7 +58,7 @@ class GateAllow extends GateDecision {
 class GateDeny extends GateDecision {
   const GateDeny(this.code);
 
-  /// Stable problem `code` (e.g. `costume.forbidden`, `photo.forbidden`).
+  /// Stable problem `code` (e.g. `piece.forbidden`, `photo.forbidden`).
   final String code;
 }
 
@@ -71,7 +71,7 @@ class GateDeny extends GateDecision {
 GateDecision checkCapability(
   SeasonMembershipDto? membership,
   GatedCapability capability, {
-  String denyCode = 'costume.forbidden',
+  String denyCode = 'piece.forbidden',
 }) {
   if (membership == null) return const GateDeny('membership.pending');
   final wire = membership.capabilities.toList();
@@ -98,12 +98,12 @@ GateDecision checkCapability(
   }
 }
 
-/// Convenience: costume photo upload/bytes/delete gate — **series-scoped**
+/// Convenience: piece photo upload/bytes/delete gate — **series-scoped**
 /// photo policy mirror (issue #535, ADR-035 B2/S2). Reads the
 /// backend-computed series predicate directly (exactly the
 /// `canViewReports` pattern); a client `true` is a gate decision only, the
 /// server re-checks on every gated handler.
-GateDecision checkCostumePhotoCapability(SeriesMembershipDto? membership) {
+GateDecision checkPiecePhotoCapability(SeriesMembershipDto? membership) {
   if (membership == null) return const GateDeny('membership.pending');
   return membership.hasActiveCostumeRoleInSeries
       ? const GateAllow()
@@ -121,15 +121,15 @@ GateDecision checkContinuityCapability(SeasonMembershipDto? membership) =>
       denyCode: 'photo.forbidden',
     );
 
-/// Convenience: costume assign/unassign + scene-character binding gate.
+/// Convenience: piece assign/unassign + scene-character binding gate.
 GateDecision checkAssignCapability(SeasonMembershipDto? membership) =>
     checkCapability(
       membership,
       GatedCapability.assignCostumes,
-      denyCode: 'costume.forbidden',
+      denyCode: 'piece.forbidden',
     );
 
-/// Convenience: AI-import upload/apply gate (season costume-dept membership
+/// Convenience: AI-import upload/apply gate (season piece-dept membership
 /// — the same backend predicate that derives the capability set, D4).
 GateDecision checkAiImportCapability(SeasonMembershipDto? membership) =>
     checkCapability(

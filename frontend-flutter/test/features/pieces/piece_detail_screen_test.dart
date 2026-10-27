@@ -6,7 +6,7 @@
 // Co-authored-by: glm-5.3-flash (opencode-go)
 // Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
-// Tier-2 widget tests for `CostumeDetailScreen` (Task 4.3): detail elements
+// Tier-2 widget tests for `PieceDetailScreen` (Task 4.3): detail elements
 // (+ denormalized category names), notes editor, assign/unassign (version
 // echo, optimistic overlay keys, 409 copy, role-denial with zero network
 // calls), add-detail form (category picker), photo empty state + delete
@@ -46,16 +46,16 @@ import 'package:dio/dio.dart';
 import 'package:image/image.dart' as img;
 import 'package:image_picker/image_picker.dart';
 import 'package:frontend_flutter/data/cache/clock.dart';
-import 'package:frontend_flutter/features/costumes/costume_detail_screen.dart';
-import 'package:frontend_flutter/features/costumes/costumes_controller.dart';
-import 'package:frontend_flutter/features/costumes/costumes_state.dart';
+import 'package:frontend_flutter/features/pieces/piece_detail_screen.dart';
+import 'package:frontend_flutter/features/pieces/pieces_controller.dart';
+import 'package:frontend_flutter/features/pieces/pieces_state.dart';
 import 'package:frontend_flutter/features/photos/capture.dart';
 import 'package:frontend_flutter/features/photos/prepare.dart';
 import 'package:frontend_flutter/features/photos/widgets/photo_gallery.dart';
 
 import '../seasons/seasons_test_fakes.dart';
 
-PieceView _costume(
+PieceView _piece(
   String id, {
   String? categoryId,
   String? categoryName,
@@ -68,7 +68,7 @@ PieceView _costume(
   (b) => b
     ..name = 'Fundus-Piece'
     ..id = id
-    // Issue #543: costume-level category on the row for picker/no-op tests.
+    // Issue #543: piece-level category on the row for picker/no-op tests.
     ..categoryId = categoryId
     ..categoryName = categoryName
     ..notes = notes
@@ -177,7 +177,7 @@ SeasonMembershipDto _membership(List<String> caps) => SeasonMembershipDto(
     ..capabilities.replace(caps),
 );
 
-/// The series-level membership the costume-photo gate reads (issue #535).
+/// The series-level membership the piece-photo gate reads (issue #535).
 /// Test parity with the pre-#535 season-derived photo capability: the photo
 /// gate is permissive exactly when the season capability list carries the
 /// photo capability.
@@ -280,7 +280,7 @@ class _FakePieceRepository extends PieceRepository {
     return Future.value(const Right(2));
   }
 
-  /// Issue #543: the costume-level category command capture.
+  /// Issue #543: the piece-level category command capture.
   int setCategoryCalls = 0;
   String? lastSetCategoryId;
   int? lastSetCategoryVersion;
@@ -327,7 +327,7 @@ class _FakePieceRepository extends PieceRepository {
     return Future.value(const Right(2));
   }
 
-  /// Scripted row for `GET /v1/costumes/{id}` (`getAndCache`), plus a call
+  /// Scripted row for `GET /v1/pieces/{id}` (`getAndCache`), plus a call
   /// counter. The screen fetches the enriched single row on open and after
   /// gallery-affecting commands, because the rendered row may be the
   /// OPTIMISTIC overlay whose photos the last snapshot does not know about
@@ -359,7 +359,7 @@ class _FakePieceRepository extends PieceRepository {
       // a list row that has photos and silently empty the gallery.
       enrichedDetail ??
           const Left(
-            ProblemError(code: 'costume.detail-not-scripted', status: 500),
+            ProblemError(code: 'piece.detail-not-scripted', status: 500),
           ),
     );
   }
@@ -372,7 +372,7 @@ class _FakePhotoRepository extends PhotoRepository {
   int uploadCalls = 0;
 
   /// Scripted server failure for the next call (issue #532: the server owns
-  /// the costume-scope decision, so its rejection must be asserted through the
+  /// the piece-scope decision, so its rejection must be asserted through the
   /// honest code-keyed copy). `null` = serve a success.
   ProblemError? uploadError;
   ProblemError? deleteError;
@@ -467,7 +467,7 @@ void main() {
   });
 
   Future<void> setupContainer({
-    required PieceView costume,
+    required PieceView piece,
     List<CharacterView> characters = const [],
     List<CostumeCategoryView> categories = const [],
     List<String> capabilities = const [
@@ -486,7 +486,7 @@ void main() {
     addTearDown(db.close);
     repo = _FakePieceRepository(BreakdownApi(), PieceCacheDao(db));
     photos = _FakePhotoRepository(BreakdownApi());
-    holder = ValueNotifier<Result<List<PieceView>>>(Right([costume]));
+    holder = ValueNotifier<Result<List<PieceView>>>(Right([piece]));
     membershipHolder = ValueNotifier<Result<SeasonMembershipDto>>(
       Right(_membership(capabilities)),
     );
@@ -504,8 +504,8 @@ void main() {
       overrides: [
         appConfigProvider.overrideWithValue(devAuthConfig),
         cacheDatabaseProvider.overrideWithValue(db),
-        costumeRepositoryProvider.overrideWithValue(repo),
-        costumePhotoRepositoryProvider.overrideWithValue(photos),
+        pieceRepositoryProvider.overrideWithValue(repo),
+        piecePhotoRepositoryProvider.overrideWithValue(photos),
         // Untouched read paths (characters/categories sections) run the
         // real cache-backed implementation over plain-Dio clients — never
         // the pinned production Dio (no TLS context in tests).
@@ -524,19 +524,19 @@ void main() {
         ),
         membershipFetchProvider('season-1')
             .overrideWith((ref) async => membershipHolder.value),
-        // Family-level override (issue #535 review): the costume-keyed series
-        // gate answers from the holder regardless of the costume instance —
+        // Family-level override (issue #535 review): the piece-keyed series
+        // gate answers from the holder regardless of the piece instance —
         // tests pin the PREDICATE, not the resolution internals.
         seriesMembershipForCostumeProvider.overrideWith(
-          (ref, costume) async => seriesMembershipHolder.value,
+          (ref, piece) async => seriesMembershipHolder.value,
         ),
         // The variant watch is irrelevant to these assertions; stub
         // it closed so no backoff timers outlive the widget tree.
-        costumePhotoWatchProvider(
+        piecePhotoWatchProvider(
           'season-1',
           'c-1',
         ).overrideWith((ref) => const Stream<PhotoWatchEvent>.empty()),
-        costumesListFetchProvider('season-1').overrideWith((ref) async {
+        piecesListFetchProvider('season-1').overrideWith((ref) async {
           final dao = PieceCacheDao(ref.watch(cacheDatabaseProvider));
           return holder.value.match((err) => Left(err), (rows) async {
             await dao.applySnapshotForSeason(
@@ -573,7 +573,7 @@ void main() {
       UncontrolledProviderScope(
         container: container,
         child: MaterialApp(
-          home: CostumeDetailScreen(season: _season(), pieceId: pieceId),
+          home: PieceDetailScreen(season: _season(), pieceId: pieceId),
         ),
       ),
     );
@@ -582,12 +582,12 @@ void main() {
     await _pumpFrames(tester, n: 30);
   }
 
-  group('CostumeDetailScreen (4.3)', () {
+  group('PieceDetailScreen (4.3)', () {
     testWidgets('renders details, notes, assignment and photo sections', (
       tester,
     ) async {
       await setupContainer(
-        costume: _costume('c-1', details: [_detail('d-1')]),
+        piece: _piece('c-1', details: [_detail('d-1')]),
         characters: [_character('ch-1')],
       );
       await pumpDetail(tester, 'c-1');
@@ -598,18 +598,18 @@ void main() {
       // The character binding is not a piece attribute: the look that wears
       // it is an Outfit, so the detail panel shows no character row.
       expect(find.text('Ada'), findsNothing);
-      expect(find.byKey(const Key('costume-notes-c-1')), findsOneWidget);
+      expect(find.byKey(const Key('piece-notes-c-1')), findsOneWidget);
       expect(find.byKey(const Key('photo-gallery-empty-c-1')), findsOneWidget);
     });
 
-    // The photo gallery renders the ENRICHED single-costume row fetched on
+    // The photo gallery renders the ENRICHED single-piece row fetched on
     // open, not the possibly-optimistic rendered row (see `_detail` and the
     // fake's `enrichedDetail` doc).
     testWidgets('opening fetches the enriched detail ONCE and the gallery '
         'renders its photos', (tester) async {
-      await setupContainer(costume: _costume('c-1'));
+      await setupContainer(piece: _piece('c-1'));
       repo.enrichedDetail = Right<ProblemError, PieceView>(
-        _costume('c-1').rebuild((b) => b..photos.replace([_readyPhoto('p-1')])),
+        _piece('c-1').rebuild((b) => b..photos.replace([_readyPhoto('p-1')])),
       );
       await pumpDetail(tester, 'c-1');
 
@@ -633,13 +633,13 @@ void main() {
     // carry no photos at all.
     testWidgets('a deleted photo disappears from the gallery: the detail is '
         're-read after the command succeeds', (tester) async {
-      final withPhoto = _costume('c-1')
+      final withPhoto = _piece('c-1')
           .rebuild((b) => b..photos.replace([_readyPhoto('p-1')]));
-      await setupContainer(costume: withPhoto);
+      await setupContainer(piece: withPhoto);
       // Open: the enriched row still has the photo. After the delete: it is gone.
       repo.detailQueue.addAll([
         Right<ProblemError, PieceView>(withPhoto),
-        Right<ProblemError, PieceView>(_costume('c-1')),
+        Right<ProblemError, PieceView>(_piece('c-1')),
       ]);
       await pumpDetail(tester, 'c-1');
       expect(find.byKey(const Key('photo-tile-p-1')), findsOneWidget);
@@ -661,9 +661,9 @@ void main() {
 
     testWidgets('a FAILED photo command does NOT re-read or rewrite the '
         'gallery — the shown row stays honest', (tester) async {
-      final withPhoto = _costume('c-1')
+      final withPhoto = _piece('c-1')
           .rebuild((b) => b..photos.replace([_readyPhoto('p-1')]));
-      await setupContainer(costume: withPhoto);
+      await setupContainer(piece: withPhoto);
       repo.detailQueue.add(Right<ProblemError, PieceView>(withPhoto));
       await pumpDetail(tester, 'c-1');
       expect(repo.detailFetchCalls, 1);
@@ -693,15 +693,15 @@ void main() {
       'a FAILED detail fetch keeps the list row rendering — no crash, '
       'and no invented gallery',
       (tester) async {
-        await setupContainer(costume: _costume('c-1'));
+        await setupContainer(piece: _piece('c-1'));
         repo.enrichedDetail = const Left(
-          ProblemError(code: 'costume.detail-unavailable', status: 503),
+          ProblemError(code: 'piece.detail-unavailable', status: 503),
         );
         await pumpDetail(tester, 'c-1');
 
         expect(repo.detailFetchCalls, 1);
         // The rest of the screen is untouched by the failed read.
-        expect(find.byKey(const Key('costume-detail-c-1')), findsOneWidget);
+        expect(find.byKey(const Key('piece-detail-c-1')), findsOneWidget);
         expect(
           find.byKey(const Key('photo-gallery-empty-c-1')),
           findsOneWidget,
@@ -715,7 +715,7 @@ void main() {
       tester,
     ) async {
       await setupContainer(
-        costume: _costume('c-1'),
+        piece: _piece('c-1'),
         characters: [_character('ch-1')],
         capabilities: const [],
       );
@@ -727,13 +727,13 @@ void main() {
     });
 
     testWidgets('notes: save dispatches version echo', (tester) async {
-      await setupContainer(costume: _costume('c-1'));
+      await setupContainer(piece: _piece('c-1'));
       await pumpDetail(tester, 'c-1');
       await tester.enterText(
-        find.byKey(const Key('costume-notes-c-1')),
+        find.byKey(const Key('piece-notes-c-1')),
         'Wool coat',
       );
-      await tester.tap(find.byKey(const Key('costume-notes-save-c-1')));
+      await tester.tap(find.byKey(const Key('piece-notes-save-c-1')));
       await _pumpFrames(tester);
       expect(repo.notesCalls, 1);
     });
@@ -741,33 +741,33 @@ void main() {
     testWidgets('second notes save echoes the ack version (no 422 loop)', (
       tester,
     ) async {
-      // Issue #473 acceptance: consecutive writes to the same costume must
+      // Issue #473 acceptance: consecutive writes to the same piece must
       // echo the acknowledged version — save notes, then save notes again;
       // the second request must carry v2 (the first ack), never the stale
       // v1 the backend equality guard would 422 as `domain.validation`.
-      await setupContainer(costume: _costume('c-1')); // v1
+      await setupContainer(piece: _piece('c-1')); // v1
       await pumpDetail(tester, 'c-1');
       // First save echoes v1 → ack v2.
       await tester.enterText(
-        find.byKey(const Key('costume-notes-c-1')),
+        find.byKey(const Key('piece-notes-c-1')),
         'Wool coat',
       );
-      await tester.tap(find.byKey(const Key('costume-notes-save-c-1')));
+      await tester.tap(find.byKey(const Key('piece-notes-save-c-1')));
       await _pumpFrames(tester);
       expect(repo.notesCalls, 1);
       expect(repo.lastNotesVersion, 1);
       // Second save: the editor holds the fence (overlay version advanced
       // to the ack), so the follow-up echoes 2 — and the save succeeds.
       await tester.enterText(
-        find.byKey(const Key('costume-notes-c-1')),
+        find.byKey(const Key('piece-notes-c-1')),
         'Wool coat v2',
       );
-      await tester.tap(find.byKey(const Key('costume-notes-save-c-1')));
+      await tester.tap(find.byKey(const Key('piece-notes-save-c-1')));
       await _pumpFrames(tester);
       expect(repo.notesCalls, 2);
       expect(repo.lastNotesVersion, 2);
       // The command error tray is quiet: no silent 422 loop.
-      expect(find.byKey(const Key('costume-detail-error')), findsNothing);
+      expect(find.byKey(const Key('piece-detail-error')), findsNothing);
     });
 
     testWidgets('add detail after save echoes the ack version', (tester) async {
@@ -775,18 +775,18 @@ void main() {
       // #473): save notes (v1 → ack v2), then add a detail — the detail
       // command must carry v2, not the initial snapshot's 1. The inline
       // editor (issue #545) opens via the `＋` row and submits in place.
-      await setupContainer(costume: _costume('c-1')); // v1
+      await setupContainer(piece: _piece('c-1')); // v1
       await pumpDetail(tester, 'c-1');
       await tester.enterText(
-        find.byKey(const Key('costume-notes-c-1')),
+        find.byKey(const Key('piece-notes-c-1')),
         'Wool coat',
       );
-      await tester.tap(find.byKey(const Key('costume-notes-save-c-1')));
+      await tester.tap(find.byKey(const Key('piece-notes-save-c-1')));
       await _pumpFrames(tester);
       expect(repo.notesCalls, 1);
       expect(repo.lastNotesVersion, 1);
       // Open the create editor inline: editor mounts, no dialog route.
-      await tester.tap(find.byKey(const Key('costume-detail-add-c-1')));
+      await tester.tap(find.byKey(const Key('piece-detail-add-c-1')));
       await _pumpFrames(tester);
       expect(find.byKey(const Key('add-detail-editor')), findsOneWidget);
       await tester.enterText(
@@ -798,10 +798,7 @@ void main() {
       await _pumpFrames(tester, n: 12);
       expect(repo.detailCalls, 1);
       expect(repo.lastDetailVersion, 2);
-      expect(
-        find.byKey(const Key('costume-saved-confirmation')),
-        findsOneWidget,
-      );
+      expect(find.byKey(const Key('piece-saved-confirmation')), findsOneWidget);
     });
 
     testWidgets('409 version-mismatch renders pull-to-refresh copy', (
@@ -811,14 +808,14 @@ void main() {
       // defeat surfaced as `concurrency.version-mismatch` (409) must show a
       // distinct, actionable pull-to-refresh narrative — never generic copy
       // (ties into the #467/#470 tranche).
-      await setupContainer(costume: _costume('c-1'));
+      await setupContainer(piece: _piece('c-1'));
       await pumpDetail(tester, 'c-1');
       repo.nextWrite = const Left(_versionMismatch);
       await tester.enterText(
-        find.byKey(const Key('costume-notes-c-1')),
+        find.byKey(const Key('piece-notes-c-1')),
         'Wool coat',
       );
-      await tester.tap(find.byKey(const Key('costume-notes-save-c-1')));
+      await tester.tap(find.byKey(const Key('piece-notes-save-c-1')));
       await _pumpFrames(tester);
       expect(
         find.text('Changed elsewhere — pull to refresh and try again.'),
@@ -830,12 +827,12 @@ void main() {
       'add-detail: pure-description INLINE editor (no category field, #543)',
       (tester) async {
         await setupContainer(
-          costume: _costume('c-1'),
+          piece: _piece('c-1'),
           categories: [_category('cat-1')],
         );
         await pumpDetail(tester, 'c-1');
         await tester.pump(const Duration(milliseconds: 100));
-        await tester.tap(find.byKey(const Key('costume-detail-add-c-1')));
+        await tester.tap(find.byKey(const Key('piece-detail-add-c-1')));
         await _pumpFrames(tester);
         await tester.enterText(
           find.byKey(const Key('add-detail-text')),
@@ -843,7 +840,7 @@ void main() {
         );
         await _pumpFrames(tester);
         // The category dropdown is GONE from the editor; the category is set
-        // on the costume via the identity section (issue #543).
+        // on the piece via the identity section (issue #543).
         expect(find.byKey(const Key('add-detail-category')), findsNothing);
         await tester.tap(find.byKey(const Key('add-detail-submit')));
         await _pumpFrames(tester, n: 12);
@@ -874,12 +871,12 @@ void main() {
             ]),
           ),
       );
-      final costume = PieceView(
+      final piece = PieceView(
         (b) => b
           ..name = 'Fundus-Piece'
           ..id = 'c-1'
           // Issue #513 assignment gate: the delete affordance only renders
-          // for an ASSIGNED costume (the backend resolves the photo season
+          // for an ASSIGNED piece (the backend resolves the photo season
           // through the character).
           ..notes = 'n'
           ..details.replace(BuiltList<PieceDetailView>())
@@ -887,7 +884,7 @@ void main() {
           ..updatedAt = DateTime.utc(2026, 1, 1)
           ..version = 1,
       );
-      await setupContainer(costume: costume);
+      await setupContainer(piece: piece);
       await pumpDetail(tester, 'c-1');
       expect(find.byKey(const Key('photo-tile-p-1')), findsOneWidget);
       await tester.tap(find.byKey(const Key('photo-delete-p-1')));
@@ -900,7 +897,7 @@ void main() {
     });
   });
 
-  group('CostumeDetailScreen inline detail editor (issue #545)', () {
+  group('PieceDetailScreen inline detail editor (issue #545)', () {
     PieceDetailView detailView(
       String id, {
       String? subject,
@@ -915,7 +912,7 @@ void main() {
     testWidgets('edit opens the SAME editor widget inline, prefilled '
         '(no dialog route)', (tester) async {
       await setupContainer(
-        costume: _costume(
+        piece: _piece(
           'c-1',
           details: [
             detailView('d-1', subject: 'Jacke', text: 'rote Lederjacke'),
@@ -923,7 +920,7 @@ void main() {
         ),
       );
       await pumpDetail(tester, 'c-1');
-      await tester.tap(find.byKey(const Key('costume-detail-edit-d-1')));
+      await tester.tap(find.byKey(const Key('piece-detail-edit-d-1')));
       await _pumpFrames(tester);
       // The editor expands IN the row — the same widget as create mode.
       expect(
@@ -940,9 +937,9 @@ void main() {
     testWidgets('create opens the editor inline via the + row (empty)', (
       tester,
     ) async {
-      await setupContainer(costume: _costume('c-1'));
+      await setupContainer(piece: _piece('c-1'));
       await pumpDetail(tester, 'c-1');
-      await tester.tap(find.byKey(const Key('costume-detail-add-c-1')));
+      await tester.tap(find.byKey(const Key('piece-detail-add-c-1')));
       await _pumpFrames(tester);
       expect(find.byKey(const Key('add-detail-editor')), findsOneWidget);
       expect(find.byKey(const Key('add-detail-text')), findsOneWidget);
@@ -953,9 +950,9 @@ void main() {
     testWidgets('save stays DISABLED while the required text is empty', (
       tester,
     ) async {
-      await setupContainer(costume: _costume('c-1'));
+      await setupContainer(piece: _piece('c-1'));
       await pumpDetail(tester, 'c-1');
-      await tester.tap(find.byKey(const Key('costume-detail-add-c-1')));
+      await tester.tap(find.byKey(const Key('piece-detail-add-c-1')));
       await _pumpFrames(tester);
       final disabled = tester.widget<FilledButton>(
         find.byKey(const Key('add-detail-submit')),
@@ -974,9 +971,9 @@ void main() {
     testWidgets('valid text ENABLES save and dispatches (subject optional)', (
       tester,
     ) async {
-      await setupContainer(costume: _costume('c-1'));
+      await setupContainer(piece: _piece('c-1'));
       await pumpDetail(tester, 'c-1');
-      await tester.tap(find.byKey(const Key('costume-detail-add-c-1')));
+      await tester.tap(find.byKey(const Key('piece-detail-add-c-1')));
       await _pumpFrames(tester);
       await tester.enterText(
         find.byKey(const Key('add-detail-text')),
@@ -998,10 +995,10 @@ void main() {
       // but two in-flight adds would carry two different UUIDv7s — the
       // affordance itself must serialize them (the _submitting guard runs
       // synchronously before the first await).
-      await setupContainer(costume: _costume('c-1'));
+      await setupContainer(piece: _piece('c-1'));
       await pumpDetail(tester, 'c-1');
       repo.detailGate = Completer<void>();
-      await tester.tap(find.byKey(const Key('costume-detail-add-c-1')));
+      await tester.tap(find.byKey(const Key('piece-detail-add-c-1')));
       await _pumpFrames(tester);
       await tester.enterText(
         find.byKey(const Key('add-detail-text')),
@@ -1024,13 +1021,13 @@ void main() {
       tester,
     ) async {
       await setupContainer(
-        costume: _costume(
+        piece: _piece(
           'c-1',
           details: [detailView('d-1', subject: 'Jacke', text: 'leder')],
         ),
       );
       await pumpDetail(tester, 'c-1');
-      await tester.tap(find.byKey(const Key('costume-detail-edit-d-1')));
+      await tester.tap(find.byKey(const Key('piece-detail-edit-d-1')));
       await _pumpFrames(tester);
       await tester.enterText(
         find.byKey(const Key('add-detail-text')),
@@ -1053,14 +1050,14 @@ void main() {
       tester,
     ) async {
       await setupContainer(
-        costume: _costume('c-1', details: [detailView('d-1', text: 'x')]),
+        piece: _piece('c-1', details: [detailView('d-1', text: 'x')]),
       );
       await pumpDetail(tester, 'c-1');
-      await tester.tap(find.byKey(const Key('costume-detail-delete-d-1')));
+      await tester.tap(find.byKey(const Key('piece-detail-delete-d-1')));
       await _pumpFrames(tester);
       expect(repo.removeDetailCalls, 0);
       await tester.tap(
-        find.byKey(const Key('costume-detail-delete-confirm-d-1')),
+        find.byKey(const Key('piece-detail-delete-confirm-d-1')),
       );
       await _pumpFrames(tester, n: 12);
       expect(
@@ -1075,10 +1072,10 @@ void main() {
       tester,
     ) async {
       await setupContainer(
-        costume: _costume('c-1', details: [detailView('d-1', text: 'x')]),
+        piece: _piece('c-1', details: [detailView('d-1', text: 'x')]),
       );
       await pumpDetail(tester, 'c-1');
-      await tester.tap(find.byKey(const Key('costume-detail-edit-d-1')));
+      await tester.tap(find.byKey(const Key('piece-detail-edit-d-1')));
       await _pumpFrames(tester);
       await tester.enterText(
         find.byKey(const Key('add-detail-text')),
@@ -1096,20 +1093,20 @@ void main() {
       'Err branch: failed command surfaces the command-error banner',
       (tester) async {
         await setupContainer(
-          costume: _costume('c-1', details: [detailView('d-1', text: 'x')]),
+          piece: _piece('c-1', details: [detailView('d-1', text: 'x')]),
         );
         await pumpDetail(tester, 'c-1');
         repo.nextWrite = const Left(
           ProblemError(code: 'transport.generic', status: 502),
         );
-        await tester.tap(find.byKey(const Key('costume-detail-delete-d-1')));
+        await tester.tap(find.byKey(const Key('piece-detail-delete-d-1')));
         await _pumpFrames(tester);
         await tester.tap(
-          find.byKey(const Key('costume-detail-delete-confirm-d-1')),
+          find.byKey(const Key('piece-detail-delete-confirm-d-1')),
         );
         await _pumpFrames(tester, n: 10);
         expect(
-          find.byKey(const Key('costume-detail-error')),
+          find.byKey(const Key('piece-detail-error')),
           findsOneWidget,
           reason:
               'the Result Err branch is visible, never swallowed (AGENTS.md '
@@ -1120,7 +1117,7 @@ void main() {
 
     testWidgets('golden: the open inline editor state', (tester) async {
       await setupContainer(
-        costume: _costume(
+        piece: _piece(
           'c-1',
           details: [
             detailView('d-1', subject: 'Jacke', text: 'rote Lederjacke'),
@@ -1128,11 +1125,11 @@ void main() {
         ),
       );
       await pumpDetail(tester, 'c-1');
-      await tester.tap(find.byKey(const Key('costume-detail-edit-d-1')));
+      await tester.tap(find.byKey(const Key('piece-detail-edit-d-1')));
       await _pumpFrames(tester);
       await expectLater(
-        find.byType(CostumeDetailScreen),
-        matchesGoldenFile('goldens/costume_detail_editor_open.png'),
+        find.byType(PieceDetailScreen),
+        matchesGoldenFile('goldens/piece_detail_editor_open.png'),
       );
     });
 
@@ -1140,17 +1137,17 @@ void main() {
       tester,
     ) async {
       await setupContainer(
-        costume: _costume('c-1'),
+        piece: _piece('c-1'),
         categories: [_category('cat-1')],
       );
       await pumpDetail(tester, 'c-1');
-      await tester.tap(find.byKey(const Key('costume-detail-add-c-1')));
+      await tester.tap(find.byKey(const Key('piece-detail-add-c-1')));
       await _pumpFrames(tester);
       expect(find.byKey(const Key('add-detail-category')), findsNothing);
     });
   });
 
-  group('CostumeDetailScreen repertoire (issue #534)', () {
+  group('PieceDetailScreen repertoire (issue #534)', () {
     final s1 = _season();
     SeasonView s2() => SeasonView(
       (b) => b
@@ -1165,19 +1162,19 @@ void main() {
 
     testWidgets('repertoire rows render resolved season names', (tester) async {
       await setupContainer(
-        costume: _costume('c-1', seasonIds: ['season-2']),
+        piece: _piece('c-1', seasonIds: ['season-2']),
         seasons: [s1, s2()],
       );
       await pumpDetail(tester, 'c-1');
       expect(
-        find.byKey(const Key('costume-repertoire-row-c-1-season-2')),
+        find.byKey(const Key('piece-repertoire-row-c-1-season-2')),
         findsOneWidget,
       );
       expect(find.text('Season Two'), findsOneWidget);
       // Only the repertoire row — the picker button is present but no
       // remove affordance for a season outside the repertoire.
       expect(
-        find.byKey(const Key('costume-repertoire-remove-c-1-season-2')),
+        find.byKey(const Key('piece-repertoire-remove-c-1-season-2')),
         findsOneWidget,
       );
     });
@@ -1185,9 +1182,9 @@ void main() {
     testWidgets(
       'add: picker submit dispatches id + version echo, overlay row',
       (tester) async {
-        await setupContainer(costume: _costume('c-1'), seasons: [s2()]);
+        await setupContainer(piece: _piece('c-1'), seasons: [s2()]);
         await pumpDetail(tester, 'c-1');
-        await tester.tap(find.byKey(const Key('costume-repertoire-add-c-1')));
+        await tester.tap(find.byKey(const Key('piece-repertoire-add-c-1')));
         // Let the modal route's entrance animation settle before picking.
         await _pumpFrames(tester, n: 24);
         // The sheet renders at the bottom edge; the tile can sit just below
@@ -1205,13 +1202,13 @@ void main() {
         expect(repo.lastAddToSeasonVersion, 1);
         // The optimistic overlay renders the added season immediately.
         expect(
-          find.byKey(const Key('costume-repertoire-row-c-1-season-2')),
+          find.byKey(const Key('piece-repertoire-row-c-1-season-2')),
           findsOneWidget,
         );
         // Handled-result confirmation (breakdown_lints discard_result): the
         // screen must consume the command Result, not just await it.
         expect(
-          find.byKey(const Key('costume-repertoire-saved-c-1')),
+          find.byKey(const Key('piece-repertoire-saved-c-1')),
           findsOneWidget,
         );
       },
@@ -1221,23 +1218,23 @@ void main() {
       tester,
     ) async {
       await setupContainer(
-        costume: _costume('c-1', seasonIds: ['season-1', 'season-2']),
+        piece: _piece('c-1', seasonIds: ['season-1', 'season-2']),
         seasons: [s1, s2()],
       );
       await pumpDetail(tester, 'c-1');
       await tester.tap(
-        find.byKey(const Key('costume-repertoire-remove-c-1-season-2')),
+        find.byKey(const Key('piece-repertoire-remove-c-1-season-2')),
       );
       await _pumpFrames(tester);
       await tester.tap(
-        find.byKey(const Key('costume-repertoire-confirm-remove')),
+        find.byKey(const Key('piece-repertoire-confirm-remove')),
       );
       await _pumpFrames(tester, n: 12);
       expect(repo.removeFromSeasonCalls, 1);
       expect(repo.lastRemoveFromSeasonId, 'season-2');
       expect(repo.lastRemoveFromSeasonVersion, 1);
       expect(
-        find.byKey(const Key('costume-repertoire-removed-c-1')),
+        find.byKey(const Key('piece-repertoire-removed-c-1')),
         findsOneWidget,
       );
     });
@@ -1245,12 +1242,12 @@ void main() {
     testWidgets('denial: capability missing → zero network calls (gate '
         'short-circuit)', (tester) async {
       await setupContainer(
-        costume: _costume('c-1'),
+        piece: _piece('c-1'),
         seasons: [s2()],
         capabilities: const [],
       );
       await pumpDetail(tester, 'c-1');
-      await tester.tap(find.byKey(const Key('costume-repertoire-add-c-1')));
+      await tester.tap(find.byKey(const Key('piece-repertoire-add-c-1')));
       await _pumpFrames(tester, n: 24);
       await tester.ensureVisible(
         find.byKey(const Key('repertoire-pick-season-2')),
@@ -1260,27 +1257,27 @@ void main() {
       await _pumpFrames(tester, n: 24);
       expect(repo.addToSeasonCalls, 0);
       // The client-side AUTHZ-GATE denial carries the localized 403 copy.
-      expect(find.byKey(const Key('costume-detail-error')), findsOneWidget);
+      expect(find.byKey(const Key('piece-detail-error')), findsOneWidget);
     });
 
     test('controller no-op: a season already in the repertoire dispatches '
         'nothing and echoes the unchanged version', () async {
       await setupContainer(
-        costume: _costume('c-1', seasonIds: ['season-2']),
+        piece: _piece('c-1', seasonIds: ['season-2']),
         seasons: [s1, s2()],
       );
-      final costume = _costume('c-1', seasonIds: ['season-2']);
+      final piece = _piece('c-1', seasonIds: ['season-2']);
       final controller = container.read(
         piecesControllerProvider('season-1').notifier,
       );
       final res = await controller.addToSeason(
-        costume: costume,
+        piece: piece,
         seasonId: 'season-2',
       );
       expect(res, const Right(1));
       expect(repo.addToSeasonCalls, 0);
       final res2 = await controller.removeFromSeason(
-        costume: costume,
+        piece: piece,
         seasonId: 'season-3',
       );
       expect(res2, const Right(1));
@@ -1290,7 +1287,7 @@ void main() {
     });
   });
 
-  group('CostumeDetailScreen capture + command flows (8.3)', () {
+  group('PieceDetailScreen capture + command flows (8.3)', () {
     Future<void> setupFlow({
       List<String> capabilities = const [
         'assign_costumes',
@@ -1298,7 +1295,7 @@ void main() {
       ],
     }) async {
       await setupContainer(
-        costume: _costume('c-1'),
+        piece: _piece('c-1'),
         characters: [_character('ch-1')],
         capabilities: capabilities,
       );
@@ -1306,8 +1303,8 @@ void main() {
         overrides: [
           appConfigProvider.overrideWithValue(devAuthConfig),
           cacheDatabaseProvider.overrideWithValue(db),
-          costumeRepositoryProvider.overrideWithValue(repo),
-          costumePhotoRepositoryProvider.overrideWithValue(photos),
+          pieceRepositoryProvider.overrideWithValue(repo),
+          piecePhotoRepositoryProvider.overrideWithValue(photos),
           photoBytesLruProvider.overrideWithValue(PhotoBytesLru()),
           characterRepositoryProvider.overrideWithValue(
             CharacterRepository(BreakdownApi(), CharacterCacheDao(db)),
@@ -1324,7 +1321,7 @@ void main() {
           membershipFetchProvider('season-1')
               .overrideWith((ref) async => membershipHolder.value),
           seriesMembershipForCostumeProvider.overrideWith(
-            (ref, costume) async => seriesMembershipHolder.value,
+            (ref, piece) async => seriesMembershipHolder.value,
           ),
           imagePickerProvider.overrideWithValue(flowPicker),
           // Isolates never complete headless: run the pure core inline.
@@ -1338,11 +1335,11 @@ void main() {
           }),
           // The variant watch is irrelevant to these assertions; stub
           // it closed so no backoff timers outlive the widget tree.
-          costumePhotoWatchProvider(
+          piecePhotoWatchProvider(
             'season-1',
             'c-1',
           ).overrideWith((ref) => const Stream<PhotoWatchEvent>.empty()),
-          costumesListFetchProvider('season-1').overrideWith((ref) async {
+          piecesListFetchProvider('season-1').overrideWith((ref) async {
             final dao = PieceCacheDao(ref.watch(cacheDatabaseProvider));
             return holder.value.match((err) => Left(err), (rows) async {
               await dao.applySnapshotForSeason(
@@ -1441,16 +1438,16 @@ void main() {
     });
   });
 
-  group('CostumeDetailScreen photo scope gate (issue #532; series policy #535)', () {
+  group('PieceDetailScreen photo scope gate (issue #532; series policy #535)', () {
     testWidgets(
-      'photo gate mirrors the SERIES predicate: no costume-dept role in the '
+      'photo gate mirrors the SERIES predicate: no piece-dept role in the '
       'series → localized 403 denial, zero network calls',
       (tester) async {
         // Issue #535 / ADR-035 B2/S2: the server's photo handlers require a
-        // costume-dept role in the owning series. The client mirror denies
+        // piece-dept role in the owning series. The client mirror denies
         // BEFORE the network call (AGENTS.md §5) — a fake repo counter of
         // zero proves no request left the device.
-        await setupContainer(costume: _costume('c-1')); // characterId: null
+        await setupContainer(piece: _piece('c-1')); // characterId: null
         seriesMembershipHolder.value = Right(_seriesMembership(false));
         await pumpDetail(tester, 'c-1');
         expect(find.byKey(const Key('photo-denied-narrative')), findsOneWidget);
@@ -1458,7 +1455,7 @@ void main() {
         final result = await container
             .read(piecesControllerProvider('season-1').notifier)
             .uploadPhoto(
-              costume: _costume('c-1'),
+              piece: _piece('c-1'),
               bytes: Uint8ListBytes(Uint8List.fromList(const [1, 2, 3])),
               contentType: 'image/jpeg',
             );
@@ -1481,7 +1478,7 @@ void main() {
         // no season role, no season photo capability — only the series
         // predicate — and the upload must be dispatched.
         await setupContainer(
-          costume: _costume('c-1'),
+          piece: _piece('c-1'),
           capabilities: const [], // no season role, no photo capability
           hasSeriesRole: true,
         );
@@ -1492,7 +1489,7 @@ void main() {
         final result = await container
             .read(piecesControllerProvider('season-1').notifier)
             .uploadPhoto(
-              costume: _costume('c-1'),
+              piece: _piece('c-1'),
               bytes: Uint8ListBytes(Uint8List.fromList(const [1, 2, 3])),
               contentType: 'image/jpeg',
             );
@@ -1510,7 +1507,7 @@ void main() {
         // a resolved denial — the gate answers `membership.pending` (the
         // affordance stays disabled), never renders the 403 narrative, and
         // issues no request.
-        await setupContainer(costume: _costume('c-1'));
+        await setupContainer(piece: _piece('c-1'));
         seriesMembershipHolder.value = const Left(
           ProblemError(code: 'transport.down', status: 503),
         );
@@ -1533,7 +1530,7 @@ void main() {
         final result = await container
             .read(piecesControllerProvider('season-1').notifier)
             .uploadPhoto(
-              costume: _costume('c-1'),
+              piece: _piece('c-1'),
               bytes: Uint8ListBytes(Uint8List.fromList(const [1, 2, 3])),
               contentType: 'image/jpeg',
             );
@@ -1544,23 +1541,23 @@ void main() {
     );
 
     testWidgets(
-      'unassigned costume: affordances stay enabled, upload is dispatched '
+      'unassigned piece: affordances stay enabled, upload is dispatched '
       '(server owns the season scope)',
       (tester) async {
-        // Issue #532: the server resolves a costume's season scopes as
+        // Issue #532: the server resolves a piece's season scopes as
         // `character season ∪ repertoire seasons` (issue #453), so an
-        // unassigned costume in the season's repertoire — how the client
-        // creates every costume — CAN manage photos. The client-side
+        // unassigned piece in the season's repertoire — how the client
+        // creates every piece — CAN manage photos. The client-side
         // character pre-deny of issue #513 is resolved: no gate narrative,
         // no hidden affordances, and the request actually leaves the device.
-        await setupContainer(costume: _costume('c-1')); // characterId: null
+        await setupContainer(piece: _piece('c-1')); // characterId: null
         await pumpDetail(tester, 'c-1');
         // The #513 gate narrative is gone: there is nothing to pre-explain.
         expect(
           find.byKey(const Key('photo-assignment-gate-narrative')),
           findsNothing,
         );
-        // Capture affordances render on an unassigned costume.
+        // Capture affordances render on an unassigned piece.
         expect(find.byKey(const Key('photo-capture-c-1')), findsOneWidget);
         expect(
           find.byKey(const Key('photo-capture-camera-c-1')),
@@ -1572,7 +1569,7 @@ void main() {
         final result = await container
             .read(piecesControllerProvider('season-1').notifier)
             .uploadPhoto(
-              costume: _costume('c-1'),
+              piece: _piece('c-1'),
               bytes: Uint8ListBytes(Uint8List.fromList(const [1, 2, 3])),
               contentType: 'image/jpeg',
             );
@@ -1581,75 +1578,74 @@ void main() {
         expect(photos.uploadCalls, 1);
         // No client-side gate denial surfaces on the happy path.
         await _pumpFrames(tester);
-        expect(find.byKey(const Key('costume-detail-error')), findsNothing);
+        expect(find.byKey(const Key('piece-detail-error')), findsNothing);
       },
     );
 
-    testWidgets(
-      'delete dispatches on an unassigned costume that holds photos',
-      (tester) async {
-        // Same scope resolution as upload: the server authorizes against the
-        // costume's repertoire season, so the delete affordance is not hidden.
-        final photo = PiecePhotoView(
-          (b) => b
-            ..id = 'p-1'
-            ..contentType = 'image/jpeg'
-            ..sizeBytes = 10
-            ..variants.replace(
-              BuiltList<PhotoVariantView>([
-                PhotoVariantView(
-                  (v) => v
-                    ..kind = serializers.deserializeWith(
-                      PhotoVariant.serializer,
-                      'Thumb',
-                    )!
-                    ..status = serializers.deserializeWith(
-                      VariantStatus.serializer,
-                      'Ready',
-                    )!
-                    ..sizeBytes = 5,
-                ),
-              ]),
-            ),
-        );
-        final costume = PieceView(
-          (b) => b
-            ..name = 'Fundus-Piece'
-            ..id = 'c-1'
-            ..notes = 'n'
-            ..details.replace(BuiltList<PieceDetailView>())
-            ..photos.replace(BuiltList<PiecePhotoView>([photo]))
-            ..updatedAt = DateTime.utc(2026, 1, 1)
-            ..version = 1,
-        );
-        await setupContainer(costume: costume);
-        await pumpDetail(tester, 'c-1');
-        expect(find.byKey(const Key('photo-tile-p-1')), findsOneWidget);
-        expect(find.byKey(const Key('photo-delete-p-1')), findsOneWidget);
-        expect(
-          find.byKey(const Key('photo-assignment-gate-narrative')),
-          findsNothing,
-        );
-        ProblemError? failure;
-        final result = await container
-            .read(piecesControllerProvider('season-1').notifier)
-            .deletePhoto(costume: _costume('c-1'), photoId: 'p-1');
-        result.match((e) => failure = e, (_) {});
-        expect(failure, isNull);
-        expect(photos.deleteCalls, 1);
-      },
-    );
+    testWidgets('delete dispatches on an unassigned piece that holds photos', (
+      tester,
+    ) async {
+      // Same scope resolution as upload: the server authorizes against the
+      // piece's repertoire season, so the delete affordance is not hidden.
+      final photo = PiecePhotoView(
+        (b) => b
+          ..id = 'p-1'
+          ..contentType = 'image/jpeg'
+          ..sizeBytes = 10
+          ..variants.replace(
+            BuiltList<PhotoVariantView>([
+              PhotoVariantView(
+                (v) => v
+                  ..kind = serializers.deserializeWith(
+                    PhotoVariant.serializer,
+                    'Thumb',
+                  )!
+                  ..status = serializers.deserializeWith(
+                    VariantStatus.serializer,
+                    'Ready',
+                  )!
+                  ..sizeBytes = 5,
+              ),
+            ]),
+          ),
+      );
+      final piece = PieceView(
+        (b) => b
+          ..name = 'Fundus-Piece'
+          ..id = 'c-1'
+          ..notes = 'n'
+          ..details.replace(BuiltList<PieceDetailView>())
+          ..photos.replace(BuiltList<PiecePhotoView>([photo]))
+          ..updatedAt = DateTime.utc(2026, 1, 1)
+          ..version = 1,
+      );
+      await setupContainer(piece: piece);
+      await pumpDetail(tester, 'c-1');
+      expect(find.byKey(const Key('photo-tile-p-1')), findsOneWidget);
+      expect(find.byKey(const Key('photo-delete-p-1')), findsOneWidget);
+      expect(
+        find.byKey(const Key('photo-assignment-gate-narrative')),
+        findsNothing,
+      );
+      ProblemError? failure;
+      final result = await container
+          .read(piecesControllerProvider('season-1').notifier)
+          .deletePhoto(piece: _piece('c-1'), photoId: 'p-1');
+      result.match((e) => failure = e, (_) {});
+      expect(failure, isNull);
+      expect(photos.deleteCalls, 1);
+    });
 
     testWidgets(
       'server-side no-scope rejection renders the honest photo copy (Err branch)',
       (tester) async {
-        // Err-branch assertion for the resolved #532 client gate: a costume
+        // Err-branch assertion for the resolved #532 client gate: a piece
         // with NO season scope at all (not assigned, not in any repertoire) is
         // rejected by the server with `domain.validation`. The request IS
         // issued (the server owns the decision) and the failure surfaces
-        // through the photo copy, never the "costume could not be saved"
+        // through the photo copy, never the "piece could not be saved"
         // fallback (origin-routed copy, issue #513).
-        await setupContainer(costume: _costume('c-1')); // characterId: null
+        await setupContainer(piece: _piece('c-1')); // characterId: null
         photos.uploadError = const ProblemError(
           code: 'domain.validation',
           status: 422,
@@ -1659,7 +1655,7 @@ void main() {
         final result = await container
             .read(piecesControllerProvider('season-1').notifier)
             .uploadPhoto(
-              costume: _costume('c-1'),
+              piece: _piece('c-1'),
               bytes: Uint8ListBytes(Uint8List.fromList(const [1, 2, 3])),
               contentType: 'image/jpeg',
             );
@@ -1669,7 +1665,7 @@ void main() {
         await _pumpFrames(tester);
         expect(
           find.descendant(
-            of: find.byKey(const Key('costume-detail-error')),
+            of: find.byKey(const Key('piece-detail-error')),
             matching: find.text(
               'The photo could not be saved (domain.validation).',
             ),
@@ -1679,65 +1675,62 @@ void main() {
       },
     );
 
-    testWidgets(
-      'unknown costume binding lets the server decide (no pre-deny)',
-      (tester) async {
-        // CodeRabbit #4101353477: a costume row ABSENT from the local
-        // projection is UNKNOWN, not confirmed-unassigned — the client must
-        // not pre-deny; it falls through and lets the authoritative server
-        // decide. (The fake repo serves the upload, proving the request is
-        // issued rather than refused on an unknown binding.)
-        await setupContainer(costume: _costume('c-1')); // projection: c-1 only
-        final result = await container
-            .read(piecesControllerProvider('season-1').notifier)
-            .uploadPhoto(
-              costume: _costume(
-                'c-unknown',
-              ), // absent from overlays + projection
-              bytes: Uint8ListBytes(Uint8List.fromList(const [1, 2, 3])),
-              contentType: 'image/jpeg',
-            );
-        // Proceeds → the fake repo serves a success (server decides).
-        expect(result.isRight(), isTrue);
-        expect(photos.uploadCalls, 1);
-        await _pumpFrames(tester);
-        // No client-side gate denial surfaces.
-        expect(find.byKey(const Key('costume-detail-error')), findsNothing);
-      },
-    );
+    testWidgets('unknown piece binding lets the server decide (no pre-deny)', (
+      tester,
+    ) async {
+      // CodeRabbit #4101353477: a piece row ABSENT from the local
+      // projection is UNKNOWN, not confirmed-unassigned — the client must
+      // not pre-deny; it falls through and lets the authoritative server
+      // decide. (The fake repo serves the upload, proving the request is
+      // issued rather than refused on an unknown binding.)
+      await setupContainer(piece: _piece('c-1')); // projection: c-1 only
+      final result = await container
+          .read(piecesControllerProvider('season-1').notifier)
+          .uploadPhoto(
+            piece: _piece('c-unknown'), // absent from overlays + projection
+            bytes: Uint8ListBytes(Uint8List.fromList(const [1, 2, 3])),
+            contentType: 'image/jpeg',
+          );
+      // Proceeds → the fake repo serves a success (server decides).
+      expect(result.isRight(), isTrue);
+      expect(photos.uploadCalls, 1);
+      await _pumpFrames(tester);
+      // No client-side gate denial surfaces.
+      expect(find.byKey(const Key('piece-detail-error')), findsNothing);
+    });
   });
 
-  group('CostumeDetailScreen category section (issue #543)', () {
-    testWidgets('the identity section shows the costume category with icon', (
+  group('PieceDetailScreen category section (issue #543)', () {
+    testWidgets('the identity section shows the piece category with icon', (
       tester,
     ) async {
       await setupContainer(
-        costume: _costume('c-1'),
+        piece: _piece('c-1'),
         categories: [_category('cat-1')],
       );
       await pumpDetail(tester, 'c-1');
       // The section is present with an un-categorised default.
-      expect(find.byKey(const Key('costume-category-section')), findsOneWidget);
+      expect(find.byKey(const Key('piece-category-section')), findsOneWidget);
       expect(
-        find.byKey(const Key('costume-category-current-c-1')),
+        find.byKey(const Key('piece-category-current-c-1')),
         findsOneWidget,
       );
       expect(find.text('Uncategorized'), findsOneWidget);
       // The picker opens with the projected vocabulary (icon + text).
-      await tester.tap(find.byKey(const Key('costume-category-pick-c-1')));
+      await tester.tap(find.byKey(const Key('piece-category-pick-c-1')));
       await tester.pumpAndSettle();
       expect(
-        find.byKey(const Key('costume-category-picker-title')),
+        find.byKey(const Key('piece-category-picker-title')),
         findsOneWidget,
       );
       expect(
-        find.byKey(const Key('costume-category-option-cat-1')),
+        find.byKey(const Key('piece-category-option-cat-1')),
         findsOneWidget,
       );
       expect(find.text('Outerwear'), findsOneWidget);
       // Picking dispatches the category command (version echo from the
       // acted-on row).
-      await tester.tap(find.byKey(const Key('costume-category-option-cat-1')));
+      await tester.tap(find.byKey(const Key('piece-category-option-cat-1')));
       await _pumpFrames(tester);
       expect(repo.setCategoryCalls, 1);
       expect(repo.lastSetCategoryVersion, 1);
@@ -1752,40 +1745,40 @@ void main() {
       tester,
     ) async {
       await setupContainer(
-        costume: _costume('c-1'),
+        piece: _piece('c-1'),
         categories: [
           _category('cat-1'),
           _category('cat-archived', name: 'Archived row', archived: true),
         ],
       );
       await pumpDetail(tester, 'c-1');
-      await tester.tap(find.byKey(const Key('costume-category-pick-c-1')));
+      await tester.tap(find.byKey(const Key('piece-category-pick-c-1')));
       await tester.pumpAndSettle();
       expect(
-        find.byKey(const Key('costume-category-option-cat-1')),
+        find.byKey(const Key('piece-category-option-cat-1')),
         findsOneWidget,
       );
       // Archived vocabulary is never an option (no new categorisation).
       expect(
-        find.byKey(const Key('costume-category-option-cat-archived')),
+        find.byKey(const Key('piece-category-option-cat-archived')),
         findsNothing,
       );
       expect(
-        find.byKey(const Key('costume-category-option-none')),
+        find.byKey(const Key('piece-category-option-none')),
         findsOneWidget,
       );
     });
 
     testWidgets('category denial: 403 narrative, zero calls', (tester) async {
       await setupContainer(
-        costume: _costume('c-1'),
+        piece: _piece('c-1'),
         categories: [_category('cat-1')],
         capabilities: const [],
       );
       await pumpDetail(tester, 'c-1');
-      await tester.tap(find.byKey(const Key('costume-category-pick-c-1')));
+      await tester.tap(find.byKey(const Key('piece-category-pick-c-1')));
       await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const Key('costume-category-option-cat-1')));
+      await tester.tap(find.byKey(const Key('piece-category-option-cat-1')));
       await _pumpFrames(tester);
       // Request-counter proof: the gate short-circuits before the network.
       expect(repo.setCategoryCalls, 0);
@@ -1802,19 +1795,19 @@ void main() {
       // Version-freshness cross-command variant (issue #473): save notes
       // first (v1 → ack v2), then set the category — the echoed version is
       // v2, never the stale v1 that would 422 as `domain.validation`.
-      await setupContainer(costume: _costume('c-1'));
+      await setupContainer(piece: _piece('c-1'));
       await pumpDetail(tester, 'c-1');
       await tester.enterText(
-        find.byKey(const Key('costume-notes-c-1')),
+        find.byKey(const Key('piece-notes-c-1')),
         'Wool coat',
       );
-      await tester.tap(find.byKey(const Key('costume-notes-save-c-1')));
+      await tester.tap(find.byKey(const Key('piece-notes-save-c-1')));
       await _pumpFrames(tester);
       expect(repo.notesCalls, 1);
       final result = await container
           .read(piecesControllerProvider('season-1').notifier)
           .setCategory(
-            costume: _costume('c-1'),
+            piece: _piece('c-1'),
             categoryId: 'cat-1',
             categoryName: 'Outerwear',
           );
@@ -1843,7 +1836,7 @@ void main() {
         // echoed version, so it cannot prove the overlay advanced. Script
         // v3 and assert the overlay carries the requested category at v3.
         await setupContainer(
-          costume: _costume('c-1'),
+          piece: _piece('c-1'),
           categories: [_category('cat-1')],
         );
         await pumpDetail(tester, 'c-1');
@@ -1851,7 +1844,7 @@ void main() {
         final result = await container
             .read(piecesControllerProvider('season-1').notifier)
             .setCategory(
-              costume: _costume('c-1'),
+              piece: _piece('c-1'),
               categoryId: 'cat-1',
               categoryName: 'Outerwear',
             );
@@ -1877,7 +1870,7 @@ void main() {
       '409 costume-category.season-mismatch renders its distinct narrative',
       (tester) async {
         await setupContainer(
-          costume: _costume('c-1'),
+          piece: _piece('c-1'),
           categories: [_category('cat-1')],
         );
         await pumpDetail(tester, 'c-1');
@@ -1887,7 +1880,7 @@ void main() {
         final result = await container
             .read(piecesControllerProvider('season-1').notifier)
             .setCategory(
-              costume: _costume('c-1'),
+              piece: _piece('c-1'),
               categoryId: 'cat-foreign',
               categoryName: 'Foreign',
             );
@@ -1903,42 +1896,33 @@ void main() {
       },
     );
 
-    testWidgets('clearing an un-categorised costume is a no-op (zero calls)', (
+    testWidgets('clearing an un-categorised piece is a no-op (zero calls)', (
       tester,
     ) async {
-      await setupContainer(costume: _costume('c-1'));
+      await setupContainer(piece: _piece('c-1'));
       await pumpDetail(tester, 'c-1');
       final result = await container
           .read(piecesControllerProvider('season-1').notifier)
-          .setCategory(costume: _costume('c-1'), categoryId: null);
+          .setCategory(piece: _piece('c-1'), categoryId: null);
       expect(result.isRight(), isTrue);
       // Idempotent no-op: no network call, no command errors.
       expect(repo.setCategoryCalls, 0);
     });
 
-    testWidgets('clearing a categorized costume via the picker', (
-      tester,
-    ) async {
+    testWidgets('clearing a categorized piece via the picker', (tester) async {
       // CodeRabbit #4126529985: the no-op test above only covers clear-
-      // when-empty. Here the costume STARTS categorized; the "Ohne
+      // when-empty. Here the piece STARTS categorized; the "Ohne
       // Kategorie" row must dispatch a REAL clear request (null id,
       // acted-on version) and the cleared overlay holds until the fence.
       await setupContainer(
-        costume: _costume(
-          'c-1',
-          categoryId: 'cat-1',
-          categoryName: 'Outerwear',
-        ),
+        piece: _piece('c-1', categoryId: 'cat-1', categoryName: 'Outerwear'),
         categories: [_category('cat-1')],
       );
       await pumpDetail(tester, 'c-1');
-      expect(
-        find.byKey(const Key('costume-category-c-1-cat-1')),
-        findsOneWidget,
-      );
-      await tester.tap(find.byKey(const Key('costume-category-pick-c-1')));
+      expect(find.byKey(const Key('piece-category-c-1-cat-1')), findsOneWidget);
+      await tester.tap(find.byKey(const Key('piece-category-pick-c-1')));
       await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const Key('costume-category-option-none')));
+      await tester.tap(find.byKey(const Key('piece-category-option-none')));
       await _pumpFrames(tester);
       expect(repo.setCategoryCalls, 1);
       expect(repo.lastSetCategoryId, null);
@@ -1959,32 +1943,22 @@ void main() {
   });
 
   group('command-error copy routing (issue #513)', () {
-    test('photo-command failures route to the photo copy, never "costume"', () {
+    test('photo-command failures route to the photo copy, never "piece"', () {
       expect(
-        costumeCommandErrorCopy(
+        pieceCommandErrorCopy(
           AppLocalizationsEn(),
-          const CostumeCommandFailure(
-            CostumeCommandSurface.photo,
-            ProblemError(code: 'photo.requires_character'),
-          ),
-        ),
-        'Assign the costume to a character before managing photos.',
-      );
-      expect(
-        costumeCommandErrorCopy(
-          AppLocalizationsEn(),
-          const CostumeCommandFailure(
-            CostumeCommandSurface.photo,
+          const PieceCommandFailure(
+            PieceCommandSurface.photo,
             ProblemError(code: 'photo.not-found'),
           ),
         ),
         'The photo could not be saved (photo.not-found).',
       );
       expect(
-        costumeCommandErrorCopy(
+        pieceCommandErrorCopy(
           AppLocalizationsEn(),
-          const CostumeCommandFailure(
-            CostumeCommandSurface.photo,
+          const PieceCommandFailure(
+            PieceCommandSurface.photo,
             ProblemError(code: 'photo.forbidden'),
           ),
         ),
@@ -1996,13 +1970,13 @@ void main() {
       // CodeRabbit #4101353471: the ORIGIN, not the `photo.*` prefix,
       // decides. A concurrent unassign makes the local gate stale; the
       // backend then 422s `domain.validation` for the photo command, which
-      // must STILL render the photo copy — never "The costume could not be
+      // must STILL render the photo copy — never "The piece could not be
       // saved".
       expect(
-        costumeCommandErrorCopy(
+        pieceCommandErrorCopy(
           AppLocalizationsEn(),
-          const CostumeCommandFailure(
-            CostumeCommandSurface.photo,
+          const PieceCommandFailure(
+            PieceCommandSurface.photo,
             ProblemError(code: 'domain.validation'),
           ),
         ),
@@ -2010,26 +1984,26 @@ void main() {
       );
     });
 
-    test('costume-command codes keep the costume copy', () {
+    test('piece-command codes keep the piece copy', () {
       expect(
-        costumeCommandErrorCopy(
+        pieceCommandErrorCopy(
           AppLocalizationsEn(),
-          const CostumeCommandFailure(
-            CostumeCommandSurface.costume,
+          const PieceCommandFailure(
+            PieceCommandSurface.piece,
             ProblemError(code: 'concurrency.version-mismatch'),
           ),
         ),
         'Changed elsewhere — pull to refresh and try again.',
       );
       expect(
-        costumeCommandErrorCopy(
+        pieceCommandErrorCopy(
           AppLocalizationsEn(),
-          const CostumeCommandFailure(
-            CostumeCommandSurface.costume,
+          const PieceCommandFailure(
+            PieceCommandSurface.piece,
             ProblemError(code: 'domain.validation'),
           ),
         ),
-        'The costume could not be saved (domain.validation).',
+        'The piece could not be saved (domain.validation).',
       );
     });
   });

@@ -398,14 +398,4 @@ Set<String> pieceProjectedIds(List<PieceView> rows) =>
     rows.map((r) => r.id).toSet();
 
 /// Ensures details list builders accept the placeholder shape above.
-BuiltList<PieceDetailView> costumeDetailsOf(PieceView view) => view.details;
-
-/// Version-fence clear condition (spec flutter-costumes-screen): the overlay is
-/// dropped ONLY when the refetched projection row satisfies
-/// `version >= acknowledgedVersion`. A stale projection carrying an older
-/// `version` MUST keep the overlay visible rather than restore the pre-command
-/// row.
-bool shouldClearCostumeOverlay({
-  required PieceView projection,
-  required int acknowledgedVersion,
-}) => projection.version >= acknowledgedVersion;
+BuiltList<PieceDetailView> pieceDetailsOf(PieceView view) => view.details;

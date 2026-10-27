@@ -52,7 +52,7 @@ void main() {
         _apiWith(_FakePhotoBytesInterceptor(bytes: bytes)),
       );
 
-      final result = await repo.getBytes('costume-1', 'photo-1', 'original');
+      final result = await repo.getBytes('piece-1', 'photo-1', 'original');
 
       expect(result.isRight(), isTrue);
       result.fold(
@@ -63,9 +63,9 @@ void main() {
 
     test('maps a server rejection to a Left(ProblemError)', () async {
       final exception = DioException(
-        requestOptions: RequestOptions(path: '/v1/costumes/c/photos/p/bytes'),
+        requestOptions: RequestOptions(path: '/v1/pieces/c/photos/p/bytes'),
         response: Response(
-          requestOptions: RequestOptions(path: '/v1/costumes/c/photos/p/bytes'),
+          requestOptions: RequestOptions(path: '/v1/pieces/c/photos/p/bytes'),
           statusCode: 403,
           data: {
             'code': 'photo.forbidden',

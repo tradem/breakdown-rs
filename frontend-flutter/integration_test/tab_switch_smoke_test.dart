@@ -153,7 +153,7 @@ void main() {
         await tester.pumpAndSettle();
       }
       // The Cast root renders the roster now that a season scope is set
-      // (issue #610: costumes/characters live here).
+      // (issue #610: pieces/characters live here).
       expect(find.byKey(const Key('cast-surface-switch')), findsOneWidget);
       // The scope chip is shell-owned, so it stays visible above the view.
       expect(find.byKey(const Key('season-scope-chip')), findsOneWidget);
@@ -176,7 +176,7 @@ void main() {
       await tester.tap(find.byKey(const Key('profile-menu-button')));
       await tester.pumpAndSettle();
       expect(find.byKey(const Key('profile-signout')), findsOneWidget);
-      // Costume categories never live in the profile/settings surface.
+      // Piece categories never live in the profile/settings surface.
       expect(find.byKey(const Key('profile-categories')), findsNothing);
       // The smoke exercises the COMPACT morphology throughout.
       expect(resolveWindowSizeClass(360), WindowSizeClass.compact);

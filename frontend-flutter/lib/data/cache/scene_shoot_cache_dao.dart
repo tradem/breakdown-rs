@@ -16,7 +16,7 @@ import 'clock.dart';
 import 'scene_shoot_cache.dart';
 
 /// Encodes a built list to JSON-serializable wire data (same contract as the
-/// costume DAO: preserves whatever form `serializeWith` returns, both forms
+/// piece DAO: preserves whatever form `serializeWith` returns, both forms
 /// survive `jsonEncode`).
 List<Object?> _encodeBuiltList<T>(
   BuiltList<T> items,

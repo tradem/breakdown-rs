@@ -245,7 +245,7 @@ void main() {
   }
 
   group('AiImportSubmitController (tasks 3.1 + 5.2)', () {
-    test('denial short-circuits: a member WITHOUT the costume-dept '
+    test('denial short-circuits: a member WITHOUT the piece-dept '
         'capability issues ZERO repository calls (task 5.2)', () async {
       await setupContainer(capabilities: const []);
       final controller = container.read(

@@ -145,7 +145,7 @@ final class FundusInputsProvider
   }
 }
 
-String _$fundusInputsHash() => r'e059d285d96962cf883e0698046ebfe128ecbd5c';
+String _$fundusInputsHash() => r'c90daf16230d08936fcf4cc720a3803627a5286c';
 
 /// The project's cached fundus inputs — THE QUERY PATH (design D3).
 ///
@@ -466,7 +466,7 @@ final class FundusControllerProvider
   }
 }
 
-String _$fundusControllerHash() => r'eb8b95046693451e02eac22a315e5b43672aa72e';
+String _$fundusControllerHash() => r'96b51aaf85c463e3a03fb74620f8808d84fd6b6f';
 
 /// The fundus-surface controller (tasks §3.1): maps the inputs `Result` into
 /// a [FundusViewState], never discarding an `Err` (storage failure SURFACES

@@ -99,7 +99,7 @@ void main() {
   ///
   /// [holdInitialFetch] keeps the list fetch in flight (a never-completing
   /// seam) so the cold-start skeleton window is observable; [seed] writes
-  /// hierarchy/costume cache rows BEFORE the screen pumps (the metrics
+  /// hierarchy/piece cache rows BEFORE the screen pumps (the metrics
   /// provider reads them on first build); [clock] pins the TTL clock for
   /// deterministic stale-indicator rendering.
   Future<void> setupContainer({
@@ -489,14 +489,14 @@ void main() {
   group('Season cards (task 4.1)', () {
     final fixedClock = Clock.fixed(DateTime.utc(2026, 1, 2, 12));
 
-    /// Seeds two blocks + one costume for season 'a'; the writes predate
+    /// Seeds two blocks + one piece for season 'a'; the writes predate
     /// the pinned clock by MORE than the 24h TTL → stale indicator.
     Future<void> seedStale(CacheDatabase db) async {
       final at = DateTime.utc(2026, 1, 1, 6); // > TTL before the clock
       final blocks = BlockCacheDao(db);
       await blocks.upsert(block('b1', seasonId: 'a'), at);
       await blocks.upsert(block('b2', seasonId: 'a'), at);
-      await PieceCacheDao(db).upsert('a', costume('c1'), at);
+      await PieceCacheDao(db).upsert('a', piece('c1'), at);
     }
 
     testWidgets('projected card renders cached metadata (counts)', (
@@ -513,7 +513,7 @@ void main() {
       expect(find.text('Spring'), findsOneWidget);
       // Metadata line: cached counts joined (glossary seasons.meta.*).
       expect(find.textContaining('2 Blöcke'), findsOneWidget);
-      expect(find.textContaining('1 Kostüm'), findsOneWidget);
+      expect(find.textContaining('1 Kleidungsstück'), findsOneWidget);
     });
 
     testWidgets('projected card WITHOUT cached entry omits the metadata line', (
@@ -858,7 +858,7 @@ void main() {
             final blocks = BlockCacheDao(db);
             await blocks.upsert(block('b1', seasonId: 'a'), at);
             await blocks.upsert(block('b2', seasonId: 'a'), at);
-            await PieceCacheDao(db).upsert('a', costume('c1'), at);
+            await PieceCacheDao(db).upsert('a', piece('c1'), at);
           },
           clock: fixedClock,
         );

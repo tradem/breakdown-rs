@@ -4,7 +4,7 @@
 // Co-authored-by: omen-alpha (opencode-go)
 // Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
-// Tier-1 unit tests for the costume-domain data layer (Tasks 1.6, 2.2, 3.1):
+// Tier-1 unit tests for the piece-domain data layer (Tasks 1.6, 2.2, 3.1):
 // every repository method Ok AND Err; cache untouched on failure;
 // snapshot-replace per list; assign/unassign overlay version fence;
 // watch state machine with fake scheduler (bounded attempts/elapsed,
@@ -35,7 +35,7 @@ import 'package:frontend_flutter/data/photo_repository.dart';
 import 'package:frontend_flutter/data/shooting_day_repository.dart';
 import 'package:frontend_flutter/features/photos/prepare.dart';
 
-PieceView _costume(
+PieceView _piece(
   String id, {
   String name = 'Fundus-Piece',
   int version = 1,
@@ -101,7 +101,7 @@ ShootingDayView _day(
     ..version = 1,
 );
 
-PieceView _costumeWithVariants(String id, List<String> statuses) => PieceView(
+PieceView _pieceWithVariants(String id, List<String> statuses) => PieceView(
   (b) => b
     ..name = 'Fundus-Piece'
     ..id = id
@@ -158,8 +158,8 @@ void main() {
       final db = CacheDatabase();
       final dao = PieceCacheDao(db);
       final now = DateTime.utc(2026, 1, 1);
-      await dao.applySnapshotForSeason('s-1', [_costume('c-1')], now);
-      await dao.applySnapshotForSeason('s-2', [_costume('c-2')], now);
+      await dao.applySnapshotForSeason('s-1', [_piece('c-1')], now);
+      await dao.applySnapshotForSeason('s-2', [_piece('c-2')], now);
       // Empty snapshot of s-1 must not orphan s-2.
       await dao.applySnapshotForSeason('s-1', [], now);
       expect(await dao.readBySeason('s-1'), isEmpty);
@@ -170,7 +170,7 @@ void main() {
     test('round-trips details/photos snapshots', () async {
       final db = CacheDatabase();
       final dao = PieceCacheDao(db);
-      final view = _costume('c-1');
+      final view = _piece('c-1');
       await dao.applySnapshotForSeason('s-1', [view], DateTime.utc(2026));
       final read = await dao.readBySeason('s-1');
       expect(read.single.name, 'Fundus-Piece');
@@ -279,19 +279,19 @@ void main() {
     // wears it is an Outfit). The version fence itself still guards every
     // remaining row command, so it keeps its own coverage.
     test('stale projection retains the overlay', () {
-      final base = _costume('c-1', version: 1);
+      final base = _piece('c-1', version: 1);
       final overlay = applyNotesOptimistic(base, 'fresh notes');
       expect(
-        shouldClearCostumeOverlay(projection: base, acknowledgedVersion: 2),
+        shouldClearPieceOverlay(projection: base, acknowledgedVersion: 2),
         isFalse,
       );
       expect(overlay.notes, 'fresh notes');
     });
 
     test('fence passes when projection catches up', () {
-      final fresh = _costume('c-1', version: 2);
+      final fresh = _piece('c-1', version: 2);
       expect(
-        shouldClearCostumeOverlay(projection: fresh, acknowledgedVersion: 2),
+        shouldClearPieceOverlay(projection: fresh, acknowledgedVersion: 2),
         isTrue,
       );
     });
@@ -337,15 +337,15 @@ void main() {
         isA<GateAllow>(),
       );
       // Continuity photos stay season-scoped (issue #535: only the
-      // costume-photo policy moved to series level).
+      // piece-photo policy moved to series level).
       expect(
         checkContinuityCapability(_membership(['upload_continuity_photos'])),
         isA<GateAllow>(),
       );
-      // Costume photos read the backend-computed SERIES predicate
+      // Piece photos read the backend-computed SERIES predicate
       // (has_active_costume_role_in_series, ADR-035 B2/S2).
       expect(
-        checkCostumePhotoCapability(_seriesMembership(true)),
+        checkPiecePhotoCapability(_seriesMembership(true)),
         isA<GateAllow>(),
       );
     });
@@ -353,8 +353,8 @@ void main() {
     test('denies without the capability (localized 403 code)', () {
       final deny = checkAssignCapability(_membership([]));
       expect(deny, isA<GateDeny>());
-      expect((deny as GateDeny).code, 'costume.forbidden');
-      final photoDeny = checkCostumePhotoCapability(_seriesMembership(false));
+      expect((deny as GateDeny).code, 'piece.forbidden');
+      final photoDeny = checkPiecePhotoCapability(_seriesMembership(false));
       expect((photoDeny as GateDeny).code, 'photo.forbidden');
       final continuityDeny = checkContinuityCapability(
         _membership(['assign_costumes']),
@@ -365,27 +365,27 @@ void main() {
     test('null membership is pending (never a resolved denial)', () {
       final pending = checkAssignCapability(null);
       expect((pending as GateDeny).code, 'membership.pending');
-      final seriesPending = checkCostumePhotoCapability(null);
+      final seriesPending = checkPiecePhotoCapability(null);
       expect((seriesPending as GateDeny).code, 'membership.pending');
     });
   });
 
   group('Photo watch terminal condition', () {
     test('empty photos are terminal', () {
-      expect(isPhotoWatchTerminal(_costume('c-1')), isTrue);
+      expect(isPhotoWatchTerminal(_piece('c-1')), isTrue);
     });
 
     test('mixed Ready + Pending keeps the pass running', () {
       expect(
-        isPhotoWatchTerminal(_costumeWithVariants('c-1', ['Ready', 'Pending'])),
+        isPhotoWatchTerminal(_pieceWithVariants('c-1', ['Ready', 'Pending'])),
         isFalse,
       );
       expect(
-        isPhotoWatchTerminal(_costumeWithVariants('c-1', ['Ready', 'Ready'])),
+        isPhotoWatchTerminal(_pieceWithVariants('c-1', ['Ready', 'Ready'])),
         isTrue,
       );
       expect(
-        isPhotoWatchTerminal(_costumeWithVariants('c-1', ['Failed'])),
+        isPhotoWatchTerminal(_pieceWithVariants('c-1', ['Failed'])),
         isTrue,
       );
     });
@@ -399,9 +399,9 @@ void main() {
           calls++;
           // First two Pending, then all Ready.
           if (calls < 3) {
-            return Right(_costumeWithVariants('c-1', ['Pending']));
+            return Right(_pieceWithVariants('c-1', ['Pending']));
           }
-          return Right(_costumeWithVariants('c-1', ['Ready']));
+          return Right(_pieceWithVariants('c-1', ['Ready']));
         }
 
         final events = await repo
@@ -424,7 +424,7 @@ void main() {
           // pass would run to the bounded budget once released.
           if (calls > 1) await gate.future;
           // Never terminal: only cancellation ends the pass early.
-          return Right(_costumeWithVariants('c-1', ['Pending']));
+          return Right(_pieceWithVariants('c-1', ['Pending']));
         }
 
         // `.first` auto-cancels after the first emission — exactly the
@@ -468,7 +468,7 @@ void main() {
       var calls = 0;
       Future<Result<PieceView>> fetch() async {
         calls++;
-        return Right(_costumeWithVariants('c-1', ['Pending']));
+        return Right(_pieceWithVariants('c-1', ['Pending']));
       }
 
       final fixed = DateTime.utc(2026, 1, 1);
@@ -498,7 +498,7 @@ void main() {
         var calls = 0;
         Future<Result<PieceView>> fetch() async {
           calls++;
-          return Right(_costumeWithVariants('c-1', ['Pending']));
+          return Right(_pieceWithVariants('c-1', ['Pending']));
         }
 
         final fixed = DateTime.utc(2026, 1, 1);
@@ -556,11 +556,11 @@ void main() {
   });
 
   group('Repository failure leaves cache untouched', () {
-    test('costume listBySeason Left does not write', () async {
+    test('piece listBySeason Left does not write', () async {
       final db = CacheDatabase();
       final dao = PieceCacheDao(db);
       await dao.applySnapshotForSeason('s-1', [
-        _costume('c-keep'),
+        _piece('c-keep'),
       ], DateTime.utc(2026));
       // Simulate a failed fetch: no DAO call → rows preserved.
       final before = await dao.readBySeason('s-1');

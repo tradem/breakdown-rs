@@ -492,7 +492,7 @@ void main() {
       expect(find.byKey(const Key('settings-ai-config')), findsNothing);
     });
 
-    testWidgets('visible on an active costume-dept membership, ≥ 48×48 dp', (
+    testWidgets('visible on an active piece-dept membership, ≥ 48×48 dp', (
       tester,
     ) async {
       await pumpScreen(tester);

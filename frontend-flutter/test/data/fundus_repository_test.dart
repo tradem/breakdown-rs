@@ -20,7 +20,7 @@ import 'package:frontend_flutter/data/cache/clock.dart';
 import 'package:frontend_flutter/data/cache/piece_domains_cache_dao.dart';
 import 'package:frontend_flutter/data/fundus_repository.dart';
 
-PieceView _costume(String id, {List<String> repertoire = const ['s1']}) =>
+PieceView _piece(String id, {List<String> repertoire = const ['s1']}) =>
     PieceView(
       (b) => b
         ..name = 'Fundus-Piece'
@@ -49,10 +49,10 @@ void main() {
       BreakdownApi(
         dio: Dio(),
         interceptors: [
-          _ListCostumesInterceptor(
+          _ListPiecesInterceptor(
             rows: [
-              _costume('k1'),
-              _costume('k2', repertoire: ['s2']),
+              _piece('k1'),
+              _piece('k2', repertoire: ['s2']),
             ],
           ),
         ],
@@ -73,18 +73,18 @@ void main() {
 
   test('listByProject on Err leaves the cache untouched', () async {
     await dao.applySnapshotForProject('project-1', [
-      _costume('k1'),
+      _piece('k1'),
     ], DateTime.utc(2026, 1, 1, 10));
     final repo = FundusRepository(
       BreakdownApi(
         dio: Dio(),
         interceptors: [
-          _ListCostumesInterceptor(
+          _ListPiecesInterceptor(
             exception: DioException(
-              requestOptions: RequestOptions(path: '/v1/costumes'),
+              requestOptions: RequestOptions(path: '/v1/pieces'),
               type: DioExceptionType.badResponse,
               response: Response<dynamic>(
-                requestOptions: RequestOptions(path: '/v1/costumes'),
+                requestOptions: RequestOptions(path: '/v1/pieces'),
                 statusCode: 500,
               ),
             ),
@@ -132,10 +132,10 @@ void main() {
   );
 }
 
-/// Interceptor that short-circuits `GET /v1/costumes` without a real network
+/// Interceptor that short-circuits `GET /v1/pieces` without a real network
 /// call, resolving with serialized [rows] or rejecting with [exception].
-class _ListCostumesInterceptor extends Interceptor {
-  _ListCostumesInterceptor({this.rows, this.exception})
+class _ListPiecesInterceptor extends Interceptor {
+  _ListPiecesInterceptor({this.rows, this.exception})
     : assert(rows != null || exception != null);
 
   final List<PieceView>? rows;

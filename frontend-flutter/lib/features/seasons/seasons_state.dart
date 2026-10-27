@@ -112,7 +112,7 @@ class OptimisticSeasonRow extends SeasonRow {
 /// Per-season cached metadata for a season card (`redesign-seasons-home`
 /// task 2.1, team decision 4).
 ///
-/// Sourced read-only from the existing Drift hierarchy/costume cache
+/// Sourced read-only from the existing Drift hierarchy/piece cache
 /// tables — no new API routes. Every count is nullable: a season may have
 /// some contributing sources cached and others not, and a season with no
 /// cached datastore entry at all has no metadata line on the card.
@@ -123,17 +123,17 @@ class SeasonMetrics {
   const SeasonMetrics({
     this.blockCount,
     this.sceneCount,
-    this.costumeCount,
+    this.pieceCount,
     required this.cachedAt,
     this.isStale = false,
   });
 
   final int? blockCount;
   final int? sceneCount;
-  final int? costumeCount;
+  final int? pieceCount;
 
   /// Cache-write time of the oldest contributing source (blocks, scenes,
-  /// costumes) that produced a count.
+  /// pieces) that produced a count.
   final DateTime cachedAt;
 
   /// `true` when that oldest source is older than the cache TTL.
@@ -145,18 +145,18 @@ class SeasonMetrics {
       other is SeasonMetrics &&
           other.blockCount == blockCount &&
           other.sceneCount == sceneCount &&
-          other.costumeCount == costumeCount &&
+          other.pieceCount == pieceCount &&
           other.cachedAt == cachedAt &&
           other.isStale == isStale;
 
   @override
   int get hashCode =>
-      Object.hash(blockCount, sceneCount, costumeCount, cachedAt, isStale);
+      Object.hash(blockCount, sceneCount, pieceCount, cachedAt, isStale);
 
   @override
   String toString() =>
       'SeasonMetrics(blocks: $blockCount, scenes: $sceneCount, '
-      'costumes: $costumeCount, cachedAt: $cachedAt, stale: $isStale)';
+      'pieces: $pieceCount, cachedAt: $cachedAt, stale: $isStale)';
 }
 
 /// Pure merge (task 2.1): projected rows ∪ optimistic overlays (by id) ∪

@@ -138,14 +138,14 @@ class SceneCacheRows extends Table {
   Set<Column<Object>> get primaryKey => {id};
 }
 
-// --- Costume categories (mirrors `CostumeCategoryView`) ----------------------
+// --- Piece categories (mirrors `CostumeCategoryView`) ----------------------
 
 class CostumeCategoryCacheRows extends Table {
   /// Mirrors `CostumeCategoryView.id`.
   TextColumn get id => text()();
 
   /// Mirrors `CostumeCategoryView.seasonId` (fetch scope:
-  /// `GET /v1/seasons/{season_id}/costume-categories`).
+  /// `GET /v1/seasons/{season_id}/piece-categories`).
   TextColumn get seasonId => text()();
 
   /// Mirrors `CostumeCategoryView.name`.

@@ -52,7 +52,7 @@ PiecePhotoView _photo(String id, List<String> statuses) => PiecePhotoView(
     ),
 );
 
-PieceView _costume(List<PiecePhotoView> photos) => PieceView(
+PieceView _piece(List<PiecePhotoView> photos) => PieceView(
   (b) => b
     ..name = 'Fundus-Piece'
     ..id = 'c-1'
@@ -315,7 +315,7 @@ void main() {
   group('PhotoGallery widget (3.4)', () {
     Future<void> pumpGallery(
       WidgetTester tester,
-      PieceView costume, {
+      PieceView piece, {
       VoidCallback? onDelete,
     }) async {
       final repo = _FakePhotoRepository(BreakdownApi());
@@ -327,7 +327,7 @@ void main() {
           child: MaterialApp(
             home: Scaffold(
               body: PhotoGallery(
-                costume: costume,
+                piece: piece,
                 repository: repo,
                 lru: PhotoBytesLru(),
                 onDelete: onDelete == null ? null : (photo) => onDelete(),
@@ -342,7 +342,7 @@ void main() {
     testWidgets('empty: explicit empty state, no placeholder images', (
       tester,
     ) async {
-      await pumpGallery(tester, _costume([]));
+      await pumpGallery(tester, _piece([]));
       expect(find.byKey(const Key('photo-gallery-empty-c-1')), findsOneWidget);
       // No pretending images.
       expect(find.byType(Image), findsNothing);
@@ -351,7 +351,7 @@ void main() {
     testWidgets('pending: spinner + status chip', (tester) async {
       await pumpGallery(
         tester,
-        _costume([
+        _piece([
           _photo('p-1', ['Pending']),
         ]),
       );
@@ -371,7 +371,7 @@ void main() {
           ..variants.replace(BuiltList<PhotoVariantView>()),
       );
       expect(photoRowStatus(photo), PhotoRowStatus.pending);
-      await pumpGallery(tester, _costume([photo]));
+      await pumpGallery(tester, _piece([photo]));
       expect(find.byKey(const Key('photo-tile-p-empty')), findsOneWidget);
       expect(find.byKey(const Key('photo-pending-spinner')), findsOneWidget);
     });
@@ -387,7 +387,7 @@ void main() {
           child: MaterialApp(
             home: Scaffold(
               body: PhotoGallery(
-                costume: _costume([
+                piece: _piece([
                   _photo('p-1', ['Failed']),
                 ]),
                 repository: repo,
@@ -408,7 +408,7 @@ void main() {
       var deleted = 0;
       await pumpGallery(
         tester,
-        _costume([
+        _piece([
           _photo('p-1', ['Ready']),
         ]),
         onDelete: () => deleted++,
@@ -441,7 +441,7 @@ void main() {
               themeMode: mode,
               home: Scaffold(
                 body: PhotoGallery(
-                  costume: _costume([
+                  piece: _piece([
                     _photo('p-1', ['Pending']),
                     _photo('p-2', ['Failed']),
                   ]),
