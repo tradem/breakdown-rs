@@ -1626,6 +1626,16 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String continuityPieceLabel(String id) {
+    return 'Piece $id';
+  }
+
+  @override
+  String continuityPieceLabelWithNotes(String id, String notes) {
+    return 'Piece $id — $notes';
+  }
+
+  @override
   String get continuityStoreOn => 'Store photo on…';
 
   @override
