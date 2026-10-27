@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: qwen3.8-flash (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 //! `sqlx`-backed implementation of the `SceneRepository` port.
 
@@ -8,7 +9,7 @@ use breakdown_core::error::DomainError;
 use breakdown_core::error_registry::SCENE_NOT_FOUND;
 use breakdown_core::scene::events::SceneSource;
 use breakdown_core::scene::ports::SceneRepository;
-use breakdown_core::scene::views::{SceneCostumeBeatView, SceneView};
+use breakdown_core::scene::views::{SceneOutfitBeatView, SceneView};
 use breakdown_core::shared::{AggregateVersion, EpisodeId, ShootingDayId};
 use chrono::{DateTime, Utc};
 use sqlx::{PgPool, Row};
@@ -69,20 +70,20 @@ impl SceneRepository for SceneRepositoryImpl {
                 COALESCE((
                     SELECT jsonb_agg(
                         jsonb_build_object(
-                            'character_id', psca.character_id,
+                            'character_id', psoa.character_id,
                             'character_name', ch.name,
-                            'costume_id', psca.costume_id,
-                            'costume_category_id', co.category_id,
-                            'costume_category_name', co.category_name,
-                            'order', psca."order",
-                            'note', psca.note
-                        ) ORDER BY psca.character_id, psca."order"
+                            'outfit_id', psoa.outfit_id,
+                            'outfit_name', o.name,
+                            'variant_of', o.variant_of,
+                            'order', psoa."order",
+                            'note', psoa.note
+                        ) ORDER BY psoa.character_id, psoa."order"
                     )
-                    FROM projection_scene_costume_assignment psca
-                    LEFT JOIN projection_character ch ON ch.id = psca.character_id
-                    LEFT JOIN projection_costume co ON co.id = psca.costume_id
-                    WHERE psca.scene_id = s.id
-                ), '[]'::jsonb) AS costume_beats,
+                    FROM projection_scene_outfit_assignment psoa
+                    LEFT JOIN projection_character ch ON ch.id = psoa.character_id
+                    LEFT JOIN projection_outfit o ON o.id = psoa.outfit_id
+                    WHERE psoa.scene_id = s.id
+                ), '[]'::jsonb) AS outfit_beats,
                 COALESCE((
                     SELECT array_agg(pssd.shooting_day_id ORDER BY pssd.shooting_day_id)
                     FROM projection_scene_shooting_day pssd
@@ -133,20 +134,20 @@ impl SceneRepository for SceneRepositoryImpl {
                 COALESCE((
                     SELECT jsonb_agg(
                         jsonb_build_object(
-                            'character_id', psca.character_id,
+                            'character_id', psoa.character_id,
                             'character_name', ch.name,
-                            'costume_id', psca.costume_id,
-                            'costume_category_id', co.category_id,
-                            'costume_category_name', co.category_name,
-                            'order', psca."order",
-                            'note', psca.note
-                        ) ORDER BY psca.character_id, psca."order"
+                            'outfit_id', psoa.outfit_id,
+                            'outfit_name', o.name,
+                            'variant_of', o.variant_of,
+                            'order', psoa."order",
+                            'note', psoa.note
+                        ) ORDER BY psoa.character_id, psoa."order"
                     )
-                    FROM projection_scene_costume_assignment psca
-                    LEFT JOIN projection_character ch ON ch.id = psca.character_id
-                    LEFT JOIN projection_costume co ON co.id = psca.costume_id
-                    WHERE psca.scene_id = s.id
-                ), '[]'::jsonb) AS costume_beats,
+                    FROM projection_scene_outfit_assignment psoa
+                    LEFT JOIN projection_character ch ON ch.id = psoa.character_id
+                    LEFT JOIN projection_outfit o ON o.id = psoa.outfit_id
+                    WHERE psoa.scene_id = s.id
+                ), '[]'::jsonb) AS outfit_beats,
                 COALESCE((
                     SELECT array_agg(pssd.shooting_day_id ORDER BY pssd.shooting_day_id)
                     FROM projection_scene_shooting_day pssd
@@ -191,20 +192,20 @@ impl SceneRepository for SceneRepositoryImpl {
                 COALESCE((
                     SELECT jsonb_agg(
                         jsonb_build_object(
-                            'character_id', psca.character_id,
+                            'character_id', psoa.character_id,
                             'character_name', ch.name,
-                            'costume_id', psca.costume_id,
-                            'costume_category_id', co.category_id,
-                            'costume_category_name', co.category_name,
-                            'order', psca."order",
-                            'note', psca.note
-                        ) ORDER BY psca.character_id, psca."order"
+                            'outfit_id', psoa.outfit_id,
+                            'outfit_name', o.name,
+                            'variant_of', o.variant_of,
+                            'order', psoa."order",
+                            'note', psoa.note
+                        ) ORDER BY psoa.character_id, psoa."order"
                     )
-                    FROM projection_scene_costume_assignment psca
-                    LEFT JOIN projection_character ch ON ch.id = psca.character_id
-                    LEFT JOIN projection_costume co ON co.id = psca.costume_id
-                    WHERE psca.scene_id = s.id
-                ), '[]'::jsonb) AS costume_beats,
+                    FROM projection_scene_outfit_assignment psoa
+                    LEFT JOIN projection_character ch ON ch.id = psoa.character_id
+                    LEFT JOIN projection_outfit o ON o.id = psoa.outfit_id
+                    WHERE psoa.scene_id = s.id
+                ), '[]'::jsonb) AS outfit_beats,
                 COALESCE((
                     SELECT array_agg(pssd.shooting_day_id ORDER BY pssd.shooting_day_id)
                     FROM projection_scene_shooting_day pssd
@@ -228,11 +229,11 @@ impl SceneRepository for SceneRepositoryImpl {
 }
 
 fn map_scene_row(row: sqlx::postgres::PgRow) -> Result<SceneView, DomainError> {
-    let costume_beats_json: serde_json::Value = row.try_get("costume_beats").map_err(map_err)?;
-    let costume_beats: Vec<SceneCostumeBeatView> =
-        serde_json::from_value(costume_beats_json.clone()).map_err(|e| {
+    let outfit_beats_json: serde_json::Value = row.try_get("outfit_beats").map_err(map_err)?;
+    let outfit_beats: Vec<SceneOutfitBeatView> =
+        serde_json::from_value(outfit_beats_json.clone()).map_err(|e| {
             DomainError::conflict(format!(
-                "failed to deserialize scene costume beats from projection row: {e}; json={costume_beats_json}"
+                "failed to deserialize scene outfit beats from projection row: {e}; json={outfit_beats_json}"
             ))
         })?;
     let scene_number: Option<i32> = row.try_get("scene_number").map_err(map_err)?;
@@ -256,7 +257,7 @@ fn map_scene_row(row: sqlx::postgres::PgRow) -> Result<SceneView, DomainError> {
         script_day,
         shooting_day_ids: shooting_day_ids.into_iter().map(ShootingDayId).collect(),
         assigned_characters: row.try_get("assigned_characters").map_err(map_err)?,
-        costume_beats,
+        outfit_beats,
         source: Some(source),
         version: AggregateVersion(row.try_get::<i64, _>("version").map_err(map_err)? as u64),
         updated_at: row

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: deepseek-v4.1-flash (neuralwatt)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 library;
 
@@ -29,7 +30,7 @@ class FundusInputs {
 
   /// Every costume the project-scoped cache slice holds (including rows
   /// whose repertoire is empty — the matcher applies the exclusion).
-  final List<CostumeView> costumes;
+  final List<PieceView> costumes;
 
   /// The project's seasons, used for the season chips and the scope rule.
   final List<SeasonView> seasons;
@@ -62,7 +63,7 @@ class FundusViewState {
   /// Matched costumes in cache snapshot order (server order — no client
   /// re-sort). The widget resolves repertoire season NAMES from
   /// [projectSeasons] (localization stays in the widget layer).
-  final List<CostumeView> rows;
+  final List<PieceView> rows;
 
   /// Non-empty query with no hits — the zero-match narrative echoes the
   /// active season filter.
@@ -89,14 +90,14 @@ class FundusViewState {
 /// - when [text] is non-blank, the folded query is a substring of the folded
 ///   notes OR the folded category name (the pinned field contract — no
 ///   `details`/`photos` creep).
-List<CostumeView> matchFundus({
-  required List<CostumeView> costumes,
+List<PieceView> matchFundus({
+  required List<PieceView> costumes,
   required Set<String> projectSeasonIds,
   required Set<String> selectedSeasonIds,
   required String text,
 }) {
   final foldedQuery = foldForSearch(text.trim());
-  final result = <CostumeView>[];
+  final result = <PieceView>[];
   for (final costume in costumes) {
     final repertoire = costume.seasonIds;
     if (repertoire.isEmpty) continue;

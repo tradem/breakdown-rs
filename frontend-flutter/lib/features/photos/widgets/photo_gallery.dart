@@ -3,6 +3,7 @@
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
 // Co-authored-by: space-bunny-free (opencode)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 import 'dart:async';
 import 'dart:collection';
@@ -70,7 +71,7 @@ final photoBytesLruProvider = Provider<PhotoBytesLru>((_) => PhotoBytesLru());
 /// path (large images never jank the grid).
 class PhotoVariantImage extends ImageProvider<PhotoVariantImageKey> {
   const PhotoVariantImage({
-    required this.costumeId,
+    required this.pieceId,
     required this.photo,
     required this.variant,
     required this.repository,
@@ -78,8 +79,8 @@ class PhotoVariantImage extends ImageProvider<PhotoVariantImageKey> {
     this.scale = 1.0,
   });
 
-  final String costumeId;
-  final CostumePhotoView photo;
+  final String pieceId;
+  final PiecePhotoView photo;
   final String variant;
   final PhotoRepository repository;
   final PhotoBytesLru lru;
@@ -125,7 +126,7 @@ class PhotoVariantImage extends ImageProvider<PhotoVariantImageKey> {
     if (cached != null) return cached;
     // `getBytes` never throws (failures are `Result` values, never
     // exceptions) — the match below exhaustively handles both branches.
-    final result = await repository.getBytes(costumeId, photo.id, variant);
+    final result = await repository.getBytes(pieceId, photo.id, variant);
     return result.match((_) => null, (b) {
       lru.put(photo.id, variant, b);
       return b;
@@ -168,7 +169,7 @@ int photoGridColumns(double width) {
 /// the spinner state; all `Ready` shows nothing).
 enum PhotoRowStatus { ready, pending, failed }
 
-PhotoRowStatus photoRowStatus(CostumePhotoView photo) {
+PhotoRowStatus photoRowStatus(PiecePhotoView photo) {
   // No variants yet (upload ack racing the saga): still processing, like
   // Pending — consistent with `isPhotoWatchTerminal`, which only ends
   // the pass once every variant is terminal.
@@ -184,7 +185,7 @@ PhotoRowStatus photoRowStatus(CostumePhotoView photo) {
 }
 
 /// Photo gallery rendering from the photo references embedded in
-/// `CostumeView.photos` (there is no separate photo-list route).
+/// `PieceView.photos` (there is no separate photo-list route).
 ///
 /// Pure presentation tree: plain data + callbacks in, widgets out — no
 /// Riverpod imports (the owning screen wires the repository + AUTHZ-GATE).
@@ -201,7 +202,7 @@ class PhotoGallery extends StatelessWidget {
   });
 
   /// The costume whose `photos` projection renders (read-DTO snapshots).
-  final CostumeView costume;
+  final PieceView costume;
 
   /// Bytes-fetch backend (the screen gates via `// AUTHZ-GATE:` before
   /// constructing this — the gallery itself never issues the gate).
@@ -213,7 +214,7 @@ class PhotoGallery extends StatelessWidget {
   final VoidCallback? onCapture;
 
   /// Delete (the screen confirms first — no destructive dark pattern).
-  final void Function(CostumePhotoView photo)? onDelete;
+  final void Function(PiecePhotoView photo)? onDelete;
 
   /// Capture-again affordance for `Failed` variants (there is no
   /// variant-retry command — a new capture is picked).
@@ -224,7 +225,7 @@ class PhotoGallery extends StatelessWidget {
     final photos = costume.photos.toList();
     if (photos.isEmpty) {
       return _EmptyGallery(
-        costumeId: costume.id,
+        pieceId: costume.id,
         canCapture: canCapture,
         onCapture: onCapture,
       );
@@ -245,7 +246,7 @@ class PhotoGallery extends StatelessWidget {
           itemBuilder: (context, i) {
             final photo = photos[i];
             return PhotoTile(
-              costumeId: costume.id,
+              pieceId: costume.id,
               photo: photo,
               repository: repository,
               lru: lru,
@@ -261,12 +262,12 @@ class PhotoGallery extends StatelessWidget {
 
 class _EmptyGallery extends StatelessWidget {
   const _EmptyGallery({
-    required this.costumeId,
+    required this.pieceId,
     required this.canCapture,
     this.onCapture,
   });
 
-  final String costumeId;
+  final String pieceId;
   final bool canCapture;
   final VoidCallback? onCapture;
 
@@ -281,12 +282,12 @@ class _EmptyGallery extends StatelessWidget {
         // photos (spec flutter-photos-feature).
         Text(
           l10nOf(context).photoGalleryEmpty,
-          key: Key('photo-gallery-empty-$costumeId'),
+          key: Key('photo-gallery-empty-$pieceId'),
         ),
         if (canCapture && onCapture != null) ...[
           const SizedBox(height: 8),
           FilledButton.tonal(
-            key: Key('photo-capture-$costumeId'),
+            key: Key('photo-capture-$pieceId'),
             onPressed: onCapture,
             child: Text(l10nOf(context).photoGalleryAddPhoto),
           ),
@@ -301,7 +302,7 @@ class _EmptyGallery extends StatelessWidget {
 class PhotoTile extends StatelessWidget {
   const PhotoTile({
     super.key,
-    required this.costumeId,
+    required this.pieceId,
     required this.photo,
     required this.repository,
     required this.lru,
@@ -309,8 +310,8 @@ class PhotoTile extends StatelessWidget {
     this.onRetryCapture,
   });
 
-  final String costumeId;
-  final CostumePhotoView photo;
+  final String pieceId;
+  final PiecePhotoView photo;
   final PhotoRepository repository;
   final PhotoBytesLru lru;
   final VoidCallback? onDelete;
@@ -321,7 +322,7 @@ class PhotoTile extends StatelessWidget {
     final status = photoRowStatus(photo);
     return Semantics(
       // Semantic label carries "photo of costume X" (spec §5).
-      label: l10nOf(context).photoTileSemantics(costumeId),
+      label: l10nOf(context).photoTileSemantics(pieceId),
       child: Card(
         key: Key('photo-tile-${photo.id}'),
         clipBehavior: Clip.antiAlias,
@@ -332,7 +333,7 @@ class PhotoTile extends StatelessWidget {
               PhotoRowStatus.ready => Image(
                 key: Key('photo-thumb-${photo.id}'),
                 image: PhotoVariantImage(
-                  costumeId: costumeId,
+                  pieceId: pieceId,
                   photo: photo,
                   variant: 'Thumb',
                   repository: repository,

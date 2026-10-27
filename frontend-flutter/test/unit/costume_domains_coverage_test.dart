@@ -3,6 +3,7 @@
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
 // Co-authored-by: omen-alpha (opencode-go)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 // Tier-1 coverage tests (Task 8.3): branches the happy-path suites leave
 // cold — prepare reduction/tooLarge via the injectable budget seam,
@@ -30,11 +31,10 @@ import 'package:frontend_flutter/core/problem_error.dart';
 import 'package:frontend_flutter/l10n/generated/app_localizations_en.dart';
 import 'package:frontend_flutter/data/cache/cache_database.dart';
 import 'package:frontend_flutter/data/cache/clock.dart';
-import 'package:frontend_flutter/data/cache/costume_domains_cache_dao.dart';
+import 'package:frontend_flutter/data/cache/piece_domains_cache_dao.dart';
 import 'package:frontend_flutter/data/character_repository.dart';
 import 'package:frontend_flutter/data/photo_repository.dart';
 import 'package:frontend_flutter/data/shooting_day_repository.dart';
-import 'package:frontend_flutter/domain/reconciliation/overlay_store.dart';
 import 'package:frontend_flutter/features/characters/characters_controller.dart';
 import 'package:frontend_flutter/features/characters/characters_state.dart';
 import 'package:frontend_flutter/features/costumes/costumes_controller.dart';
@@ -46,12 +46,13 @@ import 'package:frontend_flutter/features/shooting_days/order_keys.dart';
 import 'package:frontend_flutter/features/shooting_days/shooting_days_controller.dart';
 import 'package:frontend_flutter/features/shooting_days/shooting_days_state.dart';
 
-CostumeView _costume(String id, {int version = 1}) => CostumeView(
+PieceView _costume(String id, {int version = 1}) => PieceView(
   (b) => b
+    ..name = 'Fundus-Piece'
     ..id = id
     ..notes = 'n'
-    ..details.replace(BuiltList<CostumeDetailView>())
-    ..photos.replace(BuiltList<CostumePhotoView>())
+    ..details.replace(BuiltList<PieceDetailView>())
+    ..photos.replace(BuiltList<PiecePhotoView>())
     ..updatedAt = DateTime.utc(2026, 1, 1)
     ..version = version,
 );
@@ -115,23 +116,6 @@ class _ThrowingPicker extends ImagePicker {
     CameraDevice preferredCameraDevice = CameraDevice.rear,
     bool requestFullMetadata = true,
   }) async => throw StateError('boom');
-}
-
-class _Overlay implements ReconciliationOverlay {
-  const _Overlay(this.id, this.status);
-
-  @override
-  final String id;
-  @override
-  final OverlayStatus status;
-  @override
-  String? get warning => null;
-  @override
-  ReconciliationOverlay copyWithStatus({
-    OverlayStatus? status,
-    String? warning,
-    bool clearWarning = false,
-  }) => _Overlay(id, status ?? this.status);
 }
 
 /// Dio adapter stub capturing dispatch-level headers (interceptors run
@@ -258,13 +242,14 @@ void main() {
     test('readBySeason reproduces snapshot order incl. ties', () async {
       final db = CacheDatabase();
       addTearDown(db.close);
-      final dao = CostumeCacheDao(db);
-      CostumeView costume(String id) => CostumeView(
+      final dao = PieceCacheDao(db);
+      PieceView costume(String id) => PieceView(
         (b) => b
+          ..name = 'Fundus-Piece'
           ..id = id
           ..notes = 'n'
-          ..details.replace(BuiltList<CostumeDetailView>())
-          ..photos.replace(BuiltList<CostumePhotoView>())
+          ..details.replace(BuiltList<PieceDetailView>())
+          ..photos.replace(BuiltList<PiecePhotoView>())
           // Identical timestamps: only the ordinal separates them.
           ..updatedAt = DateTime.utc(2026, 1, 1)
           ..version = 1,
@@ -286,13 +271,14 @@ void main() {
     test('single-row upsert preserves the existing ordinal', () async {
       final db = CacheDatabase();
       addTearDown(db.close);
-      final dao = CostumeCacheDao(db);
-      CostumeView costume(String id) => CostumeView(
+      final dao = PieceCacheDao(db);
+      PieceView costume(String id) => PieceView(
         (b) => b
+          ..name = 'Fundus-Piece'
           ..id = id
           ..notes = 'n'
-          ..details.replace(BuiltList<CostumeDetailView>())
-          ..photos.replace(BuiltList<CostumePhotoView>())
+          ..details.replace(BuiltList<PieceDetailView>())
+          ..photos.replace(BuiltList<PiecePhotoView>())
           ..updatedAt = DateTime.utc(2026, 1, 1)
           ..version = 1,
       );
@@ -317,7 +303,7 @@ void main() {
     test('costume TTL: empty fresh, expired old, cleared gone', () async {
       final db = CacheDatabase();
       addTearDown(db.close);
-      final dao = CostumeCacheDao(db);
+      final dao = PieceCacheDao(db);
       expect(
         await dao.isSeasonExpired(
           's-1',
@@ -397,8 +383,8 @@ void main() {
                 ..oneOf = OneOf.fromValue1(
                   value: PhotoBindingOneOf(
                     (o) => o
-                      ..costume.replace(
-                        PhotoBindingOneOfCostume((c) => c..costumeId = 'c-1'),
+                      ..piece.replace(
+                        PhotoBindingOneOfPiece((c) => c..pieceId = 'c-1'),
                       ),
                   ),
                 ),
@@ -437,7 +423,7 @@ void main() {
         final base = _costume('c-1', version: 1);
         final overlay = CostumeRowOverlay(
           id: 'c-1',
-          overlay: applyAssignOptimistic(base, 'ch-9'),
+          overlay: applyNotesOptimistic(base, 'notes'),
           acknowledgedVersion: 2,
           status: OverlayStatus.reconciling,
         );
@@ -445,18 +431,15 @@ void main() {
           projected: const AsyncLoading(),
           cachedRows: [base],
           overlays: [overlay],
-          characterNames: const {'ch-9': 'Bea'},
         );
         final rows = held.rows;
         expect(rows.single, isA<OptimisticCostumeRow>());
-        expect((rows.single as OptimisticCostumeRow).characterName, 'Bea');
         // Fence passes at version 2 → authoritative row.
         final fresh = _costume('c-1', version: 2);
         final passed = CostumesScreenState(
           projected: const AsyncLoading(),
           cachedRows: [fresh],
           overlays: [overlay],
-          characterNames: const {'ch-9': 'Bea'},
         );
         expect(passed.rows.single, isA<ProjectedCostumeRow>());
         // Create-path overlay (id absent) appends.
@@ -493,40 +476,6 @@ void main() {
       );
       expect(days.rows, hasLength(2));
       expect(days.notFound?.code, 'season.not-found');
-    });
-
-    test('overlay store bookkeeping', () {
-      expect(
-        overlayAdd([
-          _Overlay('a', OverlayStatus.acknowledged),
-        ], _Overlay('a', OverlayStatus.reconciling)),
-        hasLength(1),
-      );
-      expect(
-        overlayMarkAllReconciling([_Overlay('a', OverlayStatus.acknowledged)])
-            .single
-            .status,
-        OverlayStatus.reconciling,
-      );
-      expect(
-        overlayDropProjectedIds(
-          [_Overlay('a', OverlayStatus.acknowledged)],
-          {'a'},
-        ),
-        isEmpty,
-      );
-      expect(
-        overlayDropProjectedIds([
-          _Overlay('a', OverlayStatus.acknowledged),
-        ], {}),
-        hasLength(1),
-      );
-      expect(
-        overlayMarkAllStale([
-          _Overlay('a', OverlayStatus.acknowledged),
-        ], 'w').single.status,
-        OverlayStatus.stale,
-      );
     });
   });
 

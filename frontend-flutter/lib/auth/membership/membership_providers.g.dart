@@ -250,7 +250,7 @@ final class SeriesMembershipForCostumeProvider
 }
 
 String _$seriesMembershipForCostumeHash() =>
-    r'14471e8cef8e7e4698f41928bde58f737b353a67';
+    r'39551cc42e409c367e8c87d7131fc75ae3fc9ec2';
 
 /// The series-level membership fetch for a **costume** (issue #535 review):
 /// the client-side AUTHZ-GATE source for the **series-scoped costume-photo

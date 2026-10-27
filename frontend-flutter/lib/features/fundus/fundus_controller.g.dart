@@ -60,7 +60,7 @@ final class FundusRepositoryProvider
   }
 }
 
-String _$fundusRepositoryHash() => r'625fb53de679921396b15ffffb7efa47d3b0a983';
+String _$fundusRepositoryHash() => r'dd32ac0883da2f6dc968b64c811eef95d7f07337';
 
 /// The project's cached fundus inputs — THE QUERY PATH (design D3).
 ///

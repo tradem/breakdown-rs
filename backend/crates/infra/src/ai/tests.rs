@@ -7,6 +7,7 @@
 // Co-authored-by: longcat-2.0-free (opencode)
 // Co-authored-by: glm-5.3-flash (opencode-go)
 // Co-authored-by: qwen3.8-flash (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -28,6 +29,8 @@ use breakdown_core::ai::{
 use breakdown_core::character::category::CharacterCategory;
 use breakdown_core::error::DomainError;
 use breakdown_core::scene::events::SceneSource;
+use breakdown_core::season::ports::SeasonRepository;
+use breakdown_core::season::views::SeasonView;
 use breakdown_core::shared::UserId;
 use chrono::Utc;
 use reqwest::StatusCode;
@@ -363,7 +366,7 @@ async fn merge_worker_success_records_telemetry() {
             script_day: None,
             shooting_day_ids: Vec::new(),
             assigned_characters: Vec::new(),
-            costume_beats: Vec::new(),
+            outfit_beats: Vec::new(),
             version: AggregateVersion::INITIAL,
             updated_at: Utc.timestamp_opt(0, 0).single().unwrap(),
             source: Some(SceneSource::Manual),
@@ -1273,10 +1276,10 @@ impl breakdown_core::scene::ports::SceneCommands for FakeSceneCommands {
     ) -> Result<breakdown_core::shared::AggregateVersion, DomainError> {
         Ok(breakdown_core::shared::AggregateVersion::INITIAL)
     }
-    async fn add_costume_beat(
+    async fn add_outfit_beat(
         &self,
         _actor: UserId,
-        command: breakdown_core::scene::commands::AddCostumeBeat,
+        command: breakdown_core::scene::commands::AddOutfitBeat,
     ) -> Result<breakdown_core::shared::AggregateVersion, DomainError> {
         if let Some(error) = self.fail_beat_with.lock().unwrap().take() {
             return Err(error);
@@ -1297,16 +1300,16 @@ impl breakdown_core::scene::ports::SceneCommands for FakeSceneCommands {
         }
         // Identical-last guard, faithful to the aggregate: appending the
         // (costume, note) the character already wears last is refused as the
-        // ONLY `scene.validation` refusal of `AddCostumeBeat`.
+        // ONLY `scene.validation` refusal of `AddOutfitBeat`.
         let last = self
             .beats_of(command.id)
             .into_iter()
             .rev()
             .find(|(character, _)| *character == command.character_id);
-        if last.is_some_and(|(_, costume)| costume == command.costume_id) {
+        if last.is_some_and(|(_, costume)| costume == command.outfit_id) {
             return Err(DomainError::Validation {
                 code: &breakdown_core::error_registry::SCENE_VALIDATION,
-                reason: "Costume beat identical to the character's last beat".to_owned(),
+                reason: "Outfit beat identical to the character's last beat".to_owned(),
             });
         }
         drop(assigned);
@@ -1314,26 +1317,26 @@ impl breakdown_core::scene::ports::SceneCommands for FakeSceneCommands {
         self.beats
             .lock()
             .unwrap()
-            .push((command.id, command.character_id, command.costume_id));
+            .push((command.id, command.character_id, command.outfit_id));
         self.journal
             .lock()
             .unwrap()
-            .push(format!("scene:beat:{}", command.costume_id));
+            .push(format!("scene:beat:{}", command.outfit_id));
         Ok(next)
     }
 
-    async fn update_costume_beat(
+    async fn update_outfit_beat(
         &self,
         _actor: UserId,
-        _command: breakdown_core::scene::commands::UpdateCostumeBeat,
+        _command: breakdown_core::scene::commands::UpdateOutfitBeat,
     ) -> Result<breakdown_core::shared::AggregateVersion, DomainError> {
         Ok(breakdown_core::shared::AggregateVersion::INITIAL)
     }
 
-    async fn remove_costume_beat(
+    async fn remove_outfit_beat(
         &self,
         _actor: UserId,
-        _command: breakdown_core::scene::commands::RemoveCostumeBeat,
+        _command: breakdown_core::scene::commands::RemoveOutfitBeat,
     ) -> Result<breakdown_core::shared::AggregateVersion, DomainError> {
         Ok(breakdown_core::shared::AggregateVersion::INITIAL)
     }
@@ -1700,7 +1703,7 @@ impl ScheduleApplyFixture {
             script_day: None,
             shooting_day_ids: Vec::new(),
             assigned_characters: Vec::new(),
-            costume_beats: Vec::new(),
+            outfit_beats: Vec::new(),
             version: breakdown_core::shared::AggregateVersion::INITIAL,
             updated_at: Utc::now(),
             source: Some(SceneSource::Manual),
@@ -2442,6 +2445,7 @@ fn script_apply_worker(
     FakeSceneShootCommands,
     FakeMappings,
     FakeQueue,
+    FakeSeasonRepo,
 > {
     ApplyWorker {
         scene_commands,
@@ -2452,15 +2456,18 @@ fn script_apply_worker(
         scene_shoot_commands: Arc::new(FakeSceneShootCommands::default()),
         mappings,
         queue,
+        season_repo: Arc::new(FakeSeasonRepo::default()),
     }
 }
 
 /// A port the AI apply must never call. Failing loudly beats returning a value
 /// a dispatch bug could silently consume.
 fn unexpected_command(name: &str) -> Result<Version, DomainError> {
-    Err(DomainError::validation(format!(
-        "unexpected AI apply command: {name}"
-    )))
+    Err(unexpected_command_error(name))
+}
+
+fn unexpected_command_error(name: &str) -> DomainError {
+    DomainError::validation(format!("unexpected AI apply command: {name}"))
 }
 
 /// Episode create port of the script apply (issue #581). Faithful to the real
@@ -2574,21 +2581,91 @@ impl breakdown_core::character::ports::CharacterCommands for FakeCharacterComman
     }
 }
 
-/// `CostumeCommands` faithful to the aggregate's version chain: every accepted
-/// command appends exactly one event, so the version the apply stores is the
-/// phase record a retry re-drives from.
+/// Wardrobe write ports (`PieceCommands` + `OutfitCommands`) faithful to the
+/// aggregates' version chains: every accepted command appends exactly one
+/// event, so the version the apply stores is the phase record a retry re-drives
+/// from. The journal keeps the historical `costume:*` keys so the apply-order
+/// assertions stay readable.
 #[derive(Clone, Default)]
 struct FakeCostumeCommands {
     created: Arc<Mutex<Vec<Uuid>>>,
     notes: Arc<Mutex<Vec<(Uuid, String)>>>,
+    /// `(outfit_id, character_id)` of every created outfit.
     assigned: Arc<Mutex<Vec<(Uuid, Uuid)>>>,
-    /// Version each costume carries, i.e. how many events it has appended.
+    /// Version each piece carries, i.e. how many events it has appended.
     versions: Arc<Mutex<HashMap<Uuid, breakdown_core::shared::AggregateVersion>>>,
+    /// Version each outfit carries.
+    outfit_versions: Arc<Mutex<HashMap<Uuid, breakdown_core::shared::AggregateVersion>>>,
     fail_assign_with: Arc<Mutex<Option<DomainError>>>,
     journal: Arc<Mutex<Vec<String>>>,
 }
 
 type Version = breakdown_core::shared::AggregateVersion;
+
+/// Season read model of the apply worker (CR-002/D2).
+///
+/// Every season answers as **active** by default — that is what the apply tests
+/// which are not about archiving need. `archived` makes the gate fire, and
+/// `failure` injects a lookup error (outage vs. projection miss).
+#[derive(Clone, Default)]
+struct FakeSeasonRepo {
+    archived: Arc<Mutex<Option<bool>>>,
+    failure: Arc<Mutex<Option<DomainError>>>,
+}
+
+impl FakeSeasonRepo {
+    /// Target season answers as archived (terminal lifecycle, issue #533).
+    fn archived() -> Self {
+        Self {
+            archived: Arc::new(Mutex::new(Some(true))),
+            failure: Arc::new(Mutex::new(None)),
+        }
+    }
+}
+
+impl SeasonRepository for FakeSeasonRepo {
+    async fn find_by_id(&self, id: Uuid) -> Result<SeasonView, DomainError> {
+        if let Some(error) = self.failure.lock().unwrap().clone() {
+            return Err(error);
+        }
+        Ok(SeasonView {
+            id,
+            project_id: breakdown_core::shared::ProjectId::new(),
+            number: 1,
+            title: None,
+            archived: self.archived.lock().unwrap().unwrap_or(false),
+            version: Version::INITIAL,
+            updated_at: Utc::now(),
+        })
+    }
+
+    async fn list_all(
+        &self,
+        _include_archived: bool,
+        _limit: i64,
+        _offset: i64,
+    ) -> Result<Vec<SeasonView>, DomainError> {
+        Ok(Vec::new())
+    }
+
+    async fn list_by_project(
+        &self,
+        _project_id: breakdown_core::shared::ProjectId,
+        _include_archived: bool,
+        _limit: i64,
+        _offset: i64,
+    ) -> Result<Vec<SeasonView>, DomainError> {
+        Ok(Vec::new())
+    }
+
+    async fn find_by_project_and_number(
+        &self,
+        _project_id: breakdown_core::shared::ProjectId,
+        _number: i32,
+    ) -> Result<Option<SeasonView>, DomainError> {
+        Ok(None)
+    }
+}
 
 /// A pinned aggregate version (the alias above cannot construct the tuple).
 fn version(n: u64) -> Version {
@@ -2600,22 +2677,34 @@ impl FakeCostumeCommands {
         self.versions.lock().unwrap().get(id).copied()
     }
 
+    fn outfit_version_of(&self, id: &Uuid) -> Option<Version> {
+        self.outfit_versions.lock().unwrap().get(id).copied()
+    }
+
     /// Mimic the aggregate's `check_version`: a stale expected version is a
     /// typed `VersionConflict` carrying the current one.
     fn check(&self, id: Uuid, expected: Version) -> Result<Version, DomainError> {
         match self.version_of(&id) {
             Some(current) if current == expected => Ok(current.next()),
             Some(current) => Err(DomainError::VersionConflict { expected, current }),
-            None => Err(DomainError::validation("costume stream is missing")),
+            None => Err(DomainError::validation("piece stream is missing")),
+        }
+    }
+
+    fn check_outfit(&self, id: Uuid, expected: Version) -> Result<Version, DomainError> {
+        match self.outfit_version_of(&id) {
+            Some(current) if current == expected => Ok(current.next()),
+            Some(current) => Err(DomainError::VersionConflict { expected, current }),
+            None => Err(DomainError::validation("outfit stream is missing")),
         }
     }
 }
 
-impl breakdown_core::costume::ports::CostumeCommands for FakeCostumeCommands {
+impl breakdown_core::piece::ports::PieceCommands for FakeCostumeCommands {
     async fn create(
         &self,
         _actor: UserId,
-        command: breakdown_core::costume::commands::CreateCostume,
+        command: breakdown_core::piece::commands::CreatePiece,
     ) -> Result<(Uuid, Version), DomainError> {
         let id = command.id;
         if self.created.lock().unwrap().contains(&id) {
@@ -2633,10 +2722,18 @@ impl breakdown_core::costume::ports::CostumeCommands for FakeCostumeCommands {
         Ok((id, Version::INITIAL))
     }
 
+    async fn rename(
+        &self,
+        _actor: UserId,
+        _command: breakdown_core::piece::commands::RenamePiece,
+    ) -> Result<Version, DomainError> {
+        unexpected_command("rename")
+    }
+
     async fn update_notes(
         &self,
         _actor: UserId,
-        command: breakdown_core::costume::commands::UpdateCostumeNotes,
+        command: breakdown_core::piece::commands::UpdatePieceNotes,
     ) -> Result<Version, DomainError> {
         let next = self.check(command.id, command.version)?;
         self.versions.lock().unwrap().insert(command.id, next);
@@ -2651,39 +2748,10 @@ impl breakdown_core::costume::ports::CostumeCommands for FakeCostumeCommands {
         Ok(next)
     }
 
-    async fn assign_to_character(
-        &self,
-        _actor: UserId,
-        command: breakdown_core::costume::commands::AssignCostumeToCharacter,
-    ) -> Result<Version, DomainError> {
-        if let Some(error) = self.fail_assign_with.lock().unwrap().take() {
-            return Err(error);
-        }
-        let next = self.check(command.id, command.version)?;
-        self.versions.lock().unwrap().insert(command.id, next);
-        self.assigned
-            .lock()
-            .unwrap()
-            .push((command.id, command.character_id));
-        self.journal
-            .lock()
-            .unwrap()
-            .push(format!("costume:bind:{}", command.id));
-        Ok(next)
-    }
-
-    async fn unassign(
-        &self,
-        _actor: UserId,
-        _command: breakdown_core::costume::commands::UnassignCostume,
-    ) -> Result<Version, DomainError> {
-        unexpected_command("unassign")
-    }
-
     async fn add_to_season(
         &self,
         _actor: UserId,
-        _command: breakdown_core::costume::commands::AddCostumeToSeason,
+        _command: breakdown_core::piece::commands::AddPieceToSeason,
     ) -> Result<Version, DomainError> {
         unexpected_command("add_to_season")
     }
@@ -2691,7 +2759,7 @@ impl breakdown_core::costume::ports::CostumeCommands for FakeCostumeCommands {
     async fn remove_from_season(
         &self,
         _actor: UserId,
-        _command: breakdown_core::costume::commands::RemoveCostumeFromSeason,
+        _command: breakdown_core::piece::commands::RemovePieceFromSeason,
     ) -> Result<Version, DomainError> {
         unexpected_command("remove_from_season")
     }
@@ -2699,7 +2767,7 @@ impl breakdown_core::costume::ports::CostumeCommands for FakeCostumeCommands {
     async fn add_detail(
         &self,
         _actor: UserId,
-        _command: breakdown_core::costume::commands::AddDetail,
+        _command: breakdown_core::piece::commands::AddPieceDetail,
     ) -> Result<Version, DomainError> {
         unexpected_command("add_detail")
     }
@@ -2707,7 +2775,7 @@ impl breakdown_core::costume::ports::CostumeCommands for FakeCostumeCommands {
     async fn update_detail(
         &self,
         _actor: UserId,
-        _command: breakdown_core::costume::commands::UpdateCostumeDetail,
+        _command: breakdown_core::piece::commands::UpdatePieceDetail,
     ) -> Result<Version, DomainError> {
         unexpected_command("update_detail")
     }
@@ -2715,7 +2783,7 @@ impl breakdown_core::costume::ports::CostumeCommands for FakeCostumeCommands {
     async fn remove_detail(
         &self,
         _actor: UserId,
-        _command: breakdown_core::costume::commands::RemoveDetail,
+        _command: breakdown_core::piece::commands::RemovePieceDetail,
     ) -> Result<Version, DomainError> {
         unexpected_command("remove_detail")
     }
@@ -2723,7 +2791,7 @@ impl breakdown_core::costume::ports::CostumeCommands for FakeCostumeCommands {
     async fn set_category(
         &self,
         _actor: UserId,
-        _command: breakdown_core::costume::commands::SetCostumeCategory,
+        _command: breakdown_core::piece::commands::SetPieceCategory,
     ) -> Result<Version, DomainError> {
         unexpected_command("set_category")
     }
@@ -2731,7 +2799,7 @@ impl breakdown_core::costume::ports::CostumeCommands for FakeCostumeCommands {
     async fn link_photo(
         &self,
         _actor: UserId,
-        _command: breakdown_core::costume::commands::LinkPhoto,
+        _command: breakdown_core::piece::commands::LinkPiecePhoto,
     ) -> Result<Version, DomainError> {
         unexpected_command("link_photo")
     }
@@ -2739,9 +2807,106 @@ impl breakdown_core::costume::ports::CostumeCommands for FakeCostumeCommands {
     async fn unlink_photo(
         &self,
         _actor: UserId,
-        _command: breakdown_core::costume::commands::UnlinkPhoto,
+        _command: breakdown_core::piece::commands::UnlinkPiecePhoto,
     ) -> Result<Version, DomainError> {
         unexpected_command("unlink_photo")
+    }
+}
+
+impl breakdown_core::outfit::ports::OutfitCommands for FakeCostumeCommands {
+    async fn create(
+        &self,
+        _actor: UserId,
+        command: breakdown_core::outfit::commands::CreateOutfit,
+    ) -> Result<(Uuid, Version), DomainError> {
+        let id = command.id;
+        if let Some(current) = self.outfit_version_of(&id) {
+            return Err(DomainError::VersionConflict {
+                expected: version(0),
+                current,
+            });
+        }
+        if let Some(error) = self.fail_assign_with.lock().unwrap().take() {
+            return Err(error);
+        }
+        self.outfit_versions
+            .lock()
+            .unwrap()
+            .insert(id, Version::INITIAL);
+        self.assigned
+            .lock()
+            .unwrap()
+            .push((id, command.character_id));
+        self.journal
+            .lock()
+            .unwrap()
+            .push(format!("costume:bind:{id}"));
+        Ok((id, Version::INITIAL))
+    }
+
+    async fn create_variant(
+        &self,
+        _actor: UserId,
+        _command: breakdown_core::outfit::commands::CreateOutfitVariant,
+    ) -> Result<(Uuid, Version), DomainError> {
+        Err(unexpected_command_error("create_variant"))
+    }
+
+    async fn rename(
+        &self,
+        _actor: UserId,
+        _command: breakdown_core::outfit::commands::RenameOutfit,
+    ) -> Result<Version, DomainError> {
+        unexpected_command("outfit_rename")
+    }
+
+    async fn update_notes(
+        &self,
+        _actor: UserId,
+        _command: breakdown_core::outfit::commands::UpdateOutfitNotes,
+    ) -> Result<Version, DomainError> {
+        unexpected_command("outfit_update_notes")
+    }
+
+    async fn add_piece(
+        &self,
+        _actor: UserId,
+        command: breakdown_core::outfit::commands::AddPieceToOutfit,
+    ) -> Result<Version, DomainError> {
+        let next = self.check_outfit(command.id, command.version)?;
+        self.outfit_versions
+            .lock()
+            .unwrap()
+            .insert(command.id, next);
+        self.journal
+            .lock()
+            .unwrap()
+            .push(format!("costume:add_piece:{}", command.id));
+        Ok(next)
+    }
+
+    async fn remove_piece(
+        &self,
+        _actor: UserId,
+        _command: breakdown_core::outfit::commands::RemovePieceFromOutfit,
+    ) -> Result<Version, DomainError> {
+        unexpected_command("outfit_remove_piece")
+    }
+
+    async fn link_photo(
+        &self,
+        _actor: UserId,
+        _command: breakdown_core::outfit::commands::LinkOutfitPhoto,
+    ) -> Result<Version, DomainError> {
+        unexpected_command("outfit_link_photo")
+    }
+
+    async fn unlink_photo(
+        &self,
+        _actor: UserId,
+        _command: breakdown_core::outfit::commands::UnlinkOutfitPhoto,
+    ) -> Result<Version, DomainError> {
+        unexpected_command("outfit_unlink_photo")
     }
 }
 
@@ -2755,6 +2920,7 @@ struct ScriptApplyFixture {
     episodes: Arc<FakeEpisodeCommands>,
     shooting_days: Arc<FakeShootingDayCommands>,
     scene_shoots: Arc<FakeSceneShootCommands>,
+    seasons: Arc<FakeSeasonRepo>,
     journal: Arc<Mutex<Vec<String>>>,
     preview_id: AiImportJobId,
     episode_id: breakdown_core::shared::EpisodeId,
@@ -2789,6 +2955,7 @@ impl ScriptApplyFixture {
             }),
             shooting_days: Arc::new(FakeShootingDayCommands::default()),
             scene_shoots: Arc::new(FakeSceneShootCommands::default()),
+            seasons: Arc::new(FakeSeasonRepo::default()),
             journal,
             preview_id: AiImportJobId::new(),
             episode_id: breakdown_core::shared::EpisodeId::new(),
@@ -2809,6 +2976,7 @@ impl ScriptApplyFixture {
         FakeSceneShootCommands,
         FakeMappings,
         FakeQueue,
+        FakeSeasonRepo,
     > {
         ApplyWorker {
             scene_commands: Arc::clone(&self.scenes),
@@ -2819,6 +2987,7 @@ impl ScriptApplyFixture {
             scene_shoot_commands: Arc::clone(&self.scene_shoots),
             mappings: Arc::clone(&self.mappings),
             queue: Arc::clone(&self.queue),
+            season_repo: Arc::clone(&self.seasons),
         }
     }
 
@@ -3036,15 +3205,20 @@ async fn script_apply_dispatches_the_character_before_the_costume_binding() {
         character < bind,
         "the figure must be created before its costume binds to it: {steps:?}"
     );
-    // And the costume that bound is the one this apply created.
+    // The outfit that bound belongs to the figure this apply created. The
+    // piece and the outfit are separate streams: the piece is the garment, the
+    // outfit is the look that carries the character binding.
     let created_costumes = fixture.costumes.created.lock().unwrap().clone();
     let assigned = fixture.costumes.assigned.lock().unwrap().clone();
-    assert_eq!(assigned.len(), 1);
-    assert_eq!(assigned[0].0, created_costumes[0]);
+    assert_eq!(assigned.len(), 1, "one outfit for the figure");
+    assert_ne!(
+        assigned[0].0, created_costumes[0],
+        "the outfit id must not be the piece id — they are different aggregates"
+    );
     assert_eq!(
         assigned[0].1,
         fixture.characters.created.lock().unwrap()[0].id,
-        "the costume must bind to the figure created from the same row"
+        "the outfit must bind to the figure created from the same row"
     );
 }
 
@@ -3082,7 +3256,9 @@ async fn script_apply_creates_one_figure_per_name_and_re_applies_without_duplica
     assert_eq!(first.created_costumes, 2, "both costumes applied");
     assert_eq!(fixture.characters.created.lock().unwrap().len(), 1);
     assert_eq!(fixture.costumes.created.lock().unwrap().len(), 2);
-    // Both costumes point at the *same* figure.
+    // Both pieces hang on ONE outfit of the *same* figure: the outfit id is
+    // derived per figure, so the second piece joins the existing look instead of
+    // creating a second one.
     let bound: Vec<Uuid> = fixture
         .costumes
         .assigned
@@ -3091,7 +3267,12 @@ async fn script_apply_creates_one_figure_per_name_and_re_applies_without_duplica
         .iter()
         .map(|(_, character)| *character)
         .collect();
-    assert_eq!(bound[0], bound[1], "one figure, not one per scene");
+    assert_eq!(bound.len(), 1, "one outfit for the figure");
+    assert_eq!(
+        bound[0],
+        fixture.characters.created.lock().unwrap()[0].id,
+        "the outfit belongs to the figure, not to one scene"
+    );
 
     // Re-apply: every row is already mapped, so nothing dispatches again.
     let again = fixture.apply(&preview, &decisions).await.unwrap();
@@ -3231,8 +3412,93 @@ async fn script_apply_recovers_when_only_the_notes_confirm_crashed() {
             .unwrap()
             .expect("costume mapping row")
             .aggregate_version,
-        version(3),
-        "create + notes + bind, exactly one version per phase"
+        version(2),
+        "create + notes, exactly one version per phase (the outfit lives on its own stream)"
+    );
+}
+
+/// CR-002/D2: an archived target season refuses only the AI **outfit** step.
+///
+/// Steps 1 and 2 (create the piece, write the extracted description) run before
+/// the gate and stay valid: the garment remains in the fundus, visible and
+/// correctable, while the mapping row ends as `refused` (`BindingRejected`) and
+/// no `OutfitCreated` is appended. The eight manual outfit routes answer 409
+/// `season.archived` for the same invariant (issue #533: the archive is the
+/// terminal lifecycle state).
+#[tokio::test]
+async fn script_apply_refuses_the_outfit_step_of_an_archived_season() {
+    let mut fixture = ScriptApplyFixture::new();
+    fixture.seasons = Arc::new(FakeSeasonRepo::archived());
+    let preview = ScriptContext {
+        scenes: vec![row_with_costume(
+            "1. INT. OP",
+            &["BEN"],
+            &[("Ben", "Marineblau")],
+        )],
+        ..Default::default()
+    };
+    let decisions = [create_decision("1. INT. OP")];
+    let applied = fixture.apply(&preview, &decisions).await.unwrap();
+
+    // The piece steps are NOT blocked by the archived season.
+    assert_eq!(
+        fixture.costumes.created.lock().unwrap().len(),
+        1,
+        "the piece must still be created in the fundus"
+    );
+    assert_eq!(
+        fixture.costumes.notes.lock().unwrap().len(),
+        1,
+        "the extracted description must still reach the piece"
+    );
+    assert_eq!(applied.created_costumes, 1);
+    assert!(
+        fixture.costumes.assigned.lock().unwrap().is_empty(),
+        "no outfit may be created in an archived season"
+    );
+    assert_eq!(applied.unapplied_costumes.len(), 1);
+    assert_eq!(
+        applied.unapplied_costumes[0].reason,
+        UnappliedCostumeReason::BindingRejected
+    );
+    // The piece stream is complete: create + notes, exactly one event per phase.
+    let mapping = fixture
+        .mappings
+        .find(fixture.preview_id, "1. INT. OP", mapping_kind::COSTUME, 0)
+        .await
+        .unwrap()
+        .expect("costume mapping row");
+    assert_eq!(mapping.aggregate_version, version(2));
+}
+
+/// CR-002/D2: a season lookup **outage** is not a refusal — it fails the apply
+/// so the retry re-drives the unfinished rows instead of ending the mapping row
+/// permanently.
+#[tokio::test]
+async fn script_apply_fails_the_apply_when_the_season_lookup_is_an_outage() {
+    let fixture = ScriptApplyFixture::new();
+    fixture
+        .seasons
+        .failure
+        .lock()
+        .unwrap()
+        .replace(DomainError::service_unavailable(
+            "season projection offline",
+        ));
+    let preview = ScriptContext {
+        scenes: vec![row_with_costume(
+            "1. INT. OP",
+            &["BEN"],
+            &[("Ben", "Marineblau")],
+        )],
+        ..Default::default()
+    };
+    let decisions = [create_decision("1. INT. OP")];
+    let error = fixture.apply(&preview, &decisions).await;
+
+    assert!(
+        matches!(error, Err(DomainError::ServiceUnavailable { .. })),
+        "an outage must fail the apply, got {error:?}"
     );
 }
 
@@ -3293,8 +3559,17 @@ async fn script_apply_reuses_the_costume_id_when_only_the_binding_failed() {
     );
     assert_eq!(fixture.costumes.created.lock().unwrap().len(), 1);
     let assigned = fixture.costumes.assigned.lock().unwrap().clone();
-    assert_eq!(assigned.len(), 1);
-    assert_eq!(assigned[0].0, created_id, "the reserved id was reused");
+    assert_eq!(assigned.len(), 1, "the retry creates the outfit once");
+    assert_eq!(
+        fixture.costumes.created.lock().unwrap().len(),
+        1,
+        "the reserved piece id was reused"
+    );
+    assert_eq!(
+        fixture.costumes.created.lock().unwrap()[0],
+        created_id,
+        "the reserved piece id was reused"
+    );
     assert_eq!(
         fixture
             .mappings
@@ -3303,8 +3578,8 @@ async fn script_apply_reuses_the_costume_id_when_only_the_binding_failed() {
             .unwrap()
             .unwrap()
             .aggregate_version,
-        version(3),
-        "create + notes + bind"
+        version(2),
+        "create + notes (the outfit is a separate stream)"
     );
 }
 
@@ -3338,9 +3613,10 @@ async fn script_apply_writes_the_description_as_notes_and_binds_at_that_version(
     assert_eq!(notes.len(), 1);
     assert_eq!(notes[0].1, "  ölverschmierter Mechaniker-Overall  ");
 
-    // The costume aggregate is a three-event stream: create, notes, bind.
+    // The piece stream is two events: create, notes. The character binding moved
+    // to the outfit stream (a separate aggregate).
     let id = fixture.costumes.created.lock().unwrap()[0];
-    assert_eq!(fixture.costumes.version_of(&id), Some(version(3)));
+    assert_eq!(fixture.costumes.version_of(&id), Some(version(2)));
     assert_eq!(
         fixture
             .mappings
@@ -3349,7 +3625,7 @@ async fn script_apply_writes_the_description_as_notes_and_binds_at_that_version(
             .unwrap()
             .unwrap()
             .aggregate_version,
-        version(3)
+        version(2)
     );
     // Group 4: the figure's row is keyed by its identity, not by the scene row.
     let figure = fixture

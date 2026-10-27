@@ -9,6 +9,7 @@
 // Co-authored-by: glm-5.2 (neuralwatt)
 // Co-authored-by: deepseek-v4-flash (opencode-go)
 // Co-authored-by: longcat-2.0 (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 //! `kameo_es` write adapters implementing the `core` command ports.
 //!
@@ -41,13 +42,6 @@ use breakdown_core::character::commands::{
     CreateCharacter, UpdateCharacterCategory, UpdateContactInfo, UpdateMeasurements,
 };
 use breakdown_core::character::ports::CharacterCommands;
-use breakdown_core::costume::aggregate::CostumeAggregate;
-use breakdown_core::costume::commands::{
-    AddCostumeToSeason, AddDetail, AssignCostumeToCharacter, CreateCostume, LinkPhoto,
-    RemoveCostumeFromSeason, RemoveDetail, SetCostumeCategory, UnassignCostume, UnlinkPhoto,
-    UpdateCostumeDetail, UpdateCostumeNotes,
-};
-use breakdown_core::costume::ports::CostumeCommands;
 use breakdown_core::costume_category::aggregate::CostumeCategoryAggregate;
 use breakdown_core::costume_category::commands::{
     ArchiveCostumeCategory, CreateCostumeCategory, RenameCostumeCategory, ReorderCostumeCategory,
@@ -62,15 +56,28 @@ use breakdown_core::membership::commands::{
     AcceptInvitation, BootstrapOwner, GrantRole, InviteMember, LeaveBlock, RemoveMember,
 };
 use breakdown_core::membership::ports::MembershipCommands;
+use breakdown_core::outfit::aggregate::OutfitAggregate;
+use breakdown_core::outfit::commands::{
+    AddPieceToOutfit, CreateOutfit, CreateOutfitVariant, LinkOutfitPhoto, RemovePieceFromOutfit,
+    RenameOutfit, UnlinkOutfitPhoto, UpdateOutfitNotes,
+};
+use breakdown_core::outfit::ports::OutfitCommands;
 use breakdown_core::photo::aggregate::PhotoAggregate;
 use breakdown_core::photo::commands::{
     DeletePhoto, GenerateVariant, MarkVariantFailed, NormalizeOriginal, UploadPhoto,
 };
 use breakdown_core::photo::ports::PhotoCommands;
+use breakdown_core::piece::aggregate::PieceAggregate;
+use breakdown_core::piece::commands::{
+    AddPieceDetail, AddPieceToSeason, CreatePiece, LinkPiecePhoto, RemovePieceDetail,
+    RemovePieceFromSeason, RenamePiece, SetPieceCategory, UnlinkPiecePhoto, UpdatePieceDetail,
+    UpdatePieceNotes,
+};
+use breakdown_core::piece::ports::PieceCommands;
 use breakdown_core::scene::aggregate::SceneAggregate;
 use breakdown_core::scene::commands::{
-    AddCostumeBeat, AssignCharacter, CreateScene, RemoveCharacter, RemoveCostumeBeat,
-    ScheduleSceneOnShootingDay, UnscheduleSceneFromShootingDay, UpdateCostumeBeat,
+    AddOutfitBeat, AssignCharacter, CreateScene, RemoveCharacter, RemoveOutfitBeat,
+    ScheduleSceneOnShootingDay, UnscheduleSceneFromShootingDay, UpdateOutfitBeat,
     UpdateSceneDetails,
 };
 use breakdown_core::scene::ports::SceneCommands;
@@ -254,10 +261,10 @@ impl SceneCommands for SceneCommandsImpl {
         map_version_only(result)
     }
 
-    async fn add_costume_beat(
+    async fn add_outfit_beat(
         &self,
         actor: UserId,
-        cmd: AddCostumeBeat,
+        cmd: AddOutfitBeat,
     ) -> Result<AggregateVersion, DomainError> {
         let id = cmd.id;
         let version = cmd.version;
@@ -274,10 +281,10 @@ impl SceneCommands for SceneCommandsImpl {
         map_version_only(result)
     }
 
-    async fn update_costume_beat(
+    async fn update_outfit_beat(
         &self,
         actor: UserId,
-        cmd: UpdateCostumeBeat,
+        cmd: UpdateOutfitBeat,
     ) -> Result<AggregateVersion, DomainError> {
         let id = cmd.id;
         let version = cmd.version;
@@ -294,10 +301,10 @@ impl SceneCommands for SceneCommandsImpl {
         map_version_only(result)
     }
 
-    async fn remove_costume_beat(
+    async fn remove_outfit_beat(
         &self,
         actor: UserId,
-        cmd: RemoveCostumeBeat,
+        cmd: RemoveOutfitBeat,
     ) -> Result<AggregateVersion, DomainError> {
         let id = cmd.id;
         let version = cmd.version;
@@ -664,30 +671,35 @@ impl CharacterCommands for CharacterCommandsImpl {
     }
 }
 
-/// Command adapter for the Costume aggregate.
+/// Command adapter for the wardrobe context: the **Piece** (fundus) and
+/// **Outfit** (character look) aggregates.
+///
+/// Both aggregates share the same `CommandService`, so one adapter struct
+/// implements both write ports. Callers that only need the fundus still get a
+/// single seam to inject.
 #[derive(Clone, Debug)]
-pub struct CostumeCommandsImpl {
+pub struct WardrobeCommandsImpl {
     cmd_service: CommandService,
 }
 
-impl CostumeCommandsImpl {
+impl WardrobeCommandsImpl {
     pub fn new(cmd_service: CommandService) -> Self {
         Self { cmd_service }
     }
 }
 
-impl CostumeCommands for CostumeCommandsImpl {
+impl PieceCommands for WardrobeCommandsImpl {
     async fn create(
         &self,
         actor: UserId,
-        cmd: CreateCostume,
+        cmd: CreatePiece,
     ) -> Result<(Uuid, AggregateVersion), DomainError> {
         let id = cmd.id;
-        // The series is not a costume attribute — it is audit metadata only,
-        // resolved at the API edge from the repertoire season's projection
-        // (issue #453). A costume created without a season carries `None`.
+        // The project is not a piece attribute — it is audit metadata only,
+        // resolved at the API edge from the repertoire season's projection.
+        // A piece created without a season carries `None`.
         let project_id = cmd.project_id;
-        let result = CostumeAggregate::execute(&self.cmd_service, id, cmd)
+        let result = PieceAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Empty)
             .metadata(EventMetadata {
                 actor: Some(actor),
@@ -698,56 +710,40 @@ impl CostumeCommands for CostumeCommandsImpl {
         map_executed(id, result)
     }
 
+    async fn rename(
+        &self,
+        actor: UserId,
+        cmd: RenamePiece,
+    ) -> Result<AggregateVersion, DomainError> {
+        let id = cmd.id;
+        let version = cmd.version;
+        check_nonzero_version(version)?;
+        let project_id = cmd.project_id;
+        let result = PieceAggregate::execute(&self.cmd_service, id, cmd)
+            .expected_version(ExpectedVersion::Exact(domain_to_stream_checked(version)?))
+            .metadata(EventMetadata {
+                actor: Some(actor),
+                provenance: Provenance::Human,
+                project_id,
+            })
+            .await;
+        // State-based no-op: renaming to the identical name emits no event.
+        match result {
+            Ok(ExecuteResult::Executed(events)) if events.is_empty() => Ok(version),
+            other => map_version_only(other),
+        }
+    }
+
     async fn update_notes(
         &self,
         actor: UserId,
-        cmd: UpdateCostumeNotes,
+        cmd: UpdatePieceNotes,
     ) -> Result<AggregateVersion, DomainError> {
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
         let project_id = cmd.project_id;
-        let result = CostumeAggregate::execute(&self.cmd_service, id, cmd)
-            .expected_version(ExpectedVersion::Exact(domain_to_stream_checked(version)?))
-            .metadata(EventMetadata {
-                actor: Some(actor),
-                provenance: Provenance::Human,
-                project_id,
-            })
-            .await;
-        map_version_only(result)
-    }
-
-    async fn assign_to_character(
-        &self,
-        actor: UserId,
-        cmd: AssignCostumeToCharacter,
-    ) -> Result<AggregateVersion, DomainError> {
-        let id = cmd.id;
-        let version = cmd.version;
-        check_nonzero_version(version)?;
-        let project_id = cmd.project_id;
-        let result = CostumeAggregate::execute(&self.cmd_service, id, cmd)
-            .expected_version(ExpectedVersion::Exact(domain_to_stream_checked(version)?))
-            .metadata(EventMetadata {
-                actor: Some(actor),
-                provenance: Provenance::Human,
-                project_id,
-            })
-            .await;
-        map_version_only(result)
-    }
-
-    async fn unassign(
-        &self,
-        actor: UserId,
-        cmd: UnassignCostume,
-    ) -> Result<AggregateVersion, DomainError> {
-        let id = cmd.id;
-        let version = cmd.version;
-        check_nonzero_version(version)?;
-        let project_id = cmd.project_id;
-        let result = CostumeAggregate::execute(&self.cmd_service, id, cmd)
+        let result = PieceAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Exact(domain_to_stream_checked(version)?))
             .metadata(EventMetadata {
                 actor: Some(actor),
@@ -761,7 +757,7 @@ impl CostumeCommands for CostumeCommandsImpl {
     async fn add_to_season(
         &self,
         actor: UserId,
-        cmd: AddCostumeToSeason,
+        cmd: AddPieceToSeason,
     ) -> Result<AggregateVersion, DomainError> {
         let id = cmd.id;
         let version = cmd.version;
@@ -770,7 +766,7 @@ impl CostumeCommands for CostumeCommandsImpl {
         // target season's projection (CQRS boundary: no read-model lookup
         // here) and is never allowed to block the command.
         let project_id = cmd.project_id;
-        let result = CostumeAggregate::execute(&self.cmd_service, id, cmd)
+        let result = PieceAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Exact(domain_to_stream_checked(version)?))
             .metadata(EventMetadata {
                 actor: Some(actor),
@@ -778,11 +774,8 @@ impl CostumeCommands for CostumeCommandsImpl {
                 project_id,
             })
             .await;
-        // Issue #534 state-based no-op: re-adding a season already in the
-        // repertoire emits NO event — `ExecuteResult::Executed(vec![])`,
-        // which `map_version_only` would turn into a 409. The version fence
-        // matched, so the aggregate is exactly at the caller's version: this
-        // is a success and the version is unchanged (issue #515 lesson).
+        // State-based no-op: re-adding a season already in the repertoire
+        // emits NO event — that is a success with the unchanged version.
         match result {
             Ok(ExecuteResult::Executed(events)) if events.is_empty() => Ok(version),
             other => map_version_only(other),
@@ -792,13 +785,13 @@ impl CostumeCommands for CostumeCommandsImpl {
     async fn remove_from_season(
         &self,
         actor: UserId,
-        cmd: RemoveCostumeFromSeason,
+        cmd: RemovePieceFromSeason,
     ) -> Result<AggregateVersion, DomainError> {
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
         let project_id = cmd.project_id;
-        let result = CostumeAggregate::execute(&self.cmd_service, id, cmd)
+        let result = PieceAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Exact(domain_to_stream_checked(version)?))
             .metadata(EventMetadata {
                 actor: Some(actor),
@@ -806,8 +799,8 @@ impl CostumeCommands for CostumeCommandsImpl {
                 project_id,
             })
             .await;
-        // Idempotent mirror of `add_to_season`: removing a season that is
-        // not in the repertoire emits no event.
+        // Idempotent mirror of `add_to_season`: removing a season that is not
+        // in the repertoire emits no event.
         match result {
             Ok(ExecuteResult::Executed(events)) if events.is_empty() => Ok(version),
             other => map_version_only(other),
@@ -817,13 +810,13 @@ impl CostumeCommands for CostumeCommandsImpl {
     async fn add_detail(
         &self,
         actor: UserId,
-        cmd: AddDetail,
+        cmd: AddPieceDetail,
     ) -> Result<AggregateVersion, DomainError> {
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
         let project_id = cmd.project_id;
-        let result = CostumeAggregate::execute(&self.cmd_service, id, cmd)
+        let result = PieceAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Exact(domain_to_stream_checked(version)?))
             .metadata(EventMetadata {
                 actor: Some(actor),
@@ -837,16 +830,13 @@ impl CostumeCommands for CostumeCommandsImpl {
     async fn update_detail(
         &self,
         actor: UserId,
-        cmd: UpdateCostumeDetail,
+        cmd: UpdatePieceDetail,
     ) -> Result<AggregateVersion, DomainError> {
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
-        // `project_id` is audit metadata resolved at the API edge (CQRS
-        // boundary: no read-model lookup here) and is never allowed to
-        // block the command.
         let project_id = cmd.project_id;
-        let result = CostumeAggregate::execute(&self.cmd_service, id, cmd)
+        let result = PieceAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Exact(domain_to_stream_checked(version)?))
             .metadata(EventMetadata {
                 actor: Some(actor),
@@ -860,13 +850,13 @@ impl CostumeCommands for CostumeCommandsImpl {
     async fn remove_detail(
         &self,
         actor: UserId,
-        cmd: RemoveDetail,
+        cmd: RemovePieceDetail,
     ) -> Result<AggregateVersion, DomainError> {
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
         let project_id = cmd.project_id;
-        let result = CostumeAggregate::execute(&self.cmd_service, id, cmd)
+        let result = PieceAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Exact(domain_to_stream_checked(version)?))
             .metadata(EventMetadata {
                 actor: Some(actor),
@@ -880,13 +870,13 @@ impl CostumeCommands for CostumeCommandsImpl {
     async fn set_category(
         &self,
         actor: UserId,
-        cmd: SetCostumeCategory,
+        cmd: SetPieceCategory,
     ) -> Result<AggregateVersion, DomainError> {
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
         let project_id = cmd.project_id;
-        let result = CostumeAggregate::execute(&self.cmd_service, id, cmd)
+        let result = PieceAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Exact(domain_to_stream_checked(version)?))
             .metadata(EventMetadata {
                 actor: Some(actor),
@@ -894,14 +884,10 @@ impl CostumeCommands for CostumeCommandsImpl {
                 project_id,
             })
             .await;
-        // Issue #543 state-based no-op: the aggregate emits NO event when the
-        // target category equals the current one (re-dispatch, or clearing an
-        // already-empty costume). kameo_es reports that as
-        // `ExecuteResult::Executed(vec![])` — NOT as `Idempotent` — which
-        // `map_version_only` would turn into a 409 "command produced no
-        // events". The version fence matched, so the aggregate is exactly at
-        // the caller's version: this is a success and the version is
-        // unchanged (CodeRabbit review).
+        // State-based no-op: the aggregate emits NO event when the target
+        // category equals the current one (re-dispatch, or clearing an
+        // already-empty piece). The version fence matched, so the aggregate is
+        // exactly at the caller's version: success, version unchanged.
         match result {
             Ok(ExecuteResult::Executed(events)) if events.is_empty() => Ok(version),
             other => map_version_only(other),
@@ -911,13 +897,13 @@ impl CostumeCommands for CostumeCommandsImpl {
     async fn link_photo(
         &self,
         actor: UserId,
-        cmd: LinkPhoto,
+        cmd: LinkPiecePhoto,
     ) -> Result<AggregateVersion, DomainError> {
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
         let project_id = cmd.project_id;
-        let result = CostumeAggregate::execute(&self.cmd_service, id, cmd)
+        let result = PieceAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Exact(domain_to_stream_checked(version)?))
             .metadata(EventMetadata {
                 actor: Some(actor),
@@ -931,13 +917,13 @@ impl CostumeCommands for CostumeCommandsImpl {
     async fn unlink_photo(
         &self,
         actor: UserId,
-        cmd: UnlinkPhoto,
+        cmd: UnlinkPiecePhoto,
     ) -> Result<AggregateVersion, DomainError> {
         let id = cmd.id;
         let version = cmd.version;
         check_nonzero_version(version)?;
         let project_id = cmd.project_id;
-        let result = CostumeAggregate::execute(&self.cmd_service, id, cmd)
+        let result = PieceAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Exact(domain_to_stream_checked(version)?))
             .metadata(EventMetadata {
                 actor: Some(actor),
@@ -946,6 +932,188 @@ impl CostumeCommands for CostumeCommandsImpl {
             })
             .await;
         map_version_only(result)
+    }
+}
+
+/// Map a possibly-empty executed batch to the caller's unchanged version.
+///
+/// State-based no-ops (`AddPieceToOutfit` on an already-included piece,
+/// `RemovePieceFromOutfit` on an absent one, rename to the identical name,
+/// repeated photo links) emit **no** event. kameo_es reports that as
+/// `ExecuteResult::Executed(vec![])` — not as `Idempotent` — which
+/// `map_version_only` would turn into a 409. The version fence matched, so the
+/// aggregate is exactly at the caller's version: this is a success.
+fn map_state_based_noop(
+    result: Result<
+        ExecuteResult<OutfitAggregate>,
+        ExecuteError<breakdown_core::outfit::error::OutfitError>,
+    >,
+    version: AggregateVersion,
+) -> Result<AggregateVersion, DomainError> {
+    match result {
+        Ok(ExecuteResult::Executed(events)) if events.is_empty() => Ok(version),
+        other => map_version_only(other),
+    }
+}
+
+impl OutfitCommands for WardrobeCommandsImpl {
+    async fn create(
+        &self,
+        actor: UserId,
+        cmd: CreateOutfit,
+    ) -> Result<(Uuid, AggregateVersion), DomainError> {
+        let id = cmd.id;
+        let project_id = cmd.project_id;
+        let result = OutfitAggregate::execute(&self.cmd_service, id, cmd)
+            .expected_version(ExpectedVersion::Empty)
+            .metadata(EventMetadata {
+                actor: Some(actor),
+                provenance: Provenance::Human,
+                project_id,
+            })
+            .await;
+        map_executed(id, result)
+    }
+
+    async fn create_variant(
+        &self,
+        actor: UserId,
+        cmd: CreateOutfitVariant,
+    ) -> Result<(Uuid, AggregateVersion), DomainError> {
+        let id = cmd.id;
+        // The source outfit is resolved at the API edge (the only legitimate
+        // read-model consumer per the CQRS boundary) and travels in the
+        // command; this adapter never reads the source stream or projection.
+        let project_id = cmd.project_id;
+        let result = OutfitAggregate::execute(&self.cmd_service, id, cmd)
+            .expected_version(ExpectedVersion::Empty)
+            .metadata(EventMetadata {
+                actor: Some(actor),
+                provenance: Provenance::Human,
+                project_id,
+            })
+            .await;
+        map_executed(id, result)
+    }
+
+    async fn rename(
+        &self,
+        actor: UserId,
+        cmd: RenameOutfit,
+    ) -> Result<AggregateVersion, DomainError> {
+        let id = cmd.id;
+        let version = cmd.version;
+        check_nonzero_version(version)?;
+        let project_id = cmd.project_id;
+        let result = OutfitAggregate::execute(&self.cmd_service, id, cmd)
+            .expected_version(ExpectedVersion::Exact(domain_to_stream_checked(version)?))
+            .metadata(EventMetadata {
+                actor: Some(actor),
+                provenance: Provenance::Human,
+                project_id,
+            })
+            .await;
+        map_state_based_noop(result, version)
+    }
+
+    async fn update_notes(
+        &self,
+        actor: UserId,
+        cmd: UpdateOutfitNotes,
+    ) -> Result<AggregateVersion, DomainError> {
+        let id = cmd.id;
+        let version = cmd.version;
+        check_nonzero_version(version)?;
+        let project_id = cmd.project_id;
+        let result = OutfitAggregate::execute(&self.cmd_service, id, cmd)
+            .expected_version(ExpectedVersion::Exact(domain_to_stream_checked(version)?))
+            .metadata(EventMetadata {
+                actor: Some(actor),
+                provenance: Provenance::Human,
+                project_id,
+            })
+            .await;
+        map_version_only(result)
+    }
+
+    async fn add_piece(
+        &self,
+        actor: UserId,
+        cmd: AddPieceToOutfit,
+    ) -> Result<AggregateVersion, DomainError> {
+        let id = cmd.id;
+        let version = cmd.version;
+        check_nonzero_version(version)?;
+        let project_id = cmd.project_id;
+        let result = OutfitAggregate::execute(&self.cmd_service, id, cmd)
+            .expected_version(ExpectedVersion::Exact(domain_to_stream_checked(version)?))
+            .metadata(EventMetadata {
+                actor: Some(actor),
+                provenance: Provenance::Human,
+                project_id,
+            })
+            .await;
+        map_state_based_noop(result, version)
+    }
+
+    async fn remove_piece(
+        &self,
+        actor: UserId,
+        cmd: RemovePieceFromOutfit,
+    ) -> Result<AggregateVersion, DomainError> {
+        let id = cmd.id;
+        let version = cmd.version;
+        check_nonzero_version(version)?;
+        let project_id = cmd.project_id;
+        let result = OutfitAggregate::execute(&self.cmd_service, id, cmd)
+            .expected_version(ExpectedVersion::Exact(domain_to_stream_checked(version)?))
+            .metadata(EventMetadata {
+                actor: Some(actor),
+                provenance: Provenance::Human,
+                project_id,
+            })
+            .await;
+        map_state_based_noop(result, version)
+    }
+
+    async fn link_photo(
+        &self,
+        actor: UserId,
+        cmd: LinkOutfitPhoto,
+    ) -> Result<AggregateVersion, DomainError> {
+        let id = cmd.id;
+        let version = cmd.version;
+        check_nonzero_version(version)?;
+        let project_id = cmd.project_id;
+        let result = OutfitAggregate::execute(&self.cmd_service, id, cmd)
+            .expected_version(ExpectedVersion::Exact(domain_to_stream_checked(version)?))
+            .metadata(EventMetadata {
+                actor: Some(actor),
+                provenance: Provenance::Human,
+                project_id,
+            })
+            .await;
+        map_state_based_noop(result, version)
+    }
+
+    async fn unlink_photo(
+        &self,
+        actor: UserId,
+        cmd: UnlinkOutfitPhoto,
+    ) -> Result<AggregateVersion, DomainError> {
+        let id = cmd.id;
+        let version = cmd.version;
+        check_nonzero_version(version)?;
+        let project_id = cmd.project_id;
+        let result = OutfitAggregate::execute(&self.cmd_service, id, cmd)
+            .expected_version(ExpectedVersion::Exact(domain_to_stream_checked(version)?))
+            .metadata(EventMetadata {
+                actor: Some(actor),
+                provenance: Provenance::Human,
+                project_id,
+            })
+            .await;
+        map_state_based_noop(result, version)
     }
 }
 

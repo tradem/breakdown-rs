@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: glm-5.3-flash (opencode-go)
 // Co-authored-by: glm-5.3-flash (neuralwatt)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 library;
 
@@ -113,7 +114,7 @@ class CharacterOmniHit extends OmniSearchHit {
 class CostumeOmniHit extends OmniSearchHit {
   const CostumeOmniHit({required this.costume});
 
-  final CostumeView costume;
+  final PieceView costume;
 }
 
 /// One shooting-day hit with the parent episode/block DTOs.

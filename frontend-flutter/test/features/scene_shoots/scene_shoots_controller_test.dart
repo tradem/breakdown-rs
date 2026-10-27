@@ -3,6 +3,7 @@
 // Co-authored-by: muse-spark-1.3 (opencode)
 // Co-authored-by: omen-alpha (opencode-go)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 // Controller tests (`flutter-shoot-day-execution` 2.1, closing the 1.1
 // local-denial proof): execution commands dispatch with version echoes +
@@ -29,9 +30,9 @@ import 'package:frontend_flutter/core/result.dart';
 import 'package:frontend_flutter/l10n/generated/app_localizations_en.dart';
 import 'package:frontend_flutter/data/cache/cache_database.dart';
 import 'package:frontend_flutter/data/cache/scene_shoot_cache_dao.dart';
-import 'package:frontend_flutter/data/cache/costume_domains_cache_dao.dart';
+import 'package:frontend_flutter/data/cache/piece_domains_cache_dao.dart';
 import 'package:frontend_flutter/data/cache/seasons_cache_providers.dart';
-import 'package:frontend_flutter/data/costume_repository.dart';
+import 'package:frontend_flutter/data/piece_repository.dart';
 import 'package:frontend_flutter/data/photo_repository.dart';
 import 'package:frontend_flutter/data/scene_shoot_repository.dart';
 import 'package:frontend_flutter/features/costumes/costumes_controller.dart';
@@ -264,13 +265,13 @@ class _FakePhotoRepository extends PhotoRepository {
 
   @override
   Future<Result<PhotoView>> upload(
-    String costumeId,
+    String pieceId,
     Uint8List bytes,
     String contentType, {
     ProgressCallback? onSendProgress,
   }) {
     uploadCalls++;
-    lastCostumeId = costumeId;
+    lastCostumeId = pieceId;
     lastContentType = contentType;
     return Future.value(
       Right<ProblemError, PhotoView>(
@@ -283,10 +284,8 @@ class _FakePhotoRepository extends PhotoRepository {
                   ..oneOf = OneOf.fromValue1(
                     value: PhotoBindingOneOf(
                       (o) => o
-                        ..costume.replace(
-                          PhotoBindingOneOfCostume(
-                            (c) => c..costumeId = costumeId,
-                          ),
+                        ..piece.replace(
+                          PhotoBindingOneOfPiece((c) => c..pieceId = pieceId),
                         ),
                     ),
                   ),
@@ -336,7 +335,7 @@ void main() {
           'episode-1',
         ).overrideWithValue(const ShootingDaysView(rows: [], isStale: false)),
         costumeRepositoryProvider.overrideWithValue(
-          CostumeRepository(BreakdownApi(), CostumeCacheDao(db)),
+          PieceRepository(BreakdownApi(), PieceCacheDao(db)),
         ),
         // The continuity strip joins against the season costumes; the
         // board smoke tests run with an empty costume projection (strip
@@ -612,7 +611,7 @@ void main() {
         capabilities: const [],
       );
       final res = await controller().uploadContinuityBytes(
-        costumeId: 'c-1',
+        pieceId: 'c-1',
         bytes: Uint8List.fromList([1, 2, 3]),
         contentType: 'image/jpeg',
       );
@@ -627,7 +626,7 @@ void main() {
     test('holder upload reaches the costume endpoint, then links', () async {
       await setupContainer(initialRows: [_shoot('ssh-1')]);
       final upload = await controller().uploadContinuityBytes(
-        costumeId: 'c-1',
+        pieceId: 'c-1',
         bytes: Uint8List.fromList([1, 2, 3]),
         contentType: 'image/jpeg',
       );

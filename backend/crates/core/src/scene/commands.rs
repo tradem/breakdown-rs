@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024 Breakdown RS Contributors
 // Co-authored-by: deepseek-v4-flash (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 //! Scene commands.
 
@@ -72,7 +73,7 @@ pub struct RemoveCharacter {
     pub version: AggregateVersion,
 }
 
-/// Add a costume beat: “character C wears costume K in this scene”.
+/// Add a outfit beat: “character C wears outfit K in this scene”.
 ///
 /// The beat's `order` is computed by the aggregate (`max + 1` per character,
 /// `0` when none exist) — never client-supplied: a client-chosen order is a
@@ -82,10 +83,10 @@ pub struct RemoveCharacter {
 /// projector keys on `project_id`); it is resolved at the API edge from the
 /// scene projection, never queried again by the command adapter.
 #[derive(Debug, Clone, serde::Deserialize, utoipa::ToSchema)]
-pub struct AddCostumeBeat {
+pub struct AddOutfitBeat {
     pub id: Uuid,
     pub character_id: Uuid,
-    pub costume_id: Uuid,
+    pub outfit_id: Uuid,
     /// Optional free-text cue for the wardrobe crew ("nach dem Telefonat").
     pub note: Option<String>,
     // wire name pinned: layer 3 (OpenAPI field rename) is a breaking ADR-021 change, deferred
@@ -93,7 +94,7 @@ pub struct AddCostumeBeat {
     pub version: AggregateVersion,
 }
 
-/// Update a costume beat in place, addressing it by `(character_id, order)`.
+/// Update a outfit beat in place, addressing it by `(character_id, order)`.
 ///
 /// Never changes `order` (reordering is remove + add, which keeps the event
 /// history legible); `BeatNotFound` if no beat exists at that position.
@@ -102,26 +103,26 @@ pub struct AddCostumeBeat {
 /// projector keys on `project_id`); it is resolved at the API edge from the
 /// scene projection, never queried again by the command adapter.
 #[derive(Debug, Clone, serde::Deserialize, utoipa::ToSchema)]
-pub struct UpdateCostumeBeat {
+pub struct UpdateOutfitBeat {
     pub id: Uuid,
     pub character_id: Uuid,
     pub order: u32,
-    pub costume_id: Uuid,
+    pub outfit_id: Uuid,
     pub note: Option<String>,
     // wire name pinned: layer 3 (OpenAPI field rename) is a breaking ADR-021 change, deferred
     pub project_id: Option<ProjectId>,
     pub version: AggregateVersion,
 }
 
-/// Remove costume beats of a character: `Some(order)` removes exactly that
-/// beat, `None` removes all beats of the character (= “no costume in this
+/// Remove outfit beats of a character: `Some(order)` removes exactly that
+/// beat, `None` removes all beats of the character (= “no outfit in this
 /// scene”, the first-class empty state).
 ///
 /// `project_id` is carried for the `EventMetadata` audit trail (the audit
 /// projector keys on `project_id`); it is resolved at the API edge from the
 /// scene projection, never queried again by the command adapter.
 #[derive(Debug, Clone, serde::Deserialize, utoipa::ToSchema)]
-pub struct RemoveCostumeBeat {
+pub struct RemoveOutfitBeat {
     pub id: Uuid,
     pub character_id: Uuid,
     pub order: Option<u32>,
@@ -150,19 +151,19 @@ impl kameo_es::CommandName for RemoveCharacter {
         "RemoveCharacter"
     }
 }
-impl kameo_es::CommandName for AddCostumeBeat {
+impl kameo_es::CommandName for AddOutfitBeat {
     fn command_name() -> &'static str {
-        "AddCostumeBeat"
+        "AddOutfitBeat"
     }
 }
-impl kameo_es::CommandName for UpdateCostumeBeat {
+impl kameo_es::CommandName for UpdateOutfitBeat {
     fn command_name() -> &'static str {
-        "UpdateCostumeBeat"
+        "UpdateOutfitBeat"
     }
 }
-impl kameo_es::CommandName for RemoveCostumeBeat {
+impl kameo_es::CommandName for RemoveOutfitBeat {
     fn command_name() -> &'static str {
-        "RemoveCostumeBeat"
+        "RemoveOutfitBeat"
     }
 }
 

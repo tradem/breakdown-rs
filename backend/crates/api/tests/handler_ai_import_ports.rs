@@ -9,6 +9,7 @@
 // Co-authored-by: omen-alpha (opencode-go)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
 // Co-authored-by: qwen3.8-flash (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 //! Handler tests proving the AI import dependencies are reachable through the
 //! generic `Ports` seam (issue #176).
@@ -74,7 +75,7 @@ fn state(ports: FakePorts) -> AppState<FakePorts> {
 }
 
 /// Seed `block_id` into the block repo with a fresh season and grant the test
-/// user an active costume-dept role in that season, so the AI block/job gates
+/// user an active piece-dept role in that season, so the AI block/job gates
 /// (`authorize_ai_block`, `authorize_ai_job`) resolve allow from seeded rows
 /// (issue #348).
 async fn seed_ai_block_access(ports: &FakePorts, block_id: BlockId) {
@@ -162,7 +163,7 @@ async fn upload_ai_script_enqueues_through_the_ports_seam() {
     let store = ports.ai_payload_store.clone();
     let block_id = BlockId::from_uuid(Uuid::now_v7());
     // Seed-backed allow (issue #348): the header block exists in a known
-    // season and the caller holds a costume role there.
+    // season and the caller holds a piece role there.
     seed_ai_block_access(&ports, block_id).await;
 
     let result = upload_ai_script::<FakePorts>(
@@ -729,7 +730,7 @@ async fn apply_ai_import_drives_the_script_worker_through_the_ports_seam() {
     *ports.episode_repo.block_id_override.lock().await = Some(block_id);
     let mappings = ports.ai_import_mapping.clone();
     let queue = ports.ai_import_queue.clone();
-    // The job's block lives in a season where the caller holds a costume
+    // The job's block lives in a season where the caller holds a piece
     // role, so the apply reaches the worker (issue #348).
     seed_ai_block_access(&ports, block_id).await;
     let job_id = seed_applyable_script_job(&ports, Some(block_id), 2).await;
@@ -1698,7 +1699,7 @@ async fn list_ai_import_jobs_hides_jobs_losing_the_season_gate() {
     ports.ai_import_queue.seed(plain).await;
     // Revoke the season role: the block-scoped job must drop out of the
     // list while the block-less job stays visible.
-    *ports.membership_repo.costume_role_override.lock().await = Some(Ok(false));
+    *ports.membership_repo.piece_role_override.lock().await = Some(Ok(false));
 
     let response =
         list_ai_import_jobs::<FakePorts>(State(state(ports)), user(), jobs_query(None, None))
@@ -2189,7 +2190,7 @@ async fn apply_ai_import_rejects_more_episode_groups_than_the_preview_carries() 
     *ports.episode_repo.block_id_override.lock().await = Some(block_id);
     seed_ai_block_access(&ports, block_id).await;
     // The preview carries ONE group (ep:7); the request tries two. The bound
-    // mirrors the mappings/costume-decisions bounds: reject before the
+    // mirrors the mappings/piece-decisions bounds: reject before the
     // per-group validation reads (CodeRabbit review, issue #581).
     let job_id = seed_episode_grouped_script_job(&ports, Some(block_id), 1).await;
 
@@ -2251,7 +2252,7 @@ async fn seed_blocking_uncertainty_job(
             },
             Uncertainty {
                 scene_index: 0,
-                field: "costume".to_owned(),
+                field: "piece".to_owned(),
                 note: "dropped row".to_owned(),
                 suggested_value: None,
                 kind: UncertaintyKind::DroppedRow,

@@ -3,12 +3,13 @@
 // Co-authored-by: hy3 (opencode-go)
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
 // Co-authored-by: omen-alpha (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 import 'package:drift/drift.dart';
 import 'package:drift/native.dart';
 
 import 'ai_import_cache.dart';
-import 'costume_domains_cache.dart';
+import 'piece_domains_cache.dart';
 import 'hierarchy_cache.dart';
 import 'scene_shoot_cache.dart';
 import 'season_cache.dart';
@@ -29,8 +30,9 @@ part 'cache_database.g.dart';
     EpisodeCacheRows,
     SceneCacheRows,
     CostumeCategoryCacheRows,
-    CostumeCacheRows,
-    FundusCostumeCacheRows,
+    PieceCacheRows,
+    FundusPieceCacheRows,
+    OutfitCacheRows,
     CharacterCacheRows,
     ShootingDayCacheRows,
     SceneShootCacheRows,
@@ -49,7 +51,7 @@ class CacheDatabase extends _$CacheDatabase {
   CacheDatabase.connect(super.executor);
 
   @override
-  int get schemaVersion => 15;
+  int get schemaVersion => 16;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -57,6 +59,34 @@ class CacheDatabase extends _$CacheDatabase {
       await m.createAll();
     },
     onUpgrade: (m, from, to) async {
+      if (from < 16) {
+        // `separate-piece-and-outfit-domain` (v16): `PieceView` is retired by
+        // a clean cut — a `Piece` is a fundus garment without a character
+        // binding, an `Outfit` is the character's composed look. The cached
+        // costume snapshots therefore describe a wire shape that no longer
+        // exists and can NEVER be read again, so they are dropped. This is the
+        // one legitimate departure from the "no destructive cache migrations"
+        // rule: that rule protects *fields of a living DTO* (a dropped column
+        // would silently lose data the app still shows) — here the whole DTO
+        // is gone and there is nothing left to preserve. The replacement
+        // tables fill on the next TTL snapshot-replace (design D3: the backend
+        // is authoritative for existence), so the worst case is one refetch.
+        await m.database.customStatement(
+          'DROP TABLE IF EXISTS costume_cache_rows',
+        );
+        await m.database.customStatement(
+          'DROP TABLE IF EXISTS fundus_costume_cache_rows',
+        );
+        if (!await _tableExists(m.database, 'piece_cache_rows')) {
+          await m.createTable(pieceCacheRows);
+        }
+        if (!await _tableExists(m.database, 'fundus_piece_cache_rows')) {
+          await m.createTable(fundusPieceCacheRows);
+        }
+        if (!await _tableExists(m.database, 'outfit_cache_rows')) {
+          await m.createTable(outfitCacheRows);
+        }
+      }
       // Additive migrations for DTO-shape changes land here, in the same PR
       // as the projection DTO change (AGENTS.md §8 / Task 5.1). Each added
       // column uses `m.addColumn(...)` so the cache never silently drops a
@@ -77,7 +107,9 @@ class CacheDatabase extends _$CacheDatabase {
         // (costumes, characters, shooting_days). Fresh tables for existing
         // installs — no data to migrate. Photo bytes are memory-cached
         // only, never persisted (design §3).
-        await m.createTable(costumeCacheRows);
+        if (!await _tableExists(m.database, 'piece_cache_rows')) {
+          await m.createTable(pieceCacheRows);
+        }
         await m.createTable(characterCacheRows);
         await m.createTable(shootingDayCacheRows);
       }
@@ -111,10 +143,17 @@ class CacheDatabase extends _$CacheDatabase {
         // tables (and would otherwise leave NULLs the non-nullable Dart
         // mapping cannot read) — so the statement carries `DEFAULT 0`
         // explicitly. The next snapshot replaces all rows anyway.
-        await m.database.customStatement(
-          'ALTER TABLE costume_cache_rows '
-          'ADD COLUMN snapshot_index INTEGER NOT NULL DEFAULT 0',
-        );
+        //
+        // Table-guarded (wardrobe split, v16): the v16 branch above drops the
+        // retired costume snapshot table, so a database climbing from v3 in
+        // one run no longer has it here. The column is irrelevant for the
+        // successor piece table, which carries `snapshot_index` from birth.
+        if (await _tableExists(m.database, 'costume_cache_rows')) {
+          await m.database.customStatement(
+            'ALTER TABLE costume_cache_rows '
+            'ADD COLUMN snapshot_index INTEGER NOT NULL DEFAULT 0',
+          );
+        }
       }
       // Issue #423 (v7): the backend OpenAPI contract relaxed the seven
       // `CharacterMeasurements` properties and the `BlockView` date fields
@@ -189,49 +228,6 @@ class CacheDatabase extends _$CacheDatabase {
           );
         }
       }
-      if (from < 12) {
-        // Issue #534 (v12): the costume repertoire becomes real aggregate
-        // state and `CostumeView` gains `season_ids`. Plain ADD COLUMN on a
-        // NULLABLE text column (same shape as the v9/v10 branches):
-        // existing rows read `season_ids_json = NULL` — the cache predates
-        // the field, the DAO maps NULL to an empty list and the next TTL
-        // snapshot-replace fills the repertoire. Guarded by table AND
-        // column presence (an upgrade landing on a fresh create path
-        // already carries the column).
-        if (await _tableExists(m.database, 'costume_cache_rows') &&
-            !(await _columnExists(
-              m.database,
-              'costume_cache_rows',
-              'season_ids_json',
-            ))) {
-          await m.addColumn(costumeCacheRows, costumeCacheRows.seasonIdsJson);
-        }
-      }
-      if (from < 10) {
-        // Issue #543 (v10): the costume's single category moved from the
-        // detail to the costume — `CostumeView` gains nullable
-        // `category_id`/`category_name`. Plain ADD COLUMN on NULLABLE
-        // columns (same shape as the v9 `source_json` case): existing rows
-        // read NULL = uncategorised; the next TTL snapshot-replace fills
-        // them. Guarded by table AND column presence (an upgrade landing
-        // on a fresh create path already carries the columns).
-        if (await _tableExists(m.database, 'costume_cache_rows')) {
-          if (!(await _columnExists(
-            m.database,
-            'costume_cache_rows',
-            'category_id',
-          ))) {
-            await m.addColumn(costumeCacheRows, costumeCacheRows.categoryId);
-          }
-          if (!(await _columnExists(
-            m.database,
-            'costume_cache_rows',
-            'category_name',
-          ))) {
-            await m.addColumn(costumeCacheRows, costumeCacheRows.categoryName);
-          }
-        }
-      }
       if (from < 13) {
         // Issue #599 (v13): the `SeriesId` → `ProjectId` rename completed its
         // wire/storage layer (ADR-035 D1/S1 layer 3, B5). `SeasonView`,
@@ -293,14 +289,6 @@ class CacheDatabase extends _$CacheDatabase {
             aiImportJobCacheRows.progressJson,
           );
         }
-      }
-      if (from < 14) {
-        // `flutter-fundus-search` (v14, issue #625): the project-scoped
-        // fundus slice — a dedicated table because its fetch scope is a
-        // PROJECT (`GET /v1/costumes?project_id=`), not a season. Fresh
-        // table for existing installs — no data to migrate; the next
-        // snapshot-replace fills it on first fundus open.
-        await m.createTable(fundusCostumeCacheRows);
       }
     },
   );

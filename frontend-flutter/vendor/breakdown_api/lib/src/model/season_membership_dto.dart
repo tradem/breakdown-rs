@@ -11,7 +11,7 @@ import 'package:built_value/serializer.dart';
 
 part 'season_membership_dto.g.dart';
 
-/// Season membership DTO — the single source of truth for the client-side AUTHZ-GATE (D2 of the `wire-flutter-oidc-auth` change).  `has_active_costume_role_in_season` is the backend-computed predicate the client must NOT re-implement (CQRS-boundary rule). `capabilities` is derived server-side from the caller's active costume-dept role; the client consumes it with strict parsing (unknown entries reject the DTO).
+/// Season membership DTO — the single source of truth for the client-side AUTHZ-GATE (D2 of the `wire-flutter-oidc-auth` change).  `has_active_costume_role_in_season` is the backend-computed predicate the client must NOT re-implement (CQRS-boundary rule). `capabilities` is derived server-side from the caller's active piece-dept role; the client consumes it with strict parsing (unknown entries reject the DTO).
 ///
 /// Properties:
 /// * [capabilities]

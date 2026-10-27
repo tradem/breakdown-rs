@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: glm-5.3-flash (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 //! Season lifecycle wire tests (issue #533): `POST /seasons/{id}/archive`.
 //!
-//! - an active costume-dept member archives with 200 + bumped version;
+//! - an active piece-dept member archives with 200 + bumped version;
 //! - a caller without the season role is denied with a handler-internal
 //!   AUTHZ-GATE 403 (generic `domain.forbidden`, like every other
 //!   season-scoped gate — ADR-035 B2: no new `*_in_season` predicate);
@@ -63,7 +64,7 @@ async fn archive_season_returns_200_with_bumped_version() {
         .lock()
         .await
         .insert(id, season_view(id, ProjectId::new(), 1));
-    *ports.membership_repo.costume_role_override.lock().await = Some(Ok(true));
+    *ports.membership_repo.piece_role_override.lock().await = Some(Ok(true));
     let state = AppState::new(ports);
 
     let (status, Json(version)) = archive_season::<FakePorts>(
@@ -82,7 +83,7 @@ async fn archive_season_returns_200_with_bumped_version() {
 }
 
 #[tokio::test]
-async fn archive_season_denied_without_costume_role() {
+async fn archive_season_denied_without_piece_role() {
     let ports = FakePorts::default();
     let id = Uuid::now_v7();
     ports
@@ -91,7 +92,7 @@ async fn archive_season_denied_without_costume_role() {
         .lock()
         .await
         .insert(id, season_view(id, ProjectId::new(), 1));
-    *ports.membership_repo.costume_role_override.lock().await = Some(Ok(false));
+    *ports.membership_repo.piece_role_override.lock().await = Some(Ok(false));
     let state = AppState::new(ports);
 
     let problem = archive_season::<FakePorts>(

@@ -6,6 +6,7 @@
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
 // Co-authored-by: qwen3.8-flash (opencode-go)
 // Co-authored-by: glm-5.3-flash (neuralwatt)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 import 'package:breakdown_api/breakdown_api.dart';
 
@@ -405,13 +406,11 @@ class _SceneCostumesSection extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     // The costumes projection already serves plain read DTOs (the view
     // selector flattened the overlay rows) — no row unwrapping here.
-    final costumeViews = ref.watch(costumesViewProvider(seasonId)).rows;
-    final costumesById = {for (final c in costumeViews) c.id: c};
     final characters = ref.watch(charactersViewProvider(seasonId));
     final names = {for (final c in characters.rows) c.id: c.name};
     final groups = groupSceneBeats(
       assignedCharacters: scene.assignedCharacters,
-      beats: scene.costumeBeats?.toList() ?? const [],
+      beats: scene.outfitBeats?.toList() ?? const [],
     );
     final totalBeats = [for (final g in groups) ...g.beats].length;
     // Ephemeral reconciliation indicator for this scene's optimistic
@@ -436,19 +435,18 @@ class _SceneCostumesSection extends ConsumerWidget {
         else ...[
           for (final group in groups) ...[
             for (final beat in group.beats)
-              _buildBeatTile(context, ref, group, beat, costumesById, l10n),
+              _buildBeatTile(context, ref, group, beat, l10n),
             if (group.beats.isEmpty)
               ListTile(
                 key: Key('scene-costume-empty-${group.characterId}'),
                 title: Text(l10n.sceneDetailNoCostumeInScene),
                 trailing: FilledButton.tonal(
                   key: Key('scene-costume-assign-${group.characterId}'),
-                  onPressed: () => _pickCostume(
+                  onPressed: () => _pickOutfit(
                     context,
                     ref,
                     group.characterId,
                     names[group.characterId],
-                    costumeViews,
                   ),
                   child: Text(l10n.sceneDetailAssignCostume),
                 ),
@@ -458,12 +456,11 @@ class _SceneCostumesSection extends ConsumerWidget {
                 alignment: Alignment.centerRight,
                 child: FilledButton.tonal(
                   key: Key('scene-costume-add-change-${group.characterId}'),
-                  onPressed: () => _pickCostume(
+                  onPressed: () => _pickOutfit(
                     context,
                     ref,
                     group.characterId,
                     names[group.characterId],
-                    costumeViews,
                   ),
                   child: Text(l10n.sceneDetailAddChange),
                 ),
@@ -501,23 +498,17 @@ class _SceneCostumesSection extends ConsumerWidget {
     BuildContext context,
     WidgetRef ref,
     SceneBeatGroup group,
-    SceneCostumeBeatView beat,
-    Map<String, CostumeView> costumesById,
+    SceneOutfitBeatView beat,
     AppLocalizations l10n,
   ) {
-    final costume = costumesById[beat.costumeId];
-    // Tile-identity discipline: the label NEVER comes from a random
-    // detail — same helper as the costume grid tile, with the
-    // backend-joined category name as the projection-miss fallback.
-    final label = sceneBeatCostumeLabel(
-      costume: costume,
-      joinedCategoryName: beat.costumeCategoryName,
+    // A beat casts an OUTFIT (a composed look), so its label is the look's own
+    // name as joined by the backend; no extra projection lookup is needed and
+    // a projection miss degrades to the generic label.
+    final label = sceneBeatOutfitLabel(
+      outfitName: beat.outfitName,
       genericFallback: l10n.costumeTileLabelFallback,
     );
-    final iconCategory = sceneBeatCostumeCategory(
-      costume: costume,
-      joinedCategoryName: beat.costumeCategoryName,
-    );
+    final iconCategory = beat.outfitName;
     return ListTile(
       key: Key('scene-costume-beat-${group.characterId}-${beat.order}'),
       leading: Row(
@@ -550,32 +541,35 @@ class _SceneCostumesSection extends ConsumerWidget {
     );
   }
 
-  Future<void> _pickCostume(
+  Future<void> _pickOutfit(
     BuildContext context,
     WidgetRef ref,
     String characterId,
     String? characterName,
-    List<CostumeView> costumes,
   ) async {
-    if (costumes.isEmpty) return;
-    final picked = await showPickCostumeSheet(context, costumes);
+    // The picker lists the character's own looks (a scene casts an outfit,
+    // never a bare piece). The list is the API edge's read model — fetched
+    // lazily here, cached per character.
+    final outfitsResult = await ref.read(
+      characterOutfitsProvider(characterId).future,
+    );
+    final outfits = outfitsResult.match((_) => const <OutfitView>[], (r) => r);
+    if (outfits.isEmpty || !context.mounted) return;
+    final picked = await showPickOutfitSheet(context, outfits);
     if (picked == null || !context.mounted) return;
-    final pickedCostumeId = picked.costumeId;
-    final costume = ref
-        .read(costumesViewProvider(seasonId))
-        .rows
-        .where((c) => c.id == pickedCostumeId)
+    final pickedOutfit = outfits
+        .where((o) => o.id == picked.outfitId)
         .firstOrNull;
     final result = await ref
         .read(scenesControllerProvider(episodeId).notifier)
-        .addCostumeBeat(
+        .addOutfitBeat(
           seasonId: seasonId,
           scene: scene,
           characterId: characterId,
-          costumeId: picked.costumeId,
+          outfitId: picked.outfitId,
           note: picked.note,
           characterName: characterName,
-          costumeCategoryName: costume?.categoryName,
+          outfitName: pickedOutfit?.name,
         );
     if (result.isRight()) return; // optimistic overlay + reconcile own the UI.
     if (!context.mounted) return;
@@ -596,7 +590,7 @@ class _SceneCostumesSection extends ConsumerWidget {
     BuildContext context,
     WidgetRef ref,
     SceneBeatGroup group,
-    SceneCostumeBeatView beat,
+    SceneOutfitBeatView beat,
     String label,
   ) {
     final l10n = l10nOf(context);
@@ -624,12 +618,12 @@ class _SceneCostumesSection extends ConsumerWidget {
               // The only remaining beat IS the clear-all ("no costume in
               // this scene"); otherwise a single-beat removal.
               final result = group.beats.length <= 1
-                  ? await controller.clearCostumeBeats(
+                  ? await controller.clearOutfitBeats(
                       seasonId: seasonId,
                       scene: scene,
                       characterId: group.characterId,
                     )
-                  : await controller.removeCostumeBeat(
+                  : await controller.removeOutfitBeat(
                       seasonId: seasonId,
                       scene: scene,
                       characterId: group.characterId,

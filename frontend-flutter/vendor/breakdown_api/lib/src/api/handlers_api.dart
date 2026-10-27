@@ -12,10 +12,11 @@ import 'package:dio/dio.dart';
 
 import 'dart:typed_data';
 import 'package:breakdown_api/src/api_util.dart';
-import 'package:breakdown_api/src/model/add_costume_detail_request.dart';
-import 'package:breakdown_api/src/model/add_costume_to_season_request.dart';
 import 'package:breakdown_api/src/model/add_note_request.dart';
-import 'package:breakdown_api/src/model/add_scene_costume_beat_request.dart';
+import 'package:breakdown_api/src/model/add_outfit_piece_request.dart';
+import 'package:breakdown_api/src/model/add_piece_detail_request.dart';
+import 'package:breakdown_api/src/model/add_piece_to_season_request.dart';
+import 'package:breakdown_api/src/model/add_scene_outfit_beat_request.dart';
 import 'package:breakdown_api/src/model/aggregate_soll_ist_report.dart';
 import 'package:breakdown_api/src/model/ai_config_view.dart';
 import 'package:breakdown_api/src/model/ai_import_defaults.dart';
@@ -25,20 +26,20 @@ import 'package:breakdown_api/src/model/ai_provider_info.dart';
 import 'package:breakdown_api/src/model/apply_ai_import_request.dart';
 import 'package:breakdown_api/src/model/apply_ai_import_response.dart';
 import 'package:breakdown_api/src/model/assign_character_request.dart';
-import 'package:breakdown_api/src/model/assign_costume_request.dart';
 import 'package:breakdown_api/src/model/audit_entry.dart';
 import 'package:breakdown_api/src/model/block_view.dart';
 import 'package:breakdown_api/src/model/character_appearance_view.dart';
 import 'package:breakdown_api/src/model/character_view.dart';
 import 'package:breakdown_api/src/model/costume_category_view.dart';
-import 'package:breakdown_api/src/model/costume_view.dart';
 import 'package:breakdown_api/src/model/create_ai_config_request.dart';
 import 'package:breakdown_api/src/model/create_block_request.dart';
 import 'package:breakdown_api/src/model/create_character_request.dart';
 import 'package:breakdown_api/src/model/create_costume_category_request.dart';
-import 'package:breakdown_api/src/model/create_costume_request.dart';
 import 'package:breakdown_api/src/model/create_credential_request.dart';
 import 'package:breakdown_api/src/model/create_episode_request.dart';
+import 'package:breakdown_api/src/model/create_outfit_request.dart';
+import 'package:breakdown_api/src/model/create_outfit_variant_request.dart';
+import 'package:breakdown_api/src/model/create_piece_request.dart';
 import 'package:breakdown_api/src/model/create_scene_request.dart';
 import 'package:breakdown_api/src/model/create_season_request.dart';
 import 'package:breakdown_api/src/model/create_shooting_day_request.dart';
@@ -57,11 +58,15 @@ import 'package:breakdown_api/src/model/membership_view.dart';
 import 'package:breakdown_api/src/model/meta_credits_response.dart';
 import 'package:breakdown_api/src/model/meta_versions_response.dart';
 import 'package:breakdown_api/src/model/model_info.dart';
+import 'package:breakdown_api/src/model/outfit_view.dart';
 import 'package:breakdown_api/src/model/photo_view.dart';
+import 'package:breakdown_api/src/model/piece_view.dart';
 import 'package:breakdown_api/src/model/plan_scene_shoot_request.dart';
 import 'package:breakdown_api/src/model/problem_details.dart';
 import 'package:breakdown_api/src/model/projector_health_snapshot.dart';
 import 'package:breakdown_api/src/model/rename_episode_request.dart';
+import 'package:breakdown_api/src/model/rename_outfit_request.dart';
+import 'package:breakdown_api/src/model/rename_piece_request.dart';
 import 'package:breakdown_api/src/model/rename_season_request.dart';
 import 'package:breakdown_api/src/model/replan_scene_shoot_request.dart';
 import 'package:breakdown_api/src/model/revoke_ai_config_request.dart';
@@ -72,7 +77,7 @@ import 'package:breakdown_api/src/model/season_membership_dto.dart';
 import 'package:breakdown_api/src/model/season_view.dart';
 import 'package:breakdown_api/src/model/series_membership_dto.dart';
 import 'package:breakdown_api/src/model/set_actual_order_request.dart';
-import 'package:breakdown_api/src/model/set_costume_category_request.dart';
+import 'package:breakdown_api/src/model/set_piece_category_request.dart';
 import 'package:breakdown_api/src/model/settings_view.dart';
 import 'package:breakdown_api/src/model/shoot_day_row.dart';
 import 'package:breakdown_api/src/model/shooting_day_view.dart';
@@ -84,12 +89,13 @@ import 'package:breakdown_api/src/model/update_block_time_span_request.dart';
 import 'package:breakdown_api/src/model/update_character_category_request.dart';
 import 'package:breakdown_api/src/model/update_contact_info_request.dart';
 import 'package:breakdown_api/src/model/update_costume_category_request.dart';
-import 'package:breakdown_api/src/model/update_costume_detail_request.dart';
-import 'package:breakdown_api/src/model/update_costume_notes_request.dart';
 import 'package:breakdown_api/src/model/update_measurements_request.dart';
 import 'package:breakdown_api/src/model/update_note_request.dart';
-import 'package:breakdown_api/src/model/update_scene_costume_beat_request.dart';
+import 'package:breakdown_api/src/model/update_outfit_notes_request.dart';
+import 'package:breakdown_api/src/model/update_piece_detail_request.dart';
+import 'package:breakdown_api/src/model/update_piece_notes_request.dart';
 import 'package:breakdown_api/src/model/update_scene_details_request.dart';
+import 'package:breakdown_api/src/model/update_scene_outfit_beat_request.dart';
 import 'package:breakdown_api/src/model/update_shooting_day_request.dart';
 import 'package:breakdown_api/src/model/version_request.dart';
 import 'package:breakdown_api/src/model/wrap_shooting_day_request.dart';
@@ -152,12 +158,12 @@ class HandlersApi {
     return _response;
   }
 
-  /// addCostumeDetail
+  /// addOutfitPiece
   ///
   ///
   /// Parameters:
-  /// * [id] - Costume id
-  /// * [addCostumeDetailRequest]
+  /// * [id] - Outfit id
+  /// * [addOutfitPieceRequest]
   /// * [cancelToken] - A [CancelToken] that can be used to cancel the operation
   /// * [headers] - Can be used to add additional headers to the request
   /// * [extras] - Can be used to add flags to the request
@@ -167,9 +173,9 @@ class HandlersApi {
   ///
   /// Returns a [Future] containing a [Response] with a [int] as data
   /// Throws [DioException] if API call or serialization fails
-  Future<Response<int>> addCostumeDetail({
+  Future<Response<int>> addOutfitPiece({
     required String id,
-    required AddCostumeDetailRequest addCostumeDetailRequest,
+    required AddOutfitPieceRequest addOutfitPieceRequest,
     CancelToken? cancelToken,
     Map<String, dynamic>? headers,
     Map<String, dynamic>? extra,
@@ -177,7 +183,7 @@ class HandlersApi {
     ProgressCallback? onSendProgress,
     ProgressCallback? onReceiveProgress,
   }) async {
-    final _path = r'/v1/costumes/{id}/details'.replaceAll(
+    final _path = r'/v1/outfits/{id}/pieces'.replaceAll(
         '{' r'id' '}',
         encodeQueryParameter(_serializers, id, const FullType(String))
             .toString());
@@ -197,9 +203,9 @@ class HandlersApi {
     dynamic _bodyData;
 
     try {
-      const _type = FullType(AddCostumeDetailRequest);
+      const _type = FullType(AddOutfitPieceRequest);
       _bodyData =
-          _serializers.serialize(addCostumeDetailRequest, specifiedType: _type);
+          _serializers.serialize(addOutfitPieceRequest, specifiedType: _type);
     } catch (error, stackTrace) {
       throw DioException(
         requestOptions: _options.compose(
@@ -248,12 +254,108 @@ class HandlersApi {
     );
   }
 
-  /// Add a costume to a season&#39;s repertoire (issue #534).
+  /// addPieceDetail
+  ///
+  ///
+  /// Parameters:
+  /// * [id] - Piece id
+  /// * [addPieceDetailRequest]
+  /// * [cancelToken] - A [CancelToken] that can be used to cancel the operation
+  /// * [headers] - Can be used to add additional headers to the request
+  /// * [extras] - Can be used to add flags to the request
+  /// * [validateStatus] - A [ValidateStatus] callback that can be used to determine request success based on the HTTP status of the response
+  /// * [onSendProgress] - A [ProgressCallback] that can be used to get the send progress
+  /// * [onReceiveProgress] - A [ProgressCallback] that can be used to get the receive progress
+  ///
+  /// Returns a [Future] containing a [Response] with a [int] as data
+  /// Throws [DioException] if API call or serialization fails
+  Future<Response<int>> addPieceDetail({
+    required String id,
+    required AddPieceDetailRequest addPieceDetailRequest,
+    CancelToken? cancelToken,
+    Map<String, dynamic>? headers,
+    Map<String, dynamic>? extra,
+    ValidateStatus? validateStatus,
+    ProgressCallback? onSendProgress,
+    ProgressCallback? onReceiveProgress,
+  }) async {
+    final _path = r'/v1/pieces/{id}/details'.replaceAll(
+        '{' r'id' '}',
+        encodeQueryParameter(_serializers, id, const FullType(String))
+            .toString());
+    final _options = Options(
+      method: r'POST',
+      headers: <String, dynamic>{
+        ...?headers,
+      },
+      extra: <String, dynamic>{
+        'secure': <Map<String, String>>[],
+        ...?extra,
+      },
+      contentType: 'application/json',
+      validateStatus: validateStatus,
+    );
+
+    dynamic _bodyData;
+
+    try {
+      const _type = FullType(AddPieceDetailRequest);
+      _bodyData =
+          _serializers.serialize(addPieceDetailRequest, specifiedType: _type);
+    } catch (error, stackTrace) {
+      throw DioException(
+        requestOptions: _options.compose(
+          _dio.options,
+          _path,
+        ),
+        type: DioExceptionType.unknown,
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+
+    final _response = await _dio.request<Object>(
+      _path,
+      data: _bodyData,
+      options: _options,
+      cancelToken: cancelToken,
+      onSendProgress: onSendProgress,
+      onReceiveProgress: onReceiveProgress,
+    );
+
+    int? _responseData;
+
+    try {
+      final rawResponse = _response.data;
+      _responseData = rawResponse == null ? null : rawResponse as int;
+    } catch (error, stackTrace) {
+      throw DioException(
+        requestOptions: _response.requestOptions,
+        response: _response,
+        type: DioExceptionType.unknown,
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+
+    return Response<int>(
+      data: _responseData,
+      headers: _response.headers,
+      isRedirect: _response.isRedirect,
+      requestOptions: _response.requestOptions,
+      redirects: _response.redirects,
+      statusCode: _response.statusCode,
+      statusMessage: _response.statusMessage,
+      extra: _response.extra,
+    );
+  }
+
+  /// Add a piece to a season&#39;s repertoire (issue #534).
   /// API-edge pre-checks for the cross-aggregate target-season state (the aggregate cannot validate it): the season must exist (404 &#x60;season.not-found&#x60;) and must not be archived (409 &#x60;season.archived&#x60;, #533 terminal-state semantics — an archived season rejects all further mutations). The command itself is a state-based idempotent no-op when the season is already in the repertoire (no event, unchanged version).
   ///
   /// Parameters:
-  /// * [id] - Costume id
-  /// * [addCostumeToSeasonRequest]
+  /// * [id] - Piece id
+  /// * [addPieceToSeasonRequest]
   /// * [cancelToken] - A [CancelToken] that can be used to cancel the operation
   /// * [headers] - Can be used to add additional headers to the request
   /// * [extras] - Can be used to add flags to the request
@@ -263,9 +365,9 @@ class HandlersApi {
   ///
   /// Returns a [Future] containing a [Response] with a [int] as data
   /// Throws [DioException] if API call or serialization fails
-  Future<Response<int>> addCostumeToSeason({
+  Future<Response<int>> addPieceToSeason({
     required String id,
-    required AddCostumeToSeasonRequest addCostumeToSeasonRequest,
+    required AddPieceToSeasonRequest addPieceToSeasonRequest,
     CancelToken? cancelToken,
     Map<String, dynamic>? headers,
     Map<String, dynamic>? extra,
@@ -273,7 +375,7 @@ class HandlersApi {
     ProgressCallback? onSendProgress,
     ProgressCallback? onReceiveProgress,
   }) async {
-    final _path = r'/v1/costumes/{id}/seasons'.replaceAll(
+    final _path = r'/v1/pieces/{id}/seasons'.replaceAll(
         '{' r'id' '}',
         encodeQueryParameter(_serializers, id, const FullType(String))
             .toString());
@@ -293,9 +395,9 @@ class HandlersApi {
     dynamic _bodyData;
 
     try {
-      const _type = FullType(AddCostumeToSeasonRequest);
-      _bodyData = _serializers.serialize(addCostumeToSeasonRequest,
-          specifiedType: _type);
+      const _type = FullType(AddPieceToSeasonRequest);
+      _bodyData =
+          _serializers.serialize(addPieceToSeasonRequest, specifiedType: _type);
     } catch (error, stackTrace) {
       throw DioException(
         requestOptions: _options.compose(
@@ -344,12 +446,12 @@ class HandlersApi {
     );
   }
 
-  /// addSceneCostumeBeat
+  /// addSceneOutfitBeat
   ///
   ///
   /// Parameters:
   /// * [id]
-  /// * [addSceneCostumeBeatRequest]
+  /// * [addSceneOutfitBeatRequest]
   /// * [cancelToken] - A [CancelToken] that can be used to cancel the operation
   /// * [headers] - Can be used to add additional headers to the request
   /// * [extras] - Can be used to add flags to the request
@@ -359,9 +461,9 @@ class HandlersApi {
   ///
   /// Returns a [Future] containing a [Response] with a [int] as data
   /// Throws [DioException] if API call or serialization fails
-  Future<Response<int>> addSceneCostumeBeat({
+  Future<Response<int>> addSceneOutfitBeat({
     required String id,
-    required AddSceneCostumeBeatRequest addSceneCostumeBeatRequest,
+    required AddSceneOutfitBeatRequest addSceneOutfitBeatRequest,
     CancelToken? cancelToken,
     Map<String, dynamic>? headers,
     Map<String, dynamic>? extra,
@@ -369,7 +471,7 @@ class HandlersApi {
     ProgressCallback? onSendProgress,
     ProgressCallback? onReceiveProgress,
   }) async {
-    final _path = r'/v1/scenes/{id}/costumes'.replaceAll(
+    final _path = r'/v1/scenes/{id}/outfits'.replaceAll(
         '{' r'id' '}',
         encodeQueryParameter(_serializers, id, const FullType(String))
             .toString());
@@ -389,8 +491,8 @@ class HandlersApi {
     dynamic _bodyData;
 
     try {
-      const _type = FullType(AddSceneCostumeBeatRequest);
-      _bodyData = _serializers.serialize(addSceneCostumeBeatRequest,
+      const _type = FullType(AddSceneOutfitBeatRequest);
+      _bodyData = _serializers.serialize(addSceneOutfitBeatRequest,
           specifiedType: _type);
     } catch (error, stackTrace) {
       throw DioException(
@@ -657,7 +759,7 @@ class HandlersApi {
   ///
   ///
   /// Parameters:
-  /// * [id] - Costume category id
+  /// * [id] - Piece category id
   /// * [versionRequest]
   /// * [cancelToken] - A [CancelToken] that can be used to cancel the operation
   /// * [headers] - Can be used to add additional headers to the request
@@ -938,102 +1040,6 @@ class HandlersApi {
     );
   }
 
-  /// assignCostume
-  ///
-  ///
-  /// Parameters:
-  /// * [id]
-  /// * [assignCostumeRequest]
-  /// * [cancelToken] - A [CancelToken] that can be used to cancel the operation
-  /// * [headers] - Can be used to add additional headers to the request
-  /// * [extras] - Can be used to add flags to the request
-  /// * [validateStatus] - A [ValidateStatus] callback that can be used to determine request success based on the HTTP status of the response
-  /// * [onSendProgress] - A [ProgressCallback] that can be used to get the send progress
-  /// * [onReceiveProgress] - A [ProgressCallback] that can be used to get the receive progress
-  ///
-  /// Returns a [Future] containing a [Response] with a [int] as data
-  /// Throws [DioException] if API call or serialization fails
-  Future<Response<int>> assignCostume({
-    required String id,
-    required AssignCostumeRequest assignCostumeRequest,
-    CancelToken? cancelToken,
-    Map<String, dynamic>? headers,
-    Map<String, dynamic>? extra,
-    ValidateStatus? validateStatus,
-    ProgressCallback? onSendProgress,
-    ProgressCallback? onReceiveProgress,
-  }) async {
-    final _path = r'/v1/costumes/{id}/assign'.replaceAll(
-        '{' r'id' '}',
-        encodeQueryParameter(_serializers, id, const FullType(String))
-            .toString());
-    final _options = Options(
-      method: r'POST',
-      headers: <String, dynamic>{
-        ...?headers,
-      },
-      extra: <String, dynamic>{
-        'secure': <Map<String, String>>[],
-        ...?extra,
-      },
-      contentType: 'application/json',
-      validateStatus: validateStatus,
-    );
-
-    dynamic _bodyData;
-
-    try {
-      const _type = FullType(AssignCostumeRequest);
-      _bodyData =
-          _serializers.serialize(assignCostumeRequest, specifiedType: _type);
-    } catch (error, stackTrace) {
-      throw DioException(
-        requestOptions: _options.compose(
-          _dio.options,
-          _path,
-        ),
-        type: DioExceptionType.unknown,
-        error: error,
-        stackTrace: stackTrace,
-      );
-    }
-
-    final _response = await _dio.request<Object>(
-      _path,
-      data: _bodyData,
-      options: _options,
-      cancelToken: cancelToken,
-      onSendProgress: onSendProgress,
-      onReceiveProgress: onReceiveProgress,
-    );
-
-    int? _responseData;
-
-    try {
-      final rawResponse = _response.data;
-      _responseData = rawResponse == null ? null : rawResponse as int;
-    } catch (error, stackTrace) {
-      throw DioException(
-        requestOptions: _response.requestOptions,
-        response: _response,
-        type: DioExceptionType.unknown,
-        error: error,
-        stackTrace: stackTrace,
-      );
-    }
-
-    return Response<int>(
-      data: _responseData,
-      headers: _response.headers,
-      isRedirect: _response.isRedirect,
-      requestOptions: _response.requestOptions,
-      redirects: _response.redirects,
-      statusCode: _response.statusCode,
-      statusMessage: _response.statusMessage,
-      extra: _response.extra,
-    );
-  }
-
   /// assignSceneCharacter
   ///
   ///
@@ -1130,7 +1136,7 @@ class HandlersApi {
     );
   }
 
-  /// Clears all costume beats of a character in the scene (&#x60;RemoveCostumeBeat.order &#x3D; None&#x60; &#x3D; \&quot;no costume in this scene\&quot;, #546).
+  /// Clears all outfit beats of a character in the scene (&#x60;RemoveOutfitBeat.order &#x3D; None&#x60; &#x3D; \&quot;no piece in this scene\&quot;, #546).
   ///
   ///
   /// Parameters:
@@ -1146,7 +1152,7 @@ class HandlersApi {
   ///
   /// Returns a [Future] containing a [Response] with a [int] as data
   /// Throws [DioException] if API call or serialization fails
-  Future<Response<int>> clearSceneCostumeBeats({
+  Future<Response<int>> clearSceneOutfitBeats({
     required int version,
     required String id,
     required String characterId,
@@ -1157,7 +1163,7 @@ class HandlersApi {
     ProgressCallback? onSendProgress,
     ProgressCallback? onReceiveProgress,
   }) async {
-    final _path = r'/v1/scenes/{id}/costumes/{character_id}'
+    final _path = r'/v1/scenes/{id}/outfits/{character_id}'
         .replaceAll(
             '{' r'id' '}',
             encodeQueryParameter(_serializers, id, const FullType(String))
@@ -1455,102 +1461,6 @@ class HandlersApi {
       const _type = FullType(CreateCharacterRequest);
       _bodyData =
           _serializers.serialize(createCharacterRequest, specifiedType: _type);
-    } catch (error, stackTrace) {
-      throw DioException(
-        requestOptions: _options.compose(
-          _dio.options,
-          _path,
-        ),
-        type: DioExceptionType.unknown,
-        error: error,
-        stackTrace: stackTrace,
-      );
-    }
-
-    final _response = await _dio.request<Object>(
-      _path,
-      data: _bodyData,
-      options: _options,
-      cancelToken: cancelToken,
-      onSendProgress: onSendProgress,
-      onReceiveProgress: onReceiveProgress,
-    );
-
-    IdVersionResponse? _responseData;
-
-    try {
-      final rawResponse = _response.data;
-      _responseData = rawResponse == null
-          ? null
-          : _serializers.deserialize(
-              rawResponse,
-              specifiedType: const FullType(IdVersionResponse),
-            ) as IdVersionResponse;
-    } catch (error, stackTrace) {
-      throw DioException(
-        requestOptions: _response.requestOptions,
-        response: _response,
-        type: DioExceptionType.unknown,
-        error: error,
-        stackTrace: stackTrace,
-      );
-    }
-
-    return Response<IdVersionResponse>(
-      data: _responseData,
-      headers: _response.headers,
-      isRedirect: _response.isRedirect,
-      requestOptions: _response.requestOptions,
-      redirects: _response.redirects,
-      statusCode: _response.statusCode,
-      statusMessage: _response.statusMessage,
-      extra: _response.extra,
-    );
-  }
-
-  /// createCostume
-  ///
-  ///
-  /// Parameters:
-  /// * [createCostumeRequest]
-  /// * [cancelToken] - A [CancelToken] that can be used to cancel the operation
-  /// * [headers] - Can be used to add additional headers to the request
-  /// * [extras] - Can be used to add flags to the request
-  /// * [validateStatus] - A [ValidateStatus] callback that can be used to determine request success based on the HTTP status of the response
-  /// * [onSendProgress] - A [ProgressCallback] that can be used to get the send progress
-  /// * [onReceiveProgress] - A [ProgressCallback] that can be used to get the receive progress
-  ///
-  /// Returns a [Future] containing a [Response] with a [IdVersionResponse] as data
-  /// Throws [DioException] if API call or serialization fails
-  Future<Response<IdVersionResponse>> createCostume({
-    required CreateCostumeRequest createCostumeRequest,
-    CancelToken? cancelToken,
-    Map<String, dynamic>? headers,
-    Map<String, dynamic>? extra,
-    ValidateStatus? validateStatus,
-    ProgressCallback? onSendProgress,
-    ProgressCallback? onReceiveProgress,
-  }) async {
-    final _path = r'/v1/costumes';
-    final _options = Options(
-      method: r'POST',
-      headers: <String, dynamic>{
-        ...?headers,
-      },
-      extra: <String, dynamic>{
-        'secure': <Map<String, String>>[],
-        ...?extra,
-      },
-      contentType: 'application/json',
-      validateStatus: validateStatus,
-    );
-
-    dynamic _bodyData;
-
-    try {
-      const _type = FullType(CreateCostumeRequest);
-      _bodyData =
-          _serializers.serialize(createCostumeRequest, specifiedType: _type);
     } catch (error, stackTrace) {
       throw DioException(
         requestOptions: _options.compose(
@@ -1993,6 +1903,299 @@ class HandlersApi {
     );
   }
 
+  /// createOutfit
+  ///
+  ///
+  /// Parameters:
+  /// * [createOutfitRequest]
+  /// * [cancelToken] - A [CancelToken] that can be used to cancel the operation
+  /// * [headers] - Can be used to add additional headers to the request
+  /// * [extras] - Can be used to add flags to the request
+  /// * [validateStatus] - A [ValidateStatus] callback that can be used to determine request success based on the HTTP status of the response
+  /// * [onSendProgress] - A [ProgressCallback] that can be used to get the send progress
+  /// * [onReceiveProgress] - A [ProgressCallback] that can be used to get the receive progress
+  ///
+  /// Returns a [Future] containing a [Response] with a [IdVersionResponse] as data
+  /// Throws [DioException] if API call or serialization fails
+  Future<Response<IdVersionResponse>> createOutfit({
+    required CreateOutfitRequest createOutfitRequest,
+    CancelToken? cancelToken,
+    Map<String, dynamic>? headers,
+    Map<String, dynamic>? extra,
+    ValidateStatus? validateStatus,
+    ProgressCallback? onSendProgress,
+    ProgressCallback? onReceiveProgress,
+  }) async {
+    final _path = r'/v1/outfits';
+    final _options = Options(
+      method: r'POST',
+      headers: <String, dynamic>{
+        ...?headers,
+      },
+      extra: <String, dynamic>{
+        'secure': <Map<String, String>>[],
+        ...?extra,
+      },
+      contentType: 'application/json',
+      validateStatus: validateStatus,
+    );
+
+    dynamic _bodyData;
+
+    try {
+      const _type = FullType(CreateOutfitRequest);
+      _bodyData =
+          _serializers.serialize(createOutfitRequest, specifiedType: _type);
+    } catch (error, stackTrace) {
+      throw DioException(
+        requestOptions: _options.compose(
+          _dio.options,
+          _path,
+        ),
+        type: DioExceptionType.unknown,
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+
+    final _response = await _dio.request<Object>(
+      _path,
+      data: _bodyData,
+      options: _options,
+      cancelToken: cancelToken,
+      onSendProgress: onSendProgress,
+      onReceiveProgress: onReceiveProgress,
+    );
+
+    IdVersionResponse? _responseData;
+
+    try {
+      final rawResponse = _response.data;
+      _responseData = rawResponse == null
+          ? null
+          : _serializers.deserialize(
+              rawResponse,
+              specifiedType: const FullType(IdVersionResponse),
+            ) as IdVersionResponse;
+    } catch (error, stackTrace) {
+      throw DioException(
+        requestOptions: _response.requestOptions,
+        response: _response,
+        type: DioExceptionType.unknown,
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+
+    return Response<IdVersionResponse>(
+      data: _responseData,
+      headers: _response.headers,
+      isRedirect: _response.isRedirect,
+      requestOptions: _response.requestOptions,
+      redirects: _response.redirects,
+      statusCode: _response.statusCode,
+      statusMessage: _response.statusMessage,
+      extra: _response.extra,
+    );
+  }
+
+  /// createOutfitVariant
+  ///
+  ///
+  /// Parameters:
+  /// * [id] - Source outfit id
+  /// * [createOutfitVariantRequest]
+  /// * [cancelToken] - A [CancelToken] that can be used to cancel the operation
+  /// * [headers] - Can be used to add additional headers to the request
+  /// * [extras] - Can be used to add flags to the request
+  /// * [validateStatus] - A [ValidateStatus] callback that can be used to determine request success based on the HTTP status of the response
+  /// * [onSendProgress] - A [ProgressCallback] that can be used to get the send progress
+  /// * [onReceiveProgress] - A [ProgressCallback] that can be used to get the receive progress
+  ///
+  /// Returns a [Future] containing a [Response] with a [IdVersionResponse] as data
+  /// Throws [DioException] if API call or serialization fails
+  Future<Response<IdVersionResponse>> createOutfitVariant({
+    required String id,
+    required CreateOutfitVariantRequest createOutfitVariantRequest,
+    CancelToken? cancelToken,
+    Map<String, dynamic>? headers,
+    Map<String, dynamic>? extra,
+    ValidateStatus? validateStatus,
+    ProgressCallback? onSendProgress,
+    ProgressCallback? onReceiveProgress,
+  }) async {
+    final _path = r'/v1/outfits/{id}/variants'.replaceAll(
+        '{' r'id' '}',
+        encodeQueryParameter(_serializers, id, const FullType(String))
+            .toString());
+    final _options = Options(
+      method: r'POST',
+      headers: <String, dynamic>{
+        ...?headers,
+      },
+      extra: <String, dynamic>{
+        'secure': <Map<String, String>>[],
+        ...?extra,
+      },
+      contentType: 'application/json',
+      validateStatus: validateStatus,
+    );
+
+    dynamic _bodyData;
+
+    try {
+      const _type = FullType(CreateOutfitVariantRequest);
+      _bodyData = _serializers.serialize(createOutfitVariantRequest,
+          specifiedType: _type);
+    } catch (error, stackTrace) {
+      throw DioException(
+        requestOptions: _options.compose(
+          _dio.options,
+          _path,
+        ),
+        type: DioExceptionType.unknown,
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+
+    final _response = await _dio.request<Object>(
+      _path,
+      data: _bodyData,
+      options: _options,
+      cancelToken: cancelToken,
+      onSendProgress: onSendProgress,
+      onReceiveProgress: onReceiveProgress,
+    );
+
+    IdVersionResponse? _responseData;
+
+    try {
+      final rawResponse = _response.data;
+      _responseData = rawResponse == null
+          ? null
+          : _serializers.deserialize(
+              rawResponse,
+              specifiedType: const FullType(IdVersionResponse),
+            ) as IdVersionResponse;
+    } catch (error, stackTrace) {
+      throw DioException(
+        requestOptions: _response.requestOptions,
+        response: _response,
+        type: DioExceptionType.unknown,
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+
+    return Response<IdVersionResponse>(
+      data: _responseData,
+      headers: _response.headers,
+      isRedirect: _response.isRedirect,
+      requestOptions: _response.requestOptions,
+      redirects: _response.redirects,
+      statusCode: _response.statusCode,
+      statusMessage: _response.statusMessage,
+      extra: _response.extra,
+    );
+  }
+
+  /// createPiece
+  ///
+  ///
+  /// Parameters:
+  /// * [createPieceRequest]
+  /// * [cancelToken] - A [CancelToken] that can be used to cancel the operation
+  /// * [headers] - Can be used to add additional headers to the request
+  /// * [extras] - Can be used to add flags to the request
+  /// * [validateStatus] - A [ValidateStatus] callback that can be used to determine request success based on the HTTP status of the response
+  /// * [onSendProgress] - A [ProgressCallback] that can be used to get the send progress
+  /// * [onReceiveProgress] - A [ProgressCallback] that can be used to get the receive progress
+  ///
+  /// Returns a [Future] containing a [Response] with a [IdVersionResponse] as data
+  /// Throws [DioException] if API call or serialization fails
+  Future<Response<IdVersionResponse>> createPiece({
+    required CreatePieceRequest createPieceRequest,
+    CancelToken? cancelToken,
+    Map<String, dynamic>? headers,
+    Map<String, dynamic>? extra,
+    ValidateStatus? validateStatus,
+    ProgressCallback? onSendProgress,
+    ProgressCallback? onReceiveProgress,
+  }) async {
+    final _path = r'/v1/pieces';
+    final _options = Options(
+      method: r'POST',
+      headers: <String, dynamic>{
+        ...?headers,
+      },
+      extra: <String, dynamic>{
+        'secure': <Map<String, String>>[],
+        ...?extra,
+      },
+      contentType: 'application/json',
+      validateStatus: validateStatus,
+    );
+
+    dynamic _bodyData;
+
+    try {
+      const _type = FullType(CreatePieceRequest);
+      _bodyData =
+          _serializers.serialize(createPieceRequest, specifiedType: _type);
+    } catch (error, stackTrace) {
+      throw DioException(
+        requestOptions: _options.compose(
+          _dio.options,
+          _path,
+        ),
+        type: DioExceptionType.unknown,
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+
+    final _response = await _dio.request<Object>(
+      _path,
+      data: _bodyData,
+      options: _options,
+      cancelToken: cancelToken,
+      onSendProgress: onSendProgress,
+      onReceiveProgress: onReceiveProgress,
+    );
+
+    IdVersionResponse? _responseData;
+
+    try {
+      final rawResponse = _response.data;
+      _responseData = rawResponse == null
+          ? null
+          : _serializers.deserialize(
+              rawResponse,
+              specifiedType: const FullType(IdVersionResponse),
+            ) as IdVersionResponse;
+    } catch (error, stackTrace) {
+      throw DioException(
+        requestOptions: _response.requestOptions,
+        response: _response,
+        type: DioExceptionType.unknown,
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+
+    return Response<IdVersionResponse>(
+      data: _responseData,
+      headers: _response.headers,
+      isRedirect: _response.isRedirect,
+      requestOptions: _response.requestOptions,
+      redirects: _response.redirects,
+      statusCode: _response.statusCode,
+      statusMessage: _response.statusMessage,
+      extra: _response.extra,
+    );
+  }
+
   /// createScene
   ///
   ///
@@ -2336,11 +2539,11 @@ class HandlersApi {
     return _response;
   }
 
-  /// Unlink a photo from a costume (deletion saga handles refcount + bytes cleanup).
-  /// Authorization is checked per-request via season-scoped membership. The photo bytes are only deleted when the refcount reaches zero.
+  /// deleteOutfitPhoto
+  ///
   ///
   /// Parameters:
-  /// * [costumeId] - Costume id
+  /// * [outfitId] - Outfit id
   /// * [photoId] - Photo id
   /// * [cancelToken] - A [CancelToken] that can be used to cancel the operation
   /// * [headers] - Can be used to add additional headers to the request
@@ -2351,8 +2554,8 @@ class HandlersApi {
   ///
   /// Returns a [Future]
   /// Throws [DioException] if API call or serialization fails
-  Future<Response<void>> deleteCostumePhoto({
-    required String costumeId,
+  Future<Response<void>> deleteOutfitPhoto({
+    required String outfitId,
     required String photoId,
     CancelToken? cancelToken,
     Map<String, dynamic>? headers,
@@ -2361,11 +2564,67 @@ class HandlersApi {
     ProgressCallback? onSendProgress,
     ProgressCallback? onReceiveProgress,
   }) async {
-    final _path = r'/v1/costumes/{costume_id}/photos/{photo_id}'
+    final _path = r'/v1/outfits/{outfit_id}/photos/{photo_id}'
         .replaceAll(
-            '{' r'costume_id' '}',
-            encodeQueryParameter(
-                    _serializers, costumeId, const FullType(String))
+            '{' r'outfit_id' '}',
+            encodeQueryParameter(_serializers, outfitId, const FullType(String))
+                .toString())
+        .replaceAll(
+            '{' r'photo_id' '}',
+            encodeQueryParameter(_serializers, photoId, const FullType(String))
+                .toString());
+    final _options = Options(
+      method: r'DELETE',
+      headers: <String, dynamic>{
+        ...?headers,
+      },
+      extra: <String, dynamic>{
+        'secure': <Map<String, String>>[],
+        ...?extra,
+      },
+      validateStatus: validateStatus,
+    );
+
+    final _response = await _dio.request<Object>(
+      _path,
+      options: _options,
+      cancelToken: cancelToken,
+      onSendProgress: onSendProgress,
+      onReceiveProgress: onReceiveProgress,
+    );
+
+    return _response;
+  }
+
+  /// Unlink a photo from a piece (deletion saga handles refcount + bytes cleanup).
+  /// Authorization is checked per-request via season-scoped membership. The photo bytes are only deleted when the refcount reaches zero.
+  ///
+  /// Parameters:
+  /// * [pieceId] - Piece id
+  /// * [photoId] - Photo id
+  /// * [cancelToken] - A [CancelToken] that can be used to cancel the operation
+  /// * [headers] - Can be used to add additional headers to the request
+  /// * [extras] - Can be used to add flags to the request
+  /// * [validateStatus] - A [ValidateStatus] callback that can be used to determine request success based on the HTTP status of the response
+  /// * [onSendProgress] - A [ProgressCallback] that can be used to get the send progress
+  /// * [onReceiveProgress] - A [ProgressCallback] that can be used to get the receive progress
+  ///
+  /// Returns a [Future]
+  /// Throws [DioException] if API call or serialization fails
+  Future<Response<void>> deletePiecePhoto({
+    required String pieceId,
+    required String photoId,
+    CancelToken? cancelToken,
+    Map<String, dynamic>? headers,
+    Map<String, dynamic>? extra,
+    ValidateStatus? validateStatus,
+    ProgressCallback? onSendProgress,
+    ProgressCallback? onReceiveProgress,
+  }) async {
+    final _path = r'/v1/pieces/{piece_id}/photos/{photo_id}'
+        .replaceAll(
+            '{' r'piece_id' '}',
+            encodeQueryParameter(_serializers, pieceId, const FullType(String))
                 .toString())
         .replaceAll(
             '{' r'photo_id' '}',
@@ -3445,8 +3704,8 @@ class HandlersApi {
     );
   }
 
-  /// Per-character appearances read model (issue #621): the role extract (\&quot;Ring binder per role\&quot;) — every scene the character appears in, in script order, each with that character&#39;s own ordered costume beats.
-  /// Season-scoped read gated handler-internally (the route is classified &#x60;Authenticated&#x60; in &#x60;requirement_for&#x60;, mirroring the report/photo families): the caller must hold an active costume-department role in the character&#39;s season. The character fetch runs first so an unknown id answers &#x60;404 character.not-found&#x60; before the policy.
+  /// Per-character appearances read model (issue #621): the role extract (\&quot;Ring binder per role\&quot;) — every scene the character appears in, in script order, each with that character&#39;s own ordered outfit beats.
+  /// Season-scoped read gated handler-internally (the route is classified &#x60;Authenticated&#x60; in &#x60;requirement_for&#x60;, mirroring the report/photo families): the caller must hold an active piece-department role in the character&#39;s season. The character fetch runs first so an unknown id answers &#x60;404 character.not-found&#x60; before the policy.
   ///
   /// Parameters:
   /// * [id] - Character id
@@ -3514,176 +3773,6 @@ class HandlersApi {
     }
 
     return Response<BuiltList<CharacterAppearanceView>>(
-      data: _responseData,
-      headers: _response.headers,
-      isRedirect: _response.isRedirect,
-      requestOptions: _response.requestOptions,
-      redirects: _response.redirects,
-      statusCode: _response.statusCode,
-      statusMessage: _response.statusMessage,
-      extra: _response.extra,
-    );
-  }
-
-  /// getCostume
-  ///
-  ///
-  /// Parameters:
-  /// * [id] - Costume id
-  /// * [cancelToken] - A [CancelToken] that can be used to cancel the operation
-  /// * [headers] - Can be used to add additional headers to the request
-  /// * [extras] - Can be used to add flags to the request
-  /// * [validateStatus] - A [ValidateStatus] callback that can be used to determine request success based on the HTTP status of the response
-  /// * [onSendProgress] - A [ProgressCallback] that can be used to get the send progress
-  /// * [onReceiveProgress] - A [ProgressCallback] that can be used to get the receive progress
-  ///
-  /// Returns a [Future] containing a [Response] with a [CostumeView] as data
-  /// Throws [DioException] if API call or serialization fails
-  Future<Response<CostumeView>> getCostume({
-    required String id,
-    CancelToken? cancelToken,
-    Map<String, dynamic>? headers,
-    Map<String, dynamic>? extra,
-    ValidateStatus? validateStatus,
-    ProgressCallback? onSendProgress,
-    ProgressCallback? onReceiveProgress,
-  }) async {
-    final _path = r'/v1/costumes/{id}'.replaceAll(
-        '{' r'id' '}',
-        encodeQueryParameter(_serializers, id, const FullType(String))
-            .toString());
-    final _options = Options(
-      method: r'GET',
-      headers: <String, dynamic>{
-        ...?headers,
-      },
-      extra: <String, dynamic>{
-        'secure': <Map<String, String>>[],
-        ...?extra,
-      },
-      validateStatus: validateStatus,
-    );
-
-    final _response = await _dio.request<Object>(
-      _path,
-      options: _options,
-      cancelToken: cancelToken,
-      onSendProgress: onSendProgress,
-      onReceiveProgress: onReceiveProgress,
-    );
-
-    CostumeView? _responseData;
-
-    try {
-      final rawResponse = _response.data;
-      _responseData = rawResponse == null
-          ? null
-          : _serializers.deserialize(
-              rawResponse,
-              specifiedType: const FullType(CostumeView),
-            ) as CostumeView;
-    } catch (error, stackTrace) {
-      throw DioException(
-        requestOptions: _response.requestOptions,
-        response: _response,
-        type: DioExceptionType.unknown,
-        error: error,
-        stackTrace: stackTrace,
-      );
-    }
-
-    return Response<CostumeView>(
-      data: _responseData,
-      headers: _response.headers,
-      isRedirect: _response.isRedirect,
-      requestOptions: _response.requestOptions,
-      redirects: _response.redirects,
-      statusCode: _response.statusCode,
-      statusMessage: _response.statusMessage,
-      extra: _response.extra,
-    );
-  }
-
-  /// Download photo bytes (proxy download with per-request authorization).
-  /// Authorization is checked on every request via season-scoped membership. The response includes &#x60;Cache-Control: private, max-age&#x3D;300&#x60;.
-  ///
-  /// Parameters:
-  /// * [costumeId] - Costume id
-  /// * [photoId] - Photo id
-  /// * [variant] - Variant: original, thumb, or medium
-  /// * [cancelToken] - A [CancelToken] that can be used to cancel the operation
-  /// * [headers] - Can be used to add additional headers to the request
-  /// * [extras] - Can be used to add flags to the request
-  /// * [validateStatus] - A [ValidateStatus] callback that can be used to determine request success based on the HTTP status of the response
-  /// * [onSendProgress] - A [ProgressCallback] that can be used to get the send progress
-  /// * [onReceiveProgress] - A [ProgressCallback] that can be used to get the receive progress
-  ///
-  /// Returns a [Future] containing a [Response] with a [Uint8List] as data
-  /// Throws [DioException] if API call or serialization fails
-  Future<Response<Uint8List>> getCostumePhotoBytes({
-    required String costumeId,
-    required String photoId,
-    required String variant,
-    CancelToken? cancelToken,
-    Map<String, dynamic>? headers,
-    Map<String, dynamic>? extra,
-    ValidateStatus? validateStatus,
-    ProgressCallback? onSendProgress,
-    ProgressCallback? onReceiveProgress,
-  }) async {
-    final _path = r'/v1/costumes/{costume_id}/photos/{photo_id}/bytes'
-        .replaceAll(
-            '{' r'costume_id' '}',
-            encodeQueryParameter(
-                    _serializers, costumeId, const FullType(String))
-                .toString())
-        .replaceAll(
-            '{' r'photo_id' '}',
-            encodeQueryParameter(_serializers, photoId, const FullType(String))
-                .toString());
-    final _options = Options(
-      method: r'GET',
-      responseType: ResponseType.bytes,
-      headers: <String, dynamic>{
-        ...?headers,
-      },
-      extra: <String, dynamic>{
-        'secure': <Map<String, String>>[],
-        ...?extra,
-      },
-      validateStatus: validateStatus,
-    );
-
-    final _queryParameters = <String, dynamic>{
-      r'variant':
-          encodeQueryParameter(_serializers, variant, const FullType(String)),
-    };
-
-    final _response = await _dio.request<Object>(
-      _path,
-      options: _options,
-      queryParameters: _queryParameters,
-      cancelToken: cancelToken,
-      onSendProgress: onSendProgress,
-      onReceiveProgress: onReceiveProgress,
-    );
-
-    Uint8List? _responseData;
-
-    try {
-      final rawResponse = _response.data;
-      _responseData = rawResponse == null ? null : rawResponse as Uint8List;
-    } catch (error, stackTrace) {
-      throw DioException(
-        requestOptions: _response.requestOptions,
-        response: _response,
-        type: DioExceptionType.unknown,
-        error: error,
-        stackTrace: stackTrace,
-      );
-    }
-
-    return Response<Uint8List>(
       data: _responseData,
       headers: _response.headers,
       isRedirect: _response.isRedirect,
@@ -4071,6 +4160,345 @@ class HandlersApi {
     }
 
     return Response<MetaVersionsResponse>(
+      data: _responseData,
+      headers: _response.headers,
+      isRedirect: _response.isRedirect,
+      requestOptions: _response.requestOptions,
+      redirects: _response.redirects,
+      statusCode: _response.statusCode,
+      statusMessage: _response.statusMessage,
+      extra: _response.extra,
+    );
+  }
+
+  /// getOutfit
+  ///
+  ///
+  /// Parameters:
+  /// * [id] - Outfit id
+  /// * [cancelToken] - A [CancelToken] that can be used to cancel the operation
+  /// * [headers] - Can be used to add additional headers to the request
+  /// * [extras] - Can be used to add flags to the request
+  /// * [validateStatus] - A [ValidateStatus] callback that can be used to determine request success based on the HTTP status of the response
+  /// * [onSendProgress] - A [ProgressCallback] that can be used to get the send progress
+  /// * [onReceiveProgress] - A [ProgressCallback] that can be used to get the receive progress
+  ///
+  /// Returns a [Future] containing a [Response] with a [OutfitView] as data
+  /// Throws [DioException] if API call or serialization fails
+  Future<Response<OutfitView>> getOutfit({
+    required String id,
+    CancelToken? cancelToken,
+    Map<String, dynamic>? headers,
+    Map<String, dynamic>? extra,
+    ValidateStatus? validateStatus,
+    ProgressCallback? onSendProgress,
+    ProgressCallback? onReceiveProgress,
+  }) async {
+    final _path = r'/v1/outfits/{id}'.replaceAll(
+        '{' r'id' '}',
+        encodeQueryParameter(_serializers, id, const FullType(String))
+            .toString());
+    final _options = Options(
+      method: r'GET',
+      headers: <String, dynamic>{
+        ...?headers,
+      },
+      extra: <String, dynamic>{
+        'secure': <Map<String, String>>[],
+        ...?extra,
+      },
+      validateStatus: validateStatus,
+    );
+
+    final _response = await _dio.request<Object>(
+      _path,
+      options: _options,
+      cancelToken: cancelToken,
+      onSendProgress: onSendProgress,
+      onReceiveProgress: onReceiveProgress,
+    );
+
+    OutfitView? _responseData;
+
+    try {
+      final rawResponse = _response.data;
+      _responseData = rawResponse == null
+          ? null
+          : _serializers.deserialize(
+              rawResponse,
+              specifiedType: const FullType(OutfitView),
+            ) as OutfitView;
+    } catch (error, stackTrace) {
+      throw DioException(
+        requestOptions: _response.requestOptions,
+        response: _response,
+        type: DioExceptionType.unknown,
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+
+    return Response<OutfitView>(
+      data: _responseData,
+      headers: _response.headers,
+      isRedirect: _response.isRedirect,
+      requestOptions: _response.requestOptions,
+      redirects: _response.redirects,
+      statusCode: _response.statusCode,
+      statusMessage: _response.statusMessage,
+      extra: _response.extra,
+    );
+  }
+
+  /// getOutfitPhotoBytes
+  ///
+  ///
+  /// Parameters:
+  /// * [outfitId] - Outfit id
+  /// * [photoId] - Photo id
+  /// * [variant] - Variant: \"original\", \"thumb\", or \"medium\". Defaults to \"original\".
+  /// * [cancelToken] - A [CancelToken] that can be used to cancel the operation
+  /// * [headers] - Can be used to add additional headers to the request
+  /// * [extras] - Can be used to add flags to the request
+  /// * [validateStatus] - A [ValidateStatus] callback that can be used to determine request success based on the HTTP status of the response
+  /// * [onSendProgress] - A [ProgressCallback] that can be used to get the send progress
+  /// * [onReceiveProgress] - A [ProgressCallback] that can be used to get the receive progress
+  ///
+  /// Returns a [Future] containing a [Response] with a [Uint8List] as data
+  /// Throws [DioException] if API call or serialization fails
+  Future<Response<Uint8List>> getOutfitPhotoBytes({
+    required String outfitId,
+    required String photoId,
+    String? variant,
+    CancelToken? cancelToken,
+    Map<String, dynamic>? headers,
+    Map<String, dynamic>? extra,
+    ValidateStatus? validateStatus,
+    ProgressCallback? onSendProgress,
+    ProgressCallback? onReceiveProgress,
+  }) async {
+    final _path = r'/v1/outfits/{outfit_id}/photos/{photo_id}/bytes'
+        .replaceAll(
+            '{' r'outfit_id' '}',
+            encodeQueryParameter(_serializers, outfitId, const FullType(String))
+                .toString())
+        .replaceAll(
+            '{' r'photo_id' '}',
+            encodeQueryParameter(_serializers, photoId, const FullType(String))
+                .toString());
+    final _options = Options(
+      method: r'GET',
+      responseType: ResponseType.bytes,
+      headers: <String, dynamic>{
+        ...?headers,
+      },
+      extra: <String, dynamic>{
+        'secure': <Map<String, String>>[],
+        ...?extra,
+      },
+      validateStatus: validateStatus,
+    );
+
+    final _queryParameters = <String, dynamic>{
+      if (variant != null)
+        r'variant':
+            encodeQueryParameter(_serializers, variant, const FullType(String)),
+    };
+
+    final _response = await _dio.request<Object>(
+      _path,
+      options: _options,
+      queryParameters: _queryParameters,
+      cancelToken: cancelToken,
+      onSendProgress: onSendProgress,
+      onReceiveProgress: onReceiveProgress,
+    );
+
+    Uint8List? _responseData;
+
+    try {
+      final rawResponse = _response.data;
+      _responseData = rawResponse == null ? null : rawResponse as Uint8List;
+    } catch (error, stackTrace) {
+      throw DioException(
+        requestOptions: _response.requestOptions,
+        response: _response,
+        type: DioExceptionType.unknown,
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+
+    return Response<Uint8List>(
+      data: _responseData,
+      headers: _response.headers,
+      isRedirect: _response.isRedirect,
+      requestOptions: _response.requestOptions,
+      redirects: _response.redirects,
+      statusCode: _response.statusCode,
+      statusMessage: _response.statusMessage,
+      extra: _response.extra,
+    );
+  }
+
+  /// getPiece
+  ///
+  ///
+  /// Parameters:
+  /// * [id] - Piece id
+  /// * [cancelToken] - A [CancelToken] that can be used to cancel the operation
+  /// * [headers] - Can be used to add additional headers to the request
+  /// * [extras] - Can be used to add flags to the request
+  /// * [validateStatus] - A [ValidateStatus] callback that can be used to determine request success based on the HTTP status of the response
+  /// * [onSendProgress] - A [ProgressCallback] that can be used to get the send progress
+  /// * [onReceiveProgress] - A [ProgressCallback] that can be used to get the receive progress
+  ///
+  /// Returns a [Future] containing a [Response] with a [PieceView] as data
+  /// Throws [DioException] if API call or serialization fails
+  Future<Response<PieceView>> getPiece({
+    required String id,
+    CancelToken? cancelToken,
+    Map<String, dynamic>? headers,
+    Map<String, dynamic>? extra,
+    ValidateStatus? validateStatus,
+    ProgressCallback? onSendProgress,
+    ProgressCallback? onReceiveProgress,
+  }) async {
+    final _path = r'/v1/pieces/{id}'.replaceAll(
+        '{' r'id' '}',
+        encodeQueryParameter(_serializers, id, const FullType(String))
+            .toString());
+    final _options = Options(
+      method: r'GET',
+      headers: <String, dynamic>{
+        ...?headers,
+      },
+      extra: <String, dynamic>{
+        'secure': <Map<String, String>>[],
+        ...?extra,
+      },
+      validateStatus: validateStatus,
+    );
+
+    final _response = await _dio.request<Object>(
+      _path,
+      options: _options,
+      cancelToken: cancelToken,
+      onSendProgress: onSendProgress,
+      onReceiveProgress: onReceiveProgress,
+    );
+
+    PieceView? _responseData;
+
+    try {
+      final rawResponse = _response.data;
+      _responseData = rawResponse == null
+          ? null
+          : _serializers.deserialize(
+              rawResponse,
+              specifiedType: const FullType(PieceView),
+            ) as PieceView;
+    } catch (error, stackTrace) {
+      throw DioException(
+        requestOptions: _response.requestOptions,
+        response: _response,
+        type: DioExceptionType.unknown,
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+
+    return Response<PieceView>(
+      data: _responseData,
+      headers: _response.headers,
+      isRedirect: _response.isRedirect,
+      requestOptions: _response.requestOptions,
+      redirects: _response.redirects,
+      statusCode: _response.statusCode,
+      statusMessage: _response.statusMessage,
+      extra: _response.extra,
+    );
+  }
+
+  /// Download photo bytes (proxy download with per-request authorization).
+  /// Authorization is checked on every request via season-scoped membership. The response includes &#x60;Cache-Control: private, max-age&#x3D;300&#x60;.
+  ///
+  /// Parameters:
+  /// * [pieceId] - Piece id
+  /// * [photoId] - Photo id
+  /// * [variant] - Variant: original, thumb, or medium
+  /// * [cancelToken] - A [CancelToken] that can be used to cancel the operation
+  /// * [headers] - Can be used to add additional headers to the request
+  /// * [extras] - Can be used to add flags to the request
+  /// * [validateStatus] - A [ValidateStatus] callback that can be used to determine request success based on the HTTP status of the response
+  /// * [onSendProgress] - A [ProgressCallback] that can be used to get the send progress
+  /// * [onReceiveProgress] - A [ProgressCallback] that can be used to get the receive progress
+  ///
+  /// Returns a [Future] containing a [Response] with a [Uint8List] as data
+  /// Throws [DioException] if API call or serialization fails
+  Future<Response<Uint8List>> getPiecePhotoBytes({
+    required String pieceId,
+    required String photoId,
+    required String variant,
+    CancelToken? cancelToken,
+    Map<String, dynamic>? headers,
+    Map<String, dynamic>? extra,
+    ValidateStatus? validateStatus,
+    ProgressCallback? onSendProgress,
+    ProgressCallback? onReceiveProgress,
+  }) async {
+    final _path = r'/v1/pieces/{piece_id}/photos/{photo_id}/bytes'
+        .replaceAll(
+            '{' r'piece_id' '}',
+            encodeQueryParameter(_serializers, pieceId, const FullType(String))
+                .toString())
+        .replaceAll(
+            '{' r'photo_id' '}',
+            encodeQueryParameter(_serializers, photoId, const FullType(String))
+                .toString());
+    final _options = Options(
+      method: r'GET',
+      responseType: ResponseType.bytes,
+      headers: <String, dynamic>{
+        ...?headers,
+      },
+      extra: <String, dynamic>{
+        'secure': <Map<String, String>>[],
+        ...?extra,
+      },
+      validateStatus: validateStatus,
+    );
+
+    final _queryParameters = <String, dynamic>{
+      r'variant':
+          encodeQueryParameter(_serializers, variant, const FullType(String)),
+    };
+
+    final _response = await _dio.request<Object>(
+      _path,
+      options: _options,
+      queryParameters: _queryParameters,
+      cancelToken: cancelToken,
+      onSendProgress: onSendProgress,
+      onReceiveProgress: onReceiveProgress,
+    );
+
+    Uint8List? _responseData;
+
+    try {
+      final rawResponse = _response.data;
+      _responseData = rawResponse == null ? null : rawResponse as Uint8List;
+    } catch (error, stackTrace) {
+      throw DioException(
+        requestOptions: _response.requestOptions,
+        response: _response,
+        type: DioExceptionType.unknown,
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+
+    return Response<Uint8List>(
       data: _responseData,
       headers: _response.headers,
       isRedirect: _response.isRedirect,
@@ -5759,6 +6187,85 @@ class HandlersApi {
     );
   }
 
+  /// listCharacterOutfits
+  /// Lists the outfits of one character, newest first.
+  ///
+  /// Parameters:
+  /// * [characterId] - Character id
+  /// * [cancelToken] - A [CancelToken] that can be used to cancel the operation
+  /// * [headers] - Can be used to add additional headers to the request
+  /// * [extras] - Can be used to add flags to the request
+  /// * [validateStatus] - A [ValidateStatus] callback that can be used to determine request success based on the HTTP status of the response
+  /// * [onSendProgress] - A [ProgressCallback] that can be used to get the send progress
+  /// * [onReceiveProgress] - A [ProgressCallback] that can be used to get the receive progress
+  ///
+  /// Returns a [Future] containing a [Response] with a [BuiltList<OutfitView>] as data
+  /// Throws [DioException] if API call or serialization fails
+  Future<Response<BuiltList<OutfitView>>> listCharacterOutfits({
+    required String characterId,
+    CancelToken? cancelToken,
+    Map<String, dynamic>? headers,
+    Map<String, dynamic>? extra,
+    ValidateStatus? validateStatus,
+    ProgressCallback? onSendProgress,
+    ProgressCallback? onReceiveProgress,
+  }) async {
+    final _path = r'/v1/characters/{character_id}/outfits'.replaceAll(
+        '{' r'character_id' '}',
+        encodeQueryParameter(_serializers, characterId, const FullType(String))
+            .toString());
+    final _options = Options(
+      method: r'GET',
+      headers: <String, dynamic>{
+        ...?headers,
+      },
+      extra: <String, dynamic>{
+        'secure': <Map<String, String>>[],
+        ...?extra,
+      },
+      validateStatus: validateStatus,
+    );
+
+    final _response = await _dio.request<Object>(
+      _path,
+      options: _options,
+      cancelToken: cancelToken,
+      onSendProgress: onSendProgress,
+      onReceiveProgress: onReceiveProgress,
+    );
+
+    BuiltList<OutfitView>? _responseData;
+
+    try {
+      final rawResponse = _response.data;
+      _responseData = rawResponse == null
+          ? null
+          : _serializers.deserialize(
+              rawResponse,
+              specifiedType: const FullType(BuiltList, [FullType(OutfitView)]),
+            ) as BuiltList<OutfitView>;
+    } catch (error, stackTrace) {
+      throw DioException(
+        requestOptions: _response.requestOptions,
+        response: _response,
+        type: DioExceptionType.unknown,
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+
+    return Response<BuiltList<OutfitView>>(
+      data: _responseData,
+      headers: _response.headers,
+      isRedirect: _response.isRedirect,
+      requestOptions: _response.requestOptions,
+      redirects: _response.redirects,
+      statusCode: _response.statusCode,
+      statusMessage: _response.statusMessage,
+      extra: _response.extra,
+    );
+  }
+
   /// listCharacters
   /// Lists the characters of a season. Requires the season_id query parameter (400 otherwise).
   ///
@@ -6039,109 +6546,6 @@ class HandlersApi {
     );
   }
 
-  /// listCostumes
-  /// Lists the costumes of a season. Requires the season_id query parameter (400 otherwise).
-  ///
-  /// Parameters:
-  /// * [limit]
-  /// * [offset]
-  /// * [episodeId]
-  /// * [seasonId]
-  /// * [projectId]
-  /// * [cancelToken] - A [CancelToken] that can be used to cancel the operation
-  /// * [headers] - Can be used to add additional headers to the request
-  /// * [extras] - Can be used to add flags to the request
-  /// * [validateStatus] - A [ValidateStatus] callback that can be used to determine request success based on the HTTP status of the response
-  /// * [onSendProgress] - A [ProgressCallback] that can be used to get the send progress
-  /// * [onReceiveProgress] - A [ProgressCallback] that can be used to get the receive progress
-  ///
-  /// Returns a [Future] containing a [Response] with a [BuiltList<CostumeView>] as data
-  /// Throws [DioException] if API call or serialization fails
-  Future<Response<BuiltList<CostumeView>>> listCostumes({
-    int? limit = 50,
-    int? offset = 0,
-    String? episodeId,
-    String? seasonId,
-    String? projectId,
-    CancelToken? cancelToken,
-    Map<String, dynamic>? headers,
-    Map<String, dynamic>? extra,
-    ValidateStatus? validateStatus,
-    ProgressCallback? onSendProgress,
-    ProgressCallback? onReceiveProgress,
-  }) async {
-    final _path = r'/v1/costumes';
-    final _options = Options(
-      method: r'GET',
-      headers: <String, dynamic>{
-        ...?headers,
-      },
-      extra: <String, dynamic>{
-        'secure': <Map<String, String>>[],
-        ...?extra,
-      },
-      validateStatus: validateStatus,
-    );
-
-    final _queryParameters = <String, dynamic>{
-      if (limit != null)
-        r'limit':
-            encodeQueryParameter(_serializers, limit, const FullType(int)),
-      if (offset != null)
-        r'offset':
-            encodeQueryParameter(_serializers, offset, const FullType(int)),
-      if (episodeId != null)
-        r'episode_id': encodeQueryParameter(
-            _serializers, episodeId, const FullType(String)),
-      if (seasonId != null)
-        r'season_id': encodeQueryParameter(
-            _serializers, seasonId, const FullType(String)),
-      if (projectId != null)
-        r'project_id': encodeQueryParameter(
-            _serializers, projectId, const FullType(String)),
-    };
-
-    final _response = await _dio.request<Object>(
-      _path,
-      options: _options,
-      queryParameters: _queryParameters,
-      cancelToken: cancelToken,
-      onSendProgress: onSendProgress,
-      onReceiveProgress: onReceiveProgress,
-    );
-
-    BuiltList<CostumeView>? _responseData;
-
-    try {
-      final rawResponse = _response.data;
-      _responseData = rawResponse == null
-          ? null
-          : _serializers.deserialize(
-              rawResponse,
-              specifiedType: const FullType(BuiltList, [FullType(CostumeView)]),
-            ) as BuiltList<CostumeView>;
-    } catch (error, stackTrace) {
-      throw DioException(
-        requestOptions: _response.requestOptions,
-        response: _response,
-        type: DioExceptionType.unknown,
-        error: error,
-        stackTrace: stackTrace,
-      );
-    }
-
-    return Response<BuiltList<CostumeView>>(
-      data: _responseData,
-      headers: _response.headers,
-      isRedirect: _response.isRedirect,
-      requestOptions: _response.requestOptions,
-      redirects: _response.redirects,
-      statusCode: _response.statusCode,
-      statusMessage: _response.statusMessage,
-      extra: _response.extra,
-    );
-  }
-
   /// listEpisodes
   /// Lists episodes of a series, or of a single block when block_id is given. Requires project_id unless block_id is present (400 otherwise).
   ///
@@ -6338,6 +6742,109 @@ class HandlersApi {
     }
 
     return Response<BuiltList<MembershipView>>(
+      data: _responseData,
+      headers: _response.headers,
+      isRedirect: _response.isRedirect,
+      requestOptions: _response.requestOptions,
+      redirects: _response.redirects,
+      statusCode: _response.statusCode,
+      statusMessage: _response.statusMessage,
+      extra: _response.extra,
+    );
+  }
+
+  /// listPieces
+  /// Lists the pieces of a season. Requires the season_id query parameter (400 otherwise).
+  ///
+  /// Parameters:
+  /// * [limit]
+  /// * [offset]
+  /// * [episodeId]
+  /// * [seasonId]
+  /// * [projectId]
+  /// * [cancelToken] - A [CancelToken] that can be used to cancel the operation
+  /// * [headers] - Can be used to add additional headers to the request
+  /// * [extras] - Can be used to add flags to the request
+  /// * [validateStatus] - A [ValidateStatus] callback that can be used to determine request success based on the HTTP status of the response
+  /// * [onSendProgress] - A [ProgressCallback] that can be used to get the send progress
+  /// * [onReceiveProgress] - A [ProgressCallback] that can be used to get the receive progress
+  ///
+  /// Returns a [Future] containing a [Response] with a [BuiltList<PieceView>] as data
+  /// Throws [DioException] if API call or serialization fails
+  Future<Response<BuiltList<PieceView>>> listPieces({
+    int? limit = 50,
+    int? offset = 0,
+    String? episodeId,
+    String? seasonId,
+    String? projectId,
+    CancelToken? cancelToken,
+    Map<String, dynamic>? headers,
+    Map<String, dynamic>? extra,
+    ValidateStatus? validateStatus,
+    ProgressCallback? onSendProgress,
+    ProgressCallback? onReceiveProgress,
+  }) async {
+    final _path = r'/v1/pieces';
+    final _options = Options(
+      method: r'GET',
+      headers: <String, dynamic>{
+        ...?headers,
+      },
+      extra: <String, dynamic>{
+        'secure': <Map<String, String>>[],
+        ...?extra,
+      },
+      validateStatus: validateStatus,
+    );
+
+    final _queryParameters = <String, dynamic>{
+      if (limit != null)
+        r'limit':
+            encodeQueryParameter(_serializers, limit, const FullType(int)),
+      if (offset != null)
+        r'offset':
+            encodeQueryParameter(_serializers, offset, const FullType(int)),
+      if (episodeId != null)
+        r'episode_id': encodeQueryParameter(
+            _serializers, episodeId, const FullType(String)),
+      if (seasonId != null)
+        r'season_id': encodeQueryParameter(
+            _serializers, seasonId, const FullType(String)),
+      if (projectId != null)
+        r'project_id': encodeQueryParameter(
+            _serializers, projectId, const FullType(String)),
+    };
+
+    final _response = await _dio.request<Object>(
+      _path,
+      options: _options,
+      queryParameters: _queryParameters,
+      cancelToken: cancelToken,
+      onSendProgress: onSendProgress,
+      onReceiveProgress: onReceiveProgress,
+    );
+
+    BuiltList<PieceView>? _responseData;
+
+    try {
+      final rawResponse = _response.data;
+      _responseData = rawResponse == null
+          ? null
+          : _serializers.deserialize(
+              rawResponse,
+              specifiedType: const FullType(BuiltList, [FullType(PieceView)]),
+            ) as BuiltList<PieceView>;
+    } catch (error, stackTrace) {
+      throw DioException(
+        requestOptions: _response.requestOptions,
+        response: _response,
+        type: DioExceptionType.unknown,
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+
+    return Response<BuiltList<PieceView>>(
       data: _responseData,
       headers: _response.headers,
       isRedirect: _response.isRedirect,
@@ -6718,7 +7225,7 @@ class HandlersApi {
   }
 
   /// Manual \&quot;archive now\&quot; remediation endpoint.
-  /// Setting-gerechte fallback when automation fails or is delayed. Uses the **same** dedup key and pipeline as schedule / wrap triggers — never a parallel pipeline. Gated stricter than PDF routes: only &#x60;CostumeDesigner&#x60; and &#x60;WardrobeSupervisor&#x60; (excludes &#x60;CostumeAssistant&#x60;).
+  /// Setting-gerechte fallback when automation fails or is delayed. Uses the **same** dedup key and pipeline as schedule / wrap triggers — never a parallel pipeline. Gated stricter than PDF routes: only &#x60;PieceDesigner&#x60; and &#x60;WardrobeSupervisor&#x60; (excludes &#x60;PieceAssistant&#x60;).
   ///
   /// Parameters:
   /// * [id] - Shooting day id
@@ -6926,12 +7433,158 @@ class HandlersApi {
     return _response;
   }
 
-  /// Remove a costume detail (issue #544).
-  /// &#x60;RemoveDetail&#x60; was fully implemented but unreachable before this route existed; a detail was permanent once added. The body is a &#x60;VersionRequest&#x60; — the echo of the **costume** aggregate&#39;s version, the same fence every other costume write uses.
+  /// Remove an active member from the block.
+  /// Gated &#x60;BlockMember&#x60;: the caller must be an active member. The targeted &#x60;user_id&#x60; is taken from the path.
   ///
   /// Parameters:
-  /// * [id] - Costume id
-  /// * [detailId] - Costume detail id
+  /// * [id] - Block id
+  /// * [userId] - OIDC sub of the member to remove
+  /// * [cancelToken] - A [CancelToken] that can be used to cancel the operation
+  /// * [headers] - Can be used to add additional headers to the request
+  /// * [extras] - Can be used to add flags to the request
+  /// * [validateStatus] - A [ValidateStatus] callback that can be used to determine request success based on the HTTP status of the response
+  /// * [onSendProgress] - A [ProgressCallback] that can be used to get the send progress
+  /// * [onReceiveProgress] - A [ProgressCallback] that can be used to get the receive progress
+  ///
+  /// Returns a [Future]
+  /// Throws [DioException] if API call or serialization fails
+  Future<Response<void>> removeMember({
+    required String id,
+    required String userId,
+    CancelToken? cancelToken,
+    Map<String, dynamic>? headers,
+    Map<String, dynamic>? extra,
+    ValidateStatus? validateStatus,
+    ProgressCallback? onSendProgress,
+    ProgressCallback? onReceiveProgress,
+  }) async {
+    final _path = r'/v1/blocks/{id}/members/{user_id}'
+        .replaceAll(
+            '{' r'id' '}',
+            encodeQueryParameter(_serializers, id, const FullType(String))
+                .toString())
+        .replaceAll(
+            '{' r'user_id' '}',
+            encodeQueryParameter(_serializers, userId, const FullType(String))
+                .toString());
+    final _options = Options(
+      method: r'DELETE',
+      headers: <String, dynamic>{
+        ...?headers,
+      },
+      extra: <String, dynamic>{
+        'secure': <Map<String, String>>[],
+        ...?extra,
+      },
+      validateStatus: validateStatus,
+    );
+
+    final _response = await _dio.request<Object>(
+      _path,
+      options: _options,
+      cancelToken: cancelToken,
+      onSendProgress: onSendProgress,
+      onReceiveProgress: onReceiveProgress,
+    );
+
+    return _response;
+  }
+
+  /// removeOutfitPiece
+  ///
+  ///
+  /// Parameters:
+  /// * [version]
+  /// * [id]
+  /// * [pieceId]
+  /// * [cancelToken] - A [CancelToken] that can be used to cancel the operation
+  /// * [headers] - Can be used to add additional headers to the request
+  /// * [extras] - Can be used to add flags to the request
+  /// * [validateStatus] - A [ValidateStatus] callback that can be used to determine request success based on the HTTP status of the response
+  /// * [onSendProgress] - A [ProgressCallback] that can be used to get the send progress
+  /// * [onReceiveProgress] - A [ProgressCallback] that can be used to get the receive progress
+  ///
+  /// Returns a [Future] containing a [Response] with a [int] as data
+  /// Throws [DioException] if API call or serialization fails
+  Future<Response<int>> removeOutfitPiece({
+    required int version,
+    required String id,
+    required String pieceId,
+    CancelToken? cancelToken,
+    Map<String, dynamic>? headers,
+    Map<String, dynamic>? extra,
+    ValidateStatus? validateStatus,
+    ProgressCallback? onSendProgress,
+    ProgressCallback? onReceiveProgress,
+  }) async {
+    final _path = r'/v1/outfits/{id}/pieces/{piece_id}'
+        .replaceAll(
+            '{' r'id' '}',
+            encodeQueryParameter(_serializers, id, const FullType(String))
+                .toString())
+        .replaceAll(
+            '{' r'piece_id' '}',
+            encodeQueryParameter(_serializers, pieceId, const FullType(String))
+                .toString());
+    final _options = Options(
+      method: r'DELETE',
+      headers: <String, dynamic>{
+        ...?headers,
+      },
+      extra: <String, dynamic>{
+        'secure': <Map<String, String>>[],
+        ...?extra,
+      },
+      validateStatus: validateStatus,
+    );
+
+    final _queryParameters = <String, dynamic>{
+      r'version':
+          encodeQueryParameter(_serializers, version, const FullType(int)),
+    };
+
+    final _response = await _dio.request<Object>(
+      _path,
+      options: _options,
+      queryParameters: _queryParameters,
+      cancelToken: cancelToken,
+      onSendProgress: onSendProgress,
+      onReceiveProgress: onReceiveProgress,
+    );
+
+    int? _responseData;
+
+    try {
+      final rawResponse = _response.data;
+      _responseData = rawResponse == null ? null : rawResponse as int;
+    } catch (error, stackTrace) {
+      throw DioException(
+        requestOptions: _response.requestOptions,
+        response: _response,
+        type: DioExceptionType.unknown,
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+
+    return Response<int>(
+      data: _responseData,
+      headers: _response.headers,
+      isRedirect: _response.isRedirect,
+      requestOptions: _response.requestOptions,
+      redirects: _response.redirects,
+      statusCode: _response.statusCode,
+      statusMessage: _response.statusMessage,
+      extra: _response.extra,
+    );
+  }
+
+  /// Remove a piece detail (issue #544).
+  /// &#x60;RemovePieceDetail&#x60; was fully implemented but unreachable before this route existed; a detail was permanent once added. The body is a &#x60;VersionRequest&#x60; — the echo of the **piece** aggregate&#39;s version, the same fence every other piece write uses.
+  ///
+  /// Parameters:
+  /// * [id] - Piece id
+  /// * [detailId] - Piece detail id
   /// * [versionRequest]
   /// * [cancelToken] - A [CancelToken] that can be used to cancel the operation
   /// * [headers] - Can be used to add additional headers to the request
@@ -6942,7 +7595,7 @@ class HandlersApi {
   ///
   /// Returns a [Future] containing a [Response] with a [int] as data
   /// Throws [DioException] if API call or serialization fails
-  Future<Response<int>> removeCostumeDetail({
+  Future<Response<int>> removePieceDetail({
     required String id,
     required String detailId,
     required VersionRequest versionRequest,
@@ -6953,7 +7606,7 @@ class HandlersApi {
     ProgressCallback? onSendProgress,
     ProgressCallback? onReceiveProgress,
   }) async {
-    final _path = r'/v1/costumes/{id}/details/{detail_id}'
+    final _path = r'/v1/pieces/{id}/details/{detail_id}'
         .replaceAll(
             '{' r'id' '}',
             encodeQueryParameter(_serializers, id, const FullType(String))
@@ -7028,11 +7681,11 @@ class HandlersApi {
     );
   }
 
-  /// Remove a costume from a season&#39;s repertoire (issue #534).
-  /// Idempotent mirror of [&#x60;add_costume_to_season&#x60;]: a season that is not in the repertoire is a no-op success with the unchanged version. Same pre-checks: season exists (404), not archived (409 &#x60;season.archived&#x60;). An empty repertoire is legitimate — the authz scope then falls back to the character&#39;s season.
+  /// Remove a piece from a season&#39;s repertoire (issue #534).
+  /// Idempotent mirror of [&#x60;add_piece_to_season&#x60;]: a season that is not in the repertoire is a no-op success with the unchanged version. Same pre-checks: season exists (404), not archived (409 &#x60;season.archived&#x60;). An empty repertoire is legitimate — the authz scope then falls back to the character&#39;s season.
   ///
   /// Parameters:
-  /// * [id] - Costume id
+  /// * [id] - Piece id
   /// * [seasonId] - Season id
   /// * [versionRequest]
   /// * [cancelToken] - A [CancelToken] that can be used to cancel the operation
@@ -7044,7 +7697,7 @@ class HandlersApi {
   ///
   /// Returns a [Future] containing a [Response] with a [int] as data
   /// Throws [DioException] if API call or serialization fails
-  Future<Response<int>> removeCostumeFromSeason({
+  Future<Response<int>> removePieceFromSeason({
     required String id,
     required String seasonId,
     required VersionRequest versionRequest,
@@ -7055,7 +7708,7 @@ class HandlersApi {
     ProgressCallback? onSendProgress,
     ProgressCallback? onReceiveProgress,
   }) async {
-    final _path = r'/v1/costumes/{id}/seasons/{season_id}'
+    final _path = r'/v1/pieces/{id}/seasons/{season_id}'
         .replaceAll(
             '{' r'id' '}',
             encodeQueryParameter(_serializers, id, const FullType(String))
@@ -7128,63 +7781,6 @@ class HandlersApi {
       statusMessage: _response.statusMessage,
       extra: _response.extra,
     );
-  }
-
-  /// Remove an active member from the block.
-  /// Gated &#x60;BlockMember&#x60;: the caller must be an active member. The targeted &#x60;user_id&#x60; is taken from the path.
-  ///
-  /// Parameters:
-  /// * [id] - Block id
-  /// * [userId] - OIDC sub of the member to remove
-  /// * [cancelToken] - A [CancelToken] that can be used to cancel the operation
-  /// * [headers] - Can be used to add additional headers to the request
-  /// * [extras] - Can be used to add flags to the request
-  /// * [validateStatus] - A [ValidateStatus] callback that can be used to determine request success based on the HTTP status of the response
-  /// * [onSendProgress] - A [ProgressCallback] that can be used to get the send progress
-  /// * [onReceiveProgress] - A [ProgressCallback] that can be used to get the receive progress
-  ///
-  /// Returns a [Future]
-  /// Throws [DioException] if API call or serialization fails
-  Future<Response<void>> removeMember({
-    required String id,
-    required String userId,
-    CancelToken? cancelToken,
-    Map<String, dynamic>? headers,
-    Map<String, dynamic>? extra,
-    ValidateStatus? validateStatus,
-    ProgressCallback? onSendProgress,
-    ProgressCallback? onReceiveProgress,
-  }) async {
-    final _path = r'/v1/blocks/{id}/members/{user_id}'
-        .replaceAll(
-            '{' r'id' '}',
-            encodeQueryParameter(_serializers, id, const FullType(String))
-                .toString())
-        .replaceAll(
-            '{' r'user_id' '}',
-            encodeQueryParameter(_serializers, userId, const FullType(String))
-                .toString());
-    final _options = Options(
-      method: r'DELETE',
-      headers: <String, dynamic>{
-        ...?headers,
-      },
-      extra: <String, dynamic>{
-        'secure': <Map<String, String>>[],
-        ...?extra,
-      },
-      validateStatus: validateStatus,
-    );
-
-    final _response = await _dio.request<Object>(
-      _path,
-      options: _options,
-      cancelToken: cancelToken,
-      onSendProgress: onSendProgress,
-      onReceiveProgress: onReceiveProgress,
-    );
-
-    return _response;
   }
 
   /// removeSceneCharacter
@@ -7277,7 +7873,7 @@ class HandlersApi {
     );
   }
 
-  /// removeSceneCostumeBeat
+  /// removeSceneOutfitBeat
   ///
   ///
   /// Parameters:
@@ -7294,7 +7890,7 @@ class HandlersApi {
   ///
   /// Returns a [Future] containing a [Response] with a [int] as data
   /// Throws [DioException] if API call or serialization fails
-  Future<Response<int>> removeSceneCostumeBeat({
+  Future<Response<int>> removeSceneOutfitBeat({
     required int version,
     required String id,
     required String characterId,
@@ -7306,7 +7902,7 @@ class HandlersApi {
     ProgressCallback? onSendProgress,
     ProgressCallback? onReceiveProgress,
   }) async {
-    final _path = r'/v1/scenes/{id}/costumes/{character_id}/{order}'
+    final _path = r'/v1/scenes/{id}/outfits/{character_id}/{order}'
         .replaceAll(
             '{' r'id' '}',
             encodeQueryParameter(_serializers, id, const FullType(String))
@@ -7540,6 +8136,198 @@ class HandlersApi {
       const _type = FullType(RenameEpisodeRequest);
       _bodyData =
           _serializers.serialize(renameEpisodeRequest, specifiedType: _type);
+    } catch (error, stackTrace) {
+      throw DioException(
+        requestOptions: _options.compose(
+          _dio.options,
+          _path,
+        ),
+        type: DioExceptionType.unknown,
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+
+    final _response = await _dio.request<Object>(
+      _path,
+      data: _bodyData,
+      options: _options,
+      cancelToken: cancelToken,
+      onSendProgress: onSendProgress,
+      onReceiveProgress: onReceiveProgress,
+    );
+
+    int? _responseData;
+
+    try {
+      final rawResponse = _response.data;
+      _responseData = rawResponse == null ? null : rawResponse as int;
+    } catch (error, stackTrace) {
+      throw DioException(
+        requestOptions: _response.requestOptions,
+        response: _response,
+        type: DioExceptionType.unknown,
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+
+    return Response<int>(
+      data: _responseData,
+      headers: _response.headers,
+      isRedirect: _response.isRedirect,
+      requestOptions: _response.requestOptions,
+      redirects: _response.redirects,
+      statusCode: _response.statusCode,
+      statusMessage: _response.statusMessage,
+      extra: _response.extra,
+    );
+  }
+
+  /// renameOutfit
+  ///
+  ///
+  /// Parameters:
+  /// * [id] - Outfit id
+  /// * [renameOutfitRequest]
+  /// * [cancelToken] - A [CancelToken] that can be used to cancel the operation
+  /// * [headers] - Can be used to add additional headers to the request
+  /// * [extras] - Can be used to add flags to the request
+  /// * [validateStatus] - A [ValidateStatus] callback that can be used to determine request success based on the HTTP status of the response
+  /// * [onSendProgress] - A [ProgressCallback] that can be used to get the send progress
+  /// * [onReceiveProgress] - A [ProgressCallback] that can be used to get the receive progress
+  ///
+  /// Returns a [Future] containing a [Response] with a [int] as data
+  /// Throws [DioException] if API call or serialization fails
+  Future<Response<int>> renameOutfit({
+    required String id,
+    required RenameOutfitRequest renameOutfitRequest,
+    CancelToken? cancelToken,
+    Map<String, dynamic>? headers,
+    Map<String, dynamic>? extra,
+    ValidateStatus? validateStatus,
+    ProgressCallback? onSendProgress,
+    ProgressCallback? onReceiveProgress,
+  }) async {
+    final _path = r'/v1/outfits/{id}/name'.replaceAll(
+        '{' r'id' '}',
+        encodeQueryParameter(_serializers, id, const FullType(String))
+            .toString());
+    final _options = Options(
+      method: r'PATCH',
+      headers: <String, dynamic>{
+        ...?headers,
+      },
+      extra: <String, dynamic>{
+        'secure': <Map<String, String>>[],
+        ...?extra,
+      },
+      contentType: 'application/json',
+      validateStatus: validateStatus,
+    );
+
+    dynamic _bodyData;
+
+    try {
+      const _type = FullType(RenameOutfitRequest);
+      _bodyData =
+          _serializers.serialize(renameOutfitRequest, specifiedType: _type);
+    } catch (error, stackTrace) {
+      throw DioException(
+        requestOptions: _options.compose(
+          _dio.options,
+          _path,
+        ),
+        type: DioExceptionType.unknown,
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+
+    final _response = await _dio.request<Object>(
+      _path,
+      data: _bodyData,
+      options: _options,
+      cancelToken: cancelToken,
+      onSendProgress: onSendProgress,
+      onReceiveProgress: onReceiveProgress,
+    );
+
+    int? _responseData;
+
+    try {
+      final rawResponse = _response.data;
+      _responseData = rawResponse == null ? null : rawResponse as int;
+    } catch (error, stackTrace) {
+      throw DioException(
+        requestOptions: _response.requestOptions,
+        response: _response,
+        type: DioExceptionType.unknown,
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+
+    return Response<int>(
+      data: _responseData,
+      headers: _response.headers,
+      isRedirect: _response.isRedirect,
+      requestOptions: _response.requestOptions,
+      redirects: _response.redirects,
+      statusCode: _response.statusCode,
+      statusMessage: _response.statusMessage,
+      extra: _response.extra,
+    );
+  }
+
+  /// renamePiece
+  ///
+  ///
+  /// Parameters:
+  /// * [id] - Piece id
+  /// * [renamePieceRequest]
+  /// * [cancelToken] - A [CancelToken] that can be used to cancel the operation
+  /// * [headers] - Can be used to add additional headers to the request
+  /// * [extras] - Can be used to add flags to the request
+  /// * [validateStatus] - A [ValidateStatus] callback that can be used to determine request success based on the HTTP status of the response
+  /// * [onSendProgress] - A [ProgressCallback] that can be used to get the send progress
+  /// * [onReceiveProgress] - A [ProgressCallback] that can be used to get the receive progress
+  ///
+  /// Returns a [Future] containing a [Response] with a [int] as data
+  /// Throws [DioException] if API call or serialization fails
+  Future<Response<int>> renamePiece({
+    required String id,
+    required RenamePieceRequest renamePieceRequest,
+    CancelToken? cancelToken,
+    Map<String, dynamic>? headers,
+    Map<String, dynamic>? extra,
+    ValidateStatus? validateStatus,
+    ProgressCallback? onSendProgress,
+    ProgressCallback? onReceiveProgress,
+  }) async {
+    final _path = r'/v1/pieces/{id}/name'.replaceAll(
+        '{' r'id' '}',
+        encodeQueryParameter(_serializers, id, const FullType(String))
+            .toString());
+    final _options = Options(
+      method: r'PATCH',
+      headers: <String, dynamic>{
+        ...?headers,
+      },
+      extra: <String, dynamic>{
+        'secure': <Map<String, String>>[],
+        ...?extra,
+      },
+      contentType: 'application/json',
+      validateStatus: validateStatus,
+    );
+
+    dynamic _bodyData;
+
+    try {
+      const _type = FullType(RenamePieceRequest);
+      _bodyData =
+          _serializers.serialize(renamePieceRequest, specifiedType: _type);
     } catch (error, stackTrace) {
       throw DioException(
         requestOptions: _options.compose(
@@ -8427,12 +9215,12 @@ class HandlersApi {
     );
   }
 
-  /// Set (or clear) the costume&#39;s single category (issue #543).
-  /// API-edge pre-check for the cross-aggregate season invariant (doctrine, AGENTS.md §1): &#x60;category.season_id ∈ (repertoire_seasons(costume) ∪ season(character))&#x60;. The command is dispatched only after the pre-check; the projector resolves &#x60;category_name&#x60; best-effort and cannot fail.
+  /// Set (or clear) the piece&#39;s single category (issue #543).
+  /// API-edge pre-check for the cross-aggregate season invariant (doctrine, AGENTS.md §1): &#x60;category.season_id ∈ (repertoire_seasons(piece) ∪ season(character))&#x60;. The command is dispatched only after the pre-check; the projector resolves &#x60;category_name&#x60; best-effort and cannot fail.
   ///
   /// Parameters:
-  /// * [id] - Costume id
-  /// * [setCostumeCategoryRequest]
+  /// * [id] - Piece id
+  /// * [setPieceCategoryRequest]
   /// * [cancelToken] - A [CancelToken] that can be used to cancel the operation
   /// * [headers] - Can be used to add additional headers to the request
   /// * [extras] - Can be used to add flags to the request
@@ -8442,9 +9230,9 @@ class HandlersApi {
   ///
   /// Returns a [Future] containing a [Response] with a [int] as data
   /// Throws [DioException] if API call or serialization fails
-  Future<Response<int>> setCostumeCategory({
+  Future<Response<int>> setPieceCategory({
     required String id,
-    required SetCostumeCategoryRequest setCostumeCategoryRequest,
+    required SetPieceCategoryRequest setPieceCategoryRequest,
     CancelToken? cancelToken,
     Map<String, dynamic>? headers,
     Map<String, dynamic>? extra,
@@ -8452,7 +9240,7 @@ class HandlersApi {
     ProgressCallback? onSendProgress,
     ProgressCallback? onReceiveProgress,
   }) async {
-    final _path = r'/v1/costumes/{id}/category'.replaceAll(
+    final _path = r'/v1/pieces/{id}/category'.replaceAll(
         '{' r'id' '}',
         encodeQueryParameter(_serializers, id, const FullType(String))
             .toString());
@@ -8472,9 +9260,9 @@ class HandlersApi {
     dynamic _bodyData;
 
     try {
-      const _type = FullType(SetCostumeCategoryRequest);
-      _bodyData = _serializers.serialize(setCostumeCategoryRequest,
-          specifiedType: _type);
+      const _type = FullType(SetPieceCategoryRequest);
+      _bodyData =
+          _serializers.serialize(setPieceCategoryRequest, specifiedType: _type);
     } catch (error, stackTrace) {
       throw DioException(
         requestOptions: _options.compose(
@@ -9005,101 +9793,6 @@ class HandlersApi {
     );
 
     return _response;
-  }
-
-  /// unassignCostume
-  ///
-  ///
-  /// Parameters:
-  /// * [id]
-  /// * [versionRequest]
-  /// * [cancelToken] - A [CancelToken] that can be used to cancel the operation
-  /// * [headers] - Can be used to add additional headers to the request
-  /// * [extras] - Can be used to add flags to the request
-  /// * [validateStatus] - A [ValidateStatus] callback that can be used to determine request success based on the HTTP status of the response
-  /// * [onSendProgress] - A [ProgressCallback] that can be used to get the send progress
-  /// * [onReceiveProgress] - A [ProgressCallback] that can be used to get the receive progress
-  ///
-  /// Returns a [Future] containing a [Response] with a [int] as data
-  /// Throws [DioException] if API call or serialization fails
-  Future<Response<int>> unassignCostume({
-    required String id,
-    required VersionRequest versionRequest,
-    CancelToken? cancelToken,
-    Map<String, dynamic>? headers,
-    Map<String, dynamic>? extra,
-    ValidateStatus? validateStatus,
-    ProgressCallback? onSendProgress,
-    ProgressCallback? onReceiveProgress,
-  }) async {
-    final _path = r'/v1/costumes/{id}/unassign'.replaceAll(
-        '{' r'id' '}',
-        encodeQueryParameter(_serializers, id, const FullType(String))
-            .toString());
-    final _options = Options(
-      method: r'POST',
-      headers: <String, dynamic>{
-        ...?headers,
-      },
-      extra: <String, dynamic>{
-        'secure': <Map<String, String>>[],
-        ...?extra,
-      },
-      contentType: 'application/json',
-      validateStatus: validateStatus,
-    );
-
-    dynamic _bodyData;
-
-    try {
-      const _type = FullType(VersionRequest);
-      _bodyData = _serializers.serialize(versionRequest, specifiedType: _type);
-    } catch (error, stackTrace) {
-      throw DioException(
-        requestOptions: _options.compose(
-          _dio.options,
-          _path,
-        ),
-        type: DioExceptionType.unknown,
-        error: error,
-        stackTrace: stackTrace,
-      );
-    }
-
-    final _response = await _dio.request<Object>(
-      _path,
-      data: _bodyData,
-      options: _options,
-      cancelToken: cancelToken,
-      onSendProgress: onSendProgress,
-      onReceiveProgress: onReceiveProgress,
-    );
-
-    int? _responseData;
-
-    try {
-      final rawResponse = _response.data;
-      _responseData = rawResponse == null ? null : rawResponse as int;
-    } catch (error, stackTrace) {
-      throw DioException(
-        requestOptions: _response.requestOptions,
-        response: _response,
-        type: DioExceptionType.unknown,
-        error: error,
-        stackTrace: stackTrace,
-      );
-    }
-
-    return Response<int>(
-      data: _responseData,
-      headers: _response.headers,
-      isRedirect: _response.isRedirect,
-      requestOptions: _response.requestOptions,
-      redirects: _response.redirects,
-      statusCode: _response.statusCode,
-      statusMessage: _response.statusMessage,
-      extra: _response.extra,
-    );
   }
 
   /// unlinkContinuityPhoto
@@ -9686,7 +10379,7 @@ class HandlersApi {
   ///
   ///
   /// Parameters:
-  /// * [id] - Costume category id
+  /// * [id] - Piece category id
   /// * [updateCostumeCategoryRequest]
   /// * [cancelToken] - A [CancelToken] that can be used to cancel the operation
   /// * [headers] - Can be used to add additional headers to the request
@@ -9729,205 +10422,6 @@ class HandlersApi {
     try {
       const _type = FullType(UpdateCostumeCategoryRequest);
       _bodyData = _serializers.serialize(updateCostumeCategoryRequest,
-          specifiedType: _type);
-    } catch (error, stackTrace) {
-      throw DioException(
-        requestOptions: _options.compose(
-          _dio.options,
-          _path,
-        ),
-        type: DioExceptionType.unknown,
-        error: error,
-        stackTrace: stackTrace,
-      );
-    }
-
-    final _response = await _dio.request<Object>(
-      _path,
-      data: _bodyData,
-      options: _options,
-      cancelToken: cancelToken,
-      onSendProgress: onSendProgress,
-      onReceiveProgress: onReceiveProgress,
-    );
-
-    int? _responseData;
-
-    try {
-      final rawResponse = _response.data;
-      _responseData = rawResponse == null ? null : rawResponse as int;
-    } catch (error, stackTrace) {
-      throw DioException(
-        requestOptions: _response.requestOptions,
-        response: _response,
-        type: DioExceptionType.unknown,
-        error: error,
-        stackTrace: stackTrace,
-      );
-    }
-
-    return Response<int>(
-      data: _responseData,
-      headers: _response.headers,
-      isRedirect: _response.isRedirect,
-      requestOptions: _response.requestOptions,
-      redirects: _response.redirects,
-      statusCode: _response.statusCode,
-      statusMessage: _response.statusMessage,
-      extra: _response.extra,
-    );
-  }
-
-  /// Replace an existing costume detail in place (issue #544).
-  /// The command carries the full detail, so the event is a snapshot: replay needs no field-merge logic and the projector reuses its &#x60;DetailAdded&#x60; upsert unchanged (no migration). An unknown &#x60;detail_id&#x60; is rejected by the aggregate **before** any event is appended, so a typo can never create a second detail.
-  ///
-  /// Parameters:
-  /// * [id] - Costume id
-  /// * [detailId] - Costume detail id
-  /// * [updateCostumeDetailRequest]
-  /// * [cancelToken] - A [CancelToken] that can be used to cancel the operation
-  /// * [headers] - Can be used to add additional headers to the request
-  /// * [extras] - Can be used to add flags to the request
-  /// * [validateStatus] - A [ValidateStatus] callback that can be used to determine request success based on the HTTP status of the response
-  /// * [onSendProgress] - A [ProgressCallback] that can be used to get the send progress
-  /// * [onReceiveProgress] - A [ProgressCallback] that can be used to get the receive progress
-  ///
-  /// Returns a [Future] containing a [Response] with a [int] as data
-  /// Throws [DioException] if API call or serialization fails
-  Future<Response<int>> updateCostumeDetail({
-    required String id,
-    required String detailId,
-    required UpdateCostumeDetailRequest updateCostumeDetailRequest,
-    CancelToken? cancelToken,
-    Map<String, dynamic>? headers,
-    Map<String, dynamic>? extra,
-    ValidateStatus? validateStatus,
-    ProgressCallback? onSendProgress,
-    ProgressCallback? onReceiveProgress,
-  }) async {
-    final _path = r'/v1/costumes/{id}/details/{detail_id}'
-        .replaceAll(
-            '{' r'id' '}',
-            encodeQueryParameter(_serializers, id, const FullType(String))
-                .toString())
-        .replaceAll(
-            '{' r'detail_id' '}',
-            encodeQueryParameter(_serializers, detailId, const FullType(String))
-                .toString());
-    final _options = Options(
-      method: r'PATCH',
-      headers: <String, dynamic>{
-        ...?headers,
-      },
-      extra: <String, dynamic>{
-        'secure': <Map<String, String>>[],
-        ...?extra,
-      },
-      contentType: 'application/json',
-      validateStatus: validateStatus,
-    );
-
-    dynamic _bodyData;
-
-    try {
-      const _type = FullType(UpdateCostumeDetailRequest);
-      _bodyData = _serializers.serialize(updateCostumeDetailRequest,
-          specifiedType: _type);
-    } catch (error, stackTrace) {
-      throw DioException(
-        requestOptions: _options.compose(
-          _dio.options,
-          _path,
-        ),
-        type: DioExceptionType.unknown,
-        error: error,
-        stackTrace: stackTrace,
-      );
-    }
-
-    final _response = await _dio.request<Object>(
-      _path,
-      data: _bodyData,
-      options: _options,
-      cancelToken: cancelToken,
-      onSendProgress: onSendProgress,
-      onReceiveProgress: onReceiveProgress,
-    );
-
-    int? _responseData;
-
-    try {
-      final rawResponse = _response.data;
-      _responseData = rawResponse == null ? null : rawResponse as int;
-    } catch (error, stackTrace) {
-      throw DioException(
-        requestOptions: _response.requestOptions,
-        response: _response,
-        type: DioExceptionType.unknown,
-        error: error,
-        stackTrace: stackTrace,
-      );
-    }
-
-    return Response<int>(
-      data: _responseData,
-      headers: _response.headers,
-      isRedirect: _response.isRedirect,
-      requestOptions: _response.requestOptions,
-      redirects: _response.redirects,
-      statusCode: _response.statusCode,
-      statusMessage: _response.statusMessage,
-      extra: _response.extra,
-    );
-  }
-
-  /// updateCostumeNotes
-  ///
-  ///
-  /// Parameters:
-  /// * [id]
-  /// * [updateCostumeNotesRequest]
-  /// * [cancelToken] - A [CancelToken] that can be used to cancel the operation
-  /// * [headers] - Can be used to add additional headers to the request
-  /// * [extras] - Can be used to add flags to the request
-  /// * [validateStatus] - A [ValidateStatus] callback that can be used to determine request success based on the HTTP status of the response
-  /// * [onSendProgress] - A [ProgressCallback] that can be used to get the send progress
-  /// * [onReceiveProgress] - A [ProgressCallback] that can be used to get the receive progress
-  ///
-  /// Returns a [Future] containing a [Response] with a [int] as data
-  /// Throws [DioException] if API call or serialization fails
-  Future<Response<int>> updateCostumeNotes({
-    required String id,
-    required UpdateCostumeNotesRequest updateCostumeNotesRequest,
-    CancelToken? cancelToken,
-    Map<String, dynamic>? headers,
-    Map<String, dynamic>? extra,
-    ValidateStatus? validateStatus,
-    ProgressCallback? onSendProgress,
-    ProgressCallback? onReceiveProgress,
-  }) async {
-    final _path = r'/v1/costumes/{id}/notes'.replaceAll(
-        '{' r'id' '}',
-        encodeQueryParameter(_serializers, id, const FullType(String))
-            .toString());
-    final _options = Options(
-      method: r'PATCH',
-      headers: <String, dynamic>{
-        ...?headers,
-      },
-      extra: <String, dynamic>{
-        'secure': <Map<String, String>>[],
-        ...?extra,
-      },
-      contentType: 'application/json',
-      validateStatus: validateStatus,
-    );
-
-    dynamic _bodyData;
-
-    try {
-      const _type = FullType(UpdateCostumeNotesRequest);
-      _bodyData = _serializers.serialize(updateCostumeNotesRequest,
           specifiedType: _type);
     } catch (error, stackTrace) {
       throw DioException(
@@ -10073,14 +10567,12 @@ class HandlersApi {
     );
   }
 
-  /// updateSceneCostumeBeat
+  /// updateOutfitNotes
   ///
   ///
   /// Parameters:
-  /// * [id]
-  /// * [characterId]
-  /// * [order]
-  /// * [updateSceneCostumeBeatRequest]
+  /// * [id] - Outfit id
+  /// * [updateOutfitNotesRequest]
   /// * [cancelToken] - A [CancelToken] that can be used to cancel the operation
   /// * [headers] - Can be used to add additional headers to the request
   /// * [extras] - Can be used to add flags to the request
@@ -10090,11 +10582,9 @@ class HandlersApi {
   ///
   /// Returns a [Future] containing a [Response] with a [int] as data
   /// Throws [DioException] if API call or serialization fails
-  Future<Response<int>> updateSceneCostumeBeat({
+  Future<Response<int>> updateOutfitNotes({
     required String id,
-    required String characterId,
-    required int order,
-    required UpdateSceneCostumeBeatRequest updateSceneCostumeBeatRequest,
+    required UpdateOutfitNotesRequest updateOutfitNotesRequest,
     CancelToken? cancelToken,
     Map<String, dynamic>? headers,
     Map<String, dynamic>? extra,
@@ -10102,19 +10592,112 @@ class HandlersApi {
     ProgressCallback? onSendProgress,
     ProgressCallback? onReceiveProgress,
   }) async {
-    final _path = r'/v1/scenes/{id}/costumes/{character_id}/{order}'
+    final _path = r'/v1/outfits/{id}/notes'.replaceAll(
+        '{' r'id' '}',
+        encodeQueryParameter(_serializers, id, const FullType(String))
+            .toString());
+    final _options = Options(
+      method: r'PATCH',
+      headers: <String, dynamic>{
+        ...?headers,
+      },
+      extra: <String, dynamic>{
+        'secure': <Map<String, String>>[],
+        ...?extra,
+      },
+      contentType: 'application/json',
+      validateStatus: validateStatus,
+    );
+
+    dynamic _bodyData;
+
+    try {
+      const _type = FullType(UpdateOutfitNotesRequest);
+      _bodyData = _serializers.serialize(updateOutfitNotesRequest,
+          specifiedType: _type);
+    } catch (error, stackTrace) {
+      throw DioException(
+        requestOptions: _options.compose(
+          _dio.options,
+          _path,
+        ),
+        type: DioExceptionType.unknown,
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+
+    final _response = await _dio.request<Object>(
+      _path,
+      data: _bodyData,
+      options: _options,
+      cancelToken: cancelToken,
+      onSendProgress: onSendProgress,
+      onReceiveProgress: onReceiveProgress,
+    );
+
+    int? _responseData;
+
+    try {
+      final rawResponse = _response.data;
+      _responseData = rawResponse == null ? null : rawResponse as int;
+    } catch (error, stackTrace) {
+      throw DioException(
+        requestOptions: _response.requestOptions,
+        response: _response,
+        type: DioExceptionType.unknown,
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+
+    return Response<int>(
+      data: _responseData,
+      headers: _response.headers,
+      isRedirect: _response.isRedirect,
+      requestOptions: _response.requestOptions,
+      redirects: _response.redirects,
+      statusCode: _response.statusCode,
+      statusMessage: _response.statusMessage,
+      extra: _response.extra,
+    );
+  }
+
+  /// Replace an existing piece detail in place (issue #544).
+  /// The command carries the full detail, so the event is a snapshot: replay needs no field-merge logic and the projector reuses its &#x60;DetailAdded&#x60; upsert unchanged (no migration). An unknown &#x60;detail_id&#x60; is rejected by the aggregate **before** any event is appended, so a typo can never create a second detail.
+  ///
+  /// Parameters:
+  /// * [id] - Piece id
+  /// * [detailId] - Piece detail id
+  /// * [updatePieceDetailRequest]
+  /// * [cancelToken] - A [CancelToken] that can be used to cancel the operation
+  /// * [headers] - Can be used to add additional headers to the request
+  /// * [extras] - Can be used to add flags to the request
+  /// * [validateStatus] - A [ValidateStatus] callback that can be used to determine request success based on the HTTP status of the response
+  /// * [onSendProgress] - A [ProgressCallback] that can be used to get the send progress
+  /// * [onReceiveProgress] - A [ProgressCallback] that can be used to get the receive progress
+  ///
+  /// Returns a [Future] containing a [Response] with a [int] as data
+  /// Throws [DioException] if API call or serialization fails
+  Future<Response<int>> updatePieceDetail({
+    required String id,
+    required String detailId,
+    required UpdatePieceDetailRequest updatePieceDetailRequest,
+    CancelToken? cancelToken,
+    Map<String, dynamic>? headers,
+    Map<String, dynamic>? extra,
+    ValidateStatus? validateStatus,
+    ProgressCallback? onSendProgress,
+    ProgressCallback? onReceiveProgress,
+  }) async {
+    final _path = r'/v1/pieces/{id}/details/{detail_id}'
         .replaceAll(
             '{' r'id' '}',
             encodeQueryParameter(_serializers, id, const FullType(String))
                 .toString())
         .replaceAll(
-            '{' r'character_id' '}',
-            encodeQueryParameter(
-                    _serializers, characterId, const FullType(String))
-                .toString())
-        .replaceAll(
-            '{' r'order' '}',
-            encodeQueryParameter(_serializers, order, const FullType(int))
+            '{' r'detail_id' '}',
+            encodeQueryParameter(_serializers, detailId, const FullType(String))
                 .toString());
     final _options = Options(
       method: r'PATCH',
@@ -10132,9 +10715,105 @@ class HandlersApi {
     dynamic _bodyData;
 
     try {
-      const _type = FullType(UpdateSceneCostumeBeatRequest);
-      _bodyData = _serializers.serialize(updateSceneCostumeBeatRequest,
+      const _type = FullType(UpdatePieceDetailRequest);
+      _bodyData = _serializers.serialize(updatePieceDetailRequest,
           specifiedType: _type);
+    } catch (error, stackTrace) {
+      throw DioException(
+        requestOptions: _options.compose(
+          _dio.options,
+          _path,
+        ),
+        type: DioExceptionType.unknown,
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+
+    final _response = await _dio.request<Object>(
+      _path,
+      data: _bodyData,
+      options: _options,
+      cancelToken: cancelToken,
+      onSendProgress: onSendProgress,
+      onReceiveProgress: onReceiveProgress,
+    );
+
+    int? _responseData;
+
+    try {
+      final rawResponse = _response.data;
+      _responseData = rawResponse == null ? null : rawResponse as int;
+    } catch (error, stackTrace) {
+      throw DioException(
+        requestOptions: _response.requestOptions,
+        response: _response,
+        type: DioExceptionType.unknown,
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+
+    return Response<int>(
+      data: _responseData,
+      headers: _response.headers,
+      isRedirect: _response.isRedirect,
+      requestOptions: _response.requestOptions,
+      redirects: _response.redirects,
+      statusCode: _response.statusCode,
+      statusMessage: _response.statusMessage,
+      extra: _response.extra,
+    );
+  }
+
+  /// updatePieceNotes
+  ///
+  ///
+  /// Parameters:
+  /// * [id]
+  /// * [updatePieceNotesRequest]
+  /// * [cancelToken] - A [CancelToken] that can be used to cancel the operation
+  /// * [headers] - Can be used to add additional headers to the request
+  /// * [extras] - Can be used to add flags to the request
+  /// * [validateStatus] - A [ValidateStatus] callback that can be used to determine request success based on the HTTP status of the response
+  /// * [onSendProgress] - A [ProgressCallback] that can be used to get the send progress
+  /// * [onReceiveProgress] - A [ProgressCallback] that can be used to get the receive progress
+  ///
+  /// Returns a [Future] containing a [Response] with a [int] as data
+  /// Throws [DioException] if API call or serialization fails
+  Future<Response<int>> updatePieceNotes({
+    required String id,
+    required UpdatePieceNotesRequest updatePieceNotesRequest,
+    CancelToken? cancelToken,
+    Map<String, dynamic>? headers,
+    Map<String, dynamic>? extra,
+    ValidateStatus? validateStatus,
+    ProgressCallback? onSendProgress,
+    ProgressCallback? onReceiveProgress,
+  }) async {
+    final _path = r'/v1/pieces/{id}/notes'.replaceAll(
+        '{' r'id' '}',
+        encodeQueryParameter(_serializers, id, const FullType(String))
+            .toString());
+    final _options = Options(
+      method: r'PATCH',
+      headers: <String, dynamic>{
+        ...?headers,
+      },
+      extra: <String, dynamic>{
+        'secure': <Map<String, String>>[],
+        ...?extra,
+      },
+      contentType: 'application/json',
+      validateStatus: validateStatus,
+    );
+
+    dynamic _bodyData;
+
+    try {
+      const _type = FullType(UpdatePieceNotesRequest);
+      _bodyData =
+          _serializers.serialize(updatePieceNotesRequest, specifiedType: _type);
     } catch (error, stackTrace) {
       throw DioException(
         requestOptions: _options.compose(
@@ -10230,6 +10909,116 @@ class HandlersApi {
     try {
       const _type = FullType(UpdateSceneDetailsRequest);
       _bodyData = _serializers.serialize(updateSceneDetailsRequest,
+          specifiedType: _type);
+    } catch (error, stackTrace) {
+      throw DioException(
+        requestOptions: _options.compose(
+          _dio.options,
+          _path,
+        ),
+        type: DioExceptionType.unknown,
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+
+    final _response = await _dio.request<Object>(
+      _path,
+      data: _bodyData,
+      options: _options,
+      cancelToken: cancelToken,
+      onSendProgress: onSendProgress,
+      onReceiveProgress: onReceiveProgress,
+    );
+
+    int? _responseData;
+
+    try {
+      final rawResponse = _response.data;
+      _responseData = rawResponse == null ? null : rawResponse as int;
+    } catch (error, stackTrace) {
+      throw DioException(
+        requestOptions: _response.requestOptions,
+        response: _response,
+        type: DioExceptionType.unknown,
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+
+    return Response<int>(
+      data: _responseData,
+      headers: _response.headers,
+      isRedirect: _response.isRedirect,
+      requestOptions: _response.requestOptions,
+      redirects: _response.redirects,
+      statusCode: _response.statusCode,
+      statusMessage: _response.statusMessage,
+      extra: _response.extra,
+    );
+  }
+
+  /// updateSceneOutfitBeat
+  ///
+  ///
+  /// Parameters:
+  /// * [id]
+  /// * [characterId]
+  /// * [order]
+  /// * [updateSceneOutfitBeatRequest]
+  /// * [cancelToken] - A [CancelToken] that can be used to cancel the operation
+  /// * [headers] - Can be used to add additional headers to the request
+  /// * [extras] - Can be used to add flags to the request
+  /// * [validateStatus] - A [ValidateStatus] callback that can be used to determine request success based on the HTTP status of the response
+  /// * [onSendProgress] - A [ProgressCallback] that can be used to get the send progress
+  /// * [onReceiveProgress] - A [ProgressCallback] that can be used to get the receive progress
+  ///
+  /// Returns a [Future] containing a [Response] with a [int] as data
+  /// Throws [DioException] if API call or serialization fails
+  Future<Response<int>> updateSceneOutfitBeat({
+    required String id,
+    required String characterId,
+    required int order,
+    required UpdateSceneOutfitBeatRequest updateSceneOutfitBeatRequest,
+    CancelToken? cancelToken,
+    Map<String, dynamic>? headers,
+    Map<String, dynamic>? extra,
+    ValidateStatus? validateStatus,
+    ProgressCallback? onSendProgress,
+    ProgressCallback? onReceiveProgress,
+  }) async {
+    final _path = r'/v1/scenes/{id}/outfits/{character_id}/{order}'
+        .replaceAll(
+            '{' r'id' '}',
+            encodeQueryParameter(_serializers, id, const FullType(String))
+                .toString())
+        .replaceAll(
+            '{' r'character_id' '}',
+            encodeQueryParameter(
+                    _serializers, characterId, const FullType(String))
+                .toString())
+        .replaceAll(
+            '{' r'order' '}',
+            encodeQueryParameter(_serializers, order, const FullType(int))
+                .toString());
+    final _options = Options(
+      method: r'PATCH',
+      headers: <String, dynamic>{
+        ...?headers,
+      },
+      extra: <String, dynamic>{
+        'secure': <Map<String, String>>[],
+        ...?extra,
+      },
+      contentType: 'application/json',
+      validateStatus: validateStatus,
+    );
+
+    dynamic _bodyData;
+
+    try {
+      const _type = FullType(UpdateSceneOutfitBeatRequest);
+      _bodyData = _serializers.serialize(updateSceneOutfitBeatRequest,
           specifiedType: _type);
     } catch (error, stackTrace) {
       throw DioException(
@@ -10673,11 +11462,11 @@ class HandlersApi {
     );
   }
 
-  /// Upload a photo and link it to a costume.
-  /// The request body is raw image bytes; the &#x60;Content-Type&#x60; header MUST be one of &#x60;image/jpeg&#x60;, &#x60;image/png&#x60;, or &#x60;image/webp&#x60;. HEIC/HEIF is rejected with 415. The file size MUST NOT exceed &#x60;PHOTO_MAX_SIZE_MB&#x60; (default 20 MB). Authorization is checked per-request via season-scoped membership.
+  /// Upload a fitting photo for an outfit.
+  /// The photo is bound to the **outfit** (&#x60;PhotoBinding::Outfit&#x60;); the read model surfaces it on every piece of the outfit as well (a garment is usually photographed as part of a look). Authorization resolves the outfit&#39;s character season inside the handler (&#x60;// AUTHZ-GATE:&#x60;).
   ///
   /// Parameters:
-  /// * [costumeId] - Costume id
+  /// * [outfitId] - Outfit id
   /// * [body] - Raw image bytes (JPEG/PNG/WebP)
   /// * [cancelToken] - A [CancelToken] that can be used to cancel the operation
   /// * [headers] - Can be used to add additional headers to the request
@@ -10688,8 +11477,8 @@ class HandlersApi {
   ///
   /// Returns a [Future] containing a [Response] with a [PhotoView] as data
   /// Throws [DioException] if API call or serialization fails
-  Future<Response<PhotoView>> uploadCostumePhoto({
-    required String costumeId,
+  Future<Response<PhotoView>> uploadOutfitPhoto({
+    required String outfitId,
     required String body,
     CancelToken? cancelToken,
     Map<String, dynamic>? headers,
@@ -10698,9 +11487,108 @@ class HandlersApi {
     ProgressCallback? onSendProgress,
     ProgressCallback? onReceiveProgress,
   }) async {
-    final _path = r'/v1/costumes/{costume_id}/photos'.replaceAll(
-        '{' r'costume_id' '}',
-        encodeQueryParameter(_serializers, costumeId, const FullType(String))
+    final _path = r'/v1/outfits/{outfit_id}/photos'.replaceAll(
+        '{' r'outfit_id' '}',
+        encodeQueryParameter(_serializers, outfitId, const FullType(String))
+            .toString());
+    final _options = Options(
+      method: r'POST',
+      headers: <String, dynamic>{
+        ...?headers,
+      },
+      extra: <String, dynamic>{
+        'secure': <Map<String, String>>[],
+        ...?extra,
+      },
+      contentType: 'image/jpeg',
+      validateStatus: validateStatus,
+    );
+
+    dynamic _bodyData;
+
+    try {
+      _bodyData = body;
+    } catch (error, stackTrace) {
+      throw DioException(
+        requestOptions: _options.compose(
+          _dio.options,
+          _path,
+        ),
+        type: DioExceptionType.unknown,
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+
+    final _response = await _dio.request<Object>(
+      _path,
+      data: _bodyData,
+      options: _options,
+      cancelToken: cancelToken,
+      onSendProgress: onSendProgress,
+      onReceiveProgress: onReceiveProgress,
+    );
+
+    PhotoView? _responseData;
+
+    try {
+      final rawResponse = _response.data;
+      _responseData = rawResponse == null
+          ? null
+          : _serializers.deserialize(
+              rawResponse,
+              specifiedType: const FullType(PhotoView),
+            ) as PhotoView;
+    } catch (error, stackTrace) {
+      throw DioException(
+        requestOptions: _response.requestOptions,
+        response: _response,
+        type: DioExceptionType.unknown,
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+
+    return Response<PhotoView>(
+      data: _responseData,
+      headers: _response.headers,
+      isRedirect: _response.isRedirect,
+      requestOptions: _response.requestOptions,
+      redirects: _response.redirects,
+      statusCode: _response.statusCode,
+      statusMessage: _response.statusMessage,
+      extra: _response.extra,
+    );
+  }
+
+  /// Upload a photo and link it to a piece.
+  /// The request body is raw image bytes; the &#x60;Content-Type&#x60; header MUST be one of &#x60;image/jpeg&#x60;, &#x60;image/png&#x60;, or &#x60;image/webp&#x60;. HEIC/HEIF is rejected with 415. The file size MUST NOT exceed &#x60;PHOTO_MAX_SIZE_MB&#x60; (default 20 MB). Authorization is checked per-request via season-scoped membership.
+  ///
+  /// Parameters:
+  /// * [pieceId] - Piece id
+  /// * [body] - Raw image bytes (JPEG/PNG/WebP)
+  /// * [cancelToken] - A [CancelToken] that can be used to cancel the operation
+  /// * [headers] - Can be used to add additional headers to the request
+  /// * [extras] - Can be used to add flags to the request
+  /// * [validateStatus] - A [ValidateStatus] callback that can be used to determine request success based on the HTTP status of the response
+  /// * [onSendProgress] - A [ProgressCallback] that can be used to get the send progress
+  /// * [onReceiveProgress] - A [ProgressCallback] that can be used to get the receive progress
+  ///
+  /// Returns a [Future] containing a [Response] with a [PhotoView] as data
+  /// Throws [DioException] if API call or serialization fails
+  Future<Response<PhotoView>> uploadPiecePhoto({
+    required String pieceId,
+    required String body,
+    CancelToken? cancelToken,
+    Map<String, dynamic>? headers,
+    Map<String, dynamic>? extra,
+    ValidateStatus? validateStatus,
+    ProgressCallback? onSendProgress,
+    ProgressCallback? onReceiveProgress,
+  }) async {
+    final _path = r'/v1/pieces/{piece_id}/photos'.replaceAll(
+        '{' r'piece_id' '}',
+        encodeQueryParameter(_serializers, pieceId, const FullType(String))
             .toString());
     final _options = Options(
       method: r'POST',

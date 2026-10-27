@@ -17,12 +17,12 @@ part 'apply_ai_import_response.g.dart';
 /// Properties:
 /// * [appliedCount]
 /// * [createdCharacters] - Figures the script apply created. A figure named by several draft rows is created once, so this is not `applied_count`-related. `0` for a schedule apply, which has no figures.
-/// * [createdCostumes] - Costumes the script apply created (unassigned, then bound).
+/// * [createdCostumes] - Costume rows the script apply created (a piece in the fundus, then joined to the figure's outfit). The field keeps the `costume` name until the AI-import vocabulary is renamed as one coherent step (successor change `ai-import-outfit-and-pieces`).
 /// * [createdDays]
 /// * [createdEpisodes] - Episodes the script apply created for draft episode groups the reviewer mapped to a NEW episode (issue #581). `0` for a schedule apply.
 /// * [plannedSceneShoots]
 /// * [skippedDayGroups] - Day groups the reviewer rejected — their rows applied unscheduled (issue #706). Reported so the reviewer sees the deliberate omission, never a silent one.
-/// * [unappliedCostumes] - Costume rows that did **not** become a `Costume`, each with the reason. An apply that created a costume but could not bind it reports the row here while `created_costumes` still counts it — a partially applied row must never look like a fully applied one.
+/// * [unappliedCostumes] - Costume rows that were **not** fully applied, each with the reason. An apply that created a piece but could not put it into the figure's outfit reports the row here while `created_costumes` still counts it — a partially applied row must never look like a fully applied one.
 @BuiltValue()
 abstract class ApplyAiImportResponse
     implements Built<ApplyAiImportResponse, ApplyAiImportResponseBuilder> {
@@ -33,7 +33,7 @@ abstract class ApplyAiImportResponse
   @BuiltValueField(wireName: r'created_characters')
   int get createdCharacters;
 
-  /// Costumes the script apply created (unassigned, then bound).
+  /// Costume rows the script apply created (a piece in the fundus, then joined to the figure's outfit). The field keeps the `costume` name until the AI-import vocabulary is renamed as one coherent step (successor change `ai-import-outfit-and-pieces`).
   @BuiltValueField(wireName: r'created_costumes')
   int get createdCostumes;
 
@@ -51,7 +51,7 @@ abstract class ApplyAiImportResponse
   @BuiltValueField(wireName: r'skipped_day_groups')
   BuiltList<String>? get skippedDayGroups;
 
-  /// Costume rows that did **not** become a `Costume`, each with the reason. An apply that created a costume but could not bind it reports the row here while `created_costumes` still counts it — a partially applied row must never look like a fully applied one.
+  /// Costume rows that were **not** fully applied, each with the reason. An apply that created a piece but could not put it into the figure's outfit reports the row here while `created_costumes` still counts it — a partially applied row must never look like a fully applied one.
   @BuiltValueField(wireName: r'unapplied_costumes')
   BuiltList<UnappliedCostume> get unappliedCostumes;
 

@@ -26,6 +26,106 @@ tag. Never edit a released entry afterwards.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Wardrobe split — review findings** (branch
+  `feature/separate-piece-and-outfit-domain`, findings CR-001 … CR-005; no
+  additional version bump, all four ride the same unreleased `api 0.42.0` /
+  `infra 0.52.0` cut):
+  - **Dead photo-upload compensation (CR-001).** `upload_piece_photo` and
+    `upload_outfit_photo` compensated a refused upload/link with
+    `.inspect_err(|_| drop(photo_storage().delete_all(id)))` — `delete_all` is
+    `async`, so the future was dropped before its first poll and the
+    compensation was a silent no-op: object bytes (and the `projection_photo`
+    row) survived every failed link, and the photo GC cannot reclaim them
+    because it only deletes ids the projection does **not** know. Both paths now
+    `match` and await one shared `compensate_stored_photo_bytes` helper inline:
+    best-effort delete, `tracing::warn!` on its own failure, never displacing the
+    original error (`409` stays the answer). The GC sweep remains the crash
+    backstop.
+  - **Archived seasons block every outfit mutation (CR-002).**
+    `POST /v1/outfits` was the only outfit route checking `season.archived`;
+    `POST /v1/outfits/{id}/variants`, `PATCH …/name`, `PATCH …/notes`,
+    `POST/DELETE …/pieces[/{piece_id}]` and `POST/DELETE …/photos[/{photo_id}]`
+    now share `authorize_outfit_mutation` and answer `409 season.archived`
+    before dispatch. Reads (`GET /v1/outfits/{id}`,
+    `GET /v1/characters/{id}/outfits`) deliberately keep answering 200 for an
+    archived season (#533), so the check lives in the mutation gate only — not
+    in the scope-resolution helper the reads share. `openapi.yaml` regenerated
+    with the missing `409` responses.
+  - **AI apply honours the archive (CR-002/D2).** The script-apply worker
+    refused nothing when the target season was archived, so the outfit step
+    created looks in a terminal season. It now reads the season projection
+    before the outfit dispatch and ends the mapping row as `refused`
+    (`binding_rejected`, no `OutfitCreated`) while steps 1+2 stay valid — the
+    piece remains in the fundus, visible and correctable. A season-lookup
+    **outage** is not a refusal: it fails the whole apply so the retry re-drives
+    the unfinished rows.
+  - **Consecutive-identical beat guard specified as implemented (CR-003).** The
+    guard fires only when `outfit_id` **and** `note` match the character's last
+    beat; a re-wear with a new cue is a deliberate signal and stays accepted.
+    Spec scenario + unit test added, no behaviour change.
+  - **Housekeeping:** the stale `/costumes/{id}/photos…` route comments in the
+    authorization classifier now name the piece/outfit photo routes (CR-004),
+    and the rollback migration folds **both** `Piece` and `Outfit` photo
+    bindings back to `Costume` instead of leaving rows the pre-split binary
+    cannot deserialize (CR-005).
+
+### Changed
+
+- **Wardrobe split: `Piece` (fundus) and `Outfit` (character look) — clean
+  cut** (OpenSpec change `separate-piece-and-outfit-domain`). The single
+  `Costume` aggregate conflated the garment and the character's look; it is
+  replaced by two aggregates plus a re-pointed scene-side casting relation:
+
+  - `PieceAggregate` (stream `"piece"`) is a garment in the wardrobe fundus:
+    required non-blank `name`, one optional `category_id`, a season
+    **repertoire** (`seasons`), pure-description details, photos, notes — and
+    **no `character_id`**. `PieceView.photos` merges the directly linked piece
+    photos with the photos of every outfit containing the piece.
+  - `OutfitAggregate` (stream `"outfit"`) is the look a character wears:
+    mandatory `character_id` (its season scope derives from the character),
+    required `name`, `0..n` `piece_ids` with **layering explicitly allowed**
+    (several pieces of one category), `variant_of`, photos, notes.
+    `CreateOutfitVariant` forks a source outfit as an independent copy whose
+    data is resolved at the API edge (CQRS boundary) and carried in the
+    command.
+  - Scenes cast **outfits**: `SceneOutfitBeat { character_id, outfit_id,
+    order, note }` replaces `SceneCostumeBeat`, `SceneView.outfit_beats`
+    replaces `costume_beats`.
+  - `PhotoBinding::Piece`/`Outfit` replace `PhotoBinding::Costume`;
+    `PhotoDeletionSaga` refcounts across the `piece` **and** `outfit` streams
+    (a photo linked to an outfit and to its pieces is deleted only at a
+    combined count of zero).
+  - Problem codes `piece.not-found`, `piece.validation`,
+    `piece-detail.not-found`, `piece.container-unresolved`,
+    `outfit.not-found`, `outfit.validation` replace the `costume.*` /
+    `costume-detail.*` entries; `costume-category.*` is unchanged.
+  - Routes: `/v1/pieces*`, `/v1/outfits*`, `/v1/characters/{id}/outfits`,
+    `/v1/scenes/{id}/outfits*`. The former `/v1/costumes*` and
+    `/v1/scenes/{id}/costumes*` routes are **gone** (404, no alias).
+  - Projections: `projection_piece`, `projection_piece_season`,
+    `projection_piece_detail`, `projection_piece_photo`, `projection_outfit`,
+    `projection_outfit_piece` (`position`; deliberately no FK to
+    `projection_piece`), `projection_outfit_photo`,
+    `projection_scene_outfit_assignment`; the `projection_costume*` tables and
+    `projection_scene_costume_assignment` are dropped
+    (migration `20261015000001`), and
+    `projection_continuity_photo.costume_id` is renamed to `piece_id`.
+  - No legacy replay shims: the retired `"costume"` streams are inert (no
+    projector subscribes to them) and no production stream exists. The
+    first-wins detail-category derivation rule is retired with them.
+
+  `core 0.43.0 → 0.44.0` (`costume` → `piece` + `outfit`, scene beat rename,
+  photo binding, registry), `infra 0.51.0 → 0.52.0` (schema migration,
+  piece/outfit projectors + audit projectors, `WardrobeCommandsImpl`
+  implementing `PieceCommands` + `OutfitCommands`, piece/outfit query
+  adapters, deletion-saga refcounting, AI apply now creates a piece plus the
+  figure's outfit), `api 0.41.0 → 0.42.0` (piece/outfit/scene-beat routes and
+  handlers, handler-internal `AUTHZ-GATE`s, localized problem texts,
+  regenerated `openapi.yaml`). Internal workspace crates re-pin in the same
+  commit.
+
 ### Added
 
 - **Decision capability on the provider-discovery wire (issue #736):**

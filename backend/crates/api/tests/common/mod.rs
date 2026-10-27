@@ -10,6 +10,7 @@
 // Co-authored-by: hy4-preview (opencode-go)
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 // Co-authored-by: qwen3.8-flash (opencode-go)
 
 use std::collections::HashMap;
@@ -24,13 +25,6 @@ use breakdown_core::character::commands::{
 };
 use breakdown_core::character::ports::{CharacterCommands, CharacterRepository};
 use breakdown_core::character::views::{CharacterAppearanceView, CharacterView};
-use breakdown_core::costume::commands::{
-    AddCostumeToSeason, AddDetail, AssignCostumeToCharacter, CreateCostume, LinkPhoto,
-    RemoveCostumeFromSeason, RemoveDetail, SetCostumeCategory, UnassignCostume, UnlinkPhoto,
-    UpdateCostumeDetail, UpdateCostumeNotes,
-};
-use breakdown_core::costume::ports::{CostumeCommands, CostumeRepository};
-use breakdown_core::costume::views::CostumeView;
 use breakdown_core::costume_category::commands::{
     ArchiveCostumeCategory, CreateCostumeCategory, RenameCostumeCategory, ReorderCostumeCategory,
 };
@@ -41,18 +35,31 @@ use breakdown_core::episode::ports::{EpisodeCommands, EpisodeRepository};
 use breakdown_core::episode::views::EpisodeView;
 use breakdown_core::error::DomainError;
 use breakdown_core::error_registry::SCENE_NOT_FOUND;
+use breakdown_core::outfit::commands::{
+    AddPieceToOutfit, CreateOutfit, CreateOutfitVariant, LinkOutfitPhoto, RemovePieceFromOutfit,
+    RenameOutfit, UnlinkOutfitPhoto, UpdateOutfitNotes,
+};
+use breakdown_core::outfit::ports::{OutfitCommands, OutfitRepository};
+use breakdown_core::outfit::views::OutfitView;
 use breakdown_core::photo::commands::{
     DeletePhoto, GenerateVariant, MarkVariantFailed, NormalizeOriginal, UploadPhoto,
 };
 use breakdown_core::photo::ports::{PhotoCommands, PhotoRepository, PhotoStorage};
 use breakdown_core::photo::views::{PhotoBytes, PhotoView};
+use breakdown_core::piece::commands::{
+    AddPieceDetail, AddPieceToSeason, CreatePiece, LinkPiecePhoto, RemovePieceDetail,
+    RemovePieceFromSeason, RenamePiece, SetPieceCategory, UnlinkPiecePhoto, UpdatePieceDetail,
+    UpdatePieceNotes,
+};
+use breakdown_core::piece::ports::{PieceCommands, PieceRepository};
+use breakdown_core::piece::views::PieceView;
 use breakdown_core::reporting::{
     EnqueueArchivalRequest, EnqueueArchivalResult, ReportArchivalError, ReportArchivalQueue,
     ReportJobId, ReportJobStatus,
 };
 use breakdown_core::scene::commands::{
-    AddCostumeBeat, AssignCharacter, CreateScene, RemoveCharacter, RemoveCostumeBeat,
-    ScheduleSceneOnShootingDay, UnscheduleSceneFromShootingDay, UpdateCostumeBeat,
+    AddOutfitBeat, AssignCharacter, CreateScene, RemoveCharacter, RemoveOutfitBeat,
+    ScheduleSceneOnShootingDay, UnscheduleSceneFromShootingDay, UpdateOutfitBeat,
     UpdateSceneDetails,
 };
 use breakdown_core::scene::ports::{SceneCommands, SceneRepository};
@@ -114,7 +121,7 @@ use infra::ai::MemoryAiPreviewStore;
 #[derive(Clone, Default)]
 #[allow(dead_code)]
 pub struct FakeSceneCommands {
-    /// Failure injection for the costume-beat command paths (issue #546
+    /// Failure injection for the piece-beat command paths (issue #546
     /// handler tests): the next beat command fails with this error.
     fail_next_beat: Arc<Mutex<Option<DomainError>>>,
 }
@@ -161,30 +168,30 @@ impl SceneCommands for FakeSceneCommands {
     ) -> Result<AggregateVersion, DomainError> {
         Ok(AggregateVersion::INITIAL.next())
     }
-    async fn add_costume_beat(
+    async fn add_outfit_beat(
         &self,
         _actor: UserId,
-        _cmd: AddCostumeBeat,
+        _cmd: AddOutfitBeat,
     ) -> Result<AggregateVersion, DomainError> {
         if let Some(err) = self.take_beat_failure().await {
             return Err(err);
         }
         Ok(AggregateVersion::INITIAL.next())
     }
-    async fn update_costume_beat(
+    async fn update_outfit_beat(
         &self,
         _actor: UserId,
-        _cmd: UpdateCostumeBeat,
+        _cmd: UpdateOutfitBeat,
     ) -> Result<AggregateVersion, DomainError> {
         if let Some(err) = self.take_beat_failure().await {
             return Err(err);
         }
         Ok(AggregateVersion::INITIAL.next())
     }
-    async fn remove_costume_beat(
+    async fn remove_outfit_beat(
         &self,
         _actor: UserId,
-        _cmd: RemoveCostumeBeat,
+        _cmd: RemoveOutfitBeat,
     ) -> Result<AggregateVersion, DomainError> {
         if let Some(err) = self.take_beat_failure().await {
             return Err(err);
@@ -245,7 +252,7 @@ impl CharacterCommands for FakeCharacterCommands {
 
 /// A `Detail` command outcome, keyed by [`DetailCommandKind`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-#[allow(dead_code)] // see the note on `impl FakeCostumeCommands` below
+#[allow(dead_code)] // see the note on `impl FakePieceCommands` below
 pub enum DetailCommandKind {
     Update,
     Remove,
@@ -253,9 +260,9 @@ pub enum DetailCommandKind {
 
 #[derive(Clone, Default)]
 #[allow(dead_code)]
-pub struct FakeCostumeCommands {
+pub struct FakePieceCommands {
     /// Issue #544: programmable outcome for the detail edit/delete commands so
-    /// a handler test can exercise the 404 `costume-detail.not-found` and the
+    /// a handler test can exercise the 404 `piece-detail.not-found` and the
     /// 409 version fence without a live event store. Absent = the default
     /// success (one version bump).
     pub detail_result: Arc<Mutex<HashMap<DetailCommandKind, DomainError>>>,
@@ -263,13 +270,19 @@ pub struct FakeCostumeCommands {
     /// can assert the body/path id agreement and that a denied caller sends
     /// nothing at all.
     pub detail_calls: Arc<Mutex<Vec<(DetailCommandKind, Uuid)>>>,
+    /// CR-001: programmable outcome for the photo-link dispatches (piece and
+    /// outfit alike), so a handler test can prove the compensating storage
+    /// delete runs when the link is refused. Absent = success.
+    pub link_photo_result: Arc<Mutex<Option<DomainError>>>,
+    /// CR-001: the `photo_id`s whose link the handler actually dispatched.
+    pub link_photo_calls: Arc<Mutex<Vec<Uuid>>>,
 }
 
 // This `mod common` is compiled into EVERY api test binary, but the #544
-// helpers are only used by `handler_costume_detail` — the same reason the
+// helpers are only used by `handler_piece_detail` — the same reason the
 // struct itself carries `#[allow(dead_code)]`.
 #[allow(dead_code)]
-impl FakeCostumeCommands {
+impl FakePieceCommands {
     /// Force the next outcome of a detail command (e.g. a 404 or a 409).
     pub async fn fail_detail(&self, kind: DetailCommandKind, err: DomainError) {
         self.detail_result.lock().await.insert(kind, err);
@@ -278,6 +291,25 @@ impl FakeCostumeCommands {
     /// The `detail_id`s dispatched so far, in order.
     pub async fn detail_ids(&self) -> Vec<(DetailCommandKind, Uuid)> {
         self.detail_calls.lock().await.clone()
+    }
+
+    /// CR-001: make every following photo link fail (e.g. with a version
+    /// conflict) so the handler's compensation path runs.
+    pub async fn fail_link_photo(&self, err: DomainError) {
+        self.link_photo_result.lock().await.replace(err);
+    }
+
+    /// CR-001: the `photo_id`s whose link was dispatched, in order.
+    pub async fn link_photo_ids(&self) -> Vec<Uuid> {
+        self.link_photo_calls.lock().await.clone()
+    }
+
+    async fn record_link_photo(&self, photo_id: Uuid) -> Result<AggregateVersion, DomainError> {
+        self.link_photo_calls.lock().await.push(photo_id);
+        match self.link_photo_result.lock().await.clone() {
+            Some(err) => Err(err),
+            None => Ok(AggregateVersion::INITIAL.next()),
+        }
     }
 
     async fn record_detail(
@@ -293,60 +325,53 @@ impl FakeCostumeCommands {
     }
 }
 
-impl CostumeCommands for FakeCostumeCommands {
+impl PieceCommands for FakePieceCommands {
     async fn create(
         &self,
         _actor: UserId,
-        cmd: CreateCostume,
+        cmd: CreatePiece,
     ) -> Result<(Uuid, AggregateVersion), DomainError> {
         Ok((cmd.id, AggregateVersion::INITIAL))
+    }
+    async fn rename(
+        &self,
+        _actor: UserId,
+        _cmd: RenamePiece,
+    ) -> Result<AggregateVersion, DomainError> {
+        Ok(AggregateVersion::INITIAL.next())
     }
     async fn update_notes(
         &self,
         _actor: UserId,
-        _cmd: UpdateCostumeNotes,
-    ) -> Result<AggregateVersion, DomainError> {
-        Ok(AggregateVersion::INITIAL.next())
-    }
-    async fn assign_to_character(
-        &self,
-        _actor: UserId,
-        _cmd: AssignCostumeToCharacter,
-    ) -> Result<AggregateVersion, DomainError> {
-        Ok(AggregateVersion::INITIAL.next())
-    }
-    async fn unassign(
-        &self,
-        _actor: UserId,
-        _cmd: UnassignCostume,
+        _cmd: UpdatePieceNotes,
     ) -> Result<AggregateVersion, DomainError> {
         Ok(AggregateVersion::INITIAL.next())
     }
     async fn add_to_season(
         &self,
         _actor: UserId,
-        _cmd: AddCostumeToSeason,
+        _cmd: AddPieceToSeason,
     ) -> Result<AggregateVersion, DomainError> {
         Ok(AggregateVersion::INITIAL.next())
     }
     async fn remove_from_season(
         &self,
         _actor: UserId,
-        _cmd: RemoveCostumeFromSeason,
+        _cmd: RemovePieceFromSeason,
     ) -> Result<AggregateVersion, DomainError> {
         Ok(AggregateVersion::INITIAL.next())
     }
     async fn add_detail(
         &self,
         _actor: UserId,
-        _cmd: AddDetail,
+        _cmd: AddPieceDetail,
     ) -> Result<AggregateVersion, DomainError> {
         Ok(AggregateVersion::INITIAL.next())
     }
     async fn update_detail(
         &self,
         _actor: UserId,
-        cmd: UpdateCostumeDetail,
+        cmd: UpdatePieceDetail,
     ) -> Result<AggregateVersion, DomainError> {
         self.record_detail(DetailCommandKind::Update, cmd.detail.id)
             .await
@@ -354,7 +379,7 @@ impl CostumeCommands for FakeCostumeCommands {
     async fn remove_detail(
         &self,
         _actor: UserId,
-        cmd: RemoveDetail,
+        cmd: RemovePieceDetail,
     ) -> Result<AggregateVersion, DomainError> {
         self.record_detail(DetailCommandKind::Remove, cmd.detail_id)
             .await
@@ -362,21 +387,80 @@ impl CostumeCommands for FakeCostumeCommands {
     async fn set_category(
         &self,
         _actor: UserId,
-        _cmd: SetCostumeCategory,
+        _cmd: SetPieceCategory,
     ) -> Result<AggregateVersion, DomainError> {
         Ok(AggregateVersion::INITIAL.next())
     }
     async fn link_photo(
         &self,
         _actor: UserId,
-        _cmd: LinkPhoto,
+        cmd: LinkPiecePhoto,
     ) -> Result<AggregateVersion, DomainError> {
-        Ok(AggregateVersion::INITIAL.next())
+        self.record_link_photo(cmd.photo_id).await
     }
     async fn unlink_photo(
         &self,
         _actor: UserId,
-        _cmd: UnlinkPhoto,
+        _cmd: UnlinkPiecePhoto,
+    ) -> Result<AggregateVersion, DomainError> {
+        Ok(AggregateVersion::INITIAL.next())
+    }
+}
+
+impl OutfitCommands for FakePieceCommands {
+    async fn create(
+        &self,
+        _actor: UserId,
+        cmd: CreateOutfit,
+    ) -> Result<(Uuid, AggregateVersion), DomainError> {
+        Ok((cmd.id, AggregateVersion::INITIAL))
+    }
+    async fn create_variant(
+        &self,
+        _actor: UserId,
+        cmd: CreateOutfitVariant,
+    ) -> Result<(Uuid, AggregateVersion), DomainError> {
+        Ok((cmd.id, AggregateVersion::INITIAL))
+    }
+    async fn rename(
+        &self,
+        _actor: UserId,
+        _cmd: RenameOutfit,
+    ) -> Result<AggregateVersion, DomainError> {
+        Ok(AggregateVersion::INITIAL.next())
+    }
+    async fn update_notes(
+        &self,
+        _actor: UserId,
+        _cmd: UpdateOutfitNotes,
+    ) -> Result<AggregateVersion, DomainError> {
+        Ok(AggregateVersion::INITIAL.next())
+    }
+    async fn add_piece(
+        &self,
+        _actor: UserId,
+        _cmd: AddPieceToOutfit,
+    ) -> Result<AggregateVersion, DomainError> {
+        Ok(AggregateVersion::INITIAL.next())
+    }
+    async fn remove_piece(
+        &self,
+        _actor: UserId,
+        _cmd: RemovePieceFromOutfit,
+    ) -> Result<AggregateVersion, DomainError> {
+        Ok(AggregateVersion::INITIAL.next())
+    }
+    async fn link_photo(
+        &self,
+        _actor: UserId,
+        cmd: LinkOutfitPhoto,
+    ) -> Result<AggregateVersion, DomainError> {
+        self.record_link_photo(cmd.photo_id).await
+    }
+    async fn unlink_photo(
+        &self,
+        _actor: UserId,
+        _cmd: UnlinkOutfitPhoto,
     ) -> Result<AggregateVersion, DomainError> {
         Ok(AggregateVersion::INITIAL.next())
     }
@@ -581,15 +665,15 @@ pub struct FakeMembershipRepo {
     /// Configurable outcome of `has_active_costume_role_in_season` — lets handler
     /// tests exercise the allow/deny branches of handler-internal authz gates.
     /// `None` = resolve from seeded data.
-    pub costume_role_override: Arc<Mutex<Option<Result<bool, DomainError>>>>,
+    pub piece_role_override: Arc<Mutex<Option<Result<bool, DomainError>>>>,
     /// Per-season outcome for `has_active_costume_role_in_season`
     /// (issue #532): `season_id → Result`. Consulted **before**
-    /// [Self::costume_role_override], so a test can deny the character's
+    /// [Self::piece_role_override], so a test can deny the character's
     /// season while allowing a repertoire season (the ANY semantics of the
-    /// costume scope resolution) and — via an `Err` entry — simulate a
+    /// piece scope resolution) and — via an `Err` entry — simulate a
     /// database failure for one season only. Seasons absent from the map fall
     /// through to the next source.
-    pub costume_role_by_season: Arc<Mutex<HashMap<Uuid, Result<bool, DomainError>>>>,
+    pub piece_role_by_season: Arc<Mutex<HashMap<Uuid, Result<bool, DomainError>>>>,
     /// Configurable outcome of `has_active_report_archive_role_in_season` — lets handler
     /// tests exercise the allow/deny branches of report-archive authz gates.
     /// `None` = resolve from seeded data.
@@ -601,7 +685,7 @@ pub struct FakeMembershipRepo {
     /// Configurable outcome of `has_active_costume_role_in_project` — lets
     /// handler tests exercise the allow/deny/error branches of the series-scoped
     /// photo gate (issue #535). `None` = resolve from seeded data.
-    pub series_costume_role_override: Arc<Mutex<Option<Result<bool, DomainError>>>>,
+    pub series_piece_role_override: Arc<Mutex<Option<Result<bool, DomainError>>>>,
 }
 
 #[allow(dead_code)]
@@ -810,10 +894,10 @@ impl MembershipRepository for FakeMembershipRepo {
         project_id: ProjectId,
         user_id: UserId,
     ) -> Result<bool, DomainError> {
-        if let Some(result) = self.series_costume_role_override.lock().await.clone() {
+        if let Some(result) = self.series_piece_role_override.lock().await.clone() {
             return result;
         }
-        // Series-scoped costume-role allowlist over the seeded rows (issue
+        // Series-scoped piece-role allowlist over the seeded rows (issue
         // #535): the photo-gate predicate. Unscoped rows never match.
         let rows = self.rows().await;
         let scopes = self.scopes.lock().await;
@@ -835,10 +919,10 @@ impl MembershipRepository for FakeMembershipRepo {
         season_id: SeasonId,
         user_id: UserId,
     ) -> Result<bool, DomainError> {
-        if let Some(result) = self.costume_role_by_season.lock().await.get(&season_id.0) {
+        if let Some(result) = self.piece_role_by_season.lock().await.get(&season_id.0) {
             return result.clone();
         }
-        if let Some(result) = self.costume_role_override.lock().await.clone() {
+        if let Some(result) = self.piece_role_override.lock().await.clone() {
             return result;
         }
         Ok(self
@@ -862,7 +946,7 @@ impl MembershipRepository for FakeMembershipRepo {
         if let Some(result) = self.report_archive_role_override.lock().await.clone() {
             return result;
         }
-        // `costume_assistant` is deliberately excluded (manual archival is a
+        // `piece_assistant` is deliberately excluded (manual archival is a
         // deliberate remediation action) — mirroring the SQL allowlist.
         Ok(self
             .has_seeded_role_in_season(
@@ -991,28 +1075,28 @@ impl CharacterRepository for FakeCharacterRepo {
 
 #[derive(Clone, Default)]
 #[allow(dead_code)]
-pub struct FakeCostumeRepo {
-    pub costumes: Arc<Mutex<HashMap<Uuid, CostumeView>>>,
-    /// Costume → repertoire seasons (`projection_costume_season`, issue #453;
-    /// read by issue #532). Unseeded costumes have an empty repertoire, which
+pub struct FakePieceRepo {
+    pub pieces: Arc<Mutex<HashMap<Uuid, PieceView>>>,
+    /// Piece → repertoire seasons (`projection_piece_season`, issue #453;
+    /// read by issue #532). Unseeded pieces have an empty repertoire, which
     /// is the pre-repertoire / no-scope case.
     pub repertoire: Arc<Mutex<HashMap<Uuid, Vec<SeasonId>>>>,
     /// When `Some`, `repertoire_seasons` returns this error (issue #535
     /// review): the strict photo-gate resolver must propagate it as a 500,
-    /// never as a 422 `costume.container-unresolved`.
+    /// never as a 422 `piece.container-unresolved`.
     pub repertoire_error: Arc<Mutex<Option<DomainError>>>,
 }
 
-impl CostumeRepository for FakeCostumeRepo {
-    async fn find_by_id(&self, id: Uuid) -> Result<CostumeView, DomainError> {
-        self.costumes
+impl PieceRepository for FakePieceRepo {
+    async fn find_by_id(&self, id: Uuid) -> Result<PieceView, DomainError> {
+        self.pieces
             .lock()
             .await
             .get(&id)
             .cloned()
             .ok_or(DomainError::NotFound {
-                code: &breakdown_core::error_registry::COSTUME_NOT_FOUND,
-                resource: "costume",
+                code: &breakdown_core::error_registry::PIECE_NOT_FOUND,
+                resource: "piece",
                 id,
             })
     }
@@ -1021,19 +1105,13 @@ impl CostumeRepository for FakeCostumeRepo {
         _season_id: SeasonId,
         _limit: i64,
         _offset: i64,
-    ) -> Result<Vec<CostumeView>, DomainError> {
+    ) -> Result<Vec<PieceView>, DomainError> {
         Ok(Vec::new())
     }
-    async fn costumes_by_character(
-        &self,
-        _character_id: Uuid,
-    ) -> Result<Vec<CostumeView>, DomainError> {
-        Ok(Vec::new())
+    async fn piece_with_details_photos(&self, _id: Uuid) -> Result<PieceView, DomainError> {
+        Err(DomainError::not_found("piece"))
     }
-    async fn costume_with_details_photos(&self, _id: Uuid) -> Result<CostumeView, DomainError> {
-        Err(DomainError::not_found("costume"))
-    }
-    async fn repertoire_seasons(&self, costume_id: Uuid) -> Result<Vec<SeasonId>, DomainError> {
+    async fn repertoire_seasons(&self, piece_id: Uuid) -> Result<Vec<SeasonId>, DomainError> {
         if let Some(err) = self.repertoire_error.lock().await.clone() {
             return Err(err);
         }
@@ -1041,9 +1119,43 @@ impl CostumeRepository for FakeCostumeRepo {
             .repertoire
             .lock()
             .await
-            .get(&costume_id)
+            .get(&piece_id)
             .cloned()
             .unwrap_or_default())
+    }
+}
+
+/// Outfit read port fake: seedable outfits plus the per-character listing the
+/// handler tests exercise.
+#[derive(Clone, Default)]
+#[allow(dead_code)]
+pub struct FakeOutfitRepo {
+    pub outfits: Arc<Mutex<HashMap<Uuid, OutfitView>>>,
+}
+
+impl OutfitRepository for FakeOutfitRepo {
+    async fn find_by_id(&self, id: Uuid) -> Result<OutfitView, DomainError> {
+        self.outfits
+            .lock()
+            .await
+            .get(&id)
+            .cloned()
+            .ok_or(DomainError::NotFound {
+                code: &breakdown_core::error_registry::OUTFIT_NOT_FOUND,
+                resource: "outfit",
+                id,
+            })
+    }
+
+    async fn list_by_character(&self, character_id: Uuid) -> Result<Vec<OutfitView>, DomainError> {
+        let outfits = self.outfits.lock().await;
+        let mut views: Vec<OutfitView> = outfits
+            .values()
+            .filter(|outfit| outfit.character_id == character_id)
+            .cloned()
+            .collect();
+        views.sort_by_key(|outfit| outfit.id);
+        Ok(views)
     }
 }
 
@@ -1052,7 +1164,7 @@ impl CostumeRepository for FakeCostumeRepo {
 pub struct FakeCostumeCategoryRepo {
     /// Seedable `projection_costume_category` rows (issue #543): the
     /// set-category handler pre-checks existence, `archived`, and the
-    /// category's season against the costume's scopes.
+    /// category's season against the piece's scopes.
     pub categories: Arc<Mutex<HashMap<Uuid, CostumeCategoryView>>>,
 }
 
@@ -1074,7 +1186,7 @@ impl CostumeCategoryRepository for FakeCostumeCategoryRepo {
             .cloned()
             .ok_or(DomainError::NotFound {
                 code: &breakdown_core::error_registry::COSTUME_CATEGORY_NOT_FOUND,
-                resource: "costume-category",
+                resource: "piece-category",
                 id,
             })
     }
@@ -1504,7 +1616,7 @@ pub type FakePhotoObjects = Arc<Mutex<HashMap<(Uuid, PhotoVariant), (Vec<u8>, St
 pub struct FakePhotoStorage {
     /// Seeded object bytes, keyed by `(photo_id, variant)`. Empty by default,
     /// so `fetch` keeps the production-shaped not-found behaviour unless a
-    /// test seeds the object (issue #532: the costume-photo bytes handler
+    /// test seeds the object (issue #532: the piece-photo bytes handler
     /// needs a 2xx path to prove the scope gate passed).
     pub objects: FakePhotoObjects,
 }
@@ -2520,7 +2632,7 @@ impl breakdown_core::ai::AiModelPricingRepository for FakeAiModelPricingRepo {
     }
 }
 
-/// The full mapping row key. A draft scene and its first costume share a
+/// The full mapping row key. A draft scene and its first piece share a
 /// `draft_ref`, so matching on the reference alone would hand one row's
 /// aggregate id to a different row — the fake must address rows the way the
 /// production primary key does.
@@ -2659,8 +2771,9 @@ pub struct FakePorts {
     pub scene_repo: FakeSceneRepo,
     pub character_commands: FakeCharacterCommands,
     pub character_repo: FakeCharacterRepo,
-    pub costume_commands: FakeCostumeCommands,
-    pub costume_repo: FakeCostumeRepo,
+    pub piece_commands: FakePieceCommands,
+    pub piece_repo: FakePieceRepo,
+    pub outfit_repo: FakeOutfitRepo,
     pub costume_category_commands: FakeCostumeCategoryCommands,
     pub costume_category_repo: FakeCostumeCategoryRepo,
     pub season_commands: FakeSeasonCommands,
@@ -2708,8 +2821,9 @@ impl Default for FakePorts {
             scene_repo: Default::default(),
             character_commands: Default::default(),
             character_repo: Default::default(),
-            costume_commands: Default::default(),
-            costume_repo: Default::default(),
+            piece_commands: Default::default(),
+            piece_repo: Default::default(),
+            outfit_repo: Default::default(),
             costume_category_commands: Default::default(),
             costume_category_repo: Default::default(),
             season_commands: Default::default(),
@@ -2750,8 +2864,9 @@ impl Ports for FakePorts {
     type SceneRepo = FakeSceneRepo;
     type CharacterCommands = FakeCharacterCommands;
     type CharacterRepo = FakeCharacterRepo;
-    type CostumeCommands = FakeCostumeCommands;
-    type CostumeRepo = FakeCostumeRepo;
+    type WardrobeCommands = FakePieceCommands;
+    type PieceRepo = FakePieceRepo;
+    type OutfitRepo = FakeOutfitRepo;
     type CostumeCategoryCommands = FakeCostumeCategoryCommands;
     type CostumeCategoryRepo = FakeCostumeCategoryRepo;
     type SeasonCommands = FakeSeasonCommands;
@@ -2798,11 +2913,14 @@ impl Ports for FakePorts {
     fn character_repo(&self) -> &Self::CharacterRepo {
         &self.character_repo
     }
-    fn costume_commands(&self) -> &Self::CostumeCommands {
-        &self.costume_commands
+    fn wardrobe_commands(&self) -> &Self::WardrobeCommands {
+        &self.piece_commands
     }
-    fn costume_repo(&self) -> &Self::CostumeRepo {
-        &self.costume_repo
+    fn piece_repo(&self) -> &Self::PieceRepo {
+        &self.piece_repo
+    }
+    fn outfit_repo(&self) -> &Self::OutfitRepo {
+        &self.outfit_repo
     }
     fn costume_category_commands(&self) -> &Self::CostumeCategoryCommands {
         &self.costume_category_commands

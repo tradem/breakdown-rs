@@ -6,6 +6,7 @@
 // Co-authored-by: longcat-2.0-free (opencode)
 // Co-authored-by: qwen3.8-flash (opencode-go)
 // Co-authored-by: glm-5.3-flash (neuralwatt)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 use std::sync::Arc;
 use std::time::Instant;
@@ -28,10 +29,6 @@ use breakdown_core::ai::{
 };
 use breakdown_core::character::commands::CreateCharacter;
 use breakdown_core::character::ports::CharacterCommands;
-use breakdown_core::costume::commands::{
-    AssignCostumeToCharacter, CreateCostume, UpdateCostumeNotes,
-};
-use breakdown_core::costume::ports::CostumeCommands;
 use breakdown_core::episode::commands::CreateEpisode;
 use breakdown_core::episode::ports::EpisodeCommands;
 use breakdown_core::error::DomainError;
@@ -40,11 +37,16 @@ use breakdown_core::error_registry::{
     AI_IMPORT_APPLY_MISSING_SHOOTING_DAY_GROUP,
 };
 use breakdown_core::error_registry::{SCENE_CHARACTER_ALREADY_ASSIGNED, SCENE_VALIDATION};
-use breakdown_core::scene::commands::{AddCostumeBeat, AssignCharacter, CreateScene};
+use breakdown_core::outfit::commands::{AddPieceToOutfit, CreateOutfit};
+use breakdown_core::outfit::ports::OutfitCommands;
+use breakdown_core::piece::commands::{CreatePiece, UpdatePieceNotes};
+use breakdown_core::piece::ports::PieceCommands;
+use breakdown_core::scene::commands::{AddOutfitBeat, AssignCharacter, CreateScene};
 use breakdown_core::scene::events::{SceneDetails, SceneSource};
 use breakdown_core::scene::ports::SceneCommands;
 use breakdown_core::scene_shoot::commands::PlanSceneShoot;
 use breakdown_core::scene_shoot::ports::SceneShootCommands;
+use breakdown_core::season::ports::SeasonRepository;
 use breakdown_core::shared::{
     AggregateVersion, BlockId, EpisodeId, LexicalSortKey, ProjectId, SceneShootId, SeasonId,
     ShootingDayId, UserId,
@@ -1090,7 +1092,7 @@ impl MergeWorker {
 /// Every kind is checked against the persisted mapping before it dispatches, so
 /// a crash or a concurrent duplicate cannot create a second Scene, Character or
 /// Costume.
-pub struct ApplyWorker<C, CH, CO, E, SD, SS, M, Q> {
+pub struct ApplyWorker<C, CH, CO, E, SD, SS, M, Q, SR> {
     pub scene_commands: Arc<C>,
     pub character_commands: Arc<CH>,
     pub costume_commands: Arc<CO>,
@@ -1108,6 +1110,11 @@ pub struct ApplyWorker<C, CH, CO, E, SD, SS, M, Q> {
     pub scene_shoot_commands: Arc<SS>,
     pub mappings: Arc<M>,
     pub queue: Arc<Q>,
+    /// Season read model, used for exactly one thing: refusing the **outfit**
+    /// step when the target season is archived (CR-002/D2, issue #533). See
+    /// `apply_costume` step 3 for why this is a dispatch precondition and not
+    /// an audit-context lookup.
+    pub season_repo: Arc<SR>,
 }
 
 /// Parameters for one reserved scene create in the script apply path.
@@ -1238,17 +1245,20 @@ struct CostumePhases {
 }
 
 impl CostumePhases {
-    /// Version reached after `UpdateCostumeNotes` appended.
+    /// Version reached after `UpdatePieceNotes` appended.
     const NOTED: AggregateVersion = AggregateVersion(2);
-    /// `CreateCostume` appends exactly one event, landing on `INITIAL`.
+    /// `CreatePiece` appends exactly one event, landing on `INITIAL`.
     const CREATED: AggregateVersion = AggregateVersion::INITIAL;
 
-    /// Version reached once the costume is bound to its figure.
-    fn bound(&self) -> AggregateVersion {
+    /// The piece stream is complete (created, optional notes written) once this
+    /// version is reached; the outfit step is then driven on the OUTFIT stream,
+    /// which is idempotent by deterministic id, so no version phase is needed
+    /// for it.
+    fn piece_complete(&self) -> AggregateVersion {
         if self.has_notes {
-            AggregateVersion(3)
-        } else {
             Self::NOTED
+        } else {
+            AggregateVersion(1)
         }
     }
 }
@@ -1302,6 +1312,41 @@ fn ordinal_of(index: usize) -> Result<i32, DomainError> {
     i32::try_from(index).map_err(|_| {
         DomainError::validation("AI apply row index exceeds the mapping ordinal range")
     })
+}
+
+/// The fundus piece's name, derived from the extracted garment description.
+///
+/// The extraction gives free-form prose, not a label: the first clause is the
+/// closest thing to a garment name the script offers. An empty description
+/// falls back to a neutral generic name — the aggregate requires a non-blank
+/// name, and the notes carry the full description anyway.
+fn piece_name(costume: &CostumeApplyPlan) -> String {
+    let first_line = costume
+        .description
+        .lines()
+        .map(str::trim)
+        .find(|line| !line.is_empty())
+        .unwrap_or("");
+    let clause = first_line
+        .split(['.', ';', ','])
+        .map(str::trim)
+        .find(|part| !part.is_empty())
+        .unwrap_or("");
+    if clause.is_empty() {
+        "Kleidungsstück".to_string()
+    } else {
+        clause.chars().take(120).collect()
+    }
+}
+
+/// The look name for the figure's outfit: the figure the extraction named.
+fn outfit_name(costume: &CostumeApplyPlan) -> String {
+    let name = costume.character_name.trim();
+    if name.is_empty() {
+        "Outfit".to_string()
+    } else {
+        name.chars().take(120).collect()
+    }
 }
 
 /// Reviewed script apply request. `episode_id`, `season_id`, `project_id` and
@@ -1360,16 +1405,17 @@ struct BeatDispatch<'a> {
     scene_version: &'a mut AggregateVersion,
 }
 
-impl<C, CH, CO, E, SD, SS, M, Q> ApplyWorker<C, CH, CO, E, SD, SS, M, Q>
+impl<C, CH, CO, E, SD, SS, M, Q, SR> ApplyWorker<C, CH, CO, E, SD, SS, M, Q, SR>
 where
     C: SceneCommands + 'static,
     CH: CharacterCommands + 'static,
-    CO: CostumeCommands + 'static,
+    CO: PieceCommands + OutfitCommands + 'static,
     E: EpisodeCommands + 'static,
     SD: ShootingDayCommands + 'static,
     SS: SceneShootCommands + 'static,
     M: AiImportMappingRepository + 'static,
     Q: AiImportQueue + 'static,
+    SR: SeasonRepository + 'static,
 {
     pub async fn apply_script(
         &self,
@@ -2066,25 +2112,29 @@ where
             }};
         }
 
-        // Step 1: create the costume **without** a character. A version below
-        // `INITIAL` is the reservation sentinel, i.e. no step has appended yet.
+        // Step 1: create the **piece** in the fundus. A version below `INITIAL`
+        // is the reservation sentinel, i.e. no step has appended yet. The piece
+        // carries no character binding any more — the character is expressed by
+        // the outfit created in step 3.
         if version < CostumePhases::CREATED {
-            let attempt = self
-                .costume_commands
-                .create(
-                    actor.clone(),
-                    CreateCostume {
-                        id,
-                        // The repertoire season the API edge resolved for this
-                        // import. Without it a costume whose binding failed would
-                        // be invisible in every list, and "visible as unassigned"
-                        // (spec `costume-character-binding`) requires it to appear
-                        // in the season's wardrobe overview.
-                        season_id: Some(season_id),
-                        project_id,
-                    },
-                )
-                .await;
+            // The garment gets a name from the extraction: the description's
+            // first clause is the closest thing to a label the script gives.
+            let name = piece_name(costume);
+            let attempt = PieceCommands::create(
+                &*self.costume_commands,
+                actor.clone(),
+                CreatePiece {
+                    id,
+                    name,
+                    category_id: None,
+                    // The repertoire season the API edge resolved for this
+                    // import; without it the piece would be invisible in
+                    // every wardrobe list.
+                    season_id: Some(season_id),
+                    project_id,
+                },
+            )
+            .await;
             let outcome = match created_now(attempt) {
                 Ok(outcome) => outcome,
                 Err(error) if is_infra_outage(&error) => return Err(error),
@@ -2098,28 +2148,25 @@ where
         // Step 2: the extracted description, so the garment the script named
         // survives the apply instead of dying in the reviewer's preview.
         if phases.has_notes && version < CostumePhases::NOTED {
-            let notes = self
-                .costume_commands
-                .update_notes(
-                    actor.clone(),
-                    UpdateCostumeNotes {
-                        id,
-                        notes: costume.description.clone(),
-                        project_id,
-                        version,
-                    },
-                )
-                .await;
+            let notes = PieceCommands::update_notes(
+                &*self.costume_commands,
+                actor.clone(),
+                UpdatePieceNotes {
+                    id,
+                    notes: costume.description.clone(),
+                    project_id,
+                    version,
+                },
+            )
+            .await;
             // A crash between the notes append and its `confirm` leaves the
             // mapping at version 1 while the stream is already at 2. The retry
-            // then re-dispatches `UpdateCostumeNotes { version: 1 }` and is
+            // then re-dispatches `UpdatePieceNotes { version: 1 }` and is
             // refused with `VersionConflict` — which without recovery ends the
-            // row as `NotesRejected` on EVERY retry, so the costume is never
-            // bound (a plain violation of design D8: the retry must re-drive only
-            // the steps ABOVE the stored version). The id came from this apply's
-            // reservation, so that conflict proves our own earlier append;
-            // `recover_version` folds it into the version the stream reached,
-            // exactly as the bind step already does.
+            // row on EVERY retry, so the piece is never put into an outfit. The
+            // id came from this apply's reservation, so that conflict proves our
+            // own earlier append; `recover_version` folds it into the version the
+            // stream reached.
             version = match recover_version(notes) {
                 Ok(version) => version,
                 Err(error) if is_infra_outage(&error) => return Err(error),
@@ -2128,32 +2175,115 @@ where
             self.confirm(&mapping, version).await?;
         }
 
-        // Step 3: bind it to the figure of this row. A refusal leaves the costume
-        // created and unassigned — visible and correctable — and the retry reuses
-        // this mapping row instead of creating a second costume (spec
-        // `costume-character-binding`). `recover_version` folds a replayed bind
-        // into the version the stream already reached.
-        if version < phases.bound() {
-            let bound = recover_version(
-                self.costume_commands
-                    .assign_to_character(
+        // Step 3: put the piece into the figure's outfit. One outfit per figure
+        // and draft row, addressed by a deterministic id: a retry that lands on
+        // the existing outfit folds the conflict into `AddPieceToOutfit` at the
+        // reached version instead of creating a second look. A refusal leaves the
+        // piece in the fundus — visible and correctable — and the retry reuses
+        // this mapping row instead of creating a second piece.
+        if version >= phases.piece_complete() {
+            // CR-002/D2: an outfit mutation inside an archived season is refused
+            // by every manual route with 409 `season.archived` (issue #533 makes
+            // the archive terminal), and the AI apply owes the same invariant.
+            // The refusal must land HERE and not earlier: steps 1 and 2 already
+            // appended a valid `Piece`, which stays in the fundus — visible and
+            // correctable — exactly as the spec requires.
+            //
+            // This read is a *dispatch precondition*, not audit-context
+            // resolution (AGENTS.md §1): the worker is not deriving a
+            // `project_id` for `EventMetadata`, it asks whether the target season
+            // still accepts mutations at all. No command field can carry the
+            // answer, because it has to be true at the moment of the outfit
+            // append; the same reasoning the mapping-reservation reads above rely
+            // on.
+            let season = self
+                .season_repo
+                .find_by_id(season_id.0) // ast-grep-ignore: cqrs-boundary
+                .await;
+            match season {
+                Ok(season) if season.archived => {
+                    tracing::info!(
+                        season = %season_id.0,
+                        "AI apply refused the outfit step: the target season is archived"
+                    );
+                    refused!(
+                        UnappliedCostumeReason::BindingRejected,
+                        DomainError::conflict("target season is archived")
+                    );
+                }
+                Ok(_) => {}
+                // A dependency outage is not a refusal: fail the apply so the
+                // retry re-drives the unfinished rows from their reservations.
+                Err(error) if is_infra_outage(&error) => return Err(error),
+                // A projection miss is permanent for this attempt. Refusing the
+                // outfit step fails *closed* (nothing is created in a season we
+                // cannot prove mutable) while the piece stays correctable.
+                Err(error) => {
+                    tracing::warn!(
+                        %error,
+                        season = %season_id.0,
+                        "AI apply could not resolve the target season; refusing the outfit step"
+                    );
+                    refused!(
+                        UnappliedCostumeReason::BindingRejected,
+                        DomainError::conflict("target season could not be resolved")
+                    );
+                }
+            }
+            let outfit_id = derive_id(
+                preview_id,
+                &character_mapping_ref(&costume.character_identity),
+                "outfit",
+                PRIMARY_ORDINAL,
+            );
+            let outfit = OutfitCommands::create(
+                &*self.costume_commands,
+                actor.clone(),
+                CreateOutfit {
+                    id: outfit_id,
+                    character_id,
+                    name: outfit_name(costume),
+                    piece_ids: vec![id],
+                    project_id,
+                },
+            )
+            .await;
+            match outfit {
+                Ok(_) => {}
+                // The outfit already exists (second piece of the same figure, or
+                // a replayed step): join the existing look at its current
+                // version. `AddPieceToOutfit` is a state-based no-op when the
+                // piece is already there.
+                Err(DomainError::VersionConflict { current, .. }) => {
+                    let added = OutfitCommands::add_piece(
+                        &*self.costume_commands,
                         actor,
-                        AssignCostumeToCharacter {
-                            id,
-                            character_id,
+                        AddPieceToOutfit {
+                            id: outfit_id,
+                            piece_id: id,
                             project_id,
-                            version,
+                            version: current,
                         },
                     )
-                    .await,
-            );
-            version = match bound {
-                Ok(version) => version,
+                    .await;
+                    match added {
+                        Ok(_) => {}
+                        Err(error) if is_infra_outage(&error) => return Err(error),
+                        Err(error) => refused!(UnappliedCostumeReason::BindingRejected, error),
+                    }
+                }
                 Err(error) if is_infra_outage(&error) => return Err(error),
                 Err(error) => refused!(UnappliedCostumeReason::BindingRejected, error),
-            };
-            self.confirm(&mapping, version).await?;
+            }
+            // The beat step references the outfit, not the bare piece: a scene
+            // casts the composed look.
+            return Ok(CostumeAttempt {
+                created,
+                costume_id: outfit_id,
+                failure: None,
+            });
         }
+
         Ok(CostumeAttempt {
             created,
             costume_id: id,
@@ -2266,10 +2396,10 @@ where
             return Ok(BeatAttempt::Settled);
         }
         let beat = |version: AggregateVersion| {
-            AddCostumeBeat {
+            AddOutfitBeat {
                 id: scene_id,
                 character_id,
-                costume_id,
+                outfit_id: costume_id,
                 // The extracted description lives on the costume's notes;
                 // a beat note is a crew cue the extraction does not produce.
                 note: None,
@@ -2280,7 +2410,7 @@ where
         let mut version = *scene_version;
         let attempt = self
             .scene_commands
-            .add_costume_beat(actor.clone(), beat(version))
+            .add_outfit_beat(actor.clone(), beat(version))
             .await;
         match attempt {
             Ok(next) => {
@@ -2316,7 +2446,7 @@ where
         }
         let attempt = self
             .scene_commands
-            .add_costume_beat(actor, beat(version))
+            .add_outfit_beat(actor, beat(version))
             .await;
         match attempt {
             Ok(next) => {

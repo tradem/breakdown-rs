@@ -2,19 +2,18 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: space-bunny-free (opencode-go)
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 import 'package:breakdown_api/breakdown_api.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/problem_error.dart';
-import '../../data/costume_repository.dart';
+import '../../data/piece_repository.dart';
 import '../../domain/reconciliation/overlay_store.dart';
 
 export '../../domain/reconciliation/overlay_store.dart' show OverlayStatus;
-export '../../data/costume_repository.dart'
+export '../../data/piece_repository.dart'
     show
-        applyAssignOptimistic,
-        applyUnassignOptimistic,
         applyNotesOptimistic,
         applyAddDetailOptimistic,
         applyUpdateDetailOptimistic,
@@ -22,8 +21,7 @@ export '../../data/costume_repository.dart'
         applyCategoryOptimistic,
         applyAddSeasonOptimistic,
         applyRemoveSeasonOptimistic,
-        shouldClearCostumeOverlay,
-        mergeCostumeOverlays;
+        shouldClearCostumeOverlay;
 
 /// The command surface a failure belongs to — photo commands (upload/delete)
 /// vs. costume writes. The command-error banner routes the localized copy by
@@ -61,7 +59,7 @@ class CostumeRowOverlay implements ReconciliationOverlay {
   final String id;
 
   /// The optimistic row (assignment / notes / details applied after 2xx).
-  final CostumeView overlay;
+  final PieceView overlay;
 
   /// The `AggregateVersion` the command acknowledgement returned. The fence
   /// clears this overlay only when the projection reaches it.
@@ -107,15 +105,11 @@ sealed class CostumeRow {
 }
 
 class ProjectedCostumeRow extends CostumeRow {
-  const ProjectedCostumeRow(this.costume, {required this.characterName});
+  const ProjectedCostumeRow(this.costume);
 
-  /// The generated read DTO (`breakdown_api` `CostumeView`); authoritative,
+  /// The generated read DTO (`breakdown_api` `PieceView`); authoritative,
   /// comes from Drift only (or the merged overlay while reconciling).
-  final CostumeView costume;
-
-  /// Display name resolved from the characters projection (read-DTO join),
-  /// or `null` when unassigned / unknown.
-  final String? characterName;
+  final PieceView costume;
 
   /// `true` while the version fence holds (the row shows the optimistic
   /// edit, not yet the projection).
@@ -123,10 +117,9 @@ class ProjectedCostumeRow extends CostumeRow {
 }
 
 class OptimisticCostumeRow extends CostumeRow {
-  const OptimisticCostumeRow(this.overlay, {required this.characterName});
+  const OptimisticCostumeRow(this.overlay);
 
   final CostumeRowOverlay overlay;
-  final String? characterName;
 }
 
 /// Controller state shape (seasons reference pattern).
@@ -136,20 +129,15 @@ class CostumesScreenState {
     this.cachedRows = const [],
     this.isStale = false,
     this.overlays = const [],
-    this.characterNames = const {},
     this.commandError,
   });
 
-  final AsyncValue<List<CostumeView>> projected;
+  final AsyncValue<List<PieceView>> projected;
 
   /// Complete season projection (the fence merges overlays over these).
-  final List<CostumeView> cachedRows;
+  final List<PieceView> cachedRows;
   final bool isStale;
   final List<CostumeRowOverlay> overlays;
-
-  /// Character display names by id (read-DTO join from the characters
-  /// projection — never aggregate reconstruction).
-  final Map<String, String> characterNames;
 
   /// Last command failure (with its originating surface) keyed by its
   /// stable problem `code`.
@@ -181,22 +169,15 @@ class CostumesScreenState {
       for (final c in cachedRows)
         if (overlayById[c.id] case final pending?
             when !_fencePassed(c, pending.acknowledgedVersion))
-          OptimisticCostumeRow(
-            pending,
-            characterName: characterNames[pending.overlay.characterId],
-          )
+          OptimisticCostumeRow(pending)
         else
-          ProjectedCostumeRow(c, characterName: characterNames[c.characterId]),
+          ProjectedCostumeRow(c),
       for (final o in overlays)
-        if (!projectedById.containsKey(o.id))
-          OptimisticCostumeRow(
-            o,
-            characterName: characterNames[o.overlay.characterId],
-          ),
+        if (!projectedById.containsKey(o.id)) OptimisticCostumeRow(o),
     ];
   }
 
-  bool _fencePassed(CostumeView row, int acknowledged) =>
+  bool _fencePassed(PieceView row, int acknowledged) =>
       shouldClearCostumeOverlay(
         projection: row,
         acknowledgedVersion: acknowledged,

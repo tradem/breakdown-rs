@@ -4,6 +4,7 @@
 // Co-authored-by: mimo-v2.5 (opencode-go)
 // Co-authored-by: deepseek-v4-flash (opencode-go)
 // Co-authored-by: glm-5.2 (neuralwatt)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 #![allow(
     clippy::unwrap_used,
@@ -88,7 +89,7 @@ async fn eappend(
 async fn seed_parents(pool: &sqlx::PgPool, scene_id: Uuid, day_id: ShootingDayId) -> Result<()> {
     let ep = Uuid::now_v7();
     let char_id = Uuid::now_v7();
-    let costume_id = Uuid::now_v7();
+    let piece_id = Uuid::now_v7();
 
     // character (after 20250626000001: season_id, category instead of project_id/is_extra/is_main_character)
     sqlx::query(
@@ -102,15 +103,14 @@ async fn seed_parents(pool: &sqlx::PgPool, scene_id: Uuid, day_id: ShootingDayId
     .execute(pool)
     .await?;
 
-    // costume (after 20250627000001: project_id dropped)
+    // piece (after 20250627000001: project_id dropped)
     sqlx::query(
-        r#"INSERT INTO projection_costume
-            (id,character_id,notes,version,updated_at)
-        VALUES ($1,$2,'',1,now())
+        r#"INSERT INTO projection_piece
+            (id,name,notes,version,updated_at)
+        VALUES ($1,'Fundus-Piece','',1,now())
         ON CONFLICT (id) DO NOTHING"#,
     )
-    .bind(costume_id)
-    .bind(char_id)
+    .bind(piece_id)
     .execute(pool)
     .await?;
 
@@ -168,12 +168,12 @@ fn jpeg_bytes() -> Vec<u8> {
     ]
 }
 
-/// Poll `projection_costume_photo` until count matches `expected`.
+/// Poll `projection_piece_photo` until count matches `expected`.
 async fn await_refcount(pool: &sqlx::PgPool, photo_id: PhotoId, expected: i64) -> Result<()> {
     let dl = Instant::now() + DEADLINE;
     loop {
         let count: i64 =
-            sqlx::query_scalar("SELECT COUNT(*) FROM projection_costume_photo WHERE photo_id = $1")
+            sqlx::query_scalar("SELECT COUNT(*) FROM projection_piece_photo WHERE photo_id = $1")
                 .bind(photo_id.0)
                 .fetch_one(pool)
                 .await?;
@@ -284,7 +284,7 @@ async fn continuity_photo_upload_projection() -> Result<()> {
                 size_bytes: bytes.len() as u64,
                 binding: breakdown_core::photo::binding::PhotoBinding::Continuity {
                     scene_shoot_id: shoot_id,
-                    costume_id: None,
+                    piece_id: None,
                 },
                 project_id: Some(breakdown_core::shared::ProjectId::new()),
             },
@@ -428,7 +428,7 @@ async fn continuity_photo_delete_on_zero_refcount() -> Result<()> {
                 size_bytes: bytes.len() as u64,
                 binding: breakdown_core::photo::binding::PhotoBinding::Continuity {
                     scene_shoot_id: shoot_id,
-                    costume_id: None,
+                    piece_id: None,
                 },
                 project_id: Some(breakdown_core::shared::ProjectId::new()),
             },
@@ -464,7 +464,7 @@ async fn continuity_photo_delete_on_zero_refcount() -> Result<()> {
         tokio::time::sleep(POLL).await;
     }
 
-    // Verify no costume-side refs.
+    // Verify no piece-side refs.
     await_refcount(&pool, photo_id, 0).await?;
 
     // Unlink photo from scene shoot.
@@ -483,7 +483,7 @@ async fn continuity_photo_delete_on_zero_refcount() -> Result<()> {
     .await?;
 
     // Wait for ContinuityDeletionSaga to dispatch DeletePhoto.
-    // The saga sees refcount 0 (no costume-side links) and dispatches DeletePhoto.
+    // The saga sees refcount 0 (no piece-side links) and dispatches DeletePhoto.
     // Then PhotoBytesCleanupSaga removes bytes from Garage.
     let dl = Instant::now() + Duration::from_secs(20);
     loop {

@@ -3,6 +3,7 @@
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
 // Co-authored-by: omen-alpha (opencode-go)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 // Tier-1 unit tests, part 2 (Task 1.6): every repository method Ok AND Err.
 // Fake Dio interceptors resolve with wire-serialized DTOs (the generated
@@ -21,20 +22,21 @@ import 'package:test/test.dart';
 
 import 'package:frontend_flutter/core/result.dart';
 import 'package:frontend_flutter/data/cache/cache_database.dart';
-import 'package:frontend_flutter/data/cache/costume_domains_cache_dao.dart';
+import 'package:frontend_flutter/data/cache/piece_domains_cache_dao.dart';
 import 'package:frontend_flutter/data/character_repository.dart';
-import 'package:frontend_flutter/data/costume_repository.dart';
+import 'package:frontend_flutter/data/piece_repository.dart';
 import 'package:frontend_flutter/data/photo_repository.dart';
 import 'package:frontend_flutter/data/shooting_day_repository.dart';
 
 // --- Fixtures ---------------------------------------------------------------
 
-CostumeView _costume(String id, {int version = 1}) => CostumeView(
+PieceView _costume(String id, {int version = 1}) => PieceView(
   (b) => b
+    ..name = 'Fundus-Piece'
     ..id = id
     ..notes = 'notes'
-    ..details.replace(BuiltList<CostumeDetailView>())
-    ..photos.replace(BuiltList<CostumePhotoView>())
+    ..details.replace(BuiltList<PieceDetailView>())
+    ..photos.replace(BuiltList<PiecePhotoView>())
     ..updatedAt = DateTime.utc(2026, 1, 1)
     ..version = version,
 );
@@ -139,17 +141,17 @@ void _expectLeftCode(Result<Object?> result, String code) {
 }
 
 void main() {
-  group('CostumeRepository Ok/Err', () {
+  group('PieceRepository Ok/Err', () {
     test(
       'listBySeason Ok writes the snapshot; Err leaves cache untouched',
       () async {
         final db = CacheDatabase();
         addTearDown(db.close);
-        final dao = CostumeCacheDao(db);
+        final dao = PieceCacheDao(db);
         final ok = _ScriptInterceptor(
-          respond: (_) => _wireList([_costume('c-1')], CostumeView.serializer),
+          respond: (_) => _wireList([_costume('c-1')], PieceView.serializer),
         );
-        final repo = CostumeRepository(_api(ok), dao);
+        final repo = PieceRepository(_api(ok), dao);
         final res = await repo.listBySeason('s-1');
         expect(res.isRight(), isTrue);
         expect((await dao.readBySeason('s-1')).map((c) => c.id), ['c-1']);
@@ -158,7 +160,7 @@ void main() {
           problem: 'costume.forbidden',
           statusCode: 403,
         );
-        final failing = CostumeRepository(_api(err), dao);
+        final failing = PieceRepository(_api(err), dao);
         final left = await failing.listBySeason('s-1');
         _expectLeftCode(left, 'costume.forbidden');
         // Cache untouched on failure (D1): the earlier row survives.
@@ -170,11 +172,11 @@ void main() {
     test('getAndCache Ok upserts; Err touches nothing', () async {
       final db = CacheDatabase();
       addTearDown(db.close);
-      final dao = CostumeCacheDao(db);
+      final dao = PieceCacheDao(db);
       final ok = _ScriptInterceptor(
-        respond: (_) => _wire(_costume('c-9'), CostumeView.serializer),
+        respond: (_) => _wire(_costume('c-9'), PieceView.serializer),
       );
-      final repo = CostumeRepository(_api(ok), dao);
+      final repo = PieceRepository(_api(ok), dao);
       expect((await repo.getAndCache('s-1', 'c-9')).isRight(), isTrue);
       expect(await dao.readById('s-1', 'c-9'), isNotNull);
 
@@ -182,7 +184,7 @@ void main() {
         problem: 'costume.not-found',
         statusCode: 404,
       );
-      final failing = CostumeRepository(_api(err), dao);
+      final failing = PieceRepository(_api(err), dao);
       _expectLeftCode(
         await failing.getAndCache('s-1', 'c-missing'),
         'costume.not-found',
@@ -191,12 +193,12 @@ void main() {
       await db.close();
     });
 
-    test('create/assign/unassign/addDetail/updateNotes Ok and Err', () async {
+    test('create/rename/addDetail/updateNotes Ok and Err', () async {
       final db = CacheDatabase();
       addTearDown(db.close);
-      final dao = CostumeCacheDao(db);
+      final dao = PieceCacheDao(db);
       Object okFor(String path) {
-        if (path == '/v1/costumes') {
+        if (path == '/v1/pieces') {
           return _wire(
             IdVersionResponse(
               (b) => b
@@ -210,30 +212,23 @@ void main() {
       }
 
       final ok = _ScriptInterceptor(respond: (o) => okFor(o.path));
-      final repo = CostumeRepository(_api(ok), dao);
-      expect((await repo.create(null)).isRight(), isTrue);
+      final repo = PieceRepository(_api(ok), dao);
+      expect((await repo.create(name: 'Fundus-Piece')).isRight(), isTrue);
       expect(
-        (await repo.assign(
+        (await repo.rename(
           'c-1',
-          AssignCostumeRequest(
+          RenamePieceRequest(
             (b) => b
-              ..characterId = 'ch-1'
+              ..name = 'Rote Lederjacke'
               ..version = 1,
           ),
         )).isRight(),
         isTrue,
       );
       expect(
-        (await repo.unassign(
-          'c-1',
-          VersionRequest((b) => b..version = 2),
-        )).isRight(),
-        isTrue,
-      );
-      expect(
         (await repo.addDetail(
           'c-1',
-          AddCostumeDetailRequest(
+          AddPieceDetailRequest(
             (b) => b
               ..detail.id = 'd-1'
               ..detail.text = 't'
@@ -245,7 +240,7 @@ void main() {
       expect(
         (await repo.updateNotes(
           'c-1',
-          UpdateCostumeNotesRequest(
+          UpdatePieceNotesRequest(
             (b) => b
               ..notes = 'n'
               ..version = 2,
@@ -258,24 +253,20 @@ void main() {
         problem: 'concurrency.version-mismatch',
         statusCode: 409,
       );
-      final failing = CostumeRepository(_api(conflict), dao);
+      final failing = PieceRepository(_api(conflict), dao);
       _expectLeftCode(
-        await failing.create(null),
+        await failing.create(name: 'Fundus-Piece'),
         'concurrency.version-mismatch',
       );
       _expectLeftCode(
-        await failing.assign(
+        await failing.rename(
           'c-1',
-          AssignCostumeRequest(
+          RenamePieceRequest(
             (b) => b
-              ..characterId = 'ch-1'
+              ..name = 'Rote Lederjacke'
               ..version = 1,
           ),
         ),
-        'concurrency.version-mismatch',
-      );
-      _expectLeftCode(
-        await failing.unassign('c-1', VersionRequest((b) => b..version = 1)),
         'concurrency.version-mismatch',
       );
       await db.close();

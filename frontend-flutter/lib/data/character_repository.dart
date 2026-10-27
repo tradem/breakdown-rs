@@ -3,6 +3,7 @@
 // Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 // Co-authored-by: longcat-2.0 (opencode-go)
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 import 'package:breakdown_api/breakdown_api.dart';
 import 'package:fpdart/fpdart.dart';
@@ -13,7 +14,7 @@ import 'base_repository.dart';
 import 'cache/cache_generation.dart';
 import 'cache/cache_ttl.dart';
 import 'cache/clock.dart';
-import 'cache/costume_domains_cache_dao.dart';
+import 'cache/piece_domains_cache_dao.dart';
 
 /// Read/write repository for the `Character` aggregate boundary (scoped to a
 /// Season).

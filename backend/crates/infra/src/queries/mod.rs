@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: gpt-5.6-luna (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 //! sqlx-Read-Queries für Projection-Tabellen
 
@@ -8,10 +9,11 @@ pub mod ai_config;
 mod audit;
 mod block;
 mod character;
-mod costume;
 mod costume_category;
 mod episode;
 mod membership;
+mod outfit;
+mod piece;
 mod reports;
 mod scene;
 mod scene_shoot;
@@ -23,10 +25,11 @@ pub use ai_config::{AiConfigRepositoryImpl, AiWorkerConfig};
 pub use audit::AuditRepositoryImpl;
 pub use block::BlockRepositoryImpl;
 pub use character::CharacterRepositoryImpl;
-pub use costume::CostumeRepositoryImpl;
 pub use costume_category::CostumeCategoryRepositoryImpl;
 pub use episode::EpisodeRepositoryImpl;
 pub use membership::MembershipRepositoryImpl;
+pub use outfit::OutfitRepositoryImpl;
+pub use piece::PieceRepositoryImpl;
 pub use reports::SceneShootReportRepositoryImpl;
 pub use scene::SceneRepositoryImpl;
 pub use scene_shoot::SceneShootRepositoryImpl;

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 #![allow(
     clippy::unwrap_used,
@@ -120,6 +121,66 @@ async fn migrations_are_reversible() -> Result<()> {
         .run(&pool)
         .await
         .context("re-apply all migrations up (idempotency check)")?;
+
+    Ok(())
+}
+
+/// CR-005: the split's rollback folds **both** wardrobe photo bindings back to
+/// the pre-split `Costume` discriminator.
+///
+/// The up migration rewrites `Costume` → `Piece` and introduces `Outfit` as a
+/// second binding. A rollback that only folded `Piece` would leave `Outfit` rows
+/// behind — bindings the pre-split binary cannot deserialize. The generic
+/// `migrations_are_reversible` case cannot see this: it runs the whole chain on
+/// an empty database, so the `UPDATE` matches nothing there.
+#[tokio::test]
+async fn piece_outfit_rollback_folds_both_photo_bindings_back_to_costume() -> Result<()> {
+    const SPLIT_VERSION: i64 = 20261015000001;
+
+    let (pool, _container) = spawn_postgres().await?;
+    let migrator = sqlx::migrate!("../infra/migrations");
+
+    // The state the split leaves behind: one piece photo, one outfit photo.
+    for binding in ["Piece", "Outfit"] {
+        sqlx::query(
+            r#"
+            INSERT INTO projection_photo (photo_id, content_type, size_bytes, binding)
+            VALUES ($1, 'image/jpeg', 1, $2)
+            "#,
+        )
+        .bind(Uuid::now_v7())
+        .bind(binding)
+        .execute(&pool)
+        .await?;
+    }
+
+    // Undo exactly the split migration (everything above its predecessor).
+    let versions: Vec<i64> = migrator.iter().map(|m| m.version).collect();
+    let position = versions
+        .iter()
+        .position(|version| *version == SPLIT_VERSION)
+        .context("the piece/outfit split migration exists")?;
+    let target = versions.get(position.wrapping_sub(1)).copied().unwrap_or(0);
+    migrator
+        .undo(&pool, target)
+        .await
+        .context("undo the piece/outfit split migration")?;
+
+    let folded: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM projection_photo WHERE binding = 'Costume'")
+            .fetch_one(&pool)
+            .await?;
+    let leaked: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM projection_photo WHERE binding IN ('Piece', 'Outfit')",
+    )
+    .fetch_one(&pool)
+    .await?;
+
+    assert_eq!(
+        folded, 2,
+        "both wardrobe bindings must fold back to Costume"
+    );
+    assert_eq!(leaked, 0, "no post-split binding may survive the rollback");
 
     Ok(())
 }

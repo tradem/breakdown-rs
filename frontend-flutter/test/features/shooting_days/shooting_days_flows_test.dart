@@ -8,6 +8,7 @@
 // Material date picker, archive confirm-first, reorder move up/down as
 // single-intent PATCHes, error dismiss.
 // Co-authored-by: glm-5.3-flash (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 import 'package:breakdown_api/breakdown_api.dart';
 import 'package:drift/native.dart';
@@ -21,7 +22,7 @@ import 'package:frontend_flutter/auth/auth_providers.dart';
 import 'package:frontend_flutter/core/problem_error.dart';
 import 'package:frontend_flutter/core/result.dart';
 import 'package:frontend_flutter/data/cache/cache_database.dart';
-import 'package:frontend_flutter/data/cache/costume_domains_cache_dao.dart';
+import 'package:frontend_flutter/data/cache/piece_domains_cache_dao.dart';
 import 'package:frontend_flutter/data/cache/seasons_cache_providers.dart';
 import 'package:frontend_flutter/data/shooting_day_repository.dart';
 import 'package:frontend_flutter/domain/reconciliation/reconciliation_scheduler.dart';

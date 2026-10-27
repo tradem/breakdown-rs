@@ -2,7 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 // Co-authored-by: mimo-v2.5 (opencode-go)
-// Co-authored-by: glm-5.3 (neuralwatt)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 //! Unit tests for workers.rs — kills mutations in acquire_for_claim,
 //! release_permit_logging_errors, claim_lost_error, start_heartbeat.
@@ -676,7 +676,7 @@ async fn merge_worker_publishes_merging_and_storing_progress() {
         script_day: None,
         shooting_day_ids: Vec::new(),
         assigned_characters: Vec::new(),
-        costume_beats: Vec::new(),
+        outfit_beats: Vec::new(),
         version: AggregateVersion::INITIAL,
         updated_at: chrono::Utc.timestamp_opt(0, 0).single().unwrap(),
         source: Some(SceneSource::Manual),

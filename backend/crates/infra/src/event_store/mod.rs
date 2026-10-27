@@ -3,6 +3,7 @@
 // Co-authored-by: omen-alpha (opencode-go)
 // Co-authored-by: gpt-5.6-luna (opencode-go)
 // Co-authored-by: deepseek-v4-flash (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 //! EventStore-Adapter (kameo_es SierraDB)
 
@@ -11,9 +12,9 @@ mod wrap_finality;
 
 pub use command_adapters::{
     AiConfigCommandsImpl, BlockCommandsImpl, CharacterCommandsImpl, CostumeCategoryCommandsImpl,
-    CostumeCommandsImpl, EpisodeCommandsImpl, MembershipCommandsImpl, PhotoCommandsImpl,
-    SceneCommandsImpl, SceneShootCommandsImpl, SeasonCommandsImpl, SettingsCommandsImpl,
-    ShootingDayCommandsImpl, check_nonzero_version, domain_to_stream, map_executed,
+    EpisodeCommandsImpl, MembershipCommandsImpl, PhotoCommandsImpl, SceneCommandsImpl,
+    SceneShootCommandsImpl, SeasonCommandsImpl, SettingsCommandsImpl, ShootingDayCommandsImpl,
+    WardrobeCommandsImpl, check_nonzero_version, domain_to_stream, map_executed,
     map_executed_result, map_version_only, stream_to_domain, version_from_current,
     version_from_expected,
 };

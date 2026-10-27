@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: mimo-v2.5 (opencode-go)
 // Co-authored-by: qwen3.8-flash (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 //! P3.11 — Postgres integration tests for PgAiImportMappingRepository.
 //!
@@ -121,17 +122,17 @@ async fn list_by_preview_returns_all_mappings() -> Result<()> {
 // the row key — one draft row produces several kinds of aggregate
 // ===========================================================================
 
-/// A reviewed draft row now yields its scene, its figures and its costumes, and
+/// A reviewed draft row now yields its scene, its figures and its pieces, and
 /// they all share the row's `draft_ref`. The `(aggregate_kind, ordinal)` part of
 /// the primary key is what keeps them apart: without it the scene's row and the
-/// first costume's row would collide, and the costume would resolve to the
+/// first piece's row would collide, and the piece would resolve to the
 /// Scene's aggregate id — silently binding a garment to a scene.
 ///
 /// Only a live Postgres proves this, because the discrimination lives in the
 /// `ON CONFLICT (preview_id, draft_ref, aggregate_kind, ordinal)` target: an
 /// in-memory fake keyed differently cannot catch a wrong conflict target.
 #[tokio::test]
-async fn one_draft_ref_holds_a_scene_a_figure_and_two_costumes() -> Result<()> {
+async fn one_draft_ref_holds_a_scene_a_figure_and_two_pieces() -> Result<()> {
     let (pool, _container) = crate::fixtures::spawn_postgres().await?;
     let repo = PgAiImportMappingRepository::new(pool);
     let preview_id = AiImportJobId::new();
@@ -143,19 +144,19 @@ async fn one_draft_ref_holds_a_scene_a_figure_and_two_costumes() -> Result<()> {
         aggregate_id: Uuid::now_v7(),
         ..scene.clone()
     };
-    let first_costume = AiImportMapping {
+    let first_piece = AiImportMapping {
         aggregate_kind: mapping_kind::COSTUME.to_owned(),
         ordinal: 0,
         aggregate_id: Uuid::now_v7(),
         ..scene.clone()
     };
-    let second_costume = AiImportMapping {
+    let second_piece = AiImportMapping {
         aggregate_kind: mapping_kind::COSTUME.to_owned(),
         ordinal: 1,
         aggregate_id: Uuid::now_v7(),
         ..scene.clone()
     };
-    for mapping in [&scene, &figure, &first_costume, &second_costume] {
+    for mapping in [&scene, &figure, &first_piece, &second_piece] {
         repo.insert(mapping.clone()).await?;
     }
 
@@ -175,10 +176,10 @@ async fn one_draft_ref_holds_a_scene_a_figure_and_two_costumes() -> Result<()> {
     assert_eq!(
         repo.find(preview_id, draft_ref, mapping_kind::COSTUME, 1)
             .await?
-            .expect("second costume row")
+            .expect("second piece row")
             .aggregate_id,
-        second_costume.aggregate_id,
-        "two costumes of one figure in one scene must stay addressable"
+        second_piece.aggregate_id,
+        "two pieces of one figure in one scene must stay addressable"
     );
 
     // A reservation for one of them must converge on *that* row's id only.
@@ -191,14 +192,14 @@ async fn one_draft_ref_holds_a_scene_a_figure_and_two_costumes() -> Result<()> {
     );
     assert_eq!(
         repo.reserve(retry).await?.aggregate_id,
-        second_costume.aggregate_id,
-        "a costume retry must not land on the scene's aggregate"
+        second_piece.aggregate_id,
+        "a piece retry must not land on the scene's aggregate"
     );
     Ok(())
 }
 
 /// Ordinals of *different* kinds must not interfere: ordinal is scoped by kind,
-/// so a figure and a costume may both carry 0 for one reference.
+/// so a figure and a piece may both carry 0 for one reference.
 #[tokio::test]
 async fn ordinal_is_scoped_by_aggregate_kind() -> Result<()> {
     let (pool, _container) = crate::fixtures::spawn_postgres().await?;
@@ -206,25 +207,25 @@ async fn ordinal_is_scoped_by_aggregate_kind() -> Result<()> {
     let preview_id = AiImportJobId::new();
 
     let scene = make_mapping(preview_id, "1. INT. KITCHEN");
-    let costume = AiImportMapping {
+    let piece = AiImportMapping {
         aggregate_kind: mapping_kind::COSTUME.to_owned(),
         aggregate_id: Uuid::now_v7(),
         ..scene.clone()
     };
     repo.insert(scene.clone()).await?;
-    repo.insert(costume.clone()).await?;
+    repo.insert(piece.clone()).await?;
 
     assert_eq!(
         repo.find(preview_id, "1. INT. KITCHEN", mapping_kind::COSTUME, 0)
             .await?
-            .expect("costume row survived the scene insert")
+            .expect("piece row survived the scene insert")
             .aggregate_id,
-        costume.aggregate_id
+        piece.aggregate_id
     );
     assert_eq!(
         find_scene(&repo, preview_id, "1. INT. KITCHEN")
             .await?
-            .expect("scene row survived the costume insert")
+            .expect("scene row survived the piece insert")
             .aggregate_id,
         scene.aggregate_id
     );

@@ -8,8 +8,9 @@ applyTo:
 
 <!-- SPDX-License-Identifier: AGPL-3.0 -->
 <!-- Copyright (C) 2024-2026 Breakdown RS Contributors -->
-<!-- Co-authored-by: glm-5.3 (neuralwatt) -->
+<!-- Co-authored-by: deepseek-v4.1-flash (opencode-go) -->
 <!-- Co-authored-by: space-bunny-free (opencode-go) -->
+<!-- Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 # Production hierarchy (ADR: introduce-season-block-episode-hierarchy; strategy: ADR-035)
 
@@ -49,23 +50,60 @@ as one sweep:
   again, so renaming a field renames the contract. ADR-021 needed no `/v2` window here: at
   the time of the change no client had ever been released against `/v1`, so the rename landed
   in place (ADR-035 B5 outcome).
-`Character` is scoped to a `Season` (`Character.season_id`). `Costume` is **not**
-scope-free: since #453 it carries a season **repertoire** (`projection_costume_season`,
-PK `(costume_id, season_id)` — m:n by construction, the wardrobe lifecycle carries a costume
-from one season into the next), seeded from `CostumeCreated.season_id` and made real
-aggregate state by #534; it additionally references the optional `category_id` (#543),
-resolved by join in the read model.
-That union is the costume's **domain** scope: it decides which seasons list the costume,
-which series/project it resolves to, and what the season-scoped reports are about.
-Its **authorization** scope is a separate question and is *not* that union:
-`authorize_costume_scoped` (`api/src/handlers/mod.rs:757`) still checks the season-typed
-predicate per scope today, but ADR-035 B2/S2 moves that boundary up to the **project** — a
-costume-department role in any active block of the owning project. #535 removes the
-`…_in_season` call from the photo path (a deliberate widening); the repertoire then only
-serves to resolve *which* project. Do not re-introduce a season-union authorization check,
-and do not let the client deny on the season union — it would block flows the server permits.
-Core modules: `season`, `block`, `episode`, `scene`, `scene_shoot`, `shooting_day`, `character`, `costume`, `costume_category`, `shared`.
-The `calculation` context was removed; do not reintroduce it.
+`Character` is scoped to a `Season` (`Character.season_id`).
+
+**Wardrobe: `piece` + `outfit` (OpenSpec change `separate-piece-and-outfit-domain`).**
+The former `costume` context — one aggregate that was simultaneously the garment and the
+character's look — is split by a clean cut (no legacy shims; the retired `"costume"` streams
+are inert and no production stream exists):
+
+- `piece` (`PieceAggregate`, category `"piece"`) is a single garment in the wardrobe
+  **fundus**: `id`, required non-blank `name` (not unique), one optional `category_id`
+  (`costume_category` vocabulary, `SetPieceCategory` / `PieceCategorySet`, no-op on repeat),
+  a season **repertoire** (`PieceAggregate.seasons`, seeded from `PieceCreated.season_id`,
+  m:n over its life; `AddPieceToSeason` / `RemovePieceFromSeason` are state-based no-ops),
+  pure-description `details` (`subject` + `text`, **no** `category_id` any more), `photos`
+  and `notes`. It has **no `character_id`**. Its domain scope is the repertoire; its
+  authorization scope resolves through the repertoire season → project
+  (`authorize_piece_in_project`, the #535 series-wide photo policy).
+  `PieceView.photos` merges directly linked piece photos with the photos of every outfit
+  containing the piece (fit photos are taken at outfit level), deduplicated by photo id.
+- `outfit` (`OutfitAggregate`, category `"outfit"`) is the look a **character** wears:
+  mandatory `character_id` (its season scope derives from `character_id → Character.season_id`,
+  never a column), required `name`, `piece_ids` (`0..n`, insertion-ordered, deduplicated —
+  layering is explicitly permitted, several pieces of one category are valid), `variant_of`,
+  `photos`, `notes`. `CreateOutfitVariant` is a copy-on-write fork whose source data is
+  resolved at the **API edge** and carried in the command (the write side never reads the
+  source stream/projection).
+- Scenes cast **outfits**: `SceneAggregate.outfit_beats: Vec<SceneOutfitBeat { character_id,
+  outfit_id, order, note }>` (dense `max + 1` per character, consecutive-identical guard,
+  cleared before `CharacterRemoved`); `projection_scene_outfit_assignment`
+  (PK `(scene_id, character_id, "order")`, reverse index on `outfit_id`), and
+  `SceneView.outfit_beats`.
+- Projections: `projection_piece`, `projection_piece_season`, `projection_piece_detail`,
+  `projection_piece_photo`, `projection_outfit`, `projection_outfit_piece` (`position`,
+  deliberately **no** FK to `projection_piece`), `projection_outfit_photo`. The
+  `costume_category` projector refreshes `projection_piece.category_name` on rename.
+- `PhotoDeletionSaga` refcounts across the `piece` and `outfit` streams (plus the continuity
+  saga for `scene_shoot`): a photo is deleted only at a combined count of zero.
+- Problem codes: `piece.not-found` / `piece.validation` / `piece-detail.not-found` /
+  `piece.container-unresolved` and `outfit.not-found` / `outfit.validation` replace the old
+  `costume.*` entries; `costume-category.*` stay unchanged.
+- Routes: `/v1/pieces*`, `/v1/outfits*`, `/v1/characters/{id}/outfits`,
+  `/v1/scenes/{id}/outfits*`. The former `/v1/costumes*` and
+  `/v1/scenes/{id}/costumes*` routes are gone (404, no alias).
+
+Its **authorization** scope is a separate question and is *not* the repertoire union:
+`authorize_piece_scoped` still checks the season-typed predicate per scope, but ADR-035
+B2/S2 moves that boundary up to the **project** — a costume-department role in any active
+block of the owning project. #535 removed the `…_in_season` call from the photo path (a
+deliberate widening); the repertoire then only serves to resolve *which* project. Do not
+re-introduce a season-union authorization check, and do not let the client deny on the
+season union — it would block flows the server permits.
+Core modules: `season`, `block`, `episode`, `scene`, `scene_shoot`, `shooting_day`,
+`character`, `piece`, `outfit`, `costume_category`, `shared`.
+The `calculation` context was removed; do not reintroduce it. The `costume` module was split
+into `piece` + `outfit`; do not reintroduce it.
 `shooting_day` is an Episode-scoped `Drehtag` aggregate. It carries a `label`, a `LexicalSortKey`
 fractional-ordering value (`shared`), an optional `date`, a `ShootingDaySource` provenance
 discriminator (Manual | AiExtracted), an `archived` flag, and an optional `wrapped_at: Option<DateTime<Utc>>`.
@@ -86,35 +124,35 @@ and Soll-Ist (diff with moved/missing/skipped/reshot flags + `final` from `wrapp
 The projector uses version guards (`WHERE version < $N`) to ensure event-redelivery idempotency.
 `season` is the production-scope aggregate (`SeasonAggregate`, category `"season"`). It carries `series_id`, `number` (series-global uniqueness, `idx_projection_season_series_number` as authoritative backstop + API-edge 409 pre-check + — since ADR-036 / issue #586 — an atomic write-boundary reservation claim on the synthetic `reservation-seasnum-{series}-{n}` stream, like all four migrated cross-aggregate invariants), an optional `title`, an `archived` flag, and a version. The archived season's reservation/stays-reserved semantics are unchanged: the claim simply keeps the key blocked (the reaper consumes it once the aggregate exists). Lifecycle (issue #533): `ArchiveSeason` (`POST /v1/seasons/{id}/archive`, `SeasonArchived`) is the **terminal** state — an archived season rejects `RenameSeason` with 409 `season.archived` (repeat archive is an idempotent-reject, same pattern as `costume_category`), while its **number stays reserved** (uniqueness untouched — the number is historical identity) and its **inventory (blocks/episodes/shooting days) stays readable** (no cascade by decision). The archive handler carries the season-scoped AUTHZ-GATE reusing the existing `has_active_costume_role_in_season` predicate (no new ADR-035-B2 disallowed `*_in_season` variant). Read model: `projection_season.archived` (migration `20261004000001`), `SeasonView.archived` on the wire, `list_seasons` defaults to excluding archived seasons with an explicit `include_archived` opt-in.
 `ProjectId` is an opaque UUIDv7 seam for a future additive `Project` aggregate — hierarchy entities reference it but no `Project` aggregate exists yet.
-`costume_category` is a **season-scoped vocabulary** aggregate (`CostumeCategory`, category `"costume_category"`)
-that classifies **costumes** (n:1 per costume, optional — issue #543; e.g. Oberteil/Unterteil/Schuhe). It carries `season_id`, `name`, a
-`LexicalSortKey` order_key, an `archived` flag, and a version. Seeding is a projector-driven **saga**:
-on every `SeasonCreated` the `SeasonSeedingSaga` dispatches `CreateCostumeCategory` for the season's
-default categories (config `config/default_costume_categories.toml`), guarded by
-`CostumeCategoryRepository::count_for_season` so replays never double-seed. The costume's category is set
-cleared via `SetCostumeCategory` (`CostumeCategorySet`; `None` clears) — the season invariant
-(`category.season_id ∈ repertoire ∪ season(character)`) is pre-checked at the API edge (409
-`costume-category.season-mismatch`). Legacy `CostumeDetail.category_id` values derive the costume category
-on replay via the first-wins rule (first detail category in event order, within one event `detail_id` ASC),
-executed identically by `CostumeAggregate::apply` and the costume projector; details are pure description
-(`subject` + `text`) on the wire. The costume projector resolves `category_name` best-effort at write time;
-rename propagation targets `projection_costume.category_name`. The command API lives at
+`costume_category` is a **season-scoped vocabulary** aggregate (`CostumeCategory`, category
+`"costume_category"`) that classifies **pieces** (n:1 per piece, optional — e.g.
+Oberteil/Unterteil/Schuhe). It carries `season_id`, `name`, a `LexicalSortKey` order_key, an
+`archived` flag, and a version. Seeding is a projector-driven **saga**: on every `SeasonCreated`
+the `SeasonSeedingSaga` dispatches `CreateCostumeCategory` for the season's default categories
+(config `config/default_costume_categories.toml`), guarded by
+`CostumeCategoryRepository::count_for_season` so replays never double-seed. A piece's category is
+set/cleared via `SetPieceCategory` (`PieceCategorySet`; `None` clears) — the season invariant
+(`category.season_id ∈ piece.seasons`) is pre-checked at the API edge (409
+`costume-category.season-mismatch`, 409 `costume-category.archived`, 404
+`costume-category.not-found`). Details are pure description (`subject` + `text`) on the wire and
+carry **no** category any more; there is no legacy first-wins replay rule (clean cut). The piece
+projector resolves `category_name` best-effort at write time; rename propagation targets
+`projection_piece.category_name`. The command API lives at
 `POST/GET /seasons/{season_id}/costume-categories` (and `PATCH`/`POST .../archive` by id) plus
-`POST /costumes/{id}/category` (issue #543); `POST /costumes/{id}/details` accepts a pure-description
-`CostumeDetailRequest`, and `PATCH`/`DELETE /costumes/{id}/details/{detail_id}` edit and remove a detail
-(issue #544, body = the costume aggregate's `VersionRequest` echo; an unknown `detail_id` answers 404
-`costume-detail.not-found`, a distinct code from `costume.validation` so a client can tell a stale row
-apart from a validation failure). `DetailUpdated` carries the **full** detail, not a patch, and the
-projector reuses the `DetailAdded` upsert (no migration). Both detail routes are handler-internal
-`AUTHZ-GATE`s over `authorize_costume_scoped`, like the photo handlers and `POST /costumes/{id}/category`.
-Since #534 the repertoire is **real aggregate state** (`CostumeAggregate.seasons`, seeded from
-`CostumeCreated.season_id`, legacy events replay to an empty list): `POST /costumes/{id}/seasons` and
-`DELETE /costumes/{id}/seasons/{season_id}` dispatch `AddCostumeToSeason`/`RemoveCostumeFromSeason` —
-both are state-based idempotent no-ops (no event on repeat/absent), gated handler-internally by an
-AUTHZ-GATE on the **target** season (existing `has_active_costume_role_in_season`, no new
-`*_in_season` predicate, ADR-035 B2), and pre-checked at the API edge for existence (404
-`season.not-found`) and archived state (409 `season.archived`, #533 terminal semantics — an
-archived season rejects all further repertoire mutations). `projection_costume_season` is now truly
-m:n: the projector INSERTs on add and DELETEs on remove; `CostumeView.season_ids` carries the
-repertoire on the wire.
+`POST /pieces/{id}/category`; `POST /pieces/{id}/details` accepts a pure-description
+`PieceDetailRequest`, and `PATCH`/`DELETE /pieces/{id}/details/{detail_id}` edit and remove a
+detail (body = the piece aggregate's `VersionRequest` echo; an unknown `detail_id` answers 404
+`piece-detail.not-found`, a distinct code from `piece.validation` so a client can tell a stale row
+apart from a validation failure). `PieceDetailUpdated` carries the **full** detail, not a patch,
+and the projector reuses the same upsert. Both detail routes are handler-internal `AUTHZ-GATE`s
+over `authorize_piece_scoped`, like the photo handlers and `POST /pieces/{id}/category`.
+Since #534 the repertoire is **real aggregate state** (`PieceAggregate.seasons`, seeded from
+`PieceCreated.season_id`): `POST /pieces/{id}/seasons` and `DELETE /pieces/{id}/seasons/{season_id}`
+dispatch `AddPieceToSeason`/`RemovePieceFromSeason` — both are state-based idempotent no-ops (no
+event on repeat/absent), gated handler-internally by an AUTHZ-GATE on the **target** season
+(existing `has_active_costume_role_in_season`, no new `*_in_season` predicate, ADR-035 B2), and
+pre-checked at the API edge for existence (404 `season.not-found`) and archived state (409
+`season.archived`, #533 terminal semantics — an archived season rejects all further repertoire
+mutations). `projection_piece_season` is truly m:n: the projector INSERTs on add and DELETEs on
+remove; `PieceView.season_ids` carries the repertoire on the wire.
 

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: muse-spark-1.3 (opencode)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 import 'dart:convert';
 
@@ -32,7 +33,7 @@ BuiltList<T> _decodeBuiltList<T>(String json, Serializer<T> serializer) {
 
 /// Data-access object for [SceneShootCacheRows].
 ///
-/// Same discipline as [CostumeCacheDao]: snapshot writes go through
+/// Same discipline as [PieceCacheDao]: snapshot writes go through
 /// [CacheDatabase.transaction] (upsert-all + delete-missing-ids in one txn)
 /// scoped to one shooting day, rows map to/from the generated
 /// `SceneShootView` DTO, the server `updatedAt` is preserved unchanged while

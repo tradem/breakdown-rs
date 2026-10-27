@@ -1,0 +1,10 @@
+{
+  "code": "piece.not-found",
+  "detail": "Kleidungsstück nicht gefunden.",
+  "extensions": {
+    "id": "00000000-0000-0000-0000-000000000001"
+  },
+  "status": 404,
+  "title": "Piece not found",
+  "type": "https://docs.breakdown.example/problems/piece.not-found"
+}

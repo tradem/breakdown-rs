@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024 Breakdown RS Contributors
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 //! Fuzz target for all `Update*` request bodies and `VersionRequest`.
 //!
@@ -112,7 +113,7 @@ struct UpdateCostumeCategoryRequest {
 /// Mirrors `breakdown_api::handlers::AddCostumeDetailRequest`.
 #[derive(Debug, Deserialize)]
 struct AddCostumeDetailRequest {
-    pub detail: breakdown_core::costume::events::CostumeDetail,
+    pub detail: breakdown_core::piece::events::PieceDetail,
     pub version: AggregateVersion,
 }
 

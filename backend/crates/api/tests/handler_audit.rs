@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 #![allow(
     clippy::unwrap_used,
     clippy::expect_used,
@@ -39,7 +40,7 @@ async fn get_block_audit_returns_journal_entries_for_block() {
         block_id: Some(block_id),
         project_id: None,
         actor: Some(UserId::from_sub("user-1")),
-        payload: json!({ "role": "costume_assistant" }),
+        payload: json!({ "role": "piece_assistant" }),
         occurred_at: Utc::now(),
     });
 

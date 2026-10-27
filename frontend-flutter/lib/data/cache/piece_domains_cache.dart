@@ -1,0 +1,281 @@
+// SPDX-License-Identifier: AGPL-3.0
+// Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: muse-spark-1.3-contributor (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
+
+import 'package:drift/drift.dart';
+
+/// Drift rows mirroring the Phase-2 piece-domain read-projection DTOs (not
+/// the event-store schema — AGENTS.md §8). Every server field is preserved
+/// unchanged; the client-only [cachedAt] columns drive TTL (same discipline
+/// as [SeasonCacheRows]).
+///
+/// DTO-shape discipline: when a `*View` gains or loses a field, the matching
+/// column change AND its Drift migration ship in the same PR, so the cache
+/// never silently drops a field.
+///
+/// Design notes (flutter-piece-domains D-tasks):
+/// * `PieceView` carries NO `season_id` on the wire — `seasonId` is the
+///   fetch-scope column (from `GET /v1/pieces?season_id=`), like
+///   `BlockCacheRows.seasonId`. `details`/`photos` ride the piece row as
+///   JSON snapshots (there is no detail/photo list route).
+/// * `CharacterView` carries `season_id` natively; measurements (7 required
+///   strings) are flattened, contact is flattened to nullable columns.
+/// * `ShootingDayView` carries `episode_id` natively; `source` (externally-
+///   tagged `Manual | AiExtracted`) is stored as the wire JSON string;
+///   `date` is stored as ISO-8601 `yyyy-MM-dd` text (nullable); `wrapped_at`
+///   as DateTime (nullable).
+
+// --- Pieces (mirrors `PieceView` + fetch-scope `seasonId`) ---------------
+
+class PieceCacheRows extends Table {
+  /// Mirrors `PieceView.id`.
+  TextColumn get id => text()();
+
+  /// Fetch scope: `GET /v1/pieces?season_id=` (NOT on the wire DTO).
+  TextColumn get seasonId => text()();
+
+  /// Mirrors `PieceView.name` (required, non-blank display name).
+  TextColumn get name => text()();
+
+  /// Mirrors `PieceView.categoryId` (issue #543: the piece's single
+  /// category — n:1 into the season vocabulary; nullable = uncategorised).
+  TextColumn get categoryId => text().nullable()();
+
+  /// Mirrors `PieceView.categoryName` (denormalised by the backend
+  /// projector; nullable on a projection miss).
+  TextColumn get categoryName => text().nullable()();
+
+  /// Mirrors `PieceView.notes`.
+  TextColumn get notes => text()();
+
+  /// JSON snapshot of `PieceView.details` (list of `PieceDetailView`
+  /// wire maps, serialized via the generated `breakdown_api` serializers).
+  TextColumn get detailsJson => text()();
+
+  /// JSON snapshot of `PieceView.photos` (list of `PiecePhotoView`
+  /// wire maps, each with nested `variants`). Never cached independently —
+  /// rides the piece row (no photo-list route).
+  TextColumn get photosJson => text()();
+
+  /// Mirrors `PieceView.updatedAt` — server timestamp, preserved unchanged.
+  DateTimeColumn get updatedAt => dateTime()();
+
+  /// Mirrors `PieceView.version` (optimistic-locking round-trips).
+  IntColumn get version => integer()();
+
+  /// Client-only cache-write time. TTL is computed from this column only.
+  DateTimeColumn get cachedAt => dateTime()();
+
+  /// Snapshot ordinal: position in the last `listBySeason` response
+  /// (server `ORDER BY updated_at DESC`). SQLite does not guarantee row
+  /// order without `ORDER BY`, so the snapshot index is persisted to
+  /// reproduce the server order exactly, including `updated_at` ties.
+  IntColumn get snapshotIndex => integer()();
+
+  /// JSON snapshot of `PieceView.season_ids` (issue #534: the season
+  /// repertoire — m:n, list of season ids). Nullable for the pre-#534
+  /// upgrade path: existing rows read NULL = the cache predates the field
+  /// and the next TTL snapshot-replace fills it.
+  TextColumn get seasonIdsJson => text().nullable()();
+
+  @override
+  Set<Column<Object>> get primaryKey => {id};
+}
+
+// --- Fundus pieces (mirrors `PieceView` + fetch-scope `projectId`) --------
+
+/// Drift rows for the **project-scoped fundus** slice (OpenSpec change
+/// `flutter-fundus-search`, issue #625).
+///
+/// A separate table from [PieceCacheRows] because the fetch scope differs:
+/// [PieceCacheRows.seasonId] is a SEASON scope (`GET /v1/pieces?season_id=`),
+/// while the fundus is a PROJECT scope (`GET /v1/pieces?project_id=`, design
+/// D3). Reusing the season table with a synthetic season key would abuse a
+/// season-typed column as a project key and make the season DAO semantics
+/// ambiguous.
+///
+/// The row mirrors `PieceView` exactly like [PieceCacheRows] (including
+/// the issue #534 `season_ids` repertoire), plus the client-only `cachedAt`
+/// and `snapshotIndex` columns. PK is `{id}`: one row per piece even when
+/// its repertoire spans several seasons (the repertoire IS the `seasonIdsJson`
+/// list, not duplicated rows).
+class FundusPieceCacheRows extends Table {
+  /// Mirrors `PieceView.id`.
+  TextColumn get id => text()();
+
+  /// Fetch scope: `GET /v1/pieces?project_id=` (NOT on the wire DTO).
+  TextColumn get projectId => text()();
+
+  /// Mirrors `PieceView.name` (required, non-blank display name).
+  TextColumn get name => text()();
+
+  /// Mirrors `PieceView.categoryId` (nullable = uncategorised).
+  TextColumn get categoryId => text().nullable()();
+
+  /// Mirrors `PieceView.categoryName` (denormalised; nullable on miss).
+  TextColumn get categoryName => text().nullable()();
+
+  /// Mirrors `PieceView.notes` (the fundus designation/description).
+  TextColumn get notes => text()();
+
+  /// JSON snapshot of `PieceView.details` (wire maps).
+  TextColumn get detailsJson => text()();
+
+  /// JSON snapshot of `PieceView.photos` (wire maps).
+  TextColumn get photosJson => text()();
+
+  /// JSON snapshot of `PieceView.seasonIds` (the repertoire; non-empty for
+  /// every fundus row by the exclusion contract — nullable only for the
+  /// defensive decode path, never for a freshly fetched row).
+  TextColumn get seasonIdsJson => text().nullable()();
+
+  /// Mirrors `PieceView.updatedAt` — server timestamp, preserved unchanged.
+  DateTimeColumn get updatedAt => dateTime()();
+
+  /// Mirrors `PieceView.version`.
+  IntColumn get version => integer()();
+
+  /// Client-only cache-write time. TTL is computed from this column only.
+  DateTimeColumn get cachedAt => dateTime()();
+
+  /// Snapshot ordinal (position in the last project-scoped response).
+  IntColumn get snapshotIndex => integer()();
+
+  @override
+  Set<Column<Object>> get primaryKey => {id};
+}
+
+// --- Outfits (character look; mirrors `OutfitView` + fetch-scope `characterId`)
+
+/// Drift rows for a character's **outfits** (the composed looks a character
+/// wears). Fetch scope is the character (`GET /v1/characters/{id}/outfits`),
+/// which is the only list route — an outfit belongs to exactly one character
+/// and derives its season from it.
+///
+/// `pieceIds`/`pieces`/`photos` ride the row as JSON snapshots (there is no
+/// per-piece list route); snapshot-replace keeps them in sync with the server.
+class OutfitCacheRows extends Table {
+  /// Mirrors `OutfitView.id`.
+  TextColumn get id => text()();
+
+  /// Fetch scope + owner: `OutfitView.characterId`.
+  TextColumn get characterId => text()();
+
+  /// Mirrors `OutfitView.name` (required, non-blank look name).
+  TextColumn get name => text()();
+
+  /// Mirrors `OutfitView.variantOf` (copy-on-write lineage; nullable).
+  TextColumn get variantOf => text().nullable()();
+
+  /// Mirrors `OutfitView.notes`.
+  TextColumn get notes => text()();
+
+  /// JSON snapshot of `OutfitView.pieces` (`OutfitPieceView` wire maps: piece
+  /// id, resolved name/category, presentation position).
+  TextColumn get piecesJson => text()();
+
+  /// JSON snapshot of `OutfitView.photos` (`OutfitPhotoView` wire maps).
+  TextColumn get photosJson => text()();
+
+  /// Mirrors `OutfitView.updatedAt` — server timestamp, preserved unchanged.
+  DateTimeColumn get updatedAt => dateTime()();
+
+  /// Mirrors `OutfitView.version` (optimistic-locking round-trips).
+  IntColumn get version => integer()();
+
+  /// Client-only cache-write time. TTL is computed from this column only.
+  DateTimeColumn get cachedAt => dateTime()();
+
+  /// Snapshot ordinal (position in the last character-scoped response).
+  IntColumn get snapshotIndex => integer()();
+
+  @override
+  Set<Column<Object>> get primaryKey => {id};
+}
+
+// --- Characters (mirrors `CharacterView`, flattened) --------------------------
+
+class CharacterCacheRows extends Table {
+  /// Mirrors `CharacterView.id`.
+  TextColumn get id => text()();
+
+  /// Mirrors `CharacterView.seasonId` (fetch scope).
+  TextColumn get seasonId => text()();
+
+  /// Mirrors `CharacterView.name`.
+  TextColumn get name => text()();
+
+  /// Mirrors `CharacterView.category` (`main_cast|guest|extra` wire string;
+  /// unknown variants strictly reject at parse time, never guessed).
+  TextColumn get category => text()();
+
+  /// Flattened `CharacterMeasurements` (all seven strings; nullable since
+  /// issue #423 — the backend serializes unset measurements as JSON null).
+  TextColumn get height => text().nullable()();
+  TextColumn get weight => text().nullable()();
+  TextColumn get chest => text().nullable()();
+  TextColumn get waist => text().nullable()();
+  TextColumn get hips => text().nullable()();
+  TextColumn get shoeSize => text().nullable()();
+  TextColumn get hatSize => text().nullable()();
+
+  /// Flattened `ContactInfo` (both nullable).
+  TextColumn get email => text().nullable()();
+  TextColumn get phone => text().nullable()();
+
+  /// Mirrors `CharacterView.updatedAt` — server timestamp, preserved unchanged.
+  DateTimeColumn get updatedAt => dateTime()();
+
+  /// Mirrors `CharacterView.version` (optimistic-locking round-trips).
+  IntColumn get version => integer()();
+
+  /// Client-only cache-write time. TTL is computed from this column only.
+  DateTimeColumn get cachedAt => dateTime()();
+
+  @override
+  Set<Column<Object>> get primaryKey => {id};
+}
+
+// --- Shooting days (mirrors `ShootingDayView`) --------------------------------
+
+class ShootingDayCacheRows extends Table {
+  /// Mirrors `ShootingDayView.id`.
+  TextColumn get id => text()();
+
+  /// Mirrors `ShootingDayView.episodeId` (fetch scope).
+  TextColumn get episodeId => text()();
+
+  /// Mirrors `ShootingDayView.orderKey` (server `ORDER BY order_key ASC`;
+  /// the client never re-sorts).
+  TextColumn get orderKey => text()();
+
+  /// Mirrors `ShootingDayView.source` as wire JSON (`"Manual"` or
+  /// `{"AiExtracted":{...}}`). Stored verbatim so future variants survive.
+  TextColumn get sourceJson => text()();
+
+  /// Mirrors `ShootingDayView.label` (nullable).
+  TextColumn get label => text().nullable()();
+
+  /// Mirrors `ShootingDayView.date` as ISO-8601 `yyyy-MM-dd` text (nullable;
+  /// `null` = unscheduled. Distinct from absent — see update semantics).
+  TextColumn get date => text().nullable()();
+
+  /// Mirrors `ShootingDayView.archived`.
+  BoolColumn get archived => boolean()();
+
+  /// Mirrors `ShootingDayView.wrappedAt` (nullable — `None` means open).
+  DateTimeColumn get wrappedAt => dateTime().nullable()();
+
+  /// Mirrors `ShootingDayView.updatedAt` — server timestamp, preserved.
+  DateTimeColumn get updatedAt => dateTime()();
+
+  /// Mirrors `ShootingDayView.version` (optimistic-locking round-trips).
+  IntColumn get version => integer()();
+
+  /// Client-only cache-write time. TTL is computed from this column only.
+  DateTimeColumn get cachedAt => dateTime()();
+
+  @override
+  Set<Column<Object>> get primaryKey => {id};
+}

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: deepseek-v4.1-flash (neuralwatt)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 import 'package:breakdown_api/breakdown_api.dart';
 import 'package:fpdart/fpdart.dart';
@@ -11,7 +12,7 @@ import 'base_repository.dart';
 import 'cache/cache_generation.dart';
 import 'cache/cache_ttl.dart';
 import 'cache/clock.dart';
-import 'cache/costume_domains_cache_dao.dart';
+import 'cache/piece_domains_cache_dao.dart';
 
 /// Read repository for the **costume fundus** (OpenSpec change
 /// `flutter-fundus-search`, issue #625).
@@ -19,12 +20,12 @@ import 'cache/costume_domains_cache_dao.dart';
 /// The fundus is the project's cross-season repertoire: the fetch scope is
 /// `GET /v1/costumes?project_id=…` (the route already exists and is
 /// generated — design D3; no backend/OpenAPI change), snapshot-replaced
-/// into the dedicated project-scoped [FundusCostumeCacheDao] slice. Every
+/// into the dedicated project-scoped [FundusPieceCacheDao] slice. Every
 /// method returns [Result] — never throws (AGENTS.md §5).
 class FundusRepository extends BaseRepository {
   const FundusRepository(super.api, this.cache);
 
-  final FundusCostumeCacheDao cache;
+  final FundusPieceCacheDao cache;
 
   /// Project-scoped fetch + snapshot-replace
   /// (`GET /v1/costumes?project_id=…`), paginated through every page so the
@@ -33,19 +34,19 @@ class FundusRepository extends BaseRepository {
   /// On [Right] applies the project-scoped snapshot and returns the rows.
   /// On [Left] returns the error without touching the cache. Honors [fence]
   /// like every other collection fetch.
-  Future<Result<List<CostumeView>>> listByProject(
+  Future<Result<List<PieceView>>> listByProject(
     String projectId, {
     Clock clock = Clock.system,
     CacheWriteFence? fence,
   }) async {
-    final Result<List<CostumeView>> fetched = await fetchAllPages<CostumeView>(
+    final Result<List<PieceView>> fetched = await fetchAllPages<PieceView>(
       ({required int limit, required int offset}) => api
           .getHandlersApi()
-          .listCostumes(projectId: projectId, limit: limit, offset: offset),
+          .listPieces(projectId: projectId, limit: limit, offset: offset),
       dtoInvalidCode: 'costume.dto_invalid',
     );
     return fetched.match(
-      (err) async => Left<ProblemError, List<CostumeView>>(err),
+      (err) async => Left<ProblemError, List<PieceView>>(err),
       (rows) async {
         if (fence != null && !fence.isCurrentGeneration(fence.generation)) {
           return Right(rows);
@@ -62,7 +63,7 @@ class FundusRepository extends BaseRepository {
 
   /// Pure Drift read (no network) of the project's cached fundus rows WITH
   /// the TTL staleness verdict.
-  Future<Result<({List<CostumeView> rows, bool stale})>> readCachedFresh(
+  Future<Result<({List<PieceView> rows, bool stale})>> readCachedFresh(
     String projectId, {
     Clock clock = Clock.system,
     Duration ttl = kCacheTtl,

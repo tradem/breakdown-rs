@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: omen-alpha (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 //! Handler tests for the deployment-scoped ops surface (issue #409):
 //! `GET /v1/ops/projector-health` and the ops escalation guard on
@@ -61,13 +62,13 @@ fn sample_snapshot() -> ProjectorHealthSnapshot {
     ProjectorHealthSnapshot {
         dead_letter_count: 1,
         dead_letters: vec![DeadLetterEntry {
-            projection_id: "costume".to_string(),
+            projection_id: "piece".to_string(),
             partition_id: 3,
             sequence: 42,
-            stream_id: "costume-1".to_string(),
-            event_name: "CostumeAssigned".to_string(),
+            stream_id: "piece-1".to_string(),
+            event_name: "PieceAssigned".to_string(),
             sqlstate: Some("23505".to_string()),
-            constraint_name: Some("uq_projection_costume".to_string()),
+            constraint_name: Some("uq_projection_piece".to_string()),
             error_message: "duplicate key".to_string(),
             attempts: 5,
             first_seen_at: Utc::now(),
@@ -117,7 +118,7 @@ async fn projector_health_allows_active_ops_admin_member() {
     assert_eq!(status, StatusCode::OK);
     assert_eq!(snapshot.dead_letter_count, 1);
     assert_eq!(snapshot.dead_letters.len(), 1);
-    assert_eq!(snapshot.dead_letters[0].event_name, "CostumeAssigned");
+    assert_eq!(snapshot.dead_letters[0].event_name, "PieceAssigned");
     assert_eq!(snapshot.checkpoints.len(), 1);
     assert_eq!(snapshot.checkpoints[0].sequence, 7);
 }

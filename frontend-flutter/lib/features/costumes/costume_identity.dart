@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: space-bunny-free (opencode-go)
 // Co-authored-by: glm-5.3-flash (neuralwatt)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 import 'package:breakdown_api/breakdown_api.dart';
 
@@ -20,12 +21,12 @@ class CostumeTileIdentity {
   final String? subject;
   final String text;
   final String? categoryName;
-  final CostumePhotoView? photo;
+  final PiecePhotoView? photo;
 }
 
-CostumeTileIdentity costumeTileIdentity(CostumeView costume) {
+CostumeTileIdentity costumeTileIdentity(PieceView costume) {
   final detail = costume.details.isEmpty ? null : costume.details.first;
-  CostumePhotoView? thumbnail;
+  PiecePhotoView? thumbnail;
   for (final photo in costume.photos) {
     final readyThumb = photo.variants.any(
       (variant) =>
@@ -48,12 +49,33 @@ CostumeTileIdentity costumeTileIdentity(CostumeView costume) {
   );
 }
 
-String costumeDisplayName(CostumeView costume, String genericFallback) {
+/// Display name of a fundus piece.
+///
+/// `PieceView.name` is the authoritative, required label (the aggregate
+/// rejects a blank name). The detail subject and the notes remain fallbacks
+/// for rows whose name was left at the created placeholder.
+String costumeDisplayName(PieceView costume, String genericFallback) {
+  final name = costume.name.trim();
+  if (name.isNotEmpty) return name;
   final identity = costumeTileIdentity(costume);
   final subject = identity.subject?.trim();
   if (subject != null && subject.isNotEmpty) return subject;
   final notes = costume.notes.trim();
   if (notes.isNotEmpty) return notes;
+  return genericFallback;
+}
+
+/// Display label for a scene **outfit** beat.
+///
+/// A beat references a composed look, so the look's own `name` (joined by the
+/// backend into `SceneOutfitBeatView.outfitName`) is the label. A projection
+/// miss falls back to the localized generic label — never to a UUID.
+String sceneBeatOutfitLabel({
+  required String? outfitName,
+  required String genericFallback,
+}) {
+  final joined = outfitName?.trim();
+  if (joined != null && joined.isNotEmpty) return joined;
   return genericFallback;
 }
 
@@ -65,7 +87,7 @@ String costumeDisplayName(CostumeView costume, String genericFallback) {
 /// backend-joined `costume_category_name`, then the localized generic
 /// fallback.
 String sceneBeatCostumeLabel({
-  required CostumeView? costume,
+  required PieceView? costume,
   required String? joinedCategoryName,
   required String genericFallback,
 }) {
@@ -78,6 +100,6 @@ String sceneBeatCostumeLabel({
 /// Icon category for a scene costume beat: the costume's own category
 /// (tile source) wins, the backend-joined name is the fallback.
 String? sceneBeatCostumeCategory({
-  required CostumeView? costume,
+  required PieceView? costume,
   required String? joinedCategoryName,
 }) => costume?.categoryName ?? joinedCategoryName;

@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
-// Co-authored-by: glm-5.3 (neuralwatt)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 //! Series-level membership self-check (issue #535) — the client-side
-//! AUTHZ-GATE signal for the series-wide costume-photo policy (ADR-035 B2/S2).
+//! AUTHZ-GATE signal for the series-wide piece-photo policy (ADR-035 B2/S2).
 
 #![allow(
     clippy::unwrap_used,
@@ -81,10 +81,10 @@ async fn get_series_membership_resolves_the_series_predicate_not_the_season_one(
     let series = ProjectId::new();
     // Season predicate would allow (override true), series predicate is
     // unseeded → the DTO must report `false`.
-    *ports.membership_repo.costume_role_override.lock().await = Some(Ok(true));
+    *ports.membership_repo.piece_role_override.lock().await = Some(Ok(true));
     *ports
         .membership_repo
-        .series_costume_role_override
+        .series_piece_role_override
         .lock()
         .await = Some(Ok(false));
     let (_status, Json(dto)) = get_series_membership::<FakePorts>(
@@ -105,7 +105,7 @@ async fn get_series_membership_propagates_predicate_failure() {
     let series = ProjectId::new();
     *ports
         .membership_repo
-        .series_costume_role_override
+        .series_piece_role_override
         .lock()
         .await = Some(Err(breakdown_core::error::DomainError::internal(
         "membership table unavailable",

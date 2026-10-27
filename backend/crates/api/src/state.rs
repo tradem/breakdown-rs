@@ -5,6 +5,7 @@
 // Co-authored-by: deepseek-v4-flash (opencode-go)
 // Co-authored-by: longcat-2.0-free (opencode)
 // Co-authored-by: omen-alpha (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 //! AppState – Composition-Root (manuelles DI)
 //!
@@ -26,7 +27,9 @@ use breakdown_core::ai::{
 use breakdown_core::audit::AuditRepository;
 use breakdown_core::block::{BlockCommands, BlockRepository};
 use breakdown_core::character::{CharacterCommands, CharacterRepository};
-use breakdown_core::costume::{CostumeCommands, CostumeRepository};
+use breakdown_core::outfit::{OutfitCommands, OutfitRepository};
+use breakdown_core::piece::{PieceCommands, PieceRepository};
+
 use breakdown_core::costume_category::{CostumeCategoryCommands, CostumeCategoryRepository};
 use breakdown_core::episode::{EpisodeCommands, EpisodeRepository};
 use breakdown_core::membership::policy::AuthorizationPolicy;
@@ -47,17 +50,17 @@ use infra::ai::{
 };
 use infra::event_store::{
     AiConfigCommandsImpl, BlockCommandsImpl, CharacterCommandsImpl, CostumeCategoryCommandsImpl,
-    CostumeCommandsImpl, EpisodeCommandsImpl, MembershipCommandsImpl, PhotoCommandsImpl,
-    SceneCommandsImpl, SceneShootCommandsImpl, SeasonCommandsImpl, SettingsCommandsImpl,
-    ShootingDayCommandsImpl,
+    EpisodeCommandsImpl, MembershipCommandsImpl, PhotoCommandsImpl, SceneCommandsImpl,
+    SceneShootCommandsImpl, SeasonCommandsImpl, SettingsCommandsImpl, ShootingDayCommandsImpl,
+    WardrobeCommandsImpl,
 };
 use infra::photo::repository::PhotoRepositoryImpl;
 use infra::photo::storage::OpenDalPhotoStorage;
 use infra::projectors::ProjectorHealthRepository as PgProjectorHealthRepository;
 use infra::queries::{
     AiConfigRepositoryImpl, AuditRepositoryImpl, BlockRepositoryImpl, CharacterRepositoryImpl,
-    CostumeCategoryRepositoryImpl, CostumeRepositoryImpl, EpisodeRepositoryImpl,
-    MembershipRepositoryImpl, SceneRepositoryImpl, SceneShootReportRepositoryImpl,
+    CostumeCategoryRepositoryImpl, EpisodeRepositoryImpl, MembershipRepositoryImpl,
+    OutfitRepositoryImpl, PieceRepositoryImpl, SceneRepositoryImpl, SceneShootReportRepositoryImpl,
     SceneShootRepositoryImpl, SeasonRepositoryImpl, SettingsRepositoryImpl,
     ShootingDayRepositoryImpl,
 };
@@ -80,12 +83,15 @@ pub trait Ports: Clone + Send + Sync + 'static {
     // behind an `Arc`, exactly like `SceneCommands`/`ShootingDayCommands`.
     type CharacterCommands: CharacterCommands + Clone;
     type CharacterRepo: CharacterRepository;
-    type CostumeCommands: CostumeCommands + Clone;
-    type CostumeRepo: CostumeRepository;
+    type WardrobeCommands: PieceCommands + OutfitCommands + Clone;
+    type PieceRepo: PieceRepository;
+    type OutfitRepo: OutfitRepository;
     type CostumeCategoryCommands: CostumeCategoryCommands;
     type CostumeCategoryRepo: CostumeCategoryRepository;
     type SeasonCommands: SeasonCommands;
-    type SeasonRepo: SeasonRepository;
+    // `+ Clone` because the AI script-apply worker owns the port behind an
+    // `Arc` to refuse the outfit step of an archived season (CR-002/D2).
+    type SeasonRepo: SeasonRepository + Clone;
     type BlockCommands: BlockCommands;
     type BlockRepo: BlockRepository;
     type EpisodeCommands: EpisodeCommands + Clone;
@@ -134,8 +140,9 @@ pub trait Ports: Clone + Send + Sync + 'static {
     fn scene_shoot_report_repo(&self) -> &Self::SceneShootReportRepo;
     fn character_commands(&self) -> &Self::CharacterCommands;
     fn character_repo(&self) -> &Self::CharacterRepo;
-    fn costume_commands(&self) -> &Self::CostumeCommands;
-    fn costume_repo(&self) -> &Self::CostumeRepo;
+    fn wardrobe_commands(&self) -> &Self::WardrobeCommands;
+    fn piece_repo(&self) -> &Self::PieceRepo;
+    fn outfit_repo(&self) -> &Self::OutfitRepo;
     fn costume_category_commands(&self) -> &Self::CostumeCategoryCommands;
     fn costume_category_repo(&self) -> &Self::CostumeCategoryRepo;
     fn season_commands(&self) -> &Self::SeasonCommands;
@@ -289,8 +296,9 @@ pub struct ProductionPorts {
     shooting_day_repo: ShootingDayRepositoryImpl,
     character_commands: CharacterCommandsImpl,
     character_repo: CharacterRepositoryImpl,
-    costume_commands: CostumeCommandsImpl,
-    costume_repo: CostumeRepositoryImpl,
+    wardrobe_commands: WardrobeCommandsImpl,
+    piece_repo: PieceRepositoryImpl,
+    outfit_repo: OutfitRepositoryImpl,
     costume_category_commands: CostumeCategoryCommandsImpl,
     costume_category_repo: CostumeCategoryRepositoryImpl,
     season_commands: SeasonCommandsImpl,
@@ -336,8 +344,9 @@ impl ProductionPorts {
         shooting_day_repo: ShootingDayRepositoryImpl,
         character_commands: CharacterCommandsImpl,
         character_repo: CharacterRepositoryImpl,
-        costume_commands: CostumeCommandsImpl,
-        costume_repo: CostumeRepositoryImpl,
+        wardrobe_commands: WardrobeCommandsImpl,
+        piece_repo: PieceRepositoryImpl,
+        outfit_repo: OutfitRepositoryImpl,
         costume_category_commands: CostumeCategoryCommandsImpl,
         costume_category_repo: CostumeCategoryRepositoryImpl,
         season_commands: SeasonCommandsImpl,
@@ -380,8 +389,9 @@ impl ProductionPorts {
             shooting_day_repo,
             character_commands,
             character_repo,
-            costume_commands,
-            costume_repo,
+            wardrobe_commands,
+            piece_repo,
+            outfit_repo,
             costume_category_commands,
             costume_category_repo,
             season_commands,
@@ -424,8 +434,9 @@ impl Ports for ProductionPorts {
     type ShootingDayRepo = ShootingDayRepositoryImpl;
     type CharacterCommands = CharacterCommandsImpl;
     type CharacterRepo = CharacterRepositoryImpl;
-    type CostumeCommands = CostumeCommandsImpl;
-    type CostumeRepo = CostumeRepositoryImpl;
+    type WardrobeCommands = WardrobeCommandsImpl;
+    type PieceRepo = PieceRepositoryImpl;
+    type OutfitRepo = OutfitRepositoryImpl;
     type CostumeCategoryCommands = CostumeCategoryCommandsImpl;
     type CostumeCategoryRepo = CostumeCategoryRepositoryImpl;
     type SeasonCommands = SeasonCommandsImpl;
@@ -478,11 +489,14 @@ impl Ports for ProductionPorts {
     fn character_repo(&self) -> &Self::CharacterRepo {
         &self.character_repo
     }
-    fn costume_commands(&self) -> &Self::CostumeCommands {
-        &self.costume_commands
+    fn wardrobe_commands(&self) -> &Self::WardrobeCommands {
+        &self.wardrobe_commands
     }
-    fn costume_repo(&self) -> &Self::CostumeRepo {
-        &self.costume_repo
+    fn piece_repo(&self) -> &Self::PieceRepo {
+        &self.piece_repo
+    }
+    fn outfit_repo(&self) -> &Self::OutfitRepo {
+        &self.outfit_repo
     }
     fn costume_category_commands(&self) -> &Self::CostumeCategoryCommands {
         &self.costume_category_commands

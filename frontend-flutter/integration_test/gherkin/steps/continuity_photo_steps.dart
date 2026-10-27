@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: muse-spark-1.3 (opencode)
 // Co-authored-by: omen-alpha (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 import 'package:flutter_driver/flutter_driver.dart';
 import 'package:flutter_gherkin/flutter_gherkin.dart';
@@ -46,7 +47,7 @@ Future<({int total, int photo})> _requestRecorderSnapshot(
 Iterable<StepDefinitionGeneric> continuityPhotoSteps() => [
   when2<String, String, FlutterWorld>(
     'I pick costume {string} for the continuity capture of scene shoot {string}',
-    (String costumeId, String sceneShootId, context) async {
+    (String pieceId, String sceneShootId, context) async {
       final driver = context.world.driver!;
       await FlutterDriverUtils.tap(
         driver,
@@ -54,7 +55,7 @@ Iterable<StepDefinitionGeneric> continuityPhotoSteps() => [
       );
       await FlutterDriverUtils.tap(
         driver,
-        find.byValueKey('continuity-costume-option-$costumeId'),
+        find.byValueKey('continuity-costume-option-$pieceId'),
       );
     },
   ),

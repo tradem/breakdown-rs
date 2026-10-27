@@ -21,8 +21,8 @@ crate-type = ["lib"]
 [dev-dependencies]
 lazy_static = "1.4"
 
-breakdown_core = { path = "../core", version = "0.43.0" }
-infra = { path = "../infra", version = "0.51.0", features = ["test-support"] }
+breakdown_core = { path = "../core", version = "0.44.0" }
+infra = { path = "../infra", version = "0.52.0", features = ["test-support"] }
 test_support = { path = "../test_support", version = "0.3.0" }
 
 # Event-sourcing traits used by the in-memory aggregate command checks.

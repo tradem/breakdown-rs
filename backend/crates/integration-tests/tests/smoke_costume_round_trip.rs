@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: deepseek-v4-flash (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 #![allow(
     clippy::unwrap_used,
@@ -14,46 +15,48 @@ mod fixtures;
 
 use anyhow::Result;
 use breakdown_core::{
-    costume::{commands::CreateCostume, events::CostumeEvent},
+    piece::{commands::CreatePiece, events::PieceEvent},
     shared::AggregateVersion,
 };
 use fixtures::spawn_postgres;
 use kameo_es::{Apply, Command};
 use test_support::make_ctx;
 
-use breakdown_core::costume::aggregate::CostumeAggregate;
+use breakdown_core::piece::aggregate::PieceAggregate;
 
 #[tokio::test]
-async fn postgres_harness_supports_costume_round_trip_template() -> Result<()> {
+async fn postgres_harness_supports_piece_round_trip_template() -> Result<()> {
     let (_pool, _container) = spawn_postgres().await?;
 
-    let costume_id = uuid::Uuid::now_v7();
-    let aggregate = CostumeAggregate::default();
+    let piece_id = uuid::Uuid::now_v7();
+    let aggregate = PieceAggregate::default();
     let events = aggregate.handle(
-        CreateCostume {
-            id: costume_id,
+        CreatePiece {
+            id: piece_id,
+            name: "Fundus-Piece".to_string(),
+            category_id: None,
             season_id: None,
             project_id: None,
         },
-        make_ctx::<CostumeAggregate>(),
+        make_ctx::<PieceAggregate>(),
     )?;
 
     assert_eq!(events.len(), 1);
     let created = match events[0].clone() {
-        CostumeEvent::CostumeCreated { id, .. } => id,
-        other => panic!("expected CostumeCreated, got {other:?}"),
+        PieceEvent::PieceCreated { id, .. } => id,
+        other => panic!("expected PieceCreated, got {other:?}"),
     };
 
     assert_ne!(created, uuid::Uuid::nil());
-    assert_eq!(created, costume_id);
+    assert_eq!(created, piece_id);
     assert_eq!(created.get_version(), Some(uuid::Version::SortRand));
 
-    let mut replayed = CostumeAggregate::default();
+    let mut replayed = PieceAggregate::default();
     for event in events {
         replayed.apply(event, Default::default());
     }
-    assert!(replayed.character_id.is_none());
-    // Costume is scope-free: there is no project_id / season_id to assert.
+    // A piece is character-free: the character binding lives on the outfit.
+    assert!(replayed.seasons.is_empty());
     let _ = AggregateVersion::INITIAL;
 
     Ok(())

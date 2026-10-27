@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: deepseek-v4-flash (opencode-go)
 // Co-authored-by: glm-5.2 (neuralwatt)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 #![allow(
     clippy::unwrap_used,
@@ -13,10 +14,10 @@
 )]
 //! Tier-4 integration test: N:M photo deletion round-trip.
 //!
-//! Spawns Postgres + SierraDB + Garage with the photo projector, costume projector,
+//! Spawns Postgres + SierraDB + Garage with the photo projector, piece projector,
 //! and all three photo sagas (thumbnail, deletion, bytes-cleanup).
 //!
-//! Scenario: Photo P is linked to two costumes (A and B).
+//! Scenario: Photo P is linked to two pieces (A and B).
 //!   - Unlink from A → refcount drops to 1 → `PhotoDeletionSaga` does NOT
 //!     dispatch `DeletePhoto` → bytes remain in Garage.
 //!   - Unlink from B → refcount drops to 0 → saga dispatches `DeletePhoto` →
@@ -32,19 +33,19 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::Result;
-use breakdown_core::costume::commands::{CreateCostume, LinkPhoto, UnlinkPhoto};
-use breakdown_core::costume::ports::{CostumeCommands, CostumeRepository};
 use breakdown_core::photo::commands::UploadPhoto;
 use breakdown_core::photo::ports::{PhotoCommands, PhotoRepository, PhotoStorage};
+use breakdown_core::piece::commands::{CreatePiece, LinkPiecePhoto, UnlinkPiecePhoto};
+use breakdown_core::piece::ports::{PieceCommands, PieceRepository};
 use breakdown_core::shared::{PhotoId, PhotoVariant};
 use fixtures::{await_photo, build_storage, spawn_garage, spawn_postgres, spawn_sierradb};
-use infra::event_store::{CostumeCommandsImpl, PhotoCommandsImpl};
+use infra::event_store::{PhotoCommandsImpl, WardrobeCommandsImpl};
 use infra::photo::repository::PhotoRepositoryImpl;
-use infra::queries::CostumeRepositoryImpl;
+use infra::queries::PieceRepositoryImpl;
 use kameo_es::command_service::CommandService;
 use uuid::Uuid;
 
-/// Poll `SELECT COUNT(*) FROM projection_costume_photo WHERE photo_id = $1`
+/// Poll `SELECT COUNT(*) FROM projection_piece_photo WHERE photo_id = $1`
 /// until it matches `expected` or the deadline expires.
 async fn await_photo_refcount(
     pool: &sqlx::PgPool,
@@ -54,7 +55,7 @@ async fn await_photo_refcount(
 ) -> Result<()> {
     loop {
         let count: i64 =
-            sqlx::query_scalar("SELECT COUNT(*) FROM projection_costume_photo WHERE photo_id = $1")
+            sqlx::query_scalar("SELECT COUNT(*) FROM projection_piece_photo WHERE photo_id = $1")
                 .bind(photo_id.0)
                 .fetch_one(pool)
                 .await?;
@@ -128,12 +129,12 @@ async fn photo_nm_deletion_round_trip() -> Result<()> {
     // 2. Adapters
     // -----------------------------------------------------------------------
     let photo_commands = PhotoCommandsImpl::new(cmd_service.clone());
-    let costume_commands = CostumeCommandsImpl::new(cmd_service.clone());
+    let piece_commands = WardrobeCommandsImpl::new(cmd_service.clone());
     let photo_repo = PhotoRepositoryImpl::new(pool.clone());
-    let _costume_repo = CostumeRepositoryImpl::new(pool.clone());
+    let _piece_repo = PieceRepositoryImpl::new(pool.clone());
 
     // -----------------------------------------------------------------------
-    // 3. Projectors (photo + costume — both needed for FK refs)
+    // 3. Projectors (photo + piece — both needed for FK refs)
     // -----------------------------------------------------------------------
     let redis_client = Arc::clone(&sierra_client);
     let _photo_projector = infra::projectors::spawn_photo_projector(
@@ -142,7 +143,7 @@ async fn photo_nm_deletion_round_trip() -> Result<()> {
         infra::projectors::ProjectorFlushConfig::test_profile(),
     )
     .await?;
-    let _costume_projector = infra::projectors::spawn_costume_projector(
+    let _piece_projector = infra::projectors::spawn_piece_projector(
         pool.clone(),
         Arc::clone(&redis_client),
         infra::projectors::ProjectorFlushConfig::test_profile(),
@@ -199,8 +200,8 @@ async fn photo_nm_deletion_round_trip() -> Result<()> {
                 id: photo_id,
                 content_type: content_type.clone(),
                 size_bytes: image_bytes.len() as u64,
-                binding: breakdown_core::photo::binding::PhotoBinding::Costume {
-                    costume_id: Uuid::now_v7(),
+                binding: breakdown_core::photo::binding::PhotoBinding::Piece {
+                    piece_id: Uuid::now_v7(),
                 },
                 project_id: Some(breakdown_core::shared::ProjectId::new()),
             },
@@ -214,28 +215,30 @@ async fn photo_nm_deletion_round_trip() -> Result<()> {
     assert_eq!(photo_view.id, photo_id);
 
     // -----------------------------------------------------------------------
-    // 6. Create two costumes (A and B)
+    // 6. Create two pieces (A and B)
     // -----------------------------------------------------------------------
-    let costume_a_id = Uuid::now_v7();
-    let costume_b_id = Uuid::now_v7();
+    let piece_a_id = Uuid::now_v7();
+    let piece_b_id = Uuid::now_v7();
 
-    let (_id_a, ver_a) = costume_commands
+    let (_id_a, ver_a) = piece_commands
         .create(
             test_user(),
-            CreateCostume {
-                id: costume_a_id,
+            CreatePiece {
+                id: piece_a_id,
+                name: "Fundus-Piece".to_string(),
+                category_id: None,
                 season_id: None,
                 project_id: None,
             },
         )
         .await?;
-    // Wait for costume A projection.
+    // Wait for piece A projection.
     let deadline = tokio::time::Instant::now() + Duration::from_secs(15);
     loop {
-        match _costume_repo.find_by_id(costume_a_id).await {
+        match _piece_repo.find_by_id(piece_a_id).await {
             Ok(_) => break,
             Err(_) if tokio::time::Instant::now() > deadline => {
-                anyhow::bail!("Timed out waiting for costume A projection");
+                anyhow::bail!("Timed out waiting for piece A projection");
             }
             Err(_) => {
                 tokio::time::sleep(Duration::from_millis(200)).await;
@@ -243,23 +246,25 @@ async fn photo_nm_deletion_round_trip() -> Result<()> {
         }
     }
 
-    let (_id_b, ver_b) = costume_commands
+    let (_id_b, ver_b) = piece_commands
         .create(
             test_user(),
-            CreateCostume {
-                id: costume_b_id,
+            CreatePiece {
+                id: piece_b_id,
+                name: "Fundus-Piece".to_string(),
+                category_id: None,
                 season_id: None,
                 project_id: None,
             },
         )
         .await?;
-    // Wait for costume B projection.
+    // Wait for piece B projection.
     let deadline = tokio::time::Instant::now() + Duration::from_secs(15);
     loop {
-        match _costume_repo.find_by_id(costume_b_id).await {
+        match _piece_repo.find_by_id(piece_b_id).await {
             Ok(_) => break,
             Err(_) if tokio::time::Instant::now() > deadline => {
-                anyhow::bail!("Timed out waiting for costume B projection");
+                anyhow::bail!("Timed out waiting for piece B projection");
             }
             Err(_) => {
                 tokio::time::sleep(Duration::from_millis(200)).await;
@@ -268,53 +273,56 @@ async fn photo_nm_deletion_round_trip() -> Result<()> {
     }
 
     // -----------------------------------------------------------------------
-    // 7. Link photo P to both costumes
+    // 7. Link photo P to both pieces
     // -----------------------------------------------------------------------
-    let ver_a2 = costume_commands
+    let ver_a2 = piece_commands
         .link_photo(
             test_user(),
-            LinkPhoto {
-                id: costume_a_id,
+            LinkPiecePhoto {
+                id: piece_a_id,
                 photo_id: photo_id.0,
                 project_id: None,
                 version: ver_a,
             },
         )
         .await?;
-    assert!(ver_a2.0 > ver_a.0, "LinkPhoto should increase version");
+    assert!(ver_a2.0 > ver_a.0, "LinkPiecePhoto should increase version");
 
-    let ver_b2 = costume_commands
+    let ver_b2 = piece_commands
         .link_photo(
             test_user(),
-            LinkPhoto {
-                id: costume_b_id,
+            LinkPiecePhoto {
+                id: piece_b_id,
                 photo_id: photo_id.0,
                 project_id: None,
                 version: ver_b,
             },
         )
         .await?;
-    assert!(ver_b2.0 > ver_b.0, "LinkPhoto should increase version");
+    assert!(ver_b2.0 > ver_b.0, "LinkPiecePhoto should increase version");
 
-    // Wait for both links to appear in projection_costume_photo.
+    // Wait for both links to appear in projection_piece_photo.
     let deadline = tokio::time::Instant::now() + Duration::from_secs(15);
     await_photo_refcount(&pool, photo_id, 2, deadline).await?;
 
     // -----------------------------------------------------------------------
-    // 8. Unlink from costume A — refcount drops to 1, bytes should survive
+    // 8. Unlink from piece A — refcount drops to 1, bytes should survive
     // -----------------------------------------------------------------------
-    let ver_a3 = costume_commands
+    let ver_a3 = piece_commands
         .unlink_photo(
             test_user(),
-            UnlinkPhoto {
-                id: costume_a_id,
+            UnlinkPiecePhoto {
+                id: piece_a_id,
                 photo_id: photo_id.0,
                 project_id: None,
                 version: ver_a2,
             },
         )
         .await?;
-    assert!(ver_a3.0 > ver_a2.0, "UnlinkPhoto should increase version");
+    assert!(
+        ver_a3.0 > ver_a2.0,
+        "UnlinkPiecePhoto should increase version"
+    );
 
     // Wait for projection to reflect the unlink.
     let deadline = tokio::time::Instant::now() + Duration::from_secs(15);
@@ -327,27 +335,30 @@ async fn photo_nm_deletion_round_trip() -> Result<()> {
     let fetched = storage.fetch(photo_id, PhotoVariant::Original).await?;
     assert_eq!(
         fetched.bytes, image_bytes,
-        "Bytes must remain after unlinking from first costume"
+        "Bytes must remain after unlinking from first piece"
     );
 
     // -----------------------------------------------------------------------
-    // 9. Unlink from costume B — refcount drops to 0, bytes must be deleted
+    // 9. Unlink from piece B — refcount drops to 0, bytes must be deleted
     // -----------------------------------------------------------------------
-    let ver_b3 = costume_commands
+    let ver_b3 = piece_commands
         .unlink_photo(
             test_user(),
-            UnlinkPhoto {
-                id: costume_b_id,
+            UnlinkPiecePhoto {
+                id: piece_b_id,
                 photo_id: photo_id.0,
                 project_id: None,
                 version: ver_b2,
             },
         )
         .await?;
-    assert!(ver_b3.0 > ver_b2.0, "UnlinkPhoto should increase version");
+    assert!(
+        ver_b3.0 > ver_b2.0,
+        "UnlinkPiecePhoto should increase version"
+    );
 
     // Wait for the deletion saga chain to complete:
-    //   refcount → 0  (CostumeProjector processes PhotoUnlinked)
+    //   refcount → 0  (PieceProjector processes PhotoUnlinked)
     //   → PhotoDeleted projected  (PhotoProjector processes DeletePhoto)
     //   → Garage bytes deleted  (PhotoBytesCleanupSaga processes PhotoDeleted)
     //
@@ -367,15 +378,15 @@ async fn photo_nm_deletion_round_trip() -> Result<()> {
     // -----------------------------------------------------------------------
     // 10. Final assertions
     // -----------------------------------------------------------------------
-    // projection_costume_photo should be empty for this photo.
+    // projection_piece_photo should be empty for this photo.
     let count: i64 =
-        sqlx::query_scalar("SELECT COUNT(*) FROM projection_costume_photo WHERE photo_id = $1")
+        sqlx::query_scalar("SELECT COUNT(*) FROM projection_piece_photo WHERE photo_id = $1")
             .bind(photo_id.0)
             .fetch_one(&pool)
             .await?;
     assert_eq!(
         count, 0,
-        "projection_costume_photo should have no rows for deleted photo"
+        "projection_piece_photo should have no rows for deleted photo"
     );
 
     // Photo projection should be gone (PhotoDeleted → PhotoProjector deletes row).

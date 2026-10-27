@@ -4,6 +4,7 @@
 // Co-authored-by: gpt-5.6-luna (opencode-go)
 // Co-authored-by: qwen3.8-flash (opencode-go)
 // Co-authored-by: glm-5.3-flash (neuralwatt)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 use chrono::{TimeZone, Utc};
 use uuid::Uuid;
@@ -25,7 +26,7 @@ fn scene(number: u32) -> SceneView {
         script_day: None,
         shooting_day_ids: Vec::new(),
         assigned_characters: Vec::new(),
-        costume_beats: Vec::new(),
+        outfit_beats: Vec::new(),
         version: AggregateVersion::INITIAL,
         updated_at: Utc.timestamp_opt(0, 0).single().unwrap(),
         source: Some(SceneSource::Manual),

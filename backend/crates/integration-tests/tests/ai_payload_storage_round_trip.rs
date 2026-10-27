@@ -3,6 +3,7 @@
 // Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 // Co-authored-by: mimo-v2.5 (opencode-go)
 // Co-authored-by: qwen3.8-flash (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 #![allow(
     clippy::unwrap_used,
@@ -35,10 +36,10 @@ use infra::ai::{
     PgAiImportMappingRepository, PgAiImportQueue, ScheduleImportWorker,
 };
 use infra::event_store::{
-    CharacterCommandsImpl, CostumeCommandsImpl, EpisodeCommandsImpl, SceneCommandsImpl,
-    SceneShootCommandsImpl, ShootingDayCommandsImpl, WrapFinalityGate,
+    CharacterCommandsImpl, EpisodeCommandsImpl, SceneCommandsImpl, SceneShootCommandsImpl,
+    ShootingDayCommandsImpl, WardrobeCommandsImpl, WrapFinalityGate,
 };
-use infra::queries::SceneRepositoryImpl;
+use infra::queries::{SceneRepositoryImpl, SeasonRepositoryImpl};
 use kameo_es::command_service::CommandService;
 use uuid::Uuid;
 
@@ -156,7 +157,7 @@ async fn ai_payload_storage_survives_simulated_restart() -> Result<()> {
     // Create the AI payload bucket
     let storage = build_ai_payload_storage(&creds);
     // Note: In a real scenario, the bucket would be created by the provision script.
-    // For this test, we use the same bucket as costume photos for simplicity.
+    // For this test, we use the same bucket as piece photos for simplicity.
 
     let job_id = AiImportJobId::new();
     let source_bytes = b"PDF content for script import".to_vec();
@@ -389,12 +390,12 @@ async fn ai_payload_apply_round_trips_through_projection() -> Result<()> {
     // Production write chain: CommandService → SceneCommandsImpl → SierraDB.
     let cmd_service = CommandService::new(conn);
     let scene_commands = SceneCommandsImpl::new(cmd_service.clone());
-    // The apply worker drives figures and costumes through their own ports. The
+    // The apply worker drives figures and pieces through their own ports. The
     // fixture's draft row names no character, so nothing is dispatched on them —
     // but the production write chain must be wired, or the test would prove less
     // than the handler does.
     let character_commands = CharacterCommandsImpl::new(cmd_service.clone());
-    let costume_commands = CostumeCommandsImpl::new(cmd_service.clone());
+    let piece_commands = WardrobeCommandsImpl::new(cmd_service.clone());
     // The fixture applies to an existing episode, so no group maps to a NEW
     // episode and this port stays idle — but the production write chain must
     // be wired for the worker to compile (issue #581 shape).
@@ -447,9 +448,9 @@ async fn ai_payload_apply_round_trips_through_projection() -> Result<()> {
             summary: None,
             script_day: None,
             characters: vec![],
-            // The costume field is additive; a scene without costuming is a
+            // The piece field is additive; a scene without costuming is a
             // normal outcome (outline blocks, English scripts without a
-            // costume note), so the fixture states the empty case explicitly.
+            // piece note), so the fixture states the empty case explicitly.
             costumes: vec![],
             // Episode metadata is additive too; this fixture stays in the
             // single-episode flow (issue #581).
@@ -493,7 +494,7 @@ async fn ai_payload_apply_round_trips_through_projection() -> Result<()> {
     let worker = ApplyWorker {
         scene_commands: Arc::new(scene_commands),
         character_commands: Arc::new(character_commands),
-        costume_commands: Arc::new(costume_commands),
+        costume_commands: Arc::new(piece_commands),
         // The fixture applies to an existing episode; no group is mapped to a
         // NEW episode, so the episode port is never consulted.
         episode_commands: Arc::new(episode_commands),
@@ -509,6 +510,10 @@ async fn ai_payload_apply_round_trips_through_projection() -> Result<()> {
         )),
         mappings: Arc::new(mappings_b),
         queue: Arc::new(queue_b),
+        // The row names no figure, so the outfit step (and with it the
+        // archived-season precondition, CR-002/D2) is never reached — the port
+        // is wired for the production shape only.
+        season_repo: Arc::new(SeasonRepositoryImpl::new(pool.clone())),
     };
     let applied = worker
         .apply_script(ApplyScriptRequest {

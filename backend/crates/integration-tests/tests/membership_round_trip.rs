@@ -3,6 +3,7 @@
 // Co-authored-by: glm-5.2 (neuralwatt)
 // Co-authored-by: hy4-preview (opencode-go)
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 #![allow(
     clippy::unwrap_used,
@@ -596,7 +597,7 @@ async fn has_active_membership_in_project_scopes_the_audit_gate_by_project() -> 
         repo.has_active_costume_role_in_season(season_id, owner.clone())
             .await
             .map_err(|e| anyhow!(e.to_string()))?,
-        "the season-scoped costume-role predicate must match the projected row"
+        "the season-scoped piece-role predicate must match the projected row"
     );
 
     // (2) No membership row at all → denied.
@@ -638,7 +639,7 @@ async fn has_active_membership_in_project_scopes_the_audit_gate_by_project() -> 
     );
 
     // (5) After acceptance the invitee is active → authorized (role-agnostic:
-    //     CostumeDesigner is not a costume-dept-only grant).
+    //     PieceDesigner is not a piece-dept-only grant).
     membership
         .accept_invitation(
             invitee.clone(),
@@ -742,7 +743,7 @@ async fn archive_role(
 
 /// `has_active_costume_role_in_season` with the `DomainError` mapped into
 /// `anyhow` (test ergonomics).
-async fn costume_role(
+async fn piece_role(
     repo: &MembershipRepositoryImpl,
     season_id: SeasonId,
     user_id: UserId,
@@ -931,17 +932,17 @@ async fn report_archive_role_allowlist_round_trips_through_real_sql() -> Result<
 }
 
 /// Tier-4: `has_active_costume_role_in_season` — the shared predicate behind
-/// the photo gate family (`upload/get/delete_costume_photo`,
+/// the photo gate family (`upload/get/delete_piece_photo`,
 /// `link/unlink_continuity_photo`) and the JSON/PDF report family
 /// (`dispo/shoot_day/soll_ist_report` and their `_pdf` twins, issue #348).
 ///
-/// All three costume-dept roles grant access. This pins the deny side
+/// All three piece-dept roles grant access. This pins the deny side
 /// against real SQL (only positive coverage existed before): pending and
 /// removed members are denied, and so is a caller whose only active block is
 /// in another season — the cross-season analogue of the audit gate's
 /// tenant boundary.
 #[tokio::test]
-async fn costume_role_gate_families_round_trip_through_real_sql() -> Result<()> {
+async fn piece_role_gate_families_round_trip_through_real_sql() -> Result<()> {
     let (pool, cmd_svc, _pg, _sierra) = init_membership().await?;
     let membership = MembershipCommandsImpl::new(cmd_svc.clone());
     let blocks = BlockCommandsImpl::new(cmd_svc);
@@ -951,13 +952,13 @@ async fn costume_role_gate_families_round_trip_through_real_sql() -> Result<()> 
     let season_id = SeasonId::new();
     let other_season = SeasonId::new();
 
-    let designer = UserId::from_sub("costume-designer");
-    let supervisor = UserId::from_sub("costume-supervisor");
-    let assistant = UserId::from_sub("costume-assistant");
-    let foreign = UserId::from_sub("costume-foreign-season");
-    let pending = UserId::from_sub("costume-pending");
-    let removed = UserId::from_sub("costume-removed");
-    let stranger = UserId::from_sub("costume-stranger");
+    let designer = UserId::from_sub("piece-designer");
+    let supervisor = UserId::from_sub("piece-supervisor");
+    let assistant = UserId::from_sub("piece-assistant");
+    let foreign = UserId::from_sub("piece-foreign-season");
+    let pending = UserId::from_sub("piece-pending");
+    let removed = UserId::from_sub("piece-removed");
+    let stranger = UserId::from_sub("piece-stranger");
 
     let home = seed_block_with_owner(
         &blocks,
@@ -1059,36 +1060,36 @@ async fn costume_role_gate_families_round_trip_through_real_sql() -> Result<()> 
         .map_err(|e| anyhow!(e.to_string()))?;
     await_member_absent(&repo, home, removed.clone()).await?;
 
-    // All three costume-dept roles open the photo and report gates …
+    // All three piece-dept roles open the photo and report gates …
     assert!(
-        costume_role(&repo, season_id, designer.clone()).await?,
-        "an active costume_designer must hold the costume role"
+        piece_role(&repo, season_id, designer.clone()).await?,
+        "an active costume_designer must hold the piece role"
     );
     assert!(
-        costume_role(&repo, season_id, supervisor.clone()).await?,
-        "an active wardrobe_supervisor must hold the costume role"
+        piece_role(&repo, season_id, supervisor.clone()).await?,
+        "an active wardrobe_supervisor must hold the piece role"
     );
     assert!(
-        costume_role(&repo, season_id, assistant.clone()).await?,
-        "an active costume_assistant must hold the costume role"
+        piece_role(&repo, season_id, assistant.clone()).await?,
+        "an active costume_assistant must hold the piece role"
     );
     // … while pending, removed, foreign-season, and stranger callers are
     // denied — the 403 side of every photo and report handler gate.
     assert!(
-        !costume_role(&repo, season_id, pending.clone()).await?,
-        "a pending invitee must not hold the costume role"
+        !piece_role(&repo, season_id, pending.clone()).await?,
+        "a pending invitee must not hold the piece role"
     );
     assert!(
-        !costume_role(&repo, season_id, removed.clone()).await?,
-        "a removed member must lose the costume role"
+        !piece_role(&repo, season_id, removed.clone()).await?,
+        "a removed member must lose the piece role"
     );
     assert!(
-        !costume_role(&repo, season_id, foreign.clone()).await?,
-        "membership in another season must not grant the costume role"
+        !piece_role(&repo, season_id, foreign.clone()).await?,
+        "membership in another season must not grant the piece role"
     );
     assert!(
-        !costume_role(&repo, season_id, stranger.clone()).await?,
-        "a user without any membership must not hold the costume role"
+        !piece_role(&repo, season_id, stranger.clone()).await?,
+        "a user without any membership must not hold the piece role"
     );
 
     Ok(())
@@ -1222,7 +1223,7 @@ async fn ops_role(repo: &MembershipRepositoryImpl, user_id: UserId) -> Result<bo
 /// `ops_admin` in *any* block grants access. Deny side pinned against real
 /// SQL per the #348 doctrine (fakes must not mask broken predicates): a
 /// *pending* ops invite, a demoted ops holder, a member who left, every
-/// costume-dept role and a stranger are all denied.
+/// piece-dept role and a stranger are all denied.
 #[tokio::test]
 async fn ops_role_gate_round_trips_through_real_sql() -> Result<()> {
     let (pool, cmd_svc, _pg, _sierra) = init_membership().await?;
@@ -1343,7 +1344,7 @@ async fn ops_role_gate_round_trips_through_real_sql() -> Result<()> {
         "a member who left their only block must lose the ops role"
     );
 
-    // 5) The three costume-dept roles do NOT carry the ops capability.
+    // 5) The three piece-dept roles do NOT carry the ops capability.
     seed_block_with_owner(
         &blocks,
         &membership,
@@ -1371,15 +1372,15 @@ async fn ops_role_gate_round_trips_through_real_sql() -> Result<()> {
 }
 
 /// Tier-4: `has_active_costume_role_in_project` — the project-level predicate
-/// behind the costume-photo gate as of issue #535 (ADR-035 B2/S2).
+/// behind the piece-photo gate as of issue #535 (ADR-035 B2/S2).
 ///
 /// The truth table mirrors the season-scoped predicate one level up:
-/// a costume-dept role in **any** active block of the project authorizes —
+/// a piece-dept role in **any** active block of the project authorizes —
 /// in particular a role in a *different season* of the same project (the
 /// documented #535 widening) — while pending invitees, removed members,
-/// non-costume roles and memberships of a *foreign* project stay denied.
+/// non-piece roles and memberships of a *foreign* project stay denied.
 #[tokio::test]
-async fn costume_role_in_project_allowlist_round_trips_through_real_sql() -> Result<()> {
+async fn piece_role_in_project_allowlist_round_trips_through_real_sql() -> Result<()> {
     let (pool, cmd_svc, _pg, _sierra) = init_membership().await?;
     let membership = MembershipCommandsImpl::new(cmd_svc.clone());
     let blocks = BlockCommandsImpl::new(cmd_svc);
@@ -1397,7 +1398,7 @@ async fn costume_role_in_project_allowlist_round_trips_through_real_sql() -> Res
     let removed = UserId::from_sub("project-removed");
     let stranger = UserId::from_sub("project-stranger");
 
-    // (1) Active costume-dept role in a block of season A → authorized.
+    // (1) Active piece-dept role in a block of season A → authorized.
     seed_block_with_owner(
         &blocks,
         &membership,
@@ -1411,11 +1412,11 @@ async fn costume_role_in_project_allowlist_round_trips_through_real_sql() -> Res
     )
     .await?;
     assert!(
-        in_project_costume(&repo, project_id, designer.clone()).await?,
+        in_project_piece(&repo, project_id, designer.clone()).await?,
         "an active costume_designer in the project must be authorized"
     );
 
-    // (2) Active costume-dept role in a block of season B (same project) →
+    // (2) Active piece-dept role in a block of season B (same project) →
     //     also authorized: the predicate is project-typed, the warm-up crew
     //     cross-season block carries the same grant.
     seed_block_with_owner(
@@ -1431,7 +1432,7 @@ async fn costume_role_in_project_allowlist_round_trips_through_real_sql() -> Res
     )
     .await?;
     assert!(
-        in_project_costume(&repo, project_id, cross_season.clone()).await?,
+        in_project_piece(&repo, project_id, cross_season.clone()).await?,
         "an active wardrobe_supervisor in another season of the same project must be authorized (issue #535 widening)"
     );
 
@@ -1449,11 +1450,11 @@ async fn costume_role_in_project_allowlist_round_trips_through_real_sql() -> Res
     )
     .await?;
     assert!(
-        in_project_costume(&repo, project_id, assistant.clone()).await?,
+        in_project_piece(&repo, project_id, assistant.clone()).await?,
         "an active costume_assistant in the project must be authorized"
     );
 
-    // (4) Pending invitee: invited with a costume role, never accepted → denied.
+    // (4) Pending invitee: invited with a piece role, never accepted → denied.
     let invite_block = seed_block_with_owner(
         &blocks,
         &membership,
@@ -1486,7 +1487,7 @@ async fn costume_role_in_project_allowlist_round_trips_through_real_sql() -> Res
     )
     .await?;
     assert!(
-        !in_project_costume(&repo, project_id, pending.clone()).await?,
+        !in_project_piece(&repo, project_id, pending.clone()).await?,
         "a pending invitee must not be authorized"
     );
 
@@ -1510,7 +1511,7 @@ async fn costume_role_in_project_allowlist_round_trips_through_real_sql() -> Res
     )
     .await?;
     assert!(
-        in_project_costume(&repo, project_id, pending.clone()).await?,
+        in_project_piece(&repo, project_id, pending.clone()).await?,
         "an accepted invitee must be authorized"
     );
 
@@ -1558,7 +1559,7 @@ async fn costume_role_in_project_allowlist_round_trips_through_real_sql() -> Res
         .map_err(|e| anyhow!(e.to_string()))?;
     await_member_absent(&repo, invite_block, removed.clone()).await?;
     assert!(
-        !in_project_costume(&repo, project_id, removed.clone()).await?,
+        !in_project_piece(&repo, project_id, removed.clone()).await?,
         "a removed member must lose access"
     );
 
@@ -1576,8 +1577,8 @@ async fn costume_role_in_project_allowlist_round_trips_through_real_sql() -> Res
     )
     .await?;
     assert!(
-        !in_project_costume(&repo, project_id, stranger.clone()).await?,
-        "a costume role in another project must not authorize this project"
+        !in_project_piece(&repo, project_id, stranger.clone()).await?,
+        "a piece role in another project must not authorize this project"
     );
 
     Ok(())
@@ -1585,7 +1586,7 @@ async fn costume_role_in_project_allowlist_round_trips_through_real_sql() -> Res
 
 /// `has_active_costume_role_in_project` with the `DomainError` mapped into
 /// `anyhow` (test ergonomics).
-async fn in_project_costume(
+async fn in_project_piece(
     repo: &MembershipRepositoryImpl,
     project_id: ProjectId,
     user_id: UserId,

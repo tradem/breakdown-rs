@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: deepseek-v4.1-flash (neuralwatt)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 // Repository boundary tests for the fundus (issue #625, tasks §2.5): the
 // project-scoped fetch snapshot-replaces the cache on success, a fetch error
@@ -16,16 +17,17 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:frontend_flutter/data/cache/cache_database.dart';
 import 'package:frontend_flutter/data/cache/cache_ttl.dart';
 import 'package:frontend_flutter/data/cache/clock.dart';
-import 'package:frontend_flutter/data/cache/costume_domains_cache_dao.dart';
+import 'package:frontend_flutter/data/cache/piece_domains_cache_dao.dart';
 import 'package:frontend_flutter/data/fundus_repository.dart';
 
-CostumeView _costume(String id, {List<String> repertoire = const ['s1']}) =>
-    CostumeView(
+PieceView _costume(String id, {List<String> repertoire = const ['s1']}) =>
+    PieceView(
       (b) => b
+        ..name = 'Fundus-Piece'
         ..id = id
         ..notes = 'Jacke'
-        ..details.replace(BuiltList<CostumeDetailView>())
-        ..photos.replace(BuiltList<CostumePhotoView>())
+        ..details.replace(BuiltList<PieceDetailView>())
+        ..photos.replace(BuiltList<PiecePhotoView>())
         ..seasonIds.replace(BuiltList<String>(repertoire))
         ..updatedAt = DateTime.utc(2026, 1, 1)
         ..version = 1,
@@ -33,11 +35,11 @@ CostumeView _costume(String id, {List<String> repertoire = const ['s1']}) =>
 
 void main() {
   late CacheDatabase db;
-  late FundusCostumeCacheDao dao;
+  late FundusPieceCacheDao dao;
 
   setUp(() {
     db = CacheDatabase(NativeDatabase.memory());
-    dao = FundusCostumeCacheDao(db);
+    dao = FundusPieceCacheDao(db);
   });
 
   tearDown(() => db.close());
@@ -136,7 +138,7 @@ class _ListCostumesInterceptor extends Interceptor {
   _ListCostumesInterceptor({this.rows, this.exception})
     : assert(rows != null || exception != null);
 
-  final List<CostumeView>? rows;
+  final List<PieceView>? rows;
   final DioException? exception;
 
   @override
@@ -150,7 +152,7 @@ class _ListCostumesInterceptor extends Interceptor {
         requestOptions: options,
         statusCode: 200,
         data: rows!
-            .map((v) => serializers.serializeWith(CostumeView.serializer, v))
+            .map((v) => serializers.serializeWith(PieceView.serializer, v))
             .toList(),
       ),
     );
@@ -159,11 +161,11 @@ class _ListCostumesInterceptor extends Interceptor {
 
 /// DAO fake whose reads/writes fail at the executor level, exercising the
 /// repository's `Left(ProblemError)` translation.
-class _ThrowingFundusDao extends FundusCostumeCacheDao {
+class _ThrowingFundusDao extends FundusPieceCacheDao {
   _ThrowingFundusDao(super.db);
 
   @override
-  Future<({List<CostumeView> rows, bool stale})> readByProjectFresh(
+  Future<({List<PieceView> rows, bool stale})> readByProjectFresh(
     String projectId, {
     Duration ttl = kCacheTtl,
     Clock clock = Clock.system,

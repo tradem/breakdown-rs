@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: deepseek-v4.1-flash (neuralwatt)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 // Tier-1 pure matcher tests for the fundus browse (issue #625, tasks §1.2).
 // No Flutter imports: the repertoire scope rule, the season filter and the
@@ -13,24 +14,25 @@ import 'package:test/test.dart';
 import 'package:frontend_flutter/features/fundus/fundus_model.dart';
 
 void main() {
-  CostumeView costume({
+  PieceView costume({
     required String id,
     required List<String> repertoire,
     String notes = '',
     String? categoryName,
-  }) => CostumeView(
+  }) => PieceView(
     (b) => b
+      ..name = 'Fundus-Piece'
       ..id = id
       ..notes = notes
       ..categoryName = categoryName
-      ..details.replace(BuiltList<CostumeDetailView>())
-      ..photos.replace(BuiltList<CostumePhotoView>())
+      ..details.replace(BuiltList<PieceDetailView>())
+      ..photos.replace(BuiltList<PiecePhotoView>())
       ..seasonIds.replace(BuiltList<String>(repertoire))
       ..updatedAt = DateTime.utc(2026, 1, 1)
       ..version = 1,
   );
 
-  List<String> ids(List<CostumeView> rows) => [for (final c in rows) c.id];
+  List<String> ids(List<PieceView> rows) => [for (final c in rows) c.id];
 
   test('whole fundus by default: every repertoire costume of the project', () {
     final rows = matchFundus(

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: glm-5.3-flash (neuralwatt)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 // Tier-1 unit tests for the pure scene-beat helpers (issue #546): the
 // grouping order of `groupSceneBeats` and the tile-identity discipline of
@@ -12,36 +13,35 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:frontend_flutter/features/costumes/costume_identity.dart';
 import 'package:frontend_flutter/features/scenes/scene_beats.dart';
 
-SceneCostumeBeatView _beat(
+SceneOutfitBeatView _beat(
   String characterId,
   int order, {
-  String costumeId = 'costume-1',
-  String? characterName,
+  String pieceId = 'costume-1',
   String? categoryName,
   String? note,
-}) => SceneCostumeBeatView(
+}) => SceneOutfitBeatView(
   (b) => b
     ..characterId = characterId
-    ..costumeId = costumeId
-    ..characterName = characterName
-    ..costumeCategoryName = categoryName
+    ..outfitId = pieceId
+    ..outfitName = categoryName
     ..order = order
     ..note = note,
 );
 
-CostumeView _costume(
+PieceView _costume(
   String id, {
   String? subject,
   String? categoryName,
   String notes = '',
-}) => CostumeView(
+}) => PieceView(
   (b) => b
+    ..name = 'Fundus-Piece'
     ..id = id
     ..notes = notes
     ..categoryName = categoryName
     ..details.replace([
       // Tile identity: the FIRST detail's subject is the de-facto name.
-      CostumeDetailView(
+      PieceDetailView(
         (d) => d
           ..id = 'detail-1'
           ..subject = subject
@@ -59,8 +59,8 @@ void main() {
         assignedCharacters: ['c-2', 'c-1'],
         beats: [
           _beat('c-1', 0),
-          _beat('c-2', 0, costumeId: 'costume-2'),
-          _beat('c-2', 1, costumeId: 'costume-3'),
+          _beat('c-2', 0, pieceId: 'costume-2'),
+          _beat('c-2', 1, pieceId: 'costume-3'),
         ],
       );
       expect(groups.map((g) => g.characterId), ['c-2', 'c-1']);
@@ -98,23 +98,41 @@ void main() {
   });
 
   group('sceneBeatCostumeLabel (tile-identity discipline)', () {
-    test('a projected costume resolves via the SAME tile helper', () {
-      final label = sceneBeatCostumeLabel(
-        costume: _costume('costume-1', subject: 'Rotkäppchen-Mantel'),
-        joinedCategoryName: 'Jacke',
-        genericFallback: 'Kostüm',
+    test('a piece resolves via the SAME tile helper', () {
+      final label = costumeDisplayName(
+        _costume('costume-1', subject: 'Rotkäppchen-Mantel'),
+        'Kostüm',
       );
-      // The detail subject (tile identity), NOT the joined category.
+      // `PieceView.name` is the authoritative label, NOT the detail subject.
+      expect(label, 'Fundus-Piece');
+    });
+
+    test('a blank piece name falls back to the detail subject', () {
+      final label = costumeDisplayName(
+        _costume(
+          'costume-1',
+          subject: 'Rotkäppchen-Mantel',
+        ).rebuild((b) => b..name = ' '),
+        'Kostüm',
+      );
       expect(label, 'Rotkäppchen-Mantel');
     });
 
-    test('projection miss falls back to the backend-joined category', () {
-      final label = sceneBeatCostumeLabel(
-        costume: null,
-        joinedCategoryName: 'Jacke',
-        genericFallback: 'Kostüm',
+    test('an outfit beat label is the look name', () {
+      expect(
+        sceneBeatOutfitLabel(
+          outfitName: 'Alltagslook Tag 1',
+          genericFallback: 'Kostüm',
+        ),
+        'Alltagslook Tag 1',
       );
-      expect(label, 'Jacke');
+    });
+
+    test('projection miss falls back to the generic label', () {
+      expect(
+        sceneBeatOutfitLabel(outfitName: null, genericFallback: 'Kostüm'),
+        'Kostüm',
+      );
     });
 
     test('projection miss without join falls back to the generic label', () {

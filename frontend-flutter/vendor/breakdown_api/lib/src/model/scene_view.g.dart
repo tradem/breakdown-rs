@@ -10,8 +10,6 @@ class _$SceneView extends SceneView {
   @override
   final BuiltList<String> assignedCharacters;
   @override
-  final BuiltList<SceneCostumeBeatView>? costumeBeats;
-  @override
   final String episodeId;
   @override
   final String id;
@@ -21,6 +19,8 @@ class _$SceneView extends SceneView {
   final String? location;
   @override
   final String? mood;
+  @override
+  final BuiltList<SceneOutfitBeatView>? outfitBeats;
   @override
   final int? sceneNumber;
   @override
@@ -41,12 +41,12 @@ class _$SceneView extends SceneView {
 
   _$SceneView._(
       {required this.assignedCharacters,
-      this.costumeBeats,
       required this.episodeId,
       required this.id,
       required this.isScheduleSet,
       this.location,
       this.mood,
+      this.outfitBeats,
       this.sceneNumber,
       this.scriptDay,
       required this.shootingDayIds,
@@ -67,12 +67,12 @@ class _$SceneView extends SceneView {
     if (identical(other, this)) return true;
     return other is SceneView &&
         assignedCharacters == other.assignedCharacters &&
-        costumeBeats == other.costumeBeats &&
         episodeId == other.episodeId &&
         id == other.id &&
         isScheduleSet == other.isScheduleSet &&
         location == other.location &&
         mood == other.mood &&
+        outfitBeats == other.outfitBeats &&
         sceneNumber == other.sceneNumber &&
         scriptDay == other.scriptDay &&
         shootingDayIds == other.shootingDayIds &&
@@ -86,12 +86,12 @@ class _$SceneView extends SceneView {
   int get hashCode {
     var _$hash = 0;
     _$hash = $jc(_$hash, assignedCharacters.hashCode);
-    _$hash = $jc(_$hash, costumeBeats.hashCode);
     _$hash = $jc(_$hash, episodeId.hashCode);
     _$hash = $jc(_$hash, id.hashCode);
     _$hash = $jc(_$hash, isScheduleSet.hashCode);
     _$hash = $jc(_$hash, location.hashCode);
     _$hash = $jc(_$hash, mood.hashCode);
+    _$hash = $jc(_$hash, outfitBeats.hashCode);
     _$hash = $jc(_$hash, sceneNumber.hashCode);
     _$hash = $jc(_$hash, scriptDay.hashCode);
     _$hash = $jc(_$hash, shootingDayIds.hashCode);
@@ -107,12 +107,12 @@ class _$SceneView extends SceneView {
   String toString() {
     return (newBuiltValueToStringHelper(r'SceneView')
           ..add('assignedCharacters', assignedCharacters)
-          ..add('costumeBeats', costumeBeats)
           ..add('episodeId', episodeId)
           ..add('id', id)
           ..add('isScheduleSet', isScheduleSet)
           ..add('location', location)
           ..add('mood', mood)
+          ..add('outfitBeats', outfitBeats)
           ..add('sceneNumber', sceneNumber)
           ..add('scriptDay', scriptDay)
           ..add('shootingDayIds', shootingDayIds)
@@ -132,12 +132,6 @@ class SceneViewBuilder implements Builder<SceneView, SceneViewBuilder> {
       _$this._assignedCharacters ??= ListBuilder<String>();
   set assignedCharacters(ListBuilder<String>? assignedCharacters) =>
       _$this._assignedCharacters = assignedCharacters;
-
-  ListBuilder<SceneCostumeBeatView>? _costumeBeats;
-  ListBuilder<SceneCostumeBeatView> get costumeBeats =>
-      _$this._costumeBeats ??= ListBuilder<SceneCostumeBeatView>();
-  set costumeBeats(ListBuilder<SceneCostumeBeatView>? costumeBeats) =>
-      _$this._costumeBeats = costumeBeats;
 
   String? _episodeId;
   String? get episodeId => _$this._episodeId;
@@ -159,6 +153,12 @@ class SceneViewBuilder implements Builder<SceneView, SceneViewBuilder> {
   String? _mood;
   String? get mood => _$this._mood;
   set mood(String? mood) => _$this._mood = mood;
+
+  ListBuilder<SceneOutfitBeatView>? _outfitBeats;
+  ListBuilder<SceneOutfitBeatView> get outfitBeats =>
+      _$this._outfitBeats ??= ListBuilder<SceneOutfitBeatView>();
+  set outfitBeats(ListBuilder<SceneOutfitBeatView>? outfitBeats) =>
+      _$this._outfitBeats = outfitBeats;
 
   int? _sceneNumber;
   int? get sceneNumber => _$this._sceneNumber;
@@ -198,12 +198,12 @@ class SceneViewBuilder implements Builder<SceneView, SceneViewBuilder> {
     final $v = _$v;
     if ($v != null) {
       _assignedCharacters = $v.assignedCharacters.toBuilder();
-      _costumeBeats = $v.costumeBeats?.toBuilder();
       _episodeId = $v.episodeId;
       _id = $v.id;
       _isScheduleSet = $v.isScheduleSet;
       _location = $v.location;
       _mood = $v.mood;
+      _outfitBeats = $v.outfitBeats?.toBuilder();
       _sceneNumber = $v.sceneNumber;
       _scriptDay = $v.scriptDay;
       _shootingDayIds = $v.shootingDayIds.toBuilder();
@@ -235,7 +235,6 @@ class SceneViewBuilder implements Builder<SceneView, SceneViewBuilder> {
       _$result = _$v ??
           _$SceneView._(
             assignedCharacters: assignedCharacters.build(),
-            costumeBeats: _costumeBeats?.build(),
             episodeId: BuiltValueNullFieldError.checkNotNull(
                 episodeId, r'SceneView', 'episodeId'),
             id: BuiltValueNullFieldError.checkNotNull(id, r'SceneView', 'id'),
@@ -243,6 +242,7 @@ class SceneViewBuilder implements Builder<SceneView, SceneViewBuilder> {
                 isScheduleSet, r'SceneView', 'isScheduleSet'),
             location: location,
             mood: mood,
+            outfitBeats: _outfitBeats?.build(),
             sceneNumber: sceneNumber,
             scriptDay: scriptDay,
             shootingDayIds: shootingDayIds.build(),
@@ -258,8 +258,9 @@ class SceneViewBuilder implements Builder<SceneView, SceneViewBuilder> {
       try {
         _$failedField = 'assignedCharacters';
         assignedCharacters.build();
-        _$failedField = 'costumeBeats';
-        _costumeBeats?.build();
+
+        _$failedField = 'outfitBeats';
+        _outfitBeats?.build();
 
         _$failedField = 'shootingDayIds';
         shootingDayIds.build();

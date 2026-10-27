@@ -3,6 +3,7 @@
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
 // Co-authored-by: omen-alpha (opencode-go)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 import 'package:breakdown_api/breakdown_api.dart';
 import 'package:built_collection/built_collection.dart';
@@ -16,7 +17,7 @@ import 'package:frontend_flutter/core/result.dart';
 import 'package:frontend_flutter/data/block_repository.dart';
 import 'package:frontend_flutter/data/cache/cache_database.dart';
 import 'package:frontend_flutter/data/cache/clock.dart';
-import 'package:frontend_flutter/data/cache/costume_domains_cache_dao.dart';
+import 'package:frontend_flutter/data/cache/piece_domains_cache_dao.dart';
 import 'package:frontend_flutter/data/cache/hierarchy_cache_dao.dart';
 import 'package:frontend_flutter/data/cache/scene_shoot_cache_dao.dart';
 import 'package:frontend_flutter/data/costume_category_repository.dart';
@@ -251,7 +252,7 @@ void main() {
       // fresh table — `createTable`, no data to migrate); issue #664 adds
       // the nullable AI import `progress_json` column (migration v14 → v15,
       // guarded ADD COLUMN).
-      expect(db.schemaVersion, 15);
+      expect(db.schemaVersion, 16);
       // Every table round-trips (migration created them).
       await BlockCacheDao(db).applySnapshotForSeason('s', [
         _block('b', seasonId: 's'),
@@ -297,20 +298,21 @@ void main() {
         ['ssh-1'],
       );
       // The project-scoped fundus slice round-trips (migration created it).
-      await FundusCostumeCacheDao(db).applySnapshotForProject('project-1', [
-        CostumeView(
+      await FundusPieceCacheDao(db).applySnapshotForProject('project-1', [
+        PieceView(
           (b) => b
+            ..name = 'Fundus-Piece'
             ..id = 'fundus-1'
             ..notes = 'Jacke'
-            ..details.replace(BuiltList<CostumeDetailView>())
-            ..photos.replace(BuiltList<CostumePhotoView>())
+            ..details.replace(BuiltList<PieceDetailView>())
+            ..photos.replace(BuiltList<PiecePhotoView>())
             ..seasonIds.replace(BuiltList<String>(['s']))
             ..updatedAt = DateTime.utc(2026, 5, 1)
             ..version = 1,
         ),
       ], DateTime.utc(2026, 5, 2));
       expect(
-        (await FundusCostumeCacheDao(db).readByProjectFresh('project-1')).rows
+        (await FundusPieceCacheDao(db).readByProjectFresh('project-1')).rows
             .map((v) => v.id),
         ['fundus-1'],
       );

@@ -3,6 +3,7 @@
 // Co-authored-by: space-bunny (opencode-go)
 // Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 // Co-authored-by: deepseek-v4.1-flash (neuralwatt)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 // Widget tests for the three task-oriented view roots and the season scope
 // picker (issue #610). Each view is asserted in its season-empty state and
@@ -96,12 +97,12 @@ SceneView sceneDto(
     ..assignedCharacters.replace(characters)
     ..shootingDayIds.replace(const <String>[])
     ..isScheduleSet = false
-    ..costumeBeats.replace([
-      for (final (characterId, costumeId) in beats)
-        SceneCostumeBeatView(
+    ..outfitBeats.replace([
+      for (final (characterId, outfitId) in beats)
+        SceneOutfitBeatView(
           (cb) => cb
             ..characterId = characterId
-            ..costumeId = costumeId
+            ..outfitId = outfitId
             ..order = 0,
         ),
     ])

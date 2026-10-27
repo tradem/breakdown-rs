@@ -1,0 +1,7 @@
+{
+  "code": "piece.container-unresolved",
+  "detail": "Das Kleidungsstück ist keiner Staffel im Repertoire zugeordnet — sein zugehöriger Container kann nicht ermittelt werden. Laden Sie die Garderobenliste neu und versuchen Sie es erneut.",
+  "status": 422,
+  "title": "Piece has no resolvable container",
+  "type": "https://docs.breakdown.example/problems/piece.container-unresolved"
+}

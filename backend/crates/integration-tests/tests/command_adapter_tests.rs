@@ -3,6 +3,7 @@
 // Co-authored-by: omen-alpha (opencode-go)
 // Co-authored-by: deepseek-v4-flash (opencode-go)
 // Co-authored-by: glm-5.2 (neuralwatt)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 #![allow(
     clippy::unwrap_used,
@@ -28,14 +29,12 @@ use breakdown_core::character::category::CharacterCategory;
 use breakdown_core::character::commands::{CreateCharacter, UpdateContactInfo, UpdateMeasurements};
 use breakdown_core::character::events::{CharacterMeasurements, ContactInfo};
 use breakdown_core::character::ports::{CharacterCommands, CharacterRepository};
-use breakdown_core::costume::commands::{
-    AssignCostumeToCharacter, CreateCostume, SetCostumeCategory,
-};
-use breakdown_core::costume::events::CostumeDetail;
-use breakdown_core::costume::ports::{CostumeCommands, CostumeRepository};
 use breakdown_core::episode::commands::CreateEpisode;
 use breakdown_core::episode::ports::{EpisodeCommands, EpisodeRepository};
 use breakdown_core::error::DomainError;
+use breakdown_core::piece::commands::{CreatePiece, SetPieceCategory};
+use breakdown_core::piece::events::PieceDetail;
+use breakdown_core::piece::ports::{PieceCommands, PieceRepository};
 use breakdown_core::scene::commands::{AssignCharacter, CreateScene};
 use breakdown_core::scene::events::{SceneDetails, SceneSource};
 use breakdown_core::scene::ports::{SceneCommands, SceneRepository};
@@ -118,7 +117,7 @@ async fn seed_season_and_episode(
 fn pk_column_for(table: &str) -> &str {
     match table {
         "projection_scene_character" => "scene_id",
-        "projection_costume_detail" | "projection_costume_photo" => "costume_id",
+        "projection_piece_detail" | "projection_piece_photo" => "piece_id",
         // All other major projection tables use `id` as primary key.
         _ => "id",
     }
@@ -236,7 +235,7 @@ async fn init() -> Result<(
         infra::projectors::ProjectorFlushConfig::test_profile(),
     )
     .await?;
-    let _sp = infra::projectors::spawn_costume_projector(
+    let _sp = infra::projectors::spawn_piece_projector(
         pool.clone(),
         r6,
         infra::projectors::ProjectorFlushConfig::test_profile(),
@@ -530,56 +529,60 @@ async fn character_update_contact_info() -> Result<()> {
 }
 
 // ---------------------------------------------------------------------------
-// Costume
+// Piece
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
-async fn costume_create() -> Result<()> {
+async fn piece_create() -> Result<()> {
     let (pool, cmd_svc, _pg, _sierra) = init().await?;
-    let costume_cmd = infra::event_store::CostumeCommandsImpl::new(cmd_svc);
-    let costume_repo = infra::queries::CostumeRepositoryImpl::new(pool.clone());
+    let piece_cmd = infra::event_store::WardrobeCommandsImpl::new(cmd_svc);
+    let piece_repo = infra::queries::PieceRepositoryImpl::new(pool.clone());
 
-    let costume_id = Uuid::now_v7();
+    let piece_id = Uuid::now_v7();
 
-    let cmd = CreateCostume {
-        id: costume_id,
+    let cmd = CreatePiece {
+        id: piece_id,
+        name: "Fundus-Piece".to_string(),
+        category_id: None,
         season_id: None,
         project_id: None,
     };
 
-    let (rid, rv) = costume_cmd.create(test_user(), cmd).await?;
+    let (rid, rv) = piece_cmd.create(test_user(), cmd).await?;
     assert_ne!(rid, Uuid::nil());
-    assert_eq!(rid, costume_id);
+    assert_eq!(rid, piece_id);
     assert!(rv.0 >= 1);
 
-    await_proj(&pool, "projection_costume", costume_id).await;
-    let v = costume_repo.find_by_id(costume_id).await?;
+    await_proj(&pool, "projection_piece", piece_id).await;
+    let v = piece_repo.find_by_id(piece_id).await?;
     assert!(v.details.is_empty());
     assert!(v.photos.is_empty());
     Ok(())
 }
 
 #[tokio::test]
-async fn costume_notes() -> Result<()> {
+async fn piece_notes() -> Result<()> {
     let (pool, cmd_svc, _pg, _sierra) = init().await?;
-    let costume_cmd = infra::event_store::CostumeCommandsImpl::new(cmd_svc);
-    let costume_repo = infra::queries::CostumeRepositoryImpl::new(pool.clone());
+    let piece_cmd = infra::event_store::WardrobeCommandsImpl::new(cmd_svc);
+    let piece_repo = infra::queries::PieceRepositoryImpl::new(pool.clone());
 
-    let costume_id = Uuid::now_v7();
+    let piece_id = Uuid::now_v7();
 
-    let cmd = CreateCostume {
-        id: costume_id,
+    let cmd = CreatePiece {
+        id: piece_id,
+        name: "Fundus-Piece".to_string(),
+        category_id: None,
         season_id: None,
         project_id: None,
     };
-    let (_id, ver) = costume_cmd.create(test_user(), cmd).await?;
-    await_proj(&pool, "projection_costume", costume_id).await;
+    let (_id, ver) = piece_cmd.create(test_user(), cmd).await?;
+    await_proj(&pool, "projection_piece", piece_id).await;
 
-    let ver2 = costume_cmd
+    let ver2 = piece_cmd
         .update_notes(
             test_user(),
-            breakdown_core::costume::commands::UpdateCostumeNotes {
-                id: costume_id,
+            breakdown_core::piece::commands::UpdatePieceNotes {
+                id: piece_id,
                 notes: "Blue dress".into(),
                 project_id: None,
                 version: ver,
@@ -588,42 +591,41 @@ async fn costume_notes() -> Result<()> {
         .await?;
     assert!(ver2.0 > ver.0);
 
-    await_proj_version(&pool, "projection_costume", costume_id, ver2.0 as u64).await;
-    assert_eq!(
-        costume_repo.find_by_id(costume_id).await?.notes,
-        "Blue dress"
-    );
+    await_proj_version(&pool, "projection_piece", piece_id, ver2.0 as u64).await;
+    assert_eq!(piece_repo.find_by_id(piece_id).await?.notes, "Blue dress");
     Ok(())
 }
 
 #[tokio::test]
-async fn costume_set_category_noop_redelivery_succeeds() -> Result<()> {
+async fn piece_set_category_noop_redelivery_succeeds() -> Result<()> {
     // Issue #543 state-based no-op, through the PRODUCTION adapter
-    // (CodeRabbit review): re-setting the category the costume already
+    // (CodeRabbit review): re-setting the category the piece already
     // carries emits no event; the adapter must return Ok with the unchanged
     // version, never a 409 "command produced no events".
     let (pool, cmd_svc, _pg, _sierra) = init().await?;
-    let costume_cmd = infra::event_store::CostumeCommandsImpl::new(cmd_svc);
-    let costume_repo = infra::queries::CostumeRepositoryImpl::new(pool.clone());
+    let piece_cmd = infra::event_store::WardrobeCommandsImpl::new(cmd_svc);
+    let piece_repo = infra::queries::PieceRepositoryImpl::new(pool.clone());
 
-    let costume_id = Uuid::now_v7();
+    let piece_id = Uuid::now_v7();
     let category_id = CostumeCategoryId::new();
-    let (_id, ver) = costume_cmd
+    let (_id, ver) = piece_cmd
         .create(
             test_user(),
-            CreateCostume {
-                id: costume_id,
+            CreatePiece {
+                id: piece_id,
+                name: "Fundus-Piece".to_string(),
+                category_id: None,
                 season_id: None,
                 project_id: None,
             },
         )
         .await?;
 
-    let ver2 = costume_cmd
+    let ver2 = piece_cmd
         .set_category(
             test_user(),
-            SetCostumeCategory {
-                id: costume_id,
+            SetPieceCategory {
+                id: piece_id,
                 category_id: Some(category_id),
                 project_id: None,
                 version: ver,
@@ -634,11 +636,11 @@ async fn costume_set_category_noop_redelivery_succeeds() -> Result<()> {
 
     // Re-set the SAME category with the fence the previous ack returned —
     // the aggregate is a no-op; the adapter must surface a success.
-    let ver3 = costume_cmd
+    let ver3 = piece_cmd
         .set_category(
             test_user(),
-            SetCostumeCategory {
-                id: costume_id,
+            SetPieceCategory {
+                id: piece_id,
                 category_id: Some(category_id),
                 project_id: None,
                 version: ver2,
@@ -648,37 +650,39 @@ async fn costume_set_category_noop_redelivery_succeeds() -> Result<()> {
     assert_eq!(ver3, ver2, "no-op returns the unchanged version");
 
     // The projection still carries the category, unchanged.
-    await_proj_version(&pool, "projection_costume", costume_id, ver2.0 as u64).await;
-    let view = costume_repo.find_by_id(costume_id).await?;
+    await_proj_version(&pool, "projection_piece", piece_id, ver2.0 as u64).await;
+    let view = piece_repo.find_by_id(piece_id).await?;
     assert_eq!(view.category_id, Some(category_id));
     Ok(())
 }
 
 #[tokio::test]
-async fn costume_set_category_clear_empty_succeeds() -> Result<()> {
-    // Issue #543: clearing an already-uncategorised costume is likewise a
+async fn piece_set_category_clear_empty_succeeds() -> Result<()> {
+    // Issue #543: clearing an already-uncategorised piece is likewise a
     // state-based no-op and must succeed through the production adapter.
     let (pool, cmd_svc, _pg, _sierra) = init().await?;
-    let costume_cmd = infra::event_store::CostumeCommandsImpl::new(cmd_svc);
-    let costume_repo = infra::queries::CostumeRepositoryImpl::new(pool.clone());
+    let piece_cmd = infra::event_store::WardrobeCommandsImpl::new(cmd_svc);
+    let piece_repo = infra::queries::PieceRepositoryImpl::new(pool.clone());
 
-    let costume_id = Uuid::now_v7();
-    let (_id, ver) = costume_cmd
+    let piece_id = Uuid::now_v7();
+    let (_id, ver) = piece_cmd
         .create(
             test_user(),
-            CreateCostume {
-                id: costume_id,
+            CreatePiece {
+                id: piece_id,
+                name: "Fundus-Piece".to_string(),
+                category_id: None,
                 season_id: None,
                 project_id: None,
             },
         )
         .await?;
 
-    let ver2 = costume_cmd
+    let ver2 = piece_cmd
         .set_category(
             test_user(),
-            SetCostumeCategory {
-                id: costume_id,
+            SetPieceCategory {
+                id: piece_id,
                 category_id: None,
                 project_id: None,
                 version: ver,
@@ -690,26 +694,26 @@ async fn costume_set_category_clear_empty_succeeds() -> Result<()> {
         "clearing an empty category is an unchanged no-op"
     );
 
-    await_proj_version(&pool, "projection_costume", costume_id, ver.0).await;
-    let view = costume_repo.find_by_id(costume_id).await?;
+    await_proj_version(&pool, "projection_piece", piece_id, ver.0).await;
+    let view = piece_repo.find_by_id(piece_id).await?;
     assert_eq!(view.category_id, None);
     Ok(())
 }
 
 #[tokio::test]
-async fn costume_assign_unassign() -> Result<()> {
+async fn piece_assign_unassign() -> Result<()> {
     let (pool, cmd_svc, _pg, _sierra) = init().await?;
     let (season_id, _project_id) = seed_season(&pool, &cmd_svc).await;
-    let costume_cmd = infra::event_store::CostumeCommandsImpl::new(cmd_svc.clone());
+    let piece_cmd = infra::event_store::WardrobeCommandsImpl::new(cmd_svc.clone());
     let char_cmd = infra::event_store::CharacterCommandsImpl::new(cmd_svc);
-    let costume_repo = infra::queries::CostumeRepositoryImpl::new(pool.clone());
+    let piece_repo = infra::queries::PieceRepositoryImpl::new(pool.clone());
 
-    let costume_id = Uuid::now_v7();
+    let piece_id = Uuid::now_v7();
     let char_id = Uuid::now_v7();
 
-    // `projection_costume.character_id` has a FOREIGN KEY to
+    // `projection_piece.character_id` has a FOREIGN KEY to
     // `projection_character(id)` (see migration 20250623000001). Assigning a
-    // costume to a non-existent character makes the projector's UPDATE fail
+    // piece to a non-existent character makes the projector's UPDATE fail
     // with an FK violation, which kills the projector epoch and restarts it
     // in a loop — the projection never advances past the create. Create the
     // character first and wait for its projection so the FK is satisfied.
@@ -727,20 +731,23 @@ async fn costume_assign_unassign() -> Result<()> {
         .await?;
     await_proj(&pool, "projection_character", char_id).await;
 
-    let cmd = CreateCostume {
-        id: costume_id,
+    let cmd = CreatePiece {
+        id: piece_id,
+        name: "Fundus-Piece".to_string(),
+        category_id: None,
         season_id: None,
         project_id: None,
     };
-    let (_id, ver) = costume_cmd.create(test_user(), cmd).await?;
-    await_proj(&pool, "projection_costume", costume_id).await;
+    let (_id, ver) = piece_cmd.create(test_user(), cmd).await?;
+    await_proj(&pool, "projection_piece", piece_id).await;
 
-    let ver2 = costume_cmd
-        .assign_to_character(
+    let season = breakdown_core::shared::SeasonId::new();
+    let ver2 = piece_cmd
+        .add_to_season(
             test_user(),
-            AssignCostumeToCharacter {
-                id: costume_id,
-                character_id: char_id,
+            breakdown_core::piece::commands::AddPieceToSeason {
+                id: piece_id,
+                season_id: season,
                 project_id: None,
                 version: ver,
             },
@@ -748,17 +755,18 @@ async fn costume_assign_unassign() -> Result<()> {
         .await?;
     assert!(ver2.0 > ver.0);
 
-    await_proj_version(&pool, "projection_costume", costume_id, ver2.0 as u64).await;
+    await_proj_version(&pool, "projection_piece", piece_id, ver2.0 as u64).await;
     assert_eq!(
-        costume_repo.find_by_id(costume_id).await?.character_id,
-        Some(char_id)
+        piece_repo.find_by_id(piece_id).await?.season_ids,
+        vec![season.0]
     );
 
-    let ver3 = costume_cmd
-        .unassign(
+    let ver3 = piece_cmd
+        .remove_from_season(
             test_user(),
-            breakdown_core::costume::commands::UnassignCostume {
-                id: costume_id,
+            breakdown_core::piece::commands::RemovePieceFromSeason {
+                id: piece_id,
+                season_id: season,
                 project_id: None,
                 version: ver2,
             },
@@ -766,43 +774,38 @@ async fn costume_assign_unassign() -> Result<()> {
         .await?;
     assert!(ver3.0 > ver2.0);
 
-    await_proj_version(&pool, "projection_costume", costume_id, ver3.0 as u64).await;
-    assert!(
-        costume_repo
-            .find_by_id(costume_id)
-            .await?
-            .character_id
-            .is_none()
-    );
+    await_proj_version(&pool, "projection_piece", piece_id, ver3.0 as u64).await;
+    assert!(piece_repo.find_by_id(piece_id).await?.season_ids.is_empty());
     Ok(())
 }
 
 #[tokio::test]
-async fn costume_detail_add_remove() -> Result<()> {
+async fn piece_detail_add_remove() -> Result<()> {
     let (pool, cmd_svc, _pg, _sierra) = init().await?;
-    let costume_cmd = infra::event_store::CostumeCommandsImpl::new(cmd_svc);
-    let costume_repo = infra::queries::CostumeRepositoryImpl::new(pool.clone());
+    let piece_cmd = infra::event_store::WardrobeCommandsImpl::new(cmd_svc);
+    let piece_repo = infra::queries::PieceRepositoryImpl::new(pool.clone());
 
-    let costume_id = Uuid::now_v7();
+    let piece_id = Uuid::now_v7();
     let detail_id = Uuid::now_v7();
 
-    let cmd = CreateCostume {
-        id: costume_id,
+    let cmd = CreatePiece {
+        id: piece_id,
+        name: "Fundus-Piece".to_string(),
+        category_id: None,
         season_id: None,
         project_id: None,
     };
-    let (_id, ver) = costume_cmd.create(test_user(), cmd).await?;
-    await_proj(&pool, "projection_costume", costume_id).await;
+    let (_id, ver) = piece_cmd.create(test_user(), cmd).await?;
+    await_proj(&pool, "projection_piece", piece_id).await;
 
-    let ver2 = costume_cmd
+    let ver2 = piece_cmd
         .add_detail(
             test_user(),
-            breakdown_core::costume::commands::AddDetail {
-                id: costume_id,
-                detail: CostumeDetail {
+            breakdown_core::piece::commands::AddPieceDetail {
+                id: piece_id,
+                detail: PieceDetail {
                     id: detail_id,
                     subject: None,
-                    category_id: None,
                     text: "Red lining".into(),
                 },
                 project_id: None,
@@ -812,15 +815,15 @@ async fn costume_detail_add_remove() -> Result<()> {
         .await?;
     assert!(ver2.0 > ver.0);
 
-    await_proj_version(&pool, "projection_costume", costume_id, ver2.0 as u64).await;
-    await_proj_version(&pool, "projection_costume_detail", costume_id, 0).await;
-    assert_eq!(costume_repo.find_by_id(costume_id).await?.details.len(), 1);
+    await_proj_version(&pool, "projection_piece", piece_id, ver2.0 as u64).await;
+    await_proj_version(&pool, "projection_piece_detail", piece_id, 0).await;
+    assert_eq!(piece_repo.find_by_id(piece_id).await?.details.len(), 1);
 
-    let ver3 = costume_cmd
+    let ver3 = piece_cmd
         .remove_detail(
             test_user(),
-            breakdown_core::costume::commands::RemoveDetail {
-                id: costume_id,
+            breakdown_core::piece::commands::RemovePieceDetail {
+                id: piece_id,
                 detail_id,
                 project_id: None,
                 version: ver2,
@@ -829,39 +832,35 @@ async fn costume_detail_add_remove() -> Result<()> {
         .await?;
     assert!(ver3.0 > ver2.0);
 
-    await_proj_version(&pool, "projection_costume", costume_id, ver3.0 as u64).await;
-    assert!(
-        costume_repo
-            .find_by_id(costume_id)
-            .await?
-            .details
-            .is_empty()
-    );
+    await_proj_version(&pool, "projection_piece", piece_id, ver3.0 as u64).await;
+    assert!(piece_repo.find_by_id(piece_id).await?.details.is_empty());
     Ok(())
 }
 
 #[tokio::test]
-async fn costume_photo_link_unlink() -> Result<()> {
+async fn piece_photo_link_unlink() -> Result<()> {
     let (pool, cmd_svc, _pg, _sierra) = init().await?;
-    let costume_cmd = infra::event_store::CostumeCommandsImpl::new(cmd_svc);
-    let costume_repo = infra::queries::CostumeRepositoryImpl::new(pool.clone());
+    let piece_cmd = infra::event_store::WardrobeCommandsImpl::new(cmd_svc);
+    let piece_repo = infra::queries::PieceRepositoryImpl::new(pool.clone());
 
-    let costume_id = Uuid::now_v7();
+    let piece_id = Uuid::now_v7();
     let photo_id = Uuid::now_v7();
 
-    let cmd = CreateCostume {
-        id: costume_id,
+    let cmd = CreatePiece {
+        id: piece_id,
+        name: "Fundus-Piece".to_string(),
+        category_id: None,
         season_id: None,
         project_id: None,
     };
-    let (_id, ver) = costume_cmd.create(test_user(), cmd).await?;
-    await_proj(&pool, "projection_costume", costume_id).await;
+    let (_id, ver) = piece_cmd.create(test_user(), cmd).await?;
+    await_proj(&pool, "projection_piece", piece_id).await;
 
-    let ver2 = costume_cmd
+    let ver2 = piece_cmd
         .link_photo(
             test_user(),
-            breakdown_core::costume::commands::LinkPhoto {
-                id: costume_id,
+            breakdown_core::piece::commands::LinkPiecePhoto {
+                id: piece_id,
                 photo_id,
                 project_id: None,
                 version: ver,
@@ -870,15 +869,15 @@ async fn costume_photo_link_unlink() -> Result<()> {
         .await?;
     assert!(ver2.0 > ver.0);
 
-    await_proj_version(&pool, "projection_costume", costume_id, ver2.0 as u64).await;
-    await_proj_version(&pool, "projection_costume_photo", costume_id, 0).await;
-    assert_eq!(costume_repo.find_by_id(costume_id).await?.photos.len(), 1);
+    await_proj_version(&pool, "projection_piece", piece_id, ver2.0 as u64).await;
+    await_proj_version(&pool, "projection_piece_photo", piece_id, 0).await;
+    assert_eq!(piece_repo.find_by_id(piece_id).await?.photos.len(), 1);
 
-    let ver3 = costume_cmd
+    let ver3 = piece_cmd
         .unlink_photo(
             test_user(),
-            breakdown_core::costume::commands::UnlinkPhoto {
-                id: costume_id,
+            breakdown_core::piece::commands::UnlinkPiecePhoto {
+                id: piece_id,
                 photo_id,
                 project_id: None,
                 version: ver2,
@@ -887,8 +886,8 @@ async fn costume_photo_link_unlink() -> Result<()> {
         .await?;
     assert!(ver3.0 > ver2.0);
 
-    await_proj_version(&pool, "projection_costume", costume_id, ver3.0 as u64).await;
-    assert!(costume_repo.find_by_id(costume_id).await?.photos.is_empty());
+    await_proj_version(&pool, "projection_piece", piece_id, ver3.0 as u64).await;
+    assert!(piece_repo.find_by_id(piece_id).await?.photos.is_empty());
     Ok(())
 }
 

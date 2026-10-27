@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: deepseek-v4.1-flash (neuralwatt)
 // Co-authored-by: glm-5.3-flash-flex (neuralwatt)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 #![allow(
     clippy::unwrap_used,
@@ -176,7 +177,7 @@ async fn test_shoot_day_report_pdf_shooting_day_not_found() {
 // ---------------------------------------------------------------------------
 
 /// Seed the full resolution chain of the shoot-day PDF handlers:
-/// shooting_day → episode → block (season scope) + an active costume-department
+/// shooting_day → episode → block (season scope) + an active piece-department
 /// membership for `test-user`, plus the (empty) report rows.
 async fn seed_pdf_chain(ports: &FakePorts) -> ShootingDayId {
     let season_id = SeasonId::new();

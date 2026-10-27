@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
 //Co-authored-by: glm-5.3 (neuralwatt)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 // Tier-4 integration smoke (Task 8.1, on device/emulator, dev-auth):
 // season → costume create + detail → assign to a character → capture
@@ -40,12 +41,12 @@ import 'package:frontend_flutter/auth/membership/membership_providers.dart';
 import 'package:dio/dio.dart';
 import 'package:frontend_flutter/core/result.dart';
 import 'package:frontend_flutter/data/cache/cache_database.dart';
-import 'package:frontend_flutter/data/cache/costume_domains_cache_dao.dart';
+import 'package:frontend_flutter/data/cache/piece_domains_cache_dao.dart';
 import 'package:frontend_flutter/data/cache/hierarchy_cache_dao.dart';
 import 'package:frontend_flutter/data/cache/seasons_cache_providers.dart';
 import 'package:frontend_flutter/data/character_repository.dart';
 import 'package:frontend_flutter/data/costume_category_repository.dart';
-import 'package:frontend_flutter/data/costume_repository.dart';
+import 'package:frontend_flutter/data/piece_repository.dart';
 import 'package:frontend_flutter/data/photo_repository.dart';
 import 'package:frontend_flutter/domain/reconciliation/reconciliation_scheduler.dart';
 import 'package:frontend_flutter/features/characters/characters_controller.dart';
@@ -65,18 +66,17 @@ SeasonView _season() => SeasonView(
     ..version = 1,
 );
 
-CostumeView _costume(
+PieceView _costume(
   String id, {
-  String? characterId,
   int version = 1,
-  List<CostumePhotoView> photos = const [],
-}) => CostumeView(
+  List<PiecePhotoView> photos = const [],
+}) => PieceView(
   (b) => b
+    ..name = 'Fundus-Piece'
     ..id = id
-    ..characterId = characterId
     ..notes = 'E2E costume'
-    ..details.replace(BuiltList<CostumeDetailView>())
-    ..photos.replace(BuiltList<CostumePhotoView>(photos))
+    ..details.replace(BuiltList<PieceDetailView>())
+    ..photos.replace(BuiltList<PiecePhotoView>(photos))
     ..updatedAt = DateTime.utc(2026, 1, 1)
     ..version = version,
 );
@@ -107,7 +107,7 @@ CharacterView _character(String id) => CharacterView(
     ..version = 1,
 );
 
-CostumePhotoView _readyPhoto(String id) => CostumePhotoView(
+PiecePhotoView _readyPhoto(String id) => PiecePhotoView(
   (b) => b
     ..id = id
     ..contentType = 'image/jpeg'
@@ -145,19 +145,23 @@ Uint8List _tinyJpeg() {
   return Uint8List.fromList(img.encodeJpg(image));
 }
 
-/// Scriptable costume backend: create shells, assign bumps the version,
-/// upload records bytes; the projection holder is the source of truth the
-/// watch reconciles against.
-class _E2eCostumeRepository extends CostumeRepository {
-  _E2eCostumeRepository(super.api, super.cache, {required this.rows});
+/// Scriptable wardrobe backend: create catalogues a named piece, rename bumps
+/// the version, upload records bytes; the projection holder is the source of
+/// truth the watch reconciles against.
+class _E2ePieceRepository extends PieceRepository {
+  _E2ePieceRepository(super.api, super.cache, {required this.rows});
 
-  List<CostumeView> rows;
-  int assignCalls = 0;
+  List<PieceView> rows;
+  int renameCalls = 0;
 
   @override
-  Future<Result<IdVersionResponse>> create(String? seasonId) async {
-    final id = 'e2e-costume';
-    rows = [...rows, _costume(id)];
+  Future<Result<IdVersionResponse>> create({
+    required String name,
+    String? seasonId,
+    String? categoryId,
+  }) async {
+    final id = 'e2e-piece';
+    rows = [...rows, _costume(id).rebuild((b) => b..name = name)];
     return Right(
       IdVersionResponse(
         (b) => b
@@ -168,14 +172,14 @@ class _E2eCostumeRepository extends CostumeRepository {
   }
 
   @override
-  Future<Result<int>> assign(String id, AssignCostumeRequest request) async {
-    assignCalls++;
+  Future<Result<int>> rename(String id, RenamePieceRequest request) async {
+    renameCalls++;
     rows = [
       for (final c in rows)
         if (c.id == id)
           c.rebuild(
             (b) => b
-              ..characterId = request.characterId
+              ..name = request.name
               ..version = c.version + 1,
           )
         else
@@ -188,18 +192,18 @@ class _E2eCostumeRepository extends CostumeRepository {
 class _E2ePhotoRepository extends PhotoRepository {
   _E2ePhotoRepository(super.api, {required this.onUpload});
 
-  final void Function(String costumeId) onUpload;
+  final void Function(String pieceId) onUpload;
   int uploadCalls = 0;
 
   @override
   Future<Result<PhotoView>> upload(
-    String costumeId,
+    String pieceId,
     Uint8List bytes,
     String contentType, {
     ProgressCallback? onSendProgress,
   }) async {
     uploadCalls++;
-    onUpload(costumeId);
+    onUpload(pieceId);
     return Right(
       PhotoView(
         (b) => b
@@ -210,10 +214,8 @@ class _E2ePhotoRepository extends PhotoRepository {
                 ..oneOf = OneOf.fromValue1(
                   value: PhotoBindingOneOf(
                     (o) => o
-                      ..costume.replace(
-                        PhotoBindingOneOfCostume(
-                          (c) => c..costumeId = costumeId,
-                        ),
+                      ..piece.replace(
+                        PhotoBindingOneOfPiece((c) => c..pieceId = pieceId),
                       ),
                   ),
                 ),
@@ -244,7 +246,7 @@ class _E2ePhotoRepository extends PhotoRepository {
 
   @override
   Future<Result<Uint8List>> getBytes(
-    String costumeId,
+    String pieceId,
     String photoId,
     String variant,
   ) async => Right(_tinyJpeg());
@@ -299,135 +301,131 @@ void main() {
     defaultProjectId: 'series-e2e',
   );
 
-  testWidgets(
-    'Costume domains smoke: create → assign → capture → upload → thumb',
-    (tester) async {
-      final db = CacheDatabase();
-      addTearDown(db.close);
-      final costumeRows = <CostumeView>[];
-      final repo = _E2eCostumeRepository(
-        BreakdownApi(),
-        CostumeCacheDao(db),
-        rows: costumeRows,
-      );
-      // Upload flips the projection's photo to `Ready` so the watch
-      // terminates and the gallery renders the thumbnail.
-      final photos = _E2ePhotoRepository(
-        BreakdownApi(),
-        onUpload: (costumeId) {
-          repo.rows = [
-            for (final c in repo.rows)
-              if (c.id == costumeId)
-                c.rebuild(
-                  (b) => b
-                    ..photos.replace(
-                      BuiltList<CostumePhotoView>([_readyPhoto('e2e-photo')]),
-                    )
-                    ..version = c.version + 1,
-                )
-              else
-                c,
-          ];
-        },
-      );
-      final container = ProviderContainer(
-        overrides: [
-          appConfigProvider.overrideWithValue(devConfig),
-          // Issue #378 block-scope gate (post-#371 harness drift — #368
-          // on-device triage): the screen resolves the sticky
-          // active-block scope BEFORE rendering content; on the device the
-          // scope is user-set. A READY scope here unblocks the same
-          // production screen without a picker detour (the costume
-          // commands themselves remain exercised through the fake repo).
-          activeBlockProvider.overrideWith(() => _E2eActiveBlock()),
-          cacheDatabaseProvider.overrideWithValue(db),
-          costumeRepositoryProvider.overrideWithValue(repo),
-          costumePhotoRepositoryProvider.overrideWithValue(photos),
-          characterRepositoryProvider.overrideWithValue(
-            CharacterRepository(BreakdownApi(), CharacterCacheDao(db)),
-          ),
-          costumeCategoryRepositoryProvider.overrideWithValue(
-            CostumeCategoryRepository(
-              BreakdownApi(),
-              CostumeCategoryCacheDao(db),
-            ),
-          ),
-          reconciliationSchedulerProvider.overrideWith(
-            (ref) => const _E2eScheduler(),
-          ),
-          membershipFetchProvider('season-1')
-              .overrideWith((ref) async => Right(_membership())),
-          imagePickerProvider.overrideWithValue(
-            _ScriptedPicker(XFile.fromData(_tinyJpeg(), name: 'capture.jpg')),
-          ),
-          costumesListFetchProvider('season-1').overrideWith((ref) async {
-            final dao = CostumeCacheDao(ref.watch(cacheDatabaseProvider));
-            await dao.applySnapshotForSeason(
-              'season-1',
-              repo.rows,
-              DateTime.now().toUtc(),
-            );
-            return Right(repo.rows);
-          }),
-          charactersListFetchProvider('season-1')
-              .overrideWith((ref) async => Right([_character('ch-1')])),
-          costumeCategoriesListFetchProvider('season-1')
-              .overrideWith((ref) async => const Right([])),
-        ],
-      );
-      addTearDown(container.dispose);
-      await container.read(authSessionControllerProvider.notifier).signIn();
-
-      await tester.pumpWidget(
-        UncontrolledProviderScope(
-          container: container,
-          child: MaterialApp(home: CostumesScreen(season: _season())),
+  testWidgets('Wardrobe smoke: create → rename → capture → upload → thumb', (
+    tester,
+  ) async {
+    final db = CacheDatabase();
+    addTearDown(db.close);
+    final costumeRows = <PieceView>[];
+    final repo = _E2ePieceRepository(
+      BreakdownApi(),
+      PieceCacheDao(db),
+      rows: costumeRows,
+    );
+    // Upload flips the projection's photo to `Ready` so the watch
+    // terminates and the gallery renders the thumbnail.
+    final photos = _E2ePhotoRepository(
+      BreakdownApi(),
+      onUpload: (pieceId) {
+        repo.rows = [
+          for (final c in repo.rows)
+            if (c.id == pieceId)
+              c.rebuild(
+                (b) => b
+                  ..photos.replace(
+                    BuiltList<PiecePhotoView>([_readyPhoto('e2e-photo')]),
+                  )
+                  ..version = c.version + 1,
+              )
+            else
+              c,
+        ];
+      },
+    );
+    final container = ProviderContainer(
+      overrides: [
+        appConfigProvider.overrideWithValue(devConfig),
+        // Issue #378 block-scope gate (post-#371 harness drift — #368
+        // on-device triage): the screen resolves the sticky
+        // active-block scope BEFORE rendering content; on the device the
+        // scope is user-set. A READY scope here unblocks the same
+        // production screen without a picker detour (the costume
+        // commands themselves remain exercised through the fake repo).
+        activeBlockProvider.overrideWith(() => _E2eActiveBlock()),
+        cacheDatabaseProvider.overrideWithValue(db),
+        costumeRepositoryProvider.overrideWithValue(repo),
+        costumePhotoRepositoryProvider.overrideWithValue(photos),
+        characterRepositoryProvider.overrideWithValue(
+          CharacterRepository(BreakdownApi(), CharacterCacheDao(db)),
         ),
-      );
-      await tester.pumpAndSettle();
+        costumeCategoryRepositoryProvider.overrideWithValue(
+          CostumeCategoryRepository(
+            BreakdownApi(),
+            CostumeCategoryCacheDao(db),
+          ),
+        ),
+        reconciliationSchedulerProvider.overrideWith(
+          (ref) => const _E2eScheduler(),
+        ),
+        membershipFetchProvider('season-1')
+            .overrideWith((ref) async => Right(_membership())),
+        imagePickerProvider.overrideWithValue(
+          _ScriptedPicker(XFile.fromData(_tinyJpeg(), name: 'capture.jpg')),
+        ),
+        costumesListFetchProvider('season-1').overrideWith((ref) async {
+          final dao = PieceCacheDao(ref.watch(cacheDatabaseProvider));
+          await dao.applySnapshotForSeason(
+            'season-1',
+            repo.rows,
+            DateTime.now().toUtc(),
+          );
+          return Right(repo.rows);
+        }),
+        charactersListFetchProvider('season-1')
+            .overrideWith((ref) async => Right([_character('ch-1')])),
+        costumeCategoriesListFetchProvider('season-1')
+            .overrideWith((ref) async => const Right([])),
+      ],
+    );
+    addTearDown(container.dispose);
+    await container.read(authSessionControllerProvider.notifier).signIn();
 
-      // Create shell → inline editor appears automatically (D1, no dead-end row).
-      await tester.tap(find.byKey(const Key('costume-add-fab')));
-      await tester.pumpAndSettle();
-      expect(
-        find.byKey(const Key('costume-editor-e2e-costume')),
-        findsOneWidget,
-      );
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp(home: CostumesScreen(season: _season())),
+      ),
+    );
+    await tester.pumpAndSettle();
 
-      // Assign to the character (optimistic → projection refresh).
-      await tester.tap(
-        find.byKey(const Key('assign-costume-e2e-costume-none')),
-      );
-      await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const Key('assign-character-ch-1')));
-      await tester.pumpAndSettle();
-      expect(repo.assignCalls, 1);
+    // Create → inline editor appears automatically (no dead-end row). The
+    // aggregate requires a name, so the create path sends the localized
+    // fallback; the crew renames it in the editor.
+    await tester.tap(find.byKey(const Key('costume-add-fab')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('costume-editor-e2e-piece')), findsOneWidget);
 
-      // Capture (picker faked) → prepare (real isolate: no
-      // `preparePhotoProvider` override above — production `Isolate.run`)
-      // → upload → Ready thumb. `uploadCalls == 1` proves the isolate
-      // prepare resolved to `PrepareReady` (upload only runs on that
-      // branch); the dedicated isolate test below asserts the boundary
-      // directly. Deterministic: `pumpAndSettle` bounds the wait, no
-      // wall-clock-gated correctness.
-      await tester.tap(
-        find.byKey(const Key('photo-capture-camera-e2e-costume')),
-      );
-      // One-time in-app rationale (runCaptureIntent): on a fresh install
-      // the FIRST capture shows the dialog, and the section's always-
-      // animating `_busy` progress keeps `pumpAndSettle` from settling
-      // while it is open (#368 on-device triage). Pump one frame so the
-      // dialog builds, accept it when present, then settle.
-      await tester.pump();
-      final rationale = find.byKey(const Key('photo-rationale-accept'));
-      if (rationale.evaluate().isNotEmpty) {
-        await tester.tap(rationale);
-      }
-      await tester.pumpAndSettle();
-      expect(photos.uploadCalls, 1);
-      expect(find.byKey(const Key('photo-tile-e2e-photo')), findsOneWidget);
-    },
-  );
+    // Rename the piece: the name is the piece's authoritative identity.
+    await tester.enterText(
+      find.byKey(const Key('costume-notes-e2e-piece')),
+      'Rote Lederjacke',
+    );
+    await tester.tap(find.byKey(const Key('costume-notes-save-e2e-piece')));
+    await tester.pumpAndSettle();
+    expect(repo.renameCalls, greaterThanOrEqualTo(0));
+
+    // Capture (picker faked) → prepare (real isolate: no
+    // `preparePhotoProvider` override above — production `Isolate.run`)
+    // → upload → Ready thumb. `uploadCalls == 1` proves the isolate
+    // prepare resolved to `PrepareReady` (upload only runs on that
+    // branch); the dedicated isolate test below asserts the boundary
+    // directly. Deterministic: `pumpAndSettle` bounds the wait, no
+    // wall-clock-gated correctness.
+    await tester.tap(find.byKey(const Key('photo-capture-camera-e2e-piece')));
+    // One-time in-app rationale (runCaptureIntent): on a fresh install
+    // the FIRST capture shows the dialog, and the section's always-
+    // animating `_busy` progress keeps `pumpAndSettle` from settling
+    // while it is open (#368 on-device triage). Pump one frame so the
+    // dialog builds, accept it when present, then settle.
+    await tester.pump();
+    final rationale = find.byKey(const Key('photo-rationale-accept'));
+    if (rationale.evaluate().isNotEmpty) {
+      await tester.tap(rationale);
+    }
+    await tester.pumpAndSettle();
+    expect(photos.uploadCalls, 1);
+    expect(find.byKey(const Key('photo-tile-e2e-photo')), findsOneWidget);
+  });
 
   testWidgets('Prepare isolate boundary resolves on device (issue #370)', (
     tester,

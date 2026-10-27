@@ -3,6 +3,7 @@
 // Co-authored-by: glm-5.3-flash (neuralwatt)
 // Co-authored-by: glm-5.3 (neuralwatt)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 /// Host-side HTTP helpers for the Gherkin harness seeding steps
 /// (issue #368).
@@ -297,7 +298,7 @@ Future<Map<String, String>> seedCostumeAssignment() async {
   final costume = await postJson('/v1/costumes', <String, Object?>{
     'season_id': seasonId, // #453: repertoire binding → visible unassigned
   }, activeBlock: blockId);
-  final costumeId = costume['id']! as String;
+  final pieceId = costume['id']! as String;
   // Second, DISTINCT unassigned costume for the reassignment scenario
   // (issue #454): the suite's scenarios share ONE seed run, so scenario 1's
   // assign mutates `c-7` (leaves it at version 2 = assigned); a scenario that
@@ -312,7 +313,7 @@ Future<Map<String, String>> seedCostumeAssignment() async {
     '1': seasonId,
     'ch-3': character3['id']! as String,
     'ch-9': character9['id']! as String,
-    'c-7': costumeId,
+    'c-7': pieceId,
     'c-r': reassignCostumeId,
   };
 }

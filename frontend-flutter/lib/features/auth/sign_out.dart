@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
 // Co-authored-by: omen-alpha (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:fpdart/fpdart.dart';
@@ -321,7 +322,7 @@ class SessionReset extends Notifier<void> {
       ..invalidate(costumeCategoriesOverlaysProvider)
       ..invalidate(costumeCategoriesCommandErrorProvider)
       ..invalidate(costumeCategoriesShowArchivedProvider)
-      ..invalidate(costumesControllerProvider)
+      ..invalidate(piecesControllerProvider)
       ..invalidate(costumesViewControllerProvider)
       ..invalidate(costumesListFetchProvider)
       ..invalidate(costumesPrevRowsProvider)

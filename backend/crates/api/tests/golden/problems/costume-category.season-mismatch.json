@@ -1,6 +1,6 @@
 {
   "code": "costume-category.season-mismatch",
-  "detail": "Die Kostümkategorie gehört zu einer Staffel außerhalb des Repertoires und der Charakter-Staffel dieses Kostüms.",
+  "detail": "Die Kostümkategorie gehört zu einer Staffel außerhalb des Repertoires dieses Kleidungsstücks.",
   "extensions": {
     "category_id": "00000000-0000-0000-0000-000000000001"
   },

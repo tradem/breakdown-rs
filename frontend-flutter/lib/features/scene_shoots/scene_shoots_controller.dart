@@ -3,6 +3,7 @@
 // Co-authored-by: muse-spark-1.3 (opencode)
 // Co-authored-by: omen-alpha (opencode-go)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 import 'dart:async';
 import 'dart:typed_data';
@@ -657,7 +658,7 @@ class SceneShootsController extends _$SceneShootsController {
   /// // AUTHZ-GATE: `upload_continuity_photos` capability checked before
   /// the call — same gate as link/list/unlink.
   Future<Result<PhotoView>> uploadContinuityBytes({
-    required String costumeId,
+    required String pieceId,
     required Uint8List bytes,
     required String contentType,
   }) async {
@@ -667,7 +668,7 @@ class SceneShootsController extends _$SceneShootsController {
       return Left(ProblemError(code: (gate as GateDeny).code, status: 403));
     }
     final repo = ref.read(costumePhotoRepositoryProvider);
-    final res = await repo.upload(costumeId, bytes, contentType);
+    final res = await repo.upload(pieceId, bytes, contentType);
     return res.match(
       (err) {
         ref.read(sceneShootsCommandErrorProvider(scope).notifier).set(err);

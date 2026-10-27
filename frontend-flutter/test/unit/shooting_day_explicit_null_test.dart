@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: omen-alpha (opencode-go)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 // Tier-1 unit test: pure data-layer logic, no Flutter imports (AGENTS.md test
 // pyramid). Verifies that the raw-Dio explicit-null paths (#374, follow-up to
@@ -17,7 +18,7 @@ import 'package:test/test.dart';
 
 import 'package:frontend_flutter/core/problem_error.dart';
 import 'package:frontend_flutter/data/cache/cache_database.dart';
-import 'package:frontend_flutter/data/cache/costume_domains_cache_dao.dart';
+import 'package:frontend_flutter/data/cache/piece_domains_cache_dao.dart';
 import 'package:frontend_flutter/data/shooting_day_repository.dart';
 
 /// Interceptor that short-circuits the request without any real network

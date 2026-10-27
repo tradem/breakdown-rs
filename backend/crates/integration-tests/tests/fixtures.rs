@@ -7,6 +7,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: gpt-5.6-luna (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 #![allow(
     clippy::unwrap_used,
@@ -416,7 +417,7 @@ metrics_token = "test_metrics_token"
         .ok_or_else(|| anyhow!("Could not parse secret key from: {key_out}"))?;
 
     // Create the bucket.
-    let bucket = "costume-photos-test".to_string();
+    let bucket = "piece-photos-test".to_string();
     let _ = garage_exec(&container, &["bucket", "create", &bucket]).await;
 
     // Grant the key read/write/owner permissions on the bucket.

@@ -5,21 +5,21 @@
 //
 
 // ignore_for_file: unused_element
-import 'package:breakdown_api/src/model/photo_binding_one_of1_continuity.dart';
+import 'package:breakdown_api/src/model/photo_binding_one_of1_outfit.dart';
 import 'package:built_value/built_value.dart';
 import 'package:built_value/serializer.dart';
 
 part 'photo_binding_one_of1.g.dart';
 
-/// Continuity (Anschluss) photo — taken during the shoot.
+/// Outfit (Anprobe) photo — a composed look, taken before the shoot.
 ///
 /// Properties:
-/// * [continuity]
+/// * [outfit]
 @BuiltValue()
 abstract class PhotoBindingOneOf1
     implements Built<PhotoBindingOneOf1, PhotoBindingOneOf1Builder> {
-  @BuiltValueField(wireName: r'continuity')
-  PhotoBindingOneOf1Continuity get continuity;
+  @BuiltValueField(wireName: r'outfit')
+  PhotoBindingOneOf1Outfit get outfit;
 
   PhotoBindingOneOf1._();
 
@@ -47,10 +47,10 @@ class _$PhotoBindingOneOf1Serializer
     PhotoBindingOneOf1 object, {
     FullType specifiedType = FullType.unspecified,
   }) sync* {
-    yield r'continuity';
+    yield r'outfit';
     yield serializers.serialize(
-      object.continuity,
-      specifiedType: const FullType(PhotoBindingOneOf1Continuity),
+      object.outfit,
+      specifiedType: const FullType(PhotoBindingOneOf1Outfit),
     );
   }
 
@@ -77,12 +77,12 @@ class _$PhotoBindingOneOf1Serializer
       final key = serializedList[i] as String;
       final value = serializedList[i + 1];
       switch (key) {
-        case r'continuity':
+        case r'outfit':
           final valueDes = serializers.deserialize(
             value,
-            specifiedType: const FullType(PhotoBindingOneOf1Continuity),
-          ) as PhotoBindingOneOf1Continuity;
-          result.continuity.replace(valueDes);
+            specifiedType: const FullType(PhotoBindingOneOf1Outfit),
+          ) as PhotoBindingOneOf1Outfit;
+          result.outfit.replace(valueDes);
           break;
         default:
           unhandled.add(key);

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: deepseek-v4-flash (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 // Crate-level lint suppression for this wire-contract test target
 // (justification, AGENTS.md §3): test code is the exempted class for the
@@ -47,11 +48,11 @@ use breakdown_core::block::views::BlockView;
 use breakdown_core::character::category::CharacterCategory;
 use breakdown_core::character::events::{CharacterMeasurements, ContactInfo};
 use breakdown_core::character::views::CharacterView;
-use breakdown_core::costume::views::{CostumeDetailView, CostumeView};
 use breakdown_core::costume_category::views::CostumeCategoryView;
 use breakdown_core::episode::views::EpisodeView;
 use breakdown_core::membership::Role;
 use breakdown_core::membership::views::{MembershipStateKind, MembershipView};
+use breakdown_core::piece::views::{PieceDetailView, PieceView};
 use breakdown_core::scene::events::SceneSource;
 use breakdown_core::scene::views::SceneView;
 use breakdown_core::season::views::SeasonView;
@@ -79,19 +80,19 @@ const ADDITIVE_ALLOWLIST: &[(&str, &str)] = &[
     // additive on `SceneView`. `Manual` is the value every pre-#517 scene keeps
     // (default-identical for existing clients), the AI path is opt-in MINOR.
     ("scene_view", "scene_view.source"),
-    // #543: the costume's single category — additive fields on `CostumeView`
+    // #543: the piece's single category — additive fields on `PieceView`
     // (both default to absent/`None` for pre-#543 clients; MINOR-additive on
     // the response shape).
-    ("costume_view", "costume_view.category_id"),
-    ("costume_view", "costume_view.category_name"),
+    ("piece_view", "piece_view.category_id"),
+    ("piece_view", "piece_view.category_name"),
     // #534: the season repertoire as real aggregate state — additive
-    // `season_ids` array on `CostumeView` (default-identical empty list for
+    // `season_ids` array on `PieceView` (default-identical empty list for
     // every pre-#534 client; MINOR-additive on the response shape).
-    ("costume_view", "costume_view.season_ids"),
-    // #546: ordered costume beats on `SceneView` — additive and
+    ("piece_view", "piece_view.season_ids"),
+    // #546: ordered outfit beats on `SceneView` — additive and
     // `#[serde(default)]`-backed (an empty list for every pre-#546 client;
     // MINOR-additive on the response shape).
-    ("scene_view", "scene_view.costume_beats"),
+    ("scene_view", "scene_view.outfit_beats"),
 ];
 
 /// Deliberate MAJOR breaks (ADR-021 D2/D5): fields REMOVED from, or whose
@@ -102,23 +103,36 @@ const ADDITIVE_ALLOWLIST: &[(&str, &str)] = &[
 /// wildcard (normalized from the concrete `[0]`, `[1]`, … indices before
 /// matching), so an entry can never silently cover unrelated siblings.
 const MAJOR_BREAK_ALLOWLIST: &[(&str, &str, &str)] = &[
-    // #543: the category moved from the detail to the costume — ONLY the two
+    // #543: the category moved from the detail to the piece — ONLY the two
     // removed detail category fields are allowlisted; `id`, `subject` and
     // `text` of a detail element stay fully gated (CodeRabbit review).
     (
-        "costume_view",
-        "costume_view.details[].category_id",
-        "category moved from detail to costume (issue #543 clean cut, 0.3.x pre-1.0)",
+        "piece_view",
+        "piece_view.details[].category_id",
+        "category moved from detail to piece (issue #543 clean cut, 0.3.x pre-1.0)",
     ),
     (
-        "costume_view",
-        "costume_view.details[].category_name",
-        "category moved from detail to costume (issue #543 clean cut, 0.3.x pre-1.0)",
+        "piece_view",
+        "piece_view.details[].category_name",
+        "category moved from detail to piece (issue #543 clean cut, 0.3.x pre-1.0)",
+    ),
+    // The piece/outfit split renames `SceneView.costume_beats` to
+    // `outfit_beats` and drops `PieceView.character_id` (the binding moved to
+    // the outfit). Pre-1.0 clean cut, only our own client (ADR-021 D5).
+    (
+        "scene_view",
+        "scene_view.costume_beats",
+        "costume beats renamed to outfit beats (piece/outfit split, 0.3.x pre-1.0)",
+    ),
+    (
+        "piece_view",
+        "piece_view.character_id",
+        "character binding moved to the outfit (piece/outfit split, 0.3.x pre-1.0)",
     ),
 ];
 
 /// Normalize a diff path so array-element indices collapse to `[]`
-/// ("costume_view.details[2].category_id" → "costume_view.details[].category_id"),
+/// ("piece_view.details[2].category_id" → "piece_view.details[].category_id"),
 /// letting the allowlist carry index-independent field paths.
 fn normalize_array_path(path: &str) -> String {
     let mut out = String::with_capacity(path.len());
@@ -182,7 +196,7 @@ fn sample_views() -> Vec<(&'static str, Value)> {
     let episode_id = fixed_uuid(3);
     let scene_id = fixed_uuid(4);
     let character_id = fixed_uuid(5);
-    let costume_id = fixed_uuid(6);
+    let piece_id = fixed_uuid(6);
     let shooting_day_id = fixed_uuid(7);
     let category_id = fixed_uuid(8);
     let user_id = UserId::from_sub("user-1");
@@ -245,7 +259,7 @@ fn sample_views() -> Vec<(&'static str, Value)> {
                 script_day: Some("1. Spieltag".to_string()),
                 shooting_day_ids: vec![ShootingDayId(shooting_day_id)],
                 assigned_characters: vec![character_id],
-                costume_beats: Vec::new(),
+                outfit_beats: Vec::new(),
                 version: AggregateVersion(4),
                 updated_at: t,
                 source: Some(SceneSource::Manual),
@@ -276,14 +290,14 @@ fn sample_views() -> Vec<(&'static str, Value)> {
             },
         ),
         snapshot(
-            "costume_view",
-            &CostumeView {
-                id: costume_id,
-                character_id: Some(character_id),
+            "piece_view",
+            &PieceView {
+                id: piece_id,
+                name: "Rote Lederjacke".to_string(),
                 category_id: None,
                 category_name: None,
                 notes: "Rote Lederjacke".to_string(),
-                details: vec![CostumeDetailView {
+                details: vec![PieceDetailView {
                     id: fixed_uuid(9),
                     subject: Some("Jacke".to_string()),
                     text: "Rote Lederjacke".to_string(),
@@ -403,7 +417,7 @@ fn diff_against_fixture(dto: &str, fixture: &Value, current: &Value, path: &str)
             Ok(())
         }
         // Arrays recurse element-wise so a changed element forms a precise
-        // path (`costume_view.details[0].category_id`) instead of treating
+        // path (`piece_view.details[0].category_id`) instead of treating
         // the whole array as one opaque value — the narrowed MAJOR-break
         // allowlist only matches the two removed detail category fields
         // (CodeRabbit review). Equal lengths are the fixture norm; a length

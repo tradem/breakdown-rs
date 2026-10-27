@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: deepseek-v4.1-flash (neuralwatt)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 import 'dart:async';
 
@@ -8,7 +9,7 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../../core/result.dart';
 import '../../data/cache/cache_generation.dart';
-import '../../data/cache/costume_domains_cache_dao.dart';
+import '../../data/cache/piece_domains_cache_dao.dart';
 import '../../data/cache/seasons_cache_providers.dart';
 import '../../data/fundus_repository.dart';
 import 'fundus_model.dart';
@@ -20,7 +21,7 @@ part 'fundus_controller.g.dart';
 @riverpod
 FundusRepository fundusRepository(Ref ref) => FundusRepository(
   ref.watch(apiClientProvider),
-  FundusCostumeCacheDao(ref.watch(cacheDatabaseProvider)),
+  FundusPieceCacheDao(ref.watch(cacheDatabaseProvider)),
 );
 
 /// The project's cached fundus inputs — THE QUERY PATH (design D3).

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: omen-alpha (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 //! Wrap-semantics tests (issue #376).
 //!
@@ -106,7 +107,7 @@ async fn seed_scene_with_episode(ports: &FakePorts) -> Uuid {
             script_day: None,
             shooting_day_ids: Vec::new(),
             assigned_characters: Vec::new(),
-            costume_beats: Vec::new(),
+            outfit_beats: Vec::new(),
             version: AggregateVersion::INITIAL,
             updated_at: chrono::Utc::now(),
             source: Some(SceneSource::Manual),

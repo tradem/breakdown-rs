@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 // Co-authored-by: glm-5.3-flash (neuralwatt)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 //! Pure re-grouping of a draft row's flat costume list into per-figure beat
 //! lanes, plus the pinned scene-chain arithmetic the apply worker depends on
@@ -24,7 +25,7 @@ use breakdown_core::ai::{
     character_mapping_ref, scene_beat_lanes,
 };
 use breakdown_core::scene::aggregate::SceneAggregate;
-use breakdown_core::scene::commands::{AddCostumeBeat, AssignCharacter, CreateScene};
+use breakdown_core::scene::commands::{AddOutfitBeat, AssignCharacter, CreateScene};
 use breakdown_core::scene::events::{SceneDetails, SceneSource};
 use breakdown_core::shared::{AggregateVersion, EpisodeId, ProjectId};
 use kameo_es::Command;
@@ -156,7 +157,7 @@ fn beat_mapping_rows_are_addressed_by_the_figure_reference_and_per_figure_order(
 }
 
 /// The pinned scene-chain arithmetic (worker analog of the costume test):
-/// `CreateScene → AssignCharacter×n → AddCostumeBeat×m` hangs exactly ONE
+/// `CreateScene → AssignCharacter×n → AddOutfitBeat×m` hangs exactly ONE
 /// event per step, so the version the mapping rows record after every step
 /// is a faithful phase record of a crashed apply.
 #[test]
@@ -212,10 +213,10 @@ fn test_ai_scene_chain_advances_exactly_one_version_per_step() {
     // Step 3: the figure's first beat = exactly one event, order 0.
     let events = agg
         .handle(
-            AddCostumeBeat {
+            AddOutfitBeat {
                 id: scene_id,
                 character_id: ben,
-                costume_id: overall,
+                outfit_id: overall,
                 note: None,
                 project_id: Some(project_id()),
                 version: agg.version,
@@ -245,10 +246,10 @@ fn test_ai_scene_chain_advances_exactly_one_version_per_step() {
     // Step 5: the other figure's beat = +1, order restarts at 0 per figure.
     let events = agg
         .handle(
-            AddCostumeBeat {
+            AddOutfitBeat {
                 id: scene_id,
                 character_id: renee,
-                costume_id: coat,
+                outfit_id: coat,
                 note: Some("nach dem Telefonat".into()),
                 project_id: Some(project_id()),
                 version: agg.version,
@@ -258,12 +259,12 @@ fn test_ai_scene_chain_advances_exactly_one_version_per_step() {
         .expect("beat accepted");
     test_support::replay_events(&mut agg, events);
     assert_eq!(agg.version, AggregateVersion(5), "step 5 (beat) = +1");
-    assert_eq!(agg.costume_beats.len(), 2);
-    assert_eq!(agg.costume_beats[0].order, 0);
-    assert_eq!(agg.costume_beats[1].order, 0, "orders are per figure");
+    assert_eq!(agg.outfit_beats.len(), 2);
+    assert_eq!(agg.outfit_beats[0].order, 0);
+    assert_eq!(agg.outfit_beats[1].order, 0, "orders are per figure");
 }
 
-/// The worker classifies a re-dispatched `AddCostumeBeat` that carries the
+/// The worker classifies a re-dispatched `AddOutfitBeat` that carries the
 /// current version and hits an identical last beat as "already settled" (the
 /// crash window between the append and the mapping confirm). That
 /// classification is only sound if the identical-last guard is the ONLY
@@ -302,10 +303,10 @@ fn add_costume_beat_refuses_identical_last_as_the_only_validation_error() {
     test_support::replay_events(&mut agg, events);
     let events = agg
         .handle(
-            AddCostumeBeat {
+            AddOutfitBeat {
                 id: scene_id,
                 character_id: ben,
-                costume_id: overall,
+                outfit_id: overall,
                 note: None,
                 project_id: Some(project_id()),
                 version: agg.version,
@@ -318,10 +319,10 @@ fn add_costume_beat_refuses_identical_last_as_the_only_validation_error() {
     // Same (costume, note) as the character's last beat, correct version:
     // the identical-last guard is the only validation refusal available.
     let result = agg.handle(
-        AddCostumeBeat {
+        AddOutfitBeat {
             id: scene_id,
             character_id: ben,
-            costume_id: overall,
+            outfit_id: overall,
             note: None,
             project_id: Some(project_id()),
             version: agg.version,
@@ -338,10 +339,10 @@ fn add_costume_beat_refuses_identical_last_as_the_only_validation_error() {
     // the replay is a typed VersionMismatch (folded into success by
     // `recover_version`), never a second beat.
     let result = agg.handle(
-        AddCostumeBeat {
+        AddOutfitBeat {
             id: scene_id,
             character_id: ben,
-            costume_id: overall,
+            outfit_id: overall,
             note: None,
             project_id: Some(project_id()),
             // The version from BEFORE the crashed beat append.

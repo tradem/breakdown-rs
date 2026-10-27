@@ -3,6 +3,7 @@
 // Co-authored-by: mimo-v2.5 (opencode-go)
 // Co-authored-by: deepseek-v4-flash (opencode-go)
 // Co-authored-by: longcat-2.0-free (opencode)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 #![allow(
     clippy::unwrap_used,
@@ -550,13 +551,13 @@ fn scene_with_character() -> SceneAggregate {
     agg
 }
 
-fn add_beat(agg: &mut SceneAggregate, character_id: Uuid, costume_id: Uuid, note: Option<String>) {
+fn add_beat(agg: &mut SceneAggregate, character_id: Uuid, outfit_id: Uuid, note: Option<String>) {
     let event = agg
         .handle(
-            AddCostumeBeat {
+            AddOutfitBeat {
                 id: agg.id,
                 character_id,
-                costume_id,
+                outfit_id,
                 note,
                 project_id: Some(project_id()),
                 version: agg.version,
@@ -578,10 +579,10 @@ fn test_add_beat_computes_dense_order_per_character() {
         Some("Mantel".into()),
     );
     add_beat(&mut agg, character_id, Uuid::now_v7(), Some("ohne".into()));
-    assert_eq!(agg.costume_beats.len(), 2);
-    assert_eq!(agg.costume_beats[0].order, 0);
-    assert_eq!(agg.costume_beats[1].order, 1);
-    assert_eq!(agg.costume_beats[0].note.as_deref(), Some("Mantel"));
+    assert_eq!(agg.outfit_beats.len(), 2);
+    assert_eq!(agg.outfit_beats[0].order, 0);
+    assert_eq!(agg.outfit_beats[1].order, 1);
+    assert_eq!(agg.outfit_beats[0].note.as_deref(), Some("Mantel"));
 }
 
 #[test]
@@ -589,10 +590,10 @@ fn test_add_beat_for_character_not_in_scene_rejected() {
     let agg = scene_with_character();
     let stranger = Uuid::now_v7();
     let result = agg.handle(
-        AddCostumeBeat {
+        AddOutfitBeat {
             id: agg.id,
             character_id: stranger,
-            costume_id: Uuid::now_v7(),
+            outfit_id: Uuid::now_v7(),
             note: None,
             project_id: Some(project_id()),
             version: agg.version,
@@ -612,10 +613,10 @@ fn test_add_beat_rejects_stale_version() {
     let agg = scene_with_character();
     let character_id = agg.assigned_characters[0];
     let result = agg.handle(
-        AddCostumeBeat {
+        AddOutfitBeat {
             id: agg.id,
             character_id,
-            costume_id: Uuid::now_v7(),
+            outfit_id: Uuid::now_v7(),
             note: None,
             project_id: Some(project_id()),
             version: AggregateVersion::INITIAL, // stale: agg.version is INITIAL.next()
@@ -632,10 +633,10 @@ fn test_consecutive_identical_beat_guard() {
     let costume = Uuid::now_v7();
     add_beat(&mut agg, character_id, costume, None);
     let result = agg.handle(
-        AddCostumeBeat {
+        AddOutfitBeat {
             id: agg.id,
             character_id,
-            costume_id: costume,
+            outfit_id: costume,
             note: None,
             project_id: Some(project_id()),
             version: agg.version,
@@ -645,6 +646,37 @@ fn test_consecutive_identical_beat_guard() {
     assert!(matches!(result, Err(SceneError::ValidationError(_))));
 }
 
+/// CR-003: the consecutive-identical guard is about the **whole** beat, not just
+/// the outfit. Re-wearing the same look with a new cue is a deliberate signal
+/// ("derselbe Mantel nach dem Telefonat") and must be accepted.
+#[test]
+fn test_same_outfit_with_a_new_note_is_a_valid_rewear() {
+    let mut agg = scene_with_character();
+    let character_id = agg.assigned_characters[0];
+    let outfit = Uuid::now_v7();
+    add_beat(&mut agg, character_id, outfit, None);
+    let event = agg
+        .handle(
+            AddOutfitBeat {
+                id: agg.id,
+                character_id,
+                outfit_id: outfit,
+                note: Some("nach dem Telefonat".into()),
+                project_id: Some(project_id()),
+                version: agg.version,
+            },
+            make_ctx(),
+        )
+        .expect("the same outfit with a new cue is a valid re-wear");
+    test_support::replay_events(&mut agg, event);
+    assert_eq!(agg.outfit_beats.len(), 2, "both beats must be recorded");
+    assert_eq!(agg.outfit_beats[1].outfit_id, outfit);
+    assert_eq!(
+        agg.outfit_beats[1].note.as_deref(),
+        Some("nach dem Telefonat")
+    );
+}
+
 #[test]
 fn test_on_change_two_costumes_same_character_allowed() {
     let mut agg = scene_with_character();
@@ -652,7 +684,7 @@ fn test_on_change_two_costumes_same_character_allowed() {
     add_beat(&mut agg, character_id, Uuid::now_v7(), None);
     add_beat(&mut agg, character_id, Uuid::now_v7(), None);
     // The guard only fires on identical consecutive costumes, not on a change.
-    assert_eq!(agg.costume_beats.len(), 2);
+    assert_eq!(agg.outfit_beats.len(), 2);
 }
 
 #[test]
@@ -663,11 +695,11 @@ fn test_update_beat_edits_in_place_and_never_renumbers() {
     let new_costume = Uuid::now_v7();
     let event = agg
         .handle(
-            UpdateCostumeBeat {
+            UpdateOutfitBeat {
                 id: agg.id,
                 character_id,
                 order: 0,
-                costume_id: new_costume,
+                outfit_id: new_costume,
                 note: Some("geändert".into()),
                 project_id: Some(project_id()),
                 version: agg.version,
@@ -676,8 +708,8 @@ fn test_update_beat_edits_in_place_and_never_renumbers() {
         )
         .unwrap();
     test_support::replay_events(&mut agg, event);
-    assert_eq!(agg.costume_beats[0].costume_id, new_costume);
-    assert_eq!(agg.costume_beats[0].order, 0);
+    assert_eq!(agg.outfit_beats[0].outfit_id, new_costume);
+    assert_eq!(agg.outfit_beats[0].order, 0);
 }
 
 #[test]
@@ -685,11 +717,11 @@ fn test_update_beat_not_found() {
     let agg = scene_with_character();
     let character_id = agg.assigned_characters[0];
     let result = agg.handle(
-        UpdateCostumeBeat {
+        UpdateOutfitBeat {
             id: agg.id,
             character_id,
             order: 3,
-            costume_id: Uuid::now_v7(),
+            outfit_id: Uuid::now_v7(),
             note: None,
             project_id: Some(project_id()),
             version: agg.version,
@@ -717,7 +749,7 @@ fn test_remove_middle_beat_keeps_surviving_orders_untouched() {
     add_beat(&mut agg, character_id, Uuid::now_v7(), None);
     let event = agg
         .handle(
-            RemoveCostumeBeat {
+            RemoveOutfitBeat {
                 id: agg.id,
                 character_id,
                 order: Some(1),
@@ -729,12 +761,12 @@ fn test_remove_middle_beat_keeps_surviving_orders_untouched() {
         .unwrap();
     test_support::replay_events(&mut agg, event);
     // 0 and 2 survive untouched — no renumbering.
-    let mut orders: Vec<u32> = agg.costume_beats.iter().map(|b| b.order).collect();
+    let mut orders: Vec<u32> = agg.outfit_beats.iter().map(|b| b.order).collect();
     orders.sort_unstable();
     assert_eq!(orders, vec![0, 2]);
     // Next add continues at max + 1 = 3.
     add_beat(&mut agg, character_id, Uuid::now_v7(), None);
-    assert!(agg.costume_beats.iter().any(|b| b.order == 3));
+    assert!(agg.outfit_beats.iter().any(|b| b.order == 3));
 }
 
 #[test]
@@ -742,7 +774,7 @@ fn test_remove_beat_not_found() {
     let agg = scene_with_character();
     let character_id = agg.assigned_characters[0];
     let result = agg.handle(
-        RemoveCostumeBeat {
+        RemoveOutfitBeat {
             id: agg.id,
             character_id,
             order: Some(0),
@@ -762,7 +794,7 @@ fn test_clear_all_beats_of_character() {
     add_beat(&mut agg, character_id, Uuid::now_v7(), None);
     let event = agg
         .handle(
-            RemoveCostumeBeat {
+            RemoveOutfitBeat {
                 id: agg.id,
                 character_id,
                 order: None,
@@ -773,7 +805,7 @@ fn test_clear_all_beats_of_character() {
         )
         .unwrap();
     test_support::replay_events(&mut agg, event);
-    assert!(agg.costume_beats.is_empty());
+    assert!(agg.outfit_beats.is_empty());
 }
 
 #[test]
@@ -781,7 +813,7 @@ fn test_clear_all_with_no_beats_is_a_validation_error() {
     let agg = scene_with_character();
     let character_id = agg.assigned_characters[0];
     let result = agg.handle(
-        RemoveCostumeBeat {
+        RemoveOutfitBeat {
             id: agg.id,
             character_id,
             order: None,
@@ -791,10 +823,10 @@ fn test_clear_all_with_no_beats_is_a_validation_error() {
         make_ctx(),
     );
     // Surfaced as the dedicated 422 `scene.beat-not-found` code
-    // (`NoCostumeBeats`), not the generic `scene.validation` — a client
+    // (`NoOutfitBeats`), not the generic `scene.validation` — a client
     // can tell "nothing to clear" apart from a real validation failure
     // (issue #546, CodeRabbit review).
-    assert!(matches!(result, Err(SceneError::NoCostumeBeats { .. })));
+    assert!(matches!(result, Err(SceneError::NoOutfitBeats { .. })));
 }
 
 #[test]
@@ -824,15 +856,15 @@ fn test_legacy_scene_without_beats_replays_with_empty_beats() {
         )
         .unwrap();
     test_support::replay_events(&mut agg, event);
-    assert!(agg.costume_beats.is_empty());
+    assert!(agg.outfit_beats.is_empty());
 }
 
 #[test]
 fn test_beat_events_round_trip_through_serde() {
-    let event = SceneEvent::CostumeBeatAdded {
+    let event = SceneEvent::OutfitBeatAdded {
         id: Uuid::now_v7(),
         character_id: Uuid::now_v7(),
-        costume_id: Uuid::now_v7(),
+        outfit_id: Uuid::now_v7(),
         order: 1,
         note: Some("nach dem Telefonat".into()),
         version: AggregateVersion::INITIAL.next(),
@@ -865,17 +897,17 @@ fn test_remove_character_clears_beats_first() {
     assert_eq!(events.len(), 2);
     match (&events[0], &events[1]) {
         (
-            SceneEvent::CostumeBeatsCleared { version: v0, .. },
+            SceneEvent::OutfitBeatsCleared { version: v0, .. },
             SceneEvent::CharacterRemoved { version: v1, .. },
         ) => {
             assert_eq!(*v0, agg.version.next());
             assert_eq!(*v1, agg.version.next().next());
         }
-        _ => panic!("Expected CostumeBeatsCleared then CharacterRemoved"),
+        _ => panic!("Expected OutfitBeatsCleared then CharacterRemoved"),
     }
 
     test_support::replay_events(&mut agg, events.clone());
-    assert!(agg.costume_beats.is_empty(), "no orphan beats may survive");
+    assert!(agg.outfit_beats.is_empty(), "no orphan beats may survive");
     assert!(!agg.assigned_characters.contains(&character_id));
 }
 
@@ -903,7 +935,7 @@ fn test_clear_all_without_beats_is_beat_not_found_code() {
     let agg = scene_with_character();
     let character_id = agg.assigned_characters[0];
     let result = agg.handle(
-        RemoveCostumeBeat {
+        RemoveOutfitBeat {
             id: agg.id,
             character_id,
             order: None,
@@ -913,7 +945,7 @@ fn test_clear_all_without_beats_is_beat_not_found_code() {
         make_ctx(),
     );
     match result {
-        Err(SceneError::NoCostumeBeats { character_id: c }) => assert_eq!(c, character_id),
-        _ => panic!("Expected NoCostumeBeats"),
+        Err(SceneError::NoOutfitBeats { character_id: c }) => assert_eq!(c, character_id),
+        _ => panic!("Expected NoOutfitBeats"),
     }
 }

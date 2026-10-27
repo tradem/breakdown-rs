@@ -2,11 +2,12 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: omen-alpha (opencode-go)
 // Co-authored-by: glm-5.3-flash (neuralwatt)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 // Tier-1 unit tests (issue #369): deterministic fault-injection coverage for
 // the costume-domain cache paths. A scriptable DAO fake wraps a REAL DAO over
 // an in-memory Drift database and throws on demand (write / read / clear), so
-// every `cache.*_failed` branch in [CostumeRepository],
+// every `cache.*_failed` branch in [PieceRepository],
 // [CharacterRepository] and [ShootingDayRepository] resolves to its
 // documented `Left` code. Cache-untouched-on-failure is asserted against the
 // wrapped real DAO. Headless and deterministic: fake clock, no wall-clock
@@ -30,19 +31,20 @@ import 'package:frontend_flutter/core/result.dart';
 import 'package:frontend_flutter/data/cache/cache_database.dart';
 import 'package:frontend_flutter/data/cache/cache_ttl.dart';
 import 'package:frontend_flutter/data/cache/clock.dart';
-import 'package:frontend_flutter/data/cache/costume_domains_cache_dao.dart';
+import 'package:frontend_flutter/data/cache/piece_domains_cache_dao.dart';
 import 'package:frontend_flutter/data/character_repository.dart';
-import 'package:frontend_flutter/data/costume_repository.dart';
+import 'package:frontend_flutter/data/piece_repository.dart';
 import 'package:frontend_flutter/data/shooting_day_repository.dart';
 
 // --- Fixtures (same wire form as costume_domain_repositories_test.dart) -----
 
-CostumeView _costume(String id, {int version = 1}) => CostumeView(
+PieceView _costume(String id, {int version = 1}) => PieceView(
   (b) => b
+    ..name = 'Fundus-Piece'
     ..id = id
     ..notes = 'notes'
-    ..details.replace(BuiltList<CostumeDetailView>())
-    ..photos.replace(BuiltList<CostumePhotoView>())
+    ..details.replace(BuiltList<PieceDetailView>())
+    ..photos.replace(BuiltList<PiecePhotoView>())
     ..updatedAt = DateTime.utc(2026, 1, 1)
     ..version = version,
 );
@@ -148,23 +150,23 @@ class _InjectedFault implements Exception {
 /// Scripted fault phase: which cache operation the DAO fake throws on.
 enum _FaultPhase { none, write, read, clear }
 
-/// Scriptable DAO fake wrapping a real [CostumeCacheDao].
+/// Scriptable DAO fake wrapping a real [PieceCacheDao].
 ///
 /// Every operation delegates to [real] unless [phase] matches, in which case
 /// the fake throws [_InjectedFault] BEFORE touching the database. The real
 /// DAO stays directly readable, so "cache untouched on failure" is asserted
 /// against genuine persisted state, not the fake's memory.
-class _FaultCostumeCacheDao implements CostumeCacheDao {
-  _FaultCostumeCacheDao(this.real);
+class _FaultPieceCacheDao implements PieceCacheDao {
+  _FaultPieceCacheDao(this.real);
 
-  final CostumeCacheDao real;
+  final PieceCacheDao real;
 
   _FaultPhase phase = _FaultPhase.none;
 
   @override
   Future<void> applySnapshotForSeason(
     String seasonId,
-    List<CostumeView> views,
+    List<PieceView> views,
     DateTime cachedAt,
   ) async {
     if (phase == _FaultPhase.write) throw const _InjectedFault();
@@ -174,7 +176,7 @@ class _FaultCostumeCacheDao implements CostumeCacheDao {
   @override
   Future<void> upsert(
     String seasonId,
-    CostumeView view,
+    PieceView view,
     DateTime cachedAt,
   ) async {
     if (phase == _FaultPhase.write) throw const _InjectedFault();
@@ -182,17 +184,17 @@ class _FaultCostumeCacheDao implements CostumeCacheDao {
   }
 
   @override
-  Future<List<CostumeView>> readBySeason(String seasonId) async {
+  Future<List<PieceView>> readBySeason(String seasonId) async {
     if (phase == _FaultPhase.read) throw const _InjectedFault();
     return real.readBySeason(seasonId);
   }
 
   @override
-  Future<CostumeView?> readById(String seasonId, String id) =>
+  Future<PieceView?> readById(String seasonId, String id) =>
       real.readById(seasonId, id);
 
   @override
-  Future<({List<CostumeView> rows, bool stale})> readBySeasonFresh(
+  Future<({List<PieceView> rows, bool stale})> readBySeasonFresh(
     String seasonId, {
     Duration ttl = kCacheTtl,
     Clock clock = Clock.system,
@@ -216,7 +218,7 @@ class _FaultCostumeCacheDao implements CostumeCacheDao {
 }
 
 /// Scriptable DAO fake wrapping a real [CharacterCacheDao]
-/// (same seam contract as [_FaultCostumeCacheDao]).
+/// (same seam contract as [_FaultPieceCacheDao]).
 class _FaultCharacterCacheDao implements CharacterCacheDao {
   _FaultCharacterCacheDao(this.real);
 
@@ -274,7 +276,7 @@ class _FaultCharacterCacheDao implements CharacterCacheDao {
 }
 
 /// Scriptable DAO fake wrapping a real [ShootingDayCacheDao]
-/// (same seam contract as [_FaultCostumeCacheDao], episode-scoped).
+/// (same seam contract as [_FaultPieceCacheDao], episode-scoped).
 class _FaultShootingDayCacheDao implements ShootingDayCacheDao {
   @override
   Future<({List<(ShootingDayView, EpisodeView, BlockView)> rows, bool stale})>
@@ -335,25 +337,25 @@ class _FaultShootingDayCacheDao implements ShootingDayCacheDao {
 // --- Tests ------------------------------------------------------------------
 
 void main() {
-  group('CostumeRepository cache-fault mapping', () {
+  group('PieceRepository cache-fault mapping', () {
     late CacheDatabase db;
-    late _FaultCostumeCacheDao dao;
-    late CostumeCacheDao realDao;
+    late _FaultPieceCacheDao dao;
+    late PieceCacheDao realDao;
 
     setUp(() {
       db = CacheDatabase();
-      realDao = CostumeCacheDao(db);
-      dao = _FaultCostumeCacheDao(realDao);
+      realDao = PieceCacheDao(db);
+      dao = _FaultPieceCacheDao(realDao);
       addTearDown(db.close);
     });
 
-    /// Network fixture resolving `listCostumes` with the given rows.
-    _ScriptInterceptor listOk(List<CostumeView> rows) => _ScriptInterceptor(
-      respond: (_) => _wireList(rows, CostumeView.serializer),
+    /// Network fixture resolving `listPieces` with the given rows.
+    _ScriptInterceptor listOk(List<PieceView> rows) => _ScriptInterceptor(
+      respond: (_) => _wireList(rows, PieceView.serializer),
     );
 
     test('listBySeason Ok applies the snapshot', () async {
-      final repo = CostumeRepository(_api(listOk([_costume('c-1')])), dao);
+      final repo = PieceRepository(_api(listOk([_costume('c-1')])), dao);
       _expectRight(await repo.listBySeason('s-1', clock: _clock));
       expect((await realDao.readBySeason('s-1')).map((c) => c.id), ['c-1']);
     });
@@ -362,7 +364,7 @@ void main() {
       'listBySeason write-fault → Left(cache.write_failed), cache untouched',
       () async {
         // Seed via a fault-free fetch first.
-        await CostumeRepository(
+        await PieceRepository(
           _api(listOk([_costume('c-1')])),
           dao,
         ).listBySeason('s-1', clock: _clock);
@@ -371,7 +373,7 @@ void main() {
         // Refetch different rows while writes are faulted: nothing lands —
         // the old snapshot survives, the new row never appears.
         dao.phase = _FaultPhase.write;
-        final res = await CostumeRepository(
+        final res = await PieceRepository(
           _api(listOk([_costume('c-2')])),
           dao,
         ).listBySeason('s-1', clock: _clock);
@@ -381,11 +383,11 @@ void main() {
     );
 
     test('readCached Ok returns the cached rows', () async {
-      await CostumeRepository(
+      await PieceRepository(
         _api(listOk([_costume('c-1')])),
         dao,
       ).listBySeason('s-1', clock: _clock);
-      final repo = CostumeRepository(_api(_ScriptInterceptor()), dao);
+      final repo = PieceRepository(_api(_ScriptInterceptor()), dao);
       final res = await repo.readCached('s-1');
       _expectRight(res);
       expect(
@@ -395,14 +397,14 @@ void main() {
     });
 
     test('readCached read-fault → Left(cache.read_failed)', () async {
-      await CostumeRepository(
+      await PieceRepository(
         _api(listOk([_costume('c-1')])),
         dao,
       ).listBySeason('s-1', clock: _clock);
       dao.phase = _FaultPhase.read;
       final transport = _ScriptInterceptor();
       _expectLeftCode(
-        await CostumeRepository(_api(transport), dao).readCached('s-1'),
+        await PieceRepository(_api(transport), dao).readCached('s-1'),
         'cache.read_failed',
       );
       // Pure Drift read: no network call on the faulted path either.
@@ -411,9 +413,9 @@ void main() {
 
     test('getAndCache Ok upserts the row', () async {
       final ok = _ScriptInterceptor(
-        respond: (_) => _wire(_costume('c-9'), CostumeView.serializer),
+        respond: (_) => _wire(_costume('c-9'), PieceView.serializer),
       );
-      final repo = CostumeRepository(_api(ok), dao);
+      final repo = PieceRepository(_api(ok), dao);
       _expectRight(await repo.getAndCache('s-1', 'c-9', clock: _clock));
       expect(await realDao.readById('s-1', 'c-9'), isNotNull);
     });
@@ -423,9 +425,9 @@ void main() {
       () async {
         dao.phase = _FaultPhase.write;
         final ok = _ScriptInterceptor(
-          respond: (_) => _wire(_costume('c-9'), CostumeView.serializer),
+          respond: (_) => _wire(_costume('c-9'), PieceView.serializer),
         );
-        final repo = CostumeRepository(_api(ok), dao);
+        final repo = PieceRepository(_api(ok), dao);
         _expectLeftCode(
           await repo.getAndCache('s-1', 'c-9', clock: _clock),
           'cache.write_failed',
@@ -435,12 +437,12 @@ void main() {
     );
 
     test('clearCache Ok empties the season scope', () async {
-      await CostumeRepository(
+      await PieceRepository(
         _api(listOk([_costume('c-1')])),
         dao,
       ).listBySeason('s-1', clock: _clock);
       _expectRight(
-        await CostumeRepository(
+        await PieceRepository(
           _api(_ScriptInterceptor()),
           dao,
         ).clearCache('s-1'),
@@ -451,13 +453,13 @@ void main() {
     test(
       'clearCache clear-fault → Left(cache.clear_failed), rows survive',
       () async {
-        await CostumeRepository(
+        await PieceRepository(
           _api(listOk([_costume('c-1')])),
           dao,
         ).listBySeason('s-1', clock: _clock);
         dao.phase = _FaultPhase.clear;
         _expectLeftCode(
-          await CostumeRepository(
+          await PieceRepository(
             _api(_ScriptInterceptor()),
             dao,
           ).clearCache('s-1'),

@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: glm-5.3-flash (opencode-go)
 // Co-authored-by: glm-5.3-flash (neuralwatt)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 library;
 
@@ -50,7 +51,7 @@ Widget omniSearchDestinationScreen({
   CostumeOmniHit(:final costume) =>
     // The costume detail route — the costume detail/assignment context
     // (the same seam `CostumeDetailScreen` documents for routed callers).
-    CostumeDetailScreen(season: season, costumeId: costume.id),
+    CostumeDetailScreen(season: season, pieceId: costume.id),
   ShootingDayOmniHit(:final episode) =>
     // Schedule-view semantics: the parent episode's day board.
     ShootingDaysScreen(episode: episode, seasonId: season.id),

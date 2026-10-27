@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024 Breakdown RS Contributors
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 //! Scene events.
 
@@ -94,37 +95,37 @@ pub enum SceneEvent {
         shooting_day_id: ShootingDayId,
         version: AggregateVersion,
     },
-    /// A costume beat was appended for a character (order aggregate-computed
+    /// A outfit beat was appended for a character (order aggregate-computed
     /// as `max + 1`, issue #546).
-    CostumeBeatAdded {
+    OutfitBeatAdded {
         id: Uuid,
         character_id: Uuid,
-        costume_id: Uuid,
+        outfit_id: Uuid,
         order: u32,
         note: Option<String>,
         version: AggregateVersion,
     },
-    /// A costume beat was edited in place at `(character_id, order)`.
-    CostumeBeatUpdated {
+    /// A outfit beat was edited in place at `(character_id, order)`.
+    OutfitBeatUpdated {
         id: Uuid,
         character_id: Uuid,
         order: u32,
-        costume_id: Uuid,
+        outfit_id: Uuid,
         note: Option<String>,
         version: AggregateVersion,
     },
     /// Exactly the beat `(character_id, order)` was removed; surviving
     /// orders are untouched (removal of the dense tail keeps the sequence
     /// dense; reordering is remove + add).
-    CostumeBeatRemoved {
+    OutfitBeatRemoved {
         id: Uuid,
         character_id: Uuid,
         order: u32,
         version: AggregateVersion,
     },
-    /// All costume beats of a character were cleared
-    /// (`RemoveCostumeBeat.order == None` = “no costume in this scene”).
-    CostumeBeatsCleared {
+    /// All outfit beats of a character were cleared
+    /// (`RemoveOutfitBeat.order == None` = “no outfit in this scene”).
+    OutfitBeatsCleared {
         id: Uuid,
         character_id: Uuid,
         version: AggregateVersion,
@@ -140,10 +141,10 @@ impl kameo_es::EventType for SceneEvent {
             Self::CharacterRemoved { .. } => "CharacterRemoved",
             Self::ShootingDayScheduled { .. } => "ShootingDayScheduled",
             Self::ShootingDayUnscheduled { .. } => "ShootingDayUnscheduled",
-            Self::CostumeBeatAdded { .. } => "CostumeBeatAdded",
-            Self::CostumeBeatUpdated { .. } => "CostumeBeatUpdated",
-            Self::CostumeBeatRemoved { .. } => "CostumeBeatRemoved",
-            Self::CostumeBeatsCleared { .. } => "CostumeBeatsCleared",
+            Self::OutfitBeatAdded { .. } => "OutfitBeatAdded",
+            Self::OutfitBeatUpdated { .. } => "OutfitBeatUpdated",
+            Self::OutfitBeatRemoved { .. } => "OutfitBeatRemoved",
+            Self::OutfitBeatsCleared { .. } => "OutfitBeatsCleared",
         }
     }
 }

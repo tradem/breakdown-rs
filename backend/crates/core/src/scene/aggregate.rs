@@ -3,6 +3,7 @@
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
 // Co-authored-by: mimo-v2.5 (opencode-go)
 // Co-authored-by: longcat-2.0-free (opencode)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 //! Scene aggregate using `kameo_es` event-sourced actor pattern.
 
@@ -12,13 +13,13 @@ use uuid::Uuid;
 use crate::shared::{AggregateVersion, EpisodeId, EventMetadata, ShootingDayId};
 
 use super::commands::{
-    AddCostumeBeat, AssignCharacter, CreateScene, RemoveCharacter, RemoveCostumeBeat,
-    ScheduleSceneOnShootingDay, UnscheduleSceneFromShootingDay, UpdateCostumeBeat,
+    AddOutfitBeat, AssignCharacter, CreateScene, RemoveCharacter, RemoveOutfitBeat,
+    ScheduleSceneOnShootingDay, UnscheduleSceneFromShootingDay, UpdateOutfitBeat,
     UpdateSceneDetails,
 };
-use super::costume::SceneCostumeBeat;
 use super::error::SceneError;
 use super::events::SceneEvent;
+use super::outfit::SceneOutfitBeat;
 
 use crate::scene::events::{SceneDetails, SceneSource};
 
@@ -34,10 +35,10 @@ pub struct SceneAggregate {
     pub assigned_characters: Vec<Uuid>,
     /// Shooting days this scene is linked to (the scene owns the collection).
     pub shooting_day_ids: Vec<ShootingDayId>,
-    /// Ordered costume beats per (character, order) — the scene-side
+    /// Ordered outfit beats per (character, order) — the scene-side
     /// casting relation (issue #546). Legacy streams replay with an empty
     /// list.
-    pub costume_beats: Vec<SceneCostumeBeat>,
+    pub outfit_beats: Vec<SceneOutfitBeat>,
     /// Provenance discriminator (Manual | AiExtracted); see `SceneSource`.
     pub source: SceneSource,
     pub version: AggregateVersion,
@@ -118,57 +119,56 @@ impl Apply for SceneAggregate {
                 self.shooting_day_ids.retain(|&id| id != shooting_day_id);
                 self.version = version;
             }
-            SceneEvent::CostumeBeatAdded {
+            SceneEvent::OutfitBeatAdded {
                 character_id,
-                costume_id,
+                outfit_id,
                 order,
                 note,
                 version,
                 ..
             } => {
-                self.costume_beats.push(SceneCostumeBeat {
+                self.outfit_beats.push(SceneOutfitBeat {
                     character_id,
-                    costume_id,
+                    outfit_id,
                     order,
                     note,
                 });
                 self.version = version;
             }
-            SceneEvent::CostumeBeatUpdated {
+            SceneEvent::OutfitBeatUpdated {
                 character_id,
                 order,
-                costume_id,
+                outfit_id,
                 note,
                 version,
                 ..
             } => {
                 if let Some(beat) = self
-                    .costume_beats
+                    .outfit_beats
                     .iter_mut()
                     .find(|b| b.character_id == character_id && b.order == order)
                 {
-                    beat.costume_id = costume_id;
+                    beat.outfit_id = outfit_id;
                     beat.note = note;
                 }
                 self.version = version;
             }
-            SceneEvent::CostumeBeatRemoved {
+            SceneEvent::OutfitBeatRemoved {
                 character_id,
                 order,
                 version,
                 ..
             } => {
-                self.costume_beats
+                self.outfit_beats
                     .retain(|b| !(b.character_id == character_id && b.order == order));
                 self.version = version;
             }
-            SceneEvent::CostumeBeatsCleared {
+            SceneEvent::OutfitBeatsCleared {
                 character_id,
                 version,
                 ..
             } => {
-                self.costume_beats
-                    .retain(|b| b.character_id != character_id);
+                self.outfit_beats.retain(|b| b.character_id != character_id);
                 self.version = version;
             }
         }
@@ -267,18 +267,18 @@ impl Command<RemoveCharacter> for SceneAggregate {
         }
         let mut v = self.version;
         let mut events = Vec::new();
-        // Issue #546 (CodeRabbit review): a character with costume beats must
+        // Issue #546 (CodeRabbit review): a character with outfit beats must
         // not leave orphan beats behind — after `CharacterRemoved` every beat
         // command would fail `CharacterNotInScene`, making the beats
         // unreachable. Clear them first, then remove the character; both
         // events advance the version in order.
         if self
-            .costume_beats
+            .outfit_beats
             .iter()
             .any(|b| b.character_id == cmd.character_id)
         {
             v = v.next();
-            events.push(SceneEvent::CostumeBeatsCleared {
+            events.push(SceneEvent::OutfitBeatsCleared {
                 id: self.id,
                 character_id: cmd.character_id,
                 version: v,
@@ -372,11 +372,11 @@ impl Command<UnscheduleSceneFromShootingDay> for SceneAggregate {
     }
 }
 
-impl Command<AddCostumeBeat> for SceneAggregate {
+impl Command<AddOutfitBeat> for SceneAggregate {
     type Error = SceneError;
     fn handle(
         &self,
-        cmd: AddCostumeBeat,
+        cmd: AddOutfitBeat,
         _ctx: Context<'_, Self>,
     ) -> Result<Vec<Self::Event>, Self::Error> {
         if cmd.version != self.version {
@@ -393,32 +393,32 @@ impl Command<AddCostumeBeat> for SceneAggregate {
         // `order` is aggregate-computed (max + 1, dense zero-based): a
         // client-chosen order is a race.
         let order = self
-            .costume_beats
+            .outfit_beats
             .iter()
             .filter(|b| b.character_id == cmd.character_id)
             .map(|b| b.order)
             .max()
             .map_or(0, |max| max + 1);
-        // Consecutive-identical-beat guard: appending the costume the
+        // Consecutive-identical-beat guard: appending the outfit the
         // character already wears last is virtually always a user error
         // ("on change, then straight back on"); the crew does not need that
         // state in the data.
         let identical_last = self
-            .costume_beats
+            .outfit_beats
             .iter()
             .filter(|b| b.character_id == cmd.character_id)
             .max_by_key(|b| b.order)
-            .is_some_and(|last| last.costume_id == cmd.costume_id && last.note == cmd.note);
+            .is_some_and(|last| last.outfit_id == cmd.outfit_id && last.note == cmd.note);
         if identical_last {
             return Err(SceneError::ValidationError(
-                "Costume beat identical to the character's last beat".into(),
+                "outfit beat identical to the character's last beat".into(),
             ));
         }
         let new_version = self.version.next();
-        Ok(vec![SceneEvent::CostumeBeatAdded {
+        Ok(vec![SceneEvent::OutfitBeatAdded {
             id: self.id,
             character_id: cmd.character_id,
-            costume_id: cmd.costume_id,
+            outfit_id: cmd.outfit_id,
             order,
             note: cmd.note,
             version: new_version,
@@ -426,11 +426,11 @@ impl Command<AddCostumeBeat> for SceneAggregate {
     }
 }
 
-impl Command<UpdateCostumeBeat> for SceneAggregate {
+impl Command<UpdateOutfitBeat> for SceneAggregate {
     type Error = SceneError;
     fn handle(
         &self,
-        cmd: UpdateCostumeBeat,
+        cmd: UpdateOutfitBeat,
         _ctx: Context<'_, Self>,
     ) -> Result<Vec<Self::Event>, Self::Error> {
         if cmd.version != self.version {
@@ -445,7 +445,7 @@ impl Command<UpdateCostumeBeat> for SceneAggregate {
             });
         }
         if !self
-            .costume_beats
+            .outfit_beats
             .iter()
             .any(|b| b.character_id == cmd.character_id && b.order == cmd.order)
         {
@@ -455,22 +455,22 @@ impl Command<UpdateCostumeBeat> for SceneAggregate {
             });
         }
         let new_version = self.version.next();
-        Ok(vec![SceneEvent::CostumeBeatUpdated {
+        Ok(vec![SceneEvent::OutfitBeatUpdated {
             id: self.id,
             character_id: cmd.character_id,
             order: cmd.order,
-            costume_id: cmd.costume_id,
+            outfit_id: cmd.outfit_id,
             note: cmd.note,
             version: new_version,
         }])
     }
 }
 
-impl Command<RemoveCostumeBeat> for SceneAggregate {
+impl Command<RemoveOutfitBeat> for SceneAggregate {
     type Error = SceneError;
     fn handle(
         &self,
-        cmd: RemoveCostumeBeat,
+        cmd: RemoveOutfitBeat,
         _ctx: Context<'_, Self>,
     ) -> Result<Vec<Self::Event>, Self::Error> {
         if cmd.version != self.version {
@@ -485,13 +485,13 @@ impl Command<RemoveCostumeBeat> for SceneAggregate {
             });
         }
         let has_beats = self
-            .costume_beats
+            .outfit_beats
             .iter()
             .any(|b| b.character_id == cmd.character_id);
         match cmd.order {
             Some(order) => {
                 if !self
-                    .costume_beats
+                    .outfit_beats
                     .iter()
                     .any(|b| b.character_id == cmd.character_id && b.order == order)
                 {
@@ -501,7 +501,7 @@ impl Command<RemoveCostumeBeat> for SceneAggregate {
                     });
                 }
                 let new_version = self.version.next();
-                Ok(vec![SceneEvent::CostumeBeatRemoved {
+                Ok(vec![SceneEvent::OutfitBeatRemoved {
                     id: self.id,
                     character_id: cmd.character_id,
                     order,
@@ -510,12 +510,12 @@ impl Command<RemoveCostumeBeat> for SceneAggregate {
             }
             None => {
                 if !has_beats {
-                    return Err(SceneError::NoCostumeBeats {
+                    return Err(SceneError::NoOutfitBeats {
                         character_id: cmd.character_id,
                     });
                 }
                 let new_version = self.version.next();
-                Ok(vec![SceneEvent::CostumeBeatsCleared {
+                Ok(vec![SceneEvent::OutfitBeatsCleared {
                     id: self.id,
                     character_id: cmd.character_id,
                     version: new_version,
