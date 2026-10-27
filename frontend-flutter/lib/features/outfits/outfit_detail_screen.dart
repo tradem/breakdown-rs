@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: glm-5.3 (neuralwatt)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 import 'dart:async';
 import 'dart:typed_data';
@@ -271,8 +272,14 @@ class _OutfitDetailScreenState extends ConsumerState<OutfitDetailScreen> {
     OutfitsController controller,
   ) async {
     // The picker reads the season's garment projection the user already
-    // watches — never a second lookup to fill the command payload.
-    final pieces = ref.read(piecesViewProvider(widget.season.id)).rows;
+    // watches — never a second lookup to fill the command payload. The fetch
+    // seam is awaited first: the detail route is reachable straight from the
+    // character surface (Character → Looks → detail) without the piece chain
+    // ever having been watched, and the projection would otherwise read empty.
+    final piecesResult = await ref.read(
+      piecesListFetchProvider(widget.season.id).future,
+    );
+    final pieces = piecesResult.getOrElse((_) => const <PieceView>[]);
     final held = outfit.pieces.map((p) => p.pieceId).toSet();
     final candidates = [
       for (final piece in pieces)
