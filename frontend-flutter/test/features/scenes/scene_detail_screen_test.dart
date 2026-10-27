@@ -36,7 +36,8 @@ import 'package:frontend_flutter/data/shooting_day_repository.dart';
 import 'package:frontend_flutter/domain/reconciliation/reconciliation_scheduler.dart';
 import 'package:frontend_flutter/design/theme.dart';
 import 'package:frontend_flutter/features/characters/characters_controller.dart';
-import 'package:frontend_flutter/features/costumes/costumes_controller.dart';
+import 'package:frontend_flutter/features/pieces/pieces_controller.dart';
+import 'package:frontend_flutter/features/outfits/outfits_controller.dart';
 import 'package:frontend_flutter/features/scenes/scene_detail_screen.dart';
 import 'package:frontend_flutter/features/scenes/scenes_controller.dart';
 import 'package:frontend_flutter/features/shooting_days/shooting_days_controller.dart';
@@ -73,7 +74,7 @@ SceneView _scene({
 SceneOutfitBeatView _beat(
   String characterId,
   int order, {
-  String pieceId = 'costume-1',
+  String pieceId = 'piece-1',
   String? categoryName = 'Jacke',
   String? note,
 }) => SceneOutfitBeatView(
@@ -97,7 +98,7 @@ OutfitView _outfit(String id, {String name = 'Alltagslook'}) => OutfitView(
     ..version = 1,
 );
 
-PieceView _costume(String id, {String? subject, String? categoryName}) =>
+PieceView _piece(String id, {String? subject, String? categoryName}) =>
     PieceView(
       (b) => b
         ..name = 'Fundus-Piece'
@@ -325,7 +326,7 @@ void main() {
     ValueNotifier<List<ShootingDayView>>? dayRowsLive,
     List<int>? scenesFetchLog,
     List<String> membershipCapabilities = const ['assign_costumes'],
-    List<PieceView> costumeRows = const [],
+    List<PieceView> pieceRows = const [],
   }) async {
     db = CacheDatabase(NativeDatabase.memory());
     addTearDown(db.close);
@@ -349,11 +350,11 @@ void main() {
           (ref) async =>
               Right(_membership(capabilities: membershipCapabilities)),
         ),
-        costumeRepositoryProvider.overrideWithValue(
+        pieceRepositoryProvider.overrideWithValue(
           PieceRepository(BreakdownApi(), PieceCacheDao(db)),
         ),
-        costumesListFetchProvider('season-1')
-            .overrideWith((ref) async => Right(costumeRows)),
+        piecesListFetchProvider('season-1')
+            .overrideWith((ref) async => Right(pieceRows)),
         // A scene casts an OUTFIT: the picker reads the character's looks.
         characterOutfitsProvider('ch-1').overrideWith(
           (ref) async => Right(<OutfitView>[_outfit('outfit-9', name: 'Hut')]),
@@ -795,7 +796,7 @@ void main() {
   // (character, beat), change arrow, empty-state affordance, picker dispatch,
   // AUTHZ-GATE denial before the network call, optimistic-after-2xx with the
   // version fence, and 409 → refetch with keyed copy.
-  group('SceneDetailScreen costume beats (issue #546)', () {
+  group('SceneDetailScreen piece beats (issue #546)', () {
     testWidgets('renders one beat row with the tile-identity label + cue', (
       tester,
     ) async {
@@ -807,17 +808,14 @@ void main() {
           ],
         ),
         characterRows: [_character('ch-1')],
-        costumeRows: [_costume('costume-1', subject: 'Mantel')],
+        pieceRows: [_piece('piece-1', subject: 'Mantel')],
       );
       await pumpDetail(tester);
-      expect(
-        find.byKey(const Key('scene-costume-beat-ch-1-0')),
-        findsOneWidget,
-      );
+      expect(find.byKey(const Key('scene-piece-beat-ch-1-0')), findsOneWidget);
       // The beat casts an OUTFIT, so its label is the look's joined name.
       expect(find.text('Hut'), findsOneWidget);
       expect(find.text('Trench, guanti'), findsOneWidget);
-      expect(find.text('Costumes (1)'), findsOneWidget);
+      expect(find.text('Looks (1)'), findsOneWidget);
     });
 
     testWidgets('two beats render the change sequence with the arrow', (
@@ -827,39 +825,30 @@ void main() {
         scene: _scene(
           characters: ['ch-1'],
           beats: [
-            _beat('ch-1', 0, pieceId: 'costume-1', categoryName: 'Mantel'),
+            _beat('ch-1', 0, pieceId: 'piece-1', categoryName: 'Mantel'),
             _beat(
               'ch-1',
               1,
-              pieceId: 'costume-2',
+              pieceId: 'piece-2',
               note: 'Wandel',
               categoryName: 'Kleid',
             ),
           ],
         ),
         characterRows: [_character('ch-1')],
-        costumeRows: [
-          _costume('costume-1', subject: 'Mantel'),
-          _costume('costume-2', subject: 'Hut'),
+        pieceRows: [
+          _piece('piece-1', subject: 'Mantel'),
+          _piece('piece-2', subject: 'Hut'),
         ],
       );
       await pumpDetail(tester);
-      expect(
-        find.byKey(const Key('scene-costume-beat-ch-1-0')),
-        findsOneWidget,
-      );
-      expect(
-        find.byKey(const Key('scene-costume-beat-ch-1-1')),
-        findsOneWidget,
-      );
+      expect(find.byKey(const Key('scene-piece-beat-ch-1-0')), findsOneWidget);
+      expect(find.byKey(const Key('scene-piece-beat-ch-1-1')), findsOneWidget);
       // The `→` prefix marks the change from the previous beat of the
       // character; order 0 carries none.
-      expect(find.byKey(const Key('scene-costume-arrow-ch-1-0')), findsNothing);
-      expect(
-        find.byKey(const Key('scene-costume-arrow-ch-1-1')),
-        findsOneWidget,
-      );
-      expect(find.text('Costumes (2)'), findsOneWidget);
+      expect(find.byKey(const Key('scene-piece-arrow-ch-1-0')), findsNothing);
+      expect(find.byKey(const Key('scene-piece-arrow-ch-1-1')), findsOneWidget);
+      expect(find.text('Looks (2)'), findsOneWidget);
     });
 
     testWidgets('empty-state affordance for a character without a beat', (
@@ -868,17 +857,14 @@ void main() {
       await setupContainer(
         scene: _scene(characters: ['ch-1']),
         characterRows: [_character('ch-1')],
-        costumeRows: [_costume('costume-1', subject: 'Mantel')],
+        pieceRows: [_piece('piece-1', subject: 'Mantel')],
       );
       await pumpDetail(tester);
-      expect(find.byKey(const Key('scene-costume-empty-ch-1')), findsOneWidget);
-      expect(
-        find.byKey(const Key('scene-costume-assign-ch-1')),
-        findsOneWidget,
-      );
+      expect(find.byKey(const Key('scene-piece-empty-ch-1')), findsOneWidget);
+      expect(find.byKey(const Key('scene-piece-assign-ch-1')), findsOneWidget);
       // No add-change affordance without an existing beat.
       expect(
-        find.byKey(const Key('scene-costume-add-change-ch-1')),
+        find.byKey(const Key('scene-piece-add-change-ch-1')),
         findsNothing,
       );
     });
@@ -889,13 +875,13 @@ void main() {
         await setupContainer(
           scene: _scene(characters: ['ch-1']),
           characterRows: [_character('ch-1')],
-          costumeRows: [
-            _costume('costume-1', subject: 'Mantel'),
-            _costume('costume-9', subject: 'Hut'),
+          pieceRows: [
+            _piece('piece-1', subject: 'Mantel'),
+            _piece('piece-9', subject: 'Hut'),
           ],
         );
         await pumpDetail(tester);
-        await tester.tap(find.byKey(const Key('scene-costume-assign-ch-1')));
+        await tester.tap(find.byKey(const Key('scene-piece-assign-ch-1')));
         await tester.pumpAndSettle();
         await tester.tap(find.byKey(const Key('pick-outfit-outfit-9')));
         // Pump PAST the sheet's exit animation with a FIXED duration —
@@ -911,11 +897,11 @@ void main() {
         // overlay — the fake projection still serves the pre-command scene
         // (version 1 < acked 2), so the version fence retains the overlay.
         expect(
-          find.byKey(const Key('scene-costume-beat-ch-1-0')),
+          find.byKey(const Key('scene-piece-beat-ch-1-0')),
           findsOneWidget,
         );
         expect(find.text('Hut'), findsOneWidget);
-        expect(find.text('Costumes (1)'), findsOneWidget);
+        expect(find.text('Looks (1)'), findsOneWidget);
       },
     );
 
@@ -925,11 +911,11 @@ void main() {
       await setupContainer(
         scene: _scene(characters: ['ch-1']),
         characterRows: [_character('ch-1')],
-        costumeRows: [_costume('costume-9', subject: 'Hut')],
+        pieceRows: [_piece('piece-9', subject: 'Hut')],
         membershipCapabilities: const [],
       );
       await pumpDetail(tester);
-      await tester.tap(find.byKey(const Key('scene-costume-assign-ch-1')));
+      await tester.tap(find.byKey(const Key('scene-piece-assign-ch-1')));
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('pick-outfit-outfit-9')));
       await _pumpFrames(tester);
@@ -952,13 +938,13 @@ void main() {
       await setupContainer(
         scene: _scene(characters: ['ch-1']),
         characterRows: [_character('ch-1')],
-        costumeRows: [_costume('costume-9', subject: 'Hut')],
+        pieceRows: [_piece('piece-9', subject: 'Hut')],
         scenesFetchLog: fetchLog,
       );
       await pumpDetail(tester);
       final baseline = fetchLog.length;
       sceneRepo.nextWrite = const Left(_conflict);
-      await tester.tap(find.byKey(const Key('scene-costume-assign-ch-1')));
+      await tester.tap(find.byKey(const Key('scene-piece-assign-ch-1')));
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('pick-outfit-outfit-9')));
       await _pumpFrames(tester);
@@ -977,24 +963,24 @@ void main() {
       await setupContainer(
         scene: _scene(characters: ['ch-1'], beats: [_beat('ch-1', 0)]),
         characterRows: [_character('ch-1')],
-        costumeRows: [_costume('costume-1', subject: 'Mantel')],
+        pieceRows: [_piece('piece-1', subject: 'Mantel')],
       );
       await pumpDetail(tester);
-      await tester.tap(find.byKey(const Key('scene-costume-remove-ch-1-0')));
+      await tester.tap(find.byKey(const Key('scene-piece-remove-ch-1-0')));
       await tester.pumpAndSettle();
       // Confirm-first: no dispatch before confirmation.
       expect(sceneRepo.clearCalls, 0);
       expect(sceneRepo.removeCalls, 0);
       await tester.tap(
-        find.byKey(const Key('scene-costume-remove-confirm-ch-1-0')),
+        find.byKey(const Key('scene-piece-remove-confirm-ch-1-0')),
       );
       await _pumpFrames(tester);
-      // The single remaining beat IS the clear-all ("no costume in this
+      // The single remaining beat IS the clear-all ("no piece in this
       // scene") — the dedicated route, not a per-order removal.
       expect(sceneRepo.clearCalls, 1);
       expect(sceneRepo.removeCalls, 0);
       // Optimistic empty state appears immediately.
-      expect(find.byKey(const Key('scene-costume-empty-ch-1')), findsOneWidget);
+      expect(find.byKey(const Key('scene-piece-empty-ch-1')), findsOneWidget);
     });
 
     testWidgets('removing one of two beats dispatches the per-order removal', (
@@ -1004,28 +990,28 @@ void main() {
         scene: _scene(
           characters: ['ch-1'],
           beats: [
-            _beat('ch-1', 0, pieceId: 'costume-1', categoryName: 'Mantel'),
-            _beat('ch-1', 1, pieceId: 'costume-2'),
+            _beat('ch-1', 0, pieceId: 'piece-1', categoryName: 'Mantel'),
+            _beat('ch-1', 1, pieceId: 'piece-2'),
           ],
         ),
         characterRows: [_character('ch-1')],
-        costumeRows: [
-          _costume('costume-1', subject: 'Mantel'),
-          _costume('costume-2', subject: 'Hut'),
+        pieceRows: [
+          _piece('piece-1', subject: 'Mantel'),
+          _piece('piece-2', subject: 'Hut'),
         ],
       );
       await pumpDetail(tester);
-      await tester.tap(find.byKey(const Key('scene-costume-remove-ch-1-0')));
+      await tester.tap(find.byKey(const Key('scene-piece-remove-ch-1-0')));
       await tester.pumpAndSettle();
       await tester.tap(
-        find.byKey(const Key('scene-costume-remove-confirm-ch-1-0')),
+        find.byKey(const Key('scene-piece-remove-confirm-ch-1-0')),
       );
       await _pumpFrames(tester);
       expect(sceneRepo.removeCalls, 1);
       expect(sceneRepo.clearCalls, 0);
     });
 
-    testWidgets('SceneDetailScreen golden (costumes section, German)', (
+    testWidgets('SceneDetailScreen golden (pieces section, German)', (
       tester,
     ) async {
       await setupContainer(
@@ -1033,16 +1019,16 @@ void main() {
           characters: ['ch-1', 'ch-2'],
           beats: [
             _beat('ch-1', 0, note: 'Trench, guanti'),
-            _beat('ch-1', 1, pieceId: 'costume-2'),
+            _beat('ch-1', 1, pieceId: 'piece-2'),
           ],
         ),
         characterRows: [
           _character('ch-1'),
           _character('ch-2', name: 'Bea'),
         ],
-        costumeRows: [
-          _costume('costume-1', subject: 'Mantel', categoryName: 'Jacke'),
-          _costume('costume-2', subject: 'Hut', categoryName: 'Accessoires'),
+        pieceRows: [
+          _piece('piece-1', subject: 'Mantel', categoryName: 'Jacke'),
+          _piece('piece-2', subject: 'Hut', categoryName: 'Accessoires'),
         ],
       );
       // The golden harness renders the German template locale (AGENTS.md §6).
@@ -1085,27 +1071,27 @@ void main() {
       scene: _scene(
         characters: ['ch-1'],
         beats: [
-          _beat('ch-1', 0, pieceId: 'costume-1', categoryName: 'Mantel'),
-          _beat('ch-1', 2, pieceId: 'costume-3'),
+          _beat('ch-1', 0, pieceId: 'piece-1', categoryName: 'Mantel'),
+          _beat('ch-1', 2, pieceId: 'piece-3'),
         ],
       ),
       characterRows: [_character('ch-1')],
-      costumeRows: [
-        _costume('costume-1', subject: 'Mantel'),
-        _costume('costume-9', subject: 'Hut'),
-        _costume('costume-3', subject: 'Schuhe'),
+      pieceRows: [
+        _piece('piece-1', subject: 'Mantel'),
+        _piece('piece-9', subject: 'Hut'),
+        _piece('piece-3', subject: 'Schuhe'),
       ],
     );
     await pumpDetail(tester);
-    await tester.tap(find.byKey(const Key('scene-costume-add-change-ch-1')));
+    await tester.tap(find.byKey(const Key('scene-piece-add-change-ch-1')));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('pick-outfit-outfit-9')));
     await tester.pump(const Duration(milliseconds: 400));
     await tester.pump(const Duration(milliseconds: 400));
     // The optimistic beat renders at order 3 (max 2 + 1) — the same
     // position the aggregate will assign — so the row keys stay unique.
-    expect(find.byKey(const Key('scene-costume-beat-ch-1-3')), findsOneWidget);
-    expect(find.text('Costumes (3)'), findsOneWidget);
+    expect(find.byKey(const Key('scene-piece-beat-ch-1-3')), findsOneWidget);
+    expect(find.text('Looks (3)'), findsOneWidget);
   });
 
   // CodeRabbit #4172169329: a SECOND command must build its optimistic
@@ -1118,32 +1104,32 @@ void main() {
     await setupContainer(
       scene: _scene(characters: ['ch-1']),
       characterRows: [_character('ch-1')],
-      costumeRows: [
-        _costume('costume-9', subject: 'Hut'),
-        _costume('costume-3', subject: 'Schuhe'),
+      pieceRows: [
+        _piece('piece-9', subject: 'Hut'),
+        _piece('piece-3', subject: 'Schuhe'),
       ],
     );
     await pumpDetail(tester);
     // First beat: acked version 2, optimistic row 0.
-    await tester.tap(find.byKey(const Key('scene-costume-assign-ch-1')));
+    await tester.tap(find.byKey(const Key('scene-piece-assign-ch-1')));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('pick-outfit-outfit-9')));
     await tester.pump(const Duration(milliseconds: 400));
     await tester.pump(const Duration(milliseconds: 400));
-    expect(find.byKey(const Key('scene-costume-beat-ch-1-0')), findsOneWidget);
+    expect(find.byKey(const Key('scene-piece-beat-ch-1-0')), findsOneWidget);
     // Second beat: the controller must source the freshest beats (the
     // version-2 overlay), not the stale acted-on snapshot — the new beat
     // lands at order 1 and row 0 survives. Fixed pumps throughout: the
     // first overlay is still reconciling (indeterminate spinner), so
     // pumpAndSettle would never settle (AGENTS §6 deterministic tests).
-    await tester.tap(find.byKey(const Key('scene-costume-add-change-ch-1')));
+    await tester.tap(find.byKey(const Key('scene-piece-add-change-ch-1')));
     await tester.pump(const Duration(milliseconds: 400));
     await tester.pump(const Duration(milliseconds: 400));
     await tester.tap(find.byKey(const Key('pick-outfit-outfit-9')));
     await tester.pump(const Duration(milliseconds: 400));
     await tester.pump(const Duration(milliseconds: 400));
-    expect(find.byKey(const Key('scene-costume-beat-ch-1-0')), findsOneWidget);
-    expect(find.byKey(const Key('scene-costume-beat-ch-1-1')), findsOneWidget);
+    expect(find.byKey(const Key('scene-piece-beat-ch-1-0')), findsOneWidget);
+    expect(find.byKey(const Key('scene-piece-beat-ch-1-1')), findsOneWidget);
     expect(sceneRepo.addCalls, 2);
     // The version fence echoed the freshest known version (2 from the
     // first ack), not the screen-rendered snapshot's 1.

@@ -23,7 +23,7 @@ import 'omni_search_refresher.dart';
 /// The top-bar-search-triggered route (issue #613's slot): a DATA-ONLY
 /// search — facet chips ("Szene" · "Rolle" · "Kostüm" · "Drehtag", all
 /// active by default), a quick name prefilter, grouped results (D3 order:
-/// scenes → roles → costumes → shooting days), every row deep-linking via
+/// scenes → roles → pieces → shooting days), every row deep-linking via
 /// the single `omni_search_destinations.dart` mapping. No create commands,
 /// no navigation shortcuts beyond the result rows (spec "Search is
 /// data-only").
@@ -49,7 +49,7 @@ class OmniSearchScreen extends ConsumerStatefulWidget {
       <OmniSearchFacet, String>{
         OmniSearchFacet.scene: 'omni-search-chip-scene',
         OmniSearchFacet.character: 'omni-search-chip-character',
-        OmniSearchFacet.costume: 'omni-search-chip-costume',
+        OmniSearchFacet.piece: 'omni-search-chip-piece',
         OmniSearchFacet.shootingDay: 'omni-search-chip-shooting-day',
       };
 
@@ -352,7 +352,7 @@ String _facetChipLabel(BuildContext context, OmniSearchFacet facet) {
   return switch (facet) {
     OmniSearchFacet.scene => l10n.omniSearchChipScene,
     OmniSearchFacet.character => l10n.omniSearchChipCharacter,
-    OmniSearchFacet.costume => l10n.omniSearchChipCostume,
+    OmniSearchFacet.piece => l10n.omniSearchChipPiece,
     OmniSearchFacet.shootingDay => l10n.omniSearchChipShootingDay,
   };
 }
@@ -373,7 +373,7 @@ class _GroupHeader extends StatelessWidget {
       title: Text(switch (facet) {
         OmniSearchFacet.scene => l10n.omniSearchGroupScenes,
         OmniSearchFacet.character => l10n.omniSearchGroupCharacters,
-        OmniSearchFacet.costume => l10n.omniSearchGroupCostumes,
+        OmniSearchFacet.piece => l10n.omniSearchGroupPieces,
         OmniSearchFacet.shootingDay => l10n.omniSearchGroupShootingDays,
       }, style: Theme.of(context).textTheme.labelLarge),
     );
@@ -410,11 +410,11 @@ class _HitRow extends StatelessWidget {
         characterCategoryLabel(l10n, character),
         _leadingAvatar(hit),
       ),
-      CostumeOmniHit(:final costume) => (
-        costume.notes.isEmpty
-            ? (costume.categoryName ?? l10n.omniSearchGroupCostumes)
-            : costume.notes,
-        costume.categoryName ?? '',
+      PieceOmniHit(:final piece) => (
+        piece.notes.isEmpty
+            ? (piece.categoryName ?? l10n.omniSearchGroupPieces)
+            : piece.notes,
+        piece.categoryName ?? '',
         _leadingAvatar(hit),
       ),
       ShootingDayOmniHit(:final day, :final episode) => (
@@ -433,9 +433,7 @@ class _HitRow extends StatelessWidget {
         CharacterOmniHit(:final character) => Key(
           'omni-search-hit-character-${character.id}',
         ),
-        CostumeOmniHit(:final costume) => Key(
-          'omni-search-hit-costume-${costume.id}',
-        ),
+        PieceOmniHit(:final piece) => Key('omni-search-hit-piece-${piece.id}'),
         ShootingDayOmniHit(:final day) => Key(
           'omni-search-hit-shooting-day-${day.id}',
         ),
@@ -459,7 +457,7 @@ Widget _leadingAvatar(OmniSearchHit hit) => CircleAvatar(
     ),
     SceneOmniHit() => const Text('–'),
     CharacterOmniHit() => const Icon(Icons.face_outlined, size: 20),
-    CostumeOmniHit() => const Icon(Icons.checkroom_outlined, size: 20),
+    PieceOmniHit() => const Icon(Icons.checkroom_outlined, size: 20),
     ShootingDayOmniHit() => const Icon(Icons.calendar_month_outlined, size: 20),
   },
 );

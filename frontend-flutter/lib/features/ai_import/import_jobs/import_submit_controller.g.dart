@@ -11,7 +11,7 @@ part of 'import_submit_controller.dart';
 /// The submission controller (`flutter-ai-import-workflow` task 3.1).
 ///
 /// The submit dispatch is the AUTHZ-GATE'd write path (task 5.1): the
-/// season costume-dept capability is checked via
+/// season piece-dept capability is checked via
 /// `currentMembershipProvider` BEFORE any network call; a client-side
 /// denial renders the localized 403 narrative and issues ZERO calls
 /// (provable by the fake-repository call count in tests).
@@ -27,7 +27,7 @@ final aiImportSubmitControllerProvider = AiImportSubmitControllerProvider._();
 /// The submission controller (`flutter-ai-import-workflow` task 3.1).
 ///
 /// The submit dispatch is the AUTHZ-GATE'd write path (task 5.1): the
-/// season costume-dept capability is checked via
+/// season piece-dept capability is checked via
 /// `currentMembershipProvider` BEFORE any network call; a client-side
 /// denial renders the localized 403 narrative and issues ZERO calls
 /// (provable by the fake-repository call count in tests).
@@ -41,7 +41,7 @@ final class AiImportSubmitControllerProvider
   /// The submission controller (`flutter-ai-import-workflow` task 3.1).
   ///
   /// The submit dispatch is the AUTHZ-GATE'd write path (task 5.1): the
-  /// season costume-dept capability is checked via
+  /// season piece-dept capability is checked via
   /// `currentMembershipProvider` BEFORE any network call; a client-side
   /// denial renders the localized 403 narrative and issues ZERO calls
   /// (provable by the fake-repository call count in tests).
@@ -83,7 +83,7 @@ String _$aiImportSubmitControllerHash() =>
 /// The submission controller (`flutter-ai-import-workflow` task 3.1).
 ///
 /// The submit dispatch is the AUTHZ-GATE'd write path (task 5.1): the
-/// season costume-dept capability is checked via
+/// season piece-dept capability is checked via
 /// `currentMembershipProvider` BEFORE any network call; a client-side
 /// denial renders the localized 403 narrative and issues ZERO calls
 /// (provable by the fake-repository call count in tests).

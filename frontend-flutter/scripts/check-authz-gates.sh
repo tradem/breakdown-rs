@@ -45,20 +45,24 @@ SCAN_DIRS=(
 has_gate() {
   local file="$1"
   grep -q 'AUTHZ-GATE' "$file" && {
-    # Issue #535: the series-scoped costume-photo gate reads
-    # `seriesMembershipForSeasonProvider` (the backend-computed
+    # Issue #535: the series-scoped wardrobe-photo gate reads
+    # `seriesMembershipForCostumeProvider` (the backend-computed
     # `has_active_costume_role_in_series`); accept it alongside the
     # season provider.
     grep -q 'currentMembershipProvider' "$file" ||
-      grep -q 'seriesMembershipForSeasonProvider' "$file"
+      grep -q 'seriesMembershipForCostumeProvider' "$file"
   }
 }
 
 # True when the file calls a gated endpoint on a NON-comment line (doc
-# comments mentioning endpoints don't count).
+# comments mentioning endpoints don't count). Import/export directives are
+# excluded too: `import '../../photos/widgets/photo_gallery.dart';` names a
+# shared widget module, not a gated call — counting it flagged every consumer
+# of the photo gallery (issue #739).
 calls_gated() {
   local file="$1" pattern="$2"
   grep -v '^[[:space:]]*///' "$file" | grep -v '^[[:space:]]*//' \
+    | grep -v '^[[:space:]]*\(import\|export\) ' \
     | grep -q -e "$pattern"
 }
 

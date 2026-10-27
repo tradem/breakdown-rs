@@ -69,7 +69,7 @@ const double kShellFabBottomClearance = 80;
 /// renders a VISIBLE label (glossary rule — icon-only navigation is
 /// forbidden).
 ///
-/// Destinations are TASK-oriented (issue #610): Cast (roster + costumes +
+/// Destinations are TASK-oriented (issue #610): Cast (roster + pieces +
 /// category vocabulary), Script (the season's chronological scenes) and
 /// Schedule/Dispo (the season's shooting days). The former Season, Planen,
 /// Kleidung and Mehr tabs are dissolved: seasons and the production spine
@@ -94,7 +94,7 @@ const double kShellFabBottomClearance = 80;
 class AppShell extends ConsumerStatefulWidget {
   const AppShell({super.key});
 
-  /// Root screen per destination (issue #610): Cast = roster/costumes,
+  /// Root screen per destination (issue #610): Cast = roster/pieces,
   /// Script = chronological scene overview, Schedule/Dispo = day board.
   static const List<Widget> _tabRoots = [
     CastTabScreen(),

@@ -1,0 +1,184 @@
+// SPDX-License-Identifier: AGPL-3.0
+// Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: space-bunny-free (opencode-go)
+// Co-authored-by: muse-spark-1.3-contributor (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
+
+import 'package:breakdown_api/breakdown_api.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import '../../core/problem_error.dart';
+import '../../data/piece_repository.dart';
+import '../../domain/reconciliation/overlay_store.dart';
+
+export '../../domain/reconciliation/overlay_store.dart' show OverlayStatus;
+export '../../data/piece_repository.dart'
+    show
+        applyNotesOptimistic,
+        applyAddDetailOptimistic,
+        applyUpdateDetailOptimistic,
+        applyRemoveDetailOptimistic,
+        applyCategoryOptimistic,
+        applyAddSeasonOptimistic,
+        applyRemoveSeasonOptimistic,
+        shouldClearPieceOverlay;
+
+/// The command surface a failure belongs to — photo commands (upload/delete)
+/// vs. piece writes. The command-error banner routes the localized copy by
+/// this ORIGIN, never by the `photo.*` code prefix: a photo command can fail
+/// with the generic `domain.validation` (e.g. a concurrent unassign races the
+/// local gate) and must still render the photo copy — not the piece
+/// "could not be saved" fallback (issue #513).
+enum PieceCommandSurface { piece, photo }
+
+/// A command failure with its originating surface, so the UI picks the right
+/// copy without inferring the origin from the error code.
+class PieceCommandFailure {
+  const PieceCommandFailure(this.surface, this.error);
+
+  final PieceCommandSurface surface;
+  final ProblemError error;
+}
+
+/// Controller-state optimistic overlay for a piece-row command: ephemeral
+/// UI state keyed by piece `id` — never in Drift.
+///
+/// Unlike create-shell overlays (which vanish by projected id), row-level
+/// edits clear by the **version fence** ([shouldClearPieceOverlay]): the
+/// overlay survives stale projections carrying an older `version`.
+class PieceRowOverlay implements ReconciliationOverlay {
+  const PieceRowOverlay({
+    required this.id,
+    required this.overlay,
+    required this.acknowledgedVersion,
+    required this.status,
+    this.warning,
+  });
+
+  @override
+  final String id;
+
+  /// The optimistic row (assignment / notes / details applied after 2xx).
+  final PieceView overlay;
+
+  /// The `AggregateVersion` the command acknowledgement returned. The fence
+  /// clears this overlay only when the projection reaches it.
+  final int acknowledgedVersion;
+
+  @override
+  final OverlayStatus status;
+
+  @override
+  final String? warning;
+
+  @override
+  PieceRowOverlay copyWithStatus({
+    OverlayStatus? status,
+    String? warning,
+    bool clearWarning = false,
+  }) => PieceRowOverlay(
+    id: id,
+    overlay: overlay,
+    acknowledgedVersion: acknowledgedVersion,
+    status: status ?? this.status,
+    warning: clearWarning ? null : (warning ?? this.warning),
+  );
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is PieceRowOverlay &&
+          other.id == id &&
+          other.overlay == overlay &&
+          other.acknowledgedVersion == acknowledgedVersion &&
+          other.status == status &&
+          other.warning == warning;
+
+  @override
+  int get hashCode =>
+      Object.hash(id, overlay, acknowledgedVersion, status, warning);
+}
+
+/// One row rendered by `PiecesScreen`.
+sealed class PieceRow {
+  const PieceRow();
+}
+
+class ProjectedPieceRow extends PieceRow {
+  const ProjectedPieceRow(this.piece);
+
+  /// The generated read DTO (`breakdown_api` `PieceView`); authoritative,
+  /// comes from Drift only (or the merged overlay while reconciling).
+  final PieceView piece;
+
+  /// `true` while the version fence holds (the row shows the optimistic
+  /// edit, not yet the projection).
+  bool get reconciling => false;
+}
+
+class OptimisticPieceRow extends PieceRow {
+  const OptimisticPieceRow(this.overlay);
+
+  final PieceRowOverlay overlay;
+}
+
+/// Controller state shape (seasons reference pattern).
+class PiecesScreenState {
+  const PiecesScreenState({
+    required this.projected,
+    this.cachedRows = const [],
+    this.isStale = false,
+    this.overlays = const [],
+    this.commandError,
+  });
+
+  final AsyncValue<List<PieceView>> projected;
+
+  /// Complete season projection (the fence merges overlays over these).
+  final List<PieceView> cachedRows;
+  final bool isStale;
+  final List<PieceRowOverlay> overlays;
+
+  /// Last command failure (with its originating surface) keyed by its
+  /// stable problem `code`.
+  final PieceCommandFailure? commandError;
+
+  /// The `*.not-found` problem of a deleted parent (D5).
+  ProblemError? get notFound {
+    final p = projected;
+    if (p is AsyncError) {
+      final error = p.error;
+      if (error is ProblemError && error.code.endsWith('.not-found')) {
+        return error;
+      }
+    }
+    return null;
+  }
+
+  /// The merged list the screen renders: authoritative rows with
+  /// fence-held optimistic edits applied (never a stale restore).
+  ///
+  /// An overlay renders as [OptimisticPieceRow] while the cached
+  /// projection is still behind the acknowledged version; once the fence
+  /// passes the authoritative row renders as [ProjectedPieceRow].
+  /// Overlays for ids absent from the projection (create path) append.
+  List<PieceRow> get rows {
+    final projectedById = {for (final c in cachedRows) c.id: c};
+    final overlayById = {for (final o in overlays) o.id: o};
+    return <PieceRow>[
+      for (final c in cachedRows)
+        if (overlayById[c.id] case final pending?
+            when !_fencePassed(c, pending.acknowledgedVersion))
+          OptimisticPieceRow(pending)
+        else
+          ProjectedPieceRow(c),
+      for (final o in overlays)
+        if (!projectedById.containsKey(o.id)) OptimisticPieceRow(o),
+    ];
+  }
+
+  bool _fencePassed(PieceView row, int acknowledged) => shouldClearPieceOverlay(
+    projection: row,
+    acknowledgedVersion: acknowledged,
+  );
+}

@@ -224,7 +224,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 /// controller, no new API surface.
 ///
 /// AUTHZ-GATE: the AI-config handlers are handler-internally gated by
-/// `has_active_credential_role` (an active `costume_designer` /
+/// `has_active_credential_role` (an active `piece_designer` /
 /// `costume_assistant` in any active membership — backend
 /// `AuthorizationPolicy`). The exact global predicate is not on the
 /// wire, so the client mirrors it through the existing D2/D3 resolution

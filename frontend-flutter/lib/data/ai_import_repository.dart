@@ -134,7 +134,7 @@ class AiImportRepository extends BaseRepository {
   /// re-encoded and corrupt the PDF). Branches on the response status:
   /// 202 enqueued, 200 digest-duplicate.
   ///
-  /// // AUTHZ-GATE: callers check the season costume-dept membership via
+  /// // AUTHZ-GATE: callers check the season piece-dept membership via
   /// `currentMembershipProvider` BEFORE invoking; denial issues zero calls.
   Future<Result<AiUploadAck>> uploadSchedule({
     required Object body,
@@ -508,7 +508,7 @@ class AiImportRepository extends BaseRepository {
   /// no preview editing exists server-side). Returns the outcome summary
   /// (`applied_count`, `created_days`, `planned_scene_shoots`).
   ///
-  /// // AUTHZ-GATE: callers check the season costume-dept membership via
+  /// // AUTHZ-GATE: callers check the season piece-dept membership via
   /// `currentMembershipProvider` BEFORE invoking; denial issues zero calls.
   Future<Result<ApplyAiImportResponse>> apply(
     String jobId,

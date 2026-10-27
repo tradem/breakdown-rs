@@ -44,7 +44,7 @@ Future<Result<FundusInputs>> fundusInputs(Ref ref, String projectId) async {
   return cached.map(
     (fresh) => FundusInputs(
       projectId: projectId,
-      costumes: fresh.rows,
+      pieces: fresh.rows,
       seasons: seasons,
       stale: fresh.stale,
     ),
@@ -120,7 +120,7 @@ class FundusController extends _$FundusController {
   FundusViewState _derive(FundusInputs inputs) {
     final query = ref.watch(fundusQueryProvider(projectId));
     final matched = matchFundus(
-      costumes: inputs.costumes,
+      pieces: inputs.pieces,
       projectSeasonIds: inputs.seasonIds,
       selectedSeasonIds: query.selectedSeasonIds,
       text: query.text,

@@ -13,7 +13,7 @@ part of 'omni_search_refresher.dart';
 ///
 /// On surface open and on user retry the surface runs ONE bounded pass
 /// through the ESTABLISHED read seams for the active season — blocks, their
-/// episodes, per-episode scenes AND days plus characters and costumes.
+/// episodes, per-episode scenes AND days plus characters and pieces.
 /// The seams are the six aggregate REPOSITORIES (the layer beneath the
 /// read screens' list-fetch providers — those are thin wrappers over
 /// `repo.listBy…` with clock + fence): calling the repositories directly
@@ -47,7 +47,7 @@ final omniSearchSourceRefresherProvider = OmniSearchSourceRefresherProvider._();
 ///
 /// On surface open and on user retry the surface runs ONE bounded pass
 /// through the ESTABLISHED read seams for the active season — blocks, their
-/// episodes, per-episode scenes AND days plus characters and costumes.
+/// episodes, per-episode scenes AND days plus characters and pieces.
 /// The seams are the six aggregate REPOSITORIES (the layer beneath the
 /// read screens' list-fetch providers — those are thin wrappers over
 /// `repo.listBy…` with clock + fence): calling the repositories directly
@@ -86,7 +86,7 @@ final class OmniSearchSourceRefresherProvider
   ///
   /// On surface open and on user retry the surface runs ONE bounded pass
   /// through the ESTABLISHED read seams for the active season — blocks, their
-  /// episodes, per-episode scenes AND days plus characters and costumes.
+  /// episodes, per-episode scenes AND days plus characters and pieces.
   /// The seams are the six aggregate REPOSITORIES (the layer beneath the
   /// read screens' list-fetch providers — those are thin wrappers over
   /// `repo.listBy…` with clock + fence): calling the repositories directly

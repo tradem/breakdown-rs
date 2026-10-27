@@ -14,11 +14,11 @@ import 'fundus_controller.dart';
 import 'fundus_destinations.dart';
 import 'fundus_model.dart';
 
-/// The costume **fundus** surface (issue #625, OpenSpec change
+/// The piece **fundus** surface (issue #625, OpenSpec change
 /// `flutter-fundus-search`).
 ///
 /// A SEPARATE, cross-season browsing surface — NOT a fifth OmniSearch chip
-/// (design D1). It shows every costume of the ACTIVE PROJECT whose repertoire
+/// (design D1). It shows every piece of the ACTIVE PROJECT whose repertoire
 /// intersects the project's seasons, with a season-chip facet model and a
 /// name prefilter over the pinned fields (notes + category name). Season
 /// names on each row come from the seasons projection (a read-DTO join —
@@ -172,8 +172,8 @@ class _FundusList extends ConsumerWidget {
         if (view.rows.isEmpty) {
           return _FundusNarrative(view: view);
         }
-        return _CostumeRow(
-          costume: view.rows[index - cursor],
+        return _PieceRow(
+          piece: view.rows[index - cursor],
           season: season,
           projectSeasons: view.projectSeasons,
         );
@@ -262,14 +262,14 @@ class _SeasonChips extends StatelessWidget {
   }
 }
 
-class _CostumeRow extends StatelessWidget {
-  const _CostumeRow({
-    required this.costume,
+class _PieceRow extends StatelessWidget {
+  const _PieceRow({
+    required this.piece,
     required this.season,
     required this.projectSeasons,
   });
 
-  final PieceView costume;
+  final PieceView piece;
   final SeasonView season;
   final List<SeasonView> projectSeasons;
 
@@ -285,18 +285,18 @@ class _CostumeRow extends StatelessWidget {
       return s.title ?? l10n.seasonsDefaultTitle(s.number);
     }
 
-    final seasonNames = [for (final id in costume.seasonIds) nameOf(id)];
-    final title = costume.notes.isEmpty
-        ? (costume.categoryName ?? l10n.fundusTitle)
-        : costume.notes;
+    final seasonNames = [for (final id in piece.seasonIds) nameOf(id)];
+    final title = piece.notes.isEmpty
+        ? (piece.categoryName ?? l10n.fundusTitle)
+        : piece.notes;
     final detailSeason = fundusDetailSeason(
-      costume: costume,
+      piece: piece,
       activeSeason: season,
       projectSeasons: projectSeasons,
     );
 
     return ListTile(
-      key: Key('fundus-row-${costume.id}'),
+      key: Key('fundus-row-${piece.id}'),
       leading: const CircleAvatar(
         child: Icon(Icons.checkroom_outlined, size: 20),
       ),
@@ -307,7 +307,7 @@ class _CostumeRow extends StatelessWidget {
       trailing: const Icon(Icons.chevron_right),
       onTap: detailSeason == null
           ? null
-          : () => pushFundusDestination(context, detailSeason, costume),
+          : () => pushFundusDestination(context, detailSeason, piece),
     );
   }
 }

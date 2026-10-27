@@ -889,9 +889,9 @@ class _OutcomeCard extends StatelessWidget {
           borderRadius: BorderRadius.circular(8),
         ),
         child: Text(
-          // A script apply that produced figures or costumes reports them
+          // A script apply that produced figures or pieces reports them
           // explicitly. The schedule wording stays the fallback, so a schedule
-          // apply — and a pre-costume server that sends neither field — renders
+          // apply — and a pre-piece server that sends neither field — renders
           // exactly as before instead of showing invented counts.
           outcome.createdCharacters > 0 ||
                   outcome.createdCostumes > 0 ||
@@ -920,15 +920,15 @@ class _OutcomeCard extends StatelessWidget {
             style: Theme.of(context).textTheme.bodySmall,
           ),
         ),
-      // Rows that did NOT become a `Costume` are named with their reason: a
+      // Rows that did NOT become a `Piece` are named with their reason: a
       // partially applied row must never read as a fully applied one (spec
-      // `costume-character-binding` — "report the row as partially applied with
+      // `piece-character-binding` — "report the row as partially applied with
       // the reason"). `reason` is a typed wire enum, so this copy is keyed on it
       // and never parsed out of server prose.
       for (final unapplied in outcome.unappliedCostumes)
         Text(
           key: Key(
-            'ai-apply-unapplied-costume-${unapplied.draftRef}'
+            'ai-apply-unapplied-piece-${unapplied.draftRef}'
             '-${unapplied.ordinal}',
           ),
           l10nOf(context).aiApplyUnappliedCostume(
@@ -1154,7 +1154,7 @@ Future<List<EpisodeView>> aiEpisodePickerRows(Ref ref, String jobId) async {
   }, (rows) async => rows);
 }
 
-/// Localized copy for a costume row the apply could not finish, keyed on the
+/// Localized copy for a piece row the apply could not finish, keyed on the
 /// stable wire enum. `_ => commonUnknown` is forward-compat, not dead code: the
 /// generated enum carries no `$default`, so a reason a future backend adds must
 /// not take the whole outcome card down with it.

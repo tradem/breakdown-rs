@@ -53,7 +53,7 @@ class SeasonRepository extends BaseRepository {
   /// Archives a season (terminal lifecycle state, issue #533).
   ///
   /// Backend rejections surface as [Left]: 403 `domain.forbidden` (no active
-  /// costume-dept role in the season), 409 `season.archived` (repeat archive
+  /// piece-dept role in the season), 409 `season.archived` (repeat archive
   /// — idempotent-reject) or 409 `concurrency.version-mismatch` (stale
   /// version echo).
   Future<Result<int>> archive(String id, VersionRequest version) => run(

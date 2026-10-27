@@ -14,11 +14,11 @@ import 'cache/cache_ttl.dart';
 import 'cache/clock.dart';
 import 'cache/piece_domains_cache_dao.dart';
 
-/// Read repository for the **costume fundus** (OpenSpec change
+/// Read repository for the **piece fundus** (OpenSpec change
 /// `flutter-fundus-search`, issue #625).
 ///
 /// The fundus is the project's cross-season repertoire: the fetch scope is
-/// `GET /v1/costumes?project_id=…` (the route already exists and is
+/// `GET /v1/pieces?project_id=…` (the route already exists and is
 /// generated — design D3; no backend/OpenAPI change), snapshot-replaced
 /// into the dedicated project-scoped [FundusPieceCacheDao] slice. Every
 /// method returns [Result] — never throws (AGENTS.md §5).
@@ -28,7 +28,7 @@ class FundusRepository extends BaseRepository {
   final FundusPieceCacheDao cache;
 
   /// Project-scoped fetch + snapshot-replace
-  /// (`GET /v1/costumes?project_id=…`), paginated through every page so the
+  /// (`GET /v1/pieces?project_id=…`), paginated through every page so the
   /// snapshot is never truncated (issue #385).
   ///
   /// On [Right] applies the project-scoped snapshot and returns the rows.
@@ -43,7 +43,7 @@ class FundusRepository extends BaseRepository {
       ({required int limit, required int offset}) => api
           .getHandlersApi()
           .listPieces(projectId: projectId, limit: limit, offset: offset),
-      dtoInvalidCode: 'costume.dto_invalid',
+      dtoInvalidCode: 'piece.dto_invalid',
     );
     return fetched.match(
       (err) async => Left<ProblemError, List<PieceView>>(err),

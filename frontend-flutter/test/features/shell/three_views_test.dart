@@ -235,7 +235,7 @@ void main() {
           location: 'Kneipe',
           scriptDay: '1. Spieltag',
           characters: const ['c-1', 'c-2'],
-          // Three beats, two DISTINCT costumes — the same costume worn by
+          // Three beats, two DISTINCT pieces — the same piece worn by
           // two characters counts once.
           beats: const [
             ('c-1', 'cost-1'),
@@ -249,7 +249,7 @@ void main() {
 
       // Identity: the episode (named) precedes the scene number; then the
       // metadata in the issue's order: day · location · characters ·
-      // costumes — absent fields would be omitted. (This harness installs
+      // pieces — absent fields would be omitted. (This harness installs
       // no localization delegates, so l10nOf falls back to English.)
       expect(
         find.text(
@@ -257,7 +257,7 @@ void main() {
           'Day: 1. Spieltag · '
           'Kneipe · '
           '2 characters · '
-          '2 costumes',
+          '2 looks',
         ),
         findsOneWidget,
       );
@@ -272,7 +272,7 @@ void main() {
       await pumpView(tester, const ScriptTabScreen());
 
       expect(
-        find.text('Episode 1, Scene 3 · 0 characters · 0 costumes'),
+        find.text('Episode 1, Scene 3 · 0 characters · 0 looks'),
         findsOneWidget,
       );
     });
@@ -431,7 +431,7 @@ void main() {
       expect(find.byKey(const Key('cast-categories-action')), findsNothing);
     });
 
-    testWidgets('with an active season: roster/costume switch + categories', (
+    testWidgets('with an active season: roster/piece switch + categories', (
       tester,
     ) async {
       await setUpContainer();
@@ -441,7 +441,7 @@ void main() {
       expect(find.byKey(const Key('cast-categories-action')), findsOneWidget);
       // Both halves carry a VISIBLE label (glossary rule).
       expect(find.text('Characters'), findsWidgets);
-      expect(find.text('Costumes'), findsWidgets);
+      expect(find.text('Looks'), findsWidgets);
     });
   });
 

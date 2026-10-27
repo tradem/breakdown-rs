@@ -11,7 +11,7 @@ import '../../data/cache/clock.dart';
 import '../../domain/reconciliation/reconciliation_scheduler.dart';
 import '../blocks/blocks_controller.dart';
 import '../characters/characters_controller.dart';
-import '../costumes/costumes_controller.dart';
+import '../pieces/pieces_controller.dart';
 import '../episodes/episodes_controller.dart';
 import '../scenes/scenes_controller.dart';
 import '../shooting_days/shooting_days_controller.dart';
@@ -34,7 +34,7 @@ const int kOmniSearchPrefreshAttempts = 2;
 ///
 /// On surface open and on user retry the surface runs ONE bounded pass
 /// through the ESTABLISHED read seams for the active season — blocks, their
-/// episodes, per-episode scenes AND days plus characters and costumes.
+/// episodes, per-episode scenes AND days plus characters and pieces.
 /// The seams are the six aggregate REPOSITORIES (the layer beneath the
 /// read screens' list-fetch providers — those are thin wrappers over
 /// `repo.listBy…` with clock + fence): calling the repositories directly
@@ -138,9 +138,9 @@ class OmniSearchSourceRefresher {
           .then((r) => r.isRight()),
     );
     if (!_ref.mounted) return loaded;
-    final costumeOk = await _guarded(
+    final pieceOk = await _guarded(
       () => _ref
-          .read(costumeRepositoryProvider)
+          .read(pieceRepositoryProvider)
           .listBySeason(seasonId, clock: clock, fence: fence)
           .then((r) => r.isRight()),
     );
@@ -149,7 +149,7 @@ class OmniSearchSourceRefresher {
       () => _hierarchyChain(seasonId, clock, fence),
     );
     if (charactersOk) loaded.add(OmniSearchFacet.character);
-    if (costumeOk) loaded.add(OmniSearchFacet.costume);
+    if (pieceOk) loaded.add(OmniSearchFacet.piece);
     if (hierarchyOk) {
       loaded
         ..add(OmniSearchFacet.scene)

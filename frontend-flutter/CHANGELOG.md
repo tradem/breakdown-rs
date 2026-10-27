@@ -59,6 +59,46 @@ releases are cut as `vX.Y.Z` tags (`v<build-name>`, enforced by
 
   The fuller wardrobe UX (dedicated outfit list/detail screens, piece↔outfit
   navigation, German copy) is tracked in follow-up issue #739.
+- **Issue #739 — wardrobe frontend for the `Piece`/`Outfit` split:**
+  `0.4.0-beta.14+106 → 0.4.0-beta.15+107`. The compile-level port above left
+  the presentation layer on the retired vocabulary and the look (outfit)
+  half without screens. This change finishes the client side:
+
+  - **Presentation rename (no behaviour change):** `lib/features/costumes/`
+    → `lib/features/pieces/` with `PieceRow`, `PiecesScreenState`,
+    `PiecesViewController`, `PieceTileIdentity`, `pieceTileIdentity`,
+    `pieceDisplayName` and the matching providers; ~80 copy keys
+    `costume*` → `piece*` ("Kleidungsstück") and the scene-beat keys
+    `sceneDetail*Costume*` → `sceneDetail*Outfit*` ("Look"). The
+    `costume-category` vocabulary, the `assign_costumes` capability with its
+    "Kostüm-Rolle" copy, the `hasActiveCostumeRole*` predicates and the
+    AI-import draft vocabulary are deliberately untouched.
+  - **Outfit feature (new):** `lib/features/outfits/` — a look list on the
+    character detail (name, variant lineage marker, piece count, create) and
+    an `OutfitDetailScreen` (rename, notes, ordered garment rows with
+    add/remove, fitting photos, `Variante erstellen`). Commands run the
+    awaited season-scoped AUTHZ-GATE mirror, apply the optimistic overlay and
+    clear it on the version fence with a bounded-retry resync.
+  - **Piece ↔ look navigation:** an outfit's garment row opens the piece
+    detail of the look's season; the piece detail never derives a command
+    payload from a second projection read.
+  - **Photo bindings repaired:** the raw-bytes upload targets
+    `/v1/pieces/{id}/photos` (the retired `/v1/costumes/{id}/photos` literal
+    was a silent 404), the outfit photo trio is wired, and the bounded variant
+    watch is one implementation generic over the enriched view.
+  - **Dead code removed:** the retired `assign`/`reassign`/`unassign` copy and
+    the `photo.requires_character` branch (the backend answers
+    `piece.container-unresolved` for an unresolvable garment container).
+  - **Gherkin:** `costume_assignment.feature` → `outfit_casting.feature`
+    (cast a look, continuity by repeated `outfit_id`, deviation via variant
+    fork, role denial on the look surface with a zero-command assertion); the
+    dev seed creates garments, looks, a variant, an episode and a scene.
+  - **Docs:** `docs/design/screens/{pieces,outfits}.md`, glossary terms
+    (Kleidungsstück / Look), and the neighbouring screen specs re-termed.
+  - **Verified locally:** `flutter analyze` clean, `flutter test` 1886/1886
+    green with regenerated goldens, coverage 81.5 % (gate 80 %),
+    `scripts/regen-client.sh` byte-identical, `breakdown_lints` clean,
+    ARB parity + glossary inventory clean, design diagrams compile.
 - **Issue #736 — Decision provider picker driven by the backend capability:**
   `0.4.0-beta.12+104 → 0.4.0-beta.13+105`. The Decision Model provider
   picker filtered its entries through the client-side allowlist

@@ -23,13 +23,13 @@ void main() {
   }
 
   test('counts a photo upload against the photo pipeline and the total', () {
-    record('/v1/costumes/c1/photos');
+    record('/v1/pieces/c1/photos');
     expect(RequestRecorder.totalRequests, 1);
     expect(RequestRecorder.photoPipelineRequests, 1);
   });
 
   test('counts photo bytes and continuity link routes as photo pipeline', () {
-    record('/v1/costumes/c1/photos/p1/bytes');
+    record('/v1/pieces/c1/photos/p1/bytes');
     record(
       '/v1/shooting-days/d1/scenes/s1/scene-shoots/ssh1/continuity-photos',
     );
@@ -37,25 +37,22 @@ void main() {
     expect(RequestRecorder.photoPipelineRequests, 2);
   });
 
-  test(
-    'counts costume assign/unassign commands against the costume counter',
-    () {
-      record('/v1/costumes/c1/assign');
-      record('/v1/costumes/c1/unassign');
-      expect(RequestRecorder.totalRequests, 2);
-      expect(RequestRecorder.costumeCommandRequests, 2);
-      // Read fetches under the same resource are NOT command traffic.
-      record('/v1/costumes/c1');
-      record('/v1/costumes/c1/details');
-      expect(RequestRecorder.costumeCommandRequests, 2);
-      expect(RequestRecorder.totalRequests, 4);
-    },
-  );
+  test('counts piece assign/unassign commands against the piece counter', () {
+    record('/v1/pieces/c1/assign');
+    record('/v1/pieces/c1/unassign');
+    expect(RequestRecorder.totalRequests, 2);
+    expect(RequestRecorder.pieceCommandRequests, 2);
+    // Read fetches under the same resource are NOT command traffic.
+    record('/v1/pieces/c1');
+    record('/v1/pieces/c1/details');
+    expect(RequestRecorder.pieceCommandRequests, 2);
+    expect(RequestRecorder.totalRequests, 4);
+  });
 
   test('navigation read-model fetches count ONLY against the total', () {
     record('/v1/seasons');
     record('/v1/blocks');
-    record('/v1/costumes/c1/details');
+    record('/v1/pieces/c1/details');
     expect(RequestRecorder.totalRequests, 3);
     // The client-side AUTHZ-GATE (D6) must prevent capture-pipeline
     // traffic — page loads are legitimate and must not trip the preflight
@@ -63,13 +60,43 @@ void main() {
     expect(RequestRecorder.photoPipelineRequests, 0);
   });
 
+  test('counts a look command as outfit traffic, not as a read', () {
+    RequestRecorderInterceptor().onRequest(
+      RequestOptions(
+        path: '/v1/outfits/o1/pieces',
+        baseUrl: 'http://10.0.2.2:3000',
+        method: 'POST',
+      ),
+      RequestInterceptorHandler(),
+    );
+    expect(RequestRecorder.outfitCommandRequests, 1);
+    // A read of the same resource is legitimate navigation traffic.
+    RequestRecorderInterceptor().onRequest(
+      RequestOptions(
+        path: '/v1/characters/c1/outfits',
+        baseUrl: 'http://10.0.2.2:3000',
+      ),
+      RequestInterceptorHandler(),
+    );
+    expect(RequestRecorder.outfitCommandRequests, 1);
+    expect(RequestRecorder.totalRequests, 2);
+  });
+
   test('snapshot carries all counts and reset zeroes them', () {
     record('/v1/seasons');
-    record('/v1/costumes/c1/photos');
-    record('/v1/costumes/c1/assign');
+    record('/v1/pieces/c1/photos');
+    record('/v1/pieces/c1/assign');
+    RequestRecorderInterceptor().onRequest(
+      RequestOptions(
+        path: '/v1/outfits/o1/name',
+        baseUrl: 'http://10.0.2.2:3000',
+        method: 'PATCH',
+      ),
+      RequestInterceptorHandler(),
+    );
     expect(
       RequestRecorder.snapshot(),
-      'total=3;photo=1;costume=1',
+      'total=4;photo=1;piece=1;outfit=1',
       reason:
           'the driver channel speaks String only — the steps parse '
           'this exact shape',
@@ -78,8 +105,9 @@ void main() {
     RequestRecorder.reset();
     expect(RequestRecorder.totalRequests, 0);
     expect(RequestRecorder.photoPipelineRequests, 0);
-    expect(RequestRecorder.costumeCommandRequests, 0);
-    expect(RequestRecorder.snapshot(), 'total=0;photo=0;costume=0');
+    expect(RequestRecorder.pieceCommandRequests, 0);
+    expect(RequestRecorder.outfitCommandRequests, 0);
+    expect(RequestRecorder.snapshot(), 'total=0;photo=0;piece=0;outfit=0');
   });
 
   test('interceptor lets the request through to the next handler', () {

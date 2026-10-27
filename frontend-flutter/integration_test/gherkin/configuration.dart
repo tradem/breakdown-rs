@@ -15,7 +15,7 @@ import 'package:gherkin/gherkin.dart';
 import 'hooks/app_hook.dart';
 import 'steps/common_steps.dart';
 import 'steps/continuity_photo_steps.dart';
-import 'steps/costume_assignment_steps.dart';
+import 'steps/outfit_casting_steps.dart';
 import 'steps/season_wizard_steps.dart';
 import 'steps/soll_ist_execution_steps.dart';
 import 'steps/soll_ist_report_steps.dart';
@@ -28,8 +28,8 @@ import 'world/app_world.dart';
 /// (`DEV_AUTH_SUB=dev-e2e`, `API_BASE=http://10.0.2.2:3000`) on a connected
 /// device/emulator. Critical flows (`@critical`) still tagged `@pending`
 /// (Soll-Ist report and execution — own changes) are excluded
-/// via `tagExpression: not @pending`; promoted scenarios (costume
-/// assignment, shipped with `flutter-costume-domains`; continuity photo
+/// via `tagExpression: not @pending`; promoted scenarios (piece
+/// assignment, shipped with `flutter-piece-domains`; continuity photo
 /// capture, shipped with `flutter-shoot-day-execution`) run on device.
 /// Removing `@pending` from a scenario promotes it into the on-device pass
 /// (the CI gate in `.github/workflows/flutter-ci.yml`).
@@ -51,14 +51,14 @@ Future<FlutterTestConfiguration> buildGherkinConfig() async {
     whenOpenAggregateSollIstReportOnIndex(),
     whenOpenShootingDays(),
     whenOpenReportIndexEntry(),
-    whenOpenCostumeAssignment(),
+    whenOpenOutfitCasting(),
     // Issue #611: role extract from the Cast view's roster (pending backend
     // read model issue #621 — degraded route covered by widget tests).
     whenOpenRoleExtract(),
     ...sollIstReportSteps(),
     ...sollIstExecutionSteps(),
     ...continuityPhotoSteps(),
-    ...costumeAssignmentSteps(),
+    ...outfitCastingSteps(),
     ...seasonWizardSteps(),
   ];
 

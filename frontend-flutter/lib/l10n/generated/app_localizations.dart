@@ -476,71 +476,65 @@ abstract class AppLocalizations {
   /// **'Die Figur konnte nicht gespeichert werden ({code}).'**
   String characterErrorGeneric(Object code);
 
-  /// No description provided for @costumeErrorChanged.
+  /// No description provided for @pieceErrorChanged.
   ///
   /// In de, this message translates to:
   /// **'Woanders geändert – zum Aktualisieren ziehen und erneut versuchen.'**
-  String get costumeErrorChanged;
+  String get pieceErrorChanged;
 
-  /// No description provided for @costumeErrorForbidden.
+  /// No description provided for @pieceErrorForbidden.
   ///
   /// In de, this message translates to:
   /// **'Du benötigst eine aktive Kostüm-Rolle in dieser Staffel.'**
-  String get costumeErrorForbidden;
+  String get pieceErrorForbidden;
 
-  /// No description provided for @costumeErrorMembership.
+  /// No description provided for @pieceErrorMembership.
   ///
   /// In de, this message translates to:
   /// **'Berechtigungen konnten nicht überprüft werden – Verbindung prüfen und erneut versuchen.'**
-  String get costumeErrorMembership;
+  String get pieceErrorMembership;
 
-  /// No description provided for @costumeErrorGeneric.
+  /// No description provided for @pieceErrorGeneric.
   ///
   /// In de, this message translates to:
-  /// **'Das Kostüm konnte nicht gespeichert werden ({code}).'**
-  String costumeErrorGeneric(Object code);
+  /// **'Das Kleidungsstück konnte nicht gespeichert werden ({code}).'**
+  String pieceErrorGeneric(Object code);
 
-  /// No description provided for @costumeErrorCategorySeason.
+  /// No description provided for @pieceErrorCategorySeason.
   ///
   /// In de, this message translates to:
   /// **'Diese Kategorie gehört zu einer anderen Staffel – wähle eine Kategorie dieser Staffel.'**
-  String get costumeErrorCategorySeason;
+  String get pieceErrorCategorySeason;
 
-  /// No description provided for @costumeErrorCategoryArchived.
+  /// No description provided for @pieceErrorCategoryArchived.
   ///
   /// In de, this message translates to:
   /// **'Diese Kategorie ist archiviert – wähle eine aktive Kategorie.'**
-  String get costumeErrorCategoryArchived;
+  String get pieceErrorCategoryArchived;
 
-  /// No description provided for @costumeErrorDetailNotFound.
+  /// No description provided for @pieceErrorDetailNotFound.
   ///
   /// In de, this message translates to:
-  /// **'Dieses Kostümdetail existiert nicht mehr – die Liste wurde aktualisiert.'**
-  String get costumeErrorDetailNotFound;
+  /// **'Dieses Detail existiert nicht mehr – die Liste wurde aktualisiert.'**
+  String get pieceErrorDetailNotFound;
 
-  /// No description provided for @costumeDetailCategoryTitle.
+  /// No description provided for @pieceDetailCategoryTitle.
   ///
   /// In de, this message translates to:
   /// **'Kategorie'**
-  String get costumeDetailCategoryTitle;
+  String get pieceDetailCategoryTitle;
 
-  /// No description provided for @costumeDetailPickCategory.
+  /// No description provided for @pieceDetailPickCategory.
   ///
   /// In de, this message translates to:
   /// **'Kategorie wählen'**
-  String get costumeDetailPickCategory;
+  String get pieceDetailPickCategory;
 
-  /// No description provided for @costumeDetailCategorySaved.
+  /// No description provided for @pieceDetailCategorySaved.
   ///
   /// In de, this message translates to:
   /// **'Kategorie gespeichert.'**
-  String get costumeDetailCategorySaved;
-
-  /// No description provided for @photoErrorRequiresCharacter.
-  ///
-  /// In de, this message translates to:
-  /// **'Ordne das Kostüm einer Figur zu, bevor du Fotos verwaltest.'**
-  String get photoErrorRequiresCharacter;
+  String get pieceDetailCategorySaved;
 
   /// No description provided for @photoErrorTooLarge.
   ///
@@ -563,7 +557,7 @@ abstract class AppLocalizations {
   /// No description provided for @photoErrorContainerUnresolved.
   ///
   /// In de, this message translates to:
-  /// **'Für dieses Kostüm kann kein zugehöriger Container ermittelt werden — lade die Kostümliste neu und versuch es erneut.'**
+  /// **'Für dieses Kleidungsstück kann kein zugehöriger Container ermittelt werden — lade die Garderobe neu und versuch es erneut.'**
   String get photoErrorContainerUnresolved;
 
   /// No description provided for @photoErrorNetwork.
@@ -590,35 +584,35 @@ abstract class AppLocalizations {
   /// **'Das Foto wird dauerhaft gelöscht. Dieser Schritt kann nicht rückgängig gemacht werden.'**
   String get photoDeleteMessage;
 
-  /// No description provided for @costumeAddFab.
+  /// No description provided for @pieceAddFab.
   ///
   /// In de, this message translates to:
-  /// **'Kostüm erstellen'**
-  String get costumeAddFab;
+  /// **'Kleidungsstück erstellen'**
+  String get pieceAddFab;
 
-  /// No description provided for @costumesStaleBanner.
+  /// No description provided for @piecesStaleBanner.
   ///
   /// In de, this message translates to:
   /// **'Zwischengespeicherte Daten sind möglicherweise veraltet.'**
-  String get costumesStaleBanner;
+  String get piecesStaleBanner;
 
-  /// No description provided for @costumesFetchError.
+  /// No description provided for @piecesFetchError.
   ///
   /// In de, this message translates to:
-  /// **'Kostüme konnten nicht geladen werden ({code}).'**
-  String costumesFetchError(Object code);
+  /// **'Kleidungsstücke konnten nicht geladen werden ({code}).'**
+  String piecesFetchError(Object code);
 
-  /// No description provided for @costumeTileLabel.
+  /// No description provided for @pieceTileLabel.
   ///
   /// In de, this message translates to:
-  /// **'Kostüm {id}'**
-  String costumeTileLabel(Object id);
+  /// **'Kleidungsstück {id}'**
+  String pieceTileLabel(Object id);
 
-  /// No description provided for @costumeTileLabelFallback.
+  /// No description provided for @pieceTileLabelFallback.
   ///
   /// In de, this message translates to:
-  /// **'Kostüm'**
-  String get costumeTileLabelFallback;
+  /// **'Kleidungsstück'**
+  String get pieceTileLabelFallback;
 
   /// No description provided for @costumeCategoryUncategorized.
   ///
@@ -626,47 +620,41 @@ abstract class AppLocalizations {
   /// **'Ohne Kategorie'**
   String get costumeCategoryUncategorized;
 
-  /// No description provided for @costumeDetailSaved.
+  /// No description provided for @pieceDetailSaved.
   ///
   /// In de, this message translates to:
-  /// **'Kostümdaten gespeichert.'**
-  String get costumeDetailSaved;
+  /// **'Kleidungsstück gespeichert.'**
+  String get pieceDetailSaved;
 
-  /// No description provided for @costumeWornBy.
-  ///
-  /// In de, this message translates to:
-  /// **'Getragen von {name}'**
-  String costumeWornBy(Object name);
-
-  /// No description provided for @costumeDetailsCount.
+  /// No description provided for @pieceDetailsCount.
   ///
   /// In de, this message translates to:
   /// **'{count} Details'**
-  String costumeDetailsCount(Object count);
+  String pieceDetailsCount(Object count);
 
-  /// No description provided for @costumePhotosCount.
+  /// No description provided for @piecePhotosCount.
   ///
   /// In de, this message translates to:
   /// **'{count} Fotos'**
-  String costumePhotosCount(Object count);
+  String piecePhotosCount(Object count);
 
-  /// No description provided for @costumeTileSyncing.
+  /// No description provided for @pieceTileSyncing.
   ///
   /// In de, this message translates to:
   /// **'Gerade gespeichert – wird synchronisiert …'**
-  String get costumeTileSyncing;
+  String get pieceTileSyncing;
 
-  /// No description provided for @costumeTileSyncingStale.
+  /// No description provided for @pieceTileSyncingStale.
   ///
   /// In de, this message translates to:
   /// **'Erstellt – die Liste wird noch aktualisiert. Ziehe zum Aktualisieren nach unten.'**
-  String get costumeTileSyncingStale;
+  String get pieceTileSyncingStale;
 
-  /// No description provided for @costumesEmpty.
+  /// No description provided for @piecesEmpty.
   ///
   /// In de, this message translates to:
-  /// **'Noch keine Kostüme'**
-  String get costumesEmpty;
+  /// **'Noch keine Kleidungsstücke'**
+  String get piecesEmpty;
 
   /// No description provided for @createSeasonTitle.
   ///
@@ -2218,13 +2206,13 @@ abstract class AppLocalizations {
   /// No description provided for @captureDeniedCamera.
   ///
   /// In de, this message translates to:
-  /// **'Kamera-Zugriff ist deaktiviert. Aktiviere den Kamera-Zugriff in den Einstellungen, um Kostüme zu dokumentieren.'**
+  /// **'Kamera-Zugriff ist deaktiviert. Aktiviere den Kamera-Zugriff in den Einstellungen, um Kleidungsstücke zu dokumentieren.'**
   String get captureDeniedCamera;
 
   /// No description provided for @captureDeniedGallery.
   ///
   /// In de, this message translates to:
-  /// **'Der Fotogalerie-Zugriff ist deaktiviert. Aktiviere den Foto-Zugriff in den Einstellungen, um Kostüme zu dokumentieren.'**
+  /// **'Foto-Zugriff ist deaktiviert. Aktiviere den Foto-Zugriff in den Einstellungen, um Kleidungsstücke zu dokumentieren.'**
   String get captureDeniedGallery;
 
   /// No description provided for @captureUnavailable.
@@ -2245,275 +2233,227 @@ abstract class AppLocalizations {
   /// **'Fotogalerie-Zugriff deaktiviert'**
   String get captureDeniedTitleGallery;
 
-  /// No description provided for @costumeDetailTitle.
+  /// No description provided for @pieceDetailTitle.
   ///
   /// In de, this message translates to:
-  /// **'Kostüm'**
-  String get costumeDetailTitle;
+  /// **'Kleidungsstück'**
+  String get pieceDetailTitle;
 
-  /// No description provided for @costumeDetailCharacter.
-  ///
-  /// In de, this message translates to:
-  /// **'Figur'**
-  String get costumeDetailCharacter;
-
-  /// No description provided for @costumeDetailAssignGate.
-  ///
-  /// In de, this message translates to:
-  /// **'Du benötigst eine aktive Kostüm-Rolle in dieser Staffel, um Figuren zuzuweisen.'**
-  String get costumeDetailAssignGate;
-
-  /// No description provided for @costumeDetailAssign.
-  ///
-  /// In de, this message translates to:
-  /// **'Zuweisen'**
-  String get costumeDetailAssign;
-
-  /// No description provided for @costumeDetailReassign.
-  ///
-  /// In de, this message translates to:
-  /// **'Neu zuweisen'**
-  String get costumeDetailReassign;
-
-  /// No description provided for @costumeDetailTextRequired.
+  /// No description provided for @pieceDetailTextRequired.
   ///
   /// In de, this message translates to:
   /// **'Text ist erforderlich'**
-  String get costumeDetailTextRequired;
+  String get pieceDetailTextRequired;
 
-  /// No description provided for @costumeDetailTextRequiredHint.
+  /// No description provided for @pieceDetailTextRequiredHint.
   ///
   /// In de, this message translates to:
   /// **'Pflichtfeld – markiert mit *'**
-  String get costumeDetailTextRequiredHint;
+  String get pieceDetailTextRequiredHint;
 
-  /// No description provided for @costumeDetailSubjectOptional.
+  /// No description provided for @pieceDetailSubjectOptional.
   ///
   /// In de, this message translates to:
   /// **'optional'**
-  String get costumeDetailSubjectOptional;
+  String get pieceDetailSubjectOptional;
 
-  /// No description provided for @costumeDetailEditDetail.
+  /// No description provided for @pieceDetailEditDetail.
   ///
   /// In de, this message translates to:
   /// **'Detail bearbeiten'**
-  String get costumeDetailEditDetail;
+  String get pieceDetailEditDetail;
 
-  /// No description provided for @costumeDetailDeleteTitle.
+  /// No description provided for @pieceDetailDeleteTitle.
   ///
   /// In de, this message translates to:
   /// **'Detail löschen?'**
-  String get costumeDetailDeleteTitle;
+  String get pieceDetailDeleteTitle;
 
-  /// No description provided for @costumeDetailDeleteMessage.
+  /// No description provided for @pieceDetailDeleteMessage.
   ///
   /// In de, this message translates to:
   /// **'„{detail}“ wird entfernt. Das kann nicht rückgängig gemacht werden.'**
-  String costumeDetailDeleteMessage(Object detail);
+  String pieceDetailDeleteMessage(Object detail);
 
-  /// No description provided for @costumeDetailUnassigned.
-  ///
-  /// In de, this message translates to:
-  /// **'Nicht zugeordnet'**
-  String get costumeDetailUnassigned;
-
-  /// No description provided for @costumeDetailUnassignTooltip.
-  ///
-  /// In de, this message translates to:
-  /// **'Zuordnung entfernen'**
-  String get costumeDetailUnassignTooltip;
-
-  /// No description provided for @costumeDetailUnassignTitle.
-  ///
-  /// In de, this message translates to:
-  /// **'Figur-Zuordnung entfernen?'**
-  String get costumeDetailUnassignTitle;
-
-  /// No description provided for @costumeDetailUnassignMessage.
-  ///
-  /// In de, this message translates to:
-  /// **'Das Kostüm behält seine Details und Notizen; nur die Figurenbindung wird entfernt.'**
-  String get costumeDetailUnassignMessage;
-
-  /// No description provided for @costumeDetailNotes.
+  /// No description provided for @pieceDetailNotes.
   ///
   /// In de, this message translates to:
   /// **'Notizen'**
-  String get costumeDetailNotes;
+  String get pieceDetailNotes;
 
-  /// No description provided for @costumeDetailNotesHint.
+  /// No description provided for @pieceDetailNotesHint.
   ///
   /// In de, this message translates to:
   /// **'Anpassungsnotizen …'**
-  String get costumeDetailNotesHint;
+  String get pieceDetailNotesHint;
 
-  /// No description provided for @costumeDetailSaveNotes.
+  /// No description provided for @pieceDetailSaveNotes.
   ///
   /// In de, this message translates to:
   /// **'Notizen speichern'**
-  String get costumeDetailSaveNotes;
+  String get pieceDetailSaveNotes;
 
-  /// No description provided for @costumeDetailDetails.
+  /// No description provided for @pieceDetailDetails.
   ///
   /// In de, this message translates to:
   /// **'Details'**
-  String get costumeDetailDetails;
+  String get pieceDetailDetails;
 
-  /// No description provided for @costumeDetailNoDetails.
+  /// No description provided for @pieceDetailNoDetails.
   ///
   /// In de, this message translates to:
   /// **'Noch keine Details – füge unten das erste hinzu.'**
-  String get costumeDetailNoDetails;
+  String get pieceDetailNoDetails;
 
-  /// No description provided for @costumeDetailAddDetail.
+  /// No description provided for @pieceDetailAddDetail.
   ///
   /// In de, this message translates to:
   /// **'Detail hinzufügen'**
-  String get costumeDetailAddDetail;
+  String get pieceDetailAddDetail;
 
-  /// No description provided for @costumeDetailSubject.
+  /// No description provided for @pieceDetailSubject.
   ///
   /// In de, this message translates to:
   /// **'Betreff'**
-  String get costumeDetailSubject;
+  String get pieceDetailSubject;
 
-  /// No description provided for @costumeDetailText.
+  /// No description provided for @pieceDetailText.
   ///
   /// In de, this message translates to:
   /// **'Text'**
-  String get costumeDetailText;
+  String get pieceDetailText;
 
-  /// No description provided for @costumeDetailCategory.
+  /// No description provided for @pieceDetailCategory.
   ///
   /// In de, this message translates to:
   /// **'Kategorie'**
-  String get costumeDetailCategory;
+  String get pieceDetailCategory;
 
-  /// No description provided for @costumeDetailPhotos.
+  /// No description provided for @pieceDetailPhotos.
   ///
   /// In de, this message translates to:
   /// **'Fotos'**
-  String get costumeDetailPhotos;
+  String get pieceDetailPhotos;
 
-  /// No description provided for @costumeDetailCamera.
+  /// No description provided for @pieceDetailCamera.
   ///
   /// In de, this message translates to:
   /// **'Kamera'**
-  String get costumeDetailCamera;
+  String get pieceDetailCamera;
 
-  /// No description provided for @costumeDetailGallery.
+  /// No description provided for @pieceDetailGallery.
   ///
   /// In de, this message translates to:
   /// **'Galerie'**
-  String get costumeDetailGallery;
+  String get pieceDetailGallery;
 
-  /// No description provided for @costumeDetailPromptTitle.
+  /// No description provided for @pieceDetailPromptTitle.
   ///
   /// In de, this message translates to:
-  /// **'Kostüme mit Fotos dokumentieren?'**
-  String get costumeDetailPromptTitle;
+  /// **'Kleidungsstücke mit Fotos dokumentieren?'**
+  String get pieceDetailPromptTitle;
 
-  /// No description provided for @costumeDetailPromptBody.
+  /// No description provided for @pieceDetailPromptBody.
   ///
   /// In de, this message translates to:
-  /// **'Fotos helfen dem Garderobenteam, Kostüme zu dokumentieren und Kontinuität zu verfolgen. Als Nächstes fragt das System nach dem Kamera-Zugriff.'**
-  String get costumeDetailPromptBody;
+  /// **'Fotos helfen dem Garderobenteam, Kleidungsstücke zu dokumentieren und Kontinuität zu verfolgen. Als Nächstes fragt das System nach dem Kamera-Zugriff.'**
+  String get pieceDetailPromptBody;
 
-  /// No description provided for @costumeDetailRepertoire.
+  /// No description provided for @pieceDetailRepertoire.
   ///
   /// In de, this message translates to:
   /// **'Repertoire'**
-  String get costumeDetailRepertoire;
+  String get pieceDetailRepertoire;
 
-  /// No description provided for @costumeDetailRepertoireEmpty.
+  /// No description provided for @pieceDetailRepertoireEmpty.
   ///
   /// In de, this message translates to:
   /// **'In keiner weiteren Staffel gelistet'**
-  String get costumeDetailRepertoireEmpty;
+  String get pieceDetailRepertoireEmpty;
 
-  /// No description provided for @costumeDetailRepertoireAdd.
+  /// No description provided for @pieceDetailRepertoireAdd.
   ///
   /// In de, this message translates to:
   /// **'Zu Staffel hinzufügen'**
-  String get costumeDetailRepertoireAdd;
+  String get pieceDetailRepertoireAdd;
 
-  /// No description provided for @costumeDetailRepertoireAddTooltip.
+  /// No description provided for @pieceDetailRepertoireAddTooltip.
   ///
   /// In de, this message translates to:
-  /// **'Das Kostüm zum Repertoire einer anderen Staffel hinzufügen'**
-  String get costumeDetailRepertoireAddTooltip;
+  /// **'Das Kleidungsstück zum Repertoire einer anderen Staffel hinzufügen'**
+  String get pieceDetailRepertoireAddTooltip;
 
-  /// No description provided for @costumeDetailRepertoireRemoveTooltip.
+  /// No description provided for @pieceDetailRepertoireRemoveTooltip.
   ///
   /// In de, this message translates to:
   /// **'Aus Staffel entfernen'**
-  String get costumeDetailRepertoireRemoveTooltip;
+  String get pieceDetailRepertoireRemoveTooltip;
 
-  /// No description provided for @costumeDetailRepertoireRemoveTitle.
+  /// No description provided for @pieceDetailRepertoireRemoveTitle.
   ///
   /// In de, this message translates to:
   /// **'Aus Staffel entfernen?'**
-  String get costumeDetailRepertoireRemoveTitle;
+  String get pieceDetailRepertoireRemoveTitle;
 
-  /// No description provided for @costumeDetailRepertoireRemoveMessage.
+  /// No description provided for @pieceDetailRepertoireRemoveMessage.
   ///
   /// In de, this message translates to:
-  /// **'Das Kostüm verschwindet aus dem Garderoben-Bestand dieser Staffel. Details und Fotos bleiben am Kostüm.'**
-  String get costumeDetailRepertoireRemoveMessage;
+  /// **'Das Kleidungsstück verschwindet aus dem Garderoben-Bestand dieser Staffel. Details und Fotos bleiben am Kleidungsstück.'**
+  String get pieceDetailRepertoireRemoveMessage;
 
-  /// No description provided for @costumeDetailRepertoirePick.
+  /// No description provided for @pieceDetailRepertoirePick.
   ///
   /// In de, this message translates to:
   /// **'Staffel wählen'**
-  String get costumeDetailRepertoirePick;
+  String get pieceDetailRepertoirePick;
 
-  /// No description provided for @costumeDetailRepertoireSaved.
+  /// No description provided for @pieceDetailRepertoireSaved.
   ///
   /// In de, this message translates to:
   /// **'Staffel zum Repertoire hinzugefügt.'**
-  String get costumeDetailRepertoireSaved;
+  String get pieceDetailRepertoireSaved;
 
-  /// No description provided for @costumeDetailRepertoireRemoved.
+  /// No description provided for @pieceDetailRepertoireRemoved.
   ///
   /// In de, this message translates to:
-  /// **'Das Kostüm wurde aus dem Staffel-Repertoire entfernt.'**
-  String get costumeDetailRepertoireRemoved;
+  /// **'Das Kleidungsstück wurde aus dem Staffel-Repertoire entfernt.'**
+  String get pieceDetailRepertoireRemoved;
 
-  /// No description provided for @costumeErrorSeasonArchived.
+  /// No description provided for @pieceErrorSeasonArchived.
   ///
   /// In de, this message translates to:
   /// **'Diese Staffel ist archiviert – ihr Repertoire kann nicht mehr geändert werden.'**
-  String get costumeErrorSeasonArchived;
+  String get pieceErrorSeasonArchived;
 
-  /// No description provided for @costumeErrorSeasonNotFound.
+  /// No description provided for @pieceErrorSeasonNotFound.
   ///
   /// In de, this message translates to:
   /// **'Diese Staffel existiert nicht mehr – die Liste wurde aktualisiert.'**
-  String get costumeErrorSeasonNotFound;
+  String get pieceErrorSeasonNotFound;
 
-  /// No description provided for @costumeDetailNotNow.
+  /// No description provided for @pieceDetailNotNow.
   ///
   /// In de, this message translates to:
   /// **'Später'**
-  String get costumeDetailNotNow;
+  String get pieceDetailNotNow;
 
-  /// No description provided for @costumeDetailContinue.
+  /// No description provided for @pieceDetailContinue.
   ///
   /// In de, this message translates to:
   /// **'Weiter'**
-  String get costumeDetailContinue;
+  String get pieceDetailContinue;
 
-  /// No description provided for @costumeDetailOpenSettings.
+  /// No description provided for @pieceDetailOpenSettings.
   ///
   /// In de, this message translates to:
   /// **'Einstellungen öffnen'**
-  String get costumeDetailOpenSettings;
+  String get pieceDetailOpenSettings;
 
-  /// No description provided for @costumeDetailDeletePhotoMessage.
+  /// No description provided for @pieceDetailDeletePhotoMessage.
   ///
   /// In de, this message translates to:
   /// **'Das Foto und seine Varianten werden entfernt. Das kann nicht rückgängig gemacht werden.'**
-  String get costumeDetailDeletePhotoMessage;
+  String get pieceDetailDeletePhotoMessage;
 
   /// No description provided for @wizardErrorSeasonExists.
   ///
@@ -2767,11 +2707,11 @@ abstract class AppLocalizations {
   /// **'Foto speichern unter …'**
   String get continuityStoreOn;
 
-  /// No description provided for @continuityCostumeHint.
+  /// No description provided for @continuityPieceHint.
   ///
   /// In de, this message translates to:
-  /// **'Wähle das Kostüm, zu dem das Foto gehört – es wird am Kostüm gespeichert und mit diesem Shot verknüpft.'**
-  String get continuityCostumeHint;
+  /// **'Wähle das Kleidungsstück, zu dem das Foto gehört – es wird am Kleidungsstück gespeichert und mit diesem Shot verknüpft.'**
+  String get continuityPieceHint;
 
   /// No description provided for @continuityRationaleTitle.
   ///
@@ -2800,7 +2740,7 @@ abstract class AppLocalizations {
   /// No description provided for @castNoSeason.
   ///
   /// In de, this message translates to:
-  /// **'Wähle eine Season, um Kostüme und Figuren zu sehen.'**
+  /// **'Wähle eine Staffel, um Kleidungsstücke und Figuren zu sehen.'**
   String get castNoSeason;
 
   /// No description provided for @castPickSeason.
@@ -2821,11 +2761,11 @@ abstract class AppLocalizations {
   /// **'Figuren'**
   String get castSegmentCharacters;
 
-  /// No description provided for @castSegmentCostumes.
+  /// No description provided for @castSegmentOutfits.
   ///
   /// In de, this message translates to:
-  /// **'Kostüme'**
-  String get castSegmentCostumes;
+  /// **'Looks'**
+  String get castSegmentOutfits;
 
   /// No description provided for @photoGalleryAddPhoto.
   ///
@@ -2854,8 +2794,8 @@ abstract class AppLocalizations {
   /// No description provided for @photoTileSemantics.
   ///
   /// In de, this message translates to:
-  /// **'Foto von Kostüm {costumeId}'**
-  String photoTileSemantics(Object costumeId);
+  /// **'Foto von Kleidungsstück {pieceId}'**
+  String photoTileSemantics(Object pieceId);
 
   /// No description provided for @photoGalleryEmpty.
   ///
@@ -2896,7 +2836,7 @@ abstract class AppLocalizations {
   /// No description provided for @continuityUnlinkBody.
   ///
   /// In de, this message translates to:
-  /// **'Das Foto bleibt am Kostüm – nur die Verknüpfung zu diesem Shoot wird entfernt.'**
+  /// **'Das Foto bleibt am Kleidungsstück – nur die Verknüpfung zu diesem Shoot wird entfernt.'**
   String get continuityUnlinkBody;
 
   /// No description provided for @sceneShootDayFallback.
@@ -3277,59 +3217,59 @@ abstract class AppLocalizations {
   /// **'Diese Szene ist nicht mehr verfügbar.'**
   String get sceneDetailGone;
 
-  /// No description provided for @sceneDetailCostumesTitle.
+  /// No description provided for @sceneDetailOutfitsTitle.
   ///
   /// In de, this message translates to:
-  /// **'Kostüme ({count})'**
-  String sceneDetailCostumesTitle(Object count);
+  /// **'Looks ({count})'**
+  String sceneDetailOutfitsTitle(Object count);
 
-  /// No description provided for @sceneDetailAssignCostume.
+  /// No description provided for @sceneDetailAssignOutfit.
   ///
   /// In de, this message translates to:
-  /// **'Kostüm zuweisen'**
-  String get sceneDetailAssignCostume;
+  /// **'Look zuweisen'**
+  String get sceneDetailAssignOutfit;
 
   /// No description provided for @sceneDetailAddChange.
   ///
   /// In de, this message translates to:
-  /// **'+ Kostümwechsel'**
+  /// **'+ Lookwechsel'**
   String get sceneDetailAddChange;
 
-  /// No description provided for @sceneDetailRemoveCostumeTooltip.
+  /// No description provided for @sceneDetailRemoveOutfitTooltip.
   ///
   /// In de, this message translates to:
-  /// **'Kostüm entfernen'**
-  String get sceneDetailRemoveCostumeTooltip;
+  /// **'Look entfernen'**
+  String get sceneDetailRemoveOutfitTooltip;
 
-  /// No description provided for @sceneDetailRemoveCostumeTitle.
+  /// No description provided for @sceneDetailRemoveOutfitTitle.
   ///
   /// In de, this message translates to:
-  /// **'Kostüm entfernen?'**
-  String get sceneDetailRemoveCostumeTitle;
+  /// **'Look entfernen?'**
+  String get sceneDetailRemoveOutfitTitle;
 
-  /// No description provided for @sceneDetailRemoveCostumeMessage.
+  /// No description provided for @sceneDetailRemoveOutfitMessage.
   ///
   /// In de, this message translates to:
   /// **'„{name}“ wird aus dieser Szene entfernt.'**
-  String sceneDetailRemoveCostumeMessage(Object name);
+  String sceneDetailRemoveOutfitMessage(Object name);
 
-  /// No description provided for @sceneDetailNoCostumeInScene.
+  /// No description provided for @sceneDetailNoOutfitInScene.
   ///
   /// In de, this message translates to:
-  /// **'Kein Kostüm in dieser Szene.'**
-  String get sceneDetailNoCostumeInScene;
+  /// **'Kein Look in dieser Szene.'**
+  String get sceneDetailNoOutfitInScene;
 
-  /// No description provided for @sceneDetailPickCostumeTitle.
+  /// No description provided for @sceneDetailPickOutfitTitle.
   ///
   /// In de, this message translates to:
-  /// **'Kostüm wählen'**
-  String get sceneDetailPickCostumeTitle;
+  /// **'Look wählen'**
+  String get sceneDetailPickOutfitTitle;
 
-  /// No description provided for @sceneDetailCostumeCueHint.
+  /// No description provided for @sceneDetailOutfitCueHint.
   ///
   /// In de, this message translates to:
   /// **'Notiz für die Garderobe (optional)'**
-  String get sceneDetailCostumeCueHint;
+  String get sceneDetailOutfitCueHint;
 
   /// No description provided for @sceneBeatErrorNotInScene.
   ///
@@ -3340,13 +3280,13 @@ abstract class AppLocalizations {
   /// No description provided for @sceneBeatErrorNotFound.
   ///
   /// In de, this message translates to:
-  /// **'Dieser Kostümwechsel existiert nicht (mehr).'**
+  /// **'Dieser Lookwechsel existiert nicht (mehr).'**
   String get sceneBeatErrorNotFound;
 
   /// No description provided for @sceneBeatErrorValidation.
   ///
   /// In de, this message translates to:
-  /// **'Dieser Kostümwechsel ist ungültig (z. B. identischer Folge-Wechsel).'**
+  /// **'Dieser Lookwechsel ist ungültig (z. B. identischer Folge-Wechsel).'**
   String get sceneBeatErrorValidation;
 
   /// No description provided for @sceneBeatErrorNetwork.
@@ -3358,19 +3298,19 @@ abstract class AppLocalizations {
   /// No description provided for @sceneBeatErrorGeneric.
   ///
   /// In de, this message translates to:
-  /// **'Der Kostümwechsel konnte nicht gespeichert werden ({code}).'**
+  /// **'Der Lookwechsel konnte nicht gespeichert werden ({code}).'**
   String sceneBeatErrorGeneric(Object code);
 
   /// No description provided for @sceneBeatOverlaySyncing.
   ///
   /// In de, this message translates to:
-  /// **'Kostümwechsel wird gespeichert – die Liste wird noch aktualisiert.'**
+  /// **'Lookwechsel wird gespeichert – die Liste wird noch aktualisiert.'**
   String get sceneBeatOverlaySyncing;
 
   /// No description provided for @sceneBeatOverlayStale.
   ///
   /// In de, this message translates to:
-  /// **'Kostümwechsel konnte noch nicht bestätigt werden – ziehe nach, um zu aktualisieren.'**
+  /// **'Lookwechsel konnte noch nicht bestätigt werden – ziehe nach, um zu aktualisieren.'**
   String get sceneBeatOverlayStale;
 
   /// No description provided for @assignCharacterSheetTitle.
@@ -4051,11 +3991,11 @@ abstract class AppLocalizations {
   /// **'Schedule/Dispo'**
   String get navSchedule;
 
-  /// No description provided for @navCostumes.
+  /// No description provided for @navWardrobe.
   ///
   /// In de, this message translates to:
   /// **'Garderobe'**
-  String get navCostumes;
+  String get navWardrobe;
 
   /// No description provided for @navCharacters.
   ///
@@ -4513,11 +4453,11 @@ abstract class AppLocalizations {
   /// **'{count, plural, =1{1 Szene} other{{count} Szenen}}'**
   String seasonsMetaScenes(num count);
 
-  /// No description provided for @seasonsMetaCostumes.
+  /// No description provided for @seasonsMetaPieces.
   ///
   /// In de, this message translates to:
-  /// **'{count, plural, =1{1 Kostüm} other{{count} Kostüme}}'**
-  String seasonsMetaCostumes(num count);
+  /// **'{count, plural, =1{1 Kleidungsstück} other{{count} Kleidungsstücke}}'**
+  String seasonsMetaPieces(num count);
 
   /// No description provided for @productionTitle.
   ///
@@ -4969,11 +4909,11 @@ abstract class AppLocalizations {
   /// **'{count, plural, =1{1 Figur} other{{count} Figuren}}'**
   String scriptRowCharacters(num count);
 
-  /// No description provided for @scriptRowCostumes.
+  /// No description provided for @scriptRowOutfits.
   ///
   /// In de, this message translates to:
-  /// **'{count, plural, =1{1 Kostüm} other{{count} Kostüme}}'**
-  String scriptRowCostumes(num count);
+  /// **'{count, plural, =1{1 Look} other{{count} Looks}}'**
+  String scriptRowOutfits(num count);
 
   /// No description provided for @scheduleFetchError.
   ///
@@ -5386,7 +5326,7 @@ abstract class AppLocalizations {
   /// No description provided for @omniSearchHint.
   ///
   /// In de, this message translates to:
-  /// **'Suchen: Szenen, Rollen, Kostüme, Drehtage dieser Staffel'**
+  /// **'Suchen: Szenen, Rollen, Kleidungsstücke, Drehtage dieser Staffel'**
   String get omniSearchHint;
 
   /// No description provided for @omniSearchChipScene.
@@ -5401,11 +5341,11 @@ abstract class AppLocalizations {
   /// **'Rolle'**
   String get omniSearchChipCharacter;
 
-  /// No description provided for @omniSearchChipCostume.
+  /// No description provided for @omniSearchChipPiece.
   ///
   /// In de, this message translates to:
-  /// **'Kostüm'**
-  String get omniSearchChipCostume;
+  /// **'Kleidungsstück'**
+  String get omniSearchChipPiece;
 
   /// No description provided for @omniSearchChipShootingDay.
   ///
@@ -5425,11 +5365,11 @@ abstract class AppLocalizations {
   /// **'Rollen'**
   String get omniSearchGroupCharacters;
 
-  /// No description provided for @omniSearchGroupCostumes.
+  /// No description provided for @omniSearchGroupPieces.
   ///
   /// In de, this message translates to:
-  /// **'Kostüme'**
-  String get omniSearchGroupCostumes;
+  /// **'Kleidungsstücke'**
+  String get omniSearchGroupPieces;
 
   /// No description provided for @omniSearchGroupShootingDays.
   ///
@@ -5440,7 +5380,7 @@ abstract class AppLocalizations {
   /// No description provided for @omniSearchInitialEmpty.
   ///
   /// In de, this message translates to:
-  /// **'Tippe, um die Szenen, Rollen, Kostüme und Drehtage dieser Staffel zu durchsuchen.'**
+  /// **'Tippe, um die Szenen, Rollen, Kleidungsstücke und Drehtage dieser Staffel zu durchsuchen.'**
   String get omniSearchInitialEmpty;
 
   /// No description provided for @omniSearchZeroMatch.
@@ -5494,7 +5434,7 @@ abstract class AppLocalizations {
   /// No description provided for @fundusHint.
   ///
   /// In de, this message translates to:
-  /// **'Fundus durchsuchen: Kostüme über alle Staffeln'**
+  /// **'Fundus durchsuchen: Kleidungsstücke über alle Staffeln'**
   String get fundusHint;
 
   /// No description provided for @fundusEmpty.
@@ -5718,6 +5658,198 @@ abstract class AppLocalizations {
   /// In de, this message translates to:
   /// **'Bitte gib einen API-Schlüssel für das Decision-Modell ein oder wähle „Gleichen API-Schlüssel wie Extraktion verwenden“.'**
   String get aiConfigDecisionKeyMissing;
+
+  /// Marker next to a look that was forked from another look.
+  ///
+  /// In de, this message translates to:
+  /// **'Variante'**
+  String get outfitVariantMarker;
+
+  /// Section title of a character's looks.
+  ///
+  /// In de, this message translates to:
+  /// **'Looks'**
+  String get outfitListTitle;
+
+  /// Empty state of the character's look list.
+  ///
+  /// In de, this message translates to:
+  /// **'Noch keine Looks – erstelle den ersten.'**
+  String get outfitListEmpty;
+
+  /// Action that creates a new look for the character.
+  ///
+  /// In de, this message translates to:
+  /// **'Look erstellen'**
+  String get outfitCreateAction;
+
+  /// Dialog title when creating a look.
+  ///
+  /// In de, this message translates to:
+  /// **'Look erstellen'**
+  String get outfitCreateTitle;
+
+  /// Name field of a look.
+  ///
+  /// In de, this message translates to:
+  /// **'Name'**
+  String get outfitNameLabel;
+
+  /// Validation message for a blank look name.
+  ///
+  /// In de, this message translates to:
+  /// **'Es ist ein Name erforderlich'**
+  String get outfitNameRequired;
+
+  /// Screen title of the look detail.
+  ///
+  /// In de, this message translates to:
+  /// **'Look'**
+  String get outfitDetailTitle;
+
+  /// Lineage line naming the source look.
+  ///
+  /// In de, this message translates to:
+  /// **'Variante von {name}'**
+  String outfitVariantOf(String name);
+
+  /// Action that forks the look into an independent variant.
+  ///
+  /// In de, this message translates to:
+  /// **'Variante erstellen'**
+  String get outfitCreateVariant;
+
+  /// Section title of the look's garments.
+  ///
+  /// In de, this message translates to:
+  /// **'Kleidungsstücke ({count})'**
+  String outfitPiecesTitle(String count);
+
+  /// Empty state of the look's garment list.
+  ///
+  /// In de, this message translates to:
+  /// **'Noch keine Kleidungsstücke – füge das erste hinzu.'**
+  String get outfitPiecesEmpty;
+
+  /// Action that adds a garment to the look.
+  ///
+  /// In de, this message translates to:
+  /// **'Kleidungsstück hinzufügen'**
+  String get outfitAddPiece;
+
+  /// Tooltip of the remove-garment icon button.
+  ///
+  /// In de, this message translates to:
+  /// **'Entfernen'**
+  String get outfitRemovePieceTooltip;
+
+  /// Notes section title of a look.
+  ///
+  /// In de, this message translates to:
+  /// **'Notizen'**
+  String get outfitNotes;
+
+  /// Hint inside the look notes field.
+  ///
+  /// In de, this message translates to:
+  /// **'Notizen zum Look …'**
+  String get outfitNotesHint;
+
+  /// Action that saves the look notes.
+  ///
+  /// In de, this message translates to:
+  /// **'Notizen speichern'**
+  String get outfitSaveNotes;
+
+  /// Fitting photos section title of a look.
+  ///
+  /// In de, this message translates to:
+  /// **'Fotos'**
+  String get outfitPhotos;
+
+  /// Dialog title when renaming a look.
+  ///
+  /// In de, this message translates to:
+  /// **'Look umbenennen'**
+  String get outfitRenameTitle;
+
+  /// Garment count of a look.
+  ///
+  /// In de, this message translates to:
+  /// **'{count, plural, =1{1 Kleidungsstück} other{{count} Kleidungsstücke}}'**
+  String outfitPieceCount(int count);
+
+  /// Fallback error when a look command fails.
+  ///
+  /// In de, this message translates to:
+  /// **'Der Look konnte nicht gespeichert werden ({code}).'**
+  String outfitErrorGeneric(String code);
+
+  /// Client-side 403 narrative for look commands.
+  ///
+  /// In de, this message translates to:
+  /// **'Du benötigst eine aktive Kostüm-Rolle in dieser Staffel.'**
+  String get outfitErrorForbidden;
+
+  /// Membership could not be checked before a look command.
+  ///
+  /// In de, this message translates to:
+  /// **'Berechtigungen konnten nicht überprüft werden – Verbindung prüfen und erneut versuchen.'**
+  String get outfitErrorMembership;
+
+  /// Confirmation after a look command succeeded.
+  ///
+  /// In de, this message translates to:
+  /// **'Look gespeichert.'**
+  String get outfitSaved;
+
+  /// Confirmation after the look notes were saved.
+  ///
+  /// In de, this message translates to:
+  /// **'Notizen gespeichert.'**
+  String get outfitNotesSaved;
+
+  /// Error banner when the look list fetch fails.
+  ///
+  /// In de, this message translates to:
+  /// **'Looks konnten nicht geladen werden ({code}).'**
+  String outfitListFetchError(String code);
+
+  /// Stale cache banner above the look list.
+  ///
+  /// In de, this message translates to:
+  /// **'Zwischengespeicherte Daten sind möglicherweise veraltet.'**
+  String get outfitStaleBanner;
+
+  /// Error banners when the garment list of the look section fails.
+  ///
+  /// In de, this message translates to:
+  /// **'Kleidungsstücke konnten nicht geladen werden ({code}).'**
+  String outfitPieceListFetchError(String code);
+
+  /// Shown when the look is no longer available (deleted parent).
+  ///
+  /// In de, this message translates to:
+  /// **'Dieser Look ist nicht mehr verfügbar.'**
+  String get outfitDetailGone;
+
+  /// Title of the garment picker sheet/dialog.
+  ///
+  /// In de, this message translates to:
+  /// **'Kleidungsstück wählen'**
+  String get outfitPickPieceTitle;
+
+  /// Empty state of the garment picker.
+  ///
+  /// In de, this message translates to:
+  /// **'Kein Kleidungsstück im Repertoire dieser Staffel.'**
+  String get outfitPickPieceEmpty;
+
+  /// Confirmation after a variant fork succeeded.
+  ///
+  /// In de, this message translates to:
+  /// **'Variante erstellt.'**
+  String get outfitVariantCreated;
 }
 
 class _AppLocalizationsDelegate

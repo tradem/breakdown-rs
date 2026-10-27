@@ -19,7 +19,7 @@ import 'seed_http.dart' show hostApiBase, resolveFreeSeasonNumber;
 /// accumulates seasons across runs; the dispatch POST /v1/seasons only
 /// passes with a free number (409 `season.number-already-exists` otherwise).
 /// The lowest free number is resolved host-side (seed_http.dart, shared
-/// with the costume-assignment seeding) into `AppWorld
+/// with the piece-assignment seeding) into `AppWorld
 /// .wizardFreeSeasonNumber`, and the number-entry / review-title steps map
 /// the symbolic "1" to it (same symbolic→real discipline as the #368 seed
 /// ids).

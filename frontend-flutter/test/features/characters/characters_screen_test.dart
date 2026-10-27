@@ -25,12 +25,14 @@ import 'package:frontend_flutter/core/problem_error.dart';
 import 'package:frontend_flutter/core/result.dart';
 import 'package:frontend_flutter/data/cache/cache_database.dart';
 import 'package:frontend_flutter/data/cache/piece_domains_cache_dao.dart';
+import 'package:frontend_flutter/data/outfit_repository.dart';
 import 'package:frontend_flutter/data/cache/seasons_cache_providers.dart';
 import 'package:frontend_flutter/data/character_repository.dart';
 import 'package:frontend_flutter/domain/reconciliation/reconciliation_scheduler.dart';
 import 'package:frontend_flutter/features/blocks/blocks_controller.dart';
 import 'package:frontend_flutter/features/characters/character_detail_screen.dart';
 import 'package:frontend_flutter/features/characters/characters_controller.dart';
+import 'package:frontend_flutter/features/outfits/outfits_controller.dart';
 import 'package:frontend_flutter/features/characters/characters_screen.dart';
 import 'package:frontend_flutter/features/characters/role_extract_screen.dart';
 
@@ -205,6 +207,16 @@ void main() {
         // restore/stale paths are covered in `active_block_gate_test`).
         activeBlockPersistedProvider.overrideWith(
           (ref) async => <String, PersistedBlockScope>{},
+        ),
+        // The character detail hosts the character's LOOKS (wardrobe split):
+        // the section reads the outfit slice through this seam, so the test
+        // never builds the network-backed repository.
+        outfitRepositoryProvider.overrideWithValue(
+          OutfitRepository(BreakdownApi(), OutfitCacheDao(db)),
+        ),
+        outfitsListFetchProvider('char-1').overrideWith(
+          (ref) async =>
+              Right<ProblemError, List<OutfitView>>(const <OutfitView>[]),
         ),
         charactersListFetchProvider('season-1').overrideWith((ref) async {
           final dao = CharacterCacheDao(ref.watch(cacheDatabaseProvider));

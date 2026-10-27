@@ -35,7 +35,7 @@ const Map<String, String> _foldTable = <String, String>{
   'ß': 'ss',
   // Accented Latin letters → base letter (post-umlaut; case already
   // folded). Includes the common romantic-script names found in cast/
-  // costume data (José, Zoé, Chloé, François, Loïc …).
+  // piece data (José, Zoé, Chloé, François, Loïc …).
   'à': 'a', 'á': 'a', 'â': 'a', 'ã': 'a', 'å': 'a',
   'ç': 'c',
   'è': 'e', 'é': 'e', 'ê': 'e', 'ë': 'e',

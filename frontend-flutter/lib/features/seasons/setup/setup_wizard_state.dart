@@ -182,7 +182,7 @@ WizardFieldError? validatePositiveCount(String raw) {
 /// unique per SERIES — `idx_projection_block_series_number` — so the
 /// wizard derives the first free number from the series' EXISTING blocks
 /// projection, the same client-side append-order derivation discipline as
-/// `nextOrderKey` for costume categories; never from a second projection
+/// `nextOrderKey` for piece categories; never from a second projection
 /// lookup of audit context). Gaps are not filled: `max + 1`, empty → 1.
 int smartDefaultBlockNumber(Iterable<int> existingNumbers) {
   var highest = 0;

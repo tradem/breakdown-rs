@@ -24,14 +24,14 @@ import '../../domain/ai_provenance.dart';
 import '../../l10n/app_localizations_provider.dart';
 import '../../l10n/generated/app_localizations.dart';
 import '../characters/characters_controller.dart';
-import '../costumes/costume_identity.dart';
-import '../costumes/costumes_controller.dart';
-import '../costumes/widgets/costumes_widgets.dart';
+import '../outfits/outfits_controller.dart';
+import '../pieces/piece_identity.dart';
+import '../pieces/widgets/pieces_widgets.dart';
 import '../scene_shoots/scene_shoots_screen.dart';
 import '../shell/planning_location.dart';
 import '../shooting_days/create_shooting_day_sheet.dart';
 import '../shooting_days/shooting_days_controller.dart';
-import 'pick_costume_sheet.dart';
+import 'pick_outfit_sheet.dart';
 import 'scene_beats.dart';
 import 'scenes_controller.dart';
 import 'scenes_state.dart';
@@ -114,7 +114,7 @@ class SceneDetailScreen extends ConsumerWidget {
                 scene: s,
               ),
               const SizedBox(height: 8),
-              _SceneCostumesSection(
+              _SceneOutfitsSection(
                 seasonId: seasonId,
                 episodeId: episodeId,
                 scene: s,
@@ -383,16 +383,16 @@ class _SceneCharactersSection extends ConsumerWidget {
   }
 }
 
-/// Costumes section (issue #546): one row per (character, beat), grouped
+/// Pieces section (issue #546): one row per (character, beat), grouped
 /// in the characters' assignment order; multiple beats of a character
 /// render as a change sequence (`Kostüm A → Kostüm B`). Common case stays
 /// trivial: one row per character, no sequence editor, no drag-and-drop.
 ///
 /// // AUTHZ-GATE: beat commands run the membership capability check inside
 /// the scenes controller BEFORE any network call (same send-as-read story
-/// as the costume-assign surface).
-class _SceneCostumesSection extends ConsumerWidget {
-  const _SceneCostumesSection({
+/// as the piece-assign surface).
+class _SceneOutfitsSection extends ConsumerWidget {
+  const _SceneOutfitsSection({
     required this.seasonId,
     required this.episodeId,
     required this.scene,
@@ -404,7 +404,7 @@ class _SceneCostumesSection extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    // The costumes projection already serves plain read DTOs (the view
+    // The pieces projection already serves plain read DTOs (the view
     // selector flattened the overlay rows) — no row unwrapping here.
     final characters = ref.watch(charactersViewProvider(seasonId));
     final names = {for (final c in characters.rows) c.id: c.name};
@@ -423,13 +423,13 @@ class _SceneCostumesSection extends ConsumerWidget {
     final l10n = l10nOf(context);
 
     return ExpansionTile(
-      key: Key('scene-costumes-${scene.id}'),
+      key: Key('scene-pieces-${scene.id}'),
       initiallyExpanded: true,
-      title: Text(l10n.sceneDetailCostumesTitle('$totalBeats')),
+      title: Text(l10n.sceneDetailOutfitsTitle('$totalBeats')),
       children: [
         if (scene.assignedCharacters.isEmpty)
           ListTile(
-            key: const Key('scene-costumes-empty'),
+            key: const Key('scene-pieces-empty'),
             title: Text(l10n.sceneDetailNoCharacters),
           )
         else ...[
@@ -438,24 +438,24 @@ class _SceneCostumesSection extends ConsumerWidget {
               _buildBeatTile(context, ref, group, beat, l10n),
             if (group.beats.isEmpty)
               ListTile(
-                key: Key('scene-costume-empty-${group.characterId}'),
-                title: Text(l10n.sceneDetailNoCostumeInScene),
+                key: Key('scene-piece-empty-${group.characterId}'),
+                title: Text(l10n.sceneDetailNoOutfitInScene),
                 trailing: FilledButton.tonal(
-                  key: Key('scene-costume-assign-${group.characterId}'),
+                  key: Key('scene-piece-assign-${group.characterId}'),
                   onPressed: () => _pickOutfit(
                     context,
                     ref,
                     group.characterId,
                     names[group.characterId],
                   ),
-                  child: Text(l10n.sceneDetailAssignCostume),
+                  child: Text(l10n.sceneDetailAssignOutfit),
                 ),
               )
             else
               Align(
                 alignment: Alignment.centerRight,
                 child: FilledButton.tonal(
-                  key: Key('scene-costume-add-change-${group.characterId}'),
+                  key: Key('scene-piece-add-change-${group.characterId}'),
                   onPressed: () => _pickOutfit(
                     context,
                     ref,
@@ -469,11 +469,11 @@ class _SceneCostumesSection extends ConsumerWidget {
           if (beatOverlay != null &&
               beatOverlay.status != OverlayStatus.acknowledged)
             ListTile(
-              key: const Key('scene-costumes-overlay-status'),
+              key: const Key('scene-pieces-overlay-status'),
               leading: beatOverlay.status == OverlayStatus.stale
                   ? const Icon(
                       Icons.cloud_off,
-                      key: Key('scene-costumes-overlay-warning'),
+                      key: Key('scene-pieces-overlay-warning'),
                     )
                   : const SizedBox(
                       width: 14,
@@ -481,7 +481,7 @@ class _SceneCostumesSection extends ConsumerWidget {
                       child: CircularProgressIndicator(strokeWidth: 2),
                     ),
               // Status-specific copy keyed on the overlay status: the
-              // "Created" stale warning would lie for costume updates and
+              // "Created" stale warning would lie for piece updates and
               // removals, and the raw `warning` CODE is never user copy.
               title: Text(
                 beatOverlay.status == OverlayStatus.stale
@@ -506,11 +506,11 @@ class _SceneCostumesSection extends ConsumerWidget {
     // a projection miss degrades to the generic label.
     final label = sceneBeatOutfitLabel(
       outfitName: beat.outfitName,
-      genericFallback: l10n.costumeTileLabelFallback,
+      genericFallback: l10n.pieceTileLabelFallback,
     );
     final iconCategory = beat.outfitName;
     return ListTile(
-      key: Key('scene-costume-beat-${group.characterId}-${beat.order}'),
+      key: Key('scene-piece-beat-${group.characterId}-${beat.order}'),
       leading: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -520,7 +520,7 @@ class _SceneCostumesSection extends ConsumerWidget {
               child: Text(
                 '→',
                 key: Key(
-                  'scene-costume-arrow-${group.characterId}-${beat.order}',
+                  'scene-piece-arrow-${group.characterId}-${beat.order}',
                 ),
               ),
             ),
@@ -532,9 +532,9 @@ class _SceneCostumesSection extends ConsumerWidget {
           ? null
           : Text(beat.note!),
       trailing: IconButton(
-        key: Key('scene-costume-remove-${group.characterId}-${beat.order}'),
+        key: Key('scene-piece-remove-${group.characterId}-${beat.order}'),
         icon: const Icon(Icons.delete_outline),
-        tooltip: l10n.sceneDetailRemoveCostumeTooltip,
+        tooltip: l10n.sceneDetailRemoveOutfitTooltip,
         // Confirm-first (destructive actions confirm-first, §5).
         onPressed: () => _confirmRemove(context, ref, group, beat, label),
       ),
@@ -597,8 +597,8 @@ class _SceneCostumesSection extends ConsumerWidget {
     return showDialog<void>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: Text(l10n.sceneDetailRemoveCostumeTitle),
-        content: Text(l10n.sceneDetailRemoveCostumeMessage(label)),
+        title: Text(l10n.sceneDetailRemoveOutfitTitle),
+        content: Text(l10n.sceneDetailRemoveOutfitMessage(label)),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(dialogContext).pop(),
@@ -606,7 +606,7 @@ class _SceneCostumesSection extends ConsumerWidget {
           ),
           FilledButton(
             key: Key(
-              'scene-costume-remove-confirm-'
+              'scene-piece-remove-confirm-'
               '${group.characterId}-${beat.order}',
             ),
             onPressed: () async {
@@ -615,7 +615,7 @@ class _SceneCostumesSection extends ConsumerWidget {
               final controller = ref.read(
                 scenesControllerProvider(episodeId).notifier,
               );
-              // The only remaining beat IS the clear-all ("no costume in
+              // The only remaining beat IS the clear-all ("no piece in
               // this scene"); otherwise a single-beat removal.
               final result = group.beats.length <= 1
                   ? await controller.clearOutfitBeats(

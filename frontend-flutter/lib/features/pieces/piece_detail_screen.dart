@@ -1,0 +1,1462 @@
+// SPDX-License-Identifier: AGPL-3.0
+// Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: space-bunny-free (opencode-go)
+// Co-authored-by: muse-spark-1.3-contributor (opencode-go)
+// Co-authored-by: deepseek-v4-flash (neuralwatt)
+// Co-authored-by: glm-5.3-flash (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
+
+import 'dart:async';
+
+import 'package:breakdown_api/breakdown_api.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:riverpod_annotation/riverpod_annotation.dart';
+
+import '../../auth/auth_providers.dart';
+import '../../auth/membership/membership_providers.dart';
+import '../../core/problem_error.dart';
+import '../../data/photo_repository.dart';
+import '../../design/material_icons.dart';
+import '../../l10n/app_localizations_provider.dart';
+import '../costume_categories/costume_categories_controller.dart';
+import '../photos/capture.dart';
+import '../photos/prepare.dart';
+import '../photos/widgets/photo_gallery.dart';
+import '../../data/cache/seasons_cache_providers.dart';
+import 'pieces_controller.dart';
+import 'pieces_state.dart';
+
+part 'piece_detail_screen.g.dart';
+
+/// Foreground-only variant watch for one piece (D5): bounded-backoff
+/// piece refetches while subscribed; terminal variants end the pass; the
+/// subscription dies with the screen (no background polling).
+@riverpod
+Stream<PhotoWatchEvent<PieceView>> piecePhotoWatch(
+  Ref ref,
+  String seasonId,
+  String pieceId,
+) async* {
+  final photos = ref.watch(piecePhotoRepositoryProvider);
+  final pieces = ref.watch(pieceRepositoryProvider);
+  yield* photos.watch(pieceId, () => pieces.getAndCache(seasonId, pieceId));
+}
+
+/// `PieceDetailScreen` is retained as a compatibility entry point for
+/// callers that still provide a route. New overview navigation uses
+/// [PieceDetailPanel] directly, keeping editing on the first screen.
+class PieceDetailScreen extends ConsumerWidget {
+  const PieceDetailScreen({
+    super.key,
+    required this.season,
+    required this.pieceId,
+  });
+
+  final SeasonView season;
+  final String pieceId;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    ref.listen(authSessionControllerProvider, (_, session) {
+      final signedOut =
+          (session is AsyncData && session.value == null) ||
+          session is AsyncError;
+      if (signedOut && context.mounted) {
+        Navigator.of(context).popUntil((route) => route.isFirst);
+      }
+    });
+    final controller = ref.read(piecesControllerProvider(season.id).notifier);
+    return Scaffold(
+      appBar: AppBar(title: Text(l10nOf(context).pieceDetailTitle)),
+      body: RefreshIndicator(
+        onRefresh: controller.refresh,
+        child: ListView(
+          key: Key('piece-detail-$pieceId'),
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: const EdgeInsets.all(16),
+          children: [
+            PieceDetailPanel(
+              season: season,
+              pieceId: pieceId,
+              showCommandError: true,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// The piece identity editor embedded below the overview tile grid.
+///
+/// It deliberately contains the existing assignment, detail, notes, and photo
+/// controls so the old detail route is no longer required for editing.
+class PieceDetailPanel extends ConsumerWidget {
+  const PieceDetailPanel({
+    super.key,
+    required this.season,
+    required this.pieceId,
+    this.showCommandError = false,
+  });
+
+  final SeasonView season;
+  final String pieceId;
+  final bool showCommandError;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    // Keep the variant watch alive while the panel is visible; terminal
+    // events refresh the piece cache and rebuild the projection.
+    ref.listen(piecePhotoWatchProvider(season.id, pieceId), (_, _) {});
+    final state = ref.watch(piecesControllerProvider(season.id));
+    final controller = ref.read(piecesControllerProvider(season.id).notifier);
+    final piece = _resolvePiece(state);
+    if (piece == null) {
+      return const SizedBox(
+        height: 160,
+        child: Center(
+          child: CircularProgressIndicator(key: Key('piece-loading')),
+        ),
+      );
+    }
+    return Column(
+      key: Key('piece-editor-body-$pieceId'),
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 24, 16, 0),
+          child: Text(
+            l10nOf(context).pieceDetailTitle,
+            style: Theme.of(context).textTheme.titleLarge,
+          ),
+        ),
+        const SizedBox(height: 16),
+        if (showCommandError)
+          if (state.commandError case final failure?)
+            _InlineError(
+              text: pieceCommandErrorCopy(l10nOf(context), failure),
+              onDismiss: controller.dismissCommandError,
+            ),
+
+        const Divider(height: 32),
+        // Issue #543: the piece's single category sits in the identity
+        // section ABOVE the details (details are pure description now).
+        CostumeCategorySection(season: season, piece: piece),
+        const Divider(height: 32),
+        // Issue #534: the season repertoire — the seasons whose piece
+        // streams the piece stands in (m:n over the wardrobe lifecycle).
+        _RepertoireSection(season: season, piece: piece),
+        const Divider(height: 32),
+        // Identity is primary; notes are deliberately secondary.
+        _DetailsSection(season: season, piece: piece),
+        const Divider(height: 32),
+        _NotesSection(season: season, piece: piece),
+        const Divider(height: 32),
+        _PhotosSection(season: season, piece: piece),
+        const SizedBox(height: 24),
+      ],
+    );
+  }
+
+  /// Resolves the effective row: the fence-held overlay first, then the
+  /// projected/cached row. The overlay version is the freshest command ack.
+  PieceView? _resolvePiece(PiecesScreenState state) {
+    for (final o in state.overlays) {
+      if (o.id == pieceId) return o.overlay;
+    }
+    for (final c in state.cachedRows) {
+      if (c.id == pieceId) return c;
+    }
+    return null;
+  }
+}
+
+/// Repertoire section (issue #534): every season whose piece stream the
+/// piece stands in, plus the add-season picker and confirm-first removal.
+///
+/// // AUTHZ-GATE: the picker's confirm path runs the membership capability
+/// check (`assign_costumes`) inside the controller before any network call;
+/// the backend additionally authorizes the TARGET season's membership —
+/// that cross-season check is the server's alone (AGENTS.md S5: the client
+/// must not deny on the season union).
+class _InlineError extends StatelessWidget {
+  const _InlineError({required this.text, this.onDismiss});
+
+  final String text;
+  final VoidCallback? onDismiss;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return ColoredBox(
+      key: const Key('piece-detail-error'),
+      color: scheme.errorContainer,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        child: Row(
+          children: [
+            Expanded(
+              child: Text(
+                text,
+                style: TextStyle(color: scheme.onErrorContainer),
+              ),
+            ),
+            if (onDismiss != null)
+              IconButton(
+                onPressed: onDismiss,
+                tooltip: l10nOf(context).episodesDismiss,
+                icon: const Icon(Icons.close),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Repertoire section (issue #534): every season whose piece stream the
+/// piece stands in, plus the add-season picker and confirm-first removal.
+///
+/// // AUTHZ-GATE: the picker's confirm path runs the membership capability
+/// check (`assign_costumes`) inside the controller before any network call;
+/// the backend additionally authorizes the TARGET season's membership —
+/// that cross-season check is the server's alone (AGENTS.md S5: the client
+/// must not deny on the season union).
+class _RepertoireSection extends ConsumerWidget {
+  const _RepertoireSection({required this.season, required this.piece});
+
+  final SeasonView season;
+  final PieceView piece;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    // Season names come from the seasons projection (read-DTO join, never
+    // aggregate reconstruction). The #533 default excludes archived
+    // seasons upstream, so the picker naturally offers only live seasons.
+    final seasons = ref.watch(seasonsView).rows;
+    final l10n = l10nOf(context);
+    final ids = piece.seasonIds;
+    String nameOf(String id) {
+      for (final s in seasons) {
+        if (s.id == id) {
+          return s.title ?? l10n.seasonsDefaultTitle(s.number);
+        }
+      }
+      // A repertoire season the projection does not know yet (dangling
+      // reference): render the raw id instead of hiding the row.
+      return id;
+    }
+
+    final eligible = [
+      for (final s in seasons)
+        if (!ids.contains(s.id)) s,
+    ];
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          l10n.pieceDetailRepertoire,
+          style: Theme.of(context).textTheme.titleMedium,
+          key: const Key('piece-repertoire-title'),
+        ),
+        const SizedBox(height: 4),
+        if (ids.isEmpty)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(0, 8, 0, 8),
+            child: Text(
+              l10n.pieceDetailRepertoireEmpty,
+              key: const Key('piece-repertoire-empty'),
+            ),
+          )
+        else
+          for (final id in ids)
+            ListTile(
+              key: Key('piece-repertoire-row-${piece.id}-$id'),
+              contentPadding: EdgeInsets.zero,
+              title: Text(nameOf(id)),
+              trailing: IconButton(
+                key: Key('piece-repertoire-remove-${piece.id}-$id'),
+                icon: const Icon(Icons.playlist_remove_outlined),
+                tooltip: l10n.pieceDetailRepertoireRemoveTooltip,
+                onPressed: piece.seasonIds.contains(id)
+                    ? () => _confirmRemove(context, ref, id, nameOf(id))
+                    : null,
+              ),
+            ),
+        FilledButton.tonal(
+          key: Key('piece-repertoire-add-${piece.id}'),
+          onPressed: eligible.isEmpty
+              ? null
+              : () => _pickSeason(context, ref, eligible, nameOf),
+          child: Text(l10n.pieceDetailRepertoireAdd),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _pickSeason(
+    BuildContext context,
+    WidgetRef ref,
+    List<SeasonView> eligible,
+    String Function(String) nameOf,
+  ) async {
+    // Captured BEFORE the sheet opens (CodeRabbit #563 seam, same as
+    // `_DetailRow._confirmDelete`): a bounded reconcile can rebuild or
+    // unmount this section while the modal route is open — the confirmation
+    // callback must never touch the possibly-disposed WidgetRef.
+    final controller = ref.read(piecesControllerProvider(season.id).notifier);
+    final picked = await showModalBottomSheet<String>(
+      context: context,
+      builder: (sheetContext) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: Text(
+                l10nOf(sheetContext).pieceDetailRepertoirePick,
+                style: Theme.of(sheetContext).textTheme.titleMedium,
+              ),
+            ),
+            SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  for (final s in eligible)
+                    ListTile(
+                      key: Key('repertoire-pick-${s.id}'),
+                      title: Text(
+                        s.title ??
+                            l10nOf(sheetContext).seasonsDefaultTitle(s.number),
+                      ),
+                      trailing: s.id == season.id
+                          ? Text(l10nOf(sheetContext).pieceDetailRepertoire)
+                          : null,
+                      onTap: () => Navigator.of(sheetContext).pop(s.id),
+                    ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (picked == null || !context.mounted) return;
+    // Handled: failures surface via the command-error provider.
+    final addResult = await controller.addToSeason(
+      piece: piece,
+      seasonId: picked,
+    );
+    final saved = addResult.match((_) => false, (_) => true);
+    if (saved && context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          key: Key('piece-repertoire-saved-${piece.id}'),
+          content: Text(l10nOf(context).pieceDetailRepertoireSaved),
+        ),
+      );
+    }
+  }
+
+  Future<void> _confirmRemove(
+    BuildContext context,
+    WidgetRef ref,
+    String seasonId,
+    String name,
+  ) async {
+    final l10n = l10nOf(context);
+    // Captured BEFORE the dialog opens (CodeRabbit #563 seam, same as
+    // `_DetailRow._confirmDelete`): the confirmation callback must never
+    // touch the possibly-disposed WidgetRef after the await.
+    final controller = ref.read(piecesControllerProvider(season.id).notifier);
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(l10n.pieceDetailRepertoireRemoveTitle),
+        content: Text(l10n.pieceDetailRepertoireRemoveMessage),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: Text(l10n.commonCancel),
+          ),
+          FilledButton(
+            key: Key('piece-repertoire-confirm-remove'),
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: Text(l10n.pieceDetailRepertoireRemoveTooltip),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !context.mounted) return;
+    // Handled: failures surface via the command-error provider.
+    final removeResult = await controller.removeFromSeason(
+      piece: piece,
+      seasonId: seasonId,
+    );
+    final saved = removeResult.match((_) => false, (_) => true);
+    if (saved && context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          key: Key('piece-repertoire-removed-${piece.id}'),
+          content: Text(l10nOf(context).pieceDetailRepertoireRemoved),
+        ),
+      );
+    }
+  }
+}
+
+class _NotesSection extends ConsumerStatefulWidget {
+  const _NotesSection({required this.season, required this.piece});
+
+  final SeasonView season;
+  final PieceView piece;
+
+  @override
+  ConsumerState<_NotesSection> createState() => _NotesSectionState();
+}
+
+class _NotesSectionState extends ConsumerState<_NotesSection> {
+  late final TextEditingController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: widget.piece.notes);
+  }
+
+  @override
+  void didUpdateWidget(covariant _NotesSection oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.piece.notes != widget.piece.notes &&
+        _controller.text != widget.piece.notes) {
+      _controller.text = widget.piece.notes;
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Text(
+        l10nOf(context).pieceDetailNotes,
+        style: Theme.of(context).textTheme.titleMedium,
+      ),
+      const SizedBox(height: 8),
+      TextField(
+        key: Key('piece-notes-${widget.piece.id}'),
+        controller: _controller,
+        maxLines: 3,
+        decoration: InputDecoration(
+          border: const OutlineInputBorder(),
+          hintText: l10nOf(context).pieceDetailNotesHint,
+        ),
+      ),
+      const SizedBox(height: 8),
+      Align(
+        alignment: Alignment.centerRight,
+        child: FilledButton.tonal(
+          key: Key('piece-notes-save-${widget.piece.id}'),
+          onPressed: () async {
+            // Handled: failures surface via the command-error provider.
+            final notesResult = await ref
+                .read(piecesControllerProvider(widget.season.id).notifier)
+                .updateNotes(piece: widget.piece, notes: _controller.text);
+            final saved = notesResult.match((_) => false, (_) => true);
+            if (saved && context.mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  key: const Key('piece-saved-confirmation'),
+                  content: Text(l10nOf(context).pieceDetailSaved),
+                ),
+              );
+            }
+          },
+          child: Text(l10nOf(context).pieceDetailSaveNotes),
+        ),
+      ),
+    ],
+  );
+}
+
+/// Category section (issue #543): the piece's single category in the
+/// identity section — always visible with its icon next to the text (the
+/// `categories.icon` glossary rule: icons are redundant reinforcement,
+/// never the sole carrier of meaning).
+///
+/// The picker section Inlinelists the season's projected, NON-ARCHIVED
+/// vocabulary (read-DTO join via `costumeCategoriesViewProvider`, no extra
+/// network dependency) plus the deliberate "no category" row, which
+/// dispatches `setCategory(categoryId: null)` (clearing must be
+/// possible). The set/clear command runs in the controller with the
+/// AUTHZ-GATE capability check BEFORE any network call; denial renders
+/// the localized 403 narrative via the command-error banner.
+///
+/// // AUTHZ-GATE: `assign_costumes` capability checked in the controller
+/// before any network call; denial renders the 403 narrative and never
+/// issues the request.
+class CostumeCategorySection extends ConsumerWidget {
+  const CostumeCategorySection({
+    super.key,
+    required this.season,
+    required this.piece,
+  });
+
+  final SeasonView season;
+  final PieceView piece;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final l10n = l10nOf(context);
+    // Fence-held overlays render the optimistic key (Gherkin contract);
+    // reconciled rows render the authoritative key.
+    final controllerState = ref.watch(piecesControllerProvider(season.id));
+    final fenceHeld = controllerState.overlays.any((o) => o.id == piece.id);
+    final effective = fenceHeld
+        ? controllerState.overlays.firstWhere((o) => o.id == piece.id).overlay
+        : piece;
+    // "Ohne Kategorie" is reserved for a null category ID (CodeRabbit
+    // #4126529938): the projected name is best-effort — a set category
+    // whose name is not (yet) resolved is NOT uncategorised. The label is
+    // keyed on the ID, never on the denormalised name.
+    final currentName = switch (effective.categoryId) {
+      null => l10n.costumeCategoryUncategorized,
+      _ => effective.categoryName ?? effective.categoryId!,
+    };
+    return Column(
+      key: const Key('piece-category-section'),
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          l10n.pieceDetailCategoryTitle,
+          style: Theme.of(context).textTheme.titleMedium,
+        ),
+        const SizedBox(height: 8),
+        ListTile(
+          // Gherkin contract keys: optimistic vs projected category (same
+          // pattern as the assignment tile above).
+          key: Key(
+            fenceHeld
+                ? 'overlay-category-${piece.id}-${effective.categoryId ?? "none"}'
+                : 'piece-category-${piece.id}-${effective.categoryId ?? "none"}',
+          ),
+          contentPadding: EdgeInsets.zero,
+          leading: Icon(
+            BreakdownMaterialIcons.forCostumeCategory(effective.categoryName),
+            key: Key('piece-category-icon-${piece.id}'),
+            size: 20,
+          ),
+          title: Text(
+            currentName,
+            key: Key('piece-category-current-${piece.id}'),
+          ),
+        ),
+        const SizedBox(height: 0),
+        FilledButton.tonal(
+          key: Key('piece-category-pick-${piece.id}'),
+          onPressed: () => _showPicker(context, ref),
+          child: Text(l10n.pieceDetailPickCategory),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _showPicker(BuildContext context, WidgetRef ref) {
+    return showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) => Consumer(
+        builder: (context, sheetRef, _) {
+          final l10n = l10nOf(context);
+          final view = sheetRef.watch(costumeCategoriesViewProvider(season.id));
+          return SafeArea(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+                  child: Text(
+                    l10n.pieceDetailPickCategory,
+                    key: const Key('piece-category-picker-title'),
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                ),
+                Flexible(
+                  child: ListView(
+                    key: const Key('piece-category-picker-list'),
+                    shrinkWrap: true,
+                    children: [
+                      // The deliberate "no category" row (None clears the
+                      // piece's category — visible text, never hidden).
+                      ListTile(
+                        key: const Key('piece-category-option-none'),
+                        leading: Icon(
+                          BreakdownMaterialIcons.forCostumeCategory(null),
+                        ),
+                        title: Text(l10n.costumeCategoryUncategorized),
+                        selected: piece.categoryId == null,
+                        onTap: () => _pick(context, ref, null, null),
+                      ),
+                      for (final option in costumeCategoryOptions(view.rows))
+                        ListTile(
+                          key: Key(
+                            'piece-category-option-${option.category.id}',
+                          ),
+                          leading: Icon(
+                            BreakdownMaterialIcons.forCostumeCategory(
+                              option.category.name,
+                            ),
+                          ),
+                          title: Text(option.category.name),
+                          selected: piece.categoryId == option.category.id,
+                          onTap: () => _pick(
+                            context,
+                            ref,
+                            option.category.id,
+                            option.category.name,
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Future<void> _pick(
+    BuildContext context,
+    WidgetRef ref,
+    String? categoryId,
+    String? categoryName,
+  ) async {
+    // CodeRabbit #4126529948: the bottom sheet is a route — after it is
+    // popped its context must not be used across the asynchronous command
+    // gap. The picker builder context IS the screen context here (the
+    // sheet builder receives the section's own context), so resolve the
+    // messenger + localized copy BEFORE popping; the command runs on the
+    // same section instance whose later builds never depend on this
+    // per-dispatch closure context.
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    final savedCopy = l10nOf(context).pieceDetailCategorySaved;
+    Navigator.of(context).pop();
+    final result = await ref
+        .read(piecesControllerProvider(season.id).notifier)
+        .setCategory(
+          piece: piece,
+          categoryId: categoryId,
+          categoryName: categoryName,
+        );
+    final saved = result.match((_) => false, (_) => true);
+    if (saved && messenger != null) {
+      messenger.showSnackBar(
+        SnackBar(
+          key: const Key('piece-category-saved-confirmation'),
+          content: Text(savedCopy),
+        ),
+      );
+    }
+  }
+}
+
+/// Visible, non-archived picker options in server order. Deliberately
+/// public and pure for the unit tier: archived vocabulary must never be a
+/// new categorisation option (the backend list query serves the same
+/// predicate).
+List<CostumeCategoryOption> costumeCategoryOptions(
+  List<CostumeCategoryView> rows,
+) => [
+  for (final c in rows)
+    if (!c.archived) CostumeCategoryOption(category: c),
+];
+
+class CostumeCategoryOption {
+  const CostumeCategoryOption({required this.category});
+
+  final CostumeCategoryView category;
+}
+
+class _DetailsSection extends ConsumerStatefulWidget {
+  const _DetailsSection({required this.season, required this.piece});
+
+  final SeasonView season;
+  final PieceView piece;
+
+  @override
+  ConsumerState<_DetailsSection> createState() => _DetailsSectionState();
+}
+
+/// Issue #545: the inline detail editor — the row list itself owns which
+/// detail is being edited (`_editingDetailId`) and whether the create draft
+/// is open (`_draftOpen`). No modal: the editor expands where the detail
+/// sits, so the keyboard cannot clip it and the scroll context survives.
+class _DetailsSectionState extends ConsumerState<_DetailsSection> {
+  String? _editingDetailId;
+  bool _draftOpen = false;
+
+  void _openEdit(String detailId) {
+    setState(() {
+      _editingDetailId = detailId;
+      _draftOpen = false;
+    });
+  }
+
+  void _openDraft() {
+    setState(() {
+      _editingDetailId = null;
+      _draftOpen = true;
+    });
+  }
+
+  void _close() {
+    setState(() {
+      _editingDetailId = null;
+      _draftOpen = false;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = l10nOf(context);
+    final details = widget.piece.details;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          l10n.pieceDetailDetails,
+          style: Theme.of(context).textTheme.titleMedium,
+        ),
+        const SizedBox(height: 8),
+        if (details.isEmpty && _editingDetailId == null && !_draftOpen)
+          Text(
+            l10n.pieceDetailNoDetails,
+            key: const Key('piece-details-empty'),
+          ),
+        for (final d in details)
+          _DetailRow(
+            key: Key('detail-row-${d.id}'),
+            season: widget.season,
+            piece: widget.piece,
+            detail: d,
+            editing: _editingDetailId == d.id,
+            onEdit: () => _openEdit(d.id),
+            onClose: _close,
+          ),
+        if (!_draftOpen)
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton.icon(
+              key: Key('piece-detail-add-${widget.piece.id}'),
+              icon: const Icon(Icons.add),
+              label: Text(l10n.pieceDetailAddDetail),
+              onPressed: _openDraft,
+            ),
+          ),
+        if (_draftOpen)
+          _DetailEditor(
+            key: const Key('detail-draft'),
+            season: widget.season,
+            piece: widget.piece,
+            initial: null,
+            onClose: _close,
+          ),
+      ],
+    );
+  }
+}
+
+/// One detail row: title/subtitle composition + trailing edit/delete
+/// affordances, with the inline editor expanding below the row while it is
+/// the open one (issue #545).
+///
+/// // AUTHZ-GATE: the edit/delete affordances dispatch through the
+/// controller's `assign_costumes` capability check BEFORE any network call;
+/// denial renders the localized 403 narrative and never issues the request.
+class _DetailRow extends ConsumerWidget {
+  const _DetailRow({
+    super.key,
+    required this.season,
+    required this.piece,
+    required this.detail,
+    required this.editing,
+    required this.onEdit,
+    required this.onClose,
+  });
+
+  final SeasonView season;
+  final PieceView piece;
+  final PieceDetailView detail;
+  final bool editing;
+  final VoidCallback onEdit;
+  final VoidCallback onClose;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final subject = detail.subject != null && detail.subject!.isNotEmpty
+        ? detail.subject
+        : null;
+    return Card(
+      key: Key('piece-detail-${detail.id}'),
+      child: Column(
+        children: [
+          ListTile(
+            key: Key('detail-row-${detail.id}'),
+            // Issue #543: details are pure description (subject + text);
+            // the category lives on the piece itself.
+            title: Text(subject ?? detail.text),
+            subtitle: subject == null ? null : Text(detail.text),
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                IconButton(
+                  key: Key('piece-detail-edit-${detail.id}'),
+                  icon: const Icon(Icons.edit_outlined),
+                  tooltip: l10nOf(context).commonEdit,
+                  // Scroll the row into view first so the editor that
+                  // expands below it is actually on screen (issue #545 —
+                  // analog of `_PiecesScreenState._selectPiece`).
+                  onPressed: () {
+                    // Fire-and-forget scroll affordance — the editor's
+                    // mount does not depend on the animation completing.
+                    unawaited(Scrollable.ensureVisible(context));
+                    onEdit();
+                  },
+                ),
+                IconButton(
+                  key: Key('piece-detail-delete-${detail.id}'),
+                  icon: const Icon(Icons.delete_outline),
+                  tooltip: l10nOf(context).commonDelete,
+                  onPressed: () => _confirmDelete(context, ref),
+                ),
+              ],
+            ),
+          ),
+          if (editing)
+            _DetailEditor(
+              key: Key('detail-editor-${detail.id}'),
+              season: season,
+              piece: piece,
+              initial: detail,
+              onClose: onClose,
+            ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _confirmDelete(BuildContext context, WidgetRef ref) {
+    final l10n = l10nOf(context);
+    // Captured BEFORE the dialog opens (CodeRabbit #563): a bounded
+    // reconcile can replace the projection and unmount this row while the
+    // dialog route is still open — the confirmation callback must never
+    // touch the possibly-disposed WidgetRef (same seam as `_pick
+    // `.messenger` capture above).
+    final notifier = ref.read(piecesControllerProvider(season.id).notifier);
+    return showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        key: const Key('piece-detail-delete-dialog'),
+        title: Text(l10n.pieceDetailDeleteTitle),
+        content: Text(
+          l10n.pieceDetailDeleteMessage(
+            detail.subject != null && detail.subject!.isNotEmpty
+                ? detail.subject!
+                : detail.text,
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: Text(l10n.commonCancel),
+          ),
+          FilledButton(
+            key: Key('piece-detail-delete-confirm-${detail.id}'),
+            onPressed: () async {
+              Navigator.of(dialogContext).pop();
+              // Handled: failures surface via the command-error provider.
+              final deleteResult = await notifier.removeDetail(
+                piece: piece,
+                detailId: detail.id,
+              );
+              deleteResult.match<void>((_) {}, (_) {});
+            },
+            child: Text(l10n.commonDelete),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// The inline detail editor (issue #545) — `initial == null` means create
+/// mode; a non-null [initial] prefills the edit mode. ONE widget drives
+/// both paths: the create row and every row's edit affordance open the same
+/// form in place, so a detail author never loses scroll or focus context
+/// and the keyboard cannot collide with a modal.
+///
+/// The controllers live in widget state and dispose when the editor
+/// unmounts — since there is no dialog route around it, the old comment
+/// workaround's reasoning still applies, just rendered inside the row.
+class _DetailEditor extends ConsumerStatefulWidget {
+  const _DetailEditor({
+    super.key,
+    required this.season,
+    required this.piece,
+    required this.initial,
+    required this.onClose,
+  });
+
+  final SeasonView season;
+  final PieceView piece;
+
+  /// The detail being edited, or `null` in create mode.
+  final PieceDetailView? initial;
+  final VoidCallback onClose;
+
+  @override
+  ConsumerState<_DetailEditor> createState() => _DetailEditorState();
+}
+
+class _DetailEditorState extends ConsumerState<_DetailEditor> {
+  late final TextEditingController _subject;
+  late final TextEditingController _text;
+  late final GlobalKey<FormState> _formKey;
+
+  /// In-flight gate (CodeRabbit #563): the save button must not dispatch a
+  /// second command while the first is unresolved — version fencing rejects
+  /// the stale second request, but two in-flight creates would carry two
+  /// different UUIDv7s. The guard runs SYNCHRONOUSLY before the first
+  /// await, so even a same-frame double tap (no rebuild between taps) is
+  /// covered, not just the visually-disabled state.
+  bool _submitting = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final initial = widget.initial;
+    _subject = TextEditingController(text: initial?.subject ?? '');
+    _text = TextEditingController(text: initial?.text ?? '');
+    _formKey = GlobalKey<FormState>();
+  }
+
+  @override
+  void dispose() {
+    _subject.dispose();
+    _text.dispose();
+    super.dispose();
+  }
+
+  bool get _textValid => _text.text.trim().isNotEmpty;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = l10nOf(context);
+    // Issue #543: no category field here — the category is set on the
+    // piece (identity section), not per detail.
+    return Padding(
+      key: widget.initial == null ? const Key('add-detail-editor') : null,
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+      child: Form(
+        key: _formKey,
+        autovalidateMode: AutovalidateMode.onUserInteraction,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextFormField(
+              key: const Key('add-detail-subject'),
+              controller: _subject,
+              decoration: InputDecoration(
+                labelText: l10n.pieceDetailSubject,
+                helperText: l10n.pieceDetailSubjectOptional,
+              ),
+            ),
+            const SizedBox(height: 8),
+            TextFormField(
+              key: const Key('add-detail-text'),
+              controller: _text,
+              autovalidateMode: AutovalidateMode.onUserInteraction,
+              decoration: InputDecoration(
+                // `text` is the ONLY required field; the asterisk marks it,
+                // and the helper text makes the optionality contrast with
+                // the subject field explicit.
+                label: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(l10n.pieceDetailText),
+                    const SizedBox(width: 2),
+                    const Text('*'),
+                  ],
+                ),
+                helperText: l10n.pieceDetailTextRequiredHint,
+              ),
+              onChanged: (_) => setState(() {}),
+              validator: (v) => (v == null || v.trim().isEmpty)
+                  ? l10n.pieceDetailTextRequired
+                  : null,
+            ),
+            const SizedBox(height: 12),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                TextButton(
+                  key: const Key('add-detail-cancel'),
+                  onPressed: widget.onClose,
+                  child: Text(l10nOf(context).commonCancel),
+                ),
+                const SizedBox(width: 8),
+                FilledButton(
+                  key: const Key('add-detail-submit'),
+                  // The affordance itself validates: no submit-only error.
+                  onPressed: !_textValid || _submitting
+                      ? null
+                      : () async {
+                          if (_submitting) return;
+                          if (!(_formKey.currentState?.validate() ?? false)) {
+                            return;
+                          }
+                          setState(() => _submitting = true);
+                          try {
+                            await _submit(context);
+                          } finally {
+                            if (mounted) {
+                              setState(() => _submitting = false);
+                            }
+                          }
+                        },
+                  child: Text(l10nOf(context).commonSave),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _submit(BuildContext context) async {
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    final savedCopy = l10nOf(context).pieceDetailSaved;
+    final text = _text.text.trim();
+    final subject = _subject.text.trim().isEmpty ? null : _subject.text.trim();
+    final notifier = ref.read(
+      piecesControllerProvider(widget.season.id).notifier,
+    );
+    // Handled: failures surface via the command-error provider.
+    final detailResult = widget.initial == null
+        ? await notifier.addDetail(
+            piece: widget.piece,
+            text: text,
+            subject: subject,
+          )
+        : await notifier.updateDetail(
+            piece: widget.piece,
+            detailId: widget.initial!.id,
+            text: text,
+            subject: subject,
+          );
+    final saved = detailResult.match((_) => false, (_) => true);
+    if (saved && mounted) widget.onClose();
+    if (saved && messenger != null) {
+      messenger.showSnackBar(
+        SnackBar(
+          key: const Key('piece-saved-confirmation'),
+          content: Text(savedCopy),
+        ),
+      );
+    }
+  }
+}
+
+/// Photos section: gallery (from `PieceView.photos`), capture affordance
+/// (gated), progress for prepare+upload, delete with confirmation.
+///
+/// // AUTHZ-GATE: capture/upload/delete run the membership capability check
+/// inside the controller before any network call; denial renders the
+/// localized 403 narrative and never issues the request.
+class _PhotosSection extends ConsumerStatefulWidget {
+  const _PhotosSection({required this.season, required this.piece});
+
+  final SeasonView season;
+  final PieceView piece;
+
+  @override
+  ConsumerState<_PhotosSection> createState() => _PhotosSectionState();
+}
+
+class _PhotosSectionState extends ConsumerState<_PhotosSection> {
+  bool _busy = false;
+
+  /// The single-piece DETAIL, fetched on open.
+  ///
+  /// The gallery renders `PieceView.photos` from this row. The piece
+  /// handed in via the widget tree is the piece LIST row, which the server
+  /// enriches in batch — `list_by_season` runs `enrich_many` (3 queries per
+  /// page, details + photos + variants included since the #543/#544
+  /// tranche), so list rows DO carry child collections. The fetch is kept
+  /// anyway because the rendered row can be an OPTIMISTIC OVERLAY, not the
+  /// projected row: an upload/delete just acknowledged by a command does not
+  /// exist in the last fetched list snapshot, so the enriched single-piece
+  /// read refreshes this row on gallery-affecting commands (`_loadDetail`
+  /// after upload/delete). Falls back to the list view while loading and on
+  /// failure (a photo-less piece then simply shows the empty-gallery
+  /// affordance as before).
+  PieceView? _detail;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _loadDetail());
+  }
+
+  Future<void> _loadDetail() async {
+    if (!mounted) return;
+    final res = await ref
+        .read(piecesControllerProvider(widget.season.id).notifier)
+        .loadDetail(widget.piece.id);
+    if (!mounted) return;
+    // Only a successful detail may replace the rendered view: an Err leaves
+    // the list view in place (and its command-error surface owns the message).
+    res.match<void>((_) {}, (view) {
+      if (!mounted) return;
+      setState(() => _detail = view);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // Issue #535: the piece-photo policy is **series-scoped** server-side
+    // (ADR-035 B2/S2), so the widget gate mirrors the backend-computed series
+    // predicate (`has_active_costume_role_in_series`) — and resolves the
+    // membership from the COSTUME (character-first ∪ repertoire, issue #535
+    // review), NOT from this screen's open season: a carried-over piece
+    // opened through a repertoire season of a different series gates on its
+    // own series, exactly like the server. Denying on the season union would
+    // block flows the server permits.
+    final pieceView = _detail ?? widget.piece;
+    final membership = ref.watch(
+      seriesMembershipForCostumeProvider(costumeMembershipScope(pieceView)),
+    );
+    final hasSeriesRole = switch (membership) {
+      AsyncData(:final value) => value.match(
+        (_) => false,
+        (dto) => dto.hasActiveCostumeRoleInSeries,
+      ),
+      _ => false,
+    };
+    final denied = switch (membership) {
+      AsyncData(:final value) => value.match(
+        (_) => false,
+        (dto) => !dto.hasActiveCostumeRoleInSeries,
+      ),
+      _ => false,
+    };
+    // Issue #535 review: a failed membership fetch must be RECOVERABLE — the
+    // fetch result is retained while watched, and pull-to-refresh only
+    // refreshes pieces. A retry affordance invalidates the provider so the
+    // next build re-executes the season/character + membership chain.
+    final fetchFailed = switch (membership) {
+      AsyncData(:final value) => value.isLeft(),
+      AsyncError() => true,
+      _ => false,
+    };
+    // Photo affordances are gated on the backend-computed series predicate
+    // only. The piece's series *resolution* is the server's call (issue
+    // #532): an unassigned piece that stands in a repertoire season (which
+    // is how the client creates every piece, issue #453) CAN manage photos,
+    // so no client-side character-assignment gate remains here. A piece
+    // with no resolvable container is rejected by the server with 422
+    // `piece.container-unresolved`, which surfaces through the photo
+    // command-error copy.
+    final canManagePhotos = hasSeriesRole;
+    // Do not construct the network-backed photo repository while the
+    // capability is denied or still pending. This keeps the overview's
+    // inline editor renderable during membership resolution and enforces the
+    // client-side photo gate before any bytes request.
+    final repo = hasSeriesRole ? ref.watch(piecePhotoRepositoryProvider) : null;
+    final lru = ref.watch(photoBytesLruProvider);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Text(
+              l10nOf(context).pieceDetailPhotos,
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+            const Spacer(),
+            if (_busy)
+              const SizedBox(
+                key: Key('photo-prepare-progress'),
+                width: 20,
+                height: 20,
+                child: LinearProgressIndicator(),
+              ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        if (denied)
+          Text(
+            l10nOf(context).photoErrorForbidden,
+            key: const Key('photo-denied-narrative'),
+          ),
+        if (fetchFailed)
+          TextButton(
+            key: Key('photo-membership-retry-${widget.piece.id}'),
+            onPressed: () => ref.invalidate(
+              seriesMembershipForCostumeProvider(
+                costumeMembershipScope(pieceView),
+              ),
+            ),
+            child: Text(l10nOf(context).commonRetry),
+          ),
+        if (repo != null)
+          PhotoGallery(
+            ownerId: (_detail ?? widget.piece).id,
+            photos: [
+              for (final photo in (_detail ?? widget.piece).photos)
+                GalleryPhoto.fromPiece(photo),
+            ],
+            fetch: (photoId, variant) =>
+                repo.getBytes((_detail ?? widget.piece).id, photoId, variant),
+            lru: lru,
+            canCapture: canManagePhotos,
+            onCapture: canManagePhotos
+                ? () => _capture(ImageSource.camera)
+                : null,
+            onDelete: canManagePhotos
+                ? (photo) => _confirmDelete(photo.id)
+                : null,
+            onRetryCapture: canManagePhotos
+                ? () => _capture(ImageSource.camera)
+                : null,
+          )
+        else if (widget.piece.photos.isEmpty)
+          Text(
+            l10nOf(context).photoGalleryEmpty,
+            key: Key('photo-gallery-empty-${widget.piece.id}'),
+          ),
+        if (canManagePhotos) ...[
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              FilledButton.tonalIcon(
+                key: Key('photo-capture-camera-${widget.piece.id}'),
+                onPressed: _busy ? null : () => _capture(ImageSource.camera),
+                icon: const Icon(Icons.photo_camera),
+                label: Text(l10nOf(context).pieceDetailCamera),
+              ),
+              const SizedBox(width: 8),
+              FilledButton.tonalIcon(
+                key: Key('photo-capture-gallery-${widget.piece.id}'),
+                onPressed: _busy ? null : () => _capture(ImageSource.gallery),
+                icon: const Icon(Icons.photo_library),
+                label: Text(l10nOf(context).pieceDetailGallery),
+              ),
+            ],
+          ),
+        ],
+      ],
+    );
+  }
+
+  Future<void> _capture(ImageSource source) async {
+    final picker = ref.read(imagePickerProvider);
+    final seen = ref.read(photoRationaleSeenProvider);
+    setState(() => _busy = true);
+    try {
+      final outcome = await runCaptureIntent(
+        source: source,
+        picker: picker,
+        rationaleSeen: seen,
+        markRationaleSeen: () =>
+            ref.read(photoRationaleSeenProvider.notifier).markSeen(),
+        showRationale: () => _showRationale(),
+      );
+      if (!mounted) return;
+      switch (outcome) {
+        case CapturePicked(:final file):
+          await _prepareAndUpload(file);
+        case CaptureDenied(:final source):
+          await _showDenied(source);
+        case CaptureUnavailable():
+          _showUnavailable();
+        case CaptureCancelled():
+          break;
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  /// In-app rationale BEFORE the first system permission prompt.
+  Future<bool> _showRationale() async {
+    final accepted = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(l10nOf(dialogContext).pieceDetailPromptTitle),
+        content: Text(l10nOf(dialogContext).pieceDetailPromptBody),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: Text(l10nOf(dialogContext).pieceDetailNotNow),
+          ),
+          FilledButton(
+            key: const Key('photo-rationale-accept'),
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: Text(l10nOf(dialogContext).pieceDetailContinue),
+          ),
+        ],
+      ),
+    );
+    return accepted ?? false;
+  }
+
+  Future<void> _showDenied(ImageSource source) {
+    final denied = CaptureDenied(source);
+    return showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(captureDeniedTitle(l10nOf(dialogContext), denied)),
+        content: Text(captureOutcomeCopy(l10nOf(dialogContext), denied)),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: Text(l10nOf(dialogContext).settingsClose),
+          ),
+          FilledButton(
+            key: const Key('photo-open-settings'),
+            onPressed: () async {
+              await ref.read(openAppSettingsProvider)();
+              if (dialogContext.mounted) {
+                Navigator.of(dialogContext).pop();
+              }
+            },
+            child: Text(l10nOf(dialogContext).pieceDetailOpenSettings),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showUnavailable() {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          captureOutcomeCopy(l10nOf(context), const CaptureUnavailable()),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _prepareAndUpload(XFile file) async {
+    Uint8List bytes;
+    try {
+      bytes = await file.readAsBytes();
+    } on Object {
+      // The picked file can vanish or be unreadable after the picker
+      // returns; surface it like any other prepare failure instead of
+      // escaping the press handler silently.
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            photoErrorCopy(
+              l10nOf(context),
+              const ProblemError(code: 'photo.read_failed'),
+            ),
+          ),
+        ),
+      );
+      return;
+    }
+    final contentType =
+        contentTypeForExtension(file.name.split('.').lastOrNull ?? '') ??
+        'image/jpeg';
+    // Background-isolate prepare (the UI thread stays free; the seam
+    // is synchronous in widget tests where isolates never complete).
+    final prepared = await ref.read(preparePhotoProvider)(
+      PrepareInput(bytes: bytes, contentType: contentType),
+    );
+    if (!mounted) return;
+    switch (prepared) {
+      case PrepareReady(:final bytes, :final contentType):
+        // Handled: failures surface via the command-error provider.
+        final uploadResult = await ref
+            .read(piecesControllerProvider(widget.season.id).notifier)
+            .uploadPhoto(
+              piece: _detail ?? widget.piece,
+              bytes: Uint8ListBytes(bytes),
+              contentType: contentType,
+            );
+        uploadResult.match<void>((_) {}, (_) {});
+        // A successful upload must re-read the enriched row: the gallery renders
+        // `_detail`, which still holds the pre-command snapshot (the overlay
+        // row is optimistic and the list refetch is bounded, not immediate).
+        // Only on success — a failed command must not rewrite what is shown.
+        if (uploadResult.isRight()) await _loadDetail();
+      case PrepareFailure(:final code):
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              photoErrorCopy(l10nOf(context), ProblemError(code: code)),
+            ),
+          ),
+        );
+    }
+  }
+
+  Future<void> _confirmDelete(String photoId) {
+    return showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(l10nOf(dialogContext).photoDeleteTitle),
+        content: Text(l10nOf(dialogContext).pieceDetailDeletePhotoMessage),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: Text(l10nOf(dialogContext).commonCancel),
+          ),
+          FilledButton(
+            key: Key('photo-delete-confirm-$photoId'),
+            onPressed: () async {
+              // Handled: failures surface via the command-error provider.
+              final deleteResult = await ref
+                  .read(piecesControllerProvider(widget.season.id).notifier)
+                  .deletePhoto(
+                    piece: _detail ?? widget.piece,
+                    photoId: photoId,
+                  );
+              deleteResult.match<void>((_) {}, (_) {});
+              // Close the dialog BEFORE the reload: _loadDetail awaits a network
+              // read, and while the dialog stays open the (still enabled) delete
+              // button could dispatch the same delete again — a failed second
+              // request would surface a command error although the first delete
+              // already succeeded. `_loadDetail` guards on the State's own
+              // `mounted`, so popping first is safe.
+              if (dialogContext.mounted) Navigator.of(dialogContext).pop();
+              // Same reason as the upload path: without this the DELETED photo
+              // stays visible in the gallery until the section is rebuilt,
+              // because `_detail` still holds the pre-delete row. The comment
+              // on `_detail` explains why a list snapshot cannot help here.
+              if (deleteResult.isRight()) await _loadDetail();
+            },
+            child: Text(l10nOf(dialogContext).commonDelete),
+          ),
+        ],
+      ),
+    );
+  }
+}

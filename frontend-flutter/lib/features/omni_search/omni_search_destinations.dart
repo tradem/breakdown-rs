@@ -12,7 +12,7 @@ import 'package:breakdown_api/breakdown_api.dart';
 import 'package:flutter/material.dart';
 
 import '../characters/role_extract_screen.dart';
-import '../costumes/costume_detail_screen.dart';
+import '../pieces/piece_detail_screen.dart';
 import '../scenes/scene_detail_screen.dart';
 import '../shooting_days/shooting_days_screen.dart';
 import '../shell/planning_location.dart';
@@ -48,10 +48,10 @@ Widget omniSearchDestinationScreen({
       season: season,
       characterId: character.id,
     ),
-  CostumeOmniHit(:final costume) =>
-    // The costume detail route — the costume detail/assignment context
-    // (the same seam `CostumeDetailScreen` documents for routed callers).
-    CostumeDetailScreen(season: season, pieceId: costume.id),
+  PieceOmniHit(:final piece) =>
+    // The piece detail route — the piece detail/assignment context
+    // (the same seam `PieceDetailScreen` documents for routed callers).
+    PieceDetailScreen(season: season, pieceId: piece.id),
   ShootingDayOmniHit(:final episode) =>
     // Schedule-view semantics: the parent episode's day board.
     ShootingDaysScreen(episode: episode, seasonId: season.id),
@@ -66,7 +66,7 @@ PlanningLocation omniSearchDestinationLocation(
   SceneOmniHit(:final scene, :final episode, :final block) =>
     PlanningLocation.scene(season, block, episode, scene),
   CharacterOmniHit() => PlanningLocation.season(season),
-  CostumeOmniHit() => PlanningLocation.season(season),
+  PieceOmniHit() => PlanningLocation.season(season),
   ShootingDayOmniHit(:final episode, :final block) => PlanningLocation.episode(
     season,
     block,

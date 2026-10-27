@@ -55,7 +55,7 @@ critical_files=(
   "soll_ist_report.feature"
   "soll_ist_execution.feature"
   "continuity_photo_capture.feature"
-  "costume_assignment.feature"
+  "outfit_casting.feature"
   "setup/season-wizard.feature"
 )
 

@@ -24,7 +24,7 @@ import '../../data/scene_shoot_repository.dart';
 import '../../domain/reconciliation/reconcile_coordinator.dart';
 import '../../domain/reconciliation/reconciliation_scheduler.dart';
 import '../../l10n/generated/app_localizations.dart';
-import '../costumes/costumes_controller.dart';
+import '../pieces/pieces_controller.dart';
 import 'scene_shoots_state.dart';
 
 part 'scene_shoots_controller.g.dart';
@@ -225,8 +225,8 @@ String sceneShootErrorCopy(AppLocalizations l10n, ProblemError error) =>
         // because the day was wrapped concurrently (other device /
         // projector lag). Same narrative as the wrapped board banner.
         l10n.sceneShootsWrappedBanner,
-      'photo.forbidden' || 'authz.denied' => l10n.costumeErrorForbidden,
-      'membership.pending' => l10n.costumeErrorMembership,
+      'photo.forbidden' || 'authz.denied' => l10n.pieceErrorForbidden,
+      'membership.pending' => l10n.pieceErrorMembership,
       'auth.session_required' => l10n.blocksCreateErrorSignIn,
       _ when error.code.startsWith('transport.') => l10n.sceneShootErrorNetwork,
       _ => l10n.sceneShootErrorGeneric(error.code),
@@ -649,9 +649,9 @@ class SceneShootsController extends _$SceneShootsController {
     );
   }
 
-  /// Uploads prepared continuity bytes to a season costume (raw bytes,
+  /// Uploads prepared continuity bytes to a season piece (raw bytes,
   /// content-type header) and returns the acknowledged photo for linking.
-  /// The photo lives on the costume (bytes are costume-scoped); the
+  /// The photo lives on the piece (bytes are piece-scoped); the
   /// caller binds it to the shoot via [linkContinuityPhoto]. The board
   /// reconciles through the link's refresh.
   ///
@@ -667,7 +667,7 @@ class SceneShootsController extends _$SceneShootsController {
     if (_deny(gate) != null) {
       return Left(ProblemError(code: (gate as GateDeny).code, status: 403));
     }
-    final repo = ref.read(costumePhotoRepositoryProvider);
+    final repo = ref.read(piecePhotoRepositoryProvider);
     final res = await repo.upload(pieceId, bytes, contentType);
     return res.match(
       (err) {
@@ -684,7 +684,7 @@ class SceneShootsController extends _$SceneShootsController {
   /// Client-side AUTHZ-GATE for continuity commands (link/list/unlink):
   /// the `upload_continuity_photos` capability is checked BEFORE any
   /// network call. Continuity photos stay **season-scoped** server-side
-  /// (issue #535: only the costume-photo policy moved to series level), so
+  /// (issue #535: only the piece-photo policy moved to series level), so
   /// this gate keeps the season DTO. A denial short-circuits with the
   /// localized 403 narrative and never issues the request (provable by a
   /// fake repo call count of zero).

@@ -5,7 +5,7 @@
 import 'package:uuid/uuid.dart';
 
 /// Generates a client-side UUIDv7 for wire payloads that require a caller-
-/// supplied, server-validated UUID (e.g. `CostumeDetail.id`).
+/// supplied, server-validated UUID (e.g. `PieceDetail.id`).
 ///
 /// The backend contract types such ids as `uuid` (required); serde rejects a
 /// non-UUID string before the handler runs (issue #472: the previous

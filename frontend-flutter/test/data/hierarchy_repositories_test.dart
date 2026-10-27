@@ -230,9 +230,9 @@ void main() {
     test('schema version is 14 with all projection tables', () async {
       final db = CacheDatabase(NativeDatabase.memory());
       addTearDown(db.close);
-      // `flutter-costume-domains` 1.1 adds the costumes/characters/
+      // `flutter-piece-domains` 1.1 adds the pieces/characters/
       // shooting_days tables (migration v2 → v3); the review follow-up
-      // adds the costume snapshot ordinal (migration v3 → v4);
+      // adds the piece snapshot ordinal (migration v3 → v4);
       // `flutter-shoot-day-execution` 1.2 adds the day-board scene-shoot
       // table (migration v4 → v5); `flutter-ai-import` 1.4 adds the
       // AI-import job table (migration v5 → v6); issue #423 relaxes the
@@ -241,10 +241,10 @@ void main() {
       // `redesign-app-shell-navigation` 2.2 adds the shell-state key-value
       // table (migration v7 → v8, persisted active-season reference);
       // issue #538 adds the scene provenance column (migration v8 → v9,
-      // guarded ADD COLUMN); issue #543 adds the costume-level category
+      // guarded ADD COLUMN); issue #543 adds the piece-level category
       // columns (migration v9 → v10, guarded ADD COLUMN); issue #533 adds
       // the season lifecycle flag (migration v10 → v11, guarded ADD
-      // COLUMN); issue #534 persists the costume repertoire (migration
+      // COLUMN); issue #534 persists the piece repertoire (migration
       // v11 → v12, guarded ADD COLUMN); issue #599 adds the `project_id`
       // columns mirroring the wire rename (migration v12 → v13, guarded ADD
       // COLUMN — additive by policy, never a destructive rename); issue

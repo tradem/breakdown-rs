@@ -108,30 +108,17 @@ void main() {
     },
   );
 
-  test(
-    'characters and costumes are season-scoped by their own tables',
-    () async {
-      await seedHierarchy(db, season: 'season-1', block: 'b1', episode: 'e1');
-      await seedCharacter(db, id: 'c1', seasonId: 'season-1', name: 'Zoe');
-      await seedCharacter(db, id: 'c2', seasonId: 'season-2', name: 'Zoe');
-      await seedCostume(
-        db,
-        season: 'season-1',
-        id: 'k1',
-        notes: 'Zoe Marineblau',
-      );
-      await seedCostume(
-        db,
-        season: 'season-2',
-        id: 'k2',
-        notes: 'Zoe Marineblau',
-      );
+  test('characters and pieces are season-scoped by their own tables', () async {
+    await seedHierarchy(db, season: 'season-1', block: 'b1', episode: 'e1');
+    await seedCharacter(db, id: 'c1', seasonId: 'season-1', name: 'Zoe');
+    await seedCharacter(db, id: 'c2', seasonId: 'season-2', name: 'Zoe');
+    await seedPiece(db, season: 'season-1', id: 'k1', notes: 'Zoe Marineblau');
+    await seedPiece(db, season: 'season-2', id: 'k2', notes: 'Zoe Marineblau');
 
-      final inputs = await readInputs(dao, freshClock);
-      expect(inputs.characters.map((h) => h.character.id), ['c1']);
-      expect(inputs.costumes.map((h) => h.costume.id), ['k1']);
-    },
-  );
+    final inputs = await readInputs(dao, freshClock);
+    expect(inputs.characters.map((h) => h.character.id), ['c1']);
+    expect(inputs.pieces.map((h) => h.piece.id), ['k1']);
+  });
 
   test(
     'cold vs. warm-empty: empty scope with no blocks is "no rows"',
@@ -142,7 +129,7 @@ void main() {
       expect(inputs.isEmpty, isTrue);
       expect(inputs.hasHierarchyRows, isFalse);
       expect(inputs.hasCharacterRows, isFalse);
-      expect(inputs.hasCostumeRows, isFalse);
+      expect(inputs.hasPieceRows, isFalse);
     },
   );
 
@@ -243,7 +230,7 @@ void main() {
   test('corrupt cache rows decode as Result Left(cache.read_failed) — never a throw', () async {
     // A corrupted stored JSON value throws FormatException at row mapping
     // — the DAO catches and decodes to the season-metrics convention's
-    // stable problem code (the same convention the costume repo's
+    // stable problem code (the same convention the piece repo's
     // readCached path documents for corrupt rows).
     await seedHierarchy(db, season: 'season-1', block: 'b1', episode: 'e1');
     await seedScene(
@@ -384,7 +371,7 @@ CharacterView _character({
     ..version = 1,
 );
 
-Future<void> seedCostume(
+Future<void> seedPiece(
   CacheDatabase db, {
   required String season,
   required String id,

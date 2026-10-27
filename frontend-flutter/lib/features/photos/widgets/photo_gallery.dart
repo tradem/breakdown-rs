@@ -10,11 +10,13 @@ import 'dart:collection';
 import 'dart:ui' as ui;
 
 import 'package:breakdown_api/breakdown_api.dart';
+import 'package:built_collection/built_collection.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/problem_error.dart';
+import '../../../core/result.dart';
 import '../../../data/photo_repository.dart';
 import '../../../l10n/app_localizations_provider.dart';
 import '../../../l10n/generated/app_localizations.dart';
@@ -63,6 +65,32 @@ class PhotoBytesLru {
 
 final photoBytesLruProvider = Provider<PhotoBytesLru>((_) => PhotoBytesLru());
 
+/// One photo rendered by the gallery: the id plus its variant set.
+///
+/// Both photo DTOs of the wardrobe split — [PiecePhotoView] (garment photos)
+/// and [OutfitPhotoView] (fitting photos) — carry exactly this shape, so the
+/// gallery works on this neutral row instead of forking per aggregate.
+class GalleryPhoto {
+  const GalleryPhoto({required this.id, required this.variants});
+
+  factory GalleryPhoto.fromPiece(PiecePhotoView photo) =>
+      GalleryPhoto(id: photo.id, variants: photo.variants);
+
+  factory GalleryPhoto.fromOutfit(OutfitPhotoView photo) =>
+      GalleryPhoto(id: photo.id, variants: photo.variants);
+
+  final String id;
+  final BuiltList<PhotoVariantView> variants;
+}
+
+/// Variant byte source for one owner (piece or outfit): the owning screen
+/// supplies the AUTHZ-GATE'd fetch, so the gallery never issues the gate
+/// itself and never knows which aggregate it renders.
+typedef PhotoVariantFetch = Future<Result<Uint8List>> Function(
+  String photoId,
+  String variant,
+);
+
 /// Repository-backed [ImageProvider] for one photo variant.
 ///
 /// Bytes come from [PhotoRepository.getBytes] (AUTHZ-GATE'd before the call
@@ -71,25 +99,31 @@ final photoBytesLruProvider = Provider<PhotoBytesLru>((_) => PhotoBytesLru());
 /// path (large images never jank the grid).
 class PhotoVariantImage extends ImageProvider<PhotoVariantImageKey> {
   const PhotoVariantImage({
-    required this.pieceId,
-    required this.photo,
+    required this.ownerId,
+    required this.photoId,
     required this.variant,
-    required this.repository,
+    required this.fetch,
     required this.lru,
     this.scale = 1.0,
   });
 
-  final String pieceId;
-  final PiecePhotoView photo;
+  /// The owning aggregate id (piece or outfit — the fetch is already bound).
+  final String ownerId;
+  final String photoId;
   final String variant;
-  final PhotoRepository repository;
+  final PhotoVariantFetch fetch;
   final PhotoBytesLru lru;
   final double scale;
 
   @override
   Future<PhotoVariantImageKey> obtainKey(ImageConfiguration configuration) =>
       SynchronousFuture(
-        PhotoVariantImageKey(photo.id, variant, configuration.devicePixelRatio),
+        PhotoVariantImageKey(
+          ownerId,
+          photoId,
+          variant,
+          configuration.devicePixelRatio,
+        ),
       );
   @override
   ImageStreamCompleter loadImage(
@@ -101,7 +135,7 @@ class PhotoVariantImage extends ImageProvider<PhotoVariantImageKey> {
       chunkEvents: chunkEvents.stream,
       codec: _loadBytes(key, chunkEvents, decode),
       scale: key.scale,
-      debugLabel: 'PhotoVariantImage(${photo.id}@$variant)',
+      debugLabel: 'PhotoVariantImage($photoId@$variant)',
     );
   }
 
@@ -113,7 +147,7 @@ class PhotoVariantImage extends ImageProvider<PhotoVariantImageKey> {
     final bytes = await _resolveBytes();
     await chunkEvents.close();
     if (bytes == null) {
-      throw StateError('photo.bytes_failed:${photo.id}@$variant');
+      throw StateError('photo.bytes_failed:$photoId@$variant');
     }
     return decode(await ui.ImmutableBuffer.fromUint8List(bytes));
   }
@@ -122,13 +156,13 @@ class PhotoVariantImage extends ImageProvider<PhotoVariantImageKey> {
   /// Returns `null` when the fetch fails (errors are values upstream — the
   /// image layer surfaces a broken-image icon via `errorBuilder`).
   Future<Uint8List?> _resolveBytes() async {
-    final cached = lru.get(photo.id, variant);
+    final cached = lru.get(photoId, variant);
     if (cached != null) return cached;
-    // `getBytes` never throws (failures are `Result` values, never
+    // The fetch never throws (failures are `Result` values, never
     // exceptions) — the match below exhaustively handles both branches.
-    final result = await repository.getBytes(pieceId, photo.id, variant);
+    final result = await fetch(photoId, variant);
     return result.match((_) => null, (b) {
-      lru.put(photo.id, variant, b);
+      lru.put(photoId, variant, b);
       return b;
     });
   }
@@ -136,8 +170,15 @@ class PhotoVariantImage extends ImageProvider<PhotoVariantImageKey> {
 
 @immutable
 class PhotoVariantImageKey {
-  const PhotoVariantImageKey(this.photoId, this.variant, this.pixelRatio);
+  const PhotoVariantImageKey(
+    this.ownerId,
+    this.photoId,
+    this.variant,
+    this.pixelRatio,
+  );
 
+  /// Owner id first: two aggregates cannot collide in Flutter's image cache.
+  final String ownerId;
   final String photoId;
   final String variant;
   final double? pixelRatio;
@@ -148,11 +189,12 @@ class PhotoVariantImageKey {
   bool operator ==(Object other) =>
       identical(this, other) ||
       other is PhotoVariantImageKey &&
+          other.ownerId == ownerId &&
           other.photoId == photoId &&
           other.variant == variant;
 
   @override
-  int get hashCode => Object.hash(photoId, variant);
+  int get hashCode => Object.hash(ownerId, photoId, variant);
 }
 
 /// Grid columns for the photo gallery by width class (token breakpoints):
@@ -169,7 +211,7 @@ int photoGridColumns(double width) {
 /// the spinner state; all `Ready` shows nothing).
 enum PhotoRowStatus { ready, pending, failed }
 
-PhotoRowStatus photoRowStatus(PiecePhotoView photo) {
+PhotoRowStatus photoRowStatus(GalleryPhoto photo) {
   // No variants yet (upload ack racing the saga): still processing, like
   // Pending — consistent with `isPhotoWatchTerminal`, which only ends
   // the pass once every variant is terminal.
@@ -192,8 +234,9 @@ PhotoRowStatus photoRowStatus(PiecePhotoView photo) {
 class PhotoGallery extends StatelessWidget {
   const PhotoGallery({
     super.key,
-    required this.costume,
-    required this.repository,
+    required this.ownerId,
+    required this.photos,
+    required this.fetch,
     required this.lru,
     this.canCapture = false,
     this.onCapture,
@@ -201,12 +244,16 @@ class PhotoGallery extends StatelessWidget {
     this.onRetryCapture,
   });
 
-  /// The costume whose `photos` projection renders (read-DTO snapshots).
-  final PieceView costume;
+  /// The owning aggregate id (piece or outfit) whose `photos` projection
+  /// renders (read-DTO snapshots).
+  final String ownerId;
 
-  /// Bytes-fetch backend (the screen gates via `// AUTHZ-GATE:` before
-  /// constructing this — the gallery itself never issues the gate).
-  final PhotoRepository repository;
+  /// The owner's photos, mapped onto the aggregate-neutral [GalleryPhoto].
+  final List<GalleryPhoto> photos;
+
+  /// Bytes-fetch backend, already bound to the owner's route and gated via
+  /// `// AUTHZ-GATE:` by the screen — the gallery never issues the gate.
+  final PhotoVariantFetch fetch;
   final PhotoBytesLru lru;
 
   /// Whether the (gated) capture affordance renders.
@@ -214,7 +261,7 @@ class PhotoGallery extends StatelessWidget {
   final VoidCallback? onCapture;
 
   /// Delete (the screen confirms first — no destructive dark pattern).
-  final void Function(PiecePhotoView photo)? onDelete;
+  final void Function(GalleryPhoto photo)? onDelete;
 
   /// Capture-again affordance for `Failed` variants (there is no
   /// variant-retry command — a new capture is picked).
@@ -222,10 +269,9 @@ class PhotoGallery extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final photos = costume.photos.toList();
     if (photos.isEmpty) {
       return _EmptyGallery(
-        pieceId: costume.id,
+        ownerId: ownerId,
         canCapture: canCapture,
         onCapture: onCapture,
       );
@@ -234,7 +280,7 @@ class PhotoGallery extends StatelessWidget {
       builder: (context, constraints) {
         final columns = photoGridColumns(constraints.maxWidth);
         return GridView.builder(
-          key: Key('photo-gallery-${costume.id}'),
+          key: Key('photo-gallery-$ownerId'),
           shrinkWrap: true,
           physics: const NeverScrollableScrollPhysics(),
           gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
@@ -246,9 +292,9 @@ class PhotoGallery extends StatelessWidget {
           itemBuilder: (context, i) {
             final photo = photos[i];
             return PhotoTile(
-              pieceId: costume.id,
+              ownerId: ownerId,
               photo: photo,
-              repository: repository,
+              fetch: fetch,
               lru: lru,
               onDelete: onDelete == null ? null : () => onDelete!(photo),
               onRetryCapture: onRetryCapture,
@@ -262,12 +308,12 @@ class PhotoGallery extends StatelessWidget {
 
 class _EmptyGallery extends StatelessWidget {
   const _EmptyGallery({
-    required this.pieceId,
+    required this.ownerId,
     required this.canCapture,
     this.onCapture,
   });
 
-  final String pieceId;
+  final String ownerId;
   final bool canCapture;
   final VoidCallback? onCapture;
 
@@ -282,12 +328,12 @@ class _EmptyGallery extends StatelessWidget {
         // photos (spec flutter-photos-feature).
         Text(
           l10nOf(context).photoGalleryEmpty,
-          key: Key('photo-gallery-empty-$pieceId'),
+          key: Key('photo-gallery-empty-$ownerId'),
         ),
         if (canCapture && onCapture != null) ...[
           const SizedBox(height: 8),
           FilledButton.tonal(
-            key: Key('photo-capture-$pieceId'),
+            key: Key('photo-capture-$ownerId'),
             onPressed: onCapture,
             child: Text(l10nOf(context).photoGalleryAddPhoto),
           ),
@@ -302,17 +348,17 @@ class _EmptyGallery extends StatelessWidget {
 class PhotoTile extends StatelessWidget {
   const PhotoTile({
     super.key,
-    required this.pieceId,
+    required this.ownerId,
     required this.photo,
-    required this.repository,
+    required this.fetch,
     required this.lru,
     this.onDelete,
     this.onRetryCapture,
   });
 
-  final String pieceId;
-  final PiecePhotoView photo;
-  final PhotoRepository repository;
+  final String ownerId;
+  final GalleryPhoto photo;
+  final PhotoVariantFetch fetch;
   final PhotoBytesLru lru;
   final VoidCallback? onDelete;
   final VoidCallback? onRetryCapture;
@@ -321,8 +367,8 @@ class PhotoTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final status = photoRowStatus(photo);
     return Semantics(
-      // Semantic label carries "photo of costume X" (spec §5).
-      label: l10nOf(context).photoTileSemantics(pieceId),
+      // Semantic label carries "photo of piece X" (spec §5).
+      label: l10nOf(context).photoTileSemantics(ownerId),
       child: Card(
         key: Key('photo-tile-${photo.id}'),
         clipBehavior: Clip.antiAlias,
@@ -333,10 +379,10 @@ class PhotoTile extends StatelessWidget {
               PhotoRowStatus.ready => Image(
                 key: Key('photo-thumb-${photo.id}'),
                 image: PhotoVariantImage(
-                  pieceId: pieceId,
-                  photo: photo,
+                  ownerId: ownerId,
+                  photoId: photo.id,
                   variant: 'Thumb',
-                  repository: repository,
+                  fetch: fetch,
                   lru: lru,
                 ),
                 fit: BoxFit.cover,
@@ -421,17 +467,13 @@ class _StatusChip extends StatelessWidget {
 /// `code` (never `detail` text).
 String photoErrorCopy(AppLocalizations l10n, ProblemError error) =>
     switch (error.code) {
-      // Client-side AUTHZ-GATE mirror denial (issue #513): the backend
-      // resolves the photo season through the costume's character; the
-      // client refuses upload/delete on an unassigned costume before any
-      // network call.
-      'photo.requires_character' => l10n.photoErrorRequiresCharacter,
       'photo.too_large' => l10n.photoErrorTooLarge,
       'photo.unsupported_media_type' => l10n.photoErrorUnsupported,
       'photo.forbidden' || 'authz.denied' => l10n.photoErrorForbidden,
-      // Issue #535: the costume's owning series could not be resolved (no
-      // character, no repertoire) — the server answers 422 with this code.
-      'costume.container-unresolved' => l10n.photoErrorContainerUnresolved,
+      // Issue #535: the piece's owning series could not be resolved (no
+      // repertoire entry, no outfit referencing it) — the server answers 422
+      // with this code.
+      'piece.container-unresolved' => l10n.photoErrorContainerUnresolved,
       _ when error.code.startsWith('transport.') => l10n.photoErrorNetwork,
       _ => l10n.photoErrorGeneric(error.code),
     };

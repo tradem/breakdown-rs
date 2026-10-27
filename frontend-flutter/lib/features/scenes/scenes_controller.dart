@@ -404,9 +404,9 @@ class ScenesController extends _$ScenesController {
     }
   }
 
-  /// Client-side AUTHZ-GATE for scene costume-beat commands (issue #546):
+  /// Client-side AUTHZ-GATE for scene piece-beat commands (issue #546):
   /// the backend classifies these routes under the same season-scoped
-  /// costume-assign story as the costume-assign surface — the client
+  /// piece-assign story as the piece-assign surface — the client
   /// mirrors `checkAssignCapability` BEFORE any network call. A denial
   /// short-circuits with the localized 403 narrative and never issues the
   /// request (provable by a fake repo call count of zero).
@@ -438,7 +438,7 @@ class ScenesController extends _$ScenesController {
   }
 
   /// Resolves the freshest scene version at command time (version fence,
-  /// mirrors the costume controller's `_resolveVersion`): a write must echo
+  /// mirrors the piece controller's `_resolveVersion`): a write must echo
   /// the version the server aggregate currently holds — NEVER the
   /// screen-captured snapshot, which can lag the acknowledged state.
   /// Sources, freshest known first: this client's beat-overlay ack, the
@@ -487,12 +487,12 @@ class ScenesController extends _$ScenesController {
     return beats;
   }
 
-  /// Adds a costume beat (issue #546). The aggregate computes the dense
+  /// Adds a piece beat (issue #546). The aggregate computes the dense
   /// zero-based order; the optimistic overlay appends at the next index
   /// for the character (display-only until the projection reconciles).
   ///
   /// // AUTHZ-GATE: `assign_costumes` capability checked before any network
-  /// call — the backend routes ride the same season-scoped costume story.
+  /// call — the backend routes ride the same season-scoped piece story.
   Future<Result<int>> addOutfitBeat({
     required String seasonId,
     required SceneView scene,
@@ -562,7 +562,7 @@ class ScenesController extends _$ScenesController {
     );
   }
 
-  /// Updates a costume beat's costume/note (`PATCH`).
+  /// Updates a piece beat's piece/note (`PATCH`).
   ///
   /// // AUTHZ-GATE: `assign_costumes` capability checked before any network
   /// call.
@@ -629,7 +629,7 @@ class ScenesController extends _$ScenesController {
     );
   }
 
-  /// Removes one costume beat (`DELETE …/{order}`).
+  /// Removes one piece beat (`DELETE …/{order}`).
   ///
   /// // AUTHZ-GATE: `assign_costumes` capability checked before any network
   /// call.
@@ -676,8 +676,8 @@ class ScenesController extends _$ScenesController {
     );
   }
 
-  /// Clears ALL costume beats of a character
-  /// (`DELETE …/costumes/{character_id}` = "no costume in this scene").
+  /// Clears ALL piece beats of a character
+  /// (`DELETE …/pieces/{character_id}` = "no piece in this scene").
   ///
   /// // AUTHZ-GATE: `assign_costumes` capability checked before any network
   /// call.
@@ -741,7 +741,7 @@ class ScenesController extends _$ScenesController {
   }
 }
 
-/// Localized client-side copy for scene costume-beat command failures,
+/// Localized client-side copy for scene piece-beat command failures,
 /// keyed on the stable problem `code` (never the server's localized
 /// `detail`) — issue #546.
 String sceneBeatErrorCopy(AppLocalizations l10n, ProblemError error) =>
@@ -755,9 +755,9 @@ String sceneBeatErrorCopy(AppLocalizations l10n, ProblemError error) =>
       // Capability denial: the user is SIGNED IN but lacks the
       // `assign_costumes` capability — the forbidden narrative, never the
       // sign-in copy.
-      'costume.forbidden' => l10n.costumeErrorForbidden,
+      'piece.forbidden' => l10n.pieceErrorForbidden,
       // Membership could not be resolved (pending / fetch failure).
-      'membership.pending' => l10n.costumeErrorMembership,
+      'membership.pending' => l10n.pieceErrorMembership,
       'authz.denied' || 'auth.session_required' => l10n.blocksCreateErrorSignIn,
       _ when error.code.startsWith('transport.') => l10n.sceneBeatErrorNetwork,
       _ => l10n.sceneBeatErrorGeneric(error.code),

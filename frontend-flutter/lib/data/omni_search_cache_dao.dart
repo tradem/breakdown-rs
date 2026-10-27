@@ -30,7 +30,7 @@ import 'cache/hierarchy_cache_dao.dart';
 ///   pure Dart (`name_prefilter.dart` / `omni_search_matcher.dart`),
 ///   table-testable in Tier 1, so a later SQL-side port or a backend search
 ///   route can replace the execution WITHOUT touching the field contract.
-/// At domain scale (≈ 40 scenes and dozens of characters/costumes/days per
+/// At domain scale (≈ 40 scenes and dozens of characters/pieces/days per
 /// season) single-digit-ms Dart filtering is trivially fast (verified in
 /// the matcher tests).
 ///
@@ -56,7 +56,7 @@ class OmniSearchDao {
 
   /// Assembles the complete cached search universe of ONE active season.
   ///
-  /// Season scoping (task §2.3): characters and costumes are read from
+  /// Season scoping (task §2.3): characters and pieces are read from
   /// their own per-season tables; scenes and shooting days are scoped by
   /// the block-episode join — cross-season rows CANNOT leak because the
   /// join root is `block.season_id` (regression-tested).
@@ -69,7 +69,7 @@ class OmniSearchDao {
       final blockRows = await _blockDao.readBySeason(seasonId);
       final characterFresh = await CharacterCacheDao(_db)
           .readBySeasonFresh(seasonId, ttl: ttl, clock: clock);
-      final costumeFresh = await PieceCacheDao(_db)
+      final pieceFresh = await PieceCacheDao(_db)
           .readBySeasonFresh(seasonId, ttl: ttl, clock: clock);
 
       final sceneComposed = await _sceneDao.readBySeasonComposed(
@@ -89,9 +89,7 @@ class OmniSearchDao {
         characters: [
           for (final c in characterFresh.rows) CharacterOmniHit(character: c),
         ],
-        costumes: [
-          for (final c in costumeFresh.rows) CostumeOmniHit(costume: c),
-        ],
+        pieces: [for (final c in pieceFresh.rows) PieceOmniHit(piece: c)],
         shootingDays: [
           for (final (day, episode, block) in dayComposed.rows)
             ShootingDayOmniHit(day: day, episode: episode, block: block),
@@ -106,8 +104,8 @@ class OmniSearchDao {
             stale: characterFresh.stale,
           ),
           OmniSearchFacetState(
-            facet: OmniSearchFacet.costume,
-            stale: costumeFresh.stale,
+            facet: OmniSearchFacet.piece,
+            stale: pieceFresh.stale,
           ),
           OmniSearchFacetState(
             facet: OmniSearchFacet.shootingDay,
@@ -116,7 +114,7 @@ class OmniSearchDao {
         ],
         hasHierarchyRows: blockRows.isNotEmpty,
         hasCharacterRows: characterFresh.rows.isNotEmpty,
-        hasCostumeRows: costumeFresh.rows.isNotEmpty,
+        hasPieceRows: pieceFresh.rows.isNotEmpty,
       );
       return Right(inputs);
     } on Object catch (e) {

@@ -29,7 +29,7 @@ import '../../auth/season_membership_provider.dart';
 import '../blocks/blocks_controller.dart';
 import '../characters/characters_controller.dart';
 import '../costume_categories/costume_categories_controller.dart';
-import '../costumes/costumes_controller.dart';
+import '../pieces/pieces_controller.dart';
 import '../episodes/episodes_controller.dart';
 import '../scenes/scenes_controller.dart';
 import '../seasons/seasons_controller.dart';
@@ -283,7 +283,7 @@ class SessionReset extends Notifier<void> {
   /// retained snapshot rows). The hierarchy families
   /// (`flutter-hierarchy-navigation`) reset alongside the seasons scope so
   /// no cross-identity rows, overlays, or membership reads survive. The
-  /// costume-domain families (`flutter-costume-domains`: costumes,
+  /// piece-domain families (`flutter-piece-domains`: pieces,
   /// characters, shooting days) reset for the same reason — their keepAlive
   /// `*PrevRows` would otherwise serve the previous session's rows after a
   /// failed refetch (the empty-cache branch preserves nonempty state).
@@ -323,11 +323,11 @@ class SessionReset extends Notifier<void> {
       ..invalidate(costumeCategoriesCommandErrorProvider)
       ..invalidate(costumeCategoriesShowArchivedProvider)
       ..invalidate(piecesControllerProvider)
-      ..invalidate(costumesViewControllerProvider)
-      ..invalidate(costumesListFetchProvider)
-      ..invalidate(costumesPrevRowsProvider)
-      ..invalidate(costumesOverlaysProvider)
-      ..invalidate(costumesCommandErrorProvider)
+      ..invalidate(piecesViewControllerProvider)
+      ..invalidate(piecesListFetchProvider)
+      ..invalidate(piecesPrevRowsProvider)
+      ..invalidate(piecesOverlaysProvider)
+      ..invalidate(piecesCommandErrorProvider)
       ..invalidate(charactersControllerProvider)
       ..invalidate(charactersViewControllerProvider)
       ..invalidate(charactersListFetchProvider)

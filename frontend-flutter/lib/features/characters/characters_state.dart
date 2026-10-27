@@ -127,7 +127,7 @@ class CharactersScreenState {
     ];
   }
 
-  /// Name lookup for the costume assign picker + scene binding (read-DTO
+  /// Name lookup for the piece assign picker + scene binding (read-DTO
   /// join — never aggregate reconstruction).
   Map<String, String> get namesById => {
     for (final c in cachedRows) c.id: c.name,

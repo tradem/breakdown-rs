@@ -1,0 +1,943 @@
+// SPDX-License-Identifier: AGPL-3.0
+// Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: space-bunny-free (opencode-go)
+// Co-authored-by: muse-spark-1.3-contributor (opencode-go)
+// Co-authored-by: deepseek-v4-flash (neuralwatt)
+// Co-authored-by: glm-5.3-flash (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
+
+// Tier-2 widget + controller tests for `PiecesScreen` (Task 4.3):
+// data/empty/error/stale/overlay states (semantic finders, never `byType`
+// alone), create (named-shell contract + overlay), rename/notes version
+// fence, 409 conflict copy, role-denial with request-counter proof, and
+// goldens {light,dark}×{android,macos}.
+
+import 'package:breakdown_api/breakdown_api.dart';
+import 'package:built_collection/built_collection.dart';
+import 'package:drift/native.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:fpdart/fpdart.dart';
+
+import 'package:frontend_flutter/auth/active_block_store.dart';
+import 'package:frontend_flutter/auth/auth_providers.dart';
+import 'package:frontend_flutter/auth/membership/membership_providers.dart';
+import 'package:frontend_flutter/core/problem_error.dart';
+import 'package:frontend_flutter/core/result.dart';
+import 'package:frontend_flutter/l10n/generated/app_localizations_en.dart';
+import 'package:frontend_flutter/data/cache/cache_database.dart';
+import 'package:frontend_flutter/data/cache/clock.dart';
+import 'package:frontend_flutter/data/cache/piece_domains_cache_dao.dart';
+import 'package:frontend_flutter/data/cache/seasons_cache_providers.dart';
+import 'package:frontend_flutter/data/character_repository.dart';
+import 'package:frontend_flutter/data/cache/season_cache_dao.dart';
+import 'package:frontend_flutter/data/season_repository.dart';
+import 'package:frontend_flutter/data/piece_repository.dart';
+import 'package:frontend_flutter/domain/reconciliation/reconciliation_scheduler.dart';
+import 'package:frontend_flutter/features/blocks/blocks_controller.dart';
+import 'package:frontend_flutter/features/characters/characters_controller.dart';
+import 'package:frontend_flutter/features/pieces/pieces_controller.dart';
+import 'package:frontend_flutter/features/pieces/pieces_screen.dart';
+import 'package:frontend_flutter/features/pieces/pieces_state.dart';
+
+import '../seasons/seasons_test_fakes.dart';
+
+const _networkDown = ProblemError(code: 'transport.connectionError');
+const _conflict = ProblemError(
+  code: 'concurrency.version-mismatch',
+  status: 409,
+);
+const _validation422 = ProblemError(code: 'domain.validation', status: 422);
+
+/// RFC-9562 UUIDv7 (version nibble 7, variant nibble 8-9-a-b). Used to assert
+/// the wire `detail.id` is a real UUID, never the old `'pending'` placeholder.
+final _uuidV7 = RegExp(
+  r'^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$',
+);
+
+PieceView _piece(
+  String id, {
+  int version = 1,
+  String name = 'Fundus-Piece',
+  String notes = '',
+  String? categoryName,
+  List<PieceDetailView> details = const [],
+  List<PiecePhotoView> photos = const [],
+}) => PieceView(
+  (b) => b
+    ..name = name
+    ..id = id
+    ..notes = notes.isEmpty ? 'Kleidungsstück $id' : notes
+    // Issue #543: the category is a COSTUME-level field.
+    ..categoryName = categoryName
+    ..details.replace(BuiltList<PieceDetailView>(details))
+    ..photos.replace(BuiltList<PiecePhotoView>(photos))
+    ..updatedAt = DateTime.utc(2026, 1, 1)
+    ..version = version,
+);
+
+SeasonView _season() => SeasonView(
+  (b) => b
+    ..archived = false
+    ..id = 'season-1'
+    ..number = 1
+    ..projectId = 'series-1'
+    ..title = 'Season One'
+    ..updatedAt = DateTime.utc(2026, 1, 1)
+    ..version = 1,
+);
+
+/// Single-block season for the active-block gate (issue #378): the gate
+/// auto-resolves silently, so these tests exercise content, not scoping.
+BlockView _block() => BlockView(
+  (b) => b
+    ..id = 'block-1'
+    ..number = 1
+    ..seasonId = 'season-1'
+    ..projectId = 'series-1'
+    ..startDate = '2026-01-01'
+    ..endDate = '2026-01-31'
+    ..updatedAt = DateTime.utc(2026, 1, 1)
+    ..version = 1,
+);
+
+SeasonMembershipDto _membership(List<String> caps) => SeasonMembershipDto(
+  (b) => b
+    ..seasonId = 'season-1'
+    ..hasActiveCostumeRoleInSeason = caps.isNotEmpty
+    ..capabilities.replace(caps),
+);
+
+/// The series-level membership the piece-photo gate reads (issue #535).
+SeriesMembershipDto _seriesMembership(bool hasRole) => SeriesMembershipDto(
+  (b) => b
+    ..projectId = 'series-1'
+    ..hasActiveCostumeRoleInSeries = hasRole
+    ..capabilities.replace(const <String>[]),
+);
+
+class _FakePieceRepository extends PieceRepository {
+  _FakePieceRepository(super.api, super.cache);
+
+  Result<IdVersionResponse>? nextCreate;
+  Result<int>? nextWrite;
+  int listCalls = 0;
+  int createCalls = 0;
+  int? lastNotesVersion;
+  AddPieceDetailRequest? lastAddDetailRequest;
+  // Issue #544: the detail edit/delete seam. The call counters back the
+  // AUTHZ-GATE assertion (a denied caller must issue ZERO requests).
+  UpdatePieceDetailRequest? lastUpdateDetailRequest;
+  String? lastUpdateDetailId;
+  String? lastRemoveDetailId;
+  VersionRequest? lastRemoveDetailRequest;
+  int updateDetailCalls = 0;
+  int removeDetailCalls = 0;
+
+  /// Scripted single-piece DETAIL for `getAndCache`, and how often the screen
+  /// asked for it. The detail screen fetches the enriched single row on open
+  /// and after gallery-affecting commands, because the rendered row may be an
+  /// optimistic overlay the last snapshot cannot reflect. Without this
+  /// override the fake falls through to
+  /// the REAL Dio client: the request never settles under `testWidgets`, and the
+  /// socket timer is still pending at teardown — the exact reason
+  /// `selecting a tile opens the editor on the first screen` failed.
+  Result<PieceView>? detailResult;
+  int detailCalls = 0;
+
+  @override
+  Future<Result<PieceView>> getAndCache(
+    String seasonId,
+    String id, {
+    Clock clock = Clock.system,
+  }) {
+    detailCalls++;
+    return Future.value(
+      // UNSCRIPTED = the read failed, so the screen keeps the list row it was
+      // handed (the documented fallback). Returning a photo-less enriched row
+      // would REPLACE a list row that carries photos and empty the gallery.
+      detailResult ??
+          const Left(
+            ProblemError(code: 'piece.detail-not-scripted', status: 500),
+          ),
+    );
+  }
+
+  @override
+  Future<Result<IdVersionResponse>> create({
+    required String name,
+    String? seasonId,
+    String? categoryId,
+  }) {
+    createCalls++;
+    final scripted = nextCreate;
+    if (scripted != null) return Future.value(scripted);
+    return Future.value(
+      Right<ProblemError, IdVersionResponse>(
+        IdVersionResponse(
+          (b) => b
+            ..id = 'c-new-$createCalls'
+            ..version = 1,
+        ),
+      ),
+    );
+  }
+
+  @override
+  @override
+  @override
+  Future<Result<int>> updateNotes(String id, UpdatePieceNotesRequest request) {
+    lastNotesVersion = request.version;
+    final scripted = nextWrite;
+    if (scripted != null) return Future.value(scripted);
+    return Future.value(const Right<ProblemError, int>(2));
+  }
+
+  @override
+  Future<Result<int>> addDetail(String id, AddPieceDetailRequest request) {
+    lastAddDetailRequest = request;
+    final scripted = nextWrite;
+    if (scripted != null) return Future.value(scripted);
+    return Future.value(const Right<ProblemError, int>(2));
+  }
+
+  @override
+  Future<Result<int>> updateDetail(
+    String id,
+    String detailId,
+    UpdatePieceDetailRequest request,
+  ) {
+    updateDetailCalls++;
+    lastUpdateDetailId = detailId;
+    lastUpdateDetailRequest = request;
+    final scripted = nextWrite;
+    if (scripted != null) return Future.value(scripted);
+    return Future.value(const Right<ProblemError, int>(2));
+  }
+
+  @override
+  Future<Result<int>> removeDetail(
+    String id,
+    String detailId,
+    VersionRequest request,
+  ) {
+    removeDetailCalls++;
+    lastRemoveDetailId = detailId;
+    lastRemoveDetailRequest = request;
+    final scripted = nextWrite;
+    if (scripted != null) return Future.value(scripted);
+    return Future.value(const Right<ProblemError, int>(2));
+  }
+}
+
+/// Pumps a bounded number of frames (never `pumpAndSettle` while an
+/// indeterminate spinner may be on screen).
+Future<void> _pumpFrames(WidgetTester tester, {int n = 6}) async {
+  for (var i = 0; i < n; i++) {
+    await tester.pump(const Duration(milliseconds: 10));
+  }
+}
+
+void main() {
+  late CacheDatabase db;
+  late _FakePieceRepository repo;
+  late ValueNotifier<Result<List<PieceView>>> holder;
+  late ValueNotifier<Result<SeasonMembershipDto>> membershipHolder;
+  late ValueNotifier<Result<SeriesMembershipDto>> seriesMembershipHolder;
+  late ManualReconciliationScheduler scheduler;
+  late ProviderContainer container;
+  int listFetchCalls = 0;
+
+  Future<void> setupContainer({
+    List<PieceView> initialRows = const [],
+    Result<List<PieceView>>? initialFetch,
+    List<String> capabilities = const ['assign_costumes'],
+    List<CharacterView> characters = const [],
+  }) async {
+    db = CacheDatabase(NativeDatabase.memory());
+    addTearDown(db.close);
+    listFetchCalls = 0;
+    repo = _FakePieceRepository(BreakdownApi(), PieceCacheDao(db));
+    holder = ValueNotifier<Result<List<PieceView>>>(
+      initialFetch ?? Right(initialRows),
+    );
+    membershipHolder = ValueNotifier<Result<SeasonMembershipDto>>(
+      Right(_membership(capabilities)),
+    );
+    seriesMembershipHolder = ValueNotifier<Result<SeriesMembershipDto>>(
+      // Issue #535 test parity: the series photo gate is permissive exactly
+      // when the season capability set carried the photo capability.
+      Right(
+        _seriesMembership(capabilities.contains('upload_continuity_photos')),
+      ),
+    );
+    scheduler = ManualReconciliationScheduler();
+    container = ProviderContainer(
+      overrides: [
+        appConfigProvider.overrideWithValue(devAuthConfig),
+        cacheDatabaseProvider.overrideWithValue(db),
+        pieceRepositoryProvider.overrideWithValue(repo),
+        reconciliationSchedulerProvider.overrideWith((ref) => scheduler),
+        // Issue #378: season-direct entry resolves its block scope through
+        // the blocks seam (single block → silent auto-pick).
+        blocksListFetchProvider('season-1').overrideWith(
+          (ref) async => Right<ProblemError, List<BlockView>>([_block()]),
+        ),
+        // Issue #382: the persisted per-season scopes live in secure
+        // storage, whose real method channel never settles under
+        // `testWidgets` — pin the seam to "nothing remembered" (the
+        // restore/stale paths are covered in `active_block_gate_test`).
+        activeBlockPersistedProvider.overrideWith(
+          (ref) async => <String, PersistedBlockScope>{},
+        ),
+        membershipFetchProvider('season-1')
+            .overrideWith((ref) async => membershipHolder.value),
+        // Family-level override (issue #535 review): the piece-keyed series
+        // gate answers from the holder — this file does not exercise the
+        // photo gate, so the value only exists for fixture parity.
+        seriesMembershipForCostumeProvider.overrideWith(
+          (ref, piece) async => seriesMembershipHolder.value,
+        ),
+        characterRepositoryProvider.overrideWithValue(
+          CharacterRepository(BreakdownApi(), CharacterCacheDao(db)),
+        ),
+        charactersListFetchProvider('season-1')
+            .overrideWith((ref) async => Right(characters)),
+        // Issue #534: the piece editor's repertoire section reads the
+        // seasons projection — keep it off the production seam.
+        seasonRepositoryProvider.overrideWithValue(
+          SeasonRepository(BreakdownApi(), SeasonCacheDao(db)),
+        ),
+        seasonsListFetchProvider.overrideWith((ref) async => const Right([])),
+        piecesListFetchProvider('season-1').overrideWith((ref) async {
+          // Issue #544: a reconcile is only observable through this seam, so
+          // count it — a 404 `piece-detail.not-found` must resync the list.
+          listFetchCalls++;
+          final dao = PieceCacheDao(ref.watch(cacheDatabaseProvider));
+          return holder.value.match(
+            (err) => Left<ProblemError, List<PieceView>>(err),
+            (rows) async {
+              await dao.applySnapshotForSeason(
+                'season-1',
+                rows,
+                DateTime.utc(2026, 1, 1),
+              );
+              return Right<ProblemError, List<PieceView>>(rows);
+            },
+          );
+        }),
+      ],
+    );
+    addTearDown(container.dispose);
+    await container.read(authSessionControllerProvider.notifier).signIn();
+  }
+
+  Future<void> pumpScreen(WidgetTester tester) async {
+    tester.view.physicalSize = const Size(800, 1200);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp(home: PiecesScreen(season: _season())),
+      ),
+    );
+    await tester.pumpAndSettle();
+  }
+
+  group('PiecesScreen states (4.3, semantic finders)', () {
+    testWidgets('tile surfaces identity, category icon, and placeholder', (
+      tester,
+    ) async {
+      await setupContainer(
+        initialRows: [
+          _piece(
+            'c-1',
+            // The piece's required `name` is the authoritative tile label.
+            name: 'Rote Lederjacke',
+            categoryName: 'Jacke',
+            details: [
+              PieceDetailView(
+                (b) => b
+                  ..id = 'detail-1'
+                  ..subject = 'Rote Lederjacke'
+                  ..text = 'Aus roter Lederware',
+              ),
+            ],
+          ),
+        ],
+      );
+      await pumpScreen(tester);
+      expect(find.byKey(const Key('piece-name-c-1')), findsOneWidget);
+      expect(find.text('Rote Lederjacke'), findsOneWidget);
+      expect(find.text('Jacke'), findsOneWidget);
+      expect(find.byKey(const Key('piece-category-icon-c-1')), findsOneWidget);
+      expect(find.byKey(const Key('piece-placeholder-c-1')), findsOneWidget);
+      expect(find.textContaining('c-1'), findsNothing);
+    });
+
+    testWidgets('selecting a tile opens the editor on the first screen', (
+      tester,
+    ) async {
+      await setupContainer(initialRows: [_piece('c-1')]);
+      await pumpScreen(tester);
+      await tester.tap(find.byKey(const Key('piece-tile-c-1')));
+      await tester.pump();
+      expect(find.byKey(const Key('piece-editor-c-1')), findsOneWidget);
+      expect(find.byKey(const Key('piece-detail-add-c-1')), findsOneWidget);
+      expect(find.byType(Scaffold), findsOneWidget);
+    });
+
+    // The detail screen fetches the enriched single-piece row on open (an
+    // optimistic overlay row is not enough to render variant state — see the
+    // stale-comment fix in issue #545). Contract: one fetch per open, the
+    // gallery renders from the FETCHED row, and a failed fetch keeps the list
+    // row instead of crashing or faking an empty gallery.
+    testWidgets('opening a piece fetches the enriched detail ONCE', (
+      tester,
+    ) async {
+      await setupContainer(initialRows: [_piece('c-1')]);
+      await pumpScreen(tester);
+      expect(repo.detailCalls, 0, reason: 'no fetch before the screen opens');
+
+      await tester.tap(find.byKey(const Key('piece-tile-c-1')));
+      await tester.pump();
+      await tester.pump();
+
+      expect(repo.detailCalls, 1);
+    });
+
+    testWidgets('a FAILED detail fetch degrades to the list row — never a '
+        'crash, never a claim of data we do not have', (tester) async {
+      await setupContainer(initialRows: [_piece('c-1')]);
+      repo.detailResult = const Left(
+        ProblemError(code: 'piece.detail-unavailable', status: 503),
+      );
+      await pumpScreen(tester);
+
+      await tester.tap(find.byKey(const Key('piece-tile-c-1')));
+      await tester.pump();
+      await tester.pump();
+
+      // The editor is intact and the gallery keeps the list row's (empty) state.
+      expect(find.byKey(const Key('piece-editor-c-1')), findsOneWidget);
+      expect(repo.detailCalls, 1, reason: 'the attempt is not retried blindly');
+    });
+
+    testWidgets('empty: honest empty state with create affordance', (
+      tester,
+    ) async {
+      await setupContainer(initialRows: []);
+      await pumpScreen(tester);
+      expect(find.byKey(const Key('pieces-empty')), findsOneWidget);
+      expect(find.byKey(const Key('pieces-empty-create')), findsOneWidget);
+    });
+
+    testWidgets('error: fetch failure renders keyed copy + retry', (
+      tester,
+    ) async {
+      await setupContainer(initialFetch: const Left(_networkDown));
+      await pumpScreen(tester);
+      expect(find.byKey(const Key('pieces-error')), findsOneWidget);
+      expect(find.textContaining('transport.connectionError'), findsOneWidget);
+      expect(find.byKey(const Key('pieces-retry')), findsOneWidget);
+    });
+
+    testWidgets('create: empty-body shell overlays + chains to detail', (
+      tester,
+    ) async {
+      await setupContainer(initialRows: []);
+      await pumpScreen(tester);
+      // Controller-level: the empty-body POST dispatches after the session
+      // gate; on 201 the overlay row (server id) renders.
+      final result = await container
+          .read(piecesControllerProvider('season-1').notifier)
+          .create(name: 'Fundus-Piece');
+      expect(result.isRight(), isTrue);
+      expect(repo.createCalls, 1);
+      await _pumpFrames(tester);
+      expect(find.byKey(const Key('overlay-c-new-1')), findsOneWidget);
+    });
+  });
+
+  group('PiecesScreen goldens (4.3, data state)', () {
+    Future<void> pumpGolden(
+      WidgetTester tester, {
+      required String golden,
+      required ThemeMode mode,
+      TargetPlatform? platform,
+    }) async {
+      try {
+        if (platform != null) {
+          debugDefaultTargetPlatformOverride = platform;
+        }
+        tester.view.physicalSize = const Size(800, 1200);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.reset);
+        await tester.pumpWidget(
+          UncontrolledProviderScope(
+            container: container,
+            child: MaterialApp(
+              theme: ThemeData.light(),
+              darkTheme: ThemeData.dark(),
+              themeMode: mode,
+              home: PiecesScreen(season: _season()),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        await expectLater(
+          find.byType(PiecesScreen),
+          matchesGoldenFile('goldens/$golden'),
+        );
+      } finally {
+        debugDefaultTargetPlatformOverride = null;
+      }
+    }
+
+    testWidgets('golden light android', (tester) async {
+      await setupContainer(initialRows: [_piece('c-1'), _piece('c-2')]);
+      await pumpGolden(
+        tester,
+        golden: 'pieces_screen_light_android.png',
+        mode: ThemeMode.light,
+        platform: TargetPlatform.android,
+      );
+    });
+
+    testWidgets('golden dark android', (tester) async {
+      await setupContainer(initialRows: [_piece('c-1'), _piece('c-2')]);
+      await pumpGolden(
+        tester,
+        golden: 'pieces_screen_dark_android.png',
+        mode: ThemeMode.dark,
+        platform: TargetPlatform.android,
+      );
+    });
+
+    testWidgets('golden light macos', (tester) async {
+      await setupContainer(initialRows: [_piece('c-1'), _piece('c-2')]);
+      await pumpGolden(
+        tester,
+        golden: 'pieces_screen_light_macos.png',
+        mode: ThemeMode.light,
+        platform: TargetPlatform.macOS,
+      );
+    });
+
+    testWidgets('golden dark macos', (tester) async {
+      await setupContainer(initialRows: [_piece('c-1'), _piece('c-2')]);
+      await pumpGolden(
+        tester,
+        golden: 'pieces_screen_dark_macos.png',
+        mode: ThemeMode.dark,
+        platform: TargetPlatform.macOS,
+      );
+    });
+  });
+
+  group('PiecesScreen extras (8.3)', () {
+    testWidgets(
+      'stale snapshot echoes the freshest known version, not the captured one',
+      (tester) async {
+        // Issue #473: every piece write must resolve the echoed version
+        // from the freshest KNOWN state (the held overlay's ack version),
+        // never from the screen-captured snapshot. Here the screen passes a
+        // stale v1 snapshot (re-opened cached state / the reconcile result
+        // never fed the view object the editor holds) while the previous
+        // command already advanced the aggregate to v2 — echoing the stale
+        // 1 would 422 as `domain.validation` (the backend equality guard).
+        final row = _piece('c-7'); // v1
+        await setupContainer(initialRows: [row]);
+        await pumpScreen(tester);
+        final controller = container.read(
+          piecesControllerProvider('season-1').notifier,
+        );
+        // First command acks 1 → 2; the version fence holds because the
+        // projection is still v1 (projector lag).
+        expect(
+          (await controller.updateNotes(piece: row, notes: 'n1')).isRight(),
+          isTrue,
+        );
+        expect(
+          container
+              .read(piecesControllerProvider('season-1'))
+              .overlays
+              .single
+              .acknowledgedVersion,
+          2,
+        );
+        // The screen now submits with a STALE snapshot still at v1 — the
+        // command must echo the overlay ack (2), not the captured 1.
+        final staleSnapshot = _piece('c-7');
+        expect(
+          (await controller.updateNotes(
+            piece: staleSnapshot,
+            notes: 'n2',
+          )).isRight(),
+          isTrue,
+        );
+        expect(repo.lastNotesVersion, 2);
+      },
+    );
+
+    testWidgets(
+      'addDetail submits a UUIDv7 wire id, not the pending placeholder',
+      (tester) async {
+        // Regression for issue #472: the controller previously sent the
+        // optimistic-overlay placeholder `'pending'` as `detail.id`, which the
+        // `uuid`-typed contract 422'd as `domain.validation`. The wire id must
+        // be a parseable UUIDv7; the overlay keeps its OWN transient placeholder.
+        final row = _piece('c-7');
+        await setupContainer(initialRows: [row]);
+        await pumpScreen(tester);
+        final controller = container.read(
+          piecesControllerProvider('season-1').notifier,
+        );
+        final result = await controller.addDetail(piece: row, text: 'Mantel');
+        expect(result.isRight(), isTrue);
+        final wireId = repo.lastAddDetailRequest!.detail.id;
+        expect(wireId, isNot('pending'));
+        expect(
+          _uuidV7.hasMatch(wireId),
+          isTrue,
+          reason: 'wire id must be a UUIDv7: $wireId',
+        );
+        // The optimistic overlay rides a SEPARATE transient placeholder keyed
+        // by version, reconciled from the projection (not from the wire id).
+        final overlay = container
+            .read(piecesControllerProvider('season-1'))
+            .overlays
+            .single
+            .overlay;
+        expect(overlay.details.single.id, 'pending-detail-2');
+      },
+    );
+
+    testWidgets('addDetail 422 domain.validation surfaces the wire code', (
+      tester,
+    ) async {
+      // Regression for #467-adjacent silent 422s: a server 422 must surface
+      // the problem `code` (keyed copy), never a generic transport error.
+      final row = _piece('c-7');
+      await setupContainer(initialRows: [row]);
+      await pumpScreen(tester);
+      repo.nextWrite = const Left(_validation422);
+      final controller = container.read(
+        piecesControllerProvider('season-1').notifier,
+      );
+      expect(
+        (await controller.addDetail(piece: row, text: 'Mantel')).isLeft(),
+        isTrue,
+      );
+      final error = container
+          .read(piecesControllerProvider('season-1'))
+          .commandError;
+      expect(error, isNotNull);
+      // Piece-surface write failure: the copy routes through the piece
+      // copy on the underlying ProblemError.
+      expect(error!.surface, PieceCommandSurface.piece);
+      expect(error.error.code, 'domain.validation');
+      expect(error.error.code, isNot(startsWith('transport.')));
+      // The localized copy is keyed on the wire code, not a generic network
+      // narrative.
+      expect(
+        pieceErrorCopy(AppLocalizationsEn(), error.error),
+        contains('domain.validation'),
+      );
+      expect(
+        pieceErrorCopy(AppLocalizationsEn(), error.error),
+        isNot(contains('Network problem')),
+      );
+    });
+
+    // Issue #544: piece detail edit + delete (the data layer #545's row
+    // actions sit on). Every `Result` path is exercised in BOTH branches.
+    group('Piece detail edit + delete (issue #544)', () {
+      PieceDetailView detailView(
+        String id, {
+        String? subject,
+        String text = '',
+      }) => PieceDetailView(
+        (b) => b
+          ..id = id
+          ..subject = subject
+          ..text = text,
+      );
+
+      testWidgets(
+        'updateDetail sends the existing id and swaps the row in place',
+        (tester) async {
+          final row = _piece(
+            'c-7',
+            details: [
+              detailView('d-1', subject: 'Jacke', text: 'seide'),
+              detailView('d-2', text: 'second'),
+            ],
+          );
+          await setupContainer(initialRows: [row]);
+          await pumpScreen(tester);
+          final controller = container.read(
+            piecesControllerProvider('season-1').notifier,
+          );
+
+          final res = await controller.updateDetail(
+            piece: row,
+            detailId: 'd-1',
+            subject: 'Rote Lederjacke',
+            text: 'leder',
+          );
+          expect(res.isRight(), isTrue);
+
+          // The wire id is the EXISTING detail id — the server rejects a body id
+          // that disagrees with the path, and unlike `addDetail` there is no
+          // placeholder involved (issue #472 cannot recur here).
+          expect(repo.lastUpdateDetailId, 'd-1');
+          expect(repo.lastUpdateDetailRequest!.detail.id, 'd-1');
+          expect(
+            repo.lastUpdateDetailRequest!.detail.subject,
+            'Rote Lederjacke',
+          );
+          expect(repo.lastUpdateDetailRequest!.detail.text, 'leder');
+
+          // The overlay keeps the entry's POSITION (a re-append would flicker
+          // the card down the list) and the version advances to the ack.
+          final overlay = container
+              .read(piecesControllerProvider('season-1'))
+              .overlays
+              .single
+              .overlay;
+          expect(overlay.details.map((d) => d.id), ['d-1', 'd-2']);
+          expect(overlay.details.first.subject, 'Rote Lederjacke');
+          expect(overlay.details.first.text, 'leder');
+          expect(overlay.version, 2);
+        },
+      );
+
+      testWidgets(
+        'updateDetail without the capability issues no network call',
+        (tester) async {
+          final row = _piece(
+            'c-7',
+            details: [detailView('d-1', text: 'seide')],
+          );
+          await setupContainer(initialRows: [row], capabilities: const []);
+          await pumpScreen(tester);
+          final controller = container.read(
+            piecesControllerProvider('season-1').notifier,
+          );
+
+          final res = await controller.updateDetail(
+            piece: row,
+            detailId: 'd-1',
+            text: 'leder',
+          );
+          expect(res.isLeft(), isTrue);
+          expect(
+            repo.updateDetailCalls,
+            0,
+            reason: 'the client-side AUTHZ-GATE must precede the request',
+          );
+          final error = container
+              .read(piecesControllerProvider('season-1'))
+              .commandError;
+          expect(error, isNotNull);
+          expect(error!.error.status, 403);
+        },
+      );
+
+      testWidgets('updateDetail 404 piece-detail.not-found uses its own copy', (
+        tester,
+      ) async {
+        final row = _piece('c-7', details: [detailView('d-1', text: 'seide')]);
+        await setupContainer(initialRows: [row]);
+        await pumpScreen(tester);
+        repo.nextWrite = const Left(
+          ProblemError(code: 'piece-detail.not-found', status: 404),
+        );
+        final controller = container.read(
+          piecesControllerProvider('season-1').notifier,
+        );
+
+        expect(
+          (await controller.updateDetail(
+            piece: row,
+            detailId: 'd-1',
+            text: 'leder',
+          )).isLeft(),
+          isTrue,
+        );
+        expect(repo.updateDetailCalls, 1);
+        final error = container
+            .read(piecesControllerProvider('season-1'))
+            .commandError;
+        expect(error, isNotNull);
+        expect(error!.error.code, 'piece-detail.not-found');
+        // The narrative is keyed on the STABLE code — never the backend
+        // `detail` — and must not fall through to the generic piece copy.
+        final copy = pieceErrorCopy(AppLocalizationsEn(), error.error);
+        expect(copy, contains('no longer exists'));
+        expect(copy, isNot(contains('piece-detail.not-found')));
+      });
+
+      testWidgets('removeDetail drops the row and echoes the piece version', (
+        tester,
+      ) async {
+        final row = _piece(
+          'c-7',
+          details: [detailView('d-1'), detailView('d-2')],
+        );
+        await setupContainer(initialRows: [row]);
+        await pumpScreen(tester);
+        final controller = container.read(
+          piecesControllerProvider('season-1').notifier,
+        );
+
+        final res = await controller.removeDetail(piece: row, detailId: 'd-1');
+        expect(res.isRight(), isTrue);
+        expect(repo.lastRemoveDetailId, 'd-1');
+        expect(
+          repo.lastRemoveDetailRequest!.version,
+          row.version,
+          reason: 'the DELETE body is the COSTUME aggregate version echo',
+        );
+
+        final overlay = container
+            .read(piecesControllerProvider('season-1'))
+            .overlays
+            .single
+            .overlay;
+        expect(overlay.details.map((d) => d.id), ['d-2']);
+        expect(overlay.version, 2);
+      });
+
+      testWidgets(
+        'a piece-detail.not-found resyncs the list (CodeRabbit PR #561)',
+        (tester) async {
+          // The banner copy promises "the list was refreshed" — the error
+          // branch must therefore actually reconcile, or the promise is a lie
+          // and a second tap on the same row returns the identical 404.
+          final row = _piece(
+            'c-7',
+            details: [detailView('d-1', text: 'seide')],
+          );
+          await setupContainer(initialRows: [row]);
+          await pumpScreen(tester);
+          final before = listFetchCalls;
+          repo.nextWrite = const Left(
+            ProblemError(code: 'piece-detail.not-found', status: 404),
+          );
+          final controller = container.read(
+            piecesControllerProvider('season-1').notifier,
+          );
+
+          expect(
+            (await controller.updateDetail(
+              piece: row,
+              detailId: 'd-1',
+              text: 'leder',
+            )).isLeft(),
+            isTrue,
+          );
+          await tester.pumpAndSettle();
+          expect(
+            listFetchCalls,
+            greaterThan(before),
+            reason: 'a stale detail must trigger a bounded reconcile',
+          );
+        },
+      );
+
+      testWidgets(
+        'a 409 does NOT resync — the client must not fight the retry',
+        (tester) async {
+          // Guard on the other side of the new branch: a version conflict says
+          // nothing about the detail's existence, so refetching there would
+          // discard the user's intent and mask the real cause.
+          final row = _piece(
+            'c-7',
+            version: 3,
+            details: [detailView('d-1', text: 'seide')],
+          );
+          await setupContainer(initialRows: [row]);
+          await pumpScreen(tester);
+          repo.nextWrite = const Left(_conflict);
+          final controller = container.read(
+            piecesControllerProvider('season-1').notifier,
+          );
+          final before = listFetchCalls;
+
+          expect(
+            (await controller.removeDetail(
+              piece: row,
+              detailId: 'd-1',
+            )).isLeft(),
+            isTrue,
+          );
+          await tester.pumpAndSettle();
+          expect(listFetchCalls, before);
+        },
+      );
+
+      testWidgets(
+        'removeDetail without the capability issues no network call',
+        (tester) async {
+          final row = _piece('c-7', details: [detailView('d-1')]);
+          await setupContainer(initialRows: [row], capabilities: const []);
+          await pumpScreen(tester);
+          final controller = container.read(
+            piecesControllerProvider('season-1').notifier,
+          );
+
+          expect(
+            (await controller.removeDetail(
+              piece: row,
+              detailId: 'd-1',
+            )).isLeft(),
+            isTrue,
+          );
+          expect(
+            repo.removeDetailCalls,
+            0,
+            reason: 'the client-side AUTHZ-GATE must precede the request',
+          );
+          final error = container
+              .read(piecesControllerProvider('season-1'))
+              .commandError;
+          expect(error, isNotNull);
+          expect(error!.error.status, 403);
+        },
+      );
+
+      testWidgets('removeDetail surfaces a version conflict in the banner', (
+        tester,
+      ) async {
+        final row = _piece('c-7', details: [detailView('d-1')]);
+        await setupContainer(initialRows: [row]);
+        await pumpScreen(tester);
+        repo.nextWrite = const Left(_conflict);
+        final controller = container.read(
+          piecesControllerProvider('season-1').notifier,
+        );
+
+        expect(
+          (await controller.removeDetail(piece: row, detailId: 'd-1')).isLeft(),
+          isTrue,
+        );
+        expect(repo.removeDetailCalls, 1);
+        final error = container
+            .read(piecesControllerProvider('season-1'))
+            .commandError;
+        expect(error, isNotNull);
+        expect(error!.error.code, 'concurrency.version-mismatch');
+        // No optimistic mutation on a failed command.
+        expect(
+          container.read(piecesControllerProvider('season-1')).overlays,
+          isEmpty,
+        );
+      });
+    });
+  });
+}

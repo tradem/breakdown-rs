@@ -11,7 +11,7 @@
 // (→ the OIDC/session-reset flow back to the unauthenticated gate).
 //
 // Entry path: tap `profile-menu-button`, then the labeled drawer entry.
-// Costume categories are deliberately NOT here (they live with the costume
+// Piece categories are deliberately NOT here (they live with the piece
 // content in the Cast view) — asserted below.
 
 import 'package:breakdown_api/breakdown_api.dart';
@@ -162,9 +162,9 @@ void main() {
       expect(find.byKey(const Key('profile-about')), findsOneWidget);
       expect(find.byKey(const Key('profile-settings')), findsOneWidget);
       expect(find.byKey(const Key('profile-signout')), findsOneWidget);
-      // Hard acceptance criterion of issue #610: the costume-category
+      // Hard acceptance criterion of issue #610: the piece-category
       // vocabulary never lives with the user settings.
-      expect(find.text('Costume categories'), findsNothing);
+      expect(find.text('Piece categories'), findsNothing);
       expect(find.byKey(const Key('profile-categories')), findsNothing);
     });
 

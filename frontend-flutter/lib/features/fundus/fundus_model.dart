@@ -21,16 +21,16 @@ import '../omni_search/name_prefilter.dart';
 class FundusInputs {
   const FundusInputs({
     required this.projectId,
-    required this.costumes,
+    required this.pieces,
     required this.seasons,
     required this.stale,
   });
 
   final String projectId;
 
-  /// Every costume the project-scoped cache slice holds (including rows
+  /// Every piece the project-scoped cache slice holds (including rows
   /// whose repertoire is empty — the matcher applies the exclusion).
-  final List<PieceView> costumes;
+  final List<PieceView> pieces;
 
   /// The project's seasons, used for the season chips and the scope rule.
   final List<SeasonView> seasons;
@@ -60,7 +60,7 @@ class FundusViewState {
   /// The project's seasons (season-chip model, design D4).
   final List<SeasonView> projectSeasons;
 
-  /// Matched costumes in cache snapshot order (server order — no client
+  /// Matched pieces in cache snapshot order (server order — no client
   /// re-sort). The widget resolves repertoire season NAMES from
   /// [projectSeasons] (localization stays in the widget layer).
   final List<PieceView> rows;
@@ -79,10 +79,10 @@ class FundusViewState {
   bool get hasRows => rows.isNotEmpty;
 }
 
-/// Filters [costumes] to the fundus contract (design D2/D4).
+/// Filters [pieces] to the fundus contract (design D2/D4).
 ///
-/// A costume is in the fundus when ALL hold:
-/// - its repertoire is non-empty (non-repertoire costumes are excluded),
+/// A piece is in the fundus when ALL hold:
+/// - its repertoire is non-empty (non-repertoire pieces are excluded),
 /// - its repertoire intersects [projectSeasonIds] (foreign-project rows are
 ///   excluded even if a stale cache holds them),
 /// - when [selectedSeasonIds] is non-empty, its repertoire intersects the
@@ -91,15 +91,15 @@ class FundusViewState {
 ///   notes OR the folded category name (the pinned field contract — no
 ///   `details`/`photos` creep).
 List<PieceView> matchFundus({
-  required List<PieceView> costumes,
+  required List<PieceView> pieces,
   required Set<String> projectSeasonIds,
   required Set<String> selectedSeasonIds,
   required String text,
 }) {
   final foldedQuery = foldForSearch(text.trim());
   final result = <PieceView>[];
-  for (final costume in costumes) {
-    final repertoire = costume.seasonIds;
+  for (final piece in pieces) {
+    final repertoire = piece.seasonIds;
     if (repertoire.isEmpty) continue;
     if (!repertoire.any(projectSeasonIds.contains)) continue;
     if (selectedSeasonIds.isNotEmpty &&
@@ -108,11 +108,11 @@ List<PieceView> matchFundus({
     }
     if (foldedQuery.isNotEmpty) {
       final haystack =
-          '${foldForSearch(costume.notes)} '
-          '${foldForSearch(costume.categoryName ?? '')}';
+          '${foldForSearch(piece.notes)} '
+          '${foldForSearch(piece.categoryName ?? '')}';
       if (!haystack.contains(foldedQuery)) continue;
     }
-    result.add(costume);
+    result.add(piece);
   }
   return result;
 }

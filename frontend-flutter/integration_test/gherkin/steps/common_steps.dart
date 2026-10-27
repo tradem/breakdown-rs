@@ -46,7 +46,7 @@ StepDefinitionGeneric givenAppLaunched() => given<FlutterWorld>(
 /// — dev-auth mode only — flips the app's membership override to that role
 /// via the FlutterDriver data channel (issue #368): the runner builds the
 /// app once with fixed dart-defines, so a per-scenario membership shape
-/// (permissive costume-dept vs. capability-less viewer) must be switched at
+/// (permissive piece-dept vs. capability-less viewer) must be switched at
 /// runtime. `restartAppBetweenScenarios` starts each scenario's isolate with
 /// the override cleared (a fresh `DebugMembershipOverride.role` static), and
 /// this step re-asserts it explicitly. Unknown roles deny fail-closed inside
@@ -254,7 +254,7 @@ StepDefinitionGeneric whenOpenSeason() => when1<String, FlutterWorld>(
       find.byValueKey('season-scope-manage-seasons'),
     );
     final seasonCard = find.byValueKey('season-$seasonId');
-    // Off-viewport guard (same analytic budget as the costume step: the
+    // Off-viewport guard (same analytic budget as the piece step: the
     // dev series accumulates seasons across on-device runs, so the seeded
     // row can sit far down the list — a real gesture, never a sleep).
     await driver.scrollUntilVisible(
@@ -309,60 +309,59 @@ StepDefinitionGeneric whenOpenDayBoard() => when1<String, FlutterWorld>(
   },
 );
 
-/// Opens costume assignment for a season via the shell's Cast destination
-/// (issue #610: the costume surface moved out of the dissolved Kleidung
-/// destination INTO the Cast view; the costume categories vocabulary lives
+/// Opens piece assignment for a season via the shell's Cast destination
+/// (issue #610: the piece surface moved out of the dissolved Kleidung
+/// destination INTO the Cast view; the piece categories vocabulary lives
 /// here too, never with the user settings).
 ///
 /// Path: Cast view's season CTA → season scope picker → pick the season
-/// (sets the active season, pops) → switch the Cast view to the costume
+/// (sets the active season, pops) → switch the Cast view to the piece
 /// surface. Scenario semantics preserved; only the entry action changed.
-StepDefinitionGeneric whenOpenCostumeAssignment() =>
-    when1<String, FlutterWorld>(
-      'I open the costume assignment for season {string}',
-      (String seasonId, context) async {
-        // Issue #368: the symbolic feature id maps to the seeded REAL season
-        // id (AppWorld.seedIds, filled by the seeding Given step).
-        final realSeason =
-            (context.world as AppWorld).seedIds[seasonId] ?? seasonId;
-        // The Cast view scopes to the shell's ACTIVE season, and the app
-        // restarts per scenario with none set: first set the active season
-        // from the season scope picker (the surface that SETS it, D5),
-        // then switch the Cast view to the costume surface.
-        final driver = context.world.driver!;
-        await FlutterDriverUtils.tap(
-          driver,
-          find.byValueKey('cast-pick-season-cta'),
-        );
-        final scopeList = find.byValueKey('season-scope-list');
-        final seasonRow = find.byValueKey('season-scope-season-$realSeason');
-        // Off-viewport guard (#368 on-device run): the seeded season sorts
-        // at the END of the accumulated dev series (it gets the next free,
-        // hence highest, number), beyond the built window of the Planen
-        // ListView.builder, so a plain finder never matches. Scroll the list
-        // until the row builds into the tree (a real gesture on the real
-        // read-model surface, no sleep), then tap it. Bounded worst case:
-        // the dev series accumulates seasons across on-device runs (issue
-        // #463), so the deepest row can sit ~6400px down; the budget covers
-        // that analytic worst case deterministically (per-step -200px
-        // gesture, never a sleep).
-        await driver.scrollUntilVisible(
-          scopeList,
-          seasonRow,
-          dxScroll: 0,
-          dyScroll: -200,
-          timeout: const Duration(seconds: 45),
-        );
-        await FlutterDriverUtils.tap(driver, seasonRow);
-        // The Cast view's roster/costume switch — the costume surface is
-        // the second segment (label „Kostüme").
-        await FlutterDriverUtils.tap(driver, find.text('Kostüme'));
-      },
+StepDefinitionGeneric whenOpenOutfitCasting() => when1<String, FlutterWorld>(
+  'I open the piece assignment for season {string}',
+  (String seasonId, context) async {
+    // Issue #368: the symbolic feature id maps to the seeded REAL season
+    // id (AppWorld.seedIds, filled by the seeding Given step).
+    final realSeason =
+        (context.world as AppWorld).seedIds[seasonId] ?? seasonId;
+    // The Cast view scopes to the shell's ACTIVE season, and the app
+    // restarts per scenario with none set: first set the active season
+    // from the season scope picker (the surface that SETS it, D5),
+    // then switch the Cast view to the piece surface.
+    final driver = context.world.driver!;
+    await FlutterDriverUtils.tap(
+      driver,
+      find.byValueKey('cast-pick-season-cta'),
     );
+    final scopeList = find.byValueKey('season-scope-list');
+    final seasonRow = find.byValueKey('season-scope-season-$realSeason');
+    // Off-viewport guard (#368 on-device run): the seeded season sorts
+    // at the END of the accumulated dev series (it gets the next free,
+    // hence highest, number), beyond the built window of the Planen
+    // ListView.builder, so a plain finder never matches. Scroll the list
+    // until the row builds into the tree (a real gesture on the real
+    // read-model surface, no sleep), then tap it. Bounded worst case:
+    // the dev series accumulates seasons across on-device runs (issue
+    // #463), so the deepest row can sit ~6400px down; the budget covers
+    // that analytic worst case deterministically (per-step -200px
+    // gesture, never a sleep).
+    await driver.scrollUntilVisible(
+      scopeList,
+      seasonRow,
+      dxScroll: 0,
+      dyScroll: -200,
+      timeout: const Duration(seconds: 45),
+    );
+    await FlutterDriverUtils.tap(driver, seasonRow);
+    // The Cast view's roster/piece switch — the piece surface is
+    // the second segment (label „Kostüme").
+    await FlutterDriverUtils.tap(driver, find.text('Kostüme'));
+  },
+);
 
 /// Opens the role extract for a character from the Cast view's roster
 /// (issue #611): season scope via the scope picker (the surface that SETS
-/// the active season, D5 — same flow as the costume-assignment step), then
+/// the active season, D5 — same flow as the piece-assignment step), then
 /// the roster's character tile pushes the role extract route
 /// (`role-extract-<characterId>`). Degraded today: the route mounts the
 /// character detail; extract rows arrive with backend read-model issue #621.
@@ -382,7 +381,7 @@ StepDefinitionGeneric whenOpenRoleExtract() =>
         );
         final scopeList = find.byValueKey('season-scope-list');
         final seasonRow = find.byValueKey('season-scope-season-$realSeason');
-        // Off-viewport guard (same analytic budget as the costume step):
+        // Off-viewport guard (same analytic budget as the piece step):
         // scroll until the row builds, then tap it — a real gesture on the
         // real read-model surface, never a sleep.
         await driver.scrollUntilVisible(

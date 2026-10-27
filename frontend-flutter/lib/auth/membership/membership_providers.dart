@@ -55,7 +55,7 @@ SeasonMembershipDto devAuthDeniedMembership(String seasonId) =>
     );
 
 /// The series-level denial membership for the Gherkin viewer-role scenario
-/// (issue #535): the series-scoped costume-photo gate resolves to a denial
+/// (issue #535): the series-scoped piece-photo gate resolves to a denial
 /// without any network call.
 SeriesMembershipDto devAuthDeniedSeriesMembership(String projectId) =>
     SeriesMembershipDto(
@@ -95,7 +95,7 @@ Future<Result<SeasonMembershipDto>> membershipFetch(
 
 /// The STABLE provider key for [seriesMembershipForCostume] (issue #535
 /// review): only the inputs the series resolution actually depends on — the
-/// costume id and its container candidates (character ∪ repertoire). NOT the
+/// piece id and its container candidates (character ∪ repertoire). NOT the
 /// full [PieceView]: a detail reload after every photo command produces a
 /// new view (bumped `version`, refreshed `photos`), and keying on it would
 /// re-run the character/season/membership chain per command.
@@ -111,20 +111,18 @@ typedef CostumeMembershipScope = ({
   String? repertoireSeasonId,
 });
 
-CostumeMembershipScope costumeMembershipScope(PieceView costume) => (
-  pieceId: costume.id,
-  repertoireSeasonId: costume.seasonIds.isEmpty
-      ? null
-      : costume.seasonIds.first,
+CostumeMembershipScope costumeMembershipScope(PieceView piece) => (
+  pieceId: piece.id,
+  repertoireSeasonId: piece.seasonIds.isEmpty ? null : piece.seasonIds.first,
 );
 
-/// The series-level membership fetch for a **costume** (issue #535 review):
-/// the client-side AUTHZ-GATE source for the **series-scoped costume-photo
+/// The series-level membership fetch for a **piece** (issue #535 review):
+/// the client-side AUTHZ-GATE source for the **series-scoped piece-photo
 /// policy** (ADR-035 B2/S2), keyed by [costumeMembershipScope] — mirroring the
 /// server's resolution (character-first, repertoire fallback, unassigned
-/// costume → first repertoire season, no resolvable container → error),
-/// NOT the currently open season: a carried-over costume opened through a
-/// repertoire season of a different series must gate on the costume's own
+/// piece → first repertoire season, no resolvable container → error),
+/// NOT the currently open season: a carried-over piece opened through a
+/// repertoire season of a different series must gate on the piece's own
 /// series, or the client would deny callers the server permits (and vice
 /// versa).
 ///
@@ -134,7 +132,7 @@ CostumeMembershipScope costumeMembershipScope(PieceView costume) => (
 /// 2. else `seasonIds` (repertoire, ordered by `season_id` server-side) →
 ///    first season → the season's series (same deterministic first-season
 ///    pick the server makes).
-/// 3. else — no character, no repertoire — `Left('costume.container-unresolved')`:
+/// 3. else — no character, no repertoire — `Left('piece.container-unresolved')`:
 ///    the gate stays pending-disabled; the server would answer 422 with the
 ///    same code (the photo affordances never render as a 403 narrative).
 ///
@@ -148,8 +146,8 @@ Future<Result<SeriesMembershipDto>> seriesMembershipForCostume(
   final config = ref.watch(appConfigProvider);
   if (config.devAuthMode) {
     // Dev-auth short-circuit: no resolution runs, so there is no real series
-    // id — use the documented placeholder (never a costume id, which would
-    // poison the DTO's `projectId` field with a costume identifier).
+    // id — use the documented placeholder (never a piece id, which would
+    // poison the DTO's `projectId` field with a piece identifier).
     const devProjectId = 'dev-auth-series';
     if (DebugMembershipOverride.deniesAll) {
       return Right(devAuthDeniedSeriesMembership(devProjectId));
@@ -174,7 +172,7 @@ Future<Result<SeriesMembershipDto>> seriesMembershipForCostume(
 /// `GET /v1/series/{projectId}/membership`. Shared by
 /// [seriesMembershipForCostume] (character season and repertoire seasons
 /// alike — the character's season may be a *different* season than the open
-/// one, so the costume-keyed gate cannot shortcut through the open screen).
+/// one, so the piece-keyed gate cannot shortcut through the open screen).
 Future<Result<SeriesMembershipDto>> _seriesMembershipForSeason(
   Ref ref,
   String seasonId,

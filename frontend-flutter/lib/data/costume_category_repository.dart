@@ -32,7 +32,7 @@ class CostumeCategoryRepository extends BaseRepository {
   final CostumeCategoryCacheDao cache;
 
   /// Season-scoped fetch + snapshot-replace
-  /// (`GET /v1/seasons/{season_id}/costume-categories`, server
+  /// (`GET /v1/seasons/{season_id}/piece-categories`, server
   /// `ORDER BY order_key ASC`).
   ///
   /// On [Right] applies the season-scoped snapshot and returns the rows. On

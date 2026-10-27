@@ -19,7 +19,7 @@ import 'package:drift/drift.dart';
 ///   (`ORDER BY COALESCE(actual_order, planned_order) ASC` — the Ist-aware
 ///   board sequence), so snapshots replace per `shootingDayId`.
 /// * `notes` ride the shoot row as a JSON snapshot (no note-list route —
-///   they refresh with the shoot row, like costume details/photos).
+///   they refresh with the shoot row, like piece details/photos).
 /// * `continuity_photo_ids` ride the row as a JSON id list (the ids resolve
 ///   to bytes via the photo pipeline, memory-cached only, never persisted).
 /// * `snapshotIndex` persists the server order ordinal: SQLite guarantees no

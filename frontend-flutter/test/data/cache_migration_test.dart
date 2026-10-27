@@ -4,7 +4,7 @@
 // Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 // Migration tests (CodeRabbit re-review P1): the v3 → v4 upgrade backfills
-// the costume snapshot ordinal. Without the backfill, pre-existing v3 rows
+// the piece snapshot ordinal. Without the backfill, pre-existing v3 rows
 // carry NULL for a non-nullable Dart field and every offline cache read
 // after upgrade fails before the next snapshot replaces them.
 //
@@ -53,11 +53,11 @@ class _V4Install implements QueryExecutorUser {
 
 void main() {
   test('a v3 install keeps climbing to the wardrobe schema', () async {
-    final dir = await Directory.systemTemp.createTemp('costume-migration');
+    final dir = await Directory.systemTemp.createTemp('piece-migration');
     addTearDown(() => dir.delete(recursive: true));
     final file = File('${dir.path}/cache.db');
 
-    // A v3 install: the RETIRED costume snapshot table, one populated row,
+    // A v3 install: the RETIRED piece snapshot table, one populated row,
     // schema marker at 3.
     final setup = NativeDatabase(file);
     await setup.ensureOpen(_V3Install());
@@ -80,8 +80,8 @@ void main() {
     await setup.close();
 
     // Opening through the app database climbs to the current schema. The
-    // wardrobe split (v16) drops the costume snapshot table wholesale: the
-    // `CostumeView` DTO no longer exists, so its rows can never be read
+    // wardrobe split (v16) drops the piece snapshot table wholesale: the
+    // `PieceView` DTO no longer exists, so its rows can never be read
     // again. The successor piece slice starts empty and fills on the next
     // TTL snapshot-replace (design D3: the backend is authoritative).
     final db = CacheDatabase(NativeDatabase(file));

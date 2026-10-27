@@ -54,7 +54,7 @@ void main() {
       await seeded.customStatement('PRAGMA user_version = 13');
       await seeded.close();
 
-      // 2. Reopen at v16: the wardrobe split drops the retired costume
+      // 2. Reopen at v16: the wardrobe split drops the retired piece
       //    snapshot tables and creates `fundus_piece_cache_rows` in one step
       //    (the v14 table the older build created is gone with the DTO).
       final upgraded = CacheDatabase(NativeDatabase(file));

@@ -226,46 +226,42 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
-  String get costumeErrorChanged =>
+  String get pieceErrorChanged =>
       'Changed elsewhere — pull to refresh and try again.';
 
   @override
-  String get costumeErrorForbidden =>
+  String get pieceErrorForbidden =>
       'You need an active costume role in this season.';
 
   @override
-  String get costumeErrorMembership =>
-      'Could not verify permissions — check the connection and retry.';
+  String get pieceErrorMembership =>
+      'permissions could not be verified — check the connection and retry.';
 
   @override
-  String costumeErrorGeneric(Object code) {
-    return 'The costume could not be saved ($code).';
+  String pieceErrorGeneric(Object code) {
+    return 'The piece could not be saved ($code).';
   }
 
   @override
-  String get costumeErrorCategorySeason =>
+  String get pieceErrorCategorySeason =>
       'That category belongs to a different season — pick a category from this season.';
 
   @override
-  String get costumeErrorCategoryArchived =>
+  String get pieceErrorCategoryArchived =>
       'That category is archived — pick an active category.';
 
   @override
-  String get costumeErrorDetailNotFound =>
-      'That costume detail no longer exists — the list was refreshed.';
+  String get pieceErrorDetailNotFound =>
+      'That piece detail no longer exists — the list was refreshed.';
 
   @override
-  String get costumeDetailCategoryTitle => 'Category';
+  String get pieceDetailCategoryTitle => 'Category';
 
   @override
-  String get costumeDetailPickCategory => 'Pick a category';
+  String get pieceDetailPickCategory => 'Pick a category';
 
   @override
-  String get costumeDetailCategorySaved => 'Category saved.';
-
-  @override
-  String get photoErrorRequiresCharacter =>
-      'Assign the costume to a character before managing photos.';
+  String get pieceDetailCategorySaved => 'Category saved.';
 
   @override
   String get photoErrorTooLarge =>
@@ -281,7 +277,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get photoErrorContainerUnresolved =>
-      'This costume has no resolvable container — refresh the costume list and try again.';
+      'This piece has no resolvable container — refresh the wardrobe and try again.';
 
   @override
   String get photoErrorNetwork =>
@@ -300,54 +296,49 @@ class AppLocalizationsEn extends AppLocalizations {
       'The photo will be permanently deleted. This cannot be undone.';
 
   @override
-  String get costumeAddFab => 'Create costume';
+  String get pieceAddFab => 'Create piece';
 
   @override
-  String get costumesStaleBanner => 'Cached data may be outdated';
+  String get piecesStaleBanner => 'Cached data may be outdated.';
 
   @override
-  String costumesFetchError(Object code) {
-    return 'Could not load costumes ($code).';
+  String piecesFetchError(Object code) {
+    return 'Could not load pieces ($code).';
   }
 
   @override
-  String costumeTileLabel(Object id) {
-    return 'Costume $id';
+  String pieceTileLabel(Object id) {
+    return 'Piece $id';
   }
 
   @override
-  String get costumeTileLabelFallback => 'Costume';
+  String get pieceTileLabelFallback => 'Piece';
 
   @override
   String get costumeCategoryUncategorized => 'Uncategorized';
 
   @override
-  String get costumeDetailSaved => 'Costume details saved.';
+  String get pieceDetailSaved => 'Piece details saved.';
 
   @override
-  String costumeWornBy(Object name) {
-    return 'Worn by $name';
-  }
-
-  @override
-  String costumeDetailsCount(Object count) {
+  String pieceDetailsCount(Object count) {
     return '$count details';
   }
 
   @override
-  String costumePhotosCount(Object count) {
+  String piecePhotosCount(Object count) {
     return '$count photos';
   }
 
   @override
-  String get costumeTileSyncing => 'Just saved — syncing…';
+  String get pieceTileSyncing => 'Just saved — syncing …';
 
   @override
-  String get costumeTileSyncingStale =>
+  String get pieceTileSyncingStale =>
       'Created — the list is still catching up. Pull to refresh.';
 
   @override
-  String get costumesEmpty => 'No costumes yet';
+  String get piecesEmpty => 'No pieces yet';
 
   @override
   String get createSeasonTitle => 'Create season';
@@ -1344,11 +1335,11 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get captureDeniedCamera =>
-      'Camera access is disabled. Enable camera access in settings to document costumes.';
+      'Camera access is disabled. Enable camera access in settings to document pieces.';
 
   @override
   String get captureDeniedGallery =>
-      'Photo library access is disabled. Enable photo access in settings to document costumes.';
+      'Photo library access is disabled. Enable photo access in settings to document pieces.';
 
   @override
   String get captureUnavailable =>
@@ -1361,150 +1352,124 @@ class AppLocalizationsEn extends AppLocalizations {
   String get captureDeniedTitleGallery => 'Photo library access disabled';
 
   @override
-  String get costumeDetailTitle => 'Costume';
+  String get pieceDetailTitle => 'Piece';
 
   @override
-  String get costumeDetailCharacter => 'Character';
+  String get pieceDetailTextRequired => 'Text is required';
 
   @override
-  String get costumeDetailAssignGate =>
-      'You need an active costume role in this season to assign characters.';
+  String get pieceDetailTextRequiredHint => 'Required field — marked with *';
 
   @override
-  String get costumeDetailAssign => 'Assign';
+  String get pieceDetailSubjectOptional => 'optional';
 
   @override
-  String get costumeDetailReassign => 'Reassign';
+  String get pieceDetailEditDetail => 'Edit detail';
 
   @override
-  String get costumeDetailTextRequired => 'Text is required';
+  String get pieceDetailDeleteTitle => 'Delete detail?';
 
   @override
-  String get costumeDetailTextRequiredHint => 'Required – marked with *';
-
-  @override
-  String get costumeDetailSubjectOptional => 'optional';
-
-  @override
-  String get costumeDetailEditDetail => 'Edit detail';
-
-  @override
-  String get costumeDetailDeleteTitle => 'Delete detail?';
-
-  @override
-  String costumeDetailDeleteMessage(Object detail) {
+  String pieceDetailDeleteMessage(Object detail) {
     return '“$detail” will be removed. This cannot be undone.';
   }
 
   @override
-  String get costumeDetailUnassigned => 'Unassigned';
+  String get pieceDetailNotes => 'Notes';
 
   @override
-  String get costumeDetailUnassignTooltip => 'Unassign';
+  String get pieceDetailNotesHint => 'Fitting notes …';
 
   @override
-  String get costumeDetailUnassignTitle => 'Unassign character?';
+  String get pieceDetailSaveNotes => 'Save notes';
 
   @override
-  String get costumeDetailUnassignMessage =>
-      'The costume keeps its details and notes; only the character binding is removed.';
+  String get pieceDetailDetails => 'Details';
 
   @override
-  String get costumeDetailNotes => 'Notes';
-
-  @override
-  String get costumeDetailNotesHint => 'Fitting notes…';
-
-  @override
-  String get costumeDetailSaveNotes => 'Save notes';
-
-  @override
-  String get costumeDetailDetails => 'Details';
-
-  @override
-  String get costumeDetailNoDetails =>
+  String get pieceDetailNoDetails =>
       'No details yet — add the first one below.';
 
   @override
-  String get costumeDetailAddDetail => 'Add detail';
+  String get pieceDetailAddDetail => 'Add detail';
 
   @override
-  String get costumeDetailSubject => 'Subject';
+  String get pieceDetailSubject => 'Subject';
 
   @override
-  String get costumeDetailText => 'Text';
+  String get pieceDetailText => 'Text';
 
   @override
-  String get costumeDetailCategory => 'Category';
+  String get pieceDetailCategory => 'Category';
 
   @override
-  String get costumeDetailPhotos => 'Photos';
+  String get pieceDetailPhotos => 'Photos';
 
   @override
-  String get costumeDetailCamera => 'Camera';
+  String get pieceDetailCamera => 'Camera';
 
   @override
-  String get costumeDetailGallery => 'Gallery';
+  String get pieceDetailGallery => 'Gallery';
 
   @override
-  String get costumeDetailPromptTitle => 'Document costumes with photos?';
+  String get pieceDetailPromptTitle => 'Document pieces with photos?';
 
   @override
-  String get costumeDetailPromptBody =>
-      'Photos let the wardrobe team document costumes and track continuity. The system will ask for camera access next.';
+  String get pieceDetailPromptBody =>
+      'Photos let the wardrobe team document pieces and track continuity. The system will ask for camera access next.';
 
   @override
-  String get costumeDetailRepertoire => 'Repertoire';
+  String get pieceDetailRepertoire => 'Repertoire';
 
   @override
-  String get costumeDetailRepertoireEmpty => 'Bound to no other season';
+  String get pieceDetailRepertoireEmpty => 'Not listed in any other season';
 
   @override
-  String get costumeDetailRepertoireAdd => 'Add to season';
+  String get pieceDetailRepertoireAdd => 'Add to season';
 
   @override
-  String get costumeDetailRepertoireAddTooltip =>
-      'Add the costume to another season\'s repertoire';
+  String get pieceDetailRepertoireAddTooltip =>
+      'Add the piece to another season\'s repertoire';
 
   @override
-  String get costumeDetailRepertoireRemoveTooltip => 'Remove from season';
+  String get pieceDetailRepertoireRemoveTooltip => 'Remove from season';
 
   @override
-  String get costumeDetailRepertoireRemoveTitle => 'Remove from season?';
+  String get pieceDetailRepertoireRemoveTitle => 'Remove from season?';
 
   @override
-  String get costumeDetailRepertoireRemoveMessage =>
-      'The costume disappears from this season\'s wardrobe. Its details and photos stay on the costume.';
+  String get pieceDetailRepertoireRemoveMessage =>
+      'The piece disappears from this season\'s wardrobe. Its details and photos stay on the piece.';
 
   @override
-  String get costumeDetailRepertoirePick => 'Pick a season';
+  String get pieceDetailRepertoirePick => 'Pick a season';
 
   @override
-  String get costumeDetailRepertoireSaved => 'Season added to the repertoire.';
+  String get pieceDetailRepertoireSaved => 'Season added to the repertoire.';
 
   @override
-  String get costumeDetailRepertoireRemoved =>
-      'The costume left the season\'s repertoire.';
+  String get pieceDetailRepertoireRemoved =>
+      'The piece left the season\'s repertoire.';
 
   @override
-  String get costumeErrorSeasonArchived =>
+  String get pieceErrorSeasonArchived =>
       'That season is archived — its repertoire can no longer be changed.';
 
   @override
-  String get costumeErrorSeasonNotFound =>
+  String get pieceErrorSeasonNotFound =>
       'That season no longer exists — the list was refreshed.';
 
   @override
-  String get costumeDetailNotNow => 'Not now';
+  String get pieceDetailNotNow => 'Not now';
 
   @override
-  String get costumeDetailContinue => 'Continue';
+  String get pieceDetailContinue => 'Continue';
 
   @override
-  String get costumeDetailOpenSettings => 'Open settings';
+  String get pieceDetailOpenSettings => 'Open settings';
 
   @override
-  String get costumeDetailDeletePhotoMessage =>
+  String get pieceDetailDeletePhotoMessage =>
       'The photo and its variants are removed. This cannot be undone.';
 
   @override
@@ -1664,8 +1629,8 @@ class AppLocalizationsEn extends AppLocalizations {
   String get continuityStoreOn => 'Store photo on…';
 
   @override
-  String get continuityCostumeHint =>
-      'Pick the costume the photo belongs to — it is stored on the costume and linked to this shoot.';
+  String get continuityPieceHint =>
+      'Pick the look the photo belongs to — it is stored on the look and linked to this shoot.';
 
   @override
   String get continuityRationaleTitle => 'Document continuity with photos?';
@@ -1681,7 +1646,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get continuityUnlinkButton => 'Unlink';
 
   @override
-  String get castNoSeason => 'Pick a season to see costumes and characters.';
+  String get castNoSeason => 'Pick a season to see pieces and characters.';
 
   @override
   String get castPickSeason => 'Pick season';
@@ -1693,7 +1658,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get castSegmentCharacters => 'Characters';
 
   @override
-  String get castSegmentCostumes => 'Costumes';
+  String get castSegmentOutfits => 'Looks';
 
   @override
   String get photoGalleryAddPhoto => 'Add photo';
@@ -1708,8 +1673,8 @@ class AppLocalizationsEn extends AppLocalizations {
   String get photoGalleryDeleteTooltip => 'Delete photo';
 
   @override
-  String photoTileSemantics(Object costumeId) {
-    return 'Photo of costume $costumeId';
+  String photoTileSemantics(Object pieceId) {
+    return 'Photo of piece $pieceId';
   }
 
   @override
@@ -1732,7 +1697,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get continuityUnlinkBody =>
-      'The photo stays on its costume — only the link to this shoot is removed.';
+      'The photo stays on its piece — only the link to this shoot is removed.';
 
   @override
   String get sceneShootDayFallback => 'Shooting day';
@@ -1959,46 +1924,46 @@ class AppLocalizationsEn extends AppLocalizations {
   String get sceneDetailGone => 'This scene is no longer available.';
 
   @override
-  String sceneDetailCostumesTitle(Object count) {
-    return 'Costumes ($count)';
+  String sceneDetailOutfitsTitle(Object count) {
+    return 'Looks ($count)';
   }
 
   @override
-  String get sceneDetailAssignCostume => 'Assign costume';
+  String get sceneDetailAssignOutfit => 'Assign look';
 
   @override
-  String get sceneDetailAddChange => '+ Costume change';
+  String get sceneDetailAddChange => '+ Look change';
 
   @override
-  String get sceneDetailRemoveCostumeTooltip => 'Remove costume';
+  String get sceneDetailRemoveOutfitTooltip => 'Remove look';
 
   @override
-  String get sceneDetailRemoveCostumeTitle => 'Remove costume?';
+  String get sceneDetailRemoveOutfitTitle => 'Remove look?';
 
   @override
-  String sceneDetailRemoveCostumeMessage(Object name) {
+  String sceneDetailRemoveOutfitMessage(Object name) {
     return '“$name” will be removed from this scene.';
   }
 
   @override
-  String get sceneDetailNoCostumeInScene => 'No costume in this scene.';
+  String get sceneDetailNoOutfitInScene => 'No look in this scene.';
 
   @override
-  String get sceneDetailPickCostumeTitle => 'Pick costume';
+  String get sceneDetailPickOutfitTitle => 'Pick look';
 
   @override
-  String get sceneDetailCostumeCueHint =>
+  String get sceneDetailOutfitCueHint =>
       'Note for the wardrobe crew (optional)';
 
   @override
   String get sceneBeatErrorNotInScene => 'This character is not in the scene.';
 
   @override
-  String get sceneBeatErrorNotFound => 'This costume change no longer exists.';
+  String get sceneBeatErrorNotFound => 'This look change no longer exists.';
 
   @override
   String get sceneBeatErrorValidation =>
-      'This costume change is invalid (e.g. identical consecutive change).';
+      'This look change is invalid (e.g. identical consecutive change).';
 
   @override
   String get sceneBeatErrorNetwork =>
@@ -2006,16 +1971,16 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String sceneBeatErrorGeneric(Object code) {
-    return 'The costume change could not be saved ($code).';
+    return 'The look change could not be saved ($code).';
   }
 
   @override
   String get sceneBeatOverlaySyncing =>
-      'Costume change is being saved – the list is still syncing.';
+      'Look change is being saved – the list is still syncing.';
 
   @override
   String get sceneBeatOverlayStale =>
-      'Costume change could not be confirmed yet – pull to refresh.';
+      'Look change could not be confirmed yet – pull to refresh.';
 
   @override
   String get assignCharacterSheetTitle => 'Assign character';
@@ -2415,7 +2380,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get navSchedule => 'Schedule/Dispo';
 
   @override
-  String get navCostumes => 'Wardrobe';
+  String get navWardrobe => 'Wardrobe';
 
   @override
   String get navCharacters => 'Characters';
@@ -2689,12 +2654,12 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
-  String seasonsMetaCostumes(num count) {
+  String seasonsMetaPieces(num count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,
       locale: localeName,
-      other: '$count costumes',
-      one: '1 costume',
+      other: '$count looks',
+      one: '1 look',
     );
     return '$_temp0';
   }
@@ -2991,12 +2956,12 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
-  String scriptRowCostumes(num count) {
+  String scriptRowOutfits(num count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,
       locale: localeName,
-      other: '$count costumes',
-      one: '1 costume',
+      other: '$count looks',
+      one: '1 look',
     );
     return '$_temp0';
   }
@@ -3252,7 +3217,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get omniSearchHint =>
-      'Search scenes, roles, costumes and shooting days of this season';
+      'Search: scenes, roles, pieces, shooting days of this season';
 
   @override
   String get omniSearchChipScene => 'Scene';
@@ -3261,7 +3226,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get omniSearchChipCharacter => 'Role';
 
   @override
-  String get omniSearchChipCostume => 'Costume';
+  String get omniSearchChipPiece => 'Piece';
 
   @override
   String get omniSearchChipShootingDay => 'Shooting day';
@@ -3273,14 +3238,14 @@ class AppLocalizationsEn extends AppLocalizations {
   String get omniSearchGroupCharacters => 'Roles';
 
   @override
-  String get omniSearchGroupCostumes => 'Costumes';
+  String get omniSearchGroupPieces => 'Looks';
 
   @override
   String get omniSearchGroupShootingDays => 'Shooting days';
 
   @override
   String get omniSearchInitialEmpty =>
-      'Type to search the scenes, roles, costumes and shooting days of this season.';
+      'Type to search the scenes, roles, pieces and shooting days of this season.';
 
   @override
   String omniSearchZeroMatch(String query, String facets) {
@@ -3313,7 +3278,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get fundusTooltip => 'Browse the fundus';
 
   @override
-  String get fundusHint => 'Browse the fundus: costumes across all seasons';
+  String get fundusHint => 'Browse the fundus: pieces across all seasons';
 
   @override
   String get fundusEmpty => 'This project\'s fundus is empty.';
@@ -3458,4 +3423,120 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get aiConfigDecisionKeyMissing =>
       'Please enter an API key for the decision model or choose “Use the same API key as extraction”.';
+
+  @override
+  String get outfitVariantMarker => 'Variant';
+
+  @override
+  String get outfitListTitle => 'Looks';
+
+  @override
+  String get outfitListEmpty => 'No looks yet — create the first one.';
+
+  @override
+  String get outfitCreateAction => 'Create look';
+
+  @override
+  String get outfitCreateTitle => 'Create look';
+
+  @override
+  String get outfitNameLabel => 'Name';
+
+  @override
+  String get outfitNameRequired => 'A name is required';
+
+  @override
+  String get outfitDetailTitle => 'Look';
+
+  @override
+  String outfitVariantOf(String name) {
+    return 'Variant of $name';
+  }
+
+  @override
+  String get outfitCreateVariant => 'Create variant';
+
+  @override
+  String outfitPiecesTitle(String count) {
+    return 'Pieces ($count)';
+  }
+
+  @override
+  String get outfitPiecesEmpty => 'No pieces yet — add the first one.';
+
+  @override
+  String get outfitAddPiece => 'Add piece';
+
+  @override
+  String get outfitRemovePieceTooltip => 'Remove';
+
+  @override
+  String get outfitNotes => 'Notes';
+
+  @override
+  String get outfitNotesHint => 'Notes on the look …';
+
+  @override
+  String get outfitSaveNotes => 'Save notes';
+
+  @override
+  String get outfitPhotos => 'Photos';
+
+  @override
+  String get outfitRenameTitle => 'Rename look';
+
+  @override
+  String outfitPieceCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count pieces',
+      one: '1 piece',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String outfitErrorGeneric(String code) {
+    return 'The look could not be saved ($code).';
+  }
+
+  @override
+  String get outfitErrorForbidden =>
+      'You need an active costume role in this season.';
+
+  @override
+  String get outfitErrorMembership =>
+      'permissions could not be verified — check the connection and try again.';
+
+  @override
+  String get outfitSaved => 'Look saved.';
+
+  @override
+  String get outfitNotesSaved => 'Notes saved.';
+
+  @override
+  String outfitListFetchError(String code) {
+    return 'Could not load looks ($code).';
+  }
+
+  @override
+  String get outfitStaleBanner => 'Cached data may be outdated.';
+
+  @override
+  String outfitPieceListFetchError(String code) {
+    return 'Could not load pieces ($code).';
+  }
+
+  @override
+  String get outfitDetailGone => 'This look is no longer available.';
+
+  @override
+  String get outfitPickPieceTitle => 'Pick piece';
+
+  @override
+  String get outfitPickPieceEmpty => 'No piece in this season\'s repertoire.';
+
+  @override
+  String get outfitVariantCreated => 'Variant created.';
 }

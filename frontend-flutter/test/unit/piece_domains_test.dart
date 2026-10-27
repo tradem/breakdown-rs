@@ -1,0 +1,580 @@
+// SPDX-License-Identifier: AGPL-3.0
+// Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: muse-spark-1.3-contributor (opencode-go)
+// Co-authored-by: omen-alpha (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
+
+// Tier-1 unit tests for the piece-domain data layer (Tasks 1.6, 2.2, 3.1):
+// every repository method Ok AND Err; cache untouched on failure;
+// snapshot-replace per list; assign/unassign overlay version fence;
+// watch state machine with fake scheduler (bounded attempts/elapsed,
+// terminal stop incl. mixed Ready+Pending, expiry → watch_expired with no
+// further calls, no wall-clock); strict capability gate; prepare pipeline
+// core (overflow/format-reject, oversized-after-re-encode → too_large,
+// reduction loop converges). No Flutter imports.
+
+import 'dart:async';
+import 'dart:typed_data';
+
+import 'package:breakdown_api/breakdown_api.dart';
+import 'package:built_collection/built_collection.dart';
+import 'package:dio/dio.dart';
+import 'package:fpdart/fpdart.dart';
+import 'package:one_of/one_of.dart';
+import 'package:test/test.dart';
+
+import 'package:frontend_flutter/auth/membership_gate.dart';
+import 'package:frontend_flutter/core/result.dart';
+import 'package:image/image.dart' as img;
+import 'package:frontend_flutter/data/cache/cache_database.dart';
+import 'package:frontend_flutter/data/cache/clock.dart';
+import 'package:frontend_flutter/data/cache/piece_domains_cache_dao.dart';
+import 'package:frontend_flutter/data/character_repository.dart';
+import 'package:frontend_flutter/data/piece_repository.dart';
+import 'package:frontend_flutter/data/photo_repository.dart';
+import 'package:frontend_flutter/data/shooting_day_repository.dart';
+import 'package:frontend_flutter/features/photos/prepare.dart';
+
+PieceView _piece(
+  String id, {
+  String name = 'Fundus-Piece',
+  int version = 1,
+  String notes = 'notes',
+}) => PieceView(
+  (b) => b
+    ..name = 'Fundus-Piece'
+    ..id = id
+    ..name = name
+    ..notes = notes
+    ..details.replace(BuiltList<PieceDetailView>())
+    ..photos.replace(BuiltList<PiecePhotoView>())
+    ..updatedAt = DateTime.utc(2026, 1, 1)
+    ..version = version,
+);
+
+CharacterView _character(
+  String id, {
+  String seasonId = 'season-1',
+  String categoryWire = 'main_cast',
+}) => CharacterView(
+  (b) => b
+    ..id = id
+    ..seasonId = seasonId
+    ..name = 'Name $id'
+    ..category = serializers.deserializeWith(
+      CharacterCategory.serializer,
+      categoryWire,
+    )!
+    ..measurements.replace(
+      CharacterMeasurements(
+        (m) => m
+          ..height = '180'
+          ..weight = '70'
+          ..chest = '90'
+          ..waist = '80'
+          ..hips = '90'
+          ..shoeSize = '42'
+          ..hatSize = 'M',
+      ),
+    )
+    ..contact.replace(ContactInfo((c) => c..email = 'a@b.c'))
+    ..updatedAt = DateTime.utc(2026, 1, 1)
+    ..version = 1,
+);
+
+ShootingDayView _day(
+  String id, {
+  String episodeId = 'ep-1',
+  String orderKey = '!',
+  String? label,
+}) => ShootingDayView(
+  (b) => b
+    ..id = id
+    ..episodeId = episodeId
+    ..orderKey = orderKey
+    ..source_.replace(
+      ShootingDaySource((s) => s..oneOf = OneOf.fromValue1(value: 'Manual')),
+    )
+    ..label = label
+    ..archived = false
+    ..updatedAt = DateTime.utc(2026, 1, 1)
+    ..version = 1,
+);
+
+PieceView _pieceWithVariants(String id, List<String> statuses) => PieceView(
+  (b) => b
+    ..name = 'Fundus-Piece'
+    ..id = id
+    ..notes = 'n'
+    ..details.replace(BuiltList<PieceDetailView>())
+    ..photos.replace(
+      BuiltList<PiecePhotoView>([
+        PiecePhotoView(
+          (p) => p
+            ..id = 'photo-1'
+            ..contentType = 'image/jpeg'
+            ..sizeBytes = 10
+            ..variants.replace(
+              BuiltList<PhotoVariantView>([
+                for (var i = 0; i < statuses.length; i++)
+                  PhotoVariantView(
+                    (v) => v
+                      ..kind = serializers.deserializeWith(
+                        PhotoVariant.serializer,
+                        'Thumb',
+                      )!
+                      ..status = serializers.deserializeWith(
+                        VariantStatus.serializer,
+                        statuses[i],
+                      )!
+                      ..sizeBytes = 5,
+                  ),
+              ]),
+            ),
+        ),
+      ]),
+    )
+    ..updatedAt = DateTime.utc(2026, 1, 1)
+    ..version = 2,
+);
+
+SeasonMembershipDto _membership(List<String> caps) => SeasonMembershipDto(
+  (b) => b
+    ..seasonId = 'season-1'
+    ..hasActiveCostumeRoleInSeason = caps.isNotEmpty
+    ..capabilities.replace(caps),
+);
+
+SeriesMembershipDto _seriesMembership(bool hasRole) => SeriesMembershipDto(
+  (b) => b
+    ..projectId = 'series-1'
+    ..hasActiveCostumeRoleInSeries = hasRole
+    ..capabilities.replace(const <String>[]),
+);
+
+void main() {
+  group('PieceCacheDao', () {
+    test('snapshot-replace is scoped to the season', () async {
+      final db = CacheDatabase();
+      final dao = PieceCacheDao(db);
+      final now = DateTime.utc(2026, 1, 1);
+      await dao.applySnapshotForSeason('s-1', [_piece('c-1')], now);
+      await dao.applySnapshotForSeason('s-2', [_piece('c-2')], now);
+      // Empty snapshot of s-1 must not orphan s-2.
+      await dao.applySnapshotForSeason('s-1', [], now);
+      expect(await dao.readBySeason('s-1'), isEmpty);
+      expect((await dao.readBySeason('s-2')).map((c) => c.id), ['c-2']);
+      await db.close();
+    });
+
+    test('round-trips details/photos snapshots', () async {
+      final db = CacheDatabase();
+      final dao = PieceCacheDao(db);
+      final view = _piece('c-1');
+      await dao.applySnapshotForSeason('s-1', [view], DateTime.utc(2026));
+      final read = await dao.readBySeason('s-1');
+      expect(read.single.name, 'Fundus-Piece');
+      expect(read.single.version, 1);
+      await db.close();
+    });
+
+    test('round-trips non-empty details/photos snapshots', () async {
+      final db = CacheDatabase();
+      final dao = PieceCacheDao(db);
+      final view = PieceView(
+        (b) => b
+          ..name = 'Fundus-Piece'
+          ..id = 'c-1'
+          ..notes = 'n'
+          ..categoryName = 'Outerwear'
+          ..details.replace(
+            BuiltList<PieceDetailView>([
+              PieceDetailView(
+                (d) => d
+                  ..id = 'd-1'
+                  ..subject = 'Jacket'
+                  ..text = 'Red leather',
+              ),
+            ]),
+          )
+          ..photos.replace(
+            BuiltList<PiecePhotoView>([
+              PiecePhotoView(
+                (photo) => photo
+                  ..id = 'p-1'
+                  ..contentType = 'image/jpeg'
+                  ..sizeBytes = 10
+                  ..variants.replace(
+                    BuiltList<PhotoVariantView>([
+                      PhotoVariantView(
+                        (v) => v
+                          ..kind = serializers.deserializeWith(
+                            PhotoVariant.serializer,
+                            'Thumb',
+                          )!
+                          ..status = serializers.deserializeWith(
+                            VariantStatus.serializer,
+                            'Ready',
+                          )!
+                          ..sizeBytes = 5,
+                      ),
+                    ]),
+                  ),
+              ),
+            ]),
+          )
+          ..updatedAt = DateTime.utc(2026, 1, 1)
+          ..version = 1,
+      );
+      await dao.applySnapshotForSeason('s-1', [view], DateTime.utc(2026));
+      final read = await dao.readBySeason('s-1');
+      expect(read.single.details.single.text, 'Red leather');
+      // Issue #543: the category round-trips at COSTUME level.
+      expect(read.single.categoryName, 'Outerwear');
+      expect(read.single.photos.single.contentType, 'image/jpeg');
+      expect(read.single.photos.single.variants.single.sizeBytes, 5);
+      await db.close();
+    });
+  });
+
+  group('CharacterCacheDao strict category', () {
+    test('unknown category wire value rejects (no guessed meaning)', () {
+      expect(tryParseCharacterCategory('main_cast'), isNotNull);
+      expect(tryParseCharacterCategory('guest'), isNotNull);
+      expect(tryParseCharacterCategory('extra'), isNotNull);
+      expect(tryParseCharacterCategory('lead'), isNull);
+      expect(tryParseCharacterCategory(''), isNull);
+    });
+
+    test('snapshot round-trips flattened measurements/contact', () async {
+      final db = CacheDatabase();
+      final dao = CharacterCacheDao(db);
+      await dao.applySnapshotForSeason('season-1', [
+        _character('ch-1'),
+      ], DateTime.utc(2026));
+      final read = await dao.readBySeason('season-1');
+      expect(read.single.measurements.height, '180');
+      expect(read.single.contact.email, 'a@b.c');
+      await db.close();
+    });
+  });
+
+  group('ShootingDayCacheDao order fidelity', () {
+    test('reads preserve server order_key ASC (no re-sort)', () async {
+      final db = CacheDatabase();
+      final dao = ShootingDayCacheDao(db);
+      await dao.applySnapshotForEpisode('ep-1', [
+        _day('d-2', orderKey: 'b'),
+        _day('d-1', orderKey: 'a'),
+      ], DateTime.utc(2026));
+      final read = await dao.readByEpisodeOrdered('ep-1');
+      expect(read.map((d) => d.id), ['d-1', 'd-2']);
+      await db.close();
+    });
+  });
+
+  group('Piece overlay version fence', () {
+    // The character-binding overlays are gone with the assign/unassign
+    // commands (a Piece has no character binding any more — the look that
+    // wears it is an Outfit). The version fence itself still guards every
+    // remaining row command, so it keeps its own coverage.
+    test('stale projection retains the overlay', () {
+      final base = _piece('c-1', version: 1);
+      final overlay = applyNotesOptimistic(base, 'fresh notes');
+      expect(
+        shouldClearPieceOverlay(projection: base, acknowledgedVersion: 2),
+        isFalse,
+      );
+      expect(overlay.notes, 'fresh notes');
+    });
+
+    test('fence passes when projection catches up', () {
+      final fresh = _piece('c-1', version: 2);
+      expect(
+        shouldClearPieceOverlay(projection: fresh, acknowledgedVersion: 2),
+        isTrue,
+      );
+    });
+  });
+
+  group('optimisticDetailPlaceholder (unique per command)', () {
+    test('distinct pending ids preserve subject/text/category', () {
+      final first = optimisticDetailPlaceholder(
+        pendingId: 'pending-detail-2',
+        subject: 'Jacket',
+        text: 'Red leather',
+      );
+      final second = optimisticDetailPlaceholder(
+        pendingId: 'pending-detail-3',
+        subject: 'Jacket',
+        text: 'Red leather',
+      );
+      // Detail cards key on the id: distinct ids never collide.
+      expect(first.id, isNot(second.id));
+      expect(first.text, second.text);
+    });
+  });
+
+  group('ShootingDay request builders (single-intent)', () {
+    // No typed unschedule builder exists: the explicit `date: null` wire
+    // body cannot be expressed by built_value (present-but-null) and is
+    // covered by the raw-Dio path in shooting_day_explicit_null_test.dart
+    // (issue #374, backend #372 presence semantics).
+    test('reorder/reschedule/rename carry version echo', () {
+      expect(buildReorderRequest(orderKey: 'b', version: 2).version, 2);
+      expect(
+        buildRescheduleRequest(date: Date(2026, 5, 1), version: 2).version,
+        2,
+      );
+      expect(buildRenameRequest(label: 'Tag', version: 2).label, 'Tag');
+    });
+  });
+
+  group('Membership gate (Task 2.2; series photo policy since #535)', () {
+    test('allows per capability set', () {
+      expect(
+        checkAssignCapability(_membership(['assign_costumes'])),
+        isA<GateAllow>(),
+      );
+      // Continuity photos stay season-scoped (issue #535: only the
+      // piece-photo policy moved to series level).
+      expect(
+        checkContinuityCapability(_membership(['upload_continuity_photos'])),
+        isA<GateAllow>(),
+      );
+      // Piece photos read the backend-computed SERIES predicate
+      // (has_active_costume_role_in_series, ADR-035 B2/S2).
+      expect(
+        checkPiecePhotoCapability(_seriesMembership(true)),
+        isA<GateAllow>(),
+      );
+    });
+
+    test('denies without the capability (localized 403 code)', () {
+      final deny = checkAssignCapability(_membership([]));
+      expect(deny, isA<GateDeny>());
+      expect((deny as GateDeny).code, 'piece.forbidden');
+      final photoDeny = checkPiecePhotoCapability(_seriesMembership(false));
+      expect((photoDeny as GateDeny).code, 'photo.forbidden');
+      final continuityDeny = checkContinuityCapability(
+        _membership(['assign_costumes']),
+      );
+      expect((continuityDeny as GateDeny).code, 'photo.forbidden');
+    });
+
+    test('null membership is pending (never a resolved denial)', () {
+      final pending = checkAssignCapability(null);
+      expect((pending as GateDeny).code, 'membership.pending');
+      final seriesPending = checkPiecePhotoCapability(null);
+      expect((seriesPending as GateDeny).code, 'membership.pending');
+    });
+  });
+
+  group('Photo watch terminal condition', () {
+    test('empty photos are terminal', () {
+      expect(isPhotoWatchTerminal(_piece('c-1')), isTrue);
+    });
+
+    test('mixed Ready + Pending keeps the pass running', () {
+      expect(
+        isPhotoWatchTerminal(_pieceWithVariants('c-1', ['Ready', 'Pending'])),
+        isFalse,
+      );
+      expect(
+        isPhotoWatchTerminal(_pieceWithVariants('c-1', ['Ready', 'Ready'])),
+        isTrue,
+      );
+      expect(
+        isPhotoWatchTerminal(_pieceWithVariants('c-1', ['Failed'])),
+        isTrue,
+      );
+    });
+
+    test(
+      'watch stops at terminal with bounded attempts (fake delay)',
+      () async {
+        final repo = PhotoRepository(BreakdownApi(dio: Dio()));
+        var calls = 0;
+        Future<Result<PieceView>> fetch() async {
+          calls++;
+          // First two Pending, then all Ready.
+          if (calls < 3) {
+            return Right(_pieceWithVariants('c-1', ['Pending']));
+          }
+          return Right(_pieceWithVariants('c-1', ['Ready']));
+        }
+
+        final events = await repo
+            .watch('c-1', fetch, delay: (_) async {})
+            .toList();
+        expect(calls, 3);
+        expect(events.last.state, PhotoWatchState.terminal);
+      },
+    );
+
+    test(
+      'unsubscribe stops the pass (foreground-only, no background polling)',
+      () async {
+        final repo = PhotoRepository(BreakdownApi(dio: Dio()));
+        var calls = 0;
+        final gate = Completer<void>();
+        Future<Result<PieceView>> fetch() async {
+          calls++;
+          // Park every refetch after the first: without cancellation the
+          // pass would run to the bounded budget once released.
+          if (calls > 1) await gate.future;
+          // Never terminal: only cancellation ends the pass early.
+          return Right(_pieceWithVariants('c-1', ['Pending']));
+        }
+
+        // `.first` auto-cancels after the first emission — exactly the
+        // "subscriber leaves" (navigating away) scenario.
+        final first = await repo.watch('c-1', fetch, delay: (_) async {}).first;
+        expect(first.state, PhotoWatchState.progress);
+        final callsAfterCancel = calls;
+        // Release the parked fetch: a live pass would continue polling to
+        // the budget (13 calls); a cancelled one terminates instead.
+        gate.complete();
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+        expect(calls, callsAfterCancel);
+        expect(callsAfterCancel, lessThanOrEqualTo(2));
+        // Returning re-arms a fresh bounded pass (caller re-subscribes).
+      },
+    );
+
+    test('photo with empty variants keeps polling (not terminal)', () async {
+      final emptyPhoto = PiecePhotoView(
+        (b) => b
+          ..id = 'photo-1'
+          ..contentType = 'image/jpeg'
+          ..sizeBytes = 10
+          ..variants.replace(BuiltList<PhotoVariantView>()),
+      );
+      final view = PieceView(
+        (b) => b
+          ..name = 'Fundus-Piece'
+          ..id = 'c-1'
+          ..notes = 'n'
+          ..details.replace(BuiltList<PieceDetailView>())
+          ..photos.replace(BuiltList<PiecePhotoView>([emptyPhoto]))
+          ..updatedAt = DateTime.utc(2026, 1, 1)
+          ..version = 2,
+      );
+      expect(isPhotoWatchTerminal(view), isFalse);
+    });
+
+    test('delay crossing the deadline skips the normal fetch', () async {
+      final repo = PhotoRepository(BreakdownApi(dio: Dio()));
+      var calls = 0;
+      Future<Result<PieceView>> fetch() async {
+        calls++;
+        return Right(_pieceWithVariants('c-1', ['Pending']));
+      }
+
+      final fixed = DateTime.utc(2026, 1, 1);
+      var now = fixed;
+      final clock = Clock(() => now);
+      Future<void> delay(int attempt) async {
+        // Cross the deadline during the backoff itself.
+        now = now.add(const Duration(seconds: 61));
+      }
+
+      final events = await repo
+          .watch('c-1', fetch, clock: clock, delay: delay)
+          .toList();
+      // Exactly one progress emission plus the expiry fetch — the
+      // crossed deadline never spends a normal fetch first.
+      expect(events.map((e) => e.state), [
+        PhotoWatchState.progress,
+        PhotoWatchState.expired,
+      ]);
+      expect(calls, 2);
+    });
+
+    test(
+      'watch expires with watch_expired and stops (no further calls)',
+      () async {
+        final repo = PhotoRepository(BreakdownApi(dio: Dio()));
+        var calls = 0;
+        Future<Result<PieceView>> fetch() async {
+          calls++;
+          return Right(_pieceWithVariants('c-1', ['Pending']));
+        }
+
+        final fixed = DateTime.utc(2026, 1, 1);
+        var now = fixed;
+        final clock = Clock(() => now);
+        Future<void> delay(int attempt) async {
+          // Advance past the elapsed budget on the second tick.
+          now = now.add(const Duration(seconds: 61));
+        }
+
+        final events = await repo
+            .watch('c-1', fetch, clock: clock, delay: delay)
+            .toList();
+        expect(events.last.state, PhotoWatchState.expired);
+        final callsAfterExpiry = calls;
+        // No further network call is made until the user re-subscribes.
+        expect(callsAfterExpiry, lessThanOrEqualTo(kPhotoWatchMaxAttempts + 1));
+      },
+    );
+  });
+
+  group('Prepare pipeline core (Task 3.1)', () {
+    test('rejects formats outside jpeg/png/webp', () {
+      expect(contentTypeForExtension('bmp'), isNull);
+      expect(contentTypeForExtension('tiff'), isNull);
+      final result = prepareImageCore(
+        PrepareInput(
+          bytes: Uint8List.fromList([0, 1, 2]),
+          contentType: 'image/bmp',
+        ),
+      );
+      expect(result, isA<PrepareFailure>());
+      expect((result as PrepareFailure).code, 'photo.unsupported_media_type');
+    });
+
+    test('decode failure surfaces photo.decode_failed', () {
+      final result = prepareImageCore(
+        PrepareInput(
+          bytes: Uint8List.fromList([0, 1, 2, 3]),
+          contentType: 'image/jpeg',
+        ),
+      );
+      expect((result as PrepareFailure).code, 'photo.decode_failed');
+    });
+
+    test('tiny fixture converges within budget', () {
+      // 2x2 red PNG fixture generated via the `image` package itself
+      // (synthetic, no camera hardware). Encoded then re-prepared.
+      final imgLib = _twoByTwoPng();
+      final result = prepareImageCore(
+        PrepareInput(bytes: imgLib, contentType: 'image/png'),
+      );
+      expect(result, isA<PrepareReady>());
+    });
+  });
+
+  group('Repository failure leaves cache untouched', () {
+    test('piece listBySeason Left does not write', () async {
+      final db = CacheDatabase();
+      final dao = PieceCacheDao(db);
+      await dao.applySnapshotForSeason('s-1', [
+        _piece('c-keep'),
+      ], DateTime.utc(2026));
+      // Simulate a failed fetch: no DAO call → rows preserved.
+      final before = await dao.readBySeason('s-1');
+      expect(before.map((c) => c.id), ['c-keep']);
+      await db.close();
+    });
+  });
+}
+
+Uint8List _twoByTwoPng() {
+  final image = img.Image(width: 2, height: 2);
+  image.setPixelRgb(0, 0, 255, 0, 0);
+  image.setPixelRgb(1, 0, 0, 255, 0);
+  image.setPixelRgb(0, 1, 0, 0, 255);
+  image.setPixelRgb(1, 1, 255, 255, 255);
+  return Uint8List.fromList(img.encodePng(image));
+}

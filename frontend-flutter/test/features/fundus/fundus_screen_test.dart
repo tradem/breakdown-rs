@@ -25,7 +25,7 @@ import 'package:frontend_flutter/data/cache/cache_generation.dart';
 import 'package:frontend_flutter/data/cache/clock.dart';
 import 'package:frontend_flutter/data/cache/piece_domains_cache_dao.dart';
 import 'package:frontend_flutter/data/fundus_repository.dart';
-import 'package:frontend_flutter/features/costumes/costume_detail_screen.dart';
+import 'package:frontend_flutter/features/pieces/piece_detail_screen.dart';
 import 'package:frontend_flutter/features/fundus/fundus_controller.dart';
 import 'package:frontend_flutter/features/fundus/fundus_destinations.dart';
 import 'package:frontend_flutter/features/fundus/fundus_model.dart';
@@ -59,7 +59,7 @@ void main() {
       ..version = 1,
   );
 
-  PieceView costume({
+  PieceView piece({
     required String id,
     required List<String> repertoire,
     String notes = '',
@@ -82,15 +82,13 @@ void main() {
     season(id: 'season-2', number: 2, title: 'Staffel Zwei'),
   ];
 
-  FundusInputs inputs({
-    required List<PieceView> costumes,
-    bool stale = false,
-  }) => FundusInputs(
-    projectId: projectId,
-    costumes: costumes,
-    seasons: projectSeasons,
-    stale: stale,
-  );
+  FundusInputs inputs({required List<PieceView> pieces, bool stale = false}) =>
+      FundusInputs(
+        projectId: projectId,
+        pieces: pieces,
+        seasons: projectSeasons,
+        stale: stale,
+      );
 
   void setUpContainer({
     SeasonView? activeSeason,
@@ -137,9 +135,9 @@ void main() {
       activeSeason: season(),
       inputsResult: Right(
         inputs(
-          costumes: [
-            costume(id: 'k1', repertoire: [activeSeasonId], notes: 'Jacke'),
-            costume(id: 'k2', repertoire: ['season-2'], notes: 'Kleid'),
+          pieces: [
+            piece(id: 'k1', repertoire: [activeSeasonId], notes: 'Jacke'),
+            piece(id: 'k2', repertoire: ['season-2'], notes: 'Kleid'),
           ],
         ),
       ),
@@ -170,17 +168,9 @@ void main() {
       activeSeason: season(),
       inputsResult: Right(
         inputs(
-          costumes: [
-            costume(
-              id: 'k1',
-              repertoire: [activeSeasonId],
-              notes: 'Lederjacke',
-            ),
-            costume(
-              id: 'k2',
-              repertoire: [activeSeasonId],
-              notes: 'Abendkleid',
-            ),
+          pieces: [
+            piece(id: 'k1', repertoire: [activeSeasonId], notes: 'Lederjacke'),
+            piece(id: 'k2', repertoire: [activeSeasonId], notes: 'Abendkleid'),
           ],
         ),
       ),
@@ -198,8 +188,8 @@ void main() {
       activeSeason: season(),
       inputsResult: Right(
         inputs(
-          costumes: [
-            costume(
+          pieces: [
+            piece(
               id: 'k1',
               repertoire: [activeSeasonId, 'season-2'],
               notes: 'Jacke',
@@ -213,38 +203,38 @@ void main() {
   });
 
   test(
-    'deep-link contract: a cross-season costume scopes to a repertoire season',
+    'deep-link contract: a cross-season piece scopes to a repertoire season',
     () {
       final active = season();
-      final crossSeason = costume(id: 'k1', repertoire: ['season-2']);
+      final crossSeason = piece(id: 'k1', repertoire: ['season-2']);
       final detailSeason = fundusDetailSeason(
-        costume: crossSeason,
+        piece: crossSeason,
         activeSeason: active,
         projectSeasons: projectSeasons,
       );
       expect(detailSeason?.id, 'season-2');
 
       // The active season wins when it is in the repertoire.
-      final inActive = costume(
+      final inActive = piece(
         id: 'k2',
         repertoire: [activeSeasonId, 'season-2'],
       );
       expect(
         fundusDetailSeason(
-          costume: inActive,
+          piece: inActive,
           activeSeason: active,
           projectSeasons: projectSeasons,
         )?.id,
         activeSeasonId,
       );
 
-      // The destination is the existing costume detail screen.
+      // The destination is the existing piece detail screen.
       expect(
         fundusDestinationScreen(
           detailSeason: detailSeason!,
-          costume: crossSeason,
+          piece: crossSeason,
         ),
-        isA<CostumeDetailScreen>(),
+        isA<PieceDetailScreen>(),
       );
     },
   );
@@ -254,8 +244,8 @@ void main() {
       activeSeason: season(),
       inputsResult: Right(
         inputs(
-          costumes: [
-            costume(id: 'k1', repertoire: [activeSeasonId], notes: 'Jacke'),
+          pieces: [
+            piece(id: 'k1', repertoire: [activeSeasonId], notes: 'Jacke'),
           ],
         ),
       ),
@@ -295,18 +285,14 @@ void main() {
       activeSeason: season(),
       inputsResult: Right(
         inputs(
-          costumes: [
-            costume(
+          pieces: [
+            piece(
               id: 'k1',
               repertoire: [activeSeasonId, 'season-2'],
               notes: 'Rote Lederjacke',
               categoryName: 'Accessoires',
             ),
-            costume(
-              id: 'k2',
-              repertoire: [activeSeasonId],
-              notes: 'Abendkleid',
-            ),
+            piece(id: 'k2', repertoire: [activeSeasonId], notes: 'Abendkleid'),
           ],
         ),
       ),

@@ -66,9 +66,9 @@ repository:
   "Breakdown   [Suche…] [⋮]"
   --
   {^ "Season 2 · Sommer 2026"
-     "Blocks 3 · Szenen 42 · Kostüme 118" [›]}
+     "Blocks 3 · Szenen 42 · Kleidungsstücke 118" [›]}
   {^ "Season 1 — Abschluss Februar 2026"
-     "Blocks 4 · Szenen 38 · Kostüme 96" [›]}
+     "Blocks 4 · Szenen 38 · Kleidungsstücke 96" [›]}
   --
   {+ "Keine Seasons? Season-Setup starten" (Wizard-CTA)
      "oder Bestellplanung per AI importieren"}

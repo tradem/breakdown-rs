@@ -2,8 +2,8 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
 
-/// Client-side append order-key derivation for costume categories
-/// (`flutter-hierarchy-navigation` D4, `flutter-costume-categories-screen`).
+/// Client-side append order-key derivation for piece categories
+/// (`flutter-hierarchy-navigation` D4, `flutter-piece-categories-screen`).
 ///
 /// `CreateCostumeCategoryRequest` requires `order_key`. The client derives an
 /// append-after-last key over the SAME season projection's existing keys —

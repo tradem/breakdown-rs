@@ -46,16 +46,16 @@ Future<({int total, int photo})> _requestRecorderSnapshot(
 /// strip widgets.
 Iterable<StepDefinitionGeneric> continuityPhotoSteps() => [
   when2<String, String, FlutterWorld>(
-    'I pick costume {string} for the continuity capture of scene shoot {string}',
+    'I pick piece {string} for the continuity capture of scene shoot {string}',
     (String pieceId, String sceneShootId, context) async {
       final driver = context.world.driver!;
       await FlutterDriverUtils.tap(
         driver,
-        find.byValueKey('continuity-costume-pick-$sceneShootId'),
+        find.byValueKey('continuity-piece-pick-$sceneShootId'),
       );
       await FlutterDriverUtils.tap(
         driver,
-        find.byValueKey('continuity-costume-option-$pieceId'),
+        find.byValueKey('continuity-piece-option-$pieceId'),
       );
     },
   ),

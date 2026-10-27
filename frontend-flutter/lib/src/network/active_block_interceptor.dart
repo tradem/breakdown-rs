@@ -8,7 +8,7 @@ import 'package:dio/dio.dart';
 ///
 /// The backend `authorize_middleware` requires `X-Active-Block` on every
 /// block-scoped route (episodes, scenes, shooting days, scene shoots,
-/// costumes, characters) and rejects a missing/malformed header with 400.
+/// pieces, characters) and rejects a missing/malformed header with 400.
 /// The generated `breakdown_api` client exposes no header parameter for
 /// these routes (the header is middleware-enforced, absent from
 /// `openapi.yaml`), so this interceptor is the single attachment point —

@@ -19,7 +19,7 @@ import '../shooting_days/create_shooting_day_screen.dart';
 /// Plain data on purpose: the sheet renders and routes only — the write
 /// affordances themselves gate inside their controllers (the sheet issues
 /// NO network request for merely being opened). New surfaces (scene,
-/// costume, character) append to the factory's list; nothing else changes.
+/// piece, character) append to the factory's list; nothing else changes.
 class QuickCreateAction {
   const QuickCreateAction({
     required this.key,

@@ -44,7 +44,7 @@
   "characterNameRequired": "Es ist ein Name erforderlich",
   "characterCategoryLabelName": "Kategorie",
   "characterCategoryMain": "Hauptbesetzung",
-"characterCategoryEditTooltip": "Rollentyp ändern",
+  "characterCategoryEditTooltip": "Rollentyp ändern",
   "characterCategoryGuest": "Gast",
   "characterCategoryExtra": "Komparse",
   "charactersFetchError": "Figuren konnten nicht geladen werden ({code}).",
@@ -63,38 +63,36 @@
   "charactersStaleBanner": "Zwischengespeicherte Daten sind möglicherweise veraltet.",
   "characterErrorNetwork": "Netzwerkproblem – die Änderung wurde nicht gespeichert. Versuch es erneut.",
   "characterErrorGeneric": "Die Figur konnte nicht gespeichert werden ({code}).",
-  "costumeErrorChanged": "Woanders geändert – zum Aktualisieren ziehen und erneut versuchen.",
-  "costumeErrorForbidden": "Du benötigst eine aktive Kostüm-Rolle in dieser Staffel.",
-  "costumeErrorMembership": "Berechtigungen konnten nicht überprüft werden – Verbindung prüfen und erneut versuchen.",
-  "costumeErrorGeneric": "Das Kostüm konnte nicht gespeichert werden ({code}).",
-  "costumeErrorCategorySeason": "Diese Kategorie gehört zu einer anderen Staffel – wähle eine Kategorie dieser Staffel.",
-  "costumeErrorCategoryArchived": "Diese Kategorie ist archiviert – wähle eine aktive Kategorie.",
-"costumeErrorDetailNotFound": "Dieses Kostümdetail existiert nicht mehr – die Liste wurde aktualisiert.",
-    "costumeDetailCategoryTitle": "Kategorie",
-  "costumeDetailPickCategory": "Kategorie wählen",
-  "costumeDetailCategorySaved": "Kategorie gespeichert.",
-  "photoErrorRequiresCharacter": "Ordne das Kostüm einer Figur zu, bevor du Fotos verwaltest.",
+  "pieceErrorChanged": "Woanders geändert – zum Aktualisieren ziehen und erneut versuchen.",
+  "pieceErrorForbidden": "Du benötigst eine aktive Kostüm-Rolle in dieser Staffel.",
+  "pieceErrorMembership": "Berechtigungen konnten nicht überprüft werden – Verbindung prüfen und erneut versuchen.",
+  "pieceErrorGeneric": "Das Kleidungsstück konnte nicht gespeichert werden ({code}).",
+  "pieceErrorCategorySeason": "Diese Kategorie gehört zu einer anderen Staffel – wähle eine Kategorie dieser Staffel.",
+  "pieceErrorCategoryArchived": "Diese Kategorie ist archiviert – wähle eine aktive Kategorie.",
+  "pieceErrorDetailNotFound": "Dieses Detail existiert nicht mehr – die Liste wurde aktualisiert.",
+  "pieceDetailCategoryTitle": "Kategorie",
+  "pieceDetailPickCategory": "Kategorie wählen",
+  "pieceDetailCategorySaved": "Kategorie gespeichert.",
   "photoErrorTooLarge": "Das Bild ist auch nach der Verkleinerung noch zu groß.",
   "photoErrorUnsupported": "Nur JPEG-, PNG- und WebP-Fotos werden unterstützt.",
   "photoErrorForbidden": "Du benötigst eine aktive Kostüm-Rolle in dieser Produktion, um Fotos zu verwalten.",
-  "photoErrorContainerUnresolved": "Für dieses Kostüm kann kein zugehöriger Container ermittelt werden — lade die Kostümliste neu und versuch es erneut.",
+  "photoErrorContainerUnresolved": "Für dieses Kleidungsstück kann kein zugehöriger Container ermittelt werden — lade die Garderobe neu und versuch es erneut.",
   "photoErrorNetwork": "Netzwerkproblem – die Fotoänderung wurde nicht gespeichert. Versuch es erneut.",
   "photoErrorGeneric": "Das Foto konnte nicht gespeichert werden ({code}).",
   "photoDeleteTitle": "Foto löschen?",
   "photoDeleteMessage": "Das Foto wird dauerhaft gelöscht. Dieser Schritt kann nicht rückgängig gemacht werden.",
-  "costumeAddFab": "Kostüm erstellen",
-  "costumesStaleBanner": "Zwischengespeicherte Daten sind möglicherweise veraltet.",
-  "costumesFetchError": "Kostüme konnten nicht geladen werden ({code}).",
-  "costumeTileLabel": "Kostüm {id}",
-  "costumeTileLabelFallback": "Kostüm",
+  "pieceAddFab": "Kleidungsstück erstellen",
+  "piecesStaleBanner": "Zwischengespeicherte Daten sind möglicherweise veraltet.",
+  "piecesFetchError": "Kleidungsstücke konnten nicht geladen werden ({code}).",
+  "pieceTileLabel": "Kleidungsstück {id}",
+  "pieceTileLabelFallback": "Kleidungsstück",
   "costumeCategoryUncategorized": "Ohne Kategorie",
-  "costumeDetailSaved": "Kostümdaten gespeichert.",
-  "costumeWornBy": "Getragen von {name}",
-  "costumeDetailsCount": "{count} Details",
-  "costumePhotosCount": "{count} Fotos",
-  "costumeTileSyncing": "Gerade gespeichert – wird synchronisiert …",
-  "costumeTileSyncingStale": "Erstellt – die Liste wird noch aktualisiert. Ziehe zum Aktualisieren nach unten.",
-  "costumesEmpty": "Noch keine Kostüme",
+  "pieceDetailSaved": "Kleidungsstück gespeichert.",
+  "pieceDetailsCount": "{count} Details",
+  "piecePhotosCount": "{count} Fotos",
+  "pieceTileSyncing": "Gerade gespeichert – wird synchronisiert …",
+  "pieceTileSyncingStale": "Erstellt – die Liste wird noch aktualisiert. Ziehe zum Aktualisieren nach unten.",
+  "piecesEmpty": "Noch keine Kleidungsstücke",
   "createSeasonTitle": "Staffel erstellen",
   "createSeasonTitleLabel": "Titel",
   "reportsTitle": "Berichte – {label}",
@@ -137,12 +135,6 @@
   "reportsAggregateProgress": "{wrapped} von {total} Drehtagen abgeschlossen",
   "reportsAggregatePdf": "Soll-Ist-Vergleich (PDF)",
   "reportsAggregateSceneLabel": "Szenen-Nr: {number}",
-  "shootingDaysReportsAggregateLabel": "Soll-Ist gesamt",
-  "reportsAggregateTitle": "Soll-Ist-Vergleich – {scope}",
-  "reportsAggregateFinal": "Abschließend – alle Drehtage sind abgeschlossen.",
-  "reportsAggregateProvisional": "Vorläufig – {wrapped} von {total} Drehtagen abgeschlossen.",
-  "reportsAggregateProgress": "{wrapped} von {total} Drehtagen abgeschlossen",
-  "reportsAggregatePdf": "Soll-Ist-Vergleich (PDF)",
   "aiConfigErrorAdmin": "Administrator-Rolle erforderlich – frag deine Produktionsadmins.",
   "aiConfigErrorChanged": "Woanders geändert – aktualisiere und wende deine Änderung erneut an.",
   "aiConfigErrorOrphaned": "Der API-Schlüssel konnte nach dem fehlgeschlagenen Setup nicht aus dem Server-Vault entfernt werden. Wiederhole die Bereinigung im Konfigurationsbildschirm.",
@@ -345,7 +337,7 @@
       "code": {}
     }
   },
-  "aiApplyErrorEpisodeCreateFailed": "Die Episode konnte nicht automatisch erstellt werden. Bitte pr\u00fcfe deine Verbindung und versuche es \u00fcber \u201eZiel \u00e4ndern\u201c erneut.",
+  "aiApplyErrorEpisodeCreateFailed": "Die Episode konnte nicht automatisch erstellt werden. Bitte prüfe deine Verbindung und versuche es über „Ziel ändern“ erneut.",
   "aiApplyOutcome": "Angewendet: {applied} Entwurf(e): {days} Drehtag(e) erstellt, {shoots} Szenen-Dreh(e) geplant.",
   "aiApplyBackToImports": "Zurück zu den Importen",
   "aiScenePickerError": "Szenen konnten nicht geladen werden ({code}).",
@@ -368,56 +360,48 @@
   "aiImportStampWarning": "Import gestartet – der Episodenkontext konnte nicht gespeichert werden ({code}); wähle die Episode beim Anwenden.",
   "aiImportSubmit": "Zum Import senden",
   "commonAdd": "Hinzufügen",
-  "captureDeniedCamera": "Kamera-Zugriff ist deaktiviert. Aktiviere den Kamera-Zugriff in den Einstellungen, um Kostüme zu dokumentieren.",
-  "captureDeniedGallery": "Der Fotogalerie-Zugriff ist deaktiviert. Aktiviere den Foto-Zugriff in den Einstellungen, um Kostüme zu dokumentieren.",
+  "captureDeniedCamera": "Kamera-Zugriff ist deaktiviert. Aktiviere den Kamera-Zugriff in den Einstellungen, um Kleidungsstücke zu dokumentieren.",
+  "captureDeniedGallery": "Foto-Zugriff ist deaktiviert. Aktiviere den Foto-Zugriff in den Einstellungen, um Kleidungsstücke zu dokumentieren.",
   "captureUnavailable": "Die Kamera ist derzeit nicht verfügbar. Prüfe die Einstellungen und versuch es erneut.",
   "captureDeniedTitleCamera": "Kamera-Zugriff deaktiviert",
   "captureDeniedTitleGallery": "Fotogalerie-Zugriff deaktiviert",
-  "costumeDetailTitle": "Kostüm",
-  "costumeDetailCharacter": "Figur",
-  "costumeDetailAssignGate": "Du benötigst eine aktive Kostüm-Rolle in dieser Staffel, um Figuren zuzuweisen.",
-  "costumeDetailAssign": "Zuweisen",
-  "costumeDetailReassign": "Neu zuweisen",
-  "costumeDetailTextRequired": "Text ist erforderlich",
-  "costumeDetailTextRequiredHint": "Pflichtfeld – markiert mit *",
-  "costumeDetailSubjectOptional": "optional",
-  "costumeDetailEditDetail": "Detail bearbeiten",
-  "costumeDetailDeleteTitle": "Detail l\u00f6schen?",
-  "costumeDetailDeleteMessage": "\u201e{detail}\u201c wird entfernt. Das kann nicht r\u00fcckg\u00e4ngig gemacht werden.",
-  "costumeDetailUnassigned": "Nicht zugeordnet",
-  "costumeDetailUnassignTooltip": "Zuordnung entfernen",
-  "costumeDetailUnassignTitle": "Figur-Zuordnung entfernen?",
-  "costumeDetailUnassignMessage": "Das Kostüm behält seine Details und Notizen; nur die Figurenbindung wird entfernt.",
-  "costumeDetailNotes": "Notizen",
-  "costumeDetailNotesHint": "Anpassungsnotizen …",
-  "costumeDetailSaveNotes": "Notizen speichern",
-  "costumeDetailDetails": "Details",
-  "costumeDetailNoDetails": "Noch keine Details – füge unten das erste hinzu.",
-  "costumeDetailAddDetail": "Detail hinzufügen",
-  "costumeDetailSubject": "Betreff",
-  "costumeDetailText": "Text",
-  "costumeDetailCategory": "Kategorie",
-  "costumeDetailPhotos": "Fotos",
-  "costumeDetailCamera": "Kamera",
-  "costumeDetailGallery": "Galerie",
-  "costumeDetailPromptTitle": "Kostüme mit Fotos dokumentieren?",
-  "costumeDetailPromptBody": "Fotos helfen dem Garderobenteam, Kostüme zu dokumentieren und Kontinuität zu verfolgen. Als Nächstes fragt das System nach dem Kamera-Zugriff.",
-  "costumeDetailRepertoire": "Repertoire",
-  "costumeDetailRepertoireEmpty": "In keiner weiteren Staffel gelistet",
-  "costumeDetailRepertoireAdd": "Zu Staffel hinzufügen",
-  "costumeDetailRepertoireAddTooltip": "Das Kostüm zum Repertoire einer anderen Staffel hinzufügen",
-  "costumeDetailRepertoireRemoveTooltip": "Aus Staffel entfernen",
-  "costumeDetailRepertoireRemoveTitle": "Aus Staffel entfernen?",
-  "costumeDetailRepertoireRemoveMessage": "Das Kostüm verschwindet aus dem Garderoben-Bestand dieser Staffel. Details und Fotos bleiben am Kostüm.",
-  "costumeDetailRepertoirePick": "Staffel wählen",
-  "costumeDetailRepertoireSaved": "Staffel zum Repertoire hinzugefügt.",
-  "costumeDetailRepertoireRemoved": "Das Kostüm wurde aus dem Staffel-Repertoire entfernt.",
-  "costumeErrorSeasonArchived": "Diese Staffel ist archiviert – ihr Repertoire kann nicht mehr geändert werden.",
-  "costumeErrorSeasonNotFound": "Diese Staffel existiert nicht mehr – die Liste wurde aktualisiert.",
-  "costumeDetailNotNow": "Später",
-  "costumeDetailContinue": "Weiter",
-  "costumeDetailOpenSettings": "Einstellungen öffnen",
-  "costumeDetailDeletePhotoMessage": "Das Foto und seine Varianten werden entfernt. Das kann nicht rückgängig gemacht werden.",
+  "pieceDetailTitle": "Kleidungsstück",
+  "pieceDetailTextRequired": "Text ist erforderlich",
+  "pieceDetailTextRequiredHint": "Pflichtfeld – markiert mit *",
+  "pieceDetailSubjectOptional": "optional",
+  "pieceDetailEditDetail": "Detail bearbeiten",
+  "pieceDetailDeleteTitle": "Detail löschen?",
+  "pieceDetailDeleteMessage": "„{detail}“ wird entfernt. Das kann nicht rückgängig gemacht werden.",
+  "pieceDetailNotes": "Notizen",
+  "pieceDetailNotesHint": "Anpassungsnotizen …",
+  "pieceDetailSaveNotes": "Notizen speichern",
+  "pieceDetailDetails": "Details",
+  "pieceDetailNoDetails": "Noch keine Details – füge unten das erste hinzu.",
+  "pieceDetailAddDetail": "Detail hinzufügen",
+  "pieceDetailSubject": "Betreff",
+  "pieceDetailText": "Text",
+  "pieceDetailCategory": "Kategorie",
+  "pieceDetailPhotos": "Fotos",
+  "pieceDetailCamera": "Kamera",
+  "pieceDetailGallery": "Galerie",
+  "pieceDetailPromptTitle": "Kleidungsstücke mit Fotos dokumentieren?",
+  "pieceDetailPromptBody": "Fotos helfen dem Garderobenteam, Kleidungsstücke zu dokumentieren und Kontinuität zu verfolgen. Als Nächstes fragt das System nach dem Kamera-Zugriff.",
+  "pieceDetailRepertoire": "Repertoire",
+  "pieceDetailRepertoireEmpty": "In keiner weiteren Staffel gelistet",
+  "pieceDetailRepertoireAdd": "Zu Staffel hinzufügen",
+  "pieceDetailRepertoireAddTooltip": "Das Kleidungsstück zum Repertoire einer anderen Staffel hinzufügen",
+  "pieceDetailRepertoireRemoveTooltip": "Aus Staffel entfernen",
+  "pieceDetailRepertoireRemoveTitle": "Aus Staffel entfernen?",
+  "pieceDetailRepertoireRemoveMessage": "Das Kleidungsstück verschwindet aus dem Garderoben-Bestand dieser Staffel. Details und Fotos bleiben am Kleidungsstück.",
+  "pieceDetailRepertoirePick": "Staffel wählen",
+  "pieceDetailRepertoireSaved": "Staffel zum Repertoire hinzugefügt.",
+  "pieceDetailRepertoireRemoved": "Das Kleidungsstück wurde aus dem Staffel-Repertoire entfernt.",
+  "pieceErrorSeasonArchived": "Diese Staffel ist archiviert – ihr Repertoire kann nicht mehr geändert werden.",
+  "pieceErrorSeasonNotFound": "Diese Staffel existiert nicht mehr – die Liste wurde aktualisiert.",
+  "pieceDetailNotNow": "Später",
+  "pieceDetailContinue": "Weiter",
+  "pieceDetailOpenSettings": "Einstellungen öffnen",
+  "pieceDetailDeletePhotoMessage": "Das Foto und seine Varianten werden entfernt. Das kann nicht rückgängig gemacht werden.",
   "wizardErrorSeasonExists": "Eine Season mit dieser Nummer existiert bereits.",
   "wizardErrorBlockExistsSeries": "Ein Block mit dieser Nummer existiert bereits in der Serie.",
   "wizardErrorEpisodeExistsSeries": "Eine Episode mit dieser Nummer existiert bereits in der Serie.",
@@ -460,31 +444,31 @@
   "continuityEmpty": "Noch keine Kontinuitätsfotos verknüpft.",
   "continuityPhotoLabel": "Foto {id}",
   "continuityStoreOn": "Foto speichern unter …",
-  "continuityCostumeHint": "Wähle das Kostüm, zu dem das Foto gehört – es wird am Kostüm gespeichert und mit diesem Shot verknüpft.",
+  "continuityPieceHint": "Wähle das Kleidungsstück, zu dem das Foto gehört – es wird am Kleidungsstück gespeichert und mit diesem Shot verknüpft.",
   "continuityRationaleTitle": "Kontinuität mit Fotos dokumentieren?",
   "continuityRationaleBody": "Kontinuitätsfotos halten den Zustand am Set (Anschluss) an diesem Scene-Shoot fest. Als Nächstes fragt das System nach dem Kamera-Zugriff.",
   "continuityUnlinkTitle": "Kontinuitätsfoto-Verknüpfung entfernen?",
   "continuityUnlinkButton": "Verknüpfung entfernen",
-  "castNoSeason": "Wähle eine Season, um Kostüme und Figuren zu sehen.",
+  "castNoSeason": "Wähle eine Staffel, um Kleidungsstücke und Figuren zu sehen.",
   "castPickSeason": "Season wählen",
   "castCategoriesTooltip": "Kostüm-Kategorien",
   "castSegmentCharacters": "Figuren",
-  "castSegmentCostumes": "Kostüme",
+  "castSegmentOutfits": "Looks",
   "photoGalleryAddPhoto": "Foto hinzufügen",
   "photoGalleryProcessingFailed": "Verarbeitung fehlgeschlagen",
   "photoGalleryCaptureAgain": "Erneut aufnehmen",
   "photoGalleryDeleteTooltip": "Foto löschen",
-  "photoTileSemantics": "Foto von Kostüm {costumeId}",
+  "photoTileSemantics": "Foto von Kleidungsstück {pieceId}",
   "photoGalleryEmpty": "Noch keine Fotos",
   "seasonsOnlineRequired": "Online-Verbindung erforderlich",
   "seasonsStaleBanner": "Zwischengespeicherte Daten sind möglicherweise veraltet.",
   "seasonsErrorBanner": "Aktualisierung fehlgeschlagen – zwischengespeicherte Daten werden angezeigt.",
   "seasonsAddTooltip": "Season hinzufügen",
   "seasonsEmpty": "Noch keine Seasons",
-  "continuityUnlinkBody": "Das Foto bleibt am Kostüm – nur die Verknüpfung zu diesem Shoot wird entfernt.",
+  "continuityUnlinkBody": "Das Foto bleibt am Kleidungsstück – nur die Verknüpfung zu diesem Shoot wird entfernt.",
   "sceneShootDayFallback": "Drehtag",
   "sceneShootsReportsTooltip": "Berichte",
-"sceneShootsReportsLabel": "Berichte",
+  "sceneShootsReportsLabel": "Berichte",
   "sceneShootWrapButton": "Drehtag abschließen",
   "sceneShootWrapTitle": "Diesen Drehtag abschließen?",
   "sceneShootWrapMessage": "Beim Abschließen wird der Tag als endgültig markiert: Gestartet-, Fertig- und Übersprungen-Status können danach nicht mehr geändert werden. Das kann nicht rückgängig gemacht werden – ein Entfernen der Abschließung ist im Vertrag nicht vorgesehen.",
@@ -536,7 +520,7 @@
   "sceneDetailThisCharacter": "Diese Figur",
   "sceneDetailShootingDaysTitle": "Drehtage ({count})",
   "sceneDetailNoShootingDays": "Noch keinem Drehtag zugeordnet.",
-"sceneDetailNoShootingDaysReportHint": "Plane die Szene auf einem Drehtag – der Soll-/Ist-Bericht (geplant vs. tatsächlich) öffnet sich dann über das Day-Board dieses Tages.",
+  "sceneDetailNoShootingDaysReportHint": "Plane die Szene auf einem Drehtag – der Soll-/Ist-Bericht (geplant vs. tatsächlich) öffnet sich dann über das Day-Board dieses Tages.",
   "sceneDetailOpenDayBoard": "Day-Board öffnen",
   "sceneDetailScheduleOnDay": "Auf Drehtag planen",
   "sceneDetailNoDayCandidatesHint": "Noch kein Drehtag in dieser Episode — lege zuerst einen an oder importiere die Dispo.",
@@ -545,22 +529,22 @@
   "sceneDetailScheduleTitle": "Auf Drehtag planen",
   "sceneDetailFetchError": "Szene konnte nicht geladen werden ({code}).",
   "sceneDetailGone": "Diese Szene ist nicht mehr verfügbar.",
-  "sceneDetailCostumesTitle": "Kostüme ({count})",
-  "sceneDetailAssignCostume": "Kostüm zuweisen",
-  "sceneDetailAddChange": "+ Kostümwechsel",
-  "sceneDetailRemoveCostumeTooltip": "Kostüm entfernen",
-  "sceneDetailRemoveCostumeTitle": "Kostüm entfernen?",
-  "sceneDetailRemoveCostumeMessage": "„{name}“ wird aus dieser Szene entfernt.",
-  "sceneDetailNoCostumeInScene": "Kein Kostüm in dieser Szene.",
-  "sceneDetailPickCostumeTitle": "Kostüm wählen",
-  "sceneDetailCostumeCueHint": "Notiz für die Garderobe (optional)",
+  "sceneDetailOutfitsTitle": "Looks ({count})",
+  "sceneDetailAssignOutfit": "Look zuweisen",
+  "sceneDetailAddChange": "+ Lookwechsel",
+  "sceneDetailRemoveOutfitTooltip": "Look entfernen",
+  "sceneDetailRemoveOutfitTitle": "Look entfernen?",
+  "sceneDetailRemoveOutfitMessage": "„{name}“ wird aus dieser Szene entfernt.",
+  "sceneDetailNoOutfitInScene": "Kein Look in dieser Szene.",
+  "sceneDetailPickOutfitTitle": "Look wählen",
+  "sceneDetailOutfitCueHint": "Notiz für die Garderobe (optional)",
   "sceneBeatErrorNotInScene": "Diese Figur ist nicht in der Szene.",
-  "sceneBeatErrorNotFound": "Dieser Kostümwechsel existiert nicht (mehr).",
-  "sceneBeatErrorValidation": "Dieser Kostümwechsel ist ungültig (z. B. identischer Folge-Wechsel).",
+  "sceneBeatErrorNotFound": "Dieser Lookwechsel existiert nicht (mehr).",
+  "sceneBeatErrorValidation": "Dieser Lookwechsel ist ungültig (z. B. identischer Folge-Wechsel).",
   "sceneBeatErrorNetwork": "Netzwerkproblem – die Änderung wurde nicht gespeichert. Versuch es erneut.",
-  "sceneBeatErrorGeneric": "Der Kostümwechsel konnte nicht gespeichert werden ({code}).",
-  "sceneBeatOverlaySyncing": "Kostümwechsel wird gespeichert – die Liste wird noch aktualisiert.",
-  "sceneBeatOverlayStale": "Kostümwechsel konnte noch nicht bestätigt werden – ziehe nach, um zu aktualisieren.",
+  "sceneBeatErrorGeneric": "Der Lookwechsel konnte nicht gespeichert werden ({code}).",
+  "sceneBeatOverlaySyncing": "Lookwechsel wird gespeichert – die Liste wird noch aktualisiert.",
+  "sceneBeatOverlayStale": "Lookwechsel konnte noch nicht bestätigt werden – ziehe nach, um zu aktualisieren.",
   "assignCharacterSheetTitle": "Figur zuweisen",
   "characterDetailFetchError": "Figur konnte nicht geladen werden ({code}).",
   "characterDetailGone": "Diese Figur existiert nicht mehr.",
@@ -674,10 +658,9 @@
   "navScript": "Script",
   "viewTitleScript": "Szenen aus dem Skript",
   "navSchedule": "Schedule/Dispo",
-  "navCostumes": "Garderobe",
+  "navWardrobe": "Garderobe",
   "navCharacters": "Figuren",
   "navAiImport": "Import",
-  "navShootingDays": "Drehtage",
   "navShootingDays": "Drehtage",
   "navEpisodes": "Episoden",
   "navScenes": "Szenen",
@@ -752,7 +735,7 @@
   "seasonsStaleAt": "Stand: {relative}",
   "seasonsMetaBlocks": "{count, plural, =1{1 Block} other{{count} Blöcke}}",
   "seasonsMetaScenes": "{count, plural, =1{1 Szene} other{{count} Szenen}}",
-  "seasonsMetaCostumes": "{count, plural, =1{1 Kostüm} other{{count} Kostüme}}",
+  "seasonsMetaPieces": "{count, plural, =1{1 Kleidungsstück} other{{count} Kleidungsstücke}}",
   "productionTitle": "Produktion",
   "productionBlocksSubtitle": "Blöcke und Episoden der aktiven Season",
   "productionNoActiveSeason": "Wähle zuerst eine Season.",
@@ -828,7 +811,7 @@
   "scriptNoScenes": "Noch keine Szenen in dieser Season.",
   "scriptRowEpisodeScene": "{episode}, Szene {number}",
   "scriptRowCharacters": "{count, plural, =1{1 Figur} other{{count} Figuren}}",
-  "scriptRowCostumes": "{count, plural, =1{1 Kostüm} other{{count} Kostüme}}",
+  "scriptRowOutfits": "{count, plural, =1{1 Look} other{{count} Looks}}",
   "scheduleFetchError": "Der Dispo konnte nicht geladen werden ({code}).",
   "scheduleNoDays": "Für diese Season sind noch keine Drehtage geplant.",
   "schedulePartialBlocks": "Teilweise geladen: {count, plural, =1{1 Block} other{{count} Blöcke}} konnten nicht gelesen werden.",
@@ -890,35 +873,39 @@
   "aiImportClippyIdle4": "Ein Kleiderbügel kommt selten allein – meistens hängt er mit Freunden rum.",
   "aiImportClippyIdle5": "Ordnung ist das halbe Leben. Die andere Hälfte ist der passende Bügel.",
   "aiImportClippyDismissTooltip": "Karl Kleiderbügel ausblenden",
-
   "seasonsArchivedBadge": "Archiviert",
   "seasonsArchiveTooltip": "Staffel-Aktionen",
   "seasonsArchiveCta": "Staffel archivieren",
   "seasonsArchivedError": "Die Staffel ist archiviert und kann nicht mehr geändert werden.",
   "seasonsArchiveForbidden": "Dafür fehlt dir die aktive Kostüm-Rolle in dieser Staffel.",
-
   "omniSearchTitle": "Suche",
   "omniSearchTooltip": "Suchen",
-  "omniSearchHint": "Suchen: Szenen, Rollen, Kostüme, Drehtage dieser Staffel",
+  "omniSearchHint": "Suchen: Szenen, Rollen, Kleidungsstücke, Drehtage dieser Staffel",
   "omniSearchChipScene": "Szene",
   "omniSearchChipCharacter": "Rolle",
-  "omniSearchChipCostume": "Kostüm",
+  "omniSearchChipPiece": "Kleidungsstück",
   "omniSearchChipShootingDay": "Drehtag",
   "omniSearchGroupScenes": "Szenen",
   "omniSearchGroupCharacters": "Rollen",
-  "omniSearchGroupCostumes": "Kostüme",
+  "omniSearchGroupPieces": "Kleidungsstücke",
   "omniSearchGroupShootingDays": "Drehtage",
-  "omniSearchInitialEmpty": "Tippe, um die Szenen, Rollen, Kostüme und Drehtage dieser Staffel zu durchsuchen.",
+  "omniSearchInitialEmpty": "Tippe, um die Szenen, Rollen, Kleidungsstücke und Drehtage dieser Staffel zu durchsuchen.",
   "@omniSearchZeroMatch": {
     "placeholders": {
-      "query": {"type": "String"},
-      "facets": {"type": "String"}
+      "query": {
+        "type": "String"
+      },
+      "facets": {
+        "type": "String"
+      }
     }
   },
   "omniSearchZeroMatch": "Keine Treffer für „{query}“ in: {facets}.",
   "@omniSearchNotLoaded": {
     "placeholders": {
-      "facets": {"type": "String"}
+      "facets": {
+        "type": "String"
+      }
     }
   },
   "omniSearchNotLoaded": "Noch nicht geladen: {facets}. Öffne die zugehörige Ansicht, um die Daten zu laden.",
@@ -928,12 +915,14 @@
   "omniSearchRefresh": "Aktualisieren",
   "fundusTitle": "Fundus",
   "fundusTooltip": "Fundus durchsuchen",
-  "fundusHint": "Fundus durchsuchen: Kostüme über alle Staffeln",
+  "fundusHint": "Fundus durchsuchen: Kleidungsstücke über alle Staffeln",
   "fundusEmpty": "Der Fundus dieses Projekts ist leer.",
   "fundusNotLoaded": "Der Fundus wird noch geladen.",
   "@fundusZeroMatch": {
     "placeholders": {
-      "query": {"type": "String"}
+      "query": {
+        "type": "String"
+      }
     }
   },
   "fundusZeroMatch": "Keine Treffer für „{query}“ im Fundus.",
@@ -942,7 +931,9 @@
   "fundusStaleBanner": "Diese Ergebnisse basieren auf dem lokalen Cache und können veraltet sein.",
   "@fundusRepertoireSeasons": {
     "placeholders": {
-      "seasons": {"type": "String"}
+      "seasons": {
+        "type": "String"
+      }
     }
   },
   "fundusRepertoireSeasons": "Staffeln: {seasons}",
@@ -975,13 +966,25 @@
   "aiConfigDecisionApiKeyLabel": "API-Schlüssel für Decision-Modell",
   "@aiConfigDecisionApiKeyLabel": {},
   "aiConfigDecisionKeyRemembered": "Gespeicherter Decision-Schlüssel für {provider} wird verwendet.",
-  "@aiConfigDecisionKeyRemembered": {"placeholders": {"provider": {}}},
+  "@aiConfigDecisionKeyRemembered": {
+    "placeholders": {
+      "provider": {}
+    }
+  },
   "aiPreviewAiNoteScored": "Alle Zeilen sind maschinell extrahierte Entwürfe. Die Sternbewertungen (1–5) sind maschinell erstellte Qualitätseinschätzungen des Decision-Modells und ersetzen die menschliche Prüfung nicht.",
   "@aiPreviewAiNoteScored": {},
   "aiPreviewFilterAll": "Alle Szenen ({count})",
-  "@aiPreviewFilterAll": {"placeholders": {"count": {}}},
+  "@aiPreviewFilterAll": {
+    "placeholders": {
+      "count": {}
+    }
+  },
   "aiPreviewFilterLowScore": "Niedrige Bewertung ≤ ★★★ ({count})",
-  "@aiPreviewFilterLowScore": {"placeholders": {"count": {}}},
+  "@aiPreviewFilterLowScore": {
+    "placeholders": {
+      "count": {}
+    }
+  },
   "aiPreviewSceneScore": "Szenen-Bewertung:",
   "@aiPreviewSceneScore": {},
   "aiPreviewSynopsisScore": "Kurzbeschreibung (TL;DR):",
@@ -989,7 +992,169 @@
   "aiPreviewShootingDayScore": "Drehtag-Bewertung:",
   "@aiPreviewShootingDayScore": {},
   "aiScoreStarsLabel": "{stars} von 5 Sternen",
-  "@aiScoreStarsLabel": {"placeholders": {"stars": {}}},
+  "@aiScoreStarsLabel": {
+    "placeholders": {
+      "stars": {}
+    }
+  },
   "aiConfigDecisionKeyMissing": "Bitte gib einen API-Schlüssel für das Decision-Modell ein oder wähle „Gleichen API-Schlüssel wie Extraktion verwenden“.",
-  "@aiConfigDecisionKeyMissing": {}
+  "@aiConfigDecisionKeyMissing": {},
+  "outfitVariantMarker": "Variante",
+  "outfitListTitle": "Looks",
+  "outfitListEmpty": "Noch keine Looks – erstelle den ersten.",
+  "outfitCreateAction": "Look erstellen",
+  "outfitCreateTitle": "Look erstellen",
+  "outfitNameLabel": "Name",
+  "outfitNameRequired": "Es ist ein Name erforderlich",
+  "outfitDetailTitle": "Look",
+  "outfitVariantOf": "Variante von {name}",
+  "outfitCreateVariant": "Variante erstellen",
+  "outfitPiecesTitle": "Kleidungsstücke ({count})",
+  "outfitPiecesEmpty": "Noch keine Kleidungsstücke – füge das erste hinzu.",
+  "outfitAddPiece": "Kleidungsstück hinzufügen",
+  "outfitRemovePieceTooltip": "Entfernen",
+  "outfitNotes": "Notizen",
+  "outfitNotesHint": "Notizen zum Look …",
+  "outfitSaveNotes": "Notizen speichern",
+  "outfitPhotos": "Fotos",
+  "outfitRenameTitle": "Look umbenennen",
+  "outfitPieceCount": "{count, plural, =1{1 Kleidungsstück} other{{count} Kleidungsstücke}}",
+  "outfitErrorGeneric": "Der Look konnte nicht gespeichert werden ({code}).",
+  "outfitErrorForbidden": "Du benötigst eine aktive Kostüm-Rolle in dieser Staffel.",
+  "outfitErrorMembership": "Berechtigungen konnten nicht überprüft werden – Verbindung prüfen und erneut versuchen.",
+  "outfitSaved": "Look gespeichert.",
+  "outfitNotesSaved": "Notizen gespeichert.",
+  "outfitListFetchError": "Looks konnten nicht geladen werden ({code}).",
+  "outfitStaleBanner": "Zwischengespeicherte Daten sind möglicherweise veraltet.",
+  "outfitPieceListFetchError": "Kleidungsstücke konnten nicht geladen werden ({code}).",
+  "outfitDetailGone": "Dieser Look ist nicht mehr verfügbar.",
+  "outfitPickPieceTitle": "Kleidungsstück wählen",
+  "outfitPickPieceEmpty": "Kein Kleidungsstück im Repertoire dieser Staffel.",
+  "outfitVariantCreated": "Variante erstellt.",
+  "@outfitVariantMarker": {
+    "description": "Marker next to a look that was forked from another look."
+  },
+  "@outfitListTitle": {
+    "description": "Section title of a character's looks."
+  },
+  "@outfitListEmpty": {
+    "description": "Empty state of the character's look list."
+  },
+  "@outfitCreateAction": {
+    "description": "Action that creates a new look for the character."
+  },
+  "@outfitCreateTitle": {
+    "description": "Dialog title when creating a look."
+  },
+  "@outfitNameLabel": {
+    "description": "Name field of a look."
+  },
+  "@outfitNameRequired": {
+    "description": "Validation message for a blank look name."
+  },
+  "@outfitDetailTitle": {
+    "description": "Screen title of the look detail."
+  },
+  "@outfitVariantOf": {
+    "description": "Lineage line naming the source look.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "@outfitCreateVariant": {
+    "description": "Action that forks the look into an independent variant."
+  },
+  "@outfitPiecesTitle": {
+    "description": "Section title of the look's garments.",
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "@outfitPiecesEmpty": {
+    "description": "Empty state of the look's garment list."
+  },
+  "@outfitAddPiece": {
+    "description": "Action that adds a garment to the look."
+  },
+  "@outfitRemovePieceTooltip": {
+    "description": "Tooltip of the remove-garment icon button."
+  },
+  "@outfitNotes": {
+    "description": "Notes section title of a look."
+  },
+  "@outfitNotesHint": {
+    "description": "Hint inside the look notes field."
+  },
+  "@outfitSaveNotes": {
+    "description": "Action that saves the look notes."
+  },
+  "@outfitPhotos": {
+    "description": "Fitting photos section title of a look."
+  },
+  "@outfitRenameTitle": {
+    "description": "Dialog title when renaming a look."
+  },
+  "@outfitPieceCount": {
+    "description": "Garment count of a look.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "@outfitErrorGeneric": {
+    "description": "Fallback error when a look command fails.",
+    "placeholders": {
+      "code": {
+        "type": "String"
+      }
+    }
+  },
+  "@outfitErrorForbidden": {
+    "description": "Client-side 403 narrative for look commands."
+  },
+  "@outfitErrorMembership": {
+    "description": "Membership could not be checked before a look command."
+  },
+  "@outfitSaved": {
+    "description": "Confirmation after a look command succeeded."
+  },
+  "@outfitNotesSaved": {
+    "description": "Confirmation after the look notes were saved."
+  },
+  "@outfitListFetchError": {
+    "description": "Error banner when the look list fetch fails.",
+    "placeholders": {
+      "code": {
+        "type": "String"
+      }
+    }
+  },
+  "@outfitStaleBanner": {
+    "description": "Stale cache banner above the look list."
+  },
+  "@outfitPieceListFetchError": {
+    "description": "Error banners when the garment list of the look section fails.",
+    "placeholders": {
+      "code": {
+        "type": "String"
+      }
+    }
+  },
+  "@outfitDetailGone": {
+    "description": "Shown when the look is no longer available (deleted parent)."
+  },
+  "@outfitPickPieceTitle": {
+    "description": "Title of the garment picker sheet/dialog."
+  },
+  "@outfitPickPieceEmpty": {
+    "description": "Empty state of the garment picker."
+  },
+  "@outfitVariantCreated": {
+    "description": "Confirmation after a variant fork succeeded."
+  }
 }

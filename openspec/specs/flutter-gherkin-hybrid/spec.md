@@ -6,7 +6,7 @@ TBD - created by archiving change add-gherkin-critical-scenarios. Update Purpose
 ### Requirement: Three Designated Critical `.feature` Sets
 The change SHALL land `.feature` files for the three business-critical
 acceptance scopes: Soll-Ist report, continuity photo capture (with
-AUTHZ-GATE), and costume assignment (with role denial). All steps run on
+AUTHZ-GATE), and outfit casting (with role denial). All steps run on
 device via `flutter_gherkin`.
 
 #### Scenario: A critical flow ships without a `.feature`
@@ -38,7 +38,7 @@ integration tests (`flutter-test-pyramid`).
 > Rationale: full Gherkin-as-TDD adds heavy ceremony per screen with
 > marginal value for UI mechanics; skipping it entirely loses a
 > stakeholder-readable acceptance artifact for the flows that matter most
-> (continuity authz, soll/ist correctness, costume assignment invariants).
+> (continuity authz, soll/ist correctness, outfit-casting invariants).
 > Hybrid covers the few flows where natural-language acceptance criteria
 > genuinely pay for their upkeep.
 

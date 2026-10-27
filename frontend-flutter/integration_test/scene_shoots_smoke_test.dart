@@ -40,7 +40,7 @@ import 'package:frontend_flutter/data/piece_repository.dart';
 import 'package:frontend_flutter/data/photo_repository.dart';
 import 'package:frontend_flutter/data/scene_shoot_repository.dart';
 import 'package:frontend_flutter/design/theme.dart';
-import 'package:frontend_flutter/features/costumes/costumes_controller.dart';
+import 'package:frontend_flutter/features/pieces/pieces_controller.dart';
 import 'package:frontend_flutter/features/scene_shoots/scene_shoots_controller.dart';
 import 'package:frontend_flutter/features/scene_shoots/scene_shoots_screen.dart';
 import 'package:frontend_flutter/features/scene_shoots/scene_shoots_state.dart';
@@ -304,13 +304,13 @@ void main() {
         // entry DTO wins) and invalidate to publish updates.
         shootingDaysViewProvider('episode-1')
             .overrideWith((ref) => daysHolder.value),
-        costumePhotoRepositoryProvider.overrideWithValue(
+        piecePhotoRepositoryProvider.overrideWithValue(
           PhotoRepository(BreakdownApi()),
         ),
-        costumeRepositoryProvider.overrideWithValue(
+        pieceRepositoryProvider.overrideWithValue(
           PieceRepository(BreakdownApi(), PieceCacheDao(db)),
         ),
-        costumesListFetchProvider('season-1')
+        piecesListFetchProvider('season-1')
             .overrideWith((ref) async => const Right([])),
         membershipFetchProvider('season-1')
             .overrideWith((ref) async => Right(_membership())),

@@ -32,7 +32,7 @@ void main() {
   final freshClock = Clock.fixed(DateTime.utc(2026, 1, 2));
   const ttl = Duration(hours: 24);
 
-  PieceView costume({
+  PieceView piece({
     required String id,
     List<String> repertoire = const ['season-1'],
     String notes = '',
@@ -50,16 +50,16 @@ void main() {
 
   test('snapshot-replace is scoped to one project', () async {
     await dao.applySnapshotForProject('project-a', [
-      costume(id: 'a1'),
-      costume(id: 'a2'),
+      piece(id: 'a1'),
+      piece(id: 'a2'),
     ], writtenAt);
     await dao.applySnapshotForProject('project-b', [
-      costume(id: 'b1'),
+      piece(id: 'b1'),
     ], writtenAt);
 
     // Replacing project-a must not touch project-b.
     await dao.applySnapshotForProject('project-a', [
-      costume(id: 'a2'),
+      piece(id: 'a2'),
     ], writtenAt);
 
     final a = await dao.readByProjectFresh('project-a', clock: freshClock);
@@ -70,7 +70,7 @@ void main() {
 
   test('repertoire survives the cache round-trip', () async {
     await dao.applySnapshotForProject('project-a', [
-      costume(id: 'a1', repertoire: ['s1', 's2']),
+      piece(id: 'a1', repertoire: ['s1', 's2']),
     ], writtenAt);
     final rows = (await dao.readByProjectFresh(
       'project-a',
@@ -81,9 +81,9 @@ void main() {
 
   test('read preserves snapshot order', () async {
     await dao.applySnapshotForProject('project-a', [
-      costume(id: 'a1'),
-      costume(id: 'a2'),
-      costume(id: 'a3'),
+      piece(id: 'a1'),
+      piece(id: 'a2'),
+      piece(id: 'a3'),
     ], writtenAt);
     final rows = (await dao.readByProjectFresh(
       'project-a',
@@ -94,7 +94,7 @@ void main() {
 
   test('staleness is TTL-relative from cachedAt only', () async {
     await dao.applySnapshotForProject('project-a', [
-      costume(id: 'a1'),
+      piece(id: 'a1'),
     ], writtenAt);
     final fresh = await dao.readByProjectFresh(
       'project-a',
@@ -114,10 +114,10 @@ void main() {
 
   test('clearProject empties only the named project', () async {
     await dao.applySnapshotForProject('project-a', [
-      costume(id: 'a1'),
+      piece(id: 'a1'),
     ], writtenAt);
     await dao.applySnapshotForProject('project-b', [
-      costume(id: 'b1'),
+      piece(id: 'b1'),
     ], writtenAt);
     await dao.clearProject('project-a');
     final a = await dao.readByProjectFresh('project-a', clock: freshClock);
@@ -128,7 +128,7 @@ void main() {
 
   test('empty snapshot deletes the project rows', () async {
     await dao.applySnapshotForProject('project-a', [
-      costume(id: 'a1'),
+      piece(id: 'a1'),
     ], writtenAt);
     await dao.applySnapshotForProject('project-a', const [], writtenAt);
     final a = await dao.readByProjectFresh('project-a', clock: freshClock);
@@ -139,7 +139,7 @@ void main() {
     // The fundus reads ONLY `fundus_costume_cache_rows`; an AI-import draft
     // row whose identifiers all carry the query marker must never appear.
     await dao.applySnapshotForProject('project-a', [
-      costume(id: 'a1', notes: 'Jacke'),
+      piece(id: 'a1', notes: 'Jacke'),
     ], writtenAt);
     await db
         .into(db.aiImportJobCacheRows)

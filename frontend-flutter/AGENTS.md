@@ -54,7 +54,7 @@ a server-owned concern (API shape, error surface, auth), the backend wins.
     for the same reason.
 - **CQRS on the client (Decision D2):**
   - **Write side:** Commands are `POST` to resource/collection routes
-    (`POST /seasons`, `POST /costumes/{id}/assign`, …). The client treats
+    (`POST /seasons`, `POST /outfits/{id}/pieces`, …). The client treats
     the HTTP response as command acknowledgement (immediate) and reconciles
     the eventual projection update with an optimistic state update +
     bounded-retry refetch (see §4). The client is **resource-REST**, not a
@@ -117,7 +117,8 @@ a server-owned concern (API shape, error surface, auth), the backend wins.
   │   ├── features/             # one folder per aggregate boundary
   │   │   ├── seasons/  blocks/  episodes/  scenes/
   │   │   ├── shooting_days/  scene_shoots/   (Soll/Ist reports)
-  │   │   ├── costumes/  characters/  photos/ (capture/upload, continuity)
+  │   │   ├── pieces/  outfits/  characters/  photos/ (capture/upload,
+  │   │   │   continuity)
   │   │   └── costume_categories/
   │   ├── design/               # theme tokens, Material 3 components
   │   └── routing/
@@ -135,12 +136,16 @@ a server-owned concern (API shape, error surface, auth), the backend wins.
 ### Production hierarchy (mirrors backend)
 The client models the same four-level hierarchy as the backend:
 `Project` (opaque id) → `Season` → `Block` → `Episode` → `Scene`, with
-`SceneShoot` per `ShootingDay` and `Character`/`Costume` scoped to a
-`Season`. The `features/` tree **is** the navigation tree of the app: one
+`SceneShoot` per `ShootingDay`, `Character` scoped to a `Season`, and the
+wardrobe split into **two** aggregates: `Piece` (a fundus garment with no
+character binding) and `Outfit` (a character's composed look, `0..n` pieces,
+`variant_of` for copy-on-write forks) — scenes cast outfits, never bare
+pieces. The `features/` tree **is** the navigation tree of the app: one
 feature folder per aggregate boundary, one screen per read-model query.
-Costume categories are season-scoped; continuity photos bind to scene
-shoots; the photo bounded context's `binding` discriminator
-(`Costume {| Continuity}`) is surfaced in the photos feature.
+Costume categories are season-scoped (the `costume-category` vocabulary kept
+the word — so do its copy keys); continuity photos bind to scene shoots and
+carry a `piece` binding; the photo bounded context's `binding` discriminator
+(`Piece {| Outfit}`) is surfaced in the photos feature.
 **The `Series` → `Project` rename is complete (issues #591 and #599, ADR-035 D1/S1).**
 The backend type is `ProjectId`; the hierarchy above reads `Project` and the
 client follows. **The wire contract moved with it (issue #599, layer 3):** the
@@ -154,12 +159,15 @@ dissolved — do not build new navigation, feature folders
 or authorization gates on either as if it were permanent. The chain *below*
 `Project` becomes production-kind-configurable in a later change (film and
 theatre have no seasons).
-A costume's **domain** scope is its **repertoire** seasons ∪ its character's
-season, not one season. Its **authorization** scope is *not* that union: per backend
-ADR-035 B2/S2 the costume-photo gate is a costume-department role in any active
-block of the owning **project** (#535 widens the boundary up and removes the
-`…_in_season` call). Do not make the client-side AUTHZ-GATE mirror in S5 deny
-on the season union — it would block flows the server permits.
+A **piece**'s domain scope is its **repertoire** seasons (a garment has no
+character); an **outfit**'s scope derives from its mandatory character. The
+photo gate's authorization scope is *not* either union: per backend ADR-035
+B2/S2 it is a costume-department role in any active block of the owning
+**project** (#535 widens the boundary up and removes the `…_in_season` call).
+Do not make the client-side AUTHZ-GATE mirror in S5 deny on a season union —
+it would block flows the server permits. Outfit commands are gated by the
+season-scoped role of the outfit's character (the backend's handler-internal
+check).
 
 ## 3. OpenAPI Contract & Drift Discipline
 
@@ -302,8 +310,9 @@ device. Designated critical scopes (minimum):
   moved/missing/skipped/reshot flags, `final` from `wrapped_at`).
 - **Continuity photo capture** (end-to-end: AUTHZ-GATE → multipart upload →
   projector-lag reconciliation → thumb appears).
-- **Costume assignment** (command → optimistic update → projection refresh;
-  role denial on the costume stream).
+- **Outfit casting** (command → optimistic update → projection refresh;
+  continuity by repeated `outfit_id`, deviation via a variant fork, role
+  denial on the look surface).
 
 A `.feature` for a non-critical screen is not forbidden, but reviewers
 challenge it; the default is a widget test. Steps must run on device via

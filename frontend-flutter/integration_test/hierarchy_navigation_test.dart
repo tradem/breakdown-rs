@@ -280,7 +280,7 @@ void main() {
       expect(find.byType(ProductionOverviewScreen), findsOneWidget);
 
       // Categories from the Cast view (issue #610: the vocabulary moved
-      // OUT of the dissolved Mehr tab and lives with the costume content).
+      // OUT of the dissolved Mehr tab and lives with the piece content).
       container
           .read(shellControllerProvider.notifier)
           .setActiveSeason(_season());

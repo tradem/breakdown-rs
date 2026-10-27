@@ -14,7 +14,7 @@ import 'package:test/test.dart';
 import 'package:frontend_flutter/features/fundus/fundus_model.dart';
 
 void main() {
-  PieceView costume({
+  PieceView piece({
     required String id,
     required List<String> repertoire,
     String notes = '',
@@ -34,11 +34,11 @@ void main() {
 
   List<String> ids(List<PieceView> rows) => [for (final c in rows) c.id];
 
-  test('whole fundus by default: every repertoire costume of the project', () {
+  test('whole fundus by default: every repertoire piece of the project', () {
     final rows = matchFundus(
-      costumes: [
-        costume(id: 'k1', repertoire: ['s1']),
-        costume(id: 'k2', repertoire: ['s1', 's2']),
+      pieces: [
+        piece(id: 'k1', repertoire: ['s1']),
+        piece(id: 'k2', repertoire: ['s1', 's2']),
       ],
       projectSeasonIds: {'s1', 's2'},
       selectedSeasonIds: const {},
@@ -49,10 +49,10 @@ void main() {
 
   test('season chip narrows to repertoire intersection', () {
     final rows = matchFundus(
-      costumes: [
-        costume(id: 'k1', repertoire: ['s1']),
-        costume(id: 'k2', repertoire: ['s2']),
-        costume(id: 'k3', repertoire: ['s1', 's2']),
+      pieces: [
+        piece(id: 'k1', repertoire: ['s1']),
+        piece(id: 'k2', repertoire: ['s2']),
+        piece(id: 'k3', repertoire: ['s1', 's2']),
       ],
       projectSeasonIds: {'s1', 's2'},
       selectedSeasonIds: {'s2'},
@@ -61,11 +61,11 @@ void main() {
     expect(ids(rows), ['k2', 'k3']);
   });
 
-  test('non-repertoire costume is excluded', () {
+  test('non-repertoire piece is excluded', () {
     final rows = matchFundus(
-      costumes: [
-        costume(id: 'k1', repertoire: const []),
-        costume(id: 'k2', repertoire: ['s1']),
+      pieces: [
+        piece(id: 'k1', repertoire: const []),
+        piece(id: 'k2', repertoire: ['s1']),
       ],
       projectSeasonIds: {'s1'},
       selectedSeasonIds: const {},
@@ -74,11 +74,11 @@ void main() {
     expect(ids(rows), ['k2']);
   });
 
-  test('foreign-project costume is excluded even if cached', () {
+  test('foreign-project piece is excluded even if cached', () {
     final rows = matchFundus(
-      costumes: [
-        costume(id: 'k1', repertoire: ['other-season']),
-        costume(id: 'k2', repertoire: ['s1']),
+      pieces: [
+        piece(id: 'k1', repertoire: ['other-season']),
+        piece(id: 'k2', repertoire: ['s1']),
       ],
       projectSeasonIds: {'s1'},
       selectedSeasonIds: const {},
@@ -89,9 +89,9 @@ void main() {
 
   test('name prefilter matches notes, case- and diacritics-insensitive', () {
     final rows = matchFundus(
-      costumes: [
-        costume(id: 'k1', repertoire: ['s1'], notes: 'Lederjacke'),
-        costume(id: 'k2', repertoire: ['s1'], notes: 'Abendkleid'),
+      pieces: [
+        piece(id: 'k1', repertoire: ['s1'], notes: 'Lederjacke'),
+        piece(id: 'k2', repertoire: ['s1'], notes: 'Abendkleid'),
       ],
       projectSeasonIds: {'s1'},
       selectedSeasonIds: const {},
@@ -102,8 +102,8 @@ void main() {
 
   test('name prefilter folds German umlauts (dictionary folding)', () {
     final rows = matchFundus(
-      costumes: [
-        costume(id: 'k1', repertoire: ['s1'], notes: 'Mütze'),
+      pieces: [
+        piece(id: 'k1', repertoire: ['s1'], notes: 'Mütze'),
       ],
       projectSeasonIds: {'s1'},
       selectedSeasonIds: const {},
@@ -114,9 +114,9 @@ void main() {
 
   test('name prefilter also matches the category name', () {
     final rows = matchFundus(
-      costumes: [
-        costume(id: 'k1', repertoire: ['s1'], categoryName: 'Accessoires'),
-        costume(id: 'k2', repertoire: ['s1'], categoryName: 'Schuhe'),
+      pieces: [
+        piece(id: 'k1', repertoire: ['s1'], categoryName: 'Accessoires'),
+        piece(id: 'k2', repertoire: ['s1'], categoryName: 'Schuhe'),
       ],
       projectSeasonIds: {'s1'},
       selectedSeasonIds: const {},
@@ -125,10 +125,10 @@ void main() {
     expect(ids(rows), ['k1']);
   });
 
-  test('empty query keeps every repertoire costume', () {
+  test('empty query keeps every repertoire piece', () {
     final rows = matchFundus(
-      costumes: [
-        costume(id: 'k1', repertoire: ['s1'], notes: 'Lederjacke'),
+      pieces: [
+        piece(id: 'k1', repertoire: ['s1'], notes: 'Lederjacke'),
       ],
       projectSeasonIds: {'s1'},
       selectedSeasonIds: const {},

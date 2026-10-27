@@ -23,7 +23,7 @@ part 'import_submit_controller.g.dart';
 /// The submission controller (`flutter-ai-import-workflow` task 3.1).
 ///
 /// The submit dispatch is the AUTHZ-GATE'd write path (task 5.1): the
-/// season costume-dept capability is checked via
+/// season piece-dept capability is checked via
 /// `currentMembershipProvider` BEFORE any network call; a client-side
 /// denial renders the localized 403 narrative and issues ZERO calls
 /// (provable by the fake-repository call count in tests).

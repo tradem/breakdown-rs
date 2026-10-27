@@ -217,7 +217,7 @@ class SeasonsScreen extends ConsumerWidget {
                     )
                   : null,
               // AUTHZ-GATE: the AI-import upload routes are gated by the
-              // season costume-dept membership INSIDE the import submit
+              // season piece-dept membership INSIDE the import submit
               // controller BEFORE any network call — this CTA only pushes
               // that screen (no request is issued from here), and the gate
               // comment travels with the entry itself.
@@ -271,7 +271,7 @@ class _SeasonCard extends ConsumerWidget {
       ProjectedSeasonRow(:final season, :final metrics) => SeasonCard(
         // The archive affordance mirrors the backend AUTHZ-GATE up front:
         // offered only while the season-scoped membership RESOLVES to an
-        // active costume-dept role (a pending/erroring membership disables —
+        // active piece-dept role (a pending/erroring membership disables —
         // never a denial narrative, D3) and only on a non-locked season.
 
         key: Key('season-${season.id}'),
@@ -359,7 +359,7 @@ class _SeasonCard extends ConsumerWidget {
     final parts = [
       if (metrics.blockCount case final b?) l10n.seasonsMetaBlocks(b),
       if (metrics.sceneCount case final s?) l10n.seasonsMetaScenes(s),
-      if (metrics.costumeCount case final c?) l10n.seasonsMetaCostumes(c),
+      if (metrics.pieceCount case final c?) l10n.seasonsMetaPieces(c),
     ];
     if (parts.isEmpty) return null;
     return parts.join(' · ');

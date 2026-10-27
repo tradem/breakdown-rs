@@ -35,7 +35,7 @@ import 'package:frontend_flutter/data/cache/seasons_cache_providers.dart';
 import 'package:frontend_flutter/data/piece_repository.dart';
 import 'package:frontend_flutter/data/photo_repository.dart';
 import 'package:frontend_flutter/data/scene_shoot_repository.dart';
-import 'package:frontend_flutter/features/costumes/costumes_controller.dart';
+import 'package:frontend_flutter/features/pieces/pieces_controller.dart';
 import 'package:frontend_flutter/domain/reconciliation/reconciliation_scheduler.dart';
 import 'package:frontend_flutter/features/scene_shoots/scene_shoots_controller.dart';
 import 'package:frontend_flutter/features/scene_shoots/scene_shoots_screen.dart';
@@ -260,7 +260,7 @@ class _FakePhotoRepository extends PhotoRepository {
   _FakePhotoRepository(super.api);
 
   int uploadCalls = 0;
-  String? lastCostumeId;
+  String? lastPieceId;
   String? lastContentType;
 
   @override
@@ -271,7 +271,7 @@ class _FakePhotoRepository extends PhotoRepository {
     ProgressCallback? onSendProgress,
   }) {
     uploadCalls++;
-    lastCostumeId = pieceId;
+    lastPieceId = pieceId;
     lastContentType = contentType;
     return Future.value(
       Right<ProblemError, PhotoView>(
@@ -328,19 +328,19 @@ void main() {
         appConfigProvider.overrideWithValue(devAuthConfig),
         cacheDatabaseProvider.overrideWithValue(db),
         sceneShootRepositoryProvider.overrideWithValue(repo),
-        costumePhotoRepositoryProvider.overrideWithValue(photoRepo),
+        piecePhotoRepositoryProvider.overrideWithValue(photoRepo),
         // The board derives finality from the live day projection;
         // widget tests run with an empty day projection (entry DTO wins).
         shootingDaysViewProvider(
           'episode-1',
         ).overrideWithValue(const ShootingDaysView(rows: [], isStale: false)),
-        costumeRepositoryProvider.overrideWithValue(
+        pieceRepositoryProvider.overrideWithValue(
           PieceRepository(BreakdownApi(), PieceCacheDao(db)),
         ),
-        // The continuity strip joins against the season costumes; the
-        // board smoke tests run with an empty costume projection (strip
+        // The continuity strip joins against the season pieces; the
+        // board smoke tests run with an empty piece projection (strip
         // renders linked ids as orphans, capture stays disabled).
-        costumesListFetchProvider('season-1')
+        piecesListFetchProvider('season-1')
             .overrideWith((ref) async => const Right([])),
         reconciliationSchedulerProvider.overrideWith((ref) => scheduler),
         membershipFetchProvider('season-1')
@@ -623,7 +623,7 @@ void main() {
       expect(photoRepo.uploadCalls, 0);
     });
 
-    test('holder upload reaches the costume endpoint, then links', () async {
+    test('holder upload reaches the piece endpoint, then links', () async {
       await setupContainer(initialRows: [_shoot('ssh-1')]);
       final upload = await controller().uploadContinuityBytes(
         pieceId: 'c-1',
@@ -632,7 +632,7 @@ void main() {
       );
       expect(upload.isRight(), isTrue);
       expect(photoRepo.uploadCalls, 1);
-      expect(photoRepo.lastCostumeId, 'c-1');
+      expect(photoRepo.lastPieceId, 'c-1');
       expect(photoRepo.lastContentType, 'image/jpeg');
       final photoId = upload.fold((_) => '', (view) => view.id);
       expect(photoId, 'ph-new');
@@ -753,11 +753,11 @@ void main() {
       expect(find.byKey(const Key('scene-shoot-start-ssh-1')), findsOneWidget);
       expect(find.byKey(const Key('scene-shoot-finish-ssh-2')), findsOneWidget);
       expect(find.byKey(const Key('scene-shoots-wrap')), findsOneWidget);
-      // Continuity strip renders against the (empty) costume projection:
-      // no linked ids, capture disabled until a costume is picked.
+      // Continuity strip renders against the (empty) piece projection:
+      // no linked ids, capture disabled until a piece is picked.
       expect(find.byKey(const Key('continuity-strip-ssh-1')), findsOneWidget);
       expect(
-        find.byKey(const Key('continuity-costume-hint-ssh-1')),
+        find.byKey(const Key('continuity-piece-hint-ssh-1')),
         findsOneWidget,
       );
     });

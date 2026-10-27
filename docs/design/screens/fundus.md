@@ -6,7 +6,7 @@
 
 ## Purpose & Context
 
-The fundus is the **cross-season costume browse surface** for the costume department: every costume of the active project whose repertoire (the seasons it is carried into) is non-empty, across all of the project's seasons. It is used when planning a new season ("what do we already have in the wardrobe?") and when tracking a costume across productions. It is deliberately a separate surface from OmniSearch, whose four-chip, active-season-scoped contract it must not widen.
+The fundus is the **cross-season garment (piece) browse surface** for the costume department: every costume of the active project whose repertoire (the seasons it is carried into) is non-empty, across all of the project's seasons. It is used when planning a new season ("what do we already have in the wardrobe?") and when tracking a costume across productions. It is deliberately a separate surface from OmniSearch, whose four-chip, active-season-scoped contract it must not widen.
 
 ## Navigation
 
@@ -23,7 +23,7 @@ The shell renders the location strip and scope chip above the content (one surfa
 {
   "Fundus"
   --
-  [ "Fundus durchsuchen: Kostüme über alle Staffeln" ]
+  [ "Fundus durchsuchen: Kleidungsstücke über alle Staffeln" ]
   [ {Staffel Eins} | {Staffel Zwei} | {Staffel Drei} ]
   --
   [Banner: 'Diese Ergebnisse basieren auf dem lokalen Cache und können veraltet sein.']
@@ -46,8 +46,8 @@ Compact layouts show the prefilter, a wrapping season-chip row and the result li
 | Cast entry action | App-bar icon button | Opens the fundus surface | `fundus.tooltip` |
 | Name prefilter | Text field | Case/diacritics-insensitive substring over notes + category | `fundus.hint` |
 | Season chip | Filter chip | Toggles a season filter; all deselected = whole fundus | `fundus.seasonChip` |
-| Costume row | List item | Opens the costume detail; announces designation + repertoire seasons | `fundus.row` |
-| Repertoire subtitle | Text | The costume's repertoire season names | `fundus.repertoireSeasons` |
+| Piece row | List item | Opens the piece detail; announces designation + repertoire seasons | `fundus.row` |
+| Repertoire subtitle | Text | The piece's repertoire season names | `fundus.repertoireSeasons` |
 | Stale banner | Banner | Cache staleness indicator | `fundus.staleBanner` |
 
 ## States

@@ -9,7 +9,7 @@ import 'package:breakdown_api/breakdown_api.dart';
 /// AUTHZ-GATE (D2 of `wire-flutter-oidc-auth`).
 ///
 /// The backend derives `capabilities` server-side from the caller's active
-/// costume-dept role and emits them as snake_case wire strings
+/// piece-dept role and emits them as snake_case wire strings
 /// (`backend/openapi.yaml` declares `SeasonMembershipDto.capabilities` as
 /// `items: string`, so the generated [SeasonMembershipDto] carries a plain
 /// `BuiltList<String>`). The client consumes the known set only.
@@ -58,7 +58,7 @@ extension SeasonMembershipDtoGate on SeasonMembershipDto {
   ///
   /// The report handlers gate on the same backend predicate as the
   /// capability set (`has_active_costume_role_in_season` — any active
-  /// costume-dept role in the season), so the client-side AUTHZ-GATE for
+  /// piece-dept role in the season), so the client-side AUTHZ-GATE for
   /// `flutter-reports-screen` checks the backend-computed flag directly
   /// rather than a dedicated capability string. Unknown capability strings
   /// never enable this gate (server remains authoritative and re-checks on

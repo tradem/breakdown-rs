@@ -18,8 +18,8 @@ compliance, AUTHZ-GATE, Result discipline, test pyramid).
 ## Workflow
 
 1. **Collect placeholders via `ask_user`** (one focused question per call):
-   - Ask for the screen name (e.g. `CostumeListScreen`) — allow freeform.
-   - Ask which feature domain it belongs to (e.g. `costumes`, `photos`,
+   - Ask for the screen name (e.g. `OutfitDetailScreen`) — allow freeform.
+   - Ask which feature domain it belongs to (e.g. `pieces`, `outfits`, `photos`,
      `ai_import`) — offer the roadmap phases below as options.
 2. **Ground yourself before executing the template:**
    - Read `frontend-flutter/AGENTS.md` (the authoritative client spec).
@@ -50,7 +50,7 @@ compliance, AUTHZ-GATE, Result discipline, test pyramid).
 
 - **Phase 1 — Foundation & navigation:** login/OIDC + membership UI,
   series→season→block→episode→scene hierarchy navigation, costume categories.
-- **Phase 2 — Core costume domains:** costumes (assign/unassign), characters,
+- **Phase 2 — Core wardrobe domains:** pieces (garments) and outfits (character looks), characters,
   photos (camera capture/upload, continuity binding), scene shoots (Soll/Ist).
 - **Phase 3 — AI features (highest user value):** AI schedule import over
   `/v1/ai-import/*` — provider/model configuration, job submission from raw
@@ -80,7 +80,7 @@ Target platforms: Android (primary) and macOS (secondary).
 Feature roadmap (in priority order — later phases build on earlier ones):
 Phase 1 — Foundation & navigation: login/OIDC + membership UI, hierarchy
 navigation, costume categories.
-Phase 2 — Core costume domains: costumes, characters, photos (camera,
+Phase 2 — Core wardrobe domains: pieces, outfits, characters, photos (camera,
 continuity), scene shoots.
 Phase 3 — AI features (highest user value): AI schedule import over
 /v1/ai-import/* — provider/model config, job submission, LLM preview/apply
