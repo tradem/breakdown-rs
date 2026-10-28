@@ -1452,11 +1452,19 @@ pub struct UuidVersion {
     pub version: breakdown_core::shared::AggregateVersion,
 }
 
-/// The mapping address one beat is recorded under: kind, `draft_ref`, ordinal.
-#[derive(Debug, Clone, Copy)]
+/// The mapping address one beat is recorded under: kind, mapping `draft_ref`,
+/// ordinal.
+///
+/// `draft_ref` is the FINAL key — consumers hand it to `find`/`reserve` verbatim
+/// and never re-derive it. An extracted row's key is the figure's preview-wide
+/// mapping reference ([`character_mapping_ref`], not the raw identity):
+/// re-deriving it at one call site but not another is what made the
+/// scene-version recovery loop look up a key no row is stored under (PR #746
+/// review).
+#[derive(Debug)]
 struct BeatAddress<'a> {
     kind: &'static str,
-    draft_ref: &'a str,
+    draft_ref: std::borrow::Cow<'a, str>,
     ordinal: usize,
 }
 
@@ -1477,13 +1485,15 @@ fn beat_address<'a>(row: &'a SceneApplyPlan, outfit: &'a OutfitApplyPlan) -> Bea
     if outfit.from_continuity_selection {
         BeatAddress {
             kind: mapping_kind::SCENE_OUTFIT_BEAT_CONTINUITY,
-            draft_ref: &row.draft_ref,
+            draft_ref: std::borrow::Cow::Borrowed(row.draft_ref.as_str()),
             ordinal: outfit.beat_ordinal,
         }
     } else {
         BeatAddress {
             kind: mapping_kind::SCENE_OUTFIT_BEAT,
-            draft_ref: outfit.character_identity.as_str(),
+            // The figure's preview-wide mapping reference — the same key the
+            // `character` rows use and the one beat rows are stored under.
+            draft_ref: std::borrow::Cow::Owned(character_mapping_ref(&outfit.character_identity)),
             ordinal: outfit.beat_ordinal,
         }
     }
@@ -1500,7 +1510,6 @@ struct BeatDispatch<'a> {
     /// row's mapping rows jointly track.
     scene_id: Uuid,
     character_id: Uuid,
-    outfit: &'a OutfitApplyPlan,
     /// The mapping address this beat is recorded under (see [`beat_address`]).
     beat: BeatAddress<'a>,
     outfit_id: Uuid,
@@ -1741,7 +1750,7 @@ where
                         .find(
                             // ast-grep-ignore: cqrs-boundary
                             preview_id,
-                            address.draft_ref,
+                            &address.draft_ref,
                             address.kind,
                             ordinal_of(address.ordinal)?,
                         )
@@ -1841,7 +1850,6 @@ where
                                 project_id,
                                 scene_id: scene.aggregate_id,
                                 character_id,
-                                outfit,
                                 beat: beat_address(row, outfit),
                                 outfit_id,
                                 scene_version: &mut scene_version,
@@ -1948,7 +1956,6 @@ where
                             project_id,
                             scene_id: scene.aggregate_id,
                             character_id,
-                            outfit,
                             beat: beat_address(row, outfit),
                             outfit_id: applied.outfit_id,
                             scene_version: &mut scene_version,
@@ -2751,23 +2758,17 @@ where
             project_id,
             scene_id,
             character_id,
-            outfit,
             beat,
             outfit_id,
             scene_version,
         } = dispatch;
         let ordinal = ordinal_of(beat.ordinal)?;
-        // An extracted beat row is addressed by the figure's preview-wide mapping
-        // reference (the same `draft_ref` the `character` rows use); a selected
-        // gap row by its own row reference. Both carry it explicitly now.
-        let lane_ref = if beat.kind == mapping_kind::SCENE_OUTFIT_BEAT {
-            character_mapping_ref(&outfit.character_identity)
-        } else {
-            beat.draft_ref.to_owned()
-        };
+        // `BeatAddress` already carries the final mapping key, so the recovery
+        // loop and this dispatch can never disagree on it.
+        let lane_ref = beat.draft_ref.as_ref();
         let stored = self
             .mappings
-            .find(preview_id, &lane_ref, beat.kind, ordinal) // ast-grep-ignore: cqrs-boundary
+            .find(preview_id, lane_ref, beat.kind, ordinal) // ast-grep-ignore: cqrs-boundary
             .await?;
         let mapping = match stored {
             Some(row) => row,
@@ -2775,7 +2776,7 @@ where
                 self.mappings
                     .reserve(AiImportMapping::reservation(
                         preview_id,
-                        lane_ref.clone(),
+                        lane_ref.to_owned(),
                         beat.kind.to_owned(),
                         ordinal,
                         // The beat row pins the SCENE id — the aggregate it

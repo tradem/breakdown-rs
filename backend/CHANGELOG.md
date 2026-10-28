@@ -86,11 +86,14 @@ tag. Never edit a released entry afterwards.
     the figure, carries no outfit for it, and has plausible action (a non-blank
     `summary` that is not a meta-summary). Outline stubs never trigger
     inference.
-  - **Provenance on the wire.** `DraftOutfitOrigin` gains
-    `continued_from_scene { source_draft_ref, source_scene_number, confidence }`
-    and `inferred_from_context { confidence }` alongside the existing
-    `explicit_quote` / `derived`; `DraftOutfit.source_quote` stays the single
-    quote field (grounding unchanged) and pre-change previews still load.
+  - **Provenance on the wire.** `DraftOutfitOrigin` gains the two plain string
+    values `continued_from_scene` and `inferred_from_context` alongside the
+    existing `explicit_quote` / `derived`, and the payload travels in a new
+    optional `DraftOutfit.provenance` object
+    (`DraftOutfitProvenance { source_draft_ref, source_scene_number, confidence }`,
+    `source_draft_ref` only for a continuation). `DraftOutfit.source_quote` stays
+    the single quote field (grounding unchanged) and pre-change previews still
+    load.
   - **Option A shares the `Outfit`.** A continuation plans **no** pieces and
     **no** second look: the planner resolves the source row/ordinal from the
     immutable preview (`ContinuationPlan`), the worker resolves the source
@@ -110,10 +113,13 @@ tag. Never edit a released entry afterwards.
     a new registry entry with a golden problem document). An unselected gap
     applies without an outfit — never with an invented one.
   - **Beat mapping keyed preview-wide.** The `scene_outfit_beat` ordinal is now
-    the figure's position across the whole plan instead of within one row: the
-    row-local ordinal made a figure's beat in a second scene collide with its
+    the figure's position across the **immutable preview** (computed by the
+    planner from the draft rows, never from the plan) instead of within one row:
+    the row-local ordinal made a figure's beat in a second scene collide with its
     first row's mapping row and silently never be added — the continuation case
     exposes it, and a figure named by one row keeps the 0..n-1 it always had.
+    Rows synthesised from a continuity selection carry their own mapping kinds
+    and are addressed by the row plus the figure's draft position.
   - **Telemetry.** Pass-2 requests accumulate `tokens_in` / energy into the job
     usage and log a per-job counter line (gaps / continued / inferred / reported
     / undecided). The pass is best-effort: a provider failure logs and ends it,
@@ -124,37 +130,19 @@ tag. Never edit a released entry afterwards.
     and the new `Uncertainty.candidates` /
     `ApplyAiImportRequest.continuitySelections` fields. The preview UI work
     (badges, candidate picker) is issue #745.
-  - **Review round (PR #746, CodeRabbitAI):** three findings, all fixed in this
-    same unreleased cut.
-    - *The origin must stay a fieldless string enum.* The first implementation
-      carried the Pass-2 payload as enum arm data; `utoipa` then lowered the two
-      unit variants to two single-value `type: string` alternatives, the
-      `dart-dio` generator collapsed both to `FullType(String)`, and
-      `built_value`'s `OneOf` threw `Unsupported operation: more than one match
-      found: (String, String)` on EVERY `"explicit_quote"` — the generated client
-      could not decode the common Pass-1 case. The origin is now
-      `explicit_quote | derived | continued_from_scene | inferred_from_context`
-      and the payload lives in `DraftOutfit.provenance`
-      (`DraftOutfitProvenance { source_draft_ref, source_scene_number,
-      confidence }`). Covered by a Flutter unit test
-      (`test/unit/draft_outfit_origin_test.dart`).
-    - *Beat addresses are preview-derived.* The `scene_outfit_beat` ordinal was
-      derived from the plan, so accepting an outfit the reviewer had rejected
-      shifted every later row's ordinal; the shifted row then matched the other
-      row's confirmed mapping row and `apply_outfit_beat` answered `Settled` —
-      the scene silently got no beat. `OutfitApplyPlan.beat_ordinal` is now
-      computed by the planner from the immutable preview, and rows synthesised
-      from a continuity selection carry `from_continuity_selection` plus their
-      own mapping kinds (`outfit_continuity`, `scene_outfit_beat_continuity`),
-      addressed by the row and the figure's draft position, so adding or dropping
-      a selection never renumbers another. Regression tests:
-      `accepting_a_previously_rejected_outfit_keeps_every_beat_address`,
-      `a_continuity_selection_keeps_its_address_when_others_are_added`.
-    - *Selection validation is indexed.* A valid request may select every gap;
-      the per-selection scans over the preview were quadratic. The pass now
-      indexes the gaps once, sweeps the preview in scene order for each figure's
-      most recent dressed row, dedupes with a set, and rejects an over-long
-      selection list inside the same pass.
+  - **Review round (PR #746, CodeRabbitAI):** two hardening fixes ride this
+    same cut. Continuity-selection validation is **indexed** (one map over the
+    gaps, one ordered preview sweep for each figure's most recent dressed row, a
+    set for duplicates, and the over-long-list guard inside the same pass)
+    instead of scanning the preview per selection. And a beat's mapping ordinal
+    is **preview-derived** — a plan-derived ordinal shifted when the reviewer
+    accepted a previously rejected outfit, so the shifted row matched another
+    row's confirmed mapping row and the scene silently got no beat; regression
+    tests `accepting_a_previously_rejected_outfit_keeps_every_beat_address` and
+    `a_continuity_selection_keeps_its_address_when_others_are_added` pin it. The
+    wire shape above (`origin` as a plain string + `provenance`) is what the
+    generated client can actually decode
+    (`test/unit/draft_outfit_origin_test.dart`).
 
 ### Fixed
 
