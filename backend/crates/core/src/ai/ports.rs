@@ -509,6 +509,34 @@ pub trait AiImportQueue: Send + Sync {
         Box::pin(futures::stream::empty())
     }
 
+    /// Insert a job that is ALREADY terminal (`succeeded`) and points at
+    /// [preview_handle] — the storage seam for the `test-support`-only stored
+    /// preview fixture (issue #748).
+    ///
+    /// Exists because the fixture must be *deterministic*: the ordinary
+    /// lifecycle needs a worker claim (`enqueue` → `claim_next_kind` →
+    /// `mark_succeeded`), and a claim is not addressable by id — it hands out
+    /// the oldest runnable job, so a busy or worker-polled queue either wins the
+    /// race or leaves the fixture's own `pending` row (and its blobs) behind.
+    /// A row inserted straight into a terminal state can never be claimed and
+    /// never occupies the runnable pool.
+    ///
+    /// Compile-time absent unless the `test-support` feature is enabled; the
+    /// default refuses, so every existing adapter keeps compiling unchanged and
+    /// an adapter that does not implement it fails loudly instead of writing a
+    /// half-seeded job.
+    #[cfg(feature = "test-support")]
+    async fn seed_succeeded(
+        &self,
+        _request: AiImportEnqueueRequest,
+        _preview_handle: &str,
+    ) -> Result<(), DomainError> {
+        Err(DomainError::ServiceUnavailable {
+            code: &crate::error_registry::DOMAIN_SERVICE_UNAVAILABLE,
+            reason: "seed_succeeded is not implemented by this AI import queue adapter".to_owned(),
+        })
+    }
+
     /// Record telemetry produced by a *worker* while it holds the claim.
     ///
     /// Owner-fenced like the other worker transitions: a displaced worker must

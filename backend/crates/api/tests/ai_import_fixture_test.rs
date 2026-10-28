@@ -202,9 +202,12 @@ async fn rejects_a_malformed_payload_without_writing_any_row() {
 }
 
 #[tokio::test]
-async fn refuses_to_claim_and_leaves_a_foreign_pending_job_untouched() {
+async fn seeds_beside_pending_work_without_claiming_it_or_leaking_a_job() {
     let state = AppState::new(FakePorts::default());
-    // A foreign job sits ahead of the fixture's in the oldest-first claim order.
+    // A foreign job sits in the runnable pool. The fixture inserts a TERMINAL
+    // row, so it must neither compete for the claim nor disturb this job —
+    // the failure modes of the enqueue→claim design CodeRabbit flagged on
+    // PR #749 (a lost claim, and a leftover `pending` fixture row per retry).
     let foreign = foreign_pending_job();
     let foreign_id = foreign.id;
     state.ports.ai_import_queue.seed(foreign).await;
@@ -212,13 +215,16 @@ async fn refuses_to_claim_and_leaves_a_foreign_pending_job_untouched() {
 
     let (status, body) = post_fixture(&app, &script_payload()).await;
 
-    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE, "body: {body}");
-    assert!(
-        body.contains("domain.service-unavailable"),
-        "the busy-queue refusal is a problem document, got: {body}"
-    );
-    // `release_claim` returned it to the runnable pool: it is neither left
-    // claimed nor charged an attempt.
+    assert_eq!(status, StatusCode::CREATED, "body: {body}");
+    let job_id = serde_json::from_str::<serde_json::Value>(&body)
+        .unwrap()
+        .get("job_id")
+        .and_then(serde_json::Value::as_str)
+        .unwrap()
+        .parse::<Uuid>()
+        .unwrap();
+
+    // The foreign job is untouched: still pending, no attempt charged.
     let reloaded = state
         .ports
         .ai_import_queue()
@@ -228,4 +234,14 @@ async fn refuses_to_claim_and_leaves_a_foreign_pending_job_untouched() {
         .expect("the foreign job must survive");
     assert_eq!(reloaded.status, JobStatus::Pending);
     assert_eq!(reloaded.retries, 0);
+
+    // Exactly one fixture row exists — terminal, so nothing is left runnable.
+    let jobs = state.ports.ai_import_queue.jobs.lock().await;
+    assert_eq!(
+        jobs.len(),
+        2,
+        "only the foreign job and the fixture job exist"
+    );
+    let fixture = jobs.get(&job_id).expect("the fixture job must be stored");
+    assert_eq!(fixture.status, JobStatus::Succeeded);
 }

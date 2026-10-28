@@ -40,6 +40,12 @@ Scenario: A Pass-2 preview shows the look's provenance and resolves a gap in one
   When I open the preview for job "job-1"
   Then I scroll the preview to the widget "ai-preview-outfit-origin-row-4-0"
   And I expect the widget "ai-preview-outfit-origin-row-4-0" to be present within 10 seconds
+  # The badge names WHERE the look came from, not just that it has provenance:
+  # the fixture continues scene 3, so the rendered label must carry that scene
+  # number. The number is the locale-independent anchor — both catalogs
+  # interpolate it, while the no-number degradation ("continued from an earlier
+  # scene") and every other origin carry no digit at all.
+  And I expect the widget "ai-preview-outfit-origin-row-4-0" to contain the text "3"
   Then I scroll the preview to the widget "ai-preview-gap-2-ben"
   And I expect the widget "ai-preview-gap-2-ben" to be present within 10 seconds
   When I pick the continuation candidate for the gap "2-ben"

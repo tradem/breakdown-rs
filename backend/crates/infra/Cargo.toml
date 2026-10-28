@@ -14,7 +14,11 @@ license.workspace = true
 rust-version.workspace = true
 
 [features]
-test-support = []
+# `breakdown_core/test-support` carries the gated `AiImportQueue::seed_succeeded`
+# storage seam (issue #748) the Pg adapter overrides below; enabling the infra
+# gate therefore implies the core one, so the override can never reference a
+# method that does not exist.
+test-support = ["breakdown_core/test-support"]
 
 # The vault integration test uses VaultClient::for_test, which is gated
 # behind the test-support feature; run infra tests with

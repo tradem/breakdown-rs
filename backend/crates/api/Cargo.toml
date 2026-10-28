@@ -20,9 +20,11 @@ rust-version.workspace = true
 autotests = false
 
 [features]
-# Dummy feature to satisfy cargo-mutants global `features = ["test-support"]`
-# in .cargo/mutants.toml (issue #267).
-test-support = []
+# Issue #267: opt-in feature the cargo-mutants config enables globally.
+# Issue #748: it also pulls the gated `seed_succeeded` storage seam
+# (`breakdown_core/test-support`) and its PostgreSQL implementation
+# (`infra/test-support`) the stored AI-import preview fixture writes through.
+test-support = ["breakdown_core/test-support", "infra/test-support"]
 
 [dependencies]
 # Domäne & Infrastruktur

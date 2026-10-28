@@ -43,10 +43,10 @@ const String _gapCharacter = 'BEN';
 /// live in.
 const String _previewListKey = 'ai-preview-screen';
 
-/// How far one scroll gesture moves the preview list. The worst case is
-/// analytic, not a sleep budget: a stored preview of five rows plus the apply
-/// card is under 4000 logical pixels, so `maxScrolls` covers it with margin.
-const double _scrollStep = -220;
+/// Upper bound on scroll gestures per target. The worst case is analytic, not a
+/// sleep budget: each gesture moves up to 60% of a viewport, so eight gestures
+/// cross a stored preview of five rows plus the apply card several times over.
+const int kPreviewScrollAttempts = 8;
 
 // --- Fixture payloads -------------------------------------------------------
 
@@ -234,31 +234,63 @@ Map<String, dynamic> _sceneWithNumber(Map<String, dynamic> script, int number) {
   throw Exception('the stored preview carries no scene number $number');
 }
 
-/// Moves the preview list until [key] is laid out. The apply card sits ABOVE
-/// the rows, so a target is either below (rows, gap cards) or above (the apply
-/// card's own summary lines) the current viewport — both directions are tried,
-/// and a failed direction is a bounded gesture, never a sleep.
+/// Reads the text a keyed widget RENDERS.
+///
+/// `FlutterDriver.getText` resolves a single `Text`; a composite widget (the
+/// provenance badge, which renders one label next to its icon) has to be
+/// searched for its descendant.
+Future<String> _renderedTextOf(FlutterDriver driver, String key) async {
+  try {
+    return await driver.getText(find.byValueKey(key));
+  } on DriverError {
+    return driver.getText(
+      find.descendant(of: find.byValueKey(key), matching: find.byType('Text')),
+    );
+  }
+}
+
+/// The list viewport as `(top, bottom)` in screen coordinates.
+Future<(double, double)> _viewportOf(
+  FlutterDriver driver,
+  SerializableFinder list,
+) async {
+  final top = await driver.getTopLeft(list);
+  final bottom = await driver.getBottomRight(list);
+  return (top.dy, bottom.dy);
+}
+
+/// Moves the preview list until [key] is INSIDE the viewport, not merely built.
+///
+/// Presence is not enough to tap: `ListView` builds a cacheExtent of rows
+/// around the viewport, and `driver.tap` taps the widget's CENTER, so a row
+/// that is laid out just below the fold would be found and then missed.
+/// `scrollUntilVisible` does not solve that on its own — it also stops as soon
+/// as `waitFor` proves TREE presence — so this helper scrolls by the measured
+/// distance between the target's center and the viewport center, in either
+/// direction, and succeeds only once the center is actually on screen.
+///
+/// Bounded and analytic: at most [kPreviewScrollAttempts] gestures of the
+/// viewport distance, never a sleep budget.
 Future<void> _scrollPreviewTo(FlutterDriver driver, String key) async {
-  final target = find.byValueKey(key);
-  if (await FlutterDriverUtils.isPresent(driver, target)) return;
   final list = find.byValueKey(_previewListKey);
-  Object? lastError;
-  for (final dy in [_scrollStep, -_scrollStep]) {
-    try {
-      await driver.scrollUntilVisible(
-        list,
-        target,
-        dxScroll: 0,
-        dyScroll: dy,
-        timeout: const Duration(seconds: 20),
-      );
-      return;
-    } on DriverError catch (error) {
-      lastError = error;
-    }
+  final target = find.byValueKey(key);
+  // A widget far outside the cacheExtent is not built at all: one bounded wait
+  // for it to exist (no gesture) before measuring.
+  await driver.waitFor(target, timeout: const Duration(seconds: 20));
+  for (var attempt = 0; attempt < kPreviewScrollAttempts; attempt++) {
+    final (top, bottom) = await _viewportOf(driver, list);
+    final center = await driver.getCenter(target);
+    if (center.dy > top && center.dy < bottom) return;
+    // `scroll` moves the CONTENT: a negative dy reveals later rows. The step is
+    // the measured distance, clamped to most of one viewport so an off-tree
+    // estimate cannot overshoot into a jump.
+    final height = bottom - top;
+    final wanted = center.dy - (top + bottom) / 2;
+    final step = wanted.clamp(-height * 0.6, height * 0.6);
+    await driver.scroll(list, 0, step, const Duration(milliseconds: 200));
   }
   throw Exception(
-    'the widget "$key" is not reachable in the preview list: $lastError',
+    'the widget "$key" could not be scrolled into the preview viewport',
   );
 }
 
@@ -463,7 +495,7 @@ StepDefinitionGeneric thenWidgetContainsText() =>
       'I expect the widget {string} to contain the text {string}',
       (String key, String fragment, context) async {
         final driver = context.world.driver!;
-        final rendered = await driver.getText(find.byValueKey(key));
+        final rendered = await _renderedTextOf(driver, key);
         if (!rendered.contains(fragment)) {
           throw Exception(
             'the widget "$key" reads "$rendered", which does not contain '

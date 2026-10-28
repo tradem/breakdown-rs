@@ -2425,60 +2425,12 @@ impl AiImportQueue for FakeAiImportQueue {
         Ok(None)
     }
 
-    /// Mirrors the Postgres adapter's oldest-first `pending` claim (issue
-    /// #748: the AI-import preview fixture claims the job it just enqueued).
-    /// The fake records no worker ownership — its `mark_*` transitions are
-    /// unfenced — so the claim only has to perform the state flip.
     async fn claim_next_kind(
         &self,
         _worker_id: &str,
-        kind: DocumentKind,
+        _kind: DocumentKind,
     ) -> Result<Option<AiImportJob>, DomainError> {
-        let claimed = {
-            let mut jobs = self.jobs.lock().await;
-            let next = jobs
-                .values()
-                .filter(|job| job.document_kind == kind && job.status == JobStatus::Pending)
-                .min_by(|a, b| {
-                    a.created_at
-                        .cmp(&b.created_at)
-                        .then_with(|| a.id.as_uuid().cmp(&b.id.as_uuid()))
-                })
-                .map(|job| job.id.as_uuid());
-            match next {
-                Some(id) => jobs.get_mut(&id).map(|job| {
-                    job.status = JobStatus::Running;
-                    job.updated_at = Utc::now();
-                    job.clone()
-                }),
-                None => None,
-            }
-        };
-        if let Some(job) = &claimed {
-            self.hub.notify(job.id);
-        }
-        Ok(claimed)
-    }
-
-    /// Mirrors the Postgres adapter's `release_claim`: a claimed job returns
-    /// to `pending` without counting an attempt (issue #748 — the AI-import
-    /// preview fixture releases a foreign job it declined to complete).
-    async fn release_claim(&self, id: AiImportJobId, _worker_id: &str) -> Result<(), DomainError> {
-        let released = {
-            let mut jobs = self.jobs.lock().await;
-            match jobs.get_mut(&id.as_uuid()) {
-                Some(job) if job.status == JobStatus::Running => {
-                    job.status = JobStatus::Pending;
-                    job.updated_at = Utc::now();
-                    true
-                }
-                _ => false,
-            }
-        };
-        if released {
-            self.hub.notify(id);
-        }
-        Ok(())
+        Ok(None)
     }
 
     async fn get(&self, id: AiImportJobId) -> Result<Option<AiImportJob>, DomainError> {
@@ -2546,6 +2498,49 @@ impl AiImportQueue for FakeAiImportQueue {
             job.updated_at = Utc::now();
         }
         self.hub.notify(id);
+        Ok(())
+    }
+
+    /// Mirrors the Postgres adapter's test-support `seed_succeeded` (issue
+    /// #748): the row lands directly in the terminal `succeeded` state, so no
+    /// claim exists and the fixture can never leak a runnable job.
+    #[cfg(feature = "test-support")]
+    async fn seed_succeeded(
+        &self,
+        request: AiImportEnqueueRequest,
+        preview_handle: &str,
+    ) -> Result<(), DomainError> {
+        let now = Utc::now();
+        self.dedup
+            .lock()
+            .await
+            .insert(request.dedup_key.clone(), request.id);
+        self.jobs.lock().await.insert(
+            request.id.as_uuid(),
+            AiImportJob {
+                id: request.id,
+                user_id: request.user_id,
+                document_kind: request.document_kind,
+                source_format: request.source_format,
+                block_id: request.block_id,
+                dedup_key: request.dedup_key,
+                document_digest: request.document_digest,
+                source_handle: request.source_handle,
+                status: JobStatus::Succeeded,
+                preview_handle: Some(preview_handle.to_owned()),
+                last_error: None,
+                retries: 0,
+                progress: None,
+                next_attempt_at: None,
+                attempts: Vec::new(),
+                max_retries: 5,
+                created_at: now,
+                updated_at: now,
+                telemetry: None,
+                cost: None,
+            },
+        );
+        self.hub.notify(request.id);
         Ok(())
     }
 
