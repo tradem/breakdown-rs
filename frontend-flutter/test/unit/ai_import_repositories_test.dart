@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
-// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 // Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 // Co-authored-by: omen-alpha (opencode-go)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 // Tier-1 unit tests for the AI-import data layer (`flutter-ai-import`
 // tasks 1.1/1.2/1.4/1.5): every route Ok/Err (incl. 200/202/413/415/404/
@@ -1257,9 +1257,10 @@ void main() {
                 ..createdDays = 2
                 ..plannedSceneShoots = 5
                 ..createdCharacters = 0
-                ..createdCostumes = 0
+                ..createdPieces = 0
+                ..createdOutfits = 0
                 ..createdEpisodes = 0
-                ..unappliedCostumes.replace(const <UnappliedCostume>[]),
+                ..unappliedOutfits.replace(const <UnappliedOutfit>[]),
             ),
           )!,
         ]),
@@ -1296,9 +1297,10 @@ void main() {
             ..createdDays = 1
             ..plannedSceneShoots = 2
             ..createdCharacters = 1
-            ..createdCostumes = 2
+            ..createdPieces = 2
+            ..createdOutfits = 2
             ..createdEpisodes = 0
-            ..unappliedCostumes.replace(const <UnappliedCostume>[]),
+            ..unappliedOutfits.replace(const <UnappliedOutfit>[]),
         ),
       )!;
       final jobBody = serializers.serializeWith(

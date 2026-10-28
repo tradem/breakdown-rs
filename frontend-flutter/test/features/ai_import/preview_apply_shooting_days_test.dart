@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: glm-5.3-flash-flex (neuralwatt)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 // Tier-2 widget tests for the issue #706 frontend continuation: the
 // script preview renders each row's extracted shooting day, the apply
@@ -57,7 +58,7 @@ DraftScene _draft(String ref, {int? number, DraftShootingDay? shootingDay}) =>
         ..sceneNumber = number
         ..summary = 'Scene $ref'
         ..characters.replace(const <DraftCharacter>[])
-        ..costumes.replace(const <DraftCostume>[]);
+        ..outfits.replace(const <DraftOutfit>[]);
       if (shootingDay != null) b.shootingDay.replace(shootingDay);
     });
 
@@ -116,10 +117,11 @@ ApplyAiImportResponse _outcome({List<String> skippedDayGroups = const []}) =>
         ..createdDays = 1
         ..plannedSceneShoots = 3
         ..createdCharacters = 0
-        ..createdCostumes = 0
+        ..createdPieces = 0
+        ..createdOutfits = 0
         ..createdEpisodes = 0
         ..skippedDayGroups.addAll(skippedDayGroups)
-        ..unappliedCostumes.replace(const <UnappliedCostume>[]),
+        ..unappliedOutfits.replace(const <UnappliedOutfit>[]),
     );
 
 class FakeAiImportRepository extends AiImportRepository {

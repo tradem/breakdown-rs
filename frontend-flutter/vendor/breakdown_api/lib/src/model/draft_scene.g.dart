@@ -10,8 +10,6 @@ class _$DraftScene extends DraftScene {
   @override
   final BuiltList<DraftCharacter>? characters;
   @override
-  final BuiltList<DraftCostume>? costumes;
-  @override
   final String draftRef;
   @override
   final DraftEpisode? episode;
@@ -19,6 +17,8 @@ class _$DraftScene extends DraftScene {
   final String? location;
   @override
   final String? mood;
+  @override
+  final BuiltList<DraftOutfit>? outfits;
   @override
   final int? sceneNumber;
   @override
@@ -39,11 +39,11 @@ class _$DraftScene extends DraftScene {
 
   _$DraftScene._(
       {this.characters,
-      this.costumes,
       required this.draftRef,
       this.episode,
       this.location,
       this.mood,
+      this.outfits,
       this.sceneNumber,
       this.sceneScore,
       this.scoring,
@@ -64,11 +64,11 @@ class _$DraftScene extends DraftScene {
     if (identical(other, this)) return true;
     return other is DraftScene &&
         characters == other.characters &&
-        costumes == other.costumes &&
         draftRef == other.draftRef &&
         episode == other.episode &&
         location == other.location &&
         mood == other.mood &&
+        outfits == other.outfits &&
         sceneNumber == other.sceneNumber &&
         sceneScore == other.sceneScore &&
         scoring == other.scoring &&
@@ -82,11 +82,11 @@ class _$DraftScene extends DraftScene {
   int get hashCode {
     var _$hash = 0;
     _$hash = $jc(_$hash, characters.hashCode);
-    _$hash = $jc(_$hash, costumes.hashCode);
     _$hash = $jc(_$hash, draftRef.hashCode);
     _$hash = $jc(_$hash, episode.hashCode);
     _$hash = $jc(_$hash, location.hashCode);
     _$hash = $jc(_$hash, mood.hashCode);
+    _$hash = $jc(_$hash, outfits.hashCode);
     _$hash = $jc(_$hash, sceneNumber.hashCode);
     _$hash = $jc(_$hash, sceneScore.hashCode);
     _$hash = $jc(_$hash, scoring.hashCode);
@@ -102,11 +102,11 @@ class _$DraftScene extends DraftScene {
   String toString() {
     return (newBuiltValueToStringHelper(r'DraftScene')
           ..add('characters', characters)
-          ..add('costumes', costumes)
           ..add('draftRef', draftRef)
           ..add('episode', episode)
           ..add('location', location)
           ..add('mood', mood)
+          ..add('outfits', outfits)
           ..add('sceneNumber', sceneNumber)
           ..add('sceneScore', sceneScore)
           ..add('scoring', scoring)
@@ -127,12 +127,6 @@ class DraftSceneBuilder implements Builder<DraftScene, DraftSceneBuilder> {
   set characters(ListBuilder<DraftCharacter>? characters) =>
       _$this._characters = characters;
 
-  ListBuilder<DraftCostume>? _costumes;
-  ListBuilder<DraftCostume> get costumes =>
-      _$this._costumes ??= ListBuilder<DraftCostume>();
-  set costumes(ListBuilder<DraftCostume>? costumes) =>
-      _$this._costumes = costumes;
-
   String? _draftRef;
   String? get draftRef => _$this._draftRef;
   set draftRef(String? draftRef) => _$this._draftRef = draftRef;
@@ -148,6 +142,11 @@ class DraftSceneBuilder implements Builder<DraftScene, DraftSceneBuilder> {
   String? _mood;
   String? get mood => _$this._mood;
   set mood(String? mood) => _$this._mood = mood;
+
+  ListBuilder<DraftOutfit>? _outfits;
+  ListBuilder<DraftOutfit> get outfits =>
+      _$this._outfits ??= ListBuilder<DraftOutfit>();
+  set outfits(ListBuilder<DraftOutfit>? outfits) => _$this._outfits = outfits;
 
   int? _sceneNumber;
   int? get sceneNumber => _$this._sceneNumber;
@@ -189,11 +188,11 @@ class DraftSceneBuilder implements Builder<DraftScene, DraftSceneBuilder> {
     final $v = _$v;
     if ($v != null) {
       _characters = $v.characters?.toBuilder();
-      _costumes = $v.costumes?.toBuilder();
       _draftRef = $v.draftRef;
       _episode = $v.episode?.toBuilder();
       _location = $v.location;
       _mood = $v.mood;
+      _outfits = $v.outfits?.toBuilder();
       _sceneNumber = $v.sceneNumber;
       _sceneScore = $v.sceneScore;
       _scoring = $v.scoring?.toBuilder();
@@ -225,12 +224,12 @@ class DraftSceneBuilder implements Builder<DraftScene, DraftSceneBuilder> {
       _$result = _$v ??
           _$DraftScene._(
             characters: _characters?.build(),
-            costumes: _costumes?.build(),
             draftRef: BuiltValueNullFieldError.checkNotNull(
                 draftRef, r'DraftScene', 'draftRef'),
             episode: _episode?.build(),
             location: location,
             mood: mood,
+            outfits: _outfits?.build(),
             sceneNumber: sceneNumber,
             sceneScore: sceneScore,
             scoring: _scoring?.build(),
@@ -244,11 +243,12 @@ class DraftSceneBuilder implements Builder<DraftScene, DraftSceneBuilder> {
       try {
         _$failedField = 'characters';
         _characters?.build();
-        _$failedField = 'costumes';
-        _costumes?.build();
 
         _$failedField = 'episode';
         _episode?.build();
+
+        _$failedField = 'outfits';
+        _outfits?.build();
 
         _$failedField = 'scoring';
         _scoring?.build();

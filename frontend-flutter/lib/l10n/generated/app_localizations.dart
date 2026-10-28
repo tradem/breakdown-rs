@@ -1610,55 +1610,58 @@ abstract class AppLocalizations {
   /// **'Szene {id}{summary}'**
   String aiPreviewSceneWithSummary(Object id, Object summary);
 
-  /// No description provided for @aiPreviewCostumeHeading.
+  /// No description provided for @aiPreviewOutfitHeading.
   ///
   /// In de, this message translates to:
-  /// **'Kostüme ({count})'**
-  String aiPreviewCostumeHeading(Object count);
+  /// **'Looks ({count})'**
+  String aiPreviewOutfitHeading(Object count);
 
-  /// No description provided for @aiPreviewCostumeFor.
+  /// No description provided for @aiPreviewOutfitFor.
   ///
   /// In de, this message translates to:
-  /// **'{character}: {description}'**
-  String aiPreviewCostumeFor(Object character, Object description);
+  /// **'{character}: {name}'**
+  String aiPreviewOutfitFor(Object character, Object name);
 
-  /// No description provided for @aiPreviewCostumeQuote.
+  /// No description provided for @aiPreviewOutfitQuote.
   ///
   /// In de, this message translates to:
   /// **'Beleg: {quote}'**
-  String aiPreviewCostumeQuote(Object quote);
+  String aiPreviewOutfitQuote(Object quote);
 
-  /// No description provided for @aiPreviewCostumeRejectedStatus.
+  /// No description provided for @aiPreviewOutfitPieces.
+  ///
+  /// In de, this message translates to:
+  /// **'Kleidungsstücke: {pieces}'**
+  String aiPreviewOutfitPieces(Object pieces);
+
+  /// No description provided for @aiPreviewOutfitRejectedStatus.
   ///
   /// In de, this message translates to:
   /// **'verworfen'**
-  String get aiPreviewCostumeRejectedStatus;
+  String get aiPreviewOutfitRejectedStatus;
 
-  /// No description provided for @aiPreviewCostumeToggleTooltip.
+  /// No description provided for @aiPreviewOutfitToggleTooltip.
   ///
   /// In de, this message translates to:
-  /// **'Dieses Kostüm unabhängig von der Szene übernehmen oder verwerfen'**
-  String get aiPreviewCostumeToggleTooltip;
+  /// **'Diesen Look unabhängig von der Szene übernehmen oder verwerfen'**
+  String get aiPreviewOutfitToggleTooltip;
 
   /// No description provided for @aiApplyOutcomeScript.
   ///
   /// In de, this message translates to:
-  /// **'Angewendet: {applied} Szene(n), {characters} Figur(en), {costumes} Kostüm(e).'**
+  /// **'Angewendet: {applied} Szene(n), {characters} Figur(en), {pieces} Kleidungsstück(e), {outfits} Look(s).'**
   String aiApplyOutcomeScript(
     Object applied,
     Object characters,
-    Object costumes,
+    Object outfits,
+    Object pieces,
   );
 
-  /// No description provided for @aiApplyUnappliedCostume.
+  /// No description provided for @aiApplyUnappliedOutfit.
   ///
   /// In de, this message translates to:
-  /// **'Nicht angewendet: {character} – {description} ({reason})'**
-  String aiApplyUnappliedCostume(
-    Object character,
-    Object description,
-    Object reason,
-  );
+  /// **'Nicht angewendet: {character} – {name} ({reason})'**
+  String aiApplyUnappliedOutfit(Object character, Object name, Object reason);
 
   /// No description provided for @aiApplyUnappliedReasonCharacterNotPlanned.
   ///
@@ -1672,28 +1675,34 @@ abstract class AppLocalizations {
   /// **'Figur konnte nicht angelegt werden'**
   String get aiApplyUnappliedReasonCharacterUnavailable;
 
+  /// No description provided for @aiApplyUnappliedReasonPieceRejected.
+  ///
+  /// In de, this message translates to:
+  /// **'ein Kleidungsstück konnte nicht angelegt werden'**
+  String get aiApplyUnappliedReasonPieceRejected;
+
   /// No description provided for @aiApplyUnappliedReasonCreateRejected.
   ///
   /// In de, this message translates to:
-  /// **'Kostüm konnte nicht angelegt werden'**
+  /// **'Look konnte nicht angelegt werden'**
   String get aiApplyUnappliedReasonCreateRejected;
 
   /// No description provided for @aiApplyUnappliedReasonNotesRejected.
   ///
   /// In de, this message translates to:
-  /// **'Kostüm angelegt, Beschreibung abgelehnt'**
+  /// **'Look angelegt, Beschreibung abgelehnt'**
   String get aiApplyUnappliedReasonNotesRejected;
 
   /// No description provided for @aiApplyUnappliedReasonBindingRejected.
   ///
   /// In de, this message translates to:
-  /// **'Kostüm angelegt, Bindung abgelehnt (unzugeordnet)'**
+  /// **'Look angelegt, Zuordnung zum Dreh abgelehnt'**
   String get aiApplyUnappliedReasonBindingRejected;
 
   /// No description provided for @aiApplyUnappliedReasonBeatRejected.
   ///
   /// In de, this message translates to:
-  /// **'Kostüm angelegt, Kostümwechsel in der Szene abgelehnt'**
+  /// **'Look angelegt, Einsatz in der Szene abgelehnt'**
   String get aiApplyUnappliedReasonBeatRejected;
 
   /// No description provided for @aiConfigStoredPromptNote.

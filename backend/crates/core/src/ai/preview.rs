@@ -4,6 +4,7 @@
 // Co-authored-by: gpt-5.6-luna (opencode-go)
 // Co-authored-by: qwen3.8-flash (opencode-go)
 // Co-authored-by: glm-5.3-flash (neuralwatt)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 use chrono::NaiveDate;
 use serde::{Deserialize, Serialize};
@@ -16,7 +17,7 @@ use crate::error::DomainError;
 use crate::scene::commands::{CreateScene, UpdateSceneDetails};
 use crate::scene::events::{SceneDetails, SceneSource};
 use crate::scene::views::SceneView;
-use crate::shared::{AggregateVersion, BlockId, EpisodeId, ProjectId};
+use crate::shared::{AggregateVersion, BlockId, CostumeCategoryId, EpisodeId, ProjectId};
 
 /// A bounded section of extracted script text beginning at an INT./EXT.
 /// heading. The chunker retains the heading and body so the LLM receives
@@ -514,21 +515,74 @@ pub struct ScriptContext {
     pub uncertainties: Vec<Uncertainty>,
 }
 
-/// One costume extracted for a character of a draft scene.
+/// One constituent garment of a [`DraftOutfit`].
+///
+/// Screenplays rarely enumerate the garments of a standard look: they state
+/// `DR. KOCH (in OP)` or `PATIENT (in KHK)`. The pieces are therefore
+/// **context-derived** from the outfit — grounded through the outfit's quote,
+/// never individually against the chunk text (design D1).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct DraftPiece {
+    /// Garment name as the wardrobe department would file it (`OP-Kasack`,
+    /// `KHK-Hose`, `Gummistiefel`).
+    pub name: String,
+    /// Category the piece belongs to, when the model could name one from the
+    /// canonical vocabulary (`Oberteil`, `Unterteil`, `Schuhe`, `Jacke`,
+    /// `Accessoires`). Resolved against the season's categories at the API
+    /// edge; an unknown hint leaves the piece uncategorized (never an error).
+    #[serde(default)]
+    pub category_hint: Option<String>,
+    /// Free-form detail from the script (condition, colour, material).
+    #[serde(default)]
+    pub description: Option<String>,
+}
+
+/// How a [`DraftOutfit`] came into existence.
+///
+/// The distinction is what the grounding check turns on: an explicitly quoted
+/// outfit is verified verbatim against the chunk, a derived one is a look the
+/// model composed from a shorthand the block named. Both are grounded at the
+/// outfit level; neither carries a per-piece quote.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum DraftOutfitOrigin {
+    /// The block names the look (parenthetical, `Kostümbild` note, shorthand
+    /// such as `OP` or `KHK`) and the outfit quotes that fragment.
+    #[default]
+    ExplicitQuote,
+    /// The model derived the look from the block's prose; the pieces are
+    /// context-derived.
+    Derived,
+}
+
+/// One outfit extracted for a character of a draft scene.
 ///
 /// Flat by design: the LLM has no domain ids, and the write side must not
 /// resolve ids from a read-model projection (CQRS boundary). `character_name`
 /// is matched against the same draft scene's `characters`; `source_quote` is the
 /// fragment the extraction claims to be based on, which the server verifies
-/// against the supplied chunk text before the row may reach the reviewer.
+/// against the supplied chunk text before the row may reach the reviewer. The
+/// outfit's `pieces` ride along with it: a grounded outfit may carry garment
+/// names the script never wrote (design D1).
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, ToSchema)]
-pub struct DraftCostume {
-    /// Character the costume belongs to, as written in the script.
+pub struct DraftOutfit {
+    /// Character the outfit belongs to, as written in the script.
     pub character_name: String,
-    /// The garment/accessory description, in the script's own wording.
-    pub description: String,
-    /// Quoted fragment of the chunk this entry was extracted from.
+    /// Display name of the look (`OP-Kleidung`, `Mechaniker-Overall`).
+    pub name: String,
+    /// Free-form notes in the script's own wording — the full description the
+    /// wardrobe department needs beyond the name.
+    #[serde(default)]
+    pub notes: Option<String>,
+    /// Quoted fragment of the chunk this outfit was extracted from.
     pub source_quote: String,
+    /// Whether the block named the look explicitly (see [`DraftOutfitOrigin`]).
+    #[serde(default)]
+    pub origin: DraftOutfitOrigin,
+    /// The constituent garments, `0..n`. Empty is a valid answer: the outfit is
+    /// then applied as a look without pieces.
+    #[serde(default)]
+    pub pieces: Vec<DraftPiece>,
 }
 
 /// One figure a draft row names, with its extracted role type (issue #677).
@@ -603,12 +657,14 @@ pub struct DraftScene {
     /// grounded `MainCast` default via [`deserialize_draft_characters`].
     #[serde(default, deserialize_with = "deserialize_draft_characters")]
     pub characters: Vec<DraftCharacter>,
-    /// Costumes worn by this scene's characters. Additive on the wire with a
-    /// default so previews stored before this field existed still load; a
-    /// preview written by this version loses the field when read by an older
-    /// binary (breaking, see the change proposal).
+    /// Outfits worn by this scene's characters (OpenSpec change
+    /// `ai-import-outfit-and-pieces`). Additive on the wire with a default so
+    /// previews stored before this field existed still load; a preview written
+    /// by this version loses the field when read by an older binary (breaking,
+    /// see the change proposal). The former `costumes` field is gone: its flat
+    /// `description` cannot express the outfit/piece split.
     #[serde(default)]
-    pub costumes: Vec<DraftCostume>,
+    pub outfits: Vec<DraftOutfit>,
     /// The episode this row belongs to (issue #581). Additive on the wire with
     /// a default so previews stored before this field existed still load;
     /// `None` applies the row to the explicitly picked target episode.
@@ -639,24 +695,24 @@ pub struct DraftScene {
     pub scoring: Option<super::decision::DecisionRubric>,
 }
 
-/// A dropped costume and why it was dropped, surfaced as an `Uncertainty` so
+/// A dropped outfit and why it was dropped, surfaced as an `Uncertainty` so
 /// the reviewer sees a missing entry instead of silently missing data.
-#[derive(Debug, Clone, PartialEq)]
-pub struct RejectedCostume {
-    pub reason: RejectedCostumeReason,
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RejectedOutfit {
+    pub reason: RejectedOutfitReason,
     pub character_name: String,
-    pub description: String,
+    pub name: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum RejectedCostumeReason {
+pub enum RejectedOutfitReason {
     /// `source_quote` does not occur in the chunk the model was given.
     UngroundedQuote,
-    /// The costume names a character the same scene does not list.
+    /// The outfit names a character the same scene does not list.
     UnlistedCharacter,
 }
 
-impl RejectedCostumeReason {
+impl RejectedOutfitReason {
     /// Stable slug. `Display` is what the apply/preview narratives are built
     /// from, so a reviewer-facing note must not change shape when the variant is
     /// renamed — and a client can branch on it without parsing prose.
@@ -669,7 +725,7 @@ impl RejectedCostumeReason {
     }
 }
 
-impl std::fmt::Display for RejectedCostumeReason {
+impl std::fmt::Display for RejectedOutfitReason {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(self.as_str())
     }
@@ -702,12 +758,12 @@ fn grounded_text(text: &str) -> String {
     out
 }
 
-/// Normalise a character name into the identity key that binds a costume to its
+/// Normalise a character name into the identity key that binds an outfit to its
 /// figure and deduplicates one figure across the scenes of a single preview.
 ///
 /// Only case and whitespace are folded away. Models write the same figure as
 /// `BEN`, `Ben` and ` ben ` inside one run (observed live), and a trailing space
-/// must not turn a figure's costume into an orphan. Nothing else is normalised:
+/// must not turn a figure's outfit into an orphan. Nothing else is normalised:
 /// `Anna Maria` and `Ann Maria` stay distinct on purpose, because folding more
 /// would be the fuzzy matching the apply spec forbids.
 pub fn character_identity(name: &str) -> String {
@@ -747,16 +803,17 @@ pub fn character_mapping_ref(identity: &str) -> String {
     format!("{CHARACTER_REF_PREFIX}{identity}")
 }
 
-/// Keep only costumes that are (a) traceable to the supplied chunk text and
+/// Keep only outfits that are (a) traceable to the supplied chunk text and
 /// (b) attributable to a character of this scene; return the rejects so the
 /// caller can record them as uncertainties.
 ///
 /// Both checks are server-side on purpose: the prompt forbids invention, but a
-/// prompt is an instruction, not a guarantee. Verified live that a hardened
-/// prompt makes the model return the description ("trägt einen leicht
-/// ölverschmierten Mechaniker-Overall"); this is what makes a hallucinated
-/// entry unable to reach the reviewer.
-pub fn verify_draft_costumes(scene: &mut DraftScene, chunk_text: &str) -> Vec<RejectedCostume> {
+/// prompt is an instruction, not a guarantee. Grounding runs at the **outfit**
+/// level (design D1): screenplays name a look by shorthand (`"in OP"`) and never
+/// enumerate its garments, so grounding each individual piece would reject every
+/// genuinely derived garment. A rejected outfit takes its pieces with it — they
+/// exist only as part of that look.
+pub fn verify_draft_outfits(scene: &mut DraftScene, chunk_text: &str) -> Vec<RejectedOutfit> {
     let mut rejected = Vec::new();
     let characters: Vec<String> = scene
         .characters
@@ -765,29 +822,29 @@ pub fn verify_draft_costumes(scene: &mut DraftScene, chunk_text: &str) -> Vec<Re
         .collect();
     let haystack = grounded_text(chunk_text);
 
-    let mut kept: Vec<DraftCostume> = Vec::with_capacity(scene.costumes.len());
-    for costume in std::mem::take(&mut scene.costumes) {
-        let quote = grounded_text(&costume.source_quote);
+    let mut kept: Vec<DraftOutfit> = Vec::with_capacity(scene.outfits.len());
+    for outfit in std::mem::take(&mut scene.outfits) {
+        let quote = grounded_text(&outfit.source_quote);
         if quote.is_empty() || !haystack.contains(&quote) {
-            rejected.push(RejectedCostume {
-                reason: RejectedCostumeReason::UngroundedQuote,
-                character_name: costume.character_name,
-                description: costume.description,
+            rejected.push(RejectedOutfit {
+                reason: RejectedOutfitReason::UngroundedQuote,
+                character_name: outfit.character_name,
+                name: outfit.name,
             });
             continue;
         }
-        let name = character_identity(&costume.character_name);
+        let name = character_identity(&outfit.character_name);
         if !characters.iter().any(|known| known == &name) {
-            rejected.push(RejectedCostume {
-                reason: RejectedCostumeReason::UnlistedCharacter,
-                character_name: costume.character_name,
-                description: costume.description,
+            rejected.push(RejectedOutfit {
+                reason: RejectedOutfitReason::UnlistedCharacter,
+                character_name: outfit.character_name,
+                name: outfit.name,
             });
             continue;
         }
-        kept.push(costume);
+        kept.push(outfit);
     }
-    scene.costumes = kept;
+    scene.outfits = kept;
     rejected
 }
 
@@ -1089,30 +1146,37 @@ pub struct MergeInput {
 pub struct ApplyMapping {
     pub draft_ref: String,
     pub decision: ApplyMappingDecision,
-    /// Per-costume-row decisions of this draft row. Absent ordinals default to
+    /// Per-outfit-row decisions of this draft row. Absent ordinals default to
     /// accepted, so a request written before this field existed (or one where
     /// the reviewer touched nothing) still applies everything that was extracted.
-    #[serde(default)]
-    pub costume_decisions: Vec<CostumeDecision>,
+    ///
+    /// `costume_decisions` is accepted as an alias (OpenSpec change
+    /// `ai-import-outfit-and-pieces`): the pre-rename client sends the same
+    /// `{ordinal, accepted}` items under the old name, and silently dropping
+    /// them would turn a reviewer's rejection into an applied outfit — a
+    /// fail-open on the one decision surface that must never be ignored.
+    #[serde(default, alias = "costume_decisions")]
+    pub outfit_decisions: Vec<OutfitDecision>,
 }
 
-/// Reviewer decision for one costume row of a draft row. A costume is accepted
+/// Reviewer decision for one outfit row of a draft row. An outfit is accepted
 /// or rejected *independently of its scene* (spec `ai-import`: the preview
-/// exposes each costume row for its own decision).
+/// exposes each outfit row for its own decision). Rejecting an outfit rejects
+/// its pieces with it — they belong to that look.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
-pub struct CostumeDecision {
-    /// Index into the draft row's `costumes` list.
+pub struct OutfitDecision {
+    /// Index into the draft row's `outfits` list.
     pub ordinal: usize,
-    /// `false` rejects the costume: no `Costume` is created and the scene row is
-    /// unaffected.
+    /// `false` rejects the outfit: no `Piece` and no `Outfit` is created and the
+    /// scene row is unaffected.
     pub accepted: bool,
 }
 
 impl ApplyMapping {
-    /// Whether the reviewer accepted costume row `ordinal` of this draft row.
+    /// Whether the reviewer accepted outfit row `ordinal` of this draft row.
     #[must_use]
-    pub fn costume_accepted(&self, ordinal: usize) -> bool {
-        self.costume_decisions
+    pub fn outfit_accepted(&self, ordinal: usize) -> bool {
+        self.outfit_decisions
             .iter()
             .find(|decision| decision.ordinal == ordinal)
             .is_none_or(|decision| decision.accepted)
@@ -1229,31 +1293,60 @@ pub struct CharacterApplyPlan {
     pub category: CharacterCategory,
 }
 
-/// One costume of a draft row, planned as `CreateCostume` +
-/// `UpdateCostumeNotes` + `AssignCostumeToCharacter`.
+/// One constituent garment of an [`OutfitApplyPlan`], planned as `CreatePiece`
+/// plus optional `SetPieceCategory` / `UpdatePieceNotes`.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CostumeApplyPlan {
-    /// Position inside the row's `costumes` list. With the row's `draft_ref`
-    /// this is the idempotency key `(preview_id, draft_ref, 'costume', ordinal)`
-    /// so two costumes of one figure in one scene stay distinct (design D4).
+pub struct PieceApplyPlan {
+    /// Row-flat position across the row's outfit piece lists. With the row's
+    /// `draft_ref` this is the idempotency key
+    /// `(preview_id, draft_ref, 'piece', ordinal)`: row-flat on purpose, because
+    /// two figures may legitimately wear the same garment (`OP-Schuhe`) and a
+    /// per-outfit ordinal would collapse them onto one aggregate.
     pub ordinal: usize,
-    /// The figure this costume binds to, by preview-wide identity.
+    /// Position inside the owning outfit's `pieces` list (reporting only).
+    pub outfit_ordinal: usize,
+    /// Garment name, as the model derived it.
+    pub name: String,
+    /// The category the hint resolved to, when the season has a matching active
+    /// category. Resolved at the API edge (CQRS boundary) and carried in here.
+    pub category_id: Option<CostumeCategoryId>,
+    /// The hint as extracted — kept for reporting and for the "unknown hint"
+    /// case, where the piece is created uncategorized instead of failing.
+    pub category_hint: Option<String>,
+    /// Extracted detail, written as the piece's notes.
+    pub notes: Option<String>,
+}
+
+/// One outfit of a draft row: its constituent pieces plus the look itself.
+///
+/// Dispatch order is pieces → outfit → beat: the outfit references the piece
+/// ids, so the pieces must exist first, and the beat references the outfit.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OutfitApplyPlan {
+    /// Position inside the row's `outfits` list. With the row's `draft_ref`
+    /// this is the idempotency key `(preview_id, draft_ref, 'outfit', ordinal)`
+    /// so two outfits of one figure in one scene stay distinct (design D4).
+    pub ordinal: usize,
+    /// The figure this outfit belongs to, by preview-wide identity.
     pub character_identity: String,
     /// The figure's name as the draft wrote it (reporting only).
     pub character_name: String,
-    /// Garment description in the script's own wording; carried into the domain
-    /// as the costume's notes (design D8).
-    pub description: String,
+    /// Display name of the look.
+    pub name: String,
+    /// Notes in the script's own wording.
+    pub notes: Option<String>,
     /// Quoted fragment the extraction was based on.
     pub source_quote: String,
+    /// The constituent garments, in plan order.
+    pub pieces: Vec<PieceApplyPlan>,
 }
 
 /// Everything one accepted draft row applies: its scene, the figures it names,
-/// and the costumes of those figures.
+/// and the outfits of those figures.
 ///
 /// Deliberately without `PartialEq`: the wrapped scene commands carry freshly
 /// generated aggregate ids, so a structural comparison of two plans could never
-/// hold. Tests compare [`Self::characters`] and [`Self::costumes`] and `matches!`
+/// hold. Tests compare [`Self::characters`] and [`Self::outfits`] and `matches!`
 /// on the scene command.
 #[derive(Debug, Clone)]
 pub struct SceneApplyPlan {
@@ -1270,27 +1363,27 @@ pub struct SceneApplyPlan {
     pub confidence: Option<f32>,
     pub scene: SceneApplyCommand,
     pub characters: Vec<CharacterApplyPlan>,
-    pub costumes: Vec<CostumeApplyPlan>,
+    pub outfits: Vec<OutfitApplyPlan>,
 }
 
 /// The full apply plan of one reviewed preview.
 #[derive(Debug, Clone, Default)]
 pub struct ScriptApplyPlan {
     pub scenes: Vec<SceneApplyPlan>,
-    /// Costume rows the plan dropped because no figure of the same row carries
+    /// Outfit rows the plan dropped because no figure of the same row carries
     /// them. Reported, never silent (design D5).
-    pub unapplied_costumes: Vec<UnappliedCostume>,
+    pub unapplied_outfits: Vec<UnappliedOutfit>,
 }
 
-/// Why a costume row did not become a `Costume`. Shown to the reviewer as
+/// Why an outfit row did not become an `Outfit`. Shown to the reviewer as
 /// *missing with a reason* instead of as a successful apply.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
-pub struct UnappliedCostume {
+pub struct UnappliedOutfit {
     pub draft_ref: String,
     pub ordinal: usize,
     pub character_name: String,
-    pub description: String,
-    pub reason: UnappliedCostumeReason,
+    pub name: String,
+    pub reason: UnappliedOutfitReason,
     /// Short diagnostic (e.g. the rejection the aggregate returned). The UI
     /// branches on [`Self::reason`], never on this text.
     #[serde(default)]
@@ -1299,27 +1392,30 @@ pub struct UnappliedCostume {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
-pub enum UnappliedCostumeReason {
-    /// No figure of the same draft row carries this costume, so it has nothing
-    /// to bind to. Creating it would produce an ownerless costume.
+pub enum UnappliedOutfitReason {
+    /// No figure of the same draft row carries this outfit, so it has nothing
+    /// to belong to. Creating it would produce an ownerless look.
     CharacterNotPlanned,
-    /// `CreateCharacter` was rejected, so the figure the costume belongs to does
+    /// `CreateCharacter` was rejected, so the figure the outfit belongs to does
     /// not exist.
     CharacterUnavailable,
-    /// `CreateCostume` itself was rejected, so the costume does not exist at all.
+    /// One of the outfit's pieces could not be created, so the look cannot be
+    /// assembled from what the script described.
+    PieceRejected,
+    /// The outfit itself was rejected by the aggregate, so the look does not
+    /// exist at all.
     CreateRejected,
-    /// The costume exists but its extracted description could not be written to
-    /// it, so the row stopped before the binding.
+    /// The outfit exists but its extracted notes could not be written to it.
     NotesRejected,
-    /// The costume exists but `AssignCostumeToCharacter` was rejected; it stays
-    /// unassigned and correctable (spec `costume-character-binding`).
+    /// The outfit exists but its figure could not be assigned to the scene
+    /// (archived target season, unresolvable season): it stays uncast.
     BindingRejected,
-    /// The costume exists and is bound to its figure, but `AddCostumeBeat` was
+    /// The outfit exists and belongs to its figure, but `AddOutfitBeat` was
     /// refused by the scene (issue #546 §5.8) — e.g. a concurrent manual edit
     /// removed the figure from the scene between the assign and the beat. The
-    /// scene relation is missing while the costume itself is fine: this must
+    /// scene relation is missing while the outfit itself is fine: this must
     /// never look like the plan-time drop ([`Self::CharacterNotPlanned`]),
-    /// where the costume never came into existence at all.
+    /// where the outfit never came into existence at all.
     BeatRejected,
 }
 
@@ -1460,12 +1556,6 @@ pub fn category_conflict_uncertainties(preview: &ScriptContext) -> Vec<Uncertain
         .collect()
 }
 
-/// Plan the apply of one reviewed script preview.
-///
-/// A row yields its **scene** command, the **figures** it names and the
-/// **costumes** of those figures, in that dispatch order: a costume binds only
-/// to a figure the same row planned (spec `costume-character-binding`), so the
-/// prerequisite is planned first and the worker never has to look one up.
 /// The mapping reference of one draft row, falling back to its position for a
 /// row the model left without a reference.
 ///
@@ -1492,8 +1582,51 @@ pub struct ReviewerDecisions<'a> {
     pub shooting_days: &'a [ShootingDayPlan],
     /// Acknowledged blocking uncertainties (issue #663).
     pub acknowledged_uncertainties: &'a [UncertaintyAcknowledgement],
+    /// The target season's category vocabulary, resolved at the API edge
+    /// (`CostumeCategoryView`), used to turn a piece's `category_hint` into a
+    /// category id (CQRS boundary: the write side never reads that projection).
+    pub categories: &'a [CategoryVocabularyEntry],
 }
 
+/// One entry of the target season's category vocabulary, as the API edge
+/// loaded it for the planner. Deliberately a plain `(name, id)` pair: the
+/// planner is pure and must not depend on the read-model view type.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct CategoryVocabularyEntry {
+    pub name: String,
+    pub id: CostumeCategoryId,
+}
+
+/// Resolve a piece's extracted `category_hint` against the season vocabulary.
+///
+/// Matching is case-insensitive and whitespace-trimmed: the model writes
+/// `Oberteil`, `oberteil` and ` Oberteil ` for the same category, and the
+/// vocabulary is authored by humans. A hint that matches nothing yields `None`
+/// — an unknown hint is not an error, the piece is simply created without a
+/// category (spec `ai-costume-extraction`).
+#[must_use]
+fn resolve_category(
+    categories: &[CategoryVocabularyEntry],
+    hint: Option<&str>,
+) -> Option<CostumeCategoryId> {
+    let hint = hint?.trim();
+    if hint.is_empty() {
+        return None;
+    }
+    categories
+        .iter()
+        .find(|entry| entry.name.trim().eq_ignore_ascii_case(hint))
+        .map(|entry| entry.id)
+}
+
+/// Plan the apply of one reviewed script preview.
+///
+/// A row yields its **scene** command, the **figures** it names and the
+/// **outfits** of those figures, in that dispatch order: an outfit belongs to a
+/// figure the same row planned (spec `ai-costume-extraction`), so the
+/// prerequisite is planned first and the worker never has to look one up. Each
+/// outfit carries its own constituent pieces, which the worker creates before
+/// the outfit itself.
 pub fn plan_scene_apply(
     preview: &ScriptContext,
     mappings: &[ApplyMapping],
@@ -1506,6 +1639,7 @@ pub fn plan_scene_apply(
         episode_groups,
         shooting_days,
         acknowledged_uncertainties: acknowledged,
+        categories,
     } = *decisions;
     ensure_script_applyable(preview, acknowledged)?;
     let mut plan = ScriptApplyPlan::default();
@@ -1639,33 +1773,67 @@ pub fn plan_scene_apply(
             });
         }
 
-        // A costume binds to a figure of THIS row. Extraction already rejects an
-        // unattributable costume, so an unmatched name here means a preview that
-        // never went through `verify_draft_costumes`: report it instead of
-        // creating a costume that has nothing to bind to.
-        let mut costumes: Vec<CostumeApplyPlan> = Vec::with_capacity(draft.costumes.len());
-        for (ordinal, costume) in draft.costumes.iter().enumerate() {
-            if !mapping.costume_accepted(ordinal) {
+        // An outfit belongs to a figure of THIS row. Extraction already rejects
+        // an unattributable outfit, so an unmatched name here means a preview
+        // that never went through `verify_draft_outfits`: report it instead of
+        // creating a look that has nothing to belong to.
+        //
+        // Pieces are numbered row-flat across every outfit of the row: two
+        // figures may legitimately wear the same garment (`OP-Schuhe`), and a
+        // per-outfit ordinal would collapse them onto one `piece` mapping row.
+        let mut next_piece_ordinal = 0usize;
+        let mut outfits: Vec<OutfitApplyPlan> = Vec::with_capacity(draft.outfits.len());
+        for (ordinal, outfit) in draft.outfits.iter().enumerate() {
+            if !mapping.outfit_accepted(ordinal) {
                 continue;
             }
-            let identity = character_identity(&costume.character_name);
+            let identity = character_identity(&outfit.character_name);
             let Some(character) = characters.iter().find(|known| known.identity == identity) else {
-                plan.unapplied_costumes.push(UnappliedCostume {
+                plan.unapplied_outfits.push(UnappliedOutfit {
                     draft_ref: draft_ref.clone(),
                     ordinal,
-                    character_name: costume.character_name.clone(),
-                    description: costume.description.clone(),
-                    reason: UnappliedCostumeReason::CharacterNotPlanned,
+                    character_name: outfit.character_name.clone(),
+                    name: outfit.name.clone(),
+                    reason: UnappliedOutfitReason::CharacterNotPlanned,
                     detail: None,
                 });
                 continue;
             };
-            costumes.push(CostumeApplyPlan {
+            let pieces = outfit
+                .pieces
+                .iter()
+                .filter(|piece| !piece.name.trim().is_empty())
+                .map(|piece| {
+                    let piece_ordinal = next_piece_ordinal;
+                    next_piece_ordinal += 1;
+                    PieceApplyPlan {
+                        ordinal: piece_ordinal,
+                        outfit_ordinal: ordinal,
+                        name: piece.name.trim().to_owned(),
+                        category_id: resolve_category(categories, piece.category_hint.as_deref()),
+                        category_hint: piece.category_hint.clone(),
+                        notes: piece
+                            .description
+                            .as_deref()
+                            .map(str::trim)
+                            .filter(|text| !text.is_empty())
+                            .map(str::to_owned),
+                    }
+                })
+                .collect();
+            outfits.push(OutfitApplyPlan {
                 ordinal,
                 character_identity: character.identity.clone(),
                 character_name: character.name.clone(),
-                description: costume.description.clone(),
-                source_quote: costume.source_quote.clone(),
+                name: outfit.name.trim().to_owned(),
+                notes: outfit
+                    .notes
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|text| !text.is_empty())
+                    .map(str::to_owned),
+                source_quote: outfit.source_quote.clone(),
+                pieces,
             });
         }
 
@@ -1679,7 +1847,7 @@ pub fn plan_scene_apply(
             confidence: draft.scene_score,
             scene,
             characters,
-            costumes,
+            outfits,
         });
     }
     // Issue #677 (CodeRabbit #692): the same figure is often named by several
@@ -1714,38 +1882,38 @@ pub fn plan_scene_apply(
     Ok(plan)
 }
 
-/// One costume beat slot of a figure's lane: the costume in plan order plus
-/// its PER-FIGURE position, which is what the `scene_costume_beat` mapping
+/// One outfit beat slot of a figure's lane: the outfit in plan order plus
+/// its PER-FIGURE position, which is what the `scene_outfit_beat` mapping
 /// rows are addressed by (issue #546 §5.8).
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CostumeBeatSlot<'a> {
-    /// Position of this costume among the figure's beats of the row,
+pub struct OutfitBeatSlot<'a> {
+    /// Position of this outfit among the figure's beats of the row,
     /// 0..n-1 in plan order — deliberately NOT the row-flat `ordinal`, which
     /// two figures would collide on.
     pub per_figure_order: usize,
-    pub costume: &'a CostumeApplyPlan,
+    pub outfit: &'a OutfitApplyPlan,
 }
 
 /// One figure's lane of the scene-apply chain: the figure itself plus its
-/// costume beats, filtered from the row's flat costume list (issue #546
+/// outfit beats, filtered from the row's flat outfit list (issue #546
 /// §5.8). Pure re-grouping — no extraction behaviour, no LLM call.
 #[derive(Debug, Clone)]
 pub struct SceneBeatLane<'a> {
     pub character: &'a CharacterApplyPlan,
-    /// The figure's costumes of this row, plan order kept, numbered per
-    /// figure 0..n-1. A costume whose identity matches no figure of the row
-    /// never appears in any lane — [`ScriptApplyPlan::unapplied_costumes`]
+    /// The figure's outfits of this row, plan order kept, numbered per
+    /// figure 0..n-1. An outfit whose identity matches no figure of the row
+    /// never appears in any lane — [`ScriptApplyPlan::unapplied_outfits`]
     /// already reported it at plan time.
-    pub beats: Vec<CostumeBeatSlot<'a>>,
+    pub beats: Vec<OutfitBeatSlot<'a>>,
 }
 
-/// Re-group a draft row's flat costume list into per-figure beat lanes.
+/// Re-group a draft row's flat outfit list into per-figure beat lanes.
 ///
-/// The extraction produces `costumes` flat across all figures with the
-/// ordinal as a PER-SCENE position, while `AddCostumeBeat` orders per figure
+/// The extraction produces `outfits` flat across all figures with the
+/// ordinal as a PER-SCENE position, while `AddOutfitBeat` orders per figure
 /// (aggregate-computed `max + 1`) and the beat mapping rows need a
 /// collision-free per-figure address. This function is the single place
-/// that defines the mapping between the two: filter the row's costumes by
+/// that defines the mapping between the two: filter the row's outfits by
 /// the lane figure's identity, keep the plan order, number 0..n-1 per
 /// figure.
 pub fn scene_beat_lanes(row: &SceneApplyPlan) -> Vec<SceneBeatLane<'_>> {
@@ -1754,13 +1922,13 @@ pub fn scene_beat_lanes(row: &SceneApplyPlan) -> Vec<SceneBeatLane<'_>> {
         .map(|character| {
             let mut per_figure_order = 0usize;
             let beats = row
-                .costumes
+                .outfits
                 .iter()
-                .filter(|costume| costume.character_identity == character.identity)
-                .map(|costume| {
-                    let slot = CostumeBeatSlot {
+                .filter(|outfit| outfit.character_identity == character.identity)
+                .map(|outfit| {
+                    let slot = OutfitBeatSlot {
                         per_figure_order,
-                        costume,
+                        outfit,
                     };
                     per_figure_order += 1;
                     slot

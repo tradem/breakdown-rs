@@ -2,6 +2,7 @@
 # Copyright (C) 2024-2026 Breakdown RS Contributors
 # Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 # Co-authored-by: gpt-5.6-luna (opencode-go)
+# Co-authored-by: deepseek-v4.1-flash (opencode-go)
 #
 # Default AI-import prompts (ADR-031: the deployment's single source; served
 # by `GET /v1/ai-import/defaults` and used whenever a stored configuration
@@ -19,19 +20,28 @@
 # right on its own (draft_ref — the server overwrites it anyway, see
 # `stable_draft_ref` in crates/core/src/ai/preview.rs).
 #
-# Costuming was first captured as an interim carrier inside `summary`, because
-# `DraftScene` had no costume field to put it in. That workaround is gone: the
-# `costumes` array is now the contract, `summary` must not carry clothing, and
-# the server verifies every returned `source_quote` against the block it was
-# drawn from (`verify_draft_costumes`) — a prompt forbids invention, only the
-# check makes an invented costume unable to reach the reviewer.
+# Wardrobe was first captured as an interim carrier inside `summary`, because
+# `DraftScene` had no field to put it in. That workaround is gone: the `outfits`
+# array is now the contract, `summary` must not carry clothing, and the server
+# verifies every returned `source_quote` against the block it was drawn from
+# (`verify_draft_outfits`) — a prompt forbids invention, only the check makes an
+# invented outfit unable to reach the reviewer.
+#
+# Since OpenSpec change `ai-import-outfit-and-pieces` an outfit is not a single
+# garment string but a LOOK with `0..n` constituent `pieces` (domain split:
+# `Piece` = fundus garment, `Outfit` = the character's look). Screenplays name
+# looks by shorthand ("in OP", "KHK", "ITS", uniform, coat) far more often than
+# they enumerate garments, so grounding runs at the OUTFIT level and the pieces
+# are derived from it. The decomposition is prompt-driven on purpose: a hardcoded
+# Rust glossary breaks on the first spelling variant ("OP", "OP-Grün",
+# "Bereichskleidung", "Flügelhemd").
 #
 # `summary` carries scene content only (issue #607). An outline-style block —
 # a heading plus a day marker and nothing else — is expressed by empty
-# `characters`/`costumes` arrays and a NULL `summary`, never by a sentence
+# `characters`/`outfits` arrays and a NULL `summary`, never by a sentence
 # about its own emptiness: the preview appends `summary` verbatim to the row
 # label, so a meta sentence ("Outline-style block with heading and day marker
-# only; no characters, costumes, or props described.") is noise every reviewer
+# only; no characters, outfits, or props described.") is noise every reviewer
 # has to read past. Suppressing it at the prompt source is why no frontend
 # boilerplate blacklist exists.
 #
@@ -61,7 +71,13 @@ text = """
 
 <characters>List every character who appears in this block. Evidence, in this order: (1) a name in CAPS on its own line, (2) a dialogue cue such as "ANNA:" or "MAX (35):", (3) an age/role parenthetical such as "ANNA (30, Pflegerin)". Use the name as written. Do NOT list a character who is only mentioned in passing without acting. Per entry, classify the role type from the document itself: `main_cast` when the name appears under the cast/main-roles section ("Darsteller", "Hauptrollen") or the document gives no section and says nothing else; `guest` when it appears under a guest section ("Gastrollen", "Gastdarsteller") or is marked as a one-off guest; `extra` when it appears under a background-performers section ("Statisten", "Komparseren", "Komparsen", "Statisterie") or carries an inline background note ("Statist", "Komparse"). Grounded only: classify from what the document states — never invent. When the document gives NO category signal for a character, keep `main_cast` and record NO uncertainty: a missing signal is the grounded default, not an ambiguity. Record an uncertainty (field "category", note naming the conflicting evidence) only when signals genuinely CONFLICT — e.g. the same name appears under two different sections, or an inline note contradicts the section placement. A character without a category field defaults to main_cast.</characters>
 
-<costumes>Costuming is its own output field, `costumes` — one entry per garment or accessory. Treat it as entity recognition over these evidence sources, in order: (1) a character parenthetical that names clothing ("ANNA (30, Lederjacke)"), (2) a "Kostümbild"/"Kostüme" note ("Kostümbild: BEN in Marineblau, Schmuck: Silberkette"), (3) clothing attached to a person in the action line ("deren leicht ölverschmierter Mechaniker-Overall ihre elegante Erscheinung nicht verbergen kann"). Accessories (Schmuck, Hut, Brille, Tasche) ARE costume: give each its own entry, never discard one as set dressing. Per entry: `character_name` spelled as this scene's `characters` list spells it; `description` the clothing in the script's own wording — keep the words the block uses, do not paraphrase, translate or generalise ("Arbeitskleidung" is wrong, "ölverschmierter Mechaniker-Overall" is right); `source_quote` a VERBATIM fragment of the block the entry came from. The server checks that `source_quote` occurs in the text and drops the entry when it does not, so a quote you assembled or reworded destroys a real costume. A costume belongs to a character the same scene lists — never add a character just to hang a costume on it. When the block states no clothing, answer with an empty `costumes` list: that is a correct answer, not a failure.</costumes>
+<outfits>Wardrobe is its own output field, `outfits` — one entry per LOOK a character wears, not one per garment. Treat it as entity recognition over these evidence sources, in order: (1) a character parenthetical that names clothing or a wardrobe shorthand ("ANNA (30, Lederjacke)", "DR. KOCH (in OP)", "PATIENT (in KHK)"), (2) a "Kostümbild"/"Kostüme" note ("Kostümbild: BEN in Marineblau, Schmuck: Silberkette"), (3) clothing attached to a person in the action line ("deren leicht ölverschmierter Mechaniker-Overall ihre elegante Erscheinung nicht verbergen kann"), (4) an occupational or medical shorthand — `OP` (operationssaal scrubs), `KHK` (Krankenhauskleidung), `ITS` (intensive-care attire), `Bereichskleitung`, `Kasack`, `Flügelhemd`, police/fire-service uniform, doctor's coat, paramedics. Accessories (Schmuck, Hut, Brille, Tasche) ARE wardrobe: give each its own entry, never discard one as set dressing.
+
+Per entry: `character_name` spelled as this scene's `characters` list spells it; `name` a short display name for the look ("OP-Kleidung", "KHK", "ölverschmierter Mechaniker-Overall") — the script's own words when it states them, otherwise the shorthand; `notes` the script's own wording for the look (colour, condition, material) in a sentence, or null; `source_quote` a VERBATIM fragment of the block the entry came from — for a shorthand that is the shorthand itself ("in OP"). The server checks that `source_quote` occurs in the text and drops the entry when it does not, so a quote you assembled or reworded destroys a real outfit. An outfit belongs to a character the same scene lists — never add a character just to hang an outfit on it.
+
+`pieces` are the look's constituent garments, and you derive them whenever the block names only the look: a person "in OP" wears an "OP-Kasack" (Oberteil), an "OP-Hose" (Unterteil) and carries "OP-Schuhe" (Schuhe); "in KHK" wears a "KHK-Hemd" and a "KHK-Hose"; a police uniform has a "Polizeihemd", a "Polizeihose" and a "Dienstgürtel"; prose like "im abgetragenen Bademantel und Gummistiefeln" yields a "Bademantel" (Oberteil or Jacke, as the text suggests) and "Gummistiefel" (Schuhe). Grounded in what the block states plus what the named look IMPLIES — never invent a garment for a look the block does not name. Per piece: `name` the German garment name a wardrobe department would file; `category_hint` one of the season's category names when the garment clearly belongs to one — "Oberteil", "Unterteil", "Schuhe", "Jacke", "Accessoires" — else null (an unknown value merely leaves the piece uncategorized, it is not an error); `description` an optional detail from the block (colour, condition, material), else null. An outfit whose look the block describes only as a whole may carry an empty `pieces` list — that is a correct answer.
+
+When the block states no clothing, answer with an empty `outfits` list: that is a correct answer, not a failure.</outfits>
 
 <props>Record named, story-relevant objects (Requisiten) in the `summary` as well, in the same verbatim way — e.g. "Requisiten: Stethoskop, Blutbeutel". Ignore set dressing that carries no story function.</props>
 
@@ -71,9 +87,9 @@ text = """
 
 <mood>`mood` is the canonical set shorthand for interior/exterior + time of day, taken from the heading: `I` (innen/INT) or `A` (außen/EXT) combined with `T` (Tag/Day), `N` (Nacht/Night), `D` (Dämmerung/Dusk/Dawn), `M` (Morgen/Morning) or `AB` (Abend/Evening) — e.g. "12 I/T - WERKSTATT" → "I/T", "INNEN WOHNUNG - NACHT" → "I/N", "INT. KITCHEN - DAY" → "I/T", "EXT. STREET - NIGHT" → "A/N", "INT/EXT. WORKSHOP - DAY" → "I/A/T". Emit the shorthand exactly in this form when the heading carries both halves; leave `mood` null when the heading states no time of day. Never invent a mood from the body text — the server derives this value from the heading itself.</mood>
 
-<summary>`summary` is the concise TL;DR synopsis for the production Dispo — 1–2 sentences, strictly no dialogue retelling and no plot interpretation beyond the block. Name the core physical action and the figures taking part. When the text states them, weave in what the costume/Dispo side must prepare: costume-relevant conditions (rain or water, mud, blood, sweat, a fight or stunt, an in-scene clothing change, a time jump between scenes) and cross-department interfaces only as far as the block states them — Hair/Make-up (blood, sweat, wigs, ageing), Sound (microphone-hiding constraints), Props/Art Department (body-worn or story-critical props). Grounded only: a condition the block does not state does not belong in the summary. Content, never meta-information: do not describe the shape of the block, its emptiness, or what you did or did not extract — a block whose body states nothing gets `summary` null, not a sentence saying so. Costuming does NOT belong here — it goes in `costumes`.</summary>
+<summary>`summary` is the concise TL;DR synopsis for the production Dispo — 1–2 sentences, strictly no dialogue retelling and no plot interpretation beyond the block. Name the core physical action and the figures taking part. When the text states them, weave in what the costume/Dispo side must prepare: costume-relevant conditions (rain or water, mud, blood, sweat, a fight or stunt, an in-scene clothing change, a time jump between scenes) and cross-department interfaces only as far as the block states them — Hair/Make-up (blood, sweat, wigs, ageing), Sound (microphone-hiding constraints), Props/Art Department (body-worn or story-critical props). Grounded only: a condition the block does not state does not belong in the summary. Content, never meta-information: do not describe the shape of the block, its emptiness, or what you did or did not extract — a block whose body states nothing gets `summary` null, not a sentence saying so. Wardrobe does NOT belong here — it goes in `outfits`.</summary>
 
-<grounding>Extract only what the text states. Never infer a name, costume, location or prop that is not written. An outline-style block that contains only a heading and a day marker has no characters, no costumes and no props — return empty lists for it and leave `summary` null. That is a correct answer, not a failure, and it is never something to report in `summary`: a block with nothing in it needs no sentence.</grounding>
+<grounding>Extract only what the text states. Never infer a name, outfit, location or prop that is not written; a look's derived `pieces` are the one permitted extension, and only for a look the block names. An outline-style block that contains only a heading and a day marker has no characters, no outfits and no props — return empty lists for it and leave `summary` null. That is a correct answer, not a failure, and it is never something to report in `summary`: a block with nothing in it needs no sentence.</grounding>
 
 <edge-case>When a value cannot be read confidently, leave it null and add an uncertainty with a note. A suggested_value must be clearly marked for user confirmation.</edge-case>
 

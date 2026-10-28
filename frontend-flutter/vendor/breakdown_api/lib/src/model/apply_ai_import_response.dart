@@ -6,7 +6,7 @@
 
 // ignore_for_file: unused_element
 import 'package:built_collection/built_collection.dart';
-import 'package:breakdown_api/src/model/unapplied_costume.dart';
+import 'package:breakdown_api/src/model/unapplied_outfit.dart';
 import 'package:built_value/built_value.dart';
 import 'package:built_value/serializer.dart';
 
@@ -17,12 +17,13 @@ part 'apply_ai_import_response.g.dart';
 /// Properties:
 /// * [appliedCount]
 /// * [createdCharacters] - Figures the script apply created. A figure named by several draft rows is created once, so this is not `applied_count`-related. `0` for a schedule apply, which has no figures.
-/// * [createdCostumes] - Costume rows the script apply created (a piece in the fundus, then joined to the figure's outfit). The field keeps the `costume` name until the AI-import vocabulary is renamed as one coherent step (successor change `ai-import-outfit-and-pieces`).
 /// * [createdDays]
 /// * [createdEpisodes] - Episodes the script apply created for draft episode groups the reviewer mapped to a NEW episode (issue #581). `0` for a schedule apply.
+/// * [createdOutfits] - Outfits the script apply created — one look per accepted outfit row, bound to its figure and referencing the pieces above.
+/// * [createdPieces] - Fundus pieces the script apply created — the garments of the extracted outfits.
 /// * [plannedSceneShoots]
 /// * [skippedDayGroups] - Day groups the reviewer rejected — their rows applied unscheduled (issue #706). Reported so the reviewer sees the deliberate omission, never a silent one.
-/// * [unappliedCostumes] - Costume rows that were **not** fully applied, each with the reason. An apply that created a piece but could not put it into the figure's outfit reports the row here while `created_costumes` still counts it — a partially applied row must never look like a fully applied one.
+/// * [unappliedOutfits] - Outfit rows that were **not** fully applied, each with the reason. An apply that created a piece but could not assemble the look reports the row here while `created_pieces` still counts the pieces — a partially applied row must never look like a fully applied one.
 @BuiltValue()
 abstract class ApplyAiImportResponse
     implements Built<ApplyAiImportResponse, ApplyAiImportResponseBuilder> {
@@ -33,16 +34,20 @@ abstract class ApplyAiImportResponse
   @BuiltValueField(wireName: r'created_characters')
   int get createdCharacters;
 
-  /// Costume rows the script apply created (a piece in the fundus, then joined to the figure's outfit). The field keeps the `costume` name until the AI-import vocabulary is renamed as one coherent step (successor change `ai-import-outfit-and-pieces`).
-  @BuiltValueField(wireName: r'created_costumes')
-  int get createdCostumes;
-
   @BuiltValueField(wireName: r'created_days')
   int get createdDays;
 
   /// Episodes the script apply created for draft episode groups the reviewer mapped to a NEW episode (issue #581). `0` for a schedule apply.
   @BuiltValueField(wireName: r'created_episodes')
   int get createdEpisodes;
+
+  /// Outfits the script apply created — one look per accepted outfit row, bound to its figure and referencing the pieces above.
+  @BuiltValueField(wireName: r'created_outfits')
+  int get createdOutfits;
+
+  /// Fundus pieces the script apply created — the garments of the extracted outfits.
+  @BuiltValueField(wireName: r'created_pieces')
+  int get createdPieces;
 
   @BuiltValueField(wireName: r'planned_scene_shoots')
   int get plannedSceneShoots;
@@ -51,9 +56,9 @@ abstract class ApplyAiImportResponse
   @BuiltValueField(wireName: r'skipped_day_groups')
   BuiltList<String>? get skippedDayGroups;
 
-  /// Costume rows that were **not** fully applied, each with the reason. An apply that created a piece but could not put it into the figure's outfit reports the row here while `created_costumes` still counts it — a partially applied row must never look like a fully applied one.
-  @BuiltValueField(wireName: r'unapplied_costumes')
-  BuiltList<UnappliedCostume> get unappliedCostumes;
+  /// Outfit rows that were **not** fully applied, each with the reason. An apply that created a piece but could not assemble the look reports the row here while `created_pieces` still counts the pieces — a partially applied row must never look like a fully applied one.
+  @BuiltValueField(wireName: r'unapplied_outfits')
+  BuiltList<UnappliedOutfit> get unappliedOutfits;
 
   ApplyAiImportResponse._();
 
@@ -94,11 +99,6 @@ class _$ApplyAiImportResponseSerializer
       object.createdCharacters,
       specifiedType: const FullType(int),
     );
-    yield r'created_costumes';
-    yield serializers.serialize(
-      object.createdCostumes,
-      specifiedType: const FullType(int),
-    );
     yield r'created_days';
     yield serializers.serialize(
       object.createdDays,
@@ -107,6 +107,16 @@ class _$ApplyAiImportResponseSerializer
     yield r'created_episodes';
     yield serializers.serialize(
       object.createdEpisodes,
+      specifiedType: const FullType(int),
+    );
+    yield r'created_outfits';
+    yield serializers.serialize(
+      object.createdOutfits,
+      specifiedType: const FullType(int),
+    );
+    yield r'created_pieces';
+    yield serializers.serialize(
+      object.createdPieces,
       specifiedType: const FullType(int),
     );
     yield r'planned_scene_shoots';
@@ -121,10 +131,10 @@ class _$ApplyAiImportResponseSerializer
         specifiedType: const FullType(BuiltList, [FullType(String)]),
       );
     }
-    yield r'unapplied_costumes';
+    yield r'unapplied_outfits';
     yield serializers.serialize(
-      object.unappliedCostumes,
-      specifiedType: const FullType(BuiltList, [FullType(UnappliedCostume)]),
+      object.unappliedOutfits,
+      specifiedType: const FullType(BuiltList, [FullType(UnappliedOutfit)]),
     );
   }
 
@@ -165,13 +175,6 @@ class _$ApplyAiImportResponseSerializer
           ) as int;
           result.createdCharacters = valueDes;
           break;
-        case r'created_costumes':
-          final valueDes = serializers.deserialize(
-            value,
-            specifiedType: const FullType(int),
-          ) as int;
-          result.createdCostumes = valueDes;
-          break;
         case r'created_days':
           final valueDes = serializers.deserialize(
             value,
@@ -185,6 +188,20 @@ class _$ApplyAiImportResponseSerializer
             specifiedType: const FullType(int),
           ) as int;
           result.createdEpisodes = valueDes;
+          break;
+        case r'created_outfits':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(int),
+          ) as int;
+          result.createdOutfits = valueDes;
+          break;
+        case r'created_pieces':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(int),
+          ) as int;
+          result.createdPieces = valueDes;
           break;
         case r'planned_scene_shoots':
           final valueDes = serializers.deserialize(
@@ -202,13 +219,13 @@ class _$ApplyAiImportResponseSerializer
           if (valueDes == null) continue;
           result.skippedDayGroups.replace(valueDes);
           break;
-        case r'unapplied_costumes':
+        case r'unapplied_outfits':
           final valueDes = serializers.deserialize(
             value,
             specifiedType:
-                const FullType(BuiltList, [FullType(UnappliedCostume)]),
-          ) as BuiltList<UnappliedCostume>;
-          result.unappliedCostumes.replace(valueDes);
+                const FullType(BuiltList, [FullType(UnappliedOutfit)]),
+          ) as BuiltList<UnappliedOutfit>;
+          result.unappliedOutfits.replace(valueDes);
           break;
         default:
           unhandled.add(key);

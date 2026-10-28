@@ -10,7 +10,7 @@ use chrono::{TimeZone, Utc};
 use uuid::Uuid;
 
 use crate::scene::views::SceneView;
-use crate::shared::{AggregateVersion, EpisodeId};
+use crate::shared::{AggregateVersion, CostumeCategoryId, EpisodeId};
 
 use super::*;
 
@@ -94,7 +94,7 @@ fn planner_uses_update_for_a_previously_mapped_row() {
                 aggregate_id: existing_id,
                 version: AggregateVersion::INITIAL,
             },
-            costume_decisions: Vec::new(),
+            outfit_decisions: Vec::new(),
         }],
         EpisodeId::new(),
         None,
@@ -103,6 +103,7 @@ fn planner_uses_update_for_a_previously_mapped_row() {
             episode_groups: &[],
             shooting_days: &[],
             acknowledged_uncertainties: &[],
+            categories: &[],
         },
     )
     .unwrap();
@@ -164,6 +165,7 @@ fn open_uncertainties_and_unmatched_rows_block_apply() {
                 episode_groups: &[],
                 shooting_days: &[],
                 acknowledged_uncertainties: &[],
+                categories: &[],
             },
         ),
         Err(ApplyGateError::MissingMapping(_))
@@ -185,6 +187,7 @@ fn plan_of(preview: &ScriptContext, decisions: &[ApplyMapping]) -> ScriptApplyPl
             episode_groups: &[],
             shooting_days: &[],
             acknowledged_uncertainties: &[],
+            categories: &[],
         },
     )
     .expect("plan")
@@ -197,7 +200,7 @@ fn create_decisions(draft_refs: &[&str]) -> Vec<ApplyMapping> {
         .map(|draft_ref| ApplyMapping {
             draft_ref: (*draft_ref).to_owned(),
             decision: ApplyMappingDecision::Create,
-            costume_decisions: Vec::new(),
+            outfit_decisions: Vec::new(),
         })
         .collect()
 }
@@ -250,7 +253,7 @@ fn planner_plans_no_figures_for_an_outline_row() {
         "whitespace is not a figure: {:#?}",
         plan.scenes[0].characters
     );
-    assert!(plan.scenes[0].costumes.is_empty());
+    assert!(plan.scenes[0].outfits.is_empty());
 }
 
 #[test]
@@ -281,7 +284,7 @@ fn planner_keeps_the_drafts_name_form_verbatim_while_matching_case_insensitively
         scenes: vec![DraftScene {
             draft_ref: "1. INT. OP".into(),
             characters: vec![DraftCharacter::from(" RENEE SANDERS ")],
-            costumes: vec![costume(
+            outfits: vec![costume(
                 "renee sanders",
                 "ölverschmierter Mechaniker-Overall",
                 "ölverschmierten Mechaniker-Overall",
@@ -295,7 +298,7 @@ fn planner_keeps_the_drafts_name_form_verbatim_while_matching_case_insensitively
     assert_eq!(plan.scenes[0].characters[0].identity, "renee sanders");
     // The differently-cased costume name resolved to the CAPS figure.
     assert_eq!(
-        plan.scenes[0].costumes[0].character_identity,
+        plan.scenes[0].outfits[0].character_identity,
         "renee sanders"
     );
 }
@@ -306,22 +309,164 @@ fn planner_plans_a_costume_bound_to_the_figure_of_the_same_row() {
         scenes: vec![DraftScene {
             draft_ref: "1. INT. OP".into(),
             characters: vec![DraftCharacter::from("BEN")],
-            costumes: vec![costume("Ben", "Marineblau", "BEN in Marineblau")],
+            outfits: vec![costume("Ben", "Marineblau", "BEN in Marineblau")],
             ..Default::default()
         }],
         ..Default::default()
     };
     let plan = plan_of(&preview, &create_decisions(&["1. INT. OP"]));
     assert_eq!(
-        plan.scenes[0].costumes,
-        vec![CostumeApplyPlan {
+        plan.scenes[0].outfits,
+        vec![OutfitApplyPlan {
             ordinal: 0,
             character_identity: "ben".into(),
             character_name: "BEN".into(),
-            description: "Marineblau".into(),
+            name: "Marineblau".into(),
+            notes: Some("Marineblau".into()),
             source_quote: "BEN in Marineblau".into(),
+            pieces: Vec::new(),
         }]
     );
+}
+
+#[test]
+fn planner_numbers_pieces_row_flat_across_the_rows_outfits() {
+    // Two figures may wear the same garment (`OP-Schuhe`), so the piece mapping
+    // key is the row-flat position, never a per-outfit one.
+    let preview = ScriptContext {
+        scenes: vec![DraftScene {
+            draft_ref: "1. INT. OP".into(),
+            characters: vec![DraftCharacter::from("BEN"), DraftCharacter::from("Renee")],
+            outfits: vec![
+                outfit_with_pieces("BEN", "in OP", &["OP-Kasack", "OP-Hose"]),
+                outfit_with_pieces("Renee", "in OP", &["OP-Schuhe"]),
+            ],
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    let plan = plan_of(&preview, &create_decisions(&["1. INT. OP"]));
+    let pieces: Vec<(usize, usize, &str)> = plan.scenes[0]
+        .outfits
+        .iter()
+        .flat_map(|outfit| {
+            outfit
+                .pieces
+                .iter()
+                .map(move |piece| (piece.ordinal, piece.outfit_ordinal, piece.name.as_str()))
+        })
+        .collect();
+    assert_eq!(
+        pieces,
+        vec![(0, 0, "OP-Kasack"), (1, 0, "OP-Hose"), (2, 1, "OP-Schuhe"),]
+    );
+}
+
+#[test]
+fn planner_resolves_a_category_hint_case_insensitively() {
+    let top = CostumeCategoryId::new();
+    let preview = ScriptContext {
+        scenes: vec![DraftScene {
+            draft_ref: "1. INT. OP".into(),
+            characters: vec![DraftCharacter::from("BEN")],
+            outfits: vec![DraftOutfit {
+                character_name: "BEN".into(),
+                name: "OP".into(),
+                notes: None,
+                source_quote: "in OP".into(),
+                origin: DraftOutfitOrigin::ExplicitQuote,
+                pieces: vec![DraftPiece {
+                    name: "OP-Kasack".into(),
+                    category_hint: Some(" oberteil ".into()),
+                    description: None,
+                }],
+            }],
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    let categories = vec![CategoryVocabularyEntry {
+        name: "Oberteil".into(),
+        id: top,
+    }];
+    let plan = plan_scene_apply(
+        &preview,
+        &create_decisions(&["1. INT. OP"]),
+        EpisodeId::new(),
+        None,
+        AiImportJobId(Uuid::now_v7()),
+        &ReviewerDecisions {
+            episode_groups: &[],
+            shooting_days: &[],
+            acknowledged_uncertainties: &[],
+            categories: &categories,
+        },
+    )
+    .expect("plan");
+    assert_eq!(plan.scenes[0].outfits[0].pieces[0].category_id, Some(top));
+}
+
+#[test]
+fn planner_leaves_an_unknown_category_hint_uncategorized() {
+    // An unknown hint is not an error: the piece is still applied, just without
+    // a category (spec `ai-costume-extraction`).
+    let preview = ScriptContext {
+        scenes: vec![DraftScene {
+            draft_ref: "1. INT. OP".into(),
+            characters: vec![DraftCharacter::from("BEN")],
+            outfits: vec![DraftOutfit {
+                character_name: "BEN".into(),
+                name: "OP".into(),
+                notes: None,
+                source_quote: "in OP".into(),
+                origin: DraftOutfitOrigin::ExplicitQuote,
+                pieces: vec![DraftPiece {
+                    name: "OP-Haube".into(),
+                    category_hint: Some("Kopfbedeckung".into()),
+                    description: None,
+                }],
+            }],
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    let categories = vec![CategoryVocabularyEntry {
+        name: "Oberteil".into(),
+        id: CostumeCategoryId::new(),
+    }];
+    let plan = plan_scene_apply(
+        &preview,
+        &create_decisions(&["1. INT. OP"]),
+        EpisodeId::new(),
+        None,
+        AiImportJobId(Uuid::now_v7()),
+        &ReviewerDecisions {
+            episode_groups: &[],
+            shooting_days: &[],
+            acknowledged_uncertainties: &[],
+            categories: &categories,
+        },
+    )
+    .expect("plan");
+    let piece = &plan.scenes[0].outfits[0].pieces[0];
+    assert_eq!(piece.category_id, None);
+    assert_eq!(piece.category_hint.as_deref(), Some("Kopfbedeckung"));
+}
+
+#[test]
+fn planner_keeps_an_outfit_without_pieces() {
+    let preview = ScriptContext {
+        scenes: vec![DraftScene {
+            draft_ref: "1. INT. OP".into(),
+            characters: vec![DraftCharacter::from("BEN")],
+            outfits: vec![costume("Ben", "Marineblau", "BEN in Marineblau")],
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    let plan = plan_of(&preview, &create_decisions(&["1. INT. OP"]));
+    assert_eq!(plan.scenes[0].outfits.len(), 1);
+    assert!(plan.scenes[0].outfits[0].pieces.is_empty());
 }
 
 #[test]
@@ -332,7 +477,7 @@ fn two_costumes_of_one_figure_in_one_row_keep_distinct_ordinals() {
         scenes: vec![DraftScene {
             draft_ref: "1. INT. OP".into(),
             characters: vec![DraftCharacter::from("BEN")],
-            costumes: vec![
+            outfits: vec![
                 costume("Ben", "Marineblau", "BEN in Marineblau"),
                 costume("Ben", "Silberkette", "Schmuck: Silberkette"),
             ],
@@ -341,31 +486,31 @@ fn two_costumes_of_one_figure_in_one_row_keep_distinct_ordinals() {
         ..Default::default()
     };
     let plan = plan_of(&preview, &create_decisions(&["1. INT. OP"]));
-    let ordinals: Vec<usize> = plan.scenes[0].costumes.iter().map(|c| c.ordinal).collect();
+    let ordinals: Vec<usize> = plan.scenes[0].outfits.iter().map(|c| c.ordinal).collect();
     assert_eq!(ordinals, vec![0, 1]);
 }
 
 #[test]
 fn planner_reports_a_costume_whose_figure_the_row_does_not_plan() {
-    // `verify_draft_costumes` normally rejects this at extraction; a preview that
+    // `verify_draft_outfits` normally rejects this at extraction; a preview that
     // skipped that step must still not produce an ownerless costume.
     let preview = ScriptContext {
         scenes: vec![DraftScene {
             draft_ref: "1. INT. OP".into(),
             characters: vec![DraftCharacter::from("BEN")],
-            costumes: vec![costume("Anna", "Mantel", "im Mantel")],
+            outfits: vec![costume("Anna", "Mantel", "im Mantel")],
             ..Default::default()
         }],
         ..Default::default()
     };
     let plan = plan_of(&preview, &create_decisions(&["1. INT. OP"]));
-    assert!(plan.scenes[0].costumes.is_empty());
-    assert_eq!(plan.unapplied_costumes.len(), 1);
+    assert!(plan.scenes[0].outfits.is_empty());
+    assert_eq!(plan.unapplied_outfits.len(), 1);
     assert_eq!(
-        plan.unapplied_costumes[0].reason,
-        UnappliedCostumeReason::CharacterNotPlanned
+        plan.unapplied_outfits[0].reason,
+        UnappliedOutfitReason::CharacterNotPlanned
     );
-    assert_eq!(plan.unapplied_costumes[0].description, "Mantel");
+    assert_eq!(plan.unapplied_outfits[0].name, "Mantel");
 }
 
 #[test]
@@ -374,7 +519,7 @@ fn planner_skips_only_the_costume_rows_the_reviewer_rejected() {
         scenes: vec![DraftScene {
             draft_ref: "1. INT. OP".into(),
             characters: vec![DraftCharacter::from("BEN")],
-            costumes: vec![
+            outfits: vec![
                 costume("Ben", "Marineblau", "BEN in Marineblau"),
                 costume("Ben", "Silberkette", "Schmuck: Silberkette"),
             ],
@@ -383,16 +528,28 @@ fn planner_skips_only_the_costume_rows_the_reviewer_rejected() {
         ..Default::default()
     };
     let mut decisions = create_decisions(&["1. INT. OP"]);
-    decisions[0].costume_decisions = vec![CostumeDecision {
+    decisions[0].outfit_decisions = vec![OutfitDecision {
         ordinal: 1,
         accepted: false,
     }];
     let plan = plan_of(&preview, &decisions);
-    assert_eq!(plan.scenes[0].costumes.len(), 1);
-    assert_eq!(plan.scenes[0].costumes[0].ordinal, 0);
+    assert_eq!(plan.scenes[0].outfits.len(), 1);
+    assert_eq!(plan.scenes[0].outfits[0].ordinal, 0);
     // Rejecting one costume is not a failure, so nothing is reported as
     // unapplied — the reviewer chose that outcome.
-    assert!(plan.unapplied_costumes.is_empty());
+    assert!(plan.unapplied_outfits.is_empty());
+}
+
+#[test]
+fn a_pre_rename_client_decision_is_read_as_an_outfit_decision() {
+    // The pre-change client sent the same item shape under the old key; reading
+    // it as "no decisions" would apply the outfit the reviewer refused.
+    let mapping: ApplyMapping = serde_json::from_str(
+        r#"{"draft_ref":"1. INT. OP","decision":"Create","costume_decisions":[{"ordinal":0,"accepted":false}]}"#,
+    )
+    .expect("a pre-rename request must deserialize");
+    assert_eq!(mapping.outfit_decisions.len(), 1);
+    assert!(!mapping.outfit_accepted(0), "the rejection must survive");
 }
 
 #[test]
@@ -473,14 +630,37 @@ fn extract_scenes_returns_empty_for_no_headings() {
 }
 
 // ===========================================================================
-// verify_draft_costumes — grounding + attribution (server-side)
+// verify_draft_outfits — grounding + attribution (server-side)
 // ===========================================================================
 
-fn costume(char_name: &str, description: &str, quote: &str) -> DraftCostume {
-    DraftCostume {
+fn costume(char_name: &str, description: &str, quote: &str) -> DraftOutfit {
+    DraftOutfit {
         character_name: char_name.to_owned(),
-        description: description.to_owned(),
+        name: description.to_owned(),
+        notes: Some(description.to_owned()),
         source_quote: quote.to_owned(),
+        origin: DraftOutfitOrigin::ExplicitQuote,
+        pieces: Vec::new(),
+    }
+}
+
+/// An outfit with constituent pieces, as the prompt derives them from a
+/// shorthand (`in OP` -> `OP-Kasack`, `OP-Hose`).
+fn outfit_with_pieces(char_name: &str, quote: &str, pieces: &[&str]) -> DraftOutfit {
+    DraftOutfit {
+        character_name: char_name.to_owned(),
+        name: format!("{char_name} in OP"),
+        notes: None,
+        source_quote: quote.to_owned(),
+        origin: DraftOutfitOrigin::ExplicitQuote,
+        pieces: pieces
+            .iter()
+            .map(|name| DraftPiece {
+                name: (*name).to_owned(),
+                category_hint: None,
+                description: None,
+            })
+            .collect(),
     }
 }
 
@@ -491,58 +671,101 @@ const CHUNK: &str = "Renee Sanders (39) steigt aus dem Auto, trägt einen leicht
 fn grounded_costume_for_a_listed_character_is_kept() {
     let mut scene = DraftScene {
         characters: vec![DraftCharacter::from("Renee Sanders")],
-        costumes: vec![costume(
+        outfits: vec![costume(
             "Renee Sanders",
             "ölverschmierter Mechaniker-Overall",
             "ölverschmierten Mechaniker-Overall",
         )],
         ..DraftScene::default()
     };
-    scene.costumes[0].source_quote = "ölverschmierten Mechaniker-Overall".to_owned();
-    let rejected = verify_draft_costumes(&mut scene, CHUNK);
+    scene.outfits[0].source_quote = "ölverschmierten Mechaniker-Overall".to_owned();
+    let rejected = verify_draft_outfits(&mut scene, CHUNK);
     assert!(rejected.is_empty(), "expected no rejects, got {rejected:?}");
-    assert_eq!(scene.costumes.len(), 1, "the grounded costume must survive");
+    assert_eq!(scene.outfits.len(), 1, "the grounded costume must survive");
 }
 
 #[test]
 fn costume_whose_quote_is_absent_from_the_chunk_is_dropped() {
     let mut scene = DraftScene {
         characters: vec![DraftCharacter::from("Renee Sanders")],
-        costumes: vec![costume(
+        outfits: vec![costume(
             "Renee Sanders",
             "Seidenkleid",
             "trägt ein langes Seidenkleid aus Seide",
         )],
         ..DraftScene::default()
     };
-    let rejected = verify_draft_costumes(&mut scene, CHUNK);
+    let rejected = verify_draft_outfits(&mut scene, CHUNK);
     assert!(
-        scene.costumes.is_empty(),
+        scene.outfits.is_empty(),
         "ungrounded costume must not survive"
     );
     assert_eq!(rejected.len(), 1);
     assert!(matches!(
         rejected[0].reason,
-        RejectedCostumeReason::UngroundedQuote
+        RejectedOutfitReason::UngroundedQuote
     ));
+}
+
+#[test]
+fn grounded_outfit_keeps_context_derived_pieces() {
+    // Design D1: the block names only the look (`in OP`), so its garments are
+    // derived. Grounding the parent outfit is what keeps them.
+    let mut scene = DraftScene {
+        characters: vec![DraftCharacter::from("Renee Sanders")],
+        outfits: vec![outfit_with_pieces(
+            "Renee Sanders",
+            "ölverschmierten Mechaniker-Overall",
+            &["Overall", "Gummistiefel"],
+        )],
+        ..DraftScene::default()
+    };
+    let rejected = verify_draft_outfits(&mut scene, CHUNK);
+    assert!(rejected.is_empty(), "expected no rejects, got {rejected:?}");
+    assert_eq!(scene.outfits.len(), 1);
+    let pieces: Vec<&str> = scene.outfits[0]
+        .pieces
+        .iter()
+        .map(|piece| piece.name.as_str())
+        .collect();
+    assert_eq!(pieces, vec!["Overall", "Gummistiefel"]);
+}
+
+#[test]
+fn a_dropped_outfit_takes_its_derived_pieces_with_it() {
+    // Pieces exist only as part of the look; an ungrounded look must not leave
+    // orphan garments in the preview.
+    let mut scene = DraftScene {
+        characters: vec![DraftCharacter::from("Renee Sanders")],
+        outfits: vec![outfit_with_pieces(
+            "Renee Sanders",
+            "im gelben Overall",
+            &["Overall", "Gummistiefel"],
+        )],
+        ..DraftScene::default()
+    };
+    let rejected = verify_draft_outfits(&mut scene, CHUNK);
+    assert!(scene.outfits.is_empty());
+    assert_eq!(rejected.len(), 1);
+    assert_eq!(rejected[0].name, "Renee Sanders in OP");
 }
 
 #[test]
 fn costume_for_an_unlisted_character_is_dropped() {
     let mut scene = DraftScene {
         characters: vec![DraftCharacter::from("Renee Sanders")],
-        costumes: vec![costume("Unbekannt", "Mantel", "im Mantel")],
+        outfits: vec![costume("Unbekannt", "Mantel", "im Mantel")],
         ..DraftScene::default()
     };
-    let rejected = verify_draft_costumes(&mut scene, CHUNK);
+    let rejected = verify_draft_outfits(&mut scene, CHUNK);
     assert!(
-        scene.costumes.is_empty(),
+        scene.outfits.is_empty(),
         "costume without its figure must not survive"
     );
     assert_eq!(rejected.len(), 1);
     assert!(matches!(
         rejected[0].reason,
-        RejectedCostumeReason::UnlistedCharacter
+        RejectedOutfitReason::UnlistedCharacter
     ));
 }
 
@@ -550,11 +773,11 @@ fn costume_for_an_unlisted_character_is_dropped() {
 fn costume_with_an_empty_quote_is_dropped() {
     let mut scene = DraftScene {
         characters: vec![DraftCharacter::from("Renee Sanders")],
-        costumes: vec![costume("Renee Sanders", "Mantel", "   ")],
+        outfits: vec![costume("Renee Sanders", "Mantel", "   ")],
         ..DraftScene::default()
     };
-    let rejected = verify_draft_costumes(&mut scene, CHUNK);
-    assert!(scene.costumes.is_empty());
+    let rejected = verify_draft_outfits(&mut scene, CHUNK);
+    assert!(scene.outfits.is_empty());
     assert_eq!(rejected.len(), 1);
 }
 
@@ -564,13 +787,13 @@ fn character_matching_ignores_case_and_surrounding_space() {
     // name is kept in the costume, only the MATCH is normalised.
     let mut scene = DraftScene {
         characters: vec![DraftCharacter::from("BEN")],
-        costumes: vec![costume(" ben ", "Mantel", "im Mantel")],
+        outfits: vec![costume(" ben ", "Mantel", "im Mantel")],
         ..DraftScene::default()
     };
-    let rejected = verify_draft_costumes(&mut scene, CHUNK);
+    let rejected = verify_draft_outfits(&mut scene, CHUNK);
     assert!(rejected.is_empty(), "casing must not reject a costume");
-    assert_eq!(scene.costumes.len(), 1);
-    assert_eq!(scene.costumes[0].character_name, " ben ");
+    assert_eq!(scene.outfits.len(), 1);
+    assert_eq!(scene.outfits[0].character_name, " ben ");
 }
 
 #[test]
@@ -581,22 +804,22 @@ fn a_quote_that_only_differs_in_line_wrapping_is_still_grounded() {
     let wrapped = "Renee steigt aus.\n  einem\n\nAuto, trägt einen leicht ölverschmierten\nMechaniker-Overall.";
     let mut scene = DraftScene {
         characters: vec![DraftCharacter::from("Renee")],
-        costumes: vec![costume(
+        outfits: vec![costume(
             "RENEE",
             "Overall",
             "trägt einen  leicht ölverschmierten Mechaniker-Overall",
         )],
         ..Default::default()
     };
-    let rejected = verify_draft_costumes(&mut scene, wrapped);
+    let rejected = verify_draft_outfits(&mut scene, wrapped);
     assert!(
         rejected.is_empty(),
         "line breaks must not make a real quote ungrounded: {rejected:?}"
     );
     // A word the text does not contain is still rejected.
-    scene.costumes = vec![costume("RENEE", "Kleid", "trägt ein langes Seidenkleid")];
+    scene.outfits = vec![costume("RENEE", "Kleid", "trägt ein langes Seidenkleid")];
     assert_eq!(
-        verify_draft_costumes(&mut scene, wrapped).len(),
+        verify_draft_outfits(&mut scene, wrapped).len(),
         1,
         "grounding must not become fuzzy matching"
     );
@@ -720,11 +943,11 @@ fn a_scene_without_costumes_yields_no_rejects() {
     // The outline case ("Block 100 / Tag 1"): no costuming is a correct result.
     let mut scene = DraftScene {
         characters: vec![],
-        costumes: vec![],
+        outfits: vec![],
         ..DraftScene::default()
     };
-    assert!(verify_draft_costumes(&mut scene, CHUNK).is_empty());
-    assert!(scene.costumes.is_empty());
+    assert!(verify_draft_outfits(&mut scene, CHUNK).is_empty());
+    assert!(scene.outfits.is_empty());
 }
 
 #[test]
@@ -733,7 +956,7 @@ fn costumes_field_defaults_for_previews_stored_before_it_existed() {
     // deserialise (the field is `#[serde(default)]`).
     let json = r#"{"draft_ref":"1. INT. KITCHEN","characters":["ANNA"]}"#;
     let scene: DraftScene = serde_json::from_str(json).expect("old preview must parse");
-    assert!(scene.costumes.is_empty());
+    assert!(scene.outfits.is_empty());
     assert_eq!(scene.characters, vec![DraftCharacter::from("ANNA")]);
 }
 
@@ -1576,7 +1799,7 @@ fn create_mapping() -> ApplyMapping {
     ApplyMapping {
         draft_ref: "scene-1".into(),
         decision: ApplyMappingDecision::Create,
-        costume_decisions: Vec::new(),
+        outfit_decisions: Vec::new(),
     }
 }
 
@@ -1602,6 +1825,7 @@ fn plan_resolves_a_create_group_to_a_new_episode() {
             }],
             shooting_days: &[],
             acknowledged_uncertainties: &[],
+            categories: &[],
         },
     )
     .expect("plan");
@@ -1634,6 +1858,7 @@ fn plan_resolves_an_existing_group_target() {
             }],
             shooting_days: &[],
             acknowledged_uncertainties: &[],
+            categories: &[],
         },
     )
     .expect("plan");
@@ -1657,6 +1882,7 @@ fn plan_defaults_rows_without_episode_metadata_to_the_picked_episode() {
             episode_groups: &[],
             shooting_days: &[],
             acknowledged_uncertainties: &[],
+            categories: &[],
         },
     )
     .expect("plan");
@@ -1682,6 +1908,7 @@ fn plan_ignores_groups_for_ungroupable_episode_metadata() {
             episode_groups: &[],
             shooting_days: &[],
             acknowledged_uncertainties: &[],
+            categories: &[],
         },
     )
     .expect("plan");
@@ -1707,6 +1934,7 @@ fn plan_rejects_a_group_the_request_forgot() {
             episode_groups: &[],
             shooting_days: &[],
             acknowledged_uncertainties: &[],
+            categories: &[],
         },
     )
     .expect_err("ungrouped episode must not silently apply to the default");
@@ -2410,6 +2638,7 @@ fn plan_carries_the_accepted_day_group() {
             episode_groups: &[],
             shooting_days: &[accept_day("day:1")],
             acknowledged_uncertainties: &[],
+            categories: &[],
         },
     )
     .expect("plan");
@@ -2443,6 +2672,7 @@ fn plan_leaves_a_rejected_day_group_unscheduled() {
                 accepted: false,
             }],
             acknowledged_uncertainties: &[],
+            categories: &[],
         },
     )
     .expect("plan");
@@ -2466,6 +2696,7 @@ fn plan_rejects_a_day_group_the_request_forgot() {
             episode_groups: &[],
             shooting_days: &[],
             acknowledged_uncertainties: &[],
+            categories: &[],
         },
     )
     .expect_err("a referenced day group must not silently apply unscheduled");
@@ -2488,6 +2719,7 @@ fn plan_defaults_rows_without_day_metadata_to_unscheduled() {
             episode_groups: &[],
             shooting_days: &[],
             acknowledged_uncertainties: &[],
+            categories: &[],
         },
     )
     .expect("plan");

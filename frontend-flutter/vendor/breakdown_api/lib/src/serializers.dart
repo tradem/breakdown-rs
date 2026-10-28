@@ -58,7 +58,6 @@ import 'package:breakdown_api/src/model/cost_breakdown.dart';
 import 'package:breakdown_api/src/model/cost_display_preference.dart';
 import 'package:breakdown_api/src/model/cost_status.dart';
 import 'package:breakdown_api/src/model/costume_category_view.dart';
-import 'package:breakdown_api/src/model/costume_decision.dart';
 import 'package:breakdown_api/src/model/create_ai_config_request.dart';
 import 'package:breakdown_api/src/model/create_block_request.dart';
 import 'package:breakdown_api/src/model/create_character_request.dart';
@@ -78,8 +77,10 @@ import 'package:breakdown_api/src/model/decision_rubric.dart';
 import 'package:breakdown_api/src/model/dispo_row.dart';
 import 'package:breakdown_api/src/model/document_kind.dart';
 import 'package:breakdown_api/src/model/draft_character.dart';
-import 'package:breakdown_api/src/model/draft_costume.dart';
 import 'package:breakdown_api/src/model/draft_episode.dart';
+import 'package:breakdown_api/src/model/draft_outfit.dart';
+import 'package:breakdown_api/src/model/draft_outfit_origin.dart';
+import 'package:breakdown_api/src/model/draft_piece.dart';
 import 'package:breakdown_api/src/model/draft_scene.dart';
 import 'package:breakdown_api/src/model/draft_shooting_day.dart';
 import 'package:breakdown_api/src/model/energy_cost_breakdown.dart';
@@ -113,6 +114,7 @@ import 'package:breakdown_api/src/model/meta_credits_response.dart';
 import 'package:breakdown_api/src/model/meta_versions_response.dart';
 import 'package:breakdown_api/src/model/model_info.dart';
 import 'package:breakdown_api/src/model/model_pricing.dart';
+import 'package:breakdown_api/src/model/outfit_decision.dart';
 import 'package:breakdown_api/src/model/outfit_photo_view.dart';
 import 'package:breakdown_api/src/model/outfit_piece_view.dart';
 import 'package:breakdown_api/src/model/outfit_view.dart';
@@ -170,8 +172,8 @@ import 'package:breakdown_api/src/model/soll_ist_report.dart';
 import 'package:breakdown_api/src/model/source_format.dart';
 import 'package:breakdown_api/src/model/start_scene_shoot_request.dart';
 import 'package:breakdown_api/src/model/token_cost_breakdown.dart';
-import 'package:breakdown_api/src/model/unapplied_costume.dart';
-import 'package:breakdown_api/src/model/unapplied_costume_reason.dart';
+import 'package:breakdown_api/src/model/unapplied_outfit.dart';
+import 'package:breakdown_api/src/model/unapplied_outfit_reason.dart';
 import 'package:breakdown_api/src/model/uncertainty.dart';
 import 'package:breakdown_api/src/model/uncertainty_acknowledgement.dart';
 import 'package:breakdown_api/src/model/uncertainty_kind.dart';
@@ -237,7 +239,6 @@ part 'serializers.g.dart';
   CostDisplayPreference,
   CostStatus,
   CostumeCategoryView,
-  CostumeDecision,
   CreateAiConfigRequest,
   CreateBlockRequest,
   CreateCharacterRequest,
@@ -257,8 +258,10 @@ part 'serializers.g.dart';
   DispoRow,
   DocumentKind,
   DraftCharacter,
-  DraftCostume,
   DraftEpisode,
+  DraftOutfit,
+  DraftOutfitOrigin,
+  DraftPiece,
   DraftScene,
   DraftShootingDay,
   EnergyCostBreakdown,
@@ -293,6 +296,7 @@ part 'serializers.g.dart';
   MetaVersionsResponse,
   ModelInfo,
   ModelPricing,
+  OutfitDecision,
   OutfitPhotoView,
   OutfitPieceView,
   OutfitView,
@@ -350,8 +354,8 @@ part 'serializers.g.dart';
   SourceFormat,
   StartSceneShootRequest,
   TokenCostBreakdown,
-  UnappliedCostume,
-  UnappliedCostumeReason,
+  UnappliedOutfit,
+  UnappliedOutfitReason,
   Uncertainty,
   UncertaintyAcknowledgement,
   UncertaintyKind,
@@ -406,12 +410,16 @@ Serializers serializers = (_$serializers.toBuilder()
         () => ListBuilder<AiImportAttempt>(),
       )
       ..addBuilderFactory(
+        const FullType(BuiltList, [FullType(DraftPiece)]),
+        () => ListBuilder<DraftPiece>(),
+      )
+      ..addBuilderFactory(
         const FullType(BuiltList, [FullType(AiProviderInfo)]),
         () => ListBuilder<AiProviderInfo>(),
       )
       ..addBuilderFactory(
-        const FullType(BuiltList, [FullType(CostumeDecision)]),
-        () => ListBuilder<CostumeDecision>(),
+        const FullType(BuiltList, [FullType(OutfitDecision)]),
+        () => ListBuilder<OutfitDecision>(),
       )
       ..addBuilderFactory(
         const FullType(BuiltList, [FullType(SollIstDiffRow)]),
@@ -432,6 +440,10 @@ Serializers serializers = (_$serializers.toBuilder()
       ..addBuilderFactory(
         const FullType(BuiltMap, [FullType(String), FullType(double)]),
         () => MapBuilder<String, double>(),
+      )
+      ..addBuilderFactory(
+        const FullType(BuiltList, [FullType(DraftOutfit)]),
+        () => ListBuilder<DraftOutfit>(),
       )
       ..addBuilderFactory(
         const FullType(BuiltList, [FullType(AppearanceOutfitView)]),
@@ -474,12 +486,12 @@ Serializers serializers = (_$serializers.toBuilder()
         () => ListBuilder<MergedScene>(),
       )
       ..addBuilderFactory(
-        const FullType(BuiltMap, [FullType(String), FullType(HealthEntry)]),
-        () => MapBuilder<String, HealthEntry>(),
+        const FullType(BuiltList, [FullType(UnappliedOutfit)]),
+        () => ListBuilder<UnappliedOutfit>(),
       )
       ..addBuilderFactory(
-        const FullType(BuiltList, [FullType(UnappliedCostume)]),
-        () => ListBuilder<UnappliedCostume>(),
+        const FullType(BuiltMap, [FullType(String), FullType(HealthEntry)]),
+        () => MapBuilder<String, HealthEntry>(),
       )
       ..addBuilderFactory(
         const FullType(BuiltList, [FullType(BlockView)]),
@@ -536,10 +548,6 @@ Serializers serializers = (_$serializers.toBuilder()
       ..addBuilderFactory(
         const FullType(BuiltList, [FullType(MembershipView)]),
         () => ListBuilder<MembershipView>(),
-      )
-      ..addBuilderFactory(
-        const FullType(BuiltList, [FullType(DraftCostume)]),
-        () => ListBuilder<DraftCostume>(),
       )
       ..addBuilderFactory(
         const FullType(BuiltList, [FullType(CostumeCategoryView)]),

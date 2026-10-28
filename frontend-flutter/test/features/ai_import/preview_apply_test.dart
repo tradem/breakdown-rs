@@ -78,7 +78,7 @@ AiConfigView _namingConfig() => AiConfigView(
 DraftScene _draft(
   String ref, {
   int? number,
-  List<DraftCostume> pieces = const [],
+  List<DraftOutfit> pieces = const [],
   DraftEpisode? episode,
   double? sceneScore,
   double? synopsisScore,
@@ -89,7 +89,7 @@ DraftScene _draft(
     ..sceneNumber = number
     ..summary = 'Scene $ref'
     ..characters.replace(const <DraftCharacter>[])
-    ..costumes.replace(pieces);
+    ..outfits.replace(pieces);
   // A complex built_value field is set through its builder; an absent
   // marker stays UNSET (null on the wire — the single-episode flow).
   if (episode != null) b.episode.replace(episode);
@@ -117,11 +117,13 @@ EpisodeView _cachedEpisode(String id, {int number = 2}) => EpisodeView(
     ..version = 1,
 );
 
-DraftCostume _piece(String character, String description, {String? quote}) =>
-    DraftCostume(
+DraftOutfit _piece(String character, String description, {String? quote}) =>
+    DraftOutfit(
       (b) => b
         ..characterName = character
-        ..description = description
+        ..name = description
+        ..notes = description
+        ..notes = description
         ..sourceQuote = quote ?? 'trägt $description',
     );
 
@@ -322,21 +324,23 @@ ApplyAiImportResponse _outcome({
   int createdDays = 1,
   int plannedSceneShoots = 3,
   int createdCharacters = 0,
-  int createdCostumes = 0,
+  int createdPieces = 0,
+  int createdOutfits = 0,
   // issue #581 backend: episodes a NEW draft-episode group created. The
   // single-episode fixtures of this suite exercise no group targets, so the
   // fixture pins the empty case explicitly.
   int createdEpisodes = 0,
-  List<UnappliedCostume> unappliedCostumes = const [],
+  List<UnappliedOutfit> unappliedOutfits = const [],
 }) => ApplyAiImportResponse(
   (b) => b
     ..appliedCount = appliedCount
     ..createdDays = createdDays
     ..plannedSceneShoots = plannedSceneShoots
     ..createdCharacters = createdCharacters
-    ..createdCostumes = createdCostumes
+    ..createdPieces = createdPieces
+    ..createdOutfits = createdOutfits
     ..createdEpisodes = createdEpisodes
-    ..unappliedCostumes.addAll(unappliedCostumes),
+    ..unappliedOutfits.addAll(unappliedOutfits),
 );
 
 void main() {
@@ -373,17 +377,17 @@ void main() {
           const PreviewRow(
             draftRef: 'd1',
             label: 'A',
-            pieces: [
-              PreviewPiece(
+            outfits: [
+              PreviewOutfit(
                 ordinal: 0,
                 characterName: 'Renee',
-                description: 'Blue linen dress',
+                name: 'Blue linen dress',
                 sourceQuote: 'trägt das blaue Leinenkleid',
               ),
-              PreviewPiece(
+              PreviewOutfit(
                 ordinal: 1,
                 characterName: 'Renee',
-                description: 'Leather coat',
+                name: 'Leather coat',
                 sourceQuote: 'greift zum Ledermantel',
               ),
             ],
@@ -391,16 +395,16 @@ void main() {
         ],
       );
       expect(
-        state.buildMappings().single.costumeDecisions,
+        state.buildMappings().single.outfitDecisions,
         isNull,
         reason: 'default-accepted rows are not noise on the wire',
       );
 
       final vetoed = AiApplyState(
-        rows: [state.rows.single.withCostumeDecision(1, false)],
+        rows: [state.rows.single.withOutfitDecision(1, false)],
       );
       final rejected = vetoed.buildMappings();
-      final decisions = rejected.single.costumeDecisions!;
+      final decisions = rejected.single.outfitDecisions!;
       expect(decisions, hasLength(1));
       expect(decisions.single.ordinal, 1);
       expect(decisions.single.accepted, isFalse);
@@ -412,11 +416,11 @@ void main() {
         PreviewRow(
           draftRef: 'd1',
           label: 'A',
-          pieces: [
-            PreviewPiece(
+          outfits: [
+            PreviewOutfit(
               ordinal: 0,
               characterName: 'Renee',
-              description: 'Blue linen dress',
+              name: 'Blue linen dress',
               sourceQuote: 'q',
             ),
           ],
@@ -426,7 +430,7 @@ void main() {
       expect(AiApplyState(rows: rows).editDistance, 0);
 
       final vetoed = AiApplyState(
-        rows: [rows.single.withCostumeDecision(0, false)],
+        rows: [rows.single.withOutfitDecision(0, false)],
       );
       expect(vetoed.editDistance, 1);
       expect(vetoed.acceptAsIs, isFalse);
@@ -437,16 +441,16 @@ void main() {
       const row = PreviewRow(
         draftRef: 'd1',
         label: 'A',
-        pieces: [
-          PreviewPiece(
+        outfits: [
+          PreviewOutfit(
             ordinal: 0,
             characterName: 'Renee',
-            description: 'Blue linen dress',
+            name: 'Blue linen dress',
             sourceQuote: 'q',
           ),
         ],
       );
-      expect(row.withCostumeDecision(7, false).pieces.single.accepted, isTrue);
+      expect(row.withOutfitDecision(7, false).outfits.single.accepted, isTrue);
     });
 
     test('Update carries the picked aggregate id + version; skip is '
@@ -1550,7 +1554,7 @@ void main() {
       );
       await pumpPreview(tester);
 
-      expect(find.text('Costumes (2)'), findsOneWidget);
+      expect(find.text('Outfits (2)'), findsOneWidget);
       expect(find.text('Renee Sanders: blue linen dress'), findsOneWidget);
       // The quote is visible NEXT TO the description so the reviewer can verify
       // the extraction without opening the document (spec `ai-import`).
@@ -1560,13 +1564,13 @@ void main() {
         expect(
           tester
               .widget<CheckboxListTile>(
-                find.byKey(Key('ai-preview-piece-toggle-draft-1-$ordinal')),
+                find.byKey(Key('ai-preview-outfit-toggle-draft-1-$ordinal')),
               )
               .value,
           isTrue,
         );
         expect(
-          find.byKey(Key('ai-preview-piece-rejected-draft-1-$ordinal')),
+          find.byKey(Key('ai-preview-outfit-rejected-draft-1-$ordinal')),
           findsNothing,
         );
       }
@@ -1595,7 +1599,7 @@ void main() {
               createdDays: 0,
               plannedSceneShoots: 0,
               createdCharacters: 1,
-              createdCostumes: 1,
+              createdPieces: 1,
             ),
           ),
         ],
@@ -1603,16 +1607,16 @@ void main() {
       await pumpPreview(tester);
 
       await tester.tap(
-        find.byKey(const Key('ai-preview-piece-toggle-draft-1-1')),
+        find.byKey(const Key('ai-preview-outfit-toggle-draft-1-1')),
       );
       await tester.pumpAndSettle();
 
       expect(
-        find.byKey(const Key('ai-preview-piece-rejected-draft-1-1')),
+        find.byKey(const Key('ai-preview-outfit-rejected-draft-1-1')),
         findsOneWidget,
       );
       expect(
-        find.byKey(const Key('ai-preview-piece-rejected-draft-1-0')),
+        find.byKey(const Key('ai-preview-outfit-rejected-draft-1-0')),
         findsNothing,
         reason: 'the veto is per piece row, not per scene',
       );
@@ -1638,9 +1642,9 @@ void main() {
       // reads as accepted server-side.
       final mapping = repo.lastRequest!.mappings.single;
       expect(mapping.draftRef, 'draft-1');
-      expect(mapping.costumeDecisions, hasLength(1));
-      expect(mapping.costumeDecisions!.single.ordinal, 1);
-      expect(mapping.costumeDecisions!.single.accepted, isFalse);
+      expect(mapping.outfitDecisions, hasLength(1));
+      expect(mapping.outfitDecisions!.single.ordinal, 1);
+      expect(mapping.outfitDecisions!.single.accepted, isFalse);
       // The scene was still created: the veto never drops the row.
       expect(mapping.decision.oneOf.value, 'Create');
     });
@@ -1655,15 +1659,15 @@ void main() {
               createdDays: 0,
               plannedSceneShoots: 0,
               createdCharacters: 1,
-              createdCostumes: 1,
-              unappliedCostumes: [
-                UnappliedCostume(
+              createdPieces: 1,
+              unappliedOutfits: [
+                UnappliedOutfit(
                   (b) => b
                     ..characterName = 'Renee Sanders'
                     ..draftRef = 'draft-1'
                     ..ordinal = 2
-                    ..description = 'wedding dress'
-                    ..reason = UnappliedCostumeReason.bindingRejected,
+                    ..name = 'wedding dress'
+                    ..reason = UnappliedOutfitReason.bindingRejected,
                 ),
               ],
             ),
@@ -1677,9 +1681,11 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.byKey(const Key('ai-apply-outcome')), findsOneWidget);
-      // The script wording reports the figures/pieces it produced.
+      // The script wording reports the figures/pieces/outfits it produced.
       expect(
-        find.textContaining('Applied 1 scene(s), 1 character(s), 1 costume(s)'),
+        find.textContaining(
+          'Applied 1 scene(s), 1 character(s), 1 piece(s), 0 outfit(s)',
+        ),
         findsOneWidget,
       );
       expect(
@@ -1688,7 +1694,7 @@ void main() {
       );
       // Keyed on the typed wire enum, not on server prose.
       expect(
-        find.textContaining('costume created, binding refused (unassigned)'),
+        find.textContaining('outfit created, binding to the shoot refused'),
         findsOneWidget,
       );
     });

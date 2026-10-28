@@ -86,12 +86,12 @@ fn decisions() -> Vec<ApplyMapping> {
         ApplyMapping {
             draft_ref: "1. I/T - KLINIKUM".to_owned(),
             decision: ApplyMappingDecision::Create,
-            costume_decisions: Vec::new(),
+            outfit_decisions: Vec::new(),
         },
         ApplyMapping {
             draft_ref: "2. I/T - FLUR".to_owned(),
             decision: ApplyMappingDecision::Create,
-            costume_decisions: Vec::new(),
+            outfit_decisions: Vec::new(),
         },
     ]
 }
@@ -145,7 +145,7 @@ async fn harness() -> Result<Harness> {
     let worker = ApplyWorker {
         scene_commands: Arc::new(SceneCommandsImpl::new(cmd_service.clone())),
         character_commands: Arc::new(CharacterCommandsImpl::new(cmd_service.clone())),
-        costume_commands: Arc::new(WardrobeCommandsImpl::new(cmd_service.clone())),
+        wardrobe_commands: Arc::new(WardrobeCommandsImpl::new(cmd_service.clone())),
         // No group maps to a NEW episode, so the episode port stays idle —
         // but the production write chain must be wired (issue #581 shape).
         episode_commands: Arc::new(EpisodeCommandsImpl::new(cmd_service.clone())),
@@ -193,6 +193,9 @@ impl Harness {
                     accepted: true,
                 }],
                 acknowledged_uncertainties: Vec::new(),
+                // The fixture's rows name no figure, so no piece/category row
+                // is planned and the vocabulary is never consulted.
+                categories: Vec::new(),
                 telemetry: None,
             })
             .await

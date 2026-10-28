@@ -1,6 +1,5 @@
 <!-- SPDX-License-Identifier: AGPL-3.0 -->
 <!-- Copyright (C) 2024-2026 Breakdown RS Contributors -->
-<!-- Co-authored-by: deepseek-v4.1-flash (opencode-go) -->
 <!-- Co-authored-by: glm-5.3-flash-flex (neuralwatt) -->
 <!-- Co-authored-by: muse-spark-1.3-contributor (opencode-go) -->
 <!-- Co-authored-by: omen-alpha (opencode-go) -->
@@ -10,6 +9,7 @@
 <!-- Co-authored-by: glm-5.3-flash (opencode-go) -->
 <!-- Co-authored-by: deepseek-v4.1-flash (neuralwatt) -->
 <!-- Co-authored-by: glm-5.3-flash (neuralwatt) -->
+<!-- Co-authored-by: deepseek-v4.1-flash (opencode-go) -->
 
 # Changelog
 
@@ -22,6 +22,20 @@ releases are cut as `vX.Y.Z` tags (`v<build-name>`, enforced by
 `scripts/release/version-gate.sh`).
 
 ## [Unreleased]
+
+- **AI import review surface follows the outfit/piece split** (OpenSpec change
+  `ai-import-outfit-and-pieces`; `0.4.0-beta.16+108 → 0.4.0-beta.17+109`):
+  the regenerated client replaces `DraftCostume`/`CostumeDecision`/
+  `UnappliedCostume` with `DraftOutfit`/`DraftPiece`/`OutfitDecision`/
+  `UnappliedOutfit`, so the review UI now shows one entry per **look**
+  (`{character}: {name}`) with its grounding quote and the garments the look
+  decomposes into (`Kleidungsstücke: OP-Kasack (Oberteil), …`). The reviewer
+  vetoes a look, not an individual garment; the apply sends
+  `outfitDecisions` and the outcome card reports
+  `Kleidungsstück(e)` + `Look(s)` plus the per-row `unappliedOutfits`
+  reason (new `piece_rejected`). Copy keys renamed
+  `aiPreviewOutfit*` / `aiApplyUnappliedOutfit*`; the glossary inventory
+  follows.
 
 - **Issue #739 follow-up — review round on the look surface:**
   `0.4.0-beta.15+107 → 0.4.0-beta.16+108`. The review edits below were still

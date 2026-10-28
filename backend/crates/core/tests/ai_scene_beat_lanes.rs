@@ -21,7 +21,7 @@
 )]
 
 use breakdown_core::ai::{
-    CharacterApplyPlan, CostumeApplyPlan, SceneApplyPlan, UnappliedCostumeReason,
+    CharacterApplyPlan, OutfitApplyPlan, SceneApplyPlan, UnappliedOutfitReason,
     character_mapping_ref, scene_beat_lanes,
 };
 use breakdown_core::scene::aggregate::SceneAggregate;
@@ -45,17 +45,19 @@ fn character(ordinal: usize, name: &str, identity: &str) -> CharacterApplyPlan {
     }
 }
 
-fn costume(ordinal: usize, identity: &str, description: &str) -> CostumeApplyPlan {
-    CostumeApplyPlan {
+fn costume(ordinal: usize, identity: &str, description: &str) -> OutfitApplyPlan {
+    OutfitApplyPlan {
         ordinal,
         character_identity: identity.to_owned(),
         character_name: identity.to_owned(),
-        description: description.to_owned(),
+        name: description.to_owned(),
+        notes: None,
         source_quote: description.to_owned(),
+        pieces: Vec::new(),
     }
 }
 
-fn row(characters: Vec<CharacterApplyPlan>, costumes: Vec<CostumeApplyPlan>) -> SceneApplyPlan {
+fn row(characters: Vec<CharacterApplyPlan>, outfits: Vec<OutfitApplyPlan>) -> SceneApplyPlan {
     SceneApplyPlan {
         confidence: None,
         draft_ref: "1. INT. OP".to_owned(),
@@ -71,7 +73,7 @@ fn row(characters: Vec<CharacterApplyPlan>, costumes: Vec<CostumeApplyPlan>) -> 
         // Beat lanes are day-agnostic; the fixture carries no day assignment.
         shooting_day: breakdown_core::ai::PlannedShootingDay::None,
         characters,
-        costumes,
+        outfits,
     }
 }
 
@@ -103,7 +105,7 @@ fn lanes_keep_plan_order_and_number_per_figure() {
     let ben: Vec<(usize, &str)> = lanes[0]
         .beats
         .iter()
-        .map(|slot| (slot.per_figure_order, slot.costume.description.as_str()))
+        .map(|slot| (slot.per_figure_order, slot.outfit.name.as_str()))
         .collect();
     assert_eq!(ben, vec![(0, "Overall"), (1, "Schutzhelm")]);
 
@@ -111,7 +113,7 @@ fn lanes_keep_plan_order_and_number_per_figure() {
     let renee: Vec<(usize, &str)> = lanes[1]
         .beats
         .iter()
-        .map(|slot| (slot.per_figure_order, slot.costume.description.as_str()))
+        .map(|slot| (slot.per_figure_order, slot.outfit.name.as_str()))
         .collect();
     assert_eq!(renee, vec![(0, "Kasack"), (1, "Mantel")]);
 }
@@ -119,7 +121,7 @@ fn lanes_keep_plan_order_and_number_per_figure() {
 #[test]
 fn a_costume_of_an_unknown_figure_appears_in_no_lane() {
     // Such a costume was already dropped at plan time into
-    // `unapplied_costumes` — the lanes must not resurrect it as a beat.
+    // `unapplied_outfits` — the lanes must not resurrect it as a beat.
     let plan = row(
         vec![character(0, "Ben", "ben")],
         vec![costume(0, "ghost", "Nebelkulisse")],
@@ -128,8 +130,8 @@ fn a_costume_of_an_unknown_figure_appears_in_no_lane() {
     assert_eq!(lanes.len(), 1);
     assert!(lanes[0].beats.is_empty());
     // And the plan-time drop is what the reviewer sees, not a beat refusal.
-    let ungrounded = UnappliedCostumeReason::CharacterNotPlanned;
-    assert_ne!(ungrounded, UnappliedCostumeReason::BeatRejected);
+    let ungrounded = UnappliedOutfitReason::CharacterNotPlanned;
+    assert_ne!(ungrounded, UnappliedOutfitReason::BeatRejected);
 }
 
 #[test]

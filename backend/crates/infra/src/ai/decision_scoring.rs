@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: glm-5.3-flash-flex (neuralwatt)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 //! Best-effort Decision Model scoring pass (issue #722, design D3).
 //!
@@ -180,12 +181,13 @@ pub async fn score_script_chunk(
                 "mood": scene.mood,
                 "summary": scene.summary,
                 "characters": scene.characters.iter().map(|c| &c.name).collect::<Vec<_>>(),
-                "costume_count": scene.costumes.len(),
+                "piece_count": scene.outfits.iter().map(|o| o.pieces.len()).sum::<usize>(),
+                "outfit_count": scene.outfits.len(),
                 "grounding": {
                     "scene_number_match": scene.scene_number.is_some()
                         && scene.scene_number == chunk_scene_number,
                     "mood_match": scene.mood.is_some() && scene.mood.as_deref() == chunk_mood,
-                    "dropped_costumes": dropped_costumes.get(index).copied().unwrap_or(0),
+                    "dropped_outfits": dropped_costumes.get(index).copied().unwrap_or(0),
                     "open_ambiguities": open_ambiguities.get(index).copied().unwrap_or(0),
                 },
             })).collect::<Vec<_>>(),
@@ -446,7 +448,7 @@ mod tests {
             summary: Some("Ben prüft die Kostüme.".into()),
             script_day: None,
             characters: Vec::new(),
-            costumes: Vec::new(),
+            outfits: Vec::new(),
             episode: None,
             shooting_day: Some(DraftShootingDay {
                 number: Some(1),

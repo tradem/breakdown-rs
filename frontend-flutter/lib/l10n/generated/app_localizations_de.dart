@@ -949,43 +949,45 @@ class AppLocalizationsDe extends AppLocalizations {
   }
 
   @override
-  String aiPreviewCostumeHeading(Object count) {
-    return 'Kostüme ($count)';
+  String aiPreviewOutfitHeading(Object count) {
+    return 'Looks ($count)';
   }
 
   @override
-  String aiPreviewCostumeFor(Object character, Object description) {
-    return '$character: $description';
+  String aiPreviewOutfitFor(Object character, Object name) {
+    return '$character: $name';
   }
 
   @override
-  String aiPreviewCostumeQuote(Object quote) {
+  String aiPreviewOutfitQuote(Object quote) {
     return 'Beleg: $quote';
   }
 
   @override
-  String get aiPreviewCostumeRejectedStatus => 'verworfen';
+  String aiPreviewOutfitPieces(Object pieces) {
+    return 'Kleidungsstücke: $pieces';
+  }
 
   @override
-  String get aiPreviewCostumeToggleTooltip =>
-      'Dieses Kostüm unabhängig von der Szene übernehmen oder verwerfen';
+  String get aiPreviewOutfitRejectedStatus => 'verworfen';
+
+  @override
+  String get aiPreviewOutfitToggleTooltip =>
+      'Diesen Look unabhängig von der Szene übernehmen oder verwerfen';
 
   @override
   String aiApplyOutcomeScript(
     Object applied,
     Object characters,
-    Object costumes,
+    Object outfits,
+    Object pieces,
   ) {
-    return 'Angewendet: $applied Szene(n), $characters Figur(en), $costumes Kostüm(e).';
+    return 'Angewendet: $applied Szene(n), $characters Figur(en), $pieces Kleidungsstück(e), $outfits Look(s).';
   }
 
   @override
-  String aiApplyUnappliedCostume(
-    Object character,
-    Object description,
-    Object reason,
-  ) {
-    return 'Nicht angewendet: $character – $description ($reason)';
+  String aiApplyUnappliedOutfit(Object character, Object name, Object reason) {
+    return 'Nicht angewendet: $character – $name ($reason)';
   }
 
   @override
@@ -997,20 +999,24 @@ class AppLocalizationsDe extends AppLocalizations {
       'Figur konnte nicht angelegt werden';
 
   @override
+  String get aiApplyUnappliedReasonPieceRejected =>
+      'ein Kleidungsstück konnte nicht angelegt werden';
+
+  @override
   String get aiApplyUnappliedReasonCreateRejected =>
-      'Kostüm konnte nicht angelegt werden';
+      'Look konnte nicht angelegt werden';
 
   @override
   String get aiApplyUnappliedReasonNotesRejected =>
-      'Kostüm angelegt, Beschreibung abgelehnt';
+      'Look angelegt, Beschreibung abgelehnt';
 
   @override
   String get aiApplyUnappliedReasonBindingRejected =>
-      'Kostüm angelegt, Bindung abgelehnt (unzugeordnet)';
+      'Look angelegt, Zuordnung zum Dreh abgelehnt';
 
   @override
   String get aiApplyUnappliedReasonBeatRejected =>
-      'Kostüm angelegt, Kostümwechsel in der Szene abgelehnt';
+      'Look angelegt, Einsatz in der Szene abgelehnt';
 
   @override
   String get aiConfigStoredPromptNote =>

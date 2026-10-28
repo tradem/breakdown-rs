@@ -8,48 +8,48 @@
 import 'package:built_value/built_value.dart';
 import 'package:built_value/serializer.dart';
 
-part 'costume_decision.g.dart';
+part 'outfit_decision.g.dart';
 
-/// Reviewer decision for one costume row of a draft row. A costume is accepted or rejected *independently of its scene* (spec `ai-import`: the preview exposes each costume row for its own decision).
+/// Reviewer decision for one outfit row of a draft row. An outfit is accepted or rejected *independently of its scene* (spec `ai-import`: the preview exposes each outfit row for its own decision). Rejecting an outfit rejects its pieces with it — they belong to that look.
 ///
 /// Properties:
-/// * [accepted] - `false` rejects the costume: no `Costume` is created and the scene row is unaffected.
-/// * [ordinal] - Index into the draft row's `costumes` list.
+/// * [accepted] - `false` rejects the outfit: no `Piece` and no `Outfit` is created and the scene row is unaffected.
+/// * [ordinal] - Index into the draft row's `outfits` list.
 @BuiltValue()
-abstract class CostumeDecision
-    implements Built<CostumeDecision, CostumeDecisionBuilder> {
-  /// `false` rejects the costume: no `Costume` is created and the scene row is unaffected.
+abstract class OutfitDecision
+    implements Built<OutfitDecision, OutfitDecisionBuilder> {
+  /// `false` rejects the outfit: no `Piece` and no `Outfit` is created and the scene row is unaffected.
   @BuiltValueField(wireName: r'accepted')
   bool get accepted;
 
-  /// Index into the draft row's `costumes` list.
+  /// Index into the draft row's `outfits` list.
   @BuiltValueField(wireName: r'ordinal')
   int get ordinal;
 
-  CostumeDecision._();
+  OutfitDecision._();
 
-  factory CostumeDecision([void updates(CostumeDecisionBuilder b)]) =
-      _$CostumeDecision;
+  factory OutfitDecision([void updates(OutfitDecisionBuilder b)]) =
+      _$OutfitDecision;
 
   @BuiltValueHook(initializeBuilder: true)
-  static void _defaults(CostumeDecisionBuilder b) => b;
+  static void _defaults(OutfitDecisionBuilder b) => b;
 
   @BuiltValueSerializer(custom: true)
-  static Serializer<CostumeDecision> get serializer =>
-      _$CostumeDecisionSerializer();
+  static Serializer<OutfitDecision> get serializer =>
+      _$OutfitDecisionSerializer();
 }
 
-class _$CostumeDecisionSerializer
-    implements PrimitiveSerializer<CostumeDecision> {
+class _$OutfitDecisionSerializer
+    implements PrimitiveSerializer<OutfitDecision> {
   @override
-  final Iterable<Type> types = const [CostumeDecision, _$CostumeDecision];
+  final Iterable<Type> types = const [OutfitDecision, _$OutfitDecision];
 
   @override
-  final String wireName = r'CostumeDecision';
+  final String wireName = r'OutfitDecision';
 
   Iterable<Object?> _serializeProperties(
     Serializers serializers,
-    CostumeDecision object, {
+    OutfitDecision object, {
     FullType specifiedType = FullType.unspecified,
   }) sync* {
     yield r'accepted';
@@ -67,7 +67,7 @@ class _$CostumeDecisionSerializer
   @override
   Object serialize(
     Serializers serializers,
-    CostumeDecision object, {
+    OutfitDecision object, {
     FullType specifiedType = FullType.unspecified,
   }) {
     return _serializeProperties(serializers, object,
@@ -80,7 +80,7 @@ class _$CostumeDecisionSerializer
     Object serialized, {
     FullType specifiedType = FullType.unspecified,
     required List<Object?> serializedList,
-    required CostumeDecisionBuilder result,
+    required OutfitDecisionBuilder result,
     required List<Object?> unhandled,
   }) {
     for (var i = 0; i < serializedList.length; i += 2) {
@@ -110,12 +110,12 @@ class _$CostumeDecisionSerializer
   }
 
   @override
-  CostumeDecision deserialize(
+  OutfitDecision deserialize(
     Serializers serializers,
     Object serialized, {
     FullType specifiedType = FullType.unspecified,
   }) {
-    final result = CostumeDecisionBuilder();
+    final result = OutfitDecisionBuilder();
     final serializedList = (serialized as Iterable<Object?>).toList();
     final unhandled = <Object?>[];
     _deserializeProperties(

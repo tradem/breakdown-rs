@@ -1,53 +1,51 @@
 // GENERATED CODE - DO NOT MODIFY BY HAND
 
-part of 'unapplied_costume.dart';
+part of 'unapplied_outfit.dart';
 
 // **************************************************************************
 // BuiltValueGenerator
 // **************************************************************************
 
-class _$UnappliedCostume extends UnappliedCostume {
+class _$UnappliedOutfit extends UnappliedOutfit {
   @override
   final String characterName;
-  @override
-  final String description;
   @override
   final String? detail;
   @override
   final String draftRef;
   @override
+  final String name;
+  @override
   final int ordinal;
   @override
-  final UnappliedCostumeReason reason;
+  final UnappliedOutfitReason reason;
 
-  factory _$UnappliedCostume(
-          [void Function(UnappliedCostumeBuilder)? updates]) =>
-      (UnappliedCostumeBuilder()..update(updates))._build();
+  factory _$UnappliedOutfit([void Function(UnappliedOutfitBuilder)? updates]) =>
+      (UnappliedOutfitBuilder()..update(updates))._build();
 
-  _$UnappliedCostume._(
+  _$UnappliedOutfit._(
       {required this.characterName,
-      required this.description,
       this.detail,
       required this.draftRef,
+      required this.name,
       required this.ordinal,
       required this.reason})
       : super._();
   @override
-  UnappliedCostume rebuild(void Function(UnappliedCostumeBuilder) updates) =>
+  UnappliedOutfit rebuild(void Function(UnappliedOutfitBuilder) updates) =>
       (toBuilder()..update(updates)).build();
 
   @override
-  UnappliedCostumeBuilder toBuilder() =>
-      UnappliedCostumeBuilder()..replace(this);
+  UnappliedOutfitBuilder toBuilder() => UnappliedOutfitBuilder()..replace(this);
 
   @override
   bool operator ==(Object other) {
     if (identical(other, this)) return true;
-    return other is UnappliedCostume &&
+    return other is UnappliedOutfit &&
         characterName == other.characterName &&
-        description == other.description &&
         detail == other.detail &&
         draftRef == other.draftRef &&
+        name == other.name &&
         ordinal == other.ordinal &&
         reason == other.reason;
   }
@@ -56,9 +54,9 @@ class _$UnappliedCostume extends UnappliedCostume {
   int get hashCode {
     var _$hash = 0;
     _$hash = $jc(_$hash, characterName.hashCode);
-    _$hash = $jc(_$hash, description.hashCode);
     _$hash = $jc(_$hash, detail.hashCode);
     _$hash = $jc(_$hash, draftRef.hashCode);
+    _$hash = $jc(_$hash, name.hashCode);
     _$hash = $jc(_$hash, ordinal.hashCode);
     _$hash = $jc(_$hash, reason.hashCode);
     _$hash = $jf(_$hash);
@@ -67,29 +65,25 @@ class _$UnappliedCostume extends UnappliedCostume {
 
   @override
   String toString() {
-    return (newBuiltValueToStringHelper(r'UnappliedCostume')
+    return (newBuiltValueToStringHelper(r'UnappliedOutfit')
           ..add('characterName', characterName)
-          ..add('description', description)
           ..add('detail', detail)
           ..add('draftRef', draftRef)
+          ..add('name', name)
           ..add('ordinal', ordinal)
           ..add('reason', reason))
         .toString();
   }
 }
 
-class UnappliedCostumeBuilder
-    implements Builder<UnappliedCostume, UnappliedCostumeBuilder> {
-  _$UnappliedCostume? _$v;
+class UnappliedOutfitBuilder
+    implements Builder<UnappliedOutfit, UnappliedOutfitBuilder> {
+  _$UnappliedOutfit? _$v;
 
   String? _characterName;
   String? get characterName => _$this._characterName;
   set characterName(String? characterName) =>
       _$this._characterName = characterName;
-
-  String? _description;
-  String? get description => _$this._description;
-  set description(String? description) => _$this._description = description;
 
   String? _detail;
   String? get detail => _$this._detail;
@@ -99,25 +93,29 @@ class UnappliedCostumeBuilder
   String? get draftRef => _$this._draftRef;
   set draftRef(String? draftRef) => _$this._draftRef = draftRef;
 
+  String? _name;
+  String? get name => _$this._name;
+  set name(String? name) => _$this._name = name;
+
   int? _ordinal;
   int? get ordinal => _$this._ordinal;
   set ordinal(int? ordinal) => _$this._ordinal = ordinal;
 
-  UnappliedCostumeReason? _reason;
-  UnappliedCostumeReason? get reason => _$this._reason;
-  set reason(UnappliedCostumeReason? reason) => _$this._reason = reason;
+  UnappliedOutfitReason? _reason;
+  UnappliedOutfitReason? get reason => _$this._reason;
+  set reason(UnappliedOutfitReason? reason) => _$this._reason = reason;
 
-  UnappliedCostumeBuilder() {
-    UnappliedCostume._defaults(this);
+  UnappliedOutfitBuilder() {
+    UnappliedOutfit._defaults(this);
   }
 
-  UnappliedCostumeBuilder get _$this {
+  UnappliedOutfitBuilder get _$this {
     final $v = _$v;
     if ($v != null) {
       _characterName = $v.characterName;
-      _description = $v.description;
       _detail = $v.detail;
       _draftRef = $v.draftRef;
+      _name = $v.name;
       _ordinal = $v.ordinal;
       _reason = $v.reason;
       _$v = null;
@@ -126,32 +124,32 @@ class UnappliedCostumeBuilder
   }
 
   @override
-  void replace(UnappliedCostume other) {
-    _$v = other as _$UnappliedCostume;
+  void replace(UnappliedOutfit other) {
+    _$v = other as _$UnappliedOutfit;
   }
 
   @override
-  void update(void Function(UnappliedCostumeBuilder)? updates) {
+  void update(void Function(UnappliedOutfitBuilder)? updates) {
     if (updates != null) updates(this);
   }
 
   @override
-  UnappliedCostume build() => _build();
+  UnappliedOutfit build() => _build();
 
-  _$UnappliedCostume _build() {
+  _$UnappliedOutfit _build() {
     final _$result = _$v ??
-        _$UnappliedCostume._(
+        _$UnappliedOutfit._(
           characterName: BuiltValueNullFieldError.checkNotNull(
-              characterName, r'UnappliedCostume', 'characterName'),
-          description: BuiltValueNullFieldError.checkNotNull(
-              description, r'UnappliedCostume', 'description'),
+              characterName, r'UnappliedOutfit', 'characterName'),
           detail: detail,
           draftRef: BuiltValueNullFieldError.checkNotNull(
-              draftRef, r'UnappliedCostume', 'draftRef'),
+              draftRef, r'UnappliedOutfit', 'draftRef'),
+          name: BuiltValueNullFieldError.checkNotNull(
+              name, r'UnappliedOutfit', 'name'),
           ordinal: BuiltValueNullFieldError.checkNotNull(
-              ordinal, r'UnappliedCostume', 'ordinal'),
+              ordinal, r'UnappliedOutfit', 'ordinal'),
           reason: BuiltValueNullFieldError.checkNotNull(
-              reason, r'UnappliedCostume', 'reason'),
+              reason, r'UnappliedOutfit', 'reason'),
         );
     replace(_$result);
     return _$result;

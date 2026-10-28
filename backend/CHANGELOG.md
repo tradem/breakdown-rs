@@ -1,8 +1,8 @@
 <!-- SPDX-License-Identifier: AGPL-3.0 -->
 <!-- Copyright (C) 2024-2026 Breakdown RS Contributors -->
-<!-- Co-authored-by: deepseek-v4.1-flash (opencode-go) -->
 <!-- Co-authored-by: glm-5.3-flash-flex (neuralwatt) -->
 <!-- Co-authored-by: glm-5.3-flash (neuralwatt) -->
+<!-- Co-authored-by: deepseek-v4.1-flash (opencode-go) -->
 
 # Changelog
 
@@ -25,6 +25,52 @@ into a dated `## [api-vX.Y.Z] – Released <date>` section and cut the image
 tag. Never edit a released entry afterwards.
 
 ## [Unreleased]
+
+### Changed
+
+- **AI import Pass 1 extracts `DraftOutfit`s with derived `DraftPiece`s**
+  (OpenSpec change `ai-import-outfit-and-pieces`; `core 0.44.0 → 0.45.0`,
+  `infra 0.52.0 → 0.53.0`, `api 0.42.0 → 0.43.0`). Wardrobe extraction now
+  matches how screenplays actually describe costume — a named look
+  (`in OP`, `KHK`, `ITS`, uniform, coat) far more often than an enumerated
+  garment list — and applies it into the split wardrobe domain:
+
+  - **Preview shape (breaking).** `DraftCostume { character_name,
+    description, source_quote }` is replaced by `DraftOutfit { character_name,
+    name, notes, source_quote, origin, pieces }` plus `DraftPiece { name,
+    category_hint, description }`; `DraftScene.costumes` becomes
+    `DraftScene.outfits` on the wire (OpenAPI + regenerated Dart client).
+  - **Grounding moves to the outfit.** `verify_draft_costumes` →
+    `verify_draft_outfits`: the quote is checked against the chunk at the
+    **look** level and the character against the row's figures, while the
+    pieces ride along. Grounding each individual piece would have rejected
+    every garment a shorthand only implies.
+  - **Apply plans pieces → outfit → beat.** `plan_scene_apply` emits
+    `OutfitApplyPlan` with row-flat `PieceApplyPlan`s
+    (`(draft_ref, 'piece', n)` / `(draft_ref, 'outfit', n)` mapping rows,
+    `'scene_outfit_beat'` for the beat, replacing `'costume'` and
+    `'scene_costume_beat'`). A piece's `category_hint` is resolved against the
+    target season's active `CostumeCategory` vocabulary **at the API edge** and
+    carried into the pure planner (CQRS boundary); an unknown hint leaves the
+    piece uncategorized instead of failing the row.
+  - **Per-row decisions.** `ApplyMapping.costume_decisions` →
+    `outfit_decisions` (`CostumeDecision` → `OutfitDecision`); reviewers decide
+    the look, its derived pieces belong to it. The former key stays accepted as
+    a serde alias so a pre-rename client's rejection is never silently read as
+    "accepted". The apply response reports `created_pieces` / `created_outfits`
+    and `unapplied_outfits` (new reason `piece_rejected`).
+  - **Prompt.** The deployment default script prompt
+    (`config/default_ai_prompts.toml`) replaces its `<costumes>` section with
+    `<outfits>`: the evidence sources now include occupational/medical
+    shorthands, the look is named, and its constituent German garment names are
+    derived with `Oberteil`/`Unterteil`/`Schuhe`/`Jacke`/`Accessoires` hints.
+    Decomposing in the prompt (not in a Rust glossary) keeps spelling variants
+    (`OP`, `OP-Grün`, `Bereichskleidung`, `Flügelhemd`) working without a code
+    change. A deployment with a **stored** script prompt keeps serving it — reset
+    that prompt once to pick the new default up.
+  - **Decision model.** The chunk scoring payload reports `piece_count` /
+    `outfit_count` and a `dropped_outfits` grounding penalty (renamed from
+    `costume_count` / `dropped_costumes`).
 
 ### Fixed
 

@@ -5,6 +5,7 @@
 // Co-authored-by: glm-5.3-flash (neuralwatt)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
 // Co-authored-by: glm-5.3-flash (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 import 'package:breakdown_api/breakdown_api.dart';
 import 'package:built_collection/built_collection.dart';
@@ -889,17 +890,22 @@ class _OutcomeCard extends StatelessWidget {
           borderRadius: BorderRadius.circular(8),
         ),
         child: Text(
-          // A script apply that produced figures or pieces reports them
-          // explicitly. The schedule wording stays the fallback, so a schedule
-          // apply — and a pre-piece server that sends neither field — renders
-          // exactly as before instead of showing invented counts.
+          // A script apply that produced figures, pieces or outfits reports
+          // them explicitly. The schedule wording stays the fallback, so a
+          // schedule apply — and a server that sends none of these fields —
+          // renders exactly as before instead of showing invented counts.
           outcome.createdCharacters > 0 ||
-                  outcome.createdCostumes > 0 ||
-                  outcome.unappliedCostumes.isNotEmpty
+                  outcome.createdPieces > 0 ||
+                  outcome.createdOutfits > 0 ||
+                  outcome.unappliedOutfits.isNotEmpty
+              // The generated signature orders the placeholders
+              // alphabetically (applied, characters, outfits, pieces), not in
+              // message order — pass them in that order.
               ? l10nOf(context).aiApplyOutcomeScript(
                   '${outcome.appliedCount}',
                   '${outcome.createdCharacters}',
-                  '${outcome.createdCostumes}',
+                  '${outcome.createdOutfits}',
+                  '${outcome.createdPieces}',
                 )
               : l10nOf(context).aiApplyOutcome(
                   '${outcome.appliedCount}',
@@ -920,21 +926,21 @@ class _OutcomeCard extends StatelessWidget {
             style: Theme.of(context).textTheme.bodySmall,
           ),
         ),
-      // Rows that did NOT become a `Piece` are named with their reason: a
+      // Rows that did NOT become an `Outfit` are named with their reason: a
       // partially applied row must never read as a fully applied one (spec
-      // `piece-character-binding` — "report the row as partially applied with
-      // the reason"). `reason` is a typed wire enum, so this copy is keyed on it
-      // and never parsed out of server prose.
-      for (final unapplied in outcome.unappliedCostumes)
+      // `ai-import` — "report the row as partially applied with the reason").
+      // `reason` is a typed wire enum, so this copy is keyed on it and never
+      // parsed out of server prose.
+      for (final unapplied in outcome.unappliedOutfits)
         Text(
           key: Key(
-            'ai-apply-unapplied-piece-${unapplied.draftRef}'
+            'ai-apply-unapplied-outfit-${unapplied.draftRef}'
             '-${unapplied.ordinal}',
           ),
-          l10nOf(context).aiApplyUnappliedCostume(
+          l10nOf(context).aiApplyUnappliedOutfit(
             unapplied.characterName,
-            unapplied.description,
-            aiUnappliedCostumeReasonCopy(l10nOf(context), unapplied.reason),
+            unapplied.name,
+            aiUnappliedOutfitReasonCopy(l10nOf(context), unapplied.reason),
           ),
           style: TextStyle(
             color: Theme.of(context).colorScheme.error,
@@ -1154,25 +1160,26 @@ Future<List<EpisodeView>> aiEpisodePickerRows(Ref ref, String jobId) async {
   }, (rows) async => rows);
 }
 
-/// Localized copy for a piece row the apply could not finish, keyed on the
+/// Localized copy for an outfit row the apply could not finish, keyed on the
 /// stable wire enum. `_ => commonUnknown` is forward-compat, not dead code: the
 /// generated enum carries no `$default`, so a reason a future backend adds must
 /// not take the whole outcome card down with it.
-String aiUnappliedCostumeReasonCopy(
+String aiUnappliedOutfitReasonCopy(
   AppLocalizations l10n,
-  UnappliedCostumeReason reason,
+  UnappliedOutfitReason reason,
 ) => switch (reason) {
-  UnappliedCostumeReason.characterNotPlanned =>
+  UnappliedOutfitReason.characterNotPlanned =>
     l10n.aiApplyUnappliedReasonCharacterNotPlanned,
-  UnappliedCostumeReason.characterUnavailable =>
+  UnappliedOutfitReason.characterUnavailable =>
     l10n.aiApplyUnappliedReasonCharacterUnavailable,
-  UnappliedCostumeReason.createRejected =>
+  UnappliedOutfitReason.pieceRejected =>
+    l10n.aiApplyUnappliedReasonPieceRejected,
+  UnappliedOutfitReason.createRejected =>
     l10n.aiApplyUnappliedReasonCreateRejected,
-  UnappliedCostumeReason.notesRejected =>
+  UnappliedOutfitReason.notesRejected =>
     l10n.aiApplyUnappliedReasonNotesRejected,
-  UnappliedCostumeReason.bindingRejected =>
+  UnappliedOutfitReason.bindingRejected =>
     l10n.aiApplyUnappliedReasonBindingRejected,
-  UnappliedCostumeReason.beatRejected =>
-    l10n.aiApplyUnappliedReasonBeatRejected,
+  UnappliedOutfitReason.beatRejected => l10n.aiApplyUnappliedReasonBeatRejected,
   _ => l10n.commonUnknown,
 };

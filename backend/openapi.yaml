@@ -716,15 +716,6 @@ components:
           format: int32
           minimum: 0
           type: integer
-        created_costumes:
-          description: |-
-            Costume rows the script apply created (a piece in the fundus, then
-            joined to the figure's outfit). The field keeps the `costume` name until
-            the AI-import vocabulary is renamed as one coherent step (successor
-            change `ai-import-outfit-and-pieces`).
-          format: int32
-          minimum: 0
-          type: integer
         created_days:
           format: int32
           minimum: 0
@@ -733,6 +724,20 @@ components:
           description: |-
             Episodes the script apply created for draft episode groups the reviewer
             mapped to a NEW episode (issue #581). `0` for a schedule apply.
+          format: int32
+          minimum: 0
+          type: integer
+        created_outfits:
+          description: |-
+            Outfits the script apply created — one look per accepted outfit row,
+            bound to its figure and referencing the pieces above.
+          format: int32
+          minimum: 0
+          type: integer
+        created_pieces:
+          description: |-
+            Fundus pieces the script apply created — the garments of the extracted
+            outfits.
           format: int32
           minimum: 0
           type: integer
@@ -748,23 +753,24 @@ components:
           items:
             type: string
           type: array
-        unapplied_costumes:
+        unapplied_outfits:
           description: |-
-            Costume rows that were **not** fully applied, each with the reason.
-            An apply that created a piece but could not put it into the figure's
-            outfit reports the row here while `created_costumes` still counts it — a
-            partially applied row must never look like a fully applied one.
+            Outfit rows that were **not** fully applied, each with the reason. An
+            apply that created a piece but could not assemble the look reports the
+            row here while `created_pieces` still counts the pieces — a partially
+            applied row must never look like a fully applied one.
           items:
-            $ref: '#/components/schemas/UnappliedCostume'
+            $ref: '#/components/schemas/UnappliedOutfit'
           type: array
       required:
       - applied_count
       - created_days
       - planned_scene_shoots
       - created_characters
-      - created_costumes
+      - created_pieces
+      - created_outfits
       - created_episodes
-      - unapplied_costumes
+      - unapplied_outfits
       type: object
     ApplyEpisodeGroupRequest:
       description: |-
@@ -785,18 +791,24 @@ components:
         User decision for one draft row. A create decision leaves the aggregate id
         absent; an update decision carries the existing id and optimistic version.
       properties:
-        costume_decisions:
-          description: |-
-            Per-costume-row decisions of this draft row. Absent ordinals default to
-            accepted, so a request written before this field existed (or one where
-            the reviewer touched nothing) still applies everything that was extracted.
-          items:
-            $ref: '#/components/schemas/CostumeDecision'
-          type: array
         decision:
           $ref: '#/components/schemas/ApplyMappingDecision'
         draft_ref:
           type: string
+        outfit_decisions:
+          description: |-
+            Per-outfit-row decisions of this draft row. Absent ordinals default to
+            accepted, so a request written before this field existed (or one where
+            the reviewer touched nothing) still applies everything that was extracted.
+
+            `costume_decisions` is accepted as an alias (OpenSpec change
+            `ai-import-outfit-and-pieces`): the pre-rename client sends the same
+            `{ordinal, accepted}` items under the old name, and silently dropping
+            them would turn a reviewer's rejection into an applied outfit — a
+            fail-open on the one decision surface that must never be ignored.
+          items:
+            $ref: '#/components/schemas/OutfitDecision'
+          type: array
       required:
       - draft_ref
       - decision
@@ -1193,25 +1205,6 @@ components:
       - archived
       - version
       - updated_at
-      type: object
-    CostumeDecision:
-      description: |-
-        Reviewer decision for one costume row of a draft row. A costume is accepted
-        or rejected *independently of its scene* (spec `ai-import`: the preview
-        exposes each costume row for its own decision).
-      properties:
-        accepted:
-          description: |-
-            `false` rejects the costume: no `Costume` is created and the scene row is
-            unaffected.
-          type: boolean
-        ordinal:
-          description: Index into the draft row's `costumes` list.
-          minimum: 0
-          type: integer
-      required:
-      - ordinal
-      - accepted
       type: object
     CreateAiConfigRequest:
       properties:
@@ -1639,30 +1632,6 @@ components:
       required:
       - name
       type: object
-    DraftCostume:
-      description: |-
-        One costume extracted for a character of a draft scene.
-
-        Flat by design: the LLM has no domain ids, and the write side must not
-        resolve ids from a read-model projection (CQRS boundary). `character_name`
-        is matched against the same draft scene's `characters`; `source_quote` is the
-        fragment the extraction claims to be based on, which the server verifies
-        against the supplied chunk text before the row may reach the reviewer.
-      properties:
-        character_name:
-          description: Character the costume belongs to, as written in the script.
-          type: string
-        description:
-          description: The garment/accessory description, in the script's own wording.
-          type: string
-        source_quote:
-          description: Quoted fragment of the chunk this entry was extracted from.
-          type: string
-      required:
-      - character_name
-      - description
-      - source_quote
-      type: object
     DraftEpisode:
       description: |-
         One episode of the source script, as the deterministic marker scan (and,
@@ -1684,6 +1653,92 @@ components:
           - string
           - 'null'
       type: object
+    DraftOutfit:
+      description: |-
+        One outfit extracted for a character of a draft scene.
+
+        Flat by design: the LLM has no domain ids, and the write side must not
+        resolve ids from a read-model projection (CQRS boundary). `character_name`
+        is matched against the same draft scene's `characters`; `source_quote` is the
+        fragment the extraction claims to be based on, which the server verifies
+        against the supplied chunk text before the row may reach the reviewer. The
+        outfit's `pieces` ride along with it: a grounded outfit may carry garment
+        names the script never wrote (design D1).
+      properties:
+        character_name:
+          description: Character the outfit belongs to, as written in the script.
+          type: string
+        name:
+          description: Display name of the look (`OP-Kleidung`, `Mechaniker-Overall`).
+          type: string
+        notes:
+          description: |-
+            Free-form notes in the script's own wording — the full description the
+            wardrobe department needs beyond the name.
+          type:
+          - string
+          - 'null'
+        origin:
+          $ref: '#/components/schemas/DraftOutfitOrigin'
+          description: Whether the block named the look explicitly (see [`DraftOutfitOrigin`]).
+        pieces:
+          description: |-
+            The constituent garments, `0..n`. Empty is a valid answer: the outfit is
+            then applied as a look without pieces.
+          items:
+            $ref: '#/components/schemas/DraftPiece'
+          type: array
+        source_quote:
+          description: Quoted fragment of the chunk this outfit was extracted from.
+          type: string
+      required:
+      - character_name
+      - name
+      - source_quote
+      type: object
+    DraftOutfitOrigin:
+      description: |-
+        How a [`DraftOutfit`] came into existence.
+
+        The distinction is what the grounding check turns on: an explicitly quoted
+        outfit is verified verbatim against the chunk, a derived one is a look the
+        model composed from a shorthand the block named. Both are grounded at the
+        outfit level; neither carries a per-piece quote.
+      enum:
+      - explicit_quote
+      - derived
+      type: string
+    DraftPiece:
+      description: |-
+        One constituent garment of a [`DraftOutfit`].
+
+        Screenplays rarely enumerate the garments of a standard look: they state
+        `DR. KOCH (in OP)` or `PATIENT (in KHK)`. The pieces are therefore
+        **context-derived** from the outfit — grounded through the outfit's quote,
+        never individually against the chunk text (design D1).
+      properties:
+        category_hint:
+          description: |-
+            Category the piece belongs to, when the model could name one from the
+            canonical vocabulary (`Oberteil`, `Unterteil`, `Schuhe`, `Jacke`,
+            `Accessoires`). Resolved against the season's categories at the API
+            edge; an unknown hint leaves the piece uncategorized (never an error).
+          type:
+          - string
+          - 'null'
+        description:
+          description: Free-form detail from the script (condition, colour, material).
+          type:
+          - string
+          - 'null'
+        name:
+          description: |-
+            Garment name as the wardrobe department would file it (`OP-Kasack`,
+            `KHK-Hose`, `Gummistiefel`).
+          type: string
+      required:
+      - name
+      type: object
     DraftScene:
       properties:
         characters:
@@ -1694,15 +1749,6 @@ components:
             grounded `MainCast` default via [`deserialize_draft_characters`].
           items:
             $ref: '#/components/schemas/DraftCharacter'
-          type: array
-        costumes:
-          description: |-
-            Costumes worn by this scene's characters. Additive on the wire with a
-            default so previews stored before this field existed still load; a
-            preview written by this version loses the field when read by an older
-            binary (breaking, see the change proposal).
-          items:
-            $ref: '#/components/schemas/DraftCostume'
           type: array
         draft_ref:
           type: string
@@ -1722,6 +1768,17 @@ components:
           type:
           - string
           - 'null'
+        outfits:
+          description: |-
+            Outfits worn by this scene's characters (OpenSpec change
+            `ai-import-outfit-and-pieces`). Additive on the wire with a default so
+            previews stored before this field existed still load; a preview written
+            by this version loses the field when read by an older binary (breaking,
+            see the change proposal). The former `costumes` field is gone: its flat
+            `description` cannot express the outfit/piece split.
+          items:
+            $ref: '#/components/schemas/DraftOutfit'
+          type: array
         scene_number:
           format: int32
           minimum: 0
@@ -2454,6 +2511,26 @@ components:
       - output_nano_per_million
       - pricing_source
       - price_as_of
+      type: object
+    OutfitDecision:
+      description: |-
+        Reviewer decision for one outfit row of a draft row. An outfit is accepted
+        or rejected *independently of its scene* (spec `ai-import`: the preview
+        exposes each outfit row for its own decision). Rejecting an outfit rejects
+        its pieces with it — they belong to that look.
+      properties:
+        accepted:
+          description: |-
+            `false` rejects the outfit: no `Piece` and no `Outfit` is created and the
+            scene row is unaffected.
+          type: boolean
+        ordinal:
+          description: Index into the draft row's `outfits` list.
+          minimum: 0
+          type: integer
+      required:
+      - ordinal
+      - accepted
       type: object
     OutfitPhotoView:
       description: Linked photo reference for an outfit, enriched with variant metadata.
@@ -3901,14 +3978,12 @@ components:
       - output_rate_nano_per_million
       - total_nano
       type: object
-    UnappliedCostume:
+    UnappliedOutfit:
       description: |-
-        Why a costume row did not become a `Costume`. Shown to the reviewer as
+        Why an outfit row did not become an `Outfit`. Shown to the reviewer as
         *missing with a reason* instead of as a successful apply.
       properties:
         character_name:
-          type: string
-        description:
           type: string
         detail:
           description: |-
@@ -3919,22 +3994,25 @@ components:
           - 'null'
         draft_ref:
           type: string
+        name:
+          type: string
         ordinal:
           minimum: 0
           type: integer
         reason:
-          $ref: '#/components/schemas/UnappliedCostumeReason'
+          $ref: '#/components/schemas/UnappliedOutfitReason'
       required:
       - draft_ref
       - ordinal
       - character_name
-      - description
+      - name
       - reason
       type: object
-    UnappliedCostumeReason:
+    UnappliedOutfitReason:
       enum:
       - character_not_planned
       - character_unavailable
+      - piece_rejected
       - create_rejected
       - notes_rejected
       - binding_rejected

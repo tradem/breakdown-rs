@@ -747,12 +747,12 @@ async fn apply_ai_import_drives_the_script_worker_through_the_ports_seam() {
                 ApplyMapping {
                     draft_ref: "scene-0".to_owned(),
                     decision: ApplyMappingDecision::Create,
-                    costume_decisions: Vec::new(),
+                    outfit_decisions: Vec::new(),
                 },
                 ApplyMapping {
                     draft_ref: "scene-1".to_owned(),
                     decision: ApplyMappingDecision::Create,
-                    costume_decisions: Vec::new(),
+                    outfit_decisions: Vec::new(),
                 },
             ],
             accept_as_is: true,
@@ -823,7 +823,7 @@ async fn apply_ai_import_rejects_an_episode_from_another_block() {
             mappings: vec![ApplyMapping {
                 draft_ref: "scene-0".to_owned(),
                 decision: ApplyMappingDecision::Create,
-                costume_decisions: Vec::new(),
+                outfit_decisions: Vec::new(),
             }],
             accept_as_is: true,
             edit_distance: 0,
@@ -877,7 +877,7 @@ async fn apply_ai_import_rejects_accept_as_is_with_a_nonzero_edit_distance() {
             mappings: vec![ApplyMapping {
                 draft_ref: "scene-0".to_owned(),
                 decision: ApplyMappingDecision::Create,
-                costume_decisions: Vec::new(),
+                outfit_decisions: Vec::new(),
             }],
             // Contradictory: "no edits" alongside a nonzero edit count.
             accept_as_is: true,
@@ -2007,7 +2007,7 @@ async fn apply_ai_import_rejects_an_episode_group_the_preview_does_not_carry() {
             mappings: vec![ApplyMapping {
                 draft_ref: "scene-0".to_owned(),
                 decision: ApplyMappingDecision::Create,
-                costume_decisions: Vec::new(),
+                outfit_decisions: Vec::new(),
             }],
             accept_as_is: true,
             edit_distance: 0,
@@ -2078,7 +2078,7 @@ async fn apply_ai_import_prechecks_a_taken_episode_number_with_409() {
             mappings: vec![ApplyMapping {
                 draft_ref: "scene-0".to_owned(),
                 decision: ApplyMappingDecision::Create,
-                costume_decisions: Vec::new(),
+                outfit_decisions: Vec::new(),
             }],
             accept_as_is: true,
             edit_distance: 0,
@@ -2164,7 +2164,7 @@ async fn apply_ai_import_creates_an_episode_for_a_free_group_number() {
             mappings: vec![ApplyMapping {
                 draft_ref: "scene-0".to_owned(),
                 decision: ApplyMappingDecision::Create,
-                costume_decisions: Vec::new(),
+                outfit_decisions: Vec::new(),
             }],
             accept_as_is: true,
             edit_distance: 0,
@@ -2207,7 +2207,7 @@ async fn apply_ai_import_rejects_more_episode_groups_than_the_preview_carries() 
             mappings: vec![ApplyMapping {
                 draft_ref: "scene-0".to_owned(),
                 decision: ApplyMappingDecision::Create,
-                costume_decisions: Vec::new(),
+                outfit_decisions: Vec::new(),
             }],
             accept_as_is: true,
             edit_distance: 0,
@@ -2280,7 +2280,7 @@ fn create_mappings() -> Vec<ApplyMapping> {
         .map(|i| ApplyMapping {
             draft_ref: format!("scene-{i}"),
             decision: ApplyMappingDecision::Create,
-            costume_decisions: Vec::new(),
+            outfit_decisions: Vec::new(),
         })
         .collect()
 }

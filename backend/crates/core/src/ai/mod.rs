@@ -5,6 +5,7 @@
 // Co-authored-by: deepseek-v4-flash (opencode-go)
 // Co-authored-by: qwen3.8-flash (opencode-go)
 // Co-authored-by: glm-5.3-flash (neuralwatt)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 //! AI-assisted script and shooting-schedule import bounded context.
 //!
@@ -43,18 +44,19 @@ pub use ports::{
 };
 pub use preview::{
     AiImportPreviewResponse, AiPreviewPayload, ApplyGateError, ApplyMapping, ApplyMappingDecision,
-    CharacterApplyPlan, CostumeApplyPlan, CostumeBeatSlot, CostumeDecision, DraftCharacter,
-    DraftCostume, DraftEpisode, DraftScene, DraftShootingDay, EpisodeGroupPlan, EpisodeTarget,
-    MergeInput, MergedPreview, MergedScene, PlannedEpisode, PlannedShootingDay, RejectedCostume,
-    RejectedCostumeReason, ReviewerDecisions, SceneApplyCommand, SceneApplyPlan, SceneBeatLane,
-    SceneChunk, ScriptApplyPlan, ScriptContext, ShootingDayPlan, ShootingSchedule,
-    ShootingScheduleRow, UnappliedCostume, UnappliedCostumeReason, Uncertainty,
-    UncertaintyAcknowledgement, UncertaintyKind, category_conflict_uncertainties,
-    character_identity, character_mapping_ref, draft_row_ref, ensure_merge_applyable,
-    ensure_script_applyable, episode_group_refs, extract_scenes, is_meta_summary, merge_from_input,
-    merge_schedule_to_scenes, parse_mood_from_heading, parse_schedule_scene_ref, parse_script_day,
-    plan_scene_apply, sanitize_meta_summary, scene_beat_lanes, shooting_day_group_refs,
-    stable_draft_ref, verify_draft_costumes,
+    CategoryVocabularyEntry, CharacterApplyPlan, DraftCharacter, DraftEpisode, DraftOutfit,
+    DraftOutfitOrigin, DraftPiece, DraftScene, DraftShootingDay, EpisodeGroupPlan, EpisodeTarget,
+    MergeInput, MergedPreview, MergedScene, OutfitApplyPlan, OutfitBeatSlot, OutfitDecision,
+    PieceApplyPlan, PlannedEpisode, PlannedShootingDay, RejectedOutfit, RejectedOutfitReason,
+    ReviewerDecisions, SceneApplyCommand, SceneApplyPlan, SceneBeatLane, SceneChunk,
+    ScriptApplyPlan, ScriptContext, ShootingDayPlan, ShootingSchedule, ShootingScheduleRow,
+    UnappliedOutfit, UnappliedOutfitReason, Uncertainty, UncertaintyAcknowledgement,
+    UncertaintyKind, category_conflict_uncertainties, character_identity, character_mapping_ref,
+    draft_row_ref, ensure_merge_applyable, ensure_script_applyable, episode_group_refs,
+    extract_scenes, is_meta_summary, merge_from_input, merge_schedule_to_scenes,
+    parse_mood_from_heading, parse_schedule_scene_ref, parse_script_day, plan_scene_apply,
+    sanitize_meta_summary, scene_beat_lanes, shooting_day_group_refs, stable_draft_ref,
+    verify_draft_outfits,
 };
 pub use views::{
     AiConfigView, AiImportAttempt, AiImportJob, AiImportJobId, AiImportProgress, AiImportStage,
