@@ -5,15 +5,18 @@
 //
 
 // ignore_for_file: unused_element
+import 'package:built_collection/built_collection.dart';
+import 'package:breakdown_api/src/model/draft_outfit_candidate.dart';
 import 'package:breakdown_api/src/model/uncertainty_kind.dart';
 import 'package:built_value/built_value.dart';
 import 'package:built_value/serializer.dart';
 
 part 'uncertainty.g.dart';
 
-/// Uncertainty
+/// Not `Eq`: a gap's [`DraftOutfitCandidate`] list carries `f32` confidences.
 ///
 /// Properties:
+/// * [candidates] - Looks the script supports for this gap, in derivation order (OpenSpec change `ai-import-decision-outfit-continuity`, design D4). Empty for every uncertainty that is not a wardrobe gap, and for a gap the script offers no candidate for — an invented option is never presented.
 /// * [field]
 /// * [kind] - `serde(default)` so a preview stored before this field existed keeps blocking exactly as it did: an absent kind is a `FieldAmbiguity`.
 /// * [note]
@@ -21,6 +24,10 @@ part 'uncertainty.g.dart';
 /// * [suggestedValue]
 @BuiltValue()
 abstract class Uncertainty implements Built<Uncertainty, UncertaintyBuilder> {
+  /// Looks the script supports for this gap, in derivation order (OpenSpec change `ai-import-decision-outfit-continuity`, design D4). Empty for every uncertainty that is not a wardrobe gap, and for a gap the script offers no candidate for — an invented option is never presented.
+  @BuiltValueField(wireName: r'candidates')
+  BuiltList<DraftOutfitCandidate>? get candidates;
+
   @BuiltValueField(wireName: r'field')
   String get field;
 
@@ -61,6 +68,14 @@ class _$UncertaintySerializer implements PrimitiveSerializer<Uncertainty> {
     Uncertainty object, {
     FullType specifiedType = FullType.unspecified,
   }) sync* {
+    if (object.candidates != null) {
+      yield r'candidates';
+      yield serializers.serialize(
+        object.candidates,
+        specifiedType:
+            const FullType(BuiltList, [FullType(DraftOutfitCandidate)]),
+      );
+    }
     yield r'field';
     yield serializers.serialize(
       object.field,
@@ -115,6 +130,15 @@ class _$UncertaintySerializer implements PrimitiveSerializer<Uncertainty> {
       final key = serializedList[i] as String;
       final value = serializedList[i + 1];
       switch (key) {
+        case r'candidates':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType.nullable(
+                BuiltList, [FullType(DraftOutfitCandidate)]),
+          ) as BuiltList<DraftOutfitCandidate>?;
+          if (valueDes == null) continue;
+          result.candidates.replace(valueDes);
+          break;
         case r'field':
           final valueDes = serializers.deserialize(
             value,

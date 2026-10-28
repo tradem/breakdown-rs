@@ -10,6 +10,8 @@ class _$ApplyAiImportRequest extends ApplyAiImportRequest {
   @override
   final bool acceptAsIs;
   @override
+  final BuiltList<OutfitContinuitySelection>? continuitySelections;
+  @override
   final int editDistance;
   @override
   final BuiltList<ApplyEpisodeGroupRequest>? episodeGroups;
@@ -30,6 +32,7 @@ class _$ApplyAiImportRequest extends ApplyAiImportRequest {
 
   _$ApplyAiImportRequest._(
       {required this.acceptAsIs,
+      this.continuitySelections,
       required this.editDistance,
       this.episodeGroups,
       required this.episodeId,
@@ -52,6 +55,7 @@ class _$ApplyAiImportRequest extends ApplyAiImportRequest {
     if (identical(other, this)) return true;
     return other is ApplyAiImportRequest &&
         acceptAsIs == other.acceptAsIs &&
+        continuitySelections == other.continuitySelections &&
         editDistance == other.editDistance &&
         episodeGroups == other.episodeGroups &&
         episodeId == other.episodeId &&
@@ -65,6 +69,7 @@ class _$ApplyAiImportRequest extends ApplyAiImportRequest {
   int get hashCode {
     var _$hash = 0;
     _$hash = $jc(_$hash, acceptAsIs.hashCode);
+    _$hash = $jc(_$hash, continuitySelections.hashCode);
     _$hash = $jc(_$hash, editDistance.hashCode);
     _$hash = $jc(_$hash, episodeGroups.hashCode);
     _$hash = $jc(_$hash, episodeId.hashCode);
@@ -80,6 +85,7 @@ class _$ApplyAiImportRequest extends ApplyAiImportRequest {
   String toString() {
     return (newBuiltValueToStringHelper(r'ApplyAiImportRequest')
           ..add('acceptAsIs', acceptAsIs)
+          ..add('continuitySelections', continuitySelections)
           ..add('editDistance', editDistance)
           ..add('episodeGroups', episodeGroups)
           ..add('episodeId', episodeId)
@@ -98,6 +104,13 @@ class ApplyAiImportRequestBuilder
   bool? _acceptAsIs;
   bool? get acceptAsIs => _$this._acceptAsIs;
   set acceptAsIs(bool? acceptAsIs) => _$this._acceptAsIs = acceptAsIs;
+
+  ListBuilder<OutfitContinuitySelection>? _continuitySelections;
+  ListBuilder<OutfitContinuitySelection> get continuitySelections =>
+      _$this._continuitySelections ??= ListBuilder<OutfitContinuitySelection>();
+  set continuitySelections(
+          ListBuilder<OutfitContinuitySelection>? continuitySelections) =>
+      _$this._continuitySelections = continuitySelections;
 
   int? _editDistance;
   int? get editDistance => _$this._editDistance;
@@ -146,6 +159,7 @@ class ApplyAiImportRequestBuilder
     final $v = _$v;
     if ($v != null) {
       _acceptAsIs = $v.acceptAsIs;
+      _continuitySelections = $v.continuitySelections?.toBuilder();
       _editDistance = $v.editDistance;
       _episodeGroups = $v.episodeGroups?.toBuilder();
       _episodeId = $v.episodeId;
@@ -179,6 +193,7 @@ class ApplyAiImportRequestBuilder
           _$ApplyAiImportRequest._(
             acceptAsIs: BuiltValueNullFieldError.checkNotNull(
                 acceptAsIs, r'ApplyAiImportRequest', 'acceptAsIs'),
+            continuitySelections: _continuitySelections?.build(),
             editDistance: BuiltValueNullFieldError.checkNotNull(
                 editDistance, r'ApplyAiImportRequest', 'editDistance'),
             episodeGroups: _episodeGroups?.build(),
@@ -192,6 +207,9 @@ class ApplyAiImportRequestBuilder
     } catch (_) {
       late String _$failedField;
       try {
+        _$failedField = 'continuitySelections';
+        _continuitySelections?.build();
+
         _$failedField = 'episodeGroups';
         _episodeGroups?.build();
 

@@ -6,6 +6,8 @@
 // Co-authored-by: glm-5.3-flash (neuralwatt)
 // Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
+use std::collections::{HashMap, HashSet};
+
 use chrono::NaiveDate;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
@@ -543,6 +545,19 @@ pub struct DraftPiece {
 /// outfit is verified verbatim against the chunk, a derived one is a look the
 /// model composed from a shorthand the block named. Both are grounded at the
 /// outfit level; neither carries a per-piece quote.
+///
+/// Pass 2 (OpenSpec change `ai-import-decision-outfit-continuity`) adds the two
+/// cross-scene origins. Two deliberate properties:
+///
+/// - The quote stays on [`DraftOutfit::source_quote`]; a quote-carrying variant
+///   would duplicate it and could drift from the fragment the grounding check
+///   verified.
+/// - The enum stays **fieldless**, so the wire value is always a plain string. A
+///   mixed enum (unit variants plus struct variants) lowers to a `oneOf` whose
+///   two single-value string branches become two identical `string` alternatives
+///   in the generated client, which then cannot decode `"explicit_quote"` at all
+///   (`more than one match found`). The provenance payload therefore travels in
+///   the separate [`DraftOutfit::provenance`] field.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum DraftOutfitOrigin {
@@ -553,6 +568,92 @@ pub enum DraftOutfitOrigin {
     /// The model derived the look from the block's prose; the pieces are
     /// context-derived.
     Derived,
+    /// Pass 2 Option A: the character keeps wearing the look of an earlier
+    /// scene. The source row travels in [`DraftOutfitProvenance`], so the apply
+    /// can bind this scene's beat to the SAME `Outfit` aggregate instead of
+    /// creating a second look (design D3).
+    ContinuedFromScene,
+    /// Pass 2 Option B: the scene's own context (location, day, mood) implies a
+    /// different look. The name is derived deterministically from that context —
+    /// the script states no garment, so the look carries no pieces.
+    InferredFromContext,
+}
+
+impl DraftOutfitOrigin {
+    /// Whether this look continues an earlier scene's outfit (design D3).
+    #[must_use]
+    pub fn is_continuation(self) -> bool {
+        matches!(self, Self::ContinuedFromScene)
+    }
+
+    /// Whether Pass 2 produced this look (both cross-scene origins).
+    #[must_use]
+    pub fn is_pass_two(self) -> bool {
+        matches!(self, Self::ContinuedFromScene | Self::InferredFromContext)
+    }
+
+    /// Stable wire slug — the value the client branches on (provenance badge).
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::ExplicitQuote => "explicit_quote",
+            Self::Derived => "derived",
+            Self::ContinuedFromScene => "continued_from_scene",
+            Self::InferredFromContext => "inferred_from_context",
+        }
+    }
+}
+
+/// The Pass-2 provenance of a look (design D2/D3): how sure the Decision Model
+/// was, and — for a continuation — which row the look was read from.
+///
+/// Deliberately a separate field instead of arm data on [`DraftOutfitOrigin`]:
+/// the origin must stay a plain wire string so the generated client can decode
+/// it (see the enum's docs).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct DraftOutfitProvenance {
+    /// `draft_ref` of the source preview row ([`DraftScene::draft_ref`]);
+    /// `Some` only for a continuation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_draft_ref: Option<String>,
+    /// The source row's document scene number, when it carries one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_scene_number: Option<u32>,
+    /// The Decision Model's calibrated probability, `0.0..=1.0`.
+    pub confidence: f32,
+}
+
+impl DraftOutfitProvenance {
+    /// The `(source_draft_ref, source_scene_number)` of a continued look.
+    #[must_use]
+    pub fn continuation_source(&self) -> Option<(&str, Option<u32>)> {
+        self.source_draft_ref
+            .as_deref()
+            .map(|source| (source, self.source_scene_number))
+    }
+}
+
+/// One look the script actually supports for a wardrobe gap (design D4).
+///
+/// Surfaced on a gap [`Uncertainty`] so the reviewer can pick a candidate — or
+/// leave the scene without an outfit. Deliberately limited to what the preview
+/// itself can derive: a continuation of the figure's most recent outfit, or a
+/// context look naming the scene's own location. Never an invented option.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct DraftOutfitCandidate {
+    /// Where the candidate comes from (the badge the reviewer sees).
+    pub origin: DraftOutfitOrigin,
+    /// Display name of the candidate look.
+    pub name: String,
+    /// The preview row the candidate was derived from.
+    pub source_draft_ref: String,
+    /// That row's document scene number, when it carries one.
+    #[serde(default)]
+    pub source_scene_number: Option<u32>,
+    /// Confidence of the underlying decision, `0.0..=1.0`. The pure derivation
+    /// reports [`super::continuity::CONTINUITY_MIN_CONFIDENCE`] as the floor; the
+    /// Pass-2 runner stamps the probability the model actually reported.
+    pub confidence: f32,
 }
 
 /// One outfit extracted for a character of a draft scene.
@@ -579,6 +680,11 @@ pub struct DraftOutfit {
     /// Whether the block named the look explicitly (see [`DraftOutfitOrigin`]).
     #[serde(default)]
     pub origin: DraftOutfitOrigin,
+    /// Pass-2 provenance — `Some` for `continued_from_scene` and
+    /// `inferred_from_context` rows, `None` for a Pass-1 look (no decision stands
+    /// behind it). Additive on the wire.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provenance: Option<DraftOutfitProvenance>,
     /// The constituent garments, `0..n`. Empty is a valid answer: the outfit is
     /// then applied as a look without pieces.
     #[serde(default)]
@@ -978,7 +1084,8 @@ impl UncertaintyKind {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+/// Not `Eq`: a gap's [`DraftOutfitCandidate`] list carries `f32` confidences.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct Uncertainty {
     pub scene_index: usize,
     pub field: String,
@@ -988,6 +1095,12 @@ pub struct Uncertainty {
     /// blocking exactly as it did: an absent kind is a `FieldAmbiguity`.
     #[serde(default)]
     pub kind: UncertaintyKind,
+    /// Looks the script supports for this gap, in derivation order (OpenSpec
+    /// change `ai-import-decision-outfit-continuity`, design D4). Empty for
+    /// every uncertainty that is not a wardrobe gap, and for a gap the script
+    /// offers no candidate for — an invented option is never presented.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub candidates: Vec<DraftOutfitCandidate>,
 }
 
 /// The reviewer's acknowledgement of ONE blocking uncertainty (issue #663).
@@ -1335,10 +1448,45 @@ pub struct OutfitApplyPlan {
     pub name: String,
     /// Notes in the script's own wording.
     pub notes: Option<String>,
-    /// Quoted fragment the extraction was based on.
+    /// Quoted fragment the extraction was based on. Empty for a look Pass 2
+    /// derived from the scene context — there is no chunk to quote.
     pub source_quote: String,
-    /// The constituent garments, in plan order.
+    /// The constituent garments, in plan order. Always empty for a continued
+    /// look: its garments belong to the source outfit (design D3).
     pub pieces: Vec<PieceApplyPlan>,
+    /// Set when this row continues an earlier scene's look: the apply worker
+    /// then resolves the SOURCE outfit's id from the mapping and dispatches
+    /// only the beat, instead of creating a second `Outfit` (design D3).
+    pub continuation: Option<ContinuationPlan>,
+    /// The figure's beat position across the WHOLE preview, computed from the
+    /// immutable draft rows (see [`plan_scene_apply`]). This is the per-figure
+    /// position the `scene_outfit_beat` mapping row is addressed by, and it must
+    /// never be derived from the plan: the plan omits rejected and unattributable
+    /// outfits, so a plan-derived position shifts as soon as the reviewer changes
+    /// a decision — and the shifted row then finds another row's confirmed
+    /// mapping row and silently gets no beat.
+    pub beat_ordinal: usize,
+    /// Whether this row was synthesised from a reviewer's continuity selection
+    /// rather than read from a draft row. Its mapping address is keyed by the row
+    /// plus the figure's position in the draft's character list, because a
+    /// request-carried selection has no immutable preview index to key on.
+    pub from_continuity_selection: bool,
+}
+
+/// Where a continued outfit's aggregate comes from (design D3).
+///
+/// Resolved at plan time from the immutable preview, so the worker never has to
+/// re-derive it: the source row's `draft_ref` plus the outfit's position in that
+/// row is exactly the key its `outfit` mapping row was written under.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ContinuationPlan {
+    /// `draft_ref` of the source preview row.
+    pub source_draft_ref: String,
+    /// Position of the source outfit inside that row's `outfits` list.
+    pub source_outfit_ordinal: usize,
+    /// The figure's preview-wide identity (the source outfit belongs to it, and
+    /// a continuation may never cross figures).
+    pub character_identity: String,
 }
 
 /// Everything one accepted draft row applies: its scene, the figures it names,
@@ -1417,6 +1565,12 @@ pub enum UnappliedOutfitReason {
     /// never look like the plan-time drop ([`Self::CharacterNotPlanned`]),
     /// where the outfit never came into existence at all.
     BeatRejected,
+    /// A continued or reviewer-selected look could not be resolved: the source
+    /// row/outfit is gone from the plan, the source outfit was rejected, or the
+    /// context label the selection referred to is no longer derivable. Reported
+    /// separately so a continuation never looks like a failed create — no
+    /// `Outfit` was attempted at all.
+    ContinuityUnresolved,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -1440,6 +1594,13 @@ pub enum ApplyGateError {
     /// default invented behind their back.
     #[error("no shooting day group {0} in the preview")]
     MissingShootingDayGroup(String),
+    /// The request selected a continuity candidate the preview does not offer
+    /// (OpenSpec `ai-import-decision-outfit-continuity`). Same client-bug class
+    /// as [`ApplyGateError::MissingMapping`]: the selection names a gap scene
+    /// the preview never derived, a candidate kind the script cannot support,
+    /// or the same gap twice.
+    #[error("draft row {0} has a continuity selection the preview does not offer")]
+    UnknownContinuityCandidate(String),
 }
 
 pub fn ensure_script_applyable(
@@ -1551,9 +1712,56 @@ pub fn category_conflict_uncertainties(preview: &ScriptContext) -> Vec<Uncertain
                 ),
                 suggested_value: Some((*first).to_owned()),
                 kind: UncertaintyKind::FieldAmbiguity,
+                // Category conflicts carry no wardrobe candidates: the choice
+                // the reviewer makes is a cast classification (issue #695).
+                candidates: Vec::new(),
             })
         })
         .collect()
+}
+
+/// Resolve the OUTLET a continued look really creates its aggregate from.
+///
+/// Pass 2 can chain continuations (scene 5 continues scene 4, which continues
+/// scene 3), but only the row that introduced the look ever creates an
+/// `Outfit`. Following the chain to that row keeps the apply a single create plus
+/// N beats instead of N-1 empty `Outfit` aggregates (design D3). The walk is
+/// bounded by the scene count: a row may only continue an EARLIER row, so a
+/// cycle is impossible, and the bound keeps a corrupt preview from looping.
+fn resolve_continuation(
+    preview: &ScriptContext,
+    source_draft_ref: &str,
+    identity: &str,
+) -> Option<ContinuationPlan> {
+    let mut current_ref = source_draft_ref.to_owned();
+    for _ in 0..preview.scenes.len() {
+        let (_, scene) = preview
+            .scenes
+            .iter()
+            .enumerate()
+            .find(|(index, scene)| draft_row_ref(scene, *index) == current_ref)?;
+        let ordinal = scene
+            .outfits
+            .iter()
+            .position(|outfit| character_identity(&outfit.character_name) == identity)?;
+        // Follow the chain through the PROVENANCE: the origin itself is only a
+        // wire slug now.
+        match scene.outfits[ordinal]
+            .provenance
+            .as_ref()
+            .and_then(DraftOutfitProvenance::continuation_source)
+        {
+            Some((source_draft_ref, _)) => current_ref = source_draft_ref.to_owned(),
+            None => {
+                return Some(ContinuationPlan {
+                    source_draft_ref: current_ref,
+                    source_outfit_ordinal: ordinal,
+                    character_identity: identity.to_owned(),
+                });
+            }
+        }
+    }
+    None
 }
 
 /// The mapping reference of one draft row, falling back to its position for a
@@ -1586,6 +1794,130 @@ pub struct ReviewerDecisions<'a> {
     /// (`CostumeCategoryView`), used to turn a piece's `category_hint` into a
     /// category id (CQRS boundary: the write side never reads that projection).
     pub categories: &'a [CategoryVocabularyEntry],
+    /// Per-gap continuity resolutions (OpenSpec
+    /// `ai-import-decision-outfit-continuity`): the reviewer picked one of the
+    /// candidates the preview offered for a wardrobe gap. An unselected gap
+    /// stays without an outfit — never with an invented one.
+    pub continuity_selections: &'a [OutfitContinuitySelection],
+}
+
+/// The reviewer's resolution of ONE wardrobe gap: which of the offered
+/// candidates the scene's figure should wear.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct OutfitContinuitySelection {
+    /// Index of the gap scene in [`ScriptContext::scenes`] — the same index the
+    /// gap [`Uncertainty`] carries.
+    pub scene_index: usize,
+    /// The figure's preview-wide identity, as the gap reported it.
+    pub character_identity: String,
+    /// The candidate the reviewer picked.
+    pub candidate: OutfitContinuityCandidate,
+}
+
+/// The candidate kinds a gap can offer — at most one of each per gap.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum OutfitContinuityCandidate {
+    /// Continue the figure's most recent earlier look (Option A).
+    Continued,
+    /// A look derived from the scene's own location (Option B).
+    Inferred,
+}
+
+/// Validate the request's continuity selections against the preview's own
+/// derivation, and return them grouped by gap scene.
+///
+/// The preview is immutable, so its candidate list is the only authority: a
+/// selection it does not offer is a client bug (stale screen, hand-built
+/// request), never a value the server invents a fallback for.
+///
+/// A request may legitimately select EVERY gap, so the pass is indexed rather
+/// than scanned: one map over the gaps, one order-preserving sweep over the
+/// preview for the figures' most recent earlier dressed rows, and one set for
+/// duplicate detection. Per-selection scans over the preview made a valid
+/// maximum-size request quadratic (review finding).
+fn validate_continuity_selections<'a>(
+    preview: &'a ScriptContext,
+    selections: &'a [OutfitContinuitySelection],
+) -> Result<HashMap<usize, Vec<&'a OutfitContinuitySelection>>, ApplyGateError> {
+    if selections.is_empty() {
+        return Ok(HashMap::new());
+    }
+    let gaps = super::continuity::outfit_continuity_gaps(preview);
+    // Cheap rejection before any indexing: more selections than gaps can only be
+    // a stale or hand-built request, and the excess names no gap at all.
+    if let Some(unknown) = selections.get(gaps.len()) {
+        let draft_ref = preview
+            .scenes
+            .get(unknown.scene_index)
+            .map(|scene| draft_row_ref(scene, unknown.scene_index))
+            .unwrap_or_else(|| unknown.scene_index.to_string());
+        return Err(ApplyGateError::UnknownContinuityCandidate(draft_ref));
+    }
+    let mut by_gap: HashMap<(usize, &str), usize> = HashMap::with_capacity(gaps.len());
+    for (position, gap) in gaps.iter().enumerate() {
+        by_gap.insert((gap.scene_index, gap.character_identity.as_str()), position);
+    }
+    // Sweep in scene order so each figure's most recent EARLIER dressed row is
+    // known in O(1) when its selection comes up.
+    let mut ordered: Vec<&OutfitContinuitySelection> = selections.iter().collect();
+    ordered.sort_by_key(|selection| selection.scene_index);
+    let mut dressed: HashMap<String, (usize, usize)> = HashMap::new();
+    let mut scene_cursor = 0usize;
+    let mut seen: HashSet<(usize, &str)> = HashSet::with_capacity(ordered.len());
+    let mut validated: HashMap<usize, Vec<&OutfitContinuitySelection>> = HashMap::new();
+    for selection in ordered {
+        let Some(&gap_position) =
+            by_gap.get(&(selection.scene_index, selection.character_identity.as_str()))
+        else {
+            let draft_ref = preview
+                .scenes
+                .get(selection.scene_index)
+                .map(|scene| draft_row_ref(scene, selection.scene_index))
+                .unwrap_or_else(|| selection.scene_index.to_string());
+            return Err(ApplyGateError::UnknownContinuityCandidate(draft_ref));
+        };
+        let gap = &gaps[gap_position];
+        let draft_ref = draft_row_ref(&preview.scenes[gap.scene_index], gap.scene_index);
+        // Two selections for one gap would plan two looks for one figure in one
+        // scene: refused instead of silently keeping the last.
+        if !seen.insert((selection.scene_index, gap.character_identity.as_str())) {
+            return Err(ApplyGateError::UnknownContinuityCandidate(draft_ref));
+        }
+        while scene_cursor < gap.scene_index {
+            for (outfit_index, outfit) in preview.scenes[scene_cursor].outfits.iter().enumerate() {
+                dressed.insert(
+                    character_identity(&outfit.character_name),
+                    (scene_cursor, outfit_index),
+                );
+            }
+            scene_cursor += 1;
+        }
+        let prior = dressed
+            .get(&gap.character_identity)
+            .map(
+                |(scene_index, outfit_index)| super::continuity::PriorOutfit {
+                    scene_index: *scene_index,
+                    scene: &preview.scenes[*scene_index],
+                    outfit: &preview.scenes[*scene_index].outfits[*outfit_index],
+                },
+            );
+        let offered =
+            super::continuity::continuity_candidates(gap, prior, &preview.scenes[gap.scene_index])
+                .iter()
+                .any(|candidate| {
+                    candidate.origin.is_continuation()
+                        == matches!(selection.candidate, OutfitContinuityCandidate::Continued)
+                });
+        if !offered {
+            return Err(ApplyGateError::UnknownContinuityCandidate(draft_ref));
+        }
+        validated
+            .entry(gap.scene_index)
+            .or_default()
+            .push(selection);
+    }
+    Ok(validated)
 }
 
 /// One entry of the target season's category vocabulary, as the API edge
@@ -1644,8 +1976,32 @@ pub fn plan_scene_apply(
         shooting_days,
         acknowledged_uncertainties: acknowledged,
         categories,
+        continuity_selections,
     } = *decisions;
     ensure_script_applyable(preview, acknowledged)?;
+    // A continuity selection the preview does not offer refuses the whole plan
+    // (client bug), so the validated list is what the row loop reads.
+    let continuations = validate_continuity_selections(preview, continuity_selections)?;
+    // Preview-derived beat positions (design D3, review finding): a beat's
+    // mapping address is the figure's position in the IMMUTABLE preview — every
+    // earlier outfit of that figure counts, whatever its review decision or
+    // attribution. Deriving it from the plan would shift the position as soon as
+    // the reviewer accepts an outfit they rejected before, and the shifted row
+    // would then find the OTHER row's confirmed mapping row and silently get no
+    // beat. Same doctrine as the piece offsets below.
+    let mut beat_ordinals: HashMap<(usize, usize), usize> = HashMap::new();
+    {
+        let mut figure_cursor: HashMap<String, usize> = HashMap::new();
+        for (row_index, draft) in preview.scenes.iter().enumerate() {
+            for (outfit_index, outfit) in draft.outfits.iter().enumerate() {
+                let next = figure_cursor
+                    .entry(character_identity(&outfit.character_name))
+                    .or_insert(0);
+                beat_ordinals.insert((row_index, outfit_index), *next);
+                *next += 1;
+            }
+        }
+    }
     let mut plan = ScriptApplyPlan::default();
 
     for (index, draft) in preview.scenes.iter().enumerate() {
@@ -1826,29 +2182,72 @@ pub fn plan_scene_apply(
                 });
                 continue;
             };
-            let mut next_piece_ordinal = piece_offsets[ordinal];
-            let pieces = outfit
-                .pieces
-                .iter()
-                .filter(|piece| !piece.name.trim().is_empty())
-                .map(|piece| {
-                    let piece_ordinal = next_piece_ordinal;
-                    next_piece_ordinal += 1;
-                    PieceApplyPlan {
-                        ordinal: piece_ordinal,
-                        outfit_ordinal: ordinal,
-                        name: piece.name.trim().to_owned(),
-                        category_id: resolve_category(categories, piece.category_hint.as_deref()),
-                        category_hint: piece.category_hint.clone(),
-                        notes: piece
-                            .description
-                            .as_deref()
-                            .map(str::trim)
-                            .filter(|text| !text.is_empty())
-                            .map(str::to_owned),
+            // Pass 2 continuation (design D3): this row creates NOTHING — the
+            // look already exists in the source row and the apply only adds the
+            // beat. The source is resolved here, from the immutable preview, so
+            // the worker dispatches against a mapping key it never re-derives.
+            let continuation = if outfit.origin.is_continuation() {
+                // A continuation's source lives in its provenance; a missing one
+                // is reported, never guessed.
+                let source = outfit
+                    .provenance
+                    .as_ref()
+                    .and_then(DraftOutfitProvenance::continuation_source);
+                match source.and_then(|(source_draft_ref, _)| {
+                    resolve_continuation(preview, source_draft_ref, &identity)
+                }) {
+                    Some(continuation) => Some(continuation),
+                    None => {
+                        let source_draft_ref = source
+                            .map(|(source, _)| source.to_owned())
+                            .unwrap_or_else(|| "<missing>".to_owned());
+                        plan.unapplied_outfits.push(UnappliedOutfit {
+                            draft_ref: draft_ref.clone(),
+                            ordinal,
+                            character_name: outfit.character_name.clone(),
+                            name: outfit.name.clone(),
+                            reason: UnappliedOutfitReason::ContinuityUnresolved,
+                            detail: Some(format!(
+                                "source row {source_draft_ref} carries no outfit for this figure"
+                            )),
+                        });
+                        continue;
                     }
-                })
-                .collect();
+                }
+            } else {
+                None
+            };
+            let mut next_piece_ordinal = piece_offsets[ordinal];
+            let pieces = if continuation.is_some() {
+                // A continued look owns no garments of its own.
+                Vec::new()
+            } else {
+                outfit
+                    .pieces
+                    .iter()
+                    .filter(|piece| !piece.name.trim().is_empty())
+                    .map(|piece| {
+                        let piece_ordinal = next_piece_ordinal;
+                        next_piece_ordinal += 1;
+                        PieceApplyPlan {
+                            ordinal: piece_ordinal,
+                            outfit_ordinal: ordinal,
+                            name: piece.name.trim().to_owned(),
+                            category_id: resolve_category(
+                                categories,
+                                piece.category_hint.as_deref(),
+                            ),
+                            category_hint: piece.category_hint.clone(),
+                            notes: piece
+                                .description
+                                .as_deref()
+                                .map(str::trim)
+                                .filter(|text| !text.is_empty())
+                                .map(str::to_owned),
+                        }
+                    })
+                    .collect()
+            };
             outfits.push(OutfitApplyPlan {
                 ordinal,
                 character_identity: character.identity.clone(),
@@ -1862,6 +2261,84 @@ pub fn plan_scene_apply(
                     .map(str::to_owned),
                 source_quote: outfit.source_quote.clone(),
                 pieces,
+                continuation,
+                beat_ordinal: beat_ordinals
+                    .get(&(index, ordinal))
+                    .copied()
+                    .unwrap_or_default(),
+                from_continuity_selection: false,
+            });
+        }
+
+        // ── Reviewer-resolved wardrobe gaps ──
+        // A gap has no extracted outfit, so the reviewer's pick synthesizes the
+        // row. Its address is NOT a rank among the selections — that shifts when
+        // the reviewer adds or drops another selection of the same row. The
+        // figure's position in the draft's own character list is immutable and
+        // unique per figure within the row, and the synthetic rows carry their
+        // own mapping kinds, so they can never collide with an extracted row.
+        for selection in continuations.get(&index).into_iter().flatten().copied() {
+            let identity = selection.character_identity.clone();
+            let resolved: Option<(String, String, Option<ContinuationPlan>)> = match selection
+                .candidate
+            {
+                OutfitContinuityCandidate::Continued => {
+                    super::continuity::prior_outfit(preview, index, &identity).and_then(|prior| {
+                        let source_ref = draft_row_ref(prior.scene, prior.scene_index);
+                        resolve_continuation(preview, &source_ref, &identity).map(|plan| {
+                            (
+                                prior.outfit.name.trim().to_owned(),
+                                prior.outfit.source_quote.clone(),
+                                Some(plan),
+                            )
+                        })
+                    })
+                }
+                OutfitContinuityCandidate::Inferred => super::continuity::context_look_name(draft)
+                    .map(|name| (name, String::new(), None)),
+            };
+            // The figure's position in the draft's own character list — the
+            // immutable address of a request-carried row.
+            let draft_ordinal = characters
+                .iter()
+                .find(|known| known.identity == identity)
+                .map(|known| known.ordinal)
+                .unwrap_or_default();
+            let Some((name, source_quote, continuation)) = resolved else {
+                plan.unapplied_outfits.push(UnappliedOutfit {
+                    draft_ref: draft_ref.clone(),
+                    ordinal: draft_ordinal,
+                    character_name: identity,
+                    name: String::new(),
+                    reason: UnappliedOutfitReason::ContinuityUnresolved,
+                    detail: Some(
+                        "the selected candidate is no longer derivable from the preview".to_owned(),
+                    ),
+                });
+                continue;
+            };
+            let Some(character) = characters.iter().find(|known| known.identity == identity) else {
+                plan.unapplied_outfits.push(UnappliedOutfit {
+                    draft_ref: draft_ref.clone(),
+                    ordinal: draft_ordinal,
+                    character_name: identity,
+                    name,
+                    reason: UnappliedOutfitReason::CharacterNotPlanned,
+                    detail: None,
+                });
+                continue;
+            };
+            outfits.push(OutfitApplyPlan {
+                ordinal: draft_ordinal,
+                character_identity: character.identity.clone(),
+                character_name: character.name.clone(),
+                name,
+                notes: None,
+                source_quote,
+                pieces: Vec::new(),
+                continuation,
+                beat_ordinal: draft_ordinal,
+                from_continuity_selection: true,
             });
         }
 

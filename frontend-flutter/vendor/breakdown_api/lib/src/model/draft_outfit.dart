@@ -8,6 +8,7 @@
 import 'package:breakdown_api/src/model/draft_piece.dart';
 import 'package:built_collection/built_collection.dart';
 import 'package:breakdown_api/src/model/draft_outfit_origin.dart';
+import 'package:breakdown_api/src/model/draft_outfit_provenance.dart';
 import 'package:built_value/built_value.dart';
 import 'package:built_value/serializer.dart';
 
@@ -21,6 +22,7 @@ part 'draft_outfit.g.dart';
 /// * [notes] - Free-form notes in the script's own wording — the full description the wardrobe department needs beyond the name.
 /// * [origin] - Whether the block named the look explicitly (see [`DraftOutfitOrigin`]).
 /// * [pieces] - The constituent garments, `0..n`. Empty is a valid answer: the outfit is then applied as a look without pieces.
+/// * [provenance] - Pass-2 provenance — `Some` for `continued_from_scene` and `inferred_from_context` rows, `None` for a Pass-1 look (no decision stands behind it). Additive on the wire.
 /// * [sourceQuote] - Quoted fragment of the chunk this outfit was extracted from.
 @BuiltValue()
 abstract class DraftOutfit implements Built<DraftOutfit, DraftOutfitBuilder> {
@@ -39,11 +41,15 @@ abstract class DraftOutfit implements Built<DraftOutfit, DraftOutfitBuilder> {
   /// Whether the block named the look explicitly (see [`DraftOutfitOrigin`]).
   @BuiltValueField(wireName: r'origin')
   DraftOutfitOrigin? get origin;
-  // enum originEnum {  explicit_quote,  derived,  };
+  // enum originEnum {  explicit_quote,  derived,  continued_from_scene,  inferred_from_context,  };
 
   /// The constituent garments, `0..n`. Empty is a valid answer: the outfit is then applied as a look without pieces.
   @BuiltValueField(wireName: r'pieces')
   BuiltList<DraftPiece>? get pieces;
+
+  /// Pass-2 provenance — `Some` for `continued_from_scene` and `inferred_from_context` rows, `None` for a Pass-1 look (no decision stands behind it). Additive on the wire.
+  @BuiltValueField(wireName: r'provenance')
+  DraftOutfitProvenance? get provenance;
 
   /// Quoted fragment of the chunk this outfit was extracted from.
   @BuiltValueField(wireName: r'source_quote')
@@ -101,6 +107,13 @@ class _$DraftOutfitSerializer implements PrimitiveSerializer<DraftOutfit> {
       yield serializers.serialize(
         object.pieces,
         specifiedType: const FullType(BuiltList, [FullType(DraftPiece)]),
+      );
+    }
+    if (object.provenance != null) {
+      yield r'provenance';
+      yield serializers.serialize(
+        object.provenance,
+        specifiedType: const FullType.nullable(DraftOutfitProvenance),
       );
     }
     yield r'source_quote';
@@ -171,6 +184,14 @@ class _$DraftOutfitSerializer implements PrimitiveSerializer<DraftOutfit> {
           ) as BuiltList<DraftPiece>?;
           if (valueDes == null) continue;
           result.pieces.replace(valueDes);
+          break;
+        case r'provenance':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType.nullable(DraftOutfitProvenance),
+          ) as DraftOutfitProvenance?;
+          if (valueDes == null) continue;
+          result.provenance.replace(valueDes);
           break;
         case r'source_quote':
           final valueDes = serializers.deserialize(

@@ -72,6 +72,78 @@ tag. Never edit a released entry afterwards.
     `outfit_count` and a `dropped_outfits` grounding penalty (renamed from
     `costume_count` / `dropped_costumes`).
 
+### Added
+
+- **AI import Pass 2 — cross-scene outfit continuity** (OpenSpec change
+  `ai-import-decision-outfit-continuity`; `core 0.45.0 → 0.46.0`,
+  `infra 0.53.0 → 0.54.0`, `api 0.43.0 → 0.44.0`). Productions name wardrobe
+  where a figure first appears and stay silent afterwards, so Pass 1 leaves many
+  `(scene, character)` pairs with action but no outfit. After every chunk is
+  merged, a second pass now asks the Decision Model (issue #722) one calibrated
+  choice question per gap and records the answer:
+
+  - **Eligibility (design D1).** A pair enters Pass 2 only when the scene names
+    the figure, carries no outfit for it, and has plausible action (a non-blank
+    `summary` that is not a meta-summary). Outline stubs never trigger
+    inference.
+  - **Provenance on the wire.** `DraftOutfitOrigin` gains the two plain string
+    values `continued_from_scene` and `inferred_from_context` alongside the
+    existing `explicit_quote` / `derived`, and the payload travels in a new
+    optional `DraftOutfit.provenance` object
+    (`DraftOutfitProvenance { source_draft_ref, source_scene_number, confidence }`,
+    `source_draft_ref` only for a continuation). `DraftOutfit.source_quote` stays
+    the single quote field (grounding unchanged) and pre-change previews still
+    load.
+  - **Option A shares the `Outfit`.** A continuation plans **no** pieces and
+    **no** second look: the planner resolves the source row/ordinal from the
+    immutable preview (`ContinuationPlan`), the worker resolves the source
+    outfit's id from the apply mapping and dispatches only the beat — two scenes
+    cast one `Outfit` aggregate. Unresolvable sources are reported as the new
+    `continuity_unresolved` reason, never fabricated.
+  - **Option B is label-only.** The look is named from the scene's own location
+    (`Kontext-Look (<LOCATION>)`) with **zero** pieces, because the script states
+    no garment; a non-blocking uncertainty tells the reviewer it was inferred.
+  - **Option C offers only script-derivable candidates.** `Uncertainty` gains
+    `candidates` (skipped when empty, so the wire shape is additive): the prior
+    look and — on a location shift or day change — the context look. Neither
+    derivable ⇒ an empty list and no choice at all.
+  - **Reviewer resolution.** `POST /v1/ai-import/jobs/{id}/apply` accepts
+    `continuity_selections` (validated against the preview's own candidate list;
+    a stale selection answers `409 ai-import.apply-unknown-continuity-candidate`,
+    a new registry entry with a golden problem document). An unselected gap
+    applies without an outfit — never with an invented one.
+  - **Beat mapping keyed preview-wide.** The `scene_outfit_beat` ordinal is now
+    the figure's position across the **immutable preview** (computed by the
+    planner from the draft rows, never from the plan) instead of within one row:
+    the row-local ordinal made a figure's beat in a second scene collide with its
+    first row's mapping row and silently never be added — the continuation case
+    exposes it, and a figure named by one row keeps the 0..n-1 it always had.
+    Rows synthesised from a continuity selection carry their own mapping kinds
+    and are addressed by the row plus the figure's draft position.
+  - **Telemetry.** Pass-2 requests accumulate `tokens_in` / energy into the job
+    usage and log a per-job counter line (gaps / continued / inferred / reported
+    / undecided). The pass is best-effort: a provider failure logs and ends it,
+    and a lost claim stops it before the next paid request.
+  - **Dart client.** `frontend-flutter/vendor/breakdown_api` regenerated from the
+    new contract — `DraftOutfitOrigin` stays a **plain string enum**, plus
+    `DraftOutfitProvenance`, `DraftOutfitCandidate`, `OutfitContinuitySelection`
+    and the new `Uncertainty.candidates` /
+    `ApplyAiImportRequest.continuitySelections` fields. The preview UI work
+    (badges, candidate picker) is issue #745.
+  - **Review round (PR #746, CodeRabbitAI):** two hardening fixes ride this
+    same cut. Continuity-selection validation is **indexed** (one map over the
+    gaps, one ordered preview sweep for each figure's most recent dressed row, a
+    set for duplicates, and the over-long-list guard inside the same pass)
+    instead of scanning the preview per selection. And a beat's mapping ordinal
+    is **preview-derived** — a plan-derived ordinal shifted when the reviewer
+    accepted a previously rejected outfit, so the shifted row matched another
+    row's confirmed mapping row and the scene silently got no beat; regression
+    tests `accepting_a_previously_rejected_outfit_keeps_every_beat_address` and
+    `a_continuity_selection_keeps_its_address_when_others_are_added` pin it. The
+    wire shape above (`origin` as a plain string + `provenance`) is what the
+    generated client can actually decode
+    (`test/unit/draft_outfit_origin_test.dart`).
+
 ### Fixed
 
 - **Wardrobe split — review findings** (branch

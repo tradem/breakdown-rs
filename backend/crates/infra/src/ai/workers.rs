@@ -35,7 +35,7 @@ use breakdown_core::episode::ports::EpisodeCommands;
 use breakdown_core::error::DomainError;
 use breakdown_core::error_registry::{
     AI_IMPORT_APPLY_MISSING_EPISODE_GROUP, AI_IMPORT_APPLY_MISSING_MAPPING,
-    AI_IMPORT_APPLY_MISSING_SHOOTING_DAY_GROUP,
+    AI_IMPORT_APPLY_MISSING_SHOOTING_DAY_GROUP, AI_IMPORT_APPLY_UNKNOWN_CONTINUITY_CANDIDATE,
 };
 use breakdown_core::error_registry::{SCENE_CHARACTER_ALREADY_ASSIGNED, SCENE_VALIDATION};
 use breakdown_core::outfit::commands::{AddPieceToOutfit, CreateOutfit, UpdateOutfitNotes};
@@ -602,6 +602,7 @@ where
                                 ),
                                 suggested_value: Some(rejected.name),
                                 kind: UncertaintyKind::DroppedRow,
+                                candidates: Vec::new(),
                             });
                         }
                         dropped_costumes.push(scene_dropped);
@@ -663,6 +664,26 @@ where
             progress.record_episode(chunk.episode.as_ref());
             super::workers::publish_progress(&*self.queue, job.id, worker_id, &progress).await?;
         }
+        // Pass 2 (OpenSpec `ai-import-decision-outfit-continuity`): after EVERY
+        // chunk is extracted and merged, a cross-scene scan asks the Decision
+        // Model what each undressed figure most probably wears. Best-effort by
+        // contract — a provider failure logs and ends the pass, and the preview
+        // is stored either way (the extraction is already paid for). It runs
+        // BEFORE the storing announcement so the progress stage never claims
+        // "storing" while a paid request is still outstanding.
+        let continuity = match self.decision.as_ref() {
+            Some(decision) => {
+                super::outfit_continuity::run_outfit_continuity_pass(
+                    decision,
+                    &mut context,
+                    &mut total_usage,
+                    || super::heartbeat::claim_lost(heartbeat.as_ref()),
+                )
+                .await
+            }
+            None => super::outfit_continuity::ContinuityPassReport::default(),
+        };
+
         // Storing boundary (issue #664): the last visibility gap is the
         // preview upload, not a silent stall at "extracting".
         progress.stage = AiImportStage::StoringPreview;
@@ -688,6 +709,19 @@ where
                 chunks = chunk_count,
                 "ai-extraction: meta-summary guard rewrote {} scene summaries to null (issue #668)",
                 meta_rewrites
+            );
+        }
+        // Pass-2 telemetry: the counters a prompt/model regression would move.
+        if continuity.gaps > 0 {
+            tracing::info!(
+                job_id = %job.id.as_uuid(),
+                gaps = continuity.gaps,
+                continued = continuity.continued,
+                inferred = continuity.inferred,
+                reported = continuity.gaps_reported,
+                undecided = continuity.undecided,
+                unresolved = continuity.unresolved(),
+                "ai-extraction: outfit-continuity pass finished"
             );
         }
         let handle = self.previews.put(job.id, payload).await?;
@@ -1404,6 +1438,11 @@ pub struct ApplyScriptRequest<'a> {
     /// ids; the write side never reads that projection. An empty list is
     /// legitimate: every piece is then created uncategorized.
     pub categories: Vec<CategoryVocabularyEntry>,
+    /// Per-gap continuity resolutions (OpenSpec
+    /// `ai-import-decision-outfit-continuity`). Each entry names a gap scene and
+    /// the candidate the reviewer picked; the planner validates every one
+    /// against the preview's own candidate list.
+    pub continuity_selections: Vec<breakdown_core::ai::OutfitContinuitySelection>,
     pub telemetry: Option<Telemetry>,
 }
 
@@ -1411,6 +1450,53 @@ pub struct ApplyScriptRequest<'a> {
 pub struct UuidVersion {
     pub aggregate_id: uuid::Uuid,
     pub version: breakdown_core::shared::AggregateVersion,
+}
+
+/// The mapping address one beat is recorded under: kind, mapping `draft_ref`,
+/// ordinal.
+///
+/// `draft_ref` is the FINAL key — consumers hand it to `find`/`reserve` verbatim
+/// and never re-derive it. An extracted row's key is the figure's preview-wide
+/// mapping reference ([`character_mapping_ref`], not the raw identity):
+/// re-deriving it at one call site but not another is what made the
+/// scene-version recovery loop look up a key no row is stored under (PR #746
+/// review).
+#[derive(Debug)]
+struct BeatAddress<'a> {
+    kind: &'static str,
+    draft_ref: std::borrow::Cow<'a, str>,
+    ordinal: usize,
+}
+
+/// Resolve the mapping address of one planned outfit's beat.
+///
+/// The ordinal comes from the planner, which derives it from the IMMUTABLE
+/// preview (or, for a reviewer-selected gap row, from the draft's own character
+/// list) — never from the plan. A plan-derived position shifts when the reviewer
+/// changes a decision, and the shifted row would then find another row's
+/// confirmed mapping row and silently get no beat (review finding).
+///
+/// Extracted rows are keyed per FIGURE: one figure can wear a look in several
+/// scenes, and the ordinal is its position across the whole preview. Selected
+/// gap rows are request-carried and have no preview index, so they get their own
+/// kind and are keyed by the row plus the figure's draft position; the two
+/// namespaces can therefore never collide.
+fn beat_address<'a>(row: &'a SceneApplyPlan, outfit: &'a OutfitApplyPlan) -> BeatAddress<'a> {
+    if outfit.from_continuity_selection {
+        BeatAddress {
+            kind: mapping_kind::SCENE_OUTFIT_BEAT_CONTINUITY,
+            draft_ref: std::borrow::Cow::Borrowed(row.draft_ref.as_str()),
+            ordinal: outfit.beat_ordinal,
+        }
+    } else {
+        BeatAddress {
+            kind: mapping_kind::SCENE_OUTFIT_BEAT,
+            // The figure's preview-wide mapping reference — the same key the
+            // `character` rows use and the one beat rows are stored under.
+            draft_ref: std::borrow::Cow::Owned(character_mapping_ref(&outfit.character_identity)),
+            ordinal: outfit.beat_ordinal,
+        }
+    }
 }
 
 /// Where one outfit beat's command points. Bundled so `apply_outfit_beat`
@@ -1424,8 +1510,8 @@ struct BeatDispatch<'a> {
     /// row's mapping rows jointly track.
     scene_id: Uuid,
     character_id: Uuid,
-    outfit: &'a OutfitApplyPlan,
-    per_figure_order: usize,
+    /// The mapping address this beat is recorded under (see [`beat_address`]).
+    beat: BeatAddress<'a>,
     outfit_id: Uuid,
     /// The running scene-stream version of the row, advanced in place.
     scene_version: &'a mut AggregateVersion,
@@ -1443,6 +1529,38 @@ where
     Q: AiImportQueue + 'static,
     SR: SeasonRepository + 'static,
 {
+    /// Resolve the `Outfit` a continued look references (design D3).
+    ///
+    /// The SOURCE row's `outfit` mapping row is the durable record of the aggregate
+    /// that row created; a continuation creates none. A missing row (the reviewer
+    /// rejected the source outfit) and a row that never reached its create (the
+    /// apply crashed earlier, or the source row was dropped from the plan) both mean
+    /// there is no look to reference — reported as
+    /// [`UnappliedOutfitReason::ContinuityUnresolved`], never fabricated.
+    async fn resolve_continued_outfit(
+        &self,
+        preview_id: AiImportJobId,
+        continuation: &breakdown_core::ai::ContinuationPlan,
+    ) -> Result<Option<Uuid>, DomainError> {
+        let ordinal = ordinal_of(continuation.source_outfit_ordinal)?;
+        let stored = self
+            .mappings
+            .find(
+                // ast-grep-ignore: cqrs-boundary
+                preview_id,
+                &continuation.source_draft_ref,
+                mapping_kind::OUTFIT,
+                ordinal,
+            )
+            .await?;
+        match stored {
+            Some(mapping) if mapping.aggregate_version >= OUTFIT_CREATED => {
+                Ok(Some(mapping.aggregate_id))
+            }
+            _ => Ok(None),
+        }
+    }
+
     pub async fn apply_script(
         &self,
         request: ApplyScriptRequest<'_>,
@@ -1460,6 +1578,7 @@ where
             shooting_days,
             acknowledged_uncertainties,
             categories,
+            continuity_selections,
             telemetry,
         } = request;
         // The planner is the single source of what an apply dispatches; the
@@ -1488,6 +1607,7 @@ where
                 // edge and carried in the request (CQRS boundary: the planner
                 // never reads that projection).
                 categories: &categories,
+                continuity_selections: &continuity_selections,
             },
         )
         .map_err(|error| match error {
@@ -1502,6 +1622,13 @@ where
             ApplyGateError::MissingShootingDayGroup(day_ref) => DomainError::Conflict {
                 code: &AI_IMPORT_APPLY_MISSING_SHOOTING_DAY_GROUP,
                 reason: format!("no shooting day group {day_ref} in the preview"),
+            },
+            // OpenSpec `ai-import-decision-outfit-continuity`: a continuity
+            // selection the immutable preview does not derive is the reviewer's
+            // screen being stale, not a domain refusal.
+            ApplyGateError::UnknownContinuityCandidate(draft_ref) => DomainError::Conflict {
+                code: &AI_IMPORT_APPLY_UNKNOWN_CONTINUITY_CANDIDATE,
+                reason: format!("draft row {draft_ref} has no such continuity candidate"),
             },
             other => DomainError::conflict(other.to_string()),
         })?;
@@ -1616,15 +1743,16 @@ where
             let lanes = scene_beat_lanes(row);
             let mut scene_version = scene.version;
             for lane in &lanes {
-                let lane_ref = character_mapping_ref(&lane.character.identity);
                 for slot in &lane.beats {
+                    let address = beat_address(row, slot.outfit);
                     let stored = self
                         .mappings
                         .find(
+                            // ast-grep-ignore: cqrs-boundary
                             preview_id,
-                            &lane_ref,
-                            mapping_kind::SCENE_OUTFIT_BEAT,
-                            ordinal_of(slot.per_figure_order)?, // ast-grep-ignore: cqrs-boundary
+                            &address.draft_ref,
+                            address.kind,
+                            ordinal_of(address.ordinal)?,
                         )
                         .await?;
                     if let Some(stored) = stored {
@@ -1688,6 +1816,65 @@ where
                 };
                 for slot in &lane.beats {
                     let outfit = slot.outfit;
+                    // Continuation (OpenSpec `ai-import-decision-outfit-continuity`,
+                    // design D3): a continued look creates NOTHING. The source
+                    // scene already owns the `Outfit`; this row contributes only
+                    // the beat, so the reference is by identity and no second
+                    // aggregate (nor a duplicate piece set) can appear.
+                    if let Some(continuation) = outfit.continuation.as_ref() {
+                        let resolved = self
+                            .resolve_continued_outfit(preview_id, continuation)
+                            .await?;
+                        let Some(outfit_id) = resolved else {
+                            tracing::warn!(
+                                draft_ref = %row.draft_ref,
+                                outfit_ordinal = outfit.ordinal,
+                                source_draft_ref = %continuation.source_draft_ref,
+                                "AI apply could not resolve the source outfit of a continuation"
+                            );
+                            result.unapplied_outfits.push(unapplied(
+                                row,
+                                outfit,
+                                UnappliedOutfitReason::ContinuityUnresolved,
+                                Some(format!(
+                                    "source outfit of row {} was not created by this apply",
+                                    continuation.source_draft_ref
+                                )),
+                            ));
+                            continue;
+                        };
+                        match self
+                            .apply_outfit_beat(BeatDispatch {
+                                actor: actor.clone(),
+                                preview_id,
+                                project_id,
+                                scene_id: scene.aggregate_id,
+                                character_id,
+                                beat: beat_address(row, outfit),
+                                outfit_id,
+                                scene_version: &mut scene_version,
+                            })
+                            .await?
+                        {
+                            BeatAttempt::Appended => result.created_outfit_beats += 1,
+                            BeatAttempt::Settled => {}
+                            BeatAttempt::Refused(error) => {
+                                tracing::warn!(
+                                    draft_ref = %row.draft_ref,
+                                    outfit_ordinal = outfit.ordinal,
+                                    error = %error,
+                                    "AI apply could not add one continued outfit beat"
+                                );
+                                result.unapplied_outfits.push(unapplied(
+                                    row,
+                                    outfit,
+                                    UnappliedOutfitReason::BeatRejected,
+                                    Some(error.to_string()),
+                                ));
+                            }
+                        }
+                        continue;
+                    }
                     // Step 1 — the outfit's constituent pieces in the season
                     // fundus. They must exist before the outfit can reference
                     // them, so a refused piece stops the look here.
@@ -1769,8 +1956,7 @@ where
                             project_id,
                             scene_id: scene.aggregate_id,
                             character_id,
-                            outfit,
-                            per_figure_order: slot.per_figure_order,
+                            beat: beat_address(row, outfit),
                             outfit_id: applied.outfit_id,
                             scene_version: &mut scene_version,
                         })
@@ -2334,9 +2520,16 @@ where
             piece_ids,
         } = dispatch;
         let ordinal = ordinal_of(outfit.ordinal)?;
+        // A selected gap row carries its own kind: its ordinal is the figure's
+        // draft position, so sharing the extracted rows' namespace could collide.
+        let kind = if outfit.from_continuity_selection {
+            mapping_kind::OUTFIT_CONTINUITY
+        } else {
+            mapping_kind::OUTFIT
+        };
         let stored = self
             .mappings
-            .find(preview_id, &row.draft_ref, mapping_kind::OUTFIT, ordinal) // ast-grep-ignore: cqrs-boundary
+            .find(preview_id, &row.draft_ref, kind, ordinal) // ast-grep-ignore: cqrs-boundary
             .await?;
         let mapping = match stored {
             Some(row) => row,
@@ -2345,9 +2538,9 @@ where
                     .reserve(AiImportMapping::reservation(
                         preview_id,
                         row.draft_ref.clone(),
-                        mapping_kind::OUTFIT.to_owned(),
+                        kind.to_owned(),
                         ordinal,
-                        derive_id(preview_id, &row.draft_ref, mapping_kind::OUTFIT, ordinal),
+                        derive_id(preview_id, &row.draft_ref, kind, ordinal),
                     ))
                     .await?
             }
@@ -2565,21 +2758,17 @@ where
             project_id,
             scene_id,
             character_id,
-            outfit,
-            per_figure_order,
+            beat,
             outfit_id,
             scene_version,
         } = dispatch;
-        let ordinal = ordinal_of(per_figure_order)?;
-        let lane_ref = character_mapping_ref(&outfit.character_identity);
+        let ordinal = ordinal_of(beat.ordinal)?;
+        // `BeatAddress` already carries the final mapping key, so the recovery
+        // loop and this dispatch can never disagree on it.
+        let lane_ref = beat.draft_ref.as_ref();
         let stored = self
             .mappings
-            .find(
-                preview_id,
-                &lane_ref,
-                mapping_kind::SCENE_OUTFIT_BEAT,
-                ordinal,
-            ) // ast-grep-ignore: cqrs-boundary
+            .find(preview_id, lane_ref, beat.kind, ordinal) // ast-grep-ignore: cqrs-boundary
             .await?;
         let mapping = match stored {
             Some(row) => row,
@@ -2587,8 +2776,8 @@ where
                 self.mappings
                     .reserve(AiImportMapping::reservation(
                         preview_id,
-                        lane_ref.clone(),
-                        mapping_kind::SCENE_OUTFIT_BEAT.to_owned(),
+                        lane_ref.to_owned(),
+                        beat.kind.to_owned(),
                         ordinal,
                         // The beat row pins the SCENE id — the aggregate it
                         // mutates — not a derived id: the scene already exists

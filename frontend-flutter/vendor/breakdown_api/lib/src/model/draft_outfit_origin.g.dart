@@ -9,6 +9,10 @@ part of 'draft_outfit_origin.dart';
 const DraftOutfitOrigin _$explicitQuote =
     const DraftOutfitOrigin._('explicitQuote');
 const DraftOutfitOrigin _$derived = const DraftOutfitOrigin._('derived');
+const DraftOutfitOrigin _$continuedFromScene =
+    const DraftOutfitOrigin._('continuedFromScene');
+const DraftOutfitOrigin _$inferredFromContext =
+    const DraftOutfitOrigin._('inferredFromContext');
 
 DraftOutfitOrigin _$valueOf(String name) {
   switch (name) {
@@ -16,6 +20,10 @@ DraftOutfitOrigin _$valueOf(String name) {
       return _$explicitQuote;
     case 'derived':
       return _$derived;
+    case 'continuedFromScene':
+      return _$continuedFromScene;
+    case 'inferredFromContext':
+      return _$inferredFromContext;
     default:
       throw ArgumentError(name);
   }
@@ -25,12 +33,16 @@ final BuiltSet<DraftOutfitOrigin> _$values =
     BuiltSet<DraftOutfitOrigin>(const <DraftOutfitOrigin>[
   _$explicitQuote,
   _$derived,
+  _$continuedFromScene,
+  _$inferredFromContext,
 ]);
 
 class _$DraftOutfitOriginMeta {
   const _$DraftOutfitOriginMeta();
   DraftOutfitOrigin get explicitQuote => _$explicitQuote;
   DraftOutfitOrigin get derived => _$derived;
+  DraftOutfitOrigin get continuedFromScene => _$continuedFromScene;
+  DraftOutfitOrigin get inferredFromContext => _$inferredFromContext;
   DraftOutfitOrigin valueOf(String name) => _$valueOf(name);
   BuiltSet<DraftOutfitOrigin> get values => _$values;
 }
@@ -49,10 +61,14 @@ class _$DraftOutfitOriginSerializer
   static const Map<String, Object> _toWire = const <String, Object>{
     'explicitQuote': 'explicit_quote',
     'derived': 'derived',
+    'continuedFromScene': 'continued_from_scene',
+    'inferredFromContext': 'inferred_from_context',
   };
   static const Map<Object, String> _fromWire = const <Object, String>{
     'explicit_quote': 'explicitQuote',
     'derived': 'derived',
+    'continued_from_scene': 'continuedFromScene',
+    'inferred_from_context': 'inferredFromContext',
   };
 
   @override

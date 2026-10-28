@@ -2134,6 +2134,7 @@ async fn apply_retry_is_a_noop_for_confirmed_mappings() {
     let decision = create_decision(&row_ref);
     let first = worker
         .apply_script(ApplyScriptRequest {
+            continuity_selections: Vec::new(),
             acknowledged_uncertainties: Vec::new(),
             categories: Vec::new(),
             actor: UserId::from_sub("ai-test-user"),
@@ -2162,6 +2163,7 @@ async fn apply_retry_is_a_noop_for_confirmed_mappings() {
         .unwrap();
     let second = worker
         .apply_script(ApplyScriptRequest {
+            continuity_selections: Vec::new(),
             acknowledged_uncertainties: Vec::new(),
             categories: Vec::new(),
             actor: UserId::from_sub("ai-test-user"),
@@ -2249,6 +2251,7 @@ async fn apply_script_concurrent_applies_create_one_scene_per_draft() {
             barrier.wait().await;
             worker
                 .apply_script(ApplyScriptRequest {
+                    continuity_selections: Vec::new(),
                     acknowledged_uncertainties: Vec::new(),
                     categories: Vec::new(),
                     actor: UserId::from_sub("ai-test-user"),
@@ -2398,6 +2401,7 @@ async fn script_pdf_round_trip_reaches_scene_apply() {
     let decision = create_decision(&preview.scenes[0].draft_ref);
     apply_worker
         .apply_script(ApplyScriptRequest {
+            continuity_selections: Vec::new(),
             acknowledged_uncertainties: Vec::new(),
             categories: Vec::new(),
             actor: UserId::from_sub("script-round-trip"),
@@ -3048,6 +3052,34 @@ impl ScriptApplyFixture {
         }
     }
 
+    /// Apply with continuity selections (OpenSpec
+    /// `ai-import-decision-outfit-continuity`).
+    async fn apply_with_continuity(
+        &self,
+        preview: &ScriptContext,
+        decisions: &[ApplyMapping],
+        selections: &[breakdown_core::ai::OutfitContinuitySelection],
+    ) -> Result<super::ScriptApplyResult, DomainError> {
+        self.worker()
+            .apply_script(ApplyScriptRequest {
+                continuity_selections: selections.to_vec(),
+                acknowledged_uncertainties: Vec::new(),
+                categories: Vec::new(),
+                actor: UserId::from_sub("apply-test-user"),
+                preview_id: self.preview_id,
+                preview,
+                decisions,
+                episode_id: self.episode_id,
+                season_id: self.season_id,
+                project_id: Some(self.project_id),
+                block_id: self.block_id,
+                episode_groups: Vec::new(),
+                shooting_days: Vec::new(),
+                telemetry: None,
+            })
+            .await
+    }
+
     /// Apply with per-group episode targets (issue #581).
     async fn apply_with_groups(
         &self,
@@ -3071,6 +3103,7 @@ impl ScriptApplyFixture {
             .apply_script(ApplyScriptRequest {
                 acknowledged_uncertainties: Vec::new(),
                 categories: Vec::new(),
+                continuity_selections: Vec::new(),
                 actor: UserId::from_sub("apply-test-user"),
                 preview_id: self.preview_id,
                 preview,
@@ -3098,6 +3131,7 @@ impl ScriptApplyFixture {
             .apply_script(ApplyScriptRequest {
                 acknowledged_uncertainties: Vec::new(),
                 categories,
+                continuity_selections: Vec::new(),
                 actor: UserId::from_sub("apply-test-user"),
                 preview_id: self.preview_id,
                 preview,
@@ -3122,6 +3156,7 @@ impl ScriptApplyFixture {
             .apply_script(ApplyScriptRequest {
                 acknowledged_uncertainties: Vec::new(),
                 categories: Vec::new(),
+                continuity_selections: Vec::new(),
                 actor: UserId::from_sub("apply-test-user"),
                 preview_id: self.preview_id,
                 preview,
@@ -4898,7 +4933,14 @@ async fn scoring_receives_chunk_local_grounding_signals_and_honors_the_summary_c
         .await
         .unwrap();
 
-    let states = recorder.states.lock().unwrap().clone();
+    let states: Vec<serde_json::Value> = recorder
+        .states
+        .lock()
+        .unwrap()
+        .clone()
+        .into_iter()
+        .filter(|state| state["kind"] == "script_chunk")
+        .collect();
     assert_eq!(
         states.len(),
         2,
@@ -4940,9 +4982,355 @@ async fn scoring_receives_chunk_local_grounding_signals_and_honors_the_summary_c
             .contains_key(question_keys::CHARACTERS_COMPLETE)
     );
 
-    // Decision usage accumulates into the job telemetry (2 calls × 11/5).
+    // Decision usage accumulates into the job telemetry: two chunk requests
+    // (11 input tokens / 5 mJ each) plus one Pass-2 continuity request per
+    // wardrobe gap the merged preview still carries.
+    let continuity_calls = {
+        let all = recorder.states.lock().unwrap();
+        all.iter()
+            .filter(|state| state["kind"] == "outfit_continuity")
+            .count()
+    };
     let state = queue.state.lock().unwrap();
     let telemetry = state.telemetry.first().expect("telemetry recorded");
-    assert_eq!(telemetry.tokens_in, 22);
-    assert_eq!(telemetry.energy_millijoules, 10);
+    assert_eq!(telemetry.tokens_in, 22 + (continuity_calls as u64) * 11);
+    assert_eq!(
+        telemetry.energy_millijoules,
+        10 + (continuity_calls as u64) * 5
+    );
+}
+
+// ── Pass 2 apply: a continued outfit reuses the source scene's Outfit
+// (OpenSpec `ai-import-decision-outfit-continuity`, design D3) ──
+
+/// A continued look in `target`, continuing `source`'s explicit outfit.
+fn continued_row(source_ref: &str, draft_ref: &str) -> DraftScene {
+    DraftScene {
+        draft_ref: draft_ref.to_owned(),
+        scene_number: Some(2),
+        characters: vec![DraftCharacter::from("BEN")],
+        outfits: vec![breakdown_core::ai::DraftOutfit {
+            character_name: "BEN".to_owned(),
+            name: "Zivil-Look".to_owned(),
+            notes: None,
+            source_quote: String::new(),
+            origin: breakdown_core::ai::DraftOutfitOrigin::ContinuedFromScene,
+            provenance: Some(breakdown_core::ai::DraftOutfitProvenance {
+                source_draft_ref: Some(source_ref.to_owned()),
+                source_scene_number: Some(1),
+                confidence: 0.9,
+            }),
+            pieces: Vec::new(),
+        }],
+        ..Default::default()
+    }
+}
+
+#[tokio::test]
+async fn script_apply_binds_a_continuation_to_the_source_outfit() {
+    let fixture = ScriptApplyFixture::new();
+    let preview = ScriptContext {
+        scenes: vec![
+            row_with_outfit("1. INT. WOHNUNG", &["BEN"], &[("BEN", "Zivil-Look")]),
+            continued_row("1. INT. WOHNUNG", "2. INT. OP"),
+        ],
+        ..Default::default()
+    };
+    let decisions = [
+        create_decision("1. INT. WOHNUNG"),
+        create_decision("2. INT. OP"),
+    ];
+    let result = fixture.apply(&preview, &decisions).await.unwrap();
+
+    assert!(
+        result.unapplied_outfits.is_empty(),
+        "{:?}",
+        result.unapplied_outfits
+    );
+    // Exactly ONE look for the figure ...
+    let outfits = fixture.wardrobe.assigned.lock().unwrap().clone();
+    assert_eq!(outfits.len(), 1, "a continuation creates no second Outfit");
+    assert_eq!(result.created_outfits, 1);
+    // ... referenced by BOTH scenes' beats.
+    let scene_ids = fixture.scenes.created.lock().unwrap().clone();
+    assert_eq!(scene_ids.len(), 2);
+    let mut beat_outfits: Vec<Uuid> = Vec::new();
+    for scene_id in scene_ids {
+        for (_, outfit_id) in fixture.scenes.beats_of(scene_id) {
+            beat_outfits.push(outfit_id);
+        }
+    }
+    assert_eq!(beat_outfits.len(), 2, "one beat per scene");
+    assert_eq!(
+        beat_outfits[0], beat_outfits[1],
+        "both scenes cast the same Outfit aggregate"
+    );
+    assert_eq!(beat_outfits[0], outfits[0].0);
+}
+
+#[tokio::test]
+async fn re_applying_a_continuation_adds_no_second_outfit_or_beat() {
+    let fixture = ScriptApplyFixture::new();
+    let preview = ScriptContext {
+        scenes: vec![
+            row_with_outfit("1. INT. WOHNUNG", &["BEN"], &[("BEN", "Zivil-Look")]),
+            continued_row("1. INT. WOHNUNG", "2. INT. OP"),
+        ],
+        ..Default::default()
+    };
+    let decisions = [
+        create_decision("1. INT. WOHNUNG"),
+        create_decision("2. INT. OP"),
+    ];
+    fixture.apply(&preview, &decisions).await.unwrap();
+    let after_first = fixture.scenes.beats.lock().unwrap().len();
+    // The retry re-drives the same plan; every mapping row is confirmed.
+    let retried = fixture.apply(&preview, &decisions).await.unwrap();
+    assert!(
+        retried.unapplied_outfits.is_empty(),
+        "{:?}",
+        retried.unapplied_outfits
+    );
+    assert_eq!(
+        fixture.wardrobe.assigned.lock().unwrap().len(),
+        1,
+        "no second Outfit"
+    );
+    assert_eq!(
+        fixture.scenes.beats.lock().unwrap().len(),
+        after_first,
+        "no second beat"
+    );
+}
+
+#[tokio::test]
+async fn a_continuation_whose_source_was_rejected_is_reported() {
+    let fixture = ScriptApplyFixture::new();
+    let preview = ScriptContext {
+        scenes: vec![
+            row_with_outfit("1. INT. WOHNUNG", &["BEN"], &[("BEN", "Zivil-Look")]),
+            continued_row("1. INT. WOHNUNG", "2. INT. OP"),
+        ],
+        ..Default::default()
+    };
+    let mut source_decision = create_decision("1. INT. WOHNUNG");
+    source_decision.outfit_decisions = vec![breakdown_core::ai::OutfitDecision {
+        ordinal: 0,
+        accepted: false,
+    }];
+    let decisions = [source_decision, create_decision("2. INT. OP")];
+    let result = fixture.apply(&preview, &decisions).await.unwrap();
+
+    assert_eq!(
+        result.created_outfits, 0,
+        "the rejected source creates nothing"
+    );
+    assert_eq!(
+        result.unapplied_outfits.len(),
+        1,
+        "{:?}",
+        result.unapplied_outfits
+    );
+    assert_eq!(
+        result.unapplied_outfits[0].reason,
+        breakdown_core::ai::UnappliedOutfitReason::ContinuityUnresolved
+    );
+}
+
+#[tokio::test]
+async fn script_apply_honours_a_continuity_selection() {
+    // OpenSpec `ai-import-decision-outfit-continuity`: the reviewer resolves a
+    // wardrobe gap by picking the continuation candidate; the apply plans the
+    // row and binds the beat to the source scene's look.
+    let fixture = ScriptApplyFixture::new();
+    // A gap needs plausible action (design D1), or no candidate is offered.
+    let mut source = row_with_outfit("1. INT. WOHNUNG", &["BEN"], &[("BEN", "Zivil-Look")]);
+    source.summary = Some("Ben wartet auf den Anruf.".to_owned());
+    let mut gap = row_with_outfit("2. INT. OP", &["BEN"], &[]);
+    gap.summary = Some("Ben betritt den OP.".to_owned());
+    let preview = ScriptContext {
+        scenes: vec![source, gap],
+        ..Default::default()
+    };
+    let decisions = [
+        create_decision("1. INT. WOHNUNG"),
+        create_decision("2. INT. OP"),
+    ];
+    let selections = vec![breakdown_core::ai::OutfitContinuitySelection {
+        scene_index: 1,
+        character_identity: "ben".to_owned(),
+        candidate: breakdown_core::ai::OutfitContinuityCandidate::Continued,
+    }];
+    let result = fixture
+        .apply_with_continuity(&preview, &decisions, &selections)
+        .await
+        .unwrap();
+    assert!(
+        result.unapplied_outfits.is_empty(),
+        "{:?}",
+        result.unapplied_outfits
+    );
+    assert_eq!(result.created_outfits, 1, "the selection creates no look");
+    let scene_ids = fixture.scenes.created.lock().unwrap().clone();
+    let second = *scene_ids.last().expect("two scenes created");
+    assert_eq!(
+        fixture.scenes.beats_of(second).len(),
+        1,
+        "the gap scene got its beat"
+    );
+}
+
+#[tokio::test]
+async fn script_apply_refuses_a_selection_the_preview_does_not_offer() {
+    let fixture = ScriptApplyFixture::new();
+    let mut source = row_with_outfit("1. INT. WOHNUNG", &["BEN"], &[("BEN", "Zivil-Look")]);
+    source.summary = Some("Ben wartet auf den Anruf.".to_owned());
+    let mut gap = row_with_outfit("2. INT. OP", &["BEN"], &[]);
+    gap.summary = Some("Ben betritt den OP.".to_owned());
+    let preview = ScriptContext {
+        scenes: vec![source, gap],
+        ..Default::default()
+    };
+    let decisions = [
+        create_decision("1. INT. WOHNUNG"),
+        create_decision("2. INT. OP"),
+    ];
+    // The location never changed, so the preview offers no context candidate.
+    let selections = vec![breakdown_core::ai::OutfitContinuitySelection {
+        scene_index: 1,
+        character_identity: "ben".to_owned(),
+        candidate: breakdown_core::ai::OutfitContinuityCandidate::Inferred,
+    }];
+    let error = fixture
+        .apply_with_continuity(&preview, &decisions, &selections)
+        .await
+        .expect_err("an unoffered candidate is a client bug");
+    match error {
+        DomainError::Conflict { code, .. } => {
+            assert_eq!(code.code, "ai-import.apply-unknown-continuity-candidate");
+        }
+        other => panic!("expected the registered conflict, got {other:?}"),
+    }
+    assert!(
+        fixture.scenes.created.lock().unwrap().is_empty(),
+        "nothing may be dispatched"
+    );
+}
+
+/// CodeRabbit review (PR #746): a beat's mapping address must come from the
+/// immutable preview, not from the plan. Re-applying after the reviewer accepts
+/// a previously rejected outfit must give THAT scene its beat and leave the later
+/// row's address untouched.
+#[tokio::test]
+async fn accepting_a_previously_rejected_outfit_keeps_every_beat_address() {
+    let fixture = ScriptApplyFixture::new();
+    let preview = ScriptContext {
+        scenes: vec![
+            row_with_outfit("1. INT. WOHNUNG", &["BEN"], &[("BEN", "Zivil-Look")]),
+            row_with_outfit("2. INT. OP", &["BEN"], &[("BEN", "OP-Kleidung")]),
+        ],
+        ..Default::default()
+    };
+    let accepted = [
+        create_decision("1. INT. WOHNUNG"),
+        create_decision("2. INT. OP"),
+    ];
+    let reject_first = [
+        ApplyMapping {
+            draft_ref: "1. INT. WOHNUNG".to_owned(),
+            decision: breakdown_core::ai::ApplyMappingDecision::Create,
+            outfit_decisions: vec![breakdown_core::ai::OutfitDecision {
+                ordinal: 0,
+                accepted: false,
+            }],
+        },
+        create_decision("2. INT. OP"),
+    ];
+
+    // Apply 1: scene 1 contradictorily rejected — only scene 2 gets a beat.
+    fixture.apply(&preview, &reject_first).await.unwrap();
+    let scene_ids = fixture.scenes.created.lock().unwrap().clone();
+    assert_eq!(scene_ids.len(), 2);
+    assert!(fixture.scenes.beats_of(scene_ids[0]).is_empty());
+    assert_eq!(fixture.scenes.beats_of(scene_ids[1]).len(), 1);
+
+    // Apply 2: the reviewer accepts scene 1's outfit. Before the fix, scene 1's
+    // beat took position 0 — already confirmed for scene 2 — and was dropped
+    // silently as "Settled".
+    let result = fixture.apply(&preview, &accepted).await.unwrap();
+    assert!(
+        result.unapplied_outfits.is_empty(),
+        "{:?}",
+        result.unapplied_outfits
+    );
+    assert_eq!(
+        fixture.scenes.beats_of(scene_ids[0]).len(),
+        1,
+        "the newly accepted scene must get its beat"
+    );
+    assert_eq!(
+        fixture.scenes.beats_of(scene_ids[1]).len(),
+        1,
+        "and the later scene must not gain a second one"
+    );
+    // The later row's address did not move: its beat still points at its own look.
+    assert_eq!(result.created_outfit_beats, 1, "only the new beat appended");
+}
+
+/// CodeRabbit review (PR #746): a reviewer-selected gap row is addressed from the
+/// immutable draft, so adding another selection later must not shift it.
+#[tokio::test]
+async fn a_continuity_selection_keeps_its_address_when_others_are_added() {
+    let fixture = ScriptApplyFixture::new();
+    let mut source = row_with_outfit("1. INT. WOHNUNG", &["BEN"], &[("BEN", "Zivil-Look")]);
+    source.summary = Some("Ben wartet.".to_owned());
+    let mut gap_a = row_with_outfit("2. INT. OP", &["BEN"], &[]);
+    gap_a.summary = Some("Ben betritt den OP.".to_owned());
+    let mut gap_b = row_with_outfit("3. INT. ITS", &["BEN"], &[]);
+    gap_b.summary = Some("Ben wacht auf.".to_owned());
+    let preview = ScriptContext {
+        scenes: vec![source, gap_a, gap_b],
+        ..Default::default()
+    };
+    let decisions = [
+        create_decision("1. INT. WOHNUNG"),
+        create_decision("2. INT. OP"),
+        create_decision("3. INT. ITS"),
+    ];
+    let selection = |scene_index: usize| breakdown_core::ai::OutfitContinuitySelection {
+        scene_index,
+        character_identity: "ben".to_owned(),
+        candidate: breakdown_core::ai::OutfitContinuityCandidate::Continued,
+    };
+
+    // Apply 1 selects the LATER gap only.
+    let later_only = [selection(2)];
+    let first = fixture
+        .apply_with_continuity(&preview, &decisions, &later_only)
+        .await
+        .unwrap();
+    assert_eq!(first.created_outfit_beats, 2, "source beat + selected beat");
+
+    // Apply 2 adds the earlier gap. Its address is its own row, so the later
+    // selection keeps the mapping row it already confirmed.
+    let both = [selection(1), selection(2)];
+    let second = fixture
+        .apply_with_continuity(&preview, &decisions, &both)
+        .await
+        .unwrap();
+    assert!(
+        second.unapplied_outfits.is_empty(),
+        "{:?}",
+        second.unapplied_outfits
+    );
+    assert_eq!(
+        second.created_outfit_beats, 1,
+        "only the newly selected scene appended a beat"
+    );
+    let scene_ids = fixture.scenes.created.lock().unwrap().clone();
+    let beats: usize = scene_ids
+        .iter()
+        .map(|scene| fixture.scenes.beats_of(*scene).len())
+        .sum();
+    assert_eq!(beats, 3, "one beat per scene: source, gap A, gap B");
 }

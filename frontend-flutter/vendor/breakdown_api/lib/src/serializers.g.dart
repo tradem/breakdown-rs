@@ -74,7 +74,9 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..add(DraftCharacter.serializer)
       ..add(DraftEpisode.serializer)
       ..add(DraftOutfit.serializer)
+      ..add(DraftOutfitCandidate.serializer)
       ..add(DraftOutfitOrigin.serializer)
+      ..add(DraftOutfitProvenance.serializer)
       ..add(DraftPiece.serializer)
       ..add(DraftScene.serializer)
       ..add(DraftShootingDay.serializer)
@@ -110,6 +112,8 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..add(MetaVersionsResponse.serializer)
       ..add(ModelInfo.serializer)
       ..add(ModelPricing.serializer)
+      ..add(OutfitContinuityCandidate.serializer)
+      ..add(OutfitContinuitySelection.serializer)
       ..add(OutfitDecision.serializer)
       ..add(OutfitPhotoView.serializer)
       ..add(OutfitPieceView.serializer)
@@ -201,21 +205,6 @@ Serializers _$serializers = (Serializers().toBuilder()
               BuiltList, const [const FullType(AppearanceOutfitView)]),
           () => ListBuilder<AppearanceOutfitView>())
       ..addBuilderFactory(
-          const FullType(
-              BuiltList, const [const FullType(ApplyEpisodeGroupRequest)]),
-          () => ListBuilder<ApplyEpisodeGroupRequest>())
-      ..addBuilderFactory(
-          const FullType(BuiltList, const [const FullType(ApplyMapping)]),
-          () => ListBuilder<ApplyMapping>())
-      ..addBuilderFactory(
-          const FullType(
-              BuiltList, const [const FullType(ApplyShootingDayRequest)]),
-          () => ListBuilder<ApplyShootingDayRequest>())
-      ..addBuilderFactory(
-          const FullType(
-              BuiltList, const [const FullType(UncertaintyAcknowledgement)]),
-          () => ListBuilder<UncertaintyAcknowledgement>())
-      ..addBuilderFactory(
           const FullType(BuiltList, const [const FullType(CheckpointProgress)]),
           () => ListBuilder<CheckpointProgress>())
       ..addBuilderFactory(
@@ -237,6 +226,10 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..addBuilderFactory(
           const FullType(BuiltList, const [const FullType(DraftOutfit)]),
           () => ListBuilder<DraftOutfit>())
+      ..addBuilderFactory(
+          const FullType(
+              BuiltList, const [const FullType(DraftOutfitCandidate)]),
+          () => ListBuilder<DraftOutfitCandidate>())
       ..addBuilderFactory(
           const FullType(BuiltList, const [const FullType(DraftPiece)]),
           () => ListBuilder<DraftPiece>())
@@ -263,6 +256,25 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..addBuilderFactory(
           const FullType(BuiltList, const [const FullType(MetaCreditsEntry)]),
           () => ListBuilder<MetaCreditsEntry>())
+      ..addBuilderFactory(
+          const FullType(
+              BuiltList, const [const FullType(OutfitContinuitySelection)]),
+          () => ListBuilder<OutfitContinuitySelection>())
+      ..addBuilderFactory(
+          const FullType(
+              BuiltList, const [const FullType(ApplyEpisodeGroupRequest)]),
+          () => ListBuilder<ApplyEpisodeGroupRequest>())
+      ..addBuilderFactory(
+          const FullType(BuiltList, const [const FullType(ApplyMapping)]),
+          () => ListBuilder<ApplyMapping>())
+      ..addBuilderFactory(
+          const FullType(
+              BuiltList, const [const FullType(ApplyShootingDayRequest)]),
+          () => ListBuilder<ApplyShootingDayRequest>())
+      ..addBuilderFactory(
+          const FullType(
+              BuiltList, const [const FullType(UncertaintyAcknowledgement)]),
+          () => ListBuilder<UncertaintyAcknowledgement>())
       ..addBuilderFactory(
           const FullType(BuiltList, const [const FullType(OutfitDecision)]),
           () => ListBuilder<OutfitDecision>())

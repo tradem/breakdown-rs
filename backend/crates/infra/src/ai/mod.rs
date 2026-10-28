@@ -31,6 +31,7 @@ pub mod heartbeat;
 pub mod mapping;
 pub mod merge_worker;
 pub mod ollama;
+pub mod outfit_continuity;
 pub mod payload_cleanup;
 pub mod payload_storage;
 pub mod pdf;

@@ -517,6 +517,7 @@ async fn ai_payload_apply_round_trips_through_projection() -> Result<()> {
     };
     let applied = worker
         .apply_script(ApplyScriptRequest {
+            continuity_selections: Vec::new(),
             actor: user_id,
             preview_id: job_id,
             preview: &reloaded,

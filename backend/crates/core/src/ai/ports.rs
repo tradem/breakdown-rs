@@ -638,6 +638,17 @@ pub mod mapping_kind {
     /// one row and the second figure's first beat would silently never be
     /// applied. `aggregate_id` is the scene the beat was added to.
     pub const SCENE_OUTFIT_BEAT: &str = "scene_outfit_beat";
+    /// One `Outfit` an AI apply created for a reviewer's continuity selection
+    /// (OpenSpec `ai-import-decision-outfit-continuity`). Separate from
+    /// [`OUTFIT`] on purpose: a selection is request-carried, so its address
+    /// cannot be a preview index — it is the row's `draft_ref` plus the figure's
+    /// position in the draft's own character list, and its own kind keeps it from
+    /// ever colliding with an extracted row's ordinal.
+    pub const OUTFIT_CONTINUITY: &str = "outfit_continuity";
+    /// One outfit beat for a reviewer-selected gap row. Same reasoning as
+    /// [`OUTFIT_CONTINUITY`]: own kind, addressed by the row's `draft_ref` plus
+    /// the figure's draft position.
+    pub const SCENE_OUTFIT_BEAT_CONTINUITY: &str = "scene_outfit_beat_continuity";
     /// One episode an AI script apply created for a draft episode group
     /// (issue #581). Keyed by the group ref (`ep:<n>` / `ep-t:<title>`,
     /// [`breakdown_core::ai::DraftEpisode::group_key`]) with

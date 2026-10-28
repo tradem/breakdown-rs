@@ -82,7 +82,7 @@ pub fn script_chunk_questions() -> std::collections::BTreeMap<String, DecisionQu
 }
 
 #[allow(clippy::too_many_arguments)]
-async fn decide_with_quick_retry(
+pub(crate) async fn decide_with_quick_retry(
     client: &dyn DecisionClient,
     request: DecisionRequest,
 ) -> Result<breakdown_core::ai::DecisionCallOutcome, DomainError> {

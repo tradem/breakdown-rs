@@ -10,6 +10,7 @@ import 'package:built_collection/built_collection.dart';
 import 'package:breakdown_api/src/model/apply_episode_group_request.dart';
 import 'package:breakdown_api/src/model/apply_shooting_day_request.dart';
 import 'package:breakdown_api/src/model/apply_mapping.dart';
+import 'package:breakdown_api/src/model/outfit_continuity_selection.dart';
 import 'package:built_value/built_value.dart';
 import 'package:built_value/serializer.dart';
 
@@ -19,6 +20,7 @@ part 'apply_ai_import_request.g.dart';
 ///
 /// Properties:
 /// * [acceptAsIs]
+/// * [continuitySelections] - Reviewer resolutions of the wardrobe gaps Pass 2 surfaced (OpenSpec `ai-import-decision-outfit-continuity`). Each entry names a gap scene, the figure, and which of the candidates the preview offered for it to wear. The server validates every entry against the preview's own candidate list: a stale screen (409 `ai-import.apply-unknown-continuity-candidate`) is refused, never silently dropped. Old clients omit the field (serde default = empty), so their previews still apply — every gap simply stays without an outfit.
 /// * [editDistance]
 /// * [episodeGroups] - Per-episode-group targets (issue #581). Absent or empty → every draft row applies to `episode_id` (the single-episode flow). A group the preview does not carry, a duplicate group ref, or two groups creating the same episode number is a validation error; a create number already taken in the series is a 409 `episode.number-already-exists` pre-check (#404 doctrine — the projection unique index stays authoritative).
 /// * [episodeId] - Opaque identifier for an `Episode` aggregate.
@@ -31,6 +33,10 @@ abstract class ApplyAiImportRequest
     implements Built<ApplyAiImportRequest, ApplyAiImportRequestBuilder> {
   @BuiltValueField(wireName: r'accept_as_is')
   bool get acceptAsIs;
+
+  /// Reviewer resolutions of the wardrobe gaps Pass 2 surfaced (OpenSpec `ai-import-decision-outfit-continuity`). Each entry names a gap scene, the figure, and which of the candidates the preview offered for it to wear. The server validates every entry against the preview's own candidate list: a stale screen (409 `ai-import.apply-unknown-continuity-candidate`) is refused, never silently dropped. Old clients omit the field (serde default = empty), so their previews still apply — every gap simply stays without an outfit.
+  @BuiltValueField(wireName: r'continuity_selections')
+  BuiltList<OutfitContinuitySelection>? get continuitySelections;
 
   @BuiltValueField(wireName: r'edit_distance')
   int get editDistance;
@@ -92,6 +98,14 @@ class _$ApplyAiImportRequestSerializer
       object.acceptAsIs,
       specifiedType: const FullType(bool),
     );
+    if (object.continuitySelections != null) {
+      yield r'continuity_selections';
+      yield serializers.serialize(
+        object.continuitySelections,
+        specifiedType:
+            const FullType(BuiltList, [FullType(OutfitContinuitySelection)]),
+      );
+    }
     yield r'edit_distance';
     yield serializers.serialize(
       object.editDistance,
@@ -169,6 +183,15 @@ class _$ApplyAiImportRequestSerializer
             specifiedType: const FullType(bool),
           ) as bool;
           result.acceptAsIs = valueDes;
+          break;
+        case r'continuity_selections':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType.nullable(
+                BuiltList, [FullType(OutfitContinuitySelection)]),
+          ) as BuiltList<OutfitContinuitySelection>?;
+          if (valueDes == null) continue;
+          result.continuitySelections.replace(valueDes);
           break;
         case r'edit_distance':
           final valueDes = serializers.deserialize(

@@ -78,6 +78,9 @@ problem-ai-import-apply-missing-mapping =
 problem-ai-import-apply-missing-episode-group =
     An episode target no longer matches the preview. Refresh the preview and re-apply.
 
+problem-ai-import-apply-unknown-continuity-candidate =
+    A wardrobe suggestion no longer matches the preview. Refresh the preview and re-apply.
+
 problem-ai-import-apply-missing-shooting-day-group =
     A shooting-day group has no review decision. Refresh the preview and re-apply.
 

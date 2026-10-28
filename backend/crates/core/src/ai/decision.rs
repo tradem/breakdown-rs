@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: glm-5.3-flash-flex (neuralwatt)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 //! Decision Model scoring primitives (issue #722).
 //!
@@ -95,6 +96,15 @@ pub mod question_keys {
     /// The schedule row's day assignment is consistent with the scene's
     /// deterministic day marker.
     pub const DAY_ASSIGNMENT_CONSISTENT: &str = "day_assignment_consistent";
+    /// Pass 2: the most probable wardrobe state of a figure in a scene the
+    /// script gave no outfit (OpenSpec `ai-import-decision-outfit-continuity`).
+    pub const OUTFIT_CONTINUITY: &str = "outfit_continuity";
+    /// Pass 2 option key: keep wearing the previous scene's outfit.
+    pub const CONTINUITY_CONTINUE_PREVIOUS: &str = "continue_previous";
+    /// Pass 2 option key: the scene context implies a new look.
+    pub const CONTINUITY_INFER_NEW_OUTFIT: &str = "infer_new_outfit";
+    /// Pass 2 option key: neither is certain — surface the gap.
+    pub const CONTINUITY_REPORT_GAP: &str = "report_conflict_or_gap";
 }
 
 /// One typed question a Decision Model answers about the `state`.

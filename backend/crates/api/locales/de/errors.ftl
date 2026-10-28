@@ -78,6 +78,9 @@ problem-ai-import-apply-missing-mapping =
 problem-ai-import-apply-missing-episode-group =
     Ein Episoden-Ziel passt nicht mehr zur Vorschau. Laden Sie die Vorschau neu und übernehmen Sie erneut.
 
+problem-ai-import-apply-unknown-continuity-candidate =
+    Ein Kostümvorschlag passt nicht mehr zur Vorschau. Laden Sie die Vorschau neu und übernehmen Sie erneut.
+
 problem-ai-import-apply-missing-shooting-day-group =
     Eine Drehtag-Gruppe hat keine Prüfentscheidung. Laden Sie die Vorschau neu und übernehmen Sie erneut.
 

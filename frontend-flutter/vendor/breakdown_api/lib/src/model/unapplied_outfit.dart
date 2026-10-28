@@ -41,7 +41,7 @@ abstract class UnappliedOutfit
 
   @BuiltValueField(wireName: r'reason')
   UnappliedOutfitReason get reason;
-  // enum reasonEnum {  character_not_planned,  character_unavailable,  piece_rejected,  create_rejected,  notes_rejected,  binding_rejected,  beat_rejected,  };
+  // enum reasonEnum {  character_not_planned,  character_unavailable,  piece_rejected,  create_rejected,  notes_rejected,  binding_rejected,  beat_rejected,  continuity_unresolved,  };
 
   UnappliedOutfit._();
 
