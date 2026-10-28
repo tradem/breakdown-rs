@@ -161,7 +161,7 @@ final class AiApplyControllerProvider
   }
 }
 
-String _$aiApplyControllerHash() => r'6fdf8e1fad4862edbfdb347717ffd29a7b3aa7bf';
+String _$aiApplyControllerHash() => r'b3a5421898b78656644a8877d20e51879f49fd37';
 
 /// The apply controller (task 4.2): builds + submits the mappings.
 

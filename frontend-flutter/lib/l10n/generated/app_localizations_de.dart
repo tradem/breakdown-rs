@@ -976,6 +976,52 @@ class AppLocalizationsDe extends AppLocalizations {
       'Diesen Look unabhängig von der Szene übernehmen oder verwerfen';
 
   @override
+  String get aiPreviewOutfitOriginExplicit => 'wörtlich aus dem Skript';
+
+  @override
+  String get aiPreviewOutfitOriginDerived => 'aus dem Skript abgeleitet';
+
+  @override
+  String aiPreviewOutfitOriginContinued(Object scene) {
+    return 'übernommen aus Szene $scene';
+  }
+
+  @override
+  String get aiPreviewOutfitOriginContinuedNoScene =>
+      'übernommen aus einer früheren Szene';
+
+  @override
+  String get aiPreviewOutfitOriginInferred =>
+      'aus dem Szenenkontext abgeleitet';
+
+  @override
+  String aiPreviewContinuityGapTitle(Object character, Object scene) {
+    return 'Garderoben-Lücke · Szene $scene · $character';
+  }
+
+  @override
+  String get aiPreviewContinuityGapPrompt =>
+      'Wähle einen Look oder lasse die Szene ohne Garderobe.';
+
+  @override
+  String aiPreviewContinuityCandidateContinued(Object name) {
+    return 'Fortsetzung: $name';
+  }
+
+  @override
+  String aiPreviewContinuityCandidateInferred(Object name) {
+    return 'Kontext-Look: $name';
+  }
+
+  @override
+  String aiPreviewContinuityCandidateConfidence(Object percent) {
+    return '$percent % Sicherheit';
+  }
+
+  @override
+  String get aiPreviewContinuityKeepEmpty => 'Szene ohne Look lassen';
+
+  @override
   String aiApplyOutcomeScript(
     Object applied,
     Object characters,
@@ -1157,12 +1203,30 @@ class AppLocalizationsDe extends AppLocalizations {
       'Ein Episoden-Ziel passt nicht mehr zur Vorschau – lade die Vorschau neu und übernimm erneut.';
 
   @override
+  String get aiApplyErrorUnknownContinuityCandidate =>
+      'Die Vorschau bietet diese Garderoben-Wahl nicht mehr an – lade die Vorschau neu und übernimm erneut.';
+
+  @override
   String get aiApplyUncertaintiesTitle =>
       'Offene Prüffragen – zum Übernehmen bestätigen:';
 
   @override
   String get aiApplyAcknowledgeUncertainty =>
       'Als geklärt bestätigen und wie extrahiert übernehmen';
+
+  @override
+  String aiApplyContinuityGapPicked(
+    Object character,
+    Object look,
+    Object scene,
+  ) {
+    return 'Szene $scene · $character → $look';
+  }
+
+  @override
+  String aiApplyContinuityGapLeftEmpty(Object character, Object scene) {
+    return 'Szene $scene · $character → ohne Look (bewusst leer)';
+  }
 
   @override
   String get aiApplyAssignExistingInstead =>

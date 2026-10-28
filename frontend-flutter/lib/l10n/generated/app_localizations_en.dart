@@ -959,6 +959,51 @@ class AppLocalizationsEn extends AppLocalizations {
       'Accept or reject this outfit independently of its scene';
 
   @override
+  String get aiPreviewOutfitOriginExplicit => 'quoted from the script';
+
+  @override
+  String get aiPreviewOutfitOriginDerived => 'derived from the script';
+
+  @override
+  String aiPreviewOutfitOriginContinued(Object scene) {
+    return 'continued from scene $scene';
+  }
+
+  @override
+  String get aiPreviewOutfitOriginContinuedNoScene =>
+      'continued from an earlier scene';
+
+  @override
+  String get aiPreviewOutfitOriginInferred => 'inferred from the scene context';
+
+  @override
+  String aiPreviewContinuityGapTitle(Object character, Object scene) {
+    return 'Wardrobe gap · scene $scene · $character';
+  }
+
+  @override
+  String get aiPreviewContinuityGapPrompt =>
+      'Pick a look or leave the scene without wardrobe.';
+
+  @override
+  String aiPreviewContinuityCandidateContinued(Object name) {
+    return 'Continuation: $name';
+  }
+
+  @override
+  String aiPreviewContinuityCandidateInferred(Object name) {
+    return 'Context look: $name';
+  }
+
+  @override
+  String aiPreviewContinuityCandidateConfidence(Object percent) {
+    return '$percent% confidence';
+  }
+
+  @override
+  String get aiPreviewContinuityKeepEmpty => 'Leave the scene without a look';
+
+  @override
   String aiApplyOutcomeScript(
     Object applied,
     Object characters,
@@ -1140,12 +1185,30 @@ class AppLocalizationsEn extends AppLocalizations {
       'An episode target no longer matches the preview — refresh the preview and re-apply.';
 
   @override
+  String get aiApplyErrorUnknownContinuityCandidate =>
+      'The preview no longer offers this wardrobe choice — refresh the preview and apply again.';
+
+  @override
   String get aiApplyUncertaintiesTitle =>
       'Open review questions — confirm to apply:';
 
   @override
   String get aiApplyAcknowledgeUncertainty =>
       'Confirm as resolved and apply as extracted';
+
+  @override
+  String aiApplyContinuityGapPicked(
+    Object character,
+    Object look,
+    Object scene,
+  ) {
+    return 'Scene $scene · $character → $look';
+  }
+
+  @override
+  String aiApplyContinuityGapLeftEmpty(Object character, Object scene) {
+    return 'Scene $scene · $character → no look (deliberately empty)';
+  }
 
   @override
   String get aiApplyAssignExistingInstead =>

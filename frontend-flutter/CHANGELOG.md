@@ -23,6 +23,42 @@ releases are cut as `vX.Y.Z` tags (`v<build-name>`, enforced by
 
 ## [Unreleased]
 
+- **Preview & apply: Pass-2 outfit provenance and the wardrobe-gap candidate
+  picker** (`0.4.0-beta.18+110 → 0.4.0-beta.19+111`, issue #745, OpenSpec
+  change `ai-import-decision-outfit-continuity`): the review surface now reads
+  the contract the previous entry only modelled.
+
+  - Each look renders ONE provenance badge — *wörtlich aus dem Skript* /
+    *aus dem Skript abgeleitet* (Pass 1) or *übernommen aus Szene N* /
+    *aus dem Szenenkontext abgeleitet* (Pass 2), the scene number taken from
+    `DraftOutfit.provenance`. A Pass-2 look renders NO source-quote line: it
+    has no chunk to quote, and an empty quote would read as a script
+    statement. A preview stored before the field existed renders no badge.
+  - A wardrobe gap (Pass-2 `dropped_row` uncertainty on `outfits`) whose
+    candidates the script supports becomes a one-tap picker: one `ChoiceChip`
+    per candidate (look name + the server's confidence) plus an explicit
+    "leave the scene without a look". A gap without candidates keeps the
+    plain notice — an invented option is never offered.
+  - The pick rides `continuity_selections` on the apply request, carrying the
+    preview-wide `character_identity` derived from the gap's own scene
+    (`lib/features/ai_import/import_jobs/continuity_gap.dart`, pairing the
+    uncertainty with the scene's undressed figure through the continuation
+    candidate's source row — never by parsing server prose). A pick counts as
+    a review edit, so `accept_as_is` stays truthful; leaving a gap unresolved
+    applies the preview unchanged.
+  - The apply card repeats each gap's resolution at the dispatch (EU AI Act
+    review gate) and localizes a `409
+    ai-import.apply-unknown-continuity-candidate` as "refresh the preview and
+    re-apply".
+  - `AiApplyState` gained `copyWith`; every reviewer-decision mutation now
+    goes through it, which also stops `setCommandError` /
+    `dismissCommandError` from silently dropping the #706 day decisions.
+  - Coverage: `test/unit/continuity_gap_test.dart` (identity mirror + gap
+    pairing), `test/features/ai_import/preview_continuity_test.dart` (badges,
+    quote suppression, picker → wire, stale-pick 409, four goldens) and
+    `features-spec/ai_import_continuity_gap.feature` (`@pending` until the
+    on-device harness can seed a Pass-2 preview).
+
 - **AI import Pass-2 contract in the generated client**
   (`0.4.0-beta.17+109 → 0.4.0-beta.18+110`, OpenSpec change
   `ai-import-decision-outfit-continuity`): `vendor/breakdown_api` regenerated

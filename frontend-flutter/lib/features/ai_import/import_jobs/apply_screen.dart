@@ -26,6 +26,7 @@ import '../../../data/cache/seasons_cache_providers.dart';
 import '../../episodes/episodes_controller.dart';
 import '../../scenes/scenes_controller.dart';
 import 'apply_controller.dart';
+import 'continuity_gap.dart';
 import 'import_submit_screen.dart';
 import 'job_status_controller.dart';
 import '../naming_line.dart';
@@ -506,6 +507,21 @@ class _AiApplySectionState extends ConsumerState<AiApplySection> {
                   style: Theme.of(context).textTheme.bodySmall,
                 ),
               ),
+            // Issue #745 (EU AI Act review gate): the reviewer's wardrobe-gap
+            // picks, stated at the dispatch — which look each gap scene will
+            // wear, or that it deliberately stays without one.
+            for (final gap in state.continuityGaps)
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Text(
+                  key: Key(
+                    'ai-apply-continuity-gap-${gap.sceneIndex}-'
+                    '${gap.characterIdentity}',
+                  ),
+                  continuityGapSummaryLine(l10nOf(context), state, gap),
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ),
             const SizedBox(height: 12),
             // Issue #663: blocking uncertainties are resolved IN the apply
             // card — one acknowledge checkbox each. Apply stays disabled
@@ -865,6 +881,32 @@ String _daySummaryLine(
   return state.dayAccepted(dayRef)
       ? l10n.aiApplyDayCreateSummary(label)
       : l10n.aiApplyDaySkipSummary(label);
+}
+
+/// The apply card's per-gap summary line (issue #745, EU AI Act review gate):
+/// WHICH look the gap scene will wear — the picked candidate's own name — or
+/// that the reviewer left the scene without a wardrobe entry.
+String continuityGapSummaryLine(
+  AppLocalizations l10n,
+  AiApplyState state,
+  ContinuityGap gap,
+) {
+  final sceneLabel = gap.sceneNumber == null ? '?' : '${gap.sceneNumber}';
+  final pick = state.candidateFor(gap);
+  if (pick == null) {
+    return l10n.aiApplyContinuityGapLeftEmpty(gap.characterName, sceneLabel);
+  }
+  final look = switch (pick) {
+    OutfitContinuityCandidate.continued => gap.continued?.name,
+    OutfitContinuityCandidate.inferred => gap.inferred?.name,
+    _ => null,
+  };
+  if (look == null) {
+    // The pick names a candidate this preview no longer carries (only a stale
+    // screen state can): say so instead of inventing a look name.
+    return l10n.aiApplyContinuityGapLeftEmpty(gap.characterName, sceneLabel);
+  }
+  return l10n.aiApplyContinuityGapPicked(gap.characterName, look, sceneLabel);
 }
 
 /// The 200 outcome summary (`applied_count`, `created_days`,

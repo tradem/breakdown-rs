@@ -12,6 +12,7 @@ import 'package:breakdown_api/breakdown_api.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:one_of/one_of.dart';
 
+import 'package:frontend_flutter/core/problem_error.dart';
 import 'package:frontend_flutter/features/ai_import/import_jobs/apply_controller.dart';
 import 'package:frontend_flutter/features/shooting_days/shooting_days_state.dart';
 
@@ -153,6 +154,32 @@ void main() {
       final state = AiApplyState(rows: [_row('d1')]);
       expect(state.dayRefs, isEmpty);
       expect(state.buildShootingDays(), isEmpty);
+    });
+
+    // Regression guard for issue #745's `copyWith` refactor: the hand-written
+    // re-constructions dropped `dayDecisions`, so surfacing ANY command error
+    // silently re-accepted a day group the reviewer had rejected.
+    test('a command error keeps every reviewer decision intact', () {
+      final state = AiApplyState(
+        rows: [_row('d1', dayNumber: 1), _row('d2', dayNumber: 2)],
+        dayDecisions: const {'day:1': false},
+        groupTargets: const {
+          'ep:1': ExistingEpisodeGroupTarget(episodeId: 'ep-1'),
+        },
+        acknowledgedKeys: const {'0\u0000location'},
+      );
+      final failed = state.copyWith(
+        commandError: const ProblemError(code: 'ai-import.apply-blocked'),
+      );
+      expect(failed.dayDecisions, {'day:1': false});
+      expect(failed.groupTargets, state.groupTargets);
+      expect(failed.acknowledgedKeys, state.acknowledgedKeys);
+      expect(failed.editDistance, state.editDistance);
+
+      // Dismissing the error clears ONLY the error.
+      final dismissed = failed.copyWith(commandError: null);
+      expect(dismissed.commandError, isNull);
+      expect(dismissed.dayDecisions, {'day:1': false});
     });
   });
 
