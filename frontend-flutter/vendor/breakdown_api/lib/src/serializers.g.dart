@@ -53,7 +53,6 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..add(CostDisplayPreference.serializer)
       ..add(CostStatus.serializer)
       ..add(CostumeCategoryView.serializer)
-      ..add(CostumeDecision.serializer)
       ..add(CreateAiConfigRequest.serializer)
       ..add(CreateBlockRequest.serializer)
       ..add(CreateCharacterRequest.serializer)
@@ -73,8 +72,10 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..add(DispoRow.serializer)
       ..add(DocumentKind.serializer)
       ..add(DraftCharacter.serializer)
-      ..add(DraftCostume.serializer)
       ..add(DraftEpisode.serializer)
+      ..add(DraftOutfit.serializer)
+      ..add(DraftOutfitOrigin.serializer)
+      ..add(DraftPiece.serializer)
       ..add(DraftScene.serializer)
       ..add(DraftShootingDay.serializer)
       ..add(EnergyCostBreakdown.serializer)
@@ -109,6 +110,7 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..add(MetaVersionsResponse.serializer)
       ..add(ModelInfo.serializer)
       ..add(ModelPricing.serializer)
+      ..add(OutfitDecision.serializer)
       ..add(OutfitPhotoView.serializer)
       ..add(OutfitPieceView.serializer)
       ..add(OutfitView.serializer)
@@ -166,8 +168,8 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..add(SourceFormat.serializer)
       ..add(StartSceneShootRequest.serializer)
       ..add(TokenCostBreakdown.serializer)
-      ..add(UnappliedCostume.serializer)
-      ..add(UnappliedCostumeReason.serializer)
+      ..add(UnappliedOutfit.serializer)
+      ..add(UnappliedOutfitReason.serializer)
       ..add(Uncertainty.serializer)
       ..add(UncertaintyAcknowledgement.serializer)
       ..add(UncertaintyKind.serializer)
@@ -220,9 +222,6 @@ Serializers _$serializers = (Serializers().toBuilder()
           const FullType(BuiltList, const [const FullType(DeadLetterEntry)]),
           () => ListBuilder<DeadLetterEntry>())
       ..addBuilderFactory(
-          const FullType(BuiltList, const [const FullType(CostumeDecision)]),
-          () => ListBuilder<CostumeDecision>())
-      ..addBuilderFactory(
           const FullType(BuiltList, const [const FullType(DocumentKind)]),
           () => ListBuilder<DocumentKind>())
       ..addBuilderFactory(
@@ -236,8 +235,11 @@ Serializers _$serializers = (Serializers().toBuilder()
           const FullType(BuiltList, const [const FullType(DraftCharacter)]),
           () => ListBuilder<DraftCharacter>())
       ..addBuilderFactory(
-          const FullType(BuiltList, const [const FullType(DraftCostume)]),
-          () => ListBuilder<DraftCostume>())
+          const FullType(BuiltList, const [const FullType(DraftOutfit)]),
+          () => ListBuilder<DraftOutfit>())
+      ..addBuilderFactory(
+          const FullType(BuiltList, const [const FullType(DraftPiece)]),
+          () => ListBuilder<DraftPiece>())
       ..addBuilderFactory(
           const FullType(BuiltList, const [const FullType(DraftScene)]),
           () => ListBuilder<DraftScene>())
@@ -261,6 +263,9 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..addBuilderFactory(
           const FullType(BuiltList, const [const FullType(MetaCreditsEntry)]),
           () => ListBuilder<MetaCreditsEntry>())
+      ..addBuilderFactory(
+          const FullType(BuiltList, const [const FullType(OutfitDecision)]),
+          () => ListBuilder<OutfitDecision>())
       ..addBuilderFactory(
           const FullType(BuiltList, const [const FullType(OutfitPhotoView)]),
           () => ListBuilder<OutfitPhotoView>())
@@ -346,8 +351,8 @@ Serializers _$serializers = (Serializers().toBuilder()
           const FullType(BuiltList, const [const FullType(String)]),
           () => ListBuilder<String>())
       ..addBuilderFactory(
-          const FullType(BuiltList, const [const FullType(UnappliedCostume)]),
-          () => ListBuilder<UnappliedCostume>())
+          const FullType(BuiltList, const [const FullType(UnappliedOutfit)]),
+          () => ListBuilder<UnappliedOutfit>())
       ..addBuilderFactory(
           const FullType(BuiltMap,
               const [const FullType(String), const FullType(HealthEntry)]),

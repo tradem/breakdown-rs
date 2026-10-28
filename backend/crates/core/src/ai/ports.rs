@@ -6,6 +6,7 @@
 // Co-authored-by: longcat-2.0-free (opencode)
 // Co-authored-by: deepseek-v4-flash (opencode-go)
 // Co-authored-by: qwen3.8-flash (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 use async_trait::async_trait;
 use futures::Stream;
@@ -621,16 +622,22 @@ pub struct AiImportMapping {
 pub mod mapping_kind {
     pub const SCENE: &str = "scene";
     pub const CHARACTER: &str = "character";
-    pub const COSTUME: &str = "costume";
+    /// One fundus `Piece` an AI apply created for a draft row. Addressed by the
+    /// row's `draft_ref` plus the row-flat piece position (two figures may wear
+    /// the same garment, so a per-outfit ordinal would collide).
+    pub const PIECE: &str = "piece";
+    /// One `Outfit` an AI apply created for a draft row. Addressed by the row's
+    /// `draft_ref` plus the outfit's position in the row's outfit list.
+    pub const OUTFIT: &str = "outfit";
     pub const SHOOTING_DAY: &str = "shooting_day";
     pub const SCENE_SHOOT: &str = "scene_shoot";
-    /// One costume beat the AI apply added to a draft row's scene (issue
+    /// One outfit beat the AI apply added to a draft row's scene (issue
     /// #546 §5.8). Addressed by the figure's preview-wide mapping reference
-    /// (the same `draft_ref` the `character` rows use) plus the costume's
+    /// (the same `draft_ref` the `character` rows use) plus the outfit's
     /// PER-FIGURE position — two figures of one row would otherwise share
     /// one row and the second figure's first beat would silently never be
     /// applied. `aggregate_id` is the scene the beat was added to.
-    pub const SCENE_COSTUME_BEAT: &str = "scene_costume_beat";
+    pub const SCENE_OUTFIT_BEAT: &str = "scene_outfit_beat";
     /// One episode an AI script apply created for a draft episode group
     /// (issue #581). Keyed by the group ref (`ep:<n>` / `ep-t:<title>`,
     /// [`breakdown_core::ai::DraftEpisode::group_key`]) with
@@ -639,8 +646,9 @@ pub mod mapping_kind {
 }
 
 /// Ordinal of a mapping kind that has exactly one row per `draft_ref` — scenes,
-/// figures and schedule rows. Only `costume` numbers its rows, because one scene
-/// can carry several costumes of the same figure.
+/// figures and schedule rows. Only `piece` and `outfit` number their rows,
+/// because one scene can carry several outfits per figure and several pieces per
+/// outfit.
 pub const PRIMARY_ORDINAL: i32 = 0;
 
 impl AiImportMapping {

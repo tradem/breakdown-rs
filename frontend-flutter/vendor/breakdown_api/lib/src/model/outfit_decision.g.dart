@@ -1,33 +1,33 @@
 // GENERATED CODE - DO NOT MODIFY BY HAND
 
-part of 'costume_decision.dart';
+part of 'outfit_decision.dart';
 
 // **************************************************************************
 // BuiltValueGenerator
 // **************************************************************************
 
-class _$CostumeDecision extends CostumeDecision {
+class _$OutfitDecision extends OutfitDecision {
   @override
   final bool accepted;
   @override
   final int ordinal;
 
-  factory _$CostumeDecision([void Function(CostumeDecisionBuilder)? updates]) =>
-      (CostumeDecisionBuilder()..update(updates))._build();
+  factory _$OutfitDecision([void Function(OutfitDecisionBuilder)? updates]) =>
+      (OutfitDecisionBuilder()..update(updates))._build();
 
-  _$CostumeDecision._({required this.accepted, required this.ordinal})
+  _$OutfitDecision._({required this.accepted, required this.ordinal})
       : super._();
   @override
-  CostumeDecision rebuild(void Function(CostumeDecisionBuilder) updates) =>
+  OutfitDecision rebuild(void Function(OutfitDecisionBuilder) updates) =>
       (toBuilder()..update(updates)).build();
 
   @override
-  CostumeDecisionBuilder toBuilder() => CostumeDecisionBuilder()..replace(this);
+  OutfitDecisionBuilder toBuilder() => OutfitDecisionBuilder()..replace(this);
 
   @override
   bool operator ==(Object other) {
     if (identical(other, this)) return true;
-    return other is CostumeDecision &&
+    return other is OutfitDecision &&
         accepted == other.accepted &&
         ordinal == other.ordinal;
   }
@@ -43,16 +43,16 @@ class _$CostumeDecision extends CostumeDecision {
 
   @override
   String toString() {
-    return (newBuiltValueToStringHelper(r'CostumeDecision')
+    return (newBuiltValueToStringHelper(r'OutfitDecision')
           ..add('accepted', accepted)
           ..add('ordinal', ordinal))
         .toString();
   }
 }
 
-class CostumeDecisionBuilder
-    implements Builder<CostumeDecision, CostumeDecisionBuilder> {
-  _$CostumeDecision? _$v;
+class OutfitDecisionBuilder
+    implements Builder<OutfitDecision, OutfitDecisionBuilder> {
+  _$OutfitDecision? _$v;
 
   bool? _accepted;
   bool? get accepted => _$this._accepted;
@@ -62,11 +62,11 @@ class CostumeDecisionBuilder
   int? get ordinal => _$this._ordinal;
   set ordinal(int? ordinal) => _$this._ordinal = ordinal;
 
-  CostumeDecisionBuilder() {
-    CostumeDecision._defaults(this);
+  OutfitDecisionBuilder() {
+    OutfitDecision._defaults(this);
   }
 
-  CostumeDecisionBuilder get _$this {
+  OutfitDecisionBuilder get _$this {
     final $v = _$v;
     if ($v != null) {
       _accepted = $v.accepted;
@@ -77,25 +77,25 @@ class CostumeDecisionBuilder
   }
 
   @override
-  void replace(CostumeDecision other) {
-    _$v = other as _$CostumeDecision;
+  void replace(OutfitDecision other) {
+    _$v = other as _$OutfitDecision;
   }
 
   @override
-  void update(void Function(CostumeDecisionBuilder)? updates) {
+  void update(void Function(OutfitDecisionBuilder)? updates) {
     if (updates != null) updates(this);
   }
 
   @override
-  CostumeDecision build() => _build();
+  OutfitDecision build() => _build();
 
-  _$CostumeDecision _build() {
+  _$OutfitDecision _build() {
     final _$result = _$v ??
-        _$CostumeDecision._(
+        _$OutfitDecision._(
           accepted: BuiltValueNullFieldError.checkNotNull(
-              accepted, r'CostumeDecision', 'accepted'),
+              accepted, r'OutfitDecision', 'accepted'),
           ordinal: BuiltValueNullFieldError.checkNotNull(
-              ordinal, r'CostumeDecision', 'ordinal'),
+              ordinal, r'OutfitDecision', 'ordinal'),
         );
     replace(_$result);
     return _$result;

@@ -5,6 +5,7 @@
 // Co-authored-by: deepseek-v4-flash (opencode-go)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
 // Co-authored-by: qwen3.8-flash (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 use breakdown_core::ai::{
     ApplyGateError, ApplyMapping, ApplyMappingDecision, DocumentKind, DraftScene,
@@ -153,7 +154,7 @@ fn crash_retry_mapping_plans_update_instead_of_duplicate_create() {
                 aggregate_id,
                 version: AggregateVersion::INITIAL,
             },
-            costume_decisions: Vec::new(),
+            outfit_decisions: Vec::new(),
         }],
         EpisodeId::new(),
         None,
@@ -162,6 +163,7 @@ fn crash_retry_mapping_plans_update_instead_of_duplicate_create() {
             episode_groups: &[],
             shooting_days: &[],
             acknowledged_uncertainties: &[],
+            categories: &[],
         },
     )
     .expect("mapped retry is valid in test");

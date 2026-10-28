@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
-// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 // Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 // Co-authored-by: glm-5.3-flash (neuralwatt)
 // Co-authored-by: omen-alpha (opencode-go)
@@ -13,6 +12,7 @@
 // Co-authored-by: longcat-2.0-free (opencode)
 // Co-authored-by: hy4-preview (opencode-go)
 // Co-authored-by: qwen3.8-flash (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 //! Axum-Handler (Request → Command / Query)
 
@@ -6943,11 +6943,12 @@ pub struct ApplyAiImportResponse {
     /// created once, so this is not `applied_count`-related. `0` for a schedule
     /// apply, which has no figures.
     pub created_characters: u32,
-    /// Costume rows the script apply created (a piece in the fundus, then
-    /// joined to the figure's outfit). The field keeps the `costume` name until
-    /// the AI-import vocabulary is renamed as one coherent step (successor
-    /// change `ai-import-outfit-and-pieces`).
-    pub created_costumes: u32,
+    /// Fundus pieces the script apply created — the garments of the extracted
+    /// outfits.
+    pub created_pieces: u32,
+    /// Outfits the script apply created — one look per accepted outfit row,
+    /// bound to its figure and referencing the pieces above.
+    pub created_outfits: u32,
     /// Episodes the script apply created for draft episode groups the reviewer
     /// mapped to a NEW episode (issue #581). `0` for a schedule apply.
     pub created_episodes: u32,
@@ -6956,11 +6957,11 @@ pub struct ApplyAiImportResponse {
     /// never a silent one.
     #[serde(default)]
     pub skipped_day_groups: Vec<String>,
-    /// Costume rows that were **not** fully applied, each with the reason.
-    /// An apply that created a piece but could not put it into the figure's
-    /// outfit reports the row here while `created_costumes` still counts it — a
-    /// partially applied row must never look like a fully applied one.
-    pub unapplied_costumes: Vec<breakdown_core::ai::UnappliedCostume>,
+    /// Outfit rows that were **not** fully applied, each with the reason. An
+    /// apply that created a piece but could not assemble the look reports the
+    /// row here while `created_pieces` still counts the pieces — a partially
+    /// applied row must never look like a fully applied one.
+    pub unapplied_outfits: Vec<breakdown_core::ai::UnappliedOutfit>,
 }
 
 #[utoipa::path(
@@ -7084,19 +7085,16 @@ pub async fn apply_ai_import<P: Ports>(
             // row's list, so an unbounded decision list would turn one apply into
             // request-body-paid quadratic work. Bound it to what the preview
             // actually carries.
-            let piece_decisions: usize = request
+            let outfit_decisions: usize = request
                 .mappings
                 .iter()
-                .map(|mapping| mapping.costume_decisions.len())
+                .map(|mapping| mapping.outfit_decisions.len())
                 .sum();
-            let preview_pieces: usize = preview
-                .scenes
-                .iter()
-                .map(|scene| scene.costumes.len())
-                .sum();
-            if piece_decisions > preview_pieces {
+            let preview_outfits: usize =
+                preview.scenes.iter().map(|scene| scene.outfits.len()).sum();
+            if outfit_decisions > preview_outfits {
                 return Err(ApiError::Validation(
-                    "apply carries more piece decisions than the preview contains pieces",
+                    "apply carries more outfit decisions than the preview contains outfits",
                 ));
             }
             // Issue #581: validate the per-group episode targets against the
@@ -7250,10 +7248,26 @@ pub async fn apply_ai_import<P: Ports>(
                     accepted: day.accepted,
                 })
                 .collect();
+            // The piece category vocabulary of the target season, loaded HERE
+            // because the handler is the only legitimate read-model consumer
+            // (CQRS boundary): the apply planner is pure and the worker must
+            // never query that projection. An empty list is legitimate — every
+            // extracted piece is then created uncategorized.
+            let categories: Vec<breakdown_core::ai::CategoryVocabularyEntry> = state
+                .ports
+                .costume_category_repo()
+                .list_by_season(season_id)
+                .await?
+                .into_iter()
+                .map(|category| breakdown_core::ai::CategoryVocabularyEntry {
+                    name: category.name,
+                    id: CostumeCategoryId::from_uuid(category.id),
+                })
+                .collect();
             let worker = ApplyWorker {
                 scene_commands: Arc::new(state.ports.scene_commands().clone()),
                 character_commands: Arc::new(state.ports.character_commands().clone()),
-                costume_commands: Arc::new(state.ports.wardrobe_commands().clone()),
+                wardrobe_commands: Arc::new(state.ports.wardrobe_commands().clone()),
                 episode_commands: Arc::new(state.ports.episode_commands().clone()),
                 shooting_day_commands: Arc::new(state.ports.shooting_day_commands().clone()),
                 scene_shoot_commands: Arc::new(state.ports.scene_shoot_commands().clone()),
@@ -7278,6 +7292,7 @@ pub async fn apply_ai_import<P: Ports>(
                     episode_groups,
                     shooting_days,
                     acknowledged_uncertainties: request.uncertainty_acknowledgements.clone(),
+                    categories,
                     telemetry: Some(telemetry),
                 })
                 .await?;
@@ -7288,7 +7303,8 @@ pub async fn apply_ai_import<P: Ports>(
                     created_days: applied.created_days,
                     planned_scene_shoots: applied.planned_scene_shoots,
                     created_characters: applied.created_characters,
-                    created_costumes: applied.created_costumes,
+                    created_pieces: applied.created_pieces,
+                    created_outfits: applied.created_outfits,
                     created_episodes: applied.created_episodes,
                     // Day groups the reviewer rejected: their rows applied
                     // unscheduled — reported, never silent (issue #706).
@@ -7298,7 +7314,7 @@ pub async fn apply_ai_import<P: Ports>(
                         .filter(|day| !day.accepted)
                         .map(|day| day.day_ref.clone())
                         .collect(),
-                    unapplied_costumes: applied.unapplied_costumes,
+                    unapplied_outfits: applied.unapplied_outfits,
                 }),
             ))
         }
@@ -7343,11 +7359,12 @@ pub async fn apply_ai_import<P: Ports>(
                     planned_scene_shoots: result.planned_scene_shoots,
                     // A schedule apply touches no figures, pieces or episodes.
                     created_characters: 0,
-                    created_costumes: 0,
+                    created_pieces: 0,
+                    created_outfits: 0,
                     created_episodes: 0,
                     // A schedule apply decides no script day groups.
                     skipped_day_groups: Vec::new(),
-                    unapplied_costumes: Vec::new(),
+                    unapplied_outfits: Vec::new(),
                 }),
             ))
         }

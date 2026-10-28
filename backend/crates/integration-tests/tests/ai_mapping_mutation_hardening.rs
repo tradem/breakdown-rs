@@ -145,13 +145,13 @@ async fn one_draft_ref_holds_a_scene_a_figure_and_two_pieces() -> Result<()> {
         ..scene.clone()
     };
     let first_piece = AiImportMapping {
-        aggregate_kind: mapping_kind::COSTUME.to_owned(),
+        aggregate_kind: mapping_kind::OUTFIT.to_owned(),
         ordinal: 0,
         aggregate_id: Uuid::now_v7(),
         ..scene.clone()
     };
     let second_piece = AiImportMapping {
-        aggregate_kind: mapping_kind::COSTUME.to_owned(),
+        aggregate_kind: mapping_kind::OUTFIT.to_owned(),
         ordinal: 1,
         aggregate_id: Uuid::now_v7(),
         ..scene.clone()
@@ -174,7 +174,7 @@ async fn one_draft_ref_holds_a_scene_a_figure_and_two_pieces() -> Result<()> {
         scene.aggregate_id
     );
     assert_eq!(
-        repo.find(preview_id, draft_ref, mapping_kind::COSTUME, 1)
+        repo.find(preview_id, draft_ref, mapping_kind::OUTFIT, 1)
             .await?
             .expect("second piece row")
             .aggregate_id,
@@ -186,7 +186,7 @@ async fn one_draft_ref_holds_a_scene_a_figure_and_two_pieces() -> Result<()> {
     let retry = AiImportMapping::reservation(
         preview_id,
         draft_ref.to_owned(),
-        mapping_kind::COSTUME.to_owned(),
+        mapping_kind::OUTFIT.to_owned(),
         1,
         Uuid::now_v7(),
     );
@@ -208,7 +208,7 @@ async fn ordinal_is_scoped_by_aggregate_kind() -> Result<()> {
 
     let scene = make_mapping(preview_id, "1. INT. KITCHEN");
     let piece = AiImportMapping {
-        aggregate_kind: mapping_kind::COSTUME.to_owned(),
+        aggregate_kind: mapping_kind::OUTFIT.to_owned(),
         aggregate_id: Uuid::now_v7(),
         ..scene.clone()
     };
@@ -216,7 +216,7 @@ async fn ordinal_is_scoped_by_aggregate_kind() -> Result<()> {
     repo.insert(piece.clone()).await?;
 
     assert_eq!(
-        repo.find(preview_id, "1. INT. KITCHEN", mapping_kind::COSTUME, 0)
+        repo.find(preview_id, "1. INT. KITCHEN", mapping_kind::OUTFIT, 0)
             .await?
             .expect("piece row survived the scene insert")
             .aggregate_id,

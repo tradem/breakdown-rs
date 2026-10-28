@@ -17,14 +17,14 @@ use anyhow::anyhow;
 use async_trait::async_trait;
 use breakdown_core::ai::{
     AiImportBounds, AiImportEnqueueRequest, AiImportEnqueueResult, AiImportJob, AiImportJobId,
-    AiImportMapping, AiImportMappingRepository, AiImportQueue, ApplyMapping, CostumeDecision,
-    DecisionAnswer, DecisionCallOutcome, DecisionClient, DecisionRequest, DocumentKind,
-    DraftCharacter, DraftCostume, DraftEpisode, DraftScene, DraftShootingDay, EpisodeGroupPlan,
-    EpisodeTarget, JobStatus, LlmCallOutcome, LlmCallUsage, LlmChatRequest, LlmClient, LlmProvider,
-    PRIMARY_ORDINAL, ScriptContext, ShootingDayPlan, ShootingSchedule, ShootingScheduleRow,
-    SourceFormat, Telemetry, TelemetryApplyState, UnappliedCostumeReason, UncertaintyKind,
-    character_identity, character_mapping_ref, mapping_kind, merge_schedule_to_scenes,
-    question_keys,
+    AiImportMapping, AiImportMappingRepository, AiImportQueue, ApplyMapping, DecisionAnswer,
+    DecisionCallOutcome, DecisionClient, DecisionRequest, DocumentKind, DraftCharacter,
+    DraftEpisode, DraftOutfit, DraftScene, DraftShootingDay, EpisodeGroupPlan, EpisodeTarget,
+    JobStatus, LlmCallOutcome, LlmCallUsage, LlmChatRequest, LlmClient, LlmProvider,
+    OutfitDecision, PRIMARY_ORDINAL, ScriptContext, ShootingDayPlan, ShootingSchedule,
+    ShootingScheduleRow, SourceFormat, Telemetry, TelemetryApplyState, UnappliedOutfitReason,
+    UncertaintyKind, character_identity, character_mapping_ref, mapping_kind,
+    merge_schedule_to_scenes, question_keys,
 };
 use breakdown_core::character::category::CharacterCategory;
 use breakdown_core::error::DomainError;
@@ -2135,6 +2135,7 @@ async fn apply_retry_is_a_noop_for_confirmed_mappings() {
     let first = worker
         .apply_script(ApplyScriptRequest {
             acknowledged_uncertainties: Vec::new(),
+            categories: Vec::new(),
             actor: UserId::from_sub("ai-test-user"),
             preview_id: job.id,
             preview: &preview,
@@ -2162,6 +2163,7 @@ async fn apply_retry_is_a_noop_for_confirmed_mappings() {
     let second = worker
         .apply_script(ApplyScriptRequest {
             acknowledged_uncertainties: Vec::new(),
+            categories: Vec::new(),
             actor: UserId::from_sub("ai-test-user"),
             preview_id: job.id,
             preview: &preview,
@@ -2248,6 +2250,7 @@ async fn apply_script_concurrent_applies_create_one_scene_per_draft() {
             worker
                 .apply_script(ApplyScriptRequest {
                     acknowledged_uncertainties: Vec::new(),
+                    categories: Vec::new(),
                     actor: UserId::from_sub("ai-test-user"),
                     preview_id,
                     preview: &preview,
@@ -2396,6 +2399,7 @@ async fn script_pdf_round_trip_reaches_scene_apply() {
     apply_worker
         .apply_script(ApplyScriptRequest {
             acknowledged_uncertainties: Vec::new(),
+            categories: Vec::new(),
             actor: UserId::from_sub("script-round-trip"),
             preview_id: job.id,
             preview: &preview,
@@ -2425,7 +2429,7 @@ fn create_decision(draft_ref: &str) -> ApplyMapping {
     ApplyMapping {
         draft_ref: draft_ref.to_owned(),
         decision: breakdown_core::ai::ApplyMappingDecision::Create,
-        costume_decisions: Vec::new(),
+        outfit_decisions: Vec::new(),
     }
 }
 
@@ -2439,7 +2443,7 @@ fn script_apply_worker(
 ) -> ApplyWorker<
     FakeSceneCommands,
     FakeCharacterCommands,
-    FakeCostumeCommands,
+    FakeWardrobeCommands,
     FakeEpisodeCommands,
     FakeShootingDayCommands,
     FakeSceneShootCommands,
@@ -2450,7 +2454,7 @@ fn script_apply_worker(
     ApplyWorker {
         scene_commands,
         character_commands: Arc::new(FakeCharacterCommands::default()),
-        costume_commands: Arc::new(FakeCostumeCommands::default()),
+        wardrobe_commands: Arc::new(FakeWardrobeCommands::default()),
         episode_commands: Arc::new(FakeEpisodeCommands::default()),
         shooting_day_commands: Arc::new(FakeShootingDayCommands::default()),
         scene_shoot_commands: Arc::new(FakeSceneShootCommands::default()),
@@ -2587,9 +2591,11 @@ impl breakdown_core::character::ports::CharacterCommands for FakeCharacterComman
 /// from. The journal keeps the historical `costume:*` keys so the apply-order
 /// assertions stay readable.
 #[derive(Clone, Default)]
-struct FakeCostumeCommands {
+struct FakeWardrobeCommands {
     created: Arc<Mutex<Vec<Uuid>>>,
     notes: Arc<Mutex<Vec<(Uuid, String)>>>,
+    /// `(piece_id, category_id)` of every `SetPieceCategory` this apply sent.
+    categories: CategoryDispatchLog,
     /// `(outfit_id, character_id)` of every created outfit.
     assigned: Arc<Mutex<Vec<(Uuid, Uuid)>>>,
     /// Version each piece carries, i.e. how many events it has appended.
@@ -2597,10 +2603,19 @@ struct FakeCostumeCommands {
     /// Version each outfit carries.
     outfit_versions: Arc<Mutex<HashMap<Uuid, breakdown_core::shared::AggregateVersion>>>,
     fail_assign_with: Arc<Mutex<Option<DomainError>>>,
+    /// Makes the next `CreateOutfit` behave like an earlier crashed attempt:
+    /// the outfit stream exists but is still **empty**, so the worker takes its
+    /// recovery path and has to add every piece itself (CodeRabbit, PR #744).
+    lose_outfit_pieces_once: Arc<Mutex<bool>>,
     journal: Arc<Mutex<Vec<String>>>,
 }
 
 type Version = breakdown_core::shared::AggregateVersion;
+
+/// `(piece_id, category_id)` pairs of the `SetPieceCategory` commands one
+/// apply dispatched, in dispatch order.
+type CategoryDispatchLog =
+    Arc<Mutex<Vec<(Uuid, Option<breakdown_core::shared::CostumeCategoryId>)>>>;
 
 /// Season read model of the apply worker (CR-002/D2).
 ///
@@ -2672,7 +2687,7 @@ fn version(n: u64) -> Version {
     breakdown_core::shared::AggregateVersion(n)
 }
 
-impl FakeCostumeCommands {
+impl FakeWardrobeCommands {
     fn version_of(&self, id: &Uuid) -> Option<Version> {
         self.versions.lock().unwrap().get(id).copied()
     }
@@ -2700,7 +2715,7 @@ impl FakeCostumeCommands {
     }
 }
 
-impl breakdown_core::piece::ports::PieceCommands for FakeCostumeCommands {
+impl breakdown_core::piece::ports::PieceCommands for FakeWardrobeCommands {
     async fn create(
         &self,
         _actor: UserId,
@@ -2718,7 +2733,7 @@ impl breakdown_core::piece::ports::PieceCommands for FakeCostumeCommands {
         self.journal
             .lock()
             .unwrap()
-            .push(format!("costume:create:{id}"));
+            .push(format!("piece:create:{id}"));
         Ok((id, Version::INITIAL))
     }
 
@@ -2744,7 +2759,7 @@ impl breakdown_core::piece::ports::PieceCommands for FakeCostumeCommands {
         self.journal
             .lock()
             .unwrap()
-            .push(format!("costume:notes:{}", command.id));
+            .push(format!("piece:notes:{}", command.id));
         Ok(next)
     }
 
@@ -2791,9 +2806,19 @@ impl breakdown_core::piece::ports::PieceCommands for FakeCostumeCommands {
     async fn set_category(
         &self,
         _actor: UserId,
-        _command: breakdown_core::piece::commands::SetPieceCategory,
+        command: breakdown_core::piece::commands::SetPieceCategory,
     ) -> Result<Version, DomainError> {
-        unexpected_command("set_category")
+        let next = self.check(command.id, command.version)?;
+        self.versions.lock().unwrap().insert(command.id, next);
+        self.categories
+            .lock()
+            .unwrap()
+            .push((command.id, command.category_id));
+        self.journal
+            .lock()
+            .unwrap()
+            .push(format!("piece:category:{}", command.id));
+        Ok(next)
     }
 
     async fn link_photo(
@@ -2813,7 +2838,7 @@ impl breakdown_core::piece::ports::PieceCommands for FakeCostumeCommands {
     }
 }
 
-impl breakdown_core::outfit::ports::OutfitCommands for FakeCostumeCommands {
+impl breakdown_core::outfit::ports::OutfitCommands for FakeWardrobeCommands {
     async fn create(
         &self,
         _actor: UserId,
@@ -2833,6 +2858,23 @@ impl breakdown_core::outfit::ports::OutfitCommands for FakeCostumeCommands {
             .lock()
             .unwrap()
             .insert(id, Version::INITIAL);
+        // The simulated crash: the stream exists but carries no piece yet, so
+        // the caller must recover by adding them one at a time.
+        let lose_pieces = std::mem::take(&mut *self.lose_outfit_pieces_once.lock().unwrap());
+        if lose_pieces {
+            self.assigned
+                .lock()
+                .unwrap()
+                .push((id, command.character_id));
+            self.journal
+                .lock()
+                .unwrap()
+                .push(format!("outfit:create:{id}"));
+            return Err(DomainError::VersionConflict {
+                expected: version(0),
+                current: Version::INITIAL,
+            });
+        }
         self.assigned
             .lock()
             .unwrap()
@@ -2840,7 +2882,7 @@ impl breakdown_core::outfit::ports::OutfitCommands for FakeCostumeCommands {
         self.journal
             .lock()
             .unwrap()
-            .push(format!("costume:bind:{id}"));
+            .push(format!("outfit:create:{id}"));
         Ok((id, Version::INITIAL))
     }
 
@@ -2863,9 +2905,24 @@ impl breakdown_core::outfit::ports::OutfitCommands for FakeCostumeCommands {
     async fn update_notes(
         &self,
         _actor: UserId,
-        _command: breakdown_core::outfit::commands::UpdateOutfitNotes,
+        command: breakdown_core::outfit::commands::UpdateOutfitNotes,
     ) -> Result<Version, DomainError> {
-        unexpected_command("outfit_update_notes")
+        let next = self.check_outfit(command.id, command.version)?;
+        self.outfit_versions
+            .lock()
+            .unwrap()
+            .insert(command.id, next);
+        // The extracted wording reaches the domain as the outfit's notes — the
+        // same channel the piece notes use, so tests can assert one list.
+        self.notes
+            .lock()
+            .unwrap()
+            .push((command.id, command.notes.clone()));
+        self.journal
+            .lock()
+            .unwrap()
+            .push(format!("outfit:notes:{}", command.id));
+        Ok(next)
     }
 
     async fn add_piece(
@@ -2881,7 +2938,7 @@ impl breakdown_core::outfit::ports::OutfitCommands for FakeCostumeCommands {
         self.journal
             .lock()
             .unwrap()
-            .push(format!("costume:add_piece:{}", command.id));
+            .push(format!("outfit:add_piece:{}", command.id));
         Ok(next)
     }
 
@@ -2916,7 +2973,7 @@ struct ScriptApplyFixture {
     mappings: Arc<FakeMappings>,
     scenes: Arc<FakeSceneCommands>,
     characters: Arc<FakeCharacterCommands>,
-    costumes: Arc<FakeCostumeCommands>,
+    wardrobe: Arc<FakeWardrobeCommands>,
     episodes: Arc<FakeEpisodeCommands>,
     shooting_days: Arc<FakeShootingDayCommands>,
     scene_shoots: Arc<FakeSceneShootCommands>,
@@ -2945,7 +3002,7 @@ impl ScriptApplyFixture {
                 journal: Arc::clone(&journal),
                 ..Default::default()
             }),
-            costumes: Arc::new(FakeCostumeCommands {
+            wardrobe: Arc::new(FakeWardrobeCommands {
                 journal: Arc::clone(&journal),
                 ..Default::default()
             }),
@@ -2970,7 +3027,7 @@ impl ScriptApplyFixture {
     ) -> ApplyWorker<
         FakeSceneCommands,
         FakeCharacterCommands,
-        FakeCostumeCommands,
+        FakeWardrobeCommands,
         FakeEpisodeCommands,
         FakeShootingDayCommands,
         FakeSceneShootCommands,
@@ -2981,7 +3038,7 @@ impl ScriptApplyFixture {
         ApplyWorker {
             scene_commands: Arc::clone(&self.scenes),
             character_commands: Arc::clone(&self.characters),
-            costume_commands: Arc::clone(&self.costumes),
+            wardrobe_commands: Arc::clone(&self.wardrobe),
             episode_commands: Arc::clone(&self.episodes),
             shooting_day_commands: Arc::clone(&self.shooting_days),
             scene_shoot_commands: Arc::clone(&self.scene_shoots),
@@ -3013,6 +3070,7 @@ impl ScriptApplyFixture {
         self.worker()
             .apply_script(ApplyScriptRequest {
                 acknowledged_uncertainties: Vec::new(),
+                categories: Vec::new(),
                 actor: UserId::from_sub("apply-test-user"),
                 preview_id: self.preview_id,
                 preview,
@@ -3028,6 +3086,33 @@ impl ScriptApplyFixture {
             .await
     }
 
+    /// Apply with a season category vocabulary, so a piece's `category_hint`
+    /// can resolve to an id exactly as it does in production.
+    async fn apply_with_categories(
+        &self,
+        preview: &ScriptContext,
+        decisions: &[ApplyMapping],
+        categories: Vec<breakdown_core::ai::CategoryVocabularyEntry>,
+    ) -> Result<super::ScriptApplyResult, DomainError> {
+        self.worker()
+            .apply_script(ApplyScriptRequest {
+                acknowledged_uncertainties: Vec::new(),
+                categories,
+                actor: UserId::from_sub("apply-test-user"),
+                preview_id: self.preview_id,
+                preview,
+                decisions,
+                episode_id: self.episode_id,
+                season_id: self.season_id,
+                project_id: None,
+                block_id: self.block_id,
+                episode_groups: Vec::new(),
+                shooting_days: Vec::new(),
+                telemetry: None,
+            })
+            .await
+    }
+
     async fn apply(
         &self,
         preview: &ScriptContext,
@@ -3036,6 +3121,7 @@ impl ScriptApplyFixture {
         self.worker()
             .apply_script(ApplyScriptRequest {
                 acknowledged_uncertainties: Vec::new(),
+                categories: Vec::new(),
                 actor: UserId::from_sub("apply-test-user"),
                 preview_id: self.preview_id,
                 preview,
@@ -3057,7 +3143,7 @@ impl ScriptApplyFixture {
         self.journal.lock().unwrap().clone()
     }
 
-    /// Confirmed `scene_costume_beat` mapping row of one figure lane, if any.
+    /// Confirmed `scene_outfit_beat` mapping row of one figure lane, if any.
     async fn beat_mapping(
         &self,
         lane_identity: &str,
@@ -3067,7 +3153,7 @@ impl ScriptApplyFixture {
             .find(
                 self.preview_id,
                 &breakdown_core::ai::character_mapping_ref(lane_identity),
-                "scene_costume_beat",
+                mapping_kind::SCENE_OUTFIT_BEAT,
                 per_figure_order,
             )
             .await
@@ -3085,8 +3171,28 @@ impl ScriptApplyFixture {
     }
 }
 
-/// A row with one figure and one costume, as extraction would produce it.
-fn row_with_costume(draft_ref: &str, characters: &[&str], costumes: &[(&str, &str)]) -> DraftScene {
+/// Test-side construction of a draft outfit with derived garments, so a test
+/// can pin the pieces a shorthand decomposes into.
+trait DraftOutfitPieces {
+    fn with_pieces(self, pieces: &[(&str, Option<&str>)]) -> Self;
+}
+
+impl DraftOutfitPieces for breakdown_core::ai::DraftOutfit {
+    fn with_pieces(mut self, pieces: &[(&str, Option<&str>)]) -> Self {
+        self.pieces = pieces
+            .iter()
+            .map(|(name, hint)| breakdown_core::ai::DraftPiece {
+                name: (*name).to_owned(),
+                category_hint: hint.map(str::to_owned),
+                description: None,
+            })
+            .collect();
+        self
+    }
+}
+
+/// A row with one figure and one outfit, as extraction would produce it.
+fn row_with_outfit(draft_ref: &str, characters: &[&str], outfits: &[(&str, &str)]) -> DraftScene {
     DraftScene {
         draft_ref: draft_ref.to_owned(),
         scene_number: Some(1),
@@ -3097,15 +3203,22 @@ fn row_with_costume(draft_ref: &str, characters: &[&str], costumes: &[(&str, &st
                 category: Default::default(),
             })
             .collect(),
-        costumes: costumes
+        outfits: outfits
             .iter()
-            .map(
-                |(character, description)| breakdown_core::ai::DraftCostume {
-                    character_name: (*character).to_owned(),
-                    description: (*description).to_owned(),
-                    source_quote: (*description).to_owned(),
-                },
-            )
+            .map(|(character, description)| breakdown_core::ai::DraftOutfit {
+                character_name: (*character).to_owned(),
+                name: (*description).to_owned(),
+                notes: Some((*description).to_owned()),
+                source_quote: (*description).to_owned(),
+                // One derived garment: the fixture's rows describe a single
+                // look, and the apply must create its pieces before the outfit.
+                pieces: vec![breakdown_core::ai::DraftPiece {
+                    name: (*description).to_owned(),
+                    category_hint: None,
+                    description: None,
+                }],
+                ..Default::default()
+            })
             .collect(),
         ..Default::default()
     }
@@ -3118,7 +3231,7 @@ fn row_with_costume(draft_ref: &str, characters: &[&str], costumes: &[(&str, &st
 async fn script_apply_without_a_mapping_decision_answers_the_dedicated_code() {
     let fixture = ScriptApplyFixture::new();
     let preview = ScriptContext {
-        scenes: vec![row_with_costume(
+        scenes: vec![row_with_outfit(
             "1. INT. OP",
             &["BEN"],
             &[("Ben", "ölverschmierter Mechaniker-Overall")],
@@ -3175,12 +3288,12 @@ async fn script_apply_carries_the_extracted_category_into_the_character() {
     );
 }
 
-/// Task 3.4: the figure must exist before its costume binds to it.
+/// Task 3.4: the figure must exist before its outfit binds to it.
 #[tokio::test]
 async fn script_apply_dispatches_the_character_before_the_costume_binding() {
     let fixture = ScriptApplyFixture::new();
     let preview = ScriptContext {
-        scenes: vec![row_with_costume(
+        scenes: vec![row_with_outfit(
             "1. INT. OP",
             &["BEN"],
             &[("Ben", "ölverschmierter Mechaniker-Overall")],
@@ -3199,20 +3312,20 @@ async fn script_apply_dispatches_the_character_before_the_costume_binding() {
         .unwrap_or_else(|| panic!("no CreateCharacter was dispatched: {steps:?}"));
     let bind = steps
         .iter()
-        .position(|step| step.starts_with("costume:bind:"))
-        .unwrap_or_else(|| panic!("no AssignCostumeToCharacter was dispatched: {steps:?}"));
+        .position(|step| step.starts_with("outfit:create:"))
+        .unwrap_or_else(|| panic!("no CreateOutfit was dispatched: {steps:?}"));
     assert!(
         character < bind,
-        "the figure must be created before its costume binds to it: {steps:?}"
+        "the figure must be created before its outfit binds to it: {steps:?}"
     );
     // The outfit that bound belongs to the figure this apply created. The
     // piece and the outfit are separate streams: the piece is the garment, the
     // outfit is the look that carries the character binding.
-    let created_costumes = fixture.costumes.created.lock().unwrap().clone();
-    let assigned = fixture.costumes.assigned.lock().unwrap().clone();
+    let created_outfits = fixture.wardrobe.created.lock().unwrap().clone();
+    let assigned = fixture.wardrobe.assigned.lock().unwrap().clone();
     assert_eq!(assigned.len(), 1, "one outfit for the figure");
     assert_ne!(
-        assigned[0].0, created_costumes[0],
+        assigned[0].0, created_outfits[0],
         "the outfit id must not be the piece id — they are different aggregates"
     );
     assert_eq!(
@@ -3233,12 +3346,12 @@ async fn script_apply_creates_one_figure_per_name_and_re_applies_without_duplica
     // produced 268 character mentions over 131 scenes).
     let preview = ScriptContext {
         scenes: vec![
-            row_with_costume(
+            row_with_outfit(
                 "1. INT. OP",
                 &["RENEE SANDERS"],
                 &[("Renee Sanders", "Ölverschmierter Overall")],
             ),
-            row_with_costume(
+            row_with_outfit(
                 "2. A/T - VOR KLINIK",
                 &[" renee sanders "],
                 &[("RENEE SANDERS", "Kasack")],
@@ -3253,21 +3366,22 @@ async fn script_apply_creates_one_figure_per_name_and_re_applies_without_duplica
 
     let first = fixture.apply(&preview, &decisions).await.unwrap();
     assert_eq!(first.created_characters, 1, "one figure for two mentions");
-    assert_eq!(first.created_costumes, 2, "both costumes applied");
+    assert_eq!(first.created_outfits, 2, "both outfits applied");
+    assert_eq!(first.created_pieces, 2, "both derived pieces applied");
     assert_eq!(fixture.characters.created.lock().unwrap().len(), 1);
-    assert_eq!(fixture.costumes.created.lock().unwrap().len(), 2);
-    // Both pieces hang on ONE outfit of the *same* figure: the outfit id is
-    // derived per figure, so the second piece joins the existing look instead of
-    // creating a second one.
+    assert_eq!(fixture.wardrobe.created.lock().unwrap().len(), 2);
+    // Two rows, two looks of the *same* figure: an outfit is per draft row
+    // (keyed by `(draft_ref, 'outfit', ordinal)`), so the figure ends up with
+    // two distinct outfits and still one aggregate.
     let bound: Vec<Uuid> = fixture
-        .costumes
+        .wardrobe
         .assigned
         .lock()
         .unwrap()
         .iter()
         .map(|(_, character)| *character)
         .collect();
-    assert_eq!(bound.len(), 1, "one outfit for the figure");
+    assert_eq!(bound.len(), 2, "one outfit per draft row");
     assert_eq!(
         bound[0],
         fixture.characters.created.lock().unwrap()[0].id,
@@ -3278,15 +3392,15 @@ async fn script_apply_creates_one_figure_per_name_and_re_applies_without_duplica
     let again = fixture.apply(&preview, &decisions).await.unwrap();
     assert_eq!(again.applied.len(), 2, "the rows are still reported");
     assert_eq!(again.created_characters, 0);
-    assert_eq!(again.created_costumes, 0);
-    assert!(again.unapplied_costumes.is_empty());
+    assert_eq!(again.created_outfits, 0);
+    assert!(again.unapplied_outfits.is_empty());
     assert_eq!(
         fixture.characters.created.lock().unwrap().len(),
         1,
         "no duplicate figure"
     );
     assert_eq!(
-        fixture.costumes.created.lock().unwrap().len(),
+        fixture.wardrobe.created.lock().unwrap().len(),
         2,
         "no duplicate costume"
     );
@@ -3309,7 +3423,7 @@ async fn script_apply_reports_costumes_whose_figure_could_not_be_created() {
         .unwrap()
         .replace(DomainError::validation("simulated character rejection"));
     let preview = ScriptContext {
-        scenes: vec![row_with_costume(
+        scenes: vec![row_with_outfit(
             "1. INT. OP",
             &["BEN"],
             &[("Ben", "Marineblau"), ("Ben", "Silberkette")],
@@ -3322,12 +3436,12 @@ async fn script_apply_reports_costumes_whose_figure_could_not_be_created() {
         .unwrap();
 
     assert!(
-        fixture.costumes.created.lock().unwrap().is_empty(),
+        fixture.wardrobe.created.lock().unwrap().is_empty(),
         "a costume with no figure must never be created"
     );
-    assert_eq!(result.unapplied_costumes.len(), 2);
-    assert!(result.unapplied_costumes.iter().all(|costume| {
-        costume.reason == UnappliedCostumeReason::CharacterUnavailable
+    assert_eq!(result.unapplied_outfits.len(), 2);
+    assert!(result.unapplied_outfits.iter().all(|costume| {
+        costume.reason == UnappliedOutfitReason::CharacterUnavailable
             && costume.detail.as_deref() == Some("validation failed: simulated character rejection")
     }));
     // The scene of that row still applied — one bad figure is not a failed row.
@@ -3351,13 +3465,14 @@ async fn script_apply_reports_costumes_whose_figure_could_not_be_created() {
 #[tokio::test]
 async fn script_apply_recovers_when_only_the_notes_confirm_crashed() {
     let fixture = ScriptApplyFixture::new();
-    // Insert order for one scene + one figure + one costume: #1 scene confirm,
-    // #2 figure confirm, #3 costume-create confirm, #4 NOTES confirm. Failing #4
-    // is precisely the window: the notes command has already appended.
-    fixture.mappings.fail_nth_insert(4);
+    // Insert order for one scene + one figure + one piece + one outfit:
+    // #1 scene confirm, #2 figure confirm, #3 piece-create confirm, #4
+    // outfit-create confirm, #5 OUTFIT-NOTES confirm. Failing #5 is precisely
+    // the window: the notes command has already appended.
+    fixture.mappings.fail_nth_insert(5);
 
     let preview = ScriptContext {
-        scenes: vec![row_with_costume(
+        scenes: vec![row_with_outfit(
             "1. INT. OP",
             &["BEN"],
             &[("Ben", "Marineblau")],
@@ -3372,15 +3487,15 @@ async fn script_apply_recovers_when_only_the_notes_confirm_crashed() {
     assert!(matches!(error, DomainError::ServiceUnavailable { .. }));
 
     // The notes DID reach the aggregate, but the mapping never recorded it.
-    assert_eq!(fixture.costumes.notes.lock().unwrap().len(), 1);
-    let costume_mapping = fixture
+    assert_eq!(fixture.wardrobe.notes.lock().unwrap().len(), 1);
+    let outfit_mapping = fixture
         .mappings
-        .find(fixture.preview_id, "1. INT. OP", mapping_kind::COSTUME, 0)
+        .find(fixture.preview_id, "1. INT. OP", mapping_kind::OUTFIT, 0)
         .await
         .unwrap()
-        .expect("costume mapping row");
+        .expect("outfit mapping row");
     assert_eq!(
-        costume_mapping.aggregate_version,
+        outfit_mapping.aggregate_version,
         version(1),
         "the failed confirm must leave the phase record at create"
     );
@@ -3390,27 +3505,27 @@ async fn script_apply_recovers_when_only_the_notes_confirm_crashed() {
     // reporting the row as unapplied.
     let second = fixture.apply(&preview, &decisions).await.unwrap();
     assert!(
-        second.unapplied_costumes.is_empty(),
+        second.unapplied_outfits.is_empty(),
         "the retry must finish the chain, got {:?}",
-        second.unapplied_costumes
+        second.unapplied_outfits
     );
     assert_eq!(
-        fixture.costumes.created.lock().unwrap().len(),
+        fixture.wardrobe.created.lock().unwrap().len(),
         1,
-        "the retry must not create a second costume"
+        "the retry must not create a second piece"
     );
     assert_eq!(
-        fixture.costumes.assigned.lock().unwrap().len(),
+        fixture.wardrobe.assigned.lock().unwrap().len(),
         1,
-        "the costume must be bound on the retry"
+        "the outfit must be created on the retry"
     );
     assert_eq!(
         fixture
             .mappings
-            .find(fixture.preview_id, "1. INT. OP", mapping_kind::COSTUME, 0)
+            .find(fixture.preview_id, "1. INT. OP", mapping_kind::OUTFIT, 0)
             .await
             .unwrap()
-            .expect("costume mapping row")
+            .expect("outfit mapping row")
             .aggregate_version,
         version(2),
         "create + notes, exactly one version per phase (the outfit lives on its own stream)"
@@ -3430,7 +3545,7 @@ async fn script_apply_refuses_the_outfit_step_of_an_archived_season() {
     let mut fixture = ScriptApplyFixture::new();
     fixture.seasons = Arc::new(FakeSeasonRepo::archived());
     let preview = ScriptContext {
-        scenes: vec![row_with_costume(
+        scenes: vec![row_with_outfit(
             "1. INT. OP",
             &["BEN"],
             &[("Ben", "Marineblau")],
@@ -3440,35 +3555,96 @@ async fn script_apply_refuses_the_outfit_step_of_an_archived_season() {
     let decisions = [create_decision("1. INT. OP")];
     let applied = fixture.apply(&preview, &decisions).await.unwrap();
 
-    // The piece steps are NOT blocked by the archived season.
+    // The piece step is NOT blocked by the archived season.
+    assert_eq!(applied.created_pieces, 1, "the piece entered the fundus");
     assert_eq!(
-        fixture.costumes.created.lock().unwrap().len(),
+        fixture.wardrobe.created.lock().unwrap().len(),
         1,
         "the piece must still be created in the fundus"
     );
-    assert_eq!(
-        fixture.costumes.notes.lock().unwrap().len(),
-        1,
-        "the extracted description must still reach the piece"
-    );
-    assert_eq!(applied.created_costumes, 1);
     assert!(
-        fixture.costumes.assigned.lock().unwrap().is_empty(),
+        fixture.wardrobe.notes.lock().unwrap().is_empty(),
+        "the outfit cannot carry notes: it was never created"
+    );
+    assert_eq!(
+        applied.created_outfits, 0,
+        "no outfit may be counted in an archived season"
+    );
+    assert!(
+        fixture.wardrobe.assigned.lock().unwrap().is_empty(),
         "no outfit may be created in an archived season"
     );
-    assert_eq!(applied.unapplied_costumes.len(), 1);
+    assert_eq!(applied.unapplied_outfits.len(), 1);
     assert_eq!(
-        applied.unapplied_costumes[0].reason,
-        UnappliedCostumeReason::BindingRejected
+        applied.unapplied_outfits[0].reason,
+        UnappliedOutfitReason::BindingRejected
     );
     // The piece stream is complete: create + notes, exactly one event per phase.
     let mapping = fixture
         .mappings
-        .find(fixture.preview_id, "1. INT. OP", mapping_kind::COSTUME, 0)
+        .find(fixture.preview_id, "1. INT. OP", mapping_kind::OUTFIT, 0)
         .await
         .unwrap()
-        .expect("costume mapping row");
-    assert_eq!(mapping.aggregate_version, version(2));
+        .expect("outfit mapping row");
+    assert_eq!(
+        mapping.aggregate_version,
+        version(0),
+        "the refused step never confirmed: the row stays reserved"
+    );
+}
+
+/// CodeRabbit (PR #744): the outfit recovery loop dispatched every
+/// `AddPieceToOutfit` at the SAME stale `current` version, so the second call
+/// conflicted, was logged and swallowed — that piece never reached the look —
+/// and the mapping then confirmed the stale version, which also lost the notes.
+#[tokio::test]
+async fn outfit_recovery_adds_every_missing_piece_at_the_advancing_version() {
+    let fixture = ScriptApplyFixture::new();
+    *fixture.wardrobe.lose_outfit_pieces_once.lock().unwrap() = true;
+    let preview = ScriptContext {
+        scenes: vec![DraftScene {
+            draft_ref: "1. INT. OP".to_owned(),
+            scene_number: Some(1),
+            characters: vec![DraftCharacter::from("ANKE")],
+            outfits: vec![
+                breakdown_core::ai::DraftOutfit {
+                    character_name: "ANKE".to_owned(),
+                    name: "OP".to_owned(),
+                    notes: Some("Kasack und Hose in OP-Grün".to_owned()),
+                    source_quote: "in OP".to_owned(),
+                    ..Default::default()
+                }
+                .with_pieces(&[("OP-Kasack", None), ("OP-Hose", None)]),
+            ],
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    let result = fixture
+        .apply(&preview, &[create_decision("1. INT. OP")])
+        .await
+        .unwrap();
+
+    assert!(
+        result.unapplied_outfits.is_empty(),
+        "{:?}",
+        result.unapplied_outfits
+    );
+    let adds = fixture
+        .steps()
+        .into_iter()
+        .filter(|step| step.starts_with("outfit:add_piece:"))
+        .count();
+    assert_eq!(
+        adds, 2,
+        "every missing piece must be re-added on the recovery path"
+    );
+    // The notes step must still run: the stale version would have dropped it.
+    assert_eq!(
+        fixture.wardrobe.notes.lock().unwrap().len(),
+        1,
+        "the recovered version must carry the notes step"
+    );
 }
 
 /// CR-002/D2: a season lookup **outage** is not a refusal — it fails the apply
@@ -3486,7 +3662,7 @@ async fn script_apply_fails_the_apply_when_the_season_lookup_is_an_outage() {
             "season projection offline",
         ));
     let preview = ScriptContext {
-        scenes: vec![row_with_costume(
+        scenes: vec![row_with_outfit(
             "1. INT. OP",
             &["BEN"],
             &[("Ben", "Marineblau")],
@@ -3503,16 +3679,16 @@ async fn script_apply_fails_the_apply_when_the_season_lookup_is_an_outage() {
 }
 
 #[tokio::test]
-async fn script_apply_reuses_the_costume_id_when_only_the_binding_failed() {
+async fn script_apply_reuses_the_piece_id_when_only_the_outfit_create_failed() {
     let fixture = ScriptApplyFixture::new();
     fixture
-        .costumes
+        .wardrobe
         .fail_assign_with
         .lock()
         .unwrap()
         .replace(DomainError::validation("simulated binding rejection"));
     let preview = ScriptContext {
-        scenes: vec![row_with_costume(
+        scenes: vec![row_with_outfit(
             "1. INT. OP",
             &["BEN"],
             &[("Ben", "Marineblau")],
@@ -3522,58 +3698,47 @@ async fn script_apply_reuses_the_costume_id_when_only_the_binding_failed() {
     let decisions = [create_decision("1. INT. OP")];
     let first = fixture.apply(&preview, &decisions).await.unwrap();
 
-    assert_eq!(first.created_costumes, 1, "the costume exists");
-    assert!(fixture.costumes.assigned.lock().unwrap().is_empty());
-    assert_eq!(first.unapplied_costumes.len(), 1);
+    assert_eq!(first.created_pieces, 1, "the piece exists");
+    assert_eq!(first.created_outfits, 0, "the outfit was refused");
+    assert!(fixture.wardrobe.assigned.lock().unwrap().is_empty());
+    assert_eq!(first.unapplied_outfits.len(), 1);
     assert_eq!(
-        first.unapplied_costumes[0].reason,
-        UnappliedCostumeReason::BindingRejected
+        first.unapplied_outfits[0].reason,
+        UnappliedOutfitReason::CreateRejected
     );
-    let created_id = fixture.costumes.created.lock().unwrap()[0];
-    // The mapping advanced only as far as the create, i.e. the version records
-    // exactly which phase is missing.
+    // The outfit's mapping row stayed a reservation: the refused step never
+    // confirmed a version.
     let mapping = fixture
         .mappings
-        .find(fixture.preview_id, "1. INT. OP", mapping_kind::COSTUME, 0)
+        .find(fixture.preview_id, "1. INT. OP", mapping_kind::OUTFIT, 0)
         .await
         .unwrap()
-        .expect("costume mapping row");
-    assert_eq!(mapping.aggregate_id, created_id);
-    assert_eq!(
-        mapping.aggregate_version,
-        version(2),
-        "create + notes appended, the binding did not"
-    );
+        .expect("outfit mapping row");
+    assert_eq!(mapping.aggregate_version, version(0));
 
     // Retry with the binding allowed again: same id, now bound, no second
     // costume.
     let second = fixture.apply(&preview, &decisions).await.unwrap();
     assert!(
-        second.unapplied_costumes.is_empty(),
+        second.unapplied_outfits.is_empty(),
         "{:?}",
-        second.unapplied_costumes
+        second.unapplied_outfits
     );
     assert_eq!(
-        second.created_costumes, 0,
-        "the retry must not create again"
+        second.created_outfits, 1,
+        "the retry creates the outfit the refusal blocked"
     );
-    assert_eq!(fixture.costumes.created.lock().unwrap().len(), 1);
-    let assigned = fixture.costumes.assigned.lock().unwrap().clone();
-    assert_eq!(assigned.len(), 1, "the retry creates the outfit once");
     assert_eq!(
-        fixture.costumes.created.lock().unwrap().len(),
+        fixture.wardrobe.created.lock().unwrap().len(),
         1,
         "the reserved piece id was reused"
     );
-    assert_eq!(
-        fixture.costumes.created.lock().unwrap()[0],
-        created_id,
-        "the reserved piece id was reused"
-    );
+    let assigned = fixture.wardrobe.assigned.lock().unwrap().clone();
+    assert_eq!(assigned.len(), 1, "the retry creates the outfit once");
     assert_eq!(
         fixture
             .mappings
-            .find(fixture.preview_id, "1. INT. OP", mapping_kind::COSTUME, 0)
+            .find(fixture.preview_id, "1. INT. OP", mapping_kind::OUTFIT, 0)
             .await
             .unwrap()
             .unwrap()
@@ -3590,7 +3755,7 @@ async fn script_apply_reuses_the_costume_id_when_only_the_binding_failed() {
 async fn script_apply_writes_the_description_as_notes_and_binds_at_that_version() {
     let fixture = ScriptApplyFixture::new();
     let preview = ScriptContext {
-        scenes: vec![row_with_costume(
+        scenes: vec![row_with_outfit(
             "1. INT. OP",
             &[" BEN "],
             &[("ben", "  ölverschmierter Mechaniker-Overall  ")],
@@ -3601,7 +3766,7 @@ async fn script_apply_writes_the_description_as_notes_and_binds_at_that_version(
         .apply(&preview, &[create_decision("1. INT. OP")])
         .await
         .unwrap();
-    assert!(result.unapplied_costumes.is_empty());
+    assert!(result.unapplied_outfits.is_empty());
 
     // Verbatim name form, untouched by the case-insensitive identity match.
     let created = fixture.characters.created.lock().unwrap().clone();
@@ -3609,18 +3774,19 @@ async fn script_apply_writes_the_description_as_notes_and_binds_at_that_version(
     assert_eq!(created[0].name, " BEN ");
     assert_eq!(created[0].season_id, fixture.season_id);
 
-    let notes = fixture.costumes.notes.lock().unwrap().clone();
+    let notes = fixture.wardrobe.notes.lock().unwrap().clone();
     assert_eq!(notes.len(), 1);
-    assert_eq!(notes[0].1, "  ölverschmierter Mechaniker-Overall  ");
+    // The planner trims the plan fields; the wording itself is verbatim.
+    assert_eq!(notes[0].1, "ölverschmierter Mechaniker-Overall");
 
-    // The piece stream is two events: create, notes. The character binding moved
-    // to the outfit stream (a separate aggregate).
-    let id = fixture.costumes.created.lock().unwrap()[0];
-    assert_eq!(fixture.costumes.version_of(&id), Some(version(2)));
+    // The piece stream is one event (create): the extracted wording lives on
+    // the outfit's notes, and the character binding is the outfit's too.
+    let id = fixture.wardrobe.created.lock().unwrap()[0];
+    assert_eq!(fixture.wardrobe.version_of(&id), Some(version(1)));
     assert_eq!(
         fixture
             .mappings
-            .find(fixture.preview_id, "1. INT. OP", mapping_kind::COSTUME, 0)
+            .find(fixture.preview_id, "1. INT. OP", mapping_kind::OUTFIT, 0)
             .await
             .unwrap()
             .unwrap()
@@ -3648,7 +3814,7 @@ async fn script_apply_writes_the_description_as_notes_and_binds_at_that_version(
 async fn script_apply_skips_a_rejected_costume_row_without_failing_the_scene() {
     let fixture = ScriptApplyFixture::new();
     let preview = ScriptContext {
-        scenes: vec![row_with_costume(
+        scenes: vec![row_with_outfit(
             "1. INT. OP",
             &["BEN"],
             &[("Ben", "Marineblau"), ("Ben", "Silberkette")],
@@ -3656,7 +3822,7 @@ async fn script_apply_skips_a_rejected_costume_row_without_failing_the_scene() {
         ..Default::default()
     };
     let mut decision = create_decision("1. INT. OP");
-    decision.costume_decisions = vec![CostumeDecision {
+    decision.outfit_decisions = vec![OutfitDecision {
         ordinal: 0,
         accepted: false,
     }];
@@ -3664,20 +3830,152 @@ async fn script_apply_skips_a_rejected_costume_row_without_failing_the_scene() {
 
     assert_eq!(result.applied.len(), 1, "the scene applied");
     assert_eq!(result.created_characters, 1, "the figure applied");
-    assert_eq!(result.created_costumes, 1, "only the accepted costume");
-    assert_eq!(fixture.costumes.notes.lock().unwrap().len(), 1);
+    assert_eq!(result.created_outfits, 1, "only the accepted costume");
+    assert_eq!(fixture.wardrobe.notes.lock().unwrap().len(), 1);
     // The rejected row is not recorded as an unapplied failure — the reviewer
     // chose it.
-    assert!(result.unapplied_costumes.is_empty());
+    assert!(result.unapplied_outfits.is_empty());
     // The rejected costume's mapping row was never written, so a later apply that
     // accepts it can still create it.
     assert!(
         fixture
             .mappings
-            .find(fixture.preview_id, "1. INT. OP", mapping_kind::COSTUME, 0)
+            .find(fixture.preview_id, "1. INT. OP", mapping_kind::OUTFIT, 0)
             .await
             .unwrap()
             .is_none()
+    );
+}
+
+/// The outfit/piece split: a look extracted from a shorthand carries derived
+/// garments, each created with the category its hint resolved to.
+#[tokio::test]
+async fn script_apply_creates_each_piece_with_its_resolved_category() {
+    use breakdown_core::shared::CostumeCategoryId;
+
+    let fixture = ScriptApplyFixture::new();
+    let top = CostumeCategoryId::new();
+    let bottom = CostumeCategoryId::new();
+    let preview = ScriptContext {
+        scenes: vec![DraftScene {
+            draft_ref: "1. INT. OP".to_owned(),
+            scene_number: Some(1),
+            characters: vec![DraftCharacter::from("ANKE")],
+            outfits: vec![
+                breakdown_core::ai::DraftOutfit {
+                    character_name: "ANKE".to_owned(),
+                    name: "OP".to_owned(),
+                    notes: None,
+                    source_quote: "in OP".to_owned(),
+                    ..Default::default()
+                }
+                .with_pieces(&[
+                    ("OP-Kasack", Some("Oberteil")),
+                    ("OP-Hose", Some("Unterteil")),
+                ]),
+            ],
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    let categories = vec![
+        breakdown_core::ai::CategoryVocabularyEntry {
+            name: "Oberteil".to_owned(),
+            id: top,
+        },
+        breakdown_core::ai::CategoryVocabularyEntry {
+            name: "Unterteil".to_owned(),
+            id: bottom,
+        },
+    ];
+    let result = fixture
+        .apply_with_categories(&preview, &[create_decision("1. INT. OP")], categories)
+        .await
+        .unwrap();
+
+    assert_eq!(result.created_pieces, 2, "both derived garments created");
+    assert_eq!(result.created_outfits, 1, "one look");
+    assert_eq!(result.unapplied_outfits.len(), 0);
+    let resolved: Vec<_> = fixture.wardrobe.categories.lock().unwrap().clone();
+    assert_eq!(
+        resolved.iter().map(|(_, id)| *id).collect::<Vec<_>>(),
+        vec![Some(top), Some(bottom)],
+        "each hint set its own category on its own piece"
+    );
+    // Row-flat piece ordinals: the two garments of the row are rows 0 and 1.
+    for ordinal in [0, 1] {
+        assert!(
+            fixture
+                .mappings
+                .find(
+                    fixture.preview_id,
+                    "1. INT. OP",
+                    mapping_kind::PIECE,
+                    ordinal
+                )
+                .await
+                .unwrap()
+                .is_some(),
+            "piece mapping row {ordinal} must exist"
+        );
+    }
+}
+
+/// Two outfits of one row keep distinct piece rows: the piece ordinal is
+/// row-flat, so the same garment name on two figures never collapses.
+#[tokio::test]
+async fn script_apply_numbers_piece_rows_row_flat_across_one_rows_outfits() {
+    let fixture = ScriptApplyFixture::new();
+    let preview = ScriptContext {
+        scenes: vec![DraftScene {
+            draft_ref: "1. INT. OP".to_owned(),
+            scene_number: Some(1),
+            characters: vec![DraftCharacter::from("BEN"), DraftCharacter::from("ANKE")],
+            outfits: vec![
+                breakdown_core::ai::DraftOutfit {
+                    character_name: "BEN".to_owned(),
+                    name: "OP".to_owned(),
+                    source_quote: "in OP".to_owned(),
+                    ..Default::default()
+                }
+                .with_pieces(&[("OP-Schuhe", None)]),
+                breakdown_core::ai::DraftOutfit {
+                    character_name: "ANKE".to_owned(),
+                    name: "OP".to_owned(),
+                    source_quote: "in OP".to_owned(),
+                    ..Default::default()
+                }
+                .with_pieces(&[("OP-Schuhe", None)]),
+            ],
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    let result = fixture
+        .apply(&preview, &[create_decision("1. INT. OP")])
+        .await
+        .unwrap();
+
+    assert_eq!(result.created_pieces, 2, "two figures, two fundus pieces");
+    assert_eq!(result.created_outfits, 2);
+    let mut ids = Vec::new();
+    for ordinal in [0, 1] {
+        let row = fixture
+            .mappings
+            .find(
+                fixture.preview_id,
+                "1. INT. OP",
+                mapping_kind::PIECE,
+                ordinal,
+            )
+            .await
+            .unwrap()
+            .unwrap_or_else(|| panic!("piece mapping row {ordinal} must exist"));
+        ids.push(row.aggregate_id);
+    }
+    assert_ne!(
+        ids[0], ids[1],
+        "the same garment name on two figures stays two pieces"
     );
 }
 
@@ -3693,7 +3991,7 @@ async fn script_apply_propagates_an_infra_outage_instead_of_reporting_a_row() {
         .unwrap()
         .replace(DomainError::service_unavailable("event store down"));
     let preview = ScriptContext {
-        scenes: vec![row_with_costume("1. INT. OP", &["BEN"], &[])],
+        scenes: vec![row_with_outfit("1. INT. OP", &["BEN"], &[])],
         ..Default::default()
     };
     let error = fixture
@@ -3739,12 +4037,12 @@ async fn script_apply_propagates_an_infra_outage_instead_of_reporting_a_row() {
 /// worker's server-side grounding check can be tested against a *returned*
 /// entry rather than only against the pure helper.
 #[derive(Clone)]
-struct CostumeClient {
-    costumes: Vec<breakdown_core::ai::DraftCostume>,
+struct OutfitClient {
+    outfits: Vec<breakdown_core::ai::DraftOutfit>,
 }
 
 #[async_trait]
-impl LlmClient for CostumeClient {
+impl LlmClient for OutfitClient {
     async fn chat_constrained(
         &self,
         _request: LlmChatRequest,
@@ -3759,7 +4057,7 @@ impl LlmClient for CostumeClient {
                         name: "RENEE".to_owned(),
                         category: Default::default(),
                     }],
-                    costumes: self.costumes.clone(),
+                    outfits: self.outfits.clone(),
                     ..Default::default()
                 }],
                 uncertainties: Vec::new(),
@@ -3775,21 +4073,25 @@ impl LlmClient for CostumeClient {
 async fn extraction_drops_an_ungrounded_costume_and_records_an_uncertainty() {
     let queue = Arc::new(FakeQueue::default());
     let previews = Arc::new(MemoryAiPreviewStore::default());
-    let worker: ScriptImportWorker<FakeQueue, CostumeClient> = ScriptImportWorker {
+    let worker: ScriptImportWorker<FakeQueue, OutfitClient> = ScriptImportWorker {
         queue: Arc::clone(&queue),
-        client: Arc::new(CostumeClient {
-            costumes: vec![
+        client: Arc::new(OutfitClient {
+            outfits: vec![
                 // Quoted from the block: survives.
-                breakdown_core::ai::DraftCostume {
+                breakdown_core::ai::DraftOutfit {
                     character_name: "renee".to_owned(),
-                    description: "Ölverschmierter Overall".to_owned(),
+                    name: "Mechaniker-Overall".to_owned(),
+                    notes: Some("Ölverschmierter Overall".to_owned()),
                     source_quote: "ölverschmierten Mechaniker-Overall".to_owned(),
+                    ..Default::default()
                 },
                 // Nowhere in the block: the prompt forbade it, the server checks.
-                breakdown_core::ai::DraftCostume {
+                breakdown_core::ai::DraftOutfit {
                     character_name: "renee".to_owned(),
-                    description: "Seidenkleid".to_owned(),
+                    name: "Seidenkleid".to_owned(),
+                    notes: Some("Seidenkleid".to_owned()),
                     source_quote: "in einem langen Seidenkleid aus Seide".to_owned(),
+                    ..Default::default()
                 },
             ],
         }),
@@ -3812,19 +4114,19 @@ async fn extraction_drops_an_ungrounded_costume_and_records_an_uncertainty() {
 
     assert_eq!(preview.scenes.len(), 1);
     assert_eq!(
-        preview.scenes[0].costumes.len(),
+        preview.scenes[0].outfits.len(),
         1,
         "only the grounded costume may survive: {:?}",
-        preview.scenes[0].costumes
+        preview.scenes[0].outfits
     );
     assert_eq!(
-        preview.scenes[0].costumes[0].description,
-        "Ölverschmierter Overall"
+        preview.scenes[0].outfits[0].notes.as_deref(),
+        Some("Ölverschmierter Overall")
     );
     // The dropped one is visible as missing, and does NOT block the apply.
     assert_eq!(preview.uncertainties.len(), 1);
     let uncertainty = &preview.uncertainties[0];
-    assert_eq!(uncertainty.field, "costumes");
+    assert_eq!(uncertainty.field, "outfits");
     assert_eq!(uncertainty.kind, UncertaintyKind::DroppedRow);
     // The drop belongs to the ONLY scene in this preview, and `scene_index` is a
     // 0-based index into `scenes` — a 1-based value here would address a row that
@@ -3850,7 +4152,7 @@ async fn extraction_drops_an_ungrounded_costume_and_records_an_uncertainty() {
 async fn scene_apply_chain_appends_exactly_one_event_per_step() {
     let fixture = ScriptApplyFixture::new();
     let preview = ScriptContext {
-        scenes: vec![row_with_costume(
+        scenes: vec![row_with_outfit(
             "1. INT. OP",
             &["BEN", "RENEE"],
             &[("Ben", "ölverschmierter Overall"), ("Renee", "Kasack")],
@@ -3877,7 +4179,7 @@ async fn scene_apply_chain_appends_exactly_one_event_per_step() {
         .map(|(index, _)| index)
         .collect();
     assert_eq!(assigns.len(), 2, "one assign per figure: {steps:?}");
-    assert_eq!(beats.len(), 2, "one beat per costume: {steps:?}");
+    assert_eq!(beats.len(), 2, "one beat per outfit: {steps:?}");
     assert_eq!(steps[0], "scene:create");
     assert_eq!(
         steps.iter().filter(|s| s.starts_with("character:")).count(),
@@ -3889,7 +4191,7 @@ async fn scene_apply_chain_appends_exactly_one_event_per_step() {
         assigns
             .iter()
             .all(|assign| beats.iter().all(|beat| assign < beat)),
-        "every AssignCharacter must precede every AddCostumeBeat: {steps:?}"
+        "every AssignCharacter must precede every AddOutfitBeat: {steps:?}"
     );
     assert_eq!(fixture.scene_beats(scene_id).len(), 2);
 
@@ -3906,7 +4208,7 @@ async fn scene_apply_chain_appends_exactly_one_event_per_step() {
         .expect("renee beat row");
     assert_eq!(renee_beat.aggregate_version, version(5));
     assert_eq!(fixture.scene_version_of(scene_id), version(5));
-    assert_eq!(result.created_costume_beats, 2);
+    assert_eq!(result.created_outfit_beats, 2);
 }
 
 /// Re-applying a fully applied preview adds no second beat: the confirmed
@@ -3915,7 +4217,7 @@ async fn scene_apply_chain_appends_exactly_one_event_per_step() {
 async fn scene_beat_re_apply_adds_no_second_beat() {
     let fixture = ScriptApplyFixture::new();
     let preview = ScriptContext {
-        scenes: vec![row_with_costume(
+        scenes: vec![row_with_outfit(
             "1. INT. OP",
             &["BEN"],
             &[("Ben", "ölverschmierter Overall")],
@@ -3927,11 +4229,11 @@ async fn scene_beat_re_apply_adds_no_second_beat() {
         .await
         .unwrap();
     let scene_id = first.applied[0].aggregate_id;
-    assert_eq!(first.created_costume_beats, 1);
+    assert_eq!(first.created_outfit_beats, 1);
 
     let second = fixture.apply(&preview, &[]).await.unwrap();
     assert_eq!(
-        second.created_costume_beats, 0,
+        second.created_outfit_beats, 0,
         "a re-apply must not add a second beat"
     );
     assert_eq!(
@@ -3962,7 +4264,7 @@ async fn scene_beat_re_apply_adds_no_second_beat() {
 async fn scene_beat_crash_between_steps_resumes_at_the_right_phase() {
     let fixture = ScriptApplyFixture::new();
     let preview = ScriptContext {
-        scenes: vec![row_with_costume(
+        scenes: vec![row_with_outfit(
             "1. INT. OP",
             &["BEN", "RENEE"],
             &[("Ben", "Overall"), ("Renee", "Kasack")],
@@ -4019,7 +4321,7 @@ async fn scene_beat_crash_between_steps_resumes_at_the_right_phase() {
 async fn a_refused_beat_is_reported_distinctly_from_the_ungrounded_drop() {
     let fixture = ScriptApplyFixture::new();
     let preview = ScriptContext {
-        scenes: vec![row_with_costume(
+        scenes: vec![row_with_outfit(
             "1. INT. OP",
             &["BEN"],
             // "Ghost" names no figure of the row: dropped at plan time.
@@ -4039,37 +4341,37 @@ async fn a_refused_beat_is_reported_distinctly_from_the_ungrounded_drop() {
         .unwrap();
 
     let refused: Vec<_> = result
-        .unapplied_costumes
+        .unapplied_outfits
         .iter()
-        .filter(|entry| entry.reason == UnappliedCostumeReason::BeatRejected)
+        .filter(|entry| entry.reason == UnappliedOutfitReason::BeatRejected)
         .collect();
     let dropped: Vec<_> = result
-        .unapplied_costumes
+        .unapplied_outfits
         .iter()
-        .filter(|entry| entry.reason == UnappliedCostumeReason::CharacterNotPlanned)
+        .filter(|entry| entry.reason == UnappliedOutfitReason::CharacterNotPlanned)
         .collect();
     assert_eq!(
         refused.len(),
         1,
         "the grounded costume whose beat was refused must be reported as BeatRejected: {:?}",
-        result.unapplied_costumes
+        result.unapplied_outfits
     );
-    assert_eq!(refused[0].description, "Overall");
+    assert_eq!(refused[0].name, "Overall");
     assert_eq!(
         dropped.len(),
         1,
         "the ungrounded costume must stay the plan-time drop"
     );
-    assert_eq!(dropped[0].description, "Nebelkulisse");
+    assert_eq!(dropped[0].name, "Nebelkulisse");
     // The refused costume itself exists and is bound — only the scene
     // relation is missing, and no beat was appended.
-    assert_eq!(fixture.costumes.assigned.lock().unwrap().len(), 1);
+    assert_eq!(fixture.wardrobe.assigned.lock().unwrap().len(), 1);
     assert!(
         fixture
             .scene_beats(fixture.scenes.created.lock().unwrap()[0])
             .is_empty()
     );
-    assert_eq!(result.created_costume_beats, 0);
+    assert_eq!(result.created_outfit_beats, 0);
 }
 
 // ===========================================================================
@@ -4514,11 +4816,13 @@ impl LlmClient for TwoChunkScoringLlmClient {
                 // and the synopsis score must degrade to the honest 0.0.
                 summary: Some("Outline-style block with heading and day marker only.".to_owned()),
                 characters: vec![DraftCharacter::from("BEN")],
-                costumes: vec![DraftCostume {
+                outfits: vec![DraftOutfit {
                     character_name: "BEN".to_owned(),
-                    description: "Schutzhelm".to_owned(),
+                    name: "Schutzhelm".to_owned(),
+                    notes: Some("Schutzhelm".to_owned()),
                     // Never in the chunk text → dropped as ungrounded.
                     source_quote: "NICHT IM TEXT".to_owned(),
+                    ..Default::default()
                 }],
                 ..Default::default()
             }
@@ -4529,7 +4833,7 @@ impl LlmClient for TwoChunkScoringLlmClient {
                 mood: Some("I/T".into()),
                 summary: Some("Ben repariert das Auto.".to_owned()),
                 characters: vec![DraftCharacter::from("BEN")],
-                costumes: Vec::new(),
+                outfits: Vec::new(),
                 ..Default::default()
             }
         };
@@ -4603,13 +4907,13 @@ async fn scoring_receives_chunk_local_grounding_signals_and_honors_the_summary_c
     // Chunk 1's scene was scored with ITS OWN signals: the ungrounded
     // costume drop is visible and the summary is the REWRITTEN (null) one.
     let chunk1_scene = &states[0]["scenes"][0];
-    assert_eq!(chunk1_scene["grounding"]["dropped_costumes"], 1);
+    assert_eq!(chunk1_scene["grounding"]["dropped_outfits"], 1);
     assert_eq!(chunk1_scene["grounding"]["scene_number_match"], true);
     assert!(chunk1_scene["summary"].is_null());
     // Chunk 2's scene must NOT inherit chunk 1's signals (the job-wide
     // vectors would have leaked dropped=1 and the sanitized flag here).
     let chunk2_scene = &states[1]["scenes"][0];
-    assert_eq!(chunk2_scene["grounding"]["dropped_costumes"], 0);
+    assert_eq!(chunk2_scene["grounding"]["dropped_outfits"], 0);
     assert_eq!(chunk2_scene["summary"], "Ben repariert das Auto.");
 
     // Preview contract: the sanitized chunk-1 scene carries the honest 0.0;

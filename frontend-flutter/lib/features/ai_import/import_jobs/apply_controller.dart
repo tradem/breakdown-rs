@@ -4,6 +4,7 @@
 // Co-authored-by: omen-alpha (opencode-go)
 // Co-authored-by: glm-5.3-flash (neuralwatt)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 import 'package:breakdown_api/breakdown_api.dart';
 import 'package:built_collection/built_collection.dart';
@@ -135,35 +136,55 @@ String draftShootingDayLabel(DraftShootingDay day) {
 /// The default is accepted, and only rejections travel on the wire — the backend
 /// treats an absent ordinal as accepted, so an untouched row keeps sending
 /// nothing and stays a genuine `accept_as_is`.
-class PreviewPiece {
-  const PreviewPiece({
+class PreviewOutfit {
+  const PreviewOutfit({
     required this.ordinal,
     required this.characterName,
-    required this.description,
+    required this.name,
     required this.sourceQuote,
+    this.pieces = const <PreviewOutfitPiece>[],
     this.accepted = true,
   });
 
-  /// Index into the draft row's `pieces` list — the mapping key the backend
+  /// Index into the draft row's `outfits` list — the mapping key the backend
   /// addresses this row by, alongside the row's `draft_ref`.
   final int ordinal;
   final String characterName;
-  final String description;
+
+  /// The look's display name ("OP-Kleidung", "ölverschmierter
+  /// Mechaniker-Overall") — what the reviewer recognises, not a garment list.
+  final String name;
 
   /// The quoted script fragment the extraction claims to be based on. Shown next
-  /// to [description] so the reviewer can verify the extraction WITHOUT opening
-  /// the document (spec `ai-import`).
+  /// to [name] so the reviewer can verify the extraction WITHOUT opening the
+  /// document (spec `ai-import`).
   final String sourceQuote;
+
+  /// The garments the look decomposes into. Read-only here: the backend grounds
+  /// the look and derives its pieces, so the reviewer decides the LOOK (the
+  /// pieces belong to it and are not individually addressable).
+  final List<PreviewOutfitPiece> pieces;
 
   final bool accepted;
 
-  PreviewPiece withAccepted(bool accepted) => PreviewPiece(
+  PreviewOutfit withAccepted(bool accepted) => PreviewOutfit(
     ordinal: ordinal,
     characterName: characterName,
-    description: description,
+    name: name,
     sourceQuote: sourceQuote,
+    pieces: pieces,
     accepted: accepted,
   );
+}
+
+/// One derived garment of a [PreviewOutfit]: the display name plus the category
+/// hint the model proposed (the server resolves it against the season's
+/// vocabulary; an unknown hint simply leaves the piece uncategorized).
+class PreviewOutfitPiece {
+  const PreviewOutfitPiece({required this.name, this.categoryHint});
+
+  final String name;
+  final String? categoryHint;
 }
 
 /// One preview row with its current decision (controller state;
@@ -173,7 +194,7 @@ class PreviewRow {
     required this.draftRef,
     required this.label,
     this.decision = const CreateDecision(),
-    this.pieces = const <PreviewPiece>[],
+    this.outfits = const <PreviewOutfit>[],
     this.episode,
     this.shootingDay,
   });
@@ -185,10 +206,10 @@ class PreviewRow {
 
   final RowDecision decision;
 
-  /// The row's extracted pieces with their per-row decisions. Empty for a
+  /// The row's extracted outfits with their per-row decisions. Empty for a
   /// preview stored before the field existed, and for a row the script gave no
-  /// costuming to — both are correct, not failures.
-  final List<PreviewPiece> pieces;
+  /// wardrobe to — both are correct, not failures.
+  final List<PreviewOutfit> outfits;
 
   /// The draft episode the row's `Ep.:` marker carried (issue #581). `null`
   /// for previews stored before the field existed and for rows without a
@@ -205,20 +226,23 @@ class PreviewRow {
     draftRef: draftRef,
     label: label,
     decision: decision,
-    pieces: pieces,
+    outfits: outfits,
     episode: episode,
     shootingDay: shootingDay,
   );
 
-  /// Replaces one piece row's decision by [ordinal]; an unknown ordinal is
+  /// Replaces one outfit row's decision by [ordinal]; an unknown ordinal is
   /// ignored rather than fabricating a row the payload does not carry.
-  PreviewRow withCostumeDecision(int ordinal, bool accepted) => PreviewRow(
+  PreviewRow withOutfitDecision(int ordinal, bool accepted) => PreviewRow(
     draftRef: draftRef,
     label: label,
     decision: decision,
-    pieces: [
-      for (final piece in pieces)
-        if (piece.ordinal == ordinal) piece.withAccepted(accepted) else piece,
+    outfits: [
+      for (final outfit in outfits)
+        if (outfit.ordinal == ordinal)
+          outfit.withAccepted(accepted)
+        else
+          outfit,
     ],
     episode: episode,
     shootingDay: shootingDay,
@@ -339,7 +363,8 @@ class AiApplyState {
       rows.where((r) => r.decision is! CreateDecision).length +
       rows.fold<int>(
         0,
-        (sum, row) => sum + row.pieces.where((piece) => !piece.accepted).length,
+        (sum, row) =>
+            sum + row.outfits.where((outfit) => !outfit.accepted).length,
       ) +
       _groupEdits +
       _dayEdits;
@@ -462,14 +487,13 @@ class AiApplyState {
       };
       if (mapping == null) continue;
       // Only rejections go on the wire: an absent ordinal means accepted
-      // server-side, so an untouched row sends no piece payload at all and the
-      // request stays byte-identical to a pre-piece client's.
-      final rejected = row.pieces
-          .where((piece) => !piece.accepted)
+      // server-side, so an untouched row sends no wardrobe payload at all.
+      final rejected = row.outfits
+          .where((outfit) => !outfit.accepted)
           .map(
-            (piece) => CostumeDecision(
+            (outfit) => OutfitDecision(
               (b) => b
-                ..ordinal = piece.ordinal
+                ..ordinal = outfit.ordinal
                 ..accepted = false,
             ),
           )
@@ -479,7 +503,7 @@ class AiApplyState {
       mappings.add(
         rejected.isEmpty
             ? mapping
-            : mapping.rebuild((m) => m.costumeDecisions.replace(rejected)),
+            : mapping.rebuild((m) => m.outfitDecisions.replace(rejected)),
       );
     }
     return mappings;
@@ -842,12 +866,12 @@ class AiApplyController extends _$AiApplyController {
   /// Accept or reject ONE piece row of a draft row, leaving the scene row's
   /// own decision untouched (spec `ai-import`: piece rows are decided
   /// independently).
-  void decideCostume(String draftRef, int ordinal, bool accepted) {
+  void decideOutfit(String draftRef, int ordinal, bool accepted) {
     state = AiApplyState(
       rows: [
         for (final row in state.rows)
           if (row.draftRef == draftRef)
-            row.withCostumeDecision(ordinal, accepted)
+            row.withOutfitDecision(ordinal, accepted)
           else
             row,
       ],

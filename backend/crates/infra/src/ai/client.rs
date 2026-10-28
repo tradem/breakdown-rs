@@ -5,6 +5,7 @@
 // Co-authored-by: deepseek-v4-flash (opencode-go)
 // Co-authored-by: deepseek-v4.1-flash (neuralwatt)
 // Co-authored-by: qwen3.8-flash (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 use std::time::Duration;
 
@@ -643,27 +644,53 @@ struct DraftSceneSchema {
     summary: Option<String>,
     script_day: Option<String>,
     characters: Vec<String>,
-    /// Costumes worn by characters of THIS scene. Empty when the block states no
+    /// Outfits worn by characters of THIS scene. Empty when the block states no
     /// clothing at all — never omit the field, and never invent an entry to fill
     /// it. `strict` schema mode requires the property, so a scene without
-    /// costuming answers with `[]`.
-    costumes: Vec<DraftCostumeSchema>,
+    /// wardrobe answers with `[]`.
+    outfits: Vec<DraftOutfitSchema>,
 }
 
-/// Provider-facing mirror of [`breakdown_core::ai::DraftCostume`]. One entry per
-/// garment or accessory the text states for one named character.
+/// Provider-facing mirror of [`breakdown_core::ai::DraftOutfit`]. One entry per
+/// look the text states for one named character.
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
-struct DraftCostumeSchema {
-    /// The character this costume belongs to. MUST be spelled as in this scene's
+struct DraftOutfitSchema {
+    /// The character this outfit belongs to. MUST be spelled as in this scene's
     /// `characters`; an entry naming anyone else is dropped by the server.
     character_name: String,
-    /// The garment/accessory description in the script's own wording. Do not
-    /// paraphrase, translate, or summarise it, and do not move it into `summary`.
-    description: String,
-    /// A verbatim fragment of the supplied text this entry came from. The server
-    /// checks that the fragment occurs in the block and drops the entry when it
-    /// does not, so a paraphrase fails and the costume is lost.
+    /// Short display name of the look, e.g. "OP-Kleidung" or
+    /// "ölverschmierter Mechaniker-Overall". Derived from the text; the look's
+    /// own wording when the script states one.
+    name: String,
+    /// The script's own wording for the look (colour, condition, material) in a
+    /// sentence or two. Never move this into `summary`.
+    notes: Option<String>,
+    /// A verbatim fragment of the supplied text this outfit came from — for a
+    /// shorthand that is the shorthand itself ("in OP", "KHK"). The server
+    /// checks that the fragment occurs in the block and drops the outfit (with
+    /// its pieces) when it does not.
     source_quote: String,
+    /// The constituent garments of this look. Derive them when the block names
+    /// only the look ("in OP" -> "OP-Kasack", "OP-Hose"): the garments a
+    /// shorthand implies are what the wardrobe department needs. Empty is a
+    /// valid answer for a look the text describes as a whole.
+    pieces: Vec<DraftPieceSchema>,
+}
+
+/// Provider-facing mirror of [`breakdown_core::ai::DraftPiece`]. One garment of
+/// an outfit: the unit the wardrobe fundus files and the season repertoire holds.
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+struct DraftPieceSchema {
+    /// German garment name as the wardrobe department would file it:
+    /// "OP-Kasack", "KHK-Hose", "Gummistiefel".
+    name: String,
+    /// One of the season's category names when the garment clearly belongs to
+    /// one — "Oberteil", "Unterteil", "Schuhe", "Jacke", "Accessoires" — else
+    /// null. An unknown value leaves the piece uncategorized, it is not an
+    /// error.
+    category_hint: Option<String>,
+    /// Optional detail from the script (colour, condition, material).
+    description: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
@@ -875,23 +902,30 @@ mod tests {
     }
 
     #[test]
-    fn provider_schema_mirrors_the_costume_fields() {
+    fn provider_schema_mirrors_the_outfit_and_piece_fields() {
         let schema = schemars::schema_for!(ScriptContextSchema);
         let value = serde_json::to_value(&schema).unwrap();
         let scene = &defs(&value)["DraftSceneSchema"]["properties"];
         assert!(
-            scene["costumes"].is_object(),
-            "the schema sent to the provider must carry `costumes`, got {scene:?}"
+            scene["outfits"].is_object(),
+            "the schema sent to the provider must carry `outfits`, got {scene:?}"
         );
-        let costume = &defs(&value)["DraftCostumeSchema"]["properties"];
-        for field in ["character_name", "description", "source_quote"] {
+        let outfit = &defs(&value)["DraftOutfitSchema"]["properties"];
+        for field in ["character_name", "name", "notes", "source_quote", "pieces"] {
             assert!(
-                costume[field].is_object(),
-                "DraftCostumeSchema must expose `{field}`: {costume:?}"
+                outfit[field].is_object(),
+                "DraftOutfitSchema must expose `{field}`: {outfit:?}"
             );
             assert!(
-                costume[field]["description"].is_string(),
+                outfit[field]["description"].is_string(),
                 "`{field}` needs a description, the schema is the model's contract"
+            );
+        }
+        let piece = &defs(&value)["DraftPieceSchema"]["properties"];
+        for field in ["name", "category_hint", "description"] {
+            assert!(
+                piece[field].is_object(),
+                "DraftPieceSchema must expose `{field}`: {piece:?}"
             );
         }
         let required = defs(&value)["DraftSceneSchema"]["required"]
@@ -901,7 +935,7 @@ mod tests {
             .map(|v| v.as_str().unwrap())
             .collect::<Vec<_>>();
         assert!(
-            required.contains(&"costumes"),
+            required.contains(&"outfits"),
             "`strict` schema mode requires every property: {required:?}"
         );
     }

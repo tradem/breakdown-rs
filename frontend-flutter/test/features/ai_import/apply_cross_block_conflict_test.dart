@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: glm-5.3 (neuralwatt)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 // Issue #705: the cross-block episode-number conflict — the refusal carries
 // the conflict's home (season/block) and the apply card offers a one-tap
@@ -539,7 +540,7 @@ DraftScene _draft(String ref, {int? number}) => DraftScene((b) {
     ..sceneNumber = number
     ..summary = 'Scene $ref'
     ..characters.replace(const <DraftCharacter>[])
-    ..costumes.replace(const <DraftCostume>[])
+    ..outfits.replace(const <DraftOutfit>[])
     ..episode.replace(
       DraftEpisode(
         (b) => b

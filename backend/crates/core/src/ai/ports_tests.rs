@@ -3,6 +3,7 @@
 // Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 // Co-authored-by: mimo-v2.5 (opencode-go)
 // Co-authored-by: qwen3.8-flash (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 use uuid::Uuid;
 
@@ -174,15 +175,18 @@ fn mapping_reservation_creates_reserved_mapping() {
 
 #[test]
 fn mapping_kinds_are_the_discriminators_of_one_rows_mapping_key() {
-    // One draft row produces a scene row, figure rows and costume rows that all
-    // share its `draft_ref`; only (kind, ordinal) tells them apart, so the
-    // constants must stay distinct strings.
+    // One draft row produces a scene row, figure rows, piece rows, outfit rows
+    // and beat rows that all share its `draft_ref`; only (kind, ordinal) tells
+    // them apart, so the constants must stay distinct strings.
     let kinds = [
         super::mapping_kind::SCENE,
         super::mapping_kind::CHARACTER,
-        super::mapping_kind::COSTUME,
+        super::mapping_kind::PIECE,
+        super::mapping_kind::OUTFIT,
         super::mapping_kind::SHOOTING_DAY,
         super::mapping_kind::SCENE_SHOOT,
+        super::mapping_kind::SCENE_OUTFIT_BEAT,
+        super::mapping_kind::EPISODE,
     ];
     let unique: std::collections::HashSet<&str> = kinds.iter().copied().collect();
     assert_eq!(unique.len(), kinds.len(), "kinds must not collide");

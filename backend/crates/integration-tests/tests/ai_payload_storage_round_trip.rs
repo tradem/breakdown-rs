@@ -448,10 +448,10 @@ async fn ai_payload_apply_round_trips_through_projection() -> Result<()> {
             summary: None,
             script_day: None,
             characters: vec![],
-            // The piece field is additive; a scene without costuming is a
+            // The outfit field is additive; a scene without wardrobe is a
             // normal outcome (outline blocks, English scripts without a
-            // piece note), so the fixture states the empty case explicitly.
-            costumes: vec![],
+            // costume note), so the fixture states the empty case explicitly.
+            outfits: vec![],
             // Episode metadata is additive too; this fixture stays in the
             // single-episode flow (issue #581).
             episode: None,
@@ -494,7 +494,7 @@ async fn ai_payload_apply_round_trips_through_projection() -> Result<()> {
     let worker = ApplyWorker {
         scene_commands: Arc::new(scene_commands),
         character_commands: Arc::new(character_commands),
-        costume_commands: Arc::new(piece_commands),
+        wardrobe_commands: Arc::new(piece_commands),
         // The fixture applies to an existing episode; no group is mapped to a
         // NEW episode, so the episode port is never consulted.
         episode_commands: Arc::new(episode_commands),
@@ -523,7 +523,7 @@ async fn ai_payload_apply_round_trips_through_projection() -> Result<()> {
             decisions: &[ApplyMapping {
                 draft_ref: "scene-1".to_owned(),
                 decision: ApplyMappingDecision::Create,
-                costume_decisions: Vec::new(),
+                outfit_decisions: Vec::new(),
             }],
             episode_id: EpisodeId::new(),
             // The row names no figure, so no season-scoped aggregate is created
@@ -536,6 +536,9 @@ async fn ai_payload_apply_round_trips_through_projection() -> Result<()> {
             episode_groups: Vec::new(),
             shooting_days: Vec::new(),
             acknowledged_uncertainties: Vec::new(),
+            // No figure/outfit rows in this fixture, so the vocabulary is
+            // never consulted.
+            categories: Vec::new(),
             telemetry: Some(Telemetry {
                 doc_kind: Some(DocumentKind::Script),
                 apply_state: TelemetryApplyState::NotApplied,

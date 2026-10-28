@@ -932,43 +932,45 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
-  String aiPreviewCostumeHeading(Object count) {
-    return 'Costumes ($count)';
+  String aiPreviewOutfitHeading(Object count) {
+    return 'Outfits ($count)';
   }
 
   @override
-  String aiPreviewCostumeFor(Object character, Object description) {
-    return '$character: $description';
+  String aiPreviewOutfitFor(Object character, Object name) {
+    return '$character: $name';
   }
 
   @override
-  String aiPreviewCostumeQuote(Object quote) {
+  String aiPreviewOutfitQuote(Object quote) {
     return 'Source: $quote';
   }
 
   @override
-  String get aiPreviewCostumeRejectedStatus => 'rejected';
+  String aiPreviewOutfitPieces(Object pieces) {
+    return 'Pieces: $pieces';
+  }
 
   @override
-  String get aiPreviewCostumeToggleTooltip =>
-      'Accept or reject this costume independently of its scene';
+  String get aiPreviewOutfitRejectedStatus => 'rejected';
+
+  @override
+  String get aiPreviewOutfitToggleTooltip =>
+      'Accept or reject this outfit independently of its scene';
 
   @override
   String aiApplyOutcomeScript(
     Object applied,
     Object characters,
-    Object costumes,
+    Object outfits,
+    Object pieces,
   ) {
-    return 'Applied $applied scene(s), $characters character(s), $costumes costume(s).';
+    return 'Applied $applied scene(s), $characters character(s), $pieces piece(s), $outfits outfit(s).';
   }
 
   @override
-  String aiApplyUnappliedCostume(
-    Object character,
-    Object description,
-    Object reason,
-  ) {
-    return 'Not applied: $character – $description ($reason)';
+  String aiApplyUnappliedOutfit(Object character, Object name, Object reason) {
+    return 'Not applied: $character – $name ($reason)';
   }
 
   @override
@@ -980,20 +982,24 @@ class AppLocalizationsEn extends AppLocalizations {
       'the character could not be created';
 
   @override
+  String get aiApplyUnappliedReasonPieceRejected =>
+      'a piece of the outfit could not be created';
+
+  @override
   String get aiApplyUnappliedReasonCreateRejected =>
-      'the costume could not be created';
+      'the outfit could not be created';
 
   @override
   String get aiApplyUnappliedReasonNotesRejected =>
-      'costume created, description refused';
+      'outfit created, description refused';
 
   @override
   String get aiApplyUnappliedReasonBindingRejected =>
-      'costume created, binding refused (unassigned)';
+      'outfit created, binding to the shoot refused';
 
   @override
   String get aiApplyUnappliedReasonBeatRejected =>
-      'costume created, scene costume beat refused';
+      'outfit created, scene beat refused';
 
   @override
   String get aiConfigStoredPromptNote =>

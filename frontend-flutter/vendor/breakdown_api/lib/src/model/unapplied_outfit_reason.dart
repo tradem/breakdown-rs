@@ -9,31 +9,33 @@ import 'package:built_collection/built_collection.dart';
 import 'package:built_value/built_value.dart';
 import 'package:built_value/serializer.dart';
 
-part 'unapplied_costume_reason.g.dart';
+part 'unapplied_outfit_reason.g.dart';
 
-class UnappliedCostumeReason extends EnumClass {
+class UnappliedOutfitReason extends EnumClass {
   @BuiltValueEnumConst(wireName: r'character_not_planned')
-  static const UnappliedCostumeReason characterNotPlanned =
+  static const UnappliedOutfitReason characterNotPlanned =
       _$characterNotPlanned;
   @BuiltValueEnumConst(wireName: r'character_unavailable')
-  static const UnappliedCostumeReason characterUnavailable =
+  static const UnappliedOutfitReason characterUnavailable =
       _$characterUnavailable;
+  @BuiltValueEnumConst(wireName: r'piece_rejected')
+  static const UnappliedOutfitReason pieceRejected = _$pieceRejected;
   @BuiltValueEnumConst(wireName: r'create_rejected')
-  static const UnappliedCostumeReason createRejected = _$createRejected;
+  static const UnappliedOutfitReason createRejected = _$createRejected;
   @BuiltValueEnumConst(wireName: r'notes_rejected')
-  static const UnappliedCostumeReason notesRejected = _$notesRejected;
+  static const UnappliedOutfitReason notesRejected = _$notesRejected;
   @BuiltValueEnumConst(wireName: r'binding_rejected')
-  static const UnappliedCostumeReason bindingRejected = _$bindingRejected;
+  static const UnappliedOutfitReason bindingRejected = _$bindingRejected;
   @BuiltValueEnumConst(wireName: r'beat_rejected')
-  static const UnappliedCostumeReason beatRejected = _$beatRejected;
+  static const UnappliedOutfitReason beatRejected = _$beatRejected;
 
-  static Serializer<UnappliedCostumeReason> get serializer =>
-      _$unappliedCostumeReasonSerializer;
+  static Serializer<UnappliedOutfitReason> get serializer =>
+      _$unappliedOutfitReasonSerializer;
 
-  const UnappliedCostumeReason._(String name) : super(name);
+  const UnappliedOutfitReason._(String name) : super(name);
 
-  static BuiltSet<UnappliedCostumeReason> get values => _$values;
-  static UnappliedCostumeReason valueOf(String name) => _$valueOf(name);
+  static BuiltSet<UnappliedOutfitReason> get values => _$values;
+  static UnappliedOutfitReason valueOf(String name) => _$valueOf(name);
 }
 
 /// Optionally, enum_class can generate a mixin to go with your enum for use
@@ -42,5 +44,5 @@ class UnappliedCostumeReason extends EnumClass {
 /// corresponding Angular template.
 ///
 /// Trigger mixin generation by writing a line like this one next to your enum.
-abstract class UnappliedCostumeReasonMixin = Object
-    with _$UnappliedCostumeReasonMixin;
+abstract class UnappliedOutfitReasonMixin = Object
+    with _$UnappliedOutfitReasonMixin;

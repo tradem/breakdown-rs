@@ -5,29 +5,26 @@
 //
 
 // ignore_for_file: unused_element
-import 'package:breakdown_api/src/model/unapplied_costume_reason.dart';
+import 'package:breakdown_api/src/model/unapplied_outfit_reason.dart';
 import 'package:built_value/built_value.dart';
 import 'package:built_value/serializer.dart';
 
-part 'unapplied_costume.g.dart';
+part 'unapplied_outfit.g.dart';
 
-/// Why a costume row did not become a `Costume`. Shown to the reviewer as *missing with a reason* instead of as a successful apply.
+/// Why an outfit row did not become an `Outfit`. Shown to the reviewer as *missing with a reason* instead of as a successful apply.
 ///
 /// Properties:
 /// * [characterName]
-/// * [description]
 /// * [detail] - Short diagnostic (e.g. the rejection the aggregate returned). The UI branches on [`Self::reason`], never on this text.
 /// * [draftRef]
+/// * [name]
 /// * [ordinal]
 /// * [reason]
 @BuiltValue()
-abstract class UnappliedCostume
-    implements Built<UnappliedCostume, UnappliedCostumeBuilder> {
+abstract class UnappliedOutfit
+    implements Built<UnappliedOutfit, UnappliedOutfitBuilder> {
   @BuiltValueField(wireName: r'character_name')
   String get characterName;
-
-  @BuiltValueField(wireName: r'description')
-  String get description;
 
   /// Short diagnostic (e.g. the rejection the aggregate returned). The UI branches on [`Self::reason`], never on this text.
   @BuiltValueField(wireName: r'detail')
@@ -36,47 +33,45 @@ abstract class UnappliedCostume
   @BuiltValueField(wireName: r'draft_ref')
   String get draftRef;
 
+  @BuiltValueField(wireName: r'name')
+  String get name;
+
   @BuiltValueField(wireName: r'ordinal')
   int get ordinal;
 
   @BuiltValueField(wireName: r'reason')
-  UnappliedCostumeReason get reason;
-  // enum reasonEnum {  character_not_planned,  character_unavailable,  create_rejected,  notes_rejected,  binding_rejected,  beat_rejected,  };
+  UnappliedOutfitReason get reason;
+  // enum reasonEnum {  character_not_planned,  character_unavailable,  piece_rejected,  create_rejected,  notes_rejected,  binding_rejected,  beat_rejected,  };
 
-  UnappliedCostume._();
+  UnappliedOutfit._();
 
-  factory UnappliedCostume([void updates(UnappliedCostumeBuilder b)]) =
-      _$UnappliedCostume;
+  factory UnappliedOutfit([void updates(UnappliedOutfitBuilder b)]) =
+      _$UnappliedOutfit;
 
   @BuiltValueHook(initializeBuilder: true)
-  static void _defaults(UnappliedCostumeBuilder b) => b;
+  static void _defaults(UnappliedOutfitBuilder b) => b;
 
   @BuiltValueSerializer(custom: true)
-  static Serializer<UnappliedCostume> get serializer =>
-      _$UnappliedCostumeSerializer();
+  static Serializer<UnappliedOutfit> get serializer =>
+      _$UnappliedOutfitSerializer();
 }
 
-class _$UnappliedCostumeSerializer
-    implements PrimitiveSerializer<UnappliedCostume> {
+class _$UnappliedOutfitSerializer
+    implements PrimitiveSerializer<UnappliedOutfit> {
   @override
-  final Iterable<Type> types = const [UnappliedCostume, _$UnappliedCostume];
+  final Iterable<Type> types = const [UnappliedOutfit, _$UnappliedOutfit];
 
   @override
-  final String wireName = r'UnappliedCostume';
+  final String wireName = r'UnappliedOutfit';
 
   Iterable<Object?> _serializeProperties(
     Serializers serializers,
-    UnappliedCostume object, {
+    UnappliedOutfit object, {
     FullType specifiedType = FullType.unspecified,
   }) sync* {
     yield r'character_name';
     yield serializers.serialize(
       object.characterName,
-      specifiedType: const FullType(String),
-    );
-    yield r'description';
-    yield serializers.serialize(
-      object.description,
       specifiedType: const FullType(String),
     );
     if (object.detail != null) {
@@ -91,6 +86,11 @@ class _$UnappliedCostumeSerializer
       object.draftRef,
       specifiedType: const FullType(String),
     );
+    yield r'name';
+    yield serializers.serialize(
+      object.name,
+      specifiedType: const FullType(String),
+    );
     yield r'ordinal';
     yield serializers.serialize(
       object.ordinal,
@@ -99,14 +99,14 @@ class _$UnappliedCostumeSerializer
     yield r'reason';
     yield serializers.serialize(
       object.reason,
-      specifiedType: const FullType(UnappliedCostumeReason),
+      specifiedType: const FullType(UnappliedOutfitReason),
     );
   }
 
   @override
   Object serialize(
     Serializers serializers,
-    UnappliedCostume object, {
+    UnappliedOutfit object, {
     FullType specifiedType = FullType.unspecified,
   }) {
     return _serializeProperties(serializers, object,
@@ -119,7 +119,7 @@ class _$UnappliedCostumeSerializer
     Object serialized, {
     FullType specifiedType = FullType.unspecified,
     required List<Object?> serializedList,
-    required UnappliedCostumeBuilder result,
+    required UnappliedOutfitBuilder result,
     required List<Object?> unhandled,
   }) {
     for (var i = 0; i < serializedList.length; i += 2) {
@@ -132,13 +132,6 @@ class _$UnappliedCostumeSerializer
             specifiedType: const FullType(String),
           ) as String;
           result.characterName = valueDes;
-          break;
-        case r'description':
-          final valueDes = serializers.deserialize(
-            value,
-            specifiedType: const FullType(String),
-          ) as String;
-          result.description = valueDes;
           break;
         case r'detail':
           final valueDes = serializers.deserialize(
@@ -155,6 +148,13 @@ class _$UnappliedCostumeSerializer
           ) as String;
           result.draftRef = valueDes;
           break;
+        case r'name':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(String),
+          ) as String;
+          result.name = valueDes;
+          break;
         case r'ordinal':
           final valueDes = serializers.deserialize(
             value,
@@ -165,8 +165,8 @@ class _$UnappliedCostumeSerializer
         case r'reason':
           final valueDes = serializers.deserialize(
             value,
-            specifiedType: const FullType(UnappliedCostumeReason),
-          ) as UnappliedCostumeReason;
+            specifiedType: const FullType(UnappliedOutfitReason),
+          ) as UnappliedOutfitReason;
           result.reason = valueDes;
           break;
         default:
@@ -178,12 +178,12 @@ class _$UnappliedCostumeSerializer
   }
 
   @override
-  UnappliedCostume deserialize(
+  UnappliedOutfit deserialize(
     Serializers serializers,
     Object serialized, {
     FullType specifiedType = FullType.unspecified,
   }) {
-    final result = UnappliedCostumeBuilder();
+    final result = UnappliedOutfitBuilder();
     final serializedList = (serialized as Iterable<Object?>).toList();
     final unhandled = <Object?>[];
     _deserializeProperties(

@@ -5,6 +5,7 @@
 // Co-authored-by: glm-5.3-flash (neuralwatt)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
 // Co-authored-by: glm-5.3-flash (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 import 'dart:async';
 
@@ -634,16 +635,23 @@ class _TypedPreviewBodyState extends ConsumerState<_TypedPreviewBody> {
           // The row's extracted shooting day (issue #706). `null` leaves the
           // row unscheduled — correct, not a failure.
           shootingDay: scene.shootingDay,
-          // `pieces` is null on a preview stored before the field existed:
+          // `outfits` is null on a preview stored before the field existed:
           // not a failure, just a row with nothing to decide.
-          pieces: [
-            for (final (index, piece)
-                in (scene.costumes ?? <DraftCostume>[]).indexed)
-              PreviewPiece(
+          outfits: [
+            for (final (index, outfit)
+                in (scene.outfits ?? <DraftOutfit>[]).indexed)
+              PreviewOutfit(
                 ordinal: index,
-                characterName: piece.characterName,
-                description: piece.description,
-                sourceQuote: piece.sourceQuote,
+                characterName: outfit.characterName,
+                name: outfit.name,
+                sourceQuote: outfit.sourceQuote,
+                pieces: [
+                  for (final piece in outfit.pieces ?? <DraftPiece>[])
+                    PreviewOutfitPiece(
+                      name: piece.name,
+                      categoryHint: piece.categoryHint,
+                    ),
+                ],
               ),
           ],
         ),
@@ -840,13 +848,16 @@ class _PreviewRowCard extends ConsumerWidget {
     );
   }
 
-  /// The row's extracted pieces, each individually acceptable/rejectable.
+  /// The row's extracted outfits, each individually acceptable/rejectable,
+  /// with the pieces the look decomposes into.
   ///
-  /// The quoted source fragment is shown NEXT TO the description on purpose:
+  /// The quoted source fragment is shown NEXT TO the outfit name on purpose:
   /// the reviewer must be able to verify the extraction against the script
   /// without opening the document (spec `ai-import`), and the server's grounding
-  /// check only proves the quote exists — whether it is the right garment is a
-  /// human call.
+  /// check only proves the quote exists — whether it is the right look is a
+  /// human call. The pieces are read-only: the backend derives them from the
+  /// grounded look, so the reviewer decides the look (spec
+  /// `ai-costume-extraction`).
   List<Widget> _pieceRows(
     BuildContext context,
     AiApplyState state,
@@ -859,55 +870,77 @@ class _PreviewRowCard extends ConsumerWidget {
         break;
       }
     }
-    final pieces = matched?.pieces ?? const <PreviewPiece>[];
-    if (pieces.isEmpty) return const [];
+    final outfits = matched?.outfits ?? const <PreviewOutfit>[];
+    if (outfits.isEmpty) return const [];
     return [
       const SizedBox(height: 8),
       Text(
-        key: Key('ai-preview-piece-heading-$draftRef'),
-        l10nOf(context).aiPreviewCostumeHeading('${pieces.length}'),
+        key: Key('ai-preview-outfit-heading-$draftRef'),
+        l10nOf(context).aiPreviewOutfitHeading('${outfits.length}'),
         style: Theme.of(context).textTheme.labelLarge,
       ),
-      for (final piece in pieces)
+      for (final outfit in outfits)
         Column(
-          key: Key('ai-preview-piece-$draftRef-${piece.ordinal}'),
+          key: Key('ai-preview-outfit-$draftRef-${outfit.ordinal}'),
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Tooltip(
-              message: l10nOf(context).aiPreviewCostumeToggleTooltip,
+              message: l10nOf(context).aiPreviewOutfitToggleTooltip,
               child: CheckboxListTile(
-                key: Key('ai-preview-piece-toggle-$draftRef-${piece.ordinal}'),
+                key: Key(
+                  'ai-preview-outfit-toggle-$draftRef-${outfit.ordinal}',
+                ),
                 controlAffinity: ListTileControlAffinity.leading,
                 dense: true,
                 contentPadding: EdgeInsets.zero,
-                value: piece.accepted,
-                onChanged: (value) => controller.decideCostume(
+                value: outfit.accepted,
+                onChanged: (value) => controller.decideOutfit(
                   draftRef,
-                  piece.ordinal,
+                  outfit.ordinal,
                   value ?? true,
                 ),
                 title: Text(
-                  l10nOf(
-                    context,
-                  ).aiPreviewCostumeFor(piece.characterName, piece.description),
+                  l10nOf(context)
+                      .aiPreviewOutfitFor(outfit.characterName, outfit.name),
                 ),
-                subtitle: Text(
-                  // The quote is read-only evidence, never an editable value: it
-                  // is what the server's grounding check verified against the
-                  // chunk. Showing it NEXT TO the description is what lets the
-                  // reviewer verify the extraction without opening the document
-                  // (spec `ai-import`).
-                  l10nOf(context).aiPreviewCostumeQuote(piece.sourceQuote),
-                  style: Theme.of(context).textTheme.bodySmall,
+                subtitle: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      // The quote is read-only evidence, never an editable
+                      // value: it is what the server's grounding check verified
+                      // against the chunk. Showing it NEXT TO the look is what
+                      // lets the reviewer verify the extraction without opening
+                      // the document (spec `ai-import`).
+                      l10nOf(context).aiPreviewOutfitQuote(outfit.sourceQuote),
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                    if (outfit.pieces.isNotEmpty)
+                      Text(
+                        key: Key(
+                          'ai-preview-outfit-pieces-$draftRef-${outfit.ordinal}',
+                        ),
+                        l10nOf(context).aiPreviewOutfitPieces(
+                          outfit.pieces
+                              .map(
+                                (piece) => piece.categoryHint == null
+                                    ? piece.name
+                                    : '${piece.name} (${piece.categoryHint})',
+                              )
+                              .join(', '),
+                        ),
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                  ],
                 ),
               ),
             ),
-            if (!piece.accepted)
+            if (!outfit.accepted)
               Text(
                 key: Key(
-                  'ai-preview-piece-rejected-$draftRef-${piece.ordinal}',
+                  'ai-preview-outfit-rejected-$draftRef-${outfit.ordinal}',
                 ),
-                l10nOf(context).aiPreviewCostumeRejectedStatus,
+                l10nOf(context).aiPreviewOutfitRejectedStatus,
                 style: TextStyle(
                   color: Theme.of(context).colorScheme.error,
                   fontSize: 12,

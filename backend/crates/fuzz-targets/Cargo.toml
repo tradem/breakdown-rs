@@ -2,6 +2,7 @@
 # Copyright (C) 2024 Breakdown RS Contributors
 # Co-authored-by: deepseek-v4-flash (opencode-go)
 # Co-authored-by: glm-5.3-flash-flex (neuralwatt)
+# Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 [package]
 name = "breakdown-fuzz-targets"
@@ -19,7 +20,7 @@ workspace = true
 cargo-fuzz = true
 
 [dependencies]
-breakdown_core = { path = "../core", version = "0.44.0" }
+breakdown_core = { path = "../core", version = "0.45.0" }
 libfuzzer-sys = "0.4"
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
