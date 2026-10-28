@@ -2603,6 +2603,10 @@ struct FakeWardrobeCommands {
     /// Version each outfit carries.
     outfit_versions: Arc<Mutex<HashMap<Uuid, breakdown_core::shared::AggregateVersion>>>,
     fail_assign_with: Arc<Mutex<Option<DomainError>>>,
+    /// Makes the next `CreateOutfit` behave like an earlier crashed attempt:
+    /// the outfit stream exists but is still **empty**, so the worker takes its
+    /// recovery path and has to add every piece itself (CodeRabbit, PR #744).
+    lose_outfit_pieces_once: Arc<Mutex<bool>>,
     journal: Arc<Mutex<Vec<String>>>,
 }
 
@@ -2854,6 +2858,23 @@ impl breakdown_core::outfit::ports::OutfitCommands for FakeWardrobeCommands {
             .lock()
             .unwrap()
             .insert(id, Version::INITIAL);
+        // The simulated crash: the stream exists but carries no piece yet, so
+        // the caller must recover by adding them one at a time.
+        let lose_pieces = std::mem::take(&mut *self.lose_outfit_pieces_once.lock().unwrap());
+        if lose_pieces {
+            self.assigned
+                .lock()
+                .unwrap()
+                .push((id, command.character_id));
+            self.journal
+                .lock()
+                .unwrap()
+                .push(format!("outfit:create:{id}"));
+            return Err(DomainError::VersionConflict {
+                expected: version(0),
+                current: Version::INITIAL,
+            });
+        }
         self.assigned
             .lock()
             .unwrap()
@@ -3569,6 +3590,60 @@ async fn script_apply_refuses_the_outfit_step_of_an_archived_season() {
         mapping.aggregate_version,
         version(0),
         "the refused step never confirmed: the row stays reserved"
+    );
+}
+
+/// CodeRabbit (PR #744): the outfit recovery loop dispatched every
+/// `AddPieceToOutfit` at the SAME stale `current` version, so the second call
+/// conflicted, was logged and swallowed — that piece never reached the look —
+/// and the mapping then confirmed the stale version, which also lost the notes.
+#[tokio::test]
+async fn outfit_recovery_adds_every_missing_piece_at_the_advancing_version() {
+    let fixture = ScriptApplyFixture::new();
+    *fixture.wardrobe.lose_outfit_pieces_once.lock().unwrap() = true;
+    let preview = ScriptContext {
+        scenes: vec![DraftScene {
+            draft_ref: "1. INT. OP".to_owned(),
+            scene_number: Some(1),
+            characters: vec![DraftCharacter::from("ANKE")],
+            outfits: vec![
+                breakdown_core::ai::DraftOutfit {
+                    character_name: "ANKE".to_owned(),
+                    name: "OP".to_owned(),
+                    notes: Some("Kasack und Hose in OP-Grün".to_owned()),
+                    source_quote: "in OP".to_owned(),
+                    ..Default::default()
+                }
+                .with_pieces(&[("OP-Kasack", None), ("OP-Hose", None)]),
+            ],
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    let result = fixture
+        .apply(&preview, &[create_decision("1. INT. OP")])
+        .await
+        .unwrap();
+
+    assert!(
+        result.unapplied_outfits.is_empty(),
+        "{:?}",
+        result.unapplied_outfits
+    );
+    let adds = fixture
+        .steps()
+        .into_iter()
+        .filter(|step| step.starts_with("outfit:add_piece:"))
+        .count();
+    assert_eq!(
+        adds, 2,
+        "every missing piece must be re-added on the recovery path"
+    );
+    // The notes step must still run: the stale version would have dropped it.
+    assert_eq!(
+        fixture.wardrobe.notes.lock().unwrap().len(),
+        1,
+        "the recovered version must carry the notes step"
     );
 }
 

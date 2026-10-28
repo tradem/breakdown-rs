@@ -363,6 +363,122 @@ fn planner_numbers_pieces_row_flat_across_the_rows_outfits() {
 }
 
 #[test]
+fn piece_ordinals_do_not_depend_on_which_outfits_the_reviewer_accepts() {
+    // CodeRabbit (PR #744): the ordinal IS the idempotency key
+    // `(preview_id, draft_ref, 'piece', ordinal)` and `derive_id` hashes it, so
+    // numbering only the ACCEPTED outfits would renumber every later outfit
+    // when a later apply (or a decision-less retry) accepts a previously
+    // rejected one. That apply would then find the next outfit's confirmed
+    // mapping row and bind the wrong piece to the look.
+    let preview = ScriptContext {
+        scenes: vec![DraftScene {
+            draft_ref: "1. INT. OP".into(),
+            characters: vec![DraftCharacter::from("BEN"), DraftCharacter::from("Renee")],
+            outfits: vec![
+                outfit_with_pieces("BEN", "in OP", &["OP-Kasack", "OP-Hose"]),
+                outfit_with_pieces("Renee", "in OP", &["OP-Schuhe"]),
+            ],
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+
+    let all_accepted = plan_of(&preview, &create_decisions(&["1. INT. OP"]));
+    let baseline: Vec<(usize, String)> = all_accepted.scenes[0]
+        .outfits
+        .iter()
+        .flat_map(|outfit| {
+            outfit
+                .pieces
+                .iter()
+                .map(|piece| (piece.ordinal, piece.name.clone()))
+        })
+        .collect();
+    assert_eq!(
+        baseline,
+        vec![
+            (0, "OP-Kasack".to_owned()),
+            (1, "OP-Hose".to_owned()),
+            (2, "OP-Schuhe".to_owned()),
+        ]
+    );
+
+    // Same preview, outfit 0 rejected: outfit 1's piece MUST keep ordinal 2.
+    let mut decisions = create_decisions(&["1. INT. OP"]);
+    decisions[0].outfit_decisions = vec![OutfitDecision {
+        ordinal: 0,
+        accepted: false,
+    }];
+    let first = plan_of(&preview, &decisions);
+    assert_eq!(first.scenes[0].outfits.len(), 1);
+    let kept: Vec<(usize, String)> = first.scenes[0].outfits[0]
+        .pieces
+        .iter()
+        .map(|piece| (piece.ordinal, piece.name.clone()))
+        .collect();
+    assert_eq!(
+        kept,
+        vec![(2, "OP-Schuhe".to_owned())],
+        "the accepted outfit keeps the ordinal the preview assigns it"
+    );
+
+    // And the other way round: accepting everything afterwards must assign
+    // outfit 0 exactly the ordinals the rejected plan left free.
+    assert_eq!(baseline[0].0, 0);
+    assert_eq!(baseline[1].0, 1);
+}
+
+#[test]
+fn planner_folds_umlauts_when_matching_a_category_hint() {
+    // `eq_ignore_ascii_case` left German vocabulary entries containing umlauts
+    // unmatched (`Hüte`/`hüte`), silently creating the piece uncategorized.
+    let hats = CostumeCategoryId::new();
+    let preview = ScriptContext {
+        scenes: vec![DraftScene {
+            draft_ref: "1. INT. OP".into(),
+            characters: vec![DraftCharacter::from("BEN")],
+            outfits: vec![DraftOutfit {
+                character_name: "BEN".into(),
+                name: "OP".into(),
+                notes: None,
+                source_quote: "in OP".into(),
+                origin: DraftOutfitOrigin::ExplicitQuote,
+                pieces: vec![DraftPiece {
+                    name: "OP-Haube".into(),
+                    category_hint: Some("HÜTE".into()),
+                    description: None,
+                }],
+            }],
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    let categories = vec![CategoryVocabularyEntry {
+        name: "Hüte".into(),
+        id: hats,
+    }];
+    let plan = plan_scene_apply(
+        &preview,
+        &create_decisions(&["1. INT. OP"]),
+        EpisodeId::new(),
+        None,
+        AiImportJobId(Uuid::now_v7()),
+        &ReviewerDecisions {
+            episode_groups: &[],
+            shooting_days: &[],
+            acknowledged_uncertainties: &[],
+            categories: &categories,
+        },
+    )
+    .expect("plan");
+    assert_eq!(
+        plan.scenes[0].outfits[0].pieces[0].category_id,
+        Some(hats),
+        "a German category name must match regardless of its case"
+    );
+}
+
+#[test]
 fn planner_resolves_a_category_hint_case_insensitively() {
     let top = CostumeCategoryId::new();
     let preview = ScriptContext {

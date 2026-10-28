@@ -1601,21 +1601,25 @@ pub struct CategoryVocabularyEntry {
 ///
 /// Matching is case-insensitive and whitespace-trimmed: the model writes
 /// `Oberteil`, `oberteil` and ` Oberteil ` for the same category, and the
-/// vocabulary is authored by humans. A hint that matches nothing yields `None`
-/// — an unknown hint is not an error, the piece is simply created without a
-/// category (spec `ai-costume-extraction`).
+/// vocabulary is authored by humans. Folding uses Unicode lowercase (as
+/// [`character_identity`] does), not `eq_ignore_ascii_case`: the vocabulary is
+/// German, so `Hüte`/`hüte` and `Überwurf`/`überwurf` must match too — an
+/// ASCII-only comparison silently left exactly those pieces uncategorized. A
+/// hint that matches nothing yields `None` — an unknown hint is not an error,
+/// the piece is simply created without a category (spec
+/// `ai-costume-extraction`).
 #[must_use]
 fn resolve_category(
     categories: &[CategoryVocabularyEntry],
     hint: Option<&str>,
 ) -> Option<CostumeCategoryId> {
-    let hint = hint?.trim();
+    let hint = hint?.trim().to_lowercase();
     if hint.is_empty() {
         return None;
     }
     categories
         .iter()
-        .find(|entry| entry.name.trim().eq_ignore_ascii_case(hint))
+        .find(|entry| entry.name.trim().to_lowercase() == hint)
         .map(|entry| entry.id)
 }
 
@@ -1781,7 +1785,30 @@ pub fn plan_scene_apply(
         // Pieces are numbered row-flat across every outfit of the row: two
         // figures may legitimately wear the same garment (`OP-Schuhe`), and a
         // per-outfit ordinal would collapse them onto one `piece` mapping row.
-        let mut next_piece_ordinal = 0usize;
+        //
+        // The per-outfit start offset is computed from the IMMUTABLE preview,
+        // before any decision or attribution filter. The ordinal IS the
+        // idempotency key (`(preview_id, draft_ref, 'piece', ordinal)`), and
+        // `derive_id` hashes it — so numbering only accepted, attributable
+        // outfits would renumber every later outfit whenever the reviewer
+        // accepts (or a retry re-derives) a different set: a re-apply that
+        // accepts a previously rejected outfit would find the next outfit's
+        // confirmed mapping row and bind THAT piece to this look, duplicating
+        // the other one. The preview is immutable, so its own numbering is the
+        // only stable key.
+        let piece_offsets: Vec<usize> = draft
+            .outfits
+            .iter()
+            .scan(0usize, |next, outfit| {
+                let start = *next;
+                *next += outfit
+                    .pieces
+                    .iter()
+                    .filter(|piece| !piece.name.trim().is_empty())
+                    .count();
+                Some(start)
+            })
+            .collect();
         let mut outfits: Vec<OutfitApplyPlan> = Vec::with_capacity(draft.outfits.len());
         for (ordinal, outfit) in draft.outfits.iter().enumerate() {
             if !mapping.outfit_accepted(ordinal) {
@@ -1799,6 +1826,7 @@ pub fn plan_scene_apply(
                 });
                 continue;
             };
+            let mut next_piece_ordinal = piece_offsets[ordinal];
             let pieces = outfit
                 .pieces
                 .iter()

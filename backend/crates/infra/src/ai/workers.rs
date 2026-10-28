@@ -2355,6 +2355,11 @@ where
         let id = mapping.aggregate_id;
         let mut version = mapping.aggregate_version;
         let mut created = false;
+        // Whether the notes phase is still owed, judged from the mapping BEFORE
+        // the recovery loop below can push the stream past `OUTFIT_NOTED` by
+        // re-adding missing pieces. Reading the live `version` after the loop
+        // would conclude "notes already written" and drop them silently.
+        let notes_pending = version < OUTFIT_NOTED;
 
         if version < OUTFIT_CREATED {
             let season = self
@@ -2413,6 +2418,14 @@ where
                         current = current.0,
                         "recovered an AI apply outfit from its own reserved stream"
                     );
+                    // Each successful `AddPieceToOutfit` appends an event and
+                    // advances the stream, so the NEXT call must use the version
+                    // the previous one reached — dispatching them all at
+                    // `current` made every call after the first a version
+                    // conflict that was logged and swallowed: those pieces were
+                    // never added, and the mapping then confirmed a stale version
+                    // that also lost the notes below.
+                    let mut reached = current;
                     for piece_id in &piece_ids {
                         let added = OutfitCommands::add_piece(
                             &*self.wardrobe_commands,
@@ -2421,15 +2434,17 @@ where
                                 id,
                                 piece_id: *piece_id,
                                 project_id,
-                                version: current,
+                                version: reached,
                             },
                         )
                         .await;
-                        match added {
-                            Ok(_) => {}
-                            Err(error) if is_infra_outage(&error) => return Err(error),
+                        match recover_version(added) {
                             // An already-contained piece is a state-based no-op
-                            // at the aggregate; a genuine refusal is reported.
+                            // at the aggregate (`Ok(vec![])`), so it also lands
+                            // here; `max` keeps the reached version exact.
+                            Ok(next) => reached = reached.max(next),
+                            Err(error) if is_infra_outage(&error) => return Err(error),
+                            // A genuine refusal is reported, never silent.
                             Err(error) => {
                                 tracing::warn!(
                                     outfit = %id,
@@ -2439,7 +2454,7 @@ where
                             }
                         }
                     }
-                    version = current;
+                    version = reached;
                 }
                 Err(error) if is_infra_outage(&error) => return Err(error),
                 Err(error) => {
@@ -2453,7 +2468,7 @@ where
         }
 
         if let Some(notes) = outfit.notes.as_deref()
-            && version < OUTFIT_NOTED
+            && notes_pending
         {
             let attempt = OutfitCommands::update_notes(
                 &*self.wardrobe_commands,
