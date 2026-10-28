@@ -85,10 +85,9 @@ class DraftOutfitCandidateBuilder
   String? get name => _$this._name;
   set name(String? name) => _$this._name = name;
 
-  DraftOutfitOriginBuilder? _origin;
-  DraftOutfitOriginBuilder get origin =>
-      _$this._origin ??= DraftOutfitOriginBuilder();
-  set origin(DraftOutfitOriginBuilder? origin) => _$this._origin = origin;
+  DraftOutfitOrigin? _origin;
+  DraftOutfitOrigin? get origin => _$this._origin;
+  set origin(DraftOutfitOrigin? origin) => _$this._origin = origin;
 
   String? _sourceDraftRef;
   String? get sourceDraftRef => _$this._sourceDraftRef;
@@ -109,7 +108,7 @@ class DraftOutfitCandidateBuilder
     if ($v != null) {
       _confidence = $v.confidence;
       _name = $v.name;
-      _origin = $v.origin.toBuilder();
+      _origin = $v.origin;
       _sourceDraftRef = $v.sourceDraftRef;
       _sourceSceneNumber = $v.sourceSceneNumber;
       _$v = null;
@@ -131,30 +130,18 @@ class DraftOutfitCandidateBuilder
   DraftOutfitCandidate build() => _build();
 
   _$DraftOutfitCandidate _build() {
-    _$DraftOutfitCandidate _$result;
-    try {
-      _$result = _$v ??
-          _$DraftOutfitCandidate._(
-            confidence: BuiltValueNullFieldError.checkNotNull(
-                confidence, r'DraftOutfitCandidate', 'confidence'),
-            name: BuiltValueNullFieldError.checkNotNull(
-                name, r'DraftOutfitCandidate', 'name'),
-            origin: origin.build(),
-            sourceDraftRef: BuiltValueNullFieldError.checkNotNull(
-                sourceDraftRef, r'DraftOutfitCandidate', 'sourceDraftRef'),
-            sourceSceneNumber: sourceSceneNumber,
-          );
-    } catch (_) {
-      late String _$failedField;
-      try {
-        _$failedField = 'origin';
-        origin.build();
-      } catch (e) {
-        throw BuiltValueNestedFieldError(
-            r'DraftOutfitCandidate', _$failedField, e.toString());
-      }
-      rethrow;
-    }
+    final _$result = _$v ??
+        _$DraftOutfitCandidate._(
+          confidence: BuiltValueNullFieldError.checkNotNull(
+              confidence, r'DraftOutfitCandidate', 'confidence'),
+          name: BuiltValueNullFieldError.checkNotNull(
+              name, r'DraftOutfitCandidate', 'name'),
+          origin: BuiltValueNullFieldError.checkNotNull(
+              origin, r'DraftOutfitCandidate', 'origin'),
+          sourceDraftRef: BuiltValueNullFieldError.checkNotNull(
+              sourceDraftRef, r'DraftOutfitCandidate', 'sourceDraftRef'),
+          sourceSceneNumber: sourceSceneNumber,
+        );
     replace(_$result);
     return _$result;
   }

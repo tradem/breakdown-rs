@@ -33,6 +33,7 @@ abstract class DraftOutfitCandidate
   /// Where the candidate comes from (the badge the reviewer sees).
   @BuiltValueField(wireName: r'origin')
   DraftOutfitOrigin get origin;
+  // enum originEnum {  explicit_quote,  derived,  continued_from_scene,  inferred_from_context,  };
 
   /// The preview row the candidate was derived from.
   @BuiltValueField(wireName: r'source_draft_ref')
@@ -142,7 +143,7 @@ class _$DraftOutfitCandidateSerializer
             value,
             specifiedType: const FullType(DraftOutfitOrigin),
           ) as DraftOutfitOrigin;
-          result.origin.replace(valueDes);
+          result.origin = valueDes;
           break;
         case r'source_draft_ref':
           final valueDes = serializers.deserialize(

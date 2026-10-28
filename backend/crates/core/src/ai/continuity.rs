@@ -203,11 +203,7 @@ pub fn continuity_candidates(
     if let Some(prior) = prior {
         let source_ref = draft_row_ref(prior.scene, prior.scene_index);
         candidates.push(DraftOutfitCandidate {
-            origin: DraftOutfitOrigin::ContinuedFromScene {
-                source_draft_ref: source_ref.clone(),
-                source_scene_number: prior.scene.scene_number,
-                confidence: CONTINUITY_MIN_CONFIDENCE,
-            },
+            origin: DraftOutfitOrigin::ContinuedFromScene,
             name: prior.outfit.name.trim().to_owned(),
             source_draft_ref: source_ref,
             source_scene_number: prior.scene.scene_number,
@@ -219,9 +215,7 @@ pub fn continuity_candidates(
             && let Some(name) = context_look_name(scene)
         {
             candidates.push(DraftOutfitCandidate {
-                origin: DraftOutfitOrigin::InferredFromContext {
-                    confidence: CONTINUITY_MIN_CONFIDENCE,
-                },
+                origin: DraftOutfitOrigin::InferredFromContext,
                 name,
                 source_draft_ref: gap.draft_ref.clone(),
                 source_scene_number: gap.scene_number,

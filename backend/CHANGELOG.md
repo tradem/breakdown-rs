@@ -119,11 +119,42 @@ tag. Never edit a released entry afterwards.
     / undecided). The pass is best-effort: a provider failure logs and ends it,
     and a lost claim stops it before the next paid request.
   - **Dart client.** `frontend-flutter/vendor/breakdown_api` regenerated from the
-    new contract — `DraftOutfitOrigin` becomes a `oneOf` (unit variants stay bare
-    strings on the wire), plus `DraftOutfitCandidate`,
-    `OutfitContinuitySelection` and the new `Uncertainty.candidates` /
+    new contract — `DraftOutfitOrigin` stays a **plain string enum**, plus
+    `DraftOutfitProvenance`, `DraftOutfitCandidate`, `OutfitContinuitySelection`
+    and the new `Uncertainty.candidates` /
     `ApplyAiImportRequest.continuitySelections` fields. The preview UI work
     (badges, candidate picker) is issue #745.
+  - **Review round (PR #746, CodeRabbitAI):** three findings, all fixed in this
+    same unreleased cut.
+    - *The origin must stay a fieldless string enum.* The first implementation
+      carried the Pass-2 payload as enum arm data; `utoipa` then lowered the two
+      unit variants to two single-value `type: string` alternatives, the
+      `dart-dio` generator collapsed both to `FullType(String)`, and
+      `built_value`'s `OneOf` threw `Unsupported operation: more than one match
+      found: (String, String)` on EVERY `"explicit_quote"` — the generated client
+      could not decode the common Pass-1 case. The origin is now
+      `explicit_quote | derived | continued_from_scene | inferred_from_context`
+      and the payload lives in `DraftOutfit.provenance`
+      (`DraftOutfitProvenance { source_draft_ref, source_scene_number,
+      confidence }`). Covered by a Flutter unit test
+      (`test/unit/draft_outfit_origin_test.dart`).
+    - *Beat addresses are preview-derived.* The `scene_outfit_beat` ordinal was
+      derived from the plan, so accepting an outfit the reviewer had rejected
+      shifted every later row's ordinal; the shifted row then matched the other
+      row's confirmed mapping row and `apply_outfit_beat` answered `Settled` —
+      the scene silently got no beat. `OutfitApplyPlan.beat_ordinal` is now
+      computed by the planner from the immutable preview, and rows synthesised
+      from a continuity selection carry `from_continuity_selection` plus their
+      own mapping kinds (`outfit_continuity`, `scene_outfit_beat_continuity`),
+      addressed by the row and the figure's draft position, so adding or dropping
+      a selection never renumbers another. Regression tests:
+      `accepting_a_previously_rejected_outfit_keeps_every_beat_address`,
+      `a_continuity_selection_keeps_its_address_when_others_are_added`.
+    - *Selection validation is indexed.* A valid request may select every gap;
+      the per-selection scans over the preview were quadratic. The pass now
+      indexes the gaps once, sweeps the preview in scene order for each figure's
+      most recent dressed row, dedupes with a set, and rejects an over-long
+      selection list inside the same pass.
 
 ### Fixed
 

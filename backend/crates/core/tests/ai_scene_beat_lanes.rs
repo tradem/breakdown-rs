@@ -48,6 +48,8 @@ fn character(ordinal: usize, name: &str, identity: &str) -> CharacterApplyPlan {
 fn costume(ordinal: usize, identity: &str, description: &str) -> OutfitApplyPlan {
     OutfitApplyPlan {
         continuation: None,
+        beat_ordinal: 0,
+        from_continuity_selection: false,
         ordinal,
         character_identity: identity.to_owned(),
         character_name: identity.to_owned(),

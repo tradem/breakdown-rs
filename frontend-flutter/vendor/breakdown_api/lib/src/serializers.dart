@@ -81,10 +81,7 @@ import 'package:breakdown_api/src/model/draft_episode.dart';
 import 'package:breakdown_api/src/model/draft_outfit.dart';
 import 'package:breakdown_api/src/model/draft_outfit_candidate.dart';
 import 'package:breakdown_api/src/model/draft_outfit_origin.dart';
-import 'package:breakdown_api/src/model/draft_outfit_origin_one_of.dart';
-import 'package:breakdown_api/src/model/draft_outfit_origin_one_of1.dart';
-import 'package:breakdown_api/src/model/draft_outfit_origin_one_of1_inferred_from_context.dart';
-import 'package:breakdown_api/src/model/draft_outfit_origin_one_of_continued_from_scene.dart';
+import 'package:breakdown_api/src/model/draft_outfit_provenance.dart';
 import 'package:breakdown_api/src/model/draft_piece.dart';
 import 'package:breakdown_api/src/model/draft_scene.dart';
 import 'package:breakdown_api/src/model/draft_shooting_day.dart';
@@ -269,10 +266,7 @@ part 'serializers.g.dart';
   DraftOutfit,
   DraftOutfitCandidate,
   DraftOutfitOrigin,
-  DraftOutfitOriginOneOf,
-  DraftOutfitOriginOneOf1,
-  DraftOutfitOriginOneOf1InferredFromContext,
-  DraftOutfitOriginOneOfContinuedFromScene,
+  DraftOutfitProvenance,
   DraftPiece,
   DraftScene,
   DraftShootingDay,

@@ -24,10 +24,10 @@
 
 use breakdown_core::ai::{
     ContinuityOutcome, DecisionRequest, DraftOutfit, DraftOutfitCandidate, DraftOutfitOrigin,
-    LlmCallUsage, OutfitContinuityGap, ScriptContext, Uncertainty, UncertaintyKind,
-    character_identity, context_look_name, continuity_candidates, continuity_questions,
-    continuity_state, draft_row_ref, outfit_continuity_gaps, prior_outfit, question_keys,
-    resolve_continuity_outcome,
+    DraftOutfitProvenance, LlmCallUsage, OutfitContinuityGap, ScriptContext, Uncertainty,
+    UncertaintyKind, character_identity, context_look_name, continuity_candidates,
+    continuity_questions, continuity_state, draft_row_ref, outfit_continuity_gaps, prior_outfit,
+    question_keys, resolve_continuity_outcome,
 };
 
 use super::workers::DecisionPass;
@@ -141,11 +141,12 @@ pub async fn run_outfit_continuity_pass(
                         // the quote, and duplicating it here would let the two
                         // drift apart.
                         source_quote: String::new(),
-                        origin: DraftOutfitOrigin::ContinuedFromScene {
-                            source_draft_ref: source.source_draft_ref,
+                        origin: DraftOutfitOrigin::ContinuedFromScene,
+                        provenance: Some(DraftOutfitProvenance {
+                            source_draft_ref: Some(source.source_draft_ref),
                             source_scene_number: source.source_scene_number,
                             confidence,
-                        },
+                        }),
                         pieces: Vec::new(),
                     },
                 ));
@@ -166,7 +167,14 @@ pub async fn run_outfit_continuity_pass(
                             name: name.clone(),
                             notes: None,
                             source_quote: String::new(),
-                            origin: DraftOutfitOrigin::InferredFromContext { confidence },
+                            origin: DraftOutfitOrigin::InferredFromContext,
+                            provenance: Some(DraftOutfitProvenance {
+                                // An inferred look has no source row of its own:
+                                // the scene it belongs to IS the source.
+                                source_draft_ref: None,
+                                source_scene_number: None,
+                                confidence,
+                            }),
                             pieces: Vec::new(),
                         },
                     ));
@@ -175,7 +183,7 @@ pub async fn run_outfit_continuity_pass(
                     uncertainties.push(gap_uncertainty(
                         gap,
                         vec![DraftOutfitCandidate {
-                            origin: DraftOutfitOrigin::InferredFromContext { confidence },
+                            origin: DraftOutfitOrigin::InferredFromContext,
                             name,
                             source_draft_ref: draft_row_ref(scene, gap.scene_index),
                             source_scene_number: gap.scene_number,

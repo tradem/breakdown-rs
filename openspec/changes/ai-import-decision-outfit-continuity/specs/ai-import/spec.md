@@ -5,23 +5,32 @@
 ## ADDED Requirements
 
 ### Requirement: The preview distinguishes outfit provenance
-The script preview SHALL expose, per outfit row, where the look came from, as
-one wire value of `explicit_quote`, `derived`, `continued_from_scene` or
-`inferred_from_context`. An outfit row whose origin is `continued_from_scene`
-SHALL carry the source draft row reference, the source scene number when known,
-and a confidence; one whose origin is `inferred_from_context` SHALL carry a
-confidence. The distinction SHALL be additive on the wire, so a preview stored
-before the provenance existed still loads and keeps reading as `explicit_quote`.
+The script preview SHALL expose, per outfit row, where the look came from, as ONE
+plain wire string of `explicit_quote`, `derived`, `continued_from_scene` or
+`inferred_from_context`. The Pass-2 provenance payload SHALL travel in a separate
+optional `provenance` object carrying the source draft row reference, the source
+scene number when known, and the confidence — never as data on the origin value
+itself, because a mixed enum lowers to a `oneOf` whose two single-value string
+alternatives make the generated client unable to decode `"explicit_quote"` at
+all. The distinction SHALL be additive on the wire, so a preview stored before
+the provenance existed still loads and keeps reading as `explicit_quote` with no
+provenance.
 
 #### Scenario: Reviewing a continued outfit
-- **WHEN** a draft row's outfit originates from a continuation of an earlier scene
+- **WHEN** a draft row's outfit continues an earlier scene's look
 - **THEN** the preview SHALL report its origin as `continued_from_scene`
-- **AND** it SHALL name the source scene number so the reviewer can check it
+- **AND** its `provenance` SHALL name the source draft row and scene number
+- **AND** its confidence SHALL be the probability the Decision Model reported
 
 #### Scenario: Preview stored before provenance existed
 - **WHEN** a preview stored with the former two-value origin is served
 - **THEN** it SHALL deserialize without error
-- **AND** every outfit row SHALL keep a valid origin
+- **AND** every outfit row SHALL keep a valid origin and an empty provenance
+
+#### Scenario: The origin stays client-decodable
+- **WHEN** a client decodes any of the four origin values
+- **THEN** each SHALL be a plain JSON string
+- **AND** no origin value SHALL be modelled as a union of alternatives
 
 ### Requirement: A gap uncertainty carries only script-derivable candidates
 An uncertainty of kind `dropped_row` on the `outfits` field MAY carry a list of

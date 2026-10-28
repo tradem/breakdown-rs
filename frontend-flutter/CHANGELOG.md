@@ -27,12 +27,15 @@ releases are cut as `vX.Y.Z` tags (`v<build-name>`, enforced by
   (`0.4.0-beta.17+109 → 0.4.0-beta.18+110`, OpenSpec change
   `ai-import-decision-outfit-continuity`): `vendor/breakdown_api` regenerated
   from `backend/openapi.yaml`, so the client now models where an extracted look
-  came from — `DraftOutfitOrigin` is a `oneOf` (`explicit_quote` / `derived`
-  stay bare strings on the wire, `continued_from_scene` and
-  `inferred_from_context` carry their provenance object), `DraftOutfitCandidate`,
+  came from — `DraftOutfitOrigin` is a plain string enum (`explicit_quote` /
+  `derived` / `continued_from_scene` / `inferred_from_context`) and the Pass-2
+  payload travels in `DraftOutfit.provenance`; `DraftOutfitCandidate`,
   `Uncertainty.candidates`, `OutfitContinuitySelection` /
   `OutfitContinuityCandidate` and `ApplyAiImportRequest.continuitySelections`
-  are available. **No UI change yet:** the review screen still renders the
+  are available. A regression test (`test/unit/draft_outfit_origin_test.dart`)
+  pins that all four origin values decode and re-encode — the PR #746 review
+  found that a data-carrying origin made the generated client reject
+  `"explicit_quote"` outright. **No UI change yet:** the review screen still renders the
   pre-Pass-2 surface, because the provenance badges and the wardrobe-gap
   candidate picker are issue #745. `flutter analyze` clean,
   `test/features/ai_import` green.

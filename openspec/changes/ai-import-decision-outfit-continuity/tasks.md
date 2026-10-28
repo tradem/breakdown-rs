@@ -23,7 +23,7 @@
 ## 3. Core — apply planner: continuation and candidate selection
 
 - [x] 3.1 `ContinuationPlan { source_draft_ref, source_outfit_ordinal, source_character_identity }` and `OutfitApplyPlan.continuation: Option<ContinuationPlan>`
-- [x] 3.2 `plan_scene_apply` plans a `continued_from_scene` row with **no** pieces (source resolved from the immutable preview), reports `UnappliedOutfitReason::ContinuationUnresolved` when the source row/outfit cannot be resolved
+- [x] 3.2 `plan_scene_apply` plans a `continued_from_scene` row with **no** pieces (source resolved from the immutable preview), reports `UnappliedOutfitReason::ContinuityUnresolved` when the source row/outfit cannot be resolved
 - [x] 3.3 `OutfitContinuitySelection { scene_index, character_identity, candidate }` + `ReviewerDecisions.continuity_selections`; validate a selection against the preview's candidate list and plan it as an outfit row of its scene
 - [x] 3.4 Unit tests: continuation source ordinal resolved, unresolvable continuation reported, selection plans a continued row, selection plans an inferred row, unknown selection refused, no selection plans nothing
 
@@ -38,7 +38,7 @@
 ## 5. Infra — apply worker: shared `OutfitId`
 
 - [x] 5.1 In `ApplyWorker::apply_script`, a slot whose outfit carries a `ContinuationPlan` resolves the SOURCE outfit's aggregate id from the apply mapping and dispatches only the beat — no piece create, no outfit create
-- [x] 5.2 Report `UnappliedOutfitReason::ContinuationUnresolved` when the source mapping row is missing or never reached its create
+- [x] 5.2 Report `UnappliedOutfitReason::ContinuityUnresolved` when the source mapping row is missing or never reached its create
 - [x] 5.3 Tests: two scenes share one `Outfit` aggregate, retry adds no second outfit/beat, rejected source reported with the continuation reason
 
 ## 6. API — wire contract
@@ -61,3 +61,21 @@
 - [x] 8.2 `cargo clippy --workspace --all-targets -- -D warnings`
 - [x] 8.3 `cargo test -p architecture_tests` + `cargo deny check bans`
 - [x] 8.4 `cargo test -p api --test contract openapi_drift` and `openspec validate ai-import-decision-outfit-continuity`
+
+## 9. Review findings (PR #746, CodeRabbitAI)
+
+- [x] 9.1 **Wire contract:** the origin stays a plain string enum
+  (`DraftOutfitOrigin::{ExplicitQuote, Derived, ContinuedFromScene,
+  InferredFromContext}`) and the Pass-2 payload moved to
+  `DraftOutfit.provenance: Option<DraftOutfitProvenance>` — the mixed enum made
+  the generated Dart client undecodable (`more than one match found`), proven
+  with a probe test, now covered by a real Flutter test
+- [x] 9.2 **Beat addressing:** `OutfitApplyPlan.beat_ordinal` is computed by the
+  planner from the immutable preview; selected gap rows carry
+  `from_continuity_selection` and their own mapping kinds — regression tests
+  `accepting_a_previously_rejected_outfit_keeps_every_beat_address` and
+  `a_continuity_selection_keeps_its_address_when_others_are_added`
+- [x] 9.3 **Selection validation:** indexed gaps, one ordered preview sweep for
+  prior outfits, set-based duplicate detection, and an in-pass count guard
+- [x] 9.4 Stale task references corrected (`ContinuationUnresolved` →
+  `ContinuityUnresolved`)

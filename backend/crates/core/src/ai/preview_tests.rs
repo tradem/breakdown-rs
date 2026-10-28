@@ -323,6 +323,8 @@ fn planner_plans_a_costume_bound_to_the_figure_of_the_same_row() {
         plan.scenes[0].outfits,
         vec![OutfitApplyPlan {
             continuation: None,
+            beat_ordinal: 0,
+            from_continuity_selection: false,
             ordinal: 0,
             character_identity: "ben".into(),
             character_name: "BEN".into(),
@@ -448,6 +450,7 @@ fn planner_folds_umlauts_when_matching_a_category_hint() {
                 notes: None,
                 source_quote: "in OP".into(),
                 origin: DraftOutfitOrigin::ExplicitQuote,
+                provenance: None,
                 pieces: vec![DraftPiece {
                     name: "OP-Haube".into(),
                     category_hint: Some("HÜTE".into()),
@@ -497,6 +500,7 @@ fn planner_resolves_a_category_hint_case_insensitively() {
                 notes: None,
                 source_quote: "in OP".into(),
                 origin: DraftOutfitOrigin::ExplicitQuote,
+                provenance: None,
                 pieces: vec![DraftPiece {
                     name: "OP-Kasack".into(),
                     category_hint: Some(" oberteil ".into()),
@@ -543,6 +547,7 @@ fn planner_leaves_an_unknown_category_hint_uncategorized() {
                 notes: None,
                 source_quote: "in OP".into(),
                 origin: DraftOutfitOrigin::ExplicitQuote,
+                provenance: None,
                 pieces: vec![DraftPiece {
                     name: "OP-Haube".into(),
                     category_hint: Some("Kopfbedeckung".into()),
@@ -764,6 +769,7 @@ fn costume(char_name: &str, description: &str, quote: &str) -> DraftOutfit {
         notes: Some(description.to_owned()),
         source_quote: quote.to_owned(),
         origin: DraftOutfitOrigin::ExplicitQuote,
+        provenance: None,
         pieces: Vec::new(),
     }
 }
@@ -777,6 +783,7 @@ fn outfit_with_pieces(char_name: &str, quote: &str, pieces: &[&str]) -> DraftOut
         notes: None,
         source_quote: quote.to_owned(),
         origin: DraftOutfitOrigin::ExplicitQuote,
+        provenance: None,
         pieces: pieces
             .iter()
             .map(|name| DraftPiece {
@@ -3138,11 +3145,12 @@ fn continued_outfit(character: &str, source_ref: &str) -> DraftOutfit {
         name: "Zivil-Look".to_owned(),
         notes: None,
         source_quote: String::new(),
-        origin: DraftOutfitOrigin::ContinuedFromScene {
-            source_draft_ref: source_ref.to_owned(),
+        origin: DraftOutfitOrigin::ContinuedFromScene,
+        provenance: Some(DraftOutfitProvenance {
+            source_draft_ref: Some(source_ref.to_owned()),
             source_scene_number: Some(1),
             confidence: 0.9,
-        },
+        }),
         pieces: Vec::new(),
     }
 }
@@ -3154,6 +3162,7 @@ fn explicit_outfit(character: &str, name: &str) -> DraftOutfit {
         notes: None,
         source_quote: format!("{character} in {name}"),
         origin: DraftOutfitOrigin::ExplicitQuote,
+        provenance: None,
         pieces: vec![DraftPiece {
             name: "Hemd".to_owned(),
             category_hint: None,
@@ -3397,30 +3406,42 @@ fn a_gap_without_a_selection_plans_no_outfit() {
 #[test]
 fn an_old_preview_keeps_its_unit_origin_and_a_new_one_round_trips() {
     // OpenSpec `ai-import-decision-outfit-continuity`: the origin gained two
-    // data-carrying variants, so a preview stored with the former unit form must
-    // keep loading (`explicit_quote` / `derived`) while a Pass-2 row round-trips.
+    // values, so a preview stored with the former unit form must keep loading
+    // (`explicit_quote` / `derived`) while a Pass-2 row round-trips. The origin
+    // is a plain wire STRING and the provenance rides alongside it — a mixed
+    // enum made the generated client undecodable (review finding).
     let old = r#"{"character_name":"BEN","name":"Zivil-Look","source_quote":"in Zivil","origin":"derived"}"#;
     let parsed: DraftOutfit = serde_json::from_str(old).expect("old row parses");
     assert_eq!(parsed.origin, DraftOutfitOrigin::Derived);
+    assert!(parsed.provenance.is_none());
 
     let continued = DraftOutfit {
         character_name: "BEN".to_owned(),
         name: "Zivil-Look".to_owned(),
         notes: None,
         source_quote: String::new(),
-        origin: DraftOutfitOrigin::ContinuedFromScene {
-            source_draft_ref: "row-4".to_owned(),
+        origin: DraftOutfitOrigin::ContinuedFromScene,
+        provenance: Some(DraftOutfitProvenance {
+            source_draft_ref: Some("row-4".to_owned()),
             source_scene_number: Some(4),
             confidence: 0.82,
-        },
+        }),
         pieces: Vec::new(),
     };
-    let json = serde_json::to_string(&continued).expect("serializes");
-    let round_trip: DraftOutfit = serde_json::from_str(&json).expect("round-trips");
+    let wire = serde_json::to_value(&continued).expect("serializes");
+    assert_eq!(
+        wire["origin"], "continued_from_scene",
+        "the origin must stay a plain string: a mixed enum breaks the generated client"
+    );
+    assert_eq!(wire["provenance"]["source_draft_ref"], "row-4");
+    let round_trip: DraftOutfit = serde_json::from_value(wire).expect("round-trips");
     assert_eq!(round_trip, continued);
     assert!(round_trip.origin.is_continuation());
     assert_eq!(
-        round_trip.origin.continuation_source(),
+        round_trip
+            .provenance
+            .as_ref()
+            .and_then(DraftOutfitProvenance::continuation_source),
         Some(("row-4", Some(4)))
     );
     assert_eq!(round_trip.origin.as_str(), "continued_from_scene");
@@ -3440,4 +3461,99 @@ fn an_uncertainty_without_candidates_keeps_the_wire_shape() {
     };
     let json = serde_json::to_string(&uncertainty).expect("serializes");
     assert!(!json.contains("candidates"), "{json}");
+}
+
+#[test]
+fn a_beat_ordinal_comes_from_the_preview_not_the_review_decisions() {
+    // Review finding: the beat mapping address must be the figure's position in
+    // the IMMUTABLE preview. A plan-derived position would shift as soon as the
+    // reviewer accepts an outfit they rejected before, and the shifted row would
+    // then find the other row's confirmed mapping row and silently get no beat.
+    let preview = ScriptContext {
+        title: None,
+        scenes: vec![
+            continuity_scene("s1", &["BEN"], vec![explicit_outfit("BEN", "Zivil-Look")]),
+            continuity_scene("s2", &["BEN"], vec![explicit_outfit("BEN", "Overall")]),
+        ],
+        uncertainties: Vec::new(),
+    };
+    let mappings = |reject_first: bool| {
+        vec![
+            ApplyMapping {
+                draft_ref: "s1".to_owned(),
+                decision: ApplyMappingDecision::Create,
+                outfit_decisions: if reject_first {
+                    vec![OutfitDecision {
+                        ordinal: 0,
+                        accepted: false,
+                    }]
+                } else {
+                    Vec::new()
+                },
+            },
+            ApplyMapping {
+                draft_ref: "s2".to_owned(),
+                decision: ApplyMappingDecision::Create,
+                outfit_decisions: Vec::new(),
+            },
+        ]
+    };
+    let plan = |reject_first: bool| {
+        plan_scene_apply(
+            &preview,
+            &mappings(reject_first),
+            EpisodeId::new(),
+            None,
+            AiImportJobId(Uuid::now_v7()),
+            &ReviewerDecisions {
+                continuity_selections: &[],
+                episode_groups: &[],
+                shooting_days: &[],
+                acknowledged_uncertainties: &[],
+                categories: &[],
+            },
+        )
+        .expect("plan")
+    };
+
+    let all_accepted = plan(false);
+    assert_eq!(all_accepted.scenes[0].outfits[0].beat_ordinal, 0);
+    assert_eq!(all_accepted.scenes[1].outfits[0].beat_ordinal, 1);
+
+    let first_rejected = plan(true);
+    assert!(first_rejected.scenes[0].outfits.is_empty(), "row rejected");
+    assert_eq!(
+        first_rejected.scenes[1].outfits[0].beat_ordinal, 1,
+        "the later row keeps its address even though the earlier one planned no beat"
+    );
+}
+
+#[test]
+fn a_continuity_selection_is_addressed_by_the_draft_figure_position() {
+    // The selection is request-carried, so its address must come from something
+    // immutable: the figure's position in the draft's own character list.
+    let preview = ScriptContext {
+        title: None,
+        scenes: vec![
+            continuity_scene("s1", &["BEN"], vec![explicit_outfit("BEN", "Zivil-Look")]),
+            continuity_scene("s2", &["ANNA", "BEN"], Vec::new()),
+        ],
+        uncertainties: Vec::new(),
+    };
+    let selections = [OutfitContinuitySelection {
+        scene_index: 1,
+        character_identity: "ben".to_owned(),
+        candidate: OutfitContinuityCandidate::Continued,
+    }];
+    let plan = plan_continuity(&preview, &selections).expect("plan");
+    let outfit = &plan.scenes[1].outfits[0];
+    assert!(
+        outfit.from_continuity_selection,
+        "a selected gap row is marked as synthesised"
+    );
+    assert_eq!(
+        outfit.ordinal, 1,
+        "BEN is the second figure of the row, so its address is 1"
+    );
+    assert_eq!(outfit.beat_ordinal, outfit.ordinal);
 }

@@ -5014,11 +5014,12 @@ fn continued_row(source_ref: &str, draft_ref: &str) -> DraftScene {
             name: "Zivil-Look".to_owned(),
             notes: None,
             source_quote: String::new(),
-            origin: breakdown_core::ai::DraftOutfitOrigin::ContinuedFromScene {
-                source_draft_ref: source_ref.to_owned(),
+            origin: breakdown_core::ai::DraftOutfitOrigin::ContinuedFromScene,
+            provenance: Some(breakdown_core::ai::DraftOutfitProvenance {
+                source_draft_ref: Some(source_ref.to_owned()),
                 source_scene_number: Some(1),
                 confidence: 0.9,
-            },
+            }),
             pieces: Vec::new(),
         }],
         ..Default::default()
@@ -5214,4 +5215,122 @@ async fn script_apply_refuses_a_selection_the_preview_does_not_offer() {
         fixture.scenes.created.lock().unwrap().is_empty(),
         "nothing may be dispatched"
     );
+}
+
+/// CodeRabbit review (PR #746): a beat's mapping address must come from the
+/// immutable preview, not from the plan. Re-applying after the reviewer accepts
+/// a previously rejected outfit must give THAT scene its beat and leave the later
+/// row's address untouched.
+#[tokio::test]
+async fn accepting_a_previously_rejected_outfit_keeps_every_beat_address() {
+    let fixture = ScriptApplyFixture::new();
+    let preview = ScriptContext {
+        scenes: vec![
+            row_with_outfit("1. INT. WOHNUNG", &["BEN"], &[("BEN", "Zivil-Look")]),
+            row_with_outfit("2. INT. OP", &["BEN"], &[("BEN", "OP-Kleidung")]),
+        ],
+        ..Default::default()
+    };
+    let accepted = [
+        create_decision("1. INT. WOHNUNG"),
+        create_decision("2. INT. OP"),
+    ];
+    let reject_first = [
+        ApplyMapping {
+            draft_ref: "1. INT. WOHNUNG".to_owned(),
+            decision: breakdown_core::ai::ApplyMappingDecision::Create,
+            outfit_decisions: vec![breakdown_core::ai::OutfitDecision {
+                ordinal: 0,
+                accepted: false,
+            }],
+        },
+        create_decision("2. INT. OP"),
+    ];
+
+    // Apply 1: scene 1 contradictorily rejected — only scene 2 gets a beat.
+    fixture.apply(&preview, &reject_first).await.unwrap();
+    let scene_ids = fixture.scenes.created.lock().unwrap().clone();
+    assert_eq!(scene_ids.len(), 2);
+    assert!(fixture.scenes.beats_of(scene_ids[0]).is_empty());
+    assert_eq!(fixture.scenes.beats_of(scene_ids[1]).len(), 1);
+
+    // Apply 2: the reviewer accepts scene 1's outfit. Before the fix, scene 1's
+    // beat took position 0 — already confirmed for scene 2 — and was dropped
+    // silently as "Settled".
+    let result = fixture.apply(&preview, &accepted).await.unwrap();
+    assert!(
+        result.unapplied_outfits.is_empty(),
+        "{:?}",
+        result.unapplied_outfits
+    );
+    assert_eq!(
+        fixture.scenes.beats_of(scene_ids[0]).len(),
+        1,
+        "the newly accepted scene must get its beat"
+    );
+    assert_eq!(
+        fixture.scenes.beats_of(scene_ids[1]).len(),
+        1,
+        "and the later scene must not gain a second one"
+    );
+    // The later row's address did not move: its beat still points at its own look.
+    assert_eq!(result.created_outfit_beats, 1, "only the new beat appended");
+}
+
+/// CodeRabbit review (PR #746): a reviewer-selected gap row is addressed from the
+/// immutable draft, so adding another selection later must not shift it.
+#[tokio::test]
+async fn a_continuity_selection_keeps_its_address_when_others_are_added() {
+    let fixture = ScriptApplyFixture::new();
+    let mut source = row_with_outfit("1. INT. WOHNUNG", &["BEN"], &[("BEN", "Zivil-Look")]);
+    source.summary = Some("Ben wartet.".to_owned());
+    let mut gap_a = row_with_outfit("2. INT. OP", &["BEN"], &[]);
+    gap_a.summary = Some("Ben betritt den OP.".to_owned());
+    let mut gap_b = row_with_outfit("3. INT. ITS", &["BEN"], &[]);
+    gap_b.summary = Some("Ben wacht auf.".to_owned());
+    let preview = ScriptContext {
+        scenes: vec![source, gap_a, gap_b],
+        ..Default::default()
+    };
+    let decisions = [
+        create_decision("1. INT. WOHNUNG"),
+        create_decision("2. INT. OP"),
+        create_decision("3. INT. ITS"),
+    ];
+    let selection = |scene_index: usize| breakdown_core::ai::OutfitContinuitySelection {
+        scene_index,
+        character_identity: "ben".to_owned(),
+        candidate: breakdown_core::ai::OutfitContinuityCandidate::Continued,
+    };
+
+    // Apply 1 selects the LATER gap only.
+    let later_only = [selection(2)];
+    let first = fixture
+        .apply_with_continuity(&preview, &decisions, &later_only)
+        .await
+        .unwrap();
+    assert_eq!(first.created_outfit_beats, 2, "source beat + selected beat");
+
+    // Apply 2 adds the earlier gap. Its address is its own row, so the later
+    // selection keeps the mapping row it already confirmed.
+    let both = [selection(1), selection(2)];
+    let second = fixture
+        .apply_with_continuity(&preview, &decisions, &both)
+        .await
+        .unwrap();
+    assert!(
+        second.unapplied_outfits.is_empty(),
+        "{:?}",
+        second.unapplied_outfits
+    );
+    assert_eq!(
+        second.created_outfit_beats, 1,
+        "only the newly selected scene appended a beat"
+    );
+    let scene_ids = fixture.scenes.created.lock().unwrap().clone();
+    let beats: usize = scene_ids
+        .iter()
+        .map(|scene| fixture.scenes.beats_of(*scene).len())
+        .sum();
+    assert_eq!(beats, 3, "one beat per scene: source, gap A, gap B");
 }

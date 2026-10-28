@@ -20,6 +20,7 @@ fn outfit(character: &str, name: &str) -> DraftOutfit {
         notes: None,
         source_quote: format!("{character} in {name}"),
         origin: DraftOutfitOrigin::ExplicitQuote,
+        provenance: None,
         pieces: vec![DraftPiece {
             name: "Hemd".to_owned(),
             category_hint: None,

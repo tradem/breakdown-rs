@@ -78,6 +78,7 @@ fn outfit(character: &str, name: &str) -> DraftOutfit {
         notes: None,
         source_quote: format!("{character} in {name}"),
         origin: DraftOutfitOrigin::ExplicitQuote,
+        provenance: None,
         pieces: vec![DraftPiece {
             name: "Hemd".to_owned(),
             category_hint: None,
@@ -136,17 +137,13 @@ async fn a_continuation_attaches_a_continued_from_scene_outfit() {
     assert_eq!(attached.len(), 1);
     assert_eq!(attached[0].name, "Zivil-Look");
     assert!(attached[0].pieces.is_empty());
-    match &attached[0].origin {
-        DraftOutfitOrigin::ContinuedFromScene {
-            source_draft_ref,
-            confidence,
-            ..
-        } => {
-            assert_eq!(source_draft_ref, "source");
-            assert!((confidence - 0.9).abs() < f32::EPSILON);
-        }
-        other => panic!("expected a continuation, got {other:?}"),
-    }
+    assert!(attached[0].origin.is_continuation());
+    let provenance = attached[0]
+        .provenance
+        .as_ref()
+        .expect("a Pass-2 row carries its provenance");
+    assert_eq!(provenance.source_draft_ref.as_deref(), Some("source"));
+    assert!((provenance.confidence - 0.9).abs() < f32::EPSILON);
     assert!(
         preview.uncertainties.is_empty(),
         "a confident continuation needs no review entry"
@@ -174,10 +171,8 @@ async fn an_inference_attaches_a_context_look_and_a_review_entry() {
     assert_eq!(attached.len(), 1);
     assert_eq!(attached[0].name, "Kontext-Look (OP-SAAL)");
     assert!(attached[0].pieces.is_empty(), "the script named no garment");
-    assert!(matches!(
-        attached[0].origin,
-        DraftOutfitOrigin::InferredFromContext { .. }
-    ));
+    assert_eq!(attached[0].origin, DraftOutfitOrigin::InferredFromContext);
+    assert!(attached[0].provenance.is_some());
     assert_eq!(preview.uncertainties.len(), 1);
     assert_eq!(preview.uncertainties[0].kind, UncertaintyKind::DroppedRow);
     assert!(!preview.uncertainties[0].kind.blocks_apply());

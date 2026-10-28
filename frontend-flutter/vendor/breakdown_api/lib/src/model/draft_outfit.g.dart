@@ -18,6 +18,8 @@ class _$DraftOutfit extends DraftOutfit {
   @override
   final BuiltList<DraftPiece>? pieces;
   @override
+  final DraftOutfitProvenance? provenance;
+  @override
   final String sourceQuote;
 
   factory _$DraftOutfit([void Function(DraftOutfitBuilder)? updates]) =>
@@ -29,6 +31,7 @@ class _$DraftOutfit extends DraftOutfit {
       this.notes,
       this.origin,
       this.pieces,
+      this.provenance,
       required this.sourceQuote})
       : super._();
   @override
@@ -47,6 +50,7 @@ class _$DraftOutfit extends DraftOutfit {
         notes == other.notes &&
         origin == other.origin &&
         pieces == other.pieces &&
+        provenance == other.provenance &&
         sourceQuote == other.sourceQuote;
   }
 
@@ -58,6 +62,7 @@ class _$DraftOutfit extends DraftOutfit {
     _$hash = $jc(_$hash, notes.hashCode);
     _$hash = $jc(_$hash, origin.hashCode);
     _$hash = $jc(_$hash, pieces.hashCode);
+    _$hash = $jc(_$hash, provenance.hashCode);
     _$hash = $jc(_$hash, sourceQuote.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
@@ -71,6 +76,7 @@ class _$DraftOutfit extends DraftOutfit {
           ..add('notes', notes)
           ..add('origin', origin)
           ..add('pieces', pieces)
+          ..add('provenance', provenance)
           ..add('sourceQuote', sourceQuote))
         .toString();
   }
@@ -92,15 +98,20 @@ class DraftOutfitBuilder implements Builder<DraftOutfit, DraftOutfitBuilder> {
   String? get notes => _$this._notes;
   set notes(String? notes) => _$this._notes = notes;
 
-  DraftOutfitOriginBuilder? _origin;
-  DraftOutfitOriginBuilder get origin =>
-      _$this._origin ??= DraftOutfitOriginBuilder();
-  set origin(DraftOutfitOriginBuilder? origin) => _$this._origin = origin;
+  DraftOutfitOrigin? _origin;
+  DraftOutfitOrigin? get origin => _$this._origin;
+  set origin(DraftOutfitOrigin? origin) => _$this._origin = origin;
 
   ListBuilder<DraftPiece>? _pieces;
   ListBuilder<DraftPiece> get pieces =>
       _$this._pieces ??= ListBuilder<DraftPiece>();
   set pieces(ListBuilder<DraftPiece>? pieces) => _$this._pieces = pieces;
+
+  DraftOutfitProvenanceBuilder? _provenance;
+  DraftOutfitProvenanceBuilder get provenance =>
+      _$this._provenance ??= DraftOutfitProvenanceBuilder();
+  set provenance(DraftOutfitProvenanceBuilder? provenance) =>
+      _$this._provenance = provenance;
 
   String? _sourceQuote;
   String? get sourceQuote => _$this._sourceQuote;
@@ -116,8 +127,9 @@ class DraftOutfitBuilder implements Builder<DraftOutfit, DraftOutfitBuilder> {
       _characterName = $v.characterName;
       _name = $v.name;
       _notes = $v.notes;
-      _origin = $v.origin?.toBuilder();
+      _origin = $v.origin;
       _pieces = $v.pieces?.toBuilder();
+      _provenance = $v.provenance?.toBuilder();
       _sourceQuote = $v.sourceQuote;
       _$v = null;
     }
@@ -147,18 +159,19 @@ class DraftOutfitBuilder implements Builder<DraftOutfit, DraftOutfitBuilder> {
             name: BuiltValueNullFieldError.checkNotNull(
                 name, r'DraftOutfit', 'name'),
             notes: notes,
-            origin: _origin?.build(),
+            origin: origin,
             pieces: _pieces?.build(),
+            provenance: _provenance?.build(),
             sourceQuote: BuiltValueNullFieldError.checkNotNull(
                 sourceQuote, r'DraftOutfit', 'sourceQuote'),
           );
     } catch (_) {
       late String _$failedField;
       try {
-        _$failedField = 'origin';
-        _origin?.build();
         _$failedField = 'pieces';
         _pieces?.build();
+        _$failedField = 'provenance';
+        _provenance?.build();
       } catch (e) {
         throw BuiltValueNestedFieldError(
             r'DraftOutfit', _$failedField, e.toString());

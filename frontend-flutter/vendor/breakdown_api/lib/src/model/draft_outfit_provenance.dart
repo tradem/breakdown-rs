@@ -8,59 +8,56 @@
 import 'package:built_value/built_value.dart';
 import 'package:built_value/serializer.dart';
 
-part 'draft_outfit_origin_one_of_continued_from_scene.g.dart';
+part 'draft_outfit_provenance.g.dart';
 
-/// Pass 2 Option A: the character keeps wearing the look of an earlier scene. `source_draft_ref` is the preview row the look was read from, so the apply can bind this scene's beat to the SAME `Outfit` aggregate instead of creating a second look (design D3).
+/// The Pass-2 provenance of a look (design D2/D3): how sure the Decision Model was, and — for a continuation — which row the look was read from.  Deliberately a separate field instead of arm data on [`DraftOutfitOrigin`]: the origin must stay a plain wire string so the generated client can decode it (see the enum's docs).
 ///
 /// Properties:
-/// * [confidence] - The Decision Model's calibrated probability of the continuation.
-/// * [sourceDraftRef] - `draft_ref` of the source preview row ([`DraftScene::draft_ref`]).
+/// * [confidence] - The Decision Model's calibrated probability, `0.0..=1.0`.
+/// * [sourceDraftRef] - `draft_ref` of the source preview row ([`DraftScene::draft_ref`]); `Some` only for a continuation.
 /// * [sourceSceneNumber] - The source row's document scene number, when it carries one.
 @BuiltValue()
-abstract class DraftOutfitOriginOneOfContinuedFromScene
-    implements
-        Built<DraftOutfitOriginOneOfContinuedFromScene,
-            DraftOutfitOriginOneOfContinuedFromSceneBuilder> {
-  /// The Decision Model's calibrated probability of the continuation.
+abstract class DraftOutfitProvenance
+    implements Built<DraftOutfitProvenance, DraftOutfitProvenanceBuilder> {
+  /// The Decision Model's calibrated probability, `0.0..=1.0`.
   @BuiltValueField(wireName: r'confidence')
   double get confidence;
 
-  /// `draft_ref` of the source preview row ([`DraftScene::draft_ref`]).
+  /// `draft_ref` of the source preview row ([`DraftScene::draft_ref`]); `Some` only for a continuation.
   @BuiltValueField(wireName: r'source_draft_ref')
-  String get sourceDraftRef;
+  String? get sourceDraftRef;
 
   /// The source row's document scene number, when it carries one.
   @BuiltValueField(wireName: r'source_scene_number')
   int? get sourceSceneNumber;
 
-  DraftOutfitOriginOneOfContinuedFromScene._();
+  DraftOutfitProvenance._();
 
-  factory DraftOutfitOriginOneOfContinuedFromScene(
-          [void updates(DraftOutfitOriginOneOfContinuedFromSceneBuilder b)]) =
-      _$DraftOutfitOriginOneOfContinuedFromScene;
+  factory DraftOutfitProvenance(
+      [void updates(DraftOutfitProvenanceBuilder b)]) = _$DraftOutfitProvenance;
 
   @BuiltValueHook(initializeBuilder: true)
-  static void _defaults(DraftOutfitOriginOneOfContinuedFromSceneBuilder b) => b;
+  static void _defaults(DraftOutfitProvenanceBuilder b) => b;
 
   @BuiltValueSerializer(custom: true)
-  static Serializer<DraftOutfitOriginOneOfContinuedFromScene> get serializer =>
-      _$DraftOutfitOriginOneOfContinuedFromSceneSerializer();
+  static Serializer<DraftOutfitProvenance> get serializer =>
+      _$DraftOutfitProvenanceSerializer();
 }
 
-class _$DraftOutfitOriginOneOfContinuedFromSceneSerializer
-    implements PrimitiveSerializer<DraftOutfitOriginOneOfContinuedFromScene> {
+class _$DraftOutfitProvenanceSerializer
+    implements PrimitiveSerializer<DraftOutfitProvenance> {
   @override
   final Iterable<Type> types = const [
-    DraftOutfitOriginOneOfContinuedFromScene,
-    _$DraftOutfitOriginOneOfContinuedFromScene
+    DraftOutfitProvenance,
+    _$DraftOutfitProvenance
   ];
 
   @override
-  final String wireName = r'DraftOutfitOriginOneOfContinuedFromScene';
+  final String wireName = r'DraftOutfitProvenance';
 
   Iterable<Object?> _serializeProperties(
     Serializers serializers,
-    DraftOutfitOriginOneOfContinuedFromScene object, {
+    DraftOutfitProvenance object, {
     FullType specifiedType = FullType.unspecified,
   }) sync* {
     yield r'confidence';
@@ -68,11 +65,13 @@ class _$DraftOutfitOriginOneOfContinuedFromSceneSerializer
       object.confidence,
       specifiedType: const FullType(double),
     );
-    yield r'source_draft_ref';
-    yield serializers.serialize(
-      object.sourceDraftRef,
-      specifiedType: const FullType(String),
-    );
+    if (object.sourceDraftRef != null) {
+      yield r'source_draft_ref';
+      yield serializers.serialize(
+        object.sourceDraftRef,
+        specifiedType: const FullType.nullable(String),
+      );
+    }
     if (object.sourceSceneNumber != null) {
       yield r'source_scene_number';
       yield serializers.serialize(
@@ -85,7 +84,7 @@ class _$DraftOutfitOriginOneOfContinuedFromSceneSerializer
   @override
   Object serialize(
     Serializers serializers,
-    DraftOutfitOriginOneOfContinuedFromScene object, {
+    DraftOutfitProvenance object, {
     FullType specifiedType = FullType.unspecified,
   }) {
     return _serializeProperties(serializers, object,
@@ -98,7 +97,7 @@ class _$DraftOutfitOriginOneOfContinuedFromSceneSerializer
     Object serialized, {
     FullType specifiedType = FullType.unspecified,
     required List<Object?> serializedList,
-    required DraftOutfitOriginOneOfContinuedFromSceneBuilder result,
+    required DraftOutfitProvenanceBuilder result,
     required List<Object?> unhandled,
   }) {
     for (var i = 0; i < serializedList.length; i += 2) {
@@ -115,8 +114,9 @@ class _$DraftOutfitOriginOneOfContinuedFromSceneSerializer
         case r'source_draft_ref':
           final valueDes = serializers.deserialize(
             value,
-            specifiedType: const FullType(String),
-          ) as String;
+            specifiedType: const FullType.nullable(String),
+          ) as String?;
+          if (valueDes == null) continue;
           result.sourceDraftRef = valueDes;
           break;
         case r'source_scene_number':
@@ -136,12 +136,12 @@ class _$DraftOutfitOriginOneOfContinuedFromSceneSerializer
   }
 
   @override
-  DraftOutfitOriginOneOfContinuedFromScene deserialize(
+  DraftOutfitProvenance deserialize(
     Serializers serializers,
     Object serialized, {
     FullType specifiedType = FullType.unspecified,
   }) {
-    final result = DraftOutfitOriginOneOfContinuedFromSceneBuilder();
+    final result = DraftOutfitProvenanceBuilder();
     final serializedList = (serialized as Iterable<Object?>).toList();
     final unhandled = <Object?>[];
     _deserializeProperties(

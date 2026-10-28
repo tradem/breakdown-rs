@@ -79,11 +79,13 @@ highest available option.
 
 ### Requirement: A continuation carries the source outfit's provenance
 A gap resolved to Option A SHALL attach a `DraftOutfit` to the scene whose
-origin is `ContinuedFromScene`, carrying the source draft row reference, the
-source scene number when the source row has one, and the confidence. The
-continue-to outfit SHALL carry the source outfit's name, SHALL carry no pieces
-of its own, and SHALL NOT carry an invented source quote. Exactly one outfit
-SHALL be attached per resolved gap.
+origin is `continued_from_scene`, with a `provenance` object carrying the source
+draft row reference, the source scene number when the source row has one, and
+the confidence. The continue-to outfit SHALL carry the source outfit's name,
+SHALL carry no pieces of its own, and SHALL NOT carry an invented source quote.
+Exactly one outfit SHALL be attached per resolved gap. The origin SHALL remain a
+plain wire string with the source in the provenance, so no client has to decode a
+union of alternatives.
 
 #### Scenario: Continuation produced
 - **WHEN** the gap of scene 5 resolves to Option A and the figure's prior outfit sits in scene 4
@@ -93,7 +95,7 @@ SHALL be attached per resolved gap.
 
 ### Requirement: An inferred look is label-derived, never fabricated
 A gap resolved to Option B SHALL attach a `DraftOutfit` whose origin is
-`InferredFromContext`, carrying the confidence, and whose name is derived
+`inferred_from_context`, whose provenance carries the confidence, and whose name is derived
 deterministically from the scene's own extracted location (never from model
 text). It SHALL carry no pieces and no source quote, because the script states
 no garment. The pass SHALL record a non-blocking uncertainty naming the inferred
@@ -131,6 +133,28 @@ plain gap. No candidate SHALL be invented to fill the list.
 - **WHEN** a figure's very first appearance happens in a scene whose location is blank
 - **THEN** the uncertainty's candidate list SHALL be empty
 - **AND** no choice SHALL be offered to the reviewer
+
+### Requirement: A beat's mapping address comes from the preview
+The apply SHALL address every outfit beat by a position derived from the
+IMMUTABLE preview — for an extracted look, the figure's outfit position across
+the whole preview (counting rows and outfits the reviewer rejected or the
+planner could not attribute); for a row synthesised from a reviewer's continuity
+selection, the figure's position in that draft row's own character list under its
+own mapping kind. No address may be derived from the plan, because a
+plan-derived position shifts as soon as a review decision changes, and the
+shifted row then matches another row's confirmed mapping row and silently gets no
+beat.
+
+#### Scenario: Accepting a previously rejected outfit
+- **WHEN** a preview is applied with one scene's outfit rejected and re-applied with it accepted
+- **THEN** that scene SHALL receive its beat
+- **AND** every later row's beat address SHALL be unchanged
+- **AND** no scene SHALL gain a second beat
+
+#### Scenario: Adding another continuity selection
+- **WHEN** a later apply adds a selection for an earlier gap scene
+- **THEN** the already-applied selection SHALL keep its mapping address
+- **AND** only the newly selected scene SHALL append a beat
 
 ### Requirement: Pass-2 output keeps the preview appliable
 Every uncertainty Pass 2 records SHALL be of the non-blocking kind, so a

@@ -1452,6 +1452,43 @@ pub struct UuidVersion {
     pub version: breakdown_core::shared::AggregateVersion,
 }
 
+/// The mapping address one beat is recorded under: kind, `draft_ref`, ordinal.
+#[derive(Debug, Clone, Copy)]
+struct BeatAddress<'a> {
+    kind: &'static str,
+    draft_ref: &'a str,
+    ordinal: usize,
+}
+
+/// Resolve the mapping address of one planned outfit's beat.
+///
+/// The ordinal comes from the planner, which derives it from the IMMUTABLE
+/// preview (or, for a reviewer-selected gap row, from the draft's own character
+/// list) — never from the plan. A plan-derived position shifts when the reviewer
+/// changes a decision, and the shifted row would then find another row's
+/// confirmed mapping row and silently get no beat (review finding).
+///
+/// Extracted rows are keyed per FIGURE: one figure can wear a look in several
+/// scenes, and the ordinal is its position across the whole preview. Selected
+/// gap rows are request-carried and have no preview index, so they get their own
+/// kind and are keyed by the row plus the figure's draft position; the two
+/// namespaces can therefore never collide.
+fn beat_address<'a>(row: &'a SceneApplyPlan, outfit: &'a OutfitApplyPlan) -> BeatAddress<'a> {
+    if outfit.from_continuity_selection {
+        BeatAddress {
+            kind: mapping_kind::SCENE_OUTFIT_BEAT_CONTINUITY,
+            draft_ref: &row.draft_ref,
+            ordinal: outfit.beat_ordinal,
+        }
+    } else {
+        BeatAddress {
+            kind: mapping_kind::SCENE_OUTFIT_BEAT,
+            draft_ref: outfit.character_identity.as_str(),
+            ordinal: outfit.beat_ordinal,
+        }
+    }
+}
+
 /// Where one outfit beat's command points. Bundled so `apply_outfit_beat`
 /// stays under the `too_many_arguments` lint (an `#[allow]` would violate
 /// AGENTS.md §3, cf. `OutfitDispatch`).
@@ -1464,7 +1501,8 @@ struct BeatDispatch<'a> {
     scene_id: Uuid,
     character_id: Uuid,
     outfit: &'a OutfitApplyPlan,
-    per_figure_order: usize,
+    /// The mapping address this beat is recorded under (see [`beat_address`]).
+    beat: BeatAddress<'a>,
     outfit_id: Uuid,
     /// The running scene-stream version of the row, advanced in place.
     scene_version: &'a mut AggregateVersion,
@@ -1611,15 +1649,6 @@ where
         // (issue #706). Same rationale as `resolved_episodes`: one day per
         // group, created on first sight, reused by every later row.
         let mut resolved_days: HashMap<String, AppliedDay> = HashMap::new();
-        // Preview-wide per-figure beat cursor (OpenSpec
-        // `ai-import-decision-outfit-continuity`, design D3). The beat mapping
-        // row is keyed PER FIGURE, but one figure can wear a look in several
-        // scenes — exactly what a Pass-2 continuation produces. A row-local
-        // ordinal would make the second scene's beat collide with the first
-        // row's mapping row and silently never be added, so the ordinal is the
-        // figure's position across the WHOLE plan. For a figure named by one row
-        // this is the row-local 0..n-1 it has always been.
-        let mut beat_cursor: HashMap<String, usize> = HashMap::new();
         // Monotonic fallback planned-order counter for the scene-shoot links
         // (issue #706): script extraction carries no per-day order, so rows
         // apply in plan order. Every PLANNED row consumes one increment on
@@ -1703,38 +1732,18 @@ where
             // stay only-moves-forward, so no row can exceed the stream and
             // the max is exact at every quiet point.
             let lanes = scene_beat_lanes(row);
-            // This row's base ordinal per figure, from the preview-wide cursor.
-            let beat_bases: HashMap<String, usize> = lanes
-                .iter()
-                .map(|lane| {
-                    (
-                        lane.character.identity.clone(),
-                        beat_cursor
-                            .get(&lane.character.identity)
-                            .copied()
-                            .unwrap_or(0),
-                    )
-                })
-                .collect();
             let mut scene_version = scene.version;
             for lane in &lanes {
-                let lane_ref = character_mapping_ref(&lane.character.identity);
                 for slot in &lane.beats {
-                    let ordinal = ordinal_of(
-                        beat_bases
-                            .get(&lane.character.identity)
-                            .copied()
-                            .unwrap_or(0)
-                            + slot.per_figure_order,
-                    )?;
+                    let address = beat_address(row, slot.outfit);
                     let stored = self
                         .mappings
                         .find(
                             // ast-grep-ignore: cqrs-boundary
                             preview_id,
-                            &lane_ref,
-                            mapping_kind::SCENE_OUTFIT_BEAT,
-                            ordinal,
+                            address.draft_ref,
+                            address.kind,
+                            ordinal_of(address.ordinal)?,
                         )
                         .await?;
                     if let Some(stored) = stored {
@@ -1833,11 +1842,7 @@ where
                                 scene_id: scene.aggregate_id,
                                 character_id,
                                 outfit,
-                                per_figure_order: beat_bases
-                                    .get(&lane.character.identity)
-                                    .copied()
-                                    .unwrap_or(0)
-                                    + slot.per_figure_order,
+                                beat: beat_address(row, outfit),
                                 outfit_id,
                                 scene_version: &mut scene_version,
                             })
@@ -1944,11 +1949,7 @@ where
                             scene_id: scene.aggregate_id,
                             character_id,
                             outfit,
-                            per_figure_order: beat_bases
-                                .get(&lane.character.identity)
-                                .copied()
-                                .unwrap_or(0)
-                                + slot.per_figure_order,
+                            beat: beat_address(row, outfit),
                             outfit_id: applied.outfit_id,
                             scene_version: &mut scene_version,
                         })
@@ -1972,16 +1973,6 @@ where
                         }
                     }
                 }
-            }
-
-            // Advance the preview-wide beat cursor past this row's beats — on
-            // the PLAN, not on success: a retry recomputes the same ordinals, so
-            // a refused beat keeps its address instead of taking the next row's.
-            for lane in &lanes {
-                let cursor = beat_cursor
-                    .entry(lane.character.identity.clone())
-                    .or_insert(0);
-                *cursor += lane.beats.len();
             }
 
             // ── Shooting-day assignment (issue #706) ──
@@ -2522,9 +2513,16 @@ where
             piece_ids,
         } = dispatch;
         let ordinal = ordinal_of(outfit.ordinal)?;
+        // A selected gap row carries its own kind: its ordinal is the figure's
+        // draft position, so sharing the extracted rows' namespace could collide.
+        let kind = if outfit.from_continuity_selection {
+            mapping_kind::OUTFIT_CONTINUITY
+        } else {
+            mapping_kind::OUTFIT
+        };
         let stored = self
             .mappings
-            .find(preview_id, &row.draft_ref, mapping_kind::OUTFIT, ordinal) // ast-grep-ignore: cqrs-boundary
+            .find(preview_id, &row.draft_ref, kind, ordinal) // ast-grep-ignore: cqrs-boundary
             .await?;
         let mapping = match stored {
             Some(row) => row,
@@ -2533,9 +2531,9 @@ where
                     .reserve(AiImportMapping::reservation(
                         preview_id,
                         row.draft_ref.clone(),
-                        mapping_kind::OUTFIT.to_owned(),
+                        kind.to_owned(),
                         ordinal,
-                        derive_id(preview_id, &row.draft_ref, mapping_kind::OUTFIT, ordinal),
+                        derive_id(preview_id, &row.draft_ref, kind, ordinal),
                     ))
                     .await?
             }
@@ -2754,20 +2752,22 @@ where
             scene_id,
             character_id,
             outfit,
-            per_figure_order,
+            beat,
             outfit_id,
             scene_version,
         } = dispatch;
-        let ordinal = ordinal_of(per_figure_order)?;
-        let lane_ref = character_mapping_ref(&outfit.character_identity);
+        let ordinal = ordinal_of(beat.ordinal)?;
+        // An extracted beat row is addressed by the figure's preview-wide mapping
+        // reference (the same `draft_ref` the `character` rows use); a selected
+        // gap row by its own row reference. Both carry it explicitly now.
+        let lane_ref = if beat.kind == mapping_kind::SCENE_OUTFIT_BEAT {
+            character_mapping_ref(&outfit.character_identity)
+        } else {
+            beat.draft_ref.to_owned()
+        };
         let stored = self
             .mappings
-            .find(
-                preview_id,
-                &lane_ref,
-                mapping_kind::SCENE_OUTFIT_BEAT,
-                ordinal,
-            ) // ast-grep-ignore: cqrs-boundary
+            .find(preview_id, &lane_ref, beat.kind, ordinal) // ast-grep-ignore: cqrs-boundary
             .await?;
         let mapping = match stored {
             Some(row) => row,
@@ -2776,7 +2776,7 @@ where
                     .reserve(AiImportMapping::reservation(
                         preview_id,
                         lane_ref.clone(),
-                        mapping_kind::SCENE_OUTFIT_BEAT.to_owned(),
+                        beat.kind.to_owned(),
                         ordinal,
                         // The beat row pins the SCENE id — the aggregate it
                         // mutates — not a derived id: the scene already exists
