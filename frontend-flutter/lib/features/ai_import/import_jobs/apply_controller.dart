@@ -1055,7 +1055,13 @@ class AiApplyController extends _$AiApplyController {
         ref
           ..invalidate(episodesListFetchProvider)
           ..invalidate(blocksListFetchProvider);
-        state = state.copyWith(context: context, outcome: response);
+        state = state.copyWith(
+          context: context,
+          outcome: response,
+          // A successful (re-)apply disproves every earlier command failure:
+          // keeping it would render the old error next to the outcome card.
+          commandError: null,
+        );
         return Right(response);
       case ApplyBlocked(:final error):
         if (!ref.mounted) return Left(error);

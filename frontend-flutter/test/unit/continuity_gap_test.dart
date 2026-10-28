@@ -96,6 +96,43 @@ void main() {
       expect(characterIdentity('   '), '');
     });
 
+    // Parity guard for the backend's `char::is_whitespace()` (Unicode
+    // `White_Space`). ECMAScript `\s` — what Dart's `RegExp` implements — is a
+    // DIFFERENT set, so the client cannot use it: a mismatch folds a name onto
+    // a key the server does not derive and the apply answers 409.
+    test('the whitespace set is Unicode White_Space, not ECMAScript \\s', () {
+      // U+0085 NEL is White_Space in Rust but NOT ECMAScript whitespace.
+      expect(characterIdentity('A\u0085B'), 'a b');
+      // U+FEFF BOM is ECMAScript whitespace but NOT White_Space in Rust.
+      expect(characterIdentity('A\uFEFFB'), 'a\uFEFFb');
+      // Both sides agree on the rest of the property.
+      for (final separator in [
+        '\u0009',
+        '\u000B',
+        '\u000C',
+        '\u0020',
+        '\u00A0',
+        '\u1680',
+        '\u2000',
+        '\u2007',
+        '\u200A',
+        '\u2028',
+        '\u2029',
+        '\u202F',
+        '\u205F',
+        '\u3000',
+      ]) {
+        expect(
+          characterIdentity('A${separator}B'),
+          'a b',
+          reason: 'U+${separator.codeUnitAt(0).toRadixString(16)} folds',
+        );
+      }
+      // A run of mixed separators collapses to ONE space, like the backend.
+      expect(characterIdentity(' \u00A0\u3000 BEN \u202F '), 'ben');
+      expect(characterIdentity('Dr.\u00A0\u00A0Koch'), 'dr. koch');
+    });
+
     test('a name without a draft ref is addressed by its position', () {
       expect(draftRowRef(_scene('row-4'), 3), 'row-4');
       expect(draftRowRef(_scene(''), 3), 'scene-3');
@@ -318,6 +355,73 @@ void main() {
       );
 
       expect(continuityGapsOf(context), hasLength(1));
+      expect(continuityGapsOf(context).single.uncertaintyIndex, 0);
+    });
+
+    // The pairing branch that matters when SEVERAL of the scene's gap figures
+    // appeared in the source row: the candidate's own look name selects one.
+    test('the candidate look name breaks a source-row tie', () {
+      final context = _context(
+        [
+          _scene(
+            'row-4',
+            number: 4,
+            outfits: [
+              _outfit('Ben', 'Zivil-Look'),
+              _outfit('Anna', 'Dienst-Look'),
+            ],
+          ),
+          _scene('row-5', number: 5, characters: ['Ben', 'Anna']),
+        ],
+        uncertainties: [
+          _gap(
+            1,
+            note: 'gap',
+            candidates: [
+              _candidate(
+                DraftOutfitOrigin.continuedFromScene,
+                'Dienst-Look',
+                sourceDraftRef: 'row-4',
+              ),
+            ],
+          ),
+        ],
+      );
+
+      final gap = continuityGapsOf(context).single;
+      expect(gap.characterIdentity, 'anna');
+      expect(gap.characterName, 'Anna');
+    });
+
+    test('an unrecognised look name never falls through to a wrong figure', () {
+      final context = _context(
+        [
+          _scene(
+            'row-4',
+            number: 4,
+            outfits: [
+              _outfit('Ben', 'Zivil-Look'),
+              _outfit('Anna', 'Dienst-Look'),
+            ],
+          ),
+          _scene('row-5', number: 5, characters: ['Ben', 'Anna']),
+        ],
+        uncertainties: [
+          _gap(
+            1,
+            note: 'gap',
+            candidates: [
+              _candidate(
+                DraftOutfitOrigin.continuedFromScene,
+                'Unbekannter Look',
+                sourceDraftRef: 'row-4',
+              ),
+            ],
+          ),
+        ],
+      );
+
+      expect(continuityGapsOf(context), isEmpty);
     });
 
     test('an out-of-range scene index is ignored, never fabricated', () {

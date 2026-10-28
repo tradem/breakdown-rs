@@ -480,6 +480,59 @@ void main() {
       expect(find.textContaining('Uncertainty (outfits)'), findsOneWidget);
     });
 
+    testWidgets('two gaps in ONE scene render two distinct cards, even with '
+        'identical note text', (tester) async {
+      // CodeRabbit review: matching a gap to its uncertainty by scene + note
+      // rendered the same card twice (identical widget key → debug assertion)
+      // for notes the server may legitimately repeat. The pairing is by the
+      // uncertainty's own index now.
+      const repeated = 'no certain wardrobe state; pick a look or leave empty';
+      await setupContainer(
+        payload: _scriptPayload(
+          [
+            _scene(
+              'row-4',
+              number: 4,
+              outfits: [
+                _outfit('BEN', 'Zivil-Look'),
+                _outfit('ANNA', 'Dienst-Look'),
+              ],
+            ),
+            _scene('row-5', number: 5, characters: ['BEN', 'ANNA']),
+          ],
+          uncertainties: [
+            _gap(
+              1,
+              note: repeated,
+              candidates: [
+                _candidate(
+                  DraftOutfitOrigin.continuedFromScene,
+                  'Zivil-Look',
+                  sourceDraftRef: 'row-4',
+                ),
+              ],
+            ),
+            _gap(
+              1,
+              note: repeated,
+              candidates: [
+                _candidate(
+                  DraftOutfitOrigin.continuedFromScene,
+                  'Dienst-Look',
+                  sourceDraftRef: 'row-4',
+                ),
+              ],
+            ),
+          ],
+        ),
+      );
+      await pumpPreview(tester);
+
+      expect(find.byKey(const Key('ai-preview-gap-1-ben')), findsOneWidget);
+      expect(find.byKey(const Key('ai-preview-gap-1-anna')), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+
     testWidgets('picking the continuation sends continuity_selections and '
         'counts as a review edit', (tester) async {
       await setupContainer(
@@ -576,6 +629,39 @@ void main() {
       );
     });
 
+    testWidgets('a successful RETRY clears the earlier command error instead '
+        'of rendering both', (tester) async {
+      // CodeRabbit review: `copyWith` keeps `commandError` when the argument is
+      // omitted, so the pre-change re-construction's implicit reset had to be
+      // restored explicitly — otherwise the error card outlives its cause and
+      // sits next to the freshly rendered outcome.
+      await setupContainer(
+        payload: _gapPayload(),
+        applyQueue: [
+          Left(
+            const ProblemError(
+              code: 'ai-import.apply-unknown-continuity-candidate',
+              status: 409,
+            ),
+          ),
+          Right(_outcome()),
+        ],
+      );
+      await pumpPreview(tester);
+
+      await tester.tap(find.byKey(const Key('ai-apply-review-checkbox')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('ai-apply-submit')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('ai-apply-error')), findsOneWidget);
+
+      // Retry: the preview now accepts the request.
+      await tester.tap(find.byKey(const Key('ai-apply-submit')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('ai-apply-error')), findsNothing);
+      expect(find.byKey(const Key('ai-apply-outcome')), findsOneWidget);
+    });
+
     group('goldens: provenance badges + gap picker', () {
       Future<void> pumpGolden(
         WidgetTester tester, {
@@ -595,6 +681,12 @@ void main() {
                 theme: ThemeData.light(),
                 darkTheme: ThemeData.dark(),
                 themeMode: mode,
+                // AGENTS.md §9: goldens use the GERMAN template locale, so the
+                // template copy (not the English fallback) is what the picture
+                // pins.
+                locale: const Locale('de'),
+                localizationsDelegates: AppLocalizations.localizationsDelegates,
+                supportedLocales: AppLocalizations.supportedLocales,
                 home: const AiPreviewScreen(jobId: 'job-1'),
               ),
             ),

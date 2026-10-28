@@ -512,7 +512,7 @@ class _TypedPreviewBodyState extends ConsumerState<_TypedPreviewBody> {
             ? payload.data.scenes.where(_rowIsLow).toList()
             : payload.data.scenes.toList(),
       ),
-      for (final uncertainty in payload.data.uncertainties)
+      for (final (index, uncertainty) in payload.data.uncertainties.indexed)
         // A piece the server dropped is reported here rather than vanishing:
         // the reviewer sees a MISSING entry with its reason slug
         // (`ungrounded_quote` / `unlisted_character`) instead of concluding the
@@ -523,7 +523,7 @@ class _TypedPreviewBodyState extends ConsumerState<_TypedPreviewBody> {
         // Issue #745: a Pass-2 wardrobe gap whose candidates the script actually
         // supports renders as a one-tap picker instead; a gap without candidates
         // keeps this plain notice (never an invented option).
-        _uncertaintyCard(context, uncertainty),
+        _uncertaintyCard(context, index, uncertainty),
     ],
     AiPreviewPayloadOneOf1() => [
       // Pre-merge schedule rows are informative — the merge worker turns
@@ -629,13 +629,20 @@ class _TypedPreviewBodyState extends ConsumerState<_TypedPreviewBody> {
   /// The places where the wire carries a typed reason
   /// (`UnappliedOutfit.reason` on the apply result) are where localized copy is
   /// keyed instead.
-  Widget _uncertaintyCard(BuildContext context, Uncertainty uncertainty) {
+  ///
+  /// The gap is matched by its SOURCE INDEX, not by scene and note text: two
+  /// uncertainties may legitimately repeat a note, and matching by content
+  /// would render the same card — and the same widget key — twice.
+  Widget _uncertaintyCard(
+    BuildContext context,
+    int index,
+    Uncertainty uncertainty,
+  ) {
     final gaps = ref
         .watch(aiApplyControllerProvider(widget.jobId))
         .continuityGaps;
     for (final gap in gaps) {
-      if (gap.sceneIndex == uncertainty.sceneIndex &&
-          gap.note == uncertainty.note) {
+      if (gap.uncertaintyIndex == index) {
         return _ContinuityGapCard(jobId: widget.jobId, gap: gap);
       }
     }

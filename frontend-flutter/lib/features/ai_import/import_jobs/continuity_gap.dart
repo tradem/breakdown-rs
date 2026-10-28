@@ -33,8 +33,6 @@ import 'package:breakdown_api/breakdown_api.dart';
 /// The wire `field` Pass 2 attaches a wardrobe-gap uncertainty to.
 const String continuityGapField = 'outfits';
 
-final RegExp _whitespace = RegExp(r'\s');
-
 /// The preview-wide matching key of a figure: case-folded and
 /// whitespace-collapsed, exactly like the backend's `character_identity`.
 ///
@@ -45,8 +43,7 @@ String characterIdentity(String name) {
   final out = StringBuffer();
   var pendingSpace = false;
   for (final rune in name.runes) {
-    final char = String.fromCharCode(rune);
-    if (_whitespace.hasMatch(char)) {
+    if (_isUnicodeWhitespace(rune)) {
       pendingSpace = out.isNotEmpty;
       continue;
     }
@@ -54,10 +51,31 @@ String characterIdentity(String name) {
       out.write(' ');
       pendingSpace = false;
     }
-    out.write(char.toLowerCase());
+    out.write(String.fromCharCode(rune).toLowerCase());
   }
   return out.toString();
 }
+
+/// The Unicode `White_Space` property — exactly the set Rust's
+/// `char::is_whitespace()` uses, so both sides fold a name onto the SAME
+/// identity key.
+///
+/// Dart's `RegExp(r'\s')` is NOT that set: ECMAScript `\s` counts the BOM
+/// (U+FEFF) as whitespace and misses NEL (U+0085), so a name containing either
+/// would produce a key the server does not derive — and the apply would answer
+/// `409 ai-import.apply-unknown-continuity-candidate` for a correct pick.
+bool _isUnicodeWhitespace(int rune) =>
+    (rune >= 0x09 && rune <= 0x0D) ||
+    rune == 0x20 ||
+    rune == 0x85 ||
+    rune == 0xA0 ||
+    rune == 0x1680 ||
+    (rune >= 0x2000 && rune <= 0x200A) ||
+    rune == 0x2028 ||
+    rune == 0x2029 ||
+    rune == 0x202F ||
+    rune == 0x205F ||
+    rune == 0x3000;
 
 /// The mapping reference of one draft row, mirroring the backend's
 /// `draft_row_ref`: a row the model left without a reference is addressed by
@@ -68,6 +86,7 @@ String draftRowRef(DraftScene scene, int index) =>
 /// One wardrobe gap the reviewer may resolve with a single pick.
 final class ContinuityGap {
   const ContinuityGap({
+    required this.uncertaintyIndex,
     required this.sceneIndex,
     required this.sceneNumber,
     required this.characterIdentity,
@@ -75,6 +94,12 @@ final class ContinuityGap {
     required this.note,
     required this.candidates,
   });
+
+  /// Index of the source uncertainty in the preview's `uncertainties` list —
+  /// the exact position a surface matches this gap back to, so two
+  /// uncertainties that happen to share scene and note text can never render
+  /// two cards for one gap (duplicate widget keys).
+  final int uncertaintyIndex;
 
   /// Index of the gap scene in the preview's `scenes` list — the same index the
   /// gap uncertainty and the apply request's selection carry.
@@ -136,7 +161,7 @@ List<ContinuityGap> continuityGapsOf(ScriptContext context) {
 
   final gaps = <ContinuityGap>[];
   final seen = <String>{};
-  for (final uncertainty in context.uncertainties) {
+  for (final (index, uncertainty) in context.uncertainties.indexed) {
     final candidates = uncertainty.candidates;
     if (uncertainty.field != continuityGapField ||
         uncertainty.kind != UncertaintyKind.droppedRow ||
@@ -162,6 +187,7 @@ List<ContinuityGap> continuityGapsOf(ScriptContext context) {
 
     gaps.add(
       ContinuityGap(
+        uncertaintyIndex: index,
         sceneIndex: sceneIndex,
         sceneNumber: scene.sceneNumber,
         characterIdentity: identity,

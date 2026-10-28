@@ -25,6 +25,8 @@
 # (test/features/ai_import/preview_continuity_test.dart,
 # test/unit/continuity_gap_test.dart, plus the committed goldens).
 
+Feature: Wardrobe-gap resolution and look provenance on the AI-import preview
+
 @pending
 Scenario: A Pass-2 preview shows the look's provenance and resolves a gap in one tap
   Given the app is launched in dev-auth mode
