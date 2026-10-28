@@ -8,6 +8,8 @@ part of 'uncertainty.dart';
 
 class _$Uncertainty extends Uncertainty {
   @override
+  final BuiltList<DraftOutfitCandidate>? candidates;
+  @override
   final String field;
   @override
   final UncertaintyKind? kind;
@@ -22,7 +24,8 @@ class _$Uncertainty extends Uncertainty {
       (UncertaintyBuilder()..update(updates))._build();
 
   _$Uncertainty._(
-      {required this.field,
+      {this.candidates,
+      required this.field,
       this.kind,
       required this.note,
       required this.sceneIndex,
@@ -39,6 +42,7 @@ class _$Uncertainty extends Uncertainty {
   bool operator ==(Object other) {
     if (identical(other, this)) return true;
     return other is Uncertainty &&
+        candidates == other.candidates &&
         field == other.field &&
         kind == other.kind &&
         note == other.note &&
@@ -49,6 +53,7 @@ class _$Uncertainty extends Uncertainty {
   @override
   int get hashCode {
     var _$hash = 0;
+    _$hash = $jc(_$hash, candidates.hashCode);
     _$hash = $jc(_$hash, field.hashCode);
     _$hash = $jc(_$hash, kind.hashCode);
     _$hash = $jc(_$hash, note.hashCode);
@@ -61,6 +66,7 @@ class _$Uncertainty extends Uncertainty {
   @override
   String toString() {
     return (newBuiltValueToStringHelper(r'Uncertainty')
+          ..add('candidates', candidates)
           ..add('field', field)
           ..add('kind', kind)
           ..add('note', note)
@@ -72,6 +78,12 @@ class _$Uncertainty extends Uncertainty {
 
 class UncertaintyBuilder implements Builder<Uncertainty, UncertaintyBuilder> {
   _$Uncertainty? _$v;
+
+  ListBuilder<DraftOutfitCandidate>? _candidates;
+  ListBuilder<DraftOutfitCandidate> get candidates =>
+      _$this._candidates ??= ListBuilder<DraftOutfitCandidate>();
+  set candidates(ListBuilder<DraftOutfitCandidate>? candidates) =>
+      _$this._candidates = candidates;
 
   String? _field;
   String? get field => _$this._field;
@@ -101,6 +113,7 @@ class UncertaintyBuilder implements Builder<Uncertainty, UncertaintyBuilder> {
   UncertaintyBuilder get _$this {
     final $v = _$v;
     if ($v != null) {
+      _candidates = $v.candidates?.toBuilder();
       _field = $v.field;
       _kind = $v.kind;
       _note = $v.note;
@@ -125,17 +138,31 @@ class UncertaintyBuilder implements Builder<Uncertainty, UncertaintyBuilder> {
   Uncertainty build() => _build();
 
   _$Uncertainty _build() {
-    final _$result = _$v ??
-        _$Uncertainty._(
-          field: BuiltValueNullFieldError.checkNotNull(
-              field, r'Uncertainty', 'field'),
-          kind: kind,
-          note: BuiltValueNullFieldError.checkNotNull(
-              note, r'Uncertainty', 'note'),
-          sceneIndex: BuiltValueNullFieldError.checkNotNull(
-              sceneIndex, r'Uncertainty', 'sceneIndex'),
-          suggestedValue: suggestedValue,
-        );
+    _$Uncertainty _$result;
+    try {
+      _$result = _$v ??
+          _$Uncertainty._(
+            candidates: _candidates?.build(),
+            field: BuiltValueNullFieldError.checkNotNull(
+                field, r'Uncertainty', 'field'),
+            kind: kind,
+            note: BuiltValueNullFieldError.checkNotNull(
+                note, r'Uncertainty', 'note'),
+            sceneIndex: BuiltValueNullFieldError.checkNotNull(
+                sceneIndex, r'Uncertainty', 'sceneIndex'),
+            suggestedValue: suggestedValue,
+          );
+    } catch (_) {
+      late String _$failedField;
+      try {
+        _$failedField = 'candidates';
+        _candidates?.build();
+      } catch (e) {
+        throw BuiltValueNestedFieldError(
+            r'Uncertainty', _$failedField, e.toString());
+      }
+      rethrow;
+    }
     replace(_$result);
     return _$result;
   }

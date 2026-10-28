@@ -6,70 +6,88 @@ part of 'draft_outfit_origin.dart';
 // BuiltValueGenerator
 // **************************************************************************
 
-const DraftOutfitOrigin _$explicitQuote =
-    const DraftOutfitOrigin._('explicitQuote');
-const DraftOutfitOrigin _$derived = const DraftOutfitOrigin._('derived');
+class _$DraftOutfitOrigin extends DraftOutfitOrigin {
+  @override
+  final OneOf oneOf;
 
-DraftOutfitOrigin _$valueOf(String name) {
-  switch (name) {
-    case 'explicitQuote':
-      return _$explicitQuote;
-    case 'derived':
-      return _$derived;
-    default:
-      throw ArgumentError(name);
+  factory _$DraftOutfitOrigin(
+          [void Function(DraftOutfitOriginBuilder)? updates]) =>
+      (DraftOutfitOriginBuilder()..update(updates))._build();
+
+  _$DraftOutfitOrigin._({required this.oneOf}) : super._();
+  @override
+  DraftOutfitOrigin rebuild(void Function(DraftOutfitOriginBuilder) updates) =>
+      (toBuilder()..update(updates)).build();
+
+  @override
+  DraftOutfitOriginBuilder toBuilder() =>
+      DraftOutfitOriginBuilder()..replace(this);
+
+  @override
+  bool operator ==(Object other) {
+    if (identical(other, this)) return true;
+    return other is DraftOutfitOrigin && oneOf == other.oneOf;
+  }
+
+  @override
+  int get hashCode {
+    var _$hash = 0;
+    _$hash = $jc(_$hash, oneOf.hashCode);
+    _$hash = $jf(_$hash);
+    return _$hash;
+  }
+
+  @override
+  String toString() {
+    return (newBuiltValueToStringHelper(r'DraftOutfitOrigin')
+          ..add('oneOf', oneOf))
+        .toString();
   }
 }
 
-final BuiltSet<DraftOutfitOrigin> _$values =
-    BuiltSet<DraftOutfitOrigin>(const <DraftOutfitOrigin>[
-  _$explicitQuote,
-  _$derived,
-]);
+class DraftOutfitOriginBuilder
+    implements Builder<DraftOutfitOrigin, DraftOutfitOriginBuilder> {
+  _$DraftOutfitOrigin? _$v;
 
-class _$DraftOutfitOriginMeta {
-  const _$DraftOutfitOriginMeta();
-  DraftOutfitOrigin get explicitQuote => _$explicitQuote;
-  DraftOutfitOrigin get derived => _$derived;
-  DraftOutfitOrigin valueOf(String name) => _$valueOf(name);
-  BuiltSet<DraftOutfitOrigin> get values => _$values;
-}
+  OneOf? _oneOf;
+  OneOf? get oneOf => _$this._oneOf;
+  set oneOf(OneOf? oneOf) => _$this._oneOf = oneOf;
 
-abstract class _$DraftOutfitOriginMixin {
-  // ignore: non_constant_identifier_names
-  _$DraftOutfitOriginMeta get DraftOutfitOrigin =>
-      const _$DraftOutfitOriginMeta();
-}
+  DraftOutfitOriginBuilder() {
+    DraftOutfitOrigin._defaults(this);
+  }
 
-Serializer<DraftOutfitOrigin> _$draftOutfitOriginSerializer =
-    _$DraftOutfitOriginSerializer();
-
-class _$DraftOutfitOriginSerializer
-    implements PrimitiveSerializer<DraftOutfitOrigin> {
-  static const Map<String, Object> _toWire = const <String, Object>{
-    'explicitQuote': 'explicit_quote',
-    'derived': 'derived',
-  };
-  static const Map<Object, String> _fromWire = const <Object, String>{
-    'explicit_quote': 'explicitQuote',
-    'derived': 'derived',
-  };
+  DraftOutfitOriginBuilder get _$this {
+    final $v = _$v;
+    if ($v != null) {
+      _oneOf = $v.oneOf;
+      _$v = null;
+    }
+    return this;
+  }
 
   @override
-  final Iterable<Type> types = const <Type>[DraftOutfitOrigin];
-  @override
-  final String wireName = 'DraftOutfitOrigin';
+  void replace(DraftOutfitOrigin other) {
+    _$v = other as _$DraftOutfitOrigin;
+  }
 
   @override
-  Object serialize(Serializers serializers, DraftOutfitOrigin object,
-          {FullType specifiedType = FullType.unspecified}) =>
-      _toWire[object.name] ?? object.name;
+  void update(void Function(DraftOutfitOriginBuilder)? updates) {
+    if (updates != null) updates(this);
+  }
 
   @override
-  DraftOutfitOrigin deserialize(Serializers serializers, Object serialized,
-          {FullType specifiedType = FullType.unspecified}) =>
-      DraftOutfitOrigin.valueOf(
-          _fromWire[serialized] ?? (serialized is String ? serialized : ''));
+  DraftOutfitOrigin build() => _build();
+
+  _$DraftOutfitOrigin _build() {
+    final _$result = _$v ??
+        _$DraftOutfitOrigin._(
+          oneOf: BuiltValueNullFieldError.checkNotNull(
+              oneOf, r'DraftOutfitOrigin', 'oneOf'),
+        );
+    replace(_$result);
+    return _$result;
+  }
 }
 
 // ignore_for_file: deprecated_member_use_from_same_package,type=lint

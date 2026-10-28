@@ -79,7 +79,12 @@ import 'package:breakdown_api/src/model/document_kind.dart';
 import 'package:breakdown_api/src/model/draft_character.dart';
 import 'package:breakdown_api/src/model/draft_episode.dart';
 import 'package:breakdown_api/src/model/draft_outfit.dart';
+import 'package:breakdown_api/src/model/draft_outfit_candidate.dart';
 import 'package:breakdown_api/src/model/draft_outfit_origin.dart';
+import 'package:breakdown_api/src/model/draft_outfit_origin_one_of.dart';
+import 'package:breakdown_api/src/model/draft_outfit_origin_one_of1.dart';
+import 'package:breakdown_api/src/model/draft_outfit_origin_one_of1_inferred_from_context.dart';
+import 'package:breakdown_api/src/model/draft_outfit_origin_one_of_continued_from_scene.dart';
 import 'package:breakdown_api/src/model/draft_piece.dart';
 import 'package:breakdown_api/src/model/draft_scene.dart';
 import 'package:breakdown_api/src/model/draft_shooting_day.dart';
@@ -114,6 +119,8 @@ import 'package:breakdown_api/src/model/meta_credits_response.dart';
 import 'package:breakdown_api/src/model/meta_versions_response.dart';
 import 'package:breakdown_api/src/model/model_info.dart';
 import 'package:breakdown_api/src/model/model_pricing.dart';
+import 'package:breakdown_api/src/model/outfit_continuity_candidate.dart';
+import 'package:breakdown_api/src/model/outfit_continuity_selection.dart';
 import 'package:breakdown_api/src/model/outfit_decision.dart';
 import 'package:breakdown_api/src/model/outfit_photo_view.dart';
 import 'package:breakdown_api/src/model/outfit_piece_view.dart';
@@ -260,7 +267,12 @@ part 'serializers.g.dart';
   DraftCharacter,
   DraftEpisode,
   DraftOutfit,
+  DraftOutfitCandidate,
   DraftOutfitOrigin,
+  DraftOutfitOriginOneOf,
+  DraftOutfitOriginOneOf1,
+  DraftOutfitOriginOneOf1InferredFromContext,
+  DraftOutfitOriginOneOfContinuedFromScene,
   DraftPiece,
   DraftScene,
   DraftShootingDay,
@@ -296,6 +308,8 @@ part 'serializers.g.dart';
   MetaVersionsResponse,
   ModelInfo,
   ModelPricing,
+  OutfitContinuityCandidate,
+  OutfitContinuitySelection,
   OutfitDecision,
   OutfitPhotoView,
   OutfitPieceView,
@@ -422,6 +436,10 @@ Serializers serializers = (_$serializers.toBuilder()
         () => ListBuilder<OutfitDecision>(),
       )
       ..addBuilderFactory(
+        const FullType(BuiltList, [FullType(OutfitContinuitySelection)]),
+        () => ListBuilder<OutfitContinuitySelection>(),
+      )
+      ..addBuilderFactory(
         const FullType(BuiltList, [FullType(SollIstDiffRow)]),
         () => ListBuilder<SollIstDiffRow>(),
       )
@@ -532,6 +550,10 @@ Serializers serializers = (_$serializers.toBuilder()
       ..addBuilderFactory(
         const FullType(BuiltList, [FullType(ApplyShootingDayRequest)]),
         () => ListBuilder<ApplyShootingDayRequest>(),
+      )
+      ..addBuilderFactory(
+        const FullType(BuiltList, [FullType(DraftOutfitCandidate)]),
+        () => ListBuilder<DraftOutfitCandidate>(),
       )
       ..addBuilderFactory(
         const FullType(BuiltList, [FullType(UncertaintyAcknowledgement)]),

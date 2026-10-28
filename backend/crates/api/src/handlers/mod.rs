@@ -40,10 +40,10 @@ use breakdown_core::ai::{
     AiImportEnqueueResult, AiImportJobId, AiImportPreviewResponse, AiImportQueue,
     AiModelPricingRepository as _, AiPreviewPayload, ApplyGateError, ApplyMapping,
     CostDisplayPreference, CreateAiConfig, DocumentKind, EpisodeGroupPlan, EpisodeTarget,
-    LlmProvider, MergedPreview, ModelInfo, RevokeAiConfig, ScriptContext, ShootingDayPlan,
-    ShootingSchedule, SourceFormat, Telemetry, TelemetryApplyState, Uncertainty,
-    UncertaintyAcknowledgement, UpdateAiConfig, ensure_script_applyable, episode_group_refs,
-    shooting_day_group_refs,
+    LlmProvider, MergedPreview, ModelInfo, OutfitContinuitySelection, RevokeAiConfig,
+    ScriptContext, ShootingDayPlan, ShootingSchedule, SourceFormat, Telemetry, TelemetryApplyState,
+    Uncertainty, UncertaintyAcknowledgement, UpdateAiConfig, ensure_script_applyable,
+    episode_group_refs, shooting_day_group_refs,
 };
 use breakdown_core::audit::{AuditEntry, AuditRepository};
 use breakdown_core::block::commands::{CreateBlock, UpdateBlockTimeSpan};
@@ -6911,6 +6911,16 @@ pub struct ApplyAiImportRequest {
     /// default = empty), so previews stored before this change still apply.
     #[serde(default)]
     pub uncertainty_acknowledgements: Vec<UncertaintyAcknowledgement>,
+    /// Reviewer resolutions of the wardrobe gaps Pass 2 surfaced (OpenSpec
+    /// `ai-import-decision-outfit-continuity`). Each entry names a gap scene, the
+    /// figure, and which of the candidates the preview offered for it to wear.
+    /// The server validates every entry against the preview's own candidate
+    /// list: a stale screen (409 `ai-import.apply-unknown-continuity-candidate`)
+    /// is refused, never silently dropped. Old clients omit the field (serde
+    /// default = empty), so their previews still apply — every gap simply stays
+    /// without an outfit.
+    #[serde(default)]
+    pub continuity_selections: Vec<OutfitContinuitySelection>,
 }
 
 /// One episode group's reviewer decision on the wire (issue #581). `target`
@@ -7292,6 +7302,7 @@ pub async fn apply_ai_import<P: Ports>(
                     episode_groups,
                     shooting_days,
                     acknowledged_uncertainties: request.uncertainty_acknowledgements.clone(),
+                    continuity_selections: request.continuity_selections.clone(),
                     categories,
                     telemetry: Some(telemetry),
                 })

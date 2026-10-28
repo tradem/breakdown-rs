@@ -740,6 +740,7 @@ async fn apply_ai_import_drives_the_script_worker_through_the_ports_seam() {
         user(),
         Path(job_id),
         Json(ApplyAiImportRequest {
+            continuity_selections: Vec::new(),
             episode_id: EpisodeId::new(),
             project_id: None,
             uncertainty_acknowledgements: Vec::new(),
@@ -817,6 +818,7 @@ async fn apply_ai_import_rejects_an_episode_from_another_block() {
         user(),
         Path(job_id),
         Json(ApplyAiImportRequest {
+            continuity_selections: Vec::new(),
             episode_id: EpisodeId::new(),
             project_id: None,
             uncertainty_acknowledgements: Vec::new(),
@@ -871,6 +873,7 @@ async fn apply_ai_import_rejects_accept_as_is_with_a_nonzero_edit_distance() {
         user(),
         Path(job_id),
         Json(ApplyAiImportRequest {
+            continuity_selections: Vec::new(),
             episode_id: EpisodeId::new(),
             project_id: None,
             uncertainty_acknowledgements: Vec::new(),
@@ -2001,6 +2004,7 @@ async fn apply_ai_import_rejects_an_episode_group_the_preview_does_not_carry() {
         user(),
         Path(job_id),
         Json(ApplyAiImportRequest {
+            continuity_selections: Vec::new(),
             episode_id: EpisodeId::new(),
             project_id: None,
             uncertainty_acknowledgements: Vec::new(),
@@ -2072,6 +2076,7 @@ async fn apply_ai_import_prechecks_a_taken_episode_number_with_409() {
         user(),
         Path(job_id),
         Json(ApplyAiImportRequest {
+            continuity_selections: Vec::new(),
             episode_id: EpisodeId::from_uuid(target.id),
             project_id: None,
             uncertainty_acknowledgements: Vec::new(),
@@ -2158,6 +2163,7 @@ async fn apply_ai_import_creates_an_episode_for_a_free_group_number() {
         user(),
         Path(job_id),
         Json(ApplyAiImportRequest {
+            continuity_selections: Vec::new(),
             episode_id: EpisodeId::from_uuid(target.id),
             project_id: None,
             uncertainty_acknowledgements: Vec::new(),
@@ -2201,6 +2207,7 @@ async fn apply_ai_import_rejects_more_episode_groups_than_the_preview_carries() 
         user(),
         Path(job_id),
         Json(ApplyAiImportRequest {
+            continuity_selections: Vec::new(),
             episode_id: EpisodeId::new(),
             project_id: None,
             uncertainty_acknowledgements: Vec::new(),
@@ -2249,6 +2256,7 @@ async fn seed_blocking_uncertainty_job(
                 note: "ambiguous heading".to_owned(),
                 suggested_value: Some("Keller".to_owned()),
                 kind: UncertaintyKind::FieldAmbiguity,
+                candidates: Vec::new(),
             },
             Uncertainty {
                 scene_index: 0,
@@ -2256,6 +2264,7 @@ async fn seed_blocking_uncertainty_job(
                 note: "dropped row".to_owned(),
                 suggested_value: None,
                 kind: UncertaintyKind::DroppedRow,
+                candidates: Vec::new(),
             },
         ],
     };
@@ -2298,6 +2307,7 @@ async fn apply_with_blocking_uncertainty_answers_apply_blocked_with_the_items() 
         user(),
         Path(job_id),
         Json(ApplyAiImportRequest {
+            continuity_selections: Vec::new(),
             episode_id: EpisodeId::new(),
             project_id: None,
             uncertainty_acknowledgements: Vec::new(),
@@ -2344,6 +2354,7 @@ async fn apply_with_acknowledged_uncertainties_reaches_the_worker() {
         user(),
         Path(job_id),
         Json(ApplyAiImportRequest {
+            continuity_selections: Vec::new(),
             episode_id: EpisodeId::new(),
             project_id: None,
             // Acknowledging the single blocker lets the apply through; the
@@ -2385,6 +2396,7 @@ async fn apply_rejects_an_acknowledgement_for_an_uncertainty_the_preview_does_no
         user(),
         Path(job_id),
         Json(ApplyAiImportRequest {
+            continuity_selections: Vec::new(),
             episode_id: EpisodeId::new(),
             project_id: None,
             uncertainty_acknowledgements: vec![UncertaintyAcknowledgement {
@@ -2423,6 +2435,7 @@ async fn apply_rejects_a_duplicate_acknowledgement() {
         user(),
         Path(job_id),
         Json(ApplyAiImportRequest {
+            continuity_selections: Vec::new(),
             episode_id: EpisodeId::new(),
             project_id: None,
             uncertainty_acknowledgements: vec![ack.clone(), ack],

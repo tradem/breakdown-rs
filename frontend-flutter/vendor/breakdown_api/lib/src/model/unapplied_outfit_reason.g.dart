@@ -20,6 +20,8 @@ const UnappliedOutfitReason _$bindingRejected =
     const UnappliedOutfitReason._('bindingRejected');
 const UnappliedOutfitReason _$beatRejected =
     const UnappliedOutfitReason._('beatRejected');
+const UnappliedOutfitReason _$continuityUnresolved =
+    const UnappliedOutfitReason._('continuityUnresolved');
 
 UnappliedOutfitReason _$valueOf(String name) {
   switch (name) {
@@ -37,6 +39,8 @@ UnappliedOutfitReason _$valueOf(String name) {
       return _$bindingRejected;
     case 'beatRejected':
       return _$beatRejected;
+    case 'continuityUnresolved':
+      return _$continuityUnresolved;
     default:
       throw ArgumentError(name);
   }
@@ -51,6 +55,7 @@ final BuiltSet<UnappliedOutfitReason> _$values =
   _$notesRejected,
   _$bindingRejected,
   _$beatRejected,
+  _$continuityUnresolved,
 ]);
 
 class _$UnappliedOutfitReasonMeta {
@@ -62,6 +67,7 @@ class _$UnappliedOutfitReasonMeta {
   UnappliedOutfitReason get notesRejected => _$notesRejected;
   UnappliedOutfitReason get bindingRejected => _$bindingRejected;
   UnappliedOutfitReason get beatRejected => _$beatRejected;
+  UnappliedOutfitReason get continuityUnresolved => _$continuityUnresolved;
   UnappliedOutfitReason valueOf(String name) => _$valueOf(name);
   BuiltSet<UnappliedOutfitReason> get values => _$values;
 }
@@ -85,6 +91,7 @@ class _$UnappliedOutfitReasonSerializer
     'notesRejected': 'notes_rejected',
     'bindingRejected': 'binding_rejected',
     'beatRejected': 'beat_rejected',
+    'continuityUnresolved': 'continuity_unresolved',
   };
   static const Map<Object, String> _fromWire = const <Object, String>{
     'character_not_planned': 'characterNotPlanned',
@@ -94,6 +101,7 @@ class _$UnappliedOutfitReasonSerializer
     'notes_rejected': 'notesRejected',
     'binding_rejected': 'bindingRejected',
     'beat_rejected': 'beatRejected',
+    'continuity_unresolved': 'continuityUnresolved',
   };
 
   @override

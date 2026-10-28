@@ -39,7 +39,6 @@ abstract class DraftOutfit implements Built<DraftOutfit, DraftOutfitBuilder> {
   /// Whether the block named the look explicitly (see [`DraftOutfitOrigin`]).
   @BuiltValueField(wireName: r'origin')
   DraftOutfitOrigin? get origin;
-  // enum originEnum {  explicit_quote,  derived,  };
 
   /// The constituent garments, `0..n`. Empty is a valid answer: the outfit is then applied as a look without pieces.
   @BuiltValueField(wireName: r'pieces')
@@ -161,7 +160,7 @@ class _$DraftOutfitSerializer implements PrimitiveSerializer<DraftOutfit> {
             specifiedType: const FullType.nullable(DraftOutfitOrigin),
           ) as DraftOutfitOrigin?;
           if (valueDes == null) continue;
-          result.origin = valueDes;
+          result.origin.replace(valueDes);
           break;
         case r'pieces':
           final valueDes = serializers.deserialize(

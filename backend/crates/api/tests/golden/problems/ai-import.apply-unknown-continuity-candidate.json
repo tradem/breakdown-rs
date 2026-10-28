@@ -1,0 +1,10 @@
+{
+  "code": "ai-import.apply-unknown-continuity-candidate",
+  "detail": "Ein Kostümvorschlag passt nicht mehr zur Vorschau. Laden Sie die Vorschau neu und übernehmen Sie erneut.",
+  "extensions": {
+    "draft_ref": "scene-1"
+  },
+  "status": 409,
+  "title": "AI import apply selects a continuity candidate the preview does not offer",
+  "type": "https://docs.breakdown.example/problems/ai-import.apply-unknown-continuity-candidate"
+}

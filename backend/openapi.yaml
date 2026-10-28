@@ -645,6 +645,19 @@ components:
       properties:
         accept_as_is:
           type: boolean
+        continuity_selections:
+          description: |-
+            Reviewer resolutions of the wardrobe gaps Pass 2 surfaced (OpenSpec
+            `ai-import-decision-outfit-continuity`). Each entry names a gap scene, the
+            figure, and which of the candidates the preview offered for it to wear.
+            The server validates every entry against the preview's own candidate
+            list: a stale screen (409 `ai-import.apply-unknown-continuity-candidate`)
+            is refused, never silently dropped. Old clients omit the field (serde
+            default = empty), so their previews still apply — every gap simply stays
+            without an outfit.
+          items:
+            $ref: '#/components/schemas/OutfitContinuitySelection'
+          type: array
         edit_distance:
           format: int32
           minimum: 0
@@ -1696,6 +1709,44 @@ components:
       - name
       - source_quote
       type: object
+    DraftOutfitCandidate:
+      description: |-
+        One look the script actually supports for a wardrobe gap (design D4).
+
+        Surfaced on a gap [`Uncertainty`] so the reviewer can pick a candidate — or
+        leave the scene without an outfit. Deliberately limited to what the preview
+        itself can derive: a continuation of the figure's most recent outfit, or a
+        context look naming the scene's own location. Never an invented option.
+      properties:
+        confidence:
+          description: |-
+            Confidence of the underlying decision, `0.0..=1.0`. The pure derivation
+            reports [`super::continuity::CONTINUITY_MIN_CONFIDENCE`] as the floor; the
+            Pass-2 runner stamps the probability the model actually reported.
+          format: float
+          type: number
+        name:
+          description: Display name of the candidate look.
+          type: string
+        origin:
+          $ref: '#/components/schemas/DraftOutfitOrigin'
+          description: Where the candidate comes from (the badge the reviewer sees).
+        source_draft_ref:
+          description: The preview row the candidate was derived from.
+          type: string
+        source_scene_number:
+          description: That row's document scene number, when it carries one.
+          format: int32
+          minimum: 0
+          type:
+          - integer
+          - 'null'
+      required:
+      - origin
+      - name
+      - source_draft_ref
+      - confidence
+      type: object
     DraftOutfitOrigin:
       description: |-
         How a [`DraftOutfit`] came into existence.
@@ -1704,10 +1755,82 @@ components:
         outfit is verified verbatim against the chunk, a derived one is a look the
         model composed from a shorthand the block named. Both are grounded at the
         outfit level; neither carries a per-piece quote.
-      enum:
-      - explicit_quote
-      - derived
-      type: string
+
+        Pass 2 (OpenSpec change `ai-import-decision-outfit-continuity`) adds the two
+        cross-scene origins. The quote deliberately stays on
+        [`DraftOutfit::source_quote`]: a quote-carrying `ExplicitQuote` variant would
+        duplicate it, and a preview stored with the former unit form
+        (`"explicit_quote"`) could never deserialize into a struct variant. The
+        origin classifies WHERE the look came from, the quote carries WHAT it was
+        read out of.
+      oneOf:
+      - description: |-
+          The block names the look (parenthetical, `Kostümbild` note, shorthand
+          such as `OP` or `KHK`) and the outfit quotes that fragment.
+        enum:
+        - explicit_quote
+        type: string
+      - description: |-
+          The model derived the look from the block's prose; the pieces are
+          context-derived.
+        enum:
+        - derived
+        type: string
+      - description: |-
+          Pass 2 Option A: the character keeps wearing the look of an earlier
+          scene. `source_draft_ref` is the preview row the look was read from, so
+          the apply can bind this scene's beat to the SAME `Outfit` aggregate
+          instead of creating a second look (design D3).
+        properties:
+          continued_from_scene:
+            description: |-
+              Pass 2 Option A: the character keeps wearing the look of an earlier
+              scene. `source_draft_ref` is the preview row the look was read from, so
+              the apply can bind this scene's beat to the SAME `Outfit` aggregate
+              instead of creating a second look (design D3).
+            properties:
+              confidence:
+                description: The Decision Model's calibrated probability of the continuation.
+                format: float
+                type: number
+              source_draft_ref:
+                description: '`draft_ref` of the source preview row ([`DraftScene::draft_ref`]).'
+                type: string
+              source_scene_number:
+                description: The source row's document scene number, when it carries one.
+                format: int32
+                minimum: 0
+                type:
+                - integer
+                - 'null'
+            required:
+            - source_draft_ref
+            - confidence
+            type: object
+        required:
+        - continued_from_scene
+        type: object
+      - description: |-
+          Pass 2 Option B: the scene's own context (location, day, mood) implies a
+          different look. The name is derived deterministically from that context —
+          the script states no garment, so the look carries no pieces.
+        properties:
+          inferred_from_context:
+            description: |-
+              Pass 2 Option B: the scene's own context (location, day, mood) implies a
+              different look. The name is derived deterministically from that context —
+              the script states no garment, so the look carries no pieces.
+            properties:
+              confidence:
+                description: The Decision Model's calibrated probability of the inference.
+                format: float
+                type: number
+            required:
+            - confidence
+            type: object
+        required:
+        - inferred_from_context
+        type: object
     DraftPiece:
       description: |-
         One constituent garment of a [`DraftOutfit`].
@@ -2511,6 +2634,34 @@ components:
       - output_nano_per_million
       - pricing_source
       - price_as_of
+      type: object
+    OutfitContinuityCandidate:
+      description: The candidate kinds a gap can offer — at most one of each per gap.
+      enum:
+      - continued
+      - inferred
+      type: string
+    OutfitContinuitySelection:
+      description: |-
+        The reviewer's resolution of ONE wardrobe gap: which of the offered
+        candidates the scene's figure should wear.
+      properties:
+        candidate:
+          $ref: '#/components/schemas/OutfitContinuityCandidate'
+          description: The candidate the reviewer picked.
+        character_identity:
+          description: The figure's preview-wide identity, as the gap reported it.
+          type: string
+        scene_index:
+          description: |-
+            Index of the gap scene in [`ScriptContext::scenes`] — the same index the
+            gap [`Uncertainty`] carries.
+          minimum: 0
+          type: integer
+      required:
+      - scene_index
+      - character_identity
+      - candidate
       type: object
     OutfitDecision:
       description: |-
@@ -4017,9 +4168,20 @@ components:
       - notes_rejected
       - binding_rejected
       - beat_rejected
+      - continuity_unresolved
       type: string
     Uncertainty:
+      description: 'Not `Eq`: a gap''s [`DraftOutfitCandidate`] list carries `f32` confidences.'
       properties:
+        candidates:
+          description: |-
+            Looks the script supports for this gap, in derivation order (OpenSpec
+            change `ai-import-decision-outfit-continuity`, design D4). Empty for
+            every uncertainty that is not a wardrobe gap, and for a gap the script
+            offers no candidate for — an invented option is never presented.
+          items:
+            $ref: '#/components/schemas/DraftOutfitCandidate'
+          type: array
         field:
           type: string
         kind:
@@ -10218,6 +10380,12 @@ x-code-registry:
   status: 409
   title: AI import apply has a shooting-day group without a decision
   type: https://docs.breakdown.example/problems/ai-import.apply-missing-shooting-day-group
+- code: ai-import.apply-unknown-continuity-candidate
+  extensions:
+  - draft_ref
+  status: 409
+  title: AI import apply selects a continuity candidate the preview does not offer
+  type: https://docs.breakdown.example/problems/ai-import.apply-unknown-continuity-candidate
 - code: shooting-day.target-wrapped
   extensions:
   - shooting_day_id

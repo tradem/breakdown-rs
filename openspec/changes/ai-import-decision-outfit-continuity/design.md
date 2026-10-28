@@ -1,5 +1,6 @@
 <!-- SPDX-License-Identifier: AGPL-3.0 -->
 <!-- Copyright (C) 2024-2026 Breakdown RS Contributors -->
+<!-- Co-authored-by: deepseek-v4.1-flash (opencode-go) -->
 <!-- Co-authored-by: gemini-4-argon (google) -->
 
 # Design — AI Import Pass 2: Decision-Model Outfit Continuity & Gap Analysis
@@ -58,3 +59,48 @@ multiple-choice options when the script offers no basis for them:
   `candidates` is empty (`[]`). The reviewer sees a simple gap notification
   that can be acknowledged with one tap (`#663`), leaving the scene without an
   outfit until wardrobe planning assigns one manually.
+
+### D5 — `DraftOutfitOrigin` stays additive instead of carrying the quote
+
+`proposal.md` asked for `ExplicitQuote { source_quote: String }`. Implementing
+it literally would have broken two invariants of this module:
+
+1. **Duplication.** `DraftOutfit.source_quote` already carries the verbatim
+   fragment `verify_draft_outfits` grounds against. A second copy inside the
+   origin could drift from it.
+2. **Wire compatibility.** A preview is an immutable JSON blob that a later
+   binary serves. Stored rows carry `"origin": "explicit_quote"`; serde cannot
+   decode a unit string into a struct variant, so every previously stored
+   preview would fail to load.
+
+Decision: keep `ExplicitQuote` / `Derived` as unit variants and add the two
+Pass-2 variants as the only data-carrying ones. The origin classifies *where* a
+look came from; `source_quote` carries *what* it was read out of. A preview
+stored before the change still loads and keeps reading as `explicit_quote`.
+
+### D6 — Option B derives a label, never garments
+
+A Decision Model emits a probability distribution, not text, and a wardrobe gap
+by definition has no script sentence naming a garment. Option B therefore
+attaches a look whose name is the scene's own location
+(`Kontext-Look (<LOCATION>)`) and whose piece list is **empty**, plus a
+non-blocking uncertainty stating that the look was inferred. Inventing pieces
+would be exactly the fabrication the Pass-1 grounding check exists to prevent,
+and a wrong garment silently enters the fundus while a missing one is a visible
+gap the wardrobe department fills in one edit.
+
+The pass also never lets its own output become evidence: all decisions are
+evaluated against the preview as it was when the pass started, so a continuation
+can never chain out of a look this same run just invented.
+
+### D7 — Reviewer selection rides a request field, not the immutable preview
+
+A gap has no outfit row at all, so "the reviewer picked candidate B" cannot be an
+`outfit_decision` (there is no ordinal to address). It travels as
+`continuity_selections` on the apply request next to `mappings`,
+`episode_groups`, `shooting_days` and `uncertainty_acknowledgements`, and the
+planner validates every entry against the preview's own candidate derivation.
+An entry the preview does not offer is refused with its own registered problem
+code (`409 ai-import.apply-unknown-continuity-candidate`) rather than dropped,
+because silently ignoring a selection would apply the exact opposite of what the
+reviewer decided.

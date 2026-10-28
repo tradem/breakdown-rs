@@ -35,7 +35,7 @@ use breakdown_core::episode::ports::EpisodeCommands;
 use breakdown_core::error::DomainError;
 use breakdown_core::error_registry::{
     AI_IMPORT_APPLY_MISSING_EPISODE_GROUP, AI_IMPORT_APPLY_MISSING_MAPPING,
-    AI_IMPORT_APPLY_MISSING_SHOOTING_DAY_GROUP,
+    AI_IMPORT_APPLY_MISSING_SHOOTING_DAY_GROUP, AI_IMPORT_APPLY_UNKNOWN_CONTINUITY_CANDIDATE,
 };
 use breakdown_core::error_registry::{SCENE_CHARACTER_ALREADY_ASSIGNED, SCENE_VALIDATION};
 use breakdown_core::outfit::commands::{AddPieceToOutfit, CreateOutfit, UpdateOutfitNotes};
@@ -602,6 +602,7 @@ where
                                 ),
                                 suggested_value: Some(rejected.name),
                                 kind: UncertaintyKind::DroppedRow,
+                                candidates: Vec::new(),
                             });
                         }
                         dropped_costumes.push(scene_dropped);
@@ -663,6 +664,26 @@ where
             progress.record_episode(chunk.episode.as_ref());
             super::workers::publish_progress(&*self.queue, job.id, worker_id, &progress).await?;
         }
+        // Pass 2 (OpenSpec `ai-import-decision-outfit-continuity`): after EVERY
+        // chunk is extracted and merged, a cross-scene scan asks the Decision
+        // Model what each undressed figure most probably wears. Best-effort by
+        // contract — a provider failure logs and ends the pass, and the preview
+        // is stored either way (the extraction is already paid for). It runs
+        // BEFORE the storing announcement so the progress stage never claims
+        // "storing" while a paid request is still outstanding.
+        let continuity = match self.decision.as_ref() {
+            Some(decision) => {
+                super::outfit_continuity::run_outfit_continuity_pass(
+                    decision,
+                    &mut context,
+                    &mut total_usage,
+                    || super::heartbeat::claim_lost(heartbeat.as_ref()),
+                )
+                .await
+            }
+            None => super::outfit_continuity::ContinuityPassReport::default(),
+        };
+
         // Storing boundary (issue #664): the last visibility gap is the
         // preview upload, not a silent stall at "extracting".
         progress.stage = AiImportStage::StoringPreview;
@@ -688,6 +709,19 @@ where
                 chunks = chunk_count,
                 "ai-extraction: meta-summary guard rewrote {} scene summaries to null (issue #668)",
                 meta_rewrites
+            );
+        }
+        // Pass-2 telemetry: the counters a prompt/model regression would move.
+        if continuity.gaps > 0 {
+            tracing::info!(
+                job_id = %job.id.as_uuid(),
+                gaps = continuity.gaps,
+                continued = continuity.continued,
+                inferred = continuity.inferred,
+                reported = continuity.gaps_reported,
+                undecided = continuity.undecided,
+                unresolved = continuity.unresolved(),
+                "ai-extraction: outfit-continuity pass finished"
             );
         }
         let handle = self.previews.put(job.id, payload).await?;
@@ -1404,6 +1438,11 @@ pub struct ApplyScriptRequest<'a> {
     /// ids; the write side never reads that projection. An empty list is
     /// legitimate: every piece is then created uncategorized.
     pub categories: Vec<CategoryVocabularyEntry>,
+    /// Per-gap continuity resolutions (OpenSpec
+    /// `ai-import-decision-outfit-continuity`). Each entry names a gap scene and
+    /// the candidate the reviewer picked; the planner validates every one
+    /// against the preview's own candidate list.
+    pub continuity_selections: Vec<breakdown_core::ai::OutfitContinuitySelection>,
     pub telemetry: Option<Telemetry>,
 }
 
@@ -1443,6 +1482,38 @@ where
     Q: AiImportQueue + 'static,
     SR: SeasonRepository + 'static,
 {
+    /// Resolve the `Outfit` a continued look references (design D3).
+    ///
+    /// The SOURCE row's `outfit` mapping row is the durable record of the aggregate
+    /// that row created; a continuation creates none. A missing row (the reviewer
+    /// rejected the source outfit) and a row that never reached its create (the
+    /// apply crashed earlier, or the source row was dropped from the plan) both mean
+    /// there is no look to reference — reported as
+    /// [`UnappliedOutfitReason::ContinuityUnresolved`], never fabricated.
+    async fn resolve_continued_outfit(
+        &self,
+        preview_id: AiImportJobId,
+        continuation: &breakdown_core::ai::ContinuationPlan,
+    ) -> Result<Option<Uuid>, DomainError> {
+        let ordinal = ordinal_of(continuation.source_outfit_ordinal)?;
+        let stored = self
+            .mappings
+            .find(
+                // ast-grep-ignore: cqrs-boundary
+                preview_id,
+                &continuation.source_draft_ref,
+                mapping_kind::OUTFIT,
+                ordinal,
+            )
+            .await?;
+        match stored {
+            Some(mapping) if mapping.aggregate_version >= OUTFIT_CREATED => {
+                Ok(Some(mapping.aggregate_id))
+            }
+            _ => Ok(None),
+        }
+    }
+
     pub async fn apply_script(
         &self,
         request: ApplyScriptRequest<'_>,
@@ -1460,6 +1531,7 @@ where
             shooting_days,
             acknowledged_uncertainties,
             categories,
+            continuity_selections,
             telemetry,
         } = request;
         // The planner is the single source of what an apply dispatches; the
@@ -1488,6 +1560,7 @@ where
                 // edge and carried in the request (CQRS boundary: the planner
                 // never reads that projection).
                 categories: &categories,
+                continuity_selections: &continuity_selections,
             },
         )
         .map_err(|error| match error {
@@ -1502,6 +1575,13 @@ where
             ApplyGateError::MissingShootingDayGroup(day_ref) => DomainError::Conflict {
                 code: &AI_IMPORT_APPLY_MISSING_SHOOTING_DAY_GROUP,
                 reason: format!("no shooting day group {day_ref} in the preview"),
+            },
+            // OpenSpec `ai-import-decision-outfit-continuity`: a continuity
+            // selection the immutable preview does not derive is the reviewer's
+            // screen being stale, not a domain refusal.
+            ApplyGateError::UnknownContinuityCandidate(draft_ref) => DomainError::Conflict {
+                code: &AI_IMPORT_APPLY_UNKNOWN_CONTINUITY_CANDIDATE,
+                reason: format!("draft row {draft_ref} has no such continuity candidate"),
             },
             other => DomainError::conflict(other.to_string()),
         })?;
@@ -1531,6 +1611,15 @@ where
         // (issue #706). Same rationale as `resolved_episodes`: one day per
         // group, created on first sight, reused by every later row.
         let mut resolved_days: HashMap<String, AppliedDay> = HashMap::new();
+        // Preview-wide per-figure beat cursor (OpenSpec
+        // `ai-import-decision-outfit-continuity`, design D3). The beat mapping
+        // row is keyed PER FIGURE, but one figure can wear a look in several
+        // scenes — exactly what a Pass-2 continuation produces. A row-local
+        // ordinal would make the second scene's beat collide with the first
+        // row's mapping row and silently never be added, so the ordinal is the
+        // figure's position across the WHOLE plan. For a figure named by one row
+        // this is the row-local 0..n-1 it has always been.
+        let mut beat_cursor: HashMap<String, usize> = HashMap::new();
         // Monotonic fallback planned-order counter for the scene-shoot links
         // (issue #706): script extraction carries no per-day order, so rows
         // apply in plan order. Every PLANNED row consumes one increment on
@@ -1614,17 +1703,38 @@ where
             // stay only-moves-forward, so no row can exceed the stream and
             // the max is exact at every quiet point.
             let lanes = scene_beat_lanes(row);
+            // This row's base ordinal per figure, from the preview-wide cursor.
+            let beat_bases: HashMap<String, usize> = lanes
+                .iter()
+                .map(|lane| {
+                    (
+                        lane.character.identity.clone(),
+                        beat_cursor
+                            .get(&lane.character.identity)
+                            .copied()
+                            .unwrap_or(0),
+                    )
+                })
+                .collect();
             let mut scene_version = scene.version;
             for lane in &lanes {
                 let lane_ref = character_mapping_ref(&lane.character.identity);
                 for slot in &lane.beats {
+                    let ordinal = ordinal_of(
+                        beat_bases
+                            .get(&lane.character.identity)
+                            .copied()
+                            .unwrap_or(0)
+                            + slot.per_figure_order,
+                    )?;
                     let stored = self
                         .mappings
                         .find(
+                            // ast-grep-ignore: cqrs-boundary
                             preview_id,
                             &lane_ref,
                             mapping_kind::SCENE_OUTFIT_BEAT,
-                            ordinal_of(slot.per_figure_order)?, // ast-grep-ignore: cqrs-boundary
+                            ordinal,
                         )
                         .await?;
                     if let Some(stored) = stored {
@@ -1688,6 +1798,70 @@ where
                 };
                 for slot in &lane.beats {
                     let outfit = slot.outfit;
+                    // Continuation (OpenSpec `ai-import-decision-outfit-continuity`,
+                    // design D3): a continued look creates NOTHING. The source
+                    // scene already owns the `Outfit`; this row contributes only
+                    // the beat, so the reference is by identity and no second
+                    // aggregate (nor a duplicate piece set) can appear.
+                    if let Some(continuation) = outfit.continuation.as_ref() {
+                        let resolved = self
+                            .resolve_continued_outfit(preview_id, continuation)
+                            .await?;
+                        let Some(outfit_id) = resolved else {
+                            tracing::warn!(
+                                draft_ref = %row.draft_ref,
+                                outfit_ordinal = outfit.ordinal,
+                                source_draft_ref = %continuation.source_draft_ref,
+                                "AI apply could not resolve the source outfit of a continuation"
+                            );
+                            result.unapplied_outfits.push(unapplied(
+                                row,
+                                outfit,
+                                UnappliedOutfitReason::ContinuityUnresolved,
+                                Some(format!(
+                                    "source outfit of row {} was not created by this apply",
+                                    continuation.source_draft_ref
+                                )),
+                            ));
+                            continue;
+                        };
+                        match self
+                            .apply_outfit_beat(BeatDispatch {
+                                actor: actor.clone(),
+                                preview_id,
+                                project_id,
+                                scene_id: scene.aggregate_id,
+                                character_id,
+                                outfit,
+                                per_figure_order: beat_bases
+                                    .get(&lane.character.identity)
+                                    .copied()
+                                    .unwrap_or(0)
+                                    + slot.per_figure_order,
+                                outfit_id,
+                                scene_version: &mut scene_version,
+                            })
+                            .await?
+                        {
+                            BeatAttempt::Appended => result.created_outfit_beats += 1,
+                            BeatAttempt::Settled => {}
+                            BeatAttempt::Refused(error) => {
+                                tracing::warn!(
+                                    draft_ref = %row.draft_ref,
+                                    outfit_ordinal = outfit.ordinal,
+                                    error = %error,
+                                    "AI apply could not add one continued outfit beat"
+                                );
+                                result.unapplied_outfits.push(unapplied(
+                                    row,
+                                    outfit,
+                                    UnappliedOutfitReason::BeatRejected,
+                                    Some(error.to_string()),
+                                ));
+                            }
+                        }
+                        continue;
+                    }
                     // Step 1 — the outfit's constituent pieces in the season
                     // fundus. They must exist before the outfit can reference
                     // them, so a refused piece stops the look here.
@@ -1770,7 +1944,11 @@ where
                             scene_id: scene.aggregate_id,
                             character_id,
                             outfit,
-                            per_figure_order: slot.per_figure_order,
+                            per_figure_order: beat_bases
+                                .get(&lane.character.identity)
+                                .copied()
+                                .unwrap_or(0)
+                                + slot.per_figure_order,
                             outfit_id: applied.outfit_id,
                             scene_version: &mut scene_version,
                         })
@@ -1794,6 +1972,16 @@ where
                         }
                     }
                 }
+            }
+
+            // Advance the preview-wide beat cursor past this row's beats — on
+            // the PLAN, not on success: a retry recomputes the same ordinals, so
+            // a refused beat keeps its address instead of taking the next row's.
+            for lane in &lanes {
+                let cursor = beat_cursor
+                    .entry(lane.character.identity.clone())
+                    .or_insert(0);
+                *cursor += lane.beats.len();
             }
 
             // ── Shooting-day assignment (issue #706) ──

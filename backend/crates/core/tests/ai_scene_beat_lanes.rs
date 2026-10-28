@@ -47,6 +47,7 @@ fn character(ordinal: usize, name: &str, identity: &str) -> CharacterApplyPlan {
 
 fn costume(ordinal: usize, identity: &str, description: &str) -> OutfitApplyPlan {
     OutfitApplyPlan {
+        continuation: None,
         ordinal,
         character_identity: identity.to_owned(),
         character_name: identity.to_owned(),

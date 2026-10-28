@@ -100,6 +100,7 @@ fn planner_uses_update_for_a_previously_mapped_row() {
         None,
         AiImportJobId(Uuid::now_v7()),
         &ReviewerDecisions {
+            continuity_selections: &[],
             episode_groups: &[],
             shooting_days: &[],
             acknowledged_uncertainties: &[],
@@ -122,6 +123,7 @@ fn open_uncertainties_and_unmatched_rows_block_apply() {
             note: "illegible".into(),
             suggested_value: Some("Kitchen".into()),
             kind: UncertaintyKind::FieldAmbiguity,
+            candidates: Vec::new(),
         }],
         ..Default::default()
     };
@@ -162,6 +164,7 @@ fn open_uncertainties_and_unmatched_rows_block_apply() {
             None,
             AiImportJobId(Uuid::now_v7()),
             &ReviewerDecisions {
+                continuity_selections: &[],
                 episode_groups: &[],
                 shooting_days: &[],
                 acknowledged_uncertainties: &[],
@@ -184,6 +187,7 @@ fn plan_of(preview: &ScriptContext, decisions: &[ApplyMapping]) -> ScriptApplyPl
         None,
         AiImportJobId(Uuid::now_v7()),
         &ReviewerDecisions {
+            continuity_selections: &[],
             episode_groups: &[],
             shooting_days: &[],
             acknowledged_uncertainties: &[],
@@ -318,6 +322,7 @@ fn planner_plans_a_costume_bound_to_the_figure_of_the_same_row() {
     assert_eq!(
         plan.scenes[0].outfits,
         vec![OutfitApplyPlan {
+            continuation: None,
             ordinal: 0,
             character_identity: "ben".into(),
             character_name: "BEN".into(),
@@ -464,6 +469,7 @@ fn planner_folds_umlauts_when_matching_a_category_hint() {
         None,
         AiImportJobId(Uuid::now_v7()),
         &ReviewerDecisions {
+            continuity_selections: &[],
             episode_groups: &[],
             shooting_days: &[],
             acknowledged_uncertainties: &[],
@@ -512,6 +518,7 @@ fn planner_resolves_a_category_hint_case_insensitively() {
         None,
         AiImportJobId(Uuid::now_v7()),
         &ReviewerDecisions {
+            continuity_selections: &[],
             episode_groups: &[],
             shooting_days: &[],
             acknowledged_uncertainties: &[],
@@ -557,6 +564,7 @@ fn planner_leaves_an_unknown_category_hint_uncategorized() {
         None,
         AiImportJobId(Uuid::now_v7()),
         &ReviewerDecisions {
+            continuity_selections: &[],
             episode_groups: &[],
             shooting_days: &[],
             acknowledged_uncertainties: &[],
@@ -953,6 +961,7 @@ fn an_acknowledged_blocking_uncertainty_resolves_the_gate() {
                 note: "illegible".into(),
                 suggested_value: None,
                 kind: UncertaintyKind::FieldAmbiguity,
+                candidates: Vec::new(),
             },
             Uncertainty {
                 scene_index: 2,
@@ -960,6 +969,7 @@ fn an_acknowledged_blocking_uncertainty_resolves_the_gate() {
                 note: "two readings".into(),
                 suggested_value: None,
                 kind: UncertaintyKind::FieldAmbiguity,
+                candidates: Vec::new(),
             },
         ],
         ..Default::default()
@@ -1024,6 +1034,7 @@ fn only_a_field_ambiguity_blocks_the_apply() {
             note: "ungrounded quote".into(),
             suggested_value: None,
             kind: UncertaintyKind::DroppedRow,
+            candidates: Vec::new(),
         }],
         ..Default::default()
     };
@@ -1036,6 +1047,7 @@ fn only_a_field_ambiguity_blocks_the_apply() {
         note: "illegible".into(),
         suggested_value: None,
         kind: UncertaintyKind::FieldAmbiguity,
+        candidates: Vec::new(),
     });
     assert!(matches!(
         ensure_script_applyable(&blocking, &[]),
@@ -1932,6 +1944,7 @@ fn plan_resolves_a_create_group_to_a_new_episode() {
         None,
         AiImportJobId(Uuid::now_v7()),
         &ReviewerDecisions {
+            continuity_selections: &[],
             episode_groups: &[EpisodeGroupPlan {
                 episode_ref: "ep:3".into(),
                 target: EpisodeTarget::Create {
@@ -1966,6 +1979,7 @@ fn plan_resolves_an_existing_group_target() {
         None,
         AiImportJobId(Uuid::now_v7()),
         &ReviewerDecisions {
+            continuity_selections: &[],
             episode_groups: &[EpisodeGroupPlan {
                 episode_ref: "ep:3".into(),
                 target: EpisodeTarget::Existing {
@@ -1995,6 +2009,7 @@ fn plan_defaults_rows_without_episode_metadata_to_the_picked_episode() {
         None,
         AiImportJobId(Uuid::now_v7()),
         &ReviewerDecisions {
+            continuity_selections: &[],
             episode_groups: &[],
             shooting_days: &[],
             acknowledged_uncertainties: &[],
@@ -2021,6 +2036,7 @@ fn plan_ignores_groups_for_ungroupable_episode_metadata() {
         None,
         AiImportJobId(Uuid::now_v7()),
         &ReviewerDecisions {
+            continuity_selections: &[],
             episode_groups: &[],
             shooting_days: &[],
             acknowledged_uncertainties: &[],
@@ -2047,6 +2063,7 @@ fn plan_rejects_a_group_the_request_forgot() {
         None,
         AiImportJobId(Uuid::now_v7()),
         &ReviewerDecisions {
+            continuity_selections: &[],
             episode_groups: &[],
             shooting_days: &[],
             acknowledged_uncertainties: &[],
@@ -2751,6 +2768,7 @@ fn plan_carries_the_accepted_day_group() {
         None,
         AiImportJobId(Uuid::now_v7()),
         &ReviewerDecisions {
+            continuity_selections: &[],
             episode_groups: &[],
             shooting_days: &[accept_day("day:1")],
             acknowledged_uncertainties: &[],
@@ -2782,6 +2800,7 @@ fn plan_leaves_a_rejected_day_group_unscheduled() {
         None,
         AiImportJobId(Uuid::now_v7()),
         &ReviewerDecisions {
+            continuity_selections: &[],
             episode_groups: &[],
             shooting_days: &[ShootingDayPlan {
                 day_ref: "day:1".into(),
@@ -2809,6 +2828,7 @@ fn plan_rejects_a_day_group_the_request_forgot() {
         None,
         AiImportJobId(Uuid::now_v7()),
         &ReviewerDecisions {
+            continuity_selections: &[],
             episode_groups: &[],
             shooting_days: &[],
             acknowledged_uncertainties: &[],
@@ -2832,6 +2852,7 @@ fn plan_defaults_rows_without_day_metadata_to_unscheduled() {
         None,
         AiImportJobId(Uuid::now_v7()),
         &ReviewerDecisions {
+            continuity_selections: &[],
             episode_groups: &[],
             shooting_days: &[],
             acknowledged_uncertainties: &[],
@@ -3091,4 +3112,332 @@ fn merge_ignores_scenes_with_unknown_episode_for_episode_rows() {
     let merged =
         merge_schedule_to_scenes(&schedule, &[episode_scene(EpisodeId::new(), 1)], &episodes);
     assert_eq!(merged.unmatched_schedule_rows.len(), 1);
+}
+
+// ── Pass 2: outfit continuity planning
+// (OpenSpec `ai-import-decision-outfit-continuity`, design D3/D4) ──
+
+fn continuity_scene(draft_ref: &str, characters: &[&str], outfits: Vec<DraftOutfit>) -> DraftScene {
+    DraftScene {
+        draft_ref: draft_ref.to_owned(),
+        scene_number: Some(draft_ref.len() as u32),
+        location: Some(format!("ORT-{draft_ref}")),
+        summary: Some(format!("action of {draft_ref}")),
+        characters: characters
+            .iter()
+            .map(|name| DraftCharacter::from(*name))
+            .collect(),
+        outfits,
+        ..Default::default()
+    }
+}
+
+fn continued_outfit(character: &str, source_ref: &str) -> DraftOutfit {
+    DraftOutfit {
+        character_name: character.to_owned(),
+        name: "Zivil-Look".to_owned(),
+        notes: None,
+        source_quote: String::new(),
+        origin: DraftOutfitOrigin::ContinuedFromScene {
+            source_draft_ref: source_ref.to_owned(),
+            source_scene_number: Some(1),
+            confidence: 0.9,
+        },
+        pieces: Vec::new(),
+    }
+}
+
+fn explicit_outfit(character: &str, name: &str) -> DraftOutfit {
+    DraftOutfit {
+        character_name: character.to_owned(),
+        name: name.to_owned(),
+        notes: None,
+        source_quote: format!("{character} in {name}"),
+        origin: DraftOutfitOrigin::ExplicitQuote,
+        pieces: vec![DraftPiece {
+            name: "Hemd".to_owned(),
+            category_hint: None,
+            description: None,
+        }],
+    }
+}
+
+fn plan_continuity(
+    preview: &ScriptContext,
+    selections: &[OutfitContinuitySelection],
+) -> Result<ScriptApplyPlan, ApplyGateError> {
+    let mappings: Vec<ApplyMapping> = preview
+        .scenes
+        .iter()
+        .enumerate()
+        .map(|(index, scene)| ApplyMapping {
+            draft_ref: draft_row_ref(scene, index),
+            decision: ApplyMappingDecision::Create,
+            outfit_decisions: Vec::new(),
+        })
+        .collect();
+    plan_scene_apply(
+        preview,
+        &mappings,
+        EpisodeId::new(),
+        None,
+        AiImportJobId(Uuid::now_v7()),
+        &ReviewerDecisions {
+            continuity_selections: selections,
+            episode_groups: &[],
+            shooting_days: &[],
+            acknowledged_uncertainties: &[],
+            categories: &[],
+        },
+    )
+}
+
+#[test]
+fn a_continued_outfit_plans_the_beat_without_creating_a_look() {
+    let preview = ScriptContext {
+        title: None,
+        scenes: vec![
+            continuity_scene(
+                "source",
+                &["BEN"],
+                vec![explicit_outfit("BEN", "Zivil-Look")],
+            ),
+            continuity_scene("target", &["BEN"], vec![continued_outfit("BEN", "source")]),
+        ],
+        uncertainties: Vec::new(),
+    };
+    let plan = plan_continuity(&preview, &[]).expect("plan");
+    let continuation = plan.scenes[1].outfits[0]
+        .continuation
+        .as_ref()
+        .expect("continuation planned");
+    assert_eq!(continuation.source_draft_ref, "source");
+    assert_eq!(continuation.source_outfit_ordinal, 0);
+    assert_eq!(continuation.character_identity, "ben");
+    assert!(
+        plan.scenes[1].outfits[0].pieces.is_empty(),
+        "a continued look owns no garments"
+    );
+    // The source row keeps its own create.
+    assert!(plan.scenes[0].outfits[0].continuation.is_none());
+    assert_eq!(plan.scenes[0].outfits[0].pieces.len(), 1);
+}
+
+#[test]
+fn a_continuation_chain_resolves_to_the_row_that_creates_the_look() {
+    // scene 3 continues scene 2, which continues scene 1: only scene 1 creates.
+    let preview = ScriptContext {
+        title: None,
+        scenes: vec![
+            continuity_scene("s1", &["BEN"], vec![explicit_outfit("BEN", "Zivil-Look")]),
+            continuity_scene("s2", &["BEN"], vec![continued_outfit("BEN", "s1")]),
+            continuity_scene("s3", &["BEN"], vec![continued_outfit("BEN", "s2")]),
+        ],
+        uncertainties: Vec::new(),
+    };
+    let plan = plan_continuity(&preview, &[]).expect("plan");
+    let continuation = plan.scenes[2].outfits[0]
+        .continuation
+        .as_ref()
+        .expect("continuation planned");
+    assert_eq!(continuation.source_draft_ref, "s1");
+}
+
+#[test]
+fn a_continuation_without_a_source_outfit_is_reported() {
+    let preview = ScriptContext {
+        title: None,
+        scenes: vec![
+            continuity_scene("source", &["BEN"], Vec::new()),
+            continuity_scene("target", &["BEN"], vec![continued_outfit("BEN", "source")]),
+        ],
+        uncertainties: Vec::new(),
+    };
+    let plan = plan_continuity(&preview, &[]).expect("plan");
+    assert!(plan.scenes[1].outfits.is_empty());
+    assert_eq!(
+        plan.unapplied_outfits[0].reason,
+        UnappliedOutfitReason::ContinuityUnresolved
+    );
+}
+
+#[test]
+fn a_continued_selection_plans_the_source_look() {
+    let preview = ScriptContext {
+        title: None,
+        scenes: vec![
+            continuity_scene(
+                "source",
+                &["BEN"],
+                vec![explicit_outfit("BEN", "Zivil-Look")],
+            ),
+            continuity_scene("target", &["BEN"], Vec::new()),
+        ],
+        uncertainties: Vec::new(),
+    };
+    let selections = [OutfitContinuitySelection {
+        scene_index: 1,
+        character_identity: "ben".to_owned(),
+        candidate: OutfitContinuityCandidate::Continued,
+    }];
+    let plan = plan_continuity(&preview, &selections).expect("plan");
+    let outfit = &plan.scenes[1].outfits[0];
+    assert_eq!(outfit.name, "Zivil-Look");
+    assert_eq!(outfit.ordinal, 0, "a gap row has no extracted outfits");
+    assert_eq!(
+        outfit
+            .continuation
+            .as_ref()
+            .map(|plan| plan.source_draft_ref.as_str()),
+        Some("source")
+    );
+    assert!(outfit.pieces.is_empty());
+}
+
+#[test]
+fn an_inferred_selection_plans_a_context_look_with_no_pieces() {
+    let preview = ScriptContext {
+        title: None,
+        scenes: vec![continuity_scene("target", &["BEN"], Vec::new())],
+        uncertainties: Vec::new(),
+    };
+    // An inferred candidate is only offered when the context moved away from a
+    // prior appearance, so the preview needs one.
+    let mut preview = preview;
+    let mut source = continuity_scene(
+        "source",
+        &["BEN"],
+        vec![explicit_outfit("BEN", "Zivil-Look")],
+    );
+    source.location = Some("WOHNUNG".to_owned());
+    preview.scenes.insert(0, source);
+    let selections = [OutfitContinuitySelection {
+        scene_index: 1,
+        character_identity: "ben".to_owned(),
+        candidate: OutfitContinuityCandidate::Inferred,
+    }];
+    let plan = plan_continuity(&preview, &selections).expect("plan");
+    let outfit = &plan.scenes[1].outfits[0];
+    assert!(outfit.name.starts_with("Kontext-Look"));
+    assert!(outfit.continuation.is_none(), "an inferred look is created");
+    assert!(outfit.pieces.is_empty(), "the script named no garment");
+}
+
+#[test]
+fn an_unoffered_selection_refuses_the_plan() {
+    let preview = ScriptContext {
+        title: None,
+        scenes: vec![continuity_scene("target", &["BEN"], Vec::new())],
+        uncertainties: Vec::new(),
+    };
+    let selections = [OutfitContinuitySelection {
+        scene_index: 0,
+        character_identity: "ben".to_owned(),
+        candidate: OutfitContinuityCandidate::Continued,
+    }];
+    let error = plan_continuity(&preview, &selections).expect_err("no prior outfit, no candidate");
+    assert!(matches!(
+        error,
+        ApplyGateError::UnknownContinuityCandidate(_)
+    ));
+}
+
+#[test]
+fn two_selections_for_one_gap_refuse_the_plan() {
+    let preview = ScriptContext {
+        title: None,
+        scenes: vec![
+            continuity_scene(
+                "source",
+                &["BEN"],
+                vec![explicit_outfit("BEN", "Zivil-Look")],
+            ),
+            continuity_scene("target", &["BEN"], Vec::new()),
+        ],
+        uncertainties: Vec::new(),
+    };
+    let selections = [
+        OutfitContinuitySelection {
+            scene_index: 1,
+            character_identity: "ben".to_owned(),
+            candidate: OutfitContinuityCandidate::Continued,
+        },
+        OutfitContinuitySelection {
+            scene_index: 1,
+            character_identity: "ben".to_owned(),
+            candidate: OutfitContinuityCandidate::Inferred,
+        },
+    ];
+    let error = plan_continuity(&preview, &selections).expect_err("duplicate selection");
+    assert!(matches!(
+        error,
+        ApplyGateError::UnknownContinuityCandidate(_)
+    ));
+}
+
+#[test]
+fn a_gap_without_a_selection_plans_no_outfit() {
+    let preview = ScriptContext {
+        title: None,
+        scenes: vec![
+            continuity_scene(
+                "source",
+                &["BEN"],
+                vec![explicit_outfit("BEN", "Zivil-Look")],
+            ),
+            continuity_scene("target", &["BEN"], Vec::new()),
+        ],
+        uncertainties: Vec::new(),
+    };
+    let plan = plan_continuity(&preview, &[]).expect("plan");
+    assert!(plan.scenes[1].outfits.is_empty(), "no invented look");
+    assert!(plan.unapplied_outfits.is_empty(), "nothing failed either");
+}
+
+#[test]
+fn an_old_preview_keeps_its_unit_origin_and_a_new_one_round_trips() {
+    // OpenSpec `ai-import-decision-outfit-continuity`: the origin gained two
+    // data-carrying variants, so a preview stored with the former unit form must
+    // keep loading (`explicit_quote` / `derived`) while a Pass-2 row round-trips.
+    let old = r#"{"character_name":"BEN","name":"Zivil-Look","source_quote":"in Zivil","origin":"derived"}"#;
+    let parsed: DraftOutfit = serde_json::from_str(old).expect("old row parses");
+    assert_eq!(parsed.origin, DraftOutfitOrigin::Derived);
+
+    let continued = DraftOutfit {
+        character_name: "BEN".to_owned(),
+        name: "Zivil-Look".to_owned(),
+        notes: None,
+        source_quote: String::new(),
+        origin: DraftOutfitOrigin::ContinuedFromScene {
+            source_draft_ref: "row-4".to_owned(),
+            source_scene_number: Some(4),
+            confidence: 0.82,
+        },
+        pieces: Vec::new(),
+    };
+    let json = serde_json::to_string(&continued).expect("serializes");
+    let round_trip: DraftOutfit = serde_json::from_str(&json).expect("round-trips");
+    assert_eq!(round_trip, continued);
+    assert!(round_trip.origin.is_continuation());
+    assert_eq!(
+        round_trip.origin.continuation_source(),
+        Some(("row-4", Some(4)))
+    );
+    assert_eq!(round_trip.origin.as_str(), "continued_from_scene");
+}
+
+#[test]
+fn an_uncertainty_without_candidates_keeps_the_wire_shape() {
+    // Additive by contract: the candidates field is skipped when empty, so a
+    // client (and a stored preview) sees exactly the pre-change shape.
+    let uncertainty = Uncertainty {
+        scene_index: 1,
+        field: "location".to_owned(),
+        note: "unclear".to_owned(),
+        suggested_value: None,
+        kind: UncertaintyKind::FieldAmbiguity,
+        candidates: Vec::new(),
+    };
+    let json = serde_json::to_string(&uncertainty).expect("serializes");
+    assert!(!json.contains("candidates"), "{json}");
 }

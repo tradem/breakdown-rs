@@ -39,7 +39,7 @@ pub const PROBLEM_DOCS_BASE: &str = "https://docs.breakdown.example";
 /// Kept in sync with the `problem_codes!` invocation below by a compile-time
 /// assertion — adding or removing a code without deliberately updating this
 /// count fails the build (issue #232).
-const PROBLEM_CODE_COUNT: usize = 107;
+const PROBLEM_CODE_COUNT: usize = 108;
 
 /// One registered problem code (ADR-031 D2/D4).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1108,6 +1108,19 @@ problem_codes! {
         status: 409,
         title: "AI import apply has a shooting-day group without a decision",
         extensions: &["day_ref"],
+    },
+
+    /// 409 — the apply request selected a wardrobe-gap candidate the preview
+    /// does not offer (client bug; OpenSpec
+    /// `ai-import-decision-outfit-continuity`). Same class as
+    /// `ai-import.apply-missing-mapping`: a stored preview is immutable, so a
+    /// selection the preview does not derive means the screen is stale. The S1
+    /// `draft_ref` extension names the offending row.
+    AI_IMPORT_APPLY_UNKNOWN_CONTINUITY_CANDIDATE {
+        code: "ai-import.apply-unknown-continuity-candidate",
+        status: 409,
+        title: "AI import apply selects a continuity candidate the preview does not offer",
+        extensions: &["draft_ref"],
     },
 
     /// 409 — the shooting-day link endpoint refused because the target day

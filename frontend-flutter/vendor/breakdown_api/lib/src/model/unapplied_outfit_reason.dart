@@ -28,6 +28,9 @@ class UnappliedOutfitReason extends EnumClass {
   static const UnappliedOutfitReason bindingRejected = _$bindingRejected;
   @BuiltValueEnumConst(wireName: r'beat_rejected')
   static const UnappliedOutfitReason beatRejected = _$beatRejected;
+  @BuiltValueEnumConst(wireName: r'continuity_unresolved')
+  static const UnappliedOutfitReason continuityUnresolved =
+      _$continuityUnresolved;
 
   static Serializer<UnappliedOutfitReason> get serializer =>
       _$unappliedOutfitReasonSerializer;

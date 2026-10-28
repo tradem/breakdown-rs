@@ -23,6 +23,20 @@ releases are cut as `vX.Y.Z` tags (`v<build-name>`, enforced by
 
 ## [Unreleased]
 
+- **AI import Pass-2 contract in the generated client**
+  (`0.4.0-beta.17+109 → 0.4.0-beta.18+110`, OpenSpec change
+  `ai-import-decision-outfit-continuity`): `vendor/breakdown_api` regenerated
+  from `backend/openapi.yaml`, so the client now models where an extracted look
+  came from — `DraftOutfitOrigin` is a `oneOf` (`explicit_quote` / `derived`
+  stay bare strings on the wire, `continued_from_scene` and
+  `inferred_from_context` carry their provenance object), `DraftOutfitCandidate`,
+  `Uncertainty.candidates`, `OutfitContinuitySelection` /
+  `OutfitContinuityCandidate` and `ApplyAiImportRequest.continuitySelections`
+  are available. **No UI change yet:** the review screen still renders the
+  pre-Pass-2 surface, because the provenance badges and the wardrobe-gap
+  candidate picker are issue #745. `flutter analyze` clean,
+  `test/features/ai_import` green.
+
 - **AI import review surface follows the outfit/piece split** (OpenSpec change
   `ai-import-outfit-and-pieces`; `0.4.0-beta.16+108 → 0.4.0-beta.17+109`):
   the regenerated client replaces `DraftCostume`/`CostumeDecision`/

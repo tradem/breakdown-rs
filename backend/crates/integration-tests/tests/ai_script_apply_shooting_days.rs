@@ -177,6 +177,7 @@ impl Harness {
         let preview = preview();
         self.worker
             .apply_script(ApplyScriptRequest {
+                continuity_selections: Vec::new(),
                 actor: breakdown_core::shared::UserId::from_sub("day-round-trip-user"),
                 preview_id: self.preview_id,
                 preview: &preview,

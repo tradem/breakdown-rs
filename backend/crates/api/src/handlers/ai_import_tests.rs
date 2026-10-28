@@ -127,6 +127,7 @@ fn apply_gate_rejects_open_uncertainties() {
             note: "unclear".to_owned(),
             suggested_value: None,
             kind: breakdown_core::ai::UncertaintyKind::FieldAmbiguity,
+            candidates: Vec::new(),
         }],
         ..ScriptContext::default()
     };
@@ -160,6 +161,7 @@ fn crash_retry_mapping_plans_update_instead_of_duplicate_create() {
         None,
         breakdown_core::ai::AiImportJobId(Uuid::now_v7()),
         &ReviewerDecisions {
+            continuity_selections: &[],
             episode_groups: &[],
             shooting_days: &[],
             acknowledged_uncertainties: &[],

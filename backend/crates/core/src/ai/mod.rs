@@ -16,6 +16,7 @@
 pub mod aggregate;
 pub mod bounds;
 pub mod commands;
+pub mod continuity;
 pub mod cost;
 pub mod decision;
 pub mod error;
@@ -27,6 +28,12 @@ pub mod views;
 pub use aggregate::AiConfig;
 pub use bounds::AiImportBounds;
 pub use commands::{CreateAiConfig, RevokeAiConfig, UpdateAiConfig};
+pub use continuity::{
+    CONTINUITY_MIN_CONFIDENCE, ContinuityOutcome, OutfitContinuityGap, PriorOutfit,
+    PriorOutfitOwned, context_look_name, continuity_candidates, continuity_questions,
+    continuity_state, has_plausible_action, outfit_continuity_gaps, prior_outfit,
+    resolve_continuity_outcome,
+};
 pub use decision::{
     DecisionAnswer, DecisionCallOutcome, DecisionClient, DecisionQuestion, DecisionRequest,
     DecisionRubric, compute_scene_score, compute_shooting_day_score, compute_synopsis_score,
@@ -44,9 +51,10 @@ pub use ports::{
 };
 pub use preview::{
     AiImportPreviewResponse, AiPreviewPayload, ApplyGateError, ApplyMapping, ApplyMappingDecision,
-    CategoryVocabularyEntry, CharacterApplyPlan, DraftCharacter, DraftEpisode, DraftOutfit,
-    DraftOutfitOrigin, DraftPiece, DraftScene, DraftShootingDay, EpisodeGroupPlan, EpisodeTarget,
-    MergeInput, MergedPreview, MergedScene, OutfitApplyPlan, OutfitBeatSlot, OutfitDecision,
+    CategoryVocabularyEntry, CharacterApplyPlan, ContinuationPlan, DraftCharacter, DraftEpisode,
+    DraftOutfit, DraftOutfitCandidate, DraftOutfitOrigin, DraftPiece, DraftScene, DraftShootingDay,
+    EpisodeGroupPlan, EpisodeTarget, MergeInput, MergedPreview, MergedScene, OutfitApplyPlan,
+    OutfitBeatSlot, OutfitContinuityCandidate, OutfitContinuitySelection, OutfitDecision,
     PieceApplyPlan, PlannedEpisode, PlannedShootingDay, RejectedOutfit, RejectedOutfitReason,
     ReviewerDecisions, SceneApplyCommand, SceneApplyPlan, SceneBeatLane, SceneChunk,
     ScriptApplyPlan, ScriptContext, ShootingDayPlan, ShootingSchedule, ShootingScheduleRow,

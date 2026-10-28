@@ -92,9 +92,10 @@ class DraftOutfitBuilder implements Builder<DraftOutfit, DraftOutfitBuilder> {
   String? get notes => _$this._notes;
   set notes(String? notes) => _$this._notes = notes;
 
-  DraftOutfitOrigin? _origin;
-  DraftOutfitOrigin? get origin => _$this._origin;
-  set origin(DraftOutfitOrigin? origin) => _$this._origin = origin;
+  DraftOutfitOriginBuilder? _origin;
+  DraftOutfitOriginBuilder get origin =>
+      _$this._origin ??= DraftOutfitOriginBuilder();
+  set origin(DraftOutfitOriginBuilder? origin) => _$this._origin = origin;
 
   ListBuilder<DraftPiece>? _pieces;
   ListBuilder<DraftPiece> get pieces =>
@@ -115,7 +116,7 @@ class DraftOutfitBuilder implements Builder<DraftOutfit, DraftOutfitBuilder> {
       _characterName = $v.characterName;
       _name = $v.name;
       _notes = $v.notes;
-      _origin = $v.origin;
+      _origin = $v.origin?.toBuilder();
       _pieces = $v.pieces?.toBuilder();
       _sourceQuote = $v.sourceQuote;
       _$v = null;
@@ -146,7 +147,7 @@ class DraftOutfitBuilder implements Builder<DraftOutfit, DraftOutfitBuilder> {
             name: BuiltValueNullFieldError.checkNotNull(
                 name, r'DraftOutfit', 'name'),
             notes: notes,
-            origin: origin,
+            origin: _origin?.build(),
             pieces: _pieces?.build(),
             sourceQuote: BuiltValueNullFieldError.checkNotNull(
                 sourceQuote, r'DraftOutfit', 'sourceQuote'),
@@ -154,6 +155,8 @@ class DraftOutfitBuilder implements Builder<DraftOutfit, DraftOutfitBuilder> {
     } catch (_) {
       late String _$failedField;
       try {
+        _$failedField = 'origin';
+        _origin?.build();
         _$failedField = 'pieces';
         _pieces?.build();
       } catch (e) {
