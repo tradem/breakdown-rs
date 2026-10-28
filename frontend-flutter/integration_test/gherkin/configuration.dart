@@ -13,6 +13,7 @@ import 'package:flutter_gherkin/flutter_gherkin.dart';
 import 'package:gherkin/gherkin.dart';
 
 import 'hooks/app_hook.dart';
+import 'steps/ai_import_fixture_steps.dart';
 import 'steps/common_steps.dart';
 import 'steps/continuity_photo_steps.dart';
 import 'steps/outfit_casting_steps.dart';
@@ -60,6 +61,12 @@ Future<FlutterTestConfiguration> buildGherkinConfig() async {
     ...continuityPhotoSteps(),
     ...outfitCastingSteps(),
     ...seasonWizardSteps(),
+    // Issue #748: the AI-import preview's Pass-2 surface (provenance badges +
+    // the wardrobe-gap candidate picker). The arrange steps seed a stored
+    // preview through the test-support fixture route, so the backend must be
+    // booted with `--features api/test-support` and durable AI payload storage
+    // (see tool/run_gherkin.sh).
+    ...aiImportFixtureSteps(),
   ];
 
   return FlutterTestConfiguration.DEFAULT(

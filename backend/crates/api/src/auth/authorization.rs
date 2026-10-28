@@ -286,6 +286,16 @@ pub fn requirement_for(path: &str) -> Requirement {
     if path.starts_with("/meta") {
         return Requirement::Authenticated;
     }
+    // Test-support fixture surface (issue #748): the stored AI-import preview
+    // fixture is deliberately NOT block-scoped — the job it seeds names no
+    // block, so no `X-Active-Block` scope can be derived from it, and a Gherkin
+    // arrange step on the host has no active block to convey. Classified here
+    // so the default `BlockMember` policy does not demand one. Compile-time
+    // inert in production builds: the route itself does not exist there.
+    #[cfg(feature = "test-support")]
+    if path.starts_with("/__fixtures") {
+        return Requirement::Authenticated;
+    }
     // `/series/{id}/membership` is the series-level counterpart of
     // `/seasons/{id}/membership` (issue #535): the membership self-check is
     // tenant-level data the middleware's `X-Active-Block` scope says nothing

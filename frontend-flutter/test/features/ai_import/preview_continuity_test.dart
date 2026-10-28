@@ -437,6 +437,9 @@ void main() {
 
       const keyBase = '1-ben';
       expect(find.byKey(const Key('ai-preview-gap-$keyBase')), findsOneWidget);
+      // A candidate-carrying gap renders the picker, never the plain notice
+      // (issue #748: the notice's per-uncertainty key must be absent here).
+      expect(find.byKey(const Key('ai-preview-notice-0')), findsNothing);
       expect(find.text('Wardrobe gap · scene 5 · BEN'), findsOneWidget);
       expect(
         find.byKey(const Key('ai-preview-gap-pick-$keyBase-continued')),
@@ -478,6 +481,13 @@ void main() {
 
       expect(find.byKey(const Key('ai-preview-gap-1-ben')), findsNothing);
       expect(find.textContaining('Uncertainty (outfits)'), findsOneWidget);
+      // The plain notice carries a stable per-uncertainty key (issue #748):
+      // the on-device Gherkin scenario asserts the candidate-less gap by key
+      // instead of matching localized prose, so the key must exist here too.
+      expect(find.byKey(const Key('ai-preview-notice-0')), findsOneWidget);
+      // The picker replaces the plain notice: the two never render together
+      // for the same uncertainty.
+      expect(find.byKey(const Key('ai-preview-gap-1-ben')), findsNothing);
     });
 
     testWidgets('two gaps in ONE scene render two distinct cards, even with '

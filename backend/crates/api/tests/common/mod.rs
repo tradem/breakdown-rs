@@ -2425,12 +2425,60 @@ impl AiImportQueue for FakeAiImportQueue {
         Ok(None)
     }
 
+    /// Mirrors the Postgres adapter's oldest-first `pending` claim (issue
+    /// #748: the AI-import preview fixture claims the job it just enqueued).
+    /// The fake records no worker ownership — its `mark_*` transitions are
+    /// unfenced — so the claim only has to perform the state flip.
     async fn claim_next_kind(
         &self,
         _worker_id: &str,
-        _kind: DocumentKind,
+        kind: DocumentKind,
     ) -> Result<Option<AiImportJob>, DomainError> {
-        Ok(None)
+        let claimed = {
+            let mut jobs = self.jobs.lock().await;
+            let next = jobs
+                .values()
+                .filter(|job| job.document_kind == kind && job.status == JobStatus::Pending)
+                .min_by(|a, b| {
+                    a.created_at
+                        .cmp(&b.created_at)
+                        .then_with(|| a.id.as_uuid().cmp(&b.id.as_uuid()))
+                })
+                .map(|job| job.id.as_uuid());
+            match next {
+                Some(id) => jobs.get_mut(&id).map(|job| {
+                    job.status = JobStatus::Running;
+                    job.updated_at = Utc::now();
+                    job.clone()
+                }),
+                None => None,
+            }
+        };
+        if let Some(job) = &claimed {
+            self.hub.notify(job.id);
+        }
+        Ok(claimed)
+    }
+
+    /// Mirrors the Postgres adapter's `release_claim`: a claimed job returns
+    /// to `pending` without counting an attempt (issue #748 — the AI-import
+    /// preview fixture releases a foreign job it declined to complete).
+    async fn release_claim(&self, id: AiImportJobId, _worker_id: &str) -> Result<(), DomainError> {
+        let released = {
+            let mut jobs = self.jobs.lock().await;
+            match jobs.get_mut(&id.as_uuid()) {
+                Some(job) if job.status == JobStatus::Running => {
+                    job.status = JobStatus::Pending;
+                    job.updated_at = Utc::now();
+                    true
+                }
+                _ => false,
+            }
+        };
+        if released {
+            self.hub.notify(id);
+        }
+        Ok(())
     }
 
     async fn get(&self, id: AiImportJobId) -> Result<Option<AiImportJob>, DomainError> {

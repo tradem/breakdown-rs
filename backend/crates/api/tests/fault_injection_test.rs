@@ -7,7 +7,8 @@
 //! document (409 `block.number-already-exists`, identical to the advisory
 //! pre-check's conflict shape), and the retry passes through to the real
 //! handler stack. The whole file is test-support-gated like the machinery
-//! it exercises.
+//! it exercises: the harness root (`fault_injection.rs`) carries the gate and
+//! declares the shared `common` module once for every case file.
 
 #![cfg(feature = "test-support")]
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)] // tests
@@ -24,9 +25,7 @@ use api::routes::apply_api_middleware;
 use api::state::AppState;
 use api::versioning::DeprecationRegistry;
 
-mod common;
-
-use common::FakePorts;
+use crate::common::FakePorts;
 
 const DEV_SUB: &str = "dev-e2e";
 

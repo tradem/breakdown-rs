@@ -74,6 +74,21 @@ tag. Never edit a released entry afterwards.
 
 ### Added
 
+- **Test-support fixture for a stored AI-import preview** (`api 0.44.0 →
+  0.45.0`). The on-device Gherkin suite could not cover the AI-import
+  preview's Pass-2 surface (issue #745) because a preview is produced by the
+  AI worker, not by any seeding call: `POST /v1/__fixtures/ai-import-preview`
+  now accepts a `ScriptContext` payload, creates a `succeeded` job for the
+  caller through the ordinary queue/preview ports (enqueue → claim →
+  `mark_succeeded`) and answers `201 {"job_id": …}` (issue #748). Like the
+  #443 fault latch, the module and its route are compiled out of release
+  builds (`#[cfg(feature = "test-support")]`) and are deliberately absent from
+  `backend/openapi.yaml`; the route is classified `Authenticated` (it is not
+  block-scoped) in the same gated block. A malformed payload is rejected
+  before any row is written, and a lost claim is retried with a fresh job
+  rather than by re-claiming foreign queue work. Promotes
+  `features-spec/ai_import_continuity_gap.feature` (no `@pending` left).
+
 - **AI import Pass 2 — cross-scene outfit continuity** (OpenSpec change
   `ai-import-decision-outfit-continuity`; `core 0.45.0 → 0.46.0`,
   `infra 0.53.0 → 0.54.0`, `api 0.43.0 → 0.44.0`). Productions name wardrobe

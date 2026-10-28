@@ -15,6 +15,12 @@
     test,
     allow(clippy::print_stdout, clippy::print_stderr, clippy::dbg_macro)
 )]
+// Issue #748: the stored AI-import preview fixture route (the on-device
+// Gherkin harness cannot produce a Pass-2 preview through the AI worker)
+// exists ONLY in `test-support` builds, exactly like the fault machinery
+// below — compile-time absence in release binaries.
+#[cfg(feature = "test-support")]
+pub mod ai_import_fixture;
 pub mod auth;
 // Issue #443: the deterministic fault-injection machinery (middleware +
 // control routes) exists ONLY in `test-support` builds — compile-time
