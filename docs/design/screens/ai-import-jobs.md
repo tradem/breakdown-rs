@@ -135,6 +135,31 @@ The Decision / Scoring Model itself is configured on the AI config screen
 separate split-billing key field — keys `aiConfigDecision*`); see the
 `flutter-ai-config` OpenSpec spec.
 
+## Preview & Apply — outfit provenance and wardrobe gaps (issue #745)
+
+Pass 2 of the AI import (`ai-import-decision-outfit-continuity`) attaches
+looks the script never spelled out. The preview states where each look came
+from, and a scene whose figure the script left undressed offers ONLY the looks
+the script supports:
+
+| Element | M3 component | Semantics | Copy key |
+|---|---|---|---|
+| Outfit provenance | Pill badge (`tertiaryContainer`) above the look's evidence line | Exactly ONE label per `DraftOutfit.origin`: quoted / derived (Pass 1) or continued-from-scene-N / inferred-from-context (Pass 2). An absent origin (pre-#745 stored preview) and an unrecognized future value render NOTHING — provenance is never invented. The reference scene number comes from `DraftOutfit.provenance.source_scene_number` | `aiPreviewOutfitOriginExplicit`, `aiPreviewOutfitOriginDerived`, `aiPreviewOutfitOriginContinued`, `aiPreviewOutfitOriginContinuedNoScene`, `aiPreviewOutfitOriginInferred` |
+| Source quote line | Body-small text under the badge | Rendered ONLY for a Pass-1 look. A Pass-2 look has no chunk to quote (the server leaves `source_quote` empty), and an empty quote line would read as if the script had stated the look | `aiPreviewOutfitQuote` |
+| Wardrobe-gap card | Card with a `ChoiceChip` per candidate + a leave-empty chip | Replaces the plain uncertainty notice for a `dropped_row` uncertainty on `outfits` whose `candidates` the script supports. Default = leave empty (the script-grounded state); each chip carries the candidate's look name and the server's confidence. A gap WITHOUT candidates keeps the plain notice — an invented option is never on offer | `aiPreviewContinuityGapTitle`, `aiPreviewContinuityGapPrompt`, `aiPreviewContinuityCandidateContinued`, `aiPreviewContinuityCandidateInferred`, `aiPreviewContinuityCandidateConfidence`, `aiPreviewContinuityKeepEmpty` |
+| Gap summary (apply card) | Body-small line per gap, under the day summaries | EU AI Act review gate: the dispatch point states which look each gap scene will wear — or that it deliberately stays without one | `aiApplyContinuityGapPicked`, `aiApplyContinuityGapLeftEmpty` |
+| Stale pick refusal | Error line in the apply card | `409 ai-import.apply-unknown-continuity-candidate` (the preview no longer offers the pick): refresh the preview and re-apply — the client never re-derives a selection the server refuses | `aiApplyErrorUnknownContinuityCandidate` |
+
+The pick travels as `continuity_selections` on the apply request. Its
+`character_identity` is the preview-wide matching key (case-folded,
+whitespace-collapsed character name), derived in
+`lib/features/ai_import/import_jobs/continuity_gap.dart` from the gap
+uncertainty's own scene: the client pairs the uncertainty with the scene's
+undressed figure by resolving the continuation candidate's `source_draft_ref`
+back to the row that dresses that figure — never by parsing the server's note
+prose. A picked candidate counts as a review edit, so `accept_as_is` stays a
+truthful statement about the review.
+
 ## Tests
 
 Widget tests: rows render kind + date + status text + icon; tap pushes the

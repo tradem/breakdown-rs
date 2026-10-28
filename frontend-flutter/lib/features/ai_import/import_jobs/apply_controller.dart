@@ -22,6 +22,7 @@ import '../../../domain/reconciliation/reconciliation_scheduler.dart';
 import '../../../l10n/generated/app_localizations.dart';
 import '../../blocks/blocks_controller.dart';
 import '../../episodes/episodes_controller.dart';
+import 'continuity_gap.dart';
 import 'job_status_controller.dart';
 
 part 'apply_controller.g.dart';
@@ -142,6 +143,8 @@ class PreviewOutfit {
     required this.characterName,
     required this.name,
     required this.sourceQuote,
+    this.origin,
+    this.provenance,
     this.pieces = const <PreviewOutfitPiece>[],
     this.accepted = true,
   });
@@ -160,6 +163,18 @@ class PreviewOutfit {
   /// document (spec `ai-import`).
   final String sourceQuote;
 
+  /// Where the look came from (`DraftOutfit.origin`, issue #745): a Pass-1
+  /// quote/derivation, or one of the two Pass-2 forms. `null` on a preview
+  /// stored before the field existed and on an unrecognized future value —
+  /// both render no provenance badge rather than an invented one.
+  final DraftOutfitOrigin? origin;
+
+  /// The Pass-2 payload behind [origin]: the source row + scene number of a
+  /// continuation and the Decision Model's confidence (design D5 of
+  /// `ai-import-decision-outfit-continuity`). `null` whenever the wire carries
+  /// none (every Pass-1 row, an older stored preview).
+  final DraftOutfitProvenance? provenance;
+
   /// The garments the look decomposes into. Read-only here: the backend grounds
   /// the look and derives its pieces, so the reviewer decides the LOOK (the
   /// pieces belong to it and are not individually addressable).
@@ -172,6 +187,8 @@ class PreviewOutfit {
     characterName: characterName,
     name: name,
     sourceQuote: sourceQuote,
+    origin: origin,
+    provenance: provenance,
     pieces: pieces,
     accepted: accepted,
   );
@@ -249,6 +266,10 @@ class PreviewRow {
   );
 }
 
+/// Sentinel for [AiApplyState.copyWith]: distinguishes "keep the current
+/// value" from an explicit `null` on the nullable fields.
+const Object _unset = Object();
+
 /// The apply selection state (task 4.2): rows, the persisted episode
 /// context, and the mapping-request builder inputs.
 ///
@@ -266,6 +287,8 @@ class AiApplyState {
     this.dayDecisions = const <String, bool>{},
     this.blockingUncertainties = const <Uncertainty>[],
     this.acknowledgedKeys = const <String>{},
+    this.continuityGaps = const <ContinuityGap>[],
+    this.continuitySelections = const <String, OutfitContinuityCandidate>{},
   });
 
   /// The actionable rows with their decisions. Degraded/unmatched rows
@@ -312,6 +335,82 @@ class AiApplyState {
   /// confirms the ambiguous (or absent) value is acceptable and the row
   /// applies as extracted.
   final Set<String> acknowledgedKeys;
+
+  /// The preview's reviewer-selectable wardrobe gaps (issue #745): Pass-2
+  /// `dropped_row` uncertainties that carry script-derivable candidates, each
+  /// paired with the scene figure it belongs to. Empty when the preview has no
+  /// Pass-2 gaps — then nothing about gaps renders and the request stays
+  /// byte-identical to the pre-#745 client.
+  final List<ContinuityGap> continuityGaps;
+
+  /// The reviewer's per-gap picks, keyed by [gapKey]. ABSENT means
+  /// the gap stays WITHOUT a look (the script-grounded default: never an
+  /// invented one) — only explicit picks land here, so the map stays small.
+  final Map<String, OutfitContinuityCandidate> continuitySelections;
+
+  /// The stable key one wardrobe gap is decided by: its scene index plus the
+  /// figure's preview-wide identity, exactly the pair the wire selection
+  /// carries.
+  static String gapKey(int sceneIndex, String characterIdentity) =>
+      '$sceneIndex\u0000$characterIdentity';
+
+  /// The reviewer's pick for [gap], or `null` when the gap stays empty.
+  OutfitContinuityCandidate? candidateFor(ContinuityGap gap) =>
+      continuitySelections[gapKey(gap.sceneIndex, gap.characterIdentity)];
+
+  /// Builds the request's `continuity_selections`: one entry per gap the
+  /// reviewer resolved, in the state's gap order (stable, testable). An empty
+  /// list keeps the field absent on the wire.
+  BuiltList<OutfitContinuitySelection> buildContinuitySelections() =>
+      BuiltList<OutfitContinuitySelection>([
+        for (final gap in continuityGaps)
+          if (candidateFor(gap) case final candidate?)
+            OutfitContinuitySelection(
+              (b) => b
+                ..sceneIndex = gap.sceneIndex
+                ..characterIdentity = gap.characterIdentity
+                ..candidate = candidate,
+            ),
+      ]);
+
+  /// [AiApplyState] with the given fields replaced; every other field keeps its
+  /// current value.
+  ///
+  /// The nullable fields distinguish "keep" from "clear" through the [_unset]
+  /// sentinel, so a site that must drop the outcome or the command error can
+  /// still say so explicitly. Every reviewer decision travels through here: a
+  /// re-construction that forgets one field silently discards a decision the
+  /// reviewer made (and the previous hand-written re-constructions did exactly
+  /// that for `dayDecisions`).
+  AiApplyState copyWith({
+    List<PreviewRow>? rows,
+    Object? context = _unset,
+    Object? outcome = _unset,
+    Object? commandError = _unset,
+    Map<String, EpisodeGroupTarget>? groupTargets,
+    Map<String, bool>? dayDecisions,
+    List<Uncertainty>? blockingUncertainties,
+    Set<String>? acknowledgedKeys,
+    List<ContinuityGap>? continuityGaps,
+    Map<String, OutfitContinuityCandidate>? continuitySelections,
+  }) => AiApplyState(
+    rows: rows ?? this.rows,
+    context: identical(context, _unset)
+        ? this.context
+        : context as AiJobContext?,
+    outcome: identical(outcome, _unset)
+        ? this.outcome
+        : outcome as ApplyAiImportResponse?,
+    commandError: identical(commandError, _unset)
+        ? this.commandError
+        : commandError as ProblemError?,
+    groupTargets: groupTargets ?? this.groupTargets,
+    dayDecisions: dayDecisions ?? this.dayDecisions,
+    blockingUncertainties: blockingUncertainties ?? this.blockingUncertainties,
+    acknowledgedKeys: acknowledgedKeys ?? this.acknowledgedKeys,
+    continuityGaps: continuityGaps ?? this.continuityGaps,
+    continuitySelections: continuitySelections ?? this.continuitySelections,
+  );
 
   /// True while at least one blocking uncertainty is unacknowledged — the
   /// client-side mirror of the backend apply gate, so the button explains
@@ -367,7 +466,12 @@ class AiApplyState {
             sum + row.outfits.where((outfit) => !outfit.accepted).length,
       ) +
       _groupEdits +
-      _dayEdits;
+      _dayEdits +
+      // A resolved wardrobe gap changes what the apply creates (a look for a
+      // figure the script left undressed), so it is a review edit like any
+      // other: reporting `accept_as_is` over picks would be a false statement
+      // about what was reviewed.
+      continuitySelections.length;
 
   /// The preview's group refs in first-appearance order (verbatim backend
   /// `group_key` derivations — the apply request carries exactly these).
@@ -615,11 +719,14 @@ class AiApplyController extends _$AiApplyController {
   /// payload is a fresh review, never one carrying over stale picks.
   /// The payload's blocking uncertainties seed the acknowledgement panel
   /// (issue #663); advisory `dropped_row` entries are filtered out — they
-  /// never gate the apply.
+  /// never gate the apply. The reviewer-selectable wardrobe gaps (issue
+  /// #745) seed [AiApplyState.continuityGaps]; their picks are fresh too,
+  /// because a new payload is a new review.
   void seedRows(
     List<PreviewRow> rows,
     AiJobContext? context, {
     List<Uncertainty> uncertainties = const <Uncertainty>[],
+    List<ContinuityGap> continuityGaps = const <ContinuityGap>[],
   }) {
     state = AiApplyState(
       rows: rows,
@@ -629,6 +736,9 @@ class AiApplyController extends _$AiApplyController {
             (uncertainty) => uncertainty.kind == UncertaintyKind.fieldAmbiguity,
           )
           .toList(),
+      // Issue #745: the preview's reviewer-selectable wardrobe gaps. A fresh
+      // payload is a fresh review — no pick survives it.
+      continuityGaps: continuityGaps,
     );
   }
 
@@ -646,16 +756,7 @@ class AiApplyController extends _$AiApplyController {
     } else {
       next.remove(key);
     }
-    state = AiApplyState(
-      rows: state.rows,
-      context: state.context,
-      outcome: state.outcome,
-      commandError: state.commandError,
-      groupTargets: state.groupTargets,
-      dayDecisions: state.dayDecisions,
-      blockingUncertainties: state.blockingUncertainties,
-      acknowledgedKeys: next,
-    );
+    state = state.copyWith(acknowledgedKeys: next);
   }
 
   /// Auto-assigns each episode group against the project's live episode
@@ -713,8 +814,7 @@ class AiApplyController extends _$AiApplyController {
           row.episode == null || draftEpisodeGroupRef(row.episode!) == null,
     );
     final adopted = firstAdopted;
-    state = AiApplyState(
-      rows: state.rows,
+    state = state.copyWith(
       context: hasUngroupedRows || adopted == null || jobBlockId.isEmpty
           ? state.context
           : AiJobContext(
@@ -722,12 +822,7 @@ class AiApplyController extends _$AiApplyController {
               projectId: adopted.projectId,
               blockId: jobBlockId,
             ),
-      outcome: state.outcome,
-      commandError: state.commandError,
       groupTargets: next,
-      dayDecisions: state.dayDecisions,
-      blockingUncertainties: state.blockingUncertainties,
-      acknowledgedKeys: state.acknowledgedKeys,
     );
   }
 
@@ -781,8 +876,7 @@ class AiApplyController extends _$AiApplyController {
         (error.code != 'ai_import.episode_create_failed' &&
             (error.code != 'ai_import.episode_number_other_block' ||
                 !allGroupsResolved));
-    state = AiApplyState(
-      rows: state.rows,
+    state = state.copyWith(
       context: hasUngroupedRows
           ? state.context
           : AiJobContext(
@@ -790,27 +884,16 @@ class AiApplyController extends _$AiApplyController {
               projectId: projectId,
               blockId: state.context?.blockId ?? '',
             ),
-      outcome: state.outcome,
       commandError: keepError ? error : null,
       groupTargets: nextTargets,
-      dayDecisions: state.dayDecisions,
-      blockingUncertainties: state.blockingUncertainties,
-      acknowledgedKeys: state.acknowledgedKeys,
     );
   }
 
   /// Records the reviewer's target for one episode group (existing episode
   /// id or create number/name). Absent keys keep the seeded create-default.
   void setGroupTarget(String groupRef, EpisodeGroupTarget target) {
-    state = AiApplyState(
-      rows: state.rows,
-      context: state.context,
-      outcome: state.outcome,
-      commandError: state.commandError,
+    state = state.copyWith(
       groupTargets: {...state.groupTargets, groupRef: target},
-      dayDecisions: state.dayDecisions,
-      blockingUncertainties: state.blockingUncertainties,
-      acknowledgedKeys: state.acknowledgedKeys,
     );
   }
 
@@ -819,15 +902,8 @@ class AiApplyController extends _$AiApplyController {
   /// a rejection leaves them unscheduled (reported in the response's
   /// `skipped_day_groups`). Absent keys keep the seeded accepted-default.
   void decideDay(String dayRef, bool accepted) {
-    state = AiApplyState(
-      rows: state.rows,
-      context: state.context,
-      outcome: state.outcome,
-      commandError: state.commandError,
-      groupTargets: state.groupTargets,
+    state = state.copyWith(
       dayDecisions: {...state.dayDecisions, dayRef: accepted},
-      blockingUncertainties: state.blockingUncertainties,
-      acknowledgedKeys: state.acknowledgedKeys,
     );
   }
 
@@ -835,31 +911,15 @@ class AiApplyController extends _$AiApplyController {
   /// pick (the missing-context → picker-required path; apply is never
   /// dispatched with a guessed episode_id).
   void setContext(AiJobContext context) {
-    state = AiApplyState(
-      rows: state.rows,
-      context: context,
-      outcome: state.outcome,
-      commandError: state.commandError,
-      groupTargets: state.groupTargets,
-      dayDecisions: state.dayDecisions,
-      blockingUncertainties: state.blockingUncertainties,
-      acknowledgedKeys: state.acknowledgedKeys,
-    );
+    state = state.copyWith(context: context);
   }
 
   void decide(String draftRef, RowDecision decision) {
-    state = AiApplyState(
+    state = state.copyWith(
       rows: [
         for (final row in state.rows)
           if (row.draftRef == draftRef) row.withDecision(decision) else row,
       ],
-      context: state.context,
-      outcome: state.outcome,
-      commandError: state.commandError,
-      groupTargets: state.groupTargets,
-      dayDecisions: state.dayDecisions,
-      blockingUncertainties: state.blockingUncertainties,
-      acknowledgedKeys: state.acknowledgedKeys,
     );
   }
 
@@ -867,7 +927,7 @@ class AiApplyController extends _$AiApplyController {
   /// own decision untouched (spec `ai-import`: piece rows are decided
   /// independently).
   void decideOutfit(String draftRef, int ordinal, bool accepted) {
-    state = AiApplyState(
+    state = state.copyWith(
       rows: [
         for (final row in state.rows)
           if (row.draftRef == draftRef)
@@ -875,40 +935,36 @@ class AiApplyController extends _$AiApplyController {
           else
             row,
       ],
-      context: state.context,
-      outcome: state.outcome,
-      commandError: state.commandError,
-      groupTargets: state.groupTargets,
-      dayDecisions: state.dayDecisions,
-      blockingUncertainties: state.blockingUncertainties,
-      acknowledgedKeys: state.acknowledgedKeys,
     );
+  }
+
+  /// Records the reviewer's resolution of ONE wardrobe gap (issue #745): the
+  /// picked candidate, or `null` to leave the scene WITHOUT a look.
+  ///
+  /// A pick can only ever be dispatched for a gap the preview offers:
+  /// [AiApplyState.buildContinuitySelections] iterates the state's own gap list,
+  /// so a key no gap matches never reaches the wire (the server would refuse it
+  /// with `409 ai-import.apply-unknown-continuity-candidate`).
+  void decideContinuityGap(ContinuityGap gap, OutfitContinuityCandidate? pick) {
+    final key = AiApplyState.gapKey(gap.sceneIndex, gap.characterIdentity);
+    final next = {...state.continuitySelections};
+    if (pick == null) {
+      next.remove(key);
+    } else {
+      next[key] = pick;
+    }
+    state = state.copyWith(continuitySelections: next);
   }
 
   /// Surfaces a review-level refusal without a dispatch (the in-preview
   /// resolution found a state apply cannot proceed in — e.g. the group's
   /// number is taken by an episode in a DIFFERENT block).
   void setCommandError(ProblemError error) {
-    state = AiApplyState(
-      rows: state.rows,
-      context: state.context,
-      outcome: state.outcome,
-      commandError: error,
-      groupTargets: state.groupTargets,
-      blockingUncertainties: state.blockingUncertainties,
-      acknowledgedKeys: state.acknowledgedKeys,
-    );
+    state = state.copyWith(commandError: error);
   }
 
   void dismissCommandError() {
-    state = AiApplyState(
-      rows: state.rows,
-      context: state.context,
-      outcome: state.outcome,
-      groupTargets: state.groupTargets,
-      blockingUncertainties: state.blockingUncertainties,
-      acknowledgedKeys: state.acknowledgedKeys,
-    );
+    state = state.copyWith(commandError: null);
   }
 
   bool get canApply =>
@@ -943,19 +999,13 @@ class AiApplyController extends _$AiApplyController {
         code: 'ai_import.apply_context_missing',
         status: 400,
       );
-      state = AiApplyState(
-        rows: state.rows,
-        context: null,
-        outcome: null,
-        commandError: error,
-        blockingUncertainties: state.blockingUncertainties,
-        acknowledgedKeys: state.acknowledgedKeys,
-      );
+      state = state.copyWith(context: null, outcome: null, commandError: error);
       return const Left(error);
     }
     final repo = ref.read(aiImportRepositoryProvider);
     final episodeGroups = state.buildEpisodeGroups();
     final shootingDays = state.buildShootingDays();
+    final continuitySelections = state.buildContinuitySelections();
     final request = ApplyAiImportRequest(
       (b) => b
         ..episodeId = context.episodeId
@@ -976,7 +1026,13 @@ class AiApplyController extends _$AiApplyController {
         // reviewer decisions; empty stays absent on the wire.
         ..uncertaintyAcknowledgements = state.buildAcknowledgements().isEmpty
             ? null
-            : state.buildAcknowledgements().toBuilder(),
+            : state.buildAcknowledgements().toBuilder()
+        // Issue #745: the reviewer's wardrobe-gap picks travel with the other
+        // review decisions; a preview without resolved gaps stays byte-identical
+        // to the pre-#745 client (the backend treats empty as absent).
+        ..continuitySelections = continuitySelections.isEmpty
+            ? null
+            : continuitySelections.toBuilder(),
     );
     final outcome = await repo.applyWithReconciliation(
       jobId,
@@ -999,40 +1055,28 @@ class AiApplyController extends _$AiApplyController {
         ref
           ..invalidate(episodesListFetchProvider)
           ..invalidate(blocksListFetchProvider);
-        state = AiApplyState(
-          rows: state.rows,
+        state = state.copyWith(
           context: context,
           outcome: response,
-          groupTargets: state.groupTargets,
-          dayDecisions: state.dayDecisions,
-          blockingUncertainties: state.blockingUncertainties,
-          acknowledgedKeys: state.acknowledgedKeys,
+          // A successful (re-)apply disproves every earlier command failure:
+          // keeping it would render the old error next to the outcome card.
+          commandError: null,
         );
         return Right(response);
       case ApplyBlocked(:final error):
         if (!ref.mounted) return Left(error);
-        state = AiApplyState(
-          rows: state.rows,
+        state = state.copyWith(
           context: context,
           outcome: null,
           commandError: error,
-          groupTargets: state.groupTargets,
-          dayDecisions: state.dayDecisions,
-          blockingUncertainties: state.blockingUncertainties,
-          acknowledgedKeys: state.acknowledgedKeys,
         );
         return Left(error);
       case ApplyUnresolved(:final error):
         if (!ref.mounted) return Left(error);
-        state = AiApplyState(
-          rows: state.rows,
+        state = state.copyWith(
           context: context,
           outcome: null,
           commandError: error,
-          groupTargets: state.groupTargets,
-          dayDecisions: state.dayDecisions,
-          blockingUncertainties: state.blockingUncertainties,
-          acknowledgedKeys: state.acknowledgedKeys,
         );
         return Left(error);
     }
@@ -1077,6 +1121,11 @@ String aiApplyErrorCopy(AppLocalizations l10n, ProblemError error) =>
       // signal; the S1 `day_ref` extension names the group.
       'ai-import.apply-missing-shooting-day-group' =>
         l10n.aiApplyErrorMissingShootingDayGroup,
+      // Issue #745: a wardrobe-gap pick the preview no longer offers (the
+      // preview was regenerated, or a stale screen kept a pick) — refreshing
+      // is the only honest resolution, the pick cannot be re-derived here.
+      'ai-import.apply-unknown-continuity-candidate' =>
+        l10n.aiApplyErrorUnknownContinuityCandidate,
       _ when error.code.startsWith('transport.') => l10n.aiApplyErrorNetwork,
       _ => l10n.aiApplyErrorGeneric(error.code),
     };

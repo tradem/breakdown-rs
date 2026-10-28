@@ -27,6 +27,13 @@ that uses only built-in `flutter_gherkin` steps against the already-landed
 `SeasonsScreen`, so the on-device runner always has one green scenario proving
 the harness works end-to-end.
 
+`ai_import_continuity_gap.feature` is also **not** a critical scope (issue
+#745): it covers the AI-import preview's outfit provenance and the
+wardrobe-gap candidate picker. Both scenarios are `@pending`, because the
+harness cannot yet seed a stored Pass-2 preview; until then the flow is gated
+by `test/features/ai_import/preview_continuity_test.dart`,
+`test/unit/continuity_gap_test.dart` and the committed goldens.
+
 ## How the on-device runner works (not headless)
 
 The suite is driven by `flutter_gherkin` v2.0.0 in its `flutter_driver`-based

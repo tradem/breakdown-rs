@@ -17,9 +17,11 @@ import '../../../core/problem_error.dart';
 import '../../../design/components/ai_score_stars.dart';
 import '../../../design/scene_mood_label.dart';
 import '../../../l10n/app_localizations_provider.dart';
+import '../../../l10n/generated/app_localizations.dart';
 import '../../episodes/episodes_controller.dart';
 import 'apply_controller.dart';
 import 'apply_screen.dart';
+import 'continuity_gap.dart';
 import 'job_status_controller.dart';
 import '../naming_line.dart';
 
@@ -184,6 +186,12 @@ class _TypedPreviewBodyState extends ConsumerState<_TypedPreviewBody> {
               uncertainties: payload is AiPreviewPayloadOneOf
                   ? payload.data.uncertainties.toList()
                   : const <Uncertainty>[],
+              // Issue #745: the reviewer-selectable wardrobe gaps (Pass-2
+              // `dropped_row` uncertainties whose candidates the script
+              // supports), paired with the scene figure each one belongs to.
+              continuityGaps: payload is AiPreviewPayloadOneOf
+                  ? continuityGapsOf(payload.data)
+                  : const <ContinuityGap>[],
             );
         // Auto-assign (user report 2026-10-19): resolve each episode group
         // against the project's live episodes — a group whose `Ep.:` number
@@ -504,7 +512,7 @@ class _TypedPreviewBodyState extends ConsumerState<_TypedPreviewBody> {
             ? payload.data.scenes.where(_rowIsLow).toList()
             : payload.data.scenes.toList(),
       ),
-      for (final uncertainty in payload.data.uncertainties)
+      for (final (index, uncertainty) in payload.data.uncertainties.indexed)
         // A piece the server dropped is reported here rather than vanishing:
         // the reviewer sees a MISSING entry with its reason slug
         // (`ungrounded_quote` / `unlisted_character`) instead of concluding the
@@ -512,14 +520,10 @@ class _TypedPreviewBodyState extends ConsumerState<_TypedPreviewBody> {
         // field ambiguity — does not block the apply (design D8), so it renders as
         // information, not as a gate error.
         //
-        // The note is rendered verbatim, exactly like every other uncertainty:
-        // it is server/model prose the client does not parse. The places where the
-        // wire carries a typed reason (`UnappliedCostume.reason` on the apply
-        // result) are where localized copy is keyed instead.
-        _InfoRowCard(
-          label: l10nOf(context)
-              .aiPreviewUncertainty(uncertainty.field, uncertainty.note),
-        ),
+        // Issue #745: a Pass-2 wardrobe gap whose candidates the script actually
+        // supports renders as a one-tap picker instead; a gap without candidates
+        // keeps this plain notice (never an invented option).
+        _uncertaintyCard(context, index, uncertainty),
     ],
     AiPreviewPayloadOneOf1() => [
       // Pre-merge schedule rows are informative — the merge worker turns
@@ -617,6 +621,37 @@ class _TypedPreviewBodyState extends ConsumerState<_TypedPreviewBody> {
     return widgets;
   }
 
+  /// One preview uncertainty card.
+  ///
+  /// A reviewer-selectable wardrobe gap (issue #745) renders the candidate
+  /// picker; every other uncertainty keeps the plain notice whose note is
+  /// rendered VERBATIM — it is server/model prose the client does not parse.
+  /// The places where the wire carries a typed reason
+  /// (`UnappliedOutfit.reason` on the apply result) are where localized copy is
+  /// keyed instead.
+  ///
+  /// The gap is matched by its SOURCE INDEX, not by scene and note text: two
+  /// uncertainties may legitimately repeat a note, and matching by content
+  /// would render the same card — and the same widget key — twice.
+  Widget _uncertaintyCard(
+    BuildContext context,
+    int index,
+    Uncertainty uncertainty,
+  ) {
+    final gaps = ref
+        .watch(aiApplyControllerProvider(widget.jobId))
+        .continuityGaps;
+    for (final gap in gaps) {
+      if (gap.uncertaintyIndex == index) {
+        return _ContinuityGapCard(jobId: widget.jobId, gap: gap);
+      }
+    }
+    return _InfoRowCard(
+      label: l10nOf(context)
+          .aiPreviewUncertainty(uncertainty.field, uncertainty.note),
+    );
+  }
+
   /// The actionable rows (never the info cards): script scenes carry
   /// their `draft_ref`s; merged previews act on the merged scene ids.
   List<PreviewRow> _actionableRows(
@@ -645,6 +680,11 @@ class _TypedPreviewBodyState extends ConsumerState<_TypedPreviewBody> {
                 characterName: outfit.characterName,
                 name: outfit.name,
                 sourceQuote: outfit.sourceQuote,
+                // Issue #745: where the look came from, plus the Pass-2 payload
+                // behind it (source row + scene number, confidence). `null` on
+                // a pre-#745 stored preview — then no badge renders.
+                origin: outfit.origin,
+                provenance: outfit.provenance,
                 pieces: [
                   for (final piece in outfit.pieces ?? <DraftPiece>[])
                     PreviewOutfitPiece(
@@ -848,6 +888,16 @@ class _PreviewRowCard extends ConsumerWidget {
     );
   }
 
+  /// True when the row's source quote is the extraction's own evidence.
+  ///
+  /// A Pass-2 look (continued from an earlier scene, or inferred from the
+  /// scene's context) quotes nothing by construction — the server leaves
+  /// `source_quote` empty because there is no chunk to quote. Rendering that
+  /// empty quote would read as if the script had stated the look (issue #745).
+  bool _statesOwnQuote(DraftOutfitOrigin? origin) =>
+      origin != DraftOutfitOrigin.continuedFromScene &&
+      origin != DraftOutfitOrigin.inferredFromContext;
+
   /// The row's extracted outfits, each individually acceptable/rejectable,
   /// with the pieces the look decomposes into.
   ///
@@ -906,15 +956,33 @@ class _PreviewRowCard extends ConsumerWidget {
                 subtitle: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      // The quote is read-only evidence, never an editable
-                      // value: it is what the server's grounding check verified
-                      // against the chunk. Showing it NEXT TO the look is what
-                      // lets the reviewer verify the extraction without opening
-                      // the document (spec `ai-import`).
-                      l10nOf(context).aiPreviewOutfitQuote(outfit.sourceQuote),
-                      style: Theme.of(context).textTheme.bodySmall,
-                    ),
+                    // Issue #745: where the look came from (Pass-1 quote vs.
+                    // Pass-2 continuation/inference). `null` origin (a stored
+                    // pre-#745 preview) renders NO badge — no invented
+                    // attribution.
+                    if (outfit.origin case final origin?)
+                      _OutfitOriginBadge(
+                        key: Key(
+                          'ai-preview-outfit-origin-$draftRef-${outfit.ordinal}',
+                        ),
+                        origin: origin,
+                        provenance: outfit.provenance,
+                      ),
+                    if (_statesOwnQuote(outfit.origin))
+                      Text(
+                        // The quote is read-only evidence, never an editable
+                        // value: it is what the server's grounding check verified
+                        // against the chunk. Showing it NEXT TO the look is what
+                        // lets the reviewer verify the extraction without opening
+                        // the document (spec `ai-import`).
+                        //
+                        // A Pass-2 row quotes NOTHING (there is no chunk to
+                        // quote): rendering its empty quote would read as if the
+                        // script had stated the look.
+                        l10nOf(context)
+                            .aiPreviewOutfitQuote(outfit.sourceQuote),
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
                     if (outfit.pieces.isNotEmpty)
                       Text(
                         key: Key(
@@ -1004,4 +1072,182 @@ class _InfoRowCard extends StatelessWidget {
       ),
     ),
   );
+}
+
+/// The per-row outfit provenance badge (OpenSpec
+/// `ai-import-decision-outfit-continuity`, issue #745).
+///
+/// ONE localized label per `DraftOutfitOrigin`: a Pass-1 look was quoted from
+/// the script or derived from it, a Pass-2 look continues an earlier scene's
+/// wardrobe (naming that scene when the wire knows its number) or was inferred
+/// from the scene's own context. An absent origin renders NOTHING (a preview
+/// stored before the field existed has no attribution to state), and an
+/// unrecognized future value degrades to nothing for the same reason — the
+/// client never invents provenance.
+class _OutfitOriginBadge extends StatelessWidget {
+  const _OutfitOriginBadge({required this.origin, this.provenance, super.key});
+
+  final DraftOutfitOrigin origin;
+
+  /// The Pass-2 payload behind [origin] (source scene + confidence); `null`
+  /// for every Pass-1 row.
+  final DraftOutfitProvenance? provenance;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = l10nOf(context);
+    final (icon, label) = switch (origin) {
+      DraftOutfitOrigin.explicitQuote => (
+        Icons.format_quote,
+        l10n.aiPreviewOutfitOriginExplicit,
+      ),
+      DraftOutfitOrigin.derived => (
+        Icons.auto_awesome_outlined,
+        l10n.aiPreviewOutfitOriginDerived,
+      ),
+      DraftOutfitOrigin.continuedFromScene => (
+        Icons.link,
+        switch (provenance?.sourceSceneNumber) {
+          final number? => l10n.aiPreviewOutfitOriginContinued('$number'),
+          null => l10n.aiPreviewOutfitOriginContinuedNoScene,
+        },
+      ),
+      DraftOutfitOrigin.inferredFromContext => (
+        Icons.insights_outlined,
+        l10n.aiPreviewOutfitOriginInferred,
+      ),
+      _ => (null, null),
+    };
+    if (icon == null || label == null) return const SizedBox.shrink();
+    final scheme = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 2),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+        decoration: BoxDecoration(
+          color: scheme.tertiaryContainer,
+          borderRadius: BorderRadius.circular(999),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 12, color: scheme.tertiary),
+            const SizedBox(width: 2),
+            Text(
+              label,
+              style: TextStyle(fontSize: 11, color: scheme.onTertiaryContainer),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// One reviewer-selectable wardrobe gap (issue #745): the server's note
+/// rendered verbatim, plus ONE chip per candidate the SCRIPT actually supports
+/// and an explicit "leave the scene without a look" chip.
+///
+/// The picks are the script-grounded options only — a gap the server could
+/// derive nothing for renders the plain notice instead, so an invented look is
+/// never on offer (design D4 of `ai-import-decision-outfit-continuity`).
+class _ContinuityGapCard extends ConsumerWidget {
+  const _ContinuityGapCard({required this.jobId, required this.gap});
+
+  final String jobId;
+  final ContinuityGap gap;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final l10n = l10nOf(context);
+    final scheme = Theme.of(context).colorScheme;
+    final state = ref.watch(aiApplyControllerProvider(jobId));
+    final controller = ref.read(aiApplyControllerProvider(jobId).notifier);
+    final picked = state.candidateFor(gap);
+    final keyBase = '${gap.sceneIndex}-${gap.characterIdentity}';
+    final sceneLabel = gap.sceneNumber == null ? '?' : '${gap.sceneNumber}';
+
+    return Card(
+      key: Key('ai-preview-gap-$keyBase'),
+      color: scheme.surfaceContainerHighest,
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              key: Key('ai-preview-gap-title-$keyBase'),
+              l10n.aiPreviewContinuityGapTitle(gap.characterName, sceneLabel),
+              style: Theme.of(context).textTheme.labelLarge,
+            ),
+            // The server's own note: prose the client renders but never parses.
+            Text(gap.note, style: Theme.of(context).textTheme.bodySmall),
+            const SizedBox(height: 4),
+            Text(
+              l10n.aiPreviewContinuityGapPrompt,
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+            const SizedBox(height: 4),
+            Wrap(
+              spacing: 8,
+              runSpacing: 4,
+              children: [
+                for (final candidate in gap.candidates)
+                  ChoiceChip(
+                    key: Key(
+                      'ai-preview-gap-pick-$keyBase-'
+                      '${_candidateSlug(candidate.origin)}',
+                    ),
+                    label: Text(
+                      '${_candidateLabel(l10n, candidate)} · '
+                      '${l10n.aiPreviewContinuityCandidateConfidence(_percent(candidate.confidence))}',
+                    ),
+                    selected: picked == _candidateKind(candidate.origin),
+                    onSelected: (_) => controller.decideContinuityGap(
+                      gap,
+                      _candidateKind(candidate.origin),
+                    ),
+                  ),
+                ChoiceChip(
+                  key: Key('ai-preview-gap-pick-$keyBase-empty'),
+                  label: Text(l10n.aiPreviewContinuityKeepEmpty),
+                  selected: picked == null,
+                  onSelected: (_) => controller.decideContinuityGap(gap, null),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// The wire selection value of a candidate's origin — `null` for an origin
+  /// that is not a selectable candidate kind (never fabricated).
+  OutfitContinuityCandidate? _candidateKind(
+    DraftOutfitOrigin origin,
+  ) => switch (origin) {
+    DraftOutfitOrigin.continuedFromScene => OutfitContinuityCandidate.continued,
+    DraftOutfitOrigin.inferredFromContext => OutfitContinuityCandidate.inferred,
+    _ => null,
+  };
+
+  String _candidateSlug(DraftOutfitOrigin origin) => switch (origin) {
+    DraftOutfitOrigin.continuedFromScene => 'continued',
+    DraftOutfitOrigin.inferredFromContext => 'inferred',
+    _ => 'unknown',
+  };
+
+  String _candidateLabel(
+    AppLocalizations l10n,
+    DraftOutfitCandidate candidate,
+  ) => switch (candidate.origin) {
+    DraftOutfitOrigin.continuedFromScene =>
+      l10n.aiPreviewContinuityCandidateContinued(candidate.name),
+    _ => l10n.aiPreviewContinuityCandidateInferred(candidate.name),
+  };
+
+  /// The candidate's confidence as a whole percentage (the Decision Model's
+  /// calibrated probability; never re-invented, only rounded for display).
+  String _percent(double confidence) => '${(confidence * 100).round()}';
 }

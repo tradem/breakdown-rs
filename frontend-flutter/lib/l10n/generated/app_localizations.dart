@@ -1646,6 +1646,72 @@ abstract class AppLocalizations {
   /// **'Diesen Look unabhängig von der Szene übernehmen oder verwerfen'**
   String get aiPreviewOutfitToggleTooltip;
 
+  /// No description provided for @aiPreviewOutfitOriginExplicit.
+  ///
+  /// In de, this message translates to:
+  /// **'wörtlich aus dem Skript'**
+  String get aiPreviewOutfitOriginExplicit;
+
+  /// No description provided for @aiPreviewOutfitOriginDerived.
+  ///
+  /// In de, this message translates to:
+  /// **'aus dem Skript abgeleitet'**
+  String get aiPreviewOutfitOriginDerived;
+
+  /// No description provided for @aiPreviewOutfitOriginContinued.
+  ///
+  /// In de, this message translates to:
+  /// **'übernommen aus Szene {scene}'**
+  String aiPreviewOutfitOriginContinued(Object scene);
+
+  /// No description provided for @aiPreviewOutfitOriginContinuedNoScene.
+  ///
+  /// In de, this message translates to:
+  /// **'übernommen aus einer früheren Szene'**
+  String get aiPreviewOutfitOriginContinuedNoScene;
+
+  /// No description provided for @aiPreviewOutfitOriginInferred.
+  ///
+  /// In de, this message translates to:
+  /// **'aus dem Szenenkontext abgeleitet'**
+  String get aiPreviewOutfitOriginInferred;
+
+  /// No description provided for @aiPreviewContinuityGapTitle.
+  ///
+  /// In de, this message translates to:
+  /// **'Garderoben-Lücke · Szene {scene} · {character}'**
+  String aiPreviewContinuityGapTitle(Object character, Object scene);
+
+  /// No description provided for @aiPreviewContinuityGapPrompt.
+  ///
+  /// In de, this message translates to:
+  /// **'Wähle einen Look oder lasse die Szene ohne Garderobe.'**
+  String get aiPreviewContinuityGapPrompt;
+
+  /// No description provided for @aiPreviewContinuityCandidateContinued.
+  ///
+  /// In de, this message translates to:
+  /// **'Fortsetzung: {name}'**
+  String aiPreviewContinuityCandidateContinued(Object name);
+
+  /// No description provided for @aiPreviewContinuityCandidateInferred.
+  ///
+  /// In de, this message translates to:
+  /// **'Kontext-Look: {name}'**
+  String aiPreviewContinuityCandidateInferred(Object name);
+
+  /// No description provided for @aiPreviewContinuityCandidateConfidence.
+  ///
+  /// In de, this message translates to:
+  /// **'{percent} % Sicherheit'**
+  String aiPreviewContinuityCandidateConfidence(Object percent);
+
+  /// No description provided for @aiPreviewContinuityKeepEmpty.
+  ///
+  /// In de, this message translates to:
+  /// **'Szene ohne Look lassen'**
+  String get aiPreviewContinuityKeepEmpty;
+
   /// No description provided for @aiApplyOutcomeScript.
   ///
   /// In de, this message translates to:
@@ -1897,6 +1963,12 @@ abstract class AppLocalizations {
   /// **'Ein Episoden-Ziel passt nicht mehr zur Vorschau – lade die Vorschau neu und übernimm erneut.'**
   String get aiApplyErrorMissingEpisodeGroup;
 
+  /// No description provided for @aiApplyErrorUnknownContinuityCandidate.
+  ///
+  /// In de, this message translates to:
+  /// **'Die Vorschau bietet diese Garderoben-Wahl nicht mehr an – lade die Vorschau neu und übernimm erneut.'**
+  String get aiApplyErrorUnknownContinuityCandidate;
+
   /// No description provided for @aiApplyUncertaintiesTitle.
   ///
   /// In de, this message translates to:
@@ -1908,6 +1980,22 @@ abstract class AppLocalizations {
   /// In de, this message translates to:
   /// **'Als geklärt bestätigen und wie extrahiert übernehmen'**
   String get aiApplyAcknowledgeUncertainty;
+
+  /// No description provided for @aiApplyContinuityGapPicked.
+  ///
+  /// In de, this message translates to:
+  /// **'Szene {scene} · {character} → {look}'**
+  String aiApplyContinuityGapPicked(
+    Object character,
+    Object look,
+    Object scene,
+  );
+
+  /// No description provided for @aiApplyContinuityGapLeftEmpty.
+  ///
+  /// In de, this message translates to:
+  /// **'Szene {scene} · {character} → ohne Look (bewusst leer)'**
+  String aiApplyContinuityGapLeftEmpty(Object character, Object scene);
 
   /// No description provided for @aiApplyAssignExistingInstead.
   ///
