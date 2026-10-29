@@ -7790,6 +7790,17 @@ pub async fn create_ai_config<P: Ports>(
         .await?;
     }
     let id = Uuid::now_v7();
+    // Acceptance: every successful config write leaves a greppable trace of the
+    // decision triple's presence (issue #769). Computed *before* the command is
+    // built, because the request fields are moved into `CreateAiConfig`. No
+    // secrets — only provider/model and whether the decision key is shared with
+    // the extraction key.
+    let decision_key_binding = match &request.decision_vault_key_id {
+        Some(key) if key == &request.vault_key_id => "shared",
+        Some(_) => "own",
+        None => "none",
+    };
+    let logged_decision_model = request.decision_model.clone();
     let (id, version) = state
         .ports
         .ai_config_commands()
@@ -7810,6 +7821,14 @@ pub async fn create_ai_config<P: Ports>(
             },
         )
         .await?;
+    tracing::info!(
+        config_id = %id,
+        version = version.0,
+        decision_provider = request.decision_provider.map(|p| p.as_str()).unwrap_or("none"),
+        decision_model = logged_decision_model.as_deref().unwrap_or("none"),
+        decision_key = %decision_key_binding,
+        "ai_config created"
+    );
     Ok((StatusCode::CREATED, Json(IdVersionResponse { id, version })))
 }
 
@@ -7928,6 +7947,19 @@ pub async fn update_ai_config<P: Ports>(
         .decision_vault_key_id
         .clone()
         .unwrap_or_else(|| view.decision_vault_key_id.clone());
+    // Acceptance: every successful config write leaves a greppable trace of the
+    // decision triple's presence (issue #769). Computed *before* the command is
+    // built, because the request fields are moved into `UpdateAiConfig`. Logs
+    // the *effective* (resolved) triple, since `update` is tri-state. No secrets.
+    let effective_decision_model = request
+        .decision_model
+        .clone()
+        .unwrap_or_else(|| view.decision_model.clone());
+    let decision_key_binding = match &effective_decision_key {
+        Some(key) if key == &request.vault_key_id => "shared",
+        Some(_) => "own",
+        None => "none",
+    };
     let binding_changed = effective_decision_provider != view.decision_provider
         || effective_decision_key != view.decision_vault_key_id
         || request.provider != view.provider
@@ -7980,6 +8012,14 @@ pub async fn update_ai_config<P: Ports>(
         }
         Err(err) => return Err(err.into()),
     };
+    tracing::info!(
+        config_id = %id,
+        version = version.0,
+        decision_provider = effective_decision_provider.map(|p| p.as_str()).unwrap_or("none"),
+        decision_model = effective_decision_model.as_deref().unwrap_or("none"),
+        decision_key = %decision_key_binding,
+        "ai_config updated"
+    );
     Ok((StatusCode::OK, Json(version)))
 }
 
@@ -8030,6 +8070,12 @@ pub async fn revoke_ai_config<P: Ports>(
         }
         Err(err) => return Err(err.into()),
     };
+    // Acceptance: every config lifecycle write leaves a greppable trace (issue #769).
+    tracing::info!(
+        config_id = %id,
+        version = version.0,
+        "ai_config revoked"
+    );
     Ok((StatusCode::OK, Json(version)))
 }
 
