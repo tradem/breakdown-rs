@@ -891,17 +891,74 @@ impl AiImportQueue for PgAiImportQueue {
     /// Payload retention is measured from the same column, so an applied job's
     /// preview lives a full retention window longer, which is the intended
     /// direction: the user may still re-open it.
+    /// Record the target episodes a successful apply dispatched rows into
+    /// (issue #763).
+    ///
+    /// Unfenced for the same reason as [`record_telemetry`]: the apply only runs
+    /// on a `succeeded` job, so no worker holds a claim that could be displaced.
+    ///
+    /// The write **merges** instead of replacing, and the row lock makes the
+    /// read-merge-write atomic against a concurrent duplicate apply. Merging is
+    /// what keeps a retry from destroying correct attribution (CodeRabbit
+    /// review): a retry finds every row already applied and therefore reports no
+    /// entries at all — replacing would wipe the first apply's summary, while a
+    /// plain union keeps it and lets a partially applied job add the episodes it
+    /// reached later. An entry for an already-known episode is replaced in place
+    /// (the count is restated, the position is kept); a new episode is appended.
+    ///
+    /// `updated_at` is bumped deliberately — the jobs list orders by it, and a
+    /// job the user just applied to is the most recently *used* row. Payload
+    /// retention is measured from the same column, so an applied job's preview
+    /// lives a full retention window longer, which is the intended direction:
+    /// the user may still re-open it.
     async fn record_applied_episodes(
         &self,
         id: AiImportJobId,
         episodes: &[AppliedEpisode],
     ) -> Result<(), DomainError> {
-        let payload = serde_json::to_value(episodes).map_err(|error| {
+        if episodes.is_empty() {
+            // Nothing dispatched: keep the existing summary untouched (a retry
+            // of an applied preview must not blank it), and skip the row lock.
+            return Ok(());
+        }
+        let mut transaction = self.pool.begin().await.map_err(map_sqlx_error)?;
+        // `Option<Option<_>>`: the outer one is "no such job row", the inner one
+        // is the nullable column — a job no apply has written a summary for yet.
+        let existing: Option<Option<serde_json::Value>> = sqlx::query_scalar(
+            r#"
+            SELECT applied_episodes
+            FROM ai_import.ai_import_job
+            WHERE id = $1
+            FOR UPDATE
+            "#,
+        )
+        .bind(id.as_uuid())
+        .fetch_optional(&mut *transaction)
+        .await
+        .map_err(map_sqlx_error)?;
+        let Some(stored) = existing else {
+            // The job vanished between the apply and this write (a concurrent
+            // delete): nothing to annotate, and no error to raise for it.
+            transaction.rollback().await.map_err(map_sqlx_error)?;
+            return Ok(());
+        };
+        // An undecodable payload degrades to "nothing recorded yet", exactly
+        // like the read path — a broken display field never blocks the merge.
+        let mut merged: Vec<AppliedEpisode> = stored
+            .and_then(|value| serde_json::from_value(value).ok())
+            .unwrap_or_default();
+        for entry in episodes {
+            match merged.iter_mut().find(|known| known.id == entry.id) {
+                Some(known) => *known = entry.clone(),
+                None => merged.push(entry.clone()),
+            }
+        }
+        let payload = serde_json::to_value(&merged).map_err(|error| {
             DomainError::validation(format!(
                 "AI import applied-episode summary is not serializable: {error}"
             ))
         })?;
-        let result = sqlx::query(
+        sqlx::query(
             r#"
             UPDATE ai_import.ai_import_job
             SET applied_episodes = $2, updated_at = now()
@@ -911,12 +968,11 @@ impl AiImportQueue for PgAiImportQueue {
         )
         .bind(id.as_uuid())
         .bind(payload)
-        .execute(&self.pool)
+        .execute(&mut *transaction)
         .await
         .map_err(map_sqlx_error)?;
-        if result.rows_affected() > 0 {
-            self.hub.notify(id);
-        }
+        transaction.commit().await.map_err(map_sqlx_error)?;
+        self.hub.notify(id);
         Ok(())
     }
 

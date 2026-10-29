@@ -1821,28 +1821,35 @@ where
                 .apply_scene_row(actor.clone(), preview_id, row_episode.0, project_id, row)
                 .await?;
             result.applied.push(scene);
-            // (issue #763) one row applied into the resolved episode: count it,
-            // and label the entry from what is authoritative for it. The plan's
-            // number/title may only be used when THIS apply created the episode
-            // — on a reapply the mapping wins and the persisted episode keeps the
-            // first apply's values, so the request's `Create` target can
-            // disagree with it. A row already applied by an earlier attempt is
-            // likewise attributed to the request's episode without a label: it
-            // may sit in a different one. Everything else falls back to the
-            // edge-resolved `known_episodes`, and an unknown label is `None`
-            // (never a guess).
-            let requested_label = match (&row.episode, row_episode.1, row_state) {
-                (PlannedEpisode::New { number, name, .. }, true, AppliedRowState::AppliedNow) => {
-                    Some((Some(*number), name.clone()))
-                }
-                _ => None,
-            };
-            record_applied_episode(
-                &mut result.applied_episodes,
-                row_episode.0,
-                requested_label,
-                &known_episodes,
-            );
+            // (issue #763) Count the row into the per-episode summary — but ONLY
+            // when this call dispatched it. A row a confirmed mapping already
+            // settled stays where that earlier attempt put it, so attributing it
+            // to THIS request's episode would record an episode id that need not
+            // hold the scene (CodeRabbit review): the retry's target is not the
+            // scene's home, and neither its id nor its edge-resolved label may be
+            // claimed. The persisted summary is merged, not replaced, so the
+            // earlier apply's correct entry survives a retry.
+            //
+            // The plan's number/title may only label an entry when THIS apply
+            // created the episode: on a reapply the mapping wins and the
+            // persisted episode keeps the first apply's values, so the request's
+            // `Create` target can disagree with it. Otherwise the edge-resolved
+            // `known_episodes` identity labels the entry, and an unknown label
+            // stays `None` (never a guess).
+            if row_state == AppliedRowState::AppliedNow {
+                let requested_label = match (&row.episode, row_episode.1) {
+                    (PlannedEpisode::New { number, name, .. }, true) => {
+                        Some((Some(*number), name.clone()))
+                    }
+                    _ => None,
+                };
+                record_applied_episode(
+                    &mut result.applied_episodes,
+                    row_episode.0,
+                    requested_label,
+                    &known_episodes,
+                );
+            }
 
             for character in &row.characters {
                 if self

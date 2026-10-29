@@ -374,11 +374,14 @@ pub struct AiImportJob {
     /// episode). Written by the apply path from the plan and target data it
     /// already holds.
     ///
-    /// The write is best-effort by design (the scene rows are already
-    /// committed), so an empty list also means "the summary write failed" — a
-    /// client renders its kind/date copy either way. An entry only carries
-    /// `number`/`name` when they are authoritative for that episode's persisted
-    /// location; otherwise it keeps its `applied_count` unlabelled.
+    /// The summary is written by the applies that actually dispatched rows, and
+    /// merged per episode: a re-apply of an already-applied preview contributes
+    /// nothing (a confirmed row is not re-attributed to the retry's target), so
+    /// the earlier entries survive. It is best-effort by design (the scene rows
+    /// are already committed), so an empty list also means "no apply has written
+    /// a summary" — a client renders its kind/date copy either way. An entry
+    /// only carries `number`/`name` when they are authoritative for that
+    /// episode's persisted location.
     #[serde(default)]
     pub applied_episodes: Vec<AppliedEpisode>,
 }

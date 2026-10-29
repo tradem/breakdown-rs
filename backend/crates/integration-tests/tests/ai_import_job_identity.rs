@@ -99,6 +99,70 @@ async fn a_duplicate_upload_does_not_rename_the_job() -> Result<()> {
     Ok(())
 }
 
+/// The summary MERGES (issue #763 review): a later apply adds the episodes it
+/// dispatched and restates a known one in place, and an empty list is a no-op —
+/// so a re-apply that found everything already applied cannot erase the earlier
+/// attribution.
+#[tokio::test]
+async fn applied_episodes_merge_instead_of_replacing() -> Result<()> {
+    let (pool, _container) = crate::fixtures::spawn_postgres().await?;
+    let queue = PgAiImportQueue::new(pool);
+
+    let request = make_request("user-identity-merge", None);
+    let id = request.id;
+    queue.enqueue(request).await?;
+
+    let episode_a = Uuid::now_v7();
+    let episode_b = Uuid::now_v7();
+    let a = AppliedEpisode {
+        id: episode_a,
+        number: Some(299),
+        name: Some("Erlösung".to_owned()),
+        applied_count: 57,
+    };
+    queue
+        .record_applied_episodes(id, std::slice::from_ref(&a))
+        .await?;
+
+    // A second apply dispatched rows into ANOTHER episode: appended, kept.
+    let b = AppliedEpisode {
+        id: episode_b,
+        number: Some(301),
+        name: None,
+        applied_count: 4,
+    };
+    queue
+        .record_applied_episodes(id, std::slice::from_ref(&b))
+        .await?;
+    let job = queue.get(id).await?.expect("job exists");
+    assert_eq!(job.applied_episodes, vec![a.clone(), b.clone()]);
+
+    // Restating a known episode replaces it in place (the count is re-stated,
+    // the position is kept) instead of duplicating it.
+    let a_again = AppliedEpisode {
+        applied_count: 60,
+        ..a.clone()
+    };
+    queue
+        .record_applied_episodes(id, std::slice::from_ref(&a_again))
+        .await?;
+    let job = queue.get(id).await?.expect("job exists");
+    assert_eq!(job.applied_episodes, vec![a_again, b.clone()]);
+
+    // A retry that dispatched nothing must not clear the summary.
+    queue.record_applied_episodes(id, &[]).await?;
+    let job = queue.get(id).await?.expect("job exists");
+    assert_eq!(
+        job.applied_episodes
+            .first()
+            .map(|entry| entry.applied_count),
+        Some(60),
+        "an empty report must be a no-op, not a wipe"
+    );
+    assert_eq!(job.applied_episodes.len(), 2);
+    Ok(())
+}
+
 #[tokio::test]
 async fn applied_episodes_round_trip() -> Result<()> {
     let (pool, _container) = crate::fixtures::spawn_postgres().await?;

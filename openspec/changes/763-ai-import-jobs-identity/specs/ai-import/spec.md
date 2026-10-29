@@ -73,15 +73,23 @@ kind/date copy — the same degradation an unnamed job uses. Durable recovery is
 out of scope: it would require a persisted source for the summary that survives
 the failed write.
 
+A row SHALL only be attributed to an episode when **this** apply dispatched it.
+A row whose mapping an earlier attempt already confirmed stays where that
+attempt put it, so it SHALL NOT be attributed to the retry's target — neither by
+id nor by label — because the retry's target need not be the scene's home. The
+persistence SHALL therefore **merge** instead of replace: an entry for a known
+episode is restated in place, a new episode is appended, and an empty list is a
+no-op. A re-apply of an applied preview contributes nothing and the earlier,
+correctly attributed summary survives; a partially applied job adds the episodes
+it reached later.
+
 A number/name SHALL only be recorded when it is authoritative for the row's
 persisted location. Concretely: the plan's requested `Create` target SHALL label
 an entry only when **this** apply created that episode (a reapply keeps the
-mapped episode, whose number/title come from the first apply) and **this** apply
-applied the row (a row an earlier attempt already confirmed may sit in another
-episode than the request names). An episode the API edge resolved before
-dispatch labels its entry. Otherwise the entry SHALL keep its `applied_count`
-with `number` and `name` unset — a count without a name, never a name that
-contradicts the stored episode.
+mapped episode, whose number/title come from the first apply). An episode the API
+edge resolved before dispatch labels its entry. Otherwise the entry SHALL keep
+its `applied_count` with `number` and `name` unset — a count without a name,
+never a name that contradicts the stored episode.
 
 #### Scenario: A single-episode import names its target
 - **WHEN** a script apply lands 57 rows in episode 299 "Erlösung"
@@ -108,8 +116,13 @@ contradicts the stored episode.
 - **THEN** the entry keeps its `applied_count` with no number/name, so the summary
   never contradicts the persisted episode
 
-#### Scenario: An already-applied row is counted, not re-labelled
-- **WHEN** a retry hits a confirmed scene mapping whose scene sits in another
-  episode than the retry requests
-- **THEN** the row still counts towards the request's episode entry, which
-  carries no number/name
+#### Scenario: An already-applied row is never re-attributed
+- **WHEN** the first apply lands a scene in episode A and a retry targets
+  existing episode B (B resolvable at the API edge)
+- **THEN** the retry's response carries no entry for that row, the job keeps A's
+  entry, and B is never recorded
+
+#### Scenario: A re-apply cannot erase the summary
+- **WHEN** a retry finds every row already applied and therefore reports none
+- **THEN** the merge is a no-op and the persisted summary still names the
+  original episodes

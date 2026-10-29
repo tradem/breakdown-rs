@@ -7032,11 +7032,12 @@ pub struct ApplyAiImportResponse {
     /// row here while `created_pieces` still counts the pieces — a partially
     /// applied row must never look like a fully applied one.
     pub unapplied_outfits: Vec<breakdown_core::ai::UnappliedOutfit>,
-    /// The episodes this apply landed rows in, each with its own row count
-    /// (issue #763). The same summary is persisted on the job, so the jobs list
-    /// can name the import's target afterwards. Empty for a schedule apply,
-    /// which merges onto the project's existing scenes and days and therefore
-    /// has no single target episode.
+    /// The episodes THIS request dispatched rows into, each with its own row
+    /// count (issue #763). Merged into the job's persisted summary, so the jobs
+    /// list can name the import's target afterwards. Empty for a schedule apply
+    /// (it merges onto the project's existing scenes and days), and for a
+    /// re-apply that found every row already applied — such a retry contributes
+    /// nothing, and the job keeps the earlier, correctly attributed summary.
     #[serde(default)]
     pub applied_episodes: Vec<breakdown_core::ai::AppliedEpisode>,
 }
@@ -7423,7 +7424,8 @@ pub async fn apply_ai_import<P: Ports>(
             // `applied_episodes` empty, and the client then falls back to its
             // kind/date copy. Durable recovery would need a persisted source for
             // the summary that survives the failed write; the apply response
-            // still carries the same list, and any later re-apply rewrites it.
+            // still carries the same list, and a later apply that dispatches
+            // rows re-writes (and merges into) it.
             if let Err(error) = state
                 .ports
                 .ai_import_queue()

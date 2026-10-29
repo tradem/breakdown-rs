@@ -2314,7 +2314,36 @@ async fn apply_script_concurrent_applies_create_one_scene_per_draft() {
                 .expect("apply failed"),
         );
     }
-    assert_eq!(results[0], results[1], "both applies must converge");
+    // The idempotent outcome converges — the summary is the one field that
+    // legitimately differs: only the apply that actually dispatched a row may
+    // attribute it (issue #763 review), so the loser reports no entries.
+    let mut left = results[0].clone();
+    let mut right = results[1].clone();
+    left.applied_episodes.clear();
+    right.applied_episodes.clear();
+    assert_eq!(
+        left, right,
+        "both applies must converge on everything they dispatched"
+    );
+    // Which apply wins which row is a race, so the per-result split is not
+    // asserted — the invariant is: every row is dispatched exactly once across
+    // the two applies, so every recorded count is attributed to the request's
+    // episode and sums to the row total.
+    let mut recorded: HashMap<Uuid, u32> = HashMap::new();
+    for result in &results {
+        for entry in &result.applied_episodes {
+            assert_eq!(
+                entry.id, episode_id.0,
+                "only the request's episode may be recorded: {results:?}"
+            );
+            *recorded.entry(entry.id).or_default() += entry.applied_count;
+        }
+    }
+    assert_eq!(
+        recorded.get(&episode_id.0).copied().unwrap_or_default(),
+        2,
+        "both rows must be recorded exactly once across the two applies: {results:?}"
+    );
     assert_eq!(
         results[0].applied.len(),
         2,
@@ -4632,12 +4661,14 @@ async fn script_apply_retry_does_not_recreate_the_episode() {
     assert_eq!(fixture.episodes.created.lock().unwrap().len(), 1);
     assert_eq!(fixture.scenes.created.lock().unwrap().len(), 1);
     // (issue #763 review) The retry hit a confirmed scene mapping, so the row
-    // still sits where the FIRST apply put it — the count is recorded, the
-    // request's episode is not asserted as its label.
-    assert_eq!(second.applied_episodes.len(), 1);
-    assert_eq!(second.applied_episodes[0].applied_count, 1);
-    assert_eq!(second.applied_episodes[0].number, None);
-    assert_eq!(second.applied_episodes[0].name, None);
+    // still sits where the FIRST apply put it — contributing NO entry is the
+    // only attribution that cannot be wrong (the persisted summary is merged,
+    // so the first apply's entry survives).
+    assert!(
+        second.applied_episodes.is_empty(),
+        "a confirmed row must not be re-attributed to the retry's target: {:?}",
+        second.applied_episodes
+    );
 }
 
 /// Issue #763 review: a reapply whose `Create` target changed keeps the episode
@@ -4677,13 +4708,67 @@ async fn script_apply_changed_create_target_is_not_relabelled() {
         .expect("reapply");
     assert_eq!(second.created_episodes, 0);
     assert_eq!(fixture.episodes.created.lock().unwrap().len(), 1);
-    assert_eq!(second.applied_episodes.len(), 1);
-    assert_eq!(second.applied_episodes[0].applied_count, 1);
-    assert_eq!(
-        second.applied_episodes[0].number, None,
-        "the request's changed number must not label the persisted episode"
+    assert!(
+        second.applied_episodes.is_empty(),
+        "a reapply that only re-confirmed mappings contributes no entry: {:?}",
+        second.applied_episodes
     );
-    assert_eq!(second.applied_episodes[0].name, None);
+}
+
+/// Issue #763 review (CodeRabbit): the retry's target must not be recorded even
+/// when the API edge resolved it — a confirmed row still belongs to the episode
+/// the first apply put it in, not to the existing episode this retry names.
+#[tokio::test]
+async fn script_apply_retry_never_attributes_a_confirmed_row_to_another_episode() {
+    let fixture = ScriptApplyFixture::new();
+    let preview = ScriptContext {
+        scenes: vec![DraftScene {
+            draft_ref: "1. INT. OP".to_owned(),
+            scene_number: Some(1),
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    // First apply into episode A (the fixture's target), edge-resolved.
+    let episode_a = fixture.episode_id;
+    let first = fixture
+        .apply_with_known_episodes(
+            &preview,
+            &[create_decision("1. INT. OP")],
+            Vec::new(),
+            vec![super::AppliedEpisodeIdentity {
+                id: episode_a,
+                number: 10,
+                name: Some("Episode A".to_owned()),
+            }],
+        )
+        .await
+        .expect("first apply");
+    assert_eq!(first.applied_episodes.len(), 1);
+    assert_eq!(first.applied_episodes[0].id, episode_a.0);
+    assert_eq!(first.applied_episodes[0].number, Some(10));
+
+    // Retry that names a DIFFERENT existing episode B, resolvable at the edge.
+    // The scene mapping is confirmed, so the retry dispatches nothing.
+    let episode_b = breakdown_core::shared::EpisodeId::new();
+    let second = fixture
+        .apply_with_known_episodes(
+            &preview,
+            &[],
+            Vec::new(),
+            vec![super::AppliedEpisodeIdentity {
+                id: episode_b,
+                number: 20,
+                name: Some("Episode B".to_owned()),
+            }],
+        )
+        .await
+        .expect("retry");
+    assert!(
+        second.applied_episodes.is_empty(),
+        "the confirmed scene lives in A; the retry must not record B: {:?}",
+        second.applied_episodes
+    );
 }
 
 /// Issue #763 review counterpart: an episode the API edge resolved still labels

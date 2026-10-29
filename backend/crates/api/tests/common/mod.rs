@@ -2624,8 +2624,20 @@ impl AiImportQueue for FakeAiImportQueue {
             .lock()
             .await
             .push((id, episodes.to_vec()));
+        // Same MERGE contract as the Postgres adapter (issue #763 review): an
+        // empty report is a no-op and a known episode is restated in place, so a
+        // re-apply can never erase the earlier attribution.
         if let Some(job) = self.jobs.lock().await.get_mut(&id.as_uuid()) {
-            job.applied_episodes = episodes.to_vec();
+            for entry in episodes {
+                match job
+                    .applied_episodes
+                    .iter_mut()
+                    .find(|known| known.id == entry.id)
+                {
+                    Some(known) => *known = entry.clone(),
+                    None => job.applied_episodes.push(entry.clone()),
+                }
+            }
         }
         Ok(())
     }

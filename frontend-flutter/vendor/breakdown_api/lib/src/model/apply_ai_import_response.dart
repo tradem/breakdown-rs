@@ -17,7 +17,7 @@ part 'apply_ai_import_response.g.dart';
 ///
 /// Properties:
 /// * [appliedCount]
-/// * [appliedEpisodes] - The episodes this apply landed rows in, each with its own row count (issue #763). The same summary is persisted on the job, so the jobs list can name the import's target afterwards. Empty for a schedule apply, which merges onto the project's existing scenes and days and therefore has no single target episode.
+/// * [appliedEpisodes] - The episodes THIS request dispatched rows into, each with its own row count (issue #763). Merged into the job's persisted summary, so the jobs list can name the import's target afterwards. Empty for a schedule apply (it merges onto the project's existing scenes and days), and for a re-apply that found every row already applied — such a retry contributes nothing, and the job keeps the earlier, correctly attributed summary.
 /// * [createdCharacters] - Figures the script apply created. A figure named by several draft rows is created once, so this is not `applied_count`-related. `0` for a schedule apply, which has no figures.
 /// * [createdDays]
 /// * [createdEpisodes] - Episodes the script apply created for draft episode groups the reviewer mapped to a NEW episode (issue #581). `0` for a schedule apply.
@@ -32,7 +32,7 @@ abstract class ApplyAiImportResponse
   @BuiltValueField(wireName: r'applied_count')
   int get appliedCount;
 
-  /// The episodes this apply landed rows in, each with its own row count (issue #763). The same summary is persisted on the job, so the jobs list can name the import's target afterwards. Empty for a schedule apply, which merges onto the project's existing scenes and days and therefore has no single target episode.
+  /// The episodes THIS request dispatched rows into, each with its own row count (issue #763). Merged into the job's persisted summary, so the jobs list can name the import's target afterwards. Empty for a schedule apply (it merges onto the project's existing scenes and days), and for a re-apply that found every row already applied — such a retry contributes nothing, and the job keeps the earlier, correctly attributed summary.
   @BuiltValueField(wireName: r'applied_episodes')
   BuiltList<AppliedEpisode>? get appliedEpisodes;
 
