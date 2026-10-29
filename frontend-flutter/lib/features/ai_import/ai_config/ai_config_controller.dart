@@ -22,6 +22,7 @@ import '../../../data/ai_import_handoff_store.dart';
 import '../../../data/ai_import_providers.dart';
 import '../../../domain/reconciliation/reconciliation_scheduler.dart';
 import 'ai_config_state.dart';
+import 'decision_round_trip.dart';
 
 part 'ai_config_controller.g.dart';
 
@@ -768,6 +769,26 @@ class AiConfigController extends _$AiConfigController {
             ),
           );
         }
+        // Round-trip verification (issue #769): the created config exists
+        // either way, so its id is remembered and discovery is refreshed —
+        // hiding it would invite a second create on retry. What must NOT
+        // happen is reporting the submitted Decision Model as stored when the
+        // read-back disagrees: the error surfaces and the draft is preserved.
+        final decisionError = await _verifyDecisionRoundTrip(
+          idVersion.id,
+          DecisionTriple(
+            providerKey: decisionProvider?.name,
+            modelId: decisionProviderKey == null ? null : decisionModelId,
+            vaultKeyId: decisionVaultKeyId,
+          ),
+        );
+        if (decisionError != null) {
+          ref.invalidate(aiConfigDiscoveryProvider);
+          ref.invalidate(configuredAiNamingProvider);
+          ref.invalidate(aiImportHandoffProvider);
+          if (ref.mounted) state = state.copyWith(commandError: decisionError);
+          return Left<ProblemError, IdVersionResponse>(decisionError);
+        }
         if (!ref.mounted) {
           return Right<ProblemError, IdVersionResponse>(idVersion);
         }
@@ -789,6 +810,37 @@ class AiConfigController extends _$AiConfigController {
     // A hand-off write failure must not fail the create (the list route is
     // authoritative); it surfaces only if the fallback path is ever hit.
     res.getLeft().toNullable();
+  }
+
+  /// Verifies that the Decision Model triple this dispatch submitted actually
+  /// reached the read model (issue #769). Returns `null` only when the
+  /// authoritative view confirms the submission.
+  ///
+  /// A successful `POST`/`PATCH` acknowledgement is not evidence of
+  /// persistence — that assumption is exactly what let the reported
+  /// configuration vanish unnoticed, with the UI claiming a state the backend
+  /// did not have. A read-back that cannot be READ is reported as its own
+  /// error rather than as success, for the same reason: "unconfirmed" must
+  /// never be rendered as "saved". The existing `transport.*` copy explains
+  /// it, and the config version guard turns a redundant retry into an honest
+  /// 409 instead of a silent overwrite.
+  ///
+  /// [ProblemError.detail] here is a CLIENT-side diagnostic (never rendered —
+  /// the screen localizes its copy from `code`, AGENTS.md §5).
+  Future<ProblemError?> _verifyDecisionRoundTrip(
+    String configId,
+    DecisionTriple submitted,
+  ) async {
+    final res = await ref.read(aiConfigRepositoryProvider).getConfig(configId);
+    return res.match((error) => error, (stored) {
+      final mismatch = verifyDecisionRoundTrip(
+        configId: configId,
+        submitted: submitted,
+        stored: stored,
+      );
+      if (mismatch == null) return null;
+      return ProblemError(code: decisionNotPersistedCode, detail: '$mismatch');
+    });
   }
 
   Future<void> _rememberCredential(
@@ -1214,6 +1266,24 @@ class AiConfigController extends _$AiConfigController {
               vaultKeyId: createdDecisionCredential.vaultKeyId,
             ),
           );
+        }
+        // Round-trip verification (issue #769): a 2xx PATCH acknowledgement is
+        // not evidence that the Decision Model triple was persisted. Compare
+        // the SUBMITTED triple against the authoritative view before reporting
+        // success; on a mismatch the draft is preserved and NOTHING is
+        // refreshed as success, so the screen never presents the submitted
+        // configuration as the active one.
+        final decisionError = await _verifyDecisionRoundTrip(
+          config.id,
+          DecisionTriple(
+            providerKey: decisionProvider?.name,
+            modelId: decisionProviderKey == null ? null : decisionModelId,
+            vaultKeyId: decisionVaultKeyId,
+          ),
+        );
+        if (decisionError != null) {
+          if (ref.mounted) state = state.copyWith(commandError: decisionError);
+          return Left<ProblemError, int>(decisionError);
         }
         ref.invalidate(aiConfigDiscoveryProvider);
         ref.invalidate(configuredAiNamingProvider);

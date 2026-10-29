@@ -117,6 +117,7 @@ AiConfigView _config({
   String? imageModel,
   Map<String, String> prompts = const {},
   List<DocumentKind>? storedPromptKinds,
+  LlmProvider provider = LlmProvider.openai,
   LlmProvider? decisionProvider,
   String? decisionModel,
   String? decisionVaultKeyId,
@@ -126,7 +127,7 @@ AiConfigView _config({
       ..id = 'config-1'
       ..userId = 'dev-user'
       ..assistantModel = assistantModel
-      ..provider = LlmProvider.openai
+      ..provider = provider
       ..vaultKeyId = 'vk-1'
       ..imageModel = imageModel
       ..prompts.replace(prompts)
@@ -189,6 +190,48 @@ class FakeAiConfigRepository extends AiConfigRepository {
   @override
   Future<Result<List<AiConfigView>>> listConfigs() async =>
       listResult ?? const Right(<AiConfigView>[]);
+
+  /// `GET /v1/ai-import/config/{id}` — the round-trip read-back the controller
+  /// runs before reporting a save as successful (issue #769).
+  ///
+  /// `null` (the default) DERIVES the stored view from the last submitted
+  /// request — the honest "the server stored what was sent" case, so the
+  /// pre-#769 tests keep their meaning without a real network call. A test
+  /// modelling the reported defect sets an explicit value that omits the
+  /// triple.
+  Result<AiConfigView>? getConfigResult;
+  int getConfigCalls = 0;
+
+  @override
+  Future<Result<AiConfigView>> getConfig(String id) async {
+    getConfigCalls++;
+    final override = getConfigResult;
+    if (override != null) return override;
+    return Right(storedViewFor(id));
+  }
+
+  /// The view the fake reports as stored for [id]: the last PATCH/CREATE body
+  /// echoed back, so the read-back confirms exactly what the controller sent.
+  AiConfigView storedViewFor(String id) {
+    final update = lastUpdateRequest;
+    final create = lastCreateRequest;
+    return AiConfigView(
+      (b) => b
+        ..id = id
+        ..userId = 'dev-user'
+        ..provider = update?.provider ?? create?.provider ?? LlmProvider.openai
+        ..assistantModel =
+            update?.assistantModel ?? create?.assistantModel ?? 'gpt-5.6-luna'
+        ..vaultKeyId = update?.vaultKeyId ?? create?.vaultKeyId ?? 'vk-1'
+        ..revoked = false
+        ..version = 2
+        ..decisionProvider =
+            update?.decisionProvider ?? create?.decisionProvider
+        ..decisionModel = update?.decisionModel ?? create?.decisionModel
+        ..decisionVaultKeyId =
+            update?.decisionVaultKeyId ?? create?.decisionVaultKeyId,
+    );
+  }
 
   @override
   Future<Result<IdVersionResponse>> submitCredential({
@@ -1914,6 +1957,92 @@ void main() {
       expect(repo.lastUpdateRequest!.decisionProvider, isNull);
       expect(repo.lastUpdateRequest!.decisionModel, isNull);
       expect(repo.lastUpdateRequest!.decisionVaultKeyId, isNull);
+    });
+
+    // --- Round-trip verification of the Decision Model (issue #769) ---
+
+    testWidgets('edit: the PATCH body carries the Decision Model triple AND '
+        'the save is only reported as successful once the read-back confirms '
+        'it (issue #769)', (tester) async {
+      // Extraction and decision provider are the SAME (neuralwatt): the
+      // same-key reuse path applies, so the save needs no separate Decision
+      // credential — the dispatch under test is the PATCH itself.
+      await setupContainer(
+        discoveryValue: Right([_config(provider: LlmProvider.neuralwatt)]),
+      );
+      await pumpScreen(tester, height: 2400);
+
+      // Pick a decision provider + model (neuralwatt / clef-flash is the
+      // curated pair the fixture serves).
+      await tester.tap(find.byKey(const Key('ai-decision-provider-picker')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('neuralwatt').last);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('ai-decision-model-picker')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('clef-flash').last);
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('ai-config-edit-save')));
+      await tester.pumpAndSettle();
+
+      // (a) The wire body carries all three parts — the regression this test
+      // exists for: a client that silently dropped one of them would leave
+      // the backend with no scoring configuration at all.
+      expect(repo.lastUpdateRequest!.decisionProvider, LlmProvider.neuralwatt);
+      expect(repo.lastUpdateRequest!.decisionModel, 'clef-flash');
+      expect(
+        repo.lastUpdateRequest!.decisionVaultKeyId,
+        isNotNull,
+        reason: 'the binding must ride along (shared or own key)',
+      );
+
+      // (b) The read-back was actually performed before success.
+      expect(repo.getConfigCalls, greaterThan(0));
+    });
+
+    testWidgets('edit: a read-back WITHOUT the submitted Decision Model is a '
+        'failure, not a silent success — the localized error renders and the '
+        'draft is preserved (issue #769)', (tester) async {
+      // Extraction and decision provider are the SAME (neuralwatt): the
+      // same-key reuse path applies, so the save needs no separate Decision
+      // credential — the dispatch under test is the PATCH itself.
+      await setupContainer(
+        discoveryValue: Right([_config(provider: LlmProvider.neuralwatt)]),
+      );
+      await pumpScreen(tester, height: 2400);
+
+      // Model the reported defect: the PATCH is acknowledged, but the
+      // authoritative view has NULL decision columns.
+      repo.getConfigResult = Right(_config(assistantModel: 'gpt-5.6-luna'));
+
+      await tester.tap(find.byKey(const Key('ai-decision-provider-picker')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('neuralwatt').last);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('ai-decision-model-picker')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('clef-flash').last);
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('ai-config-edit-save')));
+      await tester.pumpAndSettle();
+
+      // The screen localizes its OWN copy keyed on the client-detected code;
+      // the English catalog string is the assertion target (the same style as
+      // every other error-copy test in this file).
+      expect(
+        find.text(
+          "The decision model was not saved. The configuration was sent, but "
+          "the server's read-back does not contain it — please check the "
+          'selection and save again.',
+        ),
+        findsOneWidget,
+        reason:
+            'a non-persisted Decision Model must be surfaced, keyed on the '
+            'client-detected code ai_config.decision_not_persisted',
+      );
+      expect(repo.getConfigCalls, greaterThan(0));
     });
 
     // --- Decision provider capability from the route (issue #736) ---

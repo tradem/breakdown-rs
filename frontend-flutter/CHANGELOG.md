@@ -23,6 +23,37 @@ releases are cut as `vX.Y.Z` tags (`v<build-name>`, enforced by
 
 ## [Unreleased]
 
+- **A saved Decision Model is verified against the server before the app calls
+  it configured** (`0.4.0-beta.21+113 → 0.4.0-beta.22+114`, issue #769): the
+  reported user configured a Decision Model (`eurouter` / `clef-flash`) before
+  importing episode 300, saw no star ratings, and the app had presented the
+  configuration as saved — while the backend held no decision configuration at
+  all (no `decision_*` payload in the aggregate, three NULL projection columns,
+  so the worker resolved `decision: None` and never ran a scoring pass).
+
+  - **Round-trip verification.** A 2xx `POST`/`PATCH` acknowledgement is no
+    longer treated as proof of persistence: `create`/`edit` re-read
+    `GET /v1/ai-import/config/{id}` and compare the **submitted** Decision
+    Model triple (provider, model, vault binding) with the **stored** one. On a
+    mismatch the save is reported as a failure, the draft is preserved, and the
+    configuration is never presented as active. The pickers keep re-seeding from
+    the authoritative view (discovery is only refreshed on a confirmed save).
+  - **New localized error** `ai_config.decision_not_persisted` (de/en).
+    Client-detected by design: no server problem carries it, because the whole
+    point is that the save *looked* successful.
+  - **Unconfirmable saves are not success.** A failed read-back surfaces its own
+    error (the existing `transport.*` narrative) instead of silently reporting
+    the submitted state — "unconfirmed" must never render as "saved".
+  - **Clearing is verified too.** Disabling scoring submits explicit nulls (the
+    tri-state PATCH) and the same read-back proves the clear landed; a swallowed
+    clear is the same class of silent loss.
+  - **Tests:** a Tier-1 matcher suite (match, NULL columns, wrong model, wrong
+    binding, wrong provider, verified clear, rejected clear) plus two screen
+    tests asserting the PATCH body carries all three parts and that a read-back
+    without the triple renders the localized error instead of success. The
+    repository test double now echoes the submitted body for `getConfig`, so the
+    existing suite exercises the real round trip rather than a real network call.
+
 - **The AI-import jobs list identifies each row and stops showing a stale
   stage** (`0.4.0-beta.20+112 → 0.4.0-beta.21+113`, issue #763): every finished
   job rendered „Vorschau wird gespeichert …" forever, and a row was titled only

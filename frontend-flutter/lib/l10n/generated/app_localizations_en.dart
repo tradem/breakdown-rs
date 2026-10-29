@@ -3534,6 +3534,10 @@ class AppLocalizationsEn extends AppLocalizations {
       'Please enter an API key for the decision model or choose “Use the same API key as extraction”.';
 
   @override
+  String get aiConfigDecisionNotPersisted =>
+      'The decision model was not saved. The configuration was sent, but the server\'s read-back does not contain it — please check the selection and save again.';
+
+  @override
   String get outfitVariantMarker => 'Variant';
 
   @override
