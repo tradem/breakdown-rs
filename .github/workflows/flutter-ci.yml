@@ -108,6 +108,24 @@ jobs:
           channel: stable
           cache: true
 
+      # The two nested Dart tool packages (`packages/breakdown_lints` — the
+      # analyzer plugin — and `tool/breakdown_lints_runner` — its CI twin) are
+      # NOT dependencies of the app, so `flutter pub get` below never resolves
+      # them. Without their `.dart_tool/package_config.json` the analyzer
+      # resolves their `package:` URIs against the app's package config, where
+      # `breakdown_lints_runner` does not exist — which fails
+      # `flutter analyze` on a clean checkout (issue #766). Resolve them first;
+      # the runner steps further down then reuse the cached resolution.
+      - name: Resolve nested Dart tool packages
+        run: |
+          set -euo pipefail
+          if [ ! -f pubspec.yaml ]; then
+            echo "::notice::frontend-flutter has no pubspec.yaml yet (scaffold-flutter-project follow-up not landed); nested tool packages are skipped."
+            exit 0
+          fi
+          (cd packages/breakdown_lints && dart pub get)
+          (cd tool/breakdown_lints_runner && dart pub get)
+
       # `dart format --set-exit-if-changed` — fails if any tracked Dart
       # source is not formatted. Until the scaffold lands there are no .dart
       # sources, so this no-ops with a notice. The rebuild-only generated client
