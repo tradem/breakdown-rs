@@ -151,8 +151,8 @@ use uuid::Uuid;
 // resolution on the generic `P::AiDocumentStore` / `P::AiPreviewStore`
 // associated types (issue #176).
 use infra::ai::{
-    AiDocumentStore, AiPreviewStore, ApplyScriptRequest, ApplyWorker, ScheduleApplyRequest,
-    ScheduleApplyWorker,
+    AiDocumentStore, AiPreviewStore, AppliedEpisodeIdentity, ApplyScriptRequest, ApplyWorker,
+    ScheduleApplyRequest, ScheduleApplyWorker,
 };
 
 use crate::auth::{ActiveBlock, CurrentUser};
@@ -6362,6 +6362,7 @@ async fn enqueue_ai_upload<P: Ports>(
             dedup_key: ai_dedup_key(&current_user.sub, kind, source_format, &digest),
             document_digest: digest,
             source_handle: source_handle.clone(),
+            source_file_name: request_document_file_name(&headers),
         })
         .await?;
     let (status, id) = match result {
@@ -6401,9 +6402,41 @@ fn request_content_type(headers: &HeaderMap) -> String {
         .to_ascii_lowercase()
 }
 
+/// The optional display name of an uploaded document (issue #763).
+///
+/// The upload body is the document itself, so the name cannot ride inside it
+/// without breaking the raw-body contract. It travels as a header instead:
+/// HTTP header values are ASCII, so the client percent-encodes the UTF-8 name
+/// ("Erlösung Skript.pdf" → `Erl%C3%B6sung%20Skript.pdf`) and the edge decodes
+/// it before sanitizing.
+const DOCUMENT_FILENAME_HEADER: &str = "x-document-filename";
+
+/// Wire documentation of [`DOCUMENT_FILENAME_HEADER`] — one text for both
+/// upload routes, so the two cannot drift.
+const DOCUMENT_FILENAME_HEADER_DOC: &str = "Percent-encoded UTF-8 name of the uploaded document \
+    (issue #763). Optional: absent means the job carries no name. The server \
+    sanitizes it (basename only, no control characters, at most 200 characters) \
+    before storing it as the job's `source_file_name`.";
+
+/// Read the optional document display name off an upload request (issue #763).
+///
+/// Every malformed input degrades to `None` — never to an error: the name is
+/// display metadata, and a client that cannot spell a header must still be able
+/// to import a document. Non-UTF-8 percent sequences, non-ASCII raw bytes and
+/// names that sanitize to nothing all mean "no name", which the job stores as
+/// `NULL` (an honest absence the UI already renders as the kind/date title).
+fn request_document_file_name(headers: &HeaderMap) -> Option<String> {
+    let raw = headers.get(DOCUMENT_FILENAME_HEADER)?.to_str().ok()?;
+    let decoded = percent_encoding::percent_decode_str(raw)
+        .decode_utf8()
+        .ok()?;
+    breakdown_core::ai::sanitize_source_file_name(&decoded)
+}
+
 #[utoipa::path(
     post,
     path = "/ai-import/scripts",
+    params(("X-Document-Filename" = Option<String>, Header, description = DOCUMENT_FILENAME_HEADER_DOC)),
     request_body(content = String, content_type = "application/pdf"),
     responses(
         (status = 200, body = AiImportJobId, description = "Duplicate upload — existing job id"),
@@ -6433,6 +6466,7 @@ pub async fn upload_ai_script<P: Ports>(
 #[utoipa::path(
     post,
     path = "/ai-import/schedules",
+    params(("X-Document-Filename" = Option<String>, Header, description = DOCUMENT_FILENAME_HEADER_DOC)),
     request_body(
         content = String,
         content_type = "application/pdf",
@@ -6972,6 +7006,13 @@ pub struct ApplyAiImportResponse {
     /// row here while `created_pieces` still counts the pieces — a partially
     /// applied row must never look like a fully applied one.
     pub unapplied_outfits: Vec<breakdown_core::ai::UnappliedOutfit>,
+    /// The episodes this apply landed rows in, each with its own row count
+    /// (issue #763). The same summary is persisted on the job, so the jobs list
+    /// can name the import's target afterwards. Empty for a schedule apply,
+    /// which merges onto the project's existing scenes and days and therefore
+    /// has no single target episode.
+    #[serde(default)]
+    pub applied_episodes: Vec<breakdown_core::ai::AppliedEpisode>,
 }
 
 #[utoipa::path(
@@ -7167,6 +7208,33 @@ pub async fn apply_ai_import<P: Ports>(
             // uncertainty the preview actually carries — anything else is a
             // client bug answered with a clean 400, and a duplicate would
             // silently over-acknowledge.
+            // (issue #763) Display identities the apply worker labels its
+            // applied-episode summary with. The primary target is already
+            // resolved above (`episode`); an EXISTING group target names only an
+            // id, so it is resolved here — the API edge is the only legitimate
+            // read-model consumer (CQRS boundary), and the write path must not
+            // query one. A group that CREATES an episode needs no entry: the
+            // worker makes that episode and holds its number and title itself.
+            let mut known_episodes = vec![AppliedEpisodeIdentity {
+                id: EpisodeId::from_uuid(episode.id),
+                number: episode.number,
+                name: episode.name.clone(),
+            }];
+            for group in &request.episode_groups {
+                let EpisodeTarget::Existing { episode_id } = &group.target else {
+                    continue;
+                };
+                if known_episodes.iter().any(|known| known.id == *episode_id) {
+                    continue;
+                }
+                let target = state.ports.episode_repo().find_by_id(episode_id.0).await?;
+                known_episodes.push(AppliedEpisodeIdentity {
+                    id: *episode_id,
+                    number: target.number,
+                    name: target.name,
+                });
+            }
+
             let mut seen_acknowledgements = std::collections::HashSet::new();
             for acknowledgement in &request.uncertainty_acknowledgements {
                 if !seen_acknowledgements
@@ -7300,6 +7368,7 @@ pub async fn apply_ai_import<P: Ports>(
                     // the same block the AUTHZ-GATE above tied to the job.
                     block_id: episode.block_id,
                     episode_groups,
+                    known_episodes,
                     shooting_days,
                     acknowledged_uncertainties: request.uncertainty_acknowledgements.clone(),
                     continuity_selections: request.continuity_selections.clone(),
@@ -7307,6 +7376,22 @@ pub async fn apply_ai_import<P: Ports>(
                     telemetry: Some(telemetry),
                 })
                 .await?;
+            // Persist the target episodes on the job (issue #763) so the jobs
+            // list can name the import. Best-effort, exactly like the apply
+            // telemetry below: the rows are already written, so a summary fault
+            // must never turn a successful apply into an error the caller would
+            // retry.
+            if let Err(error) = state
+                .ports
+                .ai_import_queue()
+                .record_applied_episodes(id, &applied.applied_episodes)
+                .await
+            {
+                tracing::warn!(
+                    %error,
+                    "failed to record AI import applied episodes after a successful script apply"
+                );
+            }
             Ok((
                 StatusCode::OK,
                 Json(ApplyAiImportResponse {
@@ -7326,6 +7411,7 @@ pub async fn apply_ai_import<P: Ports>(
                         .map(|day| day.day_ref.clone())
                         .collect(),
                     unapplied_outfits: applied.unapplied_outfits,
+                    applied_episodes: applied.applied_episodes,
                 }),
             ))
         }
@@ -7376,6 +7462,10 @@ pub async fn apply_ai_import<P: Ports>(
                     // A schedule apply decides no script day groups.
                     skipped_day_groups: Vec::new(),
                     unapplied_outfits: Vec::new(),
+                    // A schedule merge lands rows in the project's existing
+                    // scenes and days; it names no target episode, so it
+                    // records none (issue #763 — never an invented one).
+                    applied_episodes: Vec::new(),
                 }),
             ))
         }

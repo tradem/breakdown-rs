@@ -37,6 +37,7 @@ import 'package:breakdown_api/src/model/ai_preview_payload_one_of1.dart';
 import 'package:breakdown_api/src/model/ai_preview_payload_one_of2.dart';
 import 'package:breakdown_api/src/model/ai_provider_info.dart';
 import 'package:breakdown_api/src/model/appearance_outfit_view.dart';
+import 'package:breakdown_api/src/model/applied_episode.dart';
 import 'package:breakdown_api/src/model/apply_ai_import_request.dart';
 import 'package:breakdown_api/src/model/apply_ai_import_response.dart';
 import 'package:breakdown_api/src/model/apply_episode_group_request.dart';
@@ -222,6 +223,7 @@ part 'serializers.g.dart';
   AiPreviewPayloadOneOf2,
   AiProviderInfo,
   AppearanceOutfitView,
+  AppliedEpisode,
   ApplyAiImportRequest,
   ApplyAiImportResponse,
   ApplyEpisodeGroupRequest,
@@ -568,6 +570,10 @@ Serializers serializers = (_$serializers.toBuilder()
       ..addBuilderFactory(
         const FullType(BuiltList, [FullType(CostumeCategoryView)]),
         () => ListBuilder<CostumeCategoryView>(),
+      )
+      ..addBuilderFactory(
+        const FullType(BuiltList, [FullType(AppliedEpisode)]),
+        () => ListBuilder<AppliedEpisode>(),
       )
       ..addBuilderFactory(
         const FullType(BuiltList, [FullType(OutfitView)]),

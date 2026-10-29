@@ -74,6 +74,35 @@ tag. Never edit a released entry afterwards.
 
 ### Added
 
+- **AI-import jobs are identifiable: the uploaded file name and the imported
+  episode(s)** (issue #763; `core 0.46.0 → 0.47.0`, `infra 0.55.0 → 0.56.0`,
+  `api 0.45.0 → 0.46.0`). A jobs-list row was titled only `kind · date`, so after
+  a few imports the user could not tell which document a row belonged to or
+  which episode it produced.
+
+  - **`AiImportJob.source_file_name`** (additive, nullable) carries the picked
+    document's own name. It travels as an optional percent-encoded UTF-8
+    `X-Document-Filename` header on both upload routes (the body stays the raw
+    document, so the content-type contract and its `415` arm are untouched),
+    is decoded at the API edge and sanitized by
+    `core::ai::sanitize_source_file_name` (basename only, control characters
+    removed, whitespace collapsed, ≤200 chars, empty ⇒ `NULL`). Nothing is
+    derived from `source_handle` — that stays an opaque storage coordinate — and
+    a duplicate re-upload keeps the existing row's name.
+  - **`AiImportJob.applied_episodes`** (additive, empty by default) records
+    which episodes a successful **script** apply landed rows in, each with its
+    own `applied_count`, so the list can say `299 Erlösung (+2)`. The summary is
+    produced by the apply itself (plan + the `known_episodes` identities the API
+    edge resolved before dispatch — no projection read on the write path) and is
+    returned by `POST /v1/ai-import/jobs/{id}/apply` as well. A schedule apply
+    merges onto the project's existing scenes and days and records none rather
+    than an invented target.
+  - Migration `20261016000001_ai_import_job_identity` (two nullable columns, no
+    backfill: neither value can be reconstructed without inventing data).
+    `AiImportEnqueueRequest` gained `source_file_name`, and `AiImportQueue`
+    gained `record_applied_episodes` (an unfenced terminal write, like
+    `record_telemetry`).
+
 - **Test-support fixture for a stored AI-import preview** (`api 0.44.0 →
   0.45.0`). The on-device Gherkin suite could not cover the AI-import
   preview's Pass-2 surface (issue #745) because a preview is produced by the
@@ -169,6 +198,19 @@ tag. Never edit a released entry afterwards.
     (`test/unit/draft_outfit_origin_test.dart`).
 
 ### Fixed
+
+- **A finished AI import no longer shows "Vorschau wird gespeichert …" forever**
+  (issue #763; `core 0.46.0 → 0.47.0`, `infra 0.55.0 → 0.56.0`,
+  `api 0.45.0 → 0.46.0`). The last progress frame a worker publishes is
+  `stage = storing_preview`, and the queue only cleared `progress` on the *next*
+  claim — so every `succeeded` job carried `progress.stage == storing_preview`
+  permanently, and the Flutter jobs list rendered it with no status guard (the
+  Drift cache kept it alive across restarts). The column is now cleared in the
+  same statement that lands a terminal status (`mark_succeeded`, the
+  dead-lettering branch of `mark_failed`, `mark_payload_unavailable`); a job
+  that merely backs off keeps its progress, and the claim-time reset stays, so a
+  re-claimed job never flashes a previous attempt's stage. `AiImportJob.progress`
+  now documents that contract.
 
 - **PDF reports no longer answer 500 for any non-empty report** (issue #764;
   `infra 0.54.0 → 0.55.0`). `GET /v1/shooting-days/{id}/report/dispo.pdf`,

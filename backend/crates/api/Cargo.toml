@@ -9,7 +9,7 @@
 
 [package]
 name = "api"
-version = "0.45.0"
+version = "0.46.0"
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
@@ -28,8 +28,8 @@ test-support = ["breakdown_core/test-support", "infra/test-support"]
 
 [dependencies]
 # Domäne & Infrastruktur
-breakdown_core = { path = "../core", version = "0.46.0" }
-infra = { path = "../infra", version = "0.55.0" }
+breakdown_core = { path = "../core", version = "0.47.0" }
+infra = { path = "../infra", version = "0.56.0" }
 
 # Web-Framework
 axum.workspace = true
@@ -49,6 +49,10 @@ thiserror.workspace = true
 kameo.workspace = true
 kameo_es.workspace = true
 redis.workspace = true
+
+# Percent-decoding of the upload's `X-Document-Filename` header (issue #763):
+# HTTP header values are ASCII, so a UTF-8 file name travels percent-encoded.
+percent-encoding = "2"
 
 # OpenAPI (ADR-006)
 utoipa.workspace = true

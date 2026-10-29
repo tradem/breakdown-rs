@@ -9,6 +9,7 @@ import 'package:breakdown_api/src/model/job_telemetry_summary.dart';
 import 'package:breakdown_api/src/model/document_kind.dart';
 import 'package:breakdown_api/src/model/job_status.dart';
 import 'package:built_collection/built_collection.dart';
+import 'package:breakdown_api/src/model/applied_episode.dart';
 import 'package:breakdown_api/src/model/source_format.dart';
 import 'package:breakdown_api/src/model/ai_import_progress.dart';
 import 'package:breakdown_api/src/model/cost_breakdown.dart';
@@ -21,6 +22,7 @@ part 'ai_import_job.g.dart';
 /// Operational job row. Preview blobs and errors are represented by opaque handles/summaries; credentials and document bytes are deliberately absent.
 ///
 /// Properties:
+/// * [appliedEpisodes] - The episodes a successful **script** apply landed this job's rows in (issue #763), so the jobs list can name the import's target instead of only its date. Additive with `serde(default)`: empty for a job no apply has run for yet, and for a schedule apply (which merges onto the project's existing scenes and days and therefore has no single target episode). Written by the apply path from the plan and target data it already holds.
 /// * [attempts] - Per-attempt failure history, newest first (issue #637).  `last_error` is overwritten by every `mark_failed`, so the reason an *earlier* attempt failed is lost. This list keeps each attempt's outcome retrievable. Populated on the single-job read (`GET /ai-import/jobs/{id}`); empty in list/claim contexts where the history is not fetched, so it is additive on the wire.
 /// * [blockId] - Opaque identifier for a `Block` aggregate.
 /// * [cost] - Immutable per-import cost snapshot persisted at completion time (issue #675). Never recomputed when pricing changes later.
@@ -33,8 +35,9 @@ part 'ai_import_job.g.dart';
 /// * [maxRetries]
 /// * [nextAttemptAt] - When a retryable `failed` job becomes claimable again (issue #637).  `None` for every other state: `pending`/`running` have no backoff, and a terminal job never retries. The column always existed; the wire view omitted it, so neither the UI nor operators could explain a stalled import (\"why is this job not running yet?\").
 /// * [previewHandle]
-/// * [progress] - Live extraction progress of a running job, when the worker already published it (issue #664). `None` for pending jobs and freshly re-claimed retry attempts (the claim SQL resets stale progress).
+/// * [progress] - Live extraction progress of a **running** job, when the worker already published it (issue #664). `None` for pending jobs, for freshly re-claimed retry attempts (the claim SQL resets stale progress) and — since issue #763 — for every terminal job: the queue clears the column in the same statement that lands `succeeded`/`dead_letter`/ `payload_unavailable`, so a finished job never advertises the stage it died at (the last frame is always `storing_preview`).
 /// * [retries]
+/// * [sourceFileName] - The uploaded document's own file name, as the client picked it (issue #763). Additive with `serde(default)`: `None` for every job created before the field existed and for every upload that carried no name.  The value is display metadata only — it is sanitized at the API edge (`sanitize_source_file_name`: basename, no control characters, bounded) and is deliberately **not** derived from [`Self::source_handle`], which is an opaque storage coordinate and never a name.
 /// * [sourceFormat]
 /// * [sourceHandle]
 /// * [status]
@@ -43,6 +46,10 @@ part 'ai_import_job.g.dart';
 /// * [userId] - Opaque identifier for a user, wrapping the OIDC `sub` claim.  `UserId` references the authenticated principal without ever decoding, storing, or dereferencing identity attributes in `core`. The backend only trusts the IdP-issued `sub`; account lifecycle lives exclusively in the OIDC provider (ADR-010). Unlike the hierarchy ids, `UserId` is *not* a UUIDv7 — it is the raw string subject the IdP assigns.
 @BuiltValue()
 abstract class AiImportJob implements Built<AiImportJob, AiImportJobBuilder> {
+  /// The episodes a successful **script** apply landed this job's rows in (issue #763), so the jobs list can name the import's target instead of only its date. Additive with `serde(default)`: empty for a job no apply has run for yet, and for a schedule apply (which merges onto the project's existing scenes and days and therefore has no single target episode). Written by the apply path from the plan and target data it already holds.
+  @BuiltValueField(wireName: r'applied_episodes')
+  BuiltList<AppliedEpisode>? get appliedEpisodes;
+
   /// Per-attempt failure history, newest first (issue #637).  `last_error` is overwritten by every `mark_failed`, so the reason an *earlier* attempt failed is lost. This list keeps each attempt's outcome retrievable. Populated on the single-job read (`GET /ai-import/jobs/{id}`); empty in list/claim contexts where the history is not fetched, so it is additive on the wire.
   @BuiltValueField(wireName: r'attempts')
   BuiltList<AiImportAttempt>? get attempts;
@@ -85,12 +92,16 @@ abstract class AiImportJob implements Built<AiImportJob, AiImportJobBuilder> {
   @BuiltValueField(wireName: r'preview_handle')
   String? get previewHandle;
 
-  /// Live extraction progress of a running job, when the worker already published it (issue #664). `None` for pending jobs and freshly re-claimed retry attempts (the claim SQL resets stale progress).
+  /// Live extraction progress of a **running** job, when the worker already published it (issue #664). `None` for pending jobs, for freshly re-claimed retry attempts (the claim SQL resets stale progress) and — since issue #763 — for every terminal job: the queue clears the column in the same statement that lands `succeeded`/`dead_letter`/ `payload_unavailable`, so a finished job never advertises the stage it died at (the last frame is always `storing_preview`).
   @BuiltValueField(wireName: r'progress')
   AiImportProgress? get progress;
 
   @BuiltValueField(wireName: r'retries')
   int get retries;
+
+  /// The uploaded document's own file name, as the client picked it (issue #763). Additive with `serde(default)`: `None` for every job created before the field existed and for every upload that carried no name.  The value is display metadata only — it is sanitized at the API edge (`sanitize_source_file_name`: basename, no control characters, bounded) and is deliberately **not** derived from [`Self::source_handle`], which is an opaque storage coordinate and never a name.
+  @BuiltValueField(wireName: r'source_file_name')
+  String? get sourceFileName;
 
   @BuiltValueField(wireName: r'source_format')
   SourceFormat get sourceFormat;
@@ -137,6 +148,13 @@ class _$AiImportJobSerializer implements PrimitiveSerializer<AiImportJob> {
     AiImportJob object, {
     FullType specifiedType = FullType.unspecified,
   }) sync* {
+    if (object.appliedEpisodes != null) {
+      yield r'applied_episodes';
+      yield serializers.serialize(
+        object.appliedEpisodes,
+        specifiedType: const FullType(BuiltList, [FullType(AppliedEpisode)]),
+      );
+    }
     if (object.attempts != null) {
       yield r'attempts';
       yield serializers.serialize(
@@ -221,6 +239,13 @@ class _$AiImportJobSerializer implements PrimitiveSerializer<AiImportJob> {
       object.retries,
       specifiedType: const FullType(int),
     );
+    if (object.sourceFileName != null) {
+      yield r'source_file_name';
+      yield serializers.serialize(
+        object.sourceFileName,
+        specifiedType: const FullType.nullable(String),
+      );
+    }
     yield r'source_format';
     yield serializers.serialize(
       object.sourceFormat,
@@ -278,6 +303,15 @@ class _$AiImportJobSerializer implements PrimitiveSerializer<AiImportJob> {
       final key = serializedList[i] as String;
       final value = serializedList[i + 1];
       switch (key) {
+        case r'applied_episodes':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType:
+                const FullType.nullable(BuiltList, [FullType(AppliedEpisode)]),
+          ) as BuiltList<AppliedEpisode>?;
+          if (valueDes == null) continue;
+          result.appliedEpisodes.replace(valueDes);
+          break;
         case r'attempts':
           final valueDes = serializers.deserialize(
             value,
@@ -383,6 +417,14 @@ class _$AiImportJobSerializer implements PrimitiveSerializer<AiImportJob> {
             specifiedType: const FullType(int),
           ) as int;
           result.retries = valueDes;
+          break;
+        case r'source_file_name':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType.nullable(String),
+          ) as String?;
+          if (valueDes == null) continue;
+          result.sourceFileName = valueDes;
           break;
         case r'source_format':
           final valueDes = serializers.deserialize(

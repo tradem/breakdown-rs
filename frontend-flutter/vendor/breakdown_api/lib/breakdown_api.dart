@@ -35,6 +35,7 @@ export 'package:breakdown_api/src/model/ai_preview_payload_one_of1.dart';
 export 'package:breakdown_api/src/model/ai_preview_payload_one_of2.dart';
 export 'package:breakdown_api/src/model/ai_provider_info.dart';
 export 'package:breakdown_api/src/model/appearance_outfit_view.dart';
+export 'package:breakdown_api/src/model/applied_episode.dart';
 export 'package:breakdown_api/src/model/apply_ai_import_request.dart';
 export 'package:breakdown_api/src/model/apply_ai_import_response.dart';
 export 'package:breakdown_api/src/model/apply_episode_group_request.dart';

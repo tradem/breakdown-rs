@@ -10,6 +10,8 @@ class _$ApplyAiImportResponse extends ApplyAiImportResponse {
   @override
   final int appliedCount;
   @override
+  final BuiltList<AppliedEpisode>? appliedEpisodes;
+  @override
   final int createdCharacters;
   @override
   final int createdDays;
@@ -32,6 +34,7 @@ class _$ApplyAiImportResponse extends ApplyAiImportResponse {
 
   _$ApplyAiImportResponse._(
       {required this.appliedCount,
+      this.appliedEpisodes,
       required this.createdCharacters,
       required this.createdDays,
       required this.createdEpisodes,
@@ -55,6 +58,7 @@ class _$ApplyAiImportResponse extends ApplyAiImportResponse {
     if (identical(other, this)) return true;
     return other is ApplyAiImportResponse &&
         appliedCount == other.appliedCount &&
+        appliedEpisodes == other.appliedEpisodes &&
         createdCharacters == other.createdCharacters &&
         createdDays == other.createdDays &&
         createdEpisodes == other.createdEpisodes &&
@@ -69,6 +73,7 @@ class _$ApplyAiImportResponse extends ApplyAiImportResponse {
   int get hashCode {
     var _$hash = 0;
     _$hash = $jc(_$hash, appliedCount.hashCode);
+    _$hash = $jc(_$hash, appliedEpisodes.hashCode);
     _$hash = $jc(_$hash, createdCharacters.hashCode);
     _$hash = $jc(_$hash, createdDays.hashCode);
     _$hash = $jc(_$hash, createdEpisodes.hashCode);
@@ -85,6 +90,7 @@ class _$ApplyAiImportResponse extends ApplyAiImportResponse {
   String toString() {
     return (newBuiltValueToStringHelper(r'ApplyAiImportResponse')
           ..add('appliedCount', appliedCount)
+          ..add('appliedEpisodes', appliedEpisodes)
           ..add('createdCharacters', createdCharacters)
           ..add('createdDays', createdDays)
           ..add('createdEpisodes', createdEpisodes)
@@ -104,6 +110,12 @@ class ApplyAiImportResponseBuilder
   int? _appliedCount;
   int? get appliedCount => _$this._appliedCount;
   set appliedCount(int? appliedCount) => _$this._appliedCount = appliedCount;
+
+  ListBuilder<AppliedEpisode>? _appliedEpisodes;
+  ListBuilder<AppliedEpisode> get appliedEpisodes =>
+      _$this._appliedEpisodes ??= ListBuilder<AppliedEpisode>();
+  set appliedEpisodes(ListBuilder<AppliedEpisode>? appliedEpisodes) =>
+      _$this._appliedEpisodes = appliedEpisodes;
 
   int? _createdCharacters;
   int? get createdCharacters => _$this._createdCharacters;
@@ -154,6 +166,7 @@ class ApplyAiImportResponseBuilder
     final $v = _$v;
     if ($v != null) {
       _appliedCount = $v.appliedCount;
+      _appliedEpisodes = $v.appliedEpisodes?.toBuilder();
       _createdCharacters = $v.createdCharacters;
       _createdDays = $v.createdDays;
       _createdEpisodes = $v.createdEpisodes;
@@ -187,6 +200,7 @@ class ApplyAiImportResponseBuilder
           _$ApplyAiImportResponse._(
             appliedCount: BuiltValueNullFieldError.checkNotNull(
                 appliedCount, r'ApplyAiImportResponse', 'appliedCount'),
+            appliedEpisodes: _appliedEpisodes?.build(),
             createdCharacters: BuiltValueNullFieldError.checkNotNull(
                 createdCharacters,
                 r'ApplyAiImportResponse',
@@ -209,6 +223,9 @@ class ApplyAiImportResponseBuilder
     } catch (_) {
       late String _$failedField;
       try {
+        _$failedField = 'appliedEpisodes';
+        _appliedEpisodes?.build();
+
         _$failedField = 'skippedDayGroups';
         _skippedDayGroups?.build();
         _$failedField = 'unappliedOutfits';

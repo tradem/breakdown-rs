@@ -301,6 +301,7 @@ async fn ai_payload_storage_lifecycle_survives_restart() -> Result<()> {
             dedup_key: format!("lifecycle-{}", job_id.as_uuid()),
             document_digest: "digest".to_owned(),
             source_handle: source_handle.clone(),
+            source_file_name: None,
         })
         .await?;
     assert_eq!(enqueued, AiImportEnqueueResult::Enqueued(job_id));
@@ -426,6 +427,7 @@ async fn ai_payload_apply_round_trips_through_projection() -> Result<()> {
             dedup_key: format!("apply-{}", job_id.as_uuid()),
             document_digest: "digest".to_owned(),
             source_handle: source_handle.clone(),
+            source_file_name: None,
         })
         .await?;
     assert_eq!(enqueued, AiImportEnqueueResult::Enqueued(job_id));
@@ -545,6 +547,7 @@ async fn ai_payload_apply_round_trips_through_projection() -> Result<()> {
                 apply_state: TelemetryApplyState::NotApplied,
                 ..Telemetry::default()
             }),
+            known_episodes: Vec::new(),
         })
         .await?;
     assert_eq!(applied.applied.len(), 1, "one scene must be applied");

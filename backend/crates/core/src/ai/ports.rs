@@ -24,8 +24,8 @@ use crate::shared::{AggregateVersion, BlockId, UserId};
 
 use super::preview::{ScriptContext, ShootingSchedule};
 use super::views::{
-    AiImportAttempt, AiImportJob, AiImportJobId, AiImportProgress, DocumentKind, ModelPricing,
-    SourceFormat, Telemetry,
+    AiImportAttempt, AiImportJob, AiImportJobId, AiImportProgress, AppliedEpisode, DocumentKind,
+    ModelPricing, SourceFormat, Telemetry,
 };
 
 /// Curated providers. The enum is intentionally non-exhaustive so adding a
@@ -280,6 +280,10 @@ pub struct AiImportEnqueueRequest {
     pub dedup_key: String,
     pub document_digest: String,
     pub source_handle: String,
+    /// The uploaded document's own file name, already sanitized at the API
+    /// edge (issue #763). `None` for an upload that carried no name, which the
+    /// job row stores as `NULL` — never a fabricated or handle-derived value.
+    pub source_file_name: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -557,6 +561,20 @@ pub trait AiImportQueue: Send + Sync {
         &self,
         id: AiImportJobId,
         telemetry: Telemetry,
+    ) -> Result<(), DomainError>;
+
+    /// Record which episodes a successful apply landed this job's rows in
+    /// (issue #763), so the jobs list can name the import's target.
+    ///
+    /// Not owner-fenced, for the same reason as
+    /// [`record_telemetry`](Self::record_telemetry): the apply only runs on a
+    /// `succeeded` job and no worker holds a claim on it. The write is a plain
+    /// last-writer-wins replacement — a re-apply of the same preview (the apply
+    /// path is idempotent by mapping row) converges on the same summary.
+    async fn record_applied_episodes(
+        &self,
+        id: AiImportJobId,
+        episodes: &[AppliedEpisode],
     ) -> Result<(), DomainError>;
 
     /// List a job's recorded attempt history, newest first (issue #637).

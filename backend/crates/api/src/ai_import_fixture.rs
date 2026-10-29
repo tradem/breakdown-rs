@@ -164,6 +164,7 @@ async fn seed_ai_import_preview<P: crate::state::Ports>(
                 dedup_key: format!("test-support-fixture|{}", job_id.as_uuid()),
                 document_digest: format!("test-support-fixture-digest|{}", job_id.as_uuid()),
                 source_handle,
+                source_file_name: None,
             },
             &preview_handle,
         )

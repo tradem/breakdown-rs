@@ -10,8 +10,8 @@ use std::time::Duration;
 
 use breakdown_core::ai::{
     AiImportAttempt, AiImportEnqueueRequest, AiImportEnqueueResult, AiImportJob, AiImportJobId,
-    AiImportProgress, AiImportQueue, CostBreakdown, DocumentKind, JobStatus, JobTelemetrySummary,
-    LlmProvider, SourceFormat, Telemetry,
+    AiImportProgress, AiImportQueue, AppliedEpisode, CostBreakdown, DocumentKind, JobStatus,
+    JobTelemetrySummary, LlmProvider, SourceFormat, Telemetry,
 };
 use breakdown_core::error::DomainError;
 use breakdown_core::shared::UserId;
@@ -152,8 +152,12 @@ impl AiImportQueue for PgAiImportQueue {
         let row = sqlx::query(
             r#"
             INSERT INTO ai_import.ai_import_job
-                (id, user_id, document_kind, source_format, block_id, dedup_key, document_digest, source_handle)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                (id, user_id, document_kind, source_format, block_id, dedup_key, document_digest, source_handle, source_file_name)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            -- The conflict target only echoes the key it collided on: a
+            -- duplicate re-upload must NOT overwrite the existing row's
+            -- display name (issue #763). The row the user already knows keeps
+            -- the name it was created with.
             ON CONFLICT (user_id, dedup_key) DO UPDATE
                 SET dedup_key = EXCLUDED.dedup_key
             RETURNING id, (xmax = 0) AS inserted
@@ -167,6 +171,7 @@ impl AiImportQueue for PgAiImportQueue {
         .bind(&request.dedup_key)
         .bind(&request.document_digest)
         .bind(&request.source_handle)
+        .bind(request.source_file_name.as_deref())
         .fetch_one(&self.pool)
         .await
         .map_err(map_sqlx_error)?;
@@ -573,8 +578,8 @@ impl AiImportQueue for PgAiImportQueue {
         sqlx::query(
             r#"
             INSERT INTO ai_import.ai_import_job
-                (id, user_id, document_kind, source_format, block_id, dedup_key, document_digest, source_handle, status, preview_handle)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'succeeded', $9)
+                (id, user_id, document_kind, source_format, block_id, dedup_key, document_digest, source_handle, source_file_name, status, preview_handle)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'succeeded', $10)
             "#,
         )
         .bind(request.id.as_uuid())
@@ -585,6 +590,7 @@ impl AiImportQueue for PgAiImportQueue {
         .bind(&request.dedup_key)
         .bind(&request.document_digest)
         .bind(&request.source_handle)
+        .bind(request.source_file_name.as_deref())
         .bind(preview_handle)
         .execute(&self.pool)
         .await
@@ -603,6 +609,11 @@ impl AiImportQueue for PgAiImportQueue {
             r#"
             UPDATE ai_import.ai_import_job
             SET status = 'succeeded', preview_handle = $3,
+                -- A finished job has no live stage (issue #763). The last frame
+                -- a worker publishes is `storing_preview`, so leaving the
+                -- column set made every succeeded job advertise that stage
+                -- forever — to every consumer, across restarts.
+                progress = NULL,
                 last_error = NULL, next_attempt_at = NULL,
                 worker_id = NULL, lease_expires_at = NULL,
                 -- The permit is released by its holder around this write, so
@@ -658,6 +669,15 @@ impl AiImportQueue for PgAiImportQueue {
                                 interval '1 minute' * power(2, retries)::int,
                                 interval '6 hours'
                             )
+                        ELSE NULL
+                    END,
+                    -- A terminal job also has no live stage (issue #763); a
+                    -- job that merely backs off keeps its progress until the
+                    -- next claim replaces it. `retries` is the pre-update
+                    -- value inside this SET list, so this predicate mirrors
+                    -- the status CASE above exactly.
+                    progress = CASE
+                        WHEN $4 AND retries + 1 < max_retries THEN progress
                         ELSE NULL
                     END,
                     -- A terminal or backing-off job holds no claim: releasing the
@@ -721,6 +741,8 @@ impl AiImportQueue for PgAiImportQueue {
                 SET status = 'payload_unavailable',
                     last_error = LEFT($3, 1000),
                     next_attempt_at = NULL,
+                    -- Terminal, so no live stage survives it (issue #763).
+                    progress = NULL,
                     worker_id = NULL,
                     lease_expires_at = NULL,
                     permit_id = NULL,
@@ -857,6 +879,44 @@ impl AiImportQueue for PgAiImportQueue {
         .execute(&self.pool)
         .await
         .map_err(map_sqlx_error)?;
+        Ok(())
+    }
+
+    /// Record the target episodes of a successful apply (issue #763).
+    ///
+    /// Unfenced for the same reason as [`record_telemetry`]: the apply only
+    /// runs on a `succeeded` job, so no worker holds a claim that could be
+    /// displaced. `updated_at` is bumped deliberately — the jobs list orders by
+    /// it, and a job the user just applied to is the most recently *used* row.
+    /// Payload retention is measured from the same column, so an applied job's
+    /// preview lives a full retention window longer, which is the intended
+    /// direction: the user may still re-open it.
+    async fn record_applied_episodes(
+        &self,
+        id: AiImportJobId,
+        episodes: &[AppliedEpisode],
+    ) -> Result<(), DomainError> {
+        let payload = serde_json::to_value(episodes).map_err(|error| {
+            DomainError::validation(format!(
+                "AI import applied-episode summary is not serializable: {error}"
+            ))
+        })?;
+        let result = sqlx::query(
+            r#"
+            UPDATE ai_import.ai_import_job
+            SET applied_episodes = $2, updated_at = now()
+            WHERE id = $1
+            RETURNING pg_notify('ai_import_job_events', id::text)
+            "#,
+        )
+        .bind(id.as_uuid())
+        .bind(payload)
+        .execute(&self.pool)
+        .await
+        .map_err(map_sqlx_error)?;
+        if result.rows_affected() > 0 {
+            self.hub.notify(id);
+        }
         Ok(())
     }
 
@@ -1124,6 +1184,10 @@ fn map_job_row(row: sqlx::postgres::PgRow) -> Result<AiImportJob, DomainError> {
         dedup_key: row.try_get("dedup_key").map_err(map_sqlx_error)?,
         document_digest: row.try_get("document_digest").map_err(map_sqlx_error)?,
         source_handle: row.try_get("source_handle").map_err(map_sqlx_error)?,
+        // Display metadata (issue #763). `NULL` for pre-#763 rows and for
+        // uploads that carried no name — the wire field is `null`, and no
+        // client invents a name from the opaque handle.
+        source_file_name: row.try_get("source_file_name").map_err(map_sqlx_error)?,
         status,
         preview_handle: row.try_get("preview_handle").map_err(map_sqlx_error)?,
         last_error: row.try_get("last_error").map_err(map_sqlx_error)?,
@@ -1147,7 +1211,27 @@ fn map_job_row(row: sqlx::postgres::PgRow) -> Result<AiImportJob, DomainError> {
         attempts: Vec::new(),
         telemetry: decode_job_telemetry(&row),
         cost: decode_job_cost(&row),
+        applied_episodes: decode_applied_episodes(&row),
     })
+}
+
+/// Decode the persisted `applied_episodes` JSONB list (issue #763).
+///
+/// A display summary, exactly like [`decode_job_cost`]: an undecodable payload
+/// degrades to "no recorded target" rather than failing the whole job read — a
+/// broken display field must never make the job unreachable.
+fn decode_applied_episodes(row: &sqlx::postgres::PgRow) -> Vec<AppliedEpisode> {
+    let value: Option<serde_json::Value> = row.try_get("applied_episodes").ok().flatten();
+    let Some(value) = value else {
+        return Vec::new();
+    };
+    match serde_json::from_value::<Vec<AppliedEpisode>>(value) {
+        Ok(episodes) => episodes,
+        Err(err) => {
+            tracing::warn!(error = %err, "failed to decode ai_import applied_episodes payload");
+            Vec::new()
+        }
+    }
 }
 
 /// Decode the telemetry columns of one job row into the wire summary

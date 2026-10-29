@@ -17,10 +17,10 @@ use anyhow::anyhow;
 use async_trait::async_trait;
 use breakdown_core::ai::{
     AiImportBounds, AiImportEnqueueRequest, AiImportEnqueueResult, AiImportJob, AiImportJobId,
-    AiImportMapping, AiImportMappingRepository, AiImportQueue, ApplyMapping, DecisionAnswer,
-    DecisionCallOutcome, DecisionClient, DecisionRequest, DocumentKind, DraftCharacter,
-    DraftEpisode, DraftOutfit, DraftScene, DraftShootingDay, EpisodeGroupPlan, EpisodeTarget,
-    JobStatus, LlmCallOutcome, LlmCallUsage, LlmChatRequest, LlmClient, LlmProvider,
+    AiImportMapping, AiImportMappingRepository, AiImportQueue, AppliedEpisode, ApplyMapping,
+    DecisionAnswer, DecisionCallOutcome, DecisionClient, DecisionRequest, DocumentKind,
+    DraftCharacter, DraftEpisode, DraftOutfit, DraftScene, DraftShootingDay, EpisodeGroupPlan,
+    EpisodeTarget, JobStatus, LlmCallOutcome, LlmCallUsage, LlmChatRequest, LlmClient, LlmProvider,
     OutfitDecision, PRIMARY_ORDINAL, ScriptContext, ShootingDayPlan, ShootingSchedule,
     ShootingScheduleRow, SourceFormat, Telemetry, TelemetryApplyState, UnappliedOutfitReason,
     UncertaintyKind, character_identity, character_mapping_ref, mapping_kind,
@@ -154,6 +154,8 @@ async fn merge_worker_empty_input_is_non_retryable() {
                 updated_at: Utc::now(),
                 telemetry: None,
                 cost: None,
+                source_file_name: None,
+                applied_episodes: Vec::new(),
             };
             Ok(Some(job))
         }
@@ -201,6 +203,14 @@ async fn merge_worker_empty_input_is_non_retryable() {
             &self,
             _id: breakdown_core::ai::AiImportJobId,
             _telemetry: breakdown_core::ai::Telemetry,
+        ) -> Result<(), DomainError> {
+            Ok(())
+        }
+
+        async fn record_applied_episodes(
+            &self,
+            _id: AiImportJobId,
+            _episodes: &[AppliedEpisode],
         ) -> Result<(), DomainError> {
             Ok(())
         }
@@ -352,6 +362,14 @@ async fn merge_worker_success_records_telemetry() {
             self.telemetry.lock().unwrap().push(telemetry);
             Ok(())
         }
+
+        async fn record_applied_episodes(
+            &self,
+            _id: AiImportJobId,
+            _episodes: &[AppliedEpisode],
+        ) -> Result<(), DomainError> {
+            Ok(())
+        }
     }
 
     fn scene(number: u32) -> SceneView {
@@ -414,6 +432,8 @@ async fn merge_worker_success_records_telemetry() {
         updated_at: Utc::now(),
         telemetry: None,
         cost: None,
+        source_file_name: None,
+        applied_episodes: Vec::new(),
     };
     let queue = Arc::new(MergeCaptureQueue {
         job: job.clone(),
@@ -565,6 +585,14 @@ impl AiImportQueue for FakeQueue {
         self.state.lock().unwrap().telemetry.push(telemetry);
         Ok(())
     }
+
+    async fn record_applied_episodes(
+        &self,
+        _id: AiImportJobId,
+        _episodes: &[AppliedEpisode],
+    ) -> Result<(), DomainError> {
+        Ok(())
+    }
 }
 
 #[derive(Clone, Default)]
@@ -673,6 +701,8 @@ fn script_job(id: AiImportJobId) -> AiImportJob {
         updated_at: Utc::now(),
         telemetry: None,
         cost: None,
+        source_file_name: None,
+        applied_episodes: Vec::new(),
     }
 }
 
@@ -766,6 +796,8 @@ fn schedule_job(format: SourceFormat) -> AiImportJob {
         updated_at: Utc::now(),
         telemetry: None,
         cost: None,
+        source_file_name: None,
+        applied_episodes: Vec::new(),
     }
 }
 
@@ -2158,6 +2190,7 @@ async fn apply_retry_is_a_noop_for_confirmed_mappings() {
                 },
                 ..Telemetry::default()
             }),
+            known_episodes: Vec::new(),
         })
         .await
         .unwrap();
@@ -2178,6 +2211,7 @@ async fn apply_retry_is_a_noop_for_confirmed_mappings() {
             episode_groups: Vec::new(),
             shooting_days: Vec::new(),
             telemetry: None,
+            known_episodes: Vec::new(),
         })
         .await
         .unwrap();
@@ -2266,6 +2300,7 @@ async fn apply_script_concurrent_applies_create_one_scene_per_draft() {
                     episode_groups: Vec::new(),
                     shooting_days: Vec::new(),
                     telemetry: None,
+                    known_episodes: Vec::new(),
                 })
                 .await
         }));
@@ -2416,6 +2451,7 @@ async fn script_pdf_round_trip_reaches_scene_apply() {
             episode_groups: Vec::new(),
             shooting_days: Vec::new(),
             telemetry: None,
+            known_episodes: Vec::new(),
         })
         .await
         .unwrap();
@@ -3076,6 +3112,7 @@ impl ScriptApplyFixture {
                 episode_groups: Vec::new(),
                 shooting_days: Vec::new(),
                 telemetry: None,
+                known_episodes: Vec::new(),
             })
             .await
     }
@@ -3115,6 +3152,7 @@ impl ScriptApplyFixture {
                 episode_groups,
                 shooting_days,
                 telemetry: None,
+                known_episodes: Vec::new(),
             })
             .await
     }
@@ -3143,6 +3181,7 @@ impl ScriptApplyFixture {
                 episode_groups: Vec::new(),
                 shooting_days: Vec::new(),
                 telemetry: None,
+                known_episodes: Vec::new(),
             })
             .await
     }
@@ -3170,6 +3209,7 @@ impl ScriptApplyFixture {
                 episode_groups: Vec::new(),
                 shooting_days: Vec::new(),
                 telemetry: None,
+                known_episodes: Vec::new(),
             })
             .await
     }

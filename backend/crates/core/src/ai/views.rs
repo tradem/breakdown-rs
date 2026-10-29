@@ -314,6 +314,16 @@ pub struct AiImportJob {
     pub dedup_key: String,
     pub document_digest: String,
     pub source_handle: String,
+    /// The uploaded document's own file name, as the client picked it (issue
+    /// #763). Additive with `serde(default)`: `None` for every job created
+    /// before the field existed and for every upload that carried no name.
+    ///
+    /// The value is display metadata only — it is sanitized at the API edge
+    /// (`sanitize_source_file_name`: basename, no control characters, bounded)
+    /// and is deliberately **not** derived from [`Self::source_handle`], which
+    /// is an opaque storage coordinate and never a name.
+    #[serde(default)]
+    pub source_file_name: Option<String>,
     pub status: JobStatus,
     pub preview_handle: Option<String>,
     pub last_error: Option<String>,
@@ -329,9 +339,13 @@ pub struct AiImportJob {
     pub next_attempt_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
-    /// Live extraction progress of a running job, when the worker already
-    /// published it (issue #664). `None` for pending jobs and freshly
-    /// re-claimed retry attempts (the claim SQL resets stale progress).
+    /// Live extraction progress of a **running** job, when the worker already
+    /// published it (issue #664). `None` for pending jobs, for freshly
+    /// re-claimed retry attempts (the claim SQL resets stale progress) and —
+    /// since issue #763 — for every terminal job: the queue clears the column
+    /// in the same statement that lands `succeeded`/`dead_letter`/
+    /// `payload_unavailable`, so a finished job never advertises the stage it
+    /// died at (the last frame is always `storing_preview`).
     #[serde(default)]
     pub progress: Option<AiImportProgress>,
     /// Content-free operational telemetry recorded for this job (issue
@@ -352,6 +366,35 @@ pub struct AiImportJob {
     /// history is not fetched, so it is additive on the wire.
     #[serde(default)]
     pub attempts: Vec<AiImportAttempt>,
+    /// The episodes a successful **script** apply landed this job's rows in
+    /// (issue #763), so the jobs list can name the import's target instead of
+    /// only its date. Additive with `serde(default)`: empty for a job no apply
+    /// has run for yet, and for a schedule apply (which merges onto the
+    /// project's existing scenes and days and therefore has no single target
+    /// episode). Written by the apply path from the plan and target data it
+    /// already holds.
+    #[serde(default)]
+    pub applied_episodes: Vec<AppliedEpisode>,
+}
+
+/// One target episode of an applied AI-import preview (issue #763).
+///
+/// The `applied_count` is the number of scene rows **this** job wrote into the
+/// episode, so a multi-episode import can be read at a glance instead of being
+/// summed up by the reader.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct AppliedEpisode {
+    /// The episode the rows were applied into.
+    pub id: Uuid,
+    /// Its production-global number (the identity a user speaks in), when the
+    /// apply path knew it. `None` is honest absence — never `0`, never a number
+    /// read back from a projection the write path must not consult.
+    pub number: Option<i32>,
+    /// Its title, when the episode has one. `None` is honest absence — an
+    /// untitled episode renders by number alone.
+    pub name: Option<String>,
+    /// Scene rows applied into this episode.
+    pub applied_count: u32,
 }
 
 /// One recorded execution attempt of an AI import job (issue #637).

@@ -6,6 +6,7 @@
 
 // ignore_for_file: unused_element
 import 'package:built_collection/built_collection.dart';
+import 'package:breakdown_api/src/model/applied_episode.dart';
 import 'package:breakdown_api/src/model/unapplied_outfit.dart';
 import 'package:built_value/built_value.dart';
 import 'package:built_value/serializer.dart';
@@ -16,6 +17,7 @@ part 'apply_ai_import_response.g.dart';
 ///
 /// Properties:
 /// * [appliedCount]
+/// * [appliedEpisodes] - The episodes this apply landed rows in, each with its own row count (issue #763). The same summary is persisted on the job, so the jobs list can name the import's target afterwards. Empty for a schedule apply, which merges onto the project's existing scenes and days and therefore has no single target episode.
 /// * [createdCharacters] - Figures the script apply created. A figure named by several draft rows is created once, so this is not `applied_count`-related. `0` for a schedule apply, which has no figures.
 /// * [createdDays]
 /// * [createdEpisodes] - Episodes the script apply created for draft episode groups the reviewer mapped to a NEW episode (issue #581). `0` for a schedule apply.
@@ -29,6 +31,10 @@ abstract class ApplyAiImportResponse
     implements Built<ApplyAiImportResponse, ApplyAiImportResponseBuilder> {
   @BuiltValueField(wireName: r'applied_count')
   int get appliedCount;
+
+  /// The episodes this apply landed rows in, each with its own row count (issue #763). The same summary is persisted on the job, so the jobs list can name the import's target afterwards. Empty for a schedule apply, which merges onto the project's existing scenes and days and therefore has no single target episode.
+  @BuiltValueField(wireName: r'applied_episodes')
+  BuiltList<AppliedEpisode>? get appliedEpisodes;
 
   /// Figures the script apply created. A figure named by several draft rows is created once, so this is not `applied_count`-related. `0` for a schedule apply, which has no figures.
   @BuiltValueField(wireName: r'created_characters')
@@ -94,6 +100,13 @@ class _$ApplyAiImportResponseSerializer
       object.appliedCount,
       specifiedType: const FullType(int),
     );
+    if (object.appliedEpisodes != null) {
+      yield r'applied_episodes';
+      yield serializers.serialize(
+        object.appliedEpisodes,
+        specifiedType: const FullType(BuiltList, [FullType(AppliedEpisode)]),
+      );
+    }
     yield r'created_characters';
     yield serializers.serialize(
       object.createdCharacters,
@@ -167,6 +180,15 @@ class _$ApplyAiImportResponseSerializer
             specifiedType: const FullType(int),
           ) as int;
           result.appliedCount = valueDes;
+          break;
+        case r'applied_episodes':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType:
+                const FullType.nullable(BuiltList, [FullType(AppliedEpisode)]),
+          ) as BuiltList<AppliedEpisode>?;
+          if (valueDes == null) continue;
+          result.appliedEpisodes.replace(valueDes);
           break;
         case r'created_characters':
           final valueDes = serializers.deserialize(

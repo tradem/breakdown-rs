@@ -23,6 +23,7 @@ pub mod error;
 pub mod events;
 pub mod ports;
 pub mod preview;
+pub mod source_name;
 pub mod views;
 
 pub use aggregate::AiConfig;
@@ -66,9 +67,10 @@ pub use preview::{
     plan_scene_apply, sanitize_meta_summary, scene_beat_lanes, shooting_day_group_refs,
     stable_draft_ref, verify_draft_outfits,
 };
+pub use source_name::{MAX_SOURCE_FILE_NAME_CHARS, sanitize_source_file_name};
 pub use views::{
     AiConfigView, AiImportAttempt, AiImportJob, AiImportJobId, AiImportProgress, AiImportStage,
-    CostBreakdown, CostDisplayPreference, CostStatus, Currency, DocumentKind, EnergyCostBreakdown,
-    ImageCostBreakdown, JobStatus, JobTelemetrySummary, ModelPricing, PricingSource, SourceFormat,
-    Telemetry, TelemetryApplyState, TokenCostBreakdown,
+    AppliedEpisode, CostBreakdown, CostDisplayPreference, CostStatus, Currency, DocumentKind,
+    EnergyCostBreakdown, ImageCostBreakdown, JobStatus, JobTelemetrySummary, ModelPricing,
+    PricingSource, SourceFormat, Telemetry, TelemetryApplyState, TokenCostBreakdown,
 };

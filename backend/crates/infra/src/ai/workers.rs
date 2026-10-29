@@ -16,17 +16,17 @@ use std::collections::HashMap;
 
 use breakdown_core::ai::{
     AiImportBounds, AiImportJob, AiImportJobId, AiImportMapping, AiImportMappingRepository,
-    AiImportProgress, AiImportQueue, AiImportStage, AiModelPricingRepository, ApplyGateError,
-    ApplyMapping, ApplyMappingDecision, CategoryVocabularyEntry, CharacterApplyPlan, CostBreakdown,
-    DecisionClient, DocumentKind, EpisodeGroupPlan, LlmCallUsage, LlmChatRequest, LlmClient,
-    MergedPreview, OutfitApplyPlan, PRIMARY_ORDINAL, PieceApplyPlan, PlannedEpisode,
-    PlannedShootingDay, ReviewerDecisions, SceneApplyCommand, SceneApplyPlan, ScriptContext,
-    ShootingDayPlan, ShootingSchedule, SourceFormat, Telemetry, TelemetryApplyState,
-    UnappliedOutfit, UnappliedOutfitReason, Uncertainty, UncertaintyAcknowledgement,
-    UncertaintyKind, category_conflict_uncertainties, character_mapping_ref, draft_row_ref,
-    ensure_merge_applyable, extract_scenes, mapping_kind, merge_schedule_to_scenes,
-    parse_script_day, plan_scene_apply, sanitize_meta_summary, scene_beat_lanes, stable_draft_ref,
-    verify_draft_outfits,
+    AiImportProgress, AiImportQueue, AiImportStage, AiModelPricingRepository, AppliedEpisode,
+    ApplyGateError, ApplyMapping, ApplyMappingDecision, CategoryVocabularyEntry,
+    CharacterApplyPlan, CostBreakdown, DecisionClient, DocumentKind, EpisodeGroupPlan,
+    LlmCallUsage, LlmChatRequest, LlmClient, MergedPreview, OutfitApplyPlan, PRIMARY_ORDINAL,
+    PieceApplyPlan, PlannedEpisode, PlannedShootingDay, ReviewerDecisions, SceneApplyCommand,
+    SceneApplyPlan, ScriptContext, ShootingDayPlan, ShootingSchedule, SourceFormat, Telemetry,
+    TelemetryApplyState, UnappliedOutfit, UnappliedOutfitReason, Uncertainty,
+    UncertaintyAcknowledgement, UncertaintyKind, category_conflict_uncertainties,
+    character_mapping_ref, draft_row_ref, ensure_merge_applyable, extract_scenes, mapping_kind,
+    merge_schedule_to_scenes, parse_script_day, plan_scene_apply, sanitize_meta_summary,
+    scene_beat_lanes, stable_draft_ref, verify_draft_outfits,
 };
 use breakdown_core::character::commands::CreateCharacter;
 use breakdown_core::character::ports::CharacterCommands;
@@ -1217,6 +1217,12 @@ pub struct ScriptApplyResult {
     /// never dropped: a silently missing look is the failure mode this change
     /// exists to remove (design D5).
     pub unapplied_outfits: Vec<UnappliedOutfit>,
+    /// The episodes this apply landed rows in, in first-applied order, each
+    /// with its own row count (issue #763). The apply is the only place that
+    /// knows both halves — the resolved target episode of every row and how
+    /// many rows went there — so the summary is produced here and persisted by
+    /// the API edge; no projection is consulted.
+    pub applied_episodes: Vec<AppliedEpisode>,
 }
 
 /// A figure as far as this apply is concerned.
@@ -1424,6 +1430,13 @@ pub struct ApplyScriptRequest<'a> {
     /// Per-group episode targets keyed by the preview's group refs. Absent
     /// groups (rows without episode metadata) apply to `episode_id`.
     pub episode_groups: Vec<EpisodeGroupPlan>,
+    /// Display identities of the episodes rows can land in, resolved at the API
+    /// edge (issue #763): the target episode plus every episode an *existing*
+    /// group target names. The worker only reads them to label the
+    /// [`ScriptApplyResult::applied_episodes`] summary it already counts; a
+    /// missing entry degrades that entry's number/name to `None` and never
+    /// fails the apply — a display label must not be able to block a write.
+    pub known_episodes: Vec<AppliedEpisodeIdentity>,
     /// Per-day decisions keyed by the preview's day-group refs (issue #706).
     /// An accepted group's rows are scheduled onto a NEW episode-scoped day;
     /// a rejected group's rows apply unscheduled.
@@ -1444,6 +1457,61 @@ pub struct ApplyScriptRequest<'a> {
     /// against the preview's own candidate list.
     pub continuity_selections: Vec<breakdown_core::ai::OutfitContinuitySelection>,
     pub telemetry: Option<Telemetry>,
+}
+
+/// Count one applied row into the per-episode summary (issue #763).
+///
+/// `row_episode` is the row's own planned episode: a group this apply CREATES
+/// carries its number and title, because the apply just made the episode from
+/// them. An existing group (or a row without a group) carries only the id, so
+/// the label comes from `known_episodes` — the identities the API edge resolved
+/// before dispatch. A miss on both sides leaves the entry unlabelled (`None`
+/// number/name) instead of inventing one: the count is still true, and the
+/// client renders what it can.
+fn record_applied_episode(
+    applied: &mut Vec<AppliedEpisode>,
+    episode_id: EpisodeId,
+    row_episode: &PlannedEpisode,
+    known_episodes: &[AppliedEpisodeIdentity],
+) {
+    if let Some(entry) = applied.iter_mut().find(|entry| entry.id == episode_id.0) {
+        entry.applied_count += 1;
+        return;
+    }
+    let identity = match row_episode {
+        PlannedEpisode::New { number, name, .. } => Some((Some(*number), name.clone())),
+        PlannedEpisode::Existing(_) => known_episodes
+            .iter()
+            .find(|known| known.id == episode_id)
+            .map(|known| (Some(known.number), known.name.clone())),
+    };
+    let (number, name) = identity.unwrap_or((None, None));
+    if number.is_none() && name.is_none() {
+        // The edge did not resolve this episode's identity. The count is still
+        // recordable and still true; only the label is missing.
+        tracing::warn!(
+            episode_id = %episode_id.0,
+            "applied-episode identity was not resolved at the API edge; recording an unlabelled entry"
+        );
+    }
+    applied.push(AppliedEpisode {
+        id: episode_id.0,
+        number,
+        name,
+        applied_count: 1,
+    });
+}
+
+/// Display identity of one episode an apply may land rows in (issue #763).
+///
+/// Resolved where a projection read is legitimate — the API edge — and carried
+/// into the apply so the write path never queries one (CQRS boundary). The
+/// worker only ever *labels* with it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AppliedEpisodeIdentity {
+    pub id: EpisodeId,
+    pub number: i32,
+    pub name: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1575,6 +1643,7 @@ where
             project_id,
             block_id,
             episode_groups,
+            known_episodes,
             shooting_days,
             acknowledged_uncertainties,
             categories,
@@ -1645,6 +1714,7 @@ where
             created_days: 0,
             planned_scene_shoots: 0,
             unapplied_outfits: plan.unapplied_outfits,
+            applied_episodes: Vec::new(),
         };
         // Figures named by several draft rows are created once. This is a cache
         // of what *this* request resolved, not a projection read: everything that
@@ -1715,6 +1785,17 @@ where
                 .apply_scene_row(actor.clone(), preview_id, row_episode_id, project_id, row)
                 .await?;
             result.applied.push(scene);
+            // (issue #763) one row applied into `row_episode_id`: count it, and
+            // label the entry on first sight. `row.episode` is authoritative
+            // for a group this apply CREATES (it made the episode, so it holds
+            // the number and title); an existing group's identity comes from
+            // the edge-resolved `known_episodes`.
+            record_applied_episode(
+                &mut result.applied_episodes,
+                row_episode_id,
+                &row.episode,
+                &known_episodes,
+            );
 
             for character in &row.characters {
                 if self

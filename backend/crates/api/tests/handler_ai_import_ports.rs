@@ -45,9 +45,9 @@ use api::state::AppState;
 use breakdown_core::ai::{
     AiConfigView, AiImportJob, AiImportJobId, AiImportMappingRepository, AiImportPreviewResponse,
     AiImportQueue, AiPreviewPayload, ApplyMapping, ApplyMappingDecision, CostDisplayPreference,
-    DocumentKind, DraftScene, EpisodeTarget, JobStatus, LlmProvider, MergedPreview, ScriptContext,
-    ShootingSchedule, SourceFormat, TelemetryApplyState, Uncertainty, UncertaintyAcknowledgement,
-    UncertaintyKind,
+    DocumentKind, DraftEpisode, DraftScene, EpisodeTarget, JobStatus, LlmProvider, MergedPreview,
+    ScriptContext, ShootingSchedule, SourceFormat, TelemetryApplyState, Uncertainty,
+    UncertaintyAcknowledgement, UncertaintyKind,
 };
 use breakdown_core::block::BlockView;
 use breakdown_core::episode::views::EpisodeView;
@@ -118,6 +118,17 @@ fn pdf_headers(block_id: BlockId) -> HeaderMap {
     headers
 }
 
+/// A PDF upload request carrying the document's display name (issue #763) —
+/// percent-encoded UTF-8, exactly as the Flutter client sends it.
+fn pdf_headers_with_name(block_id: BlockId, encoded_name: &str) -> HeaderMap {
+    let mut headers = pdf_headers(block_id);
+    headers.insert(
+        "x-document-filename",
+        HeaderValue::from_str(encoded_name).expect("a percent-encoded name is header-safe"),
+    );
+    headers
+}
+
 /// A schedule upload request with the given Content-Type. The schedule
 /// handler accepts `text/csv`, `application/pdf` and `text/plain`.
 fn schedule_headers(content_type: &'static str, block_id: BlockId) -> HeaderMap {
@@ -153,7 +164,155 @@ fn succeeded_job(preview_handle: &str) -> AiImportJob {
         updated_at: now,
         telemetry: None,
         cost: None,
+        source_file_name: None,
+        applied_episodes: Vec::new(),
     }
+}
+
+/// Issue #763: the upload captures the picked document's own name from the
+/// percent-encoded `X-Document-Filename` header, so the jobs list can show
+/// which document a row belongs to. Nothing else about the raw-body contract
+/// moves — same path, same declared media type, same bytes.
+#[tokio::test]
+async fn upload_ai_script_persists_the_percent_encoded_file_name() {
+    let ports = FakePorts::default();
+    let queue = ports.ai_import_queue.clone();
+    let block_id = BlockId::from_uuid(Uuid::now_v7());
+    seed_ai_block_access(&ports, block_id).await;
+
+    let result = upload_ai_script::<FakePorts>(
+        State(state(ports)),
+        user(),
+        // "Erlösung Skript.pdf" — the umlaut is percent-encoded UTF-8, because
+        // an HTTP header value is ASCII.
+        pdf_headers_with_name(block_id, "Erl%C3%B6sung%20Skript.pdf"),
+        api::problems::Bytes(axum::body::Bytes::from_static(b"%PDF-1.7 fake")),
+    )
+    .await;
+
+    let (status, Json(job_id)) = result.expect("authorized PDF upload should be accepted");
+    assert_eq!(status, StatusCode::ACCEPTED);
+    let job = queue
+        .get(job_id)
+        .await
+        .expect("queue read should succeed")
+        .expect("enqueued job should be retrievable");
+    assert_eq!(
+        job.source_file_name.as_deref(),
+        Some("Erlösung Skript.pdf"),
+        "the decoded name must survive verbatim"
+    );
+}
+
+/// Issue #763: an upload without the header stores `NULL` — an honest absence,
+/// never a fabricated name and never the opaque `source_handle`.
+#[tokio::test]
+async fn upload_ai_script_without_a_file_name_stays_absent() {
+    let ports = FakePorts::default();
+    let queue = ports.ai_import_queue.clone();
+    let block_id = BlockId::from_uuid(Uuid::now_v7());
+    seed_ai_block_access(&ports, block_id).await;
+
+    let result = upload_ai_script::<FakePorts>(
+        State(state(ports)),
+        user(),
+        pdf_headers(block_id),
+        api::problems::Bytes(axum::body::Bytes::from_static(b"%PDF-1.7 fake")),
+    )
+    .await;
+
+    let (_, Json(job_id)) = result.expect("authorized PDF upload should be accepted");
+    let job = queue
+        .get(job_id)
+        .await
+        .expect("queue read should succeed")
+        .expect("enqueued job should be retrievable");
+    assert_eq!(job.source_file_name, None);
+}
+
+/// Issue #763: a hostile or malformed name is sanitized at the edge — a path
+/// never survives, control characters never round-trip, and a name that cannot
+/// be decoded degrades to "no name" rather than an error. A display field must
+/// never be able to block an upload.
+#[tokio::test]
+async fn upload_ai_script_sanitizes_a_hostile_file_name() {
+    for (encoded, expected) in [
+        // A path with a forged newline: only the basename survives.
+        ("..%2F..%2Fetc%2Fpasswd%0A", Some("passwd")),
+        // A CRLF header-injection attempt cannot produce a second line.
+        ("a.pdf%0D%0AX-Injected%3A%201", Some("a.pdfX-Injected: 1")),
+        // Invalid UTF-8 percent sequences: nothing decodable, so no name.
+        ("%C3%28.pdf", None),
+        // Percent-decodes to whitespace only: no name.
+        ("%20%20%20", None),
+    ] {
+        let ports = FakePorts::default();
+        let queue = ports.ai_import_queue.clone();
+        let block_id = BlockId::from_uuid(Uuid::now_v7());
+        seed_ai_block_access(&ports, block_id).await;
+
+        let result = upload_ai_script::<FakePorts>(
+            State(state(ports)),
+            user(),
+            pdf_headers_with_name(block_id, encoded),
+            api::problems::Bytes(axum::body::Bytes::from_static(b"%PDF-1.7 fake")),
+        )
+        .await;
+
+        let (status, Json(job_id)) = result.expect("a weird name must not fail the upload");
+        assert_eq!(status, StatusCode::ACCEPTED, "{encoded}");
+        let job = queue
+            .get(job_id)
+            .await
+            .expect("queue read should succeed")
+            .expect("enqueued job should be retrievable");
+        assert_eq!(job.source_file_name.as_deref(), expected, "{encoded}");
+    }
+}
+
+/// Issue #763: a duplicate re-upload returns the EXISTING job, whose name is
+/// untouched — the row the user already knows keeps its identity (the Postgres
+/// adapter's `ON CONFLICT` only echoes `dedup_key`). The 200 duplicate path and
+/// its content-type contract are otherwise unchanged.
+#[tokio::test]
+async fn upload_ai_script_duplicate_keeps_the_first_file_name() {
+    let ports = FakePorts::default();
+    let queue = ports.ai_import_queue.clone();
+    let block_id = BlockId::from_uuid(Uuid::now_v7());
+    seed_ai_block_access(&ports, block_id).await;
+
+    let first = upload_ai_script::<FakePorts>(
+        State(state(ports.clone())),
+        user(),
+        pdf_headers_with_name(block_id, "Erstes%20Skript.pdf"),
+        api::problems::Bytes(axum::body::Bytes::from_static(b"%PDF-1.7 fake")),
+    )
+    .await
+    .expect("first upload should be accepted");
+    let (_, Json(first_id)) = first;
+
+    let second = upload_ai_script::<FakePorts>(
+        State(state(ports)),
+        user(),
+        pdf_headers_with_name(block_id, "Zweites%20Skript.pdf"),
+        api::problems::Bytes(axum::body::Bytes::from_static(b"%PDF-1.7 fake")),
+    )
+    .await
+    .expect("the duplicate re-upload is a 200, not an error");
+    let (status, Json(second_id)) = second;
+    assert_eq!(status, StatusCode::OK, "one dedup hit is a 200");
+    assert_eq!(second_id, first_id);
+
+    let job = queue
+        .get(first_id)
+        .await
+        .expect("queue read should succeed")
+        .expect("enqueued job should be retrievable");
+    assert_eq!(
+        job.source_file_name.as_deref(),
+        Some("Erstes Skript.pdf"),
+        "the existing row keeps the name it was created with"
+    );
 }
 
 #[tokio::test]
@@ -797,6 +956,223 @@ async fn apply_ai_import_drives_the_script_worker_through_the_ports_seam() {
         },
         "apply telemetry must carry the exact Applied outcome"
     );
+}
+
+/// Seed a succeeded script job whose preview carries one draft row per
+/// `(draft_ref, episode)` pair, so the apply can be driven across several
+/// episode groups (issue #763).
+async fn seed_multi_episode_script_job(
+    ports: &FakePorts,
+    block_id: Option<BlockId>,
+) -> AiImportJobId {
+    let preview = ScriptContext {
+        title: Some("multi-episode script".to_owned()),
+        scenes: vec![
+            DraftScene {
+                draft_ref: "scene-0".to_owned(),
+                scene_number: Some(1),
+                episode: Some(DraftEpisode {
+                    number: Some(299),
+                    title: Some("Erlösung".to_owned()),
+                }),
+                ..DraftScene::default()
+            },
+            DraftScene {
+                draft_ref: "scene-1".to_owned(),
+                scene_number: Some(2),
+                episode: Some(DraftEpisode {
+                    number: Some(300),
+                    title: Some("Heimkehr".to_owned()),
+                }),
+                ..DraftScene::default()
+            },
+        ],
+        uncertainties: vec![],
+    };
+    let mut job = succeeded_job("placeholder");
+    job.block_id = block_id;
+    let handle = ports
+        .ai_payload_store
+        .put(
+            job.id,
+            serde_json::to_vec(&preview).expect("preview serializes"),
+        )
+        .await
+        .expect("preview store write should succeed");
+    job.preview_handle = Some(handle);
+    let job_id = job.id;
+    ports.ai_import_queue.seed(job).await;
+    job_id
+}
+
+/// Issue #763: a successful apply records the episodes its rows landed in, both
+/// on the job (so the jobs list can name the target) and in the response. The
+/// label comes from data the request path already holds — the target episode the
+/// handler resolved — never from a second projection lookup.
+#[tokio::test]
+async fn apply_ai_import_records_the_target_episode_on_the_job() {
+    let ports = FakePorts::default();
+    let block_id = BlockId::from_uuid(Uuid::now_v7());
+    *ports.episode_repo.block_id_override.lock().await = Some(block_id);
+    seed_ai_block_access(&ports, block_id).await;
+    let queue = ports.ai_import_queue.clone();
+    let job_id = seed_applyable_script_job(&ports, Some(block_id), 2).await;
+    // The target episode is the one the reviewer picked; seed its identity so
+    // the summary carries a real number and title, not a stub.
+    let episode_id = EpisodeId::new();
+    ports.episode_repo.episodes.lock().await.insert(
+        episode_id.0,
+        EpisodeView {
+            id: episode_id.0,
+            block_id,
+            project_id: ProjectId::from_uuid(Uuid::now_v7()),
+            number: 299,
+            name: Some("Erlösung".to_owned()),
+            version: AggregateVersion::INITIAL,
+            updated_at: Utc::now(),
+        },
+    );
+
+    let (status, Json(response)) = apply_ai_import::<FakePorts>(
+        State(state(ports)),
+        user(),
+        Path(job_id),
+        Json(ApplyAiImportRequest {
+            continuity_selections: Vec::new(),
+            episode_id,
+            project_id: None,
+            uncertainty_acknowledgements: Vec::new(),
+            mappings: vec![
+                ApplyMapping {
+                    draft_ref: "scene-0".to_owned(),
+                    decision: ApplyMappingDecision::Create,
+                    outfit_decisions: Vec::new(),
+                },
+                ApplyMapping {
+                    draft_ref: "scene-1".to_owned(),
+                    decision: ApplyMappingDecision::Create,
+                    outfit_decisions: Vec::new(),
+                },
+            ],
+            accept_as_is: true,
+            edit_distance: 0,
+            episode_groups: Vec::new(),
+            shooting_days: Vec::new(),
+        }),
+    )
+    .await
+    .expect("an in-block apply should succeed");
+
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(response.applied_episodes.len(), 1, "one target episode");
+    let applied = &response.applied_episodes[0];
+    assert_eq!(applied.id, episode_id.0);
+    assert_eq!(applied.number, Some(299));
+    assert_eq!(applied.name.as_deref(), Some("Erlösung"));
+    assert_eq!(applied.applied_count, 2, "both rows landed in it");
+
+    // The summary was persisted through the queue port (the jobs list reads it
+    // back later), and it is identical to what the response carried.
+    let sink = queue.applied_episodes.lock().await;
+    assert_eq!(sink.len(), 1, "the apply must record the summary once");
+    assert_eq!(sink[0].0, job_id);
+    assert_eq!(sink[0].1, response.applied_episodes);
+    drop(sink);
+    let stored = queue
+        .get(job_id)
+        .await
+        .expect("queue read should succeed")
+        .expect("the job still exists");
+    assert_eq!(stored.applied_episodes, response.applied_episodes);
+}
+
+/// Issue #763, multi-episode case: rows applied across episode groups are
+/// reported per episode with their own counts — the list renders
+/// `299 Erlösung (+2)` from exactly this list.
+#[tokio::test]
+async fn apply_ai_import_records_every_target_episode() {
+    let ports = FakePorts::default();
+    let block_id = BlockId::from_uuid(Uuid::now_v7());
+    *ports.episode_repo.block_id_override.lock().await = Some(block_id);
+    seed_ai_block_access(&ports, block_id).await;
+    let queue = ports.ai_import_queue.clone();
+    let job_id = seed_multi_episode_script_job(&ports, Some(block_id)).await;
+    let default_episode = EpisodeId::new();
+
+    let (status, Json(response)) = apply_ai_import::<FakePorts>(
+        State(state(ports)),
+        user(),
+        Path(job_id),
+        Json(ApplyAiImportRequest {
+            continuity_selections: Vec::new(),
+            episode_id: default_episode,
+            project_id: None,
+            uncertainty_acknowledgements: Vec::new(),
+            mappings: vec![
+                ApplyMapping {
+                    draft_ref: "scene-0".to_owned(),
+                    decision: ApplyMappingDecision::Create,
+                    outfit_decisions: Vec::new(),
+                },
+                ApplyMapping {
+                    draft_ref: "scene-1".to_owned(),
+                    decision: ApplyMappingDecision::Create,
+                    outfit_decisions: Vec::new(),
+                },
+            ],
+            accept_as_is: true,
+            edit_distance: 0,
+            // Both groups CREATE their episode, so the numbers/titles come from
+            // the plan the apply builds — no projection read is involved.
+            episode_groups: vec![
+                ApplyEpisodeGroupRequest {
+                    episode_ref: "ep:299".to_owned(),
+                    target: EpisodeTarget::Create {
+                        number: 299,
+                        name: Some("Erlösung".to_owned()),
+                    },
+                },
+                ApplyEpisodeGroupRequest {
+                    episode_ref: "ep:300".to_owned(),
+                    target: EpisodeTarget::Create {
+                        number: 300,
+                        name: Some("Heimkehr".to_owned()),
+                    },
+                },
+            ],
+            shooting_days: Vec::new(),
+        }),
+    )
+    .await
+    .expect("a multi-episode apply should succeed");
+
+    assert_eq!(status, StatusCode::OK);
+    let numbers: Vec<Option<i32>> = response
+        .applied_episodes
+        .iter()
+        .map(|episode| episode.number)
+        .collect();
+    assert_eq!(
+        numbers,
+        vec![Some(299), Some(300)],
+        "one entry per target episode, in applied order"
+    );
+    let names: Vec<Option<&str>> = response
+        .applied_episodes
+        .iter()
+        .map(|episode| episode.name.as_deref())
+        .collect();
+    assert_eq!(names, vec![Some("Erlösung"), Some("Heimkehr")]);
+    assert!(
+        response
+            .applied_episodes
+            .iter()
+            .all(|episode| episode.applied_count == 1),
+        "each row landed in its own episode"
+    );
+    let sink = queue.applied_episodes.lock().await;
+    assert_eq!(sink.len(), 1);
+    assert_eq!(sink[0].1, response.applied_episodes);
 }
 
 #[tokio::test]
