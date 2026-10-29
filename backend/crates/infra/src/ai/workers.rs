@@ -16,17 +16,17 @@ use std::collections::HashMap;
 
 use breakdown_core::ai::{
     AiImportBounds, AiImportJob, AiImportJobId, AiImportMapping, AiImportMappingRepository,
-    AiImportProgress, AiImportQueue, AiImportStage, AiModelPricingRepository, ApplyGateError,
-    ApplyMapping, ApplyMappingDecision, CategoryVocabularyEntry, CharacterApplyPlan, CostBreakdown,
-    DecisionClient, DocumentKind, EpisodeGroupPlan, LlmCallUsage, LlmChatRequest, LlmClient,
-    MergedPreview, OutfitApplyPlan, PRIMARY_ORDINAL, PieceApplyPlan, PlannedEpisode,
-    PlannedShootingDay, ReviewerDecisions, SceneApplyCommand, SceneApplyPlan, ScriptContext,
-    ShootingDayPlan, ShootingSchedule, SourceFormat, Telemetry, TelemetryApplyState,
-    UnappliedOutfit, UnappliedOutfitReason, Uncertainty, UncertaintyAcknowledgement,
-    UncertaintyKind, category_conflict_uncertainties, character_mapping_ref, draft_row_ref,
-    ensure_merge_applyable, extract_scenes, mapping_kind, merge_schedule_to_scenes,
-    parse_script_day, plan_scene_apply, sanitize_meta_summary, scene_beat_lanes, stable_draft_ref,
-    verify_draft_outfits,
+    AiImportProgress, AiImportQueue, AiImportStage, AiModelPricingRepository, AppliedEpisode,
+    ApplyGateError, ApplyMapping, ApplyMappingDecision, CategoryVocabularyEntry,
+    CharacterApplyPlan, CostBreakdown, DecisionClient, DocumentKind, EpisodeGroupPlan,
+    LlmCallUsage, LlmChatRequest, LlmClient, MergedPreview, OutfitApplyPlan, PRIMARY_ORDINAL,
+    PieceApplyPlan, PlannedEpisode, PlannedShootingDay, ReviewerDecisions, SceneApplyCommand,
+    SceneApplyPlan, ScriptContext, ShootingDayPlan, ShootingSchedule, SourceFormat, Telemetry,
+    TelemetryApplyState, UnappliedOutfit, UnappliedOutfitReason, Uncertainty,
+    UncertaintyAcknowledgement, UncertaintyKind, category_conflict_uncertainties,
+    character_mapping_ref, draft_row_ref, ensure_merge_applyable, extract_scenes, mapping_kind,
+    merge_schedule_to_scenes, parse_script_day, plan_scene_apply, sanitize_meta_summary,
+    scene_beat_lanes, stable_draft_ref, verify_draft_outfits,
 };
 use breakdown_core::character::commands::CreateCharacter;
 use breakdown_core::character::ports::CharacterCommands;
@@ -1217,6 +1217,12 @@ pub struct ScriptApplyResult {
     /// never dropped: a silently missing look is the failure mode this change
     /// exists to remove (design D5).
     pub unapplied_outfits: Vec<UnappliedOutfit>,
+    /// The episodes this apply landed rows in, in first-applied order, each
+    /// with its own row count (issue #763). The apply is the only place that
+    /// knows both halves — the resolved target episode of every row and how
+    /// many rows went there — so the summary is produced here and persisted by
+    /// the API edge; no projection is consulted.
+    pub applied_episodes: Vec<AppliedEpisode>,
 }
 
 /// A figure as far as this apply is concerned.
@@ -1424,6 +1430,13 @@ pub struct ApplyScriptRequest<'a> {
     /// Per-group episode targets keyed by the preview's group refs. Absent
     /// groups (rows without episode metadata) apply to `episode_id`.
     pub episode_groups: Vec<EpisodeGroupPlan>,
+    /// Display identities of the episodes rows can land in, resolved at the API
+    /// edge (issue #763): the target episode plus every episode an *existing*
+    /// group target names. The worker only reads them to label the
+    /// [`ScriptApplyResult::applied_episodes`] summary it already counts; a
+    /// missing entry degrades that entry's number/name to `None` and never
+    /// fails the apply — a display label must not be able to block a write.
+    pub known_episodes: Vec<AppliedEpisodeIdentity>,
     /// Per-day decisions keyed by the preview's day-group refs (issue #706).
     /// An accepted group's rows are scheduled onto a NEW episode-scoped day;
     /// a rejected group's rows apply unscheduled.
@@ -1444,6 +1457,90 @@ pub struct ApplyScriptRequest<'a> {
     /// against the preview's own candidate list.
     pub continuity_selections: Vec<breakdown_core::ai::OutfitContinuitySelection>,
     pub telemetry: Option<Telemetry>,
+}
+
+/// Whether one planned row was applied by **this** call, or settled by a
+/// mapping an earlier attempt already confirmed (issue #763 review).
+///
+/// The distinction matters for the applied-episode summary: an already-applied
+/// row sits where the earlier attempt put it, so the episode this request names
+/// is not necessarily the scene's home. Counting it is still correct (the row
+/// did land), labelling it from the request is not.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AppliedRowState {
+    /// This call dispatched the row's command and confirmed its mapping.
+    AppliedNow,
+    /// The row's mapping was already confirmed; nothing was dispatched.
+    AlreadyApplied,
+}
+
+/// Count one applied row into the per-episode summary (issue #763).
+///
+/// The label is taken from the first authoritative source, in order:
+///
+/// 1. `requested_label` — the plan's own number/title, passed ONLY when this
+///    apply created the episode (and the row was applied by this call). A
+///    reapply of an episode group keeps the mapped episode, so the request's
+///    `Create` target can disagree with what is persisted; labelling from it
+///    would make the summary and the episode contradict each other.
+/// 2. `known_episodes` — the identities the API edge resolved before dispatch
+///    (the primary target episode and every *existing* group target).
+/// 3. nothing — the entry keeps its `applied_count` with `number`/`name` unset,
+///    which every client renders as "no known target" instead of a guess.
+fn record_applied_episode(
+    applied: &mut Vec<AppliedEpisode>,
+    episode_id: EpisodeId,
+    requested_label: Option<(Option<i32>, Option<String>)>,
+    known_episodes: &[AppliedEpisodeIdentity],
+) {
+    if let Some(entry) = applied.iter_mut().find(|entry| entry.id == episode_id.0) {
+        entry.applied_count += 1;
+        // A label found later outranks an unlabelled first sighting of the same
+        // episode (a group's first row may precede the authoritative one).
+        if entry.number.is_none() && entry.name.is_none() {
+            if let Some((number, name)) = requested_label {
+                entry.number = number;
+                entry.name = name;
+            } else if let Some(known) = known_episodes.iter().find(|known| known.id == episode_id) {
+                entry.number = Some(known.number);
+                entry.name = known.name.clone();
+            }
+        }
+        return;
+    }
+    let identity = requested_label.or_else(|| {
+        known_episodes
+            .iter()
+            .find(|known| known.id == episode_id)
+            .map(|known| (Some(known.number), known.name.clone()))
+    });
+    let (number, name) = identity.unwrap_or((None, None));
+    if number.is_none() && name.is_none() {
+        // Expected on a reapply (the persisted episode owns the values) and on
+        // a row an earlier attempt already applied. The count remains true.
+        tracing::debug!(
+            episode_id = %episode_id.0,
+            "recording an unlabelled applied-episode entry: no authoritative identity for this apply"
+        );
+    }
+    applied.push(AppliedEpisode {
+        id: episode_id.0,
+        number,
+        name,
+        applied_count: 1,
+    });
+}
+
+/// Display identity of one episode an apply may land rows in (issue #763).
+///
+/// Resolved where a projection read is legitimate — the API edge — and carried
+/// into the apply so the write path never queries one (CQRS boundary). The
+/// worker only ever *labels* with it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AppliedEpisodeIdentity {
+    pub id: EpisodeId,
+    pub number: i32,
+    pub name: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1575,6 +1672,7 @@ where
             project_id,
             block_id,
             episode_groups,
+            known_episodes,
             shooting_days,
             acknowledged_uncertainties,
             categories,
@@ -1645,15 +1743,20 @@ where
             created_days: 0,
             planned_scene_shoots: 0,
             unapplied_outfits: plan.unapplied_outfits,
+            applied_episodes: Vec::new(),
         };
         // Figures named by several draft rows are created once. This is a cache
         // of what *this* request resolved, not a projection read: everything that
         // crosses a request boundary goes through the mapping (CQRS boundary).
         let mut figures: HashMap<String, Figure> = HashMap::new();
-        // Episodes a NEW group already resolved in *this* request (issue #581).
-        // Same rationale as `figures`: the mapping is the durable record, the
-        // map only avoids re-driving it per row of the same group.
-        let mut resolved_episodes: HashMap<String, EpisodeId> = HashMap::new();
+        // Episodes a NEW group already resolved in *this* request (issue #581),
+        // with the flag that says whether *this* apply created it. Same
+        // rationale as `figures`: the mapping is the durable record, the map
+        // only avoids re-driving it per row of the same group. The flag is what
+        // decides whether the requested number/title may label the summary
+        // entry (issue #763 review): on a reapply the mapping wins, so the
+        // persisted episode keeps the values of the FIRST apply.
+        let mut resolved_episodes: HashMap<String, (EpisodeId, bool)> = HashMap::new();
         // Shooting days an ACCEPTED group already resolved in *this* request
         // (issue #706). Same rationale as `resolved_episodes`: one day per
         // group, created on first sight, reused by every later row.
@@ -1669,8 +1772,10 @@ where
         let mut fallback_order: u32 = 0;
 
         for row in &plan.scenes {
-            let row_episode_id = match &row.episode {
-                PlannedEpisode::Existing(episode_id) => *episode_id,
+            // `(episode, created by THIS apply)` — the flag decides whether the
+            // requested number/title may label the summary entry (issue #763).
+            let row_episode: (EpisodeId, bool) = match &row.episode {
+                PlannedEpisode::Existing(episode_id) => (*episode_id, false),
                 PlannedEpisode::New {
                     episode_ref,
                     number,
@@ -1686,8 +1791,8 @@ where
                             "apply cannot create an episode without a series context",
                         ));
                     };
-                    match resolved_episodes.get(episode_ref) {
-                        Some(episode_id) => *episode_id,
+                    let (episode_id, created_now) = match resolved_episodes.get(episode_ref) {
+                        Some(resolved) => *resolved,
                         None => {
                             let (episode_id, created) = self
                                 .create_episode_reserved(
@@ -1705,16 +1810,46 @@ where
                             if created {
                                 result.created_episodes += 1;
                             }
-                            resolved_episodes.insert(episode_ref.clone(), episode_id);
-                            episode_id
+                            resolved_episodes.insert(episode_ref.clone(), (episode_id, created));
+                            (episode_id, created)
                         }
-                    }
+                    };
+                    (episode_id, created_now)
                 }
             };
-            let scene = self
-                .apply_scene_row(actor.clone(), preview_id, row_episode_id, project_id, row)
+            let (scene, row_state) = self
+                .apply_scene_row(actor.clone(), preview_id, row_episode.0, project_id, row)
                 .await?;
             result.applied.push(scene);
+            // (issue #763) Count the row into the per-episode summary — but ONLY
+            // when this call dispatched it. A row a confirmed mapping already
+            // settled stays where that earlier attempt put it, so attributing it
+            // to THIS request's episode would record an episode id that need not
+            // hold the scene (CodeRabbit review): the retry's target is not the
+            // scene's home, and neither its id nor its edge-resolved label may be
+            // claimed. The persisted summary is merged, not replaced, so the
+            // earlier apply's correct entry survives a retry.
+            //
+            // The plan's number/title may only label an entry when THIS apply
+            // created the episode: on a reapply the mapping wins and the
+            // persisted episode keeps the first apply's values, so the request's
+            // `Create` target can disagree with it. Otherwise the edge-resolved
+            // `known_episodes` identity labels the entry, and an unknown label
+            // stays `None` (never a guess).
+            if row_state == AppliedRowState::AppliedNow {
+                let requested_label = match (&row.episode, row_episode.1) {
+                    (PlannedEpisode::New { number, name, .. }, true) => {
+                        Some((Some(*number), name.clone()))
+                    }
+                    _ => None,
+                };
+                record_applied_episode(
+                    &mut result.applied_episodes,
+                    row_episode.0,
+                    requested_label,
+                    &known_episodes,
+                );
+            }
 
             for character in &row.characters {
                 if self
@@ -2001,7 +2136,7 @@ where
                 // resolved episode keeps episode 2's scenes off episode 1's
                 // day (and keeps the mapping draft_ref, which the id is
                 // derived from, retry-stable).
-                let day_key = format!("{}:{day_ref}", row_episode_id.0);
+                let day_key = format!("{}:{day_ref}", row_episode.0.0);
                 let day = match resolved_days.get(&day_key) {
                     Some(day) => *day,
                     None => {
@@ -2012,7 +2147,7 @@ where
                                 DayDraft {
                                     preview_id,
                                     draft_ref: day_key.clone(),
-                                    episode_id: row_episode_id,
+                                    episode_id: row_episode.0,
                                     label: label.clone(),
                                     date: None,
                                     project_id,
@@ -2120,7 +2255,7 @@ where
         episode_id: EpisodeId,
         project_id: Option<ProjectId>,
         row: &SceneApplyPlan,
-    ) -> Result<UuidVersion, DomainError> {
+    ) -> Result<(UuidVersion, AppliedRowState), DomainError> {
         let draft_ref = row.draft_ref.clone();
         let stored = self
             .mappings
@@ -2132,10 +2267,15 @@ where
         // Re-dispatching an `Update` here would also fail in production:
         // identical details are rejected as unchanged.
         if let Some(confirmed) = stored.as_ref().filter(|mapping| !mapping.is_reserved()) {
-            return Ok(UuidVersion {
-                aggregate_id: confirmed.aggregate_id,
-                version: confirmed.aggregate_version,
-            });
+            return Ok((
+                UuidVersion {
+                    aggregate_id: confirmed.aggregate_id,
+                    version: confirmed.aggregate_version,
+                },
+                // The row sits where an EARLIER attempt put it — this request's
+                // episode target need not be that place (issue #763).
+                AppliedRowState::AlreadyApplied,
+            ));
         }
         // A reservation means a previous attempt already claimed an aggregate id
         // for this draft. The reservation wins over the client-supplied decision:
@@ -2148,44 +2288,51 @@ where
         let reserved_id = stored
             .filter(|mapping| mapping.is_reserved())
             .map(|mapping| mapping.aggregate_id);
+        let mut appended = true;
         let (aggregate_id, version) = if let Some(candidate_id) = reserved_id {
-            self.create_scene_reserved(
-                actor,
-                ReservedSceneDraft {
-                    preview_id,
-                    draft_ref,
-                    candidate_id,
-                    episode_id,
-                    project_id,
-                    details,
-                },
-            )
-            .await?
+            let (id, version, appended_now) = self
+                .create_scene_reserved(
+                    actor,
+                    ReservedSceneDraft {
+                        preview_id,
+                        draft_ref,
+                        candidate_id,
+                        episode_id,
+                        project_id,
+                        details,
+                    },
+                )
+                .await?;
+            appended = appended_now;
+            (id, version)
         } else {
             match &row.scene {
                 SceneApplyCommand::Create(_) => {
-                    self.create_scene_reserved(
-                        actor,
-                        ReservedSceneDraft {
-                            preview_id,
-                            draft_ref: draft_ref.clone(),
-                            // Derived, never the planner's fresh id: an apply id
-                            // must be re-derivable after a crash so the
-                            // aggregate's `ExpectedVersion::Empty` guard rejects
-                            // the duplicate instead of creating a second scene
-                            // (issue #182). The planner's id is not used.
-                            candidate_id: derive_id(
+                    let (id, version, appended_now) = self
+                        .create_scene_reserved(
+                            actor,
+                            ReservedSceneDraft {
                                 preview_id,
-                                &draft_ref,
-                                mapping_kind::SCENE,
-                                PRIMARY_ORDINAL,
-                            ),
-                            episode_id,
-                            project_id,
-                            details,
-                        },
-                    )
-                    .await?
+                                draft_ref: draft_ref.clone(),
+                                // Derived, never the planner's fresh id: an apply id
+                                // must be re-derivable after a crash so the
+                                // aggregate's `ExpectedVersion::Empty` guard rejects
+                                // the duplicate instead of creating a second scene
+                                // (issue #182). The planner's id is not used.
+                                candidate_id: derive_id(
+                                    preview_id,
+                                    &draft_ref,
+                                    mapping_kind::SCENE,
+                                    PRIMARY_ORDINAL,
+                                ),
+                                episode_id,
+                                project_id,
+                                details,
+                            },
+                        )
+                        .await?;
+                    appended = appended_now;
+                    (id, version)
                 }
                 SceneApplyCommand::Update(command) => {
                     let command = command.clone();
@@ -2207,10 +2354,21 @@ where
                 }
             }
         };
-        Ok(UuidVersion {
-            aggregate_id,
-            version,
-        })
+        Ok((
+            UuidVersion {
+                aggregate_id,
+                version,
+            },
+            if appended {
+                AppliedRowState::AppliedNow
+            } else {
+                // The reserved stream already held our append: another attempt
+                // (a crash retry, or the winner of a concurrent duplicate race)
+                // created this scene, and it may live in a different episode than
+                // this request names. Count nothing.
+                AppliedRowState::AlreadyApplied
+            },
+        ))
     }
 
     /// Resolve the figure one draft row names to an aggregate id, creating it on
@@ -2976,11 +3134,20 @@ where
     /// command runs against that id. A `VersionConflict` on the reserved
     /// stream proves our own earlier append, so `recover_version` treats it
     /// as success instead of duplicating the scene.
+    /// Create the scene under its reserved id, reporting whether THIS call
+    /// appended the `SceneCreated` event.
+    ///
+    /// `false` means the reserved stream already held our append — a crash
+    /// retry, or a concurrent duplicate that won the `ExpectedVersion::Empty`
+    /// race and was recovered through `created_now` (issue #763 review). The
+    /// applied-episode summary must not count such a row again: the scene sits
+    /// where the winning attempt put it, which is not necessarily this request's
+    /// episode target.
     async fn create_scene_reserved(
         &self,
         actor: UserId,
         draft: ReservedSceneDraft,
-    ) -> Result<(Uuid, AggregateVersion), DomainError> {
+    ) -> Result<(Uuid, AggregateVersion, bool), DomainError> {
         let ReservedSceneDraft {
             preview_id,
             draft_ref,
@@ -3000,7 +3167,7 @@ where
             ))
             .await?;
         let id = reservation.aggregate_id;
-        let version = recover_version(
+        let outcome = created_now(
             self.scene_commands
                 .create(
                     actor,
@@ -3021,9 +3188,9 @@ where
                         },
                     },
                 )
-                .await
-                .map(|(_, version)| version),
+                .await,
         )?;
+        let version = outcome.version;
         self.mappings
             .insert(AiImportMapping {
                 preview_id: reservation.preview_id,
@@ -3034,7 +3201,7 @@ where
                 aggregate_version: version,
             })
             .await?;
-        Ok((id, version))
+        Ok((id, version, outcome.appended))
     }
 
     /// The schedule-apply machinery driving one row's day resolution and

@@ -846,7 +846,7 @@ mod tests {
     use async_trait::async_trait;
     use breakdown_core::ai::{
         AiImportEnqueueRequest, AiImportEnqueueResult, AiImportJob, AiImportJobId, AiImportQueue,
-        DocumentKind, Telemetry,
+        AppliedEpisode, DocumentKind, Telemetry,
     };
     use breakdown_core::error::DomainError;
     use uuid::Uuid;
@@ -945,6 +945,14 @@ mod tests {
             _telemetry: Telemetry,
         ) -> Result<(), DomainError> {
             unimplemented!()
+        }
+
+        async fn record_applied_episodes(
+            &self,
+            _id: AiImportJobId,
+            _episodes: &[AppliedEpisode],
+        ) -> Result<(), DomainError> {
+            Ok(())
         }
     }
 

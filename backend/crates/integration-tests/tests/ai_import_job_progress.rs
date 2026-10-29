@@ -29,6 +29,7 @@ fn make_enqueue_request(user_id: &str) -> AiImportEnqueueRequest {
         dedup_key: format!("dedup-{user_id}-{}", Uuid::now_v7()),
         document_digest: format!("digest-{}", Uuid::now_v7()),
         source_handle: format!("handle-{}", Uuid::now_v7()),
+        source_file_name: None,
     }
 }
 
@@ -189,6 +190,199 @@ async fn mark_progress_on_a_non_running_job_is_rejected() -> Result<()> {
             Err(breakdown_core::error::DomainError::Conflict { .. })
         ),
         "non-running job must reject progress writes, got {outcome:?}"
+    );
+    Ok(())
+}
+
+/// Issue #763: `succeeded` is terminal, so the job must not keep advertising the
+/// stage it finished at. The last frame a worker publishes is
+/// `storing_preview`, which every consumer then rendered forever — the stale
+/// "Vorschau wird gespeichert …" line this issue removes.
+#[tokio::test]
+async fn mark_succeeded_clears_progress() -> Result<()> {
+    let (pool, _container) = crate::fixtures::spawn_postgres().await?;
+    let queue = PgAiImportQueue::new(pool);
+
+    let request = make_enqueue_request("user-progress-succeeded");
+    let id = request.id;
+    queue.enqueue(request).await?;
+
+    let _claimed = queue.claim_next("worker-1").await?.expect("claimable");
+    queue
+        .mark_progress(
+            id,
+            "worker-1",
+            &progress(AiImportStage::StoringPreview, 12, &["Ep. 3"]),
+        )
+        .await?;
+    queue
+        .mark_succeeded(id, "worker-1", "ai-preview/handle")
+        .await?;
+
+    let job = queue.get(id).await?.expect("job exists");
+    assert_eq!(job.status, JobStatus::Succeeded);
+    assert_eq!(
+        job.progress, None,
+        "a terminal job must not carry the stage it finished at"
+    );
+    Ok(())
+}
+
+/// Issue #763: the same holds for a dead-lettered job — `mark_failed` lands it
+/// terminal, so the stage is cleared in that same statement.
+#[tokio::test]
+async fn dead_lettering_mark_failed_clears_progress() -> Result<()> {
+    let (pool, _container) = crate::fixtures::spawn_postgres().await?;
+    let queue = PgAiImportQueue::new(pool);
+
+    let request = make_enqueue_request("user-progress-dead-letter");
+    let id = request.id;
+    queue.enqueue(request).await?;
+
+    let _claimed = queue.claim_next("worker-1").await?.expect("claimable");
+    queue
+        .mark_progress(
+            id,
+            "worker-1",
+            &progress(AiImportStage::Extracting, 3, &["Ep. 3"]),
+        )
+        .await?;
+    // A non-retryable failure is terminal by construction: no waiting for the
+    // retry budget to run out.
+    queue
+        .mark_failed(id, "worker-1", "hopeless", Some("dependency.test"), false)
+        .await?;
+
+    let job = queue.get(id).await?.expect("job exists");
+    assert_eq!(job.status, JobStatus::DeadLetter);
+    assert_eq!(job.progress, None, "a dead letter has no live stage");
+    Ok(())
+}
+
+/// Issue #763 (CodeRabbit review): a *retryable* failure that exhausts the
+/// budget lands `dead_letter` through the same statement, so that path must
+/// clear the stage too — the branch the non-retryable test above cannot reach.
+#[tokio::test]
+async fn budget_exhaustion_clears_progress() -> Result<()> {
+    let (pool, _container) = crate::fixtures::spawn_postgres().await?;
+    let queue = PgAiImportQueue::new(pool.clone());
+
+    let request = make_enqueue_request("user-progress-budget");
+    let id = request.id;
+    queue.enqueue(request).await?;
+    let job = queue.get(id).await?.expect("job exists");
+    let max_retries = job.max_retries;
+
+    // Drive retryable failures until the budget is spent. Each round resets the
+    // exponential backoff so the reclaim predicate is due — the wait itself is
+    // never the thing under test.
+    let mut status = JobStatus::Pending;
+    for attempt in 1..=max_retries {
+        let _claimed = queue
+            .claim_next("worker-1")
+            .await?
+            .expect("a claimable attempt");
+        queue
+            .mark_progress(
+                id,
+                "worker-1",
+                &progress(AiImportStage::Extracting, attempt, &["Ep. 3"]),
+            )
+            .await?;
+        queue
+            .mark_failed(id, "worker-1", "transient", Some("dependency.test"), true)
+            .await?;
+        status = queue.get(id).await?.expect("job exists").status;
+        if status == JobStatus::Failed {
+            assert!(
+                queue.get(id).await?.expect("job exists").progress.is_some(),
+                "a backing-off attempt keeps its progress (attempt {attempt})"
+            );
+        }
+        sqlx::query(
+            "UPDATE ai_import.ai_import_job SET next_attempt_at = now() - interval '1 second' WHERE id = $1",
+        )
+        .bind(id.as_uuid())
+        .execute(&pool)
+        .await?;
+    }
+
+    assert_eq!(
+        status,
+        JobStatus::DeadLetter,
+        "the last permitted retryable failure must dead-letter the job"
+    );
+    assert_eq!(
+        queue.get(id).await?.expect("job exists").progress,
+        None,
+        "the dead-lettering statement must clear the stage"
+    );
+    Ok(())
+}
+
+/// Issue #763: a job whose payload is gone is terminal too.
+#[tokio::test]
+async fn mark_payload_unavailable_clears_progress() -> Result<()> {
+    let (pool, _container) = crate::fixtures::spawn_postgres().await?;
+    let queue = PgAiImportQueue::new(pool);
+
+    let request = make_enqueue_request("user-progress-payload-gone");
+    let id = request.id;
+    queue.enqueue(request).await?;
+
+    let _claimed = queue.claim_next("worker-1").await?.expect("claimable");
+    queue
+        .mark_progress(
+            id,
+            "worker-1",
+            &progress(AiImportStage::ExtractingText, 0, &[]),
+        )
+        .await?;
+    queue
+        .mark_payload_unavailable(
+            id,
+            "worker-1",
+            "payload gone",
+            Some("ai-import.payload-missing"),
+        )
+        .await?;
+
+    let job = queue.get(id).await?.expect("job exists");
+    assert_eq!(job.status, JobStatus::PayloadUnavailable);
+    assert_eq!(job.progress, None, "a payload-less job has no live stage");
+    Ok(())
+}
+
+/// Issue #763: the retryable branch is deliberately excluded — a job that backs
+/// off still has a future, so its last progress stays readable until the next
+/// claim replaces it.
+#[tokio::test]
+async fn retryable_mark_failed_keeps_progress() -> Result<()> {
+    let (pool, _container) = crate::fixtures::spawn_postgres().await?;
+    let queue = PgAiImportQueue::new(pool);
+
+    let request = make_enqueue_request("user-progress-retryable");
+    let id = request.id;
+    queue.enqueue(request).await?;
+
+    let _claimed = queue.claim_next("worker-1").await?.expect("claimable");
+    queue
+        .mark_progress(
+            id,
+            "worker-1",
+            &progress(AiImportStage::Merging, 12, &["Ep. 3"]),
+        )
+        .await?;
+    queue
+        .mark_failed(id, "worker-1", "transient", Some("dependency.test"), true)
+        .await?;
+
+    let job = queue.get(id).await?.expect("job exists");
+    assert_eq!(job.status, JobStatus::Failed);
+    assert_eq!(
+        job.progress.map(|progress| progress.stage),
+        Some(AiImportStage::Merging),
+        "a backing-off job keeps its progress until the next claim"
     );
     Ok(())
 }

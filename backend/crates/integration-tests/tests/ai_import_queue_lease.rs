@@ -72,6 +72,7 @@ async fn seed_job(
             dedup_key: dedup.to_owned(),
             document_digest: "digest".to_owned(),
             source_handle: "handle".to_owned(),
+            source_file_name: None,
         })
         .await
         .unwrap();

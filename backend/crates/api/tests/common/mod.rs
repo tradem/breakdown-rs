@@ -113,8 +113,8 @@ use api::state::Ports;
 use breakdown_core::ai::{
     AiConfigCommands, AiConfigRepository, AiConfigView, AiImportEnqueueRequest,
     AiImportEnqueueResult, AiImportJob, AiImportJobId, AiImportMapping, AiImportMappingRepository,
-    AiImportProgress, AiImportQueue, CreateAiConfig, DocumentKind, JobStatus, RevokeAiConfig,
-    Telemetry, UpdateAiConfig,
+    AiImportProgress, AiImportQueue, AppliedEpisode, CreateAiConfig, DocumentKind, JobStatus,
+    RevokeAiConfig, Telemetry, UpdateAiConfig,
 };
 use infra::ai::MemoryAiPreviewStore;
 
@@ -2353,6 +2353,10 @@ impl AiConfigRepository for FakeAiConfigRepo {
     }
 }
 
+/// The applied-episode summaries a fake queue was asked to persist (issue
+/// #763) — an alias so the nested collection stays readable at its use sites.
+pub type AppliedEpisodeSink = Arc<Mutex<Vec<(AiImportJobId, Vec<AppliedEpisode>)>>>;
+
 #[derive(Clone, Default)]
 #[allow(dead_code)]
 pub struct FakeAiImportQueue {
@@ -2360,6 +2364,9 @@ pub struct FakeAiImportQueue {
     /// Dedup index (`dedup_key` → job id), mirroring the Postgres unique index.
     pub dedup: Arc<Mutex<HashMap<String, AiImportJobId>>>,
     pub telemetry: Arc<Mutex<Vec<(AiImportJobId, Telemetry)>>>,
+    /// Applied-episode summaries written through the port (issue #763), so a
+    /// handler test can prove the apply persisted its target episodes.
+    pub applied_episodes: AppliedEpisodeSink,
     /// In-process job-event fan-out (issue #664): SSE handler tests subscribe
     /// through the port and publish updates via `publish`.
     pub hub: infra::ai::AiJobEventHub,
@@ -2416,6 +2423,8 @@ impl AiImportQueue for FakeAiImportQueue {
                 updated_at: now,
                 telemetry: None,
                 cost: None,
+                source_file_name: request.source_file_name,
+                applied_episodes: Vec::new(),
             },
         );
         Ok(AiImportEnqueueResult::Enqueued(request.id))
@@ -2538,6 +2547,8 @@ impl AiImportQueue for FakeAiImportQueue {
                 updated_at: now,
                 telemetry: None,
                 cost: None,
+                source_file_name: None,
+                applied_episodes: Vec::new(),
             },
         );
         self.hub.notify(request.id);
@@ -2601,6 +2612,33 @@ impl AiImportQueue for FakeAiImportQueue {
         telemetry: Telemetry,
     ) -> Result<(), DomainError> {
         self.telemetry.lock().await.push((id, telemetry));
+        Ok(())
+    }
+
+    async fn record_applied_episodes(
+        &self,
+        id: AiImportJobId,
+        episodes: &[AppliedEpisode],
+    ) -> Result<(), DomainError> {
+        self.applied_episodes
+            .lock()
+            .await
+            .push((id, episodes.to_vec()));
+        // Same MERGE contract as the Postgres adapter (issue #763 review): an
+        // empty report is a no-op and a known episode is restated in place, so a
+        // re-apply can never erase the earlier attribution.
+        if let Some(job) = self.jobs.lock().await.get_mut(&id.as_uuid()) {
+            for entry in episodes {
+                match job
+                    .applied_episodes
+                    .iter_mut()
+                    .find(|known| known.id == entry.id)
+                {
+                    Some(known) => *known = entry.clone(),
+                    None => job.applied_episodes.push(entry.clone()),
+                }
+            }
+        }
         Ok(())
     }
 }

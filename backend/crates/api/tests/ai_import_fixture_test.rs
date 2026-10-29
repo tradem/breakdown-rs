@@ -130,6 +130,8 @@ fn foreign_pending_job() -> AiImportJob {
         updated_at: chrono::Utc::now() - chrono::Duration::hours(1),
         telemetry: None,
         cost: None,
+        source_file_name: None,
+        applied_episodes: Vec::new(),
     }
 }
 

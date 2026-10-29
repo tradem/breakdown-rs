@@ -17,10 +17,10 @@ use anyhow::anyhow;
 use async_trait::async_trait;
 use breakdown_core::ai::{
     AiImportBounds, AiImportEnqueueRequest, AiImportEnqueueResult, AiImportJob, AiImportJobId,
-    AiImportMapping, AiImportMappingRepository, AiImportQueue, ApplyMapping, DecisionAnswer,
-    DecisionCallOutcome, DecisionClient, DecisionRequest, DocumentKind, DraftCharacter,
-    DraftEpisode, DraftOutfit, DraftScene, DraftShootingDay, EpisodeGroupPlan, EpisodeTarget,
-    JobStatus, LlmCallOutcome, LlmCallUsage, LlmChatRequest, LlmClient, LlmProvider,
+    AiImportMapping, AiImportMappingRepository, AiImportQueue, AppliedEpisode, ApplyMapping,
+    DecisionAnswer, DecisionCallOutcome, DecisionClient, DecisionRequest, DocumentKind,
+    DraftCharacter, DraftEpisode, DraftOutfit, DraftScene, DraftShootingDay, EpisodeGroupPlan,
+    EpisodeTarget, JobStatus, LlmCallOutcome, LlmCallUsage, LlmChatRequest, LlmClient, LlmProvider,
     OutfitDecision, PRIMARY_ORDINAL, ScriptContext, ShootingDayPlan, ShootingSchedule,
     ShootingScheduleRow, SourceFormat, Telemetry, TelemetryApplyState, UnappliedOutfitReason,
     UncertaintyKind, character_identity, character_mapping_ref, mapping_kind,
@@ -154,6 +154,8 @@ async fn merge_worker_empty_input_is_non_retryable() {
                 updated_at: Utc::now(),
                 telemetry: None,
                 cost: None,
+                source_file_name: None,
+                applied_episodes: Vec::new(),
             };
             Ok(Some(job))
         }
@@ -201,6 +203,14 @@ async fn merge_worker_empty_input_is_non_retryable() {
             &self,
             _id: breakdown_core::ai::AiImportJobId,
             _telemetry: breakdown_core::ai::Telemetry,
+        ) -> Result<(), DomainError> {
+            Ok(())
+        }
+
+        async fn record_applied_episodes(
+            &self,
+            _id: AiImportJobId,
+            _episodes: &[AppliedEpisode],
         ) -> Result<(), DomainError> {
             Ok(())
         }
@@ -352,6 +362,14 @@ async fn merge_worker_success_records_telemetry() {
             self.telemetry.lock().unwrap().push(telemetry);
             Ok(())
         }
+
+        async fn record_applied_episodes(
+            &self,
+            _id: AiImportJobId,
+            _episodes: &[AppliedEpisode],
+        ) -> Result<(), DomainError> {
+            Ok(())
+        }
     }
 
     fn scene(number: u32) -> SceneView {
@@ -414,6 +432,8 @@ async fn merge_worker_success_records_telemetry() {
         updated_at: Utc::now(),
         telemetry: None,
         cost: None,
+        source_file_name: None,
+        applied_episodes: Vec::new(),
     };
     let queue = Arc::new(MergeCaptureQueue {
         job: job.clone(),
@@ -565,6 +585,14 @@ impl AiImportQueue for FakeQueue {
         self.state.lock().unwrap().telemetry.push(telemetry);
         Ok(())
     }
+
+    async fn record_applied_episodes(
+        &self,
+        _id: AiImportJobId,
+        _episodes: &[AppliedEpisode],
+    ) -> Result<(), DomainError> {
+        Ok(())
+    }
 }
 
 #[derive(Clone, Default)]
@@ -673,6 +701,8 @@ fn script_job(id: AiImportJobId) -> AiImportJob {
         updated_at: Utc::now(),
         telemetry: None,
         cost: None,
+        source_file_name: None,
+        applied_episodes: Vec::new(),
     }
 }
 
@@ -766,6 +796,8 @@ fn schedule_job(format: SourceFormat) -> AiImportJob {
         updated_at: Utc::now(),
         telemetry: None,
         cost: None,
+        source_file_name: None,
+        applied_episodes: Vec::new(),
     }
 }
 
@@ -2158,6 +2190,7 @@ async fn apply_retry_is_a_noop_for_confirmed_mappings() {
                 },
                 ..Telemetry::default()
             }),
+            known_episodes: Vec::new(),
         })
         .await
         .unwrap();
@@ -2178,6 +2211,7 @@ async fn apply_retry_is_a_noop_for_confirmed_mappings() {
             episode_groups: Vec::new(),
             shooting_days: Vec::new(),
             telemetry: None,
+            known_episodes: Vec::new(),
         })
         .await
         .unwrap();
@@ -2266,6 +2300,7 @@ async fn apply_script_concurrent_applies_create_one_scene_per_draft() {
                     episode_groups: Vec::new(),
                     shooting_days: Vec::new(),
                     telemetry: None,
+                    known_episodes: Vec::new(),
                 })
                 .await
         }));
@@ -2279,7 +2314,36 @@ async fn apply_script_concurrent_applies_create_one_scene_per_draft() {
                 .expect("apply failed"),
         );
     }
-    assert_eq!(results[0], results[1], "both applies must converge");
+    // The idempotent outcome converges — the summary is the one field that
+    // legitimately differs: only the apply that actually dispatched a row may
+    // attribute it (issue #763 review), so the loser reports no entries.
+    let mut left = results[0].clone();
+    let mut right = results[1].clone();
+    left.applied_episodes.clear();
+    right.applied_episodes.clear();
+    assert_eq!(
+        left, right,
+        "both applies must converge on everything they dispatched"
+    );
+    // Which apply wins which row is a race, so the per-result split is not
+    // asserted — the invariant is: every row is dispatched exactly once across
+    // the two applies, so every recorded count is attributed to the request's
+    // episode and sums to the row total.
+    let mut recorded: HashMap<Uuid, u32> = HashMap::new();
+    for result in &results {
+        for entry in &result.applied_episodes {
+            assert_eq!(
+                entry.id, episode_id.0,
+                "only the request's episode may be recorded: {results:?}"
+            );
+            *recorded.entry(entry.id).or_default() += entry.applied_count;
+        }
+    }
+    assert_eq!(
+        recorded.get(&episode_id.0).copied().unwrap_or_default(),
+        2,
+        "both rows must be recorded exactly once across the two applies: {results:?}"
+    );
     assert_eq!(
         results[0].applied.len(),
         2,
@@ -2416,6 +2480,7 @@ async fn script_pdf_round_trip_reaches_scene_apply() {
             episode_groups: Vec::new(),
             shooting_days: Vec::new(),
             telemetry: None,
+            known_episodes: Vec::new(),
         })
         .await
         .unwrap();
@@ -3076,6 +3141,7 @@ impl ScriptApplyFixture {
                 episode_groups: Vec::new(),
                 shooting_days: Vec::new(),
                 telemetry: None,
+                known_episodes: Vec::new(),
             })
             .await
     }
@@ -3088,6 +3154,37 @@ impl ScriptApplyFixture {
         episode_groups: Vec<EpisodeGroupPlan>,
     ) -> Result<super::ScriptApplyResult, DomainError> {
         self.apply_with_day_plans(preview, decisions, episode_groups, Vec::new())
+            .await
+    }
+
+    /// Apply with the edge-resolved episode identities (issue #763): the same
+    /// list `apply_ai_import` builds from the target episode and every
+    /// *existing* group target before it dispatches.
+    async fn apply_with_known_episodes(
+        &self,
+        preview: &ScriptContext,
+        decisions: &[ApplyMapping],
+        episode_groups: Vec<EpisodeGroupPlan>,
+        known_episodes: Vec<super::AppliedEpisodeIdentity>,
+    ) -> Result<super::ScriptApplyResult, DomainError> {
+        self.worker()
+            .apply_script(ApplyScriptRequest {
+                acknowledged_uncertainties: Vec::new(),
+                categories: Vec::new(),
+                continuity_selections: Vec::new(),
+                actor: UserId::from_sub("apply-test-user"),
+                preview_id: self.preview_id,
+                preview,
+                decisions,
+                episode_id: self.episode_id,
+                season_id: self.season_id,
+                project_id: Some(self.project_id),
+                block_id: self.block_id,
+                episode_groups,
+                shooting_days: Vec::new(),
+                telemetry: None,
+                known_episodes,
+            })
             .await
     }
 
@@ -3115,6 +3212,7 @@ impl ScriptApplyFixture {
                 episode_groups,
                 shooting_days,
                 telemetry: None,
+                known_episodes: Vec::new(),
             })
             .await
     }
@@ -3143,6 +3241,7 @@ impl ScriptApplyFixture {
                 episode_groups: Vec::new(),
                 shooting_days: Vec::new(),
                 telemetry: None,
+                known_episodes: Vec::new(),
             })
             .await
     }
@@ -3170,6 +3269,7 @@ impl ScriptApplyFixture {
                 episode_groups: Vec::new(),
                 shooting_days: Vec::new(),
                 telemetry: None,
+                known_episodes: Vec::new(),
             })
             .await
     }
@@ -4560,6 +4660,192 @@ async fn script_apply_retry_does_not_recreate_the_episode() {
     assert_eq!(second.created_episodes, 0);
     assert_eq!(fixture.episodes.created.lock().unwrap().len(), 1);
     assert_eq!(fixture.scenes.created.lock().unwrap().len(), 1);
+    // (issue #763 review) The retry hit a confirmed scene mapping, so the row
+    // still sits where the FIRST apply put it — contributing NO entry is the
+    // only attribution that cannot be wrong (the persisted summary is merged,
+    // so the first apply's entry survives).
+    assert!(
+        second.applied_episodes.is_empty(),
+        "a confirmed row must not be re-attributed to the retry's target: {:?}",
+        second.applied_episodes
+    );
+}
+
+/// Issue #763 review: a reapply whose `Create` target changed keeps the episode
+/// the FIRST apply created (the mapping wins), so the plan's new number/title
+/// must not label the summary — the persisted episode would contradict it.
+#[tokio::test]
+async fn script_apply_changed_create_target_is_not_relabelled() {
+    let fixture = ScriptApplyFixture::new();
+    let preview = ScriptContext {
+        scenes: vec![row_with_episode(
+            "1. INT. OP",
+            DraftEpisode {
+                number: Some(3),
+                title: None,
+            },
+        )],
+        ..Default::default()
+    };
+    let first = fixture
+        .apply_with_groups(
+            &preview,
+            &[create_decision("1. INT. OP")],
+            vec![create_group("ep:3", 3)],
+        )
+        .await
+        .expect("first apply");
+    // The first apply created the episode from the plan, so it may label it.
+    assert_eq!(first.applied_episodes.len(), 1);
+    assert_eq!(first.applied_episodes[0].number, Some(3));
+    assert_eq!(first.applied_episodes[0].name.as_deref(), Some("Episode 3"));
+
+    // Reapply the same group with a CHANGED create target (a reviewer editing
+    // the group). The mapping keeps episode 3; the summary must not claim 4.
+    let second = fixture
+        .apply_with_groups(&preview, &[], vec![create_group("ep:3", 4)])
+        .await
+        .expect("reapply");
+    assert_eq!(second.created_episodes, 0);
+    assert_eq!(fixture.episodes.created.lock().unwrap().len(), 1);
+    assert!(
+        second.applied_episodes.is_empty(),
+        "a reapply that only re-confirmed mappings contributes no entry: {:?}",
+        second.applied_episodes
+    );
+}
+
+/// Issue #763 review (CodeRabbit): a reserved scene whose stream ALREADY holds
+/// the append (the issue #182 crash window: the command appended, the mapping
+/// write rolled back) is *recovered* by the next apply, not created by it. The
+/// recovered row must not be counted again — the scene sits where the earlier
+/// attempt put it.
+#[tokio::test]
+async fn script_apply_recovered_scene_row_is_not_counted() {
+    let fixture = ScriptApplyFixture::new();
+    let preview = ScriptContext {
+        scenes: vec![DraftScene {
+            draft_ref: "1. INT. OP".to_owned(),
+            scene_number: Some(1),
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    let first = fixture
+        .apply_with_groups(&preview, &[create_decision("1. INT. OP")], Vec::new())
+        .await
+        .expect("first apply");
+    assert_eq!(first.applied_episodes.len(), 1);
+    let scene_id = first.applied[0].aggregate_id;
+
+    // Reproduce the crash window: the scene stream exists (the fake `create`
+    // rejects a second append on it with `VersionConflict`), but the mapping row
+    // is gone, so the retry re-derives the same id and recovers the stream.
+    fixture.mappings.remove(fixture.preview_id, "1. INT. OP");
+
+    let retry = fixture
+        .apply_with_groups(&preview, &[create_decision("1. INT. OP")], Vec::new())
+        .await
+        .expect("recovered retry");
+    assert_eq!(
+        retry.applied[0].aggregate_id, scene_id,
+        "the retry must converge on the already-appended scene"
+    );
+    assert!(
+        retry.applied_episodes.is_empty(),
+        "a recovered append belongs to the earlier attempt and must not be counted: {:?}",
+        retry.applied_episodes
+    );
+}
+
+/// Issue #763 review (CodeRabbit): the retry's target must not be recorded even
+/// when the API edge resolved it — a confirmed row still belongs to the episode
+/// the first apply put it in, not to the existing episode this retry names.
+#[tokio::test]
+async fn script_apply_retry_never_attributes_a_confirmed_row_to_another_episode() {
+    let fixture = ScriptApplyFixture::new();
+    let preview = ScriptContext {
+        scenes: vec![DraftScene {
+            draft_ref: "1. INT. OP".to_owned(),
+            scene_number: Some(1),
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    // First apply into episode A (the fixture's target), edge-resolved.
+    let episode_a = fixture.episode_id;
+    let first = fixture
+        .apply_with_known_episodes(
+            &preview,
+            &[create_decision("1. INT. OP")],
+            Vec::new(),
+            vec![super::AppliedEpisodeIdentity {
+                id: episode_a,
+                number: 10,
+                name: Some("Episode A".to_owned()),
+            }],
+        )
+        .await
+        .expect("first apply");
+    assert_eq!(first.applied_episodes.len(), 1);
+    assert_eq!(first.applied_episodes[0].id, episode_a.0);
+    assert_eq!(first.applied_episodes[0].number, Some(10));
+
+    // Retry that names a DIFFERENT existing episode B, resolvable at the edge.
+    // The scene mapping is confirmed, so the retry dispatches nothing.
+    let episode_b = breakdown_core::shared::EpisodeId::new();
+    let second = fixture
+        .apply_with_known_episodes(
+            &preview,
+            &[],
+            Vec::new(),
+            vec![super::AppliedEpisodeIdentity {
+                id: episode_b,
+                number: 20,
+                name: Some("Episode B".to_owned()),
+            }],
+        )
+        .await
+        .expect("retry");
+    assert!(
+        second.applied_episodes.is_empty(),
+        "the confirmed scene lives in A; the retry must not record B: {:?}",
+        second.applied_episodes
+    );
+}
+
+/// Issue #763 review counterpart: an episode the API edge resolved still labels
+/// its entry, including on a reapply — that identity is authoritative for the
+/// episode id, not derived from the request's plan.
+#[tokio::test]
+async fn script_apply_labels_from_the_edge_resolved_episode() {
+    let fixture = ScriptApplyFixture::new();
+    let preview = ScriptContext {
+        scenes: vec![DraftScene {
+            draft_ref: "1. INT. OP".to_owned(),
+            scene_number: Some(1),
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    let known = vec![super::AppliedEpisodeIdentity {
+        id: fixture.episode_id,
+        number: 299,
+        name: Some("Erlösung".to_owned()),
+    }];
+    let result = fixture
+        .apply_with_known_episodes(
+            &preview,
+            &[create_decision("1. INT. OP")],
+            Vec::new(),
+            known,
+        )
+        .await
+        .expect("apply");
+    assert_eq!(result.applied_episodes.len(), 1);
+    assert_eq!(result.applied_episodes[0].number, Some(299));
+    assert_eq!(result.applied_episodes[0].name.as_deref(), Some("Erlösung"));
+    assert_eq!(result.applied_episodes[0].applied_count, 1);
 }
 
 #[tokio::test]

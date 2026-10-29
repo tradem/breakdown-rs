@@ -346,6 +346,27 @@ components:
         Operational job row. Preview blobs and errors are represented by opaque
         handles/summaries; credentials and document bytes are deliberately absent.
       properties:
+        applied_episodes:
+          description: |-
+            The episodes a successful **script** apply landed this job's rows in
+            (issue #763), so the jobs list can name the import's target instead of
+            only its date. Additive with `serde(default)`: empty for a job no apply
+            has run for yet, and for a schedule apply (which merges onto the
+            project's existing scenes and days and therefore has no single target
+            episode). Written by the apply path from the plan and target data it
+            already holds.
+
+            The summary is written by the applies that actually dispatched rows, and
+            merged per episode: a re-apply of an already-applied preview contributes
+            nothing (a confirmed row is not re-attributed to the retry's target), so
+            the earlier entries survive. It is best-effort by design (the scene rows
+            are already committed), so an empty list also means "no apply has written
+            a summary" — a client renders its kind/date copy either way. An entry
+            only carries `number`/`name` when they are authoritative for that
+            episode's persisted location.
+          items:
+            $ref: '#/components/schemas/AppliedEpisode'
+          type: array
         attempts:
           description: |-
             Per-attempt failure history, newest first (issue #637).
@@ -408,14 +429,31 @@ components:
           oneOf:
           - $ref: '#/components/schemas/AiImportProgress'
             description: |-
-              Live extraction progress of a running job, when the worker already
-              published it (issue #664). `None` for pending jobs and freshly
-              re-claimed retry attempts (the claim SQL resets stale progress).
+              Live extraction progress of a **running** job, when the worker already
+              published it (issue #664). `None` for pending jobs, for freshly
+              re-claimed retry attempts (the claim SQL resets stale progress) and —
+              since issue #763 — for every terminal job: the queue clears the column
+              in the same statement that lands `succeeded`/`dead_letter`/
+              `payload_unavailable`, so a finished job never advertises the stage it
+              died at (the last frame is always `storing_preview`).
           - type: 'null'
         retries:
           format: int32
           minimum: 0
           type: integer
+        source_file_name:
+          description: |-
+            The uploaded document's own file name, as the client picked it (issue
+            #763). Additive with `serde(default)`: `None` for every job created
+            before the field existed and for every upload that carried no name.
+
+            The value is display metadata only — it is sanitized at the API edge
+            (`sanitize_source_file_name`: basename, no control characters, bounded)
+            and is deliberately **not** derived from [`Self::source_handle`], which
+            is an opaque storage coordinate and never a name.
+          type:
+          - string
+          - 'null'
         source_format:
           $ref: '#/components/schemas/SourceFormat'
         source_handle:
@@ -641,6 +679,43 @@ components:
       - outfit_id
       - order
       type: object
+    AppliedEpisode:
+      description: |-
+        One target episode of an applied AI-import preview (issue #763).
+
+        The `applied_count` is the number of scene rows **this** job wrote into the
+        episode, so a multi-episode import can be read at a glance instead of being
+        summed up by the reader.
+      properties:
+        applied_count:
+          description: Scene rows applied into this episode.
+          format: int32
+          minimum: 0
+          type: integer
+        id:
+          description: The episode the rows were applied into.
+          format: uuid
+          type: string
+        name:
+          description: |-
+            Its title, when the episode has one. `None` is honest absence — an
+            untitled episode renders by number alone.
+          type:
+          - string
+          - 'null'
+        number:
+          description: |-
+            Its production-global number (the identity a user speaks in), when the
+            apply path knew it. `None` is honest absence — never `0`, never a number
+            read back from a projection the write path must not consult.
+          format: int32
+          type:
+          - integer
+          - 'null'
+      required:
+      - id
+      - applied_count
+      type: object
     ApplyAiImportRequest:
       properties:
         accept_as_is:
@@ -721,6 +796,17 @@ components:
           format: int32
           minimum: 0
           type: integer
+        applied_episodes:
+          description: |-
+            The episodes THIS request dispatched rows into, each with its own row
+            count (issue #763). Merged into the job's persisted summary, so the jobs
+            list can name the import's target afterwards. Empty for a schedule apply
+            (it merges onto the project's existing scenes and days), and for a
+            re-apply that found every row already applied — such a retry contributes
+            nothing, and the job keeps the earlier, correctly attributed summary.
+          items:
+            $ref: '#/components/schemas/AppliedEpisode'
+          type: array
         created_characters:
           description: |-
             Figures the script apply created. A figure named by several draft rows is
@@ -5058,6 +5144,15 @@ paths:
   /v1/ai-import/schedules:
     post:
       operationId: upload_ai_schedule
+      parameters:
+      - description: 'Percent-encoded UTF-8 name of the uploaded document (issue #763). Optional: absent means the job carries no name. The server sanitizes it (basename only, no control characters, at most 200 characters) before storing it as the job''s `source_file_name`.'
+        in: header
+        name: X-Document-Filename
+        required: false
+        schema:
+          type:
+          - string
+          - 'null'
       requestBody:
         content:
           text/plain:
@@ -5106,6 +5201,15 @@ paths:
   /v1/ai-import/scripts:
     post:
       operationId: upload_ai_script
+      parameters:
+      - description: 'Percent-encoded UTF-8 name of the uploaded document (issue #763). Optional: absent means the job carries no name. The server sanitizes it (basename only, no control characters, at most 200 characters) before storing it as the job''s `source_file_name`.'
+        in: header
+        name: X-Document-Filename
+        required: false
+        schema:
+          type:
+          - string
+          - 'null'
       requestBody:
         content:
           application/pdf:

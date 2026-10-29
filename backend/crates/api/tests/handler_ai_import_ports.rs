@@ -45,13 +45,14 @@ use api::state::AppState;
 use breakdown_core::ai::{
     AiConfigView, AiImportJob, AiImportJobId, AiImportMappingRepository, AiImportPreviewResponse,
     AiImportQueue, AiPreviewPayload, ApplyMapping, ApplyMappingDecision, CostDisplayPreference,
-    DocumentKind, DraftScene, EpisodeTarget, JobStatus, LlmProvider, MergedPreview, ScriptContext,
-    ShootingSchedule, SourceFormat, TelemetryApplyState, Uncertainty, UncertaintyAcknowledgement,
-    UncertaintyKind,
+    DocumentKind, DraftEpisode, DraftScene, EpisodeTarget, JobStatus, LlmProvider, MergedPreview,
+    ScriptContext, ShootingSchedule, SourceFormat, TelemetryApplyState, Uncertainty,
+    UncertaintyAcknowledgement, UncertaintyKind,
 };
 use breakdown_core::block::BlockView;
 use breakdown_core::episode::views::EpisodeView;
 use breakdown_core::membership::Role;
+use breakdown_core::scene::views::SceneView;
 use breakdown_core::shared::{AggregateVersion, BlockId, EpisodeId, ProjectId, SeasonId, UserId};
 use chrono::Utc;
 use common::FakePorts;
@@ -118,6 +119,17 @@ fn pdf_headers(block_id: BlockId) -> HeaderMap {
     headers
 }
 
+/// A PDF upload request carrying the document's display name (issue #763) —
+/// percent-encoded UTF-8, exactly as the Flutter client sends it.
+fn pdf_headers_with_name(block_id: BlockId, encoded_name: &str) -> HeaderMap {
+    let mut headers = pdf_headers(block_id);
+    headers.insert(
+        "x-document-filename",
+        HeaderValue::from_str(encoded_name).expect("a percent-encoded name is header-safe"),
+    );
+    headers
+}
+
 /// A schedule upload request with the given Content-Type. The schedule
 /// handler accepts `text/csv`, `application/pdf` and `text/plain`.
 fn schedule_headers(content_type: &'static str, block_id: BlockId) -> HeaderMap {
@@ -153,7 +165,197 @@ fn succeeded_job(preview_handle: &str) -> AiImportJob {
         updated_at: now,
         telemetry: None,
         cost: None,
+        source_file_name: None,
+        applied_episodes: Vec::new(),
     }
+}
+
+/// Issue #763: the upload captures the picked document's own name from the
+/// percent-encoded `X-Document-Filename` header, so the jobs list can show
+/// which document a row belongs to. Nothing else about the raw-body contract
+/// moves — same path, same declared media type, same bytes.
+#[tokio::test]
+async fn upload_ai_script_persists_the_percent_encoded_file_name() {
+    let ports = FakePorts::default();
+    let queue = ports.ai_import_queue.clone();
+    let block_id = BlockId::from_uuid(Uuid::now_v7());
+    seed_ai_block_access(&ports, block_id).await;
+
+    let result = upload_ai_script::<FakePorts>(
+        State(state(ports)),
+        user(),
+        // "Erlösung Skript.pdf" — the umlaut is percent-encoded UTF-8, because
+        // an HTTP header value is ASCII.
+        pdf_headers_with_name(block_id, "Erl%C3%B6sung%20Skript.pdf"),
+        api::problems::Bytes(axum::body::Bytes::from_static(b"%PDF-1.7 fake")),
+    )
+    .await;
+
+    let (status, Json(job_id)) = result.expect("authorized PDF upload should be accepted");
+    assert_eq!(status, StatusCode::ACCEPTED);
+    let job = queue
+        .get(job_id)
+        .await
+        .expect("queue read should succeed")
+        .expect("enqueued job should be retrievable");
+    assert_eq!(
+        job.source_file_name.as_deref(),
+        Some("Erlösung Skript.pdf"),
+        "the decoded name must survive verbatim"
+    );
+}
+
+/// Issue #763 (CodeRabbit review): the schedule route reads the same header —
+/// it hands its own `HeaderMap` to the shared enqueue helper, so a regression
+/// that dropped the forwarding would otherwise pass the suite.
+#[tokio::test]
+async fn upload_ai_schedule_persists_the_percent_encoded_file_name() {
+    let ports = FakePorts::default();
+    let queue = ports.ai_import_queue.clone();
+    let block_id = BlockId::from_uuid(Uuid::now_v7());
+    seed_ai_block_access(&ports, block_id).await;
+
+    let mut headers = schedule_headers("text/csv", block_id);
+    headers.insert(
+        "x-document-filename",
+        HeaderValue::from_static("Drehplan%20299%20Erl%C3%B6sung.csv"),
+    );
+
+    let result = upload_ai_schedule::<FakePorts>(
+        State(state(ports)),
+        user(),
+        headers,
+        api::problems::Bytes(axum::body::Bytes::from_static(b"day,scene\n1,12")),
+    )
+    .await;
+
+    let (status, Json(job_id)) = result.expect("authorized schedule upload should be accepted");
+    assert_eq!(status, StatusCode::ACCEPTED);
+    let job = queue
+        .get(job_id)
+        .await
+        .expect("queue read should succeed")
+        .expect("enqueued job should be retrievable");
+    assert_eq!(
+        job.source_file_name.as_deref(),
+        Some("Drehplan 299 Erlösung.csv"),
+    );
+}
+
+/// Issue #763: an upload without the header stores `NULL` — an honest absence,
+/// never a fabricated name and never the opaque `source_handle`.
+#[tokio::test]
+async fn upload_ai_script_without_a_file_name_stays_absent() {
+    let ports = FakePorts::default();
+    let queue = ports.ai_import_queue.clone();
+    let block_id = BlockId::from_uuid(Uuid::now_v7());
+    seed_ai_block_access(&ports, block_id).await;
+
+    let result = upload_ai_script::<FakePorts>(
+        State(state(ports)),
+        user(),
+        pdf_headers(block_id),
+        api::problems::Bytes(axum::body::Bytes::from_static(b"%PDF-1.7 fake")),
+    )
+    .await;
+
+    let (_, Json(job_id)) = result.expect("authorized PDF upload should be accepted");
+    let job = queue
+        .get(job_id)
+        .await
+        .expect("queue read should succeed")
+        .expect("enqueued job should be retrievable");
+    assert_eq!(job.source_file_name, None);
+}
+
+/// Issue #763: a hostile or malformed name is sanitized at the edge — a path
+/// never survives, control characters never round-trip, and a name that cannot
+/// be decoded degrades to "no name" rather than an error. A display field must
+/// never be able to block an upload.
+#[tokio::test]
+async fn upload_ai_script_sanitizes_a_hostile_file_name() {
+    for (encoded, expected) in [
+        // A path with a forged newline: only the basename survives.
+        ("..%2F..%2Fetc%2Fpasswd%0A", Some("passwd")),
+        // A CRLF header-injection attempt cannot produce a second line.
+        ("a.pdf%0D%0AX-Injected%3A%201", Some("a.pdfX-Injected: 1")),
+        // Invalid UTF-8 percent sequences: nothing decodable, so no name.
+        ("%C3%28.pdf", None),
+        // Percent-decodes to whitespace only: no name.
+        ("%20%20%20", None),
+        // A malformed escape is not a name either: `percent_decode_str` would
+        // otherwise pass `%GG` through literally and the job would store it.
+        ("script%GG.pdf", None),
+        // A trailing bare `%` is equally malformed.
+        ("script.pdf%", None),
+    ] {
+        let ports = FakePorts::default();
+        let queue = ports.ai_import_queue.clone();
+        let block_id = BlockId::from_uuid(Uuid::now_v7());
+        seed_ai_block_access(&ports, block_id).await;
+
+        let result = upload_ai_script::<FakePorts>(
+            State(state(ports)),
+            user(),
+            pdf_headers_with_name(block_id, encoded),
+            api::problems::Bytes(axum::body::Bytes::from_static(b"%PDF-1.7 fake")),
+        )
+        .await;
+
+        let (status, Json(job_id)) = result.expect("a weird name must not fail the upload");
+        assert_eq!(status, StatusCode::ACCEPTED, "{encoded}");
+        let job = queue
+            .get(job_id)
+            .await
+            .expect("queue read should succeed")
+            .expect("enqueued job should be retrievable");
+        assert_eq!(job.source_file_name.as_deref(), expected, "{encoded}");
+    }
+}
+
+/// Issue #763: a duplicate re-upload returns the EXISTING job, whose name is
+/// untouched — the row the user already knows keeps its identity (the Postgres
+/// adapter's `ON CONFLICT` only echoes `dedup_key`). The 200 duplicate path and
+/// its content-type contract are otherwise unchanged.
+#[tokio::test]
+async fn upload_ai_script_duplicate_keeps_the_first_file_name() {
+    let ports = FakePorts::default();
+    let queue = ports.ai_import_queue.clone();
+    let block_id = BlockId::from_uuid(Uuid::now_v7());
+    seed_ai_block_access(&ports, block_id).await;
+
+    let first = upload_ai_script::<FakePorts>(
+        State(state(ports.clone())),
+        user(),
+        pdf_headers_with_name(block_id, "Erstes%20Skript.pdf"),
+        api::problems::Bytes(axum::body::Bytes::from_static(b"%PDF-1.7 fake")),
+    )
+    .await
+    .expect("first upload should be accepted");
+    let (_, Json(first_id)) = first;
+
+    let second = upload_ai_script::<FakePorts>(
+        State(state(ports)),
+        user(),
+        pdf_headers_with_name(block_id, "Zweites%20Skript.pdf"),
+        api::problems::Bytes(axum::body::Bytes::from_static(b"%PDF-1.7 fake")),
+    )
+    .await
+    .expect("the duplicate re-upload is a 200, not an error");
+    let (status, Json(second_id)) = second;
+    assert_eq!(status, StatusCode::OK, "one dedup hit is a 200");
+    assert_eq!(second_id, first_id);
+
+    let job = queue
+        .get(first_id)
+        .await
+        .expect("queue read should succeed")
+        .expect("enqueued job should be retrievable");
+    assert_eq!(
+        job.source_file_name.as_deref(),
+        Some("Erstes Skript.pdf"),
+        "the existing row keeps the name it was created with"
+    );
 }
 
 #[tokio::test]
@@ -797,6 +999,557 @@ async fn apply_ai_import_drives_the_script_worker_through_the_ports_seam() {
         },
         "apply telemetry must carry the exact Applied outcome"
     );
+}
+
+/// Seed a succeeded script job whose preview carries one draft row per
+/// `(draft_ref, episode)` pair, so the apply can be driven across several
+/// episode groups (issue #763).
+async fn seed_multi_episode_script_job(
+    ports: &FakePorts,
+    block_id: Option<BlockId>,
+) -> AiImportJobId {
+    let preview = ScriptContext {
+        title: Some("multi-episode script".to_owned()),
+        scenes: vec![
+            DraftScene {
+                draft_ref: "scene-0".to_owned(),
+                scene_number: Some(1),
+                episode: Some(DraftEpisode {
+                    number: Some(299),
+                    title: Some("Erlösung".to_owned()),
+                }),
+                ..DraftScene::default()
+            },
+            DraftScene {
+                draft_ref: "scene-1".to_owned(),
+                scene_number: Some(2),
+                episode: Some(DraftEpisode {
+                    number: Some(300),
+                    title: Some("Heimkehr".to_owned()),
+                }),
+                ..DraftScene::default()
+            },
+        ],
+        uncertainties: vec![],
+    };
+    let mut job = succeeded_job("placeholder");
+    job.block_id = block_id;
+    let handle = ports
+        .ai_payload_store
+        .put(
+            job.id,
+            serde_json::to_vec(&preview).expect("preview serializes"),
+        )
+        .await
+        .expect("preview store write should succeed");
+    job.preview_handle = Some(handle);
+    let job_id = job.id;
+    ports.ai_import_queue.seed(job).await;
+    job_id
+}
+
+/// Issue #763 review (CodeRabbit): an `Update` row changes details only — the
+/// scene keeps its episode — so a grouped `Update` must be attributed to the
+/// primary episode, never to the group's target.
+#[tokio::test]
+async fn apply_ai_import_attributes_a_grouped_update_to_the_primary_episode() {
+    let ports = FakePorts::default();
+    let block_id = BlockId::from_uuid(Uuid::now_v7());
+    *ports.episode_repo.block_id_override.lock().await = Some(block_id);
+    seed_ai_block_access(&ports, block_id).await;
+    let queue = ports.ai_import_queue.clone();
+    let job_id = seed_multi_episode_script_job(&ports, Some(block_id)).await;
+
+    // The primary target episode A holds the scene the reviewer updates.
+    let episode_a = EpisodeId::new();
+    let episode_b = EpisodeId::new();
+    {
+        let mut episodes = ports.episode_repo.episodes.lock().await;
+        for (id, number, name) in [(episode_a, 299, "Erlösung"), (episode_b, 300, "Heimkehr")] {
+            episodes.insert(
+                id.0,
+                EpisodeView {
+                    id: id.0,
+                    block_id,
+                    project_id: ProjectId::from_uuid(Uuid::now_v7()),
+                    number,
+                    name: Some(name.to_owned()),
+                    version: AggregateVersion::INITIAL,
+                    updated_at: Utc::now(),
+                },
+            );
+        }
+    }
+    // The scene the Update targets lives in episode A (the handler rejects a
+    // cross-episode Update target, so this is the only reachable shape).
+    let scene_id = Uuid::now_v7();
+    let second_scene_id = Uuid::now_v7();
+    ports.scene_repo.scenes.lock().await.insert(
+        second_scene_id,
+        SceneView {
+            id: second_scene_id,
+            episode_id: episode_a,
+            scene_number: Some(2),
+            location: Some("Küche".to_owned()),
+            mood: None,
+            is_schedule_set: false,
+            summary: None,
+            script_day: None,
+            shooting_day_ids: Vec::new(),
+            assigned_characters: Vec::new(),
+            outfit_beats: Vec::new(),
+            source: None,
+            version: AggregateVersion::INITIAL,
+            updated_at: Utc::now(),
+        },
+    );
+    ports.scene_repo.scenes.lock().await.insert(
+        scene_id,
+        SceneView {
+            id: scene_id,
+            episode_id: episode_a,
+            scene_number: Some(1),
+            location: Some("OP".to_owned()),
+            mood: None,
+            is_schedule_set: false,
+            summary: None,
+            script_day: None,
+            shooting_day_ids: Vec::new(),
+            assigned_characters: Vec::new(),
+            outfit_beats: Vec::new(),
+            source: None,
+            version: AggregateVersion::INITIAL,
+            updated_at: Utc::now(),
+        },
+    );
+
+    let (status, Json(response)) = apply_ai_import::<FakePorts>(
+        State(state(ports)),
+        user(),
+        Path(job_id),
+        Json(ApplyAiImportRequest {
+            continuity_selections: Vec::new(),
+            episode_id: episode_a,
+            project_id: None,
+            uncertainty_acknowledgements: Vec::new(),
+            mappings: vec![
+                ApplyMapping {
+                    draft_ref: "scene-0".to_owned(),
+                    decision: ApplyMappingDecision::Update {
+                        aggregate_id: scene_id,
+                        version: AggregateVersion::INITIAL,
+                    },
+                    outfit_decisions: Vec::new(),
+                },
+                ApplyMapping {
+                    draft_ref: "scene-1".to_owned(),
+                    decision: ApplyMappingDecision::Update {
+                        aggregate_id: second_scene_id,
+                        version: AggregateVersion::INITIAL,
+                    },
+                    outfit_decisions: Vec::new(),
+                },
+            ],
+            accept_as_is: true,
+            edit_distance: 0,
+            // The row carries `Ep.: 299` metadata, so the reviewer had to map a
+            // group for it — here onto a DIFFERENT episode B.
+            episode_groups: vec![ApplyEpisodeGroupRequest {
+                episode_ref: "ep:299".to_owned(),
+                target: EpisodeTarget::Existing {
+                    episode_id: episode_b,
+                },
+            }],
+            shooting_days: Vec::new(),
+        }),
+    )
+    .await
+    .expect("an in-block grouped update should apply");
+
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        response.applied_episodes.len(),
+        1,
+        "only the scene's own episode may be named: {:?}",
+        response.applied_episodes
+    );
+    assert_eq!(
+        response.applied_episodes[0].id, episode_a.0,
+        "an updated scene stays in its own — the primary — episode"
+    );
+    assert_eq!(response.applied_episodes[0].number, Some(299));
+    assert_eq!(
+        response.applied_episodes[0].applied_count, 2,
+        "both updated rows live in the primary episode"
+    );
+    let stored = queue
+        .applied_episodes
+        .lock()
+        .await
+        .first()
+        .cloned()
+        .expect("the apply recorded the summary");
+    assert_eq!(stored.1, response.applied_episodes);
+}
+
+/// Issue #763 (CodeRabbit review): the happy path of an **existing** group
+/// target — the API edge resolves the episode's identity so the summary can name
+/// it, and both the response and the persisted job carry it.
+#[tokio::test]
+async fn apply_ai_import_labels_an_existing_group_target() {
+    let ports = FakePorts::default();
+    let block_id = BlockId::from_uuid(Uuid::now_v7());
+    *ports.episode_repo.block_id_override.lock().await = Some(block_id);
+    seed_ai_block_access(&ports, block_id).await;
+    let queue = ports.ai_import_queue.clone();
+    // The preview carries an `Ep.: 299` marker, so `ep:299` is a real group.
+    let job_id = seed_multi_episode_script_job(&ports, Some(block_id)).await;
+    // The reviewer maps both groups onto EXISTING episodes of the same block.
+    let existing = EpisodeId::new();
+    let existing_second = EpisodeId::new();
+    {
+        let mut episodes = ports.episode_repo.episodes.lock().await;
+        episodes.insert(
+            existing.0,
+            EpisodeView {
+                id: existing.0,
+                block_id,
+                project_id: ProjectId::from_uuid(Uuid::now_v7()),
+                number: 299,
+                name: Some("Erlösung".to_owned()),
+                version: AggregateVersion::INITIAL,
+                updated_at: Utc::now(),
+            },
+        );
+        episodes.insert(
+            existing_second.0,
+            EpisodeView {
+                id: existing_second.0,
+                block_id,
+                project_id: ProjectId::from_uuid(Uuid::now_v7()),
+                number: 300,
+                name: Some("Heimkehr".to_owned()),
+                version: AggregateVersion::INITIAL,
+                updated_at: Utc::now(),
+            },
+        );
+    }
+
+    let (status, Json(response)) = apply_ai_import::<FakePorts>(
+        State(state(ports)),
+        user(),
+        Path(job_id),
+        Json(ApplyAiImportRequest {
+            continuity_selections: Vec::new(),
+            episode_id: EpisodeId::new(),
+            project_id: None,
+            uncertainty_acknowledgements: Vec::new(),
+            mappings: vec![
+                ApplyMapping {
+                    draft_ref: "scene-0".to_owned(),
+                    decision: ApplyMappingDecision::Create,
+                    outfit_decisions: Vec::new(),
+                },
+                ApplyMapping {
+                    draft_ref: "scene-1".to_owned(),
+                    decision: ApplyMappingDecision::Create,
+                    outfit_decisions: Vec::new(),
+                },
+            ],
+            accept_as_is: true,
+            edit_distance: 0,
+            episode_groups: vec![
+                ApplyEpisodeGroupRequest {
+                    episode_ref: "ep:299".to_owned(),
+                    target: EpisodeTarget::Existing {
+                        episode_id: existing,
+                    },
+                },
+                ApplyEpisodeGroupRequest {
+                    episode_ref: "ep:300".to_owned(),
+                    target: EpisodeTarget::Existing {
+                        episode_id: existing_second,
+                    },
+                },
+            ],
+            shooting_days: Vec::new(),
+        }),
+    )
+    .await
+    .expect("an in-block existing target should apply");
+
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(response.applied_episodes.len(), 2);
+    let applied = &response.applied_episodes[0];
+    assert_eq!(
+        applied.id, existing.0,
+        "the row landed in the existing episode"
+    );
+    assert_eq!(applied.number, Some(299));
+    assert_eq!(applied.name.as_deref(), Some("Erlösung"));
+    assert_eq!(applied.applied_count, 1);
+    assert_eq!(response.applied_episodes[1].id, existing_second.0);
+    assert_eq!(response.applied_episodes[1].number, Some(300));
+    assert_eq!(
+        response.applied_episodes[1].name.as_deref(),
+        Some("Heimkehr")
+    );
+    // The persisted summary carries the same identity.
+    let stored = queue
+        .applied_episodes
+        .lock()
+        .await
+        .first()
+        .cloned()
+        .expect("the apply recorded the summary");
+    assert_eq!(stored.1, response.applied_episodes);
+}
+
+/// Issue #763 review (CWE-639): an **existing** group target is resolved at the
+/// API edge purely to label the summary, so it must carry the same block guard
+/// as the primary target. Otherwise a job scoped to block A could name — and
+/// persist on its job row — an episode that belongs to block B.
+#[tokio::test]
+async fn apply_ai_import_rejects_an_existing_group_target_from_another_block() {
+    let ports = FakePorts::default();
+    let block_id = BlockId::from_uuid(Uuid::now_v7());
+    *ports.episode_repo.block_id_override.lock().await = Some(block_id);
+    seed_ai_block_access(&ports, block_id).await;
+    let mappings = ports.ai_import_mapping.clone();
+    let queue = ports.ai_import_queue.clone();
+    let job_id = seed_multi_episode_script_job(&ports, Some(block_id)).await;
+
+    // The group target lives in a DIFFERENT block than the job.
+    let foreign_block = BlockId::from_uuid(Uuid::now_v7());
+    let foreign_episode = EpisodeId::new();
+    ports.episode_repo.episodes.lock().await.insert(
+        foreign_episode.0,
+        EpisodeView {
+            id: foreign_episode.0,
+            block_id: foreign_block,
+            project_id: ProjectId::from_uuid(Uuid::now_v7()),
+            number: 4711,
+            name: Some("Fremder Block".to_owned()),
+            version: AggregateVersion::INITIAL,
+            updated_at: Utc::now(),
+        },
+    );
+
+    let problem = apply_ai_import::<FakePorts>(
+        State(state(ports)),
+        user(),
+        Path(job_id),
+        Json(ApplyAiImportRequest {
+            continuity_selections: Vec::new(),
+            episode_id: EpisodeId::new(),
+            project_id: None,
+            uncertainty_acknowledgements: Vec::new(),
+            mappings: vec![ApplyMapping {
+                draft_ref: "scene-0".to_owned(),
+                decision: ApplyMappingDecision::Create,
+                outfit_decisions: Vec::new(),
+            }],
+            accept_as_is: true,
+            edit_distance: 0,
+            episode_groups: vec![ApplyEpisodeGroupRequest {
+                episode_ref: "ep:299".to_owned(),
+                target: EpisodeTarget::Existing {
+                    episode_id: foreign_episode,
+                },
+            }],
+            shooting_days: Vec::new(),
+        }),
+    )
+    .await
+    .expect_err("a cross-block existing target must be rejected")
+    .into_problem();
+
+    assert_eq!(problem.status, StatusCode::FORBIDDEN.as_u16());
+    assert_eq!(problem.code, "ai-import.forbidden");
+    // The guard runs before the worker: nothing was written and the job's
+    // summary was never touched.
+    assert!(
+        mappings
+            .list_by_preview(job_id)
+            .await
+            .expect("mapping read should succeed")
+            .is_empty(),
+        "a rejected apply must not write any mapping"
+    );
+    assert!(
+        queue.applied_episodes.lock().await.is_empty(),
+        "a rejected apply must not persist an applied-episode summary"
+    );
+}
+
+/// Issue #763: a successful apply records the episodes its rows landed in, both
+/// on the job (so the jobs list can name the target) and in the response. The
+/// label comes from data the request path already holds — the target episode the
+/// handler resolved — never from a second projection lookup.
+#[tokio::test]
+async fn apply_ai_import_records_the_target_episode_on_the_job() {
+    let ports = FakePorts::default();
+    let block_id = BlockId::from_uuid(Uuid::now_v7());
+    *ports.episode_repo.block_id_override.lock().await = Some(block_id);
+    seed_ai_block_access(&ports, block_id).await;
+    let queue = ports.ai_import_queue.clone();
+    let job_id = seed_applyable_script_job(&ports, Some(block_id), 2).await;
+    // The target episode is the one the reviewer picked; seed its identity so
+    // the summary carries a real number and title, not a stub.
+    let episode_id = EpisodeId::new();
+    ports.episode_repo.episodes.lock().await.insert(
+        episode_id.0,
+        EpisodeView {
+            id: episode_id.0,
+            block_id,
+            project_id: ProjectId::from_uuid(Uuid::now_v7()),
+            number: 299,
+            name: Some("Erlösung".to_owned()),
+            version: AggregateVersion::INITIAL,
+            updated_at: Utc::now(),
+        },
+    );
+
+    let (status, Json(response)) = apply_ai_import::<FakePorts>(
+        State(state(ports)),
+        user(),
+        Path(job_id),
+        Json(ApplyAiImportRequest {
+            continuity_selections: Vec::new(),
+            episode_id,
+            project_id: None,
+            uncertainty_acknowledgements: Vec::new(),
+            mappings: vec![
+                ApplyMapping {
+                    draft_ref: "scene-0".to_owned(),
+                    decision: ApplyMappingDecision::Create,
+                    outfit_decisions: Vec::new(),
+                },
+                ApplyMapping {
+                    draft_ref: "scene-1".to_owned(),
+                    decision: ApplyMappingDecision::Create,
+                    outfit_decisions: Vec::new(),
+                },
+            ],
+            accept_as_is: true,
+            edit_distance: 0,
+            episode_groups: Vec::new(),
+            shooting_days: Vec::new(),
+        }),
+    )
+    .await
+    .expect("an in-block apply should succeed");
+
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(response.applied_episodes.len(), 1, "one target episode");
+    let applied = &response.applied_episodes[0];
+    assert_eq!(applied.id, episode_id.0);
+    assert_eq!(applied.number, Some(299));
+    assert_eq!(applied.name.as_deref(), Some("Erlösung"));
+    assert_eq!(applied.applied_count, 2, "both rows landed in it");
+
+    // The summary was persisted through the queue port (the jobs list reads it
+    // back later), and it is identical to what the response carried.
+    let sink = queue.applied_episodes.lock().await;
+    assert_eq!(sink.len(), 1, "the apply must record the summary once");
+    assert_eq!(sink[0].0, job_id);
+    assert_eq!(sink[0].1, response.applied_episodes);
+    drop(sink);
+    let stored = queue
+        .get(job_id)
+        .await
+        .expect("queue read should succeed")
+        .expect("the job still exists");
+    assert_eq!(stored.applied_episodes, response.applied_episodes);
+}
+
+/// Issue #763, multi-episode case: rows applied across episode groups are
+/// reported per episode with their own counts — the list renders
+/// `299 Erlösung (+2)` from exactly this list.
+#[tokio::test]
+async fn apply_ai_import_records_every_target_episode() {
+    let ports = FakePorts::default();
+    let block_id = BlockId::from_uuid(Uuid::now_v7());
+    *ports.episode_repo.block_id_override.lock().await = Some(block_id);
+    seed_ai_block_access(&ports, block_id).await;
+    let queue = ports.ai_import_queue.clone();
+    let job_id = seed_multi_episode_script_job(&ports, Some(block_id)).await;
+    let default_episode = EpisodeId::new();
+
+    let (status, Json(response)) = apply_ai_import::<FakePorts>(
+        State(state(ports)),
+        user(),
+        Path(job_id),
+        Json(ApplyAiImportRequest {
+            continuity_selections: Vec::new(),
+            episode_id: default_episode,
+            project_id: None,
+            uncertainty_acknowledgements: Vec::new(),
+            mappings: vec![
+                ApplyMapping {
+                    draft_ref: "scene-0".to_owned(),
+                    decision: ApplyMappingDecision::Create,
+                    outfit_decisions: Vec::new(),
+                },
+                ApplyMapping {
+                    draft_ref: "scene-1".to_owned(),
+                    decision: ApplyMappingDecision::Create,
+                    outfit_decisions: Vec::new(),
+                },
+            ],
+            accept_as_is: true,
+            edit_distance: 0,
+            // Both groups CREATE their episode, so the numbers/titles come from
+            // the plan the apply builds — no projection read is involved.
+            episode_groups: vec![
+                ApplyEpisodeGroupRequest {
+                    episode_ref: "ep:299".to_owned(),
+                    target: EpisodeTarget::Create {
+                        number: 299,
+                        name: Some("Erlösung".to_owned()),
+                    },
+                },
+                ApplyEpisodeGroupRequest {
+                    episode_ref: "ep:300".to_owned(),
+                    target: EpisodeTarget::Create {
+                        number: 300,
+                        name: Some("Heimkehr".to_owned()),
+                    },
+                },
+            ],
+            shooting_days: Vec::new(),
+        }),
+    )
+    .await
+    .expect("a multi-episode apply should succeed");
+
+    assert_eq!(status, StatusCode::OK);
+    let numbers: Vec<Option<i32>> = response
+        .applied_episodes
+        .iter()
+        .map(|episode| episode.number)
+        .collect();
+    assert_eq!(
+        numbers,
+        vec![Some(299), Some(300)],
+        "one entry per target episode, in applied order"
+    );
+    let names: Vec<Option<&str>> = response
+        .applied_episodes
+        .iter()
+        .map(|episode| episode.name.as_deref())
+        .collect();
+    assert_eq!(names, vec![Some("Erlösung"), Some("Heimkehr")]);
+    assert!(
+        response
+            .applied_episodes
+            .iter()
+            .all(|episode| episode.applied_count == 1),
+        "each row landed in its own episode"
+    );
+    let sink = queue.applied_episodes.lock().await;
+    assert_eq!(sink.len(), 1);
+    assert_eq!(sink[0].1, response.applied_episodes);
 }
 
 #[tokio::test]

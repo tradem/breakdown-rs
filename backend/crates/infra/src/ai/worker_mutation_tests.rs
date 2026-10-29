@@ -12,8 +12,8 @@ use std::time::Duration;
 
 use breakdown_core::ai::{
     AiImportBounds, AiImportEnqueueResult, AiImportJob, AiImportJobId, AiImportProgress,
-    AiImportQueue, AiImportStage, DocumentKind, DraftEpisode, DraftScene, JobStatus,
-    LlmCallOutcome, LlmCallUsage, LlmChatRequest, LlmClient, LlmProvider, ScriptContext,
+    AiImportQueue, AiImportStage, AppliedEpisode, DocumentKind, DraftEpisode, DraftScene,
+    JobStatus, LlmCallOutcome, LlmCallUsage, LlmChatRequest, LlmClient, LlmProvider, ScriptContext,
     SourceFormat, Telemetry, TelemetryApplyState,
 };
 use breakdown_core::error::DomainError;
@@ -78,6 +78,8 @@ impl MockQueue {
             updated_at: chrono::Utc::now(),
             telemetry: None,
             cost: None,
+            source_file_name: None,
+            applied_episodes: Vec::new(),
         };
         self.jobs.lock().await.push(job);
         id
@@ -111,6 +113,8 @@ impl AiImportQueue for MockQueue {
             updated_at: chrono::Utc::now(),
             telemetry: None,
             cost: None,
+            source_file_name: None,
+            applied_episodes: Vec::new(),
         };
         self.jobs.lock().await.push(job);
         Ok(AiImportEnqueueResult::Enqueued(request.id))
@@ -204,6 +208,14 @@ impl AiImportQueue for MockQueue {
     }
 
     async fn record_telemetry(&self, _: AiImportJobId, _: Telemetry) -> Result<(), DomainError> {
+        Ok(())
+    }
+
+    async fn record_applied_episodes(
+        &self,
+        _id: AiImportJobId,
+        _episodes: &[AppliedEpisode],
+    ) -> Result<(), DomainError> {
         Ok(())
     }
 

@@ -72,6 +72,8 @@ fn running_job(id: AiImportJobId) -> AiImportJob {
         updated_at: Utc::now(),
         telemetry: None,
         cost: None,
+        source_file_name: None,
+        applied_episodes: Vec::new(),
     }
 }
 

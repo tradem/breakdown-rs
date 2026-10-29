@@ -8,6 +8,8 @@ part of 'ai_import_job.dart';
 
 class _$AiImportJob extends AiImportJob {
   @override
+  final BuiltList<AppliedEpisode>? appliedEpisodes;
+  @override
   final BuiltList<AiImportAttempt>? attempts;
   @override
   final String? blockId;
@@ -36,6 +38,8 @@ class _$AiImportJob extends AiImportJob {
   @override
   final int retries;
   @override
+  final String? sourceFileName;
+  @override
   final SourceFormat sourceFormat;
   @override
   final String sourceHandle;
@@ -52,7 +56,8 @@ class _$AiImportJob extends AiImportJob {
       (AiImportJobBuilder()..update(updates))._build();
 
   _$AiImportJob._(
-      {this.attempts,
+      {this.appliedEpisodes,
+      this.attempts,
       this.blockId,
       this.cost,
       required this.createdAt,
@@ -66,6 +71,7 @@ class _$AiImportJob extends AiImportJob {
       this.previewHandle,
       this.progress,
       required this.retries,
+      this.sourceFileName,
       required this.sourceFormat,
       required this.sourceHandle,
       required this.status,
@@ -84,6 +90,7 @@ class _$AiImportJob extends AiImportJob {
   bool operator ==(Object other) {
     if (identical(other, this)) return true;
     return other is AiImportJob &&
+        appliedEpisodes == other.appliedEpisodes &&
         attempts == other.attempts &&
         blockId == other.blockId &&
         cost == other.cost &&
@@ -98,6 +105,7 @@ class _$AiImportJob extends AiImportJob {
         previewHandle == other.previewHandle &&
         progress == other.progress &&
         retries == other.retries &&
+        sourceFileName == other.sourceFileName &&
         sourceFormat == other.sourceFormat &&
         sourceHandle == other.sourceHandle &&
         status == other.status &&
@@ -109,6 +117,7 @@ class _$AiImportJob extends AiImportJob {
   @override
   int get hashCode {
     var _$hash = 0;
+    _$hash = $jc(_$hash, appliedEpisodes.hashCode);
     _$hash = $jc(_$hash, attempts.hashCode);
     _$hash = $jc(_$hash, blockId.hashCode);
     _$hash = $jc(_$hash, cost.hashCode);
@@ -123,6 +132,7 @@ class _$AiImportJob extends AiImportJob {
     _$hash = $jc(_$hash, previewHandle.hashCode);
     _$hash = $jc(_$hash, progress.hashCode);
     _$hash = $jc(_$hash, retries.hashCode);
+    _$hash = $jc(_$hash, sourceFileName.hashCode);
     _$hash = $jc(_$hash, sourceFormat.hashCode);
     _$hash = $jc(_$hash, sourceHandle.hashCode);
     _$hash = $jc(_$hash, status.hashCode);
@@ -136,6 +146,7 @@ class _$AiImportJob extends AiImportJob {
   @override
   String toString() {
     return (newBuiltValueToStringHelper(r'AiImportJob')
+          ..add('appliedEpisodes', appliedEpisodes)
           ..add('attempts', attempts)
           ..add('blockId', blockId)
           ..add('cost', cost)
@@ -150,6 +161,7 @@ class _$AiImportJob extends AiImportJob {
           ..add('previewHandle', previewHandle)
           ..add('progress', progress)
           ..add('retries', retries)
+          ..add('sourceFileName', sourceFileName)
           ..add('sourceFormat', sourceFormat)
           ..add('sourceHandle', sourceHandle)
           ..add('status', status)
@@ -162,6 +174,12 @@ class _$AiImportJob extends AiImportJob {
 
 class AiImportJobBuilder implements Builder<AiImportJob, AiImportJobBuilder> {
   _$AiImportJob? _$v;
+
+  ListBuilder<AppliedEpisode>? _appliedEpisodes;
+  ListBuilder<AppliedEpisode> get appliedEpisodes =>
+      _$this._appliedEpisodes ??= ListBuilder<AppliedEpisode>();
+  set appliedEpisodes(ListBuilder<AppliedEpisode>? appliedEpisodes) =>
+      _$this._appliedEpisodes = appliedEpisodes;
 
   ListBuilder<AiImportAttempt>? _attempts;
   ListBuilder<AiImportAttempt> get attempts =>
@@ -227,6 +245,11 @@ class AiImportJobBuilder implements Builder<AiImportJob, AiImportJobBuilder> {
   int? get retries => _$this._retries;
   set retries(int? retries) => _$this._retries = retries;
 
+  String? _sourceFileName;
+  String? get sourceFileName => _$this._sourceFileName;
+  set sourceFileName(String? sourceFileName) =>
+      _$this._sourceFileName = sourceFileName;
+
   SourceFormat? _sourceFormat;
   SourceFormat? get sourceFormat => _$this._sourceFormat;
   set sourceFormat(SourceFormat? sourceFormat) =>
@@ -261,6 +284,7 @@ class AiImportJobBuilder implements Builder<AiImportJob, AiImportJobBuilder> {
   AiImportJobBuilder get _$this {
     final $v = _$v;
     if ($v != null) {
+      _appliedEpisodes = $v.appliedEpisodes?.toBuilder();
       _attempts = $v.attempts?.toBuilder();
       _blockId = $v.blockId;
       _cost = $v.cost?.toBuilder();
@@ -275,6 +299,7 @@ class AiImportJobBuilder implements Builder<AiImportJob, AiImportJobBuilder> {
       _previewHandle = $v.previewHandle;
       _progress = $v.progress?.toBuilder();
       _retries = $v.retries;
+      _sourceFileName = $v.sourceFileName;
       _sourceFormat = $v.sourceFormat;
       _sourceHandle = $v.sourceHandle;
       _status = $v.status;
@@ -304,6 +329,7 @@ class AiImportJobBuilder implements Builder<AiImportJob, AiImportJobBuilder> {
     try {
       _$result = _$v ??
           _$AiImportJob._(
+            appliedEpisodes: _appliedEpisodes?.build(),
             attempts: _attempts?.build(),
             blockId: blockId,
             cost: _cost?.build(),
@@ -324,6 +350,7 @@ class AiImportJobBuilder implements Builder<AiImportJob, AiImportJobBuilder> {
             progress: _progress?.build(),
             retries: BuiltValueNullFieldError.checkNotNull(
                 retries, r'AiImportJob', 'retries'),
+            sourceFileName: sourceFileName,
             sourceFormat: BuiltValueNullFieldError.checkNotNull(
                 sourceFormat, r'AiImportJob', 'sourceFormat'),
             sourceHandle: BuiltValueNullFieldError.checkNotNull(
@@ -339,6 +366,8 @@ class AiImportJobBuilder implements Builder<AiImportJob, AiImportJobBuilder> {
     } catch (_) {
       late String _$failedField;
       try {
+        _$failedField = 'appliedEpisodes';
+        _appliedEpisodes?.build();
         _$failedField = 'attempts';
         _attempts?.build();
 

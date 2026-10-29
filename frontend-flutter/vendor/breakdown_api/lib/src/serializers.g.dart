@@ -32,6 +32,7 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..add(AiPreviewPayloadOneOfKindEnum.serializer)
       ..add(AiProviderInfo.serializer)
       ..add(AppearanceOutfitView.serializer)
+      ..add(AppliedEpisode.serializer)
       ..add(ApplyAiImportRequest.serializer)
       ..add(ApplyAiImportResponse.serializer)
       ..add(ApplyEpisodeGroupRequest.serializer)
@@ -198,12 +199,24 @@ Serializers _$serializers = (Serializers().toBuilder()
               BuiltList, const [const FullType(AggregateSollIstDiffRow)]),
           () => ListBuilder<AggregateSollIstDiffRow>())
       ..addBuilderFactory(
-          const FullType(BuiltList, const [const FullType(AiImportAttempt)]),
-          () => ListBuilder<AiImportAttempt>())
-      ..addBuilderFactory(
           const FullType(
               BuiltList, const [const FullType(AppearanceOutfitView)]),
           () => ListBuilder<AppearanceOutfitView>())
+      ..addBuilderFactory(
+          const FullType(BuiltList, const [const FullType(AppliedEpisode)]),
+          () => ListBuilder<AppliedEpisode>())
+      ..addBuilderFactory(
+          const FullType(BuiltList, const [const FullType(AiImportAttempt)]),
+          () => ListBuilder<AiImportAttempt>())
+      ..addBuilderFactory(
+          const FullType(BuiltList, const [const FullType(AppliedEpisode)]),
+          () => ListBuilder<AppliedEpisode>())
+      ..addBuilderFactory(
+          const FullType(BuiltList, const [const FullType(String)]),
+          () => ListBuilder<String>())
+      ..addBuilderFactory(
+          const FullType(BuiltList, const [const FullType(UnappliedOutfit)]),
+          () => ListBuilder<UnappliedOutfit>())
       ..addBuilderFactory(
           const FullType(BuiltList, const [const FullType(CheckpointProgress)]),
           () => ListBuilder<CheckpointProgress>())
@@ -359,12 +372,6 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..addBuilderFactory(
           const FullType(BuiltList, const [const FullType(SerializedNote)]),
           () => ListBuilder<SerializedNote>())
-      ..addBuilderFactory(
-          const FullType(BuiltList, const [const FullType(String)]),
-          () => ListBuilder<String>())
-      ..addBuilderFactory(
-          const FullType(BuiltList, const [const FullType(UnappliedOutfit)]),
-          () => ListBuilder<UnappliedOutfit>())
       ..addBuilderFactory(
           const FullType(BuiltMap,
               const [const FullType(String), const FullType(HealthEntry)]),

@@ -198,6 +198,7 @@ impl Harness {
                 // is planned and the vocabulary is never consulted.
                 categories: Vec::new(),
                 telemetry: None,
+                known_episodes: Vec::new(),
             })
             .await
     }

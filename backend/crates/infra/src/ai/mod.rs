@@ -96,8 +96,8 @@ pub use worker_loop::{
 };
 pub use workers::DecisionPass;
 pub use workers::{
-    ApplyScriptRequest, ApplyWorker, MergeWorker, ScheduleImportWorker, ScriptApplyResult,
-    ScriptImportWorker, UuidVersion, validate_chunk_count,
+    AppliedEpisodeIdentity, ApplyScriptRequest, ApplyWorker, MergeWorker, ScheduleImportWorker,
+    ScriptApplyResult, ScriptImportWorker, UuidVersion, validate_chunk_count,
 };
 
 use breakdown_core::ai::{AiImportBounds, CuratedLlmProvider, LlmProvider};
