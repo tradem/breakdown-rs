@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: AGPL-3.0
 # Copyright (C) 2024-2026 Breakdown RS Contributors
 # Co-authored-by: deepseek-v4-flash (neuralwatt)
+# Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 set -euo pipefail
 
@@ -56,7 +57,12 @@ if [ ! -s "$BOOTSTRAP_TOKEN_FILE" ]; then
     # a real secret; git-ignored via .vault-dev/.
     head -c 32 /dev/urandom | base64 > "$BOOTSTRAP_TOKEN_FILE"
 fi
-chmod 600 "$BOOTSTRAP_TOKEN_FILE"
+# A seed left root-owned by an earlier `sudo` run is still readable inside the
+# one-shot (bind-mounted, uid 0), so do not abort provisioning over the mode:
+# ownership is re-aligned below, once the bootstrap has run.
+if ! chmod 600 "$BOOTSTRAP_TOKEN_FILE" 2>/dev/null; then
+    echo "WARN: cannot chmod $BOOTSTRAP_TOKEN_FILE — run 'sudo chown -R $(id -u):$(id -g) $VAULT_DIR' if it stays unwritable" >&2
+fi
 umask 022
 
 if [ "$FINALIZE" = "1" ]; then
@@ -70,13 +76,28 @@ else
 fi
 
 # Re-align ownership of the whole git-ignored state dir to the invoking host
-# user: the app token must be readable by the host-run API, and a later
-# `rm -rf .vault-dev` reset must work without root. The bootstrap one-shot
-# (root in the container) is unaffected — root can read/write these files
-# regardless of ownership. Modes stay as written (app token 600, unseal key
-# 600).
+# user: the app token and the unseal key must be readable by the host-run API
+# and by a later token repair, and a later `rm -rf .vault-dev` reset must work
+# without root. Files the bootstrap one-shot wrote as root cannot be fixed from
+# the host (its own chown runs as uid 1000, the invoking user may differ), so
+# fall back to a privileged chown inside the one-shot — the only container that
+# mounts the state dir. `--finalize` must not call Docker at all, so it only
+# warns.
 if [ -d "$VAULT_DIR" ]; then
-    chown -R "$(id -u):$(id -g)" "$VAULT_DIR" 2>/dev/null || true
+    if ! chown -R "$(id -u):$(id -g)" "$VAULT_DIR" 2>/dev/null; then
+        if [ "$FINALIZE" = "1" ]; then
+            echo "WARN: $VAULT_DIR holds files owned by another user; re-run without --finalize to repair ownership" >&2
+        else
+            "${COMPOSE[@]}" run --rm --no-deps -T --entrypoint sh vault-bootstrap \
+                -c "chown -R $(id -u):$(id -g) /vault/unseal /vault/app-token" \
+                || echo "WARN: could not re-align ownership of $VAULT_DIR" >&2
+        fi
+    fi
+    # Files the one-shot cannot reach (e.g. a root-owned bootstrap.token) make a
+    # later `rm -rf .vault-dev` need root — say so instead of failing silently.
+    if [ -n "$(find "$VAULT_DIR" ! -user "$(id -u)" -print -quit 2>/dev/null)" ]; then
+        echo "WARN: $VAULT_DIR still holds files not owned by uid $(id -u) (needs root to reset)" >&2
+    fi
 fi
 
 echo "==> Verifying host reachability"

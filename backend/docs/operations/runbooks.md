@@ -2,6 +2,7 @@
 # Copyright (C) 2024-2026 Breakdown RS Contributors
 # Co-authored-by: deepseek-v4-flash (opencode-go)
 # Co-authored-by: omen-alpha (opencode-go)
+# Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 # Breakdown RS operations runbooks
 
@@ -234,10 +235,31 @@ renews it in-process (`VaultClient::spawn_token_renewal`, cadence
 If the token ever lapses (API down past the TTL, or the token revoked), Vault
 KV reads answer `403`, which is now classified as
 `dependency.auth-failed` — non-retryable — and `GET /v1/health` reports the
-`vault` entry `Unhealthy` ("Vault app token is invalid or expired"). Repair:
-re-run the bootstrap (it re-issues the token from the bootstrap seed), then
-restart the API. Jobs that were dead-lettered on the auth failure can be
-re-enqueued; they were not retried against the dead dependency.
+`vault` entry `Unhealthy` ("Vault app token is invalid or expired"). Repair by
+re-running the bootstrap one-shot — prod: `docker compose -f
+./docker-compose.prod.yml run --rm vault-bootstrap`; dev:
+`./scripts/enable-dev-vault.sh`. Vault never revives an expired token, so the
+bootstrap always *issues a new* one; the administrative credential comes from
+the first source that works:
+
+1. the root token of this run's `operator init` (first boot only);
+2. `VAULT_BOOTSTRAP_TOKEN`, when that seed is genuinely a valid admin token
+   (prod may supply one there as an operator recovery credential);
+3. `vault operator generate-root` from the persisted unseal share — the normal
+   repair path, because the bootstrapped root token is revoked by design and a
+   repair therefore has no administrative credential left. The dev overlay's
+   seed is random bytes that were never a Vault token, so only this fallback
+   repairs a dev Vault. The share goes through a 600 request file (never argv),
+   and a minted root token is revoked again at the end of the run.
+
+A repair preserves Vault state: KV-v2 secrets and Transit keys (including the
+`photo-sse-c` DEK) survive, so stored provider credentials and already uploaded
+photo objects stay usable. A `down -v` reset does **not** — it is a last resort,
+not the repair path. The API reads the token file per request, so it picks up
+the new token without a restart; a restart is harmless and merely re-arms the
+in-process renewal immediately instead of at the next cadence. Jobs that were
+dead-lettered on the auth failure can be re-enqueued; they were not retried
+against the dead dependency.
 
 ## 5. HTTPS edge & certificates (ADR-025)
 
