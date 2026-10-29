@@ -40,21 +40,22 @@ tag. Never edit a released entry afterwards.
   projector columns), so the defect was a *silent* client/transport loss that
   the server could not be asked about: no event and no log existed for the
   attempted save. Two server-side links are closed here. **Observability:**
-  `create_ai_config`, `update_ai_config` and `revoke_ai_config` each emit one
-  `tracing::info!` line with `config_id`, `version` and the decision triple's
-  *presence* (`decision_provider`, `decision_model`, `decision_key =
-  shared|own|none` — never a secret, never the key id), so a missing or partial
-  save is greppable instead of invisible. `update` logs the **effective**
-  (resolved) triple, since an omitted field keeps the stored value. **Regression
-  tests (the gap that let this ship):** an API test proves `POST` and `PATCH`
-  dispatch the triple into the command and that the read view returns it, and a
-  Tier-4 integration test drives the real `AiConfigCommandsImpl`
-  create-then-update through SierraDB, the `ai_config` projector and
-  `AiConfigRepositoryImpl::find_worker_config`, asserting the worker resolves
-  `decision: Some(..)` with the configured provider/model/key binding. No
-  wire-contract change (`openapi.yaml` untouched) and no domain/infra change.
-  The client half of the round-trip check (re-read after save) lands in the
-  stacked Flutter PR.
+  `create_ai_config` and `update_ai_config` each emit one `tracing::info!` line
+  with `config_id`, `version` and the decision triple's *presence*
+  (`decision_provider`, `decision_model`, `decision_key = shared|own|none` —
+  never a secret, never the key id), so a missing or partial save is greppable
+  instead of invisible. `update` logs the **effective** (resolved) triple, since
+  an omitted field keeps the stored value. `revoke_ai_config` logs its own
+  lifecycle line carrying `config_id` and `version` only — a revocation has no
+  decision triple. **Regression tests (the gap that let this ship):** an API
+  test proves `POST` and `PATCH` dispatch the triple into the command and that
+  the read view returns it, and a Tier-4 integration test drives the real
+  `AiConfigCommandsImpl` create-then-update through SierraDB, the `ai_config`
+  projector and `AiConfigRepositoryImpl::find_worker_config`, asserting the
+  worker resolves `decision: Some(..)` with the configured provider/model/key
+  binding. No wire-contract change (`openapi.yaml` untouched) and no
+  domain/infra change. The client half of the round-trip check (re-read after
+  save) lands in the stacked Flutter PR.
 
 ### Changed
 
