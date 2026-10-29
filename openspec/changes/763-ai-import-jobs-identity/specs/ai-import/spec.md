@@ -56,15 +56,32 @@ a fabricated or `source_handle`-derived name. The raw-body upload contract
   title unchanged
 
 ### Requirement: A successful script apply records its target episodes
-A successful script apply SHALL persist the resolved target episodes on the job
-as an additive `applied_episodes` list, each entry carrying the episode id, its
-number, its optional name and the number of scene rows this job applied into it.
-The list SHALL be derived from the apply path's own plan and target data
-(enriched at the API edge, which is the only legitimate read-model consumer) —
-never from a second projection lookup inside the write path. `POST
-/v1/ai-import/jobs/{id}/apply` SHALL return the same list. A schedule apply,
-which has no single target episode, SHALL record an empty list rather than an
-invented one.
+A successful script apply SHALL attempt to persist the resolved target episodes
+on the job as an additive `applied_episodes` list, each entry carrying the
+episode id, its optional number, its optional name and the number of scene rows
+this job applied into it. The list SHALL be derived from the apply path's own
+plan and target data (enriched at the API edge, which is the only legitimate
+read-model consumer) — never from a second projection lookup inside the write
+path. `POST /v1/ai-import/jobs/{id}/apply` SHALL return the same list, whether or
+not the column write succeeded. A schedule apply, which has no single target
+episode, SHALL record an empty list rather than an invented one.
+
+The persistence is **best-effort by design**: the scene rows are already
+committed when it runs, so a failed write SHALL NOT fail the apply. In that case
+the job keeps an empty list and every client falls back to its existing
+kind/date copy — the same degradation an unnamed job uses. Durable recovery is
+out of scope: it would require a persisted source for the summary that survives
+the failed write.
+
+A number/name SHALL only be recorded when it is authoritative for the row's
+persisted location. Concretely: the plan's requested `Create` target SHALL label
+an entry only when **this** apply created that episode (a reapply keeps the
+mapped episode, whose number/title come from the first apply) and **this** apply
+applied the row (a row an earlier attempt already confirmed may sit in another
+episode than the request names). An episode the API edge resolved before
+dispatch labels its entry. Otherwise the entry SHALL keep its `applied_count`
+with `number` and `name` unset — a count without a name, never a name that
+contradicts the stored episode.
 
 #### Scenario: A single-episode import names its target
 - **WHEN** a script apply lands 57 rows in episode 299 "Erlösung"
@@ -79,3 +96,20 @@ invented one.
 - **WHEN** a schedule apply merges onto the project's existing scenes and days
 - **THEN** `applied_episodes` is empty and the client falls back to its existing
   row copy
+
+#### Scenario: A failed summary write degrades instead of failing the apply
+- **WHEN** the scene rows applied successfully but persisting the summary fails
+- **THEN** the apply still answers `200` with the summary in its body, the job's
+  column stays empty, and the client renders its kind/date copy
+
+#### Scenario: A reapply labels from what is persisted, not from the request
+- **WHEN** an episode group already has a mapping and the reapply carries a
+  changed `Create` target
+- **THEN** the entry keeps its `applied_count` with no number/name, so the summary
+  never contradicts the persisted episode
+
+#### Scenario: An already-applied row is counted, not re-labelled
+- **WHEN** a retry hits a confirmed scene mapping whose scene sits in another
+  episode than the retry requests
+- **THEN** the row still counts towards the request's episode entry, which
+  carries no number/name

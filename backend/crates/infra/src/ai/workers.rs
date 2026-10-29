@@ -1459,39 +1459,68 @@ pub struct ApplyScriptRequest<'a> {
     pub telemetry: Option<Telemetry>,
 }
 
+/// Whether one planned row was applied by **this** call, or settled by a
+/// mapping an earlier attempt already confirmed (issue #763 review).
+///
+/// The distinction matters for the applied-episode summary: an already-applied
+/// row sits where the earlier attempt put it, so the episode this request names
+/// is not necessarily the scene's home. Counting it is still correct (the row
+/// did land), labelling it from the request is not.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AppliedRowState {
+    /// This call dispatched the row's command and confirmed its mapping.
+    AppliedNow,
+    /// The row's mapping was already confirmed; nothing was dispatched.
+    AlreadyApplied,
+}
+
 /// Count one applied row into the per-episode summary (issue #763).
 ///
-/// `row_episode` is the row's own planned episode: a group this apply CREATES
-/// carries its number and title, because the apply just made the episode from
-/// them. An existing group (or a row without a group) carries only the id, so
-/// the label comes from `known_episodes` — the identities the API edge resolved
-/// before dispatch. A miss on both sides leaves the entry unlabelled (`None`
-/// number/name) instead of inventing one: the count is still true, and the
-/// client renders what it can.
+/// The label is taken from the first authoritative source, in order:
+///
+/// 1. `requested_label` — the plan's own number/title, passed ONLY when this
+///    apply created the episode (and the row was applied by this call). A
+///    reapply of an episode group keeps the mapped episode, so the request's
+///    `Create` target can disagree with what is persisted; labelling from it
+///    would make the summary and the episode contradict each other.
+/// 2. `known_episodes` — the identities the API edge resolved before dispatch
+///    (the primary target episode and every *existing* group target).
+/// 3. nothing — the entry keeps its `applied_count` with `number`/`name` unset,
+///    which every client renders as "no known target" instead of a guess.
 fn record_applied_episode(
     applied: &mut Vec<AppliedEpisode>,
     episode_id: EpisodeId,
-    row_episode: &PlannedEpisode,
+    requested_label: Option<(Option<i32>, Option<String>)>,
     known_episodes: &[AppliedEpisodeIdentity],
 ) {
     if let Some(entry) = applied.iter_mut().find(|entry| entry.id == episode_id.0) {
         entry.applied_count += 1;
+        // A label found later outranks an unlabelled first sighting of the same
+        // episode (a group's first row may precede the authoritative one).
+        if entry.number.is_none() && entry.name.is_none() {
+            if let Some((number, name)) = requested_label {
+                entry.number = number;
+                entry.name = name;
+            } else if let Some(known) = known_episodes.iter().find(|known| known.id == episode_id) {
+                entry.number = Some(known.number);
+                entry.name = known.name.clone();
+            }
+        }
         return;
     }
-    let identity = match row_episode {
-        PlannedEpisode::New { number, name, .. } => Some((Some(*number), name.clone())),
-        PlannedEpisode::Existing(_) => known_episodes
+    let identity = requested_label.or_else(|| {
+        known_episodes
             .iter()
             .find(|known| known.id == episode_id)
-            .map(|known| (Some(known.number), known.name.clone())),
-    };
+            .map(|known| (Some(known.number), known.name.clone()))
+    });
     let (number, name) = identity.unwrap_or((None, None));
     if number.is_none() && name.is_none() {
-        // The edge did not resolve this episode's identity. The count is still
-        // recordable and still true; only the label is missing.
-        tracing::warn!(
+        // Expected on a reapply (the persisted episode owns the values) and on
+        // a row an earlier attempt already applied. The count remains true.
+        tracing::debug!(
             episode_id = %episode_id.0,
-            "applied-episode identity was not resolved at the API edge; recording an unlabelled entry"
+            "recording an unlabelled applied-episode entry: no authoritative identity for this apply"
         );
     }
     applied.push(AppliedEpisode {
@@ -1720,10 +1749,14 @@ where
         // of what *this* request resolved, not a projection read: everything that
         // crosses a request boundary goes through the mapping (CQRS boundary).
         let mut figures: HashMap<String, Figure> = HashMap::new();
-        // Episodes a NEW group already resolved in *this* request (issue #581).
-        // Same rationale as `figures`: the mapping is the durable record, the
-        // map only avoids re-driving it per row of the same group.
-        let mut resolved_episodes: HashMap<String, EpisodeId> = HashMap::new();
+        // Episodes a NEW group already resolved in *this* request (issue #581),
+        // with the flag that says whether *this* apply created it. Same
+        // rationale as `figures`: the mapping is the durable record, the map
+        // only avoids re-driving it per row of the same group. The flag is what
+        // decides whether the requested number/title may label the summary
+        // entry (issue #763 review): on a reapply the mapping wins, so the
+        // persisted episode keeps the values of the FIRST apply.
+        let mut resolved_episodes: HashMap<String, (EpisodeId, bool)> = HashMap::new();
         // Shooting days an ACCEPTED group already resolved in *this* request
         // (issue #706). Same rationale as `resolved_episodes`: one day per
         // group, created on first sight, reused by every later row.
@@ -1739,8 +1772,10 @@ where
         let mut fallback_order: u32 = 0;
 
         for row in &plan.scenes {
-            let row_episode_id = match &row.episode {
-                PlannedEpisode::Existing(episode_id) => *episode_id,
+            // `(episode, created by THIS apply)` — the flag decides whether the
+            // requested number/title may label the summary entry (issue #763).
+            let row_episode: (EpisodeId, bool) = match &row.episode {
+                PlannedEpisode::Existing(episode_id) => (*episode_id, false),
                 PlannedEpisode::New {
                     episode_ref,
                     number,
@@ -1756,8 +1791,8 @@ where
                             "apply cannot create an episode without a series context",
                         ));
                     };
-                    match resolved_episodes.get(episode_ref) {
-                        Some(episode_id) => *episode_id,
+                    let (episode_id, created_now) = match resolved_episodes.get(episode_ref) {
+                        Some(resolved) => *resolved,
                         None => {
                             let (episode_id, created) = self
                                 .create_episode_reserved(
@@ -1775,25 +1810,37 @@ where
                             if created {
                                 result.created_episodes += 1;
                             }
-                            resolved_episodes.insert(episode_ref.clone(), episode_id);
-                            episode_id
+                            resolved_episodes.insert(episode_ref.clone(), (episode_id, created));
+                            (episode_id, created)
                         }
-                    }
+                    };
+                    (episode_id, created_now)
                 }
             };
-            let scene = self
-                .apply_scene_row(actor.clone(), preview_id, row_episode_id, project_id, row)
+            let (scene, row_state) = self
+                .apply_scene_row(actor.clone(), preview_id, row_episode.0, project_id, row)
                 .await?;
             result.applied.push(scene);
-            // (issue #763) one row applied into `row_episode_id`: count it, and
-            // label the entry on first sight. `row.episode` is authoritative
-            // for a group this apply CREATES (it made the episode, so it holds
-            // the number and title); an existing group's identity comes from
-            // the edge-resolved `known_episodes`.
+            // (issue #763) one row applied into the resolved episode: count it,
+            // and label the entry from what is authoritative for it. The plan's
+            // number/title may only be used when THIS apply created the episode
+            // — on a reapply the mapping wins and the persisted episode keeps the
+            // first apply's values, so the request's `Create` target can
+            // disagree with it. A row already applied by an earlier attempt is
+            // likewise attributed to the request's episode without a label: it
+            // may sit in a different one. Everything else falls back to the
+            // edge-resolved `known_episodes`, and an unknown label is `None`
+            // (never a guess).
+            let requested_label = match (&row.episode, row_episode.1, row_state) {
+                (PlannedEpisode::New { number, name, .. }, true, AppliedRowState::AppliedNow) => {
+                    Some((Some(*number), name.clone()))
+                }
+                _ => None,
+            };
             record_applied_episode(
                 &mut result.applied_episodes,
-                row_episode_id,
-                &row.episode,
+                row_episode.0,
+                requested_label,
                 &known_episodes,
             );
 
@@ -2082,7 +2129,7 @@ where
                 // resolved episode keeps episode 2's scenes off episode 1's
                 // day (and keeps the mapping draft_ref, which the id is
                 // derived from, retry-stable).
-                let day_key = format!("{}:{day_ref}", row_episode_id.0);
+                let day_key = format!("{}:{day_ref}", row_episode.0.0);
                 let day = match resolved_days.get(&day_key) {
                     Some(day) => *day,
                     None => {
@@ -2093,7 +2140,7 @@ where
                                 DayDraft {
                                     preview_id,
                                     draft_ref: day_key.clone(),
-                                    episode_id: row_episode_id,
+                                    episode_id: row_episode.0,
                                     label: label.clone(),
                                     date: None,
                                     project_id,
@@ -2201,7 +2248,7 @@ where
         episode_id: EpisodeId,
         project_id: Option<ProjectId>,
         row: &SceneApplyPlan,
-    ) -> Result<UuidVersion, DomainError> {
+    ) -> Result<(UuidVersion, AppliedRowState), DomainError> {
         let draft_ref = row.draft_ref.clone();
         let stored = self
             .mappings
@@ -2213,10 +2260,15 @@ where
         // Re-dispatching an `Update` here would also fail in production:
         // identical details are rejected as unchanged.
         if let Some(confirmed) = stored.as_ref().filter(|mapping| !mapping.is_reserved()) {
-            return Ok(UuidVersion {
-                aggregate_id: confirmed.aggregate_id,
-                version: confirmed.aggregate_version,
-            });
+            return Ok((
+                UuidVersion {
+                    aggregate_id: confirmed.aggregate_id,
+                    version: confirmed.aggregate_version,
+                },
+                // The row sits where an EARLIER attempt put it — this request's
+                // episode target need not be that place (issue #763).
+                AppliedRowState::AlreadyApplied,
+            ));
         }
         // A reservation means a previous attempt already claimed an aggregate id
         // for this draft. The reservation wins over the client-supplied decision:
@@ -2288,10 +2340,13 @@ where
                 }
             }
         };
-        Ok(UuidVersion {
-            aggregate_id,
-            version,
-        })
+        Ok((
+            UuidVersion {
+                aggregate_id,
+                version,
+            },
+            AppliedRowState::AppliedNow,
+        ))
     }
 
     /// Resolve the figure one draft row names to an aggregate id, creating it on

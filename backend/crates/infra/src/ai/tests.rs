@@ -3128,6 +3128,37 @@ impl ScriptApplyFixture {
             .await
     }
 
+    /// Apply with the edge-resolved episode identities (issue #763): the same
+    /// list `apply_ai_import` builds from the target episode and every
+    /// *existing* group target before it dispatches.
+    async fn apply_with_known_episodes(
+        &self,
+        preview: &ScriptContext,
+        decisions: &[ApplyMapping],
+        episode_groups: Vec<EpisodeGroupPlan>,
+        known_episodes: Vec<super::AppliedEpisodeIdentity>,
+    ) -> Result<super::ScriptApplyResult, DomainError> {
+        self.worker()
+            .apply_script(ApplyScriptRequest {
+                acknowledged_uncertainties: Vec::new(),
+                categories: Vec::new(),
+                continuity_selections: Vec::new(),
+                actor: UserId::from_sub("apply-test-user"),
+                preview_id: self.preview_id,
+                preview,
+                decisions,
+                episode_id: self.episode_id,
+                season_id: self.season_id,
+                project_id: Some(self.project_id),
+                block_id: self.block_id,
+                episode_groups,
+                shooting_days: Vec::new(),
+                telemetry: None,
+                known_episodes,
+            })
+            .await
+    }
+
     /// Apply with per-day decisions (issue #706).
     async fn apply_with_day_plans(
         &self,
@@ -4600,6 +4631,93 @@ async fn script_apply_retry_does_not_recreate_the_episode() {
     assert_eq!(second.created_episodes, 0);
     assert_eq!(fixture.episodes.created.lock().unwrap().len(), 1);
     assert_eq!(fixture.scenes.created.lock().unwrap().len(), 1);
+    // (issue #763 review) The retry hit a confirmed scene mapping, so the row
+    // still sits where the FIRST apply put it — the count is recorded, the
+    // request's episode is not asserted as its label.
+    assert_eq!(second.applied_episodes.len(), 1);
+    assert_eq!(second.applied_episodes[0].applied_count, 1);
+    assert_eq!(second.applied_episodes[0].number, None);
+    assert_eq!(second.applied_episodes[0].name, None);
+}
+
+/// Issue #763 review: a reapply whose `Create` target changed keeps the episode
+/// the FIRST apply created (the mapping wins), so the plan's new number/title
+/// must not label the summary — the persisted episode would contradict it.
+#[tokio::test]
+async fn script_apply_changed_create_target_is_not_relabelled() {
+    let fixture = ScriptApplyFixture::new();
+    let preview = ScriptContext {
+        scenes: vec![row_with_episode(
+            "1. INT. OP",
+            DraftEpisode {
+                number: Some(3),
+                title: None,
+            },
+        )],
+        ..Default::default()
+    };
+    let first = fixture
+        .apply_with_groups(
+            &preview,
+            &[create_decision("1. INT. OP")],
+            vec![create_group("ep:3", 3)],
+        )
+        .await
+        .expect("first apply");
+    // The first apply created the episode from the plan, so it may label it.
+    assert_eq!(first.applied_episodes.len(), 1);
+    assert_eq!(first.applied_episodes[0].number, Some(3));
+    assert_eq!(first.applied_episodes[0].name.as_deref(), Some("Episode 3"));
+
+    // Reapply the same group with a CHANGED create target (a reviewer editing
+    // the group). The mapping keeps episode 3; the summary must not claim 4.
+    let second = fixture
+        .apply_with_groups(&preview, &[], vec![create_group("ep:3", 4)])
+        .await
+        .expect("reapply");
+    assert_eq!(second.created_episodes, 0);
+    assert_eq!(fixture.episodes.created.lock().unwrap().len(), 1);
+    assert_eq!(second.applied_episodes.len(), 1);
+    assert_eq!(second.applied_episodes[0].applied_count, 1);
+    assert_eq!(
+        second.applied_episodes[0].number, None,
+        "the request's changed number must not label the persisted episode"
+    );
+    assert_eq!(second.applied_episodes[0].name, None);
+}
+
+/// Issue #763 review counterpart: an episode the API edge resolved still labels
+/// its entry, including on a reapply — that identity is authoritative for the
+/// episode id, not derived from the request's plan.
+#[tokio::test]
+async fn script_apply_labels_from_the_edge_resolved_episode() {
+    let fixture = ScriptApplyFixture::new();
+    let preview = ScriptContext {
+        scenes: vec![DraftScene {
+            draft_ref: "1. INT. OP".to_owned(),
+            scene_number: Some(1),
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    let known = vec![super::AppliedEpisodeIdentity {
+        id: fixture.episode_id,
+        number: 299,
+        name: Some("Erlösung".to_owned()),
+    }];
+    let result = fixture
+        .apply_with_known_episodes(
+            &preview,
+            &[create_decision("1. INT. OP")],
+            Vec::new(),
+            known,
+        )
+        .await
+        .expect("apply");
+    assert_eq!(result.applied_episodes.len(), 1);
+    assert_eq!(result.applied_episodes[0].number, Some(299));
+    assert_eq!(result.applied_episodes[0].name.as_deref(), Some("Erlösung"));
+    assert_eq!(result.applied_episodes[0].applied_count, 1);
 }
 
 #[tokio::test]

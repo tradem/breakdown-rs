@@ -259,6 +259,67 @@ async fn dead_lettering_mark_failed_clears_progress() -> Result<()> {
     Ok(())
 }
 
+/// Issue #763 (CodeRabbit review): a *retryable* failure that exhausts the
+/// budget lands `dead_letter` through the same statement, so that path must
+/// clear the stage too — the branch the non-retryable test above cannot reach.
+#[tokio::test]
+async fn budget_exhaustion_clears_progress() -> Result<()> {
+    let (pool, _container) = crate::fixtures::spawn_postgres().await?;
+    let queue = PgAiImportQueue::new(pool.clone());
+
+    let request = make_enqueue_request("user-progress-budget");
+    let id = request.id;
+    queue.enqueue(request).await?;
+    let job = queue.get(id).await?.expect("job exists");
+    let max_retries = job.max_retries;
+
+    // Drive retryable failures until the budget is spent. Each round resets the
+    // exponential backoff so the reclaim predicate is due — the wait itself is
+    // never the thing under test.
+    let mut status = JobStatus::Pending;
+    for attempt in 1..=max_retries {
+        let _claimed = queue
+            .claim_next("worker-1")
+            .await?
+            .expect("a claimable attempt");
+        queue
+            .mark_progress(
+                id,
+                "worker-1",
+                &progress(AiImportStage::Extracting, attempt, &["Ep. 3"]),
+            )
+            .await?;
+        queue
+            .mark_failed(id, "worker-1", "transient", Some("dependency.test"), true)
+            .await?;
+        status = queue.get(id).await?.expect("job exists").status;
+        if status == JobStatus::Failed {
+            assert!(
+                queue.get(id).await?.expect("job exists").progress.is_some(),
+                "a backing-off attempt keeps its progress (attempt {attempt})"
+            );
+        }
+        sqlx::query(
+            "UPDATE ai_import.ai_import_job SET next_attempt_at = now() - interval '1 second' WHERE id = $1",
+        )
+        .bind(id.as_uuid())
+        .execute(&pool)
+        .await?;
+    }
+
+    assert_eq!(
+        status,
+        JobStatus::DeadLetter,
+        "the last permitted retryable failure must dead-letter the job"
+    );
+    assert_eq!(
+        queue.get(id).await?.expect("job exists").progress,
+        None,
+        "the dead-lettering statement must clear the stage"
+    );
+    Ok(())
+}
+
 /// Issue #763: a job whose payload is gone is terminal too.
 #[tokio::test]
 async fn mark_payload_unavailable_clears_progress() -> Result<()> {

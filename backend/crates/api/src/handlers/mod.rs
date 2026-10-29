@@ -6427,10 +6427,36 @@ const DOCUMENT_FILENAME_HEADER_DOC: &str = "Percent-encoded UTF-8 name of the up
 /// `NULL` (an honest absence the UI already renders as the kind/date title).
 fn request_document_file_name(headers: &HeaderMap) -> Option<String> {
     let raw = headers.get(DOCUMENT_FILENAME_HEADER)?.to_str().ok()?;
+    if !percent_escapes_are_valid(raw) {
+        return None;
+    }
     let decoded = percent_encoding::percent_decode_str(raw)
         .decode_utf8()
         .ok()?;
     breakdown_core::ai::sanitize_source_file_name(&decoded)
+}
+
+/// Whether every `%` in a percent-encoded value starts a two-hex-digit escape.
+///
+/// `percent_decode_str` is deliberately lenient: an invalid escape such as
+/// `script%GG.pdf` is passed through as the literal text `%GG`, which the job
+/// would then store as if the caller had meant it (CodeRabbit review). A
+/// malformed value is a malformed *name*, so it degrades to "no name" like every
+/// other unparsable input instead of leaking escape syntax into the UI.
+fn percent_escapes_are_valid(raw: &str) -> bool {
+    let bytes = raw.as_bytes();
+    let mut index = 0;
+    while index < bytes.len() {
+        if bytes[index] == b'%' {
+            match bytes.get(index + 1..index + 3) {
+                Some(pair) if pair.iter().all(u8::is_ascii_hexdigit) => index += 3,
+                _ => return false,
+            }
+        } else {
+            index += 1;
+        }
+    }
+    true
 }
 
 #[utoipa::path(
@@ -7228,6 +7254,16 @@ pub async fn apply_ai_import<P: Ports>(
                     continue;
                 }
                 let target = state.ports.episode_repo().find_by_id(episode_id.0).await?;
+                // CWE-639 / issue #763 review: the identity of a FOREIGN
+                // episode must never reach the summary, so the lookup carries
+                // the same block guard as the primary target above. A
+                // block-less job stays unguarded by design — it may apply to
+                // any episode it is authorized for.
+                if let Some(job_block) = job.block_id
+                    && target.block_id != job_block
+                {
+                    return Err(forbidden_ai_job());
+                }
                 known_episodes.push(AppliedEpisodeIdentity {
                     id: *episode_id,
                     number: target.number,
@@ -7381,6 +7417,13 @@ pub async fn apply_ai_import<P: Ports>(
             // telemetry below: the rows are already written, so a summary fault
             // must never turn a successful apply into an error the caller would
             // retry.
+            //
+            // Accepted tradeoff (documented in the delta spec): a write that
+            // fails despite the apply's own successful writes leaves
+            // `applied_episodes` empty, and the client then falls back to its
+            // kind/date copy. Durable recovery would need a persisted source for
+            // the summary that survives the failed write; the apply response
+            // still carries the same list, and any later re-apply rewrites it.
             if let Err(error) = state
                 .ports
                 .ai_import_queue()

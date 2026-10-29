@@ -86,10 +86,15 @@ fn length_is_capped_on_a_char_boundary() {
 
 #[test]
 fn a_cut_that_lands_on_a_space_is_re_trimmed() {
-    // The boundary falls exactly on the space, so the cut leaves a trailing
-    // space that must not be persisted.
-    let name = format!("{}{}", "a".repeat(MAX_SOURCE_FILE_NAME_CHARS), " tail.pdf");
+    // The CAP-th character is the space, so `take(MAX)` keeps it and the
+    // trailing `trim_end` is what removes it — the assertion fails if that trim
+    // ever disappears (CodeRabbit review).
+    let name = format!(
+        "{}{}",
+        "a".repeat(MAX_SOURCE_FILE_NAME_CHARS - 1),
+        " tail.pdf"
+    );
     let sanitized = sanitize_source_file_name(&name).expect("name survives");
-    assert_eq!(sanitized.chars().count(), MAX_SOURCE_FILE_NAME_CHARS);
+    assert_eq!(sanitized.chars().count(), MAX_SOURCE_FILE_NAME_CHARS - 1);
     assert!(!sanitized.ends_with(' '));
 }

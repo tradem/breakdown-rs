@@ -355,6 +355,12 @@ components:
             project's existing scenes and days and therefore has no single target
             episode). Written by the apply path from the plan and target data it
             already holds.
+
+            The write is best-effort by design (the scene rows are already
+            committed), so an empty list also means "the summary write failed" — a
+            client renders its kind/date copy either way. An entry only carries
+            `number`/`name` when they are authoritative for that episode's persisted
+            location; otherwise it keeps its `applied_count` unlabelled.
           items:
             $ref: '#/components/schemas/AppliedEpisode'
           type: array
