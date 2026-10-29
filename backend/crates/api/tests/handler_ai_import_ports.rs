@@ -1834,6 +1834,149 @@ async fn ai_config_lifecycle_runs_through_the_config_ports() {
     assert_eq!(commands.revoked.lock().await.len(), 1);
 }
 
+/// Issue #769: a configured Decision Model must reach the write command and be
+/// readable back through the read view. The reported defect was a *silent* loss —
+/// the client believed the triple was saved while the backend held none — so
+/// both halves of the round trip are pinned here: the command the handler
+/// dispatches and the view the API serves.
+#[tokio::test]
+async fn ai_config_persists_and_returns_the_decision_triple() {
+    let ports = FakePorts::default();
+    ports
+        .membership_repo
+        .seed_credential_designer(BlockId::new(), UserId::from_sub(TEST_SUB))
+        .await;
+    let commands = ports.ai_config_commands.clone();
+    let repo = ports.ai_config_repo.clone();
+    // Same-key reuse: the decision provider equals the extraction provider, so
+    // the extraction credential may double as the decision credential.
+    ports
+        .settings_repo
+        .bind_vault_key("vault-key", LlmProvider::EURouter.as_str(), TEST_SUB)
+        .await;
+    let state = state(ports);
+
+    // (1) CREATE carries the triple into the dispatched command.
+    let (status, Json(created)) = create_ai_config::<FakePorts>(
+        State(state.clone()),
+        user(),
+        Json(CreateAiConfigRequest {
+            provider: LlmProvider::EURouter,
+            assistant_model: "mistral-large-3".to_owned(),
+            image_model: None,
+            prompts: HashMap::new(),
+            vault_key_id: "vault-key".to_owned(),
+            cost_display_preference: CostDisplayPreference::Token,
+            decision_provider: Some(LlmProvider::EURouter),
+            decision_model: Some("clef-flash".to_owned()),
+            decision_vault_key_id: Some("vault-key".to_owned()),
+        }),
+    )
+    .await
+    .expect("credential-role member may create a config with a decision model");
+    assert_eq!(status, StatusCode::CREATED);
+    {
+        let created_commands = commands.created.lock().await;
+        let command = created_commands
+            .last()
+            .expect("create must dispatch a command");
+        assert_eq!(command.decision_provider, Some(LlmProvider::EURouter));
+        assert_eq!(command.decision_model.as_deref(), Some("clef-flash"));
+        assert_eq!(command.decision_vault_key_id.as_deref(), Some("vault-key"));
+    }
+
+    // (2) The read view returns the stored triple (what the projector writes).
+    repo.views.lock().await.insert(
+        created.id,
+        AiConfigView {
+            id: created.id,
+            user_id: UserId::from_sub(TEST_SUB),
+            provider: LlmProvider::EURouter,
+            assistant_model: "mistral-large-3".to_owned(),
+            image_model: None,
+            prompts: HashMap::new(),
+            prompt_kinds: Vec::new(),
+            stored_prompt_kinds: Vec::new(),
+            vault_key_id: "vault-key".to_owned(),
+            cost_display_preference: CostDisplayPreference::Token,
+            decision_provider: Some(LlmProvider::EURouter),
+            decision_model: Some("clef-flash".to_owned()),
+            decision_vault_key_id: Some("vault-key".to_owned()),
+            version: created.version,
+            revoked: false,
+        },
+    );
+    let (status, Json(view)) =
+        get_ai_config::<FakePorts>(State(state.clone()), user(), Path(created.id))
+            .await
+            .expect("owner may read their config");
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(view.decision_provider, Some(LlmProvider::EURouter));
+    assert_eq!(view.decision_model.as_deref(), Some("clef-flash"));
+    assert_eq!(view.decision_vault_key_id.as_deref(), Some("vault-key"));
+
+    // (3) PATCH adds the triple to a config that had none — the exact shape of
+    // the reported case (an existing config, later given a Decision Model).
+    let bare_id = Uuid::now_v7();
+    repo.views.lock().await.insert(
+        bare_id,
+        AiConfigView {
+            id: bare_id,
+            user_id: UserId::from_sub(TEST_SUB),
+            provider: LlmProvider::EURouter,
+            assistant_model: "mistral-large-3".to_owned(),
+            image_model: None,
+            prompts: HashMap::new(),
+            prompt_kinds: Vec::new(),
+            stored_prompt_kinds: Vec::new(),
+            vault_key_id: "vault-key".to_owned(),
+            cost_display_preference: CostDisplayPreference::Token,
+            decision_provider: None,
+            decision_model: None,
+            decision_vault_key_id: None,
+            version: AggregateVersion::INITIAL,
+            revoked: false,
+        },
+    );
+    let (status, Json(patched_version)) = update_ai_config::<FakePorts>(
+        State(state.clone()),
+        user(),
+        Path(bare_id),
+        Json(UpdateAiConfigRequest {
+            provider: LlmProvider::EURouter,
+            assistant_model: "mistral-large-3".to_owned(),
+            image_model: None,
+            prompts: HashMap::new(),
+            vault_key_id: "vault-key".to_owned(),
+            cost_display_preference: None,
+            decision_provider: Some(Some(LlmProvider::EURouter)),
+            decision_model: Some(Some("clef-flash".to_owned())),
+            decision_vault_key_id: Some(Some("vault-key".to_owned())),
+            version: AggregateVersion::INITIAL,
+        }),
+    )
+    .await
+    .expect("owner may add a decision model to an existing config");
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        patched_version,
+        AggregateVersion(AggregateVersion::INITIAL.0 + 1),
+        "a decision-model save must append a new aggregate version"
+    );
+    {
+        let updated_commands = commands.updated.lock().await;
+        let command = updated_commands
+            .last()
+            .expect("update must dispatch a command");
+        assert_eq!(command.decision_provider, Some(Some(LlmProvider::EURouter)));
+        assert_eq!(command.decision_model, Some(Some("clef-flash".to_owned())));
+        assert_eq!(
+            command.decision_vault_key_id,
+            Some(Some("vault-key".to_owned()))
+        );
+    }
+}
+
 #[tokio::test]
 async fn ai_config_update_rejects_vault_key_from_another_provider() {
     let ports = FakePorts::default();
