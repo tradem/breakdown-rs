@@ -29,7 +29,7 @@ test-support = ["breakdown_core/test-support", "infra/test-support"]
 [dependencies]
 # Domäne & Infrastruktur
 breakdown_core = { path = "../core", version = "0.46.0" }
-infra = { path = "../infra", version = "0.54.0" }
+infra = { path = "../infra", version = "0.55.0" }
 
 # Web-Framework
 axum.workspace = true

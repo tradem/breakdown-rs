@@ -23,7 +23,7 @@ test-support = []
 [dependencies]
 api = { path = "../api", version = "0.45.0" }
 breakdown_core = { path = "../core", version = "0.46.0" }
-infra = { path = "../infra", version = "0.54.0" }
+infra = { path = "../infra", version = "0.55.0" }
 rust_arkitect = "0.3.7"
 toml = "1.1"
 

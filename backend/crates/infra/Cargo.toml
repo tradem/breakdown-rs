@@ -8,7 +8,7 @@
 
 [package]
 name = "infra"
-version = "0.54.0"
+version = "0.55.0"
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
@@ -112,13 +112,15 @@ typst = { version = "=0.15.1", default-features = false }
 typst-pdf = { version = "=0.15.1", default-features = false }
 typst-layout = { version = "=0.15.1", default-features = false }
 
-# Font embedding for deterministic Latin text
-typst-assets = "0.15.1"
-
 # Embedded font assets
 rust-embed = "8"
 
 [dev-dependencies]
+# Bundled fonts (`fonts` feature) so the report-template render tests exercise
+# real row data deterministically on every host instead of being skipped by a
+# font probe on fontless CI/dev machines (issue #764). Unused by production
+# code — the renderer loads system fonts there (issue #642).
+typst-assets = { version = "0.15.1", features = ["fonts"] }
 # Pricing-refresh worker parser tests spin local HTTP doubles (issue #675).
 wiremock.workspace = true
 # `test-util` provides tokio's paused clock (`start_paused`, `time::advance`),

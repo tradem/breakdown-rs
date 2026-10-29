@@ -170,6 +170,27 @@ tag. Never edit a released entry afterwards.
 
 ### Fixed
 
+- **PDF reports no longer answer 500 for any non-empty report** (issue #764;
+  `infra 0.54.0 → 0.55.0`). `GET /v1/shooting-days/{id}/report/dispo.pdf`,
+  `/report/shoot-day.pdf` and `/report/planned-vs-actual.pdf` — and the
+  aggregated `season`/`episode` `.pdf` twins — failed with
+  `http.internal-error` as soon as a day had rows, i.e. exactly once scenes
+  were assigned: the five embedded Typst templates passed raw JSON integers
+  (`row.scene_number`, `row.notes.len()`) as table cells, and Typst requires
+  `content` (`expected content, found integer`). Empty days rendered fine
+  because the templates take the "Keine Daten vorhanden" branch. A new shared
+  snippet `templates/reports/_helpers.typ` defines
+  `cell(v)` (none → empty, str/content unchanged, everything else → `repr`),
+  is prepended to every embedded template by `embedded_templates()` (the
+  restricted world serves only `main.typ` + `report.json`, so no `#import`
+  exists) and wraps **every** table cell — a future numeric column cannot
+  reintroduce the failure. Compiler diagnostics now carry the report kind, so
+  the logged 500 names the broken template. No wire-contract change. The gap
+  that let this ship is closed by per-kind render tests with representative
+  rows on deterministic bundled fonts (`typst-assets`, dev-dependency), which
+  run instead of skipping on fontless hosts; `embedded_templates()` /
+  `embedded_template_helpers()` became public for them (MINOR bump).
+
 - **Lapsed Vault app token is repairable again (dev + prod bootstrap).** The
   `breakdown-app` token is a 24 h *periodic* token, so it lapses whenever
   nothing renews it inside the TTL (an API that was down past the TTL, or a

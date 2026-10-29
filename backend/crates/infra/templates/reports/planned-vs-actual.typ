@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: mimo-v2.5 (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 // Planned vs Actual (Soll-Ist-Vergleich) Report Template
 // Reads data from report.json via the restricted virtual filesystem.
@@ -32,16 +33,19 @@
     columns: (auto, auto, auto, auto, auto, auto, auto, auto, auto),
     align: (center, center, left, left, left, left, center, center, center),
     [*Szenen-Nr*], [*Script-Tag*], [*Ort*], [*Soll*], [*Ist*], [*Verschoben*], [*Fehlend*], [*Übersprungen*], [*Nachgedreht*],
+    // `cell(...)` (see `_helpers.typ`) is mandatory for every table cell:
+    // raw JSON numbers abort compilation with `expected content, found
+    // integer` (issue #764).
     ..rows.map(row => (
-      row.scene_number,
-      row.script_day,
-      row.location,
-      row.planned_order,
-      row.actual_order,
-      if row.moved { "Ja" } else { "–" },
-      if row.missing { "Ja" } else { "–" },
-      if row.skipped { "Ja" } else { "–" },
-      if row.reshot_candidate { "Ja" } else { "–" },
+      cell(row.scene_number),
+      cell(row.script_day),
+      cell(row.location),
+      cell(row.planned_order),
+      cell(row.actual_order),
+      cell(if row.moved { "Ja" } else { "–" }),
+      cell(if row.missing { "Ja" } else { "–" }),
+      cell(if row.skipped { "Ja" } else { "–" }),
+      cell(if row.reshot_candidate { "Ja" } else { "–" }),
     )).flatten()
   )
 ]
