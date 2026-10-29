@@ -479,8 +479,7 @@ class _TypedPreviewBodyState extends ConsumerState<_TypedPreviewBody> {
       switch (payload) {
         AiPreviewPayloadOneOf() => (
           l10nOf(context).aiPreviewScriptTitle,
-          l10nOf(context)
-              .aiPreviewScriptSubtitle('${payload.data.scenes.length}'),
+          _scriptSubtitle(l10nOf(context), payload.data),
         ),
         AiPreviewPayloadOneOf1() => (
           l10nOf(context).aiPreviewScheduleTitle,
@@ -494,6 +493,33 @@ class _TypedPreviewBodyState extends ConsumerState<_TypedPreviewBody> {
         ),
         _ => (l10nOf(context).aiPreviewFallbackTitle, ''),
       };
+
+  /// The script-preview subtitle (issue #758).
+  ///
+  /// The row count alone let a 57-heading script that produced 4 model rows
+  /// look like a 4-scene import. When the payload carries the server-derived
+  /// reconciliation counters (`scenesDetected > 0`; `0` means "not recorded",
+  /// e.g. a preview extracted before the counters existed), the subtitle also
+  /// states what the DOCUMENT had versus what the model produced, and names
+  /// the rows that had to be rebuilt from the document heading.
+  String _scriptSubtitle(AppLocalizations l10n, ScriptContext data) {
+    final base = l10n.aiPreviewScriptSubtitle('${data.scenes.length}');
+    // All three counters are nullable on the wire: the generator models a
+    // `serde(default)` field as optional, and a preview extracted before they
+    // existed carries none. `null` means "not recorded", never zero.
+    final detected = data.scenesDetected ?? 0;
+    final extracted = data.scenesExtracted ?? 0;
+    final synthesized = data.scenesSynthesized ?? 0;
+    if (detected <= 0) return base;
+    final reconciliation = l10n.aiPreviewScriptReconciliation(
+      '$detected',
+      '$extracted',
+    );
+    final rebuilt = synthesized > 0
+        ? ' · ${l10n.aiPreviewScriptSynthesized('$synthesized')}'
+        : '';
+    return '$base · $reconciliation$rebuilt';
+  }
 
   List<Widget> _payloadRows(
     BuildContext context,

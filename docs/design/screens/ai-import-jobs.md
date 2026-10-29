@@ -2,6 +2,7 @@
 <!-- Copyright (C) 2024-2026 Breakdown RS Contributors -->
 <!-- Co-authored-by: glm-5.3-flash (opencode-go) -->
 <!-- Co-authored-by: glm-5.3-flash-flex (neuralwatt) -->
+<!-- Co-authored-by: deepseek-v4.1-flash (opencode-go) -->
 
 # AI-Import-Aufträge (ai-import-jobs) — Screen Spec
 
@@ -75,6 +76,7 @@ screen, on every window size.
 | Retry budget | Text | Retryable `failed` rows show `Versuch {retries} von {maxRetries}` | `aiJobRetryBudget` |
 | Row stage | Text | **In-progress** rows (`pending`/`running`) with a published `progress` show the localized extraction stage (issues #664, #763) — a terminal row never does, whatever the fetched row still carries | `aiJobStage*` |
 | Row episodes | Text | In-progress rows with discovered episodes show the summary line **with its values** (`Gefundene Episoden: Ep. 299, Ep. 300`) — a label without values never renders (issue #763) | `aiJobEpisodesSeenValues` |
+| Row scenes rebuilt | Text | A job whose extraction had to rebuild rows from the document headings states it (`53 Szene(n) nur aus Dokument-Metadaten`, issue #758) — the count comes from `telemetry.scenes_synthesized`, which the Drift cache does not persist, so the line appears with the authoritative read. `0`/absent renders nothing: a clean import is never labelled | `aiJobsRowScenesRebuilt` |
 | Last-error indicator | Icon | Presence indicator on rows carrying a server error detail; the raw text renders only on the status screen, as secondary detail | status glyph |
 | Stale banner | Banner | Failed refetch serving retained cached rows | `seasonsStaleBanner` |
 | Error state | Card + button | Copy keyed on the problem `code`; retry re-runs the list route | `aiJobsLoadError` / `aiJobCheckAgain` |
@@ -125,6 +127,18 @@ never the sole carrier either. All copy via the ARB catalogs (`aiJobs*`,
 backend `detail` text never renders on this screen. Row semantics announce
 the title (name or kind + date), the identity/target line and the status.
 
+## Preview & Apply — detected vs extracted scenes (issue #758)
+
+The script preview's subtitle states what the DOCUMENT had, not only what the
+model produced, and names the rows that had to be rebuilt because their chunk
+returned nothing. Before this, a 57-heading script that produced 4 model rows
+rendered as a 4-scene import.
+
+| Element | M3 component | Semantics | Copy key |
+|---|---|---|---|
+| Script subtitle | Body-small text under the payload title | `{rows} Skript-Szene(n) · {detected} erkannt · {extracted} extrahiert` plus `· {n} aus Dokument-Metadaten ergänzt` when rows were rebuilt. Renders the row count ALONE when `scenes_detected` is `0`/absent (a preview extracted before the counters existed — a ratio is never invented) | `aiPreviewScriptSubtitle`, `aiPreviewScriptReconciliation`, `aiPreviewScriptSynthesized` |
+| Rebuilt-row uncertainty | The existing uncertainty notice | Each rebuilt row carries a non-blocking `dropped_row` uncertainty (`field = "extraction"`) from the server, so the apply stays enabled and the missing content is visible row by row | `aiPreviewUncertainty` |
+
 ## Preview & Apply — Decision Model star ratings (issue #723)
 
 When the configured Decision Model scored the extraction, the preview
@@ -170,7 +184,10 @@ truthful statement about the review.
 
 ## Tests
 
-Widget tests: rows render kind + date + status text + icon; tap pushes the
+Widget tests: the degraded-extraction row line renders for `scenes_synthesized > 0`
+and stays absent for a clean run (issue #758); the script preview subtitle
+states detected vs extracted and names the rebuilt rows, and keeps the row
+count alone for a pre-#758 payload; rows render kind + date + status text + icon; tap pushes the
 status screen (watch-call proof: zero before the tap); empty state + CTA;
 error state per `code`; stale banner over retained rows; terminal-failure
 distinctness; production-overview summary row visible/hidden matrix and

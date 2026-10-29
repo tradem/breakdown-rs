@@ -175,6 +175,41 @@ AiPreviewPayload _scriptPayloadWith(
         ),
 );
 
+/// A script payload carrying the server-derived reconciliation counters
+/// (issue #758): the document stated [detected] scenes, the model produced
+/// [extracted] rows, [synthesized] rows were rebuilt from document metadata.
+AiPreviewPayload _reconciledScriptPayload({
+  required int detected,
+  required int extracted,
+  required int synthesized,
+}) => AiPreviewPayload(
+  (b) => b
+    ..oneOf =
+        OneOf.fromValue3<
+          AiPreviewPayloadOneOf,
+          AiPreviewPayloadOneOf1,
+          AiPreviewPayloadOneOf2
+        >(
+          value: AiPreviewPayloadOneOf(
+            (b) => b
+              ..kind = AiPreviewPayloadOneOfKindEnum.script
+              ..data.replace(
+                ScriptContext(
+                  (b) => b
+                    ..title = 'Erlösung'
+                    ..scenes.replace([
+                      for (var i = 0; i < detected; i++) _draft('draft-$i'),
+                    ])
+                    ..uncertainties.replace(BuiltList<Uncertainty>())
+                    ..scenesDetected = detected
+                    ..scenesExtracted = extracted
+                    ..scenesSynthesized = synthesized,
+                ),
+              ),
+          ),
+        ),
+);
+
 AiPreviewPayload _scriptPayload() => AiPreviewPayload(
   (b) => b
     ..oneOf =
@@ -1208,6 +1243,44 @@ void main() {
       );
       await pumpPreview(tester);
       expect(find.byKey(const Key('ai-preview-missing')), findsOneWidget);
+      await tester.pump();
+    });
+
+    testWidgets('the script header states detected vs extracted and names the '
+        'rebuilt rows (issue #758)', (tester) async {
+      await setupContainer(
+        previewValue: Right(
+          _previewResponse(
+            _reconciledScriptPayload(
+              detected: 57,
+              extracted: 4,
+              synthesized: 53,
+            ),
+          ),
+        ),
+      );
+      await pumpPreview(tester);
+
+      expect(
+        find.text(
+          '57 draft scene(s) · 57 detected · 4 extracted · '
+          '53 rebuilt from document metadata',
+        ),
+        findsOneWidget,
+      );
+      await tester.pump();
+    });
+
+    testWidgets('a preview without reconciliation counters (pre-#758 payload) '
+        'shows the row count only', (tester) async {
+      await setupContainer();
+      await pumpPreview(tester);
+
+      expect(
+        find.text('2 draft scene(s)'),
+        findsOneWidget,
+        reason: '0 detected means "not recorded", never a fabricated ratio',
+      );
       await tester.pump();
     });
 
