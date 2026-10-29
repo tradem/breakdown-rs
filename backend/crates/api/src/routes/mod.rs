@@ -84,9 +84,17 @@ pub fn app_router(
     // is mounted only in test-support builds and is deliberately NOT part of
     // the utoipa derive — undocumented by construction, so `openapi_drift`
     // fails if it ever leaks into the documented wire contract.
+    //
+    // Issue #748: the stored AI-import preview fixture
+    // (`POST /v1/__fixtures/ai-import-preview`) is mounted under the same gate
+    // and the same utoipa exclusion: a fixture route has no production
+    // contract to document.
     #[cfg(feature = "test-support")]
-    let v1 =
-        crate::fault_injection::fault_control_routes::<ProductionPorts>().merge(handlers::routes());
+    let v1 = crate::fault_injection::fault_control_routes::<ProductionPorts>()
+        .merge(crate::ai_import_fixture::ai_import_fixture_routes::<
+            ProductionPorts,
+        >())
+        .merge(handlers::routes());
     #[cfg(not(feature = "test-support"))]
     let v1 = handlers::routes();
     let api = apply_api_middleware(

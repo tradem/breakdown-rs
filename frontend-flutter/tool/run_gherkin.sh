@@ -23,6 +23,20 @@
 # before running this suite. Without it the arming step fails fast with an
 # actionable message (404).
 #
+# Issue #748: the AI-import preview scenarios seed a stored Pass-2 preview
+# through the same test-support build (`POST /v1/__fixtures/ai-import-preview`)
+# and then open the job in the app. That needs two more things on the backend:
+#   1. durable AI payload storage — the preview blob must be readable again by
+#      `GET /v1/ai-import/jobs/{id}/preview`. Run
+#      `cd ../backend && bash scripts/enable-dev-ai-import.sh` and export the
+#      `AI_PAYLOAD_S3_*` values it writes to `.env.dev-ai.local`.
+#   2. `AI_IMPORT_ENABLED=1` — the job STATUS screen renders from the SSE
+#      stream, which only exists for an enabled import (without it the screen
+#      shows the disabled state and the preview is unreachable through the UI).
+# The seeding step reads the stored preview back over HTTP before the device
+# ever opens it, so a missing route or storage fails the Given with an
+# actionable message instead of a mysterious missing widget.
+#
 # Issue #463: the season-wizard scenarios (happy path, template application,
 # partial failure) dispatch a series-scoped season/block number that must be
 # FREE — the dev series accumulates seasons/blocks across runs, so the

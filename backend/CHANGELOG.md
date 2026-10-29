@@ -74,6 +74,30 @@ tag. Never edit a released entry afterwards.
 
 ### Added
 
+- **Test-support fixture for a stored AI-import preview** (`api 0.44.0 →
+  0.45.0`). The on-device Gherkin suite could not cover the AI-import
+  preview's Pass-2 surface (issue #745) because a preview is produced by the
+  AI worker, not by any seeding call: `POST /v1/__fixtures/ai-import-preview`
+  now accepts a `ScriptContext` payload, stores it through the ordinary
+  payload ports and answers `201 {"job_id": …}` (issue #748). The job row is
+  written by the new `test-support`-gated `AiImportQueue::seed_succeeded`
+  seam — one INSERT that lands it **already terminal** (`succeeded`, with the
+  preview handle) — because the lifecycle path (`enqueue` → claim →
+  `mark_succeeded`) cannot address a specific job: on a busy or worker-polled
+  dev queue it either loses the race or leaves its own `pending` row plus
+  blobs behind. A terminal row is unclaimable by construction, so seeding
+  never competes with real imports and never leaks queue work. `api`'s
+  `test-support` feature now enables `breakdown_core/test-support` and
+  `infra/test-support` so the seam and its PostgreSQL implementation exist
+  exactly when the fixture route does. Like the #443 fault latch, the module
+  and its route are compiled out of release builds and are deliberately
+  absent from `backend/openapi.yaml`; the route is classified `Authenticated`
+  (the seeded job names no block, so no `X-Active-Block` scope exists) in the
+  same gated block, and its handler carries an `AUTHZ-GATE` marker documenting
+  that the write is owner-scoped. A malformed payload is rejected before any
+  row is written. Promotes `features-spec/ai_import_continuity_gap.feature`
+  (no `@pending` left).
+
 - **AI import Pass 2 — cross-scene outfit continuity** (OpenSpec change
   `ai-import-decision-outfit-continuity`; `core 0.45.0 → 0.46.0`,
   `infra 0.53.0 → 0.54.0`, `api 0.43.0 → 0.44.0`). Productions name wardrobe

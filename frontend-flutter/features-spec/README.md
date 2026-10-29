@@ -29,9 +29,21 @@ the harness works end-to-end.
 
 `ai_import_continuity_gap.feature` is also **not** a critical scope (issue
 #745): it covers the AI-import preview's outfit provenance and the
-wardrobe-gap candidate picker. Both scenarios are `@pending`, because the
-harness cannot yet seed a stored Pass-2 preview; until then the flow is gated
-by `test/features/ai_import/preview_continuity_test.dart`,
+wardrobe-gap candidate picker. It is **fully promoted** (issue #748 — no
+`@pending` left), so both scenarios run in the default on-device pass.
+
+Unlike the other files here, this scope arranges server state the app cannot
+produce on its own: a stored AI-import preview is written by the AI worker,
+not by a seeding call. The suite therefore seeds one through the
+`test-support`-only fixture route `POST /v1/__fixtures/ai-import-preview`
+(compile-time absent in release builds, absent from
+`backend/openapi.yaml`), reads the stored preview back over the real
+`GET /v1/ai-import/jobs/{id}/preview` in the Given steps, and then drives the
+app through the account drawer → AI import jobs → job status → preview. Boot
+requirements (`--features api/test-support`, durable AI payload storage,
+`AI_IMPORT_ENABLED=1`) are documented in `tool/run_gherkin.sh`; the widget- and
+unit-tier coverage stays in
+`test/features/ai_import/preview_continuity_test.dart`,
 `test/unit/continuity_gap_test.dart` and the committed goldens.
 
 ## How the on-device runner works (not headless)
@@ -96,10 +108,13 @@ left, so its scenarios now run in the default on-device pass. The season
 setup wizard scope is fully promoted (issues #455 + #463): the happy path
 under #455 and its three sibling scenarios (template application, abort
 discard, partial failure) under #463 — no `@pending` left, so all four run
-in the default on-device pass. A screen ships by **removing `@pending`
-from its Scenario(s)**; a critical scope may be fully promoted (no
-`@pending` left — it then runs on device); the static checker allows both
-the pending and the promoted states.
+in the default on-device pass. The AI-import preview scope is fully promoted
+too (issue #748): no `@pending` left, so its two scenarios run in the default
+on-device pass — they are the one non-critical scope that does, because the
+issue asked for an end-to-end Gherkin of the Pass-2 flow. A screen ships by
+**removing `@pending` from its Scenario(s)**; a critical scope may be fully
+promoted (no `@pending` left — it then runs on device); the static checker
+allows both the pending and the promoted states.
 
 The API endpoint is **configurable**, not bound to the Android-emulator host
 alias: `tool/run_gherkin.sh` reads `API_BASE` (and `DEV_AUTH_SUB`) from the

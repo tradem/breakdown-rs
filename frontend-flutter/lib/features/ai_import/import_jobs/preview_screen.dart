@@ -646,9 +646,16 @@ class _TypedPreviewBodyState extends ConsumerState<_TypedPreviewBody> {
         return _ContinuityGapCard(jobId: widget.jobId, gap: gap);
       }
     }
-    return _InfoRowCard(
-      label: l10nOf(context)
-          .aiPreviewUncertainty(uncertainty.field, uncertainty.note),
+    // The plain notice keeps its stable per-uncertainty key (issue #748): a
+    // candidate-less wardrobe gap must be assertable on device WITHOUT matching
+    // localized prose, and the const `ai-preview-info-row` key stays on the card
+    // itself for the schedule-shape rows.
+    return KeyedSubtree(
+      key: Key('ai-preview-notice-$index'),
+      child: _InfoRowCard(
+        label: l10nOf(context)
+            .aiPreviewUncertainty(uncertainty.field, uncertainty.note),
+      ),
     );
   }
 

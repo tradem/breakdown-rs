@@ -553,6 +553,46 @@ impl AiImportQueue for PgAiImportQueue {
         Ok(())
     }
 
+    /// Test-support storage seam (issue #748): one INSERT that lands the job
+    /// directly in the terminal `succeeded` state, pointing at
+    /// [preview_handle]. No claim, no lease and no permit are involved, so the
+    /// row is unclaimable by construction and can never be picked up by a
+    /// worker or occupy the runnable pool.
+    ///
+    /// The column list mirrors [`AiImportQueue::enqueue`]: the fixtures go
+    /// through the same table defaults (`retries`, `max_retries`, timestamps)
+    /// a production enqueue uses. A `(user_id, dedup_key)` collision is a
+    /// genuine caller bug and surfaces as the mapped adapter error instead of
+    /// being swallowed by an `ON CONFLICT DO NOTHING`.
+    #[cfg(feature = "test-support")]
+    async fn seed_succeeded(
+        &self,
+        request: AiImportEnqueueRequest,
+        preview_handle: &str,
+    ) -> Result<(), DomainError> {
+        sqlx::query(
+            r#"
+            INSERT INTO ai_import.ai_import_job
+                (id, user_id, document_kind, source_format, block_id, dedup_key, document_digest, source_handle, status, preview_handle)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'succeeded', $9)
+            "#,
+        )
+        .bind(request.id.as_uuid())
+        .bind(request.user_id.as_str())
+        .bind(request.document_kind.as_str())
+        .bind(request.source_format.as_str())
+        .bind(request.block_id.map(|block_id| block_id.0))
+        .bind(&request.dedup_key)
+        .bind(&request.document_digest)
+        .bind(&request.source_handle)
+        .bind(preview_handle)
+        .execute(&self.pool)
+        .await
+        .map_err(map_sqlx_error)?;
+        self.hub.notify(request.id);
+        Ok(())
+    }
+
     async fn mark_succeeded(
         &self,
         id: AiImportJobId,

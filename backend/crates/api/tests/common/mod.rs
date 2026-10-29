@@ -2501,6 +2501,49 @@ impl AiImportQueue for FakeAiImportQueue {
         Ok(())
     }
 
+    /// Mirrors the Postgres adapter's test-support `seed_succeeded` (issue
+    /// #748): the row lands directly in the terminal `succeeded` state, so no
+    /// claim exists and the fixture can never leak a runnable job.
+    #[cfg(feature = "test-support")]
+    async fn seed_succeeded(
+        &self,
+        request: AiImportEnqueueRequest,
+        preview_handle: &str,
+    ) -> Result<(), DomainError> {
+        let now = Utc::now();
+        self.dedup
+            .lock()
+            .await
+            .insert(request.dedup_key.clone(), request.id);
+        self.jobs.lock().await.insert(
+            request.id.as_uuid(),
+            AiImportJob {
+                id: request.id,
+                user_id: request.user_id,
+                document_kind: request.document_kind,
+                source_format: request.source_format,
+                block_id: request.block_id,
+                dedup_key: request.dedup_key,
+                document_digest: request.document_digest,
+                source_handle: request.source_handle,
+                status: JobStatus::Succeeded,
+                preview_handle: Some(preview_handle.to_owned()),
+                last_error: None,
+                retries: 0,
+                progress: None,
+                next_attempt_at: None,
+                attempts: Vec::new(),
+                max_retries: 5,
+                created_at: now,
+                updated_at: now,
+                telemetry: None,
+                cost: None,
+            },
+        );
+        self.hub.notify(request.id);
+        Ok(())
+    }
+
     async fn mark_failed(
         &self,
         id: AiImportJobId,

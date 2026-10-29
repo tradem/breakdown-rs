@@ -51,6 +51,12 @@ class AppWorld extends FlutterWorld {
   /// likewise).
   final Map<String, String> seedIds = {};
 
+  /// The real AI-import job id of the most recently seeded stored preview
+  /// (issue #748). `AppWorld.seedIds` keys it by the feature's symbolic job
+  /// name; this slot lets a later `And` step address "the same preview"
+  /// without repeating the symbolic name.
+  String? lastAiImportJobId;
+
   /// Free SERIES-scoped season number resolved host-side by the wizard
   /// harness (season_wizard_steps.dart): the feature's symbolic season
   /// number "1" maps here before entering the wizard's number field (the
@@ -71,6 +77,7 @@ class AppWorld extends FlutterWorld {
     lastCharacterId = null;
     lastOutfitId = null;
     lastSceneId = null;
+    lastAiImportJobId = null;
     seedIds.clear();
     wizardFreeSeasonNumber = null;
     wizardExpectsPartialFailure = false;

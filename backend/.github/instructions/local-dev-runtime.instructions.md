@@ -69,6 +69,19 @@ cargo run --bin api
 > is booted with `cargo run --bin api --features api/test-support`; without the
 > feature the route is compile-time absent (arming returns 404). Never enable
 > the feature in production boot scripts.
+>
+> **E2E/Gherkin stored AI-import preview (issue #748):** the same
+> `test-support` build also mounts `POST /v1/__fixtures/ai-import-preview`,
+> which stores a caller-supplied `ScriptContext` as a **succeeded** AI-import
+> job's preview (the suite cannot make the AI worker produce one on demand).
+> It is absent from release builds and from `openapi.yaml`, and it is
+> classified `Authenticated` (not block-scoped). Seeding needs durable AI
+> payload storage, so the harness boot is: `scripts/enable-dev-ai-import.sh`
+> (Garage env) + `AI_IMPORT_ENABLED` (the job status screen renders from the
+> SSE stream, which only exists for an enabled import) + `cargo run --bin api
+> --features api/test-support`. It also seeds a placeholder *source* document
+> per call: clean the dev AI job list occasionally (`DELETE
+> /v1/ai-import/jobs/{id}` on terminal rows).
 
 In dev mode (single role, `DATABASE_URL` only), both pools use the same
 connection — the audit REVOKE is skipped gracefully.
