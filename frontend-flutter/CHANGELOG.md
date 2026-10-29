@@ -33,11 +33,16 @@ releases are cut as `vX.Y.Z` tags (`v<build-name>`, enforced by
 
   - **Round-trip verification.** A 2xx `POST`/`PATCH` acknowledgement is no
     longer treated as proof of persistence: `create`/`edit` re-read
-    `GET /v1/ai-import/config/{id}` and compare the **submitted** Decision
-    Model triple (provider, model, vault binding) with the **stored** one. On a
-    mismatch the save is reported as a failure, the draft is preserved, and the
-    configuration is never presented as active. The pickers keep re-seeding from
-    the authoritative view (discovery is only refreshed on a confirmed save).
+    `GET /v1/ai-import/config/{id}` — with a bounded-retry refetch, because a
+    committed write reaches the read model asynchronously — and compare the
+    **submitted** Decision Model triple (provider, model, vault binding) with
+    the **stored** one. On a mismatch the save is reported as a failure and the
+    draft is preserved; what is never claimed is that the submitted Decision
+    Model was stored. The configuration itself is real in both paths (created,
+    or PATCH-committed), so the authoritative read replaces the cached view —
+    which on `edit` also drops the stale pre-PATCH version, so a retry is not
+    rejected as a version conflict. The pickers keep re-seeding from that
+    authoritative view.
   - **New localized error** `ai_config.decision_not_persisted` (de/en).
     Client-detected by design: no server problem carries it, because the whole
     point is that the save *looked* successful.

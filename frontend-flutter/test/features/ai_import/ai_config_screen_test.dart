@@ -202,9 +202,17 @@ class FakeAiConfigRepository extends AiConfigRepository {
   Result<AiConfigView>? getConfigResult;
   int getConfigCalls = 0;
 
+  /// Scripted read-back sequence (issue #769 retry): every [getConfig] call
+  /// consumes one entry, so a test can model projector lag — a mismatch that
+  /// the next attempt confirms — without a real network call. An exhausted
+  /// script falls back to [getConfigResult] / the echoed submitted view.
+  List<Result<AiConfigView>>? getConfigScript;
+
   @override
   Future<Result<AiConfigView>> getConfig(String id) async {
     getConfigCalls++;
+    final script = getConfigScript;
+    if (script != null && script.isNotEmpty) return script.removeAt(0);
     final override = getConfigResult;
     if (override != null) return override;
     return Right(storedViewFor(id));
@@ -478,6 +486,20 @@ void main() {
     await tester.tap(find.byKey(const Key('ai-assistant-model-picker')));
     await tester.pumpAndSettle();
     await tester.tap(find.text('gpt-5.6-luna').last);
+    await tester.pumpAndSettle();
+  }
+
+  /// Picks the curated Decision pair (neuralwatt / clef-flash) in the Decision
+  /// Model pickers — the same-provider case, so the same-key reuse path
+  /// applies and no separate Decision key field is rendered (issue #723).
+  Future<void> pickDecisionProviderAndModel(WidgetTester tester) async {
+    await tester.tap(find.byKey(const Key('ai-decision-provider-picker')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('neuralwatt').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('ai-decision-model-picker')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('clef-flash').last);
     await tester.pumpAndSettle();
   }
 
@@ -2043,6 +2065,141 @@ void main() {
             'client-detected code ai_config.decision_not_persisted',
       );
       expect(repo.getConfigCalls, greaterThan(0));
+    });
+
+    testWidgets('edit: projector lag that clears inside the retry budget is '
+        'NOT reported as a persistence failure (issue #769 review)', (
+      tester,
+    ) async {
+      await setupContainer(
+        discoveryValue: Right([_config(provider: LlmProvider.neuralwatt)]),
+      );
+      await pumpScreen(tester, height: 2400);
+
+      // The first read-back still sees the pre-PATCH projection (NULL decision
+      // columns), the second one sees the committed triple — exactly the
+      // projector lag the client must reconcile with a bounded-retry refetch
+      // (AGENTS.md §4) instead of reporting a false "not persisted".
+      repo.getConfigScript = [
+        Right(_config(provider: LlmProvider.neuralwatt)),
+        Right(
+          _config(
+            provider: LlmProvider.neuralwatt,
+            decisionProvider: LlmProvider.neuralwatt,
+            decisionModel: 'clef-flash',
+            decisionVaultKeyId: 'vk-1',
+          ),
+        ),
+      ];
+
+      await pickDecisionProviderAndModel(tester);
+      await tester.tap(find.byKey(const Key('ai-config-edit-save')));
+      await tester.pumpAndSettle();
+
+      expect(
+        repo.getConfigCalls,
+        2,
+        reason: 'the lagging first read must be retried, not believed',
+      );
+      expect(
+        find.text(
+          "The decision model was not saved. The configuration was sent, but "
+          "the server's read-back does not contain it — please check the "
+          'selection and save again.',
+        ),
+        findsNothing,
+        reason: 'a lagging projection is not a persistence failure',
+      );
+    });
+
+    testWidgets('edit: a failed read-back replaces the stale pre-PATCH view, '
+        'so the retry is not rejected as a version conflict (issue #769 '
+        'review)', (tester) async {
+      await setupContainer(
+        discoveryValue: Right([
+          _config(provider: LlmProvider.neuralwatt, version: 1),
+        ]),
+      );
+      await pumpScreen(tester, height: 2400);
+
+      // The projection lags on every attempt of the FIRST save and settles on
+      // the committed version (5) — the version the retry must use.
+      repo.getConfigScript = [
+        for (var attempt = 0; attempt < kMaxReconcileAttempts; attempt++)
+          Right(_config(provider: LlmProvider.neuralwatt, version: 5)),
+      ];
+
+      await pickDecisionProviderAndModel(tester);
+      await tester.tap(find.byKey(const Key('ai-config-edit-save')));
+      await tester.pumpAndSettle();
+
+      expect(
+        repo.lastUpdateRequest!.version,
+        1,
+        reason: 'the first PATCH carries the cached version',
+      );
+      expect(
+        find.byKey(const Key('ai-config-error-banner')),
+        findsOneWidget,
+        reason: 'the mismatch is never silently dropped',
+      );
+
+      // Retry: the scripted lag is exhausted, so the fake echoes the submitted
+      // body and the save succeeds. The PATCH must carry the authoritative
+      // version from the read-back — the stale cached 1 would be a 409.
+      await tester.tap(find.byKey(const Key('ai-config-edit-save')));
+      await tester.pumpAndSettle();
+
+      expect(repo.lastUpdateRequest!.version, 5);
+      expect(find.byKey(const Key('ai-config-error-banner')), findsNothing);
+    });
+
+    testWidgets('create: a read-back WITHOUT the submitted Decision Model '
+        'surfaces the error above the (real) created configuration instead of '
+        'dropping it with the discovery refresh (issue #769 review)', (
+      tester,
+    ) async {
+      await setupContainer();
+      await pumpScreen(tester, height: 2400);
+
+      // Same-provider (neuralwatt) decision binding: the same-key reuse path
+      // applies, so no separate Decision key field is rendered.
+      await tester.tap(find.byKey(const Key('ai-provider-picker')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('neuralwatt').last);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('ai-assistant-model-picker')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('gpt-5.6-luna').last);
+      await tester.pumpAndSettle();
+      await pickDecisionProviderAndModel(tester);
+
+      // The create is acknowledged but the stored config carries no decision
+      // columns — the reported defect.
+      repo.getConfigResult = Right(_config(provider: LlmProvider.neuralwatt));
+
+      await tester.enterText(
+        find.byKey(const Key('ai-api-key-field')),
+        'sk-test-123',
+      );
+      await tester.ensureVisible(find.byKey(const Key('ai-config-create')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('ai-config-create')));
+      await tester.pumpAndSettle();
+
+      expect(repo.createCalls, 1);
+      // The created config is real → the configured view renders …
+      expect(find.byKey(const Key('ai-config-configured')), findsOneWidget);
+      // … and the mismatch is still surfaced: refreshing the projection must
+      // never swallow the verdict (that is the "looked saved" defect itself).
+      expect(
+        find.text(
+          "The decision model was not saved. The configuration was sent, but "
+          "the server's read-back does not contain it — please check the "
+          'selection and save again.',
+        ),
+        findsOneWidget,
+      );
     });
 
     // --- Decision provider capability from the route (issue #736) ---
