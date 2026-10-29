@@ -170,6 +170,36 @@ tag. Never edit a released entry afterwards.
 
 ### Fixed
 
+- **Lapsed Vault app token is repairable again (dev + prod bootstrap).** The
+  `breakdown-app` token is a 24 h *periodic* token, so it lapses whenever
+  nothing renews it inside the TTL (an API that was down past the TTL, or a
+  revoked token) — and Vault never revives an expired token. Found via
+  `GET /v1/health` reporting `vault: Unhealthy` ("Vault app token is invalid or
+  expired") on a long-running local API while every other check stayed green.
+  `scripts/vault-bootstrap.sh` could not recover from that state: with the
+  app-token fast path inapplicable it fell back to `VAULT_BOOTSTRAP_TOKEN` as
+  the administrative credential, although the bootstrapped root token is
+  revoked at the end of provisioning, so a re-run died with "no usable
+  administrative token". In the dev overlay the seed is random bytes that are
+  never a Vault token, which made the documented repair path
+  (`docs/operations/runbooks.md` §4) dead there; the only workaround was the
+  `down -v` reset, which also destroys the KV-v2 secrets and the `photo-sse-c`
+  DEK. The one-shot now resolves its credential in order — first-boot root
+  token → still-valid seed → `vault operator generate-root` from the persisted
+  unseal share — and revokes a minted root token again. The share goes through
+  a 600 request file (never argv, same rule as the unseal call), and the
+  request/response files are removed afterwards. A repair preserves Vault
+  state (KV secrets, Transit keys, `photo-sse-c`), and the API needs no restart
+  (it reads the token file per request). Also fixed: the unseal key is now
+  chowned to uid 1000 like the app token (it stayed `root:root`, which blocked
+  a host-side repair), and `scripts/enable-dev-vault.sh` re-aligns a
+  root-owned `.vault-dev/` through a privileged one-shot instead of silently
+  skipping the `chown`. Verified end-to-end on the dev overlay: lapsed token →
+  `Vault bootstrap complete` + `vault: Healthy` + intact `photo-sse-c`
+  key/KV; valid token → `Vault already bootstrapped; app token renewed`. No
+  `api` image change (the bootstrap script is compose-mounted), so no version
+  bump.
+
 - **Wardrobe split — review findings** (branch
   `feature/separate-piece-and-outfit-domain`, findings CR-001 … CR-005; no
   additional version bump, all four ride the same unreleased `api 0.42.0` /

@@ -4,10 +4,20 @@
 # Co-authored-by: gpt-5.6-luna (opencode-go)
 # Co-authored-by: glm-5.2 (neuralwatt)
 # Co-authored-by: deepseek-v4-flash (neuralwatt)
+# Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 # Idempotent first-boot bootstrap for the internal Vault service.
 # VAULT_BOOTSTRAP_TOKEN_FILE points to a Docker secret mounted only into this
 # one-shot container. The API never receives the bootstrap seed.
+#
+# Repair path: the least-privilege app token is a 24 h *periodic* token, so it
+# lapses whenever nothing renews it in time (the API down past the TTL, or the
+# token revoked). Re-running this script then issues a fresh one. Because no
+# administrative credential survives provisioning (the generated root token is
+# revoked at the end), a repair mints a root token through `operator
+# generate-root` from the persisted unseal share and revokes it again — Vault
+# state (KV secrets, Transit keys, the photo SSE-C key) survives a repair,
+# unlike a full `down -v` reset.
 set -eu
 
 : "${VAULT_ADDR:=https://vault:8200}"
@@ -47,6 +57,84 @@ chown 1000:1000 "$bootstrap_dir"
 # The API image uses uid 1000 and receives only this separate token volume.
 chown 1000:1000 /vault/app-token
 chmod 700 /vault/app-token
+# The unseal key is also the repair credential (`generate_root_token`), so it
+# must be readable by the same non-root uid as the app token. Files written by
+# earlier script versions were left root:root and blocked a host-side repair.
+if [ -f "$unseal_file" ]; then
+  chown 1000:1000 "$unseal_file"
+fi
+
+# BusyBox wget in the pinned Vault image has HTTPS support but no
+# --ca-certificate option. Extend its container-local CA bundle with the
+# public step-ca root; this does not modify the mounted host volume. The dev
+# overlay is plaintext http:// and has no CA to append. Idempotent: the unseal
+# and generate-root paths can both run in one invocation.
+wget_ca_prepared=0
+prepare_wget_ca() {
+  if [ "$wget_ca_prepared" = "1" ]; then
+    return 0
+  fi
+  if [ -n "${VAULT_CACERT:-}" ] && [ -f /etc/ssl/certs/ca-certificates.crt ]; then
+    cat "$VAULT_CACERT" >> /etc/ssl/certs/ca-certificates.crt
+  fi
+  wget_ca_prepared=1
+}
+
+# Mint a short-lived administrative token from the persisted unseal share.
+#
+# Required when the app token lapsed: Vault never revives an expired token, and
+# the bootstrapped root token was discarded, so a repair has no administrative
+# credential left. `operator generate-root` needs exactly what this container
+# already holds — one unseal share (the init above uses 1/1). The share, the
+# client-side OTP and the encoded token stay in shell variables and in 600
+# request files; none of them is passed in argv (same rule as the unseal call
+# below).
+generate_root_token() {
+  if [ ! -s "$unseal_file" ]; then
+    return 1
+  fi
+  init_json=$(vault operator generate-root -init -format=json) || return 1
+  init_one_line=$(printf '%s' "$init_json" | tr '\n' ' ')
+  nonce=$(printf '%s' "$init_one_line" | sed -n 's/.*"nonce"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+  otp=$(printf '%s' "$init_one_line" | sed -n 's/.*"otp"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+  if [ -z "$nonce" ] || [ -z "$otp" ]; then
+    return 1
+  fi
+  prepare_wget_ca
+  payload="$bootstrap_dir/.generate-root-request.$$"
+  response="$bootstrap_dir/.generate-root-response.$$"
+  (
+    umask 077
+    printf '{"key":"%s","nonce":"%s"}\n' "$(cat "$unseal_file")" "$nonce" > "$payload"
+  ) || return 1
+  if ! wget --quiet \
+      --header='Content-Type: application/json' \
+      --post-file="$payload" -O "$response" \
+      "$VAULT_ADDR/v1/sys/generate-root/update"; then
+    rm -f "$payload" "$response"
+    return 1
+  fi
+  rm -f "$payload"
+  response_one_line=$(tr '\n' ' ' < "$response")
+  rm -f "$response"
+  encoded=$(printf '%s' "$response_one_line" | sed -n 's/.*"encoded_root_token"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+  if [ -z "$encoded" ]; then
+    return 1
+  fi
+  vault operator generate-root -decode="$encoded" -otp="$otp"
+}
+
+# Administrative token for provisioning/repair: the first-boot root token, an
+# operator-supplied seed that is actually a valid token (prod), or a
+# generate-root token. The latter is what repairs a dev Vault: the overlay
+# seeds a throwaway random value that was never a Vault token.
+resolve_admin_token() {
+  if [ -n "${root_token:-}" ] && VAULT_TOKEN="$root_token" vault token lookup >/dev/null 2>&1; then
+    printf '%s' "$root_token"
+    return 0
+  fi
+  generate_root_token
+}
 
 status=255
 attempt=0
@@ -84,6 +172,7 @@ if [ "$status" -eq 2 ] && vault status 2>/dev/null | grep -q '^Initialized[[:spa
   fi
   umask 077
   printf '%s\n' "$unseal_key" > "$unseal_file"
+  chown 1000:1000 "$unseal_file"
   root_token="$generated_root"
   initialized_now=1
 fi
@@ -99,13 +188,7 @@ if ! vault status >/dev/null 2>&1; then
   unseal_payload="$bootstrap_dir/.unseal-request.$$"
   umask 077
   printf '{"key":"%s"}\n' "$(cat "$unseal_file")" > "$unseal_payload"
-  # BusyBox wget in the pinned Vault image has HTTPS support but no
-  # --ca-certificate option. Extend its container-local CA bundle with the
-  # public step-ca root; this does not modify the mounted host volume. The
-  # dev overlay is plaintext http:// and has no CA to append.
-  if [ -n "${VAULT_CACERT:-}" ] && [ -f /etc/ssl/certs/ca-certificates.crt ]; then
-    cat "$VAULT_CACERT" >> /etc/ssl/certs/ca-certificates.crt
-  fi
+  prepare_wget_ca
   if ! wget --quiet \
       --header='Content-Type: application/json' \
       --post-file="$unseal_payload" -O /dev/null \
@@ -128,8 +211,13 @@ if [ "$initialized_now" -eq 0 ] && [ -s "$token_file" ]; then
   fi
 fi
 
-# The generated root token (first boot), or the operator-provided recovery
-# seed (a later repair), is used only for administrative bootstrap calls.
+# The generated root token (first boot), a still-valid operator-provided seed,
+# or a `generate-root` token (lapsed app token — see `resolve_admin_token`) is
+# used only for administrative bootstrap calls and revoked again below.
+if ! root_token=$(resolve_admin_token); then
+  echo "Vault bootstrap failed: no usable administrative token (bootstrap seed is not a valid token and generate-root failed)" >&2
+  exit 1
+fi
 export VAULT_TOKEN="$root_token"
 if ! vault token lookup >/dev/null 2>&1; then
   echo "Vault bootstrap failed: no usable administrative token" >&2
@@ -208,6 +296,6 @@ mv "$tmp_token" "$token_file"
 # Revoke the administrative token and remove it from this process. The only
 # surviving credential is the least-privilege app token in its own volume.
 VAULT_TOKEN="$root_token" vault token revoke -self >/dev/null 2>&1 || true
-unset VAULT_TOKEN VAULT_BOOTSTRAP_TOKEN VAULT_BOOTSTRAP_TOKEN_FILE root_token generated_root unseal_key init_json init_one_line app_token
+unset VAULT_TOKEN VAULT_BOOTSTRAP_TOKEN VAULT_BOOTSTRAP_TOKEN_FILE root_token generated_root unseal_key init_json init_one_line app_token token_json nonce otp encoded response_one_line payload response wget_ca_prepared
 
 echo "Vault bootstrap complete (Transit, KV-v2, and app policy ready)"
