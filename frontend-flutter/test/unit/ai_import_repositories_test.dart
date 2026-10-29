@@ -985,6 +985,48 @@ void main() {
       expect(opts.data, 'day,scene\n1,12');
     });
 
+    test('uploadSchedule sends the picked name as a percent-encoded '
+        'X-Document-Filename header and leaves the content type alone '
+        '(issue #763)', () async {
+      final api = _api(
+        _ScriptInterceptor(status: 202, respond: (_) => 'job-1'),
+      );
+      await AiImportRepository(api, _dao()).uploadSchedule(
+        body: 'day,scene\n1,12',
+        source: AiScheduleSource.csv,
+        fileName: 'Erlösung Skript.pdf',
+      );
+      final opts = _scriptOf(api).requests.first;
+      // Only the unreserved ASCII set survives verbatim; the umlaut and the
+      // space are escaped so the header value stays valid ASCII.
+      expect(
+        opts.headers[kDocumentFileNameHeader],
+        'Erl%C3%B6sung%20Skript.pdf',
+      );
+      expect(opts.contentType, 'text/csv');
+      expect(opts.data, 'day,scene\n1,12');
+    });
+
+    test('uploadScript sends no X-Document-Filename header when the body has '
+        'no picked name — nothing is invented', () async {
+      final api = _api(
+        _ScriptInterceptor(status: 202, respond: (_) => 'job-1'),
+      );
+      await AiImportRepository(api, _dao()).uploadScript(body: '%PDF-1.4');
+      final opts = _scriptOf(api).requests.first;
+      expect(opts.headers.containsKey(kDocumentFileNameHeader), isFalse);
+      expect(opts.contentType, 'application/pdf');
+    });
+
+    test('encodeDocumentFileName keeps only the RFC 3986 unreserved set '
+        'verbatim', () {
+      expect(encodeDocumentFileName('board-01_a.pdf~'), 'board-01_a.pdf~');
+      expect(encodeDocumentFileName('Ep. 299.csv'), 'Ep.%20299.csv');
+      // Separators and quotes are what a header must never carry raw.
+      expect(encodeDocumentFileName('a/b\\c?.csv'), 'a%2Fb%5Cc%3F.csv');
+      expect(encodeDocumentFileName('ä'), '%C3%A4');
+    });
+
     test(
       'uploadSchedule 200 — digest-duplicate is a first-class ack',
       () async {

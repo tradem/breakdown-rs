@@ -10,7 +10,9 @@
 import 'dart:io';
 
 import 'package:breakdown_api/breakdown_api.dart';
-import 'package:drift/drift.dart';
+// `hide isNull`: drift exposes a query-builder `isNull` helper that would
+// shadow the `isNull` matcher used by the assertions below.
+import 'package:drift/drift.dart' hide isNull;
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -124,6 +126,64 @@ void main() {
       reason:
           'the migrated row must read un-archived, not crash on the '
           'NOT NULL column',
+    );
+  });
+
+  /// Issue #763: a pre-change install (`v16`) gains the two nullable job
+  /// identity columns through the guarded `from < 17` branch. Existing rows
+  /// stay readable and honestly serve "no name / no target" until the
+  /// authoritative list read refreshes them — the migration never invents
+  /// either value.
+  test('v16 → v17: the job identity columns are added; rows survive as '
+      'unnamed', () async {
+    final file = File(
+      '${Directory.systemTemp.path}/ai_identity_migration_'
+      '${DateTime.now().microsecondsSinceEpoch}.db',
+    );
+    addTearDown(() => file.deleteSync());
+
+    // 1. Emulate a v16 install: the current schema, minus the two new
+    //    columns, with the version pinned back to 16.
+    final v16 = CacheDatabase(NativeDatabase(file));
+    await v16.customStatement('DROP TABLE ai_import_job_cache_rows');
+    await v16.customStatement(
+      'CREATE TABLE ai_import_job_cache_rows ('
+      'id TEXT NOT NULL PRIMARY KEY, user_id TEXT NOT NULL, '
+      'status TEXT NOT NULL, document_kind TEXT NOT NULL, '
+      'source_format TEXT NOT NULL, block_id TEXT, episode_id TEXT, '
+      'project_id TEXT, dedup_key TEXT NOT NULL, '
+      'document_digest TEXT NOT NULL, source_handle TEXT NOT NULL, '
+      'last_error TEXT, preview_handle TEXT, retries INTEGER NOT NULL, '
+      'max_retries INTEGER NOT NULL, progress_json TEXT, '
+      'cached_at INTEGER NOT NULL, created_at INTEGER NOT NULL, '
+      'updated_at INTEGER NOT NULL)',
+    );
+    await v16.customStatement('PRAGMA user_version = 16');
+    await v16.customStatement(
+      "INSERT INTO ai_import_job_cache_rows (id, user_id, status, "
+      "document_kind, source_format, dedup_key, document_digest, "
+      "source_handle, retries, max_retries, cached_at, created_at, "
+      "updated_at) VALUES ('j1', 'user-a', 'succeeded', 'script', 'pdf', "
+      "'dedup-j1', 'digest-j1', 'handle-j1', 0, 3, 1136073600000, "
+      "1136073600000, 1136073600000)",
+    );
+    await v16.close();
+
+    // 2. Reopen at v17: the guarded branch ALTERs both columns in, and the
+    //    pre-existing row reads with no name and no target.
+    final v17 = CacheDatabase(NativeDatabase(file));
+    addTearDown(v17.close);
+    final rows = await AiImportJobsCacheDao(v17).readAll('user-a');
+    expect(rows.single.id, 'j1');
+    expect(
+      rows.single.sourceFileName,
+      isNull,
+      reason: 'a migrated row must not get a fabricated file name',
+    );
+    expect(
+      rows.single.appliedEpisodesJson,
+      isNull,
+      reason: 'a migrated row must not get a fabricated import target',
     );
   });
 }

@@ -98,6 +98,10 @@ class FakeAiImportRepository extends AiImportRepository {
   int jobCalls = 0;
   int applyCalls = 0;
 
+  /// The document name the last upload carried (issue #763) — `null` when the
+  /// dispatch sent no `X-Document-Filename` header.
+  String? lastFileName;
+
   /// The scripted watch stream (a controllable controller per test).
   StreamController<Result<AiImportJob>>? watchController;
 
@@ -109,18 +113,22 @@ class FakeAiImportRepository extends AiImportRepository {
   Future<Result<AiUploadAck>> uploadSchedule({
     required Object body,
     required AiScheduleSource source,
+    String? fileName,
     void Function(int, int)? onSendProgress,
   }) async {
     uploadCalls++;
+    lastFileName = fileName;
     return uploadResult ?? Right(AiUploadAck(jobId: 'job-1', duplicate: false));
   }
 
   @override
   Future<Result<AiUploadAck>> uploadScript({
     required Object body,
+    String? fileName,
     void Function(int, int)? onSendProgress,
   }) async {
     uploadCalls++;
+    lastFileName = fileName;
     return uploadResult ?? Right(AiUploadAck(jobId: 'job-1', duplicate: false));
   }
 
@@ -259,6 +267,33 @@ void main() {
       // The proof: zero calls reached the repository.
       expect(repo.uploadCalls, 0);
       expect(repo.jobCalls, 0);
+      container.dispose();
+    });
+
+    test('the dispatch forwards the picked document name so the upload can '
+        'identify the job later (issue #763)', () async {
+      await setupContainer();
+      final controller = container.read(
+        aiImportSubmitControllerProvider.notifier,
+      )..selectKind(AiImportKind.schedule);
+      final res = await controller.submit(
+        AiImportDocument.csv('day,scene\n1,12', fileName: 'Drehplan 299.csv'),
+      );
+      expect(res.isRight(), isTrue);
+      expect(repo.uploadCalls, 1);
+      expect(repo.lastFileName, 'Drehplan 299.csv');
+      container.dispose();
+    });
+
+    test('a body with no picked file sends no name — nothing is invented '
+        '(issue #763)', () async {
+      await setupContainer();
+      final controller = container.read(
+        aiImportSubmitControllerProvider.notifier,
+      )..selectKind(AiImportKind.schedule);
+      final res = await controller.submit(AiImportDocument.csv('pasted'));
+      expect(res.isRight(), isTrue);
+      expect(repo.lastFileName, isNull);
       container.dispose();
     });
 

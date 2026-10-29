@@ -23,6 +23,38 @@ releases are cut as `vX.Y.Z` tags (`v<build-name>`, enforced by
 
 ## [Unreleased]
 
+- **The AI-import jobs list identifies each row and stops showing a stale
+  stage** (`0.4.0-beta.20+112 → 0.4.0-beta.21+113`, issue #763): every finished
+  job rendered „Vorschau wird gespeichert …" forever, and a row was titled only
+  `Skript · 12. Okt. 2026`, so after a few imports the user could not tell which
+  document it belonged to or which episode it produced.
+
+  - **Stale stage gone.** The block renders only while the job is in progress
+    (`pending`/`running`), never on `progress != null` — the fetched row could
+    still carry the worker's last frame (`storing_preview`), and the Drift cache
+    kept it alive across restarts. The paired label now renders **with its
+    values** (`Gefundene Episoden: Ep. 299, Ep. 300`); the label-only line is
+    gone. The backend clears the column on terminal transitions too (part 1).
+  - **Row identity.** The title is the uploaded document's own file name (two
+    lines, then ellipsized) with `kind · date` as secondary text; an unnamed row
+    keeps today's `kind · date` title. The identity line names the import target
+    once an apply ran — `Skript · 299 Erlösung · 57 angewendet`, `(+n)` for
+    further episodes — and degrades to today's copy when nothing is known.
+  - **The upload sends the name.** `AiImportDocument` carries the picked file's
+    name; the repository sends it as a percent-encoded UTF-8
+    `X-Document-Filename` header, leaving the raw-body `Content-Type` contract
+    untouched. A pasted body sends no header (nothing invented).
+  - **Cache.** Two additive, nullable Drift columns (`source_file_name`,
+    `applied_episodes_json`) with the guarded v16 → v17 migration; a
+    cached-first paint serves what it knows and never fabricates a name.
+  - Copy/docs: six de/en ARB keys + `flutter gen-l10n`, and the
+    `ai-import-jobs` screen spec (wireframe, component table, interactions,
+    accessibility). Tests: mapper/identity/progress-gate units, the v16 → v17
+    migration probe, upload-header + `encodeDocumentFileName` units, the
+    submit-dispatch name forwarding, and four row widget tests (terminal row
+    without stage, running row with episode values, named vs unnamed title,
+    multi-episode identity line).
+
 - **Dispo/Soll-Ist rows render `Szene {n}` / `Tag {day} · {location}`, not a
   model dump** (`0.4.0-beta.19+111 → 0.4.0-beta.20+112`, issue #766): the
   day-scoped report interpolated the ROW instead of its field

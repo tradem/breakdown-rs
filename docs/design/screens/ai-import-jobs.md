@@ -42,11 +42,16 @@ this screen does not weaken it (it dispatches no block-scoped write).
   ==
   "Verbindung gestört" — Banner, nur wenn stale
   --
-  {^ "⏳" "Drehplan · 1. Jan. 2026"
-     "Dein Dokument wird verarbeitet …"}
-  {^ "⛔" "Drehplan · 1. Jan. 2026"
+  {^ "⏳" "Drehplan 299.csv"
+     "Drehplan · 1. Jan. 2026"
+     "Dein Dokument wird verarbeitet …"
+     "Szenen werden extrahiert …"
+     "Gefundene Episoden: Ep. 299, Ep. 300"}
+  {^ "⛔" "Drehplan 299.csv"
+     "Drehplan · 1. Jan. 2026"
      "Die Verarbeitung hat nach wiederholten Fehlern aufgegeben." [!]}
-  {^ "✔" "Skript · 2. Jan. 2026"
+  {^ "✔" "Erlösung Skript.pdf"
+     "Skript · 299 Erlösung · 57 angewendet"
      "Import-Vorschau bereit."       [›]}
 }
 @endsalt
@@ -63,12 +68,13 @@ screen, on every window size.
 |---|---|---|---|
 | Screen title | Top app bar | Screen identity (plural) | `aiJobsTitle` |
 | Job row | List item | Pushes the job status screen (the single-watch owner) | row key |
-| Row title | Text | Document kind + created date, e.g. „Drehplan · 1. Jan. 2026" | `aiJobsRowSubtitle` |
+| Row title | Text | The uploaded document's own file name, at most two lines then ellipsized (issue #763); a job without a name keeps „Drehplan · 1. Jan. 2026" | server `source_file_name`, else `aiJobsRowSubtitle` |
+| Row identity line | Text | The imported target once an apply ran: `Skript · 299 Erlösung · 57 angewendet`, `(+n)` for further episodes (issue #763); a named but unapplied row shows `kind · date` here instead, an unnamed one shows nothing (the title already carries it) | `aiJobsRowKindEpisode` / `aiJobsRowEpisodeMore` / `aiJobsRowEpisodeNumber` / `aiJobsRowEpisodeNumberName` / `aiJobsRowApplied` / `aiJobsRowSubtitle` |
 | Row status | Text | One of the six honest status copies, always visible next to the icon | `aiImport.jobStatus` |
 | Status icon | Icon | Per-status glyph (see glossary); error-colored for terminal failures — reinforcement only, never the sole carrier | status glyphs |
 | Retry budget | Text | Retryable `failed` rows show `Versuch {retries} von {maxRetries}` | `aiJobRetryBudget` |
-| Row stage | Text | Running rows with a published `progress` show the localized extraction stage (issue #664) | `aiJobStage*` |
-| Row episodes label | Text | Running rows with discovered episodes show the `Gefundene Episoden:` summary line (issue #664) | `aiJobEpisodesSeenLabel` |
+| Row stage | Text | **In-progress** rows (`pending`/`running`) with a published `progress` show the localized extraction stage (issues #664, #763) — a terminal row never does, whatever the fetched row still carries | `aiJobStage*` |
+| Row episodes | Text | In-progress rows with discovered episodes show the summary line **with its values** (`Gefundene Episoden: Ep. 299, Ep. 300`) — a label without values never renders (issue #763) | `aiJobEpisodesSeenValues` |
 | Last-error indicator | Icon | Presence indicator on rows carrying a server error detail; the raw text renders only on the status screen, as secondary detail | status glyph |
 | Stale banner | Banner | Failed refetch serving retained cached rows | `seasonsStaleBanner` |
 | Error state | Card + button | Copy keyed on the problem `code`; retry re-runs the list route | `aiJobsLoadError` / `aiJobCheckAgain` |
@@ -98,7 +104,8 @@ there is no per-row polling and no fabricated progress indicator (the
 wire carries `retries`/`max_retries`, never a percentage; since issue
 #664 a running row MAY carry a server-published `progress` stage/chunk
 summary — rendered from the fetched row only, never from a client-side
-stream or fabricated count). The production-overview summary row and the
+stream or fabricated count, and gated on the row's STATUS so a finished
+job cannot advertise the stage it finished at; issue #763). The production-overview summary row and the
 Settings AI-imports entry push this screen and never arm a watch — the
 SSE stream (`GET /v1/ai-import/jobs/{id}/events`, issue #664) is opened
 exclusively by the job status screen while foregrounded.
@@ -109,13 +116,14 @@ N/A — read-only screen (no forms, no commands).
 
 ## Accessibility & i18n
 
-Every row renders its meaning as visible text (kind, date, status, retry
-budget, and for running rows the stage/episode summary); icons reinforce
+Every row renders its meaning as visible text (file name, kind, date, the
+imported episode(s) with their applied counts, status, retry budget, and
+for in-progress rows the stage/episode summary); icons reinforce
 only and terminal failures additionally use the error color, so color is
 never the sole carrier either. All copy via the ARB catalogs (`aiJobs*`,
 `jobStatus*`, `jobWatch*`, `aiJobRetryBudget`, `aiJobStage*`); 
 backend `detail` text never renders on this screen. Row semantics announce
-kind + date + status.
+the title (name or kind + date), the identity/target line and the status.
 
 ## Preview & Apply — Decision Model star ratings (issue #723)
 

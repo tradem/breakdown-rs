@@ -730,6 +730,36 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String aiJobsRowKindEpisode(Object episode, Object kind) {
+    return '$kind · $episode';
+  }
+
+  @override
+  String aiJobsRowEpisodeMore(Object count, Object episode) {
+    return '$episode (+$count)';
+  }
+
+  @override
+  String aiJobsRowEpisodeNumber(Object number) {
+    return 'Episode $number';
+  }
+
+  @override
+  String aiJobsRowEpisodeNumberName(Object name, Object number) {
+    return '$number $name';
+  }
+
+  @override
+  String aiJobsRowApplied(Object count) {
+    return '$count applied';
+  }
+
+  @override
+  String aiJobEpisodesSeenValues(Object episodes) {
+    return 'Episodes discovered: $episodes';
+  }
+
+  @override
   String aiJobsLoadError(Object code) {
     return 'The job list could not be loaded ($code).';
   }

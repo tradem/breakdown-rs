@@ -50,6 +50,35 @@ String scheduleContentType(AiScheduleSource source) => switch (source) {
   AiScheduleSource.plainText => 'text/plain',
 };
 
+/// The wire header carrying the picked document's name (issue #763).
+const String kDocumentFileNameHeader = 'X-Document-Filename';
+
+/// Percent-encodes a file name for [kDocumentFileNameHeader].
+///
+/// HTTP header values are ASCII, so a UTF-8 name (`Erlösung Skript.pdf`) must
+/// be escaped; the server percent-decodes it before sanitizing. Every byte
+/// outside the RFC 3986 unreserved set is encoded, which keeps the value free
+/// of the separators, quotes and whitespace a header must not carry.
+String encodeDocumentFileName(String name) {
+  final buffer = StringBuffer();
+  for (final byte in utf8.encode(name)) {
+    final isUnreserved =
+        (byte >= 0x41 && byte <= 0x5a) || // A-Z
+        (byte >= 0x61 && byte <= 0x7a) || // a-z
+        (byte >= 0x30 && byte <= 0x39) || // 0-9
+        byte == 0x2d || // -
+        byte == 0x2e || // .
+        byte == 0x5f || // _
+        byte == 0x7e; // ~
+    buffer.write(
+      isUnreserved
+          ? String.fromCharCode(byte)
+          : '%${byte.toRadixString(16).toUpperCase().padLeft(2, '0')}',
+    );
+  }
+  return buffer.toString();
+}
+
 /// The upload acknowledgement (task 1.2): both 202 (enqueued) and 200
 /// (digest-duplicate) are first-class happy paths — [duplicate] drives the
 /// submission screen's explicit "already imported (duplicate)" callout.
@@ -134,16 +163,23 @@ class AiImportRepository extends BaseRepository {
   /// re-encoded and corrupt the PDF). Branches on the response status:
   /// 202 enqueued, 200 digest-duplicate.
   ///
+  /// [fileName] is the picked document's own name (issue #763) and travels as
+  /// the percent-encoded UTF-8 `X-Document-Filename` header — never inside the
+  /// body, which stays the document itself, and never as a guess: a pasted
+  /// body has no name and sends no header.
+  ///
   /// // AUTHZ-GATE: callers check the season piece-dept membership via
   /// `currentMembershipProvider` BEFORE invoking; denial issues zero calls.
   Future<Result<AiUploadAck>> uploadSchedule({
     required Object body,
     required AiScheduleSource source,
+    String? fileName,
     void Function(int count, int total)? onSendProgress,
   }) => _upload(
     '/v1/ai-import/schedules',
     body,
     scheduleContentType(source),
+    fileName,
     onSendProgress,
   );
 
@@ -151,14 +187,19 @@ class AiImportRepository extends BaseRepository {
   /// (per the content-type contract; a non-PDF script upload is a client
   /// bug, not a 415 retry case).
   ///
+  /// [fileName] carries the picked document's name for the same reason as
+  /// [uploadSchedule] (issue #763).
+  ///
   /// // AUTHZ-GATE: same membership pre-gate as the schedule upload.
   Future<Result<AiUploadAck>> uploadScript({
     required Object body,
+    String? fileName,
     void Function(int count, int total)? onSendProgress,
   }) => _upload(
     '/v1/ai-import/scripts',
     body,
     kScriptContentType,
+    fileName,
     onSendProgress,
   );
 
@@ -170,6 +211,7 @@ class AiImportRepository extends BaseRepository {
     String path,
     Object body,
     String contentType,
+    String? fileName,
     void Function(int count, int total)? onSendProgress,
   ) async {
     try {
@@ -178,6 +220,13 @@ class AiImportRepository extends BaseRepository {
         data: body,
         options: Options(
           contentType: contentType,
+          // Issue #763: the document's name rides along as a header. Only
+          // `Content-Type` is overridden by `Options.contentType`; a caller
+          // header set here survives, so the declared CSV/PDF media type
+          // contract above is untouched.
+          headers: fileName == null
+              ? null
+              : {kDocumentFileNameHeader: encodeDocumentFileName(fileName)},
           // Both 200 (duplicate) and 202 (enqueued) are acknowledged —
           // the branch happens on the status code below.
           validateStatus: (status) => status == 200 || status == 202,

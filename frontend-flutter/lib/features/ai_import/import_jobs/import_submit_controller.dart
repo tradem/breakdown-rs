@@ -134,9 +134,12 @@ class AiImportSubmitController extends _$AiImportSubmitController {
       AiImportKind.schedule => repo.uploadSchedule(
         body: document.body,
         source: document.source,
+        // Issue #763: the picked file's own name travels as a header so the
+        // jobs list can identify the row afterwards. A pasted body sends none.
+        fileName: document.fileName,
       ),
       AiImportKind.script when document.source == AiScheduleSource.pdf =>
-        repo.uploadScript(body: document.body),
+        repo.uploadScript(body: document.body, fileName: document.fileName),
       AiImportKind.script => Future<Result<AiUploadAck>>.value(
         const Left(
           ProblemError(code: 'ai_import.unsupported_media_type', status: 415),

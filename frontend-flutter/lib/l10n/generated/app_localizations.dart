@@ -1298,6 +1298,42 @@ abstract class AppLocalizations {
   /// **'{kind} · {date}'**
   String aiJobsRowSubtitle(Object date, Object kind);
 
+  /// No description provided for @aiJobsRowKindEpisode.
+  ///
+  /// In de, this message translates to:
+  /// **'{kind} · {episode}'**
+  String aiJobsRowKindEpisode(Object episode, Object kind);
+
+  /// No description provided for @aiJobsRowEpisodeMore.
+  ///
+  /// In de, this message translates to:
+  /// **'{episode} (+{count})'**
+  String aiJobsRowEpisodeMore(Object count, Object episode);
+
+  /// No description provided for @aiJobsRowEpisodeNumber.
+  ///
+  /// In de, this message translates to:
+  /// **'Episode {number}'**
+  String aiJobsRowEpisodeNumber(Object number);
+
+  /// No description provided for @aiJobsRowEpisodeNumberName.
+  ///
+  /// In de, this message translates to:
+  /// **'{number} {name}'**
+  String aiJobsRowEpisodeNumberName(Object name, Object number);
+
+  /// No description provided for @aiJobsRowApplied.
+  ///
+  /// In de, this message translates to:
+  /// **'{count} angewendet'**
+  String aiJobsRowApplied(Object count);
+
+  /// No description provided for @aiJobEpisodesSeenValues.
+  ///
+  /// In de, this message translates to:
+  /// **'Gefundene Episoden: {episodes}'**
+  String aiJobEpisodesSeenValues(Object episodes);
+
   /// No description provided for @aiJobsLoadError.
   ///
   /// In de, this message translates to:

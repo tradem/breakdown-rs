@@ -86,7 +86,9 @@ void main() {
     // TTL snapshot-replace (design D3: the backend is authoritative).
     final db = CacheDatabase(NativeDatabase(file));
     addTearDown(db.close);
-    expect(db.schemaVersion, 16);
+    // v17 (issue #763) adds the nullable AI-import job identity columns
+    // (`source_file_name`, `applied_episodes_json`) — again additive only.
+    expect(db.schemaVersion, 17);
     final dao = PieceCacheDao(db);
     expect(await dao.readBySeason('s-1'), isEmpty);
 

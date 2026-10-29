@@ -136,7 +136,14 @@ class _FilePickRowState extends ConsumerState<_FilePickRow> {
     setState(() => _pickedName = file.name);
     ref
         .read(pendingDocumentProvider.notifier)
-        .set(documentFromBytes(widget.kind, bytes, file.extension));
+        .set(
+          documentFromBytes(
+            widget.kind,
+            bytes,
+            file.extension,
+            fileName: file.name,
+          ),
+        );
   }
 
   @override
@@ -173,13 +180,17 @@ class _FilePickRowState extends ConsumerState<_FilePickRow> {
 AiImportDocument documentFromBytes(
   AiImportKind kind,
   Uint8List bytes,
-  String? extension,
-) {
+  String? extension, {
+  String? fileName,
+}) {
   final ext = extension?.toLowerCase();
   if (ext == 'pdf' || kind == AiImportKind.script) {
-    return AiImportDocument.pdf(bytes);
+    return AiImportDocument.pdf(bytes, fileName: fileName);
   }
-  return AiImportDocument.csv(utf8.decode(bytes, allowMalformed: true));
+  return AiImportDocument.csv(
+    utf8.decode(bytes, allowMalformed: true),
+    fileName: fileName,
+  );
 }
 
 /// The persistent AI disclosure card (spec `flutter-ai-import-workflow`
