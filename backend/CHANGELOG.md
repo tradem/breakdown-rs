@@ -193,8 +193,11 @@ tag. Never edit a released entry afterwards.
   minted token via an exit trap. Two hard-kill windows remain: SIGKILL, an OOM
   kill or host loss skips every trap, and a token minted by Vault microseconds
   before its value reached the shell cannot be revoked by that run at all. For
-  the first, the accessor is recorded in the bootstrap dir so the next run revokes
-  the orphan; for the second the token stays live until an operator revokes it by
+  the first, the minted token's accessor is recorded under
+  `/vault/unseal/bootstrap/.generated-root-accessors/` (one file per accessor) and
+  the next run revokes the orphan — including a run that would otherwise take the
+  cheap "app token renewed" exit, and without dropping a record whose revoke
+  fails; for the second the token stays live until an operator revokes it by
   hand. The share goes through
   a 600 request file (never argv, same rule as the unseal call), and the
   request/response files are removed afterwards. A repair preserves Vault

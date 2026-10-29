@@ -93,8 +93,10 @@ admin_token_generated=0
 # Set while a `generate-root -init` attempt is open on the server.
 generate_root_pending=0
 # Accessor of the token this run minted, recorded before any command can fail so
-# a later run can revoke a token whose shell died without running a trap.
-admin_accessor_file="$bootstrap_dir/.generated-root-accessor"
+# a later run can revoke a token whose shell died without running a trap. One file
+# per accessor: a record that could not be revoked must never be overwritten by a
+# later run, and dropping this run's own record must not drop someone else's.
+accessor_dir="$bootstrap_dir/.generated-root-accessors"
 revoke_generated_admin_token() {
   [ "$admin_token_generated" = "1" ] || return 0
   admin_token_generated=0
@@ -102,7 +104,7 @@ revoke_generated_admin_token() {
     return 0
   fi
   if VAULT_TOKEN="$root_token" vault token revoke -self >/dev/null 2>&1; then
-    rm -f "$admin_accessor_file"
+    drop_admin_accessor
   else
     echo "Vault bootstrap warning: could not revoke the minted administrative token; revoke it manually" >&2
   fi
@@ -156,27 +158,58 @@ record_admin_accessor() {
   accessor=$(VAULT_TOKEN="$root_token" vault token lookup -format=json 2>/dev/null \
     | tr '\n' ' ' \
     | sed -n 's/.*"accessor"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p') || accessor=
-  if [ -z "$accessor" ]; then
-    return 0
-  fi
+  case "$accessor" in
+    # Never build a path from an unexpected value (the record name is the accessor).
+    '' | *[!A-Za-z0-9._-]*) return 0 ;;
+  esac
+  mkdir -p "$accessor_dir" || return 0
   (
     umask 077
-    printf '%s\n' "$accessor" > "$admin_accessor_file"
+    printf '%s\n' "$accessor" > "$accessor_dir/$accessor"
   ) || return 0
 }
 
-# Revoke a token left behind by a run that died before its revoke. Vault answers
-# an unknown accessor with a warning and no error, so this is idempotent and the
-# record is dropped once the revoke is confirmed.
-revoke_stale_admin_token() {
-  if [ ! -s "$admin_accessor_file" ]; then
+# Drop the record of this run's own token, once Vault confirmed its revoke. Other
+# records are untouched: they belong to tokens this run did not mint.
+drop_admin_accessor() {
+  if [ -z "${accessor:-}" ]; then
     return 0
   fi
-  stale_accessor=$(cat "$admin_accessor_file") || stale_accessor=
-  if [ -n "$stale_accessor" ] \
-      && VAULT_TOKEN="$root_token" vault token revoke -accessor="$stale_accessor" >/dev/null 2>&1; then
-    rm -f "$admin_accessor_file"
+  rm -f "$accessor_dir/$accessor"
+  return 0
+}
+
+has_pending_admin_accessor() {
+  if [ ! -d "$accessor_dir" ]; then
+    return 1
   fi
+  for pending_record in "$accessor_dir"/*; do
+    if [ -f "$pending_record" ]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+# Revoke tokens left behind by runs that died before their revoke, then drop
+# those records. Vault answers an unknown accessor with a warning and no error,
+# so this is idempotent. A record whose revoke fails is kept — it is the only
+# pointer to a live token — and this run's own record lives in its own file.
+revoke_stale_admin_token() {
+  if [ ! -d "$accessor_dir" ]; then
+    return 0
+  fi
+  for stale_record in "$accessor_dir"/*; do
+    [ -f "$stale_record" ] || continue
+    stale_accessor=$(cat "$stale_record") || continue
+    [ -n "$stale_accessor" ] || continue
+    if [ "$stale_accessor" = "${accessor:-}" ]; then
+      continue
+    fi
+    if VAULT_TOKEN="$root_token" vault token revoke -accessor="$stale_accessor" >/dev/null 2>&1; then
+      rm -f "$stale_record"
+    fi
+  done
   return 0
 }
 
@@ -335,7 +368,11 @@ fi
 
 # On normal restarts no root token is available or needed. Renew the existing
 # app token and leave immediately; this preserves the root-token discard rule.
-if [ "$initialized_now" -eq 0 ] && [ -s "$token_file" ]; then
+# A recorded accessor overrides the fast path: a previous run minted a token it
+# never revoked, and only an administrative credential can revoke it (the
+# `breakdown-app` policy has no access to `auth/token/revoke-accessor`), so clean
+# that up before taking the cheap exit — otherwise the orphan stays live forever.
+if [ "$initialized_now" -eq 0 ] && [ -s "$token_file" ] && ! has_pending_admin_accessor; then
   if VAULT_TOKEN=$(cat "$token_file") vault token lookup >/dev/null 2>&1; then
     VAULT_TOKEN=$(cat "$token_file") vault token renew >/dev/null 2>&1 || true
     unset VAULT_BOOTSTRAP_TOKEN VAULT_TOKEN
@@ -441,11 +478,11 @@ if [ "$admin_token_generated" = "1" ]; then
     echo "Vault bootstrap failed: could not revoke the minted administrative token" >&2
     exit 1
   fi
-  rm -f "$admin_accessor_file"
+  drop_admin_accessor
   admin_token_generated=0
 else
   VAULT_TOKEN="$root_token" vault token revoke -self >/dev/null 2>&1 || true
 fi
-unset VAULT_TOKEN VAULT_BOOTSTRAP_TOKEN VAULT_BOOTSTRAP_TOKEN_FILE root_token generated_root unseal_key init_json init_one_line app_token token_json nonce otp encoded response_one_line payload response wget_ca_prepared accessor stale_accessor cancel_try
+unset VAULT_TOKEN VAULT_BOOTSTRAP_TOKEN VAULT_BOOTSTRAP_TOKEN_FILE root_token generated_root unseal_key init_json init_one_line app_token token_json nonce otp encoded response_one_line payload response wget_ca_prepared accessor stale_accessor stale_record pending_record cancel_try
 
 echo "Vault bootstrap complete (Transit, KV-v2, and app policy ready)"
