@@ -23,6 +23,38 @@ releases are cut as `vX.Y.Z` tags (`v<build-name>`, enforced by
 
 ## [Unreleased]
 
+- **Dispo/Soll-Ist rows render `Szene {n}` / `Tag {day} · {location}`, not a
+  model dump** (`0.4.0-beta.19+111 → 0.4.0-beta.20+112`, issue #766): the
+  day-scoped report interpolated the ROW instead of its field
+  (`'$row.sceneNumber'` — a dropped brace), so any row that actually carried a
+  scene number or script day rendered
+  `Szene SollIstDiffRow{location=…, sceneId=…, plannedOrder=…}.sceneNumber` —
+  user-visible garbage that also leaked internal field names, ids and order
+  keys. The aggregate surface was already correct, which is why only the
+  day-scoped view was affected.
+
+  - Both sites now pass the value (`row.sceneNumber ?? <short scene id>`,
+    `row.scriptDay!`), mirroring `reports_aggregate_screen.dart`; the
+    no-scene-number fallback to the short `sceneId` is unchanged.
+  - Regression coverage: `test/features/reports/reports_screen_test.dart`
+    renders a row with `sceneNumber`/`scriptDay`/`location` and asserts the
+    exact strings (`Szene 2`, `Tag 1 · Tiefgarage / Klinikum
+    (Stationscounter)`) plus the absence of `SollIstDiffRow`, braces,
+    `sceneId=`/`plannedOrder=` and the raw UUID; the twelve report goldens were
+    regenerated (their rows previously showed the dump).
+  - Root-cause guardrail: new `breakdown_lints` rule
+    `no_field_access_string_interpolation` flags an unbraced `$ident` followed
+    by a literal `.identifier` when the interpolated value is not a `String`
+    (`'goldens/x_$name.png'` stays legal). Registered in the analyzer plugin
+    (`packages/breakdown_lints`), in `analysis_options.yaml` and in the CI
+    runner (`tool/breakdown_lints_runner`), with 15 unit tests
+    (`tool/breakdown_lints_runner/test/`, `dart test`) and a new CI step.
+    `lib/` + `test/` carry zero violations after the fix.
+  - Latent same-class hardening: the two `Object?` tile-label helpers
+    (`SceneTile`, `EpisodeTile`) take the wire types instead
+    (`int? number` + `String? fallbackId`, `int? number`), so a DTO can no
+    longer be interpolated into a visible title.
+
 - **Preview & apply: Pass-2 outfit provenance and the wardrobe-gap candidate
   picker** (`0.4.0-beta.18+110 → 0.4.0-beta.19+111`, issue #745, OpenSpec
   change `ai-import-decision-outfit-continuity`): the review surface now reads

@@ -9,7 +9,7 @@ Custom lint runner for the `breakdown_lints` rules.
 
 The `breakdown_lints` analyzer plugin uses `analysis_server_plugin`, which only
 loads inside the analysis server (IDE/LSP mode) — not in the batch
-`dart analyze` / `flutter analyze` CLI. This runner re-implements the same four
+`dart analyze` / `flutter analyze` CLI. This runner re-implements the same five
 rules using the `analyzer` package directly, so they can be enforced in CI
 without the plugin system. See issue #299.
 
@@ -21,6 +21,7 @@ without the plugin system. See issue #299.
 | `no_throw_in_data_domain` | ERROR | Forbids `throw` in `lib/data/**` and `lib/domain/**` |
 | `no_insecure_tls` | ERROR | Forbids disabling TLS certificate verification |
 | `no_hardcoded_secrets` | WARNING | Heuristic detection of hardcoded secrets |
+| `no_field_access_string_interpolation` | WARNING | Flags `'$ident.field'` (missing braces → model dump in the UI) |
 
 ## Usage
 
@@ -36,3 +37,13 @@ analyzes all non-generated `lib/**/*.dart` files (excluding
 `vendor/breakdown_api/`).
 
 Exits 0 if no violations found, non-zero otherwise.
+
+## Tests
+
+Each rule is unit-tested with the plain `analyzer` AST — no analysis server
+and no project resolution needed:
+
+```bash
+cd tool/breakdown_lints_runner
+dart test
+```

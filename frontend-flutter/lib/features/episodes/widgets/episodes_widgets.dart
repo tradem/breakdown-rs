@@ -21,7 +21,10 @@ class EpisodeTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = l10nOf(context);
-    String tileLabel(Object? number) => l10n.episodeTileLabel('$number');
+    // Issue #766: narrow to the wire type (`EpisodeView.number` is an `int`)
+    // instead of `Object?` — a DTO passed here would interpolate its
+    // `toString()` model dump into the visible title.
+    String tileLabel(int? number) => l10n.episodeTileLabel('${number ?? ''}');
     return switch (row) {
       ProjectedEpisodeRow(:final episode) => Semantics(
         label: tileLabel(episode.number),

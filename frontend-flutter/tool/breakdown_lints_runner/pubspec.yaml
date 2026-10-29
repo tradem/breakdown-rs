@@ -4,12 +4,12 @@
 
 name: breakdown_lints_runner
 description: >
-  Custom lint runner for breakdown_rs. Re-implements the four breakdown_lints
+  Custom lint runner for breakdown_rs. Re-implements the five breakdown_lints
   rules using the `analyzer` package directly, so they can be enforced in CI
   without the `analysis_server_plugin` plugin system (which only loads in
   IDE/LSP mode). See issue #299.
 publish_to: 'none'
-version: 0.1.0+1
+version: 0.2.0+2
 
 environment:
   sdk: ^3.13.1
@@ -17,3 +17,8 @@ environment:
 dependencies:
   analyzer: ^13.3.0
   path: ^1.9.0
+
+dev_dependencies:
+  # Unit tests for the rules themselves (`dart test`) — the runner is its own
+  # package, so `flutter test` in frontend-flutter/ never runs them.
+  test: ^1.31.0

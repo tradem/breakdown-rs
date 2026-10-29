@@ -73,6 +73,8 @@ SeasonMembershipDto _membership({
 SollIstDiffRow _row(
   String sceneId, {
   int? sceneNumber,
+  String? scriptDay,
+  String? location,
   bool moved = false,
   bool missing = false,
   bool skipped = false,
@@ -81,6 +83,8 @@ SollIstDiffRow _row(
   (b) => b
     ..sceneId = sceneId
     ..sceneNumber = sceneNumber
+    ..scriptDay = scriptDay
+    ..location = location
     ..missing = missing
     ..moved = moved
     ..reshotCandidate = reshot
@@ -686,5 +690,90 @@ void main() {
         });
       }
     }
+  });
+
+  // Issue #766: the row labels interpolated the ROW instead of its fields
+  // (`'$row.sceneNumber'`), which rendered
+  // `Szene SollIstDiffRow{location=…, sceneId=…}.sceneNumber` — a model dump
+  // that also leaked ids and order keys. Rows only carry a scene number in
+  // production, so no seeded test data ever reached the broken branch.
+  group('Soll-Ist row labels (issue #766)', () {
+    /// Every visible string on screen, for the model-dump sweep.
+    List<String> visibleText(WidgetTester tester) => tester
+        .widgetList<Text>(find.byType(Text))
+        .map((text) => text.data ?? text.textSpan?.toPlainText() ?? '')
+        .toList();
+
+    testWidgets('rows render Szene {n} and Tag {day} · {location}', (
+      tester,
+    ) async {
+      await setupContainer(
+        sollIst: Right(
+          SollIstReport(
+            (b) => b
+              ..isFinal = true
+              ..rows.replace([
+                _row(
+                  'ca58f5a6-1111-2222-3333-444455556666',
+                  sceneNumber: 2,
+                  scriptDay: '1',
+                  location: 'Tiefgarage / Klinikum (Stationscounter)',
+                  missing: true,
+                ),
+                // No scene number: the short scene id stays the fallback.
+                _row('abcdefgh-9999-8888-7777-666655554444'),
+              ]),
+          ),
+        ),
+      );
+      await pumpScreen(tester);
+
+      expect(find.text('Szene 2'), findsOneWidget);
+      expect(
+        find.text('Tag 1 · Tiefgarage / Klinikum (Stationscounter)'),
+        findsOneWidget,
+      );
+      // Unchanged fallback for a row without a scene number.
+      expect(find.text('Szene abcdefgh'), findsOneWidget);
+
+      // No raw model dump, no braces, no internal field names or ids.
+      final texts = visibleText(tester);
+      for (final marker in const [
+        'SollIstDiffRow',
+        '{',
+        '}',
+        'sceneId=',
+        'plannedOrder=',
+        'ca58f5a6',
+        '.sceneNumber',
+        '.scriptDay',
+      ]) {
+        expect(
+          texts.where((text) => text.contains(marker)),
+          isEmpty,
+          reason: 'visible copy must never contain "$marker"',
+        );
+      }
+    });
+
+    testWidgets('missing scriptDay/location renders no day line, no dump', (
+      tester,
+    ) async {
+      await setupContainer(
+        sollIst: Right(
+          SollIstReport(
+            (b) => b
+              ..isFinal = false
+              ..rows.replace([_row('s-bare', sceneNumber: 7)]),
+          ),
+        ),
+      );
+      await pumpScreen(tester);
+
+      expect(find.text('Szene 7'), findsOneWidget);
+      final texts = visibleText(tester);
+      expect(texts.where((text) => text.contains('SollIstDiffRow')), isEmpty);
+      expect(texts.where((text) => text.startsWith('Tag ')), isEmpty);
+    });
   });
 }

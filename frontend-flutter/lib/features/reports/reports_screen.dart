@@ -233,12 +233,13 @@ class _SollIstRows extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
+                    // Issue #766: `row.sceneNumber` / `row.scriptDay` are
+                    // passed as values — a `'$row.sceneNumber'` literal
+                    // interpolates the WHOLE built_value row (its
+                    // `SollIstDiffRow{…}` toString dump) and appends the
+                    // literal text. Never re-introduce the unbraced form.
                     l10nOf(context).sceneTileLabel(
-                      row.sceneNumber != null
-                          ? '$row.sceneNumber'
-                          : (row.sceneId.length > 8
-                                ? row.sceneId.substring(0, 8)
-                                : row.sceneId),
+                      row.sceneNumber ?? _shortSceneId(row.sceneId),
                     ),
                     style: theme.textTheme.titleSmall,
                   ),
@@ -246,7 +247,7 @@ class _SollIstRows extends StatelessWidget {
                     Text(
                       [
                         if (row.scriptDay != null)
-                          l10nOf(context).reportsDayPrefix('$row.scriptDay'),
+                          l10nOf(context).reportsDayPrefix(row.scriptDay!),
                         if (row.location != null) row.location!,
                       ].join(' · '),
                       style: theme.textTheme.bodySmall,
@@ -522,3 +523,7 @@ class _ReportsErrorView extends StatelessWidget {
     ),
   );
 }
+
+/// Short scene-id fallback for a row without a scene number (issue #766).
+String _shortSceneId(String sceneId) =>
+    sceneId.length > 8 ? sceneId.substring(0, 8) : sceneId;

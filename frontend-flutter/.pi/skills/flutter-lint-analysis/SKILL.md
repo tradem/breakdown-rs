@@ -8,7 +8,7 @@ compatibility: Requires the Flutter/Dart SDK and the project
   for CI enforcement (issue #299).
 metadata:
   author: breakdown-rs
-  version: "1.1"
+  version: "1.2"
   provenance: |
     Portable subset described in upstream `flutter/agent-plugins` (lint/analysis
     guidance), adapted to breakdown-rs conventions. This SKILL.md is the
@@ -22,6 +22,7 @@ metadata:
 <!-- SPDX-License-Identifier: AGPL-3.0 -->
 <!-- Copyright (C) 2024-2026 Breakdown RS Contributors -->
 <!-- Co-authored-by: glm-5.2 (neuralwatt) -->
+<!-- Co-authored-by: deepseek-v4.1-flash (opencode-go) -->
 
 # Flutter Lint & Analysis Guidance
 
@@ -118,7 +119,30 @@ a `// AUTHZ-GATE:` comment and a `currentMembershipProvider` check.
 `breakdown_lints` analyzer-plugin rule is implemented; see the
   `flutter-client-authz` spec.)
 
-### 6. Standard `flutter_lints` strengthenings
+### 6. `no_field_access_string_interpolation`
+
+The user-visible-garbage rule (issue #766). An unbraced `$ident` immediately
+followed by a literal `.field` interpolates the WHOLE value — via its
+`toString()` — and then appends the literal text:
+
+```dart
+// ❌ renders `Szene SollIstDiffRow{location=…, sceneId=…}.sceneNumber`
+Text(l10n.sceneTileLabel('$row.sceneNumber'));
+
+// ✅
+Text(l10n.sceneTileLabel(row.sceneNumber ?? shortId));
+```
+
+The rule only fires when the interpolated value is **not** a `String`:
+`'goldens/x_$name.png'` is legitimate path concatenation and stays legal,
+while a non-String value cannot legitimately take a literal `.field` suffix.
+Fix by passing the value to the copy function (preferred — the l10n helper
+takes `Object`, so no interpolation is needed at all) or by adding the braces
+(`'${row.sceneNumber}'`). The twin rule implementations live in
+`packages/breakdown_lints` (IDE/LSP) and `tool/breakdown_lints_runner`
+(CI); both are covered by `dart test` in the runner package.
+
+### 7. Standard `flutter_lints` strengthenings
 
 - `avoid_print` (use `package:logging` via a provider) — error
 - `prefer_const_constructors` — warn
@@ -152,16 +176,18 @@ which only loads inside the analysis server (IDE/LSP mode). The batch
 `dart analyze` / `flutter analyze` CLI does **not** load plugins (issue #299).
 
 To enforce the custom rules in CI, a **custom lint runner**
-(`tool/breakdown_lints_runner`) re-implements the same four rules using the
+(`tool/breakdown_lints_runner`) re-implements the same five rules using the
 `analyzer` package directly. CI runs both:
 
 1. `flutter analyze` — enforces standard analyzer/lint rules
-2. Custom lint runner — enforces the four custom rules:
+2. Custom lint runner — enforces the five custom rules:
    ```bash
    cd tool/breakdown_lints_runner
    dart pub get
    dart run bin/run_lints.dart ../..
    ```
+3. `dart test` in the same package — unit tests for the rules themselves
+   (the runner is its own package, so `flutter test` never reaches them).
 
 The `analysis_options.yaml > analyzer > errors` block configures severities
 for IDE/LSP mode. The `unrecognized_error_code: ignore` entry suppresses

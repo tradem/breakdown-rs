@@ -351,10 +351,12 @@ CI runs:
 - `dart format --set-exit-if-changed`
 - `flutter analyze` (standard analyzer/lint rules)
 - `breakdown_lints` custom lint runner (`tool/breakdown_lints_runner`) — enforces
-  the four custom rules (`discard_result`, `no_throw_in_data_domain`,
-  `no_insecure_tls`, `no_hardcoded_secrets`) using the `analyzer` package
+  the five custom rules (`discard_result`, `no_throw_in_data_domain`,
+  `no_insecure_tls`, `no_hardcoded_secrets`,
+  `no_field_access_string_interpolation`) using the `analyzer` package
   directly, because the `analysis_server_plugin` package only loads in
-  IDE/LSP mode and the batch CLI does not load plugins (issue #299)
+  IDE/LSP mode and the batch CLI does not load plugins (issue #299); its own
+  rule unit tests run via `dart test` in that package
 - `flutter test --coverage` + `coverde` threshold gate on changed code
 - OpenAPI-client drift check (§3)
 - `gitleaks` on `.dart` / `.yaml` / `.arb`

@@ -12,13 +12,14 @@ import 'package:analyzer/dart/ast/ast.dart';
 import 'package:analyzer/dart/ast/visitor.dart';
 import 'package:analyzer/dart/element/type.dart';
 import 'package:analyzer/file_system/physical_file_system.dart';
+import 'package:breakdown_lints_runner/rules/no_field_access_string_interpolation.dart';
 
 /// Custom lint runner for breakdown_rs.
 ///
 /// The `breakdown_lints` analyzer plugin uses `analysis_server_plugin`, which
 /// only loads inside the analysis server (IDE/LSP mode) — not in the batch
 /// `dart analyze` / `flutter analyze` CLI (see issue #299). This runner
-/// re-implements the same four rules using the `analyzer` package directly,
+/// re-implements the same five rules using the `analyzer` package directly,
 /// so they can be enforced in CI without the plugin system.
 ///
 /// Usage:
@@ -103,7 +104,7 @@ class _LintError {
   final int column;
 }
 
-/// Base type for the four breakdown_rs rules re-implemented using the
+/// Base type for the five breakdown_rs rules re-implemented using the
 /// `analyzer` package directly.
 abstract class _Runner {
   List<_LintError> check(ResolvedUnitResult result);
@@ -114,6 +115,7 @@ final List<_Runner> _rules = [
   _NoThrowInDataDomainRule(),
   _NoInsecureTlsRule(),
   _NoHardcodedSecretsRule(),
+  _NoFieldAccessStringInterpolationRule(),
 ];
 
 // ---------------------------------------------------------------------------
@@ -385,6 +387,33 @@ class _NoHardcodedSecretsVisitor extends RecursiveAstVisitor<void> {
       if (lhs is PropertyAccess) return lhs.propertyName.name;
     }
     return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Rule 5: no_field_access_string_interpolation
+// ---------------------------------------------------------------------------
+
+class _NoFieldAccessStringInterpolationRule extends _Runner {
+  static const _rule = NoFieldAccessStringInterpolationRule();
+
+  @override
+  List<_LintError> check(ResolvedUnitResult result) {
+    final errors = <_LintError>[];
+    for (final finding in _rule.collect(result.unit)) {
+      final location = result.lineInfo.getLocation(finding.offset);
+      errors.add(
+        _LintError(
+          code: 'no_field_access_string_interpolation',
+          message: NoFieldAccessStringInterpolationRule.describe(finding),
+          severity: 'WARNING',
+          filePath: result.path,
+          line: location.lineNumber,
+          column: location.columnNumber,
+        ),
+      );
+    }
+    return errors;
   }
 }
 

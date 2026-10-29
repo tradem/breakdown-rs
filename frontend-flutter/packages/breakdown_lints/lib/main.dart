@@ -6,6 +6,7 @@ import 'package:analysis_server_plugin/plugin.dart';
 import 'package:analysis_server_plugin/registry.dart';
 
 import 'rules/discard_result.dart';
+import 'rules/no_field_access_string_interpolation.dart';
 import 'rules/no_hardcoded_secrets.dart';
 import 'rules/no_insecure_tls.dart';
 import 'rules/no_throw_in_data_domain.dart';
@@ -24,6 +25,7 @@ class BreakdownLints extends Plugin {
       ..registerWarningRule(DiscardResultRule())
       ..registerWarningRule(NoThrowInDataDomainRule())
       ..registerWarningRule(NoInsecureTlsRule())
-      ..registerWarningRule(NoHardcodedSecretsRule());
+      ..registerWarningRule(NoHardcodedSecretsRule())
+      ..registerWarningRule(NoFieldAccessStringInterpolationRule());
   }
 }

@@ -101,10 +101,15 @@ class SceneTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = l10nOf(context);
-    String tileLabel(Object? identifier) => l10n.sceneTileLabel('$identifier');
+    // Issue #766: the label helper takes the two types the row actually
+    // carries (a scene NUMBER, else the scene id) instead of `Object?` — a
+    // DTO passed here would interpolate its `toString()` model dump into the
+    // visible title.
+    String tileLabel({int? number, String? fallbackId}) =>
+        l10n.sceneTileLabel('${number ?? fallbackId ?? ''}');
     return switch (row) {
       ProjectedSceneRow(:final scene) => Semantics(
-        label: tileLabel(scene.sceneNumber ?? scene.id),
+        label: tileLabel(number: scene.sceneNumber, fallbackId: scene.id),
         child: ListTile(
           key: Key('scene-${scene.id}'),
           onTap: onTap,
@@ -120,10 +125,16 @@ class SceneTile extends StatelessWidget {
                 AiProvenanceBadge(semanticKey: 'scene-ai-badge-${scene.id}'),
                 // Issue #668: the title is the scene NUMBER — the summary
                 // moved to the truncated excerpt line below.
-                Flexible(child: Text(tileLabel(scene.sceneNumber ?? scene.id))),
+                Flexible(
+                  child: Text(
+                    tileLabel(number: scene.sceneNumber, fallbackId: scene.id),
+                  ),
+                ),
               ],
             ),
-            _ => Text(tileLabel(scene.sceneNumber ?? scene.id)),
+            _ => Text(
+              tileLabel(number: scene.sceneNumber, fallbackId: scene.id),
+            ),
           },
           subtitle: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -177,7 +188,7 @@ class SceneTile extends StatelessWidget {
         title: Text(
           overlay.summary?.isNotEmpty == true
               ? overlay.summary!
-              : tileLabel(overlay.sceneNumber),
+              : tileLabel(number: overlay.sceneNumber),
         ),
         subtitle: Text(
           overlay.status == OverlayStatus.stale
