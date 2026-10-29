@@ -253,6 +253,11 @@ String aiConfigErrorCopy(AppLocalizations l10n, ProblemError error) =>
       // none entered) — the client refuses BEFORE dispatching a config
       // create/PATCH the backend would reject with an unusable binding.
       'ai_config.decision_key_missing' => l10n.aiConfigDecisionKeyMissing,
+      // Client-detected (issue #769): the save was acknowledged but the
+      // read-back of `GET /v1/ai-import/config/{id}` did not contain the
+      // submitted Decision Model triple. No server problem carries this code —
+      // it exists because a 2xx alone must not be reported as "configured".
+      'ai_config.decision_not_persisted' => l10n.aiConfigDecisionNotPersisted,
       'provider.unavailable' => l10n.aiConfigErrorProvider,
       // Wire code of the backend's `ai-import.disabled` problem (issue
       // #422). The disabled state is a server configuration, NOT a

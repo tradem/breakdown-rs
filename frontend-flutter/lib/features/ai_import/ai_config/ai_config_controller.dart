@@ -22,6 +22,7 @@ import '../../../data/ai_import_handoff_store.dart';
 import '../../../data/ai_import_providers.dart';
 import '../../../domain/reconciliation/reconciliation_scheduler.dart';
 import 'ai_config_state.dart';
+import 'decision_round_trip.dart';
 
 part 'ai_config_controller.g.dart';
 
@@ -196,6 +197,16 @@ class AiConfigDrafts extends Notifier<AiConfigDraftData> {
 
 final aiConfigDraftsProvider =
     NotifierProvider<AiConfigDrafts, AiConfigDraftData>(AiConfigDrafts.new);
+
+/// The bounded read-back's verdict (issue #769): [error] is `null` exactly
+/// when the stored view confirmed the submitted Decision Model triple;
+/// [stored] is the last view the server DID serve, so a caller reporting a
+/// mismatch can replace its stale cached configuration with the authoritative
+/// one instead of re-sending the pre-dispatch version (a guaranteed 409).
+typedef DecisionRoundTripVerdict = ({
+  ProblemError? error,
+  AiConfigView? stored,
+});
 
 /// The AI-import configuration controller (`flutter-ai-config` task 2.1).
 ///
@@ -768,6 +779,41 @@ class AiConfigController extends _$AiConfigController {
             ),
           );
         }
+        // Round-trip verification (issue #769): the created config exists
+        // either way, so its id is remembered — hiding it would invite a
+        // second create on retry. What must NOT happen is reporting the
+        // submitted Decision Model as stored when the read-back disagrees: the
+        // error surfaces and the draft is preserved.
+        final verdict = await _verifyDecisionRoundTrip(
+          idVersion.id,
+          DecisionTriple(
+            providerKey: decisionProvider?.name,
+            modelId: decisionProviderKey == null ? null : decisionModelId,
+            vaultKeyId: decisionVaultKeyId,
+          ),
+        );
+        if (verdict.error != null) {
+          // The authoritative view becomes the rendered configuration — the
+          // created config is real even when its Decision Model did not land.
+          // Deliberately NOT invalidating discovery here: this controller
+          // watches it, so the invalidate would rebuild (and drop) the very
+          // error that must stay visible — the silent "looks saved" class of
+          // failure this issue closes. Discovery re-resolves when the screen
+          // is reopened (autoDispose).
+          if (ref.mounted) {
+            state = state.copyWith(
+              config: verdict.stored,
+              commandError: verdict.error,
+            );
+          }
+          // Safe to refresh without losing the verdict: neither provider is
+          // watched by this controller (only the discovery provider above is,
+          // which is why that one is left alone). The created config does
+          // exist, so AI naming must see it.
+          ref.invalidate(configuredAiNamingProvider);
+          ref.invalidate(aiImportHandoffProvider);
+          return Left<ProblemError, IdVersionResponse>(verdict.error!);
+        }
         if (!ref.mounted) {
           return Right<ProblemError, IdVersionResponse>(idVersion);
         }
@@ -789,6 +835,68 @@ class AiConfigController extends _$AiConfigController {
     // A hand-off write failure must not fail the create (the list route is
     // authoritative); it surfaces only if the fallback path is ever hit.
     res.getLeft().toNullable();
+  }
+
+  /// Verifies that the Decision Model triple this dispatch submitted actually
+  /// reached the read model (issue #769). [DecisionRoundTripVerdict.error] is
+  /// `null` only when the authoritative view confirms the submission.
+  ///
+  /// A successful `POST`/`PATCH` acknowledgement is not evidence of
+  /// persistence — that assumption is exactly what let the reported
+  /// configuration vanish unnoticed, with the UI claiming a state the backend
+  /// did not have. A read-back that cannot be READ is reported as its own
+  /// error rather than as success, for the same reason: "unconfirmed" must
+  /// never be rendered as "saved". The existing `transport.*` copy explains
+  /// it, and the config version guard turns a redundant retry into an honest
+  /// 409 instead of a silent overwrite.
+  ///
+  /// The read-back is BOUNDED-RETRY, not a single read: a committed write
+  /// reaches the read model asynchronously (projector lag), so one lagging
+  /// read would report a configuration that was in fact stored as
+  /// `ai_config.decision_not_persisted` — the very false negative this
+  /// verification exists to prevent. The first read runs immediately, later
+  /// attempts back off through [ReconciliationScheduler], and the budget is
+  /// [kMaxReconcileAttempts] (AGENTS.md §4: reconcile the eventual projection
+  /// with a bounded-retry refetch). Only an exhausted budget is a verdict.
+  ///
+  /// [DecisionRoundTripVerdict.stored] is the last view the server DID serve:
+  /// the dispatch committed even when the Decision Model did not land, so that
+  /// view carries the post-dispatch aggregate version and lets the caller
+  /// replace its stale cached config.
+  ///
+  /// [ProblemError.detail] here is a CLIENT-side diagnostic (never rendered —
+  /// the screen localizes its copy from `code`, AGENTS.md §5).
+  Future<DecisionRoundTripVerdict> _verifyDecisionRoundTrip(
+    String configId,
+    DecisionTriple submitted,
+  ) async {
+    final repo = ref.read(aiConfigRepositoryProvider);
+    final scheduler = ref.read(reconciliationSchedulerProvider);
+    ProblemError? lastError;
+    AiConfigView? lastStored;
+    for (var attempt = 0; attempt < kMaxReconcileAttempts; attempt++) {
+      if (attempt > 0) await scheduler.tick(attempt);
+      final res = await repo.getConfig(configId);
+      final stored = res.getRight().toNullable();
+      if (stored == null) {
+        // A read that failed is not a verdict either — keep the transport
+        // error as the fallback verdict and try again.
+        lastError = res.getLeft().toNullable();
+        continue;
+      }
+      lastStored = stored;
+      final mismatch = verifyDecisionRoundTrip(
+        configId: configId,
+        submitted: submitted,
+        stored: stored,
+      );
+      if (mismatch == null) return (error: null, stored: stored);
+      lastError = ProblemError(
+        code: decisionNotPersistedCode,
+        detail: '$mismatch',
+      );
+    }
+    return (error: lastError, stored: lastStored);
   }
 
   Future<void> _rememberCredential(
@@ -1214,6 +1322,38 @@ class AiConfigController extends _$AiConfigController {
               vaultKeyId: createdDecisionCredential.vaultKeyId,
             ),
           );
+        }
+        // Round-trip verification (issue #769): a 2xx PATCH acknowledgement is
+        // not evidence that the Decision Model triple was persisted. Compare
+        // the SUBMITTED triple against the authoritative view before reporting
+        // success; on a mismatch the draft is preserved and NOTHING is
+        // refreshed as success, so the screen never presents the submitted
+        // configuration as the active one.
+        final verdict = await _verifyDecisionRoundTrip(
+          config.id,
+          DecisionTriple(
+            providerKey: decisionProvider?.name,
+            modelId: decisionProviderKey == null ? null : decisionModelId,
+            vaultKeyId: decisionVaultKeyId,
+          ),
+        );
+        if (verdict.error != null) {
+          // CodeRabbit review (issue #769): the PATCH DID commit (only its
+          // read-back disagrees), so the aggregate version moved past
+          // `state.config.version`. Leaving the stale view in place would make
+          // the retry a guaranteed 409 and keep the screen rendering the
+          // pre-PATCH configuration, so the authoritative read replaces it.
+          // Discovery is deliberately NOT invalidated: this controller watches
+          // it, and the rebuild would drop the error — which is the silent
+          // "looks saved" class this issue closes. The drafts live in
+          // `aiConfigDraftsProvider`, so the user's input survives regardless.
+          if (ref.mounted) {
+            state = state.copyWith(
+              config: verdict.stored,
+              commandError: verdict.error,
+            );
+          }
+          return Left<ProblemError, int>(verdict.error!);
         }
         ref.invalidate(aiConfigDiscoveryProvider);
         ref.invalidate(configuredAiNamingProvider);

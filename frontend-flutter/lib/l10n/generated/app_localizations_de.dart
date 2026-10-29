@@ -3575,6 +3575,10 @@ class AppLocalizationsDe extends AppLocalizations {
       'Bitte gib einen API-Schlüssel für das Decision-Modell ein oder wähle „Gleichen API-Schlüssel wie Extraktion verwenden“.';
 
   @override
+  String get aiConfigDecisionNotPersisted =>
+      'Das Decision-Modell wurde nicht gespeichert. Die Konfiguration wurde zwar übertragen, die Rückmeldung des Servers enthält es aber nicht — bitte prüfe die Auswahl und speichere erneut.';
+
+  @override
   String get outfitVariantMarker => 'Variante';
 
   @override

@@ -5804,6 +5804,12 @@ abstract class AppLocalizations {
   /// **'Bitte gib einen API-Schlüssel für das Decision-Modell ein oder wähle „Gleichen API-Schlüssel wie Extraktion verwenden“.'**
   String get aiConfigDecisionKeyMissing;
 
+  /// No description provided for @aiConfigDecisionNotPersisted.
+  ///
+  /// In de, this message translates to:
+  /// **'Das Decision-Modell wurde nicht gespeichert. Die Konfiguration wurde zwar übertragen, die Rückmeldung des Servers enthält es aber nicht — bitte prüfe die Auswahl und speichere erneut.'**
+  String get aiConfigDecisionNotPersisted;
+
   /// Marker next to a look that was forked from another look.
   ///
   /// In de, this message translates to:
