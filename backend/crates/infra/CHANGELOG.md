@@ -7,6 +7,7 @@
 <!-- Co-authored-by: hy4-preview (opencode-go) -->
 <!-- Co-authored-by: muse-spark-1.3-contributor (opencode-go) -->
 <!-- Co-authored-by: omen-alpha (opencode-go) -->
+<!-- Co-authored-by: deepseek-v4.1-flash (opencode-go) -->
 
 # Changelog
 
@@ -14,6 +15,34 @@ All notable changes to the `infra` crate are documented here. Versioning
 follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
+
+## [0.55.0] - Unreleased
+
+### Fixed — PDF reports returned HTTP 500 for every non-empty report (issue #764)
+
+- All five embedded Typst templates (`dispo`, `shoot-day`,
+  `planned-vs-actual`, `season-soll-ist`, `episode-soll-ist`) passed raw JSON
+  values as table cells. Typst requires `content`, so any row with a scene
+  number (or `notes.len()`) aborted compilation with `expected content, found
+  integer`, surfacing as an opaque 500 once scenes were assigned to a day.
+- New shared snippet `templates/reports/_helpers.typ` defines
+  `cell(v)` (none → empty, str/content unchanged, everything else → `repr`).
+  `embedded_templates()` prepends it to every template — the restricted world
+  serves only `main.typ` + `report.json`, so no `#import` is possible. Every
+  table cell is now wrapped in `cell(...)`, including the previously unsafe
+  Soll-Ist flag columns.
+- Compiler-failure diagnostics now carry the report kind
+  (`<kind>: expected content, found integer`), so the single logged 500 is
+  actionable without correlating the request; no wire-contract change.
+- Regression guard: per-kind render tests with representative rows (numbered +
+  unnumbered scenes, `null` `actual_order`, notes present/absent, all diff
+  flags, German location with `/ ( ) ·`) plus a direct `cell()` scalar test,
+  all rendered on deterministic bundled fonts (`typst-assets`, feature
+  `fonts`, dev-dependency) so they never skip on fontless hosts. The previous
+  coverage only asserted that each embedded template source was non-empty.
+- Public API change: **0.54.0 → 0.55.0** (MINOR: `embedded_templates()` and
+  `embedded_template_helpers()` are public so the render tests exercise the
+  exact bytes the production renderer embeds).
 
 ## [0.47.0] - Unreleased
 

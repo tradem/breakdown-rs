@@ -3,6 +3,7 @@
 // Co-authored-by: mimo-v2.5 (opencode-go)
 // Co-authored-by: hy3 (opencode-go)
 // Co-authored-by: glm-5.3 (neuralwatt)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 //! In-process Typst adapter implementing `ReportRenderer`.
 //!
@@ -236,29 +237,60 @@ impl TypstReportRenderer {
     }
 }
 
+/// Shared Typst helper definitions prepended to every embedded template.
+///
+/// Kept in a separate source file (issue #764) so the table-cell convention
+/// has exactly one definition and can be unit-tested on its own. The renderer's
+/// restricted virtual filesystem serves only `main.typ` and `report.json`, so
+/// the helpers are **prepended** instead of `#import`ed — Typst line numbers in
+/// diagnostics are therefore offset by the length of this snippet.
+const REPORT_TEMPLATE_HELPERS: &str = include_str!("../../templates/reports/_helpers.typ");
+
+/// The shared Typst helper definitions (see [`REPORT_TEMPLATE_HELPERS`]).
+///
+/// Public so the render tests can pin the `cell` scaling contract (issue
+/// #764) without duplicating the snippet.
+pub fn embedded_template_helpers() -> &'static str {
+    REPORT_TEMPLATE_HELPERS
+}
+
+/// Prepend the shared helpers to a template body.
+fn with_helpers(template: &str) -> String {
+    let mut source = String::with_capacity(REPORT_TEMPLATE_HELPERS.len() + template.len());
+    source.push_str(REPORT_TEMPLATE_HELPERS);
+    source.push_str(template);
+    source
+}
+
 /// The compile-time embedded report templates, keyed by report kind.
-fn embedded_templates() -> HashMap<ReportKind, String> {
+///
+/// Public so tests can render the exact template bytes the production renderer
+/// embeds (issue #764) and so an alternative composition root can wire its own
+/// font set.
+pub fn embedded_templates() -> HashMap<ReportKind, String> {
     let mut templates = HashMap::new();
 
     templates.insert(
         ReportKind::Dispo,
-        include_str!("../../templates/reports/dispo.typ").to_string(),
+        with_helpers(include_str!("../../templates/reports/dispo.typ")),
     );
     templates.insert(
         ReportKind::ShootDay,
-        include_str!("../../templates/reports/shoot-day.typ").to_string(),
+        with_helpers(include_str!("../../templates/reports/shoot-day.typ")),
     );
     templates.insert(
         ReportKind::PlannedVsActual,
-        include_str!("../../templates/reports/planned-vs-actual.typ").to_string(),
+        with_helpers(include_str!(
+            "../../templates/reports/planned-vs-actual.typ"
+        )),
     );
     templates.insert(
         ReportKind::SeasonSollIst,
-        include_str!("../../templates/reports/season-soll-ist.typ").to_string(),
+        with_helpers(include_str!("../../templates/reports/season-soll-ist.typ")),
     );
     templates.insert(
         ReportKind::EpisodeSollIst,
-        include_str!("../../templates/reports/episode-soll-ist.typ").to_string(),
+        with_helpers(include_str!("../../templates/reports/episode-soll-ist.typ")),
     );
 
     templates
@@ -295,6 +327,12 @@ impl ReportRenderer for TypstReportRenderer {
         }
 
         // Create restricted world
+        //
+        // Issue #764: the Typst diagnostics are the only place the real cause
+        // of a compile failure is visible (e.g. `expected content, found
+        // integer`); carry the report kind with them so the single logged
+        // error is actionable without correlating the request.
+        let kind = req.kind;
         let world = RestrictedWorld::new(template_source, &report_json_vec, self.fonts.clone());
 
         // Compile with deadline
@@ -306,7 +344,7 @@ impl ReportRenderer for TypstReportRenderer {
                     let details: Vec<String> =
                         diagnostics.iter().map(|d| d.message.to_string()).collect();
                     ReportRenderError::CompilerFailure {
-                        detail: details.join("; "),
+                        detail: format!("{kind}: {}", details.join("; ")),
                     }
                 })
             })
@@ -333,7 +371,7 @@ impl ReportRenderer for TypstReportRenderer {
                 let details: Vec<String> =
                     diagnostics.iter().map(|d| d.message.to_string()).collect();
                 ReportRenderError::CompilerFailure {
-                    detail: format!("PDF export failed: {}", details.join("; ")),
+                    detail: format!("{kind}: PDF export failed: {}", details.join("; ")),
                 }
             })?;
 
@@ -944,8 +982,16 @@ mod font_discovery_tests {
     #[test]
     fn embedded_templates_cover_all_report_kinds() {
         // Non-empty-renderer invariant (issue #642): the composition root must
-        // never be able to wire a renderer without templates.
+        // never be able to wire a renderer without templates. Every template
+        // must additionally carry the shared cell helper (issue #764) — a
+        // template that lost the prefix would pass the non-empty check and
+        // still fail on the first row.
         let templates = embedded_templates();
+        let helpers = embedded_template_helpers();
+        assert!(
+            helpers.contains("#let cell("),
+            "the shared helper snippet must define `cell`"
+        );
         for kind in [
             ReportKind::Dispo,
             ReportKind::ShootDay,
@@ -959,6 +1005,10 @@ mod font_discovery_tests {
             assert!(
                 !src.is_empty(),
                 "embedded template for {kind:?} must be non-empty"
+            );
+            assert!(
+                src.starts_with(helpers),
+                "embedded template for {kind:?} must be prefixed with the shared helpers"
             );
         }
     }
