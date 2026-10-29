@@ -46,7 +46,7 @@ environment:
 # versions available, run `flutter pub outdated`.
 dependencies:
   # PKCE S256 code challenge (lib/auth/pkce.dart) — pure Dart, no Flutter deps.
-  crypto: ^3.0.0
+  crypto: ^3.0.8
   dio: ^5.11.1
   drift: ^2.35.3
   flutter:
