@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: mimo-v2.5 (opencode-go)
 // Co-authored-by: glm-5.3 (neuralwatt)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 #![allow(
     clippy::unwrap_used,
@@ -13,7 +14,10 @@
 )]
 use breakdown_core::reporting::*;
 use infra::reporting::locale::validate_timezone;
-use infra::reporting::typst_renderer::{RenderConfig, RestrictedWorld, TypstReportRenderer};
+use infra::reporting::typst_renderer::{
+    RenderConfig, RestrictedWorld, TypstReportRenderer, embedded_template_helpers,
+    embedded_templates,
+};
 use std::collections::HashMap;
 use typst::World;
 use typst::syntax::{FileId, RootedPath, VirtualPath, VirtualRoot};
@@ -283,4 +287,272 @@ fn render_config_defaults() {
     assert_eq!(config.max_json_bytes, 5 * 1024 * 1024);
     assert_eq!(config.max_output_bytes, 100 * 1024 * 1024);
     assert_eq!(config.max_pages, 50);
+}
+
+// ---------------------------------------------------------------------------
+// Issue #764: the template/data contract
+//
+// The templates build their table rows straight from the report JSON. Typst
+// requires cells to be `content`, so a raw integer (`scene_number`,
+// `notes.len()`) aborted compilation and every *non-empty* report answered an
+// opaque HTTP 500. The tests below render every embedded template with
+// representative row data on a deterministic font set, so a template/data
+// contract break fails the suite instead of shipping.
+// ---------------------------------------------------------------------------
+
+/// Every report kind that has an embedded template.
+const ALL_REPORT_KINDS: [ReportKind; 5] = [
+    ReportKind::Dispo,
+    ReportKind::ShootDay,
+    ReportKind::PlannedVsActual,
+    ReportKind::SeasonSollIst,
+    ReportKind::EpisodeSollIst,
+];
+
+/// Fonts bundled with `typst-assets` (feature `fonts`).
+///
+/// The restricted world serves no host font files, and a probe-based skip would
+/// silently disable the regression guard on fontless hosts. Bundled fonts make
+/// the contract tests run everywhere, deterministically.
+fn embedded_test_fonts() -> Vec<typst::text::Font> {
+    typst_assets::fonts()
+        .flat_map(|data| typst::text::Font::iter(typst::foundations::Bytes::new(data)))
+        .collect()
+}
+
+fn de_context() -> RenderPresentationContext {
+    RenderPresentationContext {
+        locale: ReportLocale::de_de(),
+        timezone: "Europe/Berlin".into(),
+        template_version: "1.0.0".into(),
+    }
+}
+
+/// Render `data` through the *embedded* template of `kind`.
+fn render_embedded(kind: ReportKind, data: serde_json::Value) -> ReportBytes {
+    let fonts = embedded_test_fonts();
+    assert!(
+        !fonts.is_empty(),
+        "bundled `typst-assets` fonts must load — the contract tests must not be skippable"
+    );
+    let renderer = TypstReportRenderer::new(embedded_templates(), fonts);
+    let req = ReportRenderRequest {
+        kind,
+        context: de_context(),
+        data,
+    };
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    rt.block_on(renderer.render(req))
+        .unwrap_or_else(|e| panic!("template `{kind}` must render row data: {e}"))
+}
+
+/// A representative payload per kind: a numbered scene and an unnumbered one,
+/// a `null` `actual_order`, notes present/absent, every diff flag in both
+/// states, and a German location containing `/ ( ) ·` (issue #764).
+fn representative_rows(kind: ReportKind) -> serde_json::Value {
+    let scene_id = "0199d3f2-6a4b-7c8d-9e0f-1a2b3c4d5e6f";
+    let other_scene_id = "0199d3f2-6a4b-7c8d-9e0f-1a2b3c4d5e70";
+    let shooting_day_id = "0199d3f2-6a4b-7c8d-9e0f-1a2b3c4d5e71";
+    let other_day_id = "0199d3f2-6a4b-7c8d-9e0f-1a2b3c4d5e72";
+    let location = "Tiefgarage / Klinikum (Stationscounter) · Ebene 3";
+
+    match kind {
+        ReportKind::Dispo => serde_json::json!({
+            "rows": [
+                {
+                    "planned_order": "00000002",
+                    "scene_id": scene_id,
+                    "scene_number": 2,
+                    "script_day": "Tag 1",
+                    "location": location,
+                    "mood": "I/T",
+                    "summary": "Eine Szene."
+                },
+                {
+                    "planned_order": "00000003",
+                    "scene_id": other_scene_id,
+                    "scene_number": null,
+                    "script_day": null,
+                    "location": null,
+                    "mood": null,
+                    "summary": null
+                }
+            ]
+        }),
+        ReportKind::ShootDay => serde_json::json!({
+            "rows": [
+                {
+                    "actual_order": "00000003",
+                    "scene_id": scene_id,
+                    "scene_number": 2,
+                    "script_day": "Tag 1",
+                    "location": location,
+                    "status": "Shot",
+                    "start_dt": "2026-10-05T08:12:00Z",
+                    "end_dt": "2026-10-05T09:40:00Z",
+                    "notes": [
+                        { "id": "0199d3f2-6a4b-7c8d-9e0f-1a2b3c4d5e73", "body": "Note A" }
+                    ],
+                    "continuity_photo_ids": []
+                },
+                {
+                    // Raw integers independent of the scene number: a row with
+                    // `notes.len() > 0` must not break the cell contract either.
+                    "actual_order": null,
+                    "scene_id": other_scene_id,
+                    "scene_number": null,
+                    "script_day": null,
+                    "location": null,
+                    "status": "Planned",
+                    "start_dt": null,
+                    "end_dt": null,
+                    "notes": [
+                        { "id": "0199d3f2-6a4b-7c8d-9e0f-1a2b3c4d5e74", "body": "Note B" },
+                        { "id": "0199d3f2-6a4b-7c8d-9e0f-1a2b3c4d5e75", "body": "Note C" }
+                    ],
+                    "continuity_photo_ids": []
+                }
+            ]
+        }),
+        ReportKind::PlannedVsActual => serde_json::json!({
+            "is_final": true,
+            "rows": [
+                {
+                    "scene_id": scene_id,
+                    "scene_number": 2,
+                    "script_day": "Tag 1",
+                    "location": location,
+                    "planned_order": "00000002",
+                    "actual_order": "00000003",
+                    "moved": true,
+                    "missing": false,
+                    "skipped": false,
+                    "reshot_candidate": false
+                },
+                {
+                    "scene_id": other_scene_id,
+                    "scene_number": null,
+                    "script_day": null,
+                    "location": null,
+                    "planned_order": null,
+                    "actual_order": null,
+                    "moved": false,
+                    "missing": true,
+                    "skipped": true,
+                    "reshot_candidate": true
+                }
+            ]
+        }),
+        ReportKind::SeasonSollIst | ReportKind::EpisodeSollIst => serde_json::json!({
+            "is_final": false,
+            "total_shooting_days": 2,
+            "wrapped_shooting_days": 1,
+            "rows": [
+                {
+                    "scene_id": scene_id,
+                    "shooting_day_id": shooting_day_id,
+                    "shooting_day_label": "Tag 1",
+                    "scene_number": 2,
+                    "script_day": "Tag 1",
+                    "location": location,
+                    "planned_order": "00000002",
+                    "actual_order": "00000003",
+                    "moved": true,
+                    "missing": false,
+                    "skipped": false,
+                    "reshot_candidate": false
+                },
+                {
+                    "scene_id": other_scene_id,
+                    "shooting_day_id": other_day_id,
+                    "shooting_day_label": null,
+                    "scene_number": null,
+                    "script_day": null,
+                    "location": null,
+                    "planned_order": null,
+                    "actual_order": null,
+                    "moved": false,
+                    "missing": true,
+                    "skipped": true,
+                    "reshot_candidate": true
+                }
+            ]
+        }),
+    }
+}
+
+#[test]
+fn every_template_renders_representative_rows_to_a_valid_pdf() {
+    for kind in ALL_REPORT_KINDS {
+        let rendered = render_embedded(kind, representative_rows(kind));
+        assert_eq!(
+            rendered.kind, kind,
+            "template `{kind}` must report its own kind"
+        );
+        assert_eq!(rendered.content_type, "application/pdf");
+        assert!(
+            rendered.pdf_bytes.starts_with(b"%PDF-"),
+            "template `{kind}` must produce a real PDF, got {} bytes",
+            rendered.pdf_bytes.len()
+        );
+        assert!(
+            rendered.page_count >= 1,
+            "template `{kind}` must produce at least one page"
+        );
+    }
+}
+
+#[test]
+fn template_cell_helper_normalises_every_json_scalar() {
+    // `cell` is defined once in `_helpers.typ` and prepended to every
+    // template (issue #764). Exercising it directly pins the convention the
+    // templates rely on: `none` → empty cell, numbers/booleans → their Typst
+    // repr, strings unchanged. Before the helper, `integer` and `boolean`
+    // cells aborted compilation with `expected content, found …`.
+    let template = format!(
+        "{}\n#table(columns: 6, ..json(\"report.json\").cells.map(cell))",
+        embedded_template_helpers()
+    );
+    let mut templates = HashMap::new();
+    templates.insert(ReportKind::Dispo, template);
+    let renderer = TypstReportRenderer::new(templates, embedded_test_fonts());
+    let req = ReportRenderRequest {
+        kind: ReportKind::Dispo,
+        context: de_context(),
+        data: serde_json::json!({
+            "cells": [
+                null,
+                2,
+                2.5,
+                true,
+                false,
+                "Tiefgarage / Klinikum (Stationscounter) · Ebene 3"
+            ]
+        }),
+    };
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let rendered = rt
+        .block_on(renderer.render(req))
+        .expect("cell() must normalise every JSON scalar into a table cell");
+    assert!(rendered.pdf_bytes.starts_with(b"%PDF-"));
+    assert!(rendered.page_count >= 1);
+}
+
+#[test]
+fn embedded_templates_carry_the_shared_cell_helper() {
+    let helpers = embedded_template_helpers();
+    assert!(
+        helpers.contains("#let cell("),
+        "the shared helper snippet must define `cell`"
+    );
+    for (kind, source) in embedded_templates() {
+        assert!(
+            source.starts_with(helpers),
+            "template `{kind}` must be prefixed with the shared helpers (issue #764)"
+        );
+        assert!(
+            source.contains("cell(row."),
+            "template `{kind}` must wrap its row cells in `cell(...)` (issue #764)"
+        );
+    }
 }
