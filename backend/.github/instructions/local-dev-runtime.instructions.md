@@ -11,6 +11,7 @@ applyTo:
 <!-- Copyright (C) 2024-2026 Breakdown RS Contributors -->
 <!-- Co-authored-by: glm-5.3 (neuralwatt) -->
 <!-- Co-authored-by: deepseek-v4-flash (neuralwatt) -->
+<!-- Co-authored-by: deepseek-v4.1-flash (opencode-go) -->
 
 # Local Dev Runtime
 
@@ -182,6 +183,14 @@ into the git-ignored `.vault-dev/` host directory, then writes
 The script is idempotent (re-runs renew the app token instead of
 re-provisioning). Reset: `docker compose -f docker-compose.dev.vault.yml down
 -v && rm -rf .vault-dev`.
+
+> **Lapsed app token (issue #468 follow-up):** the 24 h *periodic* token only
+> survives while the API or a bootstrap re-run renews it inside the TTL; past
+> that, `GET /v1/health` shows `vault: Unhealthy` (everything else green — Vault
+> is reachable, so the env is fine). Repair in place:
+> `./scripts/enable-dev-vault.sh` mints a root token via `generate-root` from
+> the persisted unseal share, issues a fresh app token, revokes root again — no
+> restart, no state loss. The dev seed is never a token.
 
 > **Photo SSE-C policy (found while testing issue #468):** the `breakdown-app`
 > policy grants `create` **and** `update` on `transit/keys/photo-sse-c` —

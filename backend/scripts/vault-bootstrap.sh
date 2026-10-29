@@ -4,10 +4,20 @@
 # Co-authored-by: gpt-5.6-luna (opencode-go)
 # Co-authored-by: glm-5.2 (neuralwatt)
 # Co-authored-by: deepseek-v4-flash (neuralwatt)
+# Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 # Idempotent first-boot bootstrap for the internal Vault service.
 # VAULT_BOOTSTRAP_TOKEN_FILE points to a Docker secret mounted only into this
 # one-shot container. The API never receives the bootstrap seed.
+#
+# Repair path: the least-privilege app token is a 24 h *periodic* token, so it
+# lapses whenever nothing renews it in time (the API down past the TTL, or the
+# token revoked). Re-running this script then issues a fresh one. Because no
+# administrative credential survives provisioning (the generated root token is
+# revoked at the end), a repair mints a root token through `operator
+# generate-root` from the persisted unseal share and revokes it again — Vault
+# state (KV secrets, Transit keys, the photo SSE-C key) survives a repair,
+# unlike a full `down -v` reset.
 set -eu
 
 : "${VAULT_ADDR:=https://vault:8200}"
@@ -47,6 +57,250 @@ chown 1000:1000 "$bootstrap_dir"
 # The API image uses uid 1000 and receives only this separate token volume.
 chown 1000:1000 /vault/app-token
 chmod 700 /vault/app-token
+# The unseal key is also the repair credential (`generate_root_token`), so it
+# must be readable by the same non-root uid as the app token. Files written by
+# earlier script versions were left root:root and blocked a host-side repair.
+if [ -f "$unseal_file" ]; then
+  chown 1000:1000 "$unseal_file"
+fi
+
+# BusyBox wget in the pinned Vault image has HTTPS support but no
+# --ca-certificate option. Extend its container-local CA bundle with the
+# public step-ca root; this does not modify the mounted host volume. The dev
+# overlay is plaintext http:// and has no CA to append. Idempotent: the unseal
+# and generate-root paths can both run in one invocation.
+wget_ca_prepared=0
+prepare_wget_ca() {
+  if [ "$wget_ca_prepared" = "1" ]; then
+    return 0
+  fi
+  if [ -n "${VAULT_CACERT:-}" ] && [ -f /etc/ssl/certs/ca-certificates.crt ]; then
+    cat "$VAULT_CACERT" >> /etc/ssl/certs/ca-certificates.crt
+  fi
+  wget_ca_prepared=1
+}
+
+# Revoke a *generated* administrative token on every exit path.
+#
+# `set -e` can abort between minting the root token and the revoke in the
+# provisioning tail (`secrets enable`, `policy write`, `token create`), and a
+# generate-root token carries no guaranteed expiry — leaving one live would hand
+# out an unowned root credential (the bootstrapped root token is discarded on
+# purpose). A token *supplied* by the operator is deliberately not revoked here:
+# it is the caller's credential and the retry material for the next run, so only
+# `generate_root_token` sets the flag.
+admin_token_generated=0
+# Set while a `generate-root -init` attempt is open on the server.
+generate_root_pending=0
+# Accessor of the token this run minted, recorded before any command can fail so
+# a later run can revoke a token whose shell died without running a trap. One file
+# per accessor: a record that could not be revoked must never be overwritten by a
+# later run, and dropping this run's own record must not drop someone else's.
+accessor_dir="$bootstrap_dir/.generated-root-accessors"
+revoke_generated_admin_token() {
+  [ "$admin_token_generated" = "1" ] || return 0
+  admin_token_generated=0
+  if [ -z "${root_token:-}" ]; then
+    return 0
+  fi
+  if VAULT_TOKEN="$root_token" vault token revoke -self >/dev/null 2>&1; then
+    drop_admin_accessor
+  else
+    echo "Vault bootstrap warning: could not revoke the minted administrative token; revoke it manually" >&2
+  fi
+  return 0
+}
+
+# Abandon this invocation's in-flight generate-root attempt. Vault serializes
+# root generation (`root generation already in progress`), so every failure
+# return after a successful `-init` must cancel — otherwise the next repair run
+# cannot even initialize until the stale attempt is cleared by hand. Retried
+# because a single transient error would strand the attempt.
+cancel_generate_root() {
+  [ "$generate_root_pending" = "1" ] || return 0
+  cancel_try=0
+  while [ "$cancel_try" -lt 3 ]; do
+    if vault operator generate-root -cancel >/dev/null 2>&1; then
+      generate_root_pending=0
+      return 0
+    fi
+    cancel_try=$((cancel_try + 1))
+    sleep 1
+  done
+  return 1
+}
+
+cancel_pending_generate_root() {
+  if ! cancel_generate_root; then
+    echo "Vault bootstrap warning: could not cancel the in-flight generate-root attempt; clear it with 'vault operator generate-root -cancel'" >&2
+  fi
+  return 0
+}
+
+# One EXIT handler: an interrupted run must abandon its attempt *and* its token.
+cleanup_on_exit() {
+  cancel_pending_generate_root
+  revoke_generated_admin_token
+}
+trap cleanup_on_exit EXIT
+# A signal-killed one-shot would skip the EXIT trap entirely, so these three
+# signals exit into it. SIGKILL cannot be trapped — see `record_admin_accessor`.
+trap 'cancel_pending_generate_root; exit 130' INT
+trap 'cancel_pending_generate_root; exit 143' TERM
+trap 'cancel_pending_generate_root; exit 129' HUP
+
+# Record the minted token's accessor in the bootstrap dir (600) before the next
+# command runs. No trap survives SIGKILL, an OOM kill or host loss, and Vault
+# would then hold a live root token nobody can name; the accessor is what a later
+# run needs to revoke it. Best effort: the graceful paths revoke by token anyway.
+record_admin_accessor() {
+  [ "$admin_token_generated" = "1" ] || return 0
+  accessor=$(VAULT_TOKEN="$root_token" vault token lookup -format=json 2>/dev/null \
+    | tr '\n' ' ' \
+    | sed -n 's/.*"accessor"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p') || accessor=
+  case "$accessor" in
+    # Never build a path from an unexpected value (the record name is the accessor).
+    '' | *[!A-Za-z0-9._-]*) return 0 ;;
+  esac
+  mkdir -p "$accessor_dir" || return 0
+  (
+    umask 077
+    printf '%s\n' "$accessor" > "$accessor_dir/$accessor"
+  ) || return 0
+}
+
+# Drop the record of this run's own token, once Vault confirmed its revoke. Other
+# records are untouched: they belong to tokens this run did not mint.
+drop_admin_accessor() {
+  if [ -z "${accessor:-}" ]; then
+    return 0
+  fi
+  rm -f "$accessor_dir/$accessor"
+  return 0
+}
+
+has_pending_admin_accessor() {
+  if [ ! -d "$accessor_dir" ]; then
+    return 1
+  fi
+  for pending_record in "$accessor_dir"/*; do
+    if [ -f "$pending_record" ]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+# Revoke tokens left behind by runs that died before their revoke, then drop
+# those records. Vault answers an unknown accessor with a warning and no error,
+# so this is idempotent. A record whose revoke fails is kept — it is the only
+# pointer to a live token — and this run's own record lives in its own file.
+revoke_stale_admin_token() {
+  if [ ! -d "$accessor_dir" ]; then
+    return 0
+  fi
+  for stale_record in "$accessor_dir"/*; do
+    [ -f "$stale_record" ] || continue
+    stale_accessor=$(cat "$stale_record") || continue
+    [ -n "$stale_accessor" ] || continue
+    if [ "$stale_accessor" = "${accessor:-}" ]; then
+      continue
+    fi
+    if VAULT_TOKEN="$root_token" vault token revoke -accessor="$stale_accessor" >/dev/null 2>&1; then
+      rm -f "$stale_record"
+    fi
+  done
+  return 0
+}
+
+# Mint a short-lived administrative token from the persisted unseal share.
+#
+# Required when the app token lapsed: Vault never revives an expired token, and
+# the bootstrapped root token was discarded, so a repair has no administrative
+# credential left. `operator generate-root` needs exactly what this container
+# already holds — one unseal share (the init above uses 1/1). The share, the
+# client-side OTP and the encoded token stay in shell variables and in 600
+# request files; none of them is passed in argv (same rule as the unseal call
+# below). Assigns `root_token` / `admin_token_generated` in the *caller's* shell
+# and returns non-zero without a token: a minted token must reach the revoke trap
+# before any further command can fail, which a command substitution would hide.
+generate_root_token() {
+  if [ ! -s "$unseal_file" ]; then
+    return 1
+  fi
+  init_json=$(vault operator generate-root -init -format=json) || return 1
+  # Vault now holds an open attempt that only a cancel (or a completed update)
+  # releases; every later exit path must abandon it.
+  generate_root_pending=1
+  init_one_line=$(printf '%s' "$init_json" | tr '\n' ' ')
+  nonce=$(printf '%s' "$init_one_line" | sed -n 's/.*"nonce"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+  otp=$(printf '%s' "$init_one_line" | sed -n 's/.*"otp"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+  if [ -z "$nonce" ] || [ -z "$otp" ]; then
+    cancel_generate_root
+    return 1
+  fi
+  prepare_wget_ca
+  payload="$bootstrap_dir/.generate-root-request.$$"
+  response="$bootstrap_dir/.generate-root-response.$$"
+  (
+    umask 077
+    printf '{"key":"%s","nonce":"%s"}\n' "$(cat "$unseal_file")" "$nonce" > "$payload"
+  ) || {
+    cancel_generate_root
+    return 1
+  }
+  if ! wget --quiet \
+      --header='Content-Type: application/json' \
+      --post-file="$payload" -O "$response" \
+      "$VAULT_ADDR/v1/sys/generate-root/update"; then
+    rm -f "$payload" "$response"
+    cancel_generate_root
+    return 1
+  fi
+  # The update is answered, but the attempt is only known to be gone once a token
+  # was decoded: a threshold-above-one config would still hold it open, and the
+  # failure paths below then cancel it.
+  rm -f "$payload"
+  response_one_line=$(tr '\n' ' ' < "$response")
+  rm -f "$response"
+  encoded=$(printf '%s' "$response_one_line" | sed -n 's/.*"encoded_root_token"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+  if [ -z "$encoded" ]; then
+    echo "Vault bootstrap warning: generate-root completed without a decodable token; a root token may be live" >&2
+    cancel_generate_root
+    return 1
+  fi
+  if ! root_token=$(vault operator generate-root -decode="$encoded" -otp="$otp"); then
+    root_token=
+    cancel_generate_root
+    return 1
+  fi
+  if [ -z "$root_token" ]; then
+    root_token=
+    cancel_generate_root
+    return 1
+  fi
+  # A completed update dropped the attempt server-side; the parent shell owns the
+  # credential from here, so a signal arriving during the next command still
+  # reaches the revoke trap.
+  generate_root_pending=0
+  admin_token_generated=1
+  return 0
+}
+
+# Set `root_token` (and `admin_token_generated`, which drives the exit trap) to
+# a usable administrative token: the first-boot root token, an operator-supplied
+# seed that is actually a valid token (prod), or a freshly minted generate-root
+# token. The latter is what repairs a dev Vault: the overlay seeds a throwaway
+# random value that was never a Vault token. Assigns globals, so it must not be
+# called in a subshell.
+resolve_admin_token() {
+  admin_token_generated=0
+  if [ -n "${root_token:-}" ] && VAULT_TOKEN="$root_token" vault token lookup >/dev/null 2>&1; then
+    return 0
+  fi
+  root_token=
+  generate_root_token
+}
 
 status=255
 attempt=0
@@ -84,6 +338,7 @@ if [ "$status" -eq 2 ] && vault status 2>/dev/null | grep -q '^Initialized[[:spa
   fi
   umask 077
   printf '%s\n' "$unseal_key" > "$unseal_file"
+  chown 1000:1000 "$unseal_file"
   root_token="$generated_root"
   initialized_now=1
 fi
@@ -99,13 +354,7 @@ if ! vault status >/dev/null 2>&1; then
   unseal_payload="$bootstrap_dir/.unseal-request.$$"
   umask 077
   printf '{"key":"%s"}\n' "$(cat "$unseal_file")" > "$unseal_payload"
-  # BusyBox wget in the pinned Vault image has HTTPS support but no
-  # --ca-certificate option. Extend its container-local CA bundle with the
-  # public step-ca root; this does not modify the mounted host volume. The
-  # dev overlay is plaintext http:// and has no CA to append.
-  if [ -n "${VAULT_CACERT:-}" ] && [ -f /etc/ssl/certs/ca-certificates.crt ]; then
-    cat "$VAULT_CACERT" >> /etc/ssl/certs/ca-certificates.crt
-  fi
+  prepare_wget_ca
   if ! wget --quiet \
       --header='Content-Type: application/json' \
       --post-file="$unseal_payload" -O /dev/null \
@@ -119,7 +368,11 @@ fi
 
 # On normal restarts no root token is available or needed. Renew the existing
 # app token and leave immediately; this preserves the root-token discard rule.
-if [ "$initialized_now" -eq 0 ] && [ -s "$token_file" ]; then
+# A recorded accessor overrides the fast path: a previous run minted a token it
+# never revoked, and only an administrative credential can revoke it (the
+# `breakdown-app` policy has no access to `auth/token/revoke-accessor`), so clean
+# that up before taking the cheap exit — otherwise the orphan stays live forever.
+if [ "$initialized_now" -eq 0 ] && [ -s "$token_file" ] && ! has_pending_admin_accessor; then
   if VAULT_TOKEN=$(cat "$token_file") vault token lookup >/dev/null 2>&1; then
     VAULT_TOKEN=$(cat "$token_file") vault token renew >/dev/null 2>&1 || true
     unset VAULT_BOOTSTRAP_TOKEN VAULT_TOKEN
@@ -128,13 +381,23 @@ if [ "$initialized_now" -eq 0 ] && [ -s "$token_file" ]; then
   fi
 fi
 
-# The generated root token (first boot), or the operator-provided recovery
-# seed (a later repair), is used only for administrative bootstrap calls.
+# The generated root token (first boot), a still-valid operator-provided seed,
+# or a `generate-root` token (lapsed app token — see `resolve_admin_token`) is
+# used only for administrative bootstrap calls and revoked again below.
+if ! resolve_admin_token; then
+  echo "Vault bootstrap failed: no usable administrative token (bootstrap seed is not a valid token and generate-root failed)" >&2
+  exit 1
+fi
 export VAULT_TOKEN="$root_token"
 if ! vault token lookup >/dev/null 2>&1; then
   echo "Vault bootstrap failed: no usable administrative token" >&2
   exit 1
 fi
+
+# Housekeeping, in this order: revoke a token a previous run minted and never got
+# to revoke, then record this run's own accessor before any command can fail.
+revoke_stale_admin_token
+record_admin_accessor
 
 if ! vault secrets list | grep -q '^transit/'; then
   vault secrets enable -path=transit transit >/dev/null
@@ -206,8 +469,20 @@ chmod 600 "$tmp_token"
 mv "$tmp_token" "$token_file"
 
 # Revoke the administrative token and remove it from this process. The only
-# surviving credential is the least-privilege app token in its own volume.
-VAULT_TOKEN="$root_token" vault token revoke -self >/dev/null 2>&1 || true
-unset VAULT_TOKEN VAULT_BOOTSTRAP_TOKEN VAULT_BOOTSTRAP_TOKEN_FILE root_token generated_root unseal_key init_json init_one_line app_token
+# surviving credential is the least-privilege app token in its own volume, so a
+# failed revoke fails the run — the flag stays set and the EXIT trap retries it
+# once more rather than exiting 0 with a live minted root token. A supplied token
+# keeps the historical best-effort behavior: it is the operator's credential.
+if [ "$admin_token_generated" = "1" ]; then
+  if ! VAULT_TOKEN="$root_token" vault token revoke -self >/dev/null 2>&1; then
+    echo "Vault bootstrap failed: could not revoke the minted administrative token" >&2
+    exit 1
+  fi
+  drop_admin_accessor
+  admin_token_generated=0
+else
+  VAULT_TOKEN="$root_token" vault token revoke -self >/dev/null 2>&1 || true
+fi
+unset VAULT_TOKEN VAULT_BOOTSTRAP_TOKEN VAULT_BOOTSTRAP_TOKEN_FILE root_token generated_root unseal_key init_json init_one_line app_token token_json nonce otp encoded response_one_line payload response wget_ca_prepared accessor stale_accessor stale_record pending_record cancel_try
 
 echo "Vault bootstrap complete (Transit, KV-v2, and app policy ready)"
