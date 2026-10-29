@@ -80,6 +80,37 @@ prepare_wget_ca() {
   wget_ca_prepared=1
 }
 
+# Revoke a *generated* administrative token on every exit path.
+#
+# `set -e` can abort between minting the root token and the revoke in the
+# provisioning tail (`secrets enable`, `policy write`, `token create`), and a
+# generate-root token carries no guaranteed expiry — leaving one live would hand
+# out an unowned root credential (the bootstrapped root token is discarded on
+# purpose). A token *supplied* by the operator is deliberately not revoked here:
+# it is the caller's credential and the retry material for the next run, so only
+# `generate_root_token` sets the flag.
+admin_token_generated=0
+revoke_generated_admin_token() {
+  [ "$admin_token_generated" = "1" ] || return 0
+  if [ -n "${root_token:-}" ]; then
+    VAULT_TOKEN="$root_token" vault token revoke -self >/dev/null 2>&1 || true
+  fi
+  admin_token_generated=0
+}
+trap revoke_generated_admin_token EXIT
+# A signal-killed one-shot would skip the EXIT trap (and the revoke) entirely.
+trap 'exit 130' INT
+trap 'exit 143' TERM
+trap 'exit 129' HUP
+
+# Abandon this invocation's in-flight generate-root attempt. Vault serializes
+# root generation (`root generation already in progress`), so every failure
+# return after a successful `-init` must cancel — otherwise the next repair run
+# cannot even initialize until the stale attempt is cleared by hand.
+cancel_generate_root() {
+  vault operator generate-root -cancel >/dev/null 2>&1 || true
+}
+
 # Mint a short-lived administrative token from the persisted unseal share.
 #
 # Required when the app token lapsed: Vault never revives an expired token, and
@@ -88,7 +119,7 @@ prepare_wget_ca() {
 # already holds — one unseal share (the init above uses 1/1). The share, the
 # client-side OTP and the encoded token stay in shell variables and in 600
 # request files; none of them is passed in argv (same rule as the unseal call
-# below).
+# below). Prints the token on success only.
 generate_root_token() {
   if [ ! -s "$unseal_file" ]; then
     return 1
@@ -98,6 +129,7 @@ generate_root_token() {
   nonce=$(printf '%s' "$init_one_line" | sed -n 's/.*"nonce"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
   otp=$(printf '%s' "$init_one_line" | sed -n 's/.*"otp"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
   if [ -z "$nonce" ] || [ -z "$otp" ]; then
+    cancel_generate_root
     return 1
   fi
   prepare_wget_ca
@@ -106,12 +138,16 @@ generate_root_token() {
   (
     umask 077
     printf '{"key":"%s","nonce":"%s"}\n' "$(cat "$unseal_file")" "$nonce" > "$payload"
-  ) || return 1
+  ) || {
+    cancel_generate_root
+    return 1
+  }
   if ! wget --quiet \
       --header='Content-Type: application/json' \
       --post-file="$payload" -O "$response" \
       "$VAULT_ADDR/v1/sys/generate-root/update"; then
     rm -f "$payload" "$response"
+    cancel_generate_root
     return 1
   fi
   rm -f "$payload"
@@ -119,21 +155,31 @@ generate_root_token() {
   rm -f "$response"
   encoded=$(printf '%s' "$response_one_line" | sed -n 's/.*"encoded_root_token"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
   if [ -z "$encoded" ]; then
+    cancel_generate_root
     return 1
   fi
-  vault operator generate-root -decode="$encoded" -otp="$otp"
+  vault operator generate-root -decode="$encoded" -otp="$otp" || {
+    cancel_generate_root
+    return 1
+  }
 }
 
-# Administrative token for provisioning/repair: the first-boot root token, an
-# operator-supplied seed that is actually a valid token (prod), or a
-# generate-root token. The latter is what repairs a dev Vault: the overlay
-# seeds a throwaway random value that was never a Vault token.
+# Set `root_token` (and `admin_token_generated`, which drives the exit trap) to
+# a usable administrative token: the first-boot root token, an operator-supplied
+# seed that is actually a valid token (prod), or a freshly minted generate-root
+# token. The latter is what repairs a dev Vault: the overlay seeds a throwaway
+# random value that was never a Vault token. Assigns globals, so it must not be
+# called in a subshell.
 resolve_admin_token() {
+  admin_token_generated=0
   if [ -n "${root_token:-}" ] && VAULT_TOKEN="$root_token" vault token lookup >/dev/null 2>&1; then
-    printf '%s' "$root_token"
     return 0
   fi
-  generate_root_token
+  if ! root_token=$(generate_root_token); then
+    root_token=
+    return 1
+  fi
+  admin_token_generated=1
 }
 
 status=255
@@ -214,7 +260,7 @@ fi
 # The generated root token (first boot), a still-valid operator-provided seed,
 # or a `generate-root` token (lapsed app token — see `resolve_admin_token`) is
 # used only for administrative bootstrap calls and revoked again below.
-if ! root_token=$(resolve_admin_token); then
+if ! resolve_admin_token; then
   echo "Vault bootstrap failed: no usable administrative token (bootstrap seed is not a valid token and generate-root failed)" >&2
   exit 1
 fi
@@ -294,8 +340,10 @@ chmod 600 "$tmp_token"
 mv "$tmp_token" "$token_file"
 
 # Revoke the administrative token and remove it from this process. The only
-# surviving credential is the least-privilege app token in its own volume.
+# surviving credential is the least-privilege app token in its own volume. The
+# exit trap is the net for the failure paths before this line.
 VAULT_TOKEN="$root_token" vault token revoke -self >/dev/null 2>&1 || true
+admin_token_generated=0
 unset VAULT_TOKEN VAULT_BOOTSTRAP_TOKEN VAULT_BOOTSTRAP_TOKEN_FILE root_token generated_root unseal_key init_json init_one_line app_token token_json nonce otp encoded response_one_line payload response wget_ca_prepared
 
 echo "Vault bootstrap complete (Transit, KV-v2, and app policy ready)"

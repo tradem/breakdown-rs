@@ -186,7 +186,11 @@ tag. Never edit a released entry afterwards.
   `down -v` reset, which also destroys the KV-v2 secrets and the `photo-sse-c`
   DEK. The one-shot now resolves its credential in order — first-boot root
   token → still-valid seed → `vault operator generate-root` from the persisted
-  unseal share — and revokes a minted root token again. The share goes through
+  unseal share — and revokes a minted root token again. A failed attempt is
+  cancelled (Vault serializes root generation: a stranded attempt makes every
+  later repair die at `-init`), and an exit between minting and provisioning —
+  including a signal-killed one-shot — still revokes the minted token via an
+  exit trap, so no live root credential is left behind. The share goes through
   a 600 request file (never argv, same rule as the unseal call), and the
   request/response files are removed afterwards. A repair preserves Vault
   state (KV secrets, Transit keys, `photo-sse-c`), and the API needs no restart
