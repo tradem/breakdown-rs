@@ -189,8 +189,13 @@ tag. Never edit a released entry afterwards.
   unseal share — and revokes a minted root token again. A failed attempt is
   cancelled (Vault serializes root generation: a stranded attempt makes every
   later repair die at `-init`), and an exit between minting and provisioning —
-  including a signal-killed one-shot — still revokes the minted token via an
-  exit trap, so no live root credential is left behind. The share goes through
+  a provisioning error, or a one-shot stopped by TERM/INT/HUP — still revokes the
+  minted token via an exit trap. Two hard-kill windows remain: SIGKILL, an OOM
+  kill or host loss skips every trap, and a token minted by Vault microseconds
+  before its value reached the shell cannot be revoked by that run at all. For
+  the first, the accessor is recorded in the bootstrap dir so the next run revokes
+  the orphan; for the second the token stays live until an operator revokes it by
+  hand. The share goes through
   a 600 request file (never argv, same rule as the unseal call), and the
   request/response files are removed afterwards. A repair preserves Vault
   state (KV secrets, Transit keys, `photo-sse-c`), and the API needs no restart
