@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: AGPL-3.0
 # Copyright (C) 2024 Breakdown RS Contributors
+# Co-authored-by: hy3 (opencode-go)
 
 version: 2
 updates:
@@ -30,8 +31,8 @@ updates:
       # crates as a major update, so `cargo-minor-patch` (update-types-based) does
       # NOT catch them and it used to open one broken PR per crate.
       #
-      # A patterns-based group ignores `update-types`, so this group captures the
-      # 0.x family bump (major included) and moves all members together. Keep
+      # This group omits `update-types` on purpose, so it captures the 0.x
+      # family bump (major included) and moves all members together. Keep
       # `tracing-opentelemetry` in the pattern set — it tracks the same
       # `opentelemetry` version with a +1 offset (OTEL 0.33 <-> tracing-otel 0.34),
       # so it is part of the lockstep even though its major digit differs.
@@ -63,6 +64,22 @@ updates:
       - dependencies
     commit-message:
       prefix: "chore(ci)"
+    # 18 distinct actions are in use across .github/workflows/, so with the
+    # limit above a single update wave could not even be opened (Dependabot
+    # silently skips PRs past the limit). Grouping minor/patch bumps into one
+    # weekly PR keeps the wave reviewable; majors deliberately stay individual
+    # PRs — same policy as the cargo block above (focused review, and an action
+    # major can change inputs/permissions). Note `update-types` AND `patterns`
+    # are combinable: the group only takes minor/patch, everything else falls
+    # through to a per-action PR. SHA pins are still bumped by Dependabot
+    # together with the `# vX` comment, so review is by trailing comment + CI.
+    groups:
+      github-actions-minor-patch:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
   # Flutter app — Dart/pub dependencies for frontend-flutter/.
   # Dependabot's pub updater resolves with native `pub` and commits the
   # updated pubspec.lock itself, so a pub PR normally includes the lockfile
