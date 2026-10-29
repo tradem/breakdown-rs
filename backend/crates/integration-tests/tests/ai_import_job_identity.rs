@@ -137,17 +137,27 @@ async fn applied_episodes_merge_instead_of_replacing() -> Result<()> {
     let job = queue.get(id).await?.expect("job exists");
     assert_eq!(job.applied_episodes, vec![a.clone(), b.clone()]);
 
-    // Restating a known episode replaces it in place (the count is re-stated,
-    // the position is kept) instead of duplicating it.
-    let a_again = AppliedEpisode {
-        applied_count: 60,
+    // A later apply reports only the rows IT dispatched: the count is
+    // ACCUMULATED on the stored entry (57 + 3 = 60) and the position is kept,
+    // instead of replacing 57 with 3 or duplicating the episode.
+    let later = AppliedEpisode {
+        applied_count: 3,
         ..a.clone()
     };
     queue
-        .record_applied_episodes(id, std::slice::from_ref(&a_again))
+        .record_applied_episodes(id, std::slice::from_ref(&later))
         .await?;
     let job = queue.get(id).await?.expect("job exists");
-    assert_eq!(job.applied_episodes, vec![a_again, b.clone()]);
+    assert_eq!(
+        job.applied_episodes,
+        vec![
+            AppliedEpisode {
+                applied_count: 60,
+                ..a.clone()
+            },
+            b.clone()
+        ]
+    );
 
     // A retry that dispatched nothing must not clear the summary.
     queue.record_applied_episodes(id, &[]).await?;

@@ -4715,6 +4715,49 @@ async fn script_apply_changed_create_target_is_not_relabelled() {
     );
 }
 
+/// Issue #763 review (CodeRabbit): a reserved scene whose stream ALREADY holds
+/// the append (the issue #182 crash window: the command appended, the mapping
+/// write rolled back) is *recovered* by the next apply, not created by it. The
+/// recovered row must not be counted again — the scene sits where the earlier
+/// attempt put it.
+#[tokio::test]
+async fn script_apply_recovered_scene_row_is_not_counted() {
+    let fixture = ScriptApplyFixture::new();
+    let preview = ScriptContext {
+        scenes: vec![DraftScene {
+            draft_ref: "1. INT. OP".to_owned(),
+            scene_number: Some(1),
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    let first = fixture
+        .apply_with_groups(&preview, &[create_decision("1. INT. OP")], Vec::new())
+        .await
+        .expect("first apply");
+    assert_eq!(first.applied_episodes.len(), 1);
+    let scene_id = first.applied[0].aggregate_id;
+
+    // Reproduce the crash window: the scene stream exists (the fake `create`
+    // rejects a second append on it with `VersionConflict`), but the mapping row
+    // is gone, so the retry re-derives the same id and recovers the stream.
+    fixture.mappings.remove(fixture.preview_id, "1. INT. OP");
+
+    let retry = fixture
+        .apply_with_groups(&preview, &[create_decision("1. INT. OP")], Vec::new())
+        .await
+        .expect("recovered retry");
+    assert_eq!(
+        retry.applied[0].aggregate_id, scene_id,
+        "the retry must converge on the already-appended scene"
+    );
+    assert!(
+        retry.applied_episodes.is_empty(),
+        "a recovered append belongs to the earlier attempt and must not be counted: {:?}",
+        retry.applied_episodes
+    );
+}
+
 /// Issue #763 review (CodeRabbit): the retry's target must not be recorded even
 /// when the API edge resolved it — a confirmed row still belongs to the episode
 /// the first apply put it in, not to the existing episode this retry names.

@@ -2014,10 +2014,19 @@ pub fn plan_scene_apply(
         // targets; a group the request forgot is a client bug, not a default.
         // Everything else — no metadata, ungroupable metadata, and every
         // `Update` decision — applies to the explicitly picked target episode.
-        let episode = draft
-            .episode
-            .as_ref()
-            .and_then(DraftEpisode::group_key)
+        //
+        // The `Update` exclusion is not cosmetic (CodeRabbit review): updating a
+        // scene changes its details only, so the scene keeps the episode it is
+        // already in. Planning the row against the group's episode would make
+        // the applied-episode summary name an episode the scene does not live
+        // in.
+        let group_ref = match mapping.decision {
+            ApplyMappingDecision::Update { .. } => None,
+            ApplyMappingDecision::Create => {
+                draft.episode.as_ref().and_then(DraftEpisode::group_key)
+            }
+        };
+        let episode = group_ref
             .map(|group_ref| {
                 let group = episode_groups
                     .iter()

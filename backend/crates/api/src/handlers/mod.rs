@@ -7420,12 +7420,14 @@ pub async fn apply_ai_import<P: Ports>(
             // retry.
             //
             // Accepted tradeoff (documented in the delta spec): a write that
-            // fails despite the apply's own successful writes leaves
-            // `applied_episodes` empty, and the client then falls back to its
-            // kind/date copy. Durable recovery would need a persisted source for
-            // the summary that survives the failed write; the apply response
-            // still carries the same list, and a later apply that dispatches
-            // rows re-writes (and merges into) it.
+            // fails despite the apply's own successful writes leaves the job with
+            // the list from its EARLIER successful applies (or an empty one if
+            // there are none) — the episodes this request dispatched are then
+            // missing, and a client without a name falls back to its kind/date
+            // copy. Durable recovery would need a persisted source for the
+            // summary that survives the failed write; the apply response still
+            // carries what this request dispatched, and a later apply that
+            // dispatches rows merges into the column.
             if let Err(error) = state
                 .ports
                 .ai_import_queue()

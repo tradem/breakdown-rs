@@ -570,12 +570,12 @@ pub trait AiImportQueue: Send + Sync {
     /// [`record_telemetry`](Self::record_telemetry): the apply only runs on a
     /// `succeeded` job and no worker holds a claim on it.
     ///
-    /// The write MERGES into the persisted summary (an entry for a known episode
-    /// is restated in place, a new episode is appended) and an empty `episodes`
-    /// slice is a no-op. Both rules exist because a confirmed row cannot be
-    /// attributed to the retry's target: a re-apply of an applied preview
-    /// reports no entries, and replacing the column would then erase the earlier
-    /// apply's correct summary instead of keeping it.
+    /// The write MERGES into the persisted summary — a known episode's
+    /// `applied_count` is accumulated, a new episode is appended — and an empty
+    /// `episodes` slice is a no-op. Both rules exist because a confirmed row
+    /// cannot be attributed to the retry's target: a re-apply of an applied
+    /// preview reports no entries, and replacing the column would then erase the
+    /// earlier apply's correct summary instead of keeping it.
     async fn record_applied_episodes(
         &self,
         id: AiImportJobId,

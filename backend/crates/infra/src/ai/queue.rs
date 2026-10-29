@@ -902,9 +902,10 @@ impl AiImportQueue for PgAiImportQueue {
     /// what keeps a retry from destroying correct attribution (CodeRabbit
     /// review): a retry finds every row already applied and therefore reports no
     /// entries at all — replacing would wipe the first apply's summary, while a
-    /// plain union keeps it and lets a partially applied job add the episodes it
-    /// reached later. An entry for an already-known episode is replaced in place
-    /// (the count is restated, the position is kept); a new episode is appended.
+    /// union keeps it and lets a partially applied job add the episodes it
+    /// reached later. A known episode's `applied_count` is **accumulated** (a
+    /// later apply reports only its own rows) and its position is kept; a new
+    /// episode is appended.
     ///
     /// `updated_at` is bumped deliberately — the jobs list orders by it, and a
     /// job the user just applied to is the most recently *used* row. Payload
@@ -949,7 +950,20 @@ impl AiImportQueue for PgAiImportQueue {
             .unwrap_or_default();
         for entry in episodes {
             match merged.iter_mut().find(|known| known.id == entry.id) {
-                Some(known) => *known = entry.clone(),
+                // ACCUMULATE, do not replace (CodeRabbit review): a later apply
+                // reports only the rows IT dispatched, so replacing would turn a
+                // stored 57 rows + 3 new ones into 3. Rows are never dispatched
+                // twice (a confirmed mapping short-circuits), so the sum is the
+                // job's real total for that episode. The freshest non-empty label
+                // wins, because a later apply may have resolved the episode's
+                // title where the earlier one could not.
+                Some(known) => {
+                    known.applied_count = known.applied_count.saturating_add(entry.applied_count);
+                    if entry.number.is_some() || entry.name.is_some() {
+                        known.number = entry.number;
+                        known.name = entry.name.clone();
+                    }
+                }
                 None => merged.push(entry.clone()),
             }
         }

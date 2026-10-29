@@ -77,9 +77,9 @@ A row SHALL only be attributed to an episode when **this** apply dispatched it.
 A row whose mapping an earlier attempt already confirmed stays where that
 attempt put it, so it SHALL NOT be attributed to the retry's target — neither by
 id nor by label — because the retry's target need not be the scene's home. The
-persistence SHALL therefore **merge** instead of replace: an entry for a known
-episode is restated in place, a new episode is appended, and an empty list is a
-no-op. A re-apply of an applied preview contributes nothing and the earlier,
+persistence SHALL therefore **merge** instead of replace: a known episode's
+`applied_count` is accumulated with the rows the later apply dispatched, a new
+episode is appended, and an empty list is a no-op. A re-apply of an applied preview contributes nothing and the earlier,
 correctly attributed summary survives; a partially applied job adds the episodes
 it reached later.
 
@@ -107,14 +107,20 @@ never a name that contradicts the stored episode.
 
 #### Scenario: A failed summary write degrades instead of failing the apply
 - **WHEN** the scene rows applied successfully but persisting the summary fails
-- **THEN** the apply still answers `200` with the summary in its body, the job's
-  column stays empty, and the client renders its kind/date copy
+- **THEN** the apply still answers `200` with what it dispatched in its body, the
+  job keeps the list from its earlier successful applies (or an empty one), and a
+  client without a name renders its kind/date copy
 
-#### Scenario: A reapply labels from what is persisted, not from the request
+#### Scenario: A reapply with a changed create target adds nothing
 - **WHEN** an episode group already has a mapping and the reapply carries a
   changed `Create` target
-- **THEN** the entry keeps its `applied_count` with no number/name, so the summary
-  never contradicts the persisted episode
+- **THEN** the reapply contributes no entry — the persisted episode keeps the
+  first apply's number/title, and the earlier entry survives the merge
+
+#### Scenario: A later apply accumulates the count
+- **WHEN** an earlier apply recorded 57 rows for episode A and a later apply
+  dispatches 3 more into it
+- **THEN** the summary reports 60 for A, not 3
 
 #### Scenario: An already-applied row is never re-attributed
 - **WHEN** the first apply lands a scene in episode A and a retry targets

@@ -52,6 +52,7 @@ use breakdown_core::ai::{
 use breakdown_core::block::BlockView;
 use breakdown_core::episode::views::EpisodeView;
 use breakdown_core::membership::Role;
+use breakdown_core::scene::views::SceneView;
 use breakdown_core::shared::{AggregateVersion, BlockId, EpisodeId, ProjectId, SeasonId, UserId};
 use chrono::Utc;
 use common::FakePorts;
@@ -1045,6 +1046,150 @@ async fn seed_multi_episode_script_job(
     let job_id = job.id;
     ports.ai_import_queue.seed(job).await;
     job_id
+}
+
+/// Issue #763 review (CodeRabbit): an `Update` row changes details only — the
+/// scene keeps its episode — so a grouped `Update` must be attributed to the
+/// primary episode, never to the group's target.
+#[tokio::test]
+async fn apply_ai_import_attributes_a_grouped_update_to_the_primary_episode() {
+    let ports = FakePorts::default();
+    let block_id = BlockId::from_uuid(Uuid::now_v7());
+    *ports.episode_repo.block_id_override.lock().await = Some(block_id);
+    seed_ai_block_access(&ports, block_id).await;
+    let queue = ports.ai_import_queue.clone();
+    let job_id = seed_multi_episode_script_job(&ports, Some(block_id)).await;
+
+    // The primary target episode A holds the scene the reviewer updates.
+    let episode_a = EpisodeId::new();
+    let episode_b = EpisodeId::new();
+    {
+        let mut episodes = ports.episode_repo.episodes.lock().await;
+        for (id, number, name) in [(episode_a, 299, "Erlösung"), (episode_b, 300, "Heimkehr")] {
+            episodes.insert(
+                id.0,
+                EpisodeView {
+                    id: id.0,
+                    block_id,
+                    project_id: ProjectId::from_uuid(Uuid::now_v7()),
+                    number,
+                    name: Some(name.to_owned()),
+                    version: AggregateVersion::INITIAL,
+                    updated_at: Utc::now(),
+                },
+            );
+        }
+    }
+    // The scene the Update targets lives in episode A (the handler rejects a
+    // cross-episode Update target, so this is the only reachable shape).
+    let scene_id = Uuid::now_v7();
+    let second_scene_id = Uuid::now_v7();
+    ports.scene_repo.scenes.lock().await.insert(
+        second_scene_id,
+        SceneView {
+            id: second_scene_id,
+            episode_id: episode_a,
+            scene_number: Some(2),
+            location: Some("Küche".to_owned()),
+            mood: None,
+            is_schedule_set: false,
+            summary: None,
+            script_day: None,
+            shooting_day_ids: Vec::new(),
+            assigned_characters: Vec::new(),
+            outfit_beats: Vec::new(),
+            source: None,
+            version: AggregateVersion::INITIAL,
+            updated_at: Utc::now(),
+        },
+    );
+    ports.scene_repo.scenes.lock().await.insert(
+        scene_id,
+        SceneView {
+            id: scene_id,
+            episode_id: episode_a,
+            scene_number: Some(1),
+            location: Some("OP".to_owned()),
+            mood: None,
+            is_schedule_set: false,
+            summary: None,
+            script_day: None,
+            shooting_day_ids: Vec::new(),
+            assigned_characters: Vec::new(),
+            outfit_beats: Vec::new(),
+            source: None,
+            version: AggregateVersion::INITIAL,
+            updated_at: Utc::now(),
+        },
+    );
+
+    let (status, Json(response)) = apply_ai_import::<FakePorts>(
+        State(state(ports)),
+        user(),
+        Path(job_id),
+        Json(ApplyAiImportRequest {
+            continuity_selections: Vec::new(),
+            episode_id: episode_a,
+            project_id: None,
+            uncertainty_acknowledgements: Vec::new(),
+            mappings: vec![
+                ApplyMapping {
+                    draft_ref: "scene-0".to_owned(),
+                    decision: ApplyMappingDecision::Update {
+                        aggregate_id: scene_id,
+                        version: AggregateVersion::INITIAL,
+                    },
+                    outfit_decisions: Vec::new(),
+                },
+                ApplyMapping {
+                    draft_ref: "scene-1".to_owned(),
+                    decision: ApplyMappingDecision::Update {
+                        aggregate_id: second_scene_id,
+                        version: AggregateVersion::INITIAL,
+                    },
+                    outfit_decisions: Vec::new(),
+                },
+            ],
+            accept_as_is: true,
+            edit_distance: 0,
+            // The row carries `Ep.: 299` metadata, so the reviewer had to map a
+            // group for it — here onto a DIFFERENT episode B.
+            episode_groups: vec![ApplyEpisodeGroupRequest {
+                episode_ref: "ep:299".to_owned(),
+                target: EpisodeTarget::Existing {
+                    episode_id: episode_b,
+                },
+            }],
+            shooting_days: Vec::new(),
+        }),
+    )
+    .await
+    .expect("an in-block grouped update should apply");
+
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        response.applied_episodes.len(),
+        1,
+        "only the scene's own episode may be named: {:?}",
+        response.applied_episodes
+    );
+    assert_eq!(
+        response.applied_episodes[0].id, episode_a.0,
+        "an updated scene stays in its own — the primary — episode"
+    );
+    assert_eq!(response.applied_episodes[0].number, Some(299));
+    assert_eq!(
+        response.applied_episodes[0].applied_count, 2,
+        "both updated rows live in the primary episode"
+    );
+    let stored = queue
+        .applied_episodes
+        .lock()
+        .await
+        .first()
+        .cloned()
+        .expect("the apply recorded the summary");
+    assert_eq!(stored.1, response.applied_episodes);
 }
 
 /// Issue #763 (CodeRabbit review): the happy path of an **existing** group

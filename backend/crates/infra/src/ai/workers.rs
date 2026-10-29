@@ -2288,44 +2288,51 @@ where
         let reserved_id = stored
             .filter(|mapping| mapping.is_reserved())
             .map(|mapping| mapping.aggregate_id);
+        let mut appended = true;
         let (aggregate_id, version) = if let Some(candidate_id) = reserved_id {
-            self.create_scene_reserved(
-                actor,
-                ReservedSceneDraft {
-                    preview_id,
-                    draft_ref,
-                    candidate_id,
-                    episode_id,
-                    project_id,
-                    details,
-                },
-            )
-            .await?
+            let (id, version, appended_now) = self
+                .create_scene_reserved(
+                    actor,
+                    ReservedSceneDraft {
+                        preview_id,
+                        draft_ref,
+                        candidate_id,
+                        episode_id,
+                        project_id,
+                        details,
+                    },
+                )
+                .await?;
+            appended = appended_now;
+            (id, version)
         } else {
             match &row.scene {
                 SceneApplyCommand::Create(_) => {
-                    self.create_scene_reserved(
-                        actor,
-                        ReservedSceneDraft {
-                            preview_id,
-                            draft_ref: draft_ref.clone(),
-                            // Derived, never the planner's fresh id: an apply id
-                            // must be re-derivable after a crash so the
-                            // aggregate's `ExpectedVersion::Empty` guard rejects
-                            // the duplicate instead of creating a second scene
-                            // (issue #182). The planner's id is not used.
-                            candidate_id: derive_id(
+                    let (id, version, appended_now) = self
+                        .create_scene_reserved(
+                            actor,
+                            ReservedSceneDraft {
                                 preview_id,
-                                &draft_ref,
-                                mapping_kind::SCENE,
-                                PRIMARY_ORDINAL,
-                            ),
-                            episode_id,
-                            project_id,
-                            details,
-                        },
-                    )
-                    .await?
+                                draft_ref: draft_ref.clone(),
+                                // Derived, never the planner's fresh id: an apply id
+                                // must be re-derivable after a crash so the
+                                // aggregate's `ExpectedVersion::Empty` guard rejects
+                                // the duplicate instead of creating a second scene
+                                // (issue #182). The planner's id is not used.
+                                candidate_id: derive_id(
+                                    preview_id,
+                                    &draft_ref,
+                                    mapping_kind::SCENE,
+                                    PRIMARY_ORDINAL,
+                                ),
+                                episode_id,
+                                project_id,
+                                details,
+                            },
+                        )
+                        .await?;
+                    appended = appended_now;
+                    (id, version)
                 }
                 SceneApplyCommand::Update(command) => {
                     let command = command.clone();
@@ -2352,7 +2359,15 @@ where
                 aggregate_id,
                 version,
             },
-            AppliedRowState::AppliedNow,
+            if appended {
+                AppliedRowState::AppliedNow
+            } else {
+                // The reserved stream already held our append: another attempt
+                // (a crash retry, or the winner of a concurrent duplicate race)
+                // created this scene, and it may live in a different episode than
+                // this request names. Count nothing.
+                AppliedRowState::AlreadyApplied
+            },
         ))
     }
 
@@ -3119,11 +3134,20 @@ where
     /// command runs against that id. A `VersionConflict` on the reserved
     /// stream proves our own earlier append, so `recover_version` treats it
     /// as success instead of duplicating the scene.
+    /// Create the scene under its reserved id, reporting whether THIS call
+    /// appended the `SceneCreated` event.
+    ///
+    /// `false` means the reserved stream already held our append — a crash
+    /// retry, or a concurrent duplicate that won the `ExpectedVersion::Empty`
+    /// race and was recovered through `created_now` (issue #763 review). The
+    /// applied-episode summary must not count such a row again: the scene sits
+    /// where the winning attempt put it, which is not necessarily this request's
+    /// episode target.
     async fn create_scene_reserved(
         &self,
         actor: UserId,
         draft: ReservedSceneDraft,
-    ) -> Result<(Uuid, AggregateVersion), DomainError> {
+    ) -> Result<(Uuid, AggregateVersion, bool), DomainError> {
         let ReservedSceneDraft {
             preview_id,
             draft_ref,
@@ -3143,7 +3167,7 @@ where
             ))
             .await?;
         let id = reservation.aggregate_id;
-        let version = recover_version(
+        let outcome = created_now(
             self.scene_commands
                 .create(
                     actor,
@@ -3164,9 +3188,9 @@ where
                         },
                     },
                 )
-                .await
-                .map(|(_, version)| version),
+                .await,
         )?;
+        let version = outcome.version;
         self.mappings
             .insert(AiImportMapping {
                 preview_id: reservation.preview_id,
@@ -3177,7 +3201,7 @@ where
                 aggregate_version: version,
             })
             .await?;
-        Ok((id, version))
+        Ok((id, version, outcome.appended))
     }
 
     /// The schedule-apply machinery driving one row's day resolution and

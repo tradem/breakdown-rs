@@ -2005,6 +2005,55 @@ fn plan_resolves_an_existing_group_target() {
     }
 }
 
+/// Issue #763 review (CodeRabbit): updating a scene changes its details only, so
+/// an `Update` row is planned against the picked episode even when the draft row
+/// carries episode-group metadata — the scene keeps the episode it already has,
+/// and the applied-episode summary must not name the group's target instead.
+#[test]
+fn plan_ignores_the_episode_group_for_an_update_row() {
+    let preview = preview_with_episode(Some(DraftEpisode {
+        number: Some(3),
+        title: None,
+    }));
+    let picked = EpisodeId::new();
+    let group_target = EpisodeId::new();
+    assert_ne!(picked, group_target);
+    let plan = plan_scene_apply(
+        &preview,
+        &[ApplyMapping {
+            draft_ref: "scene-1".into(),
+            decision: ApplyMappingDecision::Update {
+                aggregate_id: Uuid::now_v7(),
+                version: AggregateVersion::INITIAL,
+            },
+            outfit_decisions: Vec::new(),
+        }],
+        picked,
+        None,
+        AiImportJobId(Uuid::now_v7()),
+        &ReviewerDecisions {
+            continuity_selections: &[],
+            episode_groups: &[EpisodeGroupPlan {
+                episode_ref: "ep:3".into(),
+                target: EpisodeTarget::Existing {
+                    episode_id: group_target,
+                },
+            }],
+            shooting_days: &[],
+            acknowledged_uncertainties: &[],
+            categories: &[],
+        },
+    )
+    .expect("plan");
+    match &plan.scenes[0].episode {
+        PlannedEpisode::Existing(episode_id) => assert_eq!(
+            *episode_id, picked,
+            "an Update row keeps the picked episode, not the group's target"
+        ),
+        other => panic!("expected Existing, got {other:?}"),
+    }
+}
+
 #[test]
 fn plan_defaults_rows_without_episode_metadata_to_the_picked_episode() {
     let default_episode = EpisodeId::new();
