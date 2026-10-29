@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0
 # Copyright (C) 2024 Breakdown RS Contributors
 # Co-authored-by: hy3 (opencode-go)
+# Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 version: 2
 updates:
@@ -66,13 +67,28 @@ updates:
       prefix: "chore(ci)"
     # 18 distinct actions are in use across .github/workflows/, so with the
     # limit above a single update wave could not even be opened (Dependabot
-    # silently skips PRs past the limit). Grouping minor/patch bumps into one
-    # weekly PR keeps the wave reviewable; majors deliberately stay individual
-    # PRs — same policy as the cargo block above (focused review, and an action
-    # major can change inputs/permissions). Note `update-types` AND `patterns`
-    # are combinable: the group only takes minor/patch, everything else falls
-    # through to a per-action PR. SHA pins are still bumped by Dependabot
-    # together with the `# vX` comment, so review is by trailing comment + CI.
+    # silently skips PRs past the limit). Grouping keeps the wave reviewable.
+    # SHA pins are still bumped by Dependabot together with the `# vX` comment,
+    # so review is by trailing comment + CI.
+    #
+    # TWO groups are needed, and the order matters — Dependabot assigns a
+    # dependency to the FIRST group it matches:
+    #
+    # 1. `github-actions-minor-patch` — version-classifiable minor/patch bumps.
+    # 2. `github-actions-unclassified` — the catch-all. It carries NO
+    #    `update-types` on purpose: an `update-types` filter forces Dependabot
+    #    to derive a semver for the dependency first, and for SHA-pinned
+    #    actions it does that from the release TAG. Pins whose commit has no
+    #    tag (Swatinem/rust-cache was pinned to an untagged commit, so #756
+    #    escaped the group as a single-action PR while tagged actions like
+    #    taiki-e/install-action and docker/login-action were grouped in #754)
+    #    are unclassifiable and would fall out of a filtered group. Without
+    #    `update-types` they land here instead — grouped, not per-action.
+    #    Action MAJORS also end up here (deliberate: they stay isolated from the
+    #    routine wave — an action major can change inputs/permissions), so the
+    #    worst case is 2 action PRs per week instead of one per action.
+    #    Do NOT add `update-types: [major]` here — that would re-introduce the
+    #    very filter that dropped the untagged pins.
     groups:
       github-actions-minor-patch:
         patterns:
@@ -80,6 +96,9 @@ updates:
         update-types:
           - "minor"
           - "patch"
+      github-actions-unclassified:
+        patterns:
+          - "*"
   # Flutter app — Dart/pub dependencies for frontend-flutter/.
   # Dependabot's pub updater resolves with native `pub` and commits the
   # updated pubspec.lock itself, so a pub PR normally includes the lockfile
