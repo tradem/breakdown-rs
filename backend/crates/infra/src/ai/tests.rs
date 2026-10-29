@@ -619,6 +619,9 @@ impl LlmClient for FakeLlmClient {
                     ..Default::default()
                 }],
                 uncertainties: Vec::new(),
+                scenes_detected: 0,
+                scenes_extracted: 0,
+                scenes_synthesized: 0,
             },
             LlmCallUsage::default(),
         ))
@@ -643,6 +646,9 @@ impl LlmClient for FakeLlmClientWithoutSceneNumber {
                     ..Default::default()
                 }],
                 uncertainties: Vec::new(),
+                scenes_detected: 0,
+                scenes_extracted: 0,
+                scenes_synthesized: 0,
             },
             LlmCallUsage::default(),
         ))
@@ -673,6 +679,9 @@ impl LlmClient for FakeLlmClientWithEpisodeTitle {
                     ..Default::default()
                 }],
                 uncertainties: Vec::new(),
+                scenes_detected: 0,
+                scenes_extracted: 0,
+                scenes_synthesized: 0,
             },
             LlmCallUsage::default(),
         ))
@@ -985,6 +994,174 @@ async fn script_worker_assembles_preview_and_telemetry() {
     assert_eq!(state.telemetry[0].apply_state.accept_as_is(), None);
 }
 
+// ===========================================================================
+// Scene reconciliation (issue #758)
+// ===========================================================================
+
+/// Script worker with an injectable LLM client, so a test can vary the answer
+/// per chunk (the shared [`script_worker`] helper always uses `FakeLlmClient`).
+fn script_worker_with_client<C: LlmClient + 'static>(
+    queue: Arc<FakeQueue>,
+    previews: Arc<MemoryAiPreviewStore>,
+    client: C,
+) -> ScriptImportWorker<FakeQueue, C> {
+    ScriptImportWorker {
+        queue,
+        client: Arc::new(client),
+        previews: previews as Arc<dyn AiPreviewStore>,
+        extractor: super::PdfTextExtractor::new(1024 * 1024, std::time::Duration::from_secs(30)),
+        provider: LlmProvider::Neuralwatt,
+        model: "deepseek-v4-flash".to_owned(),
+        prompt: "fixture prompt".to_owned(),
+        bounds: AiImportBounds {
+            max_chunks_per_script: 4,
+            ..AiImportBounds::default()
+        },
+        pricing: None,
+        decision: None,
+    }
+}
+
+/// Two scene headings in the production German short form, the first under an
+/// `Ep.:` marker, so the deterministic scan has full metadata to reconcile
+/// against.
+const TWO_SCENE_GERMAN_SCRIPT: &str =
+    "Ep.: 3 (Der Unfall)\n1. I/T - K\u{dc}CHE\nA\n\n2. A/N - PARK\nB";
+
+/// Returns an EMPTY `scenes` array for the first chunk and one row for every
+/// later chunk — the exact model behaviour that silently deleted 53 of 57
+/// scenes in the field report (issue #758).
+#[derive(Clone, Default)]
+struct FakeLlmClientEmptyFirstChunk {
+    calls: Arc<AtomicUsize>,
+}
+
+#[async_trait]
+impl LlmClient for FakeLlmClientEmptyFirstChunk {
+    async fn chat_constrained(
+        &self,
+        _request: LlmChatRequest,
+    ) -> Result<LlmCallOutcome<ScriptContext>, DomainError> {
+        let call = self.calls.fetch_add(1, Ordering::SeqCst);
+        let scenes = if call == 0 {
+            Vec::new()
+        } else {
+            vec![DraftScene {
+                draft_ref: "model-row".to_owned(),
+                summary: Some("B".to_owned()),
+                ..Default::default()
+            }]
+        };
+        Ok(LlmCallOutcome::new(
+            ScriptContext {
+                title: Some("fixture".to_owned()),
+                scenes,
+                ..Default::default()
+            },
+            LlmCallUsage::default(),
+        ))
+    }
+}
+
+/// Issue #758 (data loss): a chunk whose extraction returns an empty `scenes`
+/// array must not lose its scene. The row is rebuilt from the deterministic
+/// heading, carries a non-blocking `DroppedRow` uncertainty, and the job still
+/// succeeds — the reviewer sees the scene instead of a short preview.
+#[tokio::test]
+async fn script_worker_rebuilds_a_chunk_that_returned_no_scenes() {
+    let queue = Arc::new(FakeQueue::default());
+    let previews = Arc::new(MemoryAiPreviewStore::default());
+    let client = FakeLlmClientEmptyFirstChunk::default();
+    let calls = Arc::clone(&client.calls);
+    let worker = script_worker_with_client(Arc::clone(&queue), Arc::clone(&previews), client);
+    let job = script_job(AiImportJobId::new());
+
+    let handle = worker
+        .process_text(&job, "test-worker", TWO_SCENE_GERMAN_SCRIPT)
+        .await
+        .expect("a chunk without rows must not fail the job");
+    assert_eq!(calls.load(Ordering::SeqCst), 2, "one paid call per chunk");
+
+    let payload = previews.get(&handle).await.unwrap().unwrap();
+    let preview: ScriptContext = serde_json::from_slice(&payload).unwrap();
+    assert_eq!(
+        preview.scenes.len(),
+        2,
+        "both detected headings must reach the preview"
+    );
+    // Counters: the document stated two scenes, the model produced one, one row
+    // was rebuilt from the heading. The shortfall stays visible.
+    assert_eq!(preview.scenes_detected, 2);
+    assert_eq!(preview.scenes_extracted, 1);
+    assert_eq!(preview.scenes_synthesized, 1);
+
+    // The rebuilt row carries ONLY document metadata — never model output.
+    let rebuilt = &preview.scenes[0];
+    assert_eq!(rebuilt.scene_number, Some(1));
+    assert_eq!(rebuilt.mood.as_deref(), Some("I/T"));
+    assert_eq!(
+        rebuilt.episode.as_ref().and_then(|episode| episode.number),
+        Some(3)
+    );
+    assert_eq!(rebuilt.summary, None);
+    assert!(rebuilt.characters.is_empty());
+    assert!(rebuilt.outfits.is_empty());
+    assert_eq!(
+        rebuilt.scene_score, None,
+        "a row without content is never scored"
+    );
+    // The model's row is untouched and comes second.
+    assert_eq!(preview.scenes[1].summary.as_deref(), Some("B"));
+
+    // Code-keyed degradation: one non-blocking uncertainty naming the row.
+    assert_eq!(preview.uncertainties.len(), 1);
+    let uncertainty = &preview.uncertainties[0];
+    assert_eq!(uncertainty.scene_index, 0);
+    assert_eq!(uncertainty.field, "extraction");
+    assert_eq!(uncertainty.kind, UncertaintyKind::DroppedRow);
+    assert!(
+        !uncertainty.kind.blocks_apply(),
+        "the reviewer must still be able to apply the preview"
+    );
+    assert!(uncertainty.note.contains("I/T"), "note names the heading");
+
+    let state = queue.state.lock().unwrap();
+    assert_eq!(state.succeeded, vec![job.id], "the job still succeeds");
+    assert_eq!(state.telemetry.len(), 1);
+    assert_eq!(state.telemetry[0].scenes_detected, 2);
+    assert_eq!(state.telemetry[0].scenes_extracted, 1);
+    assert_eq!(state.telemetry[0].scenes_synthesized, 1);
+}
+
+/// A healthy run must record `detected == extracted` and synthesize nothing, so
+/// the field report's shortfall would have been visible immediately.
+#[tokio::test]
+async fn script_worker_records_matching_scene_counters_for_a_healthy_run() {
+    let queue = Arc::new(FakeQueue::default());
+    let previews = Arc::new(MemoryAiPreviewStore::default());
+    let worker = script_worker(Arc::clone(&queue), Arc::clone(&previews), 4);
+    let job = script_job(AiImportJobId::new());
+
+    let handle = worker
+        .process_text(&job, "test-worker", TWO_SCENE_GERMAN_SCRIPT)
+        .await
+        .unwrap();
+    let payload = previews.get(&handle).await.unwrap().unwrap();
+    let preview: ScriptContext = serde_json::from_slice(&payload).unwrap();
+    assert_eq!(preview.scenes_detected, 2);
+    assert_eq!(preview.scenes_extracted, 2);
+    assert_eq!(preview.scenes_synthesized, 0);
+    assert!(
+        preview.uncertainties.is_empty(),
+        "a healthy run records no degradation"
+    );
+
+    let state = queue.state.lock().unwrap();
+    assert_eq!(state.telemetry[0].scenes_detected, 2);
+    assert_eq!(state.telemetry[0].scenes_extracted, 2);
+    assert_eq!(state.telemetry[0].scenes_synthesized, 0);
+}
+
 /// Issue #695: the model classifies per chunk, so a document-global conflict
 /// (the same figure under two cast sections with differing non-default
 /// categories) is only visible after the chunk rows are merged. The fake
@@ -1022,6 +1199,9 @@ impl LlmClient for FakeLlmClientWithConflictingCategories {
                     },
                 ],
                 uncertainties: Vec::new(),
+                scenes_detected: 0,
+                scenes_extracted: 0,
+                scenes_synthesized: 0,
             },
             LlmCallUsage::default(),
         ))
@@ -2263,6 +2443,9 @@ async fn apply_script_concurrent_applies_create_one_scene_per_draft() {
             },
         ],
         uncertainties: Vec::new(),
+        scenes_detected: 0,
+        scenes_extracted: 0,
+        scenes_synthesized: 0,
     };
     let preview_id = AiImportJobId::new();
     let decisions = vec![
@@ -4196,6 +4379,9 @@ impl LlmClient for OutfitClient {
                     ..Default::default()
                 }],
                 uncertainties: Vec::new(),
+                scenes_detected: 0,
+                scenes_extracted: 0,
+                scenes_synthesized: 0,
             },
             LlmCallUsage::default(),
         ))
@@ -5163,6 +5349,9 @@ impl LlmClient for TwoChunkScoringLlmClient {
                 title: Some("fixture".to_owned()),
                 scenes: vec![scene],
                 uncertainties: Vec::new(),
+                scenes_detected: 0,
+                scenes_extracted: 0,
+                scenes_synthesized: 0,
             },
             LlmCallUsage::default(),
         ))

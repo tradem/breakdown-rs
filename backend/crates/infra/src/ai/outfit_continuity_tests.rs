@@ -106,6 +106,9 @@ fn preview(scenes: Vec<DraftScene>) -> ScriptContext {
         title: None,
         scenes,
         uncertainties: Vec::new(),
+        scenes_detected: 0,
+        scenes_extracted: 0,
+        scenes_synthesized: 0,
     }
 }
 

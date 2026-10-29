@@ -13,10 +13,13 @@ import 'package:built_value/serializer.dart';
 
 part 'script_context.g.dart';
 
-/// Static LLM target for script extraction. Optional fields express the null-on-doubt rule: uncertain values must not be asserted by the model.
+/// Static LLM target for script extraction. Optional fields express the null-on-doubt rule: uncertain values must not be asserted by the model.  The three `scenes_*` counters are **server-derived reconciliation data** (issue #758), not model output: the extraction worker overwrites them at the storing boundary from what the deterministic scan and the model actually produced. They exist because the pipeline had no way to notice that a 57-heading script had turned into a 4-row preview — every consumer saw only `scenes.len()`. All three are additive with `serde(default)`, so previews stored before this field existed still load (they simply carry `0`, which a client renders as \"not recorded\").
 ///
 /// Properties:
 /// * [scenes]
+/// * [scenesDetected] - Scene headings the deterministic scan detected — the chunk count after [`merge_duplicate_scene_numbers`] (issue #758). This is the number the document states, not the number the model produced.
+/// * [scenesExtracted] - Preview rows the model itself returned, summed over all chunks (issue #758). Deliberately **excludes** rows rebuilt from document metadata, so `scenes_extracted < scenes_detected` is the visible shortfall.
+/// * [scenesSynthesized] - Preview rows rebuilt from the deterministic heading because their chunk returned no rows at all (issue #758). `scenes.len()` is `scenes_extracted + scenes_synthesized`; a nonzero value is the code-keyed degradation signal, mirrored per row by a `DroppedRow` uncertainty with `field = \"extraction\"`.
 /// * [title]
 /// * [uncertainties]
 @BuiltValue()
@@ -24,6 +27,18 @@ abstract class ScriptContext
     implements Built<ScriptContext, ScriptContextBuilder> {
   @BuiltValueField(wireName: r'scenes')
   BuiltList<DraftScene> get scenes;
+
+  /// Scene headings the deterministic scan detected — the chunk count after [`merge_duplicate_scene_numbers`] (issue #758). This is the number the document states, not the number the model produced.
+  @BuiltValueField(wireName: r'scenes_detected')
+  int? get scenesDetected;
+
+  /// Preview rows the model itself returned, summed over all chunks (issue #758). Deliberately **excludes** rows rebuilt from document metadata, so `scenes_extracted < scenes_detected` is the visible shortfall.
+  @BuiltValueField(wireName: r'scenes_extracted')
+  int? get scenesExtracted;
+
+  /// Preview rows rebuilt from the deterministic heading because their chunk returned no rows at all (issue #758). `scenes.len()` is `scenes_extracted + scenes_synthesized`; a nonzero value is the code-keyed degradation signal, mirrored per row by a `DroppedRow` uncertainty with `field = \"extraction\"`.
+  @BuiltValueField(wireName: r'scenes_synthesized')
+  int? get scenesSynthesized;
 
   @BuiltValueField(wireName: r'title')
   String? get title;
@@ -61,6 +76,27 @@ class _$ScriptContextSerializer implements PrimitiveSerializer<ScriptContext> {
       object.scenes,
       specifiedType: const FullType(BuiltList, [FullType(DraftScene)]),
     );
+    if (object.scenesDetected != null) {
+      yield r'scenes_detected';
+      yield serializers.serialize(
+        object.scenesDetected,
+        specifiedType: const FullType(int),
+      );
+    }
+    if (object.scenesExtracted != null) {
+      yield r'scenes_extracted';
+      yield serializers.serialize(
+        object.scenesExtracted,
+        specifiedType: const FullType(int),
+      );
+    }
+    if (object.scenesSynthesized != null) {
+      yield r'scenes_synthesized';
+      yield serializers.serialize(
+        object.scenesSynthesized,
+        specifiedType: const FullType(int),
+      );
+    }
     if (object.title != null) {
       yield r'title';
       yield serializers.serialize(
@@ -104,6 +140,30 @@ class _$ScriptContextSerializer implements PrimitiveSerializer<ScriptContext> {
             specifiedType: const FullType(BuiltList, [FullType(DraftScene)]),
           ) as BuiltList<DraftScene>;
           result.scenes.replace(valueDes);
+          break;
+        case r'scenes_detected':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType.nullable(int),
+          ) as int?;
+          if (valueDes == null) continue;
+          result.scenesDetected = valueDes;
+          break;
+        case r'scenes_extracted':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType.nullable(int),
+          ) as int?;
+          if (valueDes == null) continue;
+          result.scenesExtracted = valueDes;
+          break;
+        case r'scenes_synthesized':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType.nullable(int),
+          ) as int?;
+          if (valueDes == null) continue;
+          result.scenesSynthesized = valueDes;
           break;
         case r'title':
           final valueDes = serializers.deserialize(

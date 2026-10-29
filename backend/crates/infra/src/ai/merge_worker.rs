@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 // Co-authored-by: mimo-v2.5 (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 use std::sync::Arc;
 use std::time::Instant;
@@ -134,6 +135,11 @@ where
                     model: None,
                     doc_kind: Some(DocumentKind::Schedule),
                     chunk_count: 0,
+                    // The merge joins an already extracted preview; it detects
+                    // no scene headings of its own (issue #758).
+                    scenes_detected: 0,
+                    scenes_extracted: 0,
+                    scenes_synthesized: 0,
                     tokens_in: 0,
                     tokens_out: 0,
                     cached_tokens_in: 0,

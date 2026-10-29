@@ -22,6 +22,12 @@ class _$JobTelemetrySummary extends JobTelemetrySummary {
   @override
   final LlmProvider? provider;
   @override
+  final int? scenesDetected;
+  @override
+  final int? scenesExtracted;
+  @override
+  final int? scenesSynthesized;
+  @override
   final int tokensIn;
   @override
   final int tokensOut;
@@ -38,6 +44,9 @@ class _$JobTelemetrySummary extends JobTelemetrySummary {
       required this.latencyTotalMs,
       this.model,
       this.provider,
+      this.scenesDetected,
+      this.scenesExtracted,
+      this.scenesSynthesized,
       required this.tokensIn,
       required this.tokensOut})
       : super._();
@@ -61,6 +70,9 @@ class _$JobTelemetrySummary extends JobTelemetrySummary {
         latencyTotalMs == other.latencyTotalMs &&
         model == other.model &&
         provider == other.provider &&
+        scenesDetected == other.scenesDetected &&
+        scenesExtracted == other.scenesExtracted &&
+        scenesSynthesized == other.scenesSynthesized &&
         tokensIn == other.tokensIn &&
         tokensOut == other.tokensOut;
   }
@@ -75,6 +87,9 @@ class _$JobTelemetrySummary extends JobTelemetrySummary {
     _$hash = $jc(_$hash, latencyTotalMs.hashCode);
     _$hash = $jc(_$hash, model.hashCode);
     _$hash = $jc(_$hash, provider.hashCode);
+    _$hash = $jc(_$hash, scenesDetected.hashCode);
+    _$hash = $jc(_$hash, scenesExtracted.hashCode);
+    _$hash = $jc(_$hash, scenesSynthesized.hashCode);
     _$hash = $jc(_$hash, tokensIn.hashCode);
     _$hash = $jc(_$hash, tokensOut.hashCode);
     _$hash = $jf(_$hash);
@@ -91,6 +106,9 @@ class _$JobTelemetrySummary extends JobTelemetrySummary {
           ..add('latencyTotalMs', latencyTotalMs)
           ..add('model', model)
           ..add('provider', provider)
+          ..add('scenesDetected', scenesDetected)
+          ..add('scenesExtracted', scenesExtracted)
+          ..add('scenesSynthesized', scenesSynthesized)
           ..add('tokensIn', tokensIn)
           ..add('tokensOut', tokensOut))
         .toString();
@@ -132,6 +150,21 @@ class JobTelemetrySummaryBuilder
   LlmProvider? get provider => _$this._provider;
   set provider(LlmProvider? provider) => _$this._provider = provider;
 
+  int? _scenesDetected;
+  int? get scenesDetected => _$this._scenesDetected;
+  set scenesDetected(int? scenesDetected) =>
+      _$this._scenesDetected = scenesDetected;
+
+  int? _scenesExtracted;
+  int? get scenesExtracted => _$this._scenesExtracted;
+  set scenesExtracted(int? scenesExtracted) =>
+      _$this._scenesExtracted = scenesExtracted;
+
+  int? _scenesSynthesized;
+  int? get scenesSynthesized => _$this._scenesSynthesized;
+  set scenesSynthesized(int? scenesSynthesized) =>
+      _$this._scenesSynthesized = scenesSynthesized;
+
   int? _tokensIn;
   int? get tokensIn => _$this._tokensIn;
   set tokensIn(int? tokensIn) => _$this._tokensIn = tokensIn;
@@ -154,6 +187,9 @@ class JobTelemetrySummaryBuilder
       _latencyTotalMs = $v.latencyTotalMs;
       _model = $v.model;
       _provider = $v.provider;
+      _scenesDetected = $v.scenesDetected;
+      _scenesExtracted = $v.scenesExtracted;
+      _scenesSynthesized = $v.scenesSynthesized;
       _tokensIn = $v.tokensIn;
       _tokensOut = $v.tokensOut;
       _$v = null;
@@ -188,6 +224,9 @@ class JobTelemetrySummaryBuilder
               latencyTotalMs, r'JobTelemetrySummary', 'latencyTotalMs'),
           model: model,
           provider: provider,
+          scenesDetected: scenesDetected,
+          scenesExtracted: scenesExtracted,
+          scenesSynthesized: scenesSynthesized,
           tokensIn: BuiltValueNullFieldError.checkNotNull(
               tokensIn, r'JobTelemetrySummary', 'tokensIn'),
           tokensOut: BuiltValueNullFieldError.checkNotNull(

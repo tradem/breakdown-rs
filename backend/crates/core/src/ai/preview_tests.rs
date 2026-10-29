@@ -84,6 +84,9 @@ fn planner_uses_update_for_a_previously_mapped_row() {
             ..Default::default()
         }],
         uncertainties: Vec::new(),
+        scenes_detected: 0,
+        scenes_extracted: 0,
+        scenes_synthesized: 0,
     };
     let existing_id = Uuid::now_v7();
     let plan = plan_scene_apply(
@@ -3263,6 +3266,9 @@ fn a_continued_outfit_plans_the_beat_without_creating_a_look() {
             continuity_scene("target", &["BEN"], vec![continued_outfit("BEN", "source")]),
         ],
         uncertainties: Vec::new(),
+        scenes_detected: 0,
+        scenes_extracted: 0,
+        scenes_synthesized: 0,
     };
     let plan = plan_continuity(&preview, &[]).expect("plan");
     let continuation = plan.scenes[1].outfits[0]
@@ -3292,6 +3298,9 @@ fn a_continuation_chain_resolves_to_the_row_that_creates_the_look() {
             continuity_scene("s3", &["BEN"], vec![continued_outfit("BEN", "s2")]),
         ],
         uncertainties: Vec::new(),
+        scenes_detected: 0,
+        scenes_extracted: 0,
+        scenes_synthesized: 0,
     };
     let plan = plan_continuity(&preview, &[]).expect("plan");
     let continuation = plan.scenes[2].outfits[0]
@@ -3310,6 +3319,9 @@ fn a_continuation_without_a_source_outfit_is_reported() {
             continuity_scene("target", &["BEN"], vec![continued_outfit("BEN", "source")]),
         ],
         uncertainties: Vec::new(),
+        scenes_detected: 0,
+        scenes_extracted: 0,
+        scenes_synthesized: 0,
     };
     let plan = plan_continuity(&preview, &[]).expect("plan");
     assert!(plan.scenes[1].outfits.is_empty());
@@ -3332,6 +3344,9 @@ fn a_continued_selection_plans_the_source_look() {
             continuity_scene("target", &["BEN"], Vec::new()),
         ],
         uncertainties: Vec::new(),
+        scenes_detected: 0,
+        scenes_extracted: 0,
+        scenes_synthesized: 0,
     };
     let selections = [OutfitContinuitySelection {
         scene_index: 1,
@@ -3358,6 +3373,9 @@ fn an_inferred_selection_plans_a_context_look_with_no_pieces() {
         title: None,
         scenes: vec![continuity_scene("target", &["BEN"], Vec::new())],
         uncertainties: Vec::new(),
+        scenes_detected: 0,
+        scenes_extracted: 0,
+        scenes_synthesized: 0,
     };
     // An inferred candidate is only offered when the context moved away from a
     // prior appearance, so the preview needs one.
@@ -3387,6 +3405,9 @@ fn an_unoffered_selection_refuses_the_plan() {
         title: None,
         scenes: vec![continuity_scene("target", &["BEN"], Vec::new())],
         uncertainties: Vec::new(),
+        scenes_detected: 0,
+        scenes_extracted: 0,
+        scenes_synthesized: 0,
     };
     let selections = [OutfitContinuitySelection {
         scene_index: 0,
@@ -3413,6 +3434,9 @@ fn two_selections_for_one_gap_refuse_the_plan() {
             continuity_scene("target", &["BEN"], Vec::new()),
         ],
         uncertainties: Vec::new(),
+        scenes_detected: 0,
+        scenes_extracted: 0,
+        scenes_synthesized: 0,
     };
     let selections = [
         OutfitContinuitySelection {
@@ -3446,6 +3470,9 @@ fn a_gap_without_a_selection_plans_no_outfit() {
             continuity_scene("target", &["BEN"], Vec::new()),
         ],
         uncertainties: Vec::new(),
+        scenes_detected: 0,
+        scenes_extracted: 0,
+        scenes_synthesized: 0,
     };
     let plan = plan_continuity(&preview, &[]).expect("plan");
     assert!(plan.scenes[1].outfits.is_empty(), "no invented look");
@@ -3525,6 +3552,9 @@ fn a_beat_ordinal_comes_from_the_preview_not_the_review_decisions() {
             continuity_scene("s2", &["BEN"], vec![explicit_outfit("BEN", "Overall")]),
         ],
         uncertainties: Vec::new(),
+        scenes_detected: 0,
+        scenes_extracted: 0,
+        scenes_synthesized: 0,
     };
     let mappings = |reject_first: bool| {
         vec![
@@ -3588,6 +3618,9 @@ fn a_continuity_selection_is_addressed_by_the_draft_figure_position() {
             continuity_scene("s2", &["ANNA", "BEN"], Vec::new()),
         ],
         uncertainties: Vec::new(),
+        scenes_detected: 0,
+        scenes_extracted: 0,
+        scenes_synthesized: 0,
     };
     let selections = [OutfitContinuitySelection {
         scene_index: 1,
@@ -3605,4 +3638,39 @@ fn a_continuity_selection_is_addressed_by_the_draft_figure_position() {
         "BEN is the second figure of the row, so its address is 1"
     );
     assert_eq!(outfit.beat_ordinal, outfit.ordinal);
+}
+
+/// Issue #758: a preview stored before the scene reconciliation counters
+/// existed still deserializes — the counters default to `0`, which a client
+/// renders as "not recorded" instead of inventing a ratio.
+#[test]
+fn stored_script_context_without_reconciliation_counters_still_loads() {
+    let stored = serde_json::json!({
+        "title": "Erlösung",
+        "scenes": [],
+        "uncertainties": [],
+    });
+    let context: ScriptContext =
+        serde_json::from_value(stored).expect("a pre-#758 preview payload must still load");
+    assert_eq!(context.scenes_detected, 0);
+    assert_eq!(context.scenes_extracted, 0);
+    assert_eq!(context.scenes_synthesized, 0);
+}
+
+/// The counters are server-derived reconciliation data, so they must survive
+/// the payload round trip — the preview header reads them off the stored blob.
+#[test]
+fn reconciliation_counters_round_trip_through_the_preview_payload() {
+    let context = ScriptContext {
+        title: None,
+        scenes: Vec::new(),
+        uncertainties: Vec::new(),
+        scenes_detected: 57,
+        scenes_extracted: 4,
+        scenes_synthesized: 53,
+    };
+    let encoded = serde_json::to_string(&context).expect("preview payload is serializable");
+    assert!(encoded.contains("\"scenes_detected\":57"));
+    let decoded: ScriptContext = serde_json::from_str(&encoded).expect("payload round trips");
+    assert_eq!(decoded, context);
 }

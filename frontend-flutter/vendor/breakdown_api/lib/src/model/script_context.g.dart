@@ -10,6 +10,12 @@ class _$ScriptContext extends ScriptContext {
   @override
   final BuiltList<DraftScene> scenes;
   @override
+  final int? scenesDetected;
+  @override
+  final int? scenesExtracted;
+  @override
+  final int? scenesSynthesized;
+  @override
   final String? title;
   @override
   final BuiltList<Uncertainty> uncertainties;
@@ -18,7 +24,12 @@ class _$ScriptContext extends ScriptContext {
       (ScriptContextBuilder()..update(updates))._build();
 
   _$ScriptContext._(
-      {required this.scenes, this.title, required this.uncertainties})
+      {required this.scenes,
+      this.scenesDetected,
+      this.scenesExtracted,
+      this.scenesSynthesized,
+      this.title,
+      required this.uncertainties})
       : super._();
   @override
   ScriptContext rebuild(void Function(ScriptContextBuilder) updates) =>
@@ -32,6 +43,9 @@ class _$ScriptContext extends ScriptContext {
     if (identical(other, this)) return true;
     return other is ScriptContext &&
         scenes == other.scenes &&
+        scenesDetected == other.scenesDetected &&
+        scenesExtracted == other.scenesExtracted &&
+        scenesSynthesized == other.scenesSynthesized &&
         title == other.title &&
         uncertainties == other.uncertainties;
   }
@@ -40,6 +54,9 @@ class _$ScriptContext extends ScriptContext {
   int get hashCode {
     var _$hash = 0;
     _$hash = $jc(_$hash, scenes.hashCode);
+    _$hash = $jc(_$hash, scenesDetected.hashCode);
+    _$hash = $jc(_$hash, scenesExtracted.hashCode);
+    _$hash = $jc(_$hash, scenesSynthesized.hashCode);
     _$hash = $jc(_$hash, title.hashCode);
     _$hash = $jc(_$hash, uncertainties.hashCode);
     _$hash = $jf(_$hash);
@@ -50,6 +67,9 @@ class _$ScriptContext extends ScriptContext {
   String toString() {
     return (newBuiltValueToStringHelper(r'ScriptContext')
           ..add('scenes', scenes)
+          ..add('scenesDetected', scenesDetected)
+          ..add('scenesExtracted', scenesExtracted)
+          ..add('scenesSynthesized', scenesSynthesized)
           ..add('title', title)
           ..add('uncertainties', uncertainties))
         .toString();
@@ -64,6 +84,21 @@ class ScriptContextBuilder
   ListBuilder<DraftScene> get scenes =>
       _$this._scenes ??= ListBuilder<DraftScene>();
   set scenes(ListBuilder<DraftScene>? scenes) => _$this._scenes = scenes;
+
+  int? _scenesDetected;
+  int? get scenesDetected => _$this._scenesDetected;
+  set scenesDetected(int? scenesDetected) =>
+      _$this._scenesDetected = scenesDetected;
+
+  int? _scenesExtracted;
+  int? get scenesExtracted => _$this._scenesExtracted;
+  set scenesExtracted(int? scenesExtracted) =>
+      _$this._scenesExtracted = scenesExtracted;
+
+  int? _scenesSynthesized;
+  int? get scenesSynthesized => _$this._scenesSynthesized;
+  set scenesSynthesized(int? scenesSynthesized) =>
+      _$this._scenesSynthesized = scenesSynthesized;
 
   String? _title;
   String? get title => _$this._title;
@@ -83,6 +118,9 @@ class ScriptContextBuilder
     final $v = _$v;
     if ($v != null) {
       _scenes = $v.scenes.toBuilder();
+      _scenesDetected = $v.scenesDetected;
+      _scenesExtracted = $v.scenesExtracted;
+      _scenesSynthesized = $v.scenesSynthesized;
       _title = $v.title;
       _uncertainties = $v.uncertainties.toBuilder();
       _$v = null;
@@ -109,6 +147,9 @@ class ScriptContextBuilder
       _$result = _$v ??
           _$ScriptContext._(
             scenes: scenes.build(),
+            scenesDetected: scenesDetected,
+            scenesExtracted: scenesExtracted,
+            scenesSynthesized: scenesSynthesized,
             title: title,
             uncertainties: uncertainties.build(),
           );

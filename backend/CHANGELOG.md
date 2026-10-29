@@ -28,6 +28,51 @@ tag. Never edit a released entry afterwards.
 
 ### Fixed
 
+- **A script import can no longer lose scenes silently (issue #758;
+  `core 0.47.0 → 0.48.0`, `infra 0.56.0 → 0.57.0`, `api 0.46.1 → 0.47.0`).**
+  A production import of the 57-scene script 299 "Erlösung" produced an episode
+  with 4 scenes and the job still reported `succeeded`: the extraction worker
+  pushed exactly what the model returned per chunk, so a chunk answering with an
+  empty `scenes` array deleted its scene without a log, a counter or a failure —
+  and nothing in the payload said how many headings the document actually had.
+  Three layers close that hole:
+
+  - **Per-chunk reconciliation.** After each chunk the worker compares the
+    deterministic chunk expectation with `partial.scenes.len()`. Because
+    `extract_scenes` yields exactly one chunk per detected heading (a merged
+    "index + body" pair legitimately yields a single row, so "fewer rows than
+    headings" is *not* treated as a defect), **zero rows is unambiguously a
+    loss**. Such a chunk now logs a `warn` with `job_id`, chunk index/total and
+    heading, **rebuilds the row from the deterministic heading**
+    (`scene_number`, `mood`, `episode`, `shooting_day` — all already parsed by
+    `extract_scenes`) with every content field empty, and attaches a
+    **non-blocking** `DroppedRow` uncertainty (`field = "extraction"`). The
+    reviewer therefore sees and can apply the scene; a blocking kind would make
+    the whole preview unappliable, which is the opposite of preserving data.
+    Dropping the row is no longer a possible outcome, and the job still
+    succeeds — the extraction is already paid for.
+  - **Per-job reconciliation counters.** The stored `ScriptContext` now carries
+    `scenes_detected` (deterministic headings), `scenes_extracted` (model rows,
+    deliberately excluding rebuilt ones) and `scenes_synthesized` (rebuilt rows);
+    `Telemetry`/`JobTelemetrySummary` carry the same three, persisted as additive
+    `NOT NULL DEFAULT 0` columns (migration
+    `20261017000001_ai_import_scene_reconciliation`). `scenes_extracted <
+    scenes_detected` stays visible even when the rebuilt rows preserve every
+    scene, and one job-level `warn` names any divergence for alerting. The
+    unfenced apply-path telemetry write deliberately leaves the counters alone
+    (the completion-time snapshot is immutable).
+  - **Wire additions only.** All six fields are `serde(default)` nullable-free
+    integers, so previews, jobs and payloads stored before the change keep
+    loading (`0` = "not recorded") and older clients keep deserializing; the
+    Dart client is regenerated. No `/v2` window, no breaking change.
+
+  The Decision scoring pass runs before the rebuild on purpose: a row without
+  content has nothing to score, and scoring must not invent a value for it.
+  Per-target-episode apply counts (the "row X went to episode Y" explanation)
+  already shipped with issue #763 and needed no change. The Flutter preview
+  header ("`57 erkannt · 4 extrahiert`") and the jobs-list degradation line land
+  in the stacked Flutter PR.
+
 - **A saved Decision Model is now observable, and the write path is pinned by
   regression tests** (issue #769; `api 0.46.0 → 0.46.1`). The reporting user
   configured a Decision Model (`eurouter` / `clef-flash`) before importing an

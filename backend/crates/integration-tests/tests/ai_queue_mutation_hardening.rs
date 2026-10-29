@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 // Co-authored-by: mimo-v2.5 (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 //! P3.7 — Postgres integration tests for PgAiImportQueue.
 
@@ -346,6 +347,9 @@ async fn record_worker_telemetry_succeeds() -> Result<()> {
         latency_total: 1234,
         cost: None,
         apply_state: TelemetryApplyState::default(),
+        scenes_detected: 0,
+        scenes_extracted: 0,
+        scenes_synthesized: 0,
     };
 
     let result = queue
@@ -379,6 +383,9 @@ async fn record_telemetry_succeeds_for_terminal_job() -> Result<()> {
         latency_total: 1234,
         cost: None,
         apply_state: TelemetryApplyState::default(),
+        scenes_detected: 0,
+        scenes_extracted: 0,
+        scenes_synthesized: 0,
     };
 
     let result = queue.record_telemetry(job.id, telemetry).await;
