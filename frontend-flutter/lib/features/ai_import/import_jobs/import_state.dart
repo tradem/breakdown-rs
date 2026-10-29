@@ -15,18 +15,32 @@ import '../../../l10n/generated/app_localizations.dart';
 /// The submitted document (task 3.1): a picked file (bytes/text plus its
 /// declared source). PDFs travel as raw bytes.
 class AiImportDocument {
-  AiImportDocument._({required this.body, required this.source});
+  AiImportDocument._({required this.body, required this.source, this.fileName});
 
   /// A picked CSV file (`text/csv`).
-  factory AiImportDocument.csv(String text) =>
-      AiImportDocument._(body: text, source: AiScheduleSource.csv);
+  factory AiImportDocument.csv(String text, {String? fileName}) =>
+      AiImportDocument._(
+        body: text,
+        source: AiScheduleSource.csv,
+        fileName: fileName,
+      );
 
   /// A picked PDF file (`application/pdf`) — raw bytes.
-  factory AiImportDocument.pdf(Uint8List bytes) =>
-      AiImportDocument._(body: bytes, source: AiScheduleSource.pdf);
+  factory AiImportDocument.pdf(Uint8List bytes, {String? fileName}) =>
+      AiImportDocument._(
+        body: bytes,
+        source: AiScheduleSource.pdf,
+        fileName: fileName,
+      );
 
   final Object body;
   final AiScheduleSource source;
+
+  /// The picked file's own name (issue #763), forwarded to the upload as the
+  /// percent-encoded `X-Document-Filename` header so the jobs list can show
+  /// which document a row belongs to. `null` for a body that never had a file
+  /// (pasted text) — no name is invented.
+  final String? fileName;
 }
 
 /// Which document kind the user is submitting.

@@ -251,8 +251,9 @@ void main() {
       // #625 adds the project-scoped fundus slice (migration v13 → v14,
       // fresh table — `createTable`, no data to migrate); issue #664 adds
       // the nullable AI import `progress_json` column (migration v14 → v15,
-      // guarded ADD COLUMN).
-      expect(db.schemaVersion, 16);
+      // guarded ADD COLUMN); issue #763 adds the two nullable AI import job
+      // identity columns (migration v16 → v17, guarded ADD COLUMN).
+      expect(db.schemaVersion, 17);
       // Every table round-trips (migration created them).
       await BlockCacheDao(db).applySnapshotForSeason('s', [
         _block('b', seasonId: 's'),

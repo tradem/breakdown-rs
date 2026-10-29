@@ -175,6 +175,19 @@ class AiImportJobsCacheDao {
               ),
             ),
           ),
+    // Job identity (issue #763). Both come from the authoritative list read
+    // and are simply absent (`null`) when the server did not report them —
+    // the cache never fabricates a name or a target.
+    sourceFileName: Value(job.sourceFileName),
+    appliedEpisodesJson:
+        job.appliedEpisodes == null || job.appliedEpisodes!.isEmpty
+        ? const Value(null)
+        : Value(
+            jsonEncode([
+              for (final episode in job.appliedEpisodes!)
+                serializers.serializeWith(AppliedEpisode.serializer, episode),
+            ]),
+          ),
     createdAt: job.createdAt,
     updatedAt: job.updatedAt,
     cachedAt: cachedAt,
@@ -207,6 +220,28 @@ AiImportProgress? aiImportProgressFromWire(String? wire) {
     );
   } on Object {
     return null;
+  }
+}
+
+/// Parses a cached row's serialized `AppliedEpisode` list (issue #763) back to
+/// the generated DTOs, or an empty list for an absent or undecodable payload
+/// (strict — the row then renders without a target, never with a guessed one).
+List<AppliedEpisode> appliedEpisodesFromWire(String? wire) {
+  if (wire == null || wire.isEmpty) return const [];
+  try {
+    final decoded = jsonDecode(wire);
+    if (decoded is! List) return const [];
+    final episodes = <AppliedEpisode>[];
+    for (final entry in decoded) {
+      final episode = serializers.deserializeWith(
+        AppliedEpisode.serializer,
+        entry,
+      );
+      if (episode != null) episodes.add(episode);
+    }
+    return episodes;
+  } on Object {
+    return const [];
   }
 }
 

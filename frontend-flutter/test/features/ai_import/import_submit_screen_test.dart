@@ -80,15 +80,20 @@ class FakePipelineRepository extends AiImportRepository {
   Object? lastUploadBody;
   AiScheduleSource? lastUploadSource;
 
+  /// The document name the last upload carried (issue #763).
+  String? lastFileName;
+
   @override
   Future<Result<AiUploadAck>> uploadSchedule({
     required Object body,
     required AiScheduleSource source,
+    String? fileName,
     void Function(int, int)? onSendProgress,
   }) async {
     uploadCalls++;
     lastUploadBody = body;
     lastUploadSource = source;
+    lastFileName = fileName;
     return uploadResult ?? Right(AiUploadAck(jobId: 'job-1', duplicate: false));
   }
 

@@ -89,6 +89,9 @@ AiImportJob _job(
   int maxRetries = 3,
   String? lastError,
   CostBreakdown? cost,
+  AiImportProgress? progress,
+  String? sourceFileName,
+  List<AppliedEpisode> appliedEpisodes = const [],
 }) => AiImportJob(
   (b) => b
     ..id = id
@@ -103,6 +106,9 @@ AiImportJob _job(
     ..maxRetries = maxRetries
     ..lastError = lastError
     ..cost = cost?.toBuilder()
+    ..progress = progress?.toBuilder()
+    ..sourceFileName = sourceFileName
+    ..appliedEpisodes.replace(appliedEpisodes)
     ..createdAt = DateTime.utc(2026, 1, 1)
     ..updatedAt = DateTime.utc(2026, 1, 1),
 );
@@ -137,6 +143,27 @@ CostBreakdown _knownCost({bool withEnergy = false, bool capped = false}) =>
               ).toBuilder()
             : null,
     );
+
+/// One applied-episode entry (issue #763): the list's `299 Erlösung` source.
+AppliedEpisode _applied(int? number, String? name, int count) => AppliedEpisode(
+  (b) => b
+    ..id = 'ep-${number ?? name ?? 'x'}'
+    ..number = number
+    ..name = name
+    ..appliedCount = count,
+);
+
+/// A live progress frame carrying discovered episode labels (issue #664).
+AiImportProgress _progress({
+  AiImportStage stage = AiImportStage.extracting,
+  List<String> episodes = const [],
+}) => AiImportProgress(
+  (b) => b
+    ..stage = stage
+    ..chunk = 2
+    ..chunksTotal = 5
+    ..episodesSeen.replace(episodes),
+);
 
 CostBreakdown _unknownCost() =>
     CostBreakdown((b) => b..status = CostStatus.unknown);
@@ -522,6 +549,190 @@ void main() {
       expect(view.isInProgress, isTrue);
     });
 
+    test('jobRowViewFromJob carries the job identity verbatim (issue #763) '
+        'and derives the applied total', () {
+      final view = jobRowViewFromJob(
+        _job(
+          'job-1',
+          status: JobStatus.succeeded,
+          sourceFileName: 'Erlösung Skript.pdf',
+          appliedEpisodes: [
+            _applied(299, 'Erlösung', 57),
+            _applied(300, null, 4),
+          ],
+        ),
+      );
+      expect(view.sourceFileName, 'Erlösung Skript.pdf');
+      expect(view.appliedEpisodes, hasLength(2));
+      expect(view.hasAppliedEpisode, isTrue);
+      expect(
+        view.appliedSceneCount,
+        61,
+        reason: 'the outcome count sums every target episode',
+      );
+    });
+
+    test('a cache-only row reports no name and no target (pre-change '
+        'columns) — never a fabricated one', () {
+      final view = jobRowViewFromCacheRow(_cacheRow('job-c'));
+      expect(view.sourceFileName, isNull);
+      expect(view.appliedEpisodes, isEmpty);
+      expect(view.hasAppliedEpisode, isFalse);
+      expect(view.appliedSceneCount, 0);
+    });
+
+    test('showsLiveProgress is gated on the STATUS, not on the presence of a '
+        'progress frame — a terminal row never shows a stage', () {
+      final stale = _progress(stage: AiImportStage.storingPreview);
+      // The exact bug shape: a succeeded job whose DTO still carries the last
+      // frame the worker published.
+      expect(
+        jobRowViewFromJob(
+          _job('j', status: JobStatus.succeeded, progress: stale),
+        ).showsLiveProgress,
+        isFalse,
+      );
+      expect(
+        jobRowViewFromJob(
+          _job('j', status: JobStatus.deadLetter, progress: stale),
+        ).showsLiveProgress,
+        isFalse,
+      );
+      expect(
+        jobRowViewFromJob(_job('j', status: JobStatus.failed, progress: stale))
+            .showsLiveProgress,
+        isFalse,
+      );
+      expect(
+        jobRowViewFromJob(_job('j', status: JobStatus.running, progress: stale))
+            .showsLiveProgress,
+        isTrue,
+      );
+      expect(
+        jobRowViewFromJob(_job('j', status: JobStatus.pending, progress: stale))
+            .showsLiveProgress,
+        isTrue,
+      );
+      // No frame at all: nothing to show, whatever the status.
+      expect(
+        jobRowViewFromJob(_job('j', status: JobStatus.running))
+            .showsLiveProgress,
+        isFalse,
+      );
+    });
+
+    test('aiJobRowIdentity: name + imported episode + applied count', () {
+      final l10n = AppLocalizationsEn();
+      final identity = aiJobRowIdentity(
+        l10n,
+        jobRowViewFromJob(
+          _job(
+            'j',
+            status: JobStatus.succeeded,
+            kind: DocumentKind.script,
+            sourceFileName: 'Erlösung Skript.pdf',
+            appliedEpisodes: [_applied(299, 'Erlösung', 57)],
+          ),
+        ),
+        kind: 'Script',
+        date: 'Jan 1, 2026',
+      );
+      expect(identity.title, 'Erlösung Skript.pdf');
+      expect(identity.secondary, 'Script · 299 Erlösung · 57 applied');
+    });
+
+    test(
+      'aiJobRowIdentity: several targets render "(+n)" on the first one',
+      () {
+        final identity = aiJobRowIdentity(
+          AppLocalizationsEn(),
+          jobRowViewFromJob(
+            _job(
+              'j',
+              status: JobStatus.succeeded,
+              kind: DocumentKind.script,
+              appliedEpisodes: [
+                _applied(299, 'Erlösung', 3),
+                _applied(300, 'Heimkehr', 2),
+                _applied(301, null, 1),
+              ],
+            ),
+          ),
+          kind: 'Script',
+          date: 'Jan 1, 2026',
+        );
+        // Unnamed → today's kind·date title, unchanged.
+        expect(identity.title, 'Script · Jan 1, 2026');
+        expect(identity.secondary, 'Script · 299 Erlösung (+2) · 6 applied');
+      },
+    );
+
+    test('aiJobRowIdentity: an untitled target renders its number alone; a '
+        'nameless-and-numberless one falls back to the kind/date line', () {
+      final l10n = AppLocalizationsEn();
+      final untitled = aiJobRowIdentity(
+        l10n,
+        jobRowViewFromJob(
+          _job(
+            'j',
+            status: JobStatus.succeeded,
+            kind: DocumentKind.script,
+            sourceFileName: 'board.pdf',
+            appliedEpisodes: [_applied(299, null, 1)],
+          ),
+        ),
+        kind: 'Script',
+        date: 'Jan 1, 2026',
+      );
+      expect(untitled.title, 'board.pdf');
+      expect(untitled.secondary, 'Script · Episode 299 · 1 applied');
+
+      final unlabelled = aiJobRowIdentity(
+        l10n,
+        jobRowViewFromJob(
+          _job(
+            'j',
+            status: JobStatus.succeeded,
+            kind: DocumentKind.script,
+            sourceFileName: 'board.pdf',
+            appliedEpisodes: [_applied(null, null, 1)],
+          ),
+        ),
+        kind: 'Script',
+        date: 'Jan 1, 2026',
+      );
+      expect(unlabelled.title, 'board.pdf');
+      expect(
+        unlabelled.secondary,
+        'Script · Jan 1, 2026',
+        reason: 'a target with no readable label must not invent one',
+      );
+    });
+
+    test('aiJobRowIdentity: a named but unapplied row keeps kind · date as '
+        'secondary text; an unnamed one has no secondary line at all', () {
+      final l10n = AppLocalizationsEn();
+      final named = aiJobRowIdentity(
+        l10n,
+        jobRowViewFromJob(
+          _job('j', kind: DocumentKind.script, sourceFileName: 'board.pdf'),
+        ),
+        kind: 'Script',
+        date: 'Jan 1, 2026',
+      );
+      expect(named.title, 'board.pdf');
+      expect(named.secondary, 'Script · Jan 1, 2026');
+
+      final plain = aiJobRowIdentity(
+        l10n,
+        jobRowViewFromJob(_job('j', kind: DocumentKind.script)),
+        kind: 'Script',
+        date: 'Jan 1, 2026',
+      );
+      expect(plain.title, 'Script · Jan 1, 2026');
+      expect(plain.secondary, isNull);
+    });
+
     test('an unknown future wire status degrades honestly: status null, '
         'raw name kept, unknown copy keyed on the wire value '
         '(the row is never dropped, never guessed)', () {
@@ -764,6 +975,123 @@ void main() {
       // error_outline instances were asserted above).
       expect(find.byIcon(Icons.block), findsOneWidget);
       expect(find.byIcon(Icons.check_circle_outline), findsOneWidget);
+      await tester.pump();
+    });
+
+    testWidgets('a terminal row renders NO stage line even when the cached '
+        'row still carries the stale storing_preview frame (issue #763)', (
+      tester,
+    ) async {
+      await setupContainer(
+        listResult: Right([
+          _job(
+            'job-s',
+            status: JobStatus.succeeded,
+            progress: _progress(stage: AiImportStage.storingPreview),
+          ),
+          _job('job-d', status: JobStatus.deadLetter),
+        ]),
+      );
+      await pumpScreen(tester);
+
+      // The defect this closes: "Storing preview …" on every finished job.
+      expect(find.textContaining('Storing preview'), findsNothing);
+      expect(find.byKey(const Key('ai-jobs-row-stage-job-s')), findsNothing);
+      expect(find.byKey(const Key('ai-jobs-row-stage-job-d')), findsNothing);
+      await tester.pump();
+    });
+
+    testWidgets('a running row renders the stage AND its discovered episodes '
+        'with values — never a bare label', (tester) async {
+      await setupContainer(
+        listResult: Right([
+          _job(
+            'job-r',
+            status: JobStatus.running,
+            progress: _progress(episodes: const ['Ep. 299', 'Ep. 300']),
+          ),
+        ]),
+      );
+      await pumpScreen(tester);
+
+      expect(find.byKey(const Key('ai-jobs-row-stage-job-r')), findsOneWidget);
+      expect(find.textContaining('Extracting scenes'), findsOneWidget);
+      expect(
+        tester
+            .widget<Text>(find.byKey(const Key('ai-jobs-row-episodes-job-r')))
+            .data,
+        'Episodes discovered: Ep. 299, Ep. 300',
+      );
+      await tester.pump();
+    });
+
+    testWidgets('a named row is titled by the file name with kind · date as '
+        'secondary text; an unnamed row keeps the kind · date title and no '
+        'identity line', (tester) async {
+      await setupContainer(
+        listResult: Right([
+          _job(
+            'job-named',
+            status: JobStatus.succeeded,
+            kind: DocumentKind.script,
+            sourceFileName: 'Erlösung Skript.pdf',
+          ),
+          _job('job-plain', status: JobStatus.succeeded),
+        ]),
+      );
+      await pumpScreen(tester);
+
+      final named = tester.widget<Text>(
+        find.byKey(const Key('ai-jobs-row-title-job-named')),
+      );
+      expect(named.data, 'Erlösung Skript.pdf');
+      expect(named.maxLines, 2, reason: 'a long name ellipsizes after 2 lines');
+      expect(named.overflow, TextOverflow.ellipsis);
+      expect(
+        tester
+            .widget<Text>(
+              find.byKey(const Key('ai-jobs-row-identity-job-named')),
+            )
+            .data,
+        'Script · Jan 1, 2026',
+      );
+
+      final plain = tester.widget<Text>(
+        find.byKey(const Key('ai-jobs-row-title-job-plain')),
+      );
+      expect(plain.data, 'Schedule · Jan 1, 2026');
+      expect(
+        find.byKey(const Key('ai-jobs-row-identity-job-plain')),
+        findsNothing,
+        reason: 'repeating kind · date as secondary text would be noise',
+      );
+      await tester.pump();
+    });
+
+    testWidgets('a multi-episode row names the first target plus (+n) and the '
+        'applied outcome count', (tester) async {
+      await setupContainer(
+        listResult: Right([
+          _job(
+            'job-m',
+            status: JobStatus.succeeded,
+            kind: DocumentKind.script,
+            sourceFileName: 'Erlösung Skript.pdf',
+            appliedEpisodes: [
+              _applied(299, 'Erlösung', 57),
+              _applied(300, 'Heimkehr', 4),
+            ],
+          ),
+        ]),
+      );
+      await pumpScreen(tester);
+
+      expect(
+        tester
+            .widget<Text>(find.byKey(const Key('ai-jobs-row-identity-job-m')))
+            .data,
+        'Script · 299 Erlösung (+1) · 61 applied',
+      );
       await tester.pump();
     });
 

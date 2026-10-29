@@ -7979,6 +7979,28 @@ class $AiImportJobCacheRowsTable extends AiImportJobCacheRows
     type: DriftSqlType.string,
     requiredDuringInsert: false,
   );
+  static const VerificationMeta _sourceFileNameMeta = const VerificationMeta(
+    'sourceFileName',
+  );
+  @override
+  late final GeneratedColumn<String> sourceFileName = GeneratedColumn<String>(
+    'source_file_name',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _appliedEpisodesJsonMeta =
+      const VerificationMeta('appliedEpisodesJson');
+  @override
+  late final GeneratedColumn<String> appliedEpisodesJson =
+      GeneratedColumn<String>(
+        'applied_episodes_json',
+        aliasedName,
+        true,
+        type: DriftSqlType.string,
+        requiredDuringInsert: false,
+      );
   static const VerificationMeta _createdAtMeta = const VerificationMeta(
     'createdAt',
   );
@@ -8030,6 +8052,8 @@ class $AiImportJobCacheRowsTable extends AiImportJobCacheRows
     retries,
     maxRetries,
     progressJson,
+    sourceFileName,
+    appliedEpisodesJson,
     createdAt,
     updatedAt,
     cachedAt,
@@ -8177,6 +8201,24 @@ class $AiImportJobCacheRowsTable extends AiImportJobCacheRows
         ),
       );
     }
+    if (data.containsKey('source_file_name')) {
+      context.handle(
+        _sourceFileNameMeta,
+        sourceFileName.isAcceptableOrUnknown(
+          data['source_file_name']!,
+          _sourceFileNameMeta,
+        ),
+      );
+    }
+    if (data.containsKey('applied_episodes_json')) {
+      context.handle(
+        _appliedEpisodesJsonMeta,
+        appliedEpisodesJson.isAcceptableOrUnknown(
+          data['applied_episodes_json']!,
+          _appliedEpisodesJsonMeta,
+        ),
+      );
+    }
     if (data.containsKey('created_at')) {
       context.handle(
         _createdAtMeta,
@@ -8274,6 +8316,14 @@ class $AiImportJobCacheRowsTable extends AiImportJobCacheRows
         DriftSqlType.string,
         data['${effectivePrefix}progress_json'],
       ),
+      sourceFileName: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}source_file_name'],
+      ),
+      appliedEpisodesJson: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}applied_episodes_json'],
+      ),
       createdAt: attachedDatabase.typeMapping.read(
         DriftSqlType.dateTime,
         data['${effectivePrefix}created_at'],
@@ -8333,6 +8383,18 @@ class AiImportJobCacheRow extends DataClass
   /// typed column) so an unknown future stage degrades to a parse failure
   /// at read, not a DB fault.
   final String? progressJson;
+
+  /// The uploaded document's own file name (issue #763), as the authoritative
+  /// list read reported it. `null` for a job whose upload carried no name and
+  /// for a pre-#763 row — a cached-first paint then keeps the kind/date title
+  /// instead of inventing one.
+  final String? sourceFileName;
+
+  /// The episodes a successful apply landed rows in (issue #763), serialized as
+  /// the generated `AppliedEpisode` JSON list. Text (not typed columns) for the
+  /// same reason as [progressJson]: an unknown future payload degrades to "not
+  /// known" at read, never to a DB fault. `null` until an apply has run.
+  final String? appliedEpisodesJson;
   final DateTime createdAt;
   final DateTime updatedAt;
 
@@ -8355,6 +8417,8 @@ class AiImportJobCacheRow extends DataClass
     required this.retries,
     required this.maxRetries,
     this.progressJson,
+    this.sourceFileName,
+    this.appliedEpisodesJson,
     required this.createdAt,
     required this.updatedAt,
     required this.cachedAt,
@@ -8389,6 +8453,12 @@ class AiImportJobCacheRow extends DataClass
     map['max_retries'] = Variable<int>(maxRetries);
     if (!nullToAbsent || progressJson != null) {
       map['progress_json'] = Variable<String>(progressJson);
+    }
+    if (!nullToAbsent || sourceFileName != null) {
+      map['source_file_name'] = Variable<String>(sourceFileName);
+    }
+    if (!nullToAbsent || appliedEpisodesJson != null) {
+      map['applied_episodes_json'] = Variable<String>(appliedEpisodesJson);
     }
     map['created_at'] = Variable<DateTime>(createdAt);
     map['updated_at'] = Variable<DateTime>(updatedAt);
@@ -8426,6 +8496,12 @@ class AiImportJobCacheRow extends DataClass
       progressJson: progressJson == null && nullToAbsent
           ? const Value.absent()
           : Value(progressJson),
+      sourceFileName: sourceFileName == null && nullToAbsent
+          ? const Value.absent()
+          : Value(sourceFileName),
+      appliedEpisodesJson: appliedEpisodesJson == null && nullToAbsent
+          ? const Value.absent()
+          : Value(appliedEpisodesJson),
       createdAt: Value(createdAt),
       updatedAt: Value(updatedAt),
       cachedAt: Value(cachedAt),
@@ -8454,6 +8530,10 @@ class AiImportJobCacheRow extends DataClass
       retries: serializer.fromJson<int>(json['retries']),
       maxRetries: serializer.fromJson<int>(json['maxRetries']),
       progressJson: serializer.fromJson<String?>(json['progressJson']),
+      sourceFileName: serializer.fromJson<String?>(json['sourceFileName']),
+      appliedEpisodesJson: serializer.fromJson<String?>(
+        json['appliedEpisodesJson'],
+      ),
       createdAt: serializer.fromJson<DateTime>(json['createdAt']),
       updatedAt: serializer.fromJson<DateTime>(json['updatedAt']),
       cachedAt: serializer.fromJson<DateTime>(json['cachedAt']),
@@ -8479,6 +8559,8 @@ class AiImportJobCacheRow extends DataClass
       'retries': serializer.toJson<int>(retries),
       'maxRetries': serializer.toJson<int>(maxRetries),
       'progressJson': serializer.toJson<String?>(progressJson),
+      'sourceFileName': serializer.toJson<String?>(sourceFileName),
+      'appliedEpisodesJson': serializer.toJson<String?>(appliedEpisodesJson),
       'createdAt': serializer.toJson<DateTime>(createdAt),
       'updatedAt': serializer.toJson<DateTime>(updatedAt),
       'cachedAt': serializer.toJson<DateTime>(cachedAt),
@@ -8502,6 +8584,8 @@ class AiImportJobCacheRow extends DataClass
     int? retries,
     int? maxRetries,
     Value<String?> progressJson = const Value.absent(),
+    Value<String?> sourceFileName = const Value.absent(),
+    Value<String?> appliedEpisodesJson = const Value.absent(),
     DateTime? createdAt,
     DateTime? updatedAt,
     DateTime? cachedAt,
@@ -8524,6 +8608,12 @@ class AiImportJobCacheRow extends DataClass
     retries: retries ?? this.retries,
     maxRetries: maxRetries ?? this.maxRetries,
     progressJson: progressJson.present ? progressJson.value : this.progressJson,
+    sourceFileName: sourceFileName.present
+        ? sourceFileName.value
+        : this.sourceFileName,
+    appliedEpisodesJson: appliedEpisodesJson.present
+        ? appliedEpisodesJson.value
+        : this.appliedEpisodesJson,
     createdAt: createdAt ?? this.createdAt,
     updatedAt: updatedAt ?? this.updatedAt,
     cachedAt: cachedAt ?? this.cachedAt,
@@ -8560,6 +8650,12 @@ class AiImportJobCacheRow extends DataClass
       progressJson: data.progressJson.present
           ? data.progressJson.value
           : this.progressJson,
+      sourceFileName: data.sourceFileName.present
+          ? data.sourceFileName.value
+          : this.sourceFileName,
+      appliedEpisodesJson: data.appliedEpisodesJson.present
+          ? data.appliedEpisodesJson.value
+          : this.appliedEpisodesJson,
       createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
       updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
       cachedAt: data.cachedAt.present ? data.cachedAt.value : this.cachedAt,
@@ -8585,6 +8681,8 @@ class AiImportJobCacheRow extends DataClass
           ..write('retries: $retries, ')
           ..write('maxRetries: $maxRetries, ')
           ..write('progressJson: $progressJson, ')
+          ..write('sourceFileName: $sourceFileName, ')
+          ..write('appliedEpisodesJson: $appliedEpisodesJson, ')
           ..write('createdAt: $createdAt, ')
           ..write('updatedAt: $updatedAt, ')
           ..write('cachedAt: $cachedAt')
@@ -8593,7 +8691,7 @@ class AiImportJobCacheRow extends DataClass
   }
 
   @override
-  int get hashCode => Object.hash(
+  int get hashCode => Object.hashAll([
     id,
     userId,
     status,
@@ -8610,10 +8708,12 @@ class AiImportJobCacheRow extends DataClass
     retries,
     maxRetries,
     progressJson,
+    sourceFileName,
+    appliedEpisodesJson,
     createdAt,
     updatedAt,
     cachedAt,
-  );
+  ]);
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
@@ -8634,6 +8734,8 @@ class AiImportJobCacheRow extends DataClass
           other.retries == this.retries &&
           other.maxRetries == this.maxRetries &&
           other.progressJson == this.progressJson &&
+          other.sourceFileName == this.sourceFileName &&
+          other.appliedEpisodesJson == this.appliedEpisodesJson &&
           other.createdAt == this.createdAt &&
           other.updatedAt == this.updatedAt &&
           other.cachedAt == this.cachedAt);
@@ -8657,6 +8759,8 @@ class AiImportJobCacheRowsCompanion
   final Value<int> retries;
   final Value<int> maxRetries;
   final Value<String?> progressJson;
+  final Value<String?> sourceFileName;
+  final Value<String?> appliedEpisodesJson;
   final Value<DateTime> createdAt;
   final Value<DateTime> updatedAt;
   final Value<DateTime> cachedAt;
@@ -8678,6 +8782,8 @@ class AiImportJobCacheRowsCompanion
     this.retries = const Value.absent(),
     this.maxRetries = const Value.absent(),
     this.progressJson = const Value.absent(),
+    this.sourceFileName = const Value.absent(),
+    this.appliedEpisodesJson = const Value.absent(),
     this.createdAt = const Value.absent(),
     this.updatedAt = const Value.absent(),
     this.cachedAt = const Value.absent(),
@@ -8700,6 +8806,8 @@ class AiImportJobCacheRowsCompanion
     required int retries,
     required int maxRetries,
     this.progressJson = const Value.absent(),
+    this.sourceFileName = const Value.absent(),
+    this.appliedEpisodesJson = const Value.absent(),
     required DateTime createdAt,
     required DateTime updatedAt,
     required DateTime cachedAt,
@@ -8734,6 +8842,8 @@ class AiImportJobCacheRowsCompanion
     Expression<int>? retries,
     Expression<int>? maxRetries,
     Expression<String>? progressJson,
+    Expression<String>? sourceFileName,
+    Expression<String>? appliedEpisodesJson,
     Expression<DateTime>? createdAt,
     Expression<DateTime>? updatedAt,
     Expression<DateTime>? cachedAt,
@@ -8756,6 +8866,9 @@ class AiImportJobCacheRowsCompanion
       if (retries != null) 'retries': retries,
       if (maxRetries != null) 'max_retries': maxRetries,
       if (progressJson != null) 'progress_json': progressJson,
+      if (sourceFileName != null) 'source_file_name': sourceFileName,
+      if (appliedEpisodesJson != null)
+        'applied_episodes_json': appliedEpisodesJson,
       if (createdAt != null) 'created_at': createdAt,
       if (updatedAt != null) 'updated_at': updatedAt,
       if (cachedAt != null) 'cached_at': cachedAt,
@@ -8780,6 +8893,8 @@ class AiImportJobCacheRowsCompanion
     Value<int>? retries,
     Value<int>? maxRetries,
     Value<String?>? progressJson,
+    Value<String?>? sourceFileName,
+    Value<String?>? appliedEpisodesJson,
     Value<DateTime>? createdAt,
     Value<DateTime>? updatedAt,
     Value<DateTime>? cachedAt,
@@ -8802,6 +8917,8 @@ class AiImportJobCacheRowsCompanion
       retries: retries ?? this.retries,
       maxRetries: maxRetries ?? this.maxRetries,
       progressJson: progressJson ?? this.progressJson,
+      sourceFileName: sourceFileName ?? this.sourceFileName,
+      appliedEpisodesJson: appliedEpisodesJson ?? this.appliedEpisodesJson,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
       cachedAt: cachedAt ?? this.cachedAt,
@@ -8860,6 +8977,14 @@ class AiImportJobCacheRowsCompanion
     if (progressJson.present) {
       map['progress_json'] = Variable<String>(progressJson.value);
     }
+    if (sourceFileName.present) {
+      map['source_file_name'] = Variable<String>(sourceFileName.value);
+    }
+    if (appliedEpisodesJson.present) {
+      map['applied_episodes_json'] = Variable<String>(
+        appliedEpisodesJson.value,
+      );
+    }
     if (createdAt.present) {
       map['created_at'] = Variable<DateTime>(createdAt.value);
     }
@@ -8894,6 +9019,8 @@ class AiImportJobCacheRowsCompanion
           ..write('retries: $retries, ')
           ..write('maxRetries: $maxRetries, ')
           ..write('progressJson: $progressJson, ')
+          ..write('sourceFileName: $sourceFileName, ')
+          ..write('appliedEpisodesJson: $appliedEpisodesJson, ')
           ..write('createdAt: $createdAt, ')
           ..write('updatedAt: $updatedAt, ')
           ..write('cachedAt: $cachedAt, ')
@@ -13051,6 +13178,8 @@ typedef $$AiImportJobCacheRowsTableCreateCompanionBuilder =
       required int retries,
       required int maxRetries,
       Value<String?> progressJson,
+      Value<String?> sourceFileName,
+      Value<String?> appliedEpisodesJson,
       required DateTime createdAt,
       required DateTime updatedAt,
       required DateTime cachedAt,
@@ -13074,6 +13203,8 @@ typedef $$AiImportJobCacheRowsTableUpdateCompanionBuilder =
       Value<int> retries,
       Value<int> maxRetries,
       Value<String?> progressJson,
+      Value<String?> sourceFileName,
+      Value<String?> appliedEpisodesJson,
       Value<DateTime> createdAt,
       Value<DateTime> updatedAt,
       Value<DateTime> cachedAt,
@@ -13166,6 +13297,16 @@ class $$AiImportJobCacheRowsTableFilterComposer
 
   ColumnFilters<String> get progressJson => $composableBuilder(
     column: $table.progressJson,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get sourceFileName => $composableBuilder(
+    column: $table.sourceFileName,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get appliedEpisodesJson => $composableBuilder(
+    column: $table.appliedEpisodesJson,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -13274,6 +13415,16 @@ class $$AiImportJobCacheRowsTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<String> get sourceFileName => $composableBuilder(
+    column: $table.sourceFileName,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get appliedEpisodesJson => $composableBuilder(
+    column: $table.appliedEpisodesJson,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<DateTime> get createdAt => $composableBuilder(
     column: $table.createdAt,
     builder: (column) => ColumnOrderings(column),
@@ -13361,6 +13512,16 @@ class $$AiImportJobCacheRowsTableAnnotationComposer
     builder: (column) => column,
   );
 
+  GeneratedColumn<String> get sourceFileName => $composableBuilder(
+    column: $table.sourceFileName,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get appliedEpisodesJson => $composableBuilder(
+    column: $table.appliedEpisodesJson,
+    builder: (column) => column,
+  );
+
   GeneratedColumn<DateTime> get createdAt =>
       $composableBuilder(column: $table.createdAt, builder: (column) => column);
 
@@ -13430,6 +13591,8 @@ class $$AiImportJobCacheRowsTableTableManager
                 Value<int> retries = const Value.absent(),
                 Value<int> maxRetries = const Value.absent(),
                 Value<String?> progressJson = const Value.absent(),
+                Value<String?> sourceFileName = const Value.absent(),
+                Value<String?> appliedEpisodesJson = const Value.absent(),
                 Value<DateTime> createdAt = const Value.absent(),
                 Value<DateTime> updatedAt = const Value.absent(),
                 Value<DateTime> cachedAt = const Value.absent(),
@@ -13451,6 +13614,8 @@ class $$AiImportJobCacheRowsTableTableManager
                 retries: retries,
                 maxRetries: maxRetries,
                 progressJson: progressJson,
+                sourceFileName: sourceFileName,
+                appliedEpisodesJson: appliedEpisodesJson,
                 createdAt: createdAt,
                 updatedAt: updatedAt,
                 cachedAt: cachedAt,
@@ -13474,6 +13639,8 @@ class $$AiImportJobCacheRowsTableTableManager
                 required int retries,
                 required int maxRetries,
                 Value<String?> progressJson = const Value.absent(),
+                Value<String?> sourceFileName = const Value.absent(),
+                Value<String?> appliedEpisodesJson = const Value.absent(),
                 required DateTime createdAt,
                 required DateTime updatedAt,
                 required DateTime cachedAt,
@@ -13495,6 +13662,8 @@ class $$AiImportJobCacheRowsTableTableManager
                 retries: retries,
                 maxRetries: maxRetries,
                 progressJson: progressJson,
+                sourceFileName: sourceFileName,
+                appliedEpisodesJson: appliedEpisodesJson,
                 createdAt: createdAt,
                 updatedAt: updatedAt,
                 cachedAt: cachedAt,

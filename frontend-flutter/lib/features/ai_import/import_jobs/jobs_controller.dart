@@ -306,6 +306,15 @@ class AiImportJobsState {
       'error: $error)';
 }
 
+bool _sameEpisodes(List<AppliedEpisode> a, List<AppliedEpisode> b) {
+  if (identical(a, b)) return true;
+  if (a.length != b.length) return false;
+  for (var i = 0; i < a.length; i++) {
+    if (a[i] != b[i]) return false;
+  }
+  return true;
+}
+
 bool _sameRows(List<AiImportJobRowView> a, List<AiImportJobRowView> b) {
   if (a.length != b.length) return false;
   for (var i = 0; i < a.length; i++) {
@@ -335,6 +344,8 @@ class AiImportJobRowView {
     this.lastError,
     this.progress,
     this.cost,
+    this.sourceFileName,
+    this.appliedEpisodes = const [],
   });
 
   /// Server-assigned job id (row key + `AiJobStatusScreen` parameter).
@@ -372,6 +383,26 @@ class AiImportJobRowView {
   /// line until the authoritative list read refreshes the row.
   final CostBreakdown? cost;
 
+  /// The uploaded document's own file name (issue #763) — the row TITLE when
+  /// present. `null` keeps the `kind · date` title: a name is never derived
+  /// from the opaque `sourceHandle`, and a cached-first paint before the
+  /// authoritative read shows what it actually knows.
+  final String? sourceFileName;
+
+  /// The episodes a successful apply landed rows in (issue #763), in
+  /// first-applied order. Empty for a job no apply has run for yet, for a
+  /// schedule import (which merges onto the project's existing scenes) and for
+  /// a cached row written before the field existed.
+  final List<AppliedEpisode> appliedEpisodes;
+
+  /// Scene rows this job applied in total — the outcome count the row shows
+  /// after a successful apply (`57 angewendet`). `0` when nothing is known.
+  int get appliedSceneCount =>
+      appliedEpisodes.fold(0, (sum, episode) => sum + episode.appliedCount);
+
+  /// True when the row can name its import target at all.
+  bool get hasAppliedEpisode => appliedEpisodes.isNotEmpty;
+
   /// True when the row carries a server-side error detail (the
   /// `last_error` presence indicator).
   bool get hasLastError => lastError != null && lastError!.isNotEmpty;
@@ -388,6 +419,16 @@ class AiImportJobRowView {
       status == JobStatus.pending ||
       status == JobStatus.running ||
       status == JobStatus.failed;
+
+  /// True while the row renders a live stage/episode block (issue #763).
+  ///
+  /// The wire field `progress` describes a **running** job, but a payload
+  /// written before the backend cleared it on terminal transitions still ships
+  /// a stale `storing_preview` stage. Gating on the status — not on
+  /// `progress != null` — is what makes "Vorschau wird gespeichert …" impossible
+  /// on a finished row, including from a cached-first paint.
+  bool get showsLiveProgress =>
+      progress != null && status != null && jobStatusInProgress(status!);
 
   /// True when the row may be deleted from the list (issue #671): only a
   /// `dead_letter` row carries the affordance. The backend accepts every
@@ -424,7 +465,9 @@ class AiImportJobRowView {
           other.maxRetries == maxRetries &&
           other.lastError == lastError &&
           other.progress == progress &&
-          other.cost == cost;
+          other.cost == cost &&
+          other.sourceFileName == sourceFileName &&
+          _sameEpisodes(other.appliedEpisodes, appliedEpisodes);
 
   @override
   int get hashCode => Object.hash(
@@ -439,6 +482,8 @@ class AiImportJobRowView {
     lastError,
     progress,
     cost,
+    sourceFileName,
+    Object.hashAll(appliedEpisodes),
   );
 
   @override
@@ -458,6 +503,8 @@ AiImportJobRowView jobRowViewFromJob(AiImportJob job) => AiImportJobRowView(
   lastError: job.lastError,
   progress: job.progress,
   cost: job.cost,
+  sourceFileName: job.sourceFileName,
+  appliedEpisodes: job.appliedEpisodes?.toList() ?? const [],
 );
 
 /// Maps a cached row to the renderable row (pure, Tier-1 testable).
@@ -482,6 +529,10 @@ AiImportJobRowView jobRowViewFromCacheRow(AiImportJobCacheRow row) =>
       maxRetries: row.maxRetries,
       lastError: row.lastError,
       progress: aiImportProgressFromWire(row.progressJson),
+      // Both are additive cache columns (issue #763): a pre-change row serves
+      // `null` / an empty list, exactly like an unnamed job.
+      sourceFileName: row.sourceFileName,
+      appliedEpisodes: appliedEpisodesFromWire(row.appliedEpisodesJson),
     );
 
 /// Cache-first seed merge (pure, Tier-1 testable): remembered ids paint
@@ -573,6 +624,94 @@ String? aiJobCostCompactCopy(
           );
   }
   return unknown;
+}
+
+/// Localized label of one applied-episode entry (issue #763).
+///
+/// `299 Erlösung` when both are known, `Episode 299` for an untitled episode,
+/// the title alone when the number was unknown, and the empty string when
+/// neither is — an unrenderable entry contributes no text rather than a
+/// placeholder. Nothing is ever fabricated.
+String aiJobEpisodeLabel(AppLocalizations l10n, AppliedEpisode episode) {
+  final number = episode.number;
+  final name = episode.name?.trim();
+  final hasName = name != null && name.isNotEmpty;
+  if (number != null && hasName) {
+    // gen-l10n orders parameters alphabetically: (name, number) — the
+    // template renders "{number} {name}" (screen spec order).
+    return l10n.aiJobsRowEpisodeNumberName(name, '$number');
+  }
+  if (number != null) return l10n.aiJobsRowEpisodeNumber('$number');
+  return hasName ? name : '';
+}
+
+/// What a jobs-list row renders as its identity (issue #763), computed as one
+/// pure decision so every branch is unit-testable and the widget only paints.
+class AiImportJobRowIdentity {
+  const AiImportJobRowIdentity({required this.title, this.secondary});
+
+  /// The row title: the uploaded document's name when known, else the
+  /// pre-#763 `kind · date`.
+  final String title;
+
+  /// The identity line under the title, or `null` when there is nothing
+  /// truthful left to say (an unnamed, unapplied row already carries
+  /// `kind · date` as its title — repeating it would be noise).
+  final String? secondary;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is AiImportJobRowIdentity &&
+          other.title == title &&
+          other.secondary == secondary;
+
+  @override
+  int get hashCode => Object.hash(title, secondary);
+
+  @override
+  String toString() => 'AiImportJobRowIdentity($title, $secondary)';
+}
+
+/// The identity a jobs-list row renders (issue #763, pure + Tier-1 testable).
+///
+/// * **Imported episode(s) known** → `{kind} · {first episode}`, with `(+n)` for
+///   the remaining targets and `· {n} angewendet` once the apply reported its
+///   outcome counts.
+/// * **Only a name** → the title is the name and the secondary line is the
+///   pre-existing `kind · date`.
+/// * **Neither** → today's `kind · date` title, no secondary line.
+AiImportJobRowIdentity aiJobRowIdentity(
+  AppLocalizations l10n,
+  AiImportJobRowView row, {
+  required String kind,
+  required String date,
+}) {
+  final kindDate = l10n.aiJobsRowSubtitle(date, kind);
+  final name = row.sourceFileName?.trim();
+  final hasName = name != null && name.isNotEmpty;
+  final title = hasName ? name : kindDate;
+  final fallbackSecondary = hasName ? kindDate : null;
+
+  if (!row.hasAppliedEpisode) {
+    return AiImportJobRowIdentity(title: title, secondary: fallbackSecondary);
+  }
+  final label = aiJobEpisodeLabel(l10n, row.appliedEpisodes.first);
+  if (label.isEmpty) {
+    // The server reported a target it could not label (no number, no title):
+    // the count stays honest but there is no readable target to show.
+    return AiImportJobRowIdentity(title: title, secondary: fallbackSecondary);
+  }
+  final remaining = row.appliedEpisodes.length - 1;
+  final episode = remaining > 0
+      ? l10n.aiJobsRowEpisodeMore('$remaining', label)
+      : label;
+  final applied = row.appliedSceneCount;
+  final line = applied > 0
+      ? '${l10n.aiJobsRowKindEpisode(episode, kind)}'
+            ' · ${l10n.aiJobsRowApplied('$applied')}'
+      : l10n.aiJobsRowKindEpisode(episode, kind);
+  return AiImportJobRowIdentity(title: title, secondary: line);
 }
 
 /// Localized copy for the jobs-list error state, keyed on the stable

@@ -177,24 +177,46 @@ class _JobRow extends ConsumerWidget {
       job.cost,
       ref.watch(aiCostDisplayPreferenceProvider),
     );
+    // Row identity (issue #763): the document's name and the imported
+    // episode(s) when the server reported them, today's kind/date otherwise.
+    // Pure decision — see `aiJobRowIdentity`.
+    final identity = aiJobRowIdentity(
+      l10n,
+      job,
+      kind: kind,
+      date: formatMediumDate(context, job.createdAt),
+    );
 
     return ListTile(
       key: Key('ai-jobs-row-${job.id}'),
       leading: Icon(jobStatusIcon(job.status), color: statusColor),
       title: Text(
-        // gen-l10n orders parameters alphabetically: (date, kind) — the
-        // template renders "kind · date" (screen spec order).
-        l10n.aiJobsRowSubtitle(formatMediumDate(context, job.createdAt), kind),
+        identity.title,
         key: Key('ai-jobs-row-title-${job.id}'),
+        // A file name can be long: two lines, then ellipsized. The row is a
+        // navigation target, not a place to wrap into paragraphs.
+        maxLines: 2,
+        overflow: TextOverflow.ellipsis,
       ),
       subtitle: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          if (identity.secondary != null)
+            Text(
+              identity.secondary!,
+              key: Key('ai-jobs-row-identity-${job.id}'),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
           Text(job.statusLabel(l10n), key: Key('ai-jobs-row-status-${job.id}')),
           // Compact stage/episode progress summary (issue #664): from the
           // fetched row's progress — the list screen never opens an SSE
           // stream (zero watches, #547 battery contract).
-          if (job.progress != null) ...[
+          //
+          // Gated on the STATUS, never on `progress != null` (issue #763): a
+          // finished job must not advertise the stage it died at, and the label
+          // only renders with the values it names.
+          if (job.showsLiveProgress) ...[
             Text(
               key: Key('ai-jobs-row-stage-${job.id}'),
               aiJobStageCopy(l10n, job.progress!.stage),
@@ -203,7 +225,9 @@ class _JobRow extends ConsumerWidget {
             if (job.progress!.episodesSeen?.isNotEmpty ?? false)
               Text(
                 key: Key('ai-jobs-row-episodes-${job.id}'),
-                l10n.aiJobEpisodesSeenLabel,
+                l10n.aiJobEpisodesSeenValues(
+                  job.progress!.episodesSeen!.join(', '),
+                ),
                 style: Theme.of(context).textTheme.bodySmall,
               ),
           ],

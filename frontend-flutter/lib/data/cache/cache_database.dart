@@ -51,7 +51,7 @@ class CacheDatabase extends _$CacheDatabase {
   CacheDatabase.connect(super.executor);
 
   @override
-  int get schemaVersion => 16;
+  int get schemaVersion => 17;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -288,6 +288,36 @@ class CacheDatabase extends _$CacheDatabase {
             aiImportJobCacheRows,
             aiImportJobCacheRows.progressJson,
           );
+        }
+      }
+      if (from < 17) {
+        // Issue #763: the jobs list names each row by the uploaded document
+        // and its imported episode(s), so the cache carries the two new
+        // projection fields. Additive and nullable — a pre-change row serves
+        // `null` (the row keeps its kind/date title and no target) until the
+        // authoritative list read refreshes it, never a fabricated name.
+        // Guarded by table AND column presence, exactly like the v15 branch.
+        if (await _tableExists(m.database, 'ai_import_job_cache_rows')) {
+          if (!(await _columnExists(
+            m.database,
+            'ai_import_job_cache_rows',
+            'source_file_name',
+          ))) {
+            await m.addColumn(
+              aiImportJobCacheRows,
+              aiImportJobCacheRows.sourceFileName,
+            );
+          }
+          if (!(await _columnExists(
+            m.database,
+            'ai_import_job_cache_rows',
+            'applied_episodes_json',
+          ))) {
+            await m.addColumn(
+              aiImportJobCacheRows,
+              aiImportJobCacheRows.appliedEpisodesJson,
+            );
+          }
         }
       }
     },

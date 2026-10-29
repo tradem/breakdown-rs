@@ -66,6 +66,18 @@ class AiImportJobCacheRows extends Table {
   /// at read, not a DB fault.
   TextColumn get progressJson => text().nullable()();
 
+  /// The uploaded document's own file name (issue #763), as the authoritative
+  /// list read reported it. `null` for a job whose upload carried no name and
+  /// for a pre-#763 row — a cached-first paint then keeps the kind/date title
+  /// instead of inventing one.
+  TextColumn get sourceFileName => text().nullable()();
+
+  /// The episodes a successful apply landed rows in (issue #763), serialized as
+  /// the generated `AppliedEpisode` JSON list. Text (not typed columns) for the
+  /// same reason as [progressJson]: an unknown future payload degrades to "not
+  /// known" at read, never to a DB fault. `null` until an apply has run.
+  TextColumn get appliedEpisodesJson => text().nullable()();
+
   DateTimeColumn get createdAt => dateTime()();
   DateTimeColumn get updatedAt => dateTime()();
 

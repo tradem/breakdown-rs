@@ -47,29 +47,29 @@
 
 ## 5. Flutter — cache + controller
 
-- [ ] 5.1 Drift: `sourceFileName` + `appliedEpisodesJson` columns, schema v17,
+- [x] 5.1 Drift: `sourceFileName` + `appliedEpisodesJson` columns, schema v17,
   additive migration in the same PR.
-- [ ] 5.2 `AiImportJobRowView` gains `sourceFileName` + `appliedEpisodes` with
+- [x] 5.2 `AiImportJobRowView` gains `sourceFileName` + `appliedEpisodes` with
   equality/hash/`toString`; both mappers (wire + cache) fill them.
-- [ ] 5.3 Repository: send the picked document name on upload (percent-encoded
+- [x] 5.3 Repository: send the picked document name on upload (percent-encoded
   UTF-8 header), never as a fabricated value.
 
 ## 6. Flutter — screen
 
-- [ ] 6.1 Stage/episode block renders only for `jobStatusInProgress(status)`;
+- [x] 6.1 Stage/episode block renders only for `jobStatusInProgress(status)`;
   episode labels render **with values**.
-- [ ] 6.2 Title = file name (2 lines, ellipsized) with `kind · date` secondary;
+- [x] 6.2 Title = file name (2 lines, ellipsized) with `kind · date` secondary;
   unnamed rows keep the `kind · date` title.
-- [ ] 6.3 Subtitle names the imported episode (`299 Erlösung`, multi-episode
+- [x] 6.3 Subtitle names the imported episode (`299 Erlösung`, multi-episode
   `299 Erlösung (+2)`), and a succeeded applied job shows the outcome counts.
-- [ ] 6.4 New `de`/`en` ARB keys (template `de`); `flutter gen-l10n`.
+- [x] 6.4 New `de`/`en` ARB keys (template `de`); `flutter gen-l10n`.
 
 ## 7. Tests
 
-- [ ] 7.1 Backend: sanitizer unit tests; upload header test (named + unnamed +
+- [x] 7.1 Backend: sanitizer unit tests; upload header test (named + unnamed +
   malformed); apply records the target episodes (single + multi); terminal
   transitions clear progress.
-- [ ] 7.2 Flutter: mapper tests (wire → row, cache → row with `null` name);
+- [x] 7.2 Flutter: mapper tests (wire → row, cache → row with `null` name);
   widget tests for terminal-without-stage, named row, unnamed row,
   multi-episode row; golden refresh where the row shape changed.
 
@@ -77,5 +77,5 @@
 
 - [x] 8.1 Backend: `cargo test` for the touched crates, `cargo clippy`,
   `openapi_drift`.
-- [ ] 8.2 Flutter: `dart format --set-exit-if-changed .`, `flutter analyze`,
+- [x] 8.2 Flutter: `dart format --set-exit-if-changed .`, `flutter analyze`,
   `flutter test`, `flutter gen-l10n` drift, OpenAPI client drift check.
