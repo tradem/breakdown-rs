@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 // Co-authored-by: glm-5.3-flash (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 // Tier-1 + Tier-2 tests for the AI-import jobs view (issue #547):
 //
@@ -92,6 +93,7 @@ AiImportJob _job(
   AiImportProgress? progress,
   String? sourceFileName,
   List<AppliedEpisode> appliedEpisodes = const [],
+  JobTelemetrySummary? telemetry,
 }) => AiImportJob(
   (b) => b
     ..id = id
@@ -109,6 +111,7 @@ AiImportJob _job(
     ..progress = progress?.toBuilder()
     ..sourceFileName = sourceFileName
     ..appliedEpisodes.replace(appliedEpisodes)
+    ..telemetry = telemetry?.toBuilder()
     ..createdAt = DateTime.utc(2026, 1, 1)
     ..updatedAt = DateTime.utc(2026, 1, 1),
 );
@@ -1091,6 +1094,69 @@ void main() {
             .widget<Text>(find.byKey(const Key('ai-jobs-row-identity-job-m')))
             .data,
         'Script · 299 Erlösung (+1) · 61 applied',
+      );
+      await tester.pump();
+    });
+
+    testWidgets('a degraded extraction names the rebuilt rows instead of '
+        'passing for a clean import (issue #758)', (tester) async {
+      await setupContainer(
+        listResult: Right([
+          _job(
+            'job-degraded',
+            status: JobStatus.succeeded,
+            kind: DocumentKind.script,
+            telemetry: JobTelemetrySummary(
+              (b) => b
+                ..docKind = DocumentKind.script
+                ..chunkCount = 57
+                ..scenesDetected = 57
+                ..scenesExtracted = 4
+                ..scenesSynthesized = 53
+                // The remaining counters are non-nullable on the wire model:
+                // a fixture states them explicitly rather than leaving the
+                // builder to reject a partial summary.
+                ..tokensIn = 1000
+                ..tokensOut = 500
+                ..cachedTokensIn = 0
+                ..energyMillijoules = 0
+                ..latencyTotalMs = 4200,
+            ),
+          ),
+          _job(
+            'job-healthy',
+            status: JobStatus.succeeded,
+            kind: DocumentKind.script,
+            telemetry: JobTelemetrySummary(
+              (b) => b
+                ..docKind = DocumentKind.script
+                ..chunkCount = 4
+                ..scenesDetected = 4
+                ..scenesExtracted = 4
+                ..scenesSynthesized = 0
+                ..tokensIn = 100
+                ..tokensOut = 50
+                ..cachedTokensIn = 0
+                ..energyMillijoules = 0
+                ..latencyTotalMs = 900,
+            ),
+          ),
+        ]),
+      );
+      await pumpScreen(tester);
+
+      expect(
+        tester
+            .widget<Text>(
+              find.byKey(const Key('ai-jobs-row-scenes-rebuilt-job-degraded')),
+            )
+            .data,
+        '53 scene(s) from document metadata only',
+      );
+      expect(
+        find.byKey(const Key('ai-jobs-row-scenes-rebuilt-job-healthy')),
+        findsNothing,
+        reason: 'a clean extraction must not advertise a degradation',
       );
       await tester.pump();
     });

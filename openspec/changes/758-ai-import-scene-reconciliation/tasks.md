@@ -30,6 +30,13 @@
 - [x] 4.4 `backend/CHANGELOG.md` `[Unreleased]` entry.
 
 ## 5. Flutter (stacked PR)
-- [ ] 5.1 Preview header renders `{detected} erkannt · {extracted} extrahiert` (de/en l10n + generated localizations).
-- [ ] 5.2 Jobs list names a degraded import (`scenes_synthesized > 0`) instead of a silent success.
-- [ ] 5.3 Widget tests for both surfaces.
+- [x] 5.1 Preview header renders `{detected} erkannt · {extracted} extrahiert` (de/en l10n + generated localizations).
+- [x] 5.2 Jobs list names a degraded import (`scenes_synthesized > 0`) instead of a silent success.
+- [x] 5.3 Widget tests for both surfaces.
+
+## 6. Flutter implementation notes
+- [x] 6.1 `AiImportJobRowView.scenesSynthesized` (nullable — the Drift cache persists no telemetry column, so a cached paint omits the line instead of claiming a clean run); the authoritative read fills it from `job.telemetry.scenesSynthesized`.
+- [x] 6.2 Preview subtitle composes `{rows} · {detected} erkannt · {extracted} extrahiert[ · {n} aus Dokument-Metadaten ergänzt]`; `scenes_detected` absent/`0` renders the row count alone.
+- [x] 6.3 l10n keys `aiPreviewScriptReconciliation`, `aiPreviewScriptSynthesized`, `aiJobsRowScenesRebuilt` in de + en, generated localizations regenerated (`flutter gen-l10n`), ARB parity 985/985.
+- [x] 6.4 Widget tests: preview header (reconciled + pre-#758 payload) and jobs row (degraded vs clean). Full suite: 1962 passed; goldens unchanged.
+- [x] 6.5 `docs/design/screens/ai-import-jobs.md` (row line + new preview section + test note), `frontend-flutter/CHANGELOG.md`, `pubspec.yaml 0.4.0-beta.22+114 → 0.4.0-beta.23+115`.

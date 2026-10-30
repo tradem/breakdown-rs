@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 // Co-authored-by: glm-5.3-flash (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 import 'dart:async';
 
@@ -346,6 +347,7 @@ class AiImportJobRowView {
     this.cost,
     this.sourceFileName,
     this.appliedEpisodes = const [],
+    this.scenesSynthesized,
   });
 
   /// Server-assigned job id (row key + `AiJobStatusScreen` parameter).
@@ -394,6 +396,21 @@ class AiImportJobRowView {
   /// schedule import (which merges onto the project's existing scenes) and for
   /// a cached row written before the field existed.
   final List<AppliedEpisode> appliedEpisodes;
+
+  /// Scene rows this job's extraction had to **rebuild from the document
+  /// heading** because their chunk returned no model rows (issue #758).
+  ///
+  /// `null` is honest absence, not zero: a cached-first row and every run
+  /// recorded before the counter existed carry no value, so the degradation
+  /// line is omitted instead of claiming a healthy extraction. `> 0` is the
+  /// signal that this import is short on extracted content and the reviewer
+  /// should look at the preview before applying.
+  final int? scenesSynthesized;
+
+  /// True when the import is known to be degraded (issue #758) — rows exist
+  /// only as document metadata. Used solely to render the row's degradation
+  /// line.
+  bool get hasSynthesizedScenes => (scenesSynthesized ?? 0) > 0;
 
   /// Scene rows this job applied in total — the outcome count the row shows
   /// after a successful apply (`57 angewendet`). `0` when nothing is known.
@@ -467,6 +484,7 @@ class AiImportJobRowView {
           other.progress == progress &&
           other.cost == cost &&
           other.sourceFileName == sourceFileName &&
+          other.scenesSynthesized == scenesSynthesized &&
           _sameEpisodes(other.appliedEpisodes, appliedEpisodes);
 
   @override
@@ -483,6 +501,7 @@ class AiImportJobRowView {
     progress,
     cost,
     sourceFileName,
+    scenesSynthesized,
     Object.hashAll(appliedEpisodes),
   );
 
@@ -505,6 +524,9 @@ AiImportJobRowView jobRowViewFromJob(AiImportJob job) => AiImportJobRowView(
   cost: job.cost,
   sourceFileName: job.sourceFileName,
   appliedEpisodes: job.appliedEpisodes?.toList() ?? const [],
+  // Issue #758: present only on the authoritative read — the Drift cache
+  // persists no telemetry column, so a cached-first paint omits the line.
+  scenesSynthesized: job.telemetry?.scenesSynthesized,
 );
 
 /// Maps a cached row to the renderable row (pure, Tier-1 testable).
@@ -533,6 +555,10 @@ AiImportJobRowView jobRowViewFromCacheRow(AiImportJobCacheRow row) =>
       // `null` / an empty list, exactly like an unnamed job.
       sourceFileName: row.sourceFileName,
       appliedEpisodes: appliedEpisodesFromWire(row.appliedEpisodesJson),
+      // No cache column for the temporary single-response fields
+      // (issue #758): the degradation line waits for the authoritative read
+      // rather than disappearing from the row on the cached paint.
+      scenesSynthesized: null,
     );
 
 /// Cache-first seed merge (pure, Tier-1 testable): remembered ids paint

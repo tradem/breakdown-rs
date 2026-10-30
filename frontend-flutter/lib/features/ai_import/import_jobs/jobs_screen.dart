@@ -3,6 +3,7 @@
 // Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 // Co-authored-by: glm-5.3-flash (opencode-go)
 // Co-authored-by: deepseek-v4.1-flash (neuralwatt)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 import 'dart:async' show unawaited;
 
@@ -235,6 +236,15 @@ class _JobRow extends ConsumerWidget {
             Text(
               costLine,
               key: Key('ai-jobs-row-cost-${job.id}'),
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+          // Degraded-extraction line (issue #758): rows the extraction could
+          // only rebuild from the document heading are named here, so a
+          // short-on-content import never passes for a clean one.
+          if (job.hasSynthesizedScenes)
+            Text(
+              l10n.aiJobsRowScenesRebuilt('${job.scenesSynthesized}'),
+              key: Key('ai-jobs-row-scenes-rebuilt-${job.id}'),
               style: Theme.of(context).textTheme.bodySmall,
             ),
           if (job.status == JobStatus.failed)

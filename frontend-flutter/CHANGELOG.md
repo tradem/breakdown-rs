@@ -23,6 +23,34 @@ releases are cut as `vX.Y.Z` tags (`v<build-name>`, enforced by
 
 ## [Unreleased]
 
+- **A script import that lost scenes is no longer invisible in the app**
+  (`0.4.0-beta.22+114 → 0.4.0-beta.23+115`, issue #758, client part of the
+  backend fix): importing the 57-scene script 299 "Erlösung" produced an
+  episode with 4 scenes, and nothing in the app said so. The server now
+  reconciles every detected scene heading against the extracted preview rows
+  and states how many rows it had to rebuild from the document headings; the
+  client surfaces both.
+
+  - **Preview header.** The script preview's subtitle states what the DOCUMENT
+    had next to what the model produced — `57 Skript-Szene(n) · 57 erkannt ·
+    4 extrahiert · 53 aus Dokument-Metadaten ergänzt`. A preview extracted
+    before the counters existed renders the row count alone: `0`/absent means
+    "not recorded", never a fabricated ratio (new keys
+    `aiPreviewScriptReconciliation`, `aiPreviewScriptSynthesized`).
+  - **Jobs list.** A job whose extraction had to rebuild rows names it on its
+    row (`53 Szene(n) nur aus Dokument-Metadaten`, key
+    `aiJobsRowScenesRebuilt`) instead of passing for a clean import. The count
+    is read from `telemetry.scenes_synthesized`; the Drift cache persists no
+    telemetry column, so the line appears with the authoritative list read —
+    a cached-first paint omits it rather than guessing.
+  - **Rebuilt rows stay appliable.** Each rebuilt row arrives with a
+    non-blocking `dropped_row` uncertainty (`field = "extraction"`), so the
+    existing uncertainty notice names the missing content row by row while the
+    apply stays enabled.
+  - The generated client was regenerated for the additive
+    `scenes_detected`/`scenes_extracted`/`scenes_synthesized` counters on
+    `ScriptContext` and `JobTelemetrySummary`; no hand edits, no breaking change.
+
 - **A saved Decision Model is verified against the server before the app calls
   it configured** (`0.4.0-beta.21+113 → 0.4.0-beta.22+114`, issue #769): the
   reported user configured a Decision Model (`eurouter` / `clef-flash`) before

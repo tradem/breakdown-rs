@@ -1328,6 +1328,12 @@ abstract class AppLocalizations {
   /// **'{count} angewendet'**
   String aiJobsRowApplied(Object count);
 
+  /// No description provided for @aiJobsRowScenesRebuilt.
+  ///
+  /// In de, this message translates to:
+  /// **'{count} Szene(n) nur aus Dokument-Metadaten'**
+  String aiJobsRowScenesRebuilt(Object count);
+
   /// No description provided for @aiJobEpisodesSeenValues.
   ///
   /// In de, this message translates to:
@@ -1543,6 +1549,18 @@ abstract class AppLocalizations {
   /// In de, this message translates to:
   /// **'{count} Skript-Szene(n)'**
   String aiPreviewScriptSubtitle(Object count);
+
+  /// No description provided for @aiPreviewScriptReconciliation.
+  ///
+  /// In de, this message translates to:
+  /// **'{detected} erkannt · {extracted} extrahiert'**
+  String aiPreviewScriptReconciliation(Object detected, Object extracted);
+
+  /// No description provided for @aiPreviewScriptSynthesized.
+  ///
+  /// In de, this message translates to:
+  /// **'{count} aus Dokument-Metadaten ergänzt'**
+  String aiPreviewScriptSynthesized(Object count);
 
   /// No description provided for @aiPreviewScheduleTitle.
   ///

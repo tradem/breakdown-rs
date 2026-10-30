@@ -769,6 +769,11 @@ class AppLocalizationsDe extends AppLocalizations {
   }
 
   @override
+  String aiJobsRowScenesRebuilt(Object count) {
+    return '$count Szene(n) nur aus Dokument-Metadaten';
+  }
+
+  @override
   String aiJobEpisodesSeenValues(Object episodes) {
     return 'Gefundene Episoden: $episodes';
   }
@@ -906,6 +911,16 @@ class AppLocalizationsDe extends AppLocalizations {
   @override
   String aiPreviewScriptSubtitle(Object count) {
     return '$count Skript-Szene(n)';
+  }
+
+  @override
+  String aiPreviewScriptReconciliation(Object detected, Object extracted) {
+    return '$detected erkannt · $extracted extrahiert';
+  }
+
+  @override
+  String aiPreviewScriptSynthesized(Object count) {
+    return '$count aus Dokument-Metadaten ergänzt';
   }
 
   @override
