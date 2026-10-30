@@ -10,6 +10,7 @@ import 'package:breakdown_api/src/model/document_kind.dart';
 import 'package:breakdown_api/src/model/job_status.dart';
 import 'package:built_collection/built_collection.dart';
 import 'package:breakdown_api/src/model/applied_episode.dart';
+import 'package:breakdown_api/src/model/decision_telemetry.dart';
 import 'package:breakdown_api/src/model/source_format.dart';
 import 'package:breakdown_api/src/model/ai_import_progress.dart';
 import 'package:breakdown_api/src/model/ai_import_target.dart';
@@ -28,6 +29,7 @@ part 'ai_import_job.g.dart';
 /// * [blockId] - Opaque identifier for a `Block` aggregate.
 /// * [cost] - Immutable per-import cost snapshot persisted at completion time (issue #675). Never recomputed when pricing changes later.
 /// * [createdAt]
+/// * [decisionTelemetry] - What the optional Decision Model scoring pass actually did for this job (issue #767). Additive with `serde(default)`: `None` for every job recorded before the field existed, so an older client reading a newer view — and a newer client reading an older view — still deserializes.  The reported defect was an import that produced no star ratings and no explanation: \"no decision model configured\", \"the decision client could not be built\", \"the scoring call failed\" and \"the provider answered partially\" all collapsed into the same empty space. The per-row rubric only explains the last two *after* a preview exists; this field is the job-level answer (\"did the worker use my Decision Model at all?\") that survives even when no row was ever scored.
 /// * [dedupKey]
 /// * [documentDigest]
 /// * [documentKind]
@@ -66,6 +68,10 @@ abstract class AiImportJob implements Built<AiImportJob, AiImportJobBuilder> {
 
   @BuiltValueField(wireName: r'created_at')
   DateTime get createdAt;
+
+  /// What the optional Decision Model scoring pass actually did for this job (issue #767). Additive with `serde(default)`: `None` for every job recorded before the field existed, so an older client reading a newer view — and a newer client reading an older view — still deserializes.  The reported defect was an import that produced no star ratings and no explanation: \"no decision model configured\", \"the decision client could not be built\", \"the scoring call failed\" and \"the provider answered partially\" all collapsed into the same empty space. The per-row rubric only explains the last two *after* a preview exists; this field is the job-level answer (\"did the worker use my Decision Model at all?\") that survives even when no row was ever scored.
+  @BuiltValueField(wireName: r'decision_telemetry')
+  DecisionTelemetry? get decisionTelemetry;
 
   @BuiltValueField(wireName: r'dedup_key')
   String get dedupKey;
@@ -187,6 +193,13 @@ class _$AiImportJobSerializer implements PrimitiveSerializer<AiImportJob> {
       object.createdAt,
       specifiedType: const FullType(DateTime),
     );
+    if (object.decisionTelemetry != null) {
+      yield r'decision_telemetry';
+      yield serializers.serialize(
+        object.decisionTelemetry,
+        specifiedType: const FullType.nullable(DecisionTelemetry),
+      );
+    }
     yield r'dedup_key';
     yield serializers.serialize(
       object.dedupKey,
@@ -356,6 +369,14 @@ class _$AiImportJobSerializer implements PrimitiveSerializer<AiImportJob> {
             specifiedType: const FullType(DateTime),
           ) as DateTime;
           result.createdAt = valueDes;
+          break;
+        case r'decision_telemetry':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType.nullable(DecisionTelemetry),
+          ) as DecisionTelemetry?;
+          if (valueDes == null) continue;
+          result.decisionTelemetry.replace(valueDes);
           break;
         case r'dedup_key':
           final valueDes = serializers.deserialize(

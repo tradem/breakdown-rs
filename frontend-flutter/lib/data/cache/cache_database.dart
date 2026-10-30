@@ -51,7 +51,7 @@ class CacheDatabase extends _$CacheDatabase {
   CacheDatabase.connect(super.executor);
 
   @override
-  int get schemaVersion => 17;
+  int get schemaVersion => 18;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -318,6 +318,28 @@ class CacheDatabase extends _$CacheDatabase {
               aiImportJobCacheRows.appliedEpisodesJson,
             );
           }
+        }
+      }
+      if (from < 18) {
+        // Issue #767 (backend): `AiImportJob.decision_telemetry` names what the
+        // Decision Model scoring pass did (resolved provider/model, outcome
+        // class, failed row count). A projection DTO shape change ships its
+        // Drift migration in the same change (AGENTS.md §8), so the cache never
+        // silently drops the field on a cached-first paint. Additive and
+        // nullable — a pre-change row serves `null` ("no recorded outcome"),
+        // which is also what the server reports for a pre-#767 job, so nothing
+        // is invented for rows written before this column existed. Guarded by
+        // table AND column presence, exactly like the v15/v17 branches.
+        if (await _tableExists(m.database, 'ai_import_job_cache_rows') &&
+            !(await _columnExists(
+              m.database,
+              'ai_import_job_cache_rows',
+              'decision_telemetry_json',
+            ))) {
+          await m.addColumn(
+            aiImportJobCacheRows,
+            aiImportJobCacheRows.decisionTelemetryJson,
+          );
         }
       }
     },

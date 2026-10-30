@@ -186,4 +186,57 @@ void main() {
       reason: 'a migrated row must not get a fabricated import target',
     );
   });
+
+  /// Issue #767: a pre-change install (`v17`) gains the nullable
+  /// `decision_telemetry_json` column through the guarded `from < 18` branch.
+  /// Existing rows stay readable and honestly serve "no recorded outcome" —
+  /// the migration never invents an outcome class for a run it did not see.
+  test('v17 → v18: the decision-telemetry column is added; rows survive as '
+      '"not recorded"', () async {
+    final file = File(
+      '${Directory.systemTemp.path}/ai_decision_migration_'
+      '${DateTime.now().microsecondsSinceEpoch}.db',
+    );
+    addTearDown(() => file.deleteSync());
+
+    // 1. Emulate a v17 install: the current schema, minus the new column,
+    //    with the version pinned back to 17.
+    final v17 = CacheDatabase(NativeDatabase(file));
+    await v17.customStatement('DROP TABLE ai_import_job_cache_rows');
+    await v17.customStatement(
+      'CREATE TABLE ai_import_job_cache_rows ('
+      'id TEXT NOT NULL PRIMARY KEY, user_id TEXT NOT NULL, '
+      'status TEXT NOT NULL, document_kind TEXT NOT NULL, '
+      'source_format TEXT NOT NULL, block_id TEXT, episode_id TEXT, '
+      'project_id TEXT, dedup_key TEXT NOT NULL, '
+      'document_digest TEXT NOT NULL, source_handle TEXT NOT NULL, '
+      'last_error TEXT, preview_handle TEXT, retries INTEGER NOT NULL, '
+      'max_retries INTEGER NOT NULL, progress_json TEXT, '
+      'source_file_name TEXT, applied_episodes_json TEXT, '
+      'cached_at INTEGER NOT NULL, created_at INTEGER NOT NULL, '
+      'updated_at INTEGER NOT NULL)',
+    );
+    await v17.customStatement('PRAGMA user_version = 17');
+    await v17.customStatement(
+      "INSERT INTO ai_import_job_cache_rows (id, user_id, status, "
+      "document_kind, source_format, dedup_key, document_digest, "
+      "source_handle, retries, max_retries, cached_at, created_at, "
+      "updated_at) VALUES ('j1', 'user-a', 'succeeded', 'script', 'pdf', "
+      "'dedup-j1', 'digest-j1', 'handle-j1', 0, 3, 1136073600000, "
+      "1136073600000, 1136073600000)",
+    );
+    await v17.close();
+
+    // 2. Reopen at v18: the guarded branch ALTERs the column in, and the
+    //    pre-existing row reads with no recorded outcome.
+    final v18 = CacheDatabase(NativeDatabase(file));
+    addTearDown(v18.close);
+    final rows = await AiImportJobsCacheDao(v18).readAll('user-a');
+    expect(rows.single.id, 'j1');
+    expect(
+      rows.single.decisionTelemetryJson,
+      isNull,
+      reason: 'a migrated row must not get a fabricated outcome class',
+    );
+  });
 }

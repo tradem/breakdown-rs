@@ -8001,6 +8001,17 @@ class $AiImportJobCacheRowsTable extends AiImportJobCacheRows
         type: DriftSqlType.string,
         requiredDuringInsert: false,
       );
+  static const VerificationMeta _decisionTelemetryJsonMeta =
+      const VerificationMeta('decisionTelemetryJson');
+  @override
+  late final GeneratedColumn<String> decisionTelemetryJson =
+      GeneratedColumn<String>(
+        'decision_telemetry_json',
+        aliasedName,
+        true,
+        type: DriftSqlType.string,
+        requiredDuringInsert: false,
+      );
   static const VerificationMeta _createdAtMeta = const VerificationMeta(
     'createdAt',
   );
@@ -8054,6 +8065,7 @@ class $AiImportJobCacheRowsTable extends AiImportJobCacheRows
     progressJson,
     sourceFileName,
     appliedEpisodesJson,
+    decisionTelemetryJson,
     createdAt,
     updatedAt,
     cachedAt,
@@ -8219,6 +8231,15 @@ class $AiImportJobCacheRowsTable extends AiImportJobCacheRows
         ),
       );
     }
+    if (data.containsKey('decision_telemetry_json')) {
+      context.handle(
+        _decisionTelemetryJsonMeta,
+        decisionTelemetryJson.isAcceptableOrUnknown(
+          data['decision_telemetry_json']!,
+          _decisionTelemetryJsonMeta,
+        ),
+      );
+    }
     if (data.containsKey('created_at')) {
       context.handle(
         _createdAtMeta,
@@ -8324,6 +8345,10 @@ class $AiImportJobCacheRowsTable extends AiImportJobCacheRows
         DriftSqlType.string,
         data['${effectivePrefix}applied_episodes_json'],
       ),
+      decisionTelemetryJson: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}decision_telemetry_json'],
+      ),
       createdAt: attachedDatabase.typeMapping.read(
         DriftSqlType.dateTime,
         data['${effectivePrefix}created_at'],
@@ -8395,6 +8420,15 @@ class AiImportJobCacheRow extends DataClass
   /// same reason as [progressJson]: an unknown future payload degrades to "not
   /// known" at read, never to a DB fault. `null` until an apply has run.
   final String? appliedEpisodesJson;
+
+  /// The job-level Decision Model scoring outcome (issue #767), serialized as
+  /// the generated `DecisionTelemetry` JSON object — `null` for a pre-#767 row
+  /// (`decision_telemetry` is `NULL` server-side for those and the outcome
+  /// cannot be reconstructed) and for a job that completed without the pass.
+  /// Text (not typed columns) for the same reason as [progressJson]: an
+  /// unknown future outcome/enum value degrades to "not recorded" at read,
+  /// never to a DB fault, and the cache never invents an outcome.
+  final String? decisionTelemetryJson;
   final DateTime createdAt;
   final DateTime updatedAt;
 
@@ -8419,6 +8453,7 @@ class AiImportJobCacheRow extends DataClass
     this.progressJson,
     this.sourceFileName,
     this.appliedEpisodesJson,
+    this.decisionTelemetryJson,
     required this.createdAt,
     required this.updatedAt,
     required this.cachedAt,
@@ -8459,6 +8494,9 @@ class AiImportJobCacheRow extends DataClass
     }
     if (!nullToAbsent || appliedEpisodesJson != null) {
       map['applied_episodes_json'] = Variable<String>(appliedEpisodesJson);
+    }
+    if (!nullToAbsent || decisionTelemetryJson != null) {
+      map['decision_telemetry_json'] = Variable<String>(decisionTelemetryJson);
     }
     map['created_at'] = Variable<DateTime>(createdAt);
     map['updated_at'] = Variable<DateTime>(updatedAt);
@@ -8502,6 +8540,9 @@ class AiImportJobCacheRow extends DataClass
       appliedEpisodesJson: appliedEpisodesJson == null && nullToAbsent
           ? const Value.absent()
           : Value(appliedEpisodesJson),
+      decisionTelemetryJson: decisionTelemetryJson == null && nullToAbsent
+          ? const Value.absent()
+          : Value(decisionTelemetryJson),
       createdAt: Value(createdAt),
       updatedAt: Value(updatedAt),
       cachedAt: Value(cachedAt),
@@ -8534,6 +8575,9 @@ class AiImportJobCacheRow extends DataClass
       appliedEpisodesJson: serializer.fromJson<String?>(
         json['appliedEpisodesJson'],
       ),
+      decisionTelemetryJson: serializer.fromJson<String?>(
+        json['decisionTelemetryJson'],
+      ),
       createdAt: serializer.fromJson<DateTime>(json['createdAt']),
       updatedAt: serializer.fromJson<DateTime>(json['updatedAt']),
       cachedAt: serializer.fromJson<DateTime>(json['cachedAt']),
@@ -8561,6 +8605,9 @@ class AiImportJobCacheRow extends DataClass
       'progressJson': serializer.toJson<String?>(progressJson),
       'sourceFileName': serializer.toJson<String?>(sourceFileName),
       'appliedEpisodesJson': serializer.toJson<String?>(appliedEpisodesJson),
+      'decisionTelemetryJson': serializer.toJson<String?>(
+        decisionTelemetryJson,
+      ),
       'createdAt': serializer.toJson<DateTime>(createdAt),
       'updatedAt': serializer.toJson<DateTime>(updatedAt),
       'cachedAt': serializer.toJson<DateTime>(cachedAt),
@@ -8586,6 +8633,7 @@ class AiImportJobCacheRow extends DataClass
     Value<String?> progressJson = const Value.absent(),
     Value<String?> sourceFileName = const Value.absent(),
     Value<String?> appliedEpisodesJson = const Value.absent(),
+    Value<String?> decisionTelemetryJson = const Value.absent(),
     DateTime? createdAt,
     DateTime? updatedAt,
     DateTime? cachedAt,
@@ -8614,6 +8662,9 @@ class AiImportJobCacheRow extends DataClass
     appliedEpisodesJson: appliedEpisodesJson.present
         ? appliedEpisodesJson.value
         : this.appliedEpisodesJson,
+    decisionTelemetryJson: decisionTelemetryJson.present
+        ? decisionTelemetryJson.value
+        : this.decisionTelemetryJson,
     createdAt: createdAt ?? this.createdAt,
     updatedAt: updatedAt ?? this.updatedAt,
     cachedAt: cachedAt ?? this.cachedAt,
@@ -8656,6 +8707,9 @@ class AiImportJobCacheRow extends DataClass
       appliedEpisodesJson: data.appliedEpisodesJson.present
           ? data.appliedEpisodesJson.value
           : this.appliedEpisodesJson,
+      decisionTelemetryJson: data.decisionTelemetryJson.present
+          ? data.decisionTelemetryJson.value
+          : this.decisionTelemetryJson,
       createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
       updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
       cachedAt: data.cachedAt.present ? data.cachedAt.value : this.cachedAt,
@@ -8683,6 +8737,7 @@ class AiImportJobCacheRow extends DataClass
           ..write('progressJson: $progressJson, ')
           ..write('sourceFileName: $sourceFileName, ')
           ..write('appliedEpisodesJson: $appliedEpisodesJson, ')
+          ..write('decisionTelemetryJson: $decisionTelemetryJson, ')
           ..write('createdAt: $createdAt, ')
           ..write('updatedAt: $updatedAt, ')
           ..write('cachedAt: $cachedAt')
@@ -8710,6 +8765,7 @@ class AiImportJobCacheRow extends DataClass
     progressJson,
     sourceFileName,
     appliedEpisodesJson,
+    decisionTelemetryJson,
     createdAt,
     updatedAt,
     cachedAt,
@@ -8736,6 +8792,7 @@ class AiImportJobCacheRow extends DataClass
           other.progressJson == this.progressJson &&
           other.sourceFileName == this.sourceFileName &&
           other.appliedEpisodesJson == this.appliedEpisodesJson &&
+          other.decisionTelemetryJson == this.decisionTelemetryJson &&
           other.createdAt == this.createdAt &&
           other.updatedAt == this.updatedAt &&
           other.cachedAt == this.cachedAt);
@@ -8761,6 +8818,7 @@ class AiImportJobCacheRowsCompanion
   final Value<String?> progressJson;
   final Value<String?> sourceFileName;
   final Value<String?> appliedEpisodesJson;
+  final Value<String?> decisionTelemetryJson;
   final Value<DateTime> createdAt;
   final Value<DateTime> updatedAt;
   final Value<DateTime> cachedAt;
@@ -8784,6 +8842,7 @@ class AiImportJobCacheRowsCompanion
     this.progressJson = const Value.absent(),
     this.sourceFileName = const Value.absent(),
     this.appliedEpisodesJson = const Value.absent(),
+    this.decisionTelemetryJson = const Value.absent(),
     this.createdAt = const Value.absent(),
     this.updatedAt = const Value.absent(),
     this.cachedAt = const Value.absent(),
@@ -8808,6 +8867,7 @@ class AiImportJobCacheRowsCompanion
     this.progressJson = const Value.absent(),
     this.sourceFileName = const Value.absent(),
     this.appliedEpisodesJson = const Value.absent(),
+    this.decisionTelemetryJson = const Value.absent(),
     required DateTime createdAt,
     required DateTime updatedAt,
     required DateTime cachedAt,
@@ -8844,6 +8904,7 @@ class AiImportJobCacheRowsCompanion
     Expression<String>? progressJson,
     Expression<String>? sourceFileName,
     Expression<String>? appliedEpisodesJson,
+    Expression<String>? decisionTelemetryJson,
     Expression<DateTime>? createdAt,
     Expression<DateTime>? updatedAt,
     Expression<DateTime>? cachedAt,
@@ -8869,6 +8930,8 @@ class AiImportJobCacheRowsCompanion
       if (sourceFileName != null) 'source_file_name': sourceFileName,
       if (appliedEpisodesJson != null)
         'applied_episodes_json': appliedEpisodesJson,
+      if (decisionTelemetryJson != null)
+        'decision_telemetry_json': decisionTelemetryJson,
       if (createdAt != null) 'created_at': createdAt,
       if (updatedAt != null) 'updated_at': updatedAt,
       if (cachedAt != null) 'cached_at': cachedAt,
@@ -8895,6 +8958,7 @@ class AiImportJobCacheRowsCompanion
     Value<String?>? progressJson,
     Value<String?>? sourceFileName,
     Value<String?>? appliedEpisodesJson,
+    Value<String?>? decisionTelemetryJson,
     Value<DateTime>? createdAt,
     Value<DateTime>? updatedAt,
     Value<DateTime>? cachedAt,
@@ -8919,6 +8983,8 @@ class AiImportJobCacheRowsCompanion
       progressJson: progressJson ?? this.progressJson,
       sourceFileName: sourceFileName ?? this.sourceFileName,
       appliedEpisodesJson: appliedEpisodesJson ?? this.appliedEpisodesJson,
+      decisionTelemetryJson:
+          decisionTelemetryJson ?? this.decisionTelemetryJson,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
       cachedAt: cachedAt ?? this.cachedAt,
@@ -8985,6 +9051,11 @@ class AiImportJobCacheRowsCompanion
         appliedEpisodesJson.value,
       );
     }
+    if (decisionTelemetryJson.present) {
+      map['decision_telemetry_json'] = Variable<String>(
+        decisionTelemetryJson.value,
+      );
+    }
     if (createdAt.present) {
       map['created_at'] = Variable<DateTime>(createdAt.value);
     }
@@ -9021,6 +9092,7 @@ class AiImportJobCacheRowsCompanion
           ..write('progressJson: $progressJson, ')
           ..write('sourceFileName: $sourceFileName, ')
           ..write('appliedEpisodesJson: $appliedEpisodesJson, ')
+          ..write('decisionTelemetryJson: $decisionTelemetryJson, ')
           ..write('createdAt: $createdAt, ')
           ..write('updatedAt: $updatedAt, ')
           ..write('cachedAt: $cachedAt, ')
@@ -13180,6 +13252,7 @@ typedef $$AiImportJobCacheRowsTableCreateCompanionBuilder =
       Value<String?> progressJson,
       Value<String?> sourceFileName,
       Value<String?> appliedEpisodesJson,
+      Value<String?> decisionTelemetryJson,
       required DateTime createdAt,
       required DateTime updatedAt,
       required DateTime cachedAt,
@@ -13205,6 +13278,7 @@ typedef $$AiImportJobCacheRowsTableUpdateCompanionBuilder =
       Value<String?> progressJson,
       Value<String?> sourceFileName,
       Value<String?> appliedEpisodesJson,
+      Value<String?> decisionTelemetryJson,
       Value<DateTime> createdAt,
       Value<DateTime> updatedAt,
       Value<DateTime> cachedAt,
@@ -13307,6 +13381,11 @@ class $$AiImportJobCacheRowsTableFilterComposer
 
   ColumnFilters<String> get appliedEpisodesJson => $composableBuilder(
     column: $table.appliedEpisodesJson,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get decisionTelemetryJson => $composableBuilder(
+    column: $table.decisionTelemetryJson,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -13425,6 +13504,11 @@ class $$AiImportJobCacheRowsTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<String> get decisionTelemetryJson => $composableBuilder(
+    column: $table.decisionTelemetryJson,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<DateTime> get createdAt => $composableBuilder(
     column: $table.createdAt,
     builder: (column) => ColumnOrderings(column),
@@ -13522,6 +13606,11 @@ class $$AiImportJobCacheRowsTableAnnotationComposer
     builder: (column) => column,
   );
 
+  GeneratedColumn<String> get decisionTelemetryJson => $composableBuilder(
+    column: $table.decisionTelemetryJson,
+    builder: (column) => column,
+  );
+
   GeneratedColumn<DateTime> get createdAt =>
       $composableBuilder(column: $table.createdAt, builder: (column) => column);
 
@@ -13593,6 +13682,7 @@ class $$AiImportJobCacheRowsTableTableManager
                 Value<String?> progressJson = const Value.absent(),
                 Value<String?> sourceFileName = const Value.absent(),
                 Value<String?> appliedEpisodesJson = const Value.absent(),
+                Value<String?> decisionTelemetryJson = const Value.absent(),
                 Value<DateTime> createdAt = const Value.absent(),
                 Value<DateTime> updatedAt = const Value.absent(),
                 Value<DateTime> cachedAt = const Value.absent(),
@@ -13616,6 +13706,7 @@ class $$AiImportJobCacheRowsTableTableManager
                 progressJson: progressJson,
                 sourceFileName: sourceFileName,
                 appliedEpisodesJson: appliedEpisodesJson,
+                decisionTelemetryJson: decisionTelemetryJson,
                 createdAt: createdAt,
                 updatedAt: updatedAt,
                 cachedAt: cachedAt,
@@ -13641,6 +13732,7 @@ class $$AiImportJobCacheRowsTableTableManager
                 Value<String?> progressJson = const Value.absent(),
                 Value<String?> sourceFileName = const Value.absent(),
                 Value<String?> appliedEpisodesJson = const Value.absent(),
+                Value<String?> decisionTelemetryJson = const Value.absent(),
                 required DateTime createdAt,
                 required DateTime updatedAt,
                 required DateTime cachedAt,
@@ -13664,6 +13756,7 @@ class $$AiImportJobCacheRowsTableTableManager
                 progressJson: progressJson,
                 sourceFileName: sourceFileName,
                 appliedEpisodesJson: appliedEpisodesJson,
+                decisionTelemetryJson: decisionTelemetryJson,
                 createdAt: createdAt,
                 updatedAt: updatedAt,
                 cachedAt: cachedAt,

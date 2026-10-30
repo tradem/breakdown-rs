@@ -78,6 +78,15 @@ class AiImportJobCacheRows extends Table {
   /// known" at read, never to a DB fault. `null` until an apply has run.
   TextColumn get appliedEpisodesJson => text().nullable()();
 
+  /// The job-level Decision Model scoring outcome (issue #767), serialized as
+  /// the generated `DecisionTelemetry` JSON object — `null` for a pre-#767 row
+  /// (`decision_telemetry` is `NULL` server-side for those and the outcome
+  /// cannot be reconstructed) and for a job that completed without the pass.
+  /// Text (not typed columns) for the same reason as [progressJson]: an
+  /// unknown future outcome/enum value degrades to "not recorded" at read,
+  /// never to a DB fault, and the cache never invents an outcome.
+  TextColumn get decisionTelemetryJson => text().nullable()();
+
   DateTimeColumn get createdAt => dateTime()();
   DateTimeColumn get updatedAt => dateTime()();
 

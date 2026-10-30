@@ -348,6 +348,7 @@ class AiImportJobRowView {
     this.sourceFileName,
     this.appliedEpisodes = const [],
     this.scenesSynthesized,
+    this.decisionTelemetry,
   });
 
   /// Server-assigned job id (row key + `AiJobStatusScreen` parameter).
@@ -406,6 +407,15 @@ class AiImportJobRowView {
   /// signal that this import is short on extracted content and the reviewer
   /// should look at the preview before applying.
   final int? scenesSynthesized;
+
+  /// The job-level Decision Model scoring outcome (issue #767) — the resolved
+  /// `provider`/`model`, the `outcome` class and `failedRows`. `null` is honest
+  /// absence (a job that completed before #767, one the worker reported no
+  /// outcome for, or a cache row written before the column existed); the row
+  /// then renders no outcome line instead of claiming a class. Carried on BOTH
+  /// row sources: the generated DTO and the Drift cache column that persists
+  /// it, so a cached-first paint and a fetched row agree.
+  final DecisionTelemetry? decisionTelemetry;
 
   /// True when the import is known to be degraded (issue #758) — rows exist
   /// only as document metadata. Used solely to render the row's degradation
@@ -485,6 +495,7 @@ class AiImportJobRowView {
           other.cost == cost &&
           other.sourceFileName == sourceFileName &&
           other.scenesSynthesized == scenesSynthesized &&
+          other.decisionTelemetry == decisionTelemetry &&
           _sameEpisodes(other.appliedEpisodes, appliedEpisodes);
 
   @override
@@ -502,6 +513,7 @@ class AiImportJobRowView {
     cost,
     sourceFileName,
     scenesSynthesized,
+    decisionTelemetry,
     Object.hashAll(appliedEpisodes),
   );
 
@@ -527,6 +539,10 @@ AiImportJobRowView jobRowViewFromJob(AiImportJob job) => AiImportJobRowView(
   // Issue #758: present only on the authoritative read — the Drift cache
   // persists no telemetry column, so a cached-first paint omits the line.
   scenesSynthesized: job.telemetry?.scenesSynthesized,
+  // The Decision Model scoring outcome (issue #767): the cache persists it in
+  // `decisionTelemetryJson`, so this is the ONE structured field both row
+  // sources carry identically.
+  decisionTelemetry: job.decisionTelemetry,
 );
 
 /// Maps a cached row to the renderable row (pure, Tier-1 testable).
@@ -559,6 +575,10 @@ AiImportJobRowView jobRowViewFromCacheRow(AiImportJobCacheRow row) =>
       // (issue #758): the degradation line waits for the authoritative read
       // rather than disappearing from the row on the cached paint.
       scenesSynthesized: null,
+      // Persisted since the DTO gained the field (issue #767), so the cached
+      // paint and the fetched row agree instead of the field vanishing until
+      // the next authoritative read.
+      decisionTelemetry: decisionTelemetryFromWire(row.decisionTelemetryJson),
     );
 
 /// Cache-first seed merge (pure, Tier-1 testable): remembered ids paint

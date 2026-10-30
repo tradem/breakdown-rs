@@ -188,6 +188,19 @@ class AiImportJobsCacheDao {
                 serializers.serializeWith(AppliedEpisode.serializer, episode),
             ]),
           ),
+    // The Decision Model scoring outcome (issue #767), serialized like the
+    // other structured payloads. A job the worker reported no outcome for
+    // stays `null` — the cache never invents an outcome class.
+    decisionTelemetryJson: job.decisionTelemetry == null
+        ? const Value(null)
+        : Value(
+            jsonEncode(
+              serializers.serializeWith(
+                DecisionTelemetry.serializer,
+                job.decisionTelemetry,
+              ),
+            ),
+          ),
     createdAt: job.createdAt,
     updatedAt: job.updatedAt,
     cachedAt: cachedAt,
@@ -242,6 +255,22 @@ List<AppliedEpisode> appliedEpisodesFromWire(String? wire) {
     return episodes;
   } on Object {
     return const [];
+  }
+}
+
+/// Parses a cached row's serialized `DecisionTelemetry` (issue #767) back to
+/// the generated DTO, or `null` for an absent or undecodable payload (strict —
+/// the row then renders as "no recorded outcome" instead of a guessed class,
+/// and an outcome class this build does not know cannot fail the whole read).
+DecisionTelemetry? decisionTelemetryFromWire(String? wire) {
+  if (wire == null || wire.isEmpty) return null;
+  try {
+    return serializers.deserializeWith(
+      DecisionTelemetry.serializer,
+      jsonDecode(wire),
+    );
+  } on Object {
+    return null;
   }
 }
 

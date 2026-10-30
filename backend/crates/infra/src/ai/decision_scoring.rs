@@ -35,6 +35,48 @@ use super::workers::DecisionPass;
 pub const DECISION_SCORING_ATTEMPTS: usize = 2;
 pub const DECISION_RETRY_BACKOFF: std::time::Duration = std::time::Duration::from_millis(250);
 
+/// What ONE scoring unit (a script chunk, the schedule pass) left behind
+/// (issue #767).
+///
+/// A bare row count cannot carry both facts the job telemetry needs:
+///
+/// * [`Self::request_failed`] — the unit's decision request failed after the
+///   bounded quick retry. This is a failure **even when no row had anything to
+///   score** (a schedule whose rows carry no day label): deriving the job
+///   outcome from `failed_rows > 0` alone would record `ran` for a pass that
+///   never answered.
+/// * [`Self::failed_rows`] — how many rows the unit left without the score it
+///   asked for. Nonzero without a failed request is a *partial* answer: the
+///   endpoint answered, but not with what the unit needs, so those rows must
+///   not be reported as a successful pass either.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ScoringReport {
+    /// The unit's decision request failed after the bounded quick retry.
+    pub request_failed: bool,
+    /// Rows this unit left without the score it asked for.
+    pub failed_rows: u32,
+}
+
+impl ScoringReport {
+    /// A pass whose request answered with everything it was asked for.
+    const SCORED: Self = Self {
+        request_failed: false,
+        failed_rows: 0,
+    };
+
+    /// Whether this unit counts as a scoring failure for the job's telemetry.
+    #[must_use]
+    pub fn is_failure(&self) -> bool {
+        self.request_failed || self.failed_rows > 0
+    }
+
+    /// Fold another unit's report into the job-level one.
+    pub fn merge(&mut self, other: Self) {
+        self.request_failed |= other.request_failed;
+        self.failed_rows = self.failed_rows.saturating_add(other.failed_rows);
+    }
+}
+
 /// Build the chunk rubric's question set (issue #722 §3). One shared set for
 /// the whole single-pass request.
 #[must_use]
@@ -144,6 +186,17 @@ fn score5_expected(
 /// `synopsis_score`, the structured [`DecisionRubric`], and — when its day
 /// group matches the chunk's day — the day group's `shooting_day_score` on
 /// its own [`DraftShootingDay`] clone.
+///
+/// Returns a [`ScoringReport`]: whether this unit's own request failed after
+/// the bounded quick retry, and how many of its rows were left unscored
+/// (issue #767). The caller folds it into the job's decision telemetry, so a
+/// partial outage is counted instead of disappearing behind the rows that did
+/// score.
+///
+/// A chunk that answered *partially* is deliberately not counted here: its
+/// rubric records every sub-answer it did get, so the partial pass is visible
+/// on the row itself. The single-question schedule pass has no such carrier
+/// (see [`score_schedule_rows`]).
 #[allow(clippy::too_many_arguments)]
 pub async fn score_script_chunk(
     pass: &DecisionPass,
@@ -157,9 +210,9 @@ pub async fn score_script_chunk(
     dropped_costumes: &[usize],
     open_ambiguities: &[usize],
     usage: &mut LlmCallUsage,
-) {
+) -> ScoringReport {
     if scenes.is_empty() {
-        return;
+        return ScoringReport::SCORED;
     }
     let request = DecisionRequest {
         provider: pass.provider,
@@ -211,10 +264,16 @@ pub async fn score_script_chunk(
                 grounding_factor: None,
                 scoring_failed: true,
             };
+            // Count before the loop consumes the slice: every row of this
+            // unit is left unscored by the failed request (issue #767).
+            let failed_rows = u32::try_from(scenes.len()).unwrap_or(u32::MAX);
             for scene in scenes {
                 scene.scoring = Some(failed.clone());
             }
-            return;
+            return ScoringReport {
+                request_failed: true,
+                failed_rows,
+            };
         }
     };
     usage.accumulate(outcome.usage);
@@ -306,6 +365,8 @@ pub async fn score_script_chunk(
             scoring_failed: false,
         });
     }
+    // The request answered: no row was left unscored by a failed unit.
+    ScoringReport::SCORED
 }
 
 /// Score the rows of one LLM-extracted shooting schedule (issue #722 §3.3).
@@ -314,13 +375,22 @@ pub async fn score_script_chunk(
 /// deterministic grounding signal per row is whether the row carries a
 /// parseable day label at all. Rows are grouped by day label — the score is
 /// exposed per row and aggregates per `DraftShootingDay` group on apply.
+///
+/// Returns a [`ScoringReport`] (issue #767). The whole schedule scores in ONE
+/// request whose only output is the day-assignment probability, so *any*
+/// answerless outcome of that request — a failed request after the bounded
+/// quick retry, or a 2xx that omits the answer — leaves every labelled row
+/// without a score. Unlike a script chunk (whose rubric carries whatever
+/// sub-answers did arrive), a schedule row has no per-row carrier for this, so
+/// the count itself is the honest record: without it, a schedule pass that
+/// scored nothing would be indistinguishable from a successful one.
 pub async fn score_schedule_rows(
     pass: &DecisionPass,
     rows: &mut [breakdown_core::ai::ShootingScheduleRow],
     usage: &mut LlmCallUsage,
-) {
+) -> ScoringReport {
     if rows.is_empty() {
-        return;
+        return ScoringReport::SCORED;
     }
     let mut questions = BTreeMap::new();
     questions.insert(
@@ -365,7 +435,19 @@ pub async fn score_schedule_rows(
                 "ai-decision: schedule scoring pass failed after the bounded quick retry; \
                  scores degrade to None (non-fatal, issue #722)"
             );
-            return;
+            // A row without a day label had no assignment to score in the
+            // first place, so only the labelled rows are counted as failed.
+            // The request itself failed either way — `request_failed` keeps
+            // that fact even when this count is `0`.
+            return ScoringReport {
+                request_failed: true,
+                failed_rows: u32::try_from(
+                    rows.iter()
+                        .filter(|row| row.shooting_day_label.is_some())
+                        .count(),
+                )
+                .unwrap_or(u32::MAX),
+            };
         }
     };
     usage.accumulate(outcome.usage);
@@ -373,6 +455,7 @@ pub async fn score_schedule_rows(
         .answers
         .get(question_keys::DAY_ASSIGNMENT_CONSISTENT)
         .and_then(|answer| answer.noul);
+    let mut failed_rows = 0u32;
     for row in rows {
         // The deterministic grounding: a row without any day label has no
         // assignment to be consistent with — the score degrades to None for
@@ -381,6 +464,16 @@ pub async fn score_schedule_rows(
             continue;
         }
         row.shooting_day_score = compute_shooting_day_score(true, consistency);
+        // The request answered 2xx but without the single answer this pass
+        // asked for, so this labelled row got nothing out of it. Counted, not
+        // assumed: the count follows the score the row actually holds.
+        if row.shooting_day_score.is_none() {
+            failed_rows = failed_rows.saturating_add(1);
+        }
+    }
+    ScoringReport {
+        request_failed: false,
+        failed_rows,
     }
 }
 
@@ -421,6 +514,25 @@ mod tests {
             }
             Ok(DecisionCallOutcome {
                 answers,
+                usage: LlmCallUsage {
+                    tokens_in: 42,
+                    tokens_out: 0,
+                    cached_tokens_in: 0,
+                    energy_millijoules: 7,
+                },
+            })
+        }
+    }
+
+    /// A 2xx answer that carries none of the asked questions — the "the
+    /// provider answered, but not with the score" case (issue #767).
+    struct SilentClient;
+
+    #[async_trait]
+    impl DecisionClient for SilentClient {
+        async fn decide(&self, _req: DecisionRequest) -> Result<DecisionCallOutcome, DomainError> {
+            Ok(DecisionCallOutcome {
+                answers: std::collections::BTreeMap::new(),
                 usage: LlmCallUsage {
                     tokens_in: 42,
                     tokens_out: 0,
@@ -569,10 +681,100 @@ mod tests {
             },
         ];
         let mut usage = LlmCallUsage::default();
-        score_schedule_rows(&pass(Arc::new(OkClient)), &mut rows, &mut usage).await;
+        let report = score_schedule_rows(&pass(Arc::new(OkClient)), &mut rows, &mut usage).await;
         assert!(rows[0].shooting_day_score.is_some());
         // A row without a day label has no assignment to score — honest None.
         assert!(rows[1].shooting_day_score.is_none());
         assert_eq!(usage.tokens_in, 42);
+        // The answered pass left nothing unscored (issue #767): the unlabelled
+        // row was never in scope, so it is not a failure count.
+        assert_eq!(report, ScoringReport::SCORED);
+        assert!(!report.is_failure());
+    }
+
+    fn schedule_row(row_ref: &str, label: Option<&str>) -> breakdown_core::ai::ShootingScheduleRow {
+        breakdown_core::ai::ShootingScheduleRow {
+            row_ref: row_ref.to_owned(),
+            scene_number: Some(10),
+            episode_number: Some(294),
+            shooting_day_label: label.map(str::to_owned),
+            date: None,
+            location: None,
+            order: Some(1),
+            shooting_day_score: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn a_failed_schedule_request_reports_the_failure_even_without_labelled_rows() {
+        // Issue #767 (review): every row lacked a day label, so the old
+        // `failed_rows`-only contract returned `0` and the job recorded `ran`
+        // for a request that never answered. The failure signal is independent
+        // of the row count.
+        let mut rows = vec![schedule_row("r1", None), schedule_row("r2", None)];
+        let mut usage = LlmCallUsage::default();
+        let report =
+            score_schedule_rows(&pass(Arc::new(FailingClient)), &mut rows, &mut usage).await;
+        assert!(report.request_failed, "the request did not answer");
+        assert_eq!(report.failed_rows, 0, "no row had an assignment to score");
+        assert!(
+            report.is_failure(),
+            "a failed request is a scoring failure whatever the row count"
+        );
+        assert!(rows.iter().all(|row| row.shooting_day_score.is_none()));
+    }
+
+    #[tokio::test]
+    async fn a_failed_schedule_request_counts_its_labelled_rows() {
+        let mut rows = vec![schedule_row("r1", Some("Tag 1")), schedule_row("r2", None)];
+        let mut usage = LlmCallUsage::default();
+        let report =
+            score_schedule_rows(&pass(Arc::new(FailingClient)), &mut rows, &mut usage).await;
+        assert!(report.request_failed);
+        assert_eq!(report.failed_rows, 1, "only the labelled row had a chance");
+    }
+
+    #[tokio::test]
+    async fn an_answerless_schedule_response_counts_its_labelled_rows_as_failed() {
+        // Issue #767 (review): a 2xx without the day-assignment answer leaves
+        // every labelled row unscored while the request "succeeded". The count
+        // must follow the score the rows actually hold, not the response code.
+        let mut rows = vec![
+            schedule_row("r1", Some("Tag 1")),
+            schedule_row("r2", Some("Tag 2")),
+        ];
+        let mut usage = LlmCallUsage::default();
+        let report =
+            score_schedule_rows(&pass(Arc::new(SilentClient)), &mut rows, &mut usage).await;
+        assert!(!report.request_failed, "the endpoint answered");
+        assert_eq!(report.failed_rows, 2, "both labelled rows stayed unscored");
+        assert!(report.is_failure());
+        assert!(rows.iter().all(|row| row.shooting_day_score.is_none()));
+        // The answered call still billed its usage: the count reports the
+        // missing SCORE, never a phantom failed request.
+        assert_eq!(usage.tokens_in, 42);
+    }
+
+    #[test]
+    fn a_report_merges_every_unit_of_one_job() {
+        let mut merged = ScoringReport::default();
+        merged.merge(ScoringReport::SCORED);
+        assert!(!merged.is_failure());
+        merged.merge(ScoringReport {
+            request_failed: false,
+            failed_rows: 3,
+        });
+        merged.merge(ScoringReport {
+            request_failed: true,
+            failed_rows: 0,
+        });
+        assert_eq!(
+            merged,
+            ScoringReport {
+                request_failed: true,
+                failed_rows: 3,
+            }
+        );
+        assert!(merged.is_failure());
     }
 }

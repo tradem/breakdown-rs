@@ -18,6 +18,8 @@ class _$AiImportJob extends AiImportJob {
   @override
   final DateTime createdAt;
   @override
+  final DecisionTelemetry? decisionTelemetry;
+  @override
   final String dedupKey;
   @override
   final String documentDigest;
@@ -63,6 +65,7 @@ class _$AiImportJob extends AiImportJob {
       this.blockId,
       this.cost,
       required this.createdAt,
+      this.decisionTelemetry,
       required this.dedupKey,
       required this.documentDigest,
       required this.documentKind,
@@ -98,6 +101,7 @@ class _$AiImportJob extends AiImportJob {
         blockId == other.blockId &&
         cost == other.cost &&
         createdAt == other.createdAt &&
+        decisionTelemetry == other.decisionTelemetry &&
         dedupKey == other.dedupKey &&
         documentDigest == other.documentDigest &&
         documentKind == other.documentKind &&
@@ -126,6 +130,7 @@ class _$AiImportJob extends AiImportJob {
     _$hash = $jc(_$hash, blockId.hashCode);
     _$hash = $jc(_$hash, cost.hashCode);
     _$hash = $jc(_$hash, createdAt.hashCode);
+    _$hash = $jc(_$hash, decisionTelemetry.hashCode);
     _$hash = $jc(_$hash, dedupKey.hashCode);
     _$hash = $jc(_$hash, documentDigest.hashCode);
     _$hash = $jc(_$hash, documentKind.hashCode);
@@ -156,6 +161,7 @@ class _$AiImportJob extends AiImportJob {
           ..add('blockId', blockId)
           ..add('cost', cost)
           ..add('createdAt', createdAt)
+          ..add('decisionTelemetry', decisionTelemetry)
           ..add('dedupKey', dedupKey)
           ..add('documentDigest', documentDigest)
           ..add('documentKind', documentKind)
@@ -204,6 +210,12 @@ class AiImportJobBuilder implements Builder<AiImportJob, AiImportJobBuilder> {
   DateTime? _createdAt;
   DateTime? get createdAt => _$this._createdAt;
   set createdAt(DateTime? createdAt) => _$this._createdAt = createdAt;
+
+  DecisionTelemetryBuilder? _decisionTelemetry;
+  DecisionTelemetryBuilder get decisionTelemetry =>
+      _$this._decisionTelemetry ??= DecisionTelemetryBuilder();
+  set decisionTelemetry(DecisionTelemetryBuilder? decisionTelemetry) =>
+      _$this._decisionTelemetry = decisionTelemetry;
 
   String? _dedupKey;
   String? get dedupKey => _$this._dedupKey;
@@ -300,6 +312,7 @@ class AiImportJobBuilder implements Builder<AiImportJob, AiImportJobBuilder> {
       _blockId = $v.blockId;
       _cost = $v.cost?.toBuilder();
       _createdAt = $v.createdAt;
+      _decisionTelemetry = $v.decisionTelemetry?.toBuilder();
       _dedupKey = $v.dedupKey;
       _documentDigest = $v.documentDigest;
       _documentKind = $v.documentKind;
@@ -347,6 +360,7 @@ class AiImportJobBuilder implements Builder<AiImportJob, AiImportJobBuilder> {
             cost: _cost?.build(),
             createdAt: BuiltValueNullFieldError.checkNotNull(
                 createdAt, r'AiImportJob', 'createdAt'),
+            decisionTelemetry: _decisionTelemetry?.build(),
             dedupKey: BuiltValueNullFieldError.checkNotNull(
                 dedupKey, r'AiImportJob', 'dedupKey'),
             documentDigest: BuiltValueNullFieldError.checkNotNull(
@@ -386,6 +400,9 @@ class AiImportJobBuilder implements Builder<AiImportJob, AiImportJobBuilder> {
 
         _$failedField = 'cost';
         _cost?.build();
+
+        _$failedField = 'decisionTelemetry';
+        _decisionTelemetry?.build();
 
         _$failedField = 'progress';
         _progress?.build();

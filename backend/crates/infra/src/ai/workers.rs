@@ -18,15 +18,16 @@ use breakdown_core::ai::{
     AiImportBounds, AiImportJob, AiImportJobId, AiImportMapping, AiImportMappingRepository,
     AiImportProgress, AiImportQueue, AiImportStage, AiModelPricingRepository, AppliedEpisode,
     ApplyGateError, ApplyMapping, ApplyMappingDecision, CategoryVocabularyEntry,
-    CharacterApplyPlan, CostBreakdown, DecisionClient, DocumentKind, DraftScene, EpisodeGroupPlan,
-    LlmCallUsage, LlmChatRequest, LlmClient, MergedPreview, OutfitApplyPlan, PRIMARY_ORDINAL,
-    PieceApplyPlan, PlannedEpisode, PlannedShootingDay, ReviewerDecisions, SceneApplyCommand,
-    SceneApplyPlan, ScriptContext, ShootingDayPlan, ShootingSchedule, SourceFormat, Telemetry,
-    TelemetryApplyState, UnappliedOutfit, UnappliedOutfitReason, Uncertainty,
-    UncertaintyAcknowledgement, UncertaintyKind, category_conflict_uncertainties,
-    character_mapping_ref, draft_row_ref, ensure_merge_applyable, extract_scenes, mapping_kind,
-    merge_schedule_to_scenes, parse_script_day, plan_scene_apply, sanitize_meta_summary,
-    scene_beat_lanes, stable_draft_ref, verify_draft_outfits,
+    CharacterApplyPlan, CostBreakdown, DecisionClient, DecisionOutcome, DecisionTelemetry,
+    DocumentKind, DraftScene, EpisodeGroupPlan, LlmCallUsage, LlmChatRequest, LlmClient,
+    MergedPreview, OutfitApplyPlan, PRIMARY_ORDINAL, PieceApplyPlan, PlannedEpisode,
+    PlannedShootingDay, ReviewerDecisions, SceneApplyCommand, SceneApplyPlan, ScriptContext,
+    ShootingDayPlan, ShootingSchedule, SourceFormat, Telemetry, TelemetryApplyState,
+    UnappliedOutfit, UnappliedOutfitReason, Uncertainty, UncertaintyAcknowledgement,
+    UncertaintyKind, category_conflict_uncertainties, character_mapping_ref, draft_row_ref,
+    ensure_merge_applyable, extract_scenes, mapping_kind, merge_schedule_to_scenes,
+    parse_script_day, plan_scene_apply, sanitize_meta_summary, scene_beat_lanes, stable_draft_ref,
+    verify_draft_outfits,
 };
 use breakdown_core::character::commands::CreateCharacter;
 use breakdown_core::character::ports::CharacterCommands;
@@ -238,7 +239,96 @@ pub struct ScriptImportWorker<Q, C> {
     /// Optional best-effort Decision Model scoring pass (issue #722).
     /// `None` = no decision model configured — the extraction runs exactly
     /// like a pre-#722 job and every score stays honestly `None`.
-    pub decision: Option<Arc<DecisionPass>>,
+    ///
+    /// Since issue #767 the slot also carries *why* no pass exists: a
+    /// configured-but-unbuildable client is a different user-visible fact than
+    /// "nothing was configured", and the completion telemetry records which
+    /// one happened.
+    pub decision: Option<DecisionResolution>,
+}
+
+/// Why a claimed job has — or has not — a Decision Model scoring pass
+/// (issue #767).
+///
+/// The worker used to receive a bare `Option<Arc<DecisionPass>>`, which cannot
+/// distinguish "the user configured no Decision Model" from "a Decision Model
+/// was configured but its client could not be built". Both produced no stars
+/// and no explanation, which is exactly the defect #767 reports. The worker
+/// loop resolves the configuration and now hands the reason over, so the
+/// completion write records the outcome class instead of silence.
+#[derive(Clone)]
+pub enum DecisionResolution {
+    /// Configured and built: the pass runs, and each unit's own failure
+    /// (after the bounded quick retry) is recorded per row.
+    Available(Arc<DecisionPass>),
+    /// Configured, but the credential fetch or the transport build failed.
+    /// Best-effort by contract: the job still runs, without scoring.
+    Unavailable {
+        provider: breakdown_core::ai::LlmProvider,
+        model: String,
+    },
+}
+
+impl DecisionResolution {
+    /// The built pass, when this resolution produced one. The only scoring
+    /// entry point — callers cannot accidentally score with a resolution that
+    /// failed to build.
+    fn pass(&self) -> Option<&Arc<DecisionPass>> {
+        match self {
+            Self::Available(pass) => Some(pass),
+            Self::Unavailable { .. } => None,
+        }
+    }
+}
+
+/// The job-level Decision Model outcome recorded with the completion telemetry
+/// (issue #767).
+///
+/// `native_csv` distinguishes the one legitimate "nothing to score" case: a
+/// native CSV schedule's rows came from the production tool, so no model
+/// produced them and there is no scoring pass to miss. It is therefore decided
+/// **before** the resolution: a configured Decision Model must never make a
+/// CSV parse report `ran`, because no request was issued for it.
+fn decision_telemetry(
+    resolution: Option<&DecisionResolution>,
+    native_csv: bool,
+    scoring: super::decision_scoring::ScoringReport,
+) -> DecisionTelemetry {
+    if native_csv {
+        return DecisionTelemetry {
+            provider: None,
+            model: None,
+            outcome: DecisionOutcome::SkippedNotApplicable,
+            failed_rows: 0,
+        };
+    }
+    match resolution {
+        Some(DecisionResolution::Available(pass)) => DecisionTelemetry {
+            provider: Some(pass.provider),
+            model: Some(pass.model.clone()),
+            // `is_failure` — NOT `failed_rows > 0`: a pass whose requests never
+            // answered is a failure even when no row had anything to score
+            // (issue #767 review).
+            outcome: if scoring.is_failure() {
+                DecisionOutcome::ScoringFailed
+            } else {
+                DecisionOutcome::Ran
+            },
+            failed_rows: scoring.failed_rows,
+        },
+        Some(DecisionResolution::Unavailable { provider, model }) => DecisionTelemetry {
+            provider: Some(*provider),
+            model: Some(model.clone()),
+            outcome: DecisionOutcome::ClientUnavailable,
+            failed_rows: 0,
+        },
+        None => DecisionTelemetry {
+            provider: None,
+            model: None,
+            outcome: DecisionOutcome::SkippedNoConfig,
+            failed_rows: 0,
+        },
+    }
 }
 
 /// The resolved Decision Model configuration for one worker (issue #722,
@@ -435,6 +525,12 @@ where
         // scene.
         let mut scenes_extracted = 0u32;
         let mut scenes_synthesized = 0u32;
+        // Preview rows whose own Decision Model scoring request failed after
+        // the bounded quick retry, plus whether any request failed at all
+        // (issue #767). Summed across chunks and recorded in the job's decision
+        // telemetry, which is what turns "no stars on some rows" into an
+        // explainable, persisted fact.
+        let mut decision_scoring = super::decision_scoring::ScoringReport::default();
         // Throttled live progress (issue #664): published once after
         // chunking, once per completed chunk, and at the storing boundary —
         // NEVER per LLM token. Owner-fenced, so a displaced worker's write
@@ -630,7 +726,9 @@ where
                     // evaluates the whole rubric; any failure logs a warning
                     // and leaves the scores honestly `None`. The extraction
                     // result above is never discarded because of it.
-                    if let Some(decision) = self.decision.as_ref() {
+                    if let Some(decision) =
+                        self.decision.as_ref().and_then(DecisionResolution::pass)
+                    {
                         let ambiguities: Vec<usize> = (chunk_first_scene..context.scenes.len())
                             .map(|scene_index| {
                                 context
@@ -644,7 +742,7 @@ where
                             })
                             .collect();
                         let scenes = &mut context.scenes[chunk_first_scene..];
-                        super::decision_scoring::score_script_chunk(
+                        let scoring = super::decision_scoring::score_script_chunk(
                             decision,
                             &chunk.heading,
                             &chunk.text,
@@ -663,6 +761,10 @@ where
                             &mut total_usage,
                         )
                         .await;
+                        // Rows whose own scoring request failed (issue #767):
+                        // summed across chunks into the job-level decision
+                        // telemetry, so a partially scored import says so.
+                        decision_scoring.merge(scoring);
                     }
                     // Issue #758 (silent data loss): a chunk that returned no
                     // rows used to vanish without a trace — the job still
@@ -736,7 +838,7 @@ where
         // is stored either way (the extraction is already paid for). It runs
         // BEFORE the storing announcement so the progress stage never claims
         // "storing" while a paid request is still outstanding.
-        let continuity = match self.decision.as_ref() {
+        let continuity = match self.decision.as_ref().and_then(DecisionResolution::pass) {
             Some(decision) => {
                 super::outfit_continuity::run_outfit_continuity_pass(
                     decision,
@@ -854,6 +956,14 @@ where
                         .await,
                     ),
                     apply_state: TelemetryApplyState::NotApplied,
+                    // Whether the Decision Model ran, was never configured, or
+                    // could not be built (issue #767) — the job-level answer a
+                    // star-less preview cannot give on its own.
+                    decision: Some(decision_telemetry(
+                        self.decision.as_ref(),
+                        false,
+                        decision_scoring,
+                    )),
                 },
             )
             .await?;
@@ -955,8 +1065,9 @@ pub struct ScheduleImportWorker<Q, C> {
     pub bounds: AiImportBounds,
     /// See [`ScriptImportWorker::pricing`] (issue #675).
     pub pricing: Option<Arc<dyn AiModelPricingRepository>>,
-    /// See [`ScriptImportWorker::decision`] (issue #722).
-    pub decision: Option<Arc<DecisionPass>>,
+    /// See [`ScriptImportWorker::decision`] (issue #767 for the resolution
+    /// enum).
+    pub decision: Option<DecisionResolution>,
 }
 
 impl<Q, C> ScheduleImportWorker<Q, C>
@@ -1077,6 +1188,10 @@ where
         // Issue #675: usage of the single LLM call (zeros for the native CSV
         // path, which never invokes an LLM).
         let mut total_usage = LlmCallUsage::default();
+        // Rows the schedule scoring request left unscored and whether that
+        // request failed (issue #767); both stay empty on the native CSV path,
+        // which never scores at all.
+        let mut decision_scoring = super::decision_scoring::ScoringReport::default();
         let mut schedule = if native_csv {
             super::csv_schedule::parse_schedule_csv(bytes)?
         } else {
@@ -1110,15 +1225,18 @@ where
         // day assignments; any failure degrades the scores to `None`
         // without failing the job. The native CSV path never scores — its
         // rows came from the production tool, not from a model.
-        if let Some(decision) = self.decision.as_ref()
+        if let Some(decision) = self.decision.as_ref().and_then(DecisionResolution::pass)
             && !native_csv
         {
-            super::decision_scoring::score_schedule_rows(
+            let scoring = super::decision_scoring::score_schedule_rows(
                 decision,
                 &mut schedule.rows,
                 &mut total_usage,
             )
             .await;
+            // A schedule scores in ONE request, so a failure marks every row
+            // that had an assignment to score (issue #767).
+            decision_scoring.merge(scoring);
         }
         if schedule.block_id.is_none() {
             schedule.block_id = job.block_id;
@@ -1174,6 +1292,14 @@ where
                     // The job only reached preview; the apply outcome (if any)
                     // is recorded by the apply path as `Applied`.
                     apply_state: TelemetryApplyState::NotApplied,
+                    // The job-level decision outcome (issue #767); the native
+                    // CSV path reports `skipped_not_applicable` because no
+                    // model produced those rows.
+                    decision: Some(decision_telemetry(
+                        self.decision.as_ref(),
+                        native_csv,
+                        decision_scoring,
+                    )),
                 },
             )
             .await?;

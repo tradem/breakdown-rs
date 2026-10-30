@@ -351,12 +351,157 @@ async fn record_worker_telemetry_succeeds() -> Result<()> {
         scenes_detected: 0,
         scenes_extracted: 0,
         scenes_synthesized: 0,
+        // No Decision Model outcome in this fixture (issue #767); the
+        // dedicated test below proves the persisted round trip.
+        decision: None,
     };
 
     let result = queue
         .record_worker_telemetry(job.id, "worker-1", telemetry)
         .await;
     assert!(result.is_ok(), "record_worker_telemetry should succeed");
+
+    Ok(())
+}
+
+/// Issue #767: the decision outcome is persisted in its own JSONB column by the
+/// SAME owner-fenced completion write as the extraction counters, and decodes
+/// back onto the job view. This is what a client reads to answer "which
+/// Decision Model ran — and if none did, why?".
+#[tokio::test]
+async fn record_worker_telemetry_persists_the_decision_outcome() -> Result<()> {
+    use breakdown_core::ai::{DecisionOutcome, DecisionTelemetry, LlmProvider};
+
+    let (pool, _container) = crate::fixtures::spawn_postgres().await?;
+    let queue = PgAiImportQueue::new(pool);
+
+    let request = make_enqueue_request("user-1", DocumentKind::Script);
+    queue.enqueue(request).await?;
+    let job = queue.claim_next("worker-1").await?.expect("should claim");
+
+    let telemetry = Telemetry {
+        provider: Some(LlmProvider::OpenAI),
+        model: Some("gpt-4o".into()),
+        doc_kind: Some(DocumentKind::Script),
+        chunk_count: 3,
+        tokens_in: 900,
+        tokens_out: 300,
+        cached_tokens_in: 0,
+        energy_millijoules: 0,
+        latency_total: 800,
+        cost: None,
+        apply_state: TelemetryApplyState::default(),
+        scenes_detected: 3,
+        scenes_extracted: 3,
+        scenes_synthesized: 0,
+        decision: Some(DecisionTelemetry {
+            provider: Some(LlmProvider::Neuralwatt),
+            model: Some("glm-5.3".into()),
+            outcome: DecisionOutcome::ScoringFailed,
+            failed_rows: 2,
+        }),
+    };
+    queue
+        .record_worker_telemetry(job.id, "worker-1", telemetry)
+        .await?;
+
+    let read = queue.get(job.id).await?.expect("job row is readable");
+    let decision = read
+        .decision_telemetry
+        .expect("the decision outcome survives the round trip");
+    assert_eq!(decision.outcome, DecisionOutcome::ScoringFailed);
+    assert_eq!(decision.failed_rows, 2);
+    assert_eq!(decision.provider, Some(LlmProvider::Neuralwatt));
+    assert_eq!(decision.model.as_deref(), Some("glm-5.3"));
+
+    Ok(())
+}
+
+/// Issue #767 (review): the decision outcome describes ONE attempt, so it must
+/// never outlive it. The completion write runs before `mark_succeeded`, so a
+/// crash in between leaves the column set on a job that is still `running` and
+/// later reclaimed — the next attempt must not inherit that verdict.
+#[tokio::test]
+async fn a_reclaimed_attempt_never_inherits_the_previous_decision_outcome() -> Result<()> {
+    use breakdown_core::ai::{DecisionOutcome, DecisionTelemetry, LlmProvider};
+
+    let (pool, _container) = crate::fixtures::spawn_postgres().await?;
+    let queue = PgAiImportQueue::new(pool.clone());
+
+    queue
+        .enqueue(make_enqueue_request("user-1", DocumentKind::Script))
+        .await?;
+    let job = queue.claim_next("worker-1").await?.expect("should claim");
+    queue
+        .record_worker_telemetry(
+            job.id,
+            "worker-1",
+            Telemetry {
+                provider: Some(LlmProvider::OpenAI),
+                model: Some("gpt-4o".into()),
+                doc_kind: Some(DocumentKind::Script),
+                chunk_count: 1,
+                tokens_in: 1,
+                tokens_out: 1,
+                cached_tokens_in: 0,
+                energy_millijoules: 0,
+                latency_total: 1,
+                cost: None,
+                apply_state: TelemetryApplyState::default(),
+                scenes_detected: 1,
+                scenes_extracted: 1,
+                scenes_synthesized: 0,
+                decision: Some(DecisionTelemetry {
+                    provider: Some(LlmProvider::Neuralwatt),
+                    model: Some("glm-5.3".into()),
+                    outcome: DecisionOutcome::Ran,
+                    failed_rows: 0,
+                }),
+            },
+        )
+        .await?;
+
+    // The completion write landed but `mark_succeeded` never did: the worker
+    // died, the lease lapsed, and another worker reclaims the job.
+    sqlx::query(
+        "UPDATE ai_import.ai_import_job \
+         SET lease_expires_at = now() - make_interval(secs => 1) \
+         WHERE id = $1",
+    )
+    .bind(job.id.as_uuid())
+    .execute(&pool)
+    .await?;
+    let reclaimed = queue
+        .claim_next("worker-2")
+        .await?
+        .expect("the expired claim is reclaimable");
+    assert_eq!(reclaimed.id, job.id);
+    assert!(
+        reclaimed.decision_telemetry.is_none(),
+        "a fresh attempt must not show the previous attempt's outcome"
+    );
+
+    // A terminal failure is not an attempt that produced an outcome either.
+    queue
+        .record_worker_telemetry(
+            job.id,
+            "worker-2",
+            Telemetry {
+                decision: Some(DecisionTelemetry {
+                    provider: None,
+                    model: None,
+                    outcome: DecisionOutcome::SkippedNoConfig,
+                    failed_rows: 0,
+                }),
+                ..Telemetry::default()
+            },
+        )
+        .await?;
+    queue
+        .mark_failed(job.id, "worker-2", "boom", None, false)
+        .await?;
+    let failed = queue.get(job.id).await?.expect("job row is readable");
+    assert!(failed.decision_telemetry.is_none());
 
     Ok(())
 }
@@ -387,6 +532,9 @@ async fn record_telemetry_succeeds_for_terminal_job() -> Result<()> {
         scenes_detected: 0,
         scenes_extracted: 0,
         scenes_synthesized: 0,
+        // No Decision Model outcome in this fixture (issue #767); the
+        // dedicated test below proves the persisted round trip.
+        decision: None,
     };
 
     let result = queue.record_telemetry(job.id, telemetry).await;

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: glm-5.3-flash-flex (neuralwatt)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 //! Handler tests for the SSE job-event stream (issue #664, ADR-038 D1):
 //! snapshot-first delivery, `Last-Event-ID` reconnect, live frame push,
@@ -75,6 +76,8 @@ fn running_job(id: AiImportJobId) -> AiImportJob {
         source_file_name: None,
         target: None,
         applied_episodes: Vec::new(),
+        // No Decision Model outcome recorded by a test fixture (issue #767).
+        decision_telemetry: None,
     }
 }
 
