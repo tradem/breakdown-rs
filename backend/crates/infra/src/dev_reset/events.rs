@@ -211,11 +211,18 @@ pub async fn read_stream(
     }
 }
 
-/// Replays an export into the (empty) event store, one stream at a time.
+/// Replays an export into the **fresh** event store, one stream at a time.
 ///
 /// Returns the number of appended events. A stream is appended in a single
 /// `EMAPPEND` call so its events keep their relative order and land on the same
 /// partition key as before the wipe.
+///
+/// Every event carries its own expected version: SierraDB runs in **strict
+/// versioning mode** and rejects `EXPECTED_VERSION any` (`-INVALIDARG`), so the
+/// first event of a stream is appended with `Empty` and event *n* with
+/// `Exact(n - 1)`. That reproduces the original stream versions exactly, and a
+/// replay into a store that is **not** empty fails loudly with a version
+/// conflict instead of silently duplicating history.
 pub async fn replay_keep_list(
     connection: &mut MultiplexedConnection,
     export: &KeepListExport,
@@ -237,10 +244,16 @@ pub async fn replay_keep_list(
         for event in &stream.events {
             let payload = from_hex(&event.payload_hex)?;
             let metadata = from_hex(&event.metadata_hex)?;
+            // Strict versioning: `Empty` for the first event, `Exact(n-1)` after
+            // it (SierraDB rejects `ExpectedVersion::Any`).
+            let expected = match event.stream_version {
+                0 => ExpectedVersion::Empty,
+                version => ExpectedVersion::Exact(version - 1),
+            };
             events.push(
                 EMAppendEvent::new(stream.stream_id.clone(), event.event_name.clone())
                     .event_id(event.event_id)
-                    .expected_version(ExpectedVersion::Any)
+                    .expected_version(expected)
                     .timestamp(UNIX_EPOCH + Duration::from_millis(event.timestamp_millis))
                     .payload(payload)
                     .metadata(metadata),
@@ -251,7 +264,13 @@ pub async fn replay_keep_list(
             .emappend(partition_key, &events)
             .await
             .map_err(|error| {
-                anyhow::anyhow!("EMAPPEND {} ({} events): {error}", stream.stream_id, count)
+                anyhow::anyhow!(
+                    "EMAPPEND {} ({} events) failed: {error} — the replay needs a FRESH event \
+                     store (strict versioning rejects a stream that already has events); drop the \
+                     SierraDB volume first",
+                    stream.stream_id,
+                    count
+                )
             })?;
         appended += count;
         tracing::info!(

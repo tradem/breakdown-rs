@@ -956,6 +956,19 @@ The script's phases map onto the binary one-to-one:
 `--skip-volume-reset` re-runs the wipe/replay half without dropping the volume
 (e.g. after a failed wipe).
 
+Two details the script handles for you, both learned the hard way:
+
+- **A stopped container still references its volume.** `docker compose stop
+  sierradb` is not enough — Docker refuses to remove a volume that *any*
+  container references, so the script removes the stopped container
+  (`docker compose rm -f sierradb`) before `docker volume rm`, and reports the
+  referencing containers if one is left.
+- **The replay needs a genuinely empty store.** SierraDB runs in strict
+  versioning mode and rejects `EXPECTED_VERSION any` (`-INVALIDARG`), so every
+  replayed event is appended with an explicit expected version (`EMPTY` for the
+  first event of a stream, `EXACT(n-1)` afterwards). Replaying into a store that
+  still holds events therefore fails loudly instead of duplicating history.
+
 **What survives:** the `ai_config`, `settings` and `membership` streams (same
 stream ids, same events, replayed verbatim), the `ai_model_pricing` rows
 (exported for the backup but deliberately never deleted — the cost snapshot
@@ -963,6 +976,14 @@ depends on them), and **Vault** (never touched: the `settings` → Vault
 credential bindings stay resolvable because the settings stream keeps its id).
 The keep projections are not restored by hand: the projector checkpoints are
 cleared too, so the replayed events rebuild them exactly like a fresh boot.
+
+**The membership rows survive, their blocks do not.** `membership` is in the
+keep-list, but it is block-scoped and the blocks are business data — after a
+`business` reset the replayed membership rows point at block ids that no longer
+exist. They keep the dev user's *credential role* gate satisfied, but an import
+still needs a real block: create a season + block (or re-run
+`scripts/bootstrap-dev-credential-role.sh` once a block exists) before
+uploading. Membership for a *new* block has to be granted again.
 
 **Post-conditions** (asserted by `--phase verify`, plus the API checks in step 3):
 

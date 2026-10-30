@@ -96,6 +96,41 @@ api_is_running() {
   curl -fsS -o /dev/null --max-time 2 "${API_HEALTH_URL}" 2>/dev/null
 }
 
+# Polls a TCP endpoint until it accepts connections (max 60 s).
+wait_for_tcp() {
+  local host="$1"
+  local port="$2"
+  local attempt
+  for attempt in $(seq 1 60); do
+    if (exec 3<>"/dev/tcp/${host}/${port}") 2>/dev/null; then
+      return 0
+    fi
+    sleep 1
+  done
+  return 1
+}
+
+# The export phase reads both tiers, so they must accept connections - a
+# previously aborted run leaves sierradb stopped on purpose (the volume drop
+# stops it), and `compose up` alone is not enough because the containers are
+# "running" before they are ready.
+require_stack_running() {
+  compose up -d "${POSTGRES_SERVICE}" "${SIERRADB_SERVICE}" >/dev/null
+  local url="${SIERRADB_URL#*://}"
+  url="${url%%/*}"
+  url="${url##*@}"
+  local host="${url%%:*}"
+  local port="${url##*:}"
+  if [[ "${port}" == "${host}" ]]; then
+    port=9090
+  fi
+  wait_for_tcp "${host}" "${port}" \
+    || die "SierraDB is not accepting connections at ${host}:${port}"
+  compose exec -T "${POSTGRES_SERVICE}" \
+    pg_isready -U "${POSTGRES_USER}" -d "${POSTGRES_DB}" >/dev/null 2>&1 \
+    || die "Postgres is not ready"
+}
+
 require_api_stopped() {
   if api_is_running; then
     die "the API is still running (${API_HEALTH_URL} answers) — stop it first: the projectors must not write during a reset"
@@ -143,13 +178,42 @@ backup_event_store() {
     tar czf "/backup/sierradb-data.tgz" -C /data .
 }
 
+# Reports every container that still references the volume, so a failed removal
+# names the blocker instead of printing a bare container id.
+volume_users() {
+  local volume="$1"
+  docker ps -a --filter "volume=${volume}" \
+    --format '{{.Names}} ({{.Status}})' 2>/dev/null | paste -sd ', ' -
+}
+
 reset_event_store() {
   local volume="$1"
+  local users
+
   log "stopping ${SIERRADB_SERVICE}"
   compose stop "${SIERRADB_SERVICE}"
-  log "removing volume ${volume} (SierraDB 0.3.1 cannot delete events)"
-  docker volume rm "${volume}" >/dev/null
-  log "starting ${SIERRADB_SERVICE}"
+
+  # Docker refuses to remove a volume that ANY container references - including
+  # an exited one. The stopped sierradb container itself keeps the reference, so
+  # the container has to go before the volume can.
+  log "removing the stopped ${SIERRADB_SERVICE} container (it still references the volume)"
+  compose rm -f "${SIERRADB_SERVICE}" >/dev/null 2>&1 || true
+
+  users="$(volume_users "${volume}")"
+  if [[ -n "${users}" ]]; then
+    die "volume ${volume} is still referenced by: ${users} - remove those containers first"
+  fi
+
+  if docker volume inspect "${volume}" >/dev/null 2>&1; then
+    log "removing volume ${volume} (SierraDB 0.3.1 cannot delete events)"
+    if ! docker volume rm "${volume}" >/dev/null; then
+      die "could not remove volume ${volume} (referenced by: $(volume_users "${volume}"))"
+    fi
+  else
+    log "volume ${volume} is already gone"
+  fi
+
+  log "starting ${SIERRADB_SERVICE} (compose recreates the volume)"
   compose up -d "${SIERRADB_SERVICE}"
   local attempt
   for attempt in $(seq 1 30); do
@@ -167,11 +231,30 @@ check_api_postconditions() {
     log "API not reachable at ${API_HEALTH_URL} — start it, then re-run: $0 verify"
     return 0
   fi
+
+  local status
   log "GET ${PROJECTOR_HEALTH_URL}"
-  if ! curl -fsS --max-time 5 "${PROJECTOR_HEALTH_URL}"; then
-    die "projector health endpoint did not answer"
-  fi
-  printf '\n'
+  status="$(curl -s -o /tmp/reset-dev-data-projector-health.json -w '%{http_code}' \
+    --max-time 5 "${PROJECTOR_HEALTH_URL}" || echo 000)"
+  case "${status}" in
+    2*)
+      cat /tmp/reset-dev-data-projector-health.json
+      printf '\n'
+      ;;
+    403)
+      # Deployment-scoped ops surface (issue #409): a dev user without an
+      # ops_admin membership is denied. That is not a reset failure — point at
+      # the knob instead of failing the run.
+      log "projector health is authz-gated for this user (403)"
+      log "  set OPS_ADMIN_SUBS=<sub> and restart the API to include the check"
+      ;;
+    000)
+      die "projector health endpoint did not answer (${PROJECTOR_HEALTH_URL})"
+      ;;
+    *)
+      die "projector health answered ${status}: $(cat /tmp/reset-dev-data-projector-health.json 2>/dev/null)"
+      ;;
+  esac
 }
 
 cmd_plan() {
@@ -191,7 +274,8 @@ cmd_imports() {
 }
 
 cmd_verify() {
-  run_binary --level business --phase verify --env dev "$@"
+  # `verify` is read-only; it must not stop to ask for a confirmation.
+  run_binary --level business --phase verify --env dev --yes "$@"
   check_api_postconditions
 }
 
@@ -213,6 +297,7 @@ cmd_business() {
   load_env
   require_local_docker
   require_api_stopped
+  require_stack_running
 
   if [[ "${assume_yes}" -ne 1 ]]; then
     printf 'This wipes ALL business data of %s and drops the SierraDB volume.\n' "${DATABASE_URL%%\?*}"
@@ -243,11 +328,13 @@ cmd_business() {
     reset_event_store "${volume}"
   fi
 
+  # The operator confirmed the whole business flow once; every phase runs under
+  # that confirmation (re-prompting per phase would also break --yes runs).
   log "phase wipe (read model + business buckets; event store must be empty)"
-  run_binary --level business --phase wipe --env dev --backup-dir "${backup_dir}"
+  run_binary --level business --phase wipe --env dev --backup-dir "${backup_dir}" --yes
 
   log "phase replay (keep-list back into the fresh event store)"
-  run_binary --level business --phase replay --env dev --backup-dir "${backup_dir}"
+  run_binary --level business --phase replay --env dev --backup-dir "${backup_dir}" --yes
 
   cat <<EOF
 
