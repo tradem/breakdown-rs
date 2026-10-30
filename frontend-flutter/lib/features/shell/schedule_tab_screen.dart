@@ -3,6 +3,7 @@
 // Co-authored-by: space-bunny (opencode-go)
 // Co-authored-by: glm-5.3-flash (neuralwatt)
 // Co-authored-by: deepseek-v4.1-flash (neuralwatt)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 import 'dart:async' show unawaited;
 
@@ -133,7 +134,10 @@ class _ScheduleBody extends ConsumerWidget {
                   //
                   // Issue #624: entering an episode's day board sets the
                   // sticky active-episode scope (from the row's acted-on
-                  // DTOs — CQRS boundary) before the push.
+                  // DTOs — CQRS boundary) before the push. Issue #765: the
+                  // same write cascades the block scope (with the row's block
+                  // number), so the schedule view can never act on an episode
+                  // while the request scope points elsewhere.
                   onTap: () {
                     ref
                         .read(activeEpisodeProvider.notifier)
@@ -143,6 +147,7 @@ class _ScheduleBody extends ConsumerWidget {
                           episodeId: row.episode.id,
                           episodeNumber: row.episode.number,
                           episodeName: row.episode.name,
+                          blockNumber: row.block.number,
                         );
                     unawaited(
                       Navigator.of(context).push(

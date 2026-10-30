@@ -6,6 +6,7 @@
 // Co-authored-by: space-bunny-free (opencode-go)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
 // Co-authored-by: deepseek-v4.1-flash (neuralwatt)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 import 'dart:async' show unawaited;
 
@@ -343,6 +344,15 @@ class AppShellState extends ConsumerState<AppShell> {
   /// presence — when the active season changes, the new season's remembered
   /// scope replaces a scope from the previous season (or the stale scope is
   /// dropped when the new season has none).
+  ///
+  /// Issue #765: a restored scope also CASCADES its block scope — through the
+  /// same `ActiveEpisode.set` seam every other call site uses, so the restore
+  /// inherits the "episode implies its block" invariant instead of re-stating
+  /// it. Because the document is looked up by the ACTIVE season id, the
+  /// cascaded block scope can only ever belong to that season (a foreign
+  /// season's remembered episode never seeds one); the block chip's
+  /// cache-only number backfill then turns the bare id into a label without a
+  /// network fetch.
   void _restoreEpisodeScope(
     String? seasonId,
     AsyncValue<Map<String, PersistedEpisodeScope>> persisted,

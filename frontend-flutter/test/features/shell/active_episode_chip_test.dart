@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 // Co-authored-by: deepseek-v4.1-flash (neuralwatt)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 import 'package:breakdown_api/breakdown_api.dart';
 import 'package:flutter/material.dart';
@@ -10,6 +11,7 @@ import 'package:flutter_secure_storage_platform_interface/flutter_secure_storage
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fpdart/fpdart.dart';
 
+import 'package:frontend_flutter/auth/active_block.dart';
 import 'package:frontend_flutter/auth/active_episode.dart';
 import 'package:frontend_flutter/core/problem_error.dart';
 import 'package:frontend_flutter/design/theme.dart';
@@ -234,6 +236,52 @@ void main() {
       // Popped back to the opener.
       expect(find.byKey(const Key('open-picker')), findsOneWidget);
       expect(find.byKey(const Key('episode-scope-picker')), findsNothing);
+    });
+
+    testWidgets('pick CASCADES the block scope (issue #765)', (tester) async {
+      // The half-scoped state the reported bug produced: an episode scope
+      // that was restored on cold start while the block scope stayed unset
+      // (so the episode chip is visible and its picker derives the block
+      // from the episode). Picking an episode here must establish the block
+      // scope — the `X-Active-Block` request scope — not just the episode.
+      final container = ProviderContainer(
+        overrides: [
+          episodesListFetchProvider('block-1', 'season-1').overrideWith(
+            (ref) async => Right<ProblemError, List<EpisodeView>>([
+              _episode('episode-1', number: 1, name: 'Pilot'),
+              _episode('episode-2', number: 2),
+            ]),
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+      expect(container.read(activeBlockProvider), isNull);
+
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: MaterialApp(
+            locale: const Locale('de'),
+            supportedLocales: AppLocalizations.supportedLocales,
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            home: const EpisodeScopePickerScreen(
+              seasonId: 'season-1',
+              blockId: 'block-1',
+            ),
+          ),
+        ),
+      );
+      await settle(tester);
+      await tester.tap(find.byKey(const Key('episode-scope-pick-episode-2')));
+      await settle(tester);
+
+      expect(container.read(activeEpisodeProvider)?.episodeId, 'episode-2');
+      // No fabricated number: the block id only, the block chip's cache-only
+      // backfill resolves the label.
+      expect(
+        container.read(activeBlockProvider),
+        const ActiveScope(seasonId: 'season-1', blockId: 'block-1'),
+      );
     });
 
     testWidgets('picker rows render the number before the name (issue #709)', (

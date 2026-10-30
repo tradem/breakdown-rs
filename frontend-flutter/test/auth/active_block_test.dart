@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -8,6 +9,8 @@ import 'package:flutter_secure_storage_platform_interface/flutter_secure_storage
 
 import 'package:frontend_flutter/auth/active_block.dart';
 import 'package:frontend_flutter/auth/active_block_store.dart';
+import 'package:frontend_flutter/auth/active_episode.dart';
+import 'package:frontend_flutter/auth/active_episode_store.dart';
 
 /// Reuses the [`FlutterSecureStoragePlatform`] fake shape from the store
 /// tests so the write-through really round-trips (and failures stay
@@ -180,6 +183,91 @@ void main() {
       expect(
         const ActiveScope(seasonId: 's', blockId: 'b', blockNumber: 2),
         const ActiveScope(seasonId: 's', blockId: 'b', blockNumber: 2),
+      );
+    });
+  });
+
+  // Issue #765 (reverse half of "an episode implies its block"): a block
+  // switch may not leave an episode scope from the old block behind — the
+  // shell would show "Block B · Episode of block A" and act on an episode
+  // the request scope does not cover.
+  group('ActiveBlock drops a foreign episode scope (issue #765)', () {
+    void setEpisode(
+      ProviderContainer container, {
+      String seasonId = 'season-1',
+      String blockId = 'block-1',
+      String episodeId = 'episode-1',
+    }) => container
+        .read(activeEpisodeProvider.notifier)
+        .set(
+          seasonId: seasonId,
+          blockId: blockId,
+          episodeId: episodeId,
+          episodeNumber: 1,
+        );
+
+    test('switching the block drops the episode scope and its persisted '
+        'document', () async {
+      final container = ProviderContainer();
+      addTearDown(container.dispose);
+      setEpisode(container);
+      await settlePersistence();
+      expect(
+        (await container.read(
+          activeEpisodePersistedProvider.future,
+        ))['season-1']?.episodeId,
+        'episode-1',
+      );
+
+      container
+          .read(activeBlockProvider.notifier)
+          .set(seasonId: 'season-1', blockId: 'block-2', blockNumber: 2);
+
+      expect(container.read(activeEpisodeProvider), isNull);
+      await settlePersistence();
+      // The stale pair is gone for good — a cold start must not resurrect
+      // the episode of the block the user just left.
+      expect(
+        await container.read(activeEpisodePersistedProvider.future),
+        isEmpty,
+      );
+    });
+
+    test('re-setting the SAME block keeps the episode scope', () async {
+      final container = ProviderContainer();
+      addTearDown(container.dispose);
+      setEpisode(container);
+
+      // The scope chip's number backfill re-sets the identical pair; that is
+      // not a block switch.
+      container
+          .read(activeBlockProvider.notifier)
+          .set(seasonId: 'season-1', blockId: 'block-1', blockNumber: 7);
+
+      expect(container.read(activeEpisodeProvider)?.episodeId, 'episode-1');
+      expect(container.read(activeBlockProvider)?.blockNumber, 7);
+    });
+
+    test('a block switch in ANOTHER season keeps that season\'s persisted '
+        'episode document', () async {
+      final container = ProviderContainer();
+      addTearDown(container.dispose);
+      setEpisode(container);
+      await settlePersistence();
+
+      container
+          .read(activeBlockProvider.notifier)
+          .set(seasonId: 'season-2', blockId: 'block-9');
+
+      // The in-memory pair is gone (it can never sit next to a foreign
+      // block), but season 1 keeps its own memory.
+      expect(container.read(activeEpisodeProvider), isNull);
+      await settlePersistence();
+      expect(
+        (await container.read(
+          activeEpisodePersistedProvider.future,
+        ))['season-1']?.episodeId,
+        'episode-1',
       );
     });
   });

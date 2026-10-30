@@ -7,6 +7,7 @@
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
 // Co-authored-by: deepseek-v4.1-flash (neuralwatt)
 // Co-authored-by: glm-5.3-flash (neuralwatt)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 // Widget tests for the adaptive navigation shell (`redesign-app-shell-navigation`
 // tasks 5.1/5.2): three morphologies via `tester.view.physicalSize`
@@ -50,6 +51,7 @@ import 'package:frontend_flutter/features/ai_import/import_jobs/import_submit_sc
 import 'package:frontend_flutter/features/shell/app_shell.dart';
 import 'package:frontend_flutter/features/shell/active_season_store.dart';
 import 'package:frontend_flutter/l10n/generated/app_localizations.dart';
+import 'package:frontend_flutter/l10n/generated/app_localizations_en.dart';
 import 'package:frontend_flutter/features/shell/cast_tab_screen.dart';
 import 'package:frontend_flutter/features/shell/schedule_tab_screen.dart';
 import 'package:frontend_flutter/features/shell/script_tab_screen.dart';
@@ -1411,6 +1413,163 @@ void main() {
       expect(find.byKey(const Key('quick-create-shooting-day')), findsNothing);
       expect(find.byKey(const Key('quick-create-ai-import')), findsOneWidget);
       expect(find.byKey(const Key('quick-create-wizard')), findsOneWidget);
+    });
+  });
+
+  // Issue #765: an episode belongs to exactly one block, so selecting OR
+  // restoring an episode must establish the block scope that travels as
+  // `X-Active-Block` — and a block switch must never leave the previous
+  // block's episode beside it.
+  group('5.6 episode scope cascades the block scope (issue #765)', () {
+    // The harness pumps a bare `MaterialApp` (no localization delegates), so
+    // `l10nOf` falls back to the English catalog — assert through it rather
+    // than hardcoding a language.
+    final en = AppLocalizationsEn();
+    const savedScope = PersistedEpisodeScope(
+      blockId: 'b-1',
+      episodeId: 'e-1',
+      episodeNumber: 3,
+      episodeName: 'Pilot',
+    );
+
+    Future<void> activateSeason(WidgetTester tester) async {
+      container
+          .read(shellControllerProvider.notifier)
+          .setActiveSeason(
+            season('season-1', number: 1, title: 'Shell Season'),
+          );
+      await pumpFrames(tester, n: 8);
+    }
+
+    testWidgets('cold-start restore cascades the block scope', (tester) async {
+      await setupContainer(
+        extraOverrides: [
+          activeEpisodePersistedProvider.overrideWith(
+            (ref) async => {'season-1': savedScope},
+          ),
+        ],
+      );
+      await pumpShell(tester, widthDp: 360);
+      await activateSeason(tester);
+      // Let the persisted map resolve and the deferred restore microtask run.
+      for (var i = 0; i < 20; i++) {
+        await tester.pump(const Duration(milliseconds: 10));
+      }
+
+      expect(container.read(activeEpisodeProvider)?.episodeId, 'e-1');
+      // The restored episode established its BLOCK scope for the same season
+      // — the reported defect was exactly this staying unset.
+      expect(
+        container.read(activeBlockProvider),
+        const ActiveScope(seasonId: 'season-1', blockId: 'b-1'),
+      );
+      expect(find.text('3 · Pilot'), findsOneWidget);
+      // No fabricated number and no network: the pill says so honestly until
+      // the cache-only backfill resolves it (the cache holds no block here).
+      expect(find.text(en.scopeChipUnknownBlock), findsOneWidget);
+    });
+
+    testWidgets('the Script-row-shaped cascade labels both pills, and a later '
+        'block switch drops the foreign episode', (tester) async {
+      await setupContainer();
+      await pumpShell(tester, widthDp: 360);
+      await activateSeason(tester);
+
+      // Exactly what `ScriptTabScreen._open` does: the episode plus the block
+      // number from the row's acted-on DTOs.
+      container
+          .read(activeEpisodeProvider.notifier)
+          .set(
+            seasonId: 'season-1',
+            blockId: 'b-1',
+            blockNumber: 2,
+            episodeId: 'e-1',
+            episodeNumber: 3,
+            episodeName: 'Pilot',
+          );
+      await pumpFrames(tester, n: 12);
+
+      // The cascade made the block pill say WHICH block the app acts in.
+      expect(find.text('Filter: Block 2'), findsOneWidget);
+      expect(find.text('3 · Pilot'), findsOneWidget);
+
+      // The user switches the BLOCK scope (block pill picker). The previous
+      // block's episode must not linger next to the new block.
+      container
+          .read(activeBlockProvider.notifier)
+          .set(seasonId: 'season-1', blockId: 'b-2', blockNumber: 4);
+      await pumpFrames(tester, n: 12);
+
+      expect(container.read(activeEpisodeProvider), isNull);
+      expect(find.text('3 · Pilot'), findsNothing);
+      expect(find.text('Filter: Block 4'), findsOneWidget);
+      // The chip stays (an episode is pickable for the new block) but falls
+      // back to its neutral arm — never "Block 4 · Episode of block 2".
+      expect(find.text(en.episodeChipUnset), findsOneWidget);
+    });
+
+    testWidgets('a known block number completes a label-less matching scope '
+        '(CodeRabbit review on #785)', (tester) async {
+      await setupContainer();
+      await pumpShell(tester, widthDp: 360);
+      await activateSeason(tester);
+
+      // A label-less scope naming the right block (pre-#548 document shape);
+      // the Drift cache is empty, so the chip's backfill cannot resolve it.
+      container
+          .read(activeBlockProvider.notifier)
+          .set(seasonId: 'season-1', blockId: 'b-1');
+      await pumpFrames(tester, n: 12);
+      expect(find.text(en.scopeChipUnknownBlock), findsOneWidget);
+
+      // The Script row carries the number from its acted-on BlockView, so the
+      // cascade must WRITE it instead of returning early on the matching pair.
+      container
+          .read(activeEpisodeProvider.notifier)
+          .set(
+            seasonId: 'season-1',
+            blockId: 'b-1',
+            blockNumber: 2,
+            episodeId: 'e-1',
+            episodeNumber: 3,
+            episodeName: 'Pilot',
+          );
+      await pumpFrames(tester, n: 12);
+
+      expect(find.text(en.scopeChipUnknownBlock), findsNothing);
+      expect(find.text('Filter: Block 2'), findsOneWidget);
+      expect(find.text('3 · Pilot'), findsOneWidget);
+    });
+
+    testWidgets('a numberless cascade shows the honest unknown label until '
+        'the cache-only backfill resolves it', (tester) async {
+      await setupContainer();
+      // The cache holds the block the episode belongs to (the label source).
+      await BlockCacheDao(db).applySnapshotForSeason('season-1', [
+        block('b-1'),
+      ], DateTime.utc(2026, 1, 1));
+      await pumpShell(tester, widthDp: 360);
+      await activateSeason(tester);
+
+      // The restore/picker call shape: no block number in hand.
+      container
+          .read(activeEpisodeProvider.notifier)
+          .set(
+            seasonId: 'season-1',
+            blockId: 'b-1',
+            episodeId: 'e-1',
+            episodeNumber: 3,
+          );
+      for (var i = 0; i < 20; i++) {
+        await tester.pump(const Duration(milliseconds: 10));
+      }
+
+      // Backfilled cache-only, then written back into the scope.
+      expect(container.read(activeBlockProvider)?.blockNumber, 1);
+      expect(find.text('Filter: Block 1'), findsOneWidget);
+      // That write-back is the SAME block: the reverse guard must not eat the
+      // episode that caused the cascade.
+      expect(find.text(en.episodeTileLabel('3')), findsOneWidget);
     });
   });
 }
