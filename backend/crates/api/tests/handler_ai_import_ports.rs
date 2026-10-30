@@ -315,6 +315,7 @@ async fn upload_ai_script_snapshots_the_declared_target() {
 async fn upload_ai_script_refuses_a_declared_season_of_another_season() {
     let ports = FakePorts::default();
     let queue = ports.ai_import_queue.clone();
+    let store = ports.ai_payload_store.clone();
     let block_id = BlockId::from_uuid(Uuid::now_v7());
     seed_ai_block_access(&ports, block_id).await;
     // A season that does not own the header block.
@@ -343,6 +344,15 @@ async fn upload_ai_script_refuses_a_declared_season_of_another_season() {
     assert!(
         queue.jobs.lock().await.is_empty(),
         "a refused upload must not leave a job row behind"
+    );
+    // The refusal is only honest if the bytes were never written: a future
+    // change that stored the document BEFORE the declared-season check would
+    // still pass the row assertion, while leaking one document per rejected
+    // upload.
+    assert_eq!(
+        store.handle_count_for_test().await,
+        0,
+        "a refused upload must not store its source document"
     );
 }
 

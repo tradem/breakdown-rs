@@ -142,5 +142,7 @@ repository calls; a matching season dispatches and declares it. Repository
 tests (`test/unit/ai_import_repositories_test.dart`): the declared season rides
 as `X-Declared-Season` on both upload routes and is absent when no target was
 resolved. Job view: `test/features/ai_import/job_status_screen_test.dart`
-asserts the recorded target line and the honest "not recorded" arm for jobs
-uploaded before the field existed (goldens re-baselined with the target card).
+asserts the recorded target line and the honest, cause-neutral "not recorded"
+arm (goldens re-baselined with the target card; the target card additionally has
+its own `matchesGoldenFile` coverage for the resolved, picker and blocked
+states).

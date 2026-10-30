@@ -30,7 +30,8 @@
       routes; `openapi.yaml` regenerated (`UPDATE_OPENAPI=1 cargo test -p api
       --test contract openapi_drift`).
 - [x] 1.9 Handler tests: target snapshot with a DISTINCT season number, 409
-      refusal with no job row left behind, unparsable declaration ignored.
+      refusal with no job row AND no stored source document left behind,
+      unparsable declaration ignored.
 - [x] 1.10 Version bumps `core 0.48.0 → 0.49.0`, `infra 0.57.0 → 0.58.0`,
       `api 0.47.0 → 0.48.0` (+ dependents' path-version pins) and the
       `CHANGELOG.md` `[Unreleased]` entry.
@@ -62,7 +63,8 @@
 - [x] 4.3 `aiUploadErrorCopy` maps the scoped server code and the client code to
       one narrative.
 - [x] 4.4 Job status screen: `_JobTargetCard` from `job.target`, with the
-      "not recorded" arm for pre-#771 jobs.
+      cause-neutral "not recorded" arm (a pre-#771 row and a fresh upload whose
+      season read degraded to `null` are indistinguishable there).
 
 ## 5. Tests
 
@@ -72,8 +74,12 @@
 - [x] 5.2 Controller: mismatch refusal (`409`, zero calls), matching target
       declares, ambient-only dispatch declares the ambient season.
 - [x] 5.3 Repository: `X-Declared-Season` on both routes; absent when no target.
-- [x] 5.4 Job status: recorded target line, pre-#771 "not recorded" arm,
+- [x] 5.4 Job status: recorded target line, cause-neutral "not recorded" arm,
       goldens re-baselined (`--update-goldens`, layout reviewed).
+- [x] 5.5 Submit screen target goldens (review): resolved, multi-block picker and
+      blocked states, dark + android, German template locale.
+- [x] 5.6 Refusal test also asserts NO source document was stored (the in-memory
+      payload store's test-only handle count).
 
 ## 6. Docs & validation
 

@@ -2369,7 +2369,7 @@ abstract class AppLocalizations {
   /// No description provided for @aiImportTargetNotRecorded.
   ///
   /// In de, this message translates to:
-  /// **'Ziel nicht aufgezeichnet (Import aus einer älteren App-Version).'**
+  /// **'Ziel nicht aufgezeichnet.'**
   String get aiImportTargetNotRecorded;
 
   /// No description provided for @aiImportTargetLoading.

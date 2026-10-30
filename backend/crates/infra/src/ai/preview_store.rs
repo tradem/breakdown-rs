@@ -71,6 +71,17 @@ impl MemoryAiPreviewStore {
     pub async fn put_raw_for_test(&self, handle: String, payload: Vec<u8>) {
         self.values.write().await.insert(handle, payload);
     }
+
+    /// How many payload handles this store currently holds (test helper,
+    /// issue #771 review).
+    ///
+    /// A refused upload must not have written its source document: asserting
+    /// "no job row" alone would still pass if a future change stored the bytes
+    /// before the refusal, leaking one document per rejected request.
+    #[cfg(any(test, feature = "test-support"))]
+    pub async fn handle_count_for_test(&self) -> usize {
+        self.values.read().await.len()
+    }
 }
 
 #[async_trait]

@@ -588,8 +588,8 @@ void main() {
     await tester.pump();
   });
 
-  testWidgets('a job uploaded before the target field existed says so '
-      'instead of inventing a season (issue #771)', (tester) async {
+  testWidgets('a job without a recorded target says so instead of inventing '
+      'a season (issue #771)', (tester) async {
     await setupContainer(
       Right(
         AiImportJob(
@@ -612,7 +612,10 @@ void main() {
     await pumpScreen(tester);
     expect(
       tester.widget<Text>(find.byKey(const Key('ai-job-target-line'))).data,
-      'Target not recorded (import from an older app version).',
+      // Neutral on purpose (review): the server also stores `null` for a
+      // fresh upload whose season read failed, so the copy must not claim a
+      // cause it cannot know.
+      'Target not recorded.',
     );
     await tester.pump();
   });

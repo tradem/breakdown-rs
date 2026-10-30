@@ -393,7 +393,7 @@
     }
   },
   "aiImportTargetHint": "Episoden, Szenen und Drehtage dieses Imports landen in diesem Block. Passt das Ziel nicht, wechsle zuerst den Block.",
-  "aiImportTargetNotRecorded": "Ziel nicht aufgezeichnet (Import aus einer älteren App-Version).",
+  "aiImportTargetNotRecorded": "Ziel nicht aufgezeichnet.",
   "aiImportTargetLoading": "Importziel wird ermittelt …",
   "aiImportTargetNoSeason": "Wähle zuerst eine Staffel aus – ohne Staffel hat der Import kein Ziel.",
   "aiImportTargetNoBlocks": "Diese Staffel hat noch keinen Block. Lege zuerst einen Block an, dann kannst du importieren.",

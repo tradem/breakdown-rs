@@ -1457,8 +1457,7 @@ class AppLocalizationsEn extends AppLocalizations {
       'The episodes, scenes and shooting days of this import land in this block. If that is not what you want, switch the block first.';
 
   @override
-  String get aiImportTargetNotRecorded =>
-      'Target not recorded (import from an older app version).';
+  String get aiImportTargetNotRecorded => 'Target not recorded.';
 
   @override
   String get aiImportTargetLoading => 'Resolving the import target …';

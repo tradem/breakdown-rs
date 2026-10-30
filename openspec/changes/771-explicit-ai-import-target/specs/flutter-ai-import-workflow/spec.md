@@ -76,16 +76,17 @@ writes into a season the user was not shown.
 
 ### Requirement: The job view repeats the recorded target
 The job status screen SHALL render the job's server-snapshotted target
-(`AiImportJob.target`) as `Season {n} · Block {n}`. A job uploaded before the
-field existed SHALL render the explicit "not recorded" narrative instead of a
-guessed season.
+(`AiImportJob.target`) as `Season {n} · Block {n}`. A job without a snapshot —
+a pre-#771 row, or a fresh upload whose season read degraded to `null` — SHALL
+render the explicit, CAUSE-NEUTRAL "not recorded" narrative instead of a guessed
+season or an invented cause.
 
 #### Scenario: A recorded target is shown
 - **WHEN** the status screen renders a job whose `target` is
   `{season_number: 2, block_number: 3}`
 - **THEN** the target card reads `Staffel 2 · Block 3`
 
-#### Scenario: A pre-#771 job states the absence
+#### Scenario: A job without a snapshot states the absence
 - **WHEN** the job's `target` is `null`
-- **THEN** the card reads `Ziel nicht aufgezeichnet (Import aus einer älteren
-  App-Version).`
+- **THEN** the card reads `Ziel nicht aufgezeichnet.` — it names no cause,
+  because a fresh upload whose season read failed is indistinguishable here

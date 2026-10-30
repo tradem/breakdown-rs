@@ -1478,8 +1478,7 @@ class AppLocalizationsDe extends AppLocalizations {
       'Episoden, Szenen und Drehtage dieses Imports landen in diesem Block. Passt das Ziel nicht, wechsle zuerst den Block.';
 
   @override
-  String get aiImportTargetNotRecorded =>
-      'Ziel nicht aufgezeichnet (Import aus einer älteren App-Version).';
+  String get aiImportTargetNotRecorded => 'Ziel nicht aufgezeichnet.';
 
   @override
   String get aiImportTargetLoading => 'Importziel wird ermittelt …';

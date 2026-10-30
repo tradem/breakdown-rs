@@ -586,8 +586,9 @@ impl AiImportQueue for PgAiImportQueue {
         sqlx::query(
             r#"
             INSERT INTO ai_import.ai_import_job
-                (id, user_id, document_kind, source_format, block_id, dedup_key, document_digest, source_handle, source_file_name, status, preview_handle)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'succeeded', $10)
+                (id, user_id, document_kind, source_format, block_id, dedup_key, document_digest, source_handle, source_file_name,
+                 target_season_id, target_season_number, target_block_number, status, preview_handle)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'succeeded', $13)
             "#,
         )
         .bind(request.id.as_uuid())
