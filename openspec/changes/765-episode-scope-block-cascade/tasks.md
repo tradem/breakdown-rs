@@ -29,6 +29,9 @@
       a pick cascades; `AppShell._restoreEpisodeScope` states that the restore
       cascades through the same seam and can only seed the ACTIVE season's
       block.
+- [x] 2.5 CodeRabbit review (#785): a matching but still NUMBER-LESS block scope
+      is completed from the acted-on `BlockView` number instead of returning
+      early; a scope that already carries a number is never rewritten.
 
 ## 3. Tests
 
@@ -45,8 +48,12 @@
 - [x] 3.4 `test/features/shell/app_shell_test.dart`: cold-start restore cascades
       the block scope (honest unknown label); the Script-row-shaped cascade
       labels both pills and a later block switch drops the foreign episode
-      (neutral arm); a numberless cascade keeps "unknown" until the cache-only
-      backfill resolves it, without eating the episode.
+      (neutral arm); a known number completes a label-less matching scope; a
+      numberless cascade keeps "unknown" until the cache-only backfill
+      resolves it, without eating the episode.
+- [x] 3.5 `test/auth/active_episode_test.dart`: the completion path (matching
+      label-less scope + known number) and its counterpart (a known number is
+      never rewritten by another one).
 
 ## 4. Validation
 

@@ -20,8 +20,13 @@ sourced from the acted-on episode read DTO (`blockId`), with the block number
 carried from the acted-on block DTO when the caller holds it; when no number
 is in hand the scope SHALL stay number-less and the block pill SHALL keep its
 existing explicit "unknown block" narrative until the CACHE-ONLY number
-backfill resolves it. No additional network read and no second projection
-lookup SHALL be introduced, and no block number SHALL be invented.
+backfill resolves it. A caller that holds the acted-on block number SHALL
+write it even when the block scope already names the same block but is still
+number-less (a label-less scope restored from an older document shape), so the
+label does not wait for a cache row that may not exist; a block scope that
+already carries a number SHALL NOT be rewritten. No additional network read
+and no second projection lookup SHALL be introduced, and no block number SHALL
+be invented.
 
 The reverse direction SHALL hold as well: switching the block scope to a
 different block SHALL drop an episode scope that does not belong to it (from
@@ -73,6 +78,16 @@ sign-out SHALL keep their existing semantics.
 - **THEN** the episode scope is cleared (memory and, for the same season, its
   persisted document), the shell never displays the pair "block B · episode of
   block A", and the episode pill falls back to its neutral arm for block B.
+
+#### Scenario: A known block number completes a label-less matching scope
+
+- **WHEN** the block scope already names the acted-on episode's block but
+  carries no block number, and the call site holds the block number from the
+  acted-on block DTO.
+- **THEN** the number is written into the block scope (the pill labels the
+  block immediately instead of waiting for the cache-only backfill), the
+  episode scope is untouched, and a scope that already carries a number is
+  never rewritten.
 
 #### Scenario: No fabricated block number
 

@@ -175,6 +175,47 @@ void main() {
       expect(container.read(activeEpisodeProvider)?.episodeId, 'e-1');
     });
 
+    test('set COMPLETES a label-less matching block scope with the known '
+        'number (no backfill wait)', () {
+      final container = ProviderContainer();
+      addTearDown(container.dispose);
+      // A label-less scope (pre-#548 persisted document shape) that already
+      // names the right block: nothing to cascade, but the acted-on
+      // `BlockView` number is authoritative DTO data the chip would otherwise
+      // have to backfill from the Drift cache.
+      container
+          .read(activeBlockProvider.notifier)
+          .set(seasonId: 's-1', blockId: 'b-1');
+
+      setEpisode(container, blockNumber: 4);
+
+      expect(
+        container.read(activeBlockProvider),
+        const ActiveScope(seasonId: 's-1', blockId: 'b-1', blockNumber: 4),
+      );
+      // The write goes through `ActiveBlock.set`'s reverse guard with the SAME
+      // block, so the episode that caused it survives.
+      expect(container.read(activeEpisodeProvider)?.episodeId, 'e-1');
+    });
+
+    test(
+      'set does not rewrite a matching scope\'s number with another one',
+      () {
+        final container = ProviderContainer();
+        addTearDown(container.dispose);
+        container
+            .read(activeBlockProvider.notifier)
+            .set(seasonId: 's-1', blockId: 'b-1', blockNumber: 5);
+
+        // A block id's number is stable: the first known number wins, so a
+        // stale caller can never flip the label to a different block's number.
+        setEpisode(container, blockNumber: 9);
+
+        expect(container.read(activeBlockProvider)?.blockNumber, 5);
+        expect(container.read(activeEpisodeProvider)?.episodeId, 'e-1');
+      },
+    );
+
     test('set reconciles a foreign block scope to the episode block and the '
         'episode survives that reconciliation', () {
       final container = ProviderContainer();

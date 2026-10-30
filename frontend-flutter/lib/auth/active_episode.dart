@@ -153,11 +153,19 @@ class ActiveEpisode extends _$ActiveEpisode {
 
   /// Establishes the block scope the acted-on episode belongs to (issue #765).
   ///
-  /// A block scope that ALREADY names this season/block pair is left
-  /// untouched: that preserves a `blockNumber` the chip resolved earlier (a
-  /// cascade must never degrade a known label back to "unknown") and it is
-  /// what keeps this from looping with `ActiveBlock.set`'s reverse cascade —
-  /// the episode is already in place, so there is nothing to drop.
+  /// The existing scope is left untouched when there is nothing left to
+  /// improve: it already names this season/block pair AND either already
+  /// carries a `blockNumber` (a cascade must never degrade a known label back
+  /// to "unknown", and a block id's number is stable) or the caller has no
+  /// number to offer. That early return is also what keeps this from looping
+  /// with `ActiveBlock.set`'s reverse cascade — the episode is already in
+  /// place, so there is nothing to drop.
+  ///
+  /// A matching scope that is still LABEL-LESS (restored from the pre-#548
+  /// document shape) IS completed when the call site holds the acted-on
+  /// `BlockView`: the number is authoritative DTO data, so writing it beats
+  /// waiting for the chip's cache-only backfill, which never resolves a block
+  /// absent from the Drift cache (CodeRabbit review on #785).
   void _cascadeBlockScope({
     required String seasonId,
     required String blockId,
@@ -166,7 +174,8 @@ class ActiveEpisode extends _$ActiveEpisode {
     final current = ref.read(activeBlockProvider);
     if (current != null &&
         current.seasonId == seasonId &&
-        current.blockId == blockId) {
+        current.blockId == blockId &&
+        (current.blockNumber != null || blockNumber == null)) {
       return;
     }
     ref

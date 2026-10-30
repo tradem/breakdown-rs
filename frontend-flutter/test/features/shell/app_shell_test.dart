@@ -1508,6 +1508,39 @@ void main() {
       expect(find.text(en.episodeChipUnset), findsOneWidget);
     });
 
+    testWidgets('a known block number completes a label-less matching scope '
+        '(CodeRabbit review on #785)', (tester) async {
+      await setupContainer();
+      await pumpShell(tester, widthDp: 360);
+      await activateSeason(tester);
+
+      // A label-less scope naming the right block (pre-#548 document shape);
+      // the Drift cache is empty, so the chip's backfill cannot resolve it.
+      container
+          .read(activeBlockProvider.notifier)
+          .set(seasonId: 'season-1', blockId: 'b-1');
+      await pumpFrames(tester, n: 12);
+      expect(find.text(en.scopeChipUnknownBlock), findsOneWidget);
+
+      // The Script row carries the number from its acted-on BlockView, so the
+      // cascade must WRITE it instead of returning early on the matching pair.
+      container
+          .read(activeEpisodeProvider.notifier)
+          .set(
+            seasonId: 'season-1',
+            blockId: 'b-1',
+            blockNumber: 2,
+            episodeId: 'e-1',
+            episodeNumber: 3,
+            episodeName: 'Pilot',
+          );
+      await pumpFrames(tester, n: 12);
+
+      expect(find.text(en.scopeChipUnknownBlock), findsNothing);
+      expect(find.text('Filter: Block 2'), findsOneWidget);
+      expect(find.text('3 · Pilot'), findsOneWidget);
+    });
+
     testWidgets('a numberless cascade shows the honest unknown label until '
         'the cache-only backfill resolves it', (tester) async {
       await setupContainer();
